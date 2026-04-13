@@ -850,6 +850,7 @@ def build_policy_config(args, sample_env: gym.Env):
 def train(args, use_wandb: bool, tb_log: Optional[str]):
     set_random_seed(args.seed)
     frame_skip_values = parse_int_list(args.frame_skip_values)
+    os.makedirs(os.path.dirname(args.save) or ".", exist_ok=True)
 
     venv = make_vec_flappy_image(
         n_envs=args.n_envs,
@@ -954,7 +955,6 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         tb_log_name=(args.wandb_run_name or f"flappy_image_{resolved_obs_mode}"),
     )
 
-    os.makedirs(os.path.dirname(args.save) or ".", exist_ok=True)
     model.save(args.save)
     venv.close()
     return args.save

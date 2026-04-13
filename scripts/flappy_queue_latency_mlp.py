@@ -771,7 +771,8 @@ def maybe_wrap_vecnormalize(venv, args, training: bool):
 def train(args, use_wandb: bool, tb_log: Optional[str]):
     set_random_seed(args.seed)
     frame_skip_values = parse_int_list(args.frame_skip_values)
-
+    os.makedirs(os.path.dirname(args.save) or ".", exist_ok=True)
+    
     venv = make_vec_flappy_numeric(
         n_envs=args.n_envs,
         seed=args.seed,
@@ -870,7 +871,7 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         tb_log_name=(args.wandb_run_name or f"flappy_numeric_{args.obs_mode}"),
     )
 
-    os.makedirs(os.path.dirname(args.save) or ".", exist_ok=True)
+    
     model.save(args.save)
     if args.use_vecnormalize_reward and isinstance(venv, VecNormalize):
         venv.save(get_vecnorm_path(args.save))
