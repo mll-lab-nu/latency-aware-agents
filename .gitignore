@@ -1,6 +1,5 @@
 unity_logs/
 outputs/
-bash/
 vizdoom_basic_models/
 wandb/
 models/
