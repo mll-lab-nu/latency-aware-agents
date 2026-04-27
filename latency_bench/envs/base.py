@@ -24,6 +24,9 @@ class EnvAdapter(ABC):
     def get_state_info(self) -> dict[str, Any]:
         return {}
 
+    def close(self) -> None:
+        return None
+
 
 class DummyEnvAdapter(EnvAdapter):
     def __init__(
@@ -75,6 +78,9 @@ class DummyEnvAdapter(EnvAdapter):
             "sim_time_ms": self.env_step * self.frame_ms,
         }
 
+    def close(self) -> None:
+        return None
+
     def _make_observation(self, metadata: dict[str, Any] | None = None) -> Observation:
         return Observation(
             data={"state": self.state},
@@ -82,4 +88,3 @@ class DummyEnvAdapter(EnvAdapter):
             sim_time_ms=self.env_step * self.frame_ms,
             metadata=metadata or {},
         )
-
