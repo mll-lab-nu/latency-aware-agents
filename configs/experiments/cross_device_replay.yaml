@@ -4,6 +4,9 @@ experiment:
   name: cross_device_replay
   num_episodes: 20
 
+executor:
+  mode: simulated
+
 latency:
   type: trace_replay
   trace_path: traces/profile_device_latency.jsonl

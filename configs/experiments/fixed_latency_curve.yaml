@@ -4,6 +4,9 @@ experiment:
   name: fixed_latency_curve
   num_episodes: 20
 
+executor:
+  mode: simulated
+
 latency:
   type: fixed
   fixed_latency_ms: 100

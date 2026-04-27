@@ -4,10 +4,24 @@ experiment:
   num_episodes: 10
   max_env_steps: 10000
 
+executor:
+  mode: simulated
+
 env:
   name: flappy
+  gym_id: FlappyBird-v0
   fps_env: 30
+  render_mode: rgb_array
+  observation_mode: image
+  use_lidar: false
+  normalize_obs: true
+  audio_on: false
   noop_action: noop
+  action_map:
+    noop: 0
+    flap: 1
+  oneshot_actions:
+    - flap
 
 control:
   frequency_hz: 30
@@ -22,10 +36,12 @@ scheduler:
 
 policy:
   type: random
+  actions:
+    - noop
+    - flap
 
 logging:
   output_dir: outputs/flappy_base
   save_step_records: true
   save_action_records: true
   save_latency_records: true
-

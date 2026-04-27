@@ -4,10 +4,16 @@ experiment:
   num_episodes: 10
   max_env_steps: 10000
 
+executor:
+  mode: simulated
+
 env:
   name: dummy
   fps_env: 30
   noop_action: noop
+  action_map:
+    noop: noop
+    jump: jump
 
 control:
   frequency_hz: 30
