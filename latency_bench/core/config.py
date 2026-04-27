@@ -4,11 +4,12 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from latency_bench.core.types import LatencySourceType, PersistenceMode, StaleActionMode
+from latency_bench.core.types import ExecutorMode, LatencySourceType, PersistenceMode, StaleActionMode
 
 
 REQUIRED_TOP_LEVEL_KEYS = (
     "experiment",
+    "executor",
     "env",
     "control",
     "latency",
@@ -74,6 +75,7 @@ def validate_config(config: dict) -> None:
         raise ValueError(f"Missing required config sections: {missing}")
 
     experiment = _require_dict(config, "experiment")
+    executor = _require_dict(config, "executor")
     env = _require_dict(config, "env")
     control = _require_dict(config, "control")
     latency = _require_dict(config, "latency")
@@ -82,6 +84,9 @@ def validate_config(config: dict) -> None:
     logging = _require_dict(config, "logging")
 
     _require_field(experiment, "name")
+    executor_mode = _require_field(executor, "mode")
+    _validate_enum_value(executor_mode, ExecutorMode, "executor.mode")
+
     _require_field(env, "name")
     fps_env = _require_field(env, "fps_env")
     if float(fps_env) <= 0:
@@ -130,4 +135,3 @@ def _validate_enum_value(value: Any, enum_type: type, field_name: str) -> None:
     allowed = {item.value for item in enum_type}
     if value not in allowed:
         raise ValueError(f"{field_name} must be one of {sorted(allowed)}")
-
