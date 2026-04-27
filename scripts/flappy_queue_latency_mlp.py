@@ -474,6 +474,21 @@ def parse_int_list(s: str) -> List[int]:
     return [int(x.strip()) for x in s.split(",") if x.strip()]
 
 
+def warn_unsupported_initial_safe_config(args) -> None:
+    if (
+        int(args.initial_safe_steps) == 0
+        and float(args.initial_safe_reward) == 0.1
+        and not bool(args.disable_flap_during_initial_safe_steps)
+    ):
+        return
+
+    print(
+        "[warning] Current flappy-bird-gymnasium FlappyBird-v0 does not support "
+        "--initial-safe-* options; requested initial-safe configuration will be ignored "
+        f"(steps={args.initial_safe_steps}, reward={args.initial_safe_reward}, "
+        f"disable_flap={args.disable_flap_during_initial_safe_steps})."
+    )
+
 
 def parse_layer_sizes(s: str) -> List[int]:
     return parse_int_list(s)
@@ -589,16 +604,13 @@ def make_env(
     disable_flap_during_initial_safe_steps: bool = False,
 ):
     def _init():
+        # Current flappy-bird-gymnasium does not accept legacy fork kwargs such as
+        # fps, obs_mode, or initial_safe_*; keep them at the script layer only.
         env = gym.make(
             "FlappyBird-v0",
             use_lidar=use_lidar,
             normalize_obs=normalize_obs,
-            obs_mode="numeric",
             render_mode=None,
-            fps=fps,
-            initial_safe_steps=initial_safe_steps,
-            initial_safe_reward=initial_safe_reward,
-            disable_flap_during_initial_safe_steps=disable_flap_during_initial_safe_steps,
         )
 
         latency_values = [0] if frame_skip_values is None else frame_skip_values
@@ -1009,7 +1021,12 @@ def main():
     ap.add_argument("--vf-coef", type=float, default=0.5)
     ap.add_argument("--max-grad-norm", type=float, default=0.5)
 
-    ap.add_argument("--fps", type=int, default=30)
+    ap.add_argument(
+        "--fps",
+        type=int,
+        default=30,
+        help="Legacy timing parameter retained for latency-frame configs; not passed to FlappyBird-v0.",
+    )
     ap.add_argument("--use-lidar", action="store_true")
     ap.add_argument("--normalize-obs", action="store_true")
     ap.add_argument("--use-vecnormalize-reward", action="store_true")
@@ -1061,9 +1078,23 @@ def main():
     ap.add_argument("--within-episode-change-interval", type=int, default=1)
     ap.add_argument("--within-episode-change-prob", type=float, default=1.0)
 
-    ap.add_argument("--initial-safe-steps", type=int, default=0)
-    ap.add_argument("--initial-safe-reward", type=float, default=0.1)
-    ap.add_argument("--disable-flap-during-initial-safe-steps", action="store_true")
+    ap.add_argument(
+        "--initial-safe-steps",
+        type=int,
+        default=0,
+        help="Legacy option; ignored by current FlappyBird-v0.",
+    )
+    ap.add_argument(
+        "--initial-safe-reward",
+        type=float,
+        default=0.1,
+        help="Legacy option; ignored by current FlappyBird-v0.",
+    )
+    ap.add_argument(
+        "--disable-flap-during-initial-safe-steps",
+        action="store_true",
+        help="Legacy option; ignored by current FlappyBird-v0.",
+    )
 
     ap.add_argument("--wandb", action="store_true")
     ap.add_argument("--wandb-project", type=str, default="flappy_rl_numeric_queue_latency")
@@ -1072,6 +1103,7 @@ def main():
     ap.add_argument("--wandb-tags", type=str, default="")
 
     args = ap.parse_args()
+    warn_unsupported_initial_safe_config(args)
 
     if args.device == "auto":
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
