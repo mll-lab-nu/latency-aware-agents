@@ -3,3 +3,6 @@ outputs/
 vizdoom_basic_models/
 wandb/
 models/
+results/
+logs/
+__pycache__/
