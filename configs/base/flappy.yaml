@@ -1,0 +1,31 @@
+experiment:
+  name: flappy_base
+  seed: 0
+  num_episodes: 10
+  max_env_steps: 10000
+
+env:
+  name: flappy
+  fps_env: 30
+  noop_action: noop
+
+control:
+  frequency_hz: 30
+  observe_every_n_frames: 1
+
+latency:
+  type: zero
+
+scheduler:
+  persistence_mode: noop_after_oneshot
+  stale_action_mode: latest_ready
+
+policy:
+  type: random
+
+logging:
+  output_dir: outputs/flappy_base
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+

@@ -1,0 +1,18 @@
+__base__: ../base/dummy.yaml
+
+experiment:
+  name: cross_device_replay
+  num_episodes: 20
+
+latency:
+  type: trace_replay
+  trace_path: traces/profile_device_latency.jsonl
+  loop_trace: true
+
+cross_device:
+  profile_device: small_gpu
+  simulation_device: real_gpu
+  target_relation: real_replay_profile_should_match_profile_native
+
+logging:
+  output_dir: outputs/cross_device_replay
