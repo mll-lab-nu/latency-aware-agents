@@ -29,6 +29,9 @@ def build_policy(config: dict[str, Any], action_resolver: ActionResolver) -> Pol
     policy_type = _normalize_policy_type(policy_cfg["type"])
     builder = _POLICY_BUILDERS.get(policy_type)
     if builder is None:
+        _lazy_import_policy(policy_type)
+        builder = _POLICY_BUILDERS.get(policy_type)
+    if builder is None:
         registered = ", ".join(get_registered_policy_types()) or "<none>"
         raise ValueError(f"Unsupported policy.type: {policy_type}. Registered policies: {registered}")
     return builder(config, action_resolver)
@@ -43,6 +46,11 @@ def _normalize_policy_type(policy_type: str) -> str:
     if not normalized:
         raise ValueError("policy.type cannot be empty")
     return normalized
+
+
+def _lazy_import_policy(policy_type: str) -> None:
+    if policy_type == "flappy_ppo":
+        from latency_bench.policy import flappy_ppo  # noqa: F401
 
 
 @register_policy("random")
