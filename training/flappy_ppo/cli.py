@@ -111,3 +111,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     finally:
         if wandb_module is not None:
             wandb_module.finish()
+
+
+if __name__ == "__main__":
+    main()
