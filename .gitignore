@@ -1,0 +1,4 @@
+_vizdoom.ini
+checkpoints/
+__pycache__/
+*.pyc

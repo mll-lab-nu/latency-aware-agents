@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Realtime Inference Engine</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #111; color: #eee; font-family: monospace; display: flex;
+         flex-direction: column; align-items: center; min-height: 100vh; padding: 20px; }
+  h1 { font-size: 1.1rem; letter-spacing: 2px; color: #7df; margin-bottom: 18px;
+       text-transform: uppercase; }
+
+  .layout { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;
+             justify-content: center; width: 100%; max-width: 900px; }
+
+  /* --- Control panel --- */
+  .controls { background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+               padding: 16px; min-width: 240px; }
+  .controls h2 { font-size: 0.75rem; color: #888; letter-spacing: 1px;
+                  text-transform: uppercase; margin-bottom: 12px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 0.7rem; color: #aaa; margin-bottom: 4px; }
+  .field select, .field input[type=text] {
+    width: 100%; background: #222; border: 1px solid #444; border-radius: 4px;
+    color: #eee; padding: 6px 8px; font-family: monospace; font-size: 0.8rem; }
+  .field input[type=range] { width: 100%; accent-color: #7df; }
+  .speed-val { float: right; color: #7df; font-size: 0.75rem; }
+  .latency-val { float: right; color: #fd7; font-size: 0.75rem; }
+
+  .btn-row { display: flex; gap: 8px; margin-top: 6px; }
+  button { flex: 1; padding: 8px; border: none; border-radius: 5px; cursor: pointer;
+           font-family: monospace; font-size: 0.8rem; font-weight: bold;
+           text-transform: uppercase; letter-spacing: 1px; transition: opacity 0.15s; }
+  button:hover { opacity: 0.85; }
+  #btn-start { background: #2d7a4f; color: #fff; }
+  #btn-stop  { background: #7a2d2d; color: #fff; }
+  #btn-reset { background: #444;   color: #eee; }
+
+  /* --- Game view --- */
+  .game-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  #canvas { background: #000; border: 2px solid #333; border-radius: 6px;
+             image-rendering: pixelated; }
+  #status-badge { font-size: 0.7rem; color: #666; }
+  #status-badge.running { color: #4f4; }
+  #status-badge.stopped { color: #f44; }
+
+  /* --- Stats panel --- */
+  .stats { background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+            padding: 16px; min-width: 180px; }
+  .stats h2 { font-size: 0.75rem; color: #888; letter-spacing: 1px;
+               text-transform: uppercase; margin-bottom: 12px; }
+  .stat-row { display: flex; justify-content: space-between; align-items: center;
+               margin-bottom: 8px; }
+  .stat-key { font-size: 0.7rem; color: #888; }
+  .stat-val { font-size: 0.85rem; color: #eee; }
+  .stat-val.highlight { color: #7df; }
+  .stat-val.warn { color: #fd7; }
+
+  /* --- Latency bar --- */
+  .lat-bar-wrap { margin-top: 10px; }
+  .lat-bar-label { font-size: 0.65rem; color: #888; margin-bottom: 4px; }
+  .lat-bar-bg { background: #333; border-radius: 3px; height: 6px; }
+  .lat-bar-fill { height: 6px; border-radius: 3px; background: #7df;
+                   transition: width 0.2s, background 0.2s; }
+</style>
+</head>
+<body>
+<h1>Realtime Inference Engine</h1>
+
+<div class="layout">
+
+  <!-- Controls -->
+  <div class="controls">
+    <h2>Configuration</h2>
+
+    <div class="field">
+      <label>Environment</label>
+      <select id="sel-env">
+        <option value="flappy">Flappy Bird</option>
+        <option value="demon_attack">Demon Attack (Atari)</option>
+        <option value="vizdoom">VizDoom Basic</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>
+        Game speed
+        <span class="speed-val" id="lbl-speed">1.0×</span>
+      </label>
+      <input type="range" id="rng-speed" min="0.25" max="4" step="0.25" value="1.0">
+    </div>
+
+    <div class="field">
+      <label>Mode</label>
+      <select id="sel-mode">
+        <option value="paused">Paused (env waits for model)</option>
+        <option value="simulated" selected>Simulated (fixed FPS + K delay)</option>
+        <option value="realtime">Real-time (async inference)</option>
+      </select>
+    </div>
+
+    <div class="field" id="field-latency">
+      <label>
+        Simulated latency (frames)
+        <span class="latency-val" id="lbl-latency">0</span>
+      </label>
+      <input type="range" id="rng-latency" min="0" max="10" step="1" value="0">
+    </div>
+
+    <div class="btn-row">
+      <button id="btn-start">▶ Start</button>
+      <button id="btn-stop">■ Stop</button>
+      <button id="btn-reset">↺ Reset</button>
+    </div>
+  </div>
+
+  <!-- Game canvas -->
+  <div class="game-wrap">
+    <canvas id="canvas" width="320" height="320"></canvas>
+    <div id="status-badge" class="stopped">● Stopped</div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats">
+    <h2>Live Stats</h2>
+    <div class="stat-row">
+      <span class="stat-key">Episode</span>
+      <span class="stat-val highlight" id="s-episode">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Step</span>
+      <span class="stat-val" id="s-step">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Reward (step)</span>
+      <span class="stat-val" id="s-reward">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Total reward</span>
+      <span class="stat-val highlight" id="s-total">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Speed</span>
+      <span class="stat-val" id="s-speed">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Latency (frames)</span>
+      <span class="stat-val warn" id="s-latency">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Effective K</span>
+      <span class="stat-val warn" id="s-effk">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Mode</span>
+      <span class="stat-val" id="s-mode">—</span>
+    </div>
+
+    <div class="lat-bar-wrap">
+      <div class="lat-bar-label">
+        Inference time: <span id="s-inf">— ms</span>
+      </div>
+      <div class="lat-bar-bg">
+        <div class="lat-bar-fill" id="lat-bar" style="width:0%"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const canvas  = document.getElementById('canvas');
+const ctx     = canvas.getContext('2d');
+const badge   = document.getElementById('status-badge');
+
+let ws = null;
+let running = false;
+
+// --- Speed slider (live update, no restart needed) ---
+const rngSpeed = document.getElementById('rng-speed');
+const lblSpeed = document.getElementById('lbl-speed');
+rngSpeed.addEventListener('input', () => {
+  lblSpeed.textContent = parseFloat(rngSpeed.value).toFixed(2) + '×';
+  if (running) {
+    fetch('/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ speed: parseFloat(rngSpeed.value) })
+    });
+  }
+});
+
+// --- Latency slider (display only — restart required to apply) ---
+const rngLatency = document.getElementById('rng-latency');
+const lblLatency = document.getElementById('lbl-latency');
+rngLatency.addEventListener('input', () => {
+  lblLatency.textContent = rngLatency.value;
+});
+
+// --- Mode selector: show latency slider only for simulated mode ---
+const selMode = document.getElementById('sel-mode');
+const fieldLatency = document.getElementById('field-latency');
+function syncLatencyVisibility() {
+  fieldLatency.style.display = selMode.value === 'simulated' ? '' : 'none';
+}
+selMode.addEventListener('change', syncLatencyVisibility);
+syncLatencyVisibility();
+
+// --- Start ---
+document.getElementById('btn-start').addEventListener('click', async () => {
+  const env     = document.getElementById('sel-env').value;
+  const speed   = parseFloat(rngSpeed.value);
+  const latency = parseInt(rngLatency.value, 10);
+  const mode    = selMode.value;
+
+  await fetch('/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ env, speed, latency, mode })
+  });
+
+  running = true;
+  badge.textContent = '● Running';
+  badge.className = 'running';
+  connectWS();
+});
+
+// --- Stop ---
+document.getElementById('btn-stop').addEventListener('click', async () => {
+  await fetch('/stop', { method: 'POST' });
+  running = false;
+  badge.textContent = '● Stopped';
+  badge.className = 'stopped';
+  if (ws) { ws.close(); ws = null; }
+});
+
+// --- Reset: stop then immediately re-start with current settings ---
+document.getElementById('btn-reset').addEventListener('click', async () => {
+  if (ws) { ws.close(); ws = null; }
+  await fetch('/stop', { method: 'POST' });
+
+  const env     = document.getElementById('sel-env').value;
+  const speed   = parseFloat(rngSpeed.value);
+  const latency = parseInt(rngLatency.value, 10);
+  const mode    = selMode.value;
+
+  await fetch('/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ env, speed, latency, mode })
+  });
+
+  running = true;
+  badge.textContent = '● Running';
+  badge.className = 'running';
+  connectWS();
+});
+
+// --- WebSocket ---
+function connectWS() {
+  if (ws) ws.close();
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onmessage = (evt) => {
+    const data = JSON.parse(evt.data);
+    drawFrame(data.frame);
+    updateStats(data.stats);
+  };
+
+  ws.onclose = () => {
+    if (running) setTimeout(connectWS, 500);
+  };
+}
+
+function drawFrame(b64) {
+  const img = new Image();
+  img.onload = () => {
+    canvas.width  = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+  };
+  img.src = 'data:image/jpeg;base64,' + b64;
+}
+
+function updateStats(s) {
+  document.getElementById('s-episode').textContent = s.episode;
+  document.getElementById('s-step').textContent    = s.step;
+  document.getElementById('s-reward').textContent  = s.reward;
+  document.getElementById('s-total').textContent   = s.total_reward;
+  document.getElementById('s-speed').textContent   = s.speed + '×';
+  document.getElementById('s-latency').textContent = s.latency_frames + ' fr';
+  document.getElementById('s-effk').textContent    = s.effective_k.toFixed(2) + ' fr';
+  document.getElementById('s-mode').textContent    = s.mode;
+  document.getElementById('s-inf').textContent     = s.inference_ms.toFixed(1) + ' ms';
+
+  // Bar: 0ms = green, 33ms (one frame) = yellow, 100ms+ = red, max bar = 100ms
+  const ms  = s.inference_ms;
+  const pct = Math.min(ms / 100, 1) * 100;
+  const bar = document.getElementById('lat-bar');
+  bar.style.width = pct + '%';
+  bar.style.background = ms < 16 ? '#4f4' : ms < 33 ? '#fd7' : '#f44';
+}
+</script>
+</body>
+</html>
