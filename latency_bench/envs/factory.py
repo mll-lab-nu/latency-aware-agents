@@ -80,3 +80,21 @@ def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
         score_limit=env_cfg.get("score_limit"),
         debug=bool(env_cfg.get("debug", False)),
     )
+
+
+@register_env_adapter("demon_attack")
+def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
+    from latency_bench.envs.demon_attack import DemonAttackEnvAdapter
+
+    env_cfg = config["env"]
+    return DemonAttackEnvAdapter(
+        env_id=env_cfg.get("env_id", env_cfg.get("gym_id", "ALE/DemonAttack-v5")),
+        fps_env=float(env_cfg["fps_env"]),
+        noop_action=noop_action,
+        screen_size=int(env_cfg.get("screen_size", 84)),
+        noop_max=int(env_cfg.get("noop_max", 30)),
+        terminal_on_life_loss=bool(env_cfg.get("terminal_on_life_loss", False)),
+        clip_reward=bool(env_cfg.get("clip_reward", True)),
+        repeat_action_probability=float(env_cfg.get("repeat_action_probability", 0.0)),
+        full_action_space=bool(env_cfg.get("full_action_space", False)),
+    )
