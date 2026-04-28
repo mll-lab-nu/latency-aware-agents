@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-mkdir -p results/checkpoints/flappy_ppo_raw_rgb_fs0 logs
+mkdir -p results/checkpoints/flappy_ppo_fs0 logs
 
 GPU_ID="${GPU_ID:-0}"
 N_ENVS="${N_ENVS:-64}"
