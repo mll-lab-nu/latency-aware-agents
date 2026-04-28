@@ -31,12 +31,6 @@ from training.flappy_ppo.profiler import (
 
 ensure_flappy_gymnasium_on_path()
 
-from flappy_bird_gymnasium.gpu_render import (  # noqa: E402
-    FlappyRenderAssets,
-    TorchFlappyRenderer,
-)
-
-
 def save_checkpoint(path: str, agent: FlappyPpoAgent, optimizer, args, global_step: int) -> None:
     save_flappy_ppo_checkpoint(
         path=path,
@@ -52,10 +46,6 @@ def train(args, wandb_module) -> str:
     frame_skip_values = parse_int_list(args.frame_skip_values)
     if not frame_skip_values:
         raise ValueError("--frame-skip-values must contain at least one value")
-    if args.observation_render_mode == "direct_84" and args.renderer != "torch":
-        raise ValueError("--observation-render-mode direct_84 requires --renderer torch")
-    if args.observation_render_mode == "direct_84" and args.resize_backend != "torch":
-        raise ValueError("--observation-render-mode direct_84 requires --resize-backend torch")
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -66,22 +56,16 @@ def train(args, wandb_module) -> str:
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(args.device)
 
-    render_mode = "rgb_array" if args.renderer == "cpu_oracle" else None
     envs = SyncFlappyBatch(
         n_envs=args.n_envs,
         seed=args.seed,
         frame_skip_values=frame_skip_values,
-        render_mode=render_mode,
+        device=device,
     )
-    states = envs.reset()
 
-    renderer = None
-    if args.renderer == "torch":
-        assets = FlappyRenderAssets.for_state(states[0])
-        renderer = TorchFlappyRenderer(assets, device=device)
-
-    pipeline = ObservationPipeline(args=args, envs=envs, device=device, renderer=renderer)
-    next_obs = pipeline.reset(states)
+    raw_rgb = envs.reset()
+    pipeline = ObservationPipeline(args=args, n_envs=args.n_envs, device=device)
+    next_obs = pipeline.reset(raw_rgb, envs.frame_skips())
     next_done = torch.zeros(args.n_envs, dtype=torch.float32, device=device)
 
     agent = FlappyPpoAgent(
@@ -115,9 +99,7 @@ def train(args, wandb_module) -> str:
 
     print(
         "[train] "
-        f"device={device} renderer={args.renderer} "
-        f"observation_render_mode={args.observation_render_mode} "
-        f"resize_backend={args.resize_backend} "
+        f"device={device} observation=raw_rgb_v1 preprocess=torch "
         f"obs_mode={args.obs_mode} n_envs={args.n_envs} n_steps={args.n_steps} "
         f"rollout_size={rollout_size} batch_size={minibatch_size} "
         f"updates={num_updates} frame_skip_values={args.frame_skip_values} "
@@ -180,7 +162,10 @@ def train(args, wandb_module) -> str:
                         action_np = action.detach().cpu().numpy()
 
                     with profiler.time("env_step_s"):
-                        rewards_np, dones_np, infos, states = envs.step(action_np)
+                        rewards_np, dones_np, infos, raw_rgb = envs.step(
+                            action_np,
+                            profiler=profiler,
+                        )
 
                     with profiler.time("reward_done_h2d_s"):
                         rewards[step] = torch.as_tensor(
@@ -192,8 +177,13 @@ def train(args, wandb_module) -> str:
                             device=device,
                         )
 
-                    with profiler.time("render_obs_s"):
-                        next_obs = pipeline.step(states, dones_np, profiler=profiler)
+                    with profiler.time("preprocess_obs_s"):
+                        next_obs = pipeline.step(
+                            raw_rgb,
+                            dones_np,
+                            envs.frame_skips(),
+                            profiler=profiler,
+                        )
 
                     now = time.time()
                     if args.log_interval_seconds > 0 and (

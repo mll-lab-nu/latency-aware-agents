@@ -9,7 +9,7 @@ from training.flappy_ppo.ppo_loop import train
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="CleanRL-style PPO for Flappy Bird with render-state Torch observations."
+        description="CleanRL-style PPO for Flappy Bird using raw RGB observations."
     )
     parser.add_argument("--train-steps", type=int, default=200_000)
     parser.add_argument("--n-envs", type=int, default=8)
@@ -52,27 +52,6 @@ def build_parser() -> argparse.ArgumentParser:
         default="latency_channel",
     )
     parser.add_argument("--frame-skip-values", type=str, default="0,1,2,3,4,5")
-    parser.add_argument(
-        "--renderer",
-        choices=["torch", "cpu_oracle"],
-        default="torch",
-        help="cpu_oracle uses env.render()+PIL for algorithm parity checks.",
-    )
-    parser.add_argument(
-        "--resize-backend",
-        choices=["pil", "torch"],
-        default="pil",
-        help="pil is pixel-exact with the SB3 oracle; torch keeps resize on device but is approximate.",
-    )
-    parser.add_argument(
-        "--observation-render-mode",
-        choices=["full_then_resize", "direct_84"],
-        default="full_then_resize",
-        help=(
-            "full_then_resize draws the full rgb frame before resizing; direct_84 "
-            "skips the full frame and directly emits CNN-sized observations."
-        ),
-    )
     parser.add_argument("--wandb-project", type=str, default="flappy_rl_image_queue_latency")
     parser.add_argument("--wandb-entity", type=str, default=None)
     parser.add_argument("--wandb-run-name", type=str, default="")

@@ -60,11 +60,10 @@ PROFILE_TIME_KEYS = [
     "action_cpu_copy_s",
     "env_step_s",
     "reward_done_h2d_s",
-    "render_obs_s",
     "state_batch_pack_s",
-    "direct_obs_s",
-    "full_render_s",
-    "resize_s",
+    "raw_rgb_render_s",
+    "preprocess_obs_s",
+    "torch_resize_s",
     "stack_update_s",
     "final_obs_s",
     "gae_s",
@@ -80,9 +79,6 @@ PROFILE_FIELDS = [
     "global_step",
     "included",
     "device",
-    "renderer",
-    "observation_render_mode",
-    "resize_backend",
     "n_envs",
     "n_steps",
     "rollout_size",
@@ -147,9 +143,6 @@ def build_profile_row(
         "global_step": int(global_step),
         "included": int(included),
         "device": str(device),
-        "renderer": args.renderer,
-        "observation_render_mode": args.observation_render_mode,
-        "resize_backend": args.resize_backend,
         "n_envs": int(args.n_envs),
         "n_steps": int(args.n_steps),
         "rollout_size": int(rollout_size),
@@ -181,10 +174,9 @@ def print_profile_row(row: Dict[str, object]) -> None:
         f"rollout_pct={float(row['rollout_pct']):.1f}% "
         f"ppo_pct={float(row['ppo_update_pct']):.1f}% "
         f"env_step_s={float(row['env_step_s']):.3f} "
-        f"render_obs_s={float(row['render_obs_s']):.3f} "
-        f"direct_obs_s={float(row['direct_obs_s']):.3f} "
-        f"full_render_s={float(row['full_render_s']):.3f} "
-        f"resize_s={float(row['resize_s']):.3f} "
+        f"raw_rgb_render_s={float(row['raw_rgb_render_s']):.3f} "
+        f"preprocess_obs_s={float(row['preprocess_obs_s']):.3f} "
+        f"torch_resize_s={float(row['torch_resize_s']):.3f} "
         f"action_s={float(row['action_infer_s']):.3f} "
         f"avg_mb_ms={float(row['avg_minibatch_ms']):.3f}",
         flush=True,

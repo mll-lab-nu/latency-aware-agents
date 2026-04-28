@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Any, Mapping
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from PIL import Image
 
 from modeling.flappy_ppo.observation import FlappyPpoObservationConfig
@@ -66,6 +68,74 @@ def append_latency_channel(
     )
 
 
+def resize_rgb_batch_torch(
+    raw_rgb_batch: torch.Tensor,
+    image_size: int,
+    grayscale: bool = False,
+) -> torch.Tensor:
+    """Resize NHWC uint8 raw RGB frames into NHWC uint8 model frames."""
+
+    if not isinstance(raw_rgb_batch, torch.Tensor):
+        raise TypeError("raw_rgb_batch must be a torch.Tensor")
+    if raw_rgb_batch.ndim != 4 or int(raw_rgb_batch.shape[-1]) != 3:
+        raise ValueError("raw_rgb_batch must have shape (N, H, W, 3)")
+    if raw_rgb_batch.dtype != torch.uint8:
+        raise ValueError("raw_rgb_batch must have dtype torch.uint8")
+
+    image_size = int(image_size)
+    if image_size <= 0:
+        raise ValueError("image_size must be positive")
+
+    nchw = raw_rgb_batch.permute(0, 3, 1, 2).to(torch.float32)
+    if grayscale:
+        r = nchw[:, 0:1]
+        g = nchw[:, 1:2]
+        b = nchw[:, 2:3]
+        nchw = torch.floor((r * 299.0 + g * 587.0 + b * 114.0 + 500.0) / 1000.0)
+
+    resized = F.interpolate(
+        nchw,
+        size=(image_size, image_size),
+        mode="bilinear",
+        align_corners=False,
+        antialias=True,
+    )
+    return (
+        resized.round()
+        .clamp_(0, 255)
+        .to(torch.uint8)
+        .permute(0, 2, 3, 1)
+        .contiguous()
+    )
+
+
+def append_latency_channel_torch(
+    stacked_obs: torch.Tensor,
+    frame_skips: np.ndarray | torch.Tensor,
+    max_frame_skip: int,
+) -> torch.Tensor:
+    """Append a latency channel to a NHWC uint8 stacked observation batch."""
+
+    if not isinstance(stacked_obs, torch.Tensor):
+        raise TypeError("stacked_obs must be a torch.Tensor")
+    if stacked_obs.ndim != 4:
+        raise ValueError("stacked_obs must have shape (N, H, W, C)")
+    if stacked_obs.dtype != torch.uint8:
+        raise ValueError("stacked_obs must have dtype torch.uint8")
+
+    n_envs, height, width, _ = stacked_obs.shape
+    skips = torch.as_tensor(frame_skips, device=stacked_obs.device)
+    skips = skips.reshape(-1)
+    if int(skips.numel()) != int(n_envs):
+        raise ValueError("frame_skips must have one value per environment")
+
+    max_skip = max(1, int(max_frame_skip))
+    values = torch.clamp(skips.to(torch.float32) / float(max_skip), 0.0, 1.0)
+    values = torch.round(values * 255.0).to(torch.uint8)
+    latency = values.view(n_envs, 1, 1, 1).expand(n_envs, height, width, 1)
+    return torch.cat([stacked_obs, latency], dim=3)
+
+
 def reset_frame_stack(frame_obs: np.ndarray, stack_frames: int) -> np.ndarray:
     frame = np.asarray(frame_obs, dtype=np.uint8)
     return np.concatenate([frame.copy() for _ in range(max(1, int(stack_frames)))], axis=2)
@@ -121,6 +191,124 @@ def hwc_to_nchw_tensor(
         raise ValueError("obs must be HWC")
     tensor = torch.as_tensor(arr, dtype=torch.uint8, device=device)
     return tensor.permute(2, 0, 1).unsqueeze(0).contiguous()
+
+
+class FlappyPpoTorchObservationPipeline:
+    """Batch raw-RGB preprocessing pipeline shared by training and evaluation."""
+
+    def __init__(
+        self,
+        observation_config: FlappyPpoObservationConfig,
+        n_envs: int,
+        device: str | torch.device,
+    ) -> None:
+        self.observation_config = observation_config
+        self.n_envs = int(n_envs)
+        if self.n_envs <= 0:
+            raise ValueError("n_envs must be positive")
+        self.device = torch.device(device)
+        self.base_channels = observation_config.base_channels
+        self.stacked_channels = observation_config.stacked_channels
+        self._stack = torch.empty(
+            (
+                self.n_envs,
+                observation_config.image_size,
+                observation_config.image_size,
+                self.stacked_channels,
+            ),
+            dtype=torch.uint8,
+            device=self.device,
+        )
+        self._last_observation: torch.Tensor | None = None
+
+    @property
+    def current_frame_stack(self) -> np.ndarray | None:
+        if self._last_observation is None:
+            return None
+        return self._stack.detach().cpu().numpy().copy()
+
+    @property
+    def current_observation(self) -> np.ndarray | None:
+        if self._last_observation is None:
+            return None
+        return self._last_observation.detach().cpu().numpy().copy()
+
+    def reset(
+        self,
+        raw_rgb_batch: torch.Tensor,
+        frame_skips: np.ndarray | torch.Tensor | None = None,
+        profiler: Any | None = None,
+    ) -> torch.Tensor:
+        frame_obs = self._resize(raw_rgb_batch, profiler=profiler)
+        timer = profiler.time("stack_update_s") if profiler is not None else nullcontext()
+        with timer:
+            for stack_idx in range(self.observation_config.stack_frames):
+                c0 = stack_idx * self.base_channels
+                c1 = c0 + self.base_channels
+                self._stack[:, :, :, c0:c1] = frame_obs
+        return self._final_obs(frame_skips, profiler=profiler)
+
+    def step(
+        self,
+        raw_rgb_batch: torch.Tensor,
+        dones: np.ndarray,
+        frame_skips: np.ndarray | torch.Tensor | None = None,
+        profiler: Any | None = None,
+    ) -> torch.Tensor:
+        frame_obs = self._resize(raw_rgb_batch, profiler=profiler)
+        done_indices = np.flatnonzero(np.asarray(dones, dtype=np.bool_))
+        timer = profiler.time("stack_update_s") if profiler is not None else nullcontext()
+        with timer:
+            if self.observation_config.stack_frames <= 1:
+                self._stack[:, :, :, :] = frame_obs
+            else:
+                self._stack[:, :, :, : -self.base_channels] = self._stack[
+                    :, :, :, self.base_channels :
+                ].clone()
+                self._stack[:, :, :, -self.base_channels :] = frame_obs
+            for idx in done_indices:
+                for stack_idx in range(self.observation_config.stack_frames):
+                    c0 = stack_idx * self.base_channels
+                    c1 = c0 + self.base_channels
+                    self._stack[idx, :, :, c0:c1] = frame_obs[idx]
+        return self._final_obs(frame_skips, profiler=profiler)
+
+    def _resize(self, raw_rgb_batch: torch.Tensor, profiler: Any | None = None) -> torch.Tensor:
+        if not isinstance(raw_rgb_batch, torch.Tensor):
+            raise TypeError("raw_rgb_batch must be a torch.Tensor")
+        if raw_rgb_batch.ndim != 4 or int(raw_rgb_batch.shape[-1]) != 3:
+            raise ValueError("raw_rgb_batch must have shape (N, H, W, 3)")
+        if raw_rgb_batch.dtype != torch.uint8:
+            raise ValueError("raw_rgb_batch must have dtype torch.uint8")
+        raw_rgb_batch = raw_rgb_batch.to(device=self.device, non_blocking=True)
+        if int(raw_rgb_batch.shape[0]) != self.n_envs:
+            raise ValueError("raw_rgb_batch must have one frame per environment")
+        timer = profiler.time("torch_resize_s") if profiler is not None else nullcontext()
+        with timer:
+            return resize_rgb_batch_torch(
+                raw_rgb_batch,
+                image_size=self.observation_config.image_size,
+                grayscale=self.observation_config.grayscale,
+            )
+
+    def _final_obs(
+        self,
+        frame_skips: np.ndarray | torch.Tensor | None,
+        profiler: Any | None = None,
+    ) -> torch.Tensor:
+        timer = profiler.time("final_obs_s") if profiler is not None else nullcontext()
+        with timer:
+            if frame_skips is None:
+                frame_skips = torch.zeros(self.n_envs, dtype=torch.int64, device=self.device)
+            obs = self._stack
+            if self.observation_config.obs_mode == "latency_channel":
+                obs = append_latency_channel_torch(
+                    obs,
+                    frame_skips=frame_skips,
+                    max_frame_skip=self.observation_config.max_frame_skip,
+                )
+            self._last_observation = obs
+            return obs.permute(0, 3, 1, 2).contiguous()
 
 
 class FlappyPpoEvalObservationPipeline:

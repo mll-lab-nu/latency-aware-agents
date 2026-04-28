@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from bisect import insort_right
-from typing import Dict, List, Optional, Sequence
+from contextlib import nullcontext
+from typing import Any, Dict, List, Sequence
 
 import numpy as np
+import torch
 
 from training.flappy_ppo.paths import ensure_flappy_gymnasium_on_path
 
@@ -12,6 +14,13 @@ ensure_flappy_gymnasium_on_path()
 
 import flappy_bird_gymnasium  # noqa: E402,F401
 import gymnasium as gym  # noqa: E402
+from flappy_bird_gymnasium.envs.render_state import (  # noqa: E402
+    BatchedFlappyRenderState,
+)
+from flappy_bird_gymnasium.gpu_render import (  # noqa: E402
+    FlappyRenderAssets,
+    TorchFlappyRenderer,
+)
 
 
 class QueueLatencyWrapper(gym.Wrapper):
@@ -90,34 +99,43 @@ class SyncFlappyBatch:
         n_envs: int,
         seed: int,
         frame_skip_values: Sequence[int],
-        render_mode: Optional[str],
+        device: str | torch.device,
     ) -> None:
         self.envs = []
+        self.device = torch.device(device)
         self.episode_returns = np.zeros(n_envs, dtype=np.float32)
         self.episode_lengths = np.zeros(n_envs, dtype=np.int32)
+        first_state = None
         for idx in range(n_envs):
             env = gym.make(
                 "FlappyBird-v0",
                 use_lidar=False,
                 normalize_obs=True,
-                render_mode=render_mode,
+                render_mode=None,
             )
             env = QueueLatencyWrapper(env, frame_skip_values, seed=seed + idx)
             env.reset(seed=seed + idx)
+            if first_state is None:
+                first_state = env.unwrapped.get_render_state()
             self.envs.append(env)
+        if first_state is None:
+            raise ValueError("n_envs must be positive")
+        assets = FlappyRenderAssets.for_state(first_state)
+        self.renderer = TorchFlappyRenderer(assets, device=self.device)
+        self._raw_rgb_buffer: torch.Tensor | None = None
 
     @property
     def n_envs(self) -> int:
         return len(self.envs)
 
-    def reset(self):
+    def reset(self) -> torch.Tensor:
         for idx, env in enumerate(self.envs):
             env.reset()
             self.episode_returns[idx] = 0.0
             self.episode_lengths[idx] = 0
-        return self.render_states()
+        return self.render_raw_rgb()
 
-    def step(self, actions: np.ndarray):
+    def step(self, actions: np.ndarray, profiler: Any | None = None):
         rewards = np.zeros(self.n_envs, dtype=np.float32)
         dones = np.zeros(self.n_envs, dtype=np.bool_)
         infos: List[Dict] = []
@@ -135,13 +153,48 @@ class SyncFlappyBatch:
             rewards[idx] = float(reward)
             dones[idx] = done
             infos.append(info)
-        return rewards, dones, infos, self.render_states()
+        return rewards, dones, infos, self.render_raw_rgb(profiler=profiler)
+
+    def render_raw_rgb(self, profiler: Any | None = None) -> torch.Tensor:
+        pack_timer = (
+            profiler.time("state_batch_pack_s") if profiler is not None else nullcontext()
+        )
+        with pack_timer:
+            batch = BatchedFlappyRenderState.from_states(self.render_states())
+        render_timer = (
+            profiler.time("raw_rgb_render_s") if profiler is not None else nullcontext()
+        )
+        with render_timer:
+            return self.renderer.render_into(batch, self._raw_rgb_output_buffer(batch))
+
+    def _raw_rgb_output_buffer(
+        self,
+        batch: BatchedFlappyRenderState,
+    ) -> torch.Tensor:
+        shape = (
+            int(batch.batch_size),
+            int(batch.screen_height),
+            int(batch.screen_width),
+            3,
+        )
+        expected_device = self.renderer.device
+        if (
+            self._raw_rgb_buffer is None
+            or tuple(self._raw_rgb_buffer.shape) != shape
+            or self._raw_rgb_buffer.device != expected_device
+        ):
+            self._raw_rgb_buffer = torch.empty(
+                shape,
+                dtype=torch.uint8,
+                device=expected_device,
+            )
+        return self._raw_rgb_buffer
 
     def render_states(self):
         return [env.unwrapped.get_render_state() for env in self.envs]
 
     def render_frames(self):
-        return [env.render() for env in self.envs]
+        return list(self.render_raw_rgb().detach().cpu().numpy())
 
     def frame_skips(self) -> np.ndarray:
         return np.asarray(

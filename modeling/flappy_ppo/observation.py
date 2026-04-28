@@ -5,6 +5,8 @@ from typing import Any, Mapping, Sequence
 
 
 OBS_MODES = {"image_only", "latency_channel"}
+OBSERVATION_PROTOCOLS = {"raw_rgb_v1"}
+PREPROCESS_BACKENDS = {"torch"}
 
 
 def parse_int_list(value: str | Sequence[int]) -> list[int]:
@@ -20,6 +22,8 @@ class FlappyPpoObservationConfig:
     stack_frames: int = 4
     obs_mode: str = "latency_channel"
     frame_skip_values: tuple[int, ...] = field(default_factory=lambda: (0, 1, 2, 3, 4, 5))
+    observation_protocol: str = "raw_rgb_v1"
+    preprocess_backend: str = "torch"
 
     def __post_init__(self) -> None:
         image_size = int(self.image_size)
@@ -30,6 +34,14 @@ class FlappyPpoObservationConfig:
             raise ValueError("stack_frames must be positive")
         if self.obs_mode not in OBS_MODES:
             raise ValueError(f"unsupported obs_mode: {self.obs_mode}")
+        if self.observation_protocol not in OBSERVATION_PROTOCOLS:
+            raise ValueError(
+                f"unsupported observation_protocol: {self.observation_protocol}"
+            )
+        if self.preprocess_backend not in PREPROCESS_BACKENDS:
+            raise ValueError(
+                f"unsupported preprocess_backend: {self.preprocess_backend}"
+            )
         frame_skip_values = tuple(max(0, int(x)) for x in self.frame_skip_values)
         if not frame_skip_values:
             raise ValueError("frame_skip_values cannot be empty")
@@ -37,6 +49,8 @@ class FlappyPpoObservationConfig:
         object.__setattr__(self, "grayscale", bool(self.grayscale))
         object.__setattr__(self, "stack_frames", stack_frames)
         object.__setattr__(self, "frame_skip_values", frame_skip_values)
+        object.__setattr__(self, "observation_protocol", str(self.observation_protocol))
+        object.__setattr__(self, "preprocess_backend", str(self.preprocess_backend))
 
     @property
     def base_channels(self) -> int:
@@ -61,6 +75,8 @@ class FlappyPpoObservationConfig:
             "stack_frames": self.stack_frames,
             "obs_mode": self.obs_mode,
             "frame_skip_values": list(self.frame_skip_values),
+            "observation_protocol": self.observation_protocol,
+            "preprocess_backend": self.preprocess_backend,
         }
 
     @classmethod
@@ -71,6 +87,8 @@ class FlappyPpoObservationConfig:
             stack_frames=int(data.get("stack_frames", 4)),
             obs_mode=str(data.get("obs_mode", "latency_channel")),
             frame_skip_values=tuple(parse_int_list(data.get("frame_skip_values", (0, 1, 2, 3, 4, 5)))),
+            observation_protocol=str(data.get("observation_protocol", "raw_rgb_v1")),
+            preprocess_backend=str(data.get("preprocess_backend", "torch")),
         )
 
 
@@ -81,6 +99,8 @@ def observation_config_from_args(args: Any) -> FlappyPpoObservationConfig:
         stack_frames=int(getattr(args, "stack_frames")),
         obs_mode=str(getattr(args, "obs_mode")),
         frame_skip_values=tuple(parse_int_list(getattr(args, "frame_skip_values"))),
+        observation_protocol=str(getattr(args, "observation_protocol", "raw_rgb_v1")),
+        preprocess_backend=str(getattr(args, "preprocess_backend", "torch")),
     )
 
 
@@ -91,4 +111,6 @@ def observation_config_from_mapping(data: Mapping[str, Any]) -> FlappyPpoObserva
         stack_frames=int(data.get("stack_frames", 4)),
         obs_mode=str(data.get("obs_mode", "latency_channel")),
         frame_skip_values=tuple(parse_int_list(data.get("frame_skip_values", (0, 1, 2, 3, 4, 5)))),
+        observation_protocol=str(data.get("observation_protocol", "raw_rgb_v1")),
+        preprocess_backend=str(data.get("preprocess_backend", "torch")),
     )
