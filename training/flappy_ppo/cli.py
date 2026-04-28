@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 from collections.abc import Sequence
+from datetime import datetime
 
 from training.flappy_ppo.logging import setup_wandb
 from training.flappy_ppo.ppo_loop import train
@@ -56,17 +58,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wandb-entity", type=str, default=None)
     parser.add_argument("--wandb-run-name", type=str, default="")
     parser.add_argument("--wandb-tags", type=str, default="")
+    parser.add_argument("--run-id", type=str, default="")
+    parser.add_argument("--metrics-jsonl", type=str, default="")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not args.run_id:
+        args.run_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.getpid()}"
 
     wandb_module = setup_wandb(args)
     try:
-        path = train(args, wandb_module=wandb_module)
-        print(f"[train] saved => {path}", flush=True)
+        train(args, wandb_module=wandb_module)
     finally:
         wandb_module.finish()
 

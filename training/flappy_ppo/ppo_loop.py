@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import random
 import time
 from collections import deque
@@ -17,7 +18,16 @@ from modeling.flappy_ppo import (
     save_flappy_ppo_checkpoint,
 )
 from training.flappy_ppo.env_batch import SyncFlappyBatch
-from training.flappy_ppo.logging import MetricLogger
+from training.flappy_ppo.logging import (
+    JsonlEventLogger,
+    MetricLogger,
+    emit_event,
+    format_checkpoint_save,
+    format_rollout_progress,
+    format_train_end,
+    format_train_start,
+    format_update,
+)
 from training.flappy_ppo.observation_pipeline import ObservationPipeline
 from training.flappy_ppo.paths import ensure_flappy_gymnasium_on_path
 from training.flappy_ppo.profiler import (
@@ -30,6 +40,7 @@ from training.flappy_ppo.profiler import (
 
 
 ensure_flappy_gymnasium_on_path()
+
 
 def save_checkpoint(path: str, agent: FlappyPpoAgent, optimizer, args, global_step: int) -> None:
     save_flappy_ppo_checkpoint(
@@ -89,6 +100,12 @@ def train(args, wandb_module) -> str:
     logger = MetricLogger(wandb_module)
     stats_window_size = max(1, int(getattr(args, "stats_window_size", 100)))
     wandb_run_name = getattr(args, "wandb_run_name", "") or "n/a"
+    run_id = getattr(args, "run_id", "")
+    if not run_id:
+        run_id = f"{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}"
+        args.run_id = run_id
+    metrics_jsonl = getattr(args, "metrics_jsonl", "")
+    jsonl_logger = JsonlEventLogger(metrics_jsonl, run_id)
     profiler = UpdateProfiler(
         enabled=args.profile,
         sync_cuda=args.profile_sync_cuda,
@@ -97,15 +114,34 @@ def train(args, wandb_module) -> str:
     if args.profile and args.profile_csv:
         init_profile_csv(args.profile_csv)
 
-    print(
-        "[train] "
-        f"device={device} observation=raw_rgb_v1 preprocess=torch "
-        f"obs_mode={args.obs_mode} n_envs={args.n_envs} n_steps={args.n_steps} "
-        f"rollout_size={rollout_size} batch_size={minibatch_size} "
-        f"updates={num_updates} frame_skip_values={args.frame_skip_values} "
-        f"stats_window_size={stats_window_size} "
-        f"wandb=True wandb_run_name={wandb_run_name} profile={args.profile} save={args.save}",
-        flush=True,
+    emit_event(
+        jsonl_logger,
+        {
+            "event": "train_start",
+            "run_id": run_id,
+            "global_step": int(global_step),
+            "update": None,
+            "device": str(device),
+            "obs_mode": args.obs_mode,
+            "n_envs": int(args.n_envs),
+            "n_steps": int(args.n_steps),
+            "rollout_size": int(rollout_size),
+            "batch_size": int(minibatch_size),
+            "num_updates": int(num_updates),
+            "frame_skip_values": args.frame_skip_values,
+            "stats_window_size": int(stats_window_size),
+            "save_path": args.save,
+            "wandb_project": getattr(args, "wandb_project", ""),
+            "wandb_run_name": wandb_run_name,
+            "seed": getattr(args, "seed", None),
+            "image_size": getattr(args, "image_size", None),
+            "stack_frames": getattr(args, "stack_frames", None),
+            "profile": bool(getattr(args, "profile", False)),
+            "load_path": getattr(args, "load", ""),
+            "observation": "raw_rgb_v1",
+            "preprocess": "torch",
+        },
+        format_train_start,
     )
 
     obs = torch.zeros(
@@ -128,8 +164,11 @@ def train(args, wandb_module) -> str:
     ep_len_mean = float("nan")
     start_time = time.time()
     last_progress_log = start_time
+    last_update = None
+    train_error = None
     try:
         for update in range(1, num_updates + 1):
+            last_update = update
             profiler.reset()
             profiler.synchronize()
             update_start = time.perf_counter()
@@ -190,16 +229,25 @@ def train(args, wandb_module) -> str:
                         now - last_progress_log >= args.log_interval_seconds
                     ):
                         elapsed = max(now - start_time, 1e-9)
-                        print(
-                            "[rollout] "
-                            f"update={update}/{num_updates} "
-                            f"step={step + 1}/{args.n_steps} "
-                            f"global_step={global_step} "
-                            f"SPS={int(global_step / elapsed)} "
-                            f"episodes={episode_count} "
-                            f"last_ep_rew={last_ep_ret:.3f} last_ep_len={last_ep_len:.1f} "
-                            f"ep_rew_mean={ep_rew_mean:.3f} ep_len_mean={ep_len_mean:.1f} ",
-                            flush=True,
+                        emit_event(
+                            jsonl_logger,
+                            {
+                                "event": "rollout_progress",
+                                "run_id": run_id,
+                                "global_step": int(global_step),
+                                "update": int(update),
+                                "num_updates": int(num_updates),
+                                "rollout_step": int(step + 1),
+                                "n_steps": int(args.n_steps),
+                                "sps": int(global_step / elapsed),
+                                "episode_count": int(episode_count),
+                                "last_ep_rew": last_ep_ret,
+                                "last_ep_len": last_ep_len,
+                                "ep_rew_mean": ep_rew_mean,
+                                "ep_len_mean": ep_len_mean,
+                                "elapsed_seconds": elapsed,
+                            },
+                            format_rollout_progress,
                         )
                         last_progress_log = now
 
@@ -359,7 +407,8 @@ def train(args, wandb_module) -> str:
             y_true = b_returns.detach().cpu().numpy()
             var_y = np.var(y_true)
             explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
-            sps = int(global_step / (time.time() - start_time))
+            elapsed_seconds = max(time.time() - start_time, 1e-9)
+            sps = int(global_step / elapsed_seconds)
             current_lr = optimizer.param_groups[0]["lr"]
             clipfrac_mean = float(np.mean(clipfracs)) if clipfracs else float("nan")
 
@@ -373,23 +422,13 @@ def train(args, wandb_module) -> str:
             logger.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
             logger.add_scalar("losses/clipfrac", clipfrac_mean, global_step)
             logger.add_scalar("losses/explained_variance", explained_var, global_step)
-            print(
-                "[update] "
-                f"global_step={global_step} update={update}/{num_updates} SPS={sps} "
-                f"episodes={episode_count} ep_rew_mean={ep_rew_mean:.3f} "
-                f"ep_len_mean={ep_len_mean:.1f} loss={loss.item():.6f} "
-                f"value_loss={v_loss.item():.6f} policy_loss={pg_loss.item():.6f} "
-                f"entropy={entropy_loss.item():.6f} approx_kl={approx_kl.item():.6f} "
-                f"clipfrac={clipfrac_mean:.3f} explained_var={explained_var:.3f} "
-                f"lr={current_lr:.6g} clip_coef={clip_coef_now:.6g} ",
-                flush=True,
-            )
 
+            profile_row = None
             if args.profile:
                 profiler.synchronize()
                 total_s = time.perf_counter() - update_start
                 included = update > args.profile_warmup_updates
-                row = build_profile_row(
+                profile_row = build_profile_row(
                     args=args,
                     device=device,
                     profiler=profiler,
@@ -401,15 +440,133 @@ def train(args, wandb_module) -> str:
                     included=included,
                     end_to_end_sps=sps,
                 )
-                print_profile_row(row)
+            update_event = {
+                "event": "update",
+                "run_id": run_id,
+                "global_step": int(global_step),
+                "update": int(update),
+                "num_updates": int(num_updates),
+                "sps": int(sps),
+                "episode_count": int(episode_count),
+                "ep_rew_mean": ep_rew_mean,
+                "ep_len_mean": ep_len_mean,
+                "loss": loss.item(),
+                "value_loss": v_loss.item(),
+                "policy_loss": pg_loss.item(),
+                "entropy": entropy_loss.item(),
+                "old_approx_kl": old_approx_kl.item(),
+                "approx_kl": approx_kl.item(),
+                "clipfrac": clipfrac_mean,
+                "explained_var": explained_var,
+                "learning_rate": current_lr,
+                "clip_coef": clip_coef_now,
+                "elapsed_seconds": elapsed_seconds,
+            }
+            if profile_row is not None:
+                update_event.update(profile_row)
+            emit_event(jsonl_logger, update_event, format_update)
+
+            if profile_row is not None:
+                print_profile_row(profile_row)
                 if included and args.profile_csv:
-                    append_profile_csv(args.profile_csv, row)
+                    append_profile_csv(args.profile_csv, profile_row)
 
             if args.checkpoint_freq > 0 and global_step % args.checkpoint_freq < args.n_envs:
                 save_checkpoint(args.save, agent, optimizer, args, global_step)
+                emit_event(
+                    jsonl_logger,
+                    {
+                        "event": "checkpoint_save",
+                        "run_id": run_id,
+                        "global_step": int(global_step),
+                        "update": int(update),
+                        "path": args.save,
+                        "reason": "interval",
+                        "episode_count": int(episode_count),
+                    },
+                    format_checkpoint_save,
+                )
+    except Exception as exc:
+        train_error = exc
+        emit_event(
+            jsonl_logger,
+            {
+                "event": "train_end",
+                "run_id": run_id,
+                "global_step": int(global_step),
+                "update": last_update,
+                "num_updates": int(num_updates),
+                "episode_count": int(episode_count),
+                "ep_rew_mean": ep_rew_mean,
+                "ep_len_mean": ep_len_mean,
+                "save_path": args.save,
+                "status": "error",
+                "elapsed_seconds": max(time.time() - start_time, 0.0),
+                "exception_type": type(exc).__name__,
+                "exception_message": str(exc),
+            },
+            format_train_end,
+        )
+        raise
     finally:
         envs.close()
         logger.close()
+        if train_error is not None:
+            jsonl_logger.close()
 
-    save_checkpoint(args.save, agent, optimizer, args, global_step)
-    return args.save
+    try:
+        save_checkpoint(args.save, agent, optimizer, args, global_step)
+        emit_event(
+            jsonl_logger,
+            {
+                "event": "checkpoint_save",
+                "run_id": run_id,
+                "global_step": int(global_step),
+                "update": last_update,
+                "path": args.save,
+                "reason": "final",
+                "episode_count": int(episode_count),
+            },
+            format_checkpoint_save,
+        )
+        emit_event(
+            jsonl_logger,
+            {
+                "event": "train_end",
+                "run_id": run_id,
+                "global_step": int(global_step),
+                "update": last_update,
+                "num_updates": int(num_updates),
+                "episode_count": int(episode_count),
+                "ep_rew_mean": ep_rew_mean,
+                "ep_len_mean": ep_len_mean,
+                "save_path": args.save,
+                "status": "success",
+                "elapsed_seconds": max(time.time() - start_time, 0.0),
+            },
+            format_train_end,
+        )
+        return args.save
+    except Exception as exc:
+        emit_event(
+            jsonl_logger,
+            {
+                "event": "train_end",
+                "run_id": run_id,
+                "global_step": int(global_step),
+                "update": last_update,
+                "num_updates": int(num_updates),
+                "episode_count": int(episode_count),
+                "ep_rew_mean": ep_rew_mean,
+                "ep_len_mean": ep_len_mean,
+                "save_path": args.save,
+                "status": "error",
+                "elapsed_seconds": max(time.time() - start_time, 0.0),
+                "exception_type": type(exc).__name__,
+                "exception_message": str(exc),
+            },
+            format_train_end,
+        )
+        raise
+    finally:
+        jsonl_logger.close()
