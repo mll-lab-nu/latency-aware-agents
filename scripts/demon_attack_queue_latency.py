@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from bisect import insort_right
 from collections import deque
@@ -20,6 +21,12 @@ except Exception:
 
 import torch
 import torch.nn as nn
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from latency_bench.logging.wandb import build_sb3_logger, init_wandb
 from stable_baselines3 import PPO
 from stable_baselines3.common.atari_wrappers import AtariWrapper
 from stable_baselines3.common.callbacks import CheckpointCallback
@@ -925,7 +932,7 @@ def build_policy_config(args, sample_env: gym.Env):
     raise ValueError(f"Unsupported obs_mode: {obs_mode}")
 
 
-def train(args, use_wandb: bool, tb_log: Optional[str]):
+def train(args, wandb_module):
     set_random_seed(args.seed)
     frame_skip_values = parse_int_list(args.frame_skip_values)
     os.makedirs(os.path.dirname(args.save) or ".", exist_ok=True)
@@ -1012,9 +1019,10 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
             vf_coef=args.vf_coef,
             clip_range=clip_range,
             max_grad_norm=args.max_grad_norm,
-            tensorboard_log=(tb_log if (use_wandb and tb_log) else None),
             policy_kwargs=policy_kwargs,
         )
+
+    model.set_logger(build_sb3_logger(wandb_module))
 
     checkpoint_callback = CheckpointCallback(
         save_freq=max(1, args.checkpoint_freq),
@@ -1028,7 +1036,6 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         total_timesteps=int(args.train_steps),
         callback=checkpoint_callback,
         log_interval=1,
-        tb_log_name=(args.wandb_run_name or f"demon_attack_{resolved_obs_mode}"),
     )
 
     model.save(args.save)
@@ -1317,7 +1324,7 @@ def main():
     ap.add_argument("--within-episode-change-prob", type=float, default=1.0)
 
     # Logging
-    ap.add_argument("--wandb", action="store_true")
+    ap.add_argument("--wandb", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--wandb-project", type=str, default="demon_attack_rl_queue_latency")
     ap.add_argument("--wandb-entity", type=str, default=None)
     ap.add_argument("--wandb-run-name", type=str, default="")
@@ -1337,45 +1344,58 @@ def main():
 
     set_random_seed(args.seed)
 
-    use_wandb = bool(args.wandb)
-    tb_log = "./tb_logs" if use_wandb else None
-    if use_wandb:
-        try:
-            import wandb
-        except Exception as e:
-            print(f"[wandb] wandb not installed or failed to import ({e}). Disabling wandb.")
-            use_wandb = False
-            tb_log = None
-        else:
-            tags = [t.strip() for t in args.wandb_tags.split(",") if t.strip()]
-            wandb.init(
-                project=args.wandb_project,
-                entity=args.wandb_entity,
-                name=(args.wandb_run_name or f"demon_attack_queue_{int(time.time())}"),
-                tags=tags,
-                config=vars(args),
-                sync_tensorboard=True,
-                save_code=True,
+    wandb_module = init_wandb(
+        args,
+        default_run_name=f"demon_attack_queue_{int(time.time())}",
+    )
+    try:
+        model_path = args.load or args.save
+        if args.train_steps > 0:
+            print(
+                f"[train] steps={args.train_steps} n_envs={args.n_envs} save={args.save} "
+                f"obs_mode={args.obs_mode} latency_mode={args.latency_mode}"
             )
+            model_path = train(args, wandb_module)
+            print(f"[train] saved => {model_path}")
 
-    model_path = args.load or args.save
-    if args.train_steps > 0:
-        print(
-            f"[train] steps={args.train_steps} n_envs={args.n_envs} save={args.save} "
-            f"obs_mode={args.obs_mode} latency_mode={args.latency_mode}"
-        )
-        model_path = train(args, use_wandb, tb_log)
-        print(f"[train] saved => {model_path}")
+        if args.eval_episodes > 0:
+            eval_frame_skips = parse_int_list(args.eval_frame_skip_values)
+            for fs in eval_frame_skips:
+                returns, lengths = eval_model(
+                    model_path=model_path,
+                    episodes=args.eval_episodes,
+                    seed=args.seed,
+                    env_id=args.env_id,
+                    eval_frame_skip=fs,
+                    obs_mode=args.obs_mode,
+                    history_len=args.history_len,
+                    memory_use_latency=args.memory_use_latency,
+                    memory_latency_repr=args.memory_latency_repr,
+                    screen_size=args.screen_size,
+                    noop_max=args.noop_max,
+                    clip_reward=args.clip_reward,
+                    terminal_on_life_loss=args.terminal_on_life_loss,
+                    repeat_action_probability=args.repeat_action_probability,
+                    full_action_space=args.full_action_space,
+                    stack_frames=args.stack_frames,
+                    max_steps_per_episode=args.eval_max_steps,
+                )
+                print(
+                    f"[eval] frame_skip={fs} "
+                    f"mean_return={float(np.mean(returns)):.3f} std_return={float(np.std(returns)):.3f} "
+                    f"mean_len={float(np.mean(lengths)):.1f}"
+                )
 
-    if args.eval_episodes > 0:
-        eval_frame_skips = parse_int_list(args.eval_frame_skip_values)
-        for fs in eval_frame_skips:
-            returns, lengths = eval_model(
+        if args.export_episodes > 0:
+            print(f"[export] episodes={args.export_episodes} outdir={args.outdir}")
+            out = export_rollouts(
                 model_path=model_path,
-                episodes=args.eval_episodes,
+                outdir=args.outdir,
+                episodes=int(args.export_episodes),
+                max_steps=int(args.export_max_steps),
                 seed=args.seed,
                 env_id=args.env_id,
-                eval_frame_skip=fs,
+                export_frame_skip=args.export_frame_skip,
                 obs_mode=args.obs_mode,
                 history_len=args.history_len,
                 memory_use_latency=args.memory_use_latency,
@@ -1387,42 +1407,10 @@ def main():
                 repeat_action_probability=args.repeat_action_probability,
                 full_action_space=args.full_action_space,
                 stack_frames=args.stack_frames,
-                max_steps_per_episode=args.eval_max_steps,
             )
-            print(
-                f"[eval] frame_skip={fs} "
-                f"mean_return={float(np.mean(returns)):.3f} std_return={float(np.std(returns)):.3f} "
-                f"mean_len={float(np.mean(lengths)):.1f}"
-            )
-
-    if args.export_episodes > 0:
-        print(f"[export] episodes={args.export_episodes} outdir={args.outdir}")
-        out = export_rollouts(
-            model_path=model_path,
-            outdir=args.outdir,
-            episodes=int(args.export_episodes),
-            max_steps=int(args.export_max_steps),
-            seed=args.seed,
-            env_id=args.env_id,
-            export_frame_skip=args.export_frame_skip,
-            obs_mode=args.obs_mode,
-            history_len=args.history_len,
-            memory_use_latency=args.memory_use_latency,
-            memory_latency_repr=args.memory_latency_repr,
-            screen_size=args.screen_size,
-            noop_max=args.noop_max,
-            clip_reward=args.clip_reward,
-            terminal_on_life_loss=args.terminal_on_life_loss,
-            repeat_action_probability=args.repeat_action_probability,
-            full_action_space=args.full_action_space,
-            stack_frames=args.stack_frames,
-        )
-        print(f"[export] wrote => {out}")
-
-    if use_wandb:
-        import wandb
-
-        wandb.finish()
+            print(f"[export] wrote => {out}")
+    finally:
+        wandb_module.finish()
 
 
 if __name__ == "__main__":

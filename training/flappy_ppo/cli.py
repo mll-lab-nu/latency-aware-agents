@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import time
 from collections.abc import Sequence
 
 from training.flappy_ppo.logging import setup_wandb
@@ -74,9 +73,6 @@ def build_parser() -> argparse.ArgumentParser:
             "skips the full frame and directly emits CNN-sized observations."
         ),
     )
-    parser.add_argument("--tensorboard", action="store_true")
-    parser.add_argument("--runs-dir", type=str, default="./runs")
-    parser.add_argument("--run-name", type=str, default="")
     parser.add_argument("--wandb-project", type=str, default="flappy_rl_image_queue_latency")
     parser.add_argument("--wandb-entity", type=str, default=None)
     parser.add_argument("--wandb-run-name", type=str, default="")
@@ -84,33 +80,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def validate_args(args: argparse.Namespace) -> None:
-    if args.train_steps <= 0:
-        raise ValueError("--train-steps must be positive")
-    if args.stats_window_size <= 0:
-        raise ValueError("--stats-window-size must be positive")
-
-
-def fill_run_name(args: argparse.Namespace) -> None:
-    if not args.run_name and not args.wandb_run_name:
-        args.run_name = f"flappy_gpu_render__{args.seed}__{int(time.time())}"
-    elif not args.run_name:
-        args.run_name = args.wandb_run_name
-
-
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
-    validate_args(args)
-    fill_run_name(args)
 
     wandb_module = setup_wandb(args)
     try:
         path = train(args, wandb_module=wandb_module)
         print(f"[train] saved => {path}", flush=True)
     finally:
-        if wandb_module is not None:
-            wandb_module.finish()
+        wandb_module.finish()
 
 
 if __name__ == "__main__":

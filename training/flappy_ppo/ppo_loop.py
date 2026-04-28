@@ -17,11 +17,7 @@ from modeling.flappy_ppo import (
     save_flappy_ppo_checkpoint,
 )
 from training.flappy_ppo.env_batch import SyncFlappyBatch
-from training.flappy_ppo.logging import (
-    MetricLogger,
-    build_writer,
-    tensorboard_available,
-)
+from training.flappy_ppo.logging import MetricLogger
 from training.flappy_ppo.observation_pipeline import ObservationPipeline
 from training.flappy_ppo.paths import ensure_flappy_gymnasium_on_path
 from training.flappy_ppo.profiler import (
@@ -52,7 +48,7 @@ def save_checkpoint(path: str, agent: FlappyPpoAgent, optimizer, args, global_st
     )
 
 
-def train(args, wandb_module=None) -> str:
+def train(args, wandb_module) -> str:
     frame_skip_values = parse_int_list(args.frame_skip_values)
     if not frame_skip_values:
         raise ValueError("--frame-skip-values must contain at least one value")
@@ -106,15 +102,9 @@ def train(args, wandb_module=None) -> str:
     rollout_size = int(args.n_envs * args.n_steps)
     minibatch_size = min(int(args.batch_size), rollout_size)
     num_updates = max(1, int(args.train_steps) // rollout_size)
-    logger = MetricLogger(build_writer(args), wandb_module=wandb_module)
+    logger = MetricLogger(wandb_module)
     stats_window_size = max(1, int(getattr(args, "stats_window_size", 100)))
-    tensorboard_enabled = bool(getattr(args, "tensorboard", False) and tensorboard_available())
-    wandb_enabled = wandb_module is not None
-    run_name = (
-        getattr(args, "run_name", "")
-        or getattr(args, "wandb_run_name", "")
-        or "n/a"
-    )
+    wandb_run_name = getattr(args, "wandb_run_name", "") or "n/a"
     profiler = UpdateProfiler(
         enabled=args.profile,
         sync_cuda=args.profile_sync_cuda,
@@ -131,8 +121,8 @@ def train(args, wandb_module=None) -> str:
         f"obs_mode={args.obs_mode} n_envs={args.n_envs} n_steps={args.n_steps} "
         f"rollout_size={rollout_size} batch_size={minibatch_size} "
         f"updates={num_updates} frame_skip_values={args.frame_skip_values} "
-        f"stats_window_size={stats_window_size} tensorboard={tensorboard_enabled} "
-        f"wandb={wandb_enabled} run_name={run_name} profile={args.profile} save={args.save}",
+        f"stats_window_size={stats_window_size} "
+        f"wandb=True wandb_run_name={wandb_run_name} profile={args.profile} save={args.save}",
         flush=True,
     )
 

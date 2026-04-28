@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from bisect import insort_right
 from collections import deque
@@ -14,7 +15,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
 import flappy_bird_gymnasium  # noqa: F401
+from latency_bench.logging.wandb import build_sb3_logger, init_wandb
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
@@ -780,7 +786,7 @@ def maybe_wrap_vecnormalize(venv, args, training: bool):
 
 
 
-def train(args, use_wandb: bool, tb_log: Optional[str]):
+def train(args, wandb_module):
     set_random_seed(args.seed)
     frame_skip_values = parse_int_list(args.frame_skip_values)
     os.makedirs(os.path.dirname(args.save) or ".", exist_ok=True)
@@ -864,9 +870,10 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
             vf_coef=args.vf_coef,
             clip_range=clip_range,
             max_grad_norm=args.max_grad_norm,
-            tensorboard_log=(tb_log if (use_wandb and tb_log) else None),
             policy_kwargs=policy_kwargs,
         )
+
+    model.set_logger(build_sb3_logger(wandb_module))
 
     checkpoint_callback = CheckpointCallback(
         save_freq=max(1, args.checkpoint_freq),
@@ -880,7 +887,6 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         total_timesteps=int(args.train_steps),
         callback=checkpoint_callback,
         log_interval=1,
-        tb_log_name=(args.wandb_run_name or f"flappy_numeric_{args.obs_mode}"),
     )
 
     
@@ -1096,7 +1102,7 @@ def main():
         help="Legacy option; ignored by current FlappyBird-v0.",
     )
 
-    ap.add_argument("--wandb", action="store_true")
+    ap.add_argument("--wandb", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--wandb-project", type=str, default="flappy_rl_numeric_queue_latency")
     ap.add_argument("--wandb-entity", type=str, default=None)
     ap.add_argument("--wandb-run-name", type=str, default="")
@@ -1110,52 +1116,34 @@ def main():
 
     set_random_seed(args.seed)
 
-    use_wandb = bool(args.wandb)
-    tb_log = "./tb_logs" if use_wandb else None
-    if use_wandb:
-        try:
-            import wandb
-        except Exception as e:
-            print(f"[wandb] wandb not installed or failed to import ({e}). Disabling wandb.")
-            use_wandb = False
-            tb_log = None
-        else:
-            tags = [t.strip() for t in args.wandb_tags.split(",") if t.strip()]
-            wandb.init(
-                project=args.wandb_project,
-                entity=args.wandb_entity,
-                name=(args.wandb_run_name or f"flappy_numeric_queue_{int(time.time())}"),
-                tags=tags,
-                config=vars(args),
-                sync_tensorboard=True,
-                save_code=True,
-            )
-
-    model_path = args.load or args.save
-    if args.train_steps > 0:
-        print(
-            f"[train] steps={args.train_steps} n_envs={args.n_envs} save={args.save} "
-            f"obs_mode={args.obs_mode} latency_mode={args.latency_mode}"
-        )
-        model_path = train(args, use_wandb, tb_log)
-        print(f"[train] saved => {model_path}")
-
-    if args.eval_episodes > 0:
-        for fs in parse_int_list(args.eval_frame_skip_values):
-            returns, lengths = eval_model(args, model_path=model_path, frame_skip=fs)
+    wandb_module = init_wandb(
+        args,
+        default_run_name=f"flappy_numeric_queue_{int(time.time())}",
+    )
+    try:
+        model_path = args.load or args.save
+        if args.train_steps > 0:
             print(
-                f"[eval] frame_skip={fs} "
-                f"mean_return={float(np.mean(returns)):.3f} std_return={float(np.std(returns)):.3f} "
-                f"mean_len={float(np.mean(lengths)):.1f}"
+                f"[train] steps={args.train_steps} n_envs={args.n_envs} save={args.save} "
+                f"obs_mode={args.obs_mode} latency_mode={args.latency_mode}"
             )
+            model_path = train(args, wandb_module)
+            print(f"[train] saved => {model_path}")
 
-    if args.export_episodes > 0:
-        out = export_rollouts(args, model_path=model_path)
-        print(f"[export] wrote => {out}")
+        if args.eval_episodes > 0:
+            for fs in parse_int_list(args.eval_frame_skip_values):
+                returns, lengths = eval_model(args, model_path=model_path, frame_skip=fs)
+                print(
+                    f"[eval] frame_skip={fs} "
+                    f"mean_return={float(np.mean(returns)):.3f} std_return={float(np.std(returns)):.3f} "
+                    f"mean_len={float(np.mean(lengths)):.1f}"
+                )
 
-    if use_wandb:
-        import wandb
-        wandb.finish()
+        if args.export_episodes > 0:
+            out = export_rollouts(args, model_path=model_path)
+            print(f"[export] wrote => {out}")
+    finally:
+        wandb_module.finish()
 
 
 if __name__ == "__main__":

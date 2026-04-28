@@ -10,7 +10,6 @@ pillow==12.1.1
 
 # RL training and experiment tooling.
 stable-baselines3==2.8.0
-tensorboard==2.20.0
 wandb==0.26.1
 
 # Environment backends used by scripts.
