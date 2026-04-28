@@ -2,8 +2,14 @@ unity_logs/
 outputs/
 vizdoom_basic_models/
 wandb/
-models/
-tb_logs/
-distill/
-demon_attack_data/
-flappy_data
+/models/
+eval/
+docs/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# uv
+uv.lock
