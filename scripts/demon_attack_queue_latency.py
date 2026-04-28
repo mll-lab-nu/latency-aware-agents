@@ -14,7 +14,7 @@ from gymnasium import ObservationWrapper
 from gymnasium.spaces import Box, Dict as DictSpace
 
 try:
-    import ale_py  # noqa: F401  # Registers Atari envs for Gymnasium installs that need it
+    import ale_py  # noqa: F401
 except Exception:
     ale_py = None  # type: ignore
 
@@ -22,9 +22,8 @@ import torch
 import torch.nn as nn
 from stable_baselines3 import PPO
 from stable_baselines3.common.atari_wrappers import AtariWrapper
-from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback, CallbackList
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.preprocessing import is_image_space
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -61,7 +60,12 @@ class QueueLatencyWrapper(gym.Wrapper):
 
         if latency_mode == "within_episode_change":
             latency_mode = "within_episode_random"
-        assert latency_mode in {"episode_fixed", "within_episode_random", "within_episode_curriculum"}
+
+        assert latency_mode in {
+            "episode_fixed",
+            "within_episode_random",
+            "within_episode_curriculum",
+        }
         assert latency_sampling_mode in {"uniform_all", "curriculum"}
 
         self.frame_skip_values = [max(0, int(x)) for x in frame_skip_values]
@@ -104,6 +108,7 @@ class QueueLatencyWrapper(gym.Wrapper):
     def _maybe_update_frame_skip_for_this_decision(self) -> None:
         if self.latency_mode == "episode_fixed":
             return
+
         if self.latency_mode == "within_episode_random":
             if self.decision_step_idx == 0:
                 return
@@ -112,6 +117,7 @@ class QueueLatencyWrapper(gym.Wrapper):
             if self.rng.rand() <= self.within_episode_change_prob:
                 self.current_frame_skip = self._sample_frame_skip()
             return
+
         if self.latency_mode == "within_episode_curriculum":
             self.current_frame_skip = self._current_curriculum_frame_skip()
             return
@@ -120,7 +126,10 @@ class QueueLatencyWrapper(gym.Wrapper):
         latency_for_action = int(self.current_frame_skip)
         apply_step = self.env_step_idx + latency_for_action
         self._schedule_seq += 1
-        insort_right(self.pending_actions, (apply_step, self._schedule_seq, int(action), latency_for_action))
+        insort_right(
+            self.pending_actions,
+            (apply_step, self._schedule_seq, int(action), latency_for_action),
+        )
         return apply_step
 
     def _advance_pending_actions(self) -> None:
@@ -143,24 +152,30 @@ class QueueLatencyWrapper(gym.Wrapper):
         obs, info = self.env.reset(**kwargs)
         if not isinstance(info, dict):
             info = {}
+
         info["frame_skip"] = int(self.current_frame_skip)
         info["episode_idx"] = int(self.episode_idx)
         info["latency_mode"] = self.latency_mode
         info["applied_action"] = int(self.current_applied_action)
         info["pending_queue_len"] = 0
+
         self.episode_idx += 1
         return obs, info
 
     def step(self, action):
         self._maybe_update_frame_skip_for_this_decision()
+
         scheduled_delay = int(self.current_frame_skip)
         scheduled_apply_step = self._schedule_action(int(action))
         self._advance_pending_actions()
 
-        obs, reward, terminated, truncated, info = self.env.step(int(self.current_applied_action))
+        obs, reward, terminated, truncated, info = self.env.step(
+            int(self.current_applied_action)
+        )
 
         if not isinstance(info, dict):
             info = {}
+
         info["frame_skip"] = scheduled_delay
         info["decision_step_idx"] = int(self.decision_step_idx)
         info["env_step_idx"] = int(self.env_step_idx)
@@ -172,6 +187,7 @@ class QueueLatencyWrapper(gym.Wrapper):
 
         self.env_step_idx += 1
         self.decision_step_idx += 1
+
         return obs, float(reward), terminated, truncated, info
 
 
@@ -182,8 +198,7 @@ class QueueLatencyWrapper(gym.Wrapper):
 
 class EnvFrameStack(gym.Wrapper):
     """
-    Channel-wise frame stack at the single-env level so it works for both plain image
-    observations and later Dict-based wrappers.
+    Channel-wise frame stack at the single-env level.
     """
 
     def __init__(self, env: gym.Env, n_stack: int = 4):
@@ -195,6 +210,7 @@ class EnvFrameStack(gym.Wrapper):
         self.n_stack = max(1, int(n_stack))
         h, w, c = self.observation_space.shape
         self.frames: deque[np.ndarray] = deque(maxlen=self.n_stack)
+
         self.observation_space = Box(
             low=0,
             high=255,
@@ -209,32 +225,35 @@ class EnvFrameStack(gym.Wrapper):
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         obs_arr = np.asarray(obs, dtype=np.uint8)
+
         self.frames.clear()
         for _ in range(self.n_stack):
             self.frames.append(obs_arr.copy())
+
         return self._get_stacked(), info
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
         obs_arr = np.asarray(obs, dtype=np.uint8)
         self.frames.append(obs_arr.copy())
+
         return self._get_stacked(), reward, terminated, truncated, info
 
 
 class LatencyImageObsWrapper(ObservationWrapper):
     """
-    Appends one grayscale-like channel containing the normalized latency value.
-    The channel is filled with a constant uint8 intensity in [0, 255].
+    Appends one image channel containing normalized latency.
     """
 
     def __init__(self, env: gym.Env, max_frame_skip: int = 15):
         super().__init__(env)
         assert isinstance(self.observation_space, Box), "LatencyImageObsWrapper expects Box obs"
-        assert self.observation_space.dtype == np.uint8, "Expected uint8 image observations"
-        assert len(self.observation_space.shape) == 3, "Expected HWC image observations"
+        assert self.observation_space.dtype == np.uint8
+        assert len(self.observation_space.shape) == 3
 
         h, w, c = self.observation_space.shape
         self.max_frame_skip = max(1, int(max_frame_skip))
+
         self.observation_space = Box(
             low=0,
             high=255,
@@ -247,21 +266,24 @@ class LatencyImageObsWrapper(ObservationWrapper):
         frame_skip = int(_unwrap_attr(self.env, "current_frame_skip", 0))
         skip_norm = min(frame_skip / float(self.max_frame_skip), 1.0)
         skip_value = int(round(skip_norm * 255.0))
+
         latency_plane = np.full(obs_arr.shape[:2] + (1,), skip_value, dtype=np.uint8)
         return np.concatenate([obs_arr, latency_plane], axis=2)
 
 
 class LatencyScalarDictObsWrapper(ObservationWrapper):
     """
-    Dict observation with current image and a separate normalized latency scalar.
+    Dict observation with image and normalized latency scalar.
     """
 
     def __init__(self, env: gym.Env, max_frame_skip: int = 15):
         super().__init__(env)
-        assert isinstance(self.observation_space, Box), "LatencyScalarDictObsWrapper expects Box obs"
-        assert len(self.observation_space.shape) == 3, "Expected HWC image observations"
+        assert isinstance(self.observation_space, Box)
+        assert len(self.observation_space.shape) == 3
+
         image_space = self.observation_space
         self.max_frame_skip = max(1, int(max_frame_skip))
+
         self.observation_space = DictSpace(
             {
                 "image": image_space,
@@ -272,6 +294,7 @@ class LatencyScalarDictObsWrapper(ObservationWrapper):
     def observation(self, obs):
         frame_skip = int(_unwrap_attr(self.env, "current_frame_skip", 0))
         skip_norm = min(frame_skip / float(self.max_frame_skip), 1.0)
+
         return {
             "image": np.asarray(obs, dtype=np.uint8),
             "latency": np.array([skip_norm], dtype=np.float32),
@@ -280,14 +303,7 @@ class LatencyScalarDictObsWrapper(ObservationWrapper):
 
 class MemoryObservationWrapper(gym.Wrapper):
     """
-    Returns a Dict observation containing:
-      - current_image: current stacked image observation
-      - history_images: fixed-length sequence of previous observations
-      - history_actions: fixed-length sequence of previous actions (with padding token)
-      - optional latency: normalized current latency scalar
-
-    The sequence dimension is explicit so a custom features extractor can apply
-    RNN/LSTM/Transformer over the past observations/actions.
+    Dict observation for memory models.
     """
 
     def __init__(
@@ -299,8 +315,8 @@ class MemoryObservationWrapper(gym.Wrapper):
         max_frame_skip: int = 15,
     ):
         super().__init__(env)
-        assert isinstance(self.observation_space, Box), "MemoryObservationWrapper expects Box obs"
-        assert len(self.observation_space.shape) == 3, "Expected HWC image observations"
+        assert isinstance(self.observation_space, Box)
+        assert len(self.observation_space.shape) == 3
 
         self.history_len = max(1, int(history_len))
         self.action_dim = int(action_dim)
@@ -310,6 +326,7 @@ class MemoryObservationWrapper(gym.Wrapper):
 
         image_space = self.observation_space
         h, w, c = image_space.shape
+
         self._current_image: Optional[np.ndarray] = None
         self.history_images: deque[np.ndarray] = deque(maxlen=self.history_len)
         self.history_actions: deque[int] = deque(maxlen=self.history_len)
@@ -329,8 +346,15 @@ class MemoryObservationWrapper(gym.Wrapper):
                 dtype=np.int64,
             ),
         }
+
         if self.include_latency:
-            space_dict["latency"] = Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
+            space_dict["latency"] = Box(
+                low=0.0,
+                high=1.0,
+                shape=(1,),
+                dtype=np.float32,
+            )
+
         self.observation_space = DictSpace(space_dict)
 
     def _latency_value(self) -> np.ndarray:
@@ -340,35 +364,47 @@ class MemoryObservationWrapper(gym.Wrapper):
 
     def _build_obs(self) -> Dict[str, np.ndarray]:
         assert self._current_image is not None
+
         h_imgs = list(self.history_images)
         h_actions = list(self.history_actions)
+
         while len(h_imgs) < self.history_len:
             h_imgs.insert(0, np.zeros_like(self._current_image, dtype=np.uint8))
+
         while len(h_actions) < self.history_len:
             h_actions.insert(0, self.pad_action)
+
         obs: Dict[str, np.ndarray] = {
             "current_image": np.asarray(self._current_image, dtype=np.uint8),
             "history_images": np.stack(h_imgs, axis=0).astype(np.uint8),
             "history_actions": np.asarray(h_actions, dtype=np.int64),
         }
+
         if self.include_latency:
             obs["latency"] = self._latency_value()
+
         return obs
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         self._current_image = np.asarray(obs, dtype=np.uint8)
+
         self.history_images.clear()
         self.history_actions.clear()
+
         return self._build_obs(), info
 
     def step(self, action):
         assert self._current_image is not None
+
         prev_current = self._current_image.copy()
+
         obs, reward, terminated, truncated, info = self.env.step(action)
+
         self.history_images.append(prev_current)
         self.history_actions.append(int(action))
         self._current_image = np.asarray(obs, dtype=np.uint8)
+
         return self._build_obs(), reward, terminated, truncated, info
 
 
@@ -379,10 +415,12 @@ class MemoryObservationWrapper(gym.Wrapper):
 
 def _unwrap_attr(env: gym.Env, attr_name: str, default):
     cur = env
+
     while cur is not None:
         if hasattr(cur, attr_name):
             return getattr(cur, attr_name)
         cur = getattr(cur, "env", None)
+
     return default
 
 
@@ -391,13 +429,6 @@ def parse_int_list(s: str) -> List[int]:
     if not s:
         return []
     return [int(x.strip()) for x in s.split(",") if x.strip()]
-
-
-def parse_int_pair(s: str) -> Tuple[int, int]:
-    values = parse_int_list(s)
-    if len(values) != 2:
-        raise ValueError(f"Expected exactly two integers, got: {s}")
-    return int(values[0]), int(values[1])
 
 
 def parse_float_list(s: str) -> List[float]:
@@ -418,28 +449,18 @@ def linear_schedule(initial_value: float, final_value: Optional[float] = None):
 
 
 def infer_image_space_layout(image_space: Box) -> tuple[str, int, int, int]:
-    """
-    Infer whether a 3D image space is HWC or CHW.
-
-    Heuristic:
-      - if the first dimension looks like a channel count (small) and the
-        last two look like spatial dimensions, treat it as CHW
-      - otherwise treat it as HWC
-    """
     assert isinstance(image_space, Box)
     assert len(image_space.shape) == 3
 
     d0, d1, d2 = [int(x) for x in image_space.shape]
+
     if d0 <= 16 and d1 >= 16 and d2 >= 16:
         return "CHW", d0, d1, d2
+
     return "HWC", d2, d0, d1
 
 
 def maybe_image_to_chw(x: torch.Tensor, image_space: gym.Space) -> torch.Tensor:
-    """
-    Converts image tensors to channel-first when needed.
-    Supports both HWC/CHW for 4D batched tensors and 5D sequence tensors.
-    """
     if not isinstance(image_space, Box) or len(image_space.shape) != 3:
         return x
 
@@ -463,7 +484,8 @@ def maybe_image_to_chw(x: torch.Tensor, image_space: gym.Space) -> torch.Tensor:
 
 
 def compute_cnn_out_dim(conv_net: nn.Module, image_space: Box) -> int:
-    layout, c, h, w = infer_image_space_layout(image_space)
+    _, c, h, w = infer_image_space_layout(image_space)
+
     with torch.no_grad():
         sample = torch.zeros((1, c, h, w), dtype=torch.float32)
         return int(conv_net(sample).shape[1])
@@ -474,6 +496,7 @@ def build_small_cnn_from_space(image_space: Box, feature_dim: int) -> nn.Module:
     assert len(image_space.shape) == 3
 
     _, in_channels, _, _ = infer_image_space_layout(image_space)
+
     conv_net = nn.Sequential(
         nn.Conv2d(in_channels, 32, kernel_size=8, stride=4),
         nn.ReLU(),
@@ -483,7 +506,9 @@ def build_small_cnn_from_space(image_space: Box, feature_dim: int) -> nn.Module:
         nn.ReLU(),
         nn.Flatten(),
     )
+
     conv_out_dim = compute_cnn_out_dim(conv_net, image_space)
+
     return nn.Sequential(
         nn.Conv2d(in_channels, 32, kernel_size=8, stride=4),
         nn.ReLU(),
@@ -522,18 +547,25 @@ class LateFusionExtractor(BaseFeaturesExtractor):
         latency_hidden_dims: Sequence[int] = (32, 32),
     ):
         assert isinstance(observation_space, DictSpace)
+
         self.image_space = observation_space.spaces["image"]
         assert isinstance(self.image_space, Box)
+
         super().__init__(observation_space, features_dim=1)
 
-        self.image_cnn = build_small_cnn_from_space(self.image_space, feature_dim=image_feature_dim)
+        self.image_cnn = build_small_cnn_from_space(
+            self.image_space,
+            feature_dim=image_feature_dim,
+        )
 
         latency_layers: List[nn.Module] = []
         last_dim = 1
+
         for dim in latency_hidden_dims:
             latency_layers.append(nn.Linear(last_dim, int(dim)))
             latency_layers.append(nn.ReLU())
             last_dim = int(dim)
+
         self.latency_mlp = nn.Sequential(*latency_layers) if latency_layers else nn.Identity()
         self.latency_out_dim = last_dim
         self._features_dim = int(image_feature_dim + self.latency_out_dim)
@@ -542,10 +574,12 @@ class LateFusionExtractor(BaseFeaturesExtractor):
         image = observations["image"].float()
         image = maybe_image_to_chw(image, self.image_space)
         image = image / 255.0
+
         image_features = self.image_cnn(image)
 
         latency = observations["latency"].float()
         latency_features = self.latency_mlp(latency)
+
         return torch.cat([image_features, latency_features], dim=1)
 
 
@@ -567,12 +601,15 @@ class MemoryExtractor(BaseFeaturesExtractor):
         use_latency: bool = False,
     ):
         assert isinstance(observation_space, DictSpace)
+
         self.current_image_space = observation_space.spaces["current_image"]
         self.history_image_space = observation_space.spaces["history_images"]
+
         assert isinstance(self.current_image_space, Box)
         assert isinstance(self.history_image_space, Box)
 
         super().__init__(observation_space, features_dim=1)
+
         self.action_dim = int(action_dim)
         self.history_len = int(history_len)
         self.memory_model = str(memory_model)
@@ -580,8 +617,17 @@ class MemoryExtractor(BaseFeaturesExtractor):
         self.use_latency = bool(use_latency and ("latency" in observation_space.spaces))
         self.pad_action = self.action_dim
 
-        self.image_cnn = build_small_cnn_from_space(self.current_image_space, feature_dim=image_feature_dim)
-        self.action_embed = nn.Embedding(self.action_dim + 1, int(action_embed_dim), padding_idx=self.pad_action)
+        self.image_cnn = build_small_cnn_from_space(
+            self.current_image_space,
+            feature_dim=image_feature_dim,
+        )
+
+        self.action_embed = nn.Embedding(
+            self.action_dim + 1,
+            int(action_embed_dim),
+            padding_idx=self.pad_action,
+        )
+
         seq_input_dim = int(image_feature_dim + action_embed_dim)
 
         if self.memory_model == "rnn":
@@ -600,7 +646,10 @@ class MemoryExtractor(BaseFeaturesExtractor):
             )
         elif self.memory_model == "transformer":
             self.sequence_proj = nn.Linear(seq_input_dim, self.memory_hidden_dim)
-            self.pos_embedding = nn.Parameter(torch.zeros(1, self.history_len, self.memory_hidden_dim))
+            self.pos_embedding = nn.Parameter(
+                torch.zeros(1, self.history_len, self.memory_hidden_dim)
+            )
+
             encoder_layer = nn.TransformerEncoderLayer(
                 d_model=self.memory_hidden_dim,
                 nhead=int(transformer_heads),
@@ -608,6 +657,7 @@ class MemoryExtractor(BaseFeaturesExtractor):
                 dropout=float(transformer_dropout),
                 batch_first=True,
             )
+
             self.sequence_model = nn.TransformerEncoder(
                 encoder_layer,
                 num_layers=int(memory_num_layers),
@@ -619,14 +669,19 @@ class MemoryExtractor(BaseFeaturesExtractor):
         self.current_proj = nn.Linear(image_feature_dim, self.memory_hidden_dim)
 
         latency_out_dim = 0
+
         if self.use_latency:
             latency_layers: List[nn.Module] = []
             last_dim = 1
+
             for dim in latency_hidden_dims:
                 latency_layers.append(nn.Linear(last_dim, int(dim)))
                 latency_layers.append(nn.ReLU())
                 last_dim = int(dim)
-            self.latency_mlp = nn.Sequential(*latency_layers) if latency_layers else nn.Identity()
+
+            self.latency_mlp = (
+                nn.Sequential(*latency_layers) if latency_layers else nn.Identity()
+            )
             latency_out_dim = last_dim
         else:
             self.latency_mlp = None
@@ -635,25 +690,36 @@ class MemoryExtractor(BaseFeaturesExtractor):
 
     def _encode_images(self, images: torch.Tensor, image_space: Box) -> torch.Tensor:
         images = images.float()
+
         if images.ndim == 4:
             images = maybe_image_to_chw(images, image_space)
             images = images / 255.0
             return self.image_cnn(images)
+
         if images.ndim == 5:
             images = maybe_image_to_chw(images, image_space)
-            if images.ndim != 5:
-                raise ValueError(f"Unexpected sequence image tensor shape after conversion: {tuple(images.shape)}")
             b, t, c, h, w = images.shape
             flat = images.reshape(b * t, c, h, w).contiguous().float() / 255.0
             enc = self.image_cnn(flat)
             return enc.view(b, t, -1)
+
         raise ValueError(f"Unexpected image tensor shape: {tuple(images.shape)}")
 
-    def _gather_last_valid(self, seq_out: torch.Tensor, valid_mask: torch.Tensor) -> torch.Tensor:
+    def _gather_last_valid(
+        self,
+        seq_out: torch.Tensor,
+        valid_mask: torch.Tensor,
+    ) -> torch.Tensor:
         lengths = valid_mask.long().sum(dim=1)
         last_idx = torch.clamp(lengths - 1, min=0)
-        gathered = seq_out[torch.arange(seq_out.shape[0], device=seq_out.device), last_idx]
+
+        gathered = seq_out[
+            torch.arange(seq_out.shape[0], device=seq_out.device),
+            last_idx,
+        ]
+
         zero_mask = (lengths == 0).unsqueeze(1)
+
         return torch.where(zero_mask, torch.zeros_like(gathered), gathered)
 
     def forward(self, observations: Dict[str, torch.Tensor]) -> torch.Tensor:
@@ -666,21 +732,21 @@ class MemoryExtractor(BaseFeaturesExtractor):
 
         history_img_feat = self._encode_images(history_images, self.current_image_space)
         action_feat = self.action_embed(history_actions)
-        seq_inputs = torch.cat([history_img_feat, action_feat], dim=-1)
 
+        seq_inputs = torch.cat([history_img_feat, action_feat], dim=-1)
         valid_mask = history_actions != self.pad_action
 
         if self.memory_model in {"rnn", "lstm"}:
             seq_out, _ = self.sequence_model(seq_inputs)
             memory_feat = self._gather_last_valid(seq_out, valid_mask)
         else:
-            seq_proj = self.sequence_proj(seq_inputs) + self.pos_embedding[:, : seq_inputs.shape[1], :]
-            key_padding_mask = ~valid_mask
+            seq_proj = self.sequence_proj(seq_inputs) + self.pos_embedding[
+                :, : seq_inputs.shape[1], :
+            ]
 
-            # PyTorch TransformerEncoder can fail when an entire sequence is padding.
-            # This happens at the beginning of episodes before any past actions exist.
-            # For those rows, force the first token to be attendable with a zero vector.
+            key_padding_mask = ~valid_mask
             all_pad_rows = key_padding_mask.all(dim=1)
+
             if all_pad_rows.any():
                 seq_proj = seq_proj.clone()
                 key_padding_mask = key_padding_mask.clone()
@@ -691,9 +757,11 @@ class MemoryExtractor(BaseFeaturesExtractor):
             memory_feat = self._gather_last_valid(seq_out, valid_mask)
 
         pieces = [current_feat, memory_feat]
+
         if self.use_latency and self.latency_mlp is not None:
             latency_feat = self.latency_mlp(observations["latency"].float())
             pieces.append(latency_feat)
+
         return torch.cat(pieces, dim=1)
 
 
@@ -712,12 +780,16 @@ def maybe_apply_obs_mode(
 ) -> gym.Env:
     if obs_mode == "latency_channel":
         return LatencyImageObsWrapper(env, max_frame_skip=max_frame_skip)
+
     if obs_mode == "image_only":
         return env
+
     if obs_mode == "late_fusion":
         return LatencyScalarDictObsWrapper(env, max_frame_skip=max_frame_skip)
+
     if obs_mode == "memory":
-        assert isinstance(env.action_space, gym.spaces.Discrete), "Memory mode expects discrete action space"
+        assert isinstance(env.action_space, gym.spaces.Discrete)
+
         if memory_latency_repr == "channel":
             env = LatencyImageObsWrapper(env, max_frame_skip=max_frame_skip)
             return MemoryObservationWrapper(
@@ -727,6 +799,7 @@ def maybe_apply_obs_mode(
                 include_latency=False,
                 max_frame_skip=max_frame_skip,
             )
+
         if memory_latency_repr == "none":
             return MemoryObservationWrapper(
                 env,
@@ -735,6 +808,7 @@ def maybe_apply_obs_mode(
                 include_latency=False,
                 max_frame_skip=max_frame_skip,
             )
+
         return MemoryObservationWrapper(
             env,
             history_len=history_len,
@@ -742,6 +816,7 @@ def maybe_apply_obs_mode(
             include_latency=memory_use_latency,
             max_frame_skip=max_frame_skip,
         )
+
     raise ValueError(f"Unsupported obs_mode: {obs_mode}")
 
 
@@ -780,7 +855,7 @@ def make_env(
         env = AtariWrapper(
             env,
             noop_max=noop_max,
-            frame_skip=1,
+            frame_skip=4,
             screen_size=screen_size,
             terminal_on_life_loss=terminal_on_life_loss,
             clip_reward=clip_reward,
@@ -788,6 +863,7 @@ def make_env(
         )
 
         latency_values = [0] if frame_skip_values is None else frame_skip_values
+
         env = QueueLatencyWrapper(
             env,
             frame_skip_values=latency_values,
@@ -814,6 +890,7 @@ def make_env(
 
         env = Monitor(env)
         env.reset(seed=seed)
+
         return env
 
     return _init
@@ -867,16 +944,16 @@ def make_vec_demon_attack(
         )
         for i in range(n_envs)
     ]
+
     return SubprocVecEnv(env_fns, start_method="fork")
 
 
 # =========================
-# Train / eval / export
+# Policy config
 # =========================
 
 
 def build_policy_config(args, sample_env: gym.Env):
-    obs_space = sample_env.observation_space
     if args.include_latency_obs and args.obs_mode == "image_only":
         obs_mode = "latency_channel"
     else:
@@ -917,7 +994,9 @@ def build_policy_config(args, sample_env: gym.Env):
                 transformer_ff_dim=args.transformer_ff_dim,
                 transformer_dropout=args.transformer_dropout,
                 latency_hidden_dims=parse_int_list(args.latency_hidden_dims),
-                use_latency=(args.memory_use_latency and args.memory_latency_repr == "separate"),
+                use_latency=(
+                    args.memory_use_latency and args.memory_latency_repr == "separate"
+                ),
             ),
         )
         return policy, policy_kwargs, obs_mode
@@ -925,10 +1004,27 @@ def build_policy_config(args, sample_env: gym.Env):
     raise ValueError(f"Unsupported obs_mode: {obs_mode}")
 
 
+# =========================
+# Train / eval / export
+# =========================
+
+
+def make_eval_clip_reward(args) -> bool:
+    return False if args.eval_raw_reward else bool(args.clip_reward)
+
+
 def train(args, use_wandb: bool, tb_log: Optional[str]):
     set_random_seed(args.seed)
+
     frame_skip_values = parse_int_list(args.frame_skip_values)
     os.makedirs(os.path.dirname(args.save) or ".", exist_ok=True)
+
+    train_clip_reward = bool(args.clip_reward)
+    eval_clip_reward = make_eval_clip_reward(args)
+
+    print(f"[reward] train_clip_reward={train_clip_reward}")
+    print(f"[reward] eval_clip_reward={eval_clip_reward}")
+    print(f"[reward] eval_raw_reward={args.eval_raw_reward}")
 
     venv = make_vec_demon_attack(
         n_envs=args.n_envs,
@@ -944,7 +1040,7 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         within_episode_change_prob=args.within_episode_change_prob,
         screen_size=args.screen_size,
         noop_max=args.noop_max,
-        clip_reward=args.clip_reward,
+        clip_reward=train_clip_reward,
         terminal_on_life_loss=args.terminal_on_life_loss,
         repeat_action_probability=args.repeat_action_probability,
         full_action_space=args.full_action_space,
@@ -954,7 +1050,6 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         memory_latency_repr=args.memory_latency_repr,
     )
 
-    # Build policy config from a single non-vectorized env to inspect spaces/action dim.
     sample_env = make_env(
         seed=args.seed,
         env_id=args.env_id,
@@ -968,7 +1063,7 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         within_episode_change_prob=args.within_episode_change_prob,
         screen_size=args.screen_size,
         noop_max=args.noop_max,
-        clip_reward=args.clip_reward,
+        clip_reward=train_clip_reward,
         terminal_on_life_loss=args.terminal_on_life_loss,
         repeat_action_probability=args.repeat_action_probability,
         full_action_space=args.full_action_space,
@@ -977,6 +1072,7 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         memory_use_latency=args.memory_use_latency,
         memory_latency_repr=args.memory_latency_repr,
     )()
+
     policy, policy_kwargs, resolved_obs_mode = build_policy_config(args, sample_env)
     sample_env.close()
 
@@ -1016,23 +1112,106 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
             policy_kwargs=policy_kwargs,
         )
 
+    checkpoint_save_freq = max(1, int(args.checkpoint_freq) // max(1, int(args.n_envs)))
+
     checkpoint_callback = CheckpointCallback(
-        save_freq=max(1, args.checkpoint_freq),
+        save_freq=checkpoint_save_freq,
         save_path=os.path.dirname(args.save) or ".",
         name_prefix=os.path.basename(args.save).replace(".zip", ""),
         save_replay_buffer=False,
         save_vecnormalize=False,
     )
 
-    model.learn(
-        total_timesteps=int(args.train_steps),
-        callback=checkpoint_callback,
-        log_interval=1,
-        tb_log_name=(args.wandb_run_name or f"demon_attack_{resolved_obs_mode}"),
+    callbacks = [checkpoint_callback]
+    eval_venv = None
+
+    if args.mid_eval:
+        mid_eval_frame_skip_values = parse_int_list(args.mid_eval_frame_skip_values)
+
+        if len(mid_eval_frame_skip_values) != 1:
+            raise ValueError(
+                "--mid-eval currently supports exactly one frame skip value. "
+                "Use final --eval-frame-skip-values for the full sweep."
+            )
+
+        eval_fs = int(mid_eval_frame_skip_values[0])
+        eval_reward_tag = "rawreward" if args.eval_raw_reward else "clippedreward"
+
+        eval_venv = make_vec_demon_attack(
+            n_envs=1,
+            seed=args.seed + 10_000,
+            env_id=args.env_id,
+            obs_mode=args.obs_mode,
+            frame_skip_values=[eval_fs],
+            episodes_per_stage=10**9,
+            randomize_within_stage=False,
+            latency_mode="episode_fixed",
+            latency_sampling_mode="uniform_all",
+            within_episode_change_interval=1,
+            within_episode_change_prob=1.0,
+            screen_size=args.screen_size,
+            noop_max=args.noop_max,
+            clip_reward=eval_clip_reward,
+            terminal_on_life_loss=args.terminal_on_life_loss,
+            repeat_action_probability=args.repeat_action_probability,
+            full_action_space=args.full_action_space,
+            stack_frames=args.stack_frames,
+            history_len=args.history_len,
+            memory_use_latency=args.memory_use_latency,
+            memory_latency_repr=args.memory_latency_repr,
+        )
+
+        eval_dir = os.path.join(
+            os.path.dirname(args.save) or ".",
+            f"mid_eval_fs{eval_fs}_{eval_reward_tag}",
+        )
+        os.makedirs(eval_dir, exist_ok=True)
+
+        eval_freq_calls = max(1, int(args.mid_eval_freq) // max(1, int(args.n_envs)))
+
+        eval_callback = EvalCallback(
+            eval_venv,
+            best_model_save_path=eval_dir,
+            log_path=eval_dir,
+            eval_freq=eval_freq_calls,
+            n_eval_episodes=int(args.mid_eval_episodes),
+            deterministic=True,
+            render=False,
+            verbose=1,
+        )
+
+        callbacks.append(eval_callback)
+
+        print(
+            f"[mid-eval] enabled frame_skip={eval_fs} "
+            f"reward_tag={eval_reward_tag} "
+            f"clip_reward={eval_clip_reward} "
+            f"freq_timesteps~={args.mid_eval_freq} "
+            f"freq_calls={eval_freq_calls} "
+            f"episodes={args.mid_eval_episodes} "
+            f"dir={eval_dir}"
+        )
+
+    print(
+        f"[checkpoint] save_dir={os.path.dirname(args.save) or '.'} "
+        f"freq_timesteps~={args.checkpoint_freq} "
+        f"freq_calls={checkpoint_save_freq}"
     )
+
+    try:
+        model.learn(
+            total_timesteps=int(args.train_steps),
+            callback=CallbackList(callbacks),
+            log_interval=1,
+            tb_log_name=(args.wandb_run_name or f"demon_attack_{resolved_obs_mode}"),
+        )
+    finally:
+        if eval_venv is not None:
+            eval_venv.close()
 
     model.save(args.save)
     venv.close()
+
     return args.save
 
 
@@ -1083,21 +1262,28 @@ def eval_model(
 
     returns: List[float] = []
     lengths: List[int] = []
+
     for _ in range(episodes):
         obs = venv.reset()
         done = False
         ep_ret = 0.0
         ep_len = 0
-        while (not done) and (max_steps_per_episode <= 0 or ep_len < max_steps_per_episode):
+
+        while (not done) and (
+            max_steps_per_episode <= 0 or ep_len < max_steps_per_episode
+        ):
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, done_vec, infos = venv.step(action)
+
             done = bool(done_vec[0])
             ep_ret += float(reward[0])
             ep_len += 1
+
         returns.append(ep_ret)
         lengths.append(ep_len)
 
     venv.close()
+
     return returns, lengths
 
 
@@ -1153,6 +1339,7 @@ def export_rollouts(
 
     for ep in range(episodes):
         meta_path = os.path.join(meta_root, f"episode_{ep:04d}.jsonl")
+
         obs = venv.reset()
         done = False
         t = 0
@@ -1161,6 +1348,7 @@ def export_rollouts(
             while (not done) and t < max_steps:
                 action, _ = model.predict(obs, deterministic=True)
                 next_obs, reward_vec, done_vec, info_vec = venv.step(action)
+
                 done = bool(done_vec[0])
                 reward = float(reward_vec[0])
                 info = info_vec[0] if isinstance(info_vec, (list, tuple)) else {}
@@ -1173,11 +1361,14 @@ def export_rollouts(
                     "done": done,
                     "info": serialize_jsonable(info if isinstance(info, dict) else {}),
                 }
+
                 mf.write(json.dumps(record) + "\n")
+
                 obs = next_obs
                 t += 1
 
     venv.close()
+
     return outdir
 
 
@@ -1196,16 +1387,46 @@ def main():
     ap.add_argument("--save", type=str, default="./models/ppo_demon_attack_queue_latency.zip")
     ap.add_argument("--load", type=str, default="")
     ap.add_argument("--device", type=str, default="auto")
-    ap.add_argument("--checkpoint-freq", type=int, default=25_000)
 
+    ap.add_argument(
+        "--checkpoint-freq",
+        type=int,
+        default=25_000,
+        help="Checkpoint frequency in total env timesteps. Internally divided by n_envs.",
+    )
+
+    # Mid-training eval
+    ap.add_argument("--mid-eval", action="store_true")
+    ap.add_argument(
+        "--mid-eval-freq",
+        type=int,
+        default=250_000,
+        help="Mid-eval frequency in total env timesteps. Internally divided by n_envs.",
+    )
+    ap.add_argument("--mid-eval-episodes", type=int, default=5)
+    ap.add_argument(
+        "--mid-eval-frame-skip-values",
+        type=str,
+        default="0",
+        help="Exactly one latency value for periodic EvalCallback, e.g. '0'.",
+    )
+
+    # Final eval
     ap.add_argument("--eval-episodes", type=int, default=0)
     ap.add_argument(
         "--eval-frame-skip-values",
         type=str,
         default="0,1,2,3,4,5",
-        help="Comma-separated latency values to evaluate on",
+    )
+    ap.add_argument("--eval-max-steps", type=int, default=0)
+
+    ap.add_argument(
+        "--eval-raw-reward",
+        action="store_true",
+        help="Use unclipped rewards for mid/final eval even if training uses --clip-reward.",
     )
 
+    # Export
     ap.add_argument("--export-episodes", type=int, default=0)
     ap.add_argument("--export-max-steps", type=int, default=5000)
     ap.add_argument("--export-frame-skip", type=int, default=0)
@@ -1240,36 +1461,25 @@ def main():
         type=str,
         default="latency_channel",
         choices=["latency_channel", "image_only", "late_fusion", "memory"],
-        help=(
-            "latency_channel = append latency as image channel; "
-            "image_only = no explicit latency; "
-            "late_fusion = separate CNN image + latency MLP; "
-            "memory = current image + history of obs/actions with RNN/LSTM/Transformer"
-        ),
     )
-    ap.add_argument(
-        "--include-latency-obs",
-        action="store_true",
-        help="Legacy alias. If used with --obs-mode image_only, it switches to latency_channel.",
-    )
+    ap.add_argument("--include-latency-obs", action="store_true")
     ap.add_argument("--image-feature-dim", type=int, default=256)
     ap.add_argument("--latency-hidden-dims", type=str, default="32,32")
 
     # Memory mode
     ap.add_argument("--history-len", type=int, default=8)
-    ap.add_argument("--memory-model", type=str, default="lstm", choices=["rnn", "lstm", "transformer"])
+    ap.add_argument(
+        "--memory-model",
+        type=str,
+        default="lstm",
+        choices=["rnn", "lstm", "transformer"],
+    )
     ap.add_argument("--memory-use-latency", action="store_true")
     ap.add_argument(
         "--memory-latency-repr",
         type=str,
         default="separate",
         choices=["none", "separate", "channel"],
-        help=(
-            "How latency is represented in memory mode: "
-            "none = no explicit latency, "
-            "separate = latency scalar/MLP fusion, "
-            "channel = append latency as an image channel before building memory history"
-        ),
     )
     ap.add_argument("--action-embed-dim", type=int, default=32)
     ap.add_argument("--memory-hidden-dim", type=int, default=256)
@@ -1283,7 +1493,7 @@ def main():
         "--frame-skip-values",
         type=str,
         default="0,1,2,3,4,5",
-        help="Comma-separated action-delay values in frames. For delay K, action chosen at t is applied at t+K.",
+        help="Comma-separated action-delay values. For K, action at t is applied at t+K.",
     )
     ap.add_argument("--episodes-per-stage", type=int, default=10)
     ap.add_argument("--randomize-within-stage", action="store_true")
@@ -1291,29 +1501,20 @@ def main():
         "--latency-mode",
         type=str,
         default="episode_fixed",
-        choices=["episode_fixed", "within_episode_random", "within_episode_curriculum", "within_episode_change"],
-        help=(
-            "episode_fixed: one latency per episode; "
-            "within_episode_random: resample latency inside episode; "
-            "within_episode_curriculum: increase latency step-by-step through provided range"
-        ),
+        choices=[
+            "episode_fixed",
+            "within_episode_random",
+            "within_episode_curriculum",
+            "within_episode_change",
+        ],
     )
     ap.add_argument(
         "--latency-sampling-mode",
         type=str,
         default="uniform_all",
         choices=["uniform_all", "curriculum"],
-        help="For episode_fixed / within_episode_random sampling across the provided latency values",
     )
-    ap.add_argument(
-        "--within-episode-change-interval",
-        type=int,
-        default=1,
-        help=(
-            "For within_episode_random: number of decision steps between possible resamples. "
-            "For within_episode_curriculum: number of decision steps spent at each latency before moving to the next one."
-        ),
-    )
+    ap.add_argument("--within-episode-change-interval", type=int, default=1)
     ap.add_argument("--within-episode-change-prob", type=float, default=1.0)
 
     # Logging
@@ -1322,7 +1523,6 @@ def main():
     ap.add_argument("--wandb-entity", type=str, default=None)
     ap.add_argument("--wandb-run-name", type=str, default="")
     ap.add_argument("--wandb-tags", type=str, default="")
-    ap.add_argument("--eval-max-steps", type=int, default=0)
 
     args = ap.parse_args()
 
@@ -1339,16 +1539,19 @@ def main():
 
     use_wandb = bool(args.wandb)
     tb_log = "./tb_logs" if use_wandb else None
+    wandb_run = None
+
     if use_wandb:
         try:
             import wandb
         except Exception as e:
-            print(f"[wandb] wandb not installed or failed to import ({e}). Disabling wandb.")
+            print(f"[wandb] failed to import wandb ({e}). Disabling wandb.")
             use_wandb = False
             tb_log = None
+            wandb_run = None
         else:
             tags = [t.strip() for t in args.wandb_tags.split(",") if t.strip()]
-            wandb.init(
+            wandb_run = wandb.init(
                 project=args.wandb_project,
                 entity=args.wandb_entity,
                 name=(args.wandb_run_name or f"demon_attack_queue_{int(time.time())}"),
@@ -1359,16 +1562,31 @@ def main():
             )
 
     model_path = args.load or args.save
+
     if args.train_steps > 0:
         print(
-            f"[train] steps={args.train_steps} n_envs={args.n_envs} save={args.save} "
-            f"obs_mode={args.obs_mode} latency_mode={args.latency_mode}"
+            f"[train] steps={args.train_steps} "
+            f"n_envs={args.n_envs} "
+            f"save={args.save} "
+            f"obs_mode={args.obs_mode} "
+            f"latency_mode={args.latency_mode}"
         )
+
         model_path = train(args, use_wandb, tb_log)
+
         print(f"[train] saved => {model_path}")
 
     if args.eval_episodes > 0:
         eval_frame_skips = parse_int_list(args.eval_frame_skip_values)
+        eval_clip_reward = make_eval_clip_reward(args)
+        eval_reward_tag = "raw" if args.eval_raw_reward else "clipped"
+
+        print(
+            f"[final-eval] episodes={args.eval_episodes} "
+            f"clip_reward={eval_clip_reward} "
+            f"reward_tag={eval_reward_tag}"
+        )
+
         for fs in eval_frame_skips:
             returns, lengths = eval_model(
                 model_path=model_path,
@@ -1382,21 +1600,37 @@ def main():
                 memory_latency_repr=args.memory_latency_repr,
                 screen_size=args.screen_size,
                 noop_max=args.noop_max,
-                clip_reward=args.clip_reward,
+                clip_reward=eval_clip_reward,
                 terminal_on_life_loss=args.terminal_on_life_loss,
                 repeat_action_probability=args.repeat_action_probability,
                 full_action_space=args.full_action_space,
                 stack_frames=args.stack_frames,
                 max_steps_per_episode=args.eval_max_steps,
             )
+
+            mean_return = float(np.mean(returns))
+            std_return = float(np.std(returns))
+            mean_len = float(np.mean(lengths))
+
             print(
-                f"[eval] frame_skip={fs} "
-                f"mean_return={float(np.mean(returns)):.3f} std_return={float(np.std(returns)):.3f} "
-                f"mean_len={float(np.mean(lengths)):.1f}"
+                f"[eval] reward={eval_reward_tag} frame_skip={fs} "
+                f"mean_return={mean_return:.3f} "
+                f"std_return={std_return:.3f} "
+                f"mean_len={mean_len:.1f}"
             )
+
+            if wandb_run is not None:
+                wandb_run.log(
+                    {
+                        f"final_eval/{eval_reward_tag}/fs_{fs}/mean_return": mean_return,
+                        f"final_eval/{eval_reward_tag}/fs_{fs}/std_return": std_return,
+                        f"final_eval/{eval_reward_tag}/fs_{fs}/mean_len": mean_len,
+                    }
+                )
 
     if args.export_episodes > 0:
         print(f"[export] episodes={args.export_episodes} outdir={args.outdir}")
+
         out = export_rollouts(
             model_path=model_path,
             outdir=args.outdir,
@@ -1417,12 +1651,11 @@ def main():
             full_action_space=args.full_action_space,
             stack_frames=args.stack_frames,
         )
+
         print(f"[export] wrote => {out}")
 
-    if use_wandb:
-        import wandb
-
-        wandb.finish()
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 if __name__ == "__main__":

@@ -65,6 +65,6 @@ python "${PY_SCRIPT}" \
   --train-steps 0 \
   --load "${MODEL_SAVE}" \
   --obs-mode image_only \
-  --eval-episodes 5 \
+  --eval-episodes 100 \
   --eval-frame-skip-values 0,1,2,3,4,5,10,15 \
   --eval-max-steps 30000
