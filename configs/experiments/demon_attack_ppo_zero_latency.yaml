@@ -1,0 +1,18 @@
+__base__: ../base/demon_attack.yaml
+
+experiment:
+  name: demon_attack_ppo_zero_latency
+  num_episodes: 10
+  max_env_steps: 10000
+
+latency:
+  type: zero
+
+policy:
+  type: demon_attack_ppo
+  checkpoint_path: results/checkpoints/demon_attack_ppo/demon_attack_ppo.pt
+  device: auto
+  deterministic: true
+
+logging:
+  output_dir: outputs/demon_attack_ppo_zero_latency
