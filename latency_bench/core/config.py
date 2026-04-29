@@ -86,6 +86,8 @@ def validate_config(config: dict) -> None:
     _require_field(experiment, "name")
     executor_mode = _require_field(executor, "mode")
     _validate_enum_value(executor_mode, ExecutorMode, "executor.mode")
+    if "max_pending_observations" in executor and int(executor["max_pending_observations"]) <= 0:
+        raise ValueError("executor.max_pending_observations must be positive")
 
     _require_field(env, "name")
     fps_env = _require_field(env, "fps_env")

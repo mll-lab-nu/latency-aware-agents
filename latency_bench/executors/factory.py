@@ -7,7 +7,10 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ExecutorMode, LatencySourceType, PersistenceMode, StaleActionMode
 from latency_bench.envs.factory import build_env_adapter
+from latency_bench.executors.paused import PausedLatencyExecutor
+from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
+from latency_bench.latency.profiler import LatencyProfiler
 from latency_bench.latency.sources import (
     FixedLatencySource,
     LatencySource,
@@ -94,6 +97,86 @@ def _build_simulated_executor(config: dict[str, Any]) -> SimulatedLatencyExecuto
         action_scheduler=action_scheduler,
         clock=clock,
         logger=logger,
+    )
+
+
+@register_executor(ExecutorMode.PAUSED)
+def _build_paused_executor(config: dict[str, Any]) -> PausedLatencyExecutor:
+    control_cfg = config["control"]
+    scheduler_cfg = config["scheduler"]
+
+    action_resolver = ActionResolver(config["env"])
+    noop_action = action_resolver.noop_action
+    env = build_env_adapter(config, noop_action)
+    clock = EnvClock(fps_env=env.fps_env)
+    policy = build_policy(config, action_resolver)
+    decision_scheduler = _build_decision_scheduler(control_cfg, env.fps_env)
+    latency_source = _build_latency_source(config["latency"])
+    persistence_policy = _build_persistence_policy(scheduler_cfg)
+    action_scheduler = ActionScheduler(
+        clock=clock,
+        noop_action=noop_action,
+        persistence_policy=persistence_policy,
+        stale_action_mode=StaleActionMode(scheduler_cfg.get("stale_action_mode", StaleActionMode.LATEST_READY.value)),
+        expiration_ms=scheduler_cfg.get("expiration_ms"),
+    )
+    logger = TrajectoryLogger(config["logging"]["output_dir"])
+    return PausedLatencyExecutor(
+        env=env,
+        policy=policy,
+        observation_builder=ObservationBuilder(),
+        history=HistoryBuffer(max_len=int(control_cfg.get("history_len", 16))),
+        decision_scheduler=decision_scheduler,
+        latency_source=latency_source,
+        action_scheduler=action_scheduler,
+        clock=clock,
+        logger=logger,
+    )
+
+
+@register_executor(ExecutorMode.REALTIME)
+def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
+    control_cfg = config["control"]
+    scheduler_cfg = config["scheduler"]
+    executor_cfg = config["executor"]
+
+    action_resolver = ActionResolver(config["env"])
+    noop_action = action_resolver.noop_action
+    env = build_env_adapter(config, noop_action)
+    clock = EnvClock(fps_env=env.fps_env)
+    policy = build_policy(config, action_resolver)
+    decision_scheduler = _build_decision_scheduler(control_cfg, env.fps_env)
+    latency_cfg = config["latency"]
+    latency_profiler = None
+    if latency_cfg.get("type", LatencySourceType.ZERO.value) == LatencySourceType.MEASURED.value:
+        latency_source = ZeroLatencySource()
+        latency_profiler = LatencyProfiler(
+            device=latency_cfg.get("device"),
+            sync_cuda=bool(latency_cfg.get("sync_cuda", True)),
+        )
+    else:
+        latency_source = _build_latency_source(latency_cfg)
+    persistence_policy = _build_persistence_policy(scheduler_cfg)
+    action_scheduler = ActionScheduler(
+        clock=clock,
+        noop_action=noop_action,
+        persistence_policy=persistence_policy,
+        stale_action_mode=StaleActionMode(scheduler_cfg.get("stale_action_mode", StaleActionMode.LATEST_READY.value)),
+        expiration_ms=scheduler_cfg.get("expiration_ms"),
+    )
+    logger = TrajectoryLogger(config["logging"]["output_dir"])
+    return RealtimeLatencyExecutor(
+        env=env,
+        policy=policy,
+        observation_builder=ObservationBuilder(),
+        history=HistoryBuffer(max_len=int(control_cfg.get("history_len", 16))),
+        decision_scheduler=decision_scheduler,
+        latency_source=latency_source,
+        action_scheduler=action_scheduler,
+        clock=clock,
+        logger=logger,
+        max_pending_observations=int(executor_cfg.get("max_pending_observations", 16)),
+        latency_profiler=latency_profiler,
     )
 
 
