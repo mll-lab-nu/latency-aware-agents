@@ -13,6 +13,7 @@ env:
   fps_env: 60
   screen_size: 84
   noop_max: 30
+  action_repeat: 1
   terminal_on_life_loss: false
   clip_reward: true
   repeat_action_probability: 0.0

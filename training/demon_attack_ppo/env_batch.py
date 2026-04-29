@@ -91,6 +91,7 @@ def make_demon_attack_env(
     frame_skip_values: Sequence[int] = (0,),
     screen_size: int = 84,
     noop_max: int = 30,
+    action_repeat: int = 1,
     terminal_on_life_loss: bool = False,
     clip_reward: bool = True,
     repeat_action_probability: float = 0.0,
@@ -99,6 +100,10 @@ def make_demon_attack_env(
     _register_ale()
 
     from stable_baselines3.common.atari_wrappers import AtariWrapper
+
+    action_repeat = int(action_repeat)
+    if action_repeat < 1:
+        raise ValueError("action_repeat must be >= 1")
 
     env = gym.make(
         env_id,
@@ -111,7 +116,7 @@ def make_demon_attack_env(
     env = AtariWrapper(
         env,
         noop_max=int(noop_max),
-        frame_skip=1,
+        frame_skip=action_repeat,
         screen_size=int(screen_size),
         terminal_on_life_loss=bool(terminal_on_life_loss),
         clip_reward=bool(clip_reward),
@@ -141,6 +146,7 @@ class SyncDemonAttackBatch:
         env_id: str = "ALE/DemonAttack-v5",
         screen_size: int = 84,
         noop_max: int = 30,
+        action_repeat: int = 1,
         terminal_on_life_loss: bool = False,
         clip_reward: bool = True,
         repeat_action_probability: float = 0.0,
@@ -150,6 +156,9 @@ class SyncDemonAttackBatch:
         self.device = torch.device(device)
         self.episode_returns = np.zeros(int(n_envs), dtype=np.float32)
         self.episode_lengths = np.zeros(int(n_envs), dtype=np.int32)
+        action_repeat = int(action_repeat)
+        if action_repeat < 1:
+            raise ValueError("action_repeat must be >= 1")
         if env_fns is not None:
             self.envs = [fn() for fn in env_fns]
         else:
@@ -160,6 +169,7 @@ class SyncDemonAttackBatch:
                     frame_skip_values=frame_skip_values,
                     screen_size=screen_size,
                     noop_max=noop_max,
+                    action_repeat=action_repeat,
                     terminal_on_life_loss=terminal_on_life_loss,
                     clip_reward=clip_reward,
                     repeat_action_probability=repeat_action_probability,

@@ -9,9 +9,9 @@ from latency_bench.core.types import ExecutorMode, LatencySourceType, Persistenc
 from latency_bench.envs.factory import build_env_adapter
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.latency.sources import (
-    EmpiricalDistributionLatencySource,
     FixedLatencySource,
     LatencySource,
+    NormalDistributionLatencySource,
     TraceReplayLatencySource,
     ZeroLatencySource,
 )
@@ -113,10 +113,13 @@ def _build_latency_source(latency_cfg: dict[str, Any]) -> LatencySource:
         return ZeroLatencySource()
     if latency_type == LatencySourceType.FIXED.value:
         return FixedLatencySource(float(latency_cfg["fixed_latency_ms"]))
-    if latency_type == LatencySourceType.EMPIRICAL_DISTRIBUTION.value:
-        return EmpiricalDistributionLatencySource(
-            latency_values_ms=latency_cfg["latency_values_ms"],
+    if latency_type == LatencySourceType.NORMAL_DISTRIBUTION.value:
+        return NormalDistributionLatencySource(
+            mean_latency_ms=float(latency_cfg["mean_latency_ms"]),
+            std_latency_ms=float(latency_cfg["std_latency_ms"]),
             seed=latency_cfg.get("seed"),
+            min_latency_ms=float(latency_cfg.get("min_latency_ms", 0.0)),
+            max_latency_ms=latency_cfg.get("max_latency_ms"),
         )
     if latency_type == LatencySourceType.TRACE_REPLAY.value:
         return TraceReplayLatencySource(

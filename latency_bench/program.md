@@ -117,7 +117,7 @@ class StaleActionMode(str, Enum):
 class LatencySourceType(str, Enum):
     ZERO = "zero"
     FIXED = "fixed"
-    EMPIRICAL_DISTRIBUTION = "empirical_distribution"
+    NORMAL_DISTRIBUTION = "normal_distribution"
     TRACE_REPLAY = "trace_replay"
     MEASURED = "measured"
 ```
@@ -524,7 +524,7 @@ class ZeroLatencySource(LatencySource):
 class FixedLatencySource(LatencySource):
     ...
 
-class EmpiricalDistributionLatencySource(LatencySource):
+class NormalDistributionLatencySource(LatencySource):
     ...
 
 class TraceReplayLatencySource(LatencySource):
@@ -538,7 +538,7 @@ Behavior:
 
 * `ZeroLatencySource` always returns `0.0`.
 * `FixedLatencySource` always returns `fixed_latency_ms`.
-* `EmpiricalDistributionLatencySource` samples from a list of latency values.
+* `NormalDistributionLatencySource` samples from a clamped normal distribution.
 * `TraceReplayLatencySource` reads a JSONL file with records containing `latency_ms`.
 * `MeasuredLatencySource` wraps a `LatencyProfiler`.
 

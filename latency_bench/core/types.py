@@ -25,7 +25,7 @@ class StaleActionMode(str, Enum):
 class LatencySourceType(str, Enum):
     ZERO = "zero"
     FIXED = "fixed"
-    EMPIRICAL_DISTRIBUTION = "empirical_distribution"
+    NORMAL_DISTRIBUTION = "normal_distribution"
     TRACE_REPLAY = "trace_replay"
     MEASURED = "measured"
 
@@ -118,4 +118,3 @@ class EpisodeMetrics:
     num_dropped_actions: int = 0
     num_invalid_actions: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
-

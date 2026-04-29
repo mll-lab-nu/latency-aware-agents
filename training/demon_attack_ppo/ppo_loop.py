@@ -49,6 +49,25 @@ def save_checkpoint(path: str, agent: DemonAttackPpoAgent, optimizer, args, glob
     )
 
 
+def _checkpoint_due(*, global_step: int, next_checkpoint_step: int) -> bool:
+    return int(global_step) >= int(next_checkpoint_step)
+
+
+def _advance_checkpoint_step(
+    *,
+    next_checkpoint_step: int,
+    global_step: int,
+    checkpoint_freq: int,
+) -> int:
+    if checkpoint_freq <= 0:
+        return int(next_checkpoint_step)
+
+    checkpoint_step = int(next_checkpoint_step)
+    while checkpoint_step <= int(global_step):
+        checkpoint_step += int(checkpoint_freq)
+    return checkpoint_step
+
+
 def train(args, wandb_module) -> str:
     frame_skip_values = parse_int_list(args.frame_skip_values)
     if not frame_skip_values:
@@ -71,6 +90,7 @@ def train(args, wandb_module) -> str:
         env_id=args.env_id,
         screen_size=args.screen_size,
         noop_max=args.noop_max,
+        action_repeat=getattr(args, "action_repeat", 1),
         terminal_on_life_loss=args.terminal_on_life_loss,
         clip_reward=args.clip_reward,
         repeat_action_probability=args.repeat_action_probability,
@@ -97,6 +117,13 @@ def train(args, wandb_module) -> str:
         if "optimizer" in checkpoint:
             optimizer.load_state_dict(checkpoint["optimizer"])
         global_step = int(checkpoint.get("global_step", 0))
+    next_checkpoint_step = int(args.checkpoint_freq)
+    if args.checkpoint_freq > 0:
+        next_checkpoint_step = _advance_checkpoint_step(
+            next_checkpoint_step=next_checkpoint_step,
+            global_step=global_step,
+            checkpoint_freq=int(args.checkpoint_freq),
+        )
 
     rollout_size = int(args.n_envs * args.n_steps)
     minibatch_size = min(int(args.batch_size), rollout_size)
@@ -134,6 +161,11 @@ def train(args, wandb_module) -> str:
             "batch_size": int(minibatch_size),
             "num_updates": int(num_updates),
             "frame_skip_values": args.frame_skip_values,
+            "action_repeat": int(getattr(args, "action_repeat", 1)),
+            "terminal_on_life_loss": bool(args.terminal_on_life_loss),
+            "checkpoint_freq": int(args.checkpoint_freq),
+            "gamma": float(args.gamma),
+            "gae_lambda": float(args.gae_lambda),
             "stats_window_size": int(stats_window_size),
             "save_path": args.save,
             "wandb_project": getattr(args, "wandb_project", ""),
@@ -458,7 +490,10 @@ def train(args, wandb_module) -> str:
                 if included and args.profile_csv:
                     append_profile_csv(args.profile_csv, profile_row)
 
-            if args.checkpoint_freq > 0 and global_step % args.checkpoint_freq < args.n_envs:
+            if args.checkpoint_freq > 0 and _checkpoint_due(
+                global_step=global_step,
+                next_checkpoint_step=next_checkpoint_step,
+            ):
                 save_checkpoint(args.save, agent, optimizer, args, global_step)
                 emit_event(
                     jsonl_logger,
@@ -472,6 +507,11 @@ def train(args, wandb_module) -> str:
                         "episode_count": int(episode_count),
                     },
                     format_checkpoint_save,
+                )
+                next_checkpoint_step = _advance_checkpoint_step(
+                    next_checkpoint_step=next_checkpoint_step,
+                    global_step=global_step,
+                    checkpoint_freq=int(args.checkpoint_freq),
                 )
     except Exception as exc:
         train_error = exc

@@ -10,9 +10,26 @@ from latency_bench.core.types import EpisodeMetrics
 from latency_bench.executors.factory import build_executor
 
 
+def apply_runtime_overrides(
+    config: dict[str, Any],
+    checkpoint_path: str | Path | None = None,
+    run_name: str | None = None,
+    output_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    if checkpoint_path is not None:
+        config["policy"]["checkpoint_path"] = str(checkpoint_path)
+    if run_name is not None:
+        config["experiment"]["name"] = str(run_name)
+    if output_dir is not None:
+        config["logging"]["output_dir"] = str(output_dir)
+    return config
+
+
 def run_from_config(config: dict[str, Any], extra_metadata: dict[str, Any] | None = None) -> list[EpisodeMetrics]:
     executor = build_executor(config)
     experiment_cfg = config["experiment"]
+    policy_cfg = config["policy"]
+    logging_cfg = config["logging"]
     seed = int(experiment_cfg.get("seed", 0))
     num_episodes = int(experiment_cfg.get("num_episodes", 1))
     max_env_steps = int(experiment_cfg.get("max_env_steps", 10000))
@@ -25,6 +42,10 @@ def run_from_config(config: dict[str, Any], extra_metadata: dict[str, Any] | Non
                 max_env_steps=max_env_steps,
             )
             episode_metrics.metadata["config_name"] = experiment_cfg.get("name")
+            episode_metrics.metadata["run_name"] = experiment_cfg.get("name")
+            if "checkpoint_path" in policy_cfg:
+                episode_metrics.metadata["checkpoint_path"] = str(policy_cfg["checkpoint_path"])
+            episode_metrics.metadata["output_dir"] = str(logging_cfg["output_dir"])
             if extra_metadata:
                 episode_metrics.metadata.update(extra_metadata)
             metrics.append(episode_metrics)
@@ -38,8 +59,17 @@ def run_from_config(config: dict[str, Any], extra_metadata: dict[str, Any] | Non
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run a latency-sensitive control benchmark.")
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--checkpoint-path", type=Path)
+    parser.add_argument("--run-name", type=str)
+    parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args(argv)
     config = load_config(args.config)
+    apply_runtime_overrides(
+        config,
+        checkpoint_path=args.checkpoint_path,
+        run_name=args.run_name,
+        output_dir=args.output_dir,
+    )
     metrics = run_from_config(config)
     for episode_metrics in metrics:
         print(

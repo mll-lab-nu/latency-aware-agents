@@ -104,10 +104,20 @@ def validate_config(config: dict) -> None:
         _require_field(latency, "fixed_latency_ms")
     if latency_type == LatencySourceType.TRACE_REPLAY.value:
         _require_field(latency, "trace_path")
-    if latency_type == LatencySourceType.EMPIRICAL_DISTRIBUTION.value:
-        values = _require_field(latency, "latency_values_ms")
-        if not values:
-            raise ValueError("latency.latency_values_ms cannot be empty")
+    if latency_type == LatencySourceType.NORMAL_DISTRIBUTION.value:
+        if "mean_latency_ms" not in latency:
+            raise ValueError("Missing required field: latency.mean_latency_ms")
+        if "std_latency_ms" not in latency:
+            raise ValueError("Missing required field: latency.std_latency_ms")
+        std_latency_ms = float(latency["std_latency_ms"])
+        if std_latency_ms < 0:
+            raise ValueError("latency.std_latency_ms must be non-negative")
+        min_latency_ms = float(latency.get("min_latency_ms", 0.0))
+        if min_latency_ms < 0:
+            raise ValueError("latency.min_latency_ms must be non-negative")
+        max_latency_ms = latency.get("max_latency_ms")
+        if max_latency_ms is not None and float(max_latency_ms) < min_latency_ms:
+            raise ValueError("latency.max_latency_ms must be greater than or equal to latency.min_latency_ms")
 
     if "persistence_mode" in scheduler:
         _validate_enum_value(scheduler["persistence_mode"], PersistenceMode, "scheduler.persistence_mode")

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import random
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -31,17 +30,40 @@ class FixedLatencySource(LatencySource):
         return self.fixed_latency_ms
 
 
-class EmpiricalDistributionLatencySource(LatencySource):
-    def __init__(self, latency_values_ms: Sequence[float], seed: int | None = None):
-        if not latency_values_ms:
-            raise ValueError("latency_values_ms cannot be empty")
-        self.latency_values_ms = [float(value) for value in latency_values_ms]
-        if any(value < 0 for value in self.latency_values_ms):
-            raise ValueError("latency_values_ms must be non-negative")
+class NormalDistributionLatencySource(LatencySource):
+    def __init__(
+        self,
+        mean_latency_ms: float,
+        std_latency_ms: float,
+        seed: int | None = None,
+        min_latency_ms: float = 0.0,
+        max_latency_ms: float | None = None,
+    ):
+        mean_latency_ms = float(mean_latency_ms)
+        std_latency_ms = float(std_latency_ms)
+        min_latency_ms = float(min_latency_ms)
+        max_latency_ms = None if max_latency_ms is None else float(max_latency_ms)
+        if std_latency_ms < 0:
+            raise ValueError("std_latency_ms must be non-negative")
+        if min_latency_ms < 0:
+            raise ValueError("min_latency_ms must be non-negative")
+        if max_latency_ms is not None and max_latency_ms < min_latency_ms:
+            raise ValueError("max_latency_ms must be greater than or equal to min_latency_ms")
+        self.mean_latency_ms = mean_latency_ms
+        self.std_latency_ms = std_latency_ms
+        self.min_latency_ms = min_latency_ms
+        self.max_latency_ms = max_latency_ms
         self.rng = random.Random(seed)
 
     def next_latency_ms(self, context: dict[str, Any] | None = None) -> float:
-        return self.rng.choice(self.latency_values_ms)
+        if self.std_latency_ms == 0:
+            value = self.mean_latency_ms
+        else:
+            value = self.rng.normalvariate(self.mean_latency_ms, self.std_latency_ms)
+        value = max(value, self.min_latency_ms)
+        if self.max_latency_ms is not None:
+            value = min(value, self.max_latency_ms)
+        return float(value)
 
 
 class TraceReplayLatencySource(LatencySource):
@@ -78,4 +100,3 @@ class MeasuredLatencySource(LatencySource):
         _, record = self.profiler.run_and_measure(fn, *args, **kwargs)
         self.last_record = record
         return record.latency_ms
-

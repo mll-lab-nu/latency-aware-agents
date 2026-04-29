@@ -9,6 +9,13 @@ from training.demon_attack_ppo.logging import setup_wandb
 from training.demon_attack_ppo.ppo_loop import train
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return parsed
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="CleanRL-style PPO for DemonAttack using Atari frame observations."
@@ -49,6 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--screen-size", type=int, default=84)
     parser.add_argument("--base-channels", type=int, default=1)
     parser.add_argument("--noop-max", type=int, default=30)
+    parser.add_argument("--action-repeat", type=_positive_int, default=1)
     parser.add_argument("--terminal-on-life-loss", action="store_true")
     parser.add_argument("--clip-reward", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--repeat-action-probability", type=float, default=0.0)
