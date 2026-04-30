@@ -249,7 +249,8 @@ def evaluate_latency(base_cfg, latency_value: int) -> dict[str, Any]:
         rnn_states = policy_outputs["new_rnn_states"]
         obs, rew, terminated, truncated, _ = env.step(actions)
         dones = make_dones(terminated, truncated)
-        episode_reward += rew.float()
+        reward_tensor = rew if isinstance(rew, torch.Tensor) else torch.as_tensor(rew, dtype=torch.float32, device=device)
+        episode_reward += reward_tensor.to(device=device, dtype=torch.float32)
         episode_length += 1
         total_frames += 1
 
