@@ -153,8 +153,17 @@ def make_demon_attack_benchmark_env(
 def _register_ale() -> None:
     try:
         import ale_py
-    except Exception:
-        return
+    except Exception as exc:
+        raise RuntimeError(
+            "Failed to import ale_py. Install Atari support with the repo requirements and "
+            "ensure the current environment can import ale_py before running Demon Attack."
+        ) from exc
     register_envs = getattr(gym, "register_envs", None)
     if callable(register_envs):
         register_envs(ale_py)
+    has_ale_namespace = any(str(env_id).startswith("ALE/") for env_id in gym.envs.registry.keys())
+    if not has_ale_namespace:
+        raise RuntimeError(
+            "ale_py imported but Gymnasium did not register the ALE namespace. "
+            "Expected ALE/* environments such as ALE/DemonAttack-v5 to be available."
+        )
