@@ -11,7 +11,7 @@ from gymnasium.spaces import Box
 
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
 from training.sample_factory_common.config_adapter import append_cli_arg, build_common_sf_args
-from training.sample_factory_common.latency_wrapper import QueueLatencyWrapper
+from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, QueueLatencyWrapper
 from training.sample_factory_common.queue_eval import (
     evaluate_queue_latency,
     finish_queue_eval_wandb,
@@ -136,6 +136,7 @@ def make_flappy_sf_env(
         latency_info_keys=("queue_latency", "frame_skip", "latency_frame_skip"),
         add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
     )
+    env = EpisodeMetricsWrapper(env, frames_per_decision=1)
     return env
 
 

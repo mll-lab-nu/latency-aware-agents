@@ -17,7 +17,7 @@ from training.sample_factory_common.common import (
     str2bool,
 )
 from training.sample_factory_common.config_adapter import append_cli_arg, build_common_sf_args
-from training.sample_factory_common.latency_wrapper import QueueLatencyWrapper
+from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, QueueLatencyWrapper
 from training.sample_factory_common.queue_eval import (
     finish_queue_eval_wandb,
     init_queue_eval_wandb,
@@ -77,6 +77,7 @@ def make_latency_doom_env_from_spec(
         latency_info_keys=("queue_latency",),
         add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
     )
+    env = EpisodeMetricsWrapper(env, frames_per_decision=int(getattr(cfg, "env_frameskip", 4) or 1))
     return env
 
 

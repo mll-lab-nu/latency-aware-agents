@@ -178,3 +178,47 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.env_step_idx += 1
         self.decision_step_idx += 1
         return obs, float(reward), terminated, truncated, info
+
+
+class EpisodeMetricsWrapper(gym.Wrapper):
+    """Accurate per-episode metrics at the outer decision-step interface."""
+
+    def __init__(self, env: gym.Env, *, frames_per_decision: int = 1):
+        super().__init__(env)
+        self.frames_per_decision = max(1, int(frames_per_decision))
+        self.episode_return = 0.0
+        self.episode_length = 0
+        self.episode_idx = 0
+
+    def reset(self, **kwargs):
+        self.episode_return = 0.0
+        self.episode_length = 0
+        obs, info = self.env.reset(**kwargs)
+        return obs, dict(info or {})
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        reward_value = float(reward)
+        self.episode_return += reward_value
+        self.episode_length += 1
+        info = dict(info or {})
+        done = bool(terminated or truncated)
+        if done:
+            extra_stats = dict(info.get("episode_extra_stats") or {})
+            extra_stats["episode/return"] = float(self.episode_return)
+            extra_stats["episode/length"] = int(self.episode_length)
+            extra_stats["episode/raw_frames"] = int(self.episode_length * self.frames_per_decision)
+            extra_stats["episode/index"] = int(self.episode_idx)
+
+            queue_latency = getattr(self.env, "current_latency", None)
+            if queue_latency is None and "queue_latency" in info:
+                queue_latency = info.get("queue_latency")
+            if queue_latency is not None:
+                extra_stats["episode/queue_latency"] = int(queue_latency)
+
+            info["episode_extra_stats"] = extra_stats
+            info["episodic_return"] = float(self.episode_return)
+            info["episodic_length"] = int(self.episode_length)
+            info.setdefault("true_objective", float(self.episode_return))
+            self.episode_idx += 1
+        return obs, reward_value, terminated, truncated, info

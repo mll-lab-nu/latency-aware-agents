@@ -77,6 +77,8 @@ training:
   rnn_size: 512
   normalize_input: true
   normalize_returns: true
+  stats_avg: 1
+  experiment_summaries_interval: 1
   save_every_sec: 600
   keep_checkpoints: 5
 

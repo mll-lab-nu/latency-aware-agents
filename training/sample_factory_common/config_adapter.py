@@ -190,6 +190,8 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         "save_milestones_sec",
         "save_best_every_sec",
         "save_best_after",
+        "stats_avg",
+        "experiment_summaries_interval",
     )
     bool_fields = (
         "async_rl",
