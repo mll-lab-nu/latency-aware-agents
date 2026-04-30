@@ -232,7 +232,6 @@ def evaluate_latency(base_cfg, latency_value: int) -> dict[str, Any]:
     max_total_frames = int(1e9 if eval_max_steps <= 0 else eval_max_steps * max(1, eval_episodes))
 
     obs, _ = env.reset()
-    action_mask = obs.pop("action_mask").to(device) if "action_mask" in obs else None
     rnn_states = torch.zeros([env.num_agents, get_rnn_size(cfg)], dtype=torch.float32, device=device)
     episode_reward = torch.zeros([env.num_agents], dtype=torch.float32, device=device)
     episode_length = np.zeros([env.num_agents], dtype=np.int64)
@@ -240,7 +239,7 @@ def evaluate_latency(base_cfg, latency_value: int) -> dict[str, Any]:
 
     while len(returns) < eval_episodes and total_frames < max_total_frames:
         normalized_obs = prepare_and_normalize_obs(actor_critic, obs)
-        policy_outputs = actor_critic(normalized_obs, rnn_states, action_mask=action_mask)
+        policy_outputs = actor_critic(normalized_obs, rnn_states)
         actions = policy_outputs["actions"]
         if bool(getattr(base_cfg, "eval_deterministic", True)):
             actions = argmax_actions(actor_critic.action_distribution())
@@ -249,7 +248,6 @@ def evaluate_latency(base_cfg, latency_value: int) -> dict[str, Any]:
         actions = preprocess_actions(env_info, actions)
         rnn_states = policy_outputs["new_rnn_states"]
         obs, rew, terminated, truncated, _ = env.step(actions)
-        action_mask = obs.pop("action_mask").to(device) if "action_mask" in obs else None
         dones = make_dones(terminated, truncated)
         episode_reward += rew.float()
         episode_length += 1

@@ -123,12 +123,10 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         if int(observation.env_step) == 0:
             self.rnn_states.zero_()
 
-        obs_dict, action_mask = _obs_to_sf_inputs(observation, self.device)
-        if action_mask is None:
-            action_mask = _extract_action_mask(observation, self.device)
+        obs_dict, _action_mask = _obs_to_sf_inputs(observation, self.device)
         normalized_obs = self._prepare_and_normalize_obs(self.actor_critic, obs_dict)
         with torch.no_grad():
-            policy_outputs = self.actor_critic(normalized_obs, self.rnn_states, action_mask=action_mask)
+            policy_outputs = self.actor_critic(normalized_obs, self.rnn_states)
             actions = policy_outputs["actions"]
             if self.deterministic:
                 actions = self._argmax_actions(self.actor_critic.action_distribution())
