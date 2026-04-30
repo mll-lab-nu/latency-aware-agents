@@ -75,6 +75,7 @@ ENV_KEYS_BY_NAME = {
         "use_lidar",
         "normalize_obs",
         "audio_on",
+        "frame_stack",
         "screen_size",
         "pipe_gap",
         "bird_color",
@@ -90,6 +91,7 @@ ENV_KEYS_BY_NAME = {
         "screen_size",
         "noop_max",
         "action_repeat",
+        "frame_stack",
         "terminal_on_life_loss",
         "clip_reward",
         "repeat_action_probability",
@@ -100,6 +102,7 @@ ENV_KEYS_BY_NAME = {
         "name",
         "env_id",
         "env_frameskip",
+        "frame_stack",
         "res_w",
         "res_h",
         "wide_aspect_ratio",
@@ -125,6 +128,7 @@ def _build_train_config(
     device: str,
     restart_behavior: str,
     train_for_env_steps: int | None,
+    frame_stack_override: int | None,
 ) -> dict:
     config = deepcopy(load_training_config(BASE_CONFIGS[env_name]))
     run_name = f"{env_name}_sf_same_latency_l{latency}_seed{seed}"
@@ -137,6 +141,8 @@ def _build_train_config(
     config["backend"]["restart_behavior"] = str(restart_behavior)
     config["backend"]["run_mode"] = "train"
     config["env"]["max_episode_steps"] = int(max_steps)
+    if frame_stack_override is not None:
+        config["env"]["frame_stack"] = int(frame_stack_override)
     config["latency"]["train_values"] = [int(latency)]
     config["latency"]["train_mode"] = "episode_fixed"
     config["latency"]["train_sampling_mode"] = "uniform_all"
@@ -223,6 +229,9 @@ def main() -> None:
     parser.add_argument("--restart-behavior", type=str, default="resume")
     parser.add_argument("--train-for-env-steps", type=int)
     parser.add_argument("--eval-episodes", type=int, default=10)
+    parser.add_argument("--flappy-frame-stack", type=int)
+    parser.add_argument("--demon-attack-frame-stack", type=int)
+    parser.add_argument("--deadly-corridor-frame-stack", type=int)
     args = parser.parse_args()
 
     selected_envs = [item.strip() for item in args.envs.split(",") if item.strip()]
@@ -236,6 +245,11 @@ def main() -> None:
         "flappy": int(args.flappy_max_steps),
         "demon_attack": int(args.demon_attack_max_steps),
         "deadly_corridor": int(args.deadly_corridor_max_steps),
+    }
+    frame_stack_by_env = {
+        "flappy": args.flappy_frame_stack,
+        "demon_attack": args.demon_attack_frame_stack,
+        "deadly_corridor": args.deadly_corridor_frame_stack,
     }
 
     generated_root = Path(args.generated_root)
@@ -260,6 +274,7 @@ def main() -> None:
                     device=args.device,
                     restart_behavior=args.restart_behavior,
                     train_for_env_steps=args.train_for_env_steps,
+                    frame_stack_override=frame_stack_by_env[env_name],
                 )
                 eval_config = _build_eval_config(
                     train_config=train_config,
