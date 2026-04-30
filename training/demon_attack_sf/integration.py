@@ -79,7 +79,7 @@ def make_demon_attack_sf_env(
         seed=wrapper_seed,
         env_reset_seed_base=wrapper_seed + 104729,
         latency_info_keys=("queue_latency", "frame_skip", "latency_frame_skip"),
-        add_latency_info=bool(getattr(cfg, "add_latency_info", True)),
+        add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
     )
     return env
 
@@ -123,7 +123,7 @@ def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--randomize-within-stage", type=str2bool, default=False)
     parser.add_argument("--within-episode-change-interval", type=int, default=1)
     parser.add_argument("--within-episode-change-prob", type=float, default=1.0)
-    parser.add_argument("--add-latency-info", type=str2bool, default=True)
+    parser.add_argument("--add-latency-info", type=str2bool, default=False)
     parser.add_argument("--eval-episodes", type=int, default=20)
     parser.add_argument("--eval-queue-latency-values", type=str, default="0,1,2,3,4,5")
     parser.add_argument("--eval-max-steps", type=int, default=30000)

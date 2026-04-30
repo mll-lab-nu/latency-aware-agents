@@ -5,10 +5,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from latency_bench.core.config import load_config
-from training.sample_factory_common.common import list_to_csv
-
-
 ENV_INTEGRATIONS = {
     "deadly_corridor": "training.deadly_corridor_sf.integration",
     "demon_attack": "training.demon_attack_sf.integration",
@@ -16,10 +12,60 @@ ENV_INTEGRATIONS = {
 }
 
 
+def _list_to_csv(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (list, tuple)):
+        return ",".join(str(item) for item in value)
+    return str(value)
+
+
 def load_training_config(path: str | Path) -> dict[str, Any]:
-    config = load_config(path)
+    config = _load_training_config_unvalidated(Path(path))
     validate_training_config(config)
     return config
+
+
+def _merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = deepcopy(base)
+    for key, value in override.items():
+        if key == "__base__":
+            continue
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_dicts(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def _load_training_config_unvalidated(path: Path) -> dict[str, Any]:
+    import yaml
+
+    path = path.expanduser().resolve()
+    with path.open("r", encoding="utf-8") as handle:
+        current = yaml.safe_load(handle) or {}
+    if not isinstance(current, dict):
+        raise ValueError(f"Config must be a mapping: {path}")
+
+    base_ref = current.get("__base__")
+    if not base_ref:
+        return {key: value for key, value in current.items() if key != "__base__"}
+
+    if isinstance(base_ref, (str, Path)):
+        base_paths = [base_ref]
+    elif isinstance(base_ref, list):
+        base_paths = base_ref
+    else:
+        raise ValueError("__base__ must be a path string or list of path strings")
+
+    merged: dict[str, Any] = {}
+    for base_item in base_paths:
+        base_path = Path(base_item)
+        if not base_path.is_absolute():
+            base_path = path.parent / base_path
+        merged = _merge_dicts(merged, _load_training_config_unvalidated(base_path))
+
+    return _merge_dicts(merged, current)
 
 
 def apply_training_overrides(
@@ -42,19 +88,33 @@ def apply_training_overrides(
 
 
 def validate_training_config(config: dict[str, Any]) -> None:
+    experiment_cfg = config.get("experiment")
+    if not isinstance(experiment_cfg, dict):
+        raise ValueError("experiment must be a mapping for Sample Factory training")
+    if not str(experiment_cfg.get("name", "")).strip():
+        raise ValueError("experiment.name must be a non-empty string")
     backend_cfg = config.get("backend")
     if not isinstance(backend_cfg, dict):
         raise ValueError("backend must be a mapping for Sample Factory training")
     backend_type = str(backend_cfg.get("type", "")).strip().lower()
     if backend_type != "sample_factory":
         raise ValueError("backend.type must be 'sample_factory' for training.train")
+    env_cfg = config.get("env")
+    if not isinstance(env_cfg, dict):
+        raise ValueError("env must be a mapping for Sample Factory training")
+    latency_cfg = config.get("latency")
+    if not isinstance(latency_cfg, dict):
+        raise ValueError("latency must be a mapping for Sample Factory training")
     training_cfg = config.get("training")
     if not isinstance(training_cfg, dict):
         raise ValueError("training must be a mapping for Sample Factory training")
     evaluation_cfg = config.get("evaluation")
     if evaluation_cfg is not None and not isinstance(evaluation_cfg, dict):
         raise ValueError("evaluation must be a mapping when provided")
-    env_name = str(config.get("env", {}).get("name", "")).strip().lower()
+    logging_cfg = config.get("logging")
+    if logging_cfg is not None and not isinstance(logging_cfg, dict):
+        raise ValueError("logging must be a mapping when provided")
+    env_name = str(env_cfg.get("name", "")).strip().lower()
     if env_name not in ENV_INTEGRATIONS:
         raise ValueError(
             f"Unsupported env.name for Sample Factory backend: {env_name}. "
@@ -71,11 +131,15 @@ def import_integration_module(config: dict[str, Any]):
 def append_cli_arg(args: list[str], flag: str, value: Any) -> None:
     if value is None:
         return
+    if isinstance(value, str) and not value.strip():
+        return
     if isinstance(value, bool):
         args.extend([flag, "True" if value else "False"])
         return
     if isinstance(value, (list, tuple)):
-        args.extend([flag, list_to_csv(value)])
+        if not value:
+            return
+        args.extend([flag, _list_to_csv(value)])
         return
     args.extend([flag, str(value)])
 
@@ -149,7 +213,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--randomize-within-stage", latency_cfg.get("randomize_within_stage", False))
     append_cli_arg(args, "--within-episode-change-interval", latency_cfg.get("within_episode_change_interval"))
     append_cli_arg(args, "--within-episode-change-prob", latency_cfg.get("within_episode_change_prob"))
-    append_cli_arg(args, "--add-latency-info", latency_cfg.get("add_latency_info", True))
+    append_cli_arg(args, "--add-latency-info", latency_cfg.get("add_latency_info", False))
 
     append_cli_arg(args, "--eval-episodes", evaluation_cfg.get("eval_episodes"))
     append_cli_arg(args, "--eval-queue-latency-values", evaluation_cfg.get("eval_latency_values"))

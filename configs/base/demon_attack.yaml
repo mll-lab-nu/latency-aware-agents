@@ -43,7 +43,7 @@ latency:
   randomize_within_stage: false
   within_episode_change_interval: 1
   within_episode_change_prob: 1.0
-  add_latency_info: true
+  add_latency_info: false
 
 scheduler:
   persistence_mode: hold_previous

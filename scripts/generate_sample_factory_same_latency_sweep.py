@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from latency_bench.core.config import load_config
+from training.sample_factory_common.config_adapter import load_training_config
 
 GENERATED_ROOT = REPO_ROOT / "configs" / "generated" / "sample_factory_same_latency_sweep"
 
@@ -34,6 +34,79 @@ DEFAULT_MAX_STEPS = {
     "deadly_corridor": 2100,
 }
 
+TOP_LEVEL_SAMPLE_FACTORY_KEYS = (
+    "experiment",
+    "backend",
+    "env",
+    "latency",
+    "training",
+    "evaluation",
+    "logging",
+)
+
+LATENCY_KEYS = (
+    "train_values",
+    "train_mode",
+    "train_sampling_mode",
+    "episodes_per_stage",
+    "randomize_within_stage",
+    "within_episode_change_interval",
+    "within_episode_change_prob",
+    "add_latency_info",
+)
+
+LOGGING_KEYS = (
+    "output_dir",
+    "wandb_project",
+    "wandb_group",
+    "wandb_job_type",
+    "wandb_tags",
+)
+
+EXPERIMENT_KEYS = (
+    "name",
+    "seed",
+)
+
+ENV_KEYS_BY_NAME = {
+    "flappy": (
+        "name",
+        "gym_id",
+        "use_lidar",
+        "normalize_obs",
+        "audio_on",
+        "screen_size",
+        "pipe_gap",
+        "bird_color",
+        "pipe_color",
+        "background",
+        "score_limit",
+        "debug",
+        "max_episode_steps",
+    ),
+    "demon_attack": (
+        "name",
+        "env_id",
+        "screen_size",
+        "noop_max",
+        "action_repeat",
+        "terminal_on_life_loss",
+        "clip_reward",
+        "repeat_action_probability",
+        "full_action_space",
+        "max_episode_steps",
+    ),
+    "deadly_corridor": (
+        "name",
+        "env_id",
+        "env_frameskip",
+        "res_w",
+        "res_h",
+        "wide_aspect_ratio",
+        "max_episode_steps",
+    ),
+}
+
 
 def parse_int_csv(value: str) -> list[int]:
     text = str(value).strip()
@@ -53,7 +126,7 @@ def _build_train_config(
     restart_behavior: str,
     train_for_env_steps: int | None,
 ) -> dict:
-    config = deepcopy(load_config(BASE_CONFIGS[env_name]))
+    config = deepcopy(load_training_config(BASE_CONFIGS[env_name]))
     run_name = f"{env_name}_sf_same_latency_l{latency}_seed{seed}"
     config["experiment"]["name"] = run_name
     config["experiment"]["seed"] = int(seed)
@@ -64,16 +137,16 @@ def _build_train_config(
     config["backend"]["restart_behavior"] = str(restart_behavior)
     config["backend"]["run_mode"] = "train"
     config["env"]["max_episode_steps"] = int(max_steps)
-    config["latency"]["train_enabled"] = True
     config["latency"]["train_values"] = [int(latency)]
     config["latency"]["train_mode"] = "episode_fixed"
     config["latency"]["train_sampling_mode"] = "uniform_all"
+    config["latency"]["add_latency_info"] = False
     config["evaluation"]["eval_latency_values"] = [int(latency)]
     config["evaluation"]["eval_max_steps"] = int(max_steps)
     config["logging"]["output_dir"] = str(Path(output_root) / "train" / env_name / f"latency_{latency}" / f"seed_{seed}")
     if train_for_env_steps is not None:
         config["training"]["train_for_env_steps"] = int(train_for_env_steps)
-    return config
+    return _prune_sample_factory_config(config)
 
 
 def _build_eval_config(
@@ -89,15 +162,42 @@ def _build_eval_config(
     config["experiment"]["max_env_steps"] = int(max_steps)
     config["experiment"]["num_episodes"] = int(eval_episodes)
     config["backend"]["run_mode"] = "eval"
-    config["latency"]["train_enabled"] = True
     config["latency"]["train_values"] = [int(latency)]
     config["latency"]["train_mode"] = "episode_fixed"
     config["latency"]["train_sampling_mode"] = "uniform_all"
+    config["latency"]["add_latency_info"] = False
     config["evaluation"]["eval_episodes"] = int(eval_episodes)
     config["evaluation"]["eval_latency_values"] = [int(latency)]
     config["evaluation"]["eval_max_steps"] = int(max_steps)
     config["logging"]["output_dir"] = str(Path(output_root) / "eval" / env_name / f"latency_{latency}" / f"seed_{seed}")
-    return config
+    return _prune_sample_factory_config(config)
+
+
+def _prune_sample_factory_config(config: dict) -> dict:
+    pruned = {key: deepcopy(config[key]) for key in TOP_LEVEL_SAMPLE_FACTORY_KEYS if key in config}
+    experiment_cfg = pruned.setdefault("experiment", {})
+    pruned["experiment"] = {
+        key: deepcopy(experiment_cfg[key])
+        for key in EXPERIMENT_KEYS
+        if key in experiment_cfg
+    }
+    env_cfg = pruned.setdefault("env", {})
+    env_name = str(env_cfg.get("name", "")).strip().lower()
+    env_keys = ENV_KEYS_BY_NAME.get(env_name, tuple(env_cfg.keys()))
+    pruned["env"] = {
+        key: deepcopy(env_cfg[key])
+        for key in env_keys
+        if key in env_cfg
+    }
+    latency_cfg = pruned.setdefault("latency", {})
+    pruned["latency"] = {key: deepcopy(latency_cfg[key]) for key in LATENCY_KEYS if key in latency_cfg}
+    logging_cfg = pruned.setdefault("logging", {})
+    pruned["logging"] = {
+        key: deepcopy(logging_cfg[key])
+        for key in LOGGING_KEYS
+        if key in logging_cfg and not (isinstance(logging_cfg[key], str) and not logging_cfg[key].strip())
+    }
+    return pruned
 
 
 def _write_yaml(path: Path, data: dict) -> None:
