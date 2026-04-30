@@ -196,7 +196,7 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
         obs, rew, terminated, truncated, _ = env.step(actions)
         dones = make_dones(terminated, truncated)
         reward_tensor = rew if isinstance(rew, torch.Tensor) else torch.as_tensor(rew, dtype=torch.float32, device=device)
-        episode_reward += reward_tensor.float()
+        episode_reward += reward_tensor.to(device=device, dtype=torch.float32)
         episode_length += 1
         total_frames += 1
 
