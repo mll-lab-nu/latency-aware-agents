@@ -9,6 +9,8 @@ import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box, Discrete, Tuple as GymTuple
 
+from training.sample_factory_common.episode_metrics import append_episode_metrics_event
+
 
 def noop_action_from_space(space: gym.Space):
     if isinstance(space, Discrete):
@@ -183,9 +185,22 @@ class QueueLatencyWrapper(gym.Wrapper):
 class EpisodeMetricsWrapper(gym.Wrapper):
     """Accurate per-episode metrics at the outer decision-step interface."""
 
-    def __init__(self, env: gym.Env, *, frames_per_decision: int = 1):
+    def __init__(
+        self,
+        env: gym.Env,
+        *,
+        frames_per_decision: int = 1,
+        metrics_path: str | None = None,
+        worker_index: int = 0,
+        vector_index: int = 0,
+        env_id: int = 0,
+    ):
         super().__init__(env)
         self.frames_per_decision = max(1, int(frames_per_decision))
+        self.metrics_path = metrics_path or ""
+        self.worker_index = int(worker_index)
+        self.vector_index = int(vector_index)
+        self.env_id = int(env_id)
         self.episode_return = 0.0
         self.episode_length = 0
         self.episode_idx = 0
@@ -219,6 +234,18 @@ class EpisodeMetricsWrapper(gym.Wrapper):
             info["episode_extra_stats"] = extra_stats
             info["episodic_return"] = float(self.episode_return)
             info["episodic_length"] = int(self.episode_length)
-            info.setdefault("true_objective", float(self.episode_return))
+            append_episode_metrics_event(
+                self.metrics_path,
+                {
+                    "episode_idx": int(self.episode_idx),
+                    "return": float(self.episode_return),
+                    "length": int(self.episode_length),
+                    "raw_frames": int(self.episode_length * self.frames_per_decision),
+                    "queue_latency": None if queue_latency is None else int(queue_latency),
+                    "worker_index": int(self.worker_index),
+                    "vector_index": int(self.vector_index),
+                    "env_id": int(self.env_id),
+                },
+            )
             self.episode_idx += 1
         return obs, reward_value, terminated, truncated, info

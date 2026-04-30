@@ -161,6 +161,9 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--restart_behavior", backend_cfg.get("restart_behavior", "overwrite"))
     append_cli_arg(args, "--device", backend_cfg.get("device", "cpu"))
     append_cli_arg(args, "--seed", experiment_cfg.get("seed", 0))
+    if backend_cfg.get("train_dir") and experiment_cfg.get("name"):
+        metrics_path = Path(str(backend_cfg["train_dir"])).expanduser() / str(experiment_cfg["name"]) / "episode_metrics.jsonl"
+        append_cli_arg(args, "--episode_metrics_path", str(metrics_path))
 
     scalar_fields = (
         "train_for_env_steps",
