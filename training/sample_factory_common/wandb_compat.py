@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from netrc import netrc
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,31 @@ def _normalize_tags(value: Any) -> list[str] | None:
     return tags or None
 
 
+def _wandb_key_from_env_or_netrc() -> str | None:
+    env_key = os.environ.get("WANDB_API_KEY")
+    if env_key:
+        stripped = env_key.strip()
+        if stripped:
+            return stripped
+
+    netrc_path = Path.home() / ".netrc"
+    if not netrc_path.exists():
+        return None
+
+    try:
+        auth = netrc(str(netrc_path)).authenticators("api.wandb.ai")
+    except Exception:
+        return None
+
+    if not auth:
+        return None
+
+    _, _, password = auth
+    if password and str(password).strip():
+        return str(password).strip()
+    return None
+
+
 def patch_sample_factory_wandb() -> None:
     global _PATCHED
     if _PATCHED:
@@ -40,6 +67,10 @@ def patch_sample_factory_wandb() -> None:
             return
 
         import wandb
+
+        key = _wandb_key_from_env_or_netrc()
+        if key:
+            wandb.login(key=key, verify=True, relogin=True)
 
         run_name = getattr(cfg, "wandb_unique_id", None)
         if not run_name:
