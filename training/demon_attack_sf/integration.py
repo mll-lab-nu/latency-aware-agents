@@ -17,6 +17,7 @@ from training.sample_factory_common.queue_eval import (
     finish_queue_eval_wandb,
     init_queue_eval_wandb,
     log_queue_eval_result,
+    write_queue_eval_result,
 )
 
 
@@ -209,6 +210,7 @@ def run_from_config(config: dict) -> int:
             try:
                 for latency in latencies:
                     result = evaluate_queue_latency(cfg, int(latency))
+                    write_queue_eval_result(cfg, result)
                     log_queue_eval_result(wandb_run, result)
                     print(
                         f"[eval] latency={latency} mean_return={result['mean_return']:.3f} "

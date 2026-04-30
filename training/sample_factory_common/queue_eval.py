@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import copy
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
@@ -64,6 +67,45 @@ def finish_queue_eval_wandb(wandb_run, owned_run: bool) -> None:
     if wandb_run is None or not owned_run:
         return
     wandb_run.finish()
+
+
+def queue_eval_output_dir(base_cfg) -> Path | None:
+    output_dir = getattr(base_cfg, "output_dir", None)
+    if not output_dir:
+        return None
+    path = Path(str(output_dir)).expanduser()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def write_queue_eval_result(base_cfg, result: dict[str, Any]) -> None:
+    output_dir = queue_eval_output_dir(base_cfg)
+    if output_dir is None:
+        return
+
+    experiment_name = str(getattr(base_cfg, "experiment", "sample_factory_eval"))
+    seed = int(getattr(base_cfg, "seed", 0) or 0)
+    payload = {
+        "experiment_name": experiment_name,
+        "seed": seed,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "latency": int(result["latency"]),
+        "mean_return": float(result["mean_return"]),
+        "std_return": float(result["std_return"]),
+        "mean_length": float(result["mean_length"]),
+        "returns": [float(item) for item in result.get("returns", [])],
+        "lengths": [int(item) for item in result.get("lengths", [])],
+    }
+
+    latency = int(result["latency"])
+    latency_file = output_dir / f"queue_eval_latency_{latency}.json"
+    with latency_file.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+    jsonl_path = output_dir / "queue_eval_results.jsonl"
+    with jsonl_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
 def load_sf_policy_state_dict(cfg, actor_critic, device: torch.device) -> None:
