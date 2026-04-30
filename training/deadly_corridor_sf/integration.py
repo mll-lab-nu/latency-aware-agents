@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+from collections import deque
 import functools
 from typing import Any, Optional
 
@@ -33,6 +34,49 @@ _ENVS_REGISTERED = False
 _MODELS_REGISTERED = False
 
 
+class DoomFrameStackWrapper(gym.Wrapper):
+    def __init__(self, env: gym.Env, num_frames: int):
+        super().__init__(env)
+        if num_frames < 1:
+            raise ValueError(f"num_frames must be >= 1, got {num_frames}")
+        if not isinstance(env.observation_space, gym.spaces.Dict):
+            raise TypeError("DoomFrameStackWrapper expects a Dict observation space")
+        obs_space = env.observation_space.spaces.get("obs")
+        if not isinstance(obs_space, gym.spaces.Box):
+            raise TypeError("DoomFrameStackWrapper expects observation_space['obs'] to be a Box")
+        base_shape = tuple(int(dim) for dim in obs_space.shape)
+        if len(base_shape) != 3:
+            raise ValueError(f"Expected channel-first Doom observation, got shape {base_shape}")
+
+        self.num_frames = int(num_frames)
+        self._frames: deque[np.ndarray] = deque(maxlen=self.num_frames)
+        stacked_shape = (base_shape[0] * self.num_frames, base_shape[1], base_shape[2])
+        stacked_obs_space = gym.spaces.Box(low=0, high=255, shape=stacked_shape, dtype=obs_space.dtype)
+        new_spaces = dict(env.observation_space.spaces)
+        new_spaces["obs"] = stacked_obs_space
+        self.observation_space = gym.spaces.Dict(new_spaces)
+
+    def _stack_obs(self, observation):
+        if not isinstance(observation, dict):
+            raise TypeError(f"Expected dict observation, got {type(observation)!r}")
+        stacked = dict(observation)
+        stacked["obs"] = np.concatenate(tuple(self._frames), axis=0)
+        return stacked
+
+    def reset(self, **kwargs):
+        observation, info = self.env.reset(**kwargs)
+        frame = np.array(observation["obs"], copy=True)
+        self._frames.clear()
+        for _ in range(self.num_frames):
+            self._frames.append(frame.copy())
+        return self._stack_obs(observation), info
+
+    def step(self, action):
+        observation, reward, terminated, truncated, info = self.env.step(action)
+        self._frames.append(np.array(observation["obs"], copy=True))
+        return self._stack_obs(observation), reward, terminated, truncated, info
+
+
 def make_latency_doom_env_from_spec(
     spec,
     env_name: str,
@@ -55,6 +99,9 @@ def make_latency_doom_env_from_spec(
         render_mode=render_mode,
         **kwargs,
     )
+    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+    if frame_stack > 1:
+        env = DoomFrameStackWrapper(env, num_frames=frame_stack)
     max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
     if max_episode_steps > 0:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
@@ -146,6 +193,7 @@ def add_latency_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--eval-raw-reward", action="store_true")
     parser.add_argument("--eval-deterministic", type=str2bool, default=True)
     parser.add_argument("--disable-reward-scaling", type=str2bool, default=False)
+    parser.add_argument("--frame_stack", type=int, default=1)
     parser.add_argument("--max_episode_steps", type=int, default=0)
     parser.add_argument("--episode_metrics_path", type=str, default="")
 
@@ -286,6 +334,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--res_w", env_cfg.get("res_w", 128))
     append_cli_arg(args, "--res_h", env_cfg.get("res_h", 72))
     append_cli_arg(args, "--wide_aspect_ratio", env_cfg.get("wide_aspect_ratio", False))
+    append_cli_arg(args, "--frame_stack", env_cfg.get("frame_stack", 1))
     append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
     append_cli_arg(args, "--disable-reward-scaling", evaluation_cfg.get("eval_raw_reward", False))
     return args

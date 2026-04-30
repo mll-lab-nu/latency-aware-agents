@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
 from typing import Optional
 
 import gymnasium as gym
@@ -26,7 +27,7 @@ _ENVS_REGISTERED = False
 
 
 class AtariObsFormatWrapper(gym.ObservationWrapper):
-    """Ensure Atari observations are HWC uint8 images for Sample Factory."""
+    """Ensure Atari observations are CHW uint8 images for Sample Factory."""
 
     def __init__(self, env: gym.Env):
         super().__init__(env)
@@ -35,14 +36,51 @@ class AtariObsFormatWrapper(gym.ObservationWrapper):
             raise TypeError("DemonAttack Sample Factory integration expects Box observations")
         shape = tuple(int(dim) for dim in space.shape)
         if len(shape) == 2:
-            shape = shape + (1,)
+            shape = (1,) + shape
+        elif len(shape) == 3:
+            shape = (shape[2], shape[0], shape[1])
         self.observation_space = Box(low=0, high=255, shape=shape, dtype=np.uint8)
 
     def observation(self, observation):
         array = np.asarray(observation, dtype=np.uint8)
         if array.ndim == 2:
-            array = array[..., None]
+            array = array[None, ...]
+        elif array.ndim == 3:
+            array = np.transpose(array, (2, 0, 1))
         return array
+
+
+class AtariFrameStackWrapper(gym.Wrapper):
+    observation_space: Box
+
+    def __init__(self, env: gym.Env, num_frames: int):
+        super().__init__(env)
+        if num_frames < 1:
+            raise ValueError(f"num_frames must be >= 1, got {num_frames}")
+        if not isinstance(env.observation_space, Box):
+            raise TypeError("AtariFrameStackWrapper expects a Box observation space")
+        base_shape = tuple(int(dim) for dim in env.observation_space.shape)
+        if len(base_shape) != 3:
+            raise ValueError(f"Expected channel-first image observation, got shape {base_shape}")
+        self.num_frames = int(num_frames)
+        self._frames: deque[np.ndarray] = deque(maxlen=self.num_frames)
+        stacked_shape = (base_shape[0] * self.num_frames, base_shape[1], base_shape[2])
+        self.observation_space = Box(low=0, high=255, shape=stacked_shape, dtype=np.uint8)
+
+    def _stack_frames(self) -> np.ndarray:
+        return np.concatenate(tuple(self._frames), axis=0)
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self._frames.clear()
+        for _ in range(self.num_frames):
+            self._frames.append(np.array(obs, copy=True))
+        return self._stack_frames(), info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        self._frames.append(np.array(obs, copy=True))
+        return self._stack_frames(), reward, terminated, truncated, info
 
 
 def make_demon_attack_sf_env(
@@ -64,6 +102,9 @@ def make_demon_attack_sf_env(
         full_action_space=bool(getattr(cfg, "full_action_space", False)),
     )
     env = AtariObsFormatWrapper(env)
+    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+    if frame_stack > 1:
+        env = AtariFrameStackWrapper(env, num_frames=frame_stack)
     max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
     if max_episode_steps > 0:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
@@ -125,6 +166,7 @@ def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--screen_size", type=int, default=84)
     parser.add_argument("--noop_max", type=int, default=30)
     parser.add_argument("--action_repeat", type=int, default=1)
+    parser.add_argument("--frame_stack", type=int, default=1)
     parser.add_argument("--terminal_on_life_loss", type=str2bool, default=False)
     parser.add_argument("--clip_reward", type=str2bool, default=True)
     parser.add_argument("--repeat_action_probability", type=float, default=0.0)
@@ -177,6 +219,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--screen_size", env_cfg.get("screen_size", 84))
     append_cli_arg(args, "--noop_max", env_cfg.get("noop_max", 30))
     append_cli_arg(args, "--action_repeat", env_cfg.get("action_repeat", 1))
+    append_cli_arg(args, "--frame_stack", env_cfg.get("frame_stack", 1))
     append_cli_arg(args, "--terminal_on_life_loss", env_cfg.get("terminal_on_life_loss", False))
     append_cli_arg(args, "--clip_reward", env_cfg.get("clip_reward", True))
     append_cli_arg(args, "--repeat_action_probability", env_cfg.get("repeat_action_probability", 0.0))

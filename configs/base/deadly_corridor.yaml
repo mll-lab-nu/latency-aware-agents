@@ -21,6 +21,7 @@ env:
   fps_env: 35
   noop_action: 0
   env_frameskip: 4
+  frame_stack: 4
   res_w: 128
   res_h: 72
   wide_aspect_ratio: false
