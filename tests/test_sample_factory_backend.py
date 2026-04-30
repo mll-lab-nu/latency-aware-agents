@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from latency_bench.core.config import load_config
+from scripts.generate_sample_factory_same_latency_sweep import _build_eval_config, _build_train_config
 from training.sample_factory_common.config_adapter import (
     apply_training_overrides,
     build_common_sf_args,
@@ -89,3 +90,33 @@ def test_queue_latency_wrapper_auto_seeds_underlying_env_resets():
     wrapped.reset()
     wrapped.reset(seed=999)
     assert env.seeds == [500, 501, 999]
+
+
+def test_same_latency_sweep_generator_emits_sample_factory_queue_eval_configs():
+    train_cfg = _build_train_config(
+        env_name="demon_attack",
+        seed=0,
+        latency=4,
+        max_steps=3600,
+        train_dir="/workspace/sample_factory_runs",
+        output_root="/workspace/latency_sweeps",
+        device="gpu",
+        restart_behavior="resume",
+        train_for_env_steps=1234,
+    )
+    eval_cfg = _build_eval_config(
+        train_config=train_cfg,
+        env_name="demon_attack",
+        seed=0,
+        latency=4,
+        max_steps=3600,
+        output_root="/workspace/latency_sweeps",
+        eval_episodes=10,
+    )
+    assert train_cfg["training"]["train_for_env_steps"] == 1234
+    assert train_cfg["latency"]["train_values"] == [4]
+    assert eval_cfg["backend"]["run_mode"] == "eval"
+    assert eval_cfg["latency"]["train_values"] == [4]
+    assert eval_cfg["evaluation"]["eval_episodes"] == 10
+    assert eval_cfg["evaluation"]["eval_latency_values"] == [4]
+    assert eval_cfg["evaluation"]["eval_max_steps"] == 3600

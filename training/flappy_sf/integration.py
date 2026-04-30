@@ -12,6 +12,7 @@ from gymnasium.spaces import Box
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
 from training.sample_factory_common.config_adapter import append_cli_arg, build_common_sf_args
 from training.sample_factory_common.latency_wrapper import QueueLatencyWrapper
+from training.sample_factory_common.queue_eval import evaluate_queue_latency
 
 
 SF_ENV_NAME = "latency_flappy"
@@ -167,7 +168,7 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--score_limit", type=int, default=-1)
     parser.add_argument("--debug", type=str2bool, default=False)
     parser.add_argument("--max_episode_steps", type=int, default=0)
-    parser.add_argument("--mode", type=str, default="train", choices=["train"])
+    parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "train_eval"])
     parser.add_argument("--queue-latency-values", type=str, default="0")
     parser.add_argument("--latency-mode", type=str, default="episode_fixed")
     parser.add_argument("--latency-sampling-mode", type=str, default="uniform_all")
@@ -226,11 +227,25 @@ def build_cli_args_from_config(config: dict) -> list[str]:
 
 
 def run_from_config(config: dict) -> int:
+    from sample_factory.algo.utils.misc import ExperimentStatus
     from sample_factory.train import run_rl
 
     from training.sample_factory_common.common import seed_everything
 
     register_flappy_envs()
-    cfg = parse_cfg(build_cli_args_from_config(config))
+    requested_mode = str(config.get("backend", {}).get("run_mode", "train"))
+    cfg = parse_cfg(build_cli_args_from_config(config), evaluation=requested_mode in {"eval", "train_eval"})
     seed_everything(int(cfg.seed or 0))
-    return int(run_rl(cfg))
+
+    status = ExperimentStatus.SUCCESS
+    if cfg.mode in {"train", "train_eval"}:
+        status = run_rl(cfg)
+    if cfg.mode in {"eval", "train_eval"}:
+        latencies = parse_int_list(cfg.eval_queue_latency_values)
+        for latency in latencies:
+            result = evaluate_queue_latency(cfg, int(latency))
+            print(
+                f"[eval] latency={latency} mean_return={result['mean_return']:.3f} "
+                f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
+            )
+    return int(status) if isinstance(status, int) else 0

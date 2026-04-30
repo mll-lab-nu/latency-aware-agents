@@ -68,6 +68,12 @@ Install the Atari ROMs once after the Python packages are installed:
 AutoROM --accept-license
 ```
 
+If you want the default Sample Factory runs to report to Weights & Biases, log in once on the machine before training:
+
+```bash
+wandb login
+```
+
 ## Common Entrypoints
 
 Main benchmark example:

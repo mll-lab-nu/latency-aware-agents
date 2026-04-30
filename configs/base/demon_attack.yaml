@@ -55,7 +55,7 @@ policy:
     - 0
 
 training:
-  train_for_env_steps: 1000000
+  train_for_env_steps: 10000000
   num_workers: 4
   num_envs_per_worker: 1
   num_policies: 1
@@ -98,7 +98,7 @@ logging:
   save_step_records: true
   save_action_records: true
   save_latency_records: true
-  wandb_project: ""
+  wandb_project: latency-sensitive-bench
   wandb_group: demon_attack
   wandb_job_type: sample_factory
   wandb_tags: ""

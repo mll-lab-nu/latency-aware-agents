@@ -22,12 +22,6 @@ BASE_CONFIGS = {
     "deadly_corridor": REPO_ROOT / "configs" / "base" / "deadly_corridor.yaml",
 }
 
-POLICY_TYPES = {
-    "flappy": "flappy_sf",
-    "demon_attack": "demon_attack_sf",
-    "deadly_corridor": "deadly_corridor_sf",
-}
-
 DEFAULT_LATENCIES = {
     "flappy": [0, 1, 2, 3, 4, 5],
     "demon_attack": [0, 1, 2, 3, 4, 5, 10, 15],
@@ -70,7 +64,6 @@ def _build_train_config(
     config["backend"]["restart_behavior"] = str(restart_behavior)
     config["backend"]["run_mode"] = "train"
     config["env"]["max_episode_steps"] = int(max_steps)
-    config["latency"]["type"] = "fixed"
     config["latency"]["train_enabled"] = True
     config["latency"]["train_values"] = [int(latency)]
     config["latency"]["train_mode"] = "episode_fixed"
@@ -95,15 +88,14 @@ def _build_eval_config(
     config = deepcopy(train_config)
     config["experiment"]["max_env_steps"] = int(max_steps)
     config["experiment"]["num_episodes"] = int(eval_episodes)
-    config["latency"]["type"] = "fixed"
-    config["policy"] = {
-        "type": POLICY_TYPES[env_name],
-        "checkpoint_path": "",
-        "device": "auto",
-        "deterministic": True,
-    }
-    if env_name == "flappy":
-        config["policy"]["actions"] = ["noop", "flap"]
+    config["backend"]["run_mode"] = "eval"
+    config["latency"]["train_enabled"] = True
+    config["latency"]["train_values"] = [int(latency)]
+    config["latency"]["train_mode"] = "episode_fixed"
+    config["latency"]["train_sampling_mode"] = "uniform_all"
+    config["evaluation"]["eval_episodes"] = int(eval_episodes)
+    config["evaluation"]["eval_latency_values"] = [int(latency)]
+    config["evaluation"]["eval_max_steps"] = int(max_steps)
     config["logging"]["output_dir"] = str(Path(output_root) / "eval" / env_name / f"latency_{latency}" / f"seed_{seed}")
     return config
 
@@ -187,7 +179,7 @@ def main() -> None:
                 _write_yaml(eval_path, eval_config)
 
                 train_cmd = f"python -m training.train --config {shlex.quote(str(train_path))}"
-                eval_cmd = f"python -m latency_bench.run --config {shlex.quote(str(eval_path))}"
+                eval_cmd = f"python -m training.train --config {shlex.quote(str(eval_path))}"
                 manifest_rows.append(
                     "\t".join(
                         [
