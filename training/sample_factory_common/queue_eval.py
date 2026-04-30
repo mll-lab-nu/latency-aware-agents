@@ -12,6 +12,59 @@ from training.sample_factory_common.common import maybe_set_cli_override
 EvalCfgAdjuster = Callable[[Any, Any], None]
 
 
+def init_queue_eval_wandb(base_cfg):
+    try:
+        import wandb
+    except ImportError:
+        return None, False
+
+    project = getattr(base_cfg, "wandb_project", None)
+    if not project:
+        return None, False
+
+    if wandb.run is not None:
+        return wandb.run, False
+
+    run = wandb.init(
+        project=project,
+        group=getattr(base_cfg, "wandb_group", None),
+        job_type=getattr(base_cfg, "wandb_job_type", None) or "sample_factory_eval",
+        name=f"{getattr(base_cfg, 'experiment', 'sample_factory')}_eval",
+        config={
+            "experiment": getattr(base_cfg, "experiment", None),
+            "env": getattr(base_cfg, "env", None),
+            "seed": getattr(base_cfg, "seed", None),
+            "eval_episodes": getattr(base_cfg, "eval_episodes", None),
+            "eval_max_steps": getattr(base_cfg, "eval_max_steps", None),
+        },
+        reinit=True,
+    )
+    return run, True
+
+
+def log_queue_eval_result(wandb_run, result: dict[str, Any]) -> None:
+    if wandb_run is None:
+        return
+
+    latency = int(result["latency"])
+    payload = {
+        "queue_eval/latency": latency,
+        "queue_eval/mean_return": float(result["mean_return"]),
+        "queue_eval/std_return": float(result["std_return"]),
+        "queue_eval/mean_length": float(result["mean_length"]),
+    }
+    wandb_run.log(payload)
+    wandb_run.summary[f"queue_eval/latency_{latency}/mean_return"] = float(result["mean_return"])
+    wandb_run.summary[f"queue_eval/latency_{latency}/std_return"] = float(result["std_return"])
+    wandb_run.summary[f"queue_eval/latency_{latency}/mean_length"] = float(result["mean_length"])
+
+
+def finish_queue_eval_wandb(wandb_run, owned_run: bool) -> None:
+    if wandb_run is None or not owned_run:
+        return
+    wandb_run.finish()
+
+
 def load_sf_policy_state_dict(cfg, actor_critic, device: torch.device) -> None:
     from sample_factory.algo.learning.learner import Learner
 

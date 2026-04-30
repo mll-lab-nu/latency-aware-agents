@@ -12,7 +12,12 @@ from gymnasium.spaces import Box
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
 from training.sample_factory_common.config_adapter import append_cli_arg, build_common_sf_args
 from training.sample_factory_common.latency_wrapper import QueueLatencyWrapper
-from training.sample_factory_common.queue_eval import evaluate_queue_latency
+from training.sample_factory_common.queue_eval import (
+    evaluate_queue_latency,
+    finish_queue_eval_wandb,
+    init_queue_eval_wandb,
+    log_queue_eval_result,
+)
 
 
 SF_ENV_NAME = "latency_flappy"
@@ -242,10 +247,15 @@ def run_from_config(config: dict) -> int:
         status = run_rl(cfg)
     if cfg.mode in {"eval", "train_eval"}:
         latencies = parse_int_list(cfg.eval_queue_latency_values)
-        for latency in latencies:
-            result = evaluate_queue_latency(cfg, int(latency))
-            print(
-                f"[eval] latency={latency} mean_return={result['mean_return']:.3f} "
-                f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
-            )
+        wandb_run, owned_wandb_run = init_queue_eval_wandb(cfg)
+        try:
+            for latency in latencies:
+                result = evaluate_queue_latency(cfg, int(latency))
+                log_queue_eval_result(wandb_run, result)
+                print(
+                    f"[eval] latency={latency} mean_return={result['mean_return']:.3f} "
+                    f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
+                )
+        finally:
+            finish_queue_eval_wandb(wandb_run, owned_wandb_run)
     return int(status) if isinstance(status, int) else 0
