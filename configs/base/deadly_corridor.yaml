@@ -54,7 +54,8 @@ policy:
 training:
   train_for_env_steps: 10000000
   num_workers: 4
-  num_envs_per_worker: 1
+  num_envs_per_worker: 2
+  worker_num_splits: 2
   num_policies: 1
   batch_size: 512
   rollout: 128
