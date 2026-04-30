@@ -6,6 +6,7 @@ from typing import Any, Callable
 import numpy as np
 import torch
 
+from training.sample_factory_common.checkpoint_io import load_sample_factory_checkpoint_from_paths
 from training.sample_factory_common.common import maybe_set_cli_override
 
 
@@ -72,9 +73,7 @@ def load_sf_policy_state_dict(cfg, actor_critic, device: torch.device) -> None:
     load_checkpoint_kind = getattr(cfg, "load_checkpoint_kind", "latest")
     name_prefix = dict(latest="checkpoint", best="best")[load_checkpoint_kind]
     checkpoints = Learner.get_checkpoints(Learner.checkpoint_dir(cfg, policy_id), f"{name_prefix}_*")
-    checkpoint_dict = Learner.load_checkpoint(checkpoints, device)
-    if not checkpoint_dict:
-        raise RuntimeError("Could not load Sample Factory checkpoint")
+    checkpoint_dict = load_sample_factory_checkpoint_from_paths(checkpoints, device)
     actor_critic.load_state_dict(checkpoint_dict["model"])
 
 

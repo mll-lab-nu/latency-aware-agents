@@ -9,6 +9,7 @@ import torch
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.policy.base import PolicyRunner
+from training.sample_factory_common.checkpoint_io import load_sample_factory_checkpoint_from_paths, trusted_torch_load
 
 
 def _resolve_device(device: Any) -> str:
@@ -57,10 +58,7 @@ def _extract_action_mask(observation: Observation, device: torch.device):
 
 
 def _checkpoint_state_dict_from_path(path: str | Path, device: torch.device) -> dict[str, Any]:
-    try:
-        return torch.load(path, map_location=device, weights_only=False)
-    except TypeError:
-        return torch.load(path, map_location=device)
+    return trusted_torch_load(path, device)
 
 
 def _load_sf_policy_state_dict(cfg, actor_critic, device: torch.device, checkpoint_path: str | None) -> dict[str, Any]:
@@ -75,9 +73,7 @@ def _load_sf_policy_state_dict(cfg, actor_critic, device: torch.device, checkpoi
     load_checkpoint_kind = getattr(cfg, "load_checkpoint_kind", "latest")
     name_prefix = dict(latest="checkpoint", best="best")[load_checkpoint_kind]
     checkpoints = Learner.get_checkpoints(Learner.checkpoint_dir(cfg, policy_id), f"{name_prefix}_*")
-    checkpoint_dict = Learner.load_checkpoint(checkpoints, device)
-    if not checkpoint_dict:
-        raise RuntimeError("Could not load Sample Factory checkpoint")
+    checkpoint_dict = load_sample_factory_checkpoint_from_paths(checkpoints, device)
     actor_critic.load_state_dict(checkpoint_dict["model"])
     return checkpoint_dict
 

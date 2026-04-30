@@ -16,6 +16,7 @@ from training.sample_factory_common.common import (
     seed_everything,
     str2bool,
 )
+from training.sample_factory_common.checkpoint_io import load_sample_factory_checkpoint_from_paths
 from training.sample_factory_common.config_adapter import append_cli_arg, build_common_sf_args
 from training.sample_factory_common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
 from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, QueueLatencyWrapper
@@ -170,9 +171,7 @@ def _load_policy_state_dict(cfg, actor_critic, device: torch.device) -> None:
     policy_id = cfg.policy_index
     name_prefix = dict(latest="checkpoint", best="best")[cfg.load_checkpoint_kind]
     checkpoints = Learner.get_checkpoints(Learner.checkpoint_dir(cfg, policy_id), f"{name_prefix}_*")
-    checkpoint_dict = Learner.load_checkpoint(checkpoints, device)
-    if not checkpoint_dict:
-        raise RuntimeError("Could not load checkpoint")
+    checkpoint_dict = load_sample_factory_checkpoint_from_paths(checkpoints, device)
     actor_critic.load_state_dict(checkpoint_dict["model"])
 
 
