@@ -21,6 +21,7 @@ from training.sample_factory_common.queue_eval import (
     log_queue_eval_result,
     write_queue_eval_result,
 )
+from training.sample_factory_common.wandb_compat import patch_sample_factory_wandb
 
 
 SF_ENV_NAME = "latency_flappy"
@@ -287,7 +288,6 @@ def build_cli_args_from_config(config: dict) -> list[str]:
 
 def run_from_config(config: dict) -> int:
     from sample_factory.algo.utils.misc import ExperimentStatus
-    from sample_factory.train import run_rl
 
     from training.sample_factory_common.common import seed_everything
 
@@ -295,6 +295,9 @@ def run_from_config(config: dict) -> int:
     requested_mode = str(config.get("backend", {}).get("run_mode", "train"))
     cfg = parse_cfg(build_cli_args_from_config(config), evaluation=requested_mode in {"eval", "train_eval"})
     seed_everything(int(cfg.seed or 0))
+    patch_sample_factory_wandb()
+    from sample_factory.train import run_rl
+
     metrics_stop_event = None
     metrics_thread = None
     if cfg.mode in {"train", "train_eval"}:
