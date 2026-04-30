@@ -3,7 +3,7 @@
 
 # Core runtime.
 # Install PyTorch 2.10.0 separately before this file; see README.md.
-numpy==2.2.6
+numpy==1.26.4
 gymnasium==1.2.3
 PyYAML==6.0.3
 pillow==12.1.1
