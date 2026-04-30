@@ -20,7 +20,7 @@ from training.sample_factory_common.common import (
 from training.sample_factory_common.checkpoint_io import load_sample_factory_checkpoint_from_paths
 from training.sample_factory_common.config_adapter import append_cli_arg, build_common_sf_args
 from training.sample_factory_common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
-from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, QueueLatencyWrapper
+from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, QueueLatencyWrapper, RewardTraceWrapper
 from training.sample_factory_common.queue_eval import (
     finish_queue_eval_wandb,
     init_queue_eval_wandb,
@@ -32,6 +32,14 @@ from training.sample_factory_common.queue_eval import (
 SF_ENV_NAME = "doom_deadly_corridor"
 _ENVS_REGISTERED = False
 _MODELS_REGISTERED = False
+
+
+def _doom_raw_reward_from_scaled(transformed_reward: float, info: dict[str, Any], reward_scale: float) -> float:
+    if "raw_reward" in info:
+        return float(info["raw_reward"])
+    if reward_scale == 0.0:
+        return float(transformed_reward)
+    return float(transformed_reward) / float(reward_scale)
 
 
 class DoomFrameStackWrapper(gym.Wrapper):
@@ -98,6 +106,14 @@ def make_latency_doom_env_from_spec(
         env_config,
         render_mode=render_mode,
         **kwargs,
+    )
+    env = RewardTraceWrapper(
+        env,
+        raw_reward_fn=lambda transformed_reward, info, scale=float(spec_to_use.reward_scaling): _doom_raw_reward_from_scaled(
+            transformed_reward,
+            info,
+            scale,
+        ),
     )
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
     if frame_stack > 1:

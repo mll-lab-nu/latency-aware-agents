@@ -182,6 +182,37 @@ class QueueLatencyWrapper(gym.Wrapper):
         return obs, float(reward), terminated, truncated, info
 
 
+class RewardTraceWrapper(gym.Wrapper):
+    def __init__(self, env: gym.Env, *, raw_reward_fn=None):
+        super().__init__(env)
+        self.raw_reward_fn = raw_reward_fn
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        transformed_reward = float(reward)
+        info = dict(info or {})
+        raw_reward = info.get("raw_reward")
+        if raw_reward is None:
+            if self.raw_reward_fn is not None:
+                raw_reward = self.raw_reward_fn(transformed_reward, info)
+            else:
+                raw_reward = transformed_reward
+        info["raw_reward"] = float(raw_reward)
+        info["transformed_reward"] = transformed_reward
+        return obs, transformed_reward, terminated, truncated, info
+
+
+class ClipRewardWithRawInfoWrapper(gym.Wrapper):
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        raw_reward = float(reward)
+        transformed_reward = float(np.sign(raw_reward))
+        info = dict(info or {})
+        info["raw_reward"] = raw_reward
+        info["transformed_reward"] = transformed_reward
+        return obs, transformed_reward, terminated, truncated, info
+
+
 class EpisodeMetricsWrapper(gym.Wrapper):
     """Accurate per-episode metrics at the outer decision-step interface."""
 
@@ -202,11 +233,13 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         self.vector_index = int(vector_index)
         self.env_id = int(env_id)
         self.episode_return = 0.0
+        self.episode_raw_return = 0.0
         self.episode_length = 0
         self.episode_idx = 0
 
     def reset(self, **kwargs):
         self.episode_return = 0.0
+        self.episode_raw_return = 0.0
         self.episode_length = 0
         obs, info = self.env.reset(**kwargs)
         return obs, dict(info or {})
@@ -214,13 +247,17 @@ class EpisodeMetricsWrapper(gym.Wrapper):
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
         reward_value = float(reward)
-        self.episode_return += reward_value
-        self.episode_length += 1
         info = dict(info or {})
+        transformed_reward = float(info.get("transformed_reward", reward_value))
+        raw_reward = float(info.get("raw_reward", transformed_reward))
+        self.episode_return += transformed_reward
+        self.episode_raw_return += raw_reward
+        self.episode_length += 1
         done = bool(terminated or truncated)
         if done:
             extra_stats = dict(info.get("episode_extra_stats") or {})
             extra_stats["episode/return"] = float(self.episode_return)
+            extra_stats["episode/raw_return"] = float(self.episode_raw_return)
             extra_stats["episode/length"] = int(self.episode_length)
             extra_stats["episode/raw_frames"] = int(self.episode_length * self.frames_per_decision)
             extra_stats["episode/index"] = int(self.episode_idx)
@@ -239,6 +276,7 @@ class EpisodeMetricsWrapper(gym.Wrapper):
                 {
                     "episode_idx": int(self.episode_idx),
                     "return": float(self.episode_return),
+                    "raw_return": float(self.episode_raw_return),
                     "length": int(self.episode_length),
                     "raw_frames": int(self.episode_length * self.frames_per_decision),
                     "queue_latency": None if queue_latency is None else int(queue_latency),

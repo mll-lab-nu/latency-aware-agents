@@ -13,7 +13,7 @@ from gymnasium.spaces import Box
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
 from training.sample_factory_common.config_adapter import append_cli_arg, build_common_sf_args
 from training.sample_factory_common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
-from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, QueueLatencyWrapper
+from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, QueueLatencyWrapper, RewardTraceWrapper
 from training.sample_factory_common.queue_eval import (
     evaluate_queue_latency,
     finish_queue_eval_wandb,
@@ -157,6 +157,7 @@ def make_flappy_sf_env(
     max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
     if max_episode_steps > 0:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
+    env = RewardTraceWrapper(env)
     latency_values = parse_int_list(getattr(cfg, "queue_latency_values", "0"))
     wrapper_seed = env_instance_seed(
         base_seed=int(getattr(cfg, "seed", 0) or 0),

@@ -39,10 +39,12 @@ class EpisodeMetricsAggregator:
         self.completed_decision_steps = 0
         self.completed_raw_frames = 0
         self.return_sum = 0.0
+        self.raw_return_sum = 0.0
         self.length_sum = 0
         self.raw_frames_sum = 0
         self.latency_sum = 0.0
         self.return_window: deque[float] = deque(maxlen=self.rolling_window)
+        self.raw_return_window: deque[float] = deque(maxlen=self.rolling_window)
         self.length_window: deque[int] = deque(maxlen=self.rolling_window)
         self.raw_frames_window: deque[int] = deque(maxlen=self.rolling_window)
         self.latency_window: deque[int] = deque(maxlen=self.rolling_window)
@@ -52,6 +54,7 @@ class EpisodeMetricsAggregator:
 
     def process_event(self, event: dict[str, Any]) -> dict[str, Any]:
         episode_return = float(event["return"])
+        raw_episode_return = float(event.get("raw_return", event["return"]))
         episode_length = int(event["length"])
         raw_frames = int(event["raw_frames"])
         queue_latency = event.get("queue_latency")
@@ -61,12 +64,14 @@ class EpisodeMetricsAggregator:
         self.completed_decision_steps += episode_length
         self.completed_raw_frames += raw_frames
         self.return_sum += episode_return
+        self.raw_return_sum += raw_episode_return
         self.length_sum += episode_length
         self.raw_frames_sum += raw_frames
         if queue_latency_value is not None:
             self.latency_sum += queue_latency_value
 
         self.return_window.append(episode_return)
+        self.raw_return_window.append(raw_episode_return)
         self.length_window.append(episode_length)
         self.raw_frames_window.append(raw_frames)
         if queue_latency is not None:
@@ -77,12 +82,15 @@ class EpisodeMetricsAggregator:
             "episode_train/completed_decision_steps": int(self.completed_decision_steps),
             "episode_train/completed_raw_frames": int(self.completed_raw_frames),
             "episode_train/latest_return": float(episode_return),
+            "episode_train/latest_raw_return": float(raw_episode_return),
             "episode_train/latest_length": int(episode_length),
             "episode_train/latest_raw_frames": int(raw_frames),
             "episode_train/rolling_mean_return": float(sum(self.return_window) / len(self.return_window)),
+            "episode_train/rolling_mean_raw_return": float(sum(self.raw_return_window) / len(self.raw_return_window)),
             "episode_train/rolling_mean_length": float(sum(self.length_window) / len(self.length_window)),
             "episode_train/rolling_mean_raw_frames": float(sum(self.raw_frames_window) / len(self.raw_frames_window)),
             "episode_train/cumulative_mean_return": float(self.return_sum / self.completed_episodes),
+            "episode_train/cumulative_mean_raw_return": float(self.raw_return_sum / self.completed_episodes),
             "episode_train/cumulative_mean_length": float(self.length_sum / self.completed_episodes),
             "episode_train/cumulative_mean_raw_frames": float(self.raw_frames_sum / self.completed_episodes),
         }

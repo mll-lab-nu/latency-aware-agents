@@ -12,7 +12,12 @@ from latency_bench.envs.demon_attack import make_demon_attack_benchmark_env
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
 from training.sample_factory_common.config_adapter import append_cli_arg, build_common_sf_args
 from training.sample_factory_common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
-from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, QueueLatencyWrapper
+from training.sample_factory_common.latency_wrapper import (
+    ClipRewardWithRawInfoWrapper,
+    EpisodeMetricsWrapper,
+    QueueLatencyWrapper,
+    RewardTraceWrapper,
+)
 from training.sample_factory_common.queue_eval import (
     evaluate_queue_latency,
     finish_queue_eval_wandb,
@@ -97,7 +102,7 @@ def make_demon_attack_sf_env(
         noop_max=int(getattr(cfg, "noop_max", 30)),
         action_repeat=int(getattr(cfg, "action_repeat", 1)),
         terminal_on_life_loss=bool(getattr(cfg, "terminal_on_life_loss", False)),
-        clip_reward=bool(getattr(cfg, "clip_reward", True)),
+        clip_reward=False,
         repeat_action_probability=float(getattr(cfg, "repeat_action_probability", 0.0)),
         full_action_space=bool(getattr(cfg, "full_action_space", False)),
     )
@@ -108,6 +113,10 @@ def make_demon_attack_sf_env(
     max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
     if max_episode_steps > 0:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
+    if bool(getattr(cfg, "clip_reward", True)):
+        env = ClipRewardWithRawInfoWrapper(env)
+    else:
+        env = RewardTraceWrapper(env)
     latency_values = parse_int_list(getattr(cfg, "queue_latency_values", "0"))
     wrapper_seed = env_instance_seed(
         base_seed=int(getattr(cfg, "seed", 0) or 0),
