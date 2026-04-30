@@ -1,0 +1,11 @@
+__base__: ../../base/flappy.yaml
+
+experiment:
+  name: flappy_sf_zero_latency
+
+latency:
+  train_values:
+    - 0
+
+logging:
+  output_dir: outputs/flappy_sf_zero_latency

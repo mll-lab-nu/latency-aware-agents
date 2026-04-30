@@ -1,0 +1,18 @@
+__base__: ../../base/deadly_corridor.yaml
+
+experiment:
+  name: deadly_corridor_sf_latency_curriculum
+
+latency:
+  train_values:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+  train_mode: within_episode_curriculum
+  within_episode_change_interval: 100
+
+logging:
+  output_dir: outputs/deadly_corridor_sf_latency_curriculum
