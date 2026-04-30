@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import deque
 from pathlib import Path
 from typing import Any, Optional
 
@@ -64,7 +65,10 @@ class FlappyImageObsWrapper(gym.Wrapper):
         frame = self.env.render()
         if frame is None:
             raise RuntimeError("FlappyBird-v0 render() returned None; use render_mode='rgb_array'")
-        return np.asarray(frame, dtype=np.uint8)
+        frame = np.asarray(frame, dtype=np.uint8)
+        if frame.ndim != 3 or frame.shape[-1] != 3:
+            raise RuntimeError(f"Expected Flappy RGB frame with shape (H, W, 3), got {frame.shape!r}")
+        return np.transpose(frame, (2, 0, 1))
 
     def reset(self, **kwargs):
         numeric_obs, info = self.env.reset(**kwargs)
@@ -79,6 +83,39 @@ class FlappyImageObsWrapper(gym.Wrapper):
         info = dict(info or {})
         info["numeric_obs"] = numeric_obs
         return self._render_frame(), reward, terminated, truncated, info
+
+
+class FlappyFrameStackWrapper(gym.Wrapper):
+    observation_space: Box
+
+    def __init__(self, env: gym.Env, num_frames: int):
+        super().__init__(env)
+        if num_frames < 1:
+            raise ValueError(f"num_frames must be >= 1, got {num_frames}")
+        if not isinstance(env.observation_space, Box):
+            raise TypeError("FlappyFrameStackWrapper expects a Box observation space")
+        base_shape = tuple(int(dim) for dim in env.observation_space.shape)
+        if len(base_shape) != 3:
+            raise ValueError(f"Expected channel-first image observation, got shape {base_shape}")
+        self.num_frames = int(num_frames)
+        self._frames: deque[np.ndarray] = deque(maxlen=self.num_frames)
+        stacked_shape = (base_shape[0] * self.num_frames, base_shape[1], base_shape[2])
+        self.observation_space = Box(low=0, high=255, shape=stacked_shape, dtype=np.uint8)
+
+    def _stack_frames(self) -> np.ndarray:
+        return np.concatenate(tuple(self._frames), axis=0)
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self._frames.clear()
+        for _ in range(self.num_frames):
+            self._frames.append(np.array(obs, copy=True))
+        return self._stack_frames(), info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        self._frames.append(np.array(obs, copy=True))
+        return self._stack_frames(), reward, terminated, truncated, info
 
 
 def make_flappy_sf_env(
@@ -114,6 +151,9 @@ def make_flappy_sf_env(
         kwargs["score_limit"] = int(score_limit)
     env = gymnasium.make(getattr(cfg, "gym_id", "FlappyBird-v0"), **kwargs)
     env = FlappyImageObsWrapper(env)
+    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+    if frame_stack > 1:
+        env = FlappyFrameStackWrapper(env, num_frames=frame_stack)
     max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
     if max_episode_steps > 0:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
@@ -181,6 +221,7 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--pipe_color", type=str, default="green")
     parser.add_argument("--background", type=str, default="day")
     parser.add_argument("--score_limit", type=int, default=-1)
+    parser.add_argument("--frame_stack", type=int, default=1)
     parser.add_argument("--debug", type=str2bool, default=False)
     parser.add_argument("--max_episode_steps", type=int, default=0)
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "train_eval"])
@@ -237,6 +278,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--background", env_cfg.get("background", "day"))
     if env_cfg.get("score_limit") is not None:
         append_cli_arg(args, "--score_limit", env_cfg.get("score_limit"))
+    append_cli_arg(args, "--frame_stack", env_cfg.get("frame_stack", 1))
     append_cli_arg(args, "--debug", env_cfg.get("debug", False))
     append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
     return args

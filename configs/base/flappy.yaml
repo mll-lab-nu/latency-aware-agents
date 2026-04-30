@@ -24,6 +24,7 @@ env:
   use_lidar: false
   normalize_obs: true
   audio_on: false
+  frame_stack: 4
   noop_action: noop
   action_map:
     noop: 0
