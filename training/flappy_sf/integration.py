@@ -106,6 +106,9 @@ def make_flappy_sf_env(
         kwargs["score_limit"] = int(score_limit)
     env = gymnasium.make(getattr(cfg, "gym_id", "FlappyBird-v0"), **kwargs)
     env = FlappyImageObsWrapper(env)
+    max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
+    if max_episode_steps > 0:
+        env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
     latency_values = parse_int_list(getattr(cfg, "queue_latency_values", "0"))
     wrapper_seed = env_instance_seed(
         base_seed=int(getattr(cfg, "seed", 0) or 0),
@@ -163,6 +166,7 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--background", type=str, default="day")
     parser.add_argument("--score_limit", type=int, default=-1)
     parser.add_argument("--debug", type=str2bool, default=False)
+    parser.add_argument("--max_episode_steps", type=int, default=0)
     parser.add_argument("--mode", type=str, default="train", choices=["train"])
     parser.add_argument("--queue-latency-values", type=str, default="0")
     parser.add_argument("--latency-mode", type=str, default="episode_fixed")
@@ -217,6 +221,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     if env_cfg.get("score_limit") is not None:
         append_cli_arg(args, "--score_limit", env_cfg.get("score_limit"))
     append_cli_arg(args, "--debug", env_cfg.get("debug", False))
+    append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
     return args
 
 

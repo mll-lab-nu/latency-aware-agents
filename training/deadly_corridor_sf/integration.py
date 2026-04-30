@@ -5,6 +5,7 @@ import copy
 import functools
 from typing import Any, Optional
 
+import gymnasium as gym
 import numpy as np
 import torch
 
@@ -46,6 +47,9 @@ def make_latency_doom_env_from_spec(
         render_mode=render_mode,
         **kwargs,
     )
+    max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
+    if max_episode_steps > 0:
+        env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
 
     latency_values = parse_int_list(getattr(cfg, "queue_latency_values", "0"))
     wrapper_seed = env_instance_seed(
@@ -126,6 +130,7 @@ def add_latency_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--eval-raw-reward", action="store_true")
     parser.add_argument("--eval-deterministic", type=str2bool, default=True)
     parser.add_argument("--disable-reward-scaling", type=str2bool, default=False)
+    parser.add_argument("--max_episode_steps", type=int, default=0)
 
 
 def parse_cfg(argv=None):
@@ -267,6 +272,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--res_w", env_cfg.get("res_w", 128))
     append_cli_arg(args, "--res_h", env_cfg.get("res_h", 72))
     append_cli_arg(args, "--wide_aspect_ratio", env_cfg.get("wide_aspect_ratio", False))
+    append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
     append_cli_arg(args, "--disable-reward-scaling", evaluation_cfg.get("eval_raw_reward", False))
     return args
 

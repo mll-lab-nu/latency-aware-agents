@@ -56,6 +56,9 @@ def make_demon_attack_sf_env(
         full_action_space=bool(getattr(cfg, "full_action_space", False)),
     )
     env = AtariObsFormatWrapper(env)
+    max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
+    if max_episode_steps > 0:
+        env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
     latency_values = parse_int_list(getattr(cfg, "queue_latency_values", "0"))
     wrapper_seed = env_instance_seed(
         base_seed=int(getattr(cfg, "seed", 0) or 0),
@@ -110,6 +113,7 @@ def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--clip_reward", type=str2bool, default=True)
     parser.add_argument("--repeat_action_probability", type=float, default=0.0)
     parser.add_argument("--full_action_space", type=str2bool, default=False)
+    parser.add_argument("--max_episode_steps", type=int, default=0)
     parser.add_argument("--mode", type=str, default="train", choices=["train"])
     parser.add_argument("--queue-latency-values", type=str, default="0")
     parser.add_argument("--latency-mode", type=str, default="episode_fixed")
@@ -160,6 +164,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--clip_reward", env_cfg.get("clip_reward", True))
     append_cli_arg(args, "--repeat_action_probability", env_cfg.get("repeat_action_probability", 0.0))
     append_cli_arg(args, "--full_action_space", env_cfg.get("full_action_space", False))
+    append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
     return args
 
 
