@@ -45,6 +45,7 @@ class EpisodeMetricsAggregator:
         self.latency_sum = 0.0
         self.return_window: deque[float] = deque(maxlen=self.rolling_window)
         self.raw_return_window: deque[float] = deque(maxlen=self.rolling_window)
+        self.clipped_return_window: deque[float] = deque(maxlen=self.rolling_window)
         self.length_window: deque[int] = deque(maxlen=self.rolling_window)
         self.raw_frames_window: deque[int] = deque(maxlen=self.rolling_window)
         self.latency_window: deque[int] = deque(maxlen=self.rolling_window)
@@ -55,6 +56,8 @@ class EpisodeMetricsAggregator:
     def process_event(self, event: dict[str, Any]) -> dict[str, Any]:
         raw_episode_return = float(event.get("raw_return", event["return"]))
         episode_return = raw_episode_return
+        clipped_episode_return = event.get("clipped_return")
+        clipped_episode_return = None if clipped_episode_return is None else float(clipped_episode_return)
         episode_length = int(event["length"])
         raw_frames = int(event["raw_frames"])
         queue_latency = event.get("queue_latency")
@@ -72,6 +75,8 @@ class EpisodeMetricsAggregator:
 
         self.return_window.append(episode_return)
         self.raw_return_window.append(raw_episode_return)
+        if clipped_episode_return is not None:
+            self.clipped_return_window.append(clipped_episode_return)
         self.length_window.append(episode_length)
         self.raw_frames_window.append(raw_frames)
         if queue_latency is not None:
@@ -102,6 +107,10 @@ class EpisodeMetricsAggregator:
             "episode_train/cumulative_mean_length": float(self.length_sum / self.completed_episodes),
             "episode_train/cumulative_mean_raw_frames": float(self.raw_frames_sum / self.completed_episodes),
         }
+        if self.clipped_return_window:
+            payload["rollout/ep_clipped_rew_mean"] = float(
+                sum(self.clipped_return_window) / len(self.clipped_return_window)
+            )
         if queue_latency is not None:
             payload["episode_train/latest_queue_latency"] = int(queue_latency)
             payload["episode_train/rolling_mean_queue_latency"] = float(sum(self.latency_window) / len(self.latency_window))

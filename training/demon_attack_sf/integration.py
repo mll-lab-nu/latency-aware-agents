@@ -9,7 +9,6 @@ import numpy as np
 from gymnasium.spaces import Box
 
 from latency_bench.envs.demon_attack import make_demon_attack_benchmark_env
-from training.atari_episode_stats import patch_sample_factory_atari_episode_stats
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
 from training.sample_factory_common.config_adapter import (
     append_cli_arg,
@@ -29,6 +28,9 @@ from training.sample_factory_common.queue_eval import (
     init_queue_eval_wandb,
     log_queue_eval_result,
     write_queue_eval_result,
+)
+from training.sample_factory_common.sf_raw_reward_stats_compat import (
+    ensure_sample_factory_raw_reward_console_stats_installed,
 )
 from training.sample_factory_common.wandb_compat import patch_sample_factory_wandb
 
@@ -101,7 +103,7 @@ def make_demon_attack_sf_env(
     render_mode: Optional[str] = None,
 ):
     del render_mode
-    patch_sample_factory_atari_episode_stats()
+    ensure_sample_factory_raw_reward_console_stats_installed(env_name=SF_ENV_NAME)
     env_config = env_config or {}
     env = make_demon_attack_benchmark_env(
         env_id=getattr(cfg, "env_id", "ALE/DemonAttack-v5"),
@@ -256,7 +258,7 @@ def run_from_config(config: dict) -> int:
     apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))
     patch_sample_factory_wandb()
-    patch_sample_factory_atari_episode_stats()
+    ensure_sample_factory_raw_reward_console_stats_installed(env_name=SF_ENV_NAME)
     from sample_factory.train import run_rl
 
     metrics_stop_event = None

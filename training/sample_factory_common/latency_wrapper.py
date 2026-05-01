@@ -210,6 +210,7 @@ class ClipRewardWithRawInfoWrapper(gym.Wrapper):
         transformed_reward = float(np.sign(raw_reward))
         info = dict(info or {})
         info["raw_reward"] = raw_reward
+        info["clipped_reward"] = transformed_reward
         info["transformed_reward"] = transformed_reward
         return obs, transformed_reward, terminated, truncated, info
 
