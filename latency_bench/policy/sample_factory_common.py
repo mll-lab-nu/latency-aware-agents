@@ -106,13 +106,17 @@ class SampleFactoryPolicyRunner(PolicyRunner):
 
         integration_module.register_components()
         cfg = integration_module.build_sf_cfg_from_config(config)
+        checkpoint_path = config["policy"].get("checkpoint_path") or None
+        if checkpoint_path is None:
+            from sample_factory.cfg.arguments import load_from_checkpoint
+
+            cfg = load_from_checkpoint(cfg)
         reference_env = integration_module.make_reference_env(cfg)
         self.env_info = extract_env_info(reference_env, cfg)
         self.actor_critic = create_actor_critic(cfg, reference_env.observation_space, reference_env.action_space)
         self.actor_critic.eval()
         self.actor_critic.model_to_device(self.device)
 
-        checkpoint_path = config["policy"].get("checkpoint_path") or None
         checkpoint = _load_sf_policy_state_dict(cfg, self.actor_critic, self.device, checkpoint_path)
         self.checkpoint_global_step = int(checkpoint.get("train_step", checkpoint.get("env_steps", 0)))
         rnn_size = int(get_rnn_size(cfg))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from gymnasium.spaces import Box, Tuple
@@ -37,6 +38,14 @@ def _coerce_noop_action_for_space(value: Any, space) -> Any:
     return value
 
 
+def _spec_with_reward_scaling(spec: Any, disable_reward_scaling: bool) -> Any:
+    if not disable_reward_scaling:
+        return spec
+    spec_to_use = copy.copy(spec)
+    spec_to_use.reward_scaling = 1.0
+    return spec_to_use
+
+
 class DeadlyCorridorEnvAdapter(EnvAdapter):
     """Latency-bench adapter for ViZDoom Deadly Corridor using the SF Doom env stack."""
 
@@ -49,6 +58,7 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         res_w: int = 128,
         res_h: int = 72,
         wide_aspect_ratio: bool = False,
+        disable_reward_scaling: bool = False,
     ):
         if fps_env <= 0:
             raise ValueError("fps_env must be positive")
@@ -84,8 +94,12 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         spec = next((item for item in DOOM_ENVS if item.name == str(env_id)), None)
         if spec is None:
             raise ValueError(f"Unknown ViZDoom env spec: {env_id}")
-        self.gym_env = make_doom_env_from_spec(
+        spec_to_use = _spec_with_reward_scaling(
             spec,
+            disable_reward_scaling=bool(disable_reward_scaling),
+        )
+        self.gym_env = make_doom_env_from_spec(
+            spec_to_use,
             str(env_id),
             cfg,
             AttrDict(worker_index=0, vector_index=0, env_id=0),

@@ -11,6 +11,13 @@ from latency_bench.core.types import EpisodeMetrics
 from latency_bench.executors.factory import build_executor
 
 
+_SAMPLE_FACTORY_POLICY_TYPES = {
+    "flappy_sf",
+    "demon_attack_sf",
+    "deadly_corridor_sf",
+}
+
+
 def apply_runtime_overrides(
     config: dict[str, Any],
     checkpoint_path: str | Path | None = None,
@@ -26,20 +33,37 @@ def apply_runtime_overrides(
     return config
 
 
+def _is_sample_factory_policy(config: dict[str, Any]) -> bool:
+    policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
+    return policy_type in _SAMPLE_FACTORY_POLICY_TYPES
+
+
+def _episode_seed(config: dict[str, Any], episode_id: int) -> int:
+    seed = int(config["experiment"].get("seed", 0))
+    if _is_sample_factory_policy(config):
+        return seed + 104729 + int(episode_id)
+    return seed + int(episode_id)
+
+
 def run_from_config(config: dict[str, Any], extra_metadata: dict[str, Any] | None = None) -> list[EpisodeMetrics]:
-    executor = build_executor(config)
     experiment_cfg = config["experiment"]
     policy_cfg = config["policy"]
     logging_cfg = config["logging"]
     seed = int(experiment_cfg.get("seed", 0))
     num_episodes = int(experiment_cfg.get("num_episodes", 1))
     max_env_steps = int(experiment_cfg.get("max_env_steps", 10000))
+    if _is_sample_factory_policy(config):
+        from training.sample_factory_common.common import seed_everything
+
+        seed_everything(seed)
+
+    executor = build_executor(config)
     metrics = []
     try:
         for episode_id in range(num_episodes):
             episode_metrics = executor.run_episode(
                 episode_id=episode_id,
-                seed=seed + episode_id,
+                seed=_episode_seed(config, episode_id),
                 max_env_steps=max_env_steps,
             )
             episode_metrics.metadata["config_name"] = experiment_cfg.get("name")
