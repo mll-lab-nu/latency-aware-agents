@@ -53,8 +53,8 @@ class EpisodeMetricsAggregator:
         self._wandb_initialized = False
 
     def process_event(self, event: dict[str, Any]) -> dict[str, Any]:
-        episode_return = float(event["return"])
         raw_episode_return = float(event.get("raw_return", event["return"]))
+        episode_return = raw_episode_return
         episode_length = int(event["length"])
         raw_frames = int(event["raw_frames"])
         queue_latency = event.get("queue_latency")
@@ -77,7 +77,15 @@ class EpisodeMetricsAggregator:
         if queue_latency is not None:
             self.latency_window.append(int(queue_latency))
 
+        rolling_raw_return = float(sum(self.raw_return_window) / len(self.raw_return_window))
+        rolling_return = float(sum(self.return_window) / len(self.return_window))
+        cumulative_return = float(self.return_sum / self.completed_episodes)
+        cumulative_raw_return = float(self.raw_return_sum / self.completed_episodes)
         payload = {
+            "charts/episodic_return": float(episode_return),
+            "charts/episodic_return_raw": float(raw_episode_return),
+            "rollout/ep_rew_mean": rolling_return,
+            "rollout/ep_raw_rew_mean": rolling_raw_return,
             "episode_train/completed_episodes": int(self.completed_episodes),
             "episode_train/completed_decision_steps": int(self.completed_decision_steps),
             "episode_train/completed_raw_frames": int(self.completed_raw_frames),
@@ -85,12 +93,12 @@ class EpisodeMetricsAggregator:
             "episode_train/latest_raw_return": float(raw_episode_return),
             "episode_train/latest_length": int(episode_length),
             "episode_train/latest_raw_frames": int(raw_frames),
-            "episode_train/rolling_mean_return": float(sum(self.return_window) / len(self.return_window)),
-            "episode_train/rolling_mean_raw_return": float(sum(self.raw_return_window) / len(self.raw_return_window)),
+            "episode_train/rolling_mean_return": rolling_return,
+            "episode_train/rolling_mean_raw_return": rolling_raw_return,
             "episode_train/rolling_mean_length": float(sum(self.length_window) / len(self.length_window)),
             "episode_train/rolling_mean_raw_frames": float(sum(self.raw_frames_window) / len(self.raw_frames_window)),
-            "episode_train/cumulative_mean_return": float(self.return_sum / self.completed_episodes),
-            "episode_train/cumulative_mean_raw_return": float(self.raw_return_sum / self.completed_episodes),
+            "episode_train/cumulative_mean_return": cumulative_return,
+            "episode_train/cumulative_mean_raw_return": cumulative_raw_return,
             "episode_train/cumulative_mean_length": float(self.length_sum / self.completed_episodes),
             "episode_train/cumulative_mean_raw_frames": float(self.raw_frames_sum / self.completed_episodes),
         }

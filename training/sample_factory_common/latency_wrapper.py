@@ -235,6 +235,7 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         self.env_id = int(env_id)
         self.full_game_return = 0.0
         self.full_game_raw_return = 0.0
+        self.full_game_clipped_return = 0.0
         self.full_game_length = 0
         self.episode_idx = 0
         self._preserve_full_game_on_next_reset = False
@@ -242,6 +243,7 @@ class EpisodeMetricsWrapper(gym.Wrapper):
     def _reset_full_game_counters(self) -> None:
         self.full_game_return = 0.0
         self.full_game_raw_return = 0.0
+        self.full_game_clipped_return = 0.0
         self.full_game_length = 0
 
     def reset(self, **kwargs):
@@ -257,8 +259,9 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         info = dict(info or {})
         transformed_reward = float(info.get("transformed_reward", reward_value))
         raw_reward = float(info.get("raw_reward", transformed_reward))
-        self.full_game_return += transformed_reward
+        self.full_game_return += raw_reward
         self.full_game_raw_return += raw_reward
+        self.full_game_clipped_return += transformed_reward
         self.full_game_length += 1
         done = bool(terminated or truncated)
         true_episode_end = is_true_atari_episode_end(terminated, truncated, info)
@@ -268,17 +271,23 @@ class EpisodeMetricsWrapper(gym.Wrapper):
             extra_stats = dict(info.get("episode_extra_stats") or {})
             extra_stats["episode/return"] = float(self.full_game_return)
             extra_stats["episode/raw_return"] = float(self.full_game_raw_return)
+            extra_stats["episode/clipped_return"] = float(self.full_game_clipped_return)
             extra_stats["episode/length"] = int(self.full_game_length)
             extra_stats["episode/raw_frames"] = int(self.full_game_length * self.frames_per_decision)
             extra_stats["episode/index"] = int(self.episode_idx)
 
-            queue_latency = getattr(self.env, "current_latency", None)
-            if queue_latency is None and "queue_latency" in info:
-                queue_latency = info.get("queue_latency")
+            queue_latency = info.get("queue_latency")
+            if queue_latency is None:
+                try:
+                    queue_latency = self.env.get_wrapper_attr("current_latency")
+                except (AttributeError, LookupError):
+                    queue_latency = None
             if queue_latency is not None:
                 extra_stats["episode/queue_latency"] = int(queue_latency)
 
             info["episode_extra_stats"] = extra_stats
+            info["episodic_raw_return"] = float(self.full_game_raw_return)
+            info["episodic_clipped_return"] = float(self.full_game_clipped_return)
             info["episodic_return"] = float(self.full_game_return)
             info["episodic_length"] = int(self.full_game_length)
             append_episode_metrics_event(
@@ -287,6 +296,7 @@ class EpisodeMetricsWrapper(gym.Wrapper):
                     "episode_idx": int(self.episode_idx),
                     "return": float(self.full_game_return),
                     "raw_return": float(self.full_game_raw_return),
+                    "clipped_return": float(self.full_game_clipped_return),
                     "length": int(self.full_game_length),
                     "raw_frames": int(self.full_game_length * self.frames_per_decision),
                     "queue_latency": None if queue_latency is None else int(queue_latency),
