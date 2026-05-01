@@ -21,6 +21,7 @@ from latency_bench.latency.sources import (
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.observation.builder import ObservationBuilder
 from latency_bench.observation.history import HistoryBuffer
+from latency_bench.observation.sample_factory import SampleFactoryFrameStackObservationBuilder
 from latency_bench.policy.factory import build_policy
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import (
@@ -35,6 +36,11 @@ from latency_bench.scheduler.persistence import ActionPersistencePolicy, HoldPre
 ExecutorBuilder = Callable[[dict[str, Any]], Any]
 
 _EXECUTOR_BUILDERS: dict[ExecutorMode, ExecutorBuilder] = {}
+_SAMPLE_FACTORY_BASE_CHANNELS = {
+    "flappy_sf": 3,
+    "demon_attack_sf": 1,
+    "deadly_corridor_sf": 3,
+}
 
 
 def register_executor(mode: ExecutorMode | str) -> Callable[[ExecutorBuilder], ExecutorBuilder]:
@@ -90,8 +96,8 @@ def _build_simulated_executor(config: dict[str, Any]) -> SimulatedLatencyExecuto
     return SimulatedLatencyExecutor(
         env=env,
         policy=policy,
-        observation_builder=ObservationBuilder(),
-        history=HistoryBuffer(max_len=int(control_cfg.get("history_len", 16))),
+        observation_builder=_build_observation_builder(config),
+        history=HistoryBuffer(max_len=_history_len(control_cfg, config["env"], config["policy"])),
         decision_scheduler=decision_scheduler,
         latency_source=latency_source,
         action_scheduler=action_scheduler,
@@ -124,8 +130,8 @@ def _build_paused_executor(config: dict[str, Any]) -> PausedLatencyExecutor:
     return PausedLatencyExecutor(
         env=env,
         policy=policy,
-        observation_builder=ObservationBuilder(),
-        history=HistoryBuffer(max_len=int(control_cfg.get("history_len", 16))),
+        observation_builder=_build_observation_builder(config),
+        history=HistoryBuffer(max_len=_history_len(control_cfg, config["env"], config["policy"])),
         decision_scheduler=decision_scheduler,
         latency_source=latency_source,
         action_scheduler=action_scheduler,
@@ -168,8 +174,8 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
     return RealtimeLatencyExecutor(
         env=env,
         policy=policy,
-        observation_builder=ObservationBuilder(),
-        history=HistoryBuffer(max_len=int(control_cfg.get("history_len", 16))),
+        observation_builder=_build_observation_builder(config),
+        history=HistoryBuffer(max_len=_history_len(control_cfg, config["env"], config["policy"])),
         decision_scheduler=decision_scheduler,
         latency_source=latency_source,
         action_scheduler=action_scheduler,
@@ -178,6 +184,34 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
         max_pending_observations=int(executor_cfg.get("max_pending_observations", 16)),
         latency_profiler=latency_profiler,
     )
+
+
+def _normalize_policy_type(policy_type: str) -> str:
+    return str(policy_type).strip().lower()
+
+
+def _is_sample_factory_policy(policy_type: str) -> bool:
+    return _normalize_policy_type(policy_type) in _SAMPLE_FACTORY_BASE_CHANNELS
+
+
+def _build_observation_builder(config: dict[str, Any]) -> ObservationBuilder:
+    policy_cfg = config["policy"]
+    policy_type = _normalize_policy_type(policy_cfg["type"])
+    if not _is_sample_factory_policy(policy_type):
+        return ObservationBuilder()
+
+    env_cfg = config["env"]
+    return SampleFactoryFrameStackObservationBuilder(
+        frame_stack=int(env_cfg.get("frame_stack", 1)),
+        base_channels=_SAMPLE_FACTORY_BASE_CHANNELS[policy_type],
+    )
+
+
+def _history_len(control_cfg: dict[str, Any], env_cfg: dict[str, Any], policy_cfg: dict[str, Any]) -> int:
+    requested_history_len = int(control_cfg.get("history_len", 16))
+    if not _is_sample_factory_policy(policy_cfg["type"]):
+        return requested_history_len
+    return max(requested_history_len, int(env_cfg.get("frame_stack", 1)))
 
 
 def _build_decision_scheduler(control_cfg: dict[str, Any], fps_env: float) -> DecisionScheduler:

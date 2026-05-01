@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from gymnasium.spaces import Box
+from gymnasium.spaces import Box, Tuple
 
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
@@ -12,11 +12,29 @@ def _noop_action_from_space(space) -> Any:
     n = getattr(space, "n", None)
     if n is not None:
         return 0
+    if isinstance(space, Tuple):
+        return tuple(_noop_action_from_space(subspace) for subspace in space.spaces)
     if isinstance(space, Box):
         import numpy as np
 
         return np.zeros(space.shape, dtype=space.dtype)
     raise TypeError(f"Unsupported action space for Deadly Corridor no-op action: {space}")
+
+
+def _coerce_noop_action_for_space(value: Any, space) -> Any:
+    if isinstance(space, Tuple):
+        if isinstance(value, (list, tuple)):
+            if len(value) != len(space.spaces):
+                raise ValueError(
+                    f"Deadly Corridor no-op action length {len(value)} does not match action space {space}"
+                )
+            return tuple(
+                _coerce_noop_action_for_space(item, subspace)
+                for item, subspace in zip(value, space.spaces)
+            )
+        if value == 0:
+            return _noop_action_from_space(space)
+    return value
 
 
 class DeadlyCorridorEnvAdapter(EnvAdapter):
@@ -78,7 +96,16 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         self.fps_env = float(fps_env)
         action_space = self.gym_env.action_space
         noop_value = _noop_action_from_space(action_space)
-        self.noop_action = noop_action or Action(value=noop_value, name=str(noop_value), is_noop=True)
+        if noop_action is None:
+            self.noop_action = Action(value=noop_value, name=str(noop_value), is_noop=True)
+        else:
+            coerced_noop_value = _coerce_noop_action_for_space(noop_action.value, action_space)
+            self.noop_action = Action(
+                value=coerced_noop_value,
+                name=str(coerced_noop_value),
+                is_noop=True,
+                is_oneshot=noop_action.is_oneshot,
+            )
         self.env_step = 0
         self._last_info: dict[str, Any] = {}
         self._last_frame: Any = None

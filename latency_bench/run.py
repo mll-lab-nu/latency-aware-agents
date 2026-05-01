@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,71 @@ def run_from_config(config: dict[str, Any], extra_metadata: dict[str, Any] | Non
     return metrics
 
 
+def run_eval_sweep_from_config(config: dict[str, Any]) -> list[EpisodeMetrics]:
+    eval_latency_values = _eval_latency_values(config)
+    if eval_latency_values is None:
+        return run_from_config(config)
+
+    base_output_dir = Path(config["logging"]["output_dir"])
+    train_latency_steps = _train_latency_steps(config)
+    all_metrics: list[EpisodeMetrics] = []
+    for eval_latency_steps in eval_latency_values:
+        sweep_config = deepcopy(config)
+        configured_latency_ms = _latency_steps_to_ms(sweep_config, eval_latency_steps)
+        _apply_eval_latency(sweep_config, eval_latency_steps, configured_latency_ms)
+        sweep_output_dir = base_output_dir / f"eval_latency_{eval_latency_steps}"
+        sweep_config["logging"]["output_dir"] = str(sweep_output_dir)
+        all_metrics.extend(
+            run_from_config(
+                sweep_config,
+                extra_metadata={
+                    "train_latency_steps": train_latency_steps,
+                    "eval_latency_steps": eval_latency_steps,
+                    "configured_latency_ms": configured_latency_ms,
+                },
+            )
+        )
+    return all_metrics
+
+
+def _eval_latency_values(config: dict[str, Any]) -> list[int] | None:
+    evaluation_cfg = config.get("evaluation")
+    if not isinstance(evaluation_cfg, dict) or "eval_latency_values" not in evaluation_cfg:
+        return None
+    values = evaluation_cfg["eval_latency_values"]
+    if values is None:
+        return None
+    if isinstance(values, (str, bytes)):
+        values = [item.strip() for item in str(values).split(",") if item.strip()]
+    elif not isinstance(values, Sequence):
+        values = [values]
+    return [int(value) for value in values]
+
+
+def _train_latency_steps(config: dict[str, Any]) -> int | None:
+    train_values = config.get("latency", {}).get("train_values")
+    if not train_values:
+        return None
+    return int(train_values[0])
+
+
+def _latency_steps_to_ms(config: dict[str, Any], latency_steps: int) -> float:
+    fps_env = float(config["env"]["fps_env"])
+    if fps_env <= 0:
+        raise ValueError("env.fps_env must be positive")
+    return int(latency_steps) * 1000.0 / fps_env
+
+
+def _apply_eval_latency(config: dict[str, Any], latency_steps: int, latency_ms: float) -> None:
+    latency_cfg = config.setdefault("latency", {})
+    if int(latency_steps) == 0:
+        latency_cfg["type"] = "zero"
+        latency_cfg.pop("fixed_latency_ms", None)
+        return
+    latency_cfg["type"] = "fixed"
+    latency_cfg["fixed_latency_ms"] = float(latency_ms)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run a latency-sensitive control benchmark.")
     parser.add_argument("--config", type=Path, required=True)
@@ -70,10 +136,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         run_name=args.run_name,
         output_dir=args.output_dir,
     )
-    metrics = run_from_config(config)
+    metrics = run_eval_sweep_from_config(config)
     for episode_metrics in metrics:
+        eval_latency = episode_metrics.metadata.get("eval_latency_steps")
+        latency_fragment = f"eval_latency={eval_latency} " if eval_latency is not None else ""
         print(
             f"episode={episode_metrics.episode_id} "
+            f"{latency_fragment}"
             f"return={episode_metrics.episode_return:.3f} "
             f"steps={episode_metrics.survival_steps} "
             f"mean_latency_ms={episode_metrics.mean_latency_ms}"
