@@ -4,9 +4,9 @@ set -euo pipefail
 mkdir -p results/checkpoints/demon_attack_ppo_fs0 logs
 
 GPU_ID="${GPU_ID:-0}"
-N_ENVS="${N_ENVS:-16}"
+N_ENVS="${N_ENVS:-64}"
 N_STEPS="${N_STEPS:-128}"
-TRAIN_STEPS="${TRAIN_STEPS:-20000000}"
+TRAIN_STEPS="${TRAIN_STEPS:-50000000}"
 EXP_NAME="${EXP_NAME:-demon_attack_ppo_fs0}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)_$(hostname -s)_$$}"
 RUN_DIR="${RUN_DIR:-logs/${EXP_NAME}/${RUN_ID}}"
@@ -27,8 +27,8 @@ CUDA_VISIBLE_DEVICES="${GPU_ID}" python -m training.demon_attack_ppo.cli \
     --train-steps "${TRAIN_STEPS}" \
     --n-envs "${N_ENVS}" \
     --n-steps "${N_STEPS}" \
-    --batch-size 256 \
-    --n-epochs 8 \
+    --batch-size 2048 \
+    --n-epochs 4 \
     --learning-rate 2.5e-4 \
     --learning-rate-final 2.5e-6 \
     --anneal-lr \
@@ -37,15 +37,14 @@ CUDA_VISIBLE_DEVICES="${GPU_ID}" python -m training.demon_attack_ppo.cli \
     --ent-coef 0.01 \
     --gamma 0.99 \
     --gae-lambda 0.95 \
-    --target-kl 0.015 \
     --vf-coef 0.5 \
     --max-grad-norm 0.5 \
     --screen-size 84 \
     --base-channels 1 \
     --stack-frames 4 \
-    --noop-max 30 \
+    --noop-max 1 \
     --action-repeat "${ACTION_REPEAT:-4}" \
-    --terminal-on-life-loss \
+    --full-action-space \
     --clip-reward \
     --obs-mode image_only \
     --frame-skip-values 0 \

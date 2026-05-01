@@ -17,7 +17,7 @@ env:
   terminal_on_life_loss: false
   clip_reward: true
   repeat_action_probability: 0.0
-  full_action_space: false
+  full_action_space: true
   noop_action: 0
 
 control:

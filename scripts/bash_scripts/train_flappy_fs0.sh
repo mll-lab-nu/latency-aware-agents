@@ -6,7 +6,7 @@ mkdir -p results/checkpoints/flappy_ppo_fs0 logs
 GPU_ID="${GPU_ID:-0}"
 N_ENVS="${N_ENVS:-64}"
 N_STEPS="${N_STEPS:-512}"
-TRAIN_STEPS="${TRAIN_STEPS:-10000000}"
+TRAIN_STEPS="${TRAIN_STEPS:-50000000}"
 EXP_NAME="${EXP_NAME:-flappy_ppo_fs0}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)_$(hostname -s)_$$}"
 RUN_DIR="${RUN_DIR:-logs/${EXP_NAME}/${RUN_ID}}"
@@ -26,8 +26,8 @@ CUDA_VISIBLE_DEVICES="${GPU_ID}" python -m training.flappy_ppo.cli \
     --train-steps "${TRAIN_STEPS}" \
     --n-envs "${N_ENVS}" \
     --n-steps "${N_STEPS}" \
-    --batch-size 8192 \
-    --n-epochs 10 \
+    --batch-size 1024 \
+    --n-epochs 8 \
     --learning-rate 2.5e-4 \
     --learning-rate-final 2.5e-6 \
     --anneal-lr \
