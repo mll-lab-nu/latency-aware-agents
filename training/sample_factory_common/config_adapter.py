@@ -198,6 +198,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     )
     bool_fields = (
         "async_rl",
+        "batched_sampling",
         "use_rnn",
         "normalize_returns",
         "normalize_input",

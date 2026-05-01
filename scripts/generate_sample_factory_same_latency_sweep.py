@@ -30,7 +30,7 @@ DEFAULT_LATENCIES = {
 
 DEFAULT_MAX_STEPS = {
     "flappy": 1800,
-    "demon_attack": 3600,
+    "demon_attack": 25000,
     "deadly_corridor": 2100,
 }
 
@@ -148,7 +148,6 @@ def _build_train_config(
     config["latency"]["train_sampling_mode"] = "uniform_all"
     config["latency"]["add_latency_info"] = False
     config["evaluation"]["eval_latency_values"] = [int(latency)]
-    config["evaluation"]["eval_max_steps"] = int(max_steps)
     config["logging"]["output_dir"] = str(Path(output_root) / "train" / env_name / f"latency_{latency}" / f"seed_{seed}")
     if train_for_env_steps is not None:
         config["training"]["train_for_env_steps"] = int(train_for_env_steps)
@@ -174,7 +173,6 @@ def _build_eval_config(
     config["latency"]["add_latency_info"] = False
     config["evaluation"]["eval_episodes"] = int(eval_episodes)
     config["evaluation"]["eval_latency_values"] = [int(latency)]
-    config["evaluation"]["eval_max_steps"] = int(max_steps)
     config["logging"]["output_dir"] = str(Path(output_root) / "eval" / env_name / f"latency_{latency}" / f"seed_{seed}")
     return _prune_sample_factory_config(config)
 

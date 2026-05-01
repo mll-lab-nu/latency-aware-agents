@@ -246,6 +246,10 @@ def run_from_config(config: dict) -> int:
     register_demon_attack_envs()
     requested_mode = str(config.get("backend", {}).get("run_mode", "train"))
     cfg = parse_cfg(build_cli_args_from_config(config), evaluation=requested_mode in {"eval", "train_eval"})
+    logging_cfg = config.get("logging", {}) if isinstance(config.get("logging"), dict) else {}
+    output_dir = logging_cfg.get("output_dir")
+    if output_dir:
+        cfg.output_dir = str(output_dir)
     seed_everything(int(cfg.seed or 0))
     patch_sample_factory_wandb()
     from sample_factory.train import run_rl
