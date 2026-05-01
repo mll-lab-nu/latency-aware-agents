@@ -105,17 +105,7 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
 def _build_deadly_corridor_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
     from latency_bench.envs.deadly_corridor import DeadlyCorridorEnvAdapter
 
-    env_cfg = config["env"]
-    evaluation_cfg = config.get("evaluation", {})
-    if not isinstance(evaluation_cfg, dict):
-        evaluation_cfg = {}
     return DeadlyCorridorEnvAdapter(
-        env_id=env_cfg.get("env_id", "doom_deadly_corridor"),
-        fps_env=float(env_cfg.get("fps_env", 35)),
+        config=config,
         noop_action=noop_action,
-        env_frameskip=int(env_cfg.get("env_frameskip", 4)),
-        res_w=int(env_cfg.get("res_w", 128)),
-        res_h=int(env_cfg.get("res_h", 72)),
-        wide_aspect_ratio=bool(env_cfg.get("wide_aspect_ratio", False)),
-        disable_reward_scaling=bool(evaluation_cfg.get("eval_raw_reward", False)),
     )

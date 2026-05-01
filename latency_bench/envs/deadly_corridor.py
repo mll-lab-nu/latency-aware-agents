@@ -46,57 +46,68 @@ def _spec_with_reward_scaling(spec: Any, disable_reward_scaling: bool) -> Any:
     return spec_to_use
 
 
+def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
+    from sample_factory.cfg.arguments import load_from_checkpoint
+    from training.deadly_corridor_sf import integration
+    from training.sample_factory_common.common import maybe_set_cli_override
+
+    integration.register_deadly_corridor_components()
+    base_cfg = integration.parse_cfg(integration.build_cli_args_from_config(config))
+    cfg = integration._prepare_eval_cfg(base_cfg, latency_value=0)
+    cfg = load_from_checkpoint(cfg)
+
+    for key in (
+        "seed",
+        "env_frameskip",
+        "res_w",
+        "res_h",
+        "wide_aspect_ratio",
+        "frame_stack",
+        "max_episode_steps",
+    ):
+        if hasattr(base_cfg, key):
+            maybe_set_cli_override(cfg, key, getattr(base_cfg, key))
+
+    env_frameskip = int(getattr(cfg, "env_frameskip", getattr(base_cfg, "env_frameskip", 4)) or 1)
+    maybe_set_cli_override(cfg, "mode", "eval")
+    maybe_set_cli_override(cfg, "queue_latency_values", "0")
+    maybe_set_cli_override(cfg, "latency_mode", "episode_fixed")
+    maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
+    maybe_set_cli_override(cfg, "eval_env_frameskip", env_frameskip)
+    maybe_set_cli_override(cfg, "num_envs", 1)
+    maybe_set_cli_override(cfg, "no_render", True)
+    maybe_set_cli_override(cfg, "save_video", False)
+    maybe_set_cli_override(cfg, "fps", 0)
+    maybe_set_cli_override(cfg, "eval_deterministic", bool(getattr(base_cfg, "eval_deterministic", True)))
+    maybe_set_cli_override(cfg, "disable_reward_scaling", bool(getattr(base_cfg, "eval_raw_reward", False)))
+    return cfg
+
+
 class DeadlyCorridorEnvAdapter(EnvAdapter):
     """Latency-bench adapter for ViZDoom Deadly Corridor using the SF Doom env stack."""
 
     def __init__(
         self,
-        env_id: str = "doom_deadly_corridor",
-        fps_env: float = 35.0,
+        *,
+        config: dict[str, Any],
         noop_action: Action | None = None,
-        env_frameskip: int = 4,
-        res_w: int = 128,
-        res_h: int = 72,
-        wide_aspect_ratio: bool = False,
-        disable_reward_scaling: bool = False,
     ):
+        env_cfg = config["env"]
+        env_id = str(env_cfg.get("env_id", "doom_deadly_corridor"))
+        fps_env = float(env_cfg.get("fps_env", 35))
         if fps_env <= 0:
             raise ValueError("fps_env must be positive")
 
-        from training.deadly_corridor_sf.integration import parse_cfg, register_deadly_corridor_components
-
-        register_deadly_corridor_components()
-        cfg = parse_cfg(
-            [
-                "--mode",
-                "train",
-                "--algo",
-                "APPO",
-                "--env",
-                str(env_id),
-                "--experiment",
-                "latency_bench_deadly_corridor",
-                "--env_frameskip",
-                str(int(env_frameskip)),
-                "--res_w",
-                str(int(res_w)),
-                "--res_h",
-                str(int(res_h)),
-                "--wide_aspect_ratio",
-                "True" if wide_aspect_ratio else "False",
-                "--queue-latency-values",
-                "0",
-            ]
-        )
         from sample_factory.utils.attr_dict import AttrDict
         from sf_examples.vizdoom.doom.doom_utils import DOOM_ENVS, make_doom_env_from_spec
 
+        cfg = _build_sample_factory_eval_cfg(config)
         spec = next((item for item in DOOM_ENVS if item.name == str(env_id)), None)
         if spec is None:
             raise ValueError(f"Unknown ViZDoom env spec: {env_id}")
         spec_to_use = _spec_with_reward_scaling(
             spec,
-            disable_reward_scaling=bool(disable_reward_scaling),
+            disable_reward_scaling=bool(getattr(cfg, "disable_reward_scaling", False)),
         )
         self.gym_env = make_doom_env_from_spec(
             spec_to_use,
