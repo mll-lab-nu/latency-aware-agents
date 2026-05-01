@@ -101,6 +101,7 @@ def make_demon_attack_sf_env(
     render_mode: Optional[str] = None,
 ):
     del render_mode
+    patch_sample_factory_atari_episode_stats()
     env_config = env_config or {}
     env = make_demon_attack_benchmark_env(
         env_id=getattr(cfg, "env_id", "ALE/DemonAttack-v5"),
