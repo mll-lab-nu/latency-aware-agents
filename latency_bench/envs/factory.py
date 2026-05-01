@@ -99,3 +99,19 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
         repeat_action_probability=float(env_cfg.get("repeat_action_probability", 0.0)),
         full_action_space=bool(env_cfg.get("full_action_space", False)),
     )
+
+
+@register_env_adapter("deadly_corridor")
+def _build_deadly_corridor_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
+    from latency_bench.envs.deadly_corridor import DeadlyCorridorEnvAdapter
+
+    env_cfg = config["env"]
+    return DeadlyCorridorEnvAdapter(
+        env_id=env_cfg.get("env_id", "doom_deadly_corridor"),
+        fps_env=float(env_cfg.get("fps_env", 35)),
+        noop_action=noop_action,
+        env_frameskip=int(env_cfg.get("env_frameskip", 4)),
+        res_w=int(env_cfg.get("res_w", 128)),
+        res_h=int(env_cfg.get("res_h", 72)),
+        wide_aspect_ratio=bool(env_cfg.get("wide_aspect_ratio", False)),
+    )

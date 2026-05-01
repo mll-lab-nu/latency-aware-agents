@@ -1,0 +1,11 @@
+__base__: ../../base/demon_attack.yaml
+
+experiment:
+  name: demon_attack_sf_fixed_latency_4
+
+latency:
+  train_values:
+    - 4
+
+logging:
+  output_dir: outputs/demon_attack_sf_fixed_latency_4

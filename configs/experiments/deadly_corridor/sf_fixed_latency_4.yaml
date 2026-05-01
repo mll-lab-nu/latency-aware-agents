@@ -1,0 +1,11 @@
+__base__: ../../base/deadly_corridor.yaml
+
+experiment:
+  name: deadly_corridor_sf_fixed_latency_4
+
+latency:
+  train_values:
+    - 4
+
+logging:
+  output_dir: outputs/deadly_corridor_sf_fixed_latency_4

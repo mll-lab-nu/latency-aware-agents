@@ -4,6 +4,14 @@ experiment:
   num_episodes: 10
   max_env_steps: 10000
 
+backend:
+  type: sample_factory
+  algo: APPO
+  device: cpu
+  train_dir: results/sample_factory
+  restart_behavior: overwrite
+  run_mode: train
+
 executor:
   mode: simulated
 
@@ -13,12 +21,14 @@ env:
   fps_env: 60
   screen_size: 84
   noop_max: 30
-  action_repeat: 1
-  terminal_on_life_loss: false
+  action_repeat: 4
+  frame_stack: 4
+  terminal_on_life_loss: true
   clip_reward: true
   repeat_action_probability: 0.0
   full_action_space: true
   noop_action: 0
+  max_episode_steps: 25000
 
 control:
   frequency_hz: 60
@@ -26,6 +36,16 @@ control:
 
 latency:
   type: zero
+  train_enabled: true
+  train_values:
+    - 0
+  train_mode: episode_fixed
+  train_sampling_mode: uniform_all
+  episodes_per_stage: 10
+  randomize_within_stage: false
+  within_episode_change_interval: 1
+  within_episode_change_prob: 1.0
+  add_latency_info: false
 
 scheduler:
   persistence_mode: hold_previous
@@ -36,8 +56,55 @@ policy:
   actions:
     - 0
 
+training:
+  train_for_env_steps: 2000000000
+  num_workers: 4
+  num_envs_per_worker: 1
+  worker_num_splits: 1
+  num_policies: 1
+  batch_size: 1024
+  batched_sampling: true
+  rollout: 64
+  recurrence: 32
+  num_epochs: 2
+  num_batches_per_epoch: 8
+  learning_rate: 0.000303
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  value_loss_coeff: 0.5
+  max_grad_norm: 0.0
+  async_rl: true
+  use_rnn: false
+  normalize_input: true
+  normalize_returns: true
+  stats_avg: 100
+  experiment_summaries_interval: 1
+  save_every_sec: 600
+  keep_checkpoints: 5
+
+evaluation:
+  eval_episodes: 20
+  eval_latency_values:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 10
+    - 15
+  eval_max_steps: 3600
+  eval_deterministic: true
+  eval_raw_reward: true
+
 logging:
   output_dir: outputs/demon_attack_base
   save_step_records: true
   save_action_records: true
   save_latency_records: true
+  wandb_project: latency-sensitive-bench
+  wandb_group: demon_attack
+  wandb_job_type: sample_factory
+  wandb_tags: ""

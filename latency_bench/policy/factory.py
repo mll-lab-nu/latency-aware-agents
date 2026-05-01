@@ -53,6 +53,12 @@ def _lazy_import_policy(policy_type: str) -> None:
         from latency_bench.policy import flappy_ppo  # noqa: F401
     if policy_type == "demon_attack_ppo":
         from latency_bench.policy import demon_attack_ppo  # noqa: F401
+    if policy_type == "flappy_sf":
+        from latency_bench.policy import flappy_sf  # noqa: F401
+    if policy_type == "demon_attack_sf":
+        from latency_bench.policy import demon_attack_sf  # noqa: F401
+    if policy_type == "deadly_corridor_sf":
+        from latency_bench.policy import deadly_corridor_sf  # noqa: F401
 
 
 @register_policy("random")

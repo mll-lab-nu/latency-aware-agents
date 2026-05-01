@@ -62,12 +62,42 @@ To reinstall Flappy Bird environment package, run:
 python -m pip install -e ./flappy-bird-gymnasium
 ```
 
+Install the Atari ROMs once after the Python packages are installed:
+
+```bash
+AutoROM --accept-license
+```
+
+If you want the default Sample Factory runs to report to Weights & Biases, log in once on the machine before training:
+
+```bash
+wandb login
+```
+
 ## Common Entrypoints
 
 Main benchmark example:
 
 ```bash
 python -m latency_bench.run --config configs/experiments/flappy_ppo_zero_latency.yaml
+```
+
+Unified Sample Factory training entrypoint:
+
+```bash
+python -m training.train --config configs/experiments/deadly_corridor/sf_zero_latency.yaml
+```
+
+Non-zero latency training uses the same entrypoint with a different config, for example:
+
+```bash
+python -m training.train --config configs/experiments/demon_attack/sf_fixed_latency_4.yaml
+```
+
+Sample Factory checkpoints can be evaluated through the common latency bench entrypoint using the SF evaluation configs:
+
+```bash
+python -m latency_bench.run --config configs/experiments/flappy/sf_eval_zero_latency.yaml
 ```
 
 CleanRL-style Flappy PPO training entrypoint:
@@ -77,3 +107,14 @@ python scripts/flappy_cleanrl_gpu_render_ppo.py --help
 ```
 
 Historical SB3 scripts are still under `scripts/` and `bash/`. Activate the `latency` environment and initialize the submodule before running them.
+
+## Sample Factory Backend
+
+The repository now includes a config-driven Sample Factory backend under `training/`. This backend is intended to unify training across Flappy, Demon Attack, and Deadly Corridor while keeping YAML configs as the source of truth.
+
+The Python dependency is pinned in `requirements.txt` as `sample-factory==2.1.1`. The official Sample Factory docs cover base installation and environment-specific integrations:
+
+- [Installation](https://www.samplefactory.dev/01-get-started/installation/)
+- [Custom environments](https://www.samplefactory.dev/03-customization/custom-environments/)
+- [Atari integration](https://www.samplefactory.dev/09-environment-integrations/atari/)
+- [ViZDoom integration](https://www.samplefactory.dev/09-environment-integrations/vizdoom/)
