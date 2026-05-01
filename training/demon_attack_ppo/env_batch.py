@@ -8,6 +8,8 @@ import gymnasium as gym
 import numpy as np
 import torch
 
+from training.atari_episode_stats import is_true_atari_episode_end
+
 
 class QueueLatencyWrapper(gym.Wrapper):
     """True input-delay wrapper for fixed-per-episode queue latency."""
@@ -219,14 +221,16 @@ class SyncDemonAttackBatch:
                 self.episode_returns[idx] += float(reward)
                 self.episode_lengths[idx] += 1
                 if done:
-                    info["episodic_return"] = float(self.episode_returns[idx])
-                    info["episodic_length"] = int(self.episode_lengths[idx])
+                    true_episode_end = is_true_atari_episode_end(terminated, truncated, info)
+                    if true_episode_end:
+                        info["episodic_return"] = float(self.episode_returns[idx])
+                        info["episodic_length"] = int(self.episode_lengths[idx])
+                        self.episode_returns[idx] = 0.0
+                        self.episode_lengths[idx] = 0
                     info["terminal_observation"] = np.asarray(obs, dtype=np.uint8)
                     reset_obs, reset_info = env.reset()
                     info["reset_info"] = dict(reset_info or {})
                     obs = reset_obs
-                    self.episode_returns[idx] = 0.0
-                    self.episode_lengths[idx] = 0
                 rewards[idx] = float(reward)
                 dones[idx] = done
                 infos.append(info)

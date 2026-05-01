@@ -9,6 +9,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box, Discrete, Tuple as GymTuple
 
+from training.atari_episode_stats import is_true_atari_episode_end
 from training.sample_factory_common.episode_metrics import append_episode_metrics_event
 
 
@@ -232,15 +233,21 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         self.worker_index = int(worker_index)
         self.vector_index = int(vector_index)
         self.env_id = int(env_id)
-        self.episode_return = 0.0
-        self.episode_raw_return = 0.0
-        self.episode_length = 0
+        self.full_game_return = 0.0
+        self.full_game_raw_return = 0.0
+        self.full_game_length = 0
         self.episode_idx = 0
+        self._preserve_full_game_on_next_reset = False
+
+    def _reset_full_game_counters(self) -> None:
+        self.full_game_return = 0.0
+        self.full_game_raw_return = 0.0
+        self.full_game_length = 0
 
     def reset(self, **kwargs):
-        self.episode_return = 0.0
-        self.episode_raw_return = 0.0
-        self.episode_length = 0
+        if not self._preserve_full_game_on_next_reset:
+            self._reset_full_game_counters()
+        self._preserve_full_game_on_next_reset = False
         obs, info = self.env.reset(**kwargs)
         return obs, dict(info or {})
 
@@ -250,16 +257,17 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         info = dict(info or {})
         transformed_reward = float(info.get("transformed_reward", reward_value))
         raw_reward = float(info.get("raw_reward", transformed_reward))
-        self.episode_return += transformed_reward
-        self.episode_raw_return += raw_reward
-        self.episode_length += 1
+        self.full_game_return += transformed_reward
+        self.full_game_raw_return += raw_reward
+        self.full_game_length += 1
         done = bool(terminated or truncated)
-        if done:
+        true_episode_end = is_true_atari_episode_end(terminated, truncated, info)
+        if done and true_episode_end:
             extra_stats = dict(info.get("episode_extra_stats") or {})
-            extra_stats["episode/return"] = float(self.episode_return)
-            extra_stats["episode/raw_return"] = float(self.episode_raw_return)
-            extra_stats["episode/length"] = int(self.episode_length)
-            extra_stats["episode/raw_frames"] = int(self.episode_length * self.frames_per_decision)
+            extra_stats["episode/return"] = float(self.full_game_return)
+            extra_stats["episode/raw_return"] = float(self.full_game_raw_return)
+            extra_stats["episode/length"] = int(self.full_game_length)
+            extra_stats["episode/raw_frames"] = int(self.full_game_length * self.frames_per_decision)
             extra_stats["episode/index"] = int(self.episode_idx)
 
             queue_latency = getattr(self.env, "current_latency", None)
@@ -269,16 +277,16 @@ class EpisodeMetricsWrapper(gym.Wrapper):
                 extra_stats["episode/queue_latency"] = int(queue_latency)
 
             info["episode_extra_stats"] = extra_stats
-            info["episodic_return"] = float(self.episode_return)
-            info["episodic_length"] = int(self.episode_length)
+            info["episodic_return"] = float(self.full_game_return)
+            info["episodic_length"] = int(self.full_game_length)
             append_episode_metrics_event(
                 self.metrics_path,
                 {
                     "episode_idx": int(self.episode_idx),
-                    "return": float(self.episode_return),
-                    "raw_return": float(self.episode_raw_return),
-                    "length": int(self.episode_length),
-                    "raw_frames": int(self.episode_length * self.frames_per_decision),
+                    "return": float(self.full_game_return),
+                    "raw_return": float(self.full_game_raw_return),
+                    "length": int(self.full_game_length),
+                    "raw_frames": int(self.full_game_length * self.frames_per_decision),
                     "queue_latency": None if queue_latency is None else int(queue_latency),
                     "worker_index": int(self.worker_index),
                     "vector_index": int(self.vector_index),
@@ -286,4 +294,8 @@ class EpisodeMetricsWrapper(gym.Wrapper):
                 },
             )
             self.episode_idx += 1
+            self._reset_full_game_counters()
+            self._preserve_full_game_on_next_reset = False
+        elif done:
+            self._preserve_full_game_on_next_reset = True
         return obs, reward_value, terminated, truncated, info

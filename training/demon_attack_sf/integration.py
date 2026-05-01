@@ -9,6 +9,7 @@ import numpy as np
 from gymnasium.spaces import Box
 
 from latency_bench.envs.demon_attack import make_demon_attack_benchmark_env
+from training.atari_episode_stats import patch_sample_factory_atari_episode_stats
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
 from training.sample_factory_common.config_adapter import (
     append_cli_arg,
@@ -254,6 +255,7 @@ def run_from_config(config: dict) -> int:
     apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))
     patch_sample_factory_wandb()
+    patch_sample_factory_atari_episode_stats()
     from sample_factory.train import run_rl
 
     metrics_stop_event = None
