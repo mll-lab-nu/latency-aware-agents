@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import shlex
 import sys
+from collections.abc import Sequence
 from copy import deepcopy
 from pathlib import Path
 
@@ -102,6 +103,7 @@ ENV_KEYS_BY_NAME = {
     "deadly_corridor": (
         "name",
         "env_id",
+        "fps_env",
         "env_frameskip",
         "frame_stack",
         "res_w",
@@ -117,6 +119,12 @@ WANDB_ENV_SLUGS = {
     "deadly_corridor": "deadly-corridor",
 }
 
+LATENCY_BENCH_POLICY_TYPES = {
+    "flappy": "flappy_sf",
+    "demon_attack": "demon_attack_sf",
+    "deadly_corridor": "deadly_corridor_sf",
+}
+
 
 def parse_int_csv(value: str) -> list[int]:
     text = str(value).strip()
@@ -128,6 +136,59 @@ def parse_int_csv(value: str) -> list[int]:
 def _build_wandb_name(env_name: str, latency: int, seed: int) -> str:
     env_slug = WANDB_ENV_SLUGS.get(env_name, env_name.replace("_", "-"))
     return f"{env_slug}-l{int(latency)}-s{int(seed)}"
+
+
+def _build_run_name(env_name: str, latency: int, seed: int) -> str:
+    return f"{env_name}_sf_same_latency_l{int(latency)}_seed{int(seed)}"
+
+
+def _build_full_run_config(
+    env_name: str,
+    seed: int,
+    latency: int,
+    max_steps: int,
+    train_dir: str,
+    output_root: str,
+    device: str,
+    restart_behavior: str,
+    train_for_env_steps: int | None,
+    frame_stack_override: int | None = None,
+) -> dict:
+    if env_name not in BASE_CONFIGS:
+        raise ValueError(f"Unsupported env '{env_name}'. Expected one of: {sorted(BASE_CONFIGS)}")
+    if int(latency) < 0:
+        raise ValueError("latency must be non-negative")
+
+    config = deepcopy(load_training_config(BASE_CONFIGS[env_name]))
+    run_name = _build_run_name(env_name, latency, seed)
+    experiment_cfg = config.setdefault("experiment", {})
+    backend_cfg = config.setdefault("backend", {})
+    env_cfg = config.setdefault("env", {})
+    latency_cfg = config.setdefault("latency", {})
+    logging_cfg = config.setdefault("logging", {})
+
+    experiment_cfg["name"] = run_name
+    experiment_cfg["seed"] = int(seed)
+    experiment_cfg["max_env_steps"] = int(max_steps)
+    backend_cfg["type"] = "sample_factory"
+    backend_cfg["device"] = str(device)
+    backend_cfg["train_dir"] = str(train_dir)
+    backend_cfg["restart_behavior"] = str(restart_behavior)
+    backend_cfg["run_mode"] = "train"
+    env_cfg["max_episode_steps"] = int(max_steps)
+    if frame_stack_override is not None:
+        env_cfg["frame_stack"] = int(frame_stack_override)
+    latency_cfg["train_values"] = [int(latency)]
+    latency_cfg["train_mode"] = "episode_fixed"
+    latency_cfg["train_sampling_mode"] = "uniform_all"
+    latency_cfg["add_latency_info"] = False
+    logging_cfg["output_dir"] = str(
+        Path(output_root) / "train" / env_name / f"latency_{int(latency)}" / f"seed_{int(seed)}"
+    )
+    logging_cfg["wandb_name"] = _build_wandb_name(env_name, latency, seed)
+    if train_for_env_steps is not None:
+        config.setdefault("training", {})["train_for_env_steps"] = int(train_for_env_steps)
+    return config
 
 
 def _build_train_config(
@@ -142,31 +203,105 @@ def _build_train_config(
     train_for_env_steps: int | None,
     frame_stack_override: int | None = None,
 ) -> dict:
-    config = deepcopy(load_training_config(BASE_CONFIGS[env_name]))
-    run_name = f"{env_name}_sf_same_latency_l{latency}_seed{seed}"
-    config["experiment"]["name"] = run_name
-    config["experiment"]["seed"] = int(seed)
-    config["experiment"]["max_env_steps"] = int(max_steps)
-    config["backend"]["type"] = "sample_factory"
-    config["backend"]["device"] = str(device)
-    config["backend"]["train_dir"] = str(train_dir)
-    config["backend"]["restart_behavior"] = str(restart_behavior)
-    config["backend"]["run_mode"] = "train"
-    config["env"]["max_episode_steps"] = int(max_steps)
-    if frame_stack_override is not None:
-        config["env"]["frame_stack"] = int(frame_stack_override)
-    config["latency"]["train_values"] = [int(latency)]
-    config["latency"]["train_mode"] = "episode_fixed"
-    config["latency"]["train_sampling_mode"] = "uniform_all"
-    config["latency"]["add_latency_info"] = False
-    config["evaluation"]["eval_latency_values"] = [int(latency)]
-    config["logging"]["output_dir"] = str(
-        Path(output_root) / "train" / env_name / f"latency_{latency}" / f"seed_{seed}"
+    return _prune_sample_factory_config(
+        _build_full_run_config(
+            env_name=env_name,
+            seed=seed,
+            latency=latency,
+            max_steps=max_steps,
+            train_dir=train_dir,
+            output_root=output_root,
+            device=device,
+            restart_behavior=restart_behavior,
+            train_for_env_steps=train_for_env_steps,
+            frame_stack_override=frame_stack_override,
+        )
     )
-    config["logging"]["wandb_name"] = _build_wandb_name(env_name, latency, seed)
-    if train_for_env_steps is not None:
-        config["training"]["train_for_env_steps"] = int(train_for_env_steps)
-    return _prune_sample_factory_config(config)
+
+
+def _latency_steps_to_ms(config: dict, latency_steps: int) -> float:
+    latency_steps = int(latency_steps)
+    if latency_steps < 0:
+        raise ValueError("latency_steps must be non-negative")
+    fps_env = float(config["env"]["fps_env"])
+    if fps_env <= 0:
+        raise ValueError("env.fps_env must be positive")
+    return latency_steps * 1000.0 / fps_env
+
+
+def _latency_bench_policy_type(env_name: str) -> str:
+    try:
+        return LATENCY_BENCH_POLICY_TYPES[env_name]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported env '{env_name}'. Expected one of: {sorted(LATENCY_BENCH_POLICY_TYPES)}") from exc
+
+
+def _benchmark_max_env_steps(config: dict) -> int:
+    env_max_steps = config.get("env", {}).get("max_episode_steps")
+    eval_max_steps = config.get("evaluation", {}).get("eval_max_steps")
+    values = [int(value) for value in (env_max_steps, eval_max_steps) if value is not None]
+    if values:
+        return min(values)
+    experiment_max_steps = config.get("experiment", {}).get("max_env_steps")
+    if experiment_max_steps is None:
+        raise ValueError("max_env_steps could not be inferred from env, evaluation, or experiment config")
+    return int(experiment_max_steps)
+
+
+def _build_latency_bench_eval_config(
+    full_config: dict,
+    env_name: str,
+    seed: int,
+    latency: int,
+    max_steps: int,
+    output_root: str,
+    eval_episodes: int,
+    latency_bench_policy_device: str = "auto",
+) -> dict:
+    config = deepcopy(full_config)
+    config.setdefault("experiment", {}).setdefault("max_env_steps", int(max_steps))
+
+    experiment_cfg = config.setdefault("experiment", {})
+    experiment_cfg["name"] = _build_run_name(env_name, latency, seed)
+    experiment_cfg["seed"] = int(seed)
+    experiment_cfg["num_episodes"] = int(eval_episodes)
+    experiment_cfg["max_env_steps"] = _benchmark_max_env_steps(config)
+
+    config.setdefault("backend", {})["run_mode"] = "eval"
+
+    latency_cfg = config.setdefault("latency", {})
+    latency_cfg["train_values"] = [int(latency)]
+    latency_cfg["train_mode"] = "episode_fixed"
+    latency_cfg["train_sampling_mode"] = "uniform_all"
+    latency_cfg["add_latency_info"] = False
+    if int(latency) == 0:
+        latency_cfg["type"] = "zero"
+        latency_cfg.pop("fixed_latency_ms", None)
+    else:
+        latency_cfg["type"] = "fixed"
+        latency_cfg["fixed_latency_ms"] = _latency_steps_to_ms(config, int(latency))
+
+    evaluation_cfg = config.setdefault("evaluation", {})
+    evaluation_cfg["eval_episodes"] = int(eval_episodes)
+
+    policy_cfg = deepcopy(config.get("policy", {}))
+    policy_cfg.update(
+        {
+            "type": _latency_bench_policy_type(env_name),
+            "checkpoint_path": "",
+            "device": str(latency_bench_policy_device),
+            "deterministic": True,
+        }
+    )
+    config["policy"] = policy_cfg
+    config["logging"] = {
+        "output_dir": str(
+            Path(output_root) / "latency_bench" / env_name / f"train_latency_{int(latency)}" / f"seed_{int(seed)}"
+        )
+    }
+    if env_name == "deadly_corridor":
+        config.setdefault("env", {})["noop_action"] = [0, 0, 0, 0]
+    return config
 
 
 def _build_eval_config(
@@ -187,7 +322,6 @@ def _build_eval_config(
     config["latency"]["train_sampling_mode"] = "uniform_all"
     config["latency"]["add_latency_info"] = False
     config["evaluation"]["eval_episodes"] = int(eval_episodes)
-    config["evaluation"]["eval_latency_values"] = [int(latency)]
     config["logging"] = {
         "output_dir": str(
             Path(output_root) / "eval" / env_name / f"latency_{latency}" / f"seed_{seed}"
@@ -229,7 +363,7 @@ def _write_yaml(path: Path, data: dict) -> None:
         yaml.safe_dump(data, handle, sort_keys=False)
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--envs", type=str, default="flappy,demon_attack,deadly_corridor")
     parser.add_argument("--seeds", type=str, default="0")
@@ -249,7 +383,8 @@ def main() -> None:
     parser.add_argument("--flappy-frame-stack", type=int)
     parser.add_argument("--demon-attack-frame-stack", type=int)
     parser.add_argument("--deadly-corridor-frame-stack", type=int)
-    args = parser.parse_args()
+    parser.add_argument("--latency-bench-policy-device", type=str, default="auto")
+    args = parser.parse_args(argv)
 
     selected_envs = [item.strip() for item in args.envs.split(",") if item.strip()]
     seeds = parse_int_csv(args.seeds)
@@ -271,9 +406,24 @@ def main() -> None:
 
     generated_root = Path(args.generated_root)
     generated_root.mkdir(parents=True, exist_ok=True)
-    manifest_rows: list[str] = ["env\tlatency\tseed\ttrain_config\teval_config\ttrain_command\teval_command"]
+    manifest_rows: list[str] = [
+        "\t".join(
+            [
+                "env",
+                "latency",
+                "seed",
+                "train_config",
+                "eval_config",
+                "latency_bench_eval_config",
+                "train_command",
+                "eval_command",
+                "latency_bench_eval_command",
+            ]
+        )
+    ]
     train_commands: list[str] = []
     eval_commands: list[str] = []
+    latency_bench_eval_commands: list[str] = []
 
     for env_name in selected_envs:
         if env_name not in BASE_CONFIGS:
@@ -281,7 +431,7 @@ def main() -> None:
         for latency in latency_by_env[env_name]:
             for seed in seeds:
                 max_steps = max_steps_by_env[env_name]
-                train_config = _build_train_config(
+                full_config = _build_full_run_config(
                     env_name=env_name,
                     seed=int(seed),
                     latency=int(latency),
@@ -293,8 +443,9 @@ def main() -> None:
                     train_for_env_steps=args.train_for_env_steps,
                     frame_stack_override=frame_stack_by_env[env_name],
                 )
+                train_config = _prune_sample_factory_config(full_config)
                 eval_config = _build_eval_config(
-                    train_config=train_config,
+                    train_config=full_config,
                     env_name=env_name,
                     seed=int(seed),
                     latency=int(latency),
@@ -302,16 +453,30 @@ def main() -> None:
                     output_root=args.output_root,
                     eval_episodes=args.eval_episodes,
                 )
+                latency_bench_eval_config = _build_latency_bench_eval_config(
+                    full_config=full_config,
+                    env_name=env_name,
+                    seed=int(seed),
+                    latency=int(latency),
+                    max_steps=max_steps,
+                    output_root=args.output_root,
+                    eval_episodes=args.eval_episodes,
+                    latency_bench_policy_device=args.latency_bench_policy_device,
+                )
 
-                run_name = train_config["experiment"]["name"]
                 env_dir = generated_root / env_name / f"latency_{latency}" / f"seed_{seed}"
                 train_path = env_dir / "train.yaml"
                 eval_path = env_dir / "eval.yaml"
+                latency_bench_eval_path = env_dir / "latency_bench_eval.yaml"
                 _write_yaml(train_path, train_config)
                 _write_yaml(eval_path, eval_config)
+                _write_yaml(latency_bench_eval_path, latency_bench_eval_config)
 
                 train_cmd = f"python -m training.train --config {shlex.quote(str(train_path))}"
                 eval_cmd = f"python -m training.train --config {shlex.quote(str(eval_path))}"
+                latency_bench_eval_cmd = (
+                    f"python -m latency_bench.run --config {shlex.quote(str(latency_bench_eval_path))}"
+                )
                 manifest_rows.append(
                     "\t".join(
                         [
@@ -320,20 +485,28 @@ def main() -> None:
                             str(int(seed)),
                             str(train_path),
                             str(eval_path),
+                            str(latency_bench_eval_path),
                             train_cmd,
                             eval_cmd,
+                            latency_bench_eval_cmd,
                         ]
                     )
                 )
                 train_commands.append(train_cmd)
                 eval_commands.append(eval_cmd)
+                latency_bench_eval_commands.append(latency_bench_eval_cmd)
 
     (generated_root / "manifest.tsv").write_text("\n".join(manifest_rows) + "\n", encoding="utf-8")
     (generated_root / "train_commands.txt").write_text("\n".join(train_commands) + "\n", encoding="utf-8")
     (generated_root / "eval_commands.txt").write_text("\n".join(eval_commands) + "\n", encoding="utf-8")
+    (generated_root / "latency_bench_eval_commands.txt").write_text(
+        "\n".join(latency_bench_eval_commands) + "\n",
+        encoding="utf-8",
+    )
     print(f"Wrote sweep configs to {generated_root}")
     print(f"Train commands: {generated_root / 'train_commands.txt'}")
     print(f"Eval commands: {generated_root / 'eval_commands.txt'}")
+    print(f"Latency bench eval commands: {generated_root / 'latency_bench_eval_commands.txt'}")
     print(f"Manifest: {generated_root / 'manifest.tsv'}")
 
 

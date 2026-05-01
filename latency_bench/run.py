@@ -9,6 +9,7 @@ from typing import Any
 from latency_bench.core.config import load_config
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.executors.factory import build_executor
+from latency_bench.logging.summary import build_queue_eval_summary, write_queue_eval_summary
 
 
 _SAMPLE_FACTORY_POLICY_TYPES = {
@@ -45,7 +46,12 @@ def _episode_seed(config: dict[str, Any], episode_id: int) -> int:
     return seed + int(episode_id)
 
 
-def run_from_config(config: dict[str, Any], extra_metadata: dict[str, Any] | None = None) -> list[EpisodeMetrics]:
+def run_from_config(
+    config: dict[str, Any],
+    extra_metadata: dict[str, Any] | None = None,
+    *,
+    write_summary: bool = True,
+) -> list[EpisodeMetrics]:
     experiment_cfg = config["experiment"]
     policy_cfg = config["policy"]
     logging_cfg = config["logging"]
@@ -76,6 +82,8 @@ def run_from_config(config: dict[str, Any], extra_metadata: dict[str, Any] | Non
             metrics.append(episode_metrics)
         if executor.logger is not None:
             executor.logger.flush()
+        if write_summary:
+            _write_non_sweep_summary(config, metrics)
     finally:
         executor.env.close()
     return metrics
@@ -95,16 +103,25 @@ def run_eval_sweep_from_config(config: dict[str, Any]) -> list[EpisodeMetrics]:
         _apply_eval_latency(sweep_config, eval_latency_steps, configured_latency_ms)
         sweep_output_dir = base_output_dir / f"eval_latency_{eval_latency_steps}"
         sweep_config["logging"]["output_dir"] = str(sweep_output_dir)
-        all_metrics.extend(
-            run_from_config(
-                sweep_config,
-                extra_metadata={
-                    "train_latency_steps": train_latency_steps,
-                    "eval_latency_steps": eval_latency_steps,
-                    "configured_latency_ms": configured_latency_ms,
-                },
-            )
+        summary_metadata = {
+            "train_latency_steps": train_latency_steps,
+            "eval_latency_steps": eval_latency_steps,
+            "configured_latency_ms": configured_latency_ms,
+        }
+        latency_metrics = run_from_config(
+            sweep_config,
+            extra_metadata=summary_metadata,
+            write_summary=False,
         )
+        write_queue_eval_summary(
+            base_output_dir,
+            latency_metrics,
+            experiment_name=str(config["experiment"].get("name", "latency_bench")),
+            seed=int(config["experiment"].get("seed", 0)),
+            latency=eval_latency_steps,
+            metadata=summary_metadata,
+        )
+        all_metrics.extend(latency_metrics)
     return all_metrics
 
 
@@ -146,6 +163,100 @@ def _apply_eval_latency(config: dict[str, Any], latency_steps: int, latency_ms: 
     latency_cfg["fixed_latency_ms"] = float(latency_ms)
 
 
+def _write_non_sweep_summary(
+    config: dict[str, Any],
+    metrics: list[EpisodeMetrics],
+) -> dict[str, Any] | None:
+    latency_steps = _infer_latency_steps(config)
+    if latency_steps is None:
+        return None
+    return write_queue_eval_summary(
+        config["logging"]["output_dir"],
+        metrics,
+        experiment_name=str(config["experiment"].get("name", "latency_bench")),
+        seed=int(config["experiment"].get("seed", 0)),
+        latency=latency_steps,
+    )
+
+
+def _infer_latency_steps(config: dict[str, Any]) -> int | None:
+    latency_cfg = config.get("latency", {})
+    latency_type = str(latency_cfg.get("type", "")).strip().lower()
+    if latency_type == "zero":
+        return 0
+
+    train_latency_steps = _single_latency_value(latency_cfg.get("train_values"))
+    if train_latency_steps is not None:
+        return train_latency_steps
+
+    if "fixed_latency_ms" not in latency_cfg:
+        return None
+    latency_steps = (
+        float(latency_cfg["fixed_latency_ms"])
+        * float(config["env"]["fps_env"])
+        / 1000.0
+    )
+    rounded_steps = round(latency_steps)
+    if abs(latency_steps - rounded_steps) > 1e-9:
+        return None
+    return int(rounded_steps)
+
+
+def _single_latency_value(values: Any) -> int | None:
+    if values is None or isinstance(values, (str, bytes)):
+        return None
+    if not isinstance(values, Sequence):
+        return int(values)
+    if len(values) != 1:
+        return None
+    return int(values[0])
+
+
+def _summary_payloads_for_printing(
+    config: dict[str, Any],
+    metrics: list[EpisodeMetrics],
+) -> list[dict[str, Any]]:
+    experiment_name = str(config["experiment"].get("name", "latency_bench"))
+    seed = int(config["experiment"].get("seed", 0))
+    eval_latency_values = _eval_latency_values(config)
+    if eval_latency_values is None:
+        latency_steps = _infer_latency_steps(config)
+        if latency_steps is None:
+            return []
+        return [
+            build_queue_eval_summary(
+                metrics,
+                experiment_name=experiment_name,
+                seed=seed,
+                latency=latency_steps,
+            )
+        ]
+
+    payloads = []
+    for latency_steps in eval_latency_values:
+        latency_metrics = [
+            metric
+            for metric in metrics
+            if _metric_eval_latency_steps(metric) == int(latency_steps)
+        ]
+        payloads.append(
+            build_queue_eval_summary(
+                latency_metrics,
+                experiment_name=experiment_name,
+                seed=seed,
+                latency=int(latency_steps),
+            )
+        )
+    return payloads
+
+
+def _metric_eval_latency_steps(metric: EpisodeMetrics) -> int | None:
+    value = metric.metadata.get("eval_latency_steps")
+    if value is None:
+        return None
+    return int(value)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run a latency-sensitive control benchmark.")
     parser.add_argument("--config", type=Path, required=True)
@@ -170,6 +281,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"return={episode_metrics.episode_return:.3f} "
             f"steps={episode_metrics.survival_steps} "
             f"mean_latency_ms={episode_metrics.mean_latency_ms}"
+        )
+    for summary in _summary_payloads_for_printing(config, metrics):
+        print(
+            f"summary latency={int(summary['latency'])} "
+            f"episodes={len(summary['returns'])} "
+            f"mean_return={float(summary['mean_return']):.3f} "
+            f"std_return={float(summary['std_return']):.3f} "
+            f"mean_length={float(summary['mean_length']):.1f}"
         )
 
 

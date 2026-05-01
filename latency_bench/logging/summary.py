@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+import json
+import math
+from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from latency_bench.core.types import EpisodeMetrics
+from latency_bench.logging.records import to_jsonable
+
+
+_LATENCY_METADATA_KEYS = (
+    "train_latency_steps",
+    "eval_latency_steps",
+    "configured_latency_ms",
+)
+
+
+def build_queue_eval_summary(
+    metrics: Sequence[EpisodeMetrics],
+    *,
+    experiment_name: str,
+    seed: int,
+    latency: int,
+    metadata: Mapping[str, Any] | None = None,
+    timestamp_utc: str | None = None,
+) -> dict[str, Any]:
+    returns = [float(metric.episode_return) for metric in metrics]
+    lengths = [int(metric.survival_steps) for metric in metrics]
+    payload: dict[str, Any] = {
+        "experiment_name": str(experiment_name),
+        "seed": int(seed),
+        "timestamp_utc": timestamp_utc or datetime.now(timezone.utc).isoformat(),
+        "latency": int(latency),
+        "mean_return": _mean(returns),
+        "std_return": _std(returns),
+        "mean_length": _mean([float(length) for length in lengths]),
+        "returns": returns,
+        "lengths": lengths,
+    }
+    payload.update(_latency_metadata(metrics, metadata))
+    return to_jsonable(payload)
+
+
+def write_queue_eval_summary(
+    output_dir: str | Path,
+    metrics: Sequence[EpisodeMetrics],
+    *,
+    experiment_name: str,
+    seed: int,
+    latency: int,
+    metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    payload = build_queue_eval_summary(
+        metrics,
+        experiment_name=experiment_name,
+        seed=seed,
+        latency=latency,
+        metadata=metadata,
+    )
+
+    latency_file = output_path / f"queue_eval_latency_{int(latency)}.json"
+    with latency_file.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+    jsonl_path = output_path / "queue_eval_results.jsonl"
+    with jsonl_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+
+    return payload
+
+
+def _latency_metadata(
+    metrics: Sequence[EpisodeMetrics],
+    metadata: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    selected: dict[str, Any] = {}
+    for metric in metrics:
+        for key in _LATENCY_METADATA_KEYS:
+            value = metric.metadata.get(key)
+            if value is not None and key not in selected:
+                selected[key] = value
+    if metadata is not None:
+        for key in _LATENCY_METADATA_KEYS:
+            value = metadata.get(key)
+            if value is not None:
+                selected[key] = value
+    return selected
+
+
+def _mean(values: Sequence[float]) -> float:
+    if not values:
+        return math.nan
+    return float(sum(values) / len(values))
+
+
+def _std(values: Sequence[float]) -> float:
+    if not values:
+        return math.nan
+    mean = _mean(values)
+    variance = sum((value - mean) ** 2 for value in values) / len(values)
+    return float(math.sqrt(variance))
