@@ -46,6 +46,17 @@ def _spec_with_reward_scaling(spec: Any, disable_reward_scaling: bool) -> Any:
     return spec_to_use
 
 
+def _synchronous_eval_fps_from_config(config: dict[str, Any], default: int = 35) -> int:
+    env_cfg = config.get("env", {})
+    try:
+        fps = int(float(env_cfg.get("fps_env", default)))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("fps_env must be positive") from exc
+    if fps <= 0:
+        raise ValueError("fps_env must be positive")
+    return fps
+
+
 def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
     from sample_factory.cfg.arguments import load_from_checkpoint
     from training.deadly_corridor_sf import integration
@@ -53,6 +64,7 @@ def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
 
     integration.register_deadly_corridor_components()
     base_cfg = integration.parse_cfg(integration.build_cli_args_from_config(config))
+    eval_fps = _synchronous_eval_fps_from_config(config)
     cfg = integration._prepare_eval_cfg(base_cfg, latency_value=0)
     cfg = load_from_checkpoint(cfg)
 
@@ -77,7 +89,7 @@ def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
     maybe_set_cli_override(cfg, "num_envs", 1)
     maybe_set_cli_override(cfg, "no_render", True)
     maybe_set_cli_override(cfg, "save_video", False)
-    maybe_set_cli_override(cfg, "fps", 0)
+    maybe_set_cli_override(cfg, "fps", eval_fps)
     maybe_set_cli_override(cfg, "eval_deterministic", bool(getattr(base_cfg, "eval_deterministic", True)))
     maybe_set_cli_override(cfg, "disable_reward_scaling", bool(getattr(base_cfg, "eval_raw_reward", False)))
     return cfg

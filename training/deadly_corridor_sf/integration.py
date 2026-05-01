@@ -283,6 +283,17 @@ def _single_agent_action(value: Any) -> Any:
     return action
 
 
+def _synchronous_eval_fps(base_cfg, default: int = 35) -> int:
+    fallback = int(default)
+    if fallback <= 0:
+        fallback = 35
+    try:
+        fps = int(float(getattr(base_cfg, "fps", fallback)))
+    except (TypeError, ValueError):
+        fps = fallback
+    return fps if fps > 0 else fallback
+
+
 def _prepare_eval_cfg(base_cfg, latency_value: int):
     cfg = copy.deepcopy(base_cfg)
     maybe_set_cli_override(cfg, "queue_latency_values", str(int(latency_value)))
@@ -294,7 +305,7 @@ def _prepare_eval_cfg(base_cfg, latency_value: int):
     maybe_set_cli_override(cfg, "num_envs", 1)
     maybe_set_cli_override(cfg, "no_render", True)
     maybe_set_cli_override(cfg, "save_video", False)
-    maybe_set_cli_override(cfg, "fps", 0)
+    maybe_set_cli_override(cfg, "fps", _synchronous_eval_fps(base_cfg))
     maybe_set_cli_override(cfg, "eval_deterministic", bool(getattr(base_cfg, "eval_deterministic", True)))
     maybe_set_cli_override(cfg, "disable_reward_scaling", bool(getattr(base_cfg, "eval_raw_reward", False)))
     return cfg
@@ -420,8 +431,11 @@ def evaluate_latency(base_cfg, latency_value: int) -> dict[str, Any]:
 
 def build_cli_args_from_config(config: dict) -> list[str]:
     env_cfg = config["env"]
+    backend_cfg = config.get("backend", {})
     evaluation_cfg = config.get("evaluation", {})
     args = build_common_sf_args(config, sf_env_name=env_cfg.get("env_id", SF_ENV_NAME))
+    if str(backend_cfg.get("run_mode", "train")).strip().lower() in {"eval", "train_eval"}:
+        append_cli_arg(args, "--fps", env_cfg.get("fps_env", 35))
     append_cli_arg(args, "--env_frameskip", env_cfg.get("env_frameskip", 4))
     append_cli_arg(args, "--eval_env_frameskip", env_cfg.get("env_frameskip", 4))
     append_cli_arg(args, "--res_w", env_cfg.get("res_w", 128))
