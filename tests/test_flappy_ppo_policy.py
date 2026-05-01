@@ -14,6 +14,7 @@ from latency_bench.policy.factory import build_policy
 from modeling.flappy_ppo import (
     FlappyPpoAgent,
     FlappyPpoObservationConfig,
+    FlappyPpoTorchObservationPipeline,
     build_agent_from_checkpoint,
     load_flappy_ppo_checkpoint,
     observation_config_from_checkpoint,
@@ -141,6 +142,46 @@ def test_flappy_ppo_policy_runner_resets_frame_stack_between_episodes(tmp_path):
     assert stacked is not None
     assert stacked.shape == (84, 84, obs_config.in_channels)
     assert np.all(stacked == 200)
+
+
+def test_flappy_ppo_policy_runner_matches_shared_raw_rgb_preprocessing(tmp_path):
+    obs_config = FlappyPpoObservationConfig(
+        image_size=84,
+        grayscale=False,
+        stack_frames=2,
+        obs_mode="latency_channel",
+        frame_skip_values=(0, 4),
+    )
+    path, _, _ = _write_checkpoint(tmp_path, observation_config=obs_config)
+    policy = build_policy(_config(str(path)), ActionResolver(_env_config()))
+    shared = FlappyPpoTorchObservationPipeline(obs_config, n_envs=1, device="cpu")
+    frame_a = np.full((84, 84, 3), 10, dtype=np.uint8)
+    frame_b = np.full((84, 84, 3), 30, dtype=np.uint8)
+
+    policy.predict(
+        Observation(
+            data=frame_a,
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"frame_skip": 0},
+        )
+    )
+    policy.predict(
+        Observation(
+            data=frame_b,
+            env_step=1,
+            sim_time_ms=33.3,
+            metadata={"frame_skip": 4},
+        )
+    )
+    shared.reset(torch.as_tensor(frame_a).unsqueeze(0), frame_skips=[0])
+    shared.step(
+        torch.as_tensor(frame_b).unsqueeze(0),
+        dones=np.asarray([False], dtype=np.bool_),
+        frame_skips=[4],
+    )
+
+    assert np.array_equal(policy.current_stacked_observation, shared.current_observation[0])
 
 
 def test_flappy_ppo_zero_latency_config_builds_executor_to_policy_layer(tmp_path):

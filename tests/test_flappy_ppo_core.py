@@ -10,12 +10,15 @@ from modeling.flappy_ppo import (
     FlappyPpoAgent,
     FlappyPpoEvalObservationPipeline,
     FlappyPpoObservationConfig,
+    FlappyPpoTorchObservationPipeline,
+    append_latency_channel_torch,
     build_agent_from_checkpoint,
     latency_channel_value,
     load_flappy_ppo_checkpoint,
     observation_config_from_checkpoint,
     reset_frame_stack,
     resize_frame_pil,
+    resize_rgb_batch_torch,
     save_flappy_ppo_checkpoint,
     step_frame_stack,
 )
@@ -85,6 +88,8 @@ def test_checkpoint_save_load_restores_agent_optimizer_config_and_global_step(tm
     assert checkpoint["global_step"] == 42
     assert "optimizer" in checkpoint
     assert checkpoint["train_config"] == {"seed": 7}
+    assert checkpoint["observation_config"]["observation_protocol"] == "raw_rgb_v1"
+    assert checkpoint["observation_config"]["preprocess_backend"] == "torch"
     assert loaded_config.to_dict() == config.to_dict()
     for key, tensor in agent.state_dict().items():
         assert torch.equal(tensor, loaded_agent.state_dict()[key])
@@ -99,6 +104,8 @@ def test_legacy_checkpoint_observation_config_can_be_inferred_from_agent_channel
     assert loaded_config.in_channels == config.in_channels
     assert loaded_config.stack_frames == 4
     assert loaded_config.obs_mode == "latency_channel"
+    assert loaded_config.observation_protocol == "raw_rgb_v1"
+    assert loaded_config.preprocess_backend == "torch"
 
 
 def test_frame_stack_and_latency_channel_match_training_formula():
@@ -113,6 +120,90 @@ def test_frame_stack_and_latency_channel_match_training_formula():
     assert np.all(stepped[:, :, :9] == 10)
     assert np.all(stepped[:, :, 9:12] == 20)
     assert latency_channel_value(frame_skip=3, max_frame_skip=5) == np.uint8(np.rint((3 / 5) * 255))
+
+
+def test_resize_rgb_batch_torch_contract_and_grayscale_formula():
+    raw_rgb = torch.tensor(
+        [
+            [
+                [[10, 20, 30], [100, 110, 120]],
+                [[200, 210, 220], [30, 40, 50]],
+            ]
+        ],
+        dtype=torch.uint8,
+    )
+
+    rgb = resize_rgb_batch_torch(raw_rgb, image_size=2, grayscale=False)
+    gray = resize_rgb_batch_torch(raw_rgb, image_size=2, grayscale=True)
+
+    assert rgb.shape == (1, 2, 2, 3)
+    assert rgb.dtype == torch.uint8
+    assert torch.equal(rgb, raw_rgb)
+    expected_gray = torch.floor(
+        (
+            raw_rgb[..., 0:1].float() * 299.0
+            + raw_rgb[..., 1:2].float() * 587.0
+            + raw_rgb[..., 2:3].float() * 114.0
+            + 500.0
+        )
+        / 1000.0
+    ).to(torch.uint8)
+    assert gray.shape == (1, 2, 2, 1)
+    assert torch.equal(gray, expected_gray)
+
+
+def test_append_latency_channel_torch_matches_scalar_formula():
+    stacked = torch.zeros((2, 3, 3, 6), dtype=torch.uint8)
+    obs = append_latency_channel_torch(
+        stacked,
+        frame_skips=np.asarray([0, 3], dtype=np.int64),
+        max_frame_skip=5,
+    )
+
+    assert obs.shape == (2, 3, 3, 7)
+    assert torch.all(obs[0, :, :, -1] == int(latency_channel_value(0, 5)))
+    assert torch.all(obs[1, :, :, -1] == int(latency_channel_value(3, 5)))
+
+
+def test_torch_observation_pipeline_reset_step_and_done_reset():
+    config = FlappyPpoObservationConfig(
+        image_size=4,
+        grayscale=False,
+        stack_frames=3,
+        obs_mode="latency_channel",
+        frame_skip_values=(0, 4),
+    )
+    pipeline = FlappyPpoTorchObservationPipeline(config, n_envs=2, device="cpu")
+    frame_a = torch.stack(
+        [
+            torch.full((4, 4, 3), 11, dtype=torch.uint8),
+            torch.full((4, 4, 3), 33, dtype=torch.uint8),
+        ],
+        dim=0,
+    )
+    frame_b = torch.stack(
+        [
+            torch.full((4, 4, 3), 22, dtype=torch.uint8),
+            torch.full((4, 4, 3), 99, dtype=torch.uint8),
+        ],
+        dim=0,
+    )
+
+    pipeline.reset(frame_a, frame_skips=np.asarray([0, 4], dtype=np.int64))
+    obs = pipeline.step(
+        frame_b,
+        dones=np.asarray([False, True], dtype=np.bool_),
+        frame_skips=np.asarray([2, 4], dtype=np.int64),
+    )
+    hwc = obs.permute(0, 2, 3, 1).cpu().numpy()
+
+    assert obs.shape == (2, config.in_channels, 4, 4)
+    assert obs.dtype == torch.uint8
+    assert np.all(hwc[0, :, :, :6] == 11)
+    assert np.all(hwc[0, :, :, 6:9] == 22)
+    assert np.all(hwc[0, :, :, -1] == latency_channel_value(2, 4))
+    assert np.all(hwc[1, :, :, :9] == 99)
+    assert np.all(hwc[1, :, :, -1] == latency_channel_value(4, 4))
 
 
 def test_eval_pipeline_resets_stack_on_episode_start_and_returns_nchw_tensor():

@@ -3,26 +3,16 @@ from __future__ import annotations
 from argparse import Namespace
 
 import numpy as np
+import pytest
 import torch
 
-from modeling.flappy_ppo import latency_channel_value
+from modeling.flappy_ppo import (
+    FlappyPpoObservationConfig,
+    FlappyPpoTorchObservationPipeline,
+    latency_channel_value,
+)
+from training.flappy_ppo.env_batch import SyncFlappyBatch
 from training.flappy_ppo.observation_pipeline import ObservationPipeline
-
-
-class FakeFlappyBatch:
-    def __init__(self, frames: list[np.ndarray], frame_skips: list[int]):
-        self.frames = frames
-        self._frame_skips = np.asarray(frame_skips, dtype=np.int64)
-
-    @property
-    def n_envs(self) -> int:
-        return len(self.frames)
-
-    def render_frames(self) -> list[np.ndarray]:
-        return self.frames
-
-    def frame_skips(self) -> np.ndarray:
-        return self._frame_skips
 
 
 def _args() -> Namespace:
@@ -32,9 +22,6 @@ def _args() -> Namespace:
         stack_frames=3,
         obs_mode="latency_channel",
         frame_skip_values="0,4",
-        renderer="cpu_oracle",
-        resize_backend="pil",
-        observation_render_mode="full_then_resize",
     )
 
 
@@ -42,21 +29,17 @@ def _to_hwc(obs: torch.Tensor) -> np.ndarray:
     return obs.permute(0, 2, 3, 1).cpu().numpy()
 
 
-def _raw_rgb(envs: FakeFlappyBatch) -> torch.Tensor:
-    return torch.as_tensor(np.stack(envs.render_frames()), dtype=torch.uint8)
-
-
 def test_training_observation_pipeline_stack_done_reset_and_latency_channel():
-    envs = FakeFlappyBatch(
-        frames=[
-            np.full((4, 4, 3), 10, dtype=np.uint8),
-            np.full((4, 4, 3), 30, dtype=np.uint8),
+    pipeline = ObservationPipeline(args=_args(), n_envs=2, device=torch.device("cpu"))
+    raw_rgb = torch.stack(
+        [
+            torch.full((4, 4, 3), 10, dtype=torch.uint8),
+            torch.full((4, 4, 3), 30, dtype=torch.uint8),
         ],
-        frame_skips=[0, 4],
+        dim=0,
     )
-    pipeline = ObservationPipeline(args=_args(), envs=envs, device=torch.device("cpu"))
 
-    reset_obs = _to_hwc(pipeline.reset(_raw_rgb(envs), envs.frame_skips()))
+    reset_obs = _to_hwc(pipeline.reset(raw_rgb, np.asarray([0, 4], dtype=np.int64)))
 
     assert reset_obs.shape == (2, 4, 4, 10)
     assert np.all(reset_obs[0, :, :, :9] == 10)
@@ -64,17 +47,19 @@ def test_training_observation_pipeline_stack_done_reset_and_latency_channel():
     assert np.all(reset_obs[0, :, :, -1] == latency_channel_value(0, 4))
     assert np.all(reset_obs[1, :, :, -1] == latency_channel_value(4, 4))
 
-    envs.frames = [
-        np.full((4, 4, 3), 20, dtype=np.uint8),
-        np.full((4, 4, 3), 40, dtype=np.uint8),
-    ]
-    envs._frame_skips = np.asarray([2, 4], dtype=np.int64)
+    next_raw_rgb = torch.stack(
+        [
+            torch.full((4, 4, 3), 20, dtype=torch.uint8),
+            torch.full((4, 4, 3), 40, dtype=torch.uint8),
+        ],
+        dim=0,
+    )
 
     step_obs = _to_hwc(
         pipeline.step(
-            _raw_rgb(envs),
+            next_raw_rgb,
             dones=np.asarray([False, True], dtype=np.bool_),
-            frame_skips=envs.frame_skips(),
+            frame_skips=np.asarray([2, 4], dtype=np.int64),
         )
     )
 
@@ -83,3 +68,51 @@ def test_training_observation_pipeline_stack_done_reset_and_latency_channel():
     assert np.all(step_obs[0, :, :, -1] == latency_channel_value(2, 4))
     assert np.all(step_obs[1, :, :, :9] == 40)
     assert np.all(step_obs[1, :, :, -1] == latency_channel_value(4, 4))
+
+
+def test_training_pipeline_matches_shared_torch_pipeline_for_same_raw_sequence():
+    args = _args()
+    config = FlappyPpoObservationConfig.from_dict(vars(args))
+    training_pipeline = ObservationPipeline(args=args, n_envs=2, device="cpu")
+    shared_pipeline = FlappyPpoTorchObservationPipeline(config, n_envs=2, device="cpu")
+    first = torch.randint(0, 256, (2, 6, 5, 3), dtype=torch.uint8)
+    second = torch.randint(0, 256, (2, 6, 5, 3), dtype=torch.uint8)
+    frame_skips = np.asarray([0, 4], dtype=np.int64)
+    dones = np.asarray([False, True], dtype=np.bool_)
+
+    assert torch.equal(
+        training_pipeline.reset(first, frame_skips),
+        shared_pipeline.reset(first, frame_skips),
+    )
+    assert torch.equal(
+        training_pipeline.step(second, dones, frame_skips),
+        shared_pipeline.step(second, dones, frame_skips),
+    )
+
+
+def test_sync_flappy_batch_reset_returns_full_size_raw_rgb_and_skips_env_render(monkeypatch):
+    envs = SyncFlappyBatch(
+        n_envs=1,
+        seed=0,
+        frame_skip_values=(0,),
+        device="cpu",
+    )
+    try:
+        for env in envs.envs:
+            monkeypatch.setattr(
+                env,
+                "render",
+                lambda: pytest.fail("training hot path must not call env.render()"),
+            )
+
+        raw_rgb = envs.reset()
+
+        assert raw_rgb.dtype == torch.uint8
+        assert raw_rgb.device.type == "cpu"
+        assert raw_rgb.ndim == 4
+        assert raw_rgb.shape[0] == 1
+        assert raw_rgb.shape[-1] == 3
+        assert raw_rgb.shape[1] > 84
+        assert raw_rgb.shape[2] > 84
+    finally:
+        envs.close()
