@@ -4,6 +4,7 @@ import argparse
 import copy
 from collections import deque
 import functools
+import json
 from typing import Any, Optional
 
 import gymnasium as gym
@@ -29,6 +30,7 @@ from training.sample_factory_common.queue_eval import (
     finish_queue_eval_wandb,
     init_queue_eval_wandb,
     log_queue_eval_result,
+    queue_eval_output_dir,
     write_queue_eval_result,
 )
 from training.sample_factory_common.wandb_compat import patch_sample_factory_wandb
@@ -260,6 +262,27 @@ def _load_policy_state_dict(cfg, actor_critic, device: torch.device) -> None:
     actor_critic.load_state_dict(checkpoint_dict["model"])
 
 
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, torch.Tensor):
+        return _jsonable(value.detach().cpu().numpy())
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
+def _single_agent_action(value: Any) -> Any:
+    action = _jsonable(value)
+    if isinstance(action, list) and len(action) == 1 and isinstance(action[0], list):
+        return action[0]
+    return action
+
+
 def _prepare_eval_cfg(base_cfg, latency_value: int):
     cfg = copy.deepcopy(base_cfg)
     maybe_set_cli_override(cfg, "queue_latency_values", str(int(latency_value)))
@@ -320,34 +343,68 @@ def evaluate_latency(base_cfg, latency_value: int) -> dict[str, Any]:
     rnn_states = torch.zeros([env.num_agents, get_rnn_size(cfg)], dtype=torch.float32, device=device)
     episode_reward = torch.zeros([env.num_agents], dtype=torch.float32, device=device)
     episode_length = np.zeros([env.num_agents], dtype=np.int64)
+    episode_indices = np.zeros([env.num_agents], dtype=np.int64)
     total_frames = 0
+    trace_handle = None
+    output_dir = queue_eval_output_dir(base_cfg)
+    if output_dir is not None:
+        trace_handle = (output_dir / f"queue_eval_latency_{int(latency_value)}_actions.jsonl").open(
+            "w",
+            encoding="utf-8",
+        )
 
-    while len(returns) < eval_episodes and total_frames < max_total_frames:
-        normalized_obs = prepare_and_normalize_obs(actor_critic, obs)
-        policy_outputs = actor_critic(normalized_obs, rnn_states)
-        actions = policy_outputs["actions"]
-        if bool(getattr(base_cfg, "eval_deterministic", True)):
-            actions = argmax_actions(actor_critic.action_distribution())
-        if actions.ndim == 1:
-            actions = unsqueeze_tensor(actions, dim=-1)
-        actions = preprocess_actions(env_info, actions)
-        rnn_states = policy_outputs["new_rnn_states"]
-        obs, rew, terminated, truncated, _ = env.step(actions)
-        dones = make_dones(terminated, truncated)
-        reward_tensor = rew if isinstance(rew, torch.Tensor) else torch.as_tensor(rew, dtype=torch.float32, device=device)
-        episode_reward += reward_tensor.to(device=device, dtype=torch.float32)
-        episode_length += 1
-        total_frames += 1
+    try:
+        while len(returns) < eval_episodes and total_frames < max_total_frames:
+            normalized_obs = prepare_and_normalize_obs(actor_critic, obs)
+            policy_outputs = actor_critic(normalized_obs, rnn_states)
+            actions = policy_outputs["actions"]
+            if bool(getattr(base_cfg, "eval_deterministic", True)):
+                actions = argmax_actions(actor_critic.action_distribution())
+            if actions.ndim == 1:
+                actions = unsqueeze_tensor(actions, dim=-1)
+            actions = preprocess_actions(env_info, actions)
+            action_for_trace = _single_agent_action(actions)
+            rnn_states = policy_outputs["new_rnn_states"]
+            obs, rew, terminated, truncated, _ = env.step(actions)
+            dones = make_dones(terminated, truncated)
+            reward_tensor = rew if isinstance(rew, torch.Tensor) else torch.as_tensor(rew, dtype=torch.float32, device=device)
+            reward_tensor = reward_tensor.to(device=device, dtype=torch.float32)
+            episode_reward += reward_tensor
+            if trace_handle is not None:
+                done_values = dones.detach().cpu().numpy()
+                reward_values = reward_tensor.detach().cpu().numpy()
+                for agent_i, done_flag in enumerate(done_values):
+                    trace_handle.write(
+                        json.dumps(
+                            {
+                                "latency": int(latency_value),
+                                "episode_id": int(episode_indices[agent_i]),
+                                "env_step": int(episode_length[agent_i]),
+                                "total_frame": int(total_frames),
+                                "action": action_for_trace,
+                                "reward": float(reward_values[agent_i]),
+                                "episode_return": float(episode_reward[agent_i].item()),
+                                "done": bool(done_flag),
+                            },
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    )
+            episode_length += 1
+            total_frames += 1
 
-        for agent_i, done_flag in enumerate(dones.cpu().numpy()):
-            if done_flag and len(returns) < eval_episodes:
-                returns.append(float(episode_reward[agent_i].item()))
-                lengths.append(int(episode_length[agent_i]))
-                episode_reward[agent_i] = 0.0
-                episode_length[agent_i] = 0
-                rnn_states[agent_i] = torch.zeros_like(rnn_states[agent_i])
-
-    env.close()
+            for agent_i, done_flag in enumerate(dones.cpu().numpy()):
+                if done_flag and len(returns) < eval_episodes:
+                    returns.append(float(episode_reward[agent_i].item()))
+                    lengths.append(int(episode_length[agent_i]))
+                    episode_reward[agent_i] = 0.0
+                    episode_length[agent_i] = 0
+                    episode_indices[agent_i] += 1
+                    rnn_states[agent_i] = torch.zeros_like(rnn_states[agent_i])
+    finally:
+        if trace_handle is not None:
+            trace_handle.close()
+        env.close()
     if not returns:
         returns = [float("nan")]
         lengths = [0]

@@ -9,7 +9,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box, Discrete, Tuple as GymTuple
 
-from training.atari_episode_stats import is_true_atari_episode_end
+from training.atari_episode_stats import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
 from training.sample_factory_common.episode_metrics import append_episode_metrics_event
 
 
@@ -262,6 +262,8 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         self.full_game_length += 1
         done = bool(terminated or truncated)
         true_episode_end = is_true_atari_episode_end(terminated, truncated, info)
+        if done:
+            info[TRUE_EPISODE_END_INFO_KEY] = bool(true_episode_end)
         if done and true_episode_end:
             extra_stats = dict(info.get("episode_extra_stats") or {})
             extra_stats["episode/return"] = float(self.full_game_return)
