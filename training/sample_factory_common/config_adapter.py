@@ -234,6 +234,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         append_cli_arg(args, "--wandb_group", logging_cfg.get("wandb_group"))
         append_cli_arg(args, "--wandb_job_type", logging_cfg.get("wandb_job_type"))
         append_cli_arg(args, "--wandb_tags", logging_cfg.get("wandb_tags"))
+        append_cli_arg(args, "--wandb_unique_id", logging_cfg.get("wandb_name"))
 
     extra_args = backend_cfg.get("extra_args", ())
     if extra_args:

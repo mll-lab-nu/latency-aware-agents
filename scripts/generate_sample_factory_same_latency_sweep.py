@@ -61,6 +61,7 @@ LOGGING_KEYS = (
     "wandb_group",
     "wandb_job_type",
     "wandb_tags",
+    "wandb_name",
 )
 
 EXPERIMENT_KEYS = (
@@ -110,12 +111,23 @@ ENV_KEYS_BY_NAME = {
     ),
 }
 
+WANDB_ENV_SLUGS = {
+    "flappy": "flappy-bird",
+    "demon_attack": "demon-attack",
+    "deadly_corridor": "deadly-corridor",
+}
+
 
 def parse_int_csv(value: str) -> list[int]:
     text = str(value).strip()
     if not text:
         return []
     return [int(item.strip()) for item in text.split(",") if item.strip()]
+
+
+def _build_wandb_name(env_name: str, latency: int, seed: int) -> str:
+    env_slug = WANDB_ENV_SLUGS.get(env_name, env_name.replace("_", "-"))
+    return f"{env_slug}-l{int(latency)}-s{int(seed)}"
 
 
 def _build_train_config(
@@ -148,7 +160,10 @@ def _build_train_config(
     config["latency"]["train_sampling_mode"] = "uniform_all"
     config["latency"]["add_latency_info"] = False
     config["evaluation"]["eval_latency_values"] = [int(latency)]
-    config["logging"]["output_dir"] = str(Path(output_root) / "train" / env_name / f"latency_{latency}" / f"seed_{seed}")
+    config["logging"]["output_dir"] = str(
+        Path(output_root) / "train" / env_name / f"latency_{latency}" / f"seed_{seed}"
+    )
+    config["logging"]["wandb_name"] = _build_wandb_name(env_name, latency, seed)
     if train_for_env_steps is not None:
         config["training"]["train_for_env_steps"] = int(train_for_env_steps)
     return _prune_sample_factory_config(config)
@@ -173,7 +188,11 @@ def _build_eval_config(
     config["latency"]["add_latency_info"] = False
     config["evaluation"]["eval_episodes"] = int(eval_episodes)
     config["evaluation"]["eval_latency_values"] = [int(latency)]
-    config["logging"]["output_dir"] = str(Path(output_root) / "eval" / env_name / f"latency_{latency}" / f"seed_{seed}")
+    config["logging"] = {
+        "output_dir": str(
+            Path(output_root) / "eval" / env_name / f"latency_{latency}" / f"seed_{seed}"
+        )
+    }
     return _prune_sample_factory_config(config)
 
 
