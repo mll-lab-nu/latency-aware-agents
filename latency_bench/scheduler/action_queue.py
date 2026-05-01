@@ -21,6 +21,7 @@ class ActionScheduler:
         self.expiration_ms = clock.frame_ms if expiration_ms is None else float(expiration_ms)
         if self.expiration_ms < 0:
             raise ValueError("expiration_ms must be non-negative")
+        self.ready_time_epsilon_ms = max(1e-9, self.clock.frame_ms * 1e-9)
         self._pending_events: list[ActionEvent] = []
         self._applied_events: list[ActionEvent] = []
         self._current_action = noop_action
@@ -38,8 +39,8 @@ class ActionScheduler:
         self._pending_events.sort(key=lambda item: (item.ready_time_ms, item.action_id))
 
     def update(self, current_step: int, current_time_ms: float) -> Action:
-        ready = [event for event in self._pending_events if event.ready_time_ms <= current_time_ms]
-        not_ready = [event for event in self._pending_events if event.ready_time_ms > current_time_ms]
+        ready = [event for event in self._pending_events if self._is_ready(event, current_time_ms)]
+        not_ready = [event for event in self._pending_events if not self._is_ready(event, current_time_ms)]
 
         selected: ActionEvent | None = None
         if ready:
@@ -84,6 +85,9 @@ class ActionScheduler:
 
     def get_applied_events(self) -> list[ActionEvent]:
         return list(self._applied_events)
+
+    def _is_ready(self, event: ActionEvent, current_time_ms: float) -> bool:
+        return event.ready_time_ms <= current_time_ms + self.ready_time_epsilon_ms
 
     def _mark_dropped(self, event: ActionEvent) -> None:
         event.dropped = True
