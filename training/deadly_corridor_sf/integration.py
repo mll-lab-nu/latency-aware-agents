@@ -48,11 +48,15 @@ class DoomFrameStackWrapper(gym.Wrapper):
         super().__init__(env)
         if num_frames < 1:
             raise ValueError(f"num_frames must be >= 1, got {num_frames}")
-        if not isinstance(env.observation_space, gym.spaces.Dict):
-            raise TypeError("DoomFrameStackWrapper expects a Dict observation space")
-        obs_space = env.observation_space.spaces.get("obs")
-        if not isinstance(obs_space, gym.spaces.Box):
-            raise TypeError("DoomFrameStackWrapper expects observation_space['obs'] to be a Box")
+        self._dict_obs = isinstance(env.observation_space, gym.spaces.Dict)
+        if self._dict_obs:
+            obs_space = env.observation_space.spaces.get("obs")
+            if not isinstance(obs_space, gym.spaces.Box):
+                raise TypeError("DoomFrameStackWrapper expects observation_space['obs'] to be a Box")
+        elif isinstance(env.observation_space, gym.spaces.Box):
+            obs_space = env.observation_space
+        else:
+            raise TypeError("DoomFrameStackWrapper expects a Box or Dict observation space")
         base_shape = tuple(int(dim) for dim in obs_space.shape)
         if len(base_shape) != 3:
             raise ValueError(f"Expected channel-first Doom observation, got shape {base_shape}")
@@ -60,21 +64,39 @@ class DoomFrameStackWrapper(gym.Wrapper):
         self.num_frames = int(num_frames)
         self._frames: deque[np.ndarray] = deque(maxlen=self.num_frames)
         stacked_shape = (base_shape[0] * self.num_frames, base_shape[1], base_shape[2])
-        stacked_obs_space = gym.spaces.Box(low=0, high=255, shape=stacked_shape, dtype=obs_space.dtype)
-        new_spaces = dict(env.observation_space.spaces)
-        new_spaces["obs"] = stacked_obs_space
-        self.observation_space = gym.spaces.Dict(new_spaces)
+        stacked_obs_space = gym.spaces.Box(
+            low=obs_space.low.min() if np.ndim(obs_space.low) > 0 else obs_space.low,
+            high=obs_space.high.max() if np.ndim(obs_space.high) > 0 else obs_space.high,
+            shape=stacked_shape,
+            dtype=obs_space.dtype,
+        )
+        if self._dict_obs:
+            new_spaces = dict(env.observation_space.spaces)
+            new_spaces["obs"] = stacked_obs_space
+            self.observation_space = gym.spaces.Dict(new_spaces)
+        else:
+            self.observation_space = stacked_obs_space
+
+    def _extract_frame(self, observation) -> np.ndarray:
+        if self._dict_obs:
+            if not isinstance(observation, dict):
+                raise TypeError(f"Expected dict observation, got {type(observation)!r}")
+            return np.array(observation["obs"], copy=True)
+        return np.array(observation, copy=True)
 
     def _stack_obs(self, observation):
-        if not isinstance(observation, dict):
-            raise TypeError(f"Expected dict observation, got {type(observation)!r}")
-        stacked = dict(observation)
-        stacked["obs"] = np.concatenate(tuple(self._frames), axis=0)
-        return stacked
+        stacked_frames = np.concatenate(tuple(self._frames), axis=0)
+        if self._dict_obs:
+            if not isinstance(observation, dict):
+                raise TypeError(f"Expected dict observation, got {type(observation)!r}")
+            stacked = dict(observation)
+            stacked["obs"] = stacked_frames
+            return stacked
+        return stacked_frames
 
     def reset(self, **kwargs):
         observation, info = self.env.reset(**kwargs)
-        frame = np.array(observation["obs"], copy=True)
+        frame = self._extract_frame(observation)
         self._frames.clear()
         for _ in range(self.num_frames):
             self._frames.append(frame.copy())
@@ -82,7 +104,7 @@ class DoomFrameStackWrapper(gym.Wrapper):
 
     def step(self, action):
         observation, reward, terminated, truncated, info = self.env.step(action)
-        self._frames.append(np.array(observation["obs"], copy=True))
+        self._frames.append(self._extract_frame(observation))
         return self._stack_obs(observation), reward, terminated, truncated, info
 
 

@@ -9,8 +9,3 @@ distill/
 
 # Python cache files
 __pycache__/
-*.py[cod]
-*$py.class
-
-# uv
-uv.lock

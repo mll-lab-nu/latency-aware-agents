@@ -29,7 +29,7 @@ DEFAULT_LATENCIES = {
 }
 
 DEFAULT_MAX_STEPS = {
-    "flappy": 1800,
+    "flappy": 10000,
     "demon_attack": 25000,
     "deadly_corridor": 2100,
 }
