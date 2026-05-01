@@ -53,16 +53,16 @@ policy:
     - 0
 
 training:
-  train_for_env_steps: 10000000
-  num_workers: 4
-  num_envs_per_worker: 2
+  train_for_env_steps: 15000000
+  num_workers: 12
+  num_envs_per_worker: 4
   worker_num_splits: 2
   num_policies: 1
-  batch_size: 512
+  batch_size: 1024
   rollout: 128
   recurrence: 128
-  num_epochs: 1
-  num_batches_per_epoch: 1
+  num_epochs: 2
+  num_batches_per_epoch: 2
   learning_rate: 0.0001
   gamma: 0.99
   gae_lambda: 0.95
