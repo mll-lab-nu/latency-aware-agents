@@ -144,6 +144,21 @@ def append_cli_arg(args: list[str], flag: str, value: Any) -> None:
     args.extend([flag, str(value)])
 
 
+def apply_runtime_logging_config(sf_cfg: Any, logging_cfg: dict[str, Any] | None) -> None:
+    if not isinstance(logging_cfg, dict):
+        return
+
+    output_dir = logging_cfg.get("output_dir")
+    if output_dir:
+        sf_cfg.output_dir = str(output_dir)
+
+    wandb_name = logging_cfg.get("wandb_name")
+    if isinstance(wandb_name, str):
+        wandb_name = wandb_name.strip()
+    if wandb_name:
+        sf_cfg.wandb_unique_id = str(wandb_name)
+
+
 def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[str]:
     backend_cfg = config["backend"]
     experiment_cfg = config["experiment"]
@@ -234,7 +249,6 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         append_cli_arg(args, "--wandb_group", logging_cfg.get("wandb_group"))
         append_cli_arg(args, "--wandb_job_type", logging_cfg.get("wandb_job_type"))
         append_cli_arg(args, "--wandb_tags", logging_cfg.get("wandb_tags"))
-        append_cli_arg(args, "--wandb_unique_id", logging_cfg.get("wandb_name"))
 
     extra_args = backend_cfg.get("extra_args", ())
     if extra_args:

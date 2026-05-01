@@ -10,7 +10,11 @@ from gymnasium.spaces import Box
 
 from latency_bench.envs.demon_attack import make_demon_attack_benchmark_env
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
-from training.sample_factory_common.config_adapter import append_cli_arg, build_common_sf_args
+from training.sample_factory_common.config_adapter import (
+    append_cli_arg,
+    apply_runtime_logging_config,
+    build_common_sf_args,
+)
 from training.sample_factory_common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
 from training.sample_factory_common.latency_wrapper import (
     ClipRewardWithRawInfoWrapper,
@@ -247,9 +251,7 @@ def run_from_config(config: dict) -> int:
     requested_mode = str(config.get("backend", {}).get("run_mode", "train"))
     cfg = parse_cfg(build_cli_args_from_config(config), evaluation=requested_mode in {"eval", "train_eval"})
     logging_cfg = config.get("logging", {}) if isinstance(config.get("logging"), dict) else {}
-    output_dir = logging_cfg.get("output_dir")
-    if output_dir:
-        cfg.output_dir = str(output_dir)
+    apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))
     patch_sample_factory_wandb()
     from sample_factory.train import run_rl
