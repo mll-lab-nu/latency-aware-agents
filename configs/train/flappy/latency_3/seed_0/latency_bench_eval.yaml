@@ -1,0 +1,98 @@
+experiment:
+  name: flappy_sf_same_latency_l3_seed0
+  seed: 0
+  num_episodes: 100
+  max_env_steps: 1800
+backend:
+  type: sample_factory
+  algo: APPO
+  device: gpu
+  train_dir: results/checkpoints
+  restart_behavior: resume
+  run_mode: eval
+executor:
+  mode: simulated
+env:
+  name: flappy
+  gym_id: FlappyBird-v0
+  fps_env: 30
+  render_mode: rgb_array
+  observation_mode: image
+  use_lidar: false
+  normalize_obs: true
+  audio_on: false
+  frame_stack: 4
+  noop_action: noop
+  action_map:
+    noop: 0
+    flap: 1
+  oneshot_actions:
+  - flap
+  max_episode_steps: 1800
+control:
+  frequency_hz: 30
+  observe_every_n_frames: 1
+latency:
+  type: fixed
+  train_enabled: true
+  train_values:
+  - 3
+  train_mode: episode_fixed
+  train_sampling_mode: uniform_all
+  episodes_per_stage: 10
+  randomize_within_stage: false
+  within_episode_change_interval: 1
+  within_episode_change_prob: 1.0
+  add_latency_info: false
+  fixed_latency_ms: 100.0
+scheduler:
+  persistence_mode: noop_after_oneshot
+  stale_action_mode: latest_ready
+policy:
+  type: flappy_sf
+  actions:
+  - noop
+  - flap
+  checkpoint_path: ''
+  device: auto
+  deterministic: true
+training:
+  train_for_env_steps: 50000000
+  num_workers: 12
+  num_envs_per_worker: 4
+  worker_num_splits: 2
+  num_policies: 1
+  batch_size: 1024
+  rollout: 128
+  recurrence: 32
+  num_epochs: 2
+  num_batches_per_epoch: 2
+  learning_rate: 0.00025
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  value_loss_coeff: 0.5
+  max_grad_norm: 0.5
+  async_rl: true
+  use_rnn: false
+  normalize_input: true
+  normalize_returns: true
+  stats_avg: 100
+  experiment_summaries_interval: 1
+  save_every_sec: 600
+  keep_checkpoints: 5
+evaluation:
+  eval_episodes: 100
+  eval_latency_values:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  eval_max_steps: 10000
+  eval_deterministic: true
+  eval_raw_reward: false
+logging:
+  output_dir: outputs/latency_bench/flappy/train_latency_3/seed_0

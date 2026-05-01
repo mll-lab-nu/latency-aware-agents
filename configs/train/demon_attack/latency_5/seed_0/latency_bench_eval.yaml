@@ -1,0 +1,97 @@
+experiment:
+  name: demon_attack_sf_same_latency_l5_seed0
+  seed: 0
+  num_episodes: 100
+  max_env_steps: 3600
+backend:
+  type: sample_factory
+  algo: APPO
+  device: gpu
+  train_dir: results/checkpoints
+  restart_behavior: resume
+  run_mode: eval
+executor:
+  mode: simulated
+env:
+  name: demon_attack
+  env_id: ALE/DemonAttack-v5
+  fps_env: 60
+  screen_size: 84
+  noop_max: 30
+  action_repeat: 4
+  frame_stack: 4
+  terminal_on_life_loss: true
+  clip_reward: true
+  repeat_action_probability: 0.0
+  full_action_space: false
+  noop_action: 0
+  max_episode_steps: 25000
+control:
+  frequency_hz: 60
+  observe_every_n_frames: 1
+latency:
+  type: fixed
+  train_enabled: true
+  train_values:
+  - 5
+  train_mode: episode_fixed
+  train_sampling_mode: uniform_all
+  episodes_per_stage: 10
+  randomize_within_stage: false
+  within_episode_change_interval: 1
+  within_episode_change_prob: 1.0
+  add_latency_info: false
+  fixed_latency_ms: 83.33333333333333
+scheduler:
+  persistence_mode: hold_previous
+  stale_action_mode: latest_ready
+policy:
+  type: demon_attack_sf
+  actions:
+  - 0
+  checkpoint_path: ''
+  device: auto
+  deterministic: true
+training:
+  train_for_env_steps: 100000000
+  num_workers: 12
+  num_envs_per_worker: 4
+  worker_num_splits: 2
+  num_policies: 1
+  batch_size: 1024
+  batched_sampling: true
+  rollout: 128
+  recurrence: 32
+  num_epochs: 2
+  num_batches_per_epoch: 2
+  learning_rate: 0.000303
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  value_loss_coeff: 0.5
+  max_grad_norm: 0.0
+  async_rl: true
+  use_rnn: false
+  normalize_input: true
+  normalize_returns: true
+  stats_avg: 100
+  experiment_summaries_interval: 1
+  save_every_sec: 600
+  keep_checkpoints: 5
+evaluation:
+  eval_episodes: 100
+  eval_latency_values:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 10
+  - 15
+  eval_max_steps: 3600
+  eval_deterministic: true
+  eval_raw_reward: true
+logging:
+  output_dir: outputs/latency_bench/demon_attack/train_latency_5/seed_0
