@@ -42,6 +42,10 @@ def _to_hwc(obs: torch.Tensor) -> np.ndarray:
     return obs.permute(0, 2, 3, 1).cpu().numpy()
 
 
+def _raw_rgb(envs: FakeFlappyBatch) -> torch.Tensor:
+    return torch.as_tensor(np.stack(envs.render_frames()), dtype=torch.uint8)
+
+
 def test_training_observation_pipeline_stack_done_reset_and_latency_channel():
     envs = FakeFlappyBatch(
         frames=[
@@ -52,7 +56,7 @@ def test_training_observation_pipeline_stack_done_reset_and_latency_channel():
     )
     pipeline = ObservationPipeline(args=_args(), envs=envs, device=torch.device("cpu"))
 
-    reset_obs = _to_hwc(pipeline.reset(states=None))
+    reset_obs = _to_hwc(pipeline.reset(_raw_rgb(envs), envs.frame_skips()))
 
     assert reset_obs.shape == (2, 4, 4, 10)
     assert np.all(reset_obs[0, :, :, :9] == 10)
@@ -67,7 +71,11 @@ def test_training_observation_pipeline_stack_done_reset_and_latency_channel():
     envs._frame_skips = np.asarray([2, 4], dtype=np.int64)
 
     step_obs = _to_hwc(
-        pipeline.step(states=None, dones=np.asarray([False, True], dtype=np.bool_))
+        pipeline.step(
+            _raw_rgb(envs),
+            dones=np.asarray([False, True], dtype=np.bool_),
+            frame_skips=envs.frame_skips(),
+        )
     )
 
     assert np.all(step_obs[0, :, :, :6] == 10)

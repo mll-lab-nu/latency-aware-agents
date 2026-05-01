@@ -128,7 +128,7 @@ def _build_train_config(
     device: str,
     restart_behavior: str,
     train_for_env_steps: int | None,
-    frame_stack_override: int | None,
+    frame_stack_override: int | None = None,
 ) -> dict:
     config = deepcopy(load_training_config(BASE_CONFIGS[env_name]))
     run_name = f"{env_name}_sf_same_latency_l{latency}_seed{seed}"

@@ -106,8 +106,8 @@ def _build_paused_executor(config: dict[str, Any]) -> PausedLatencyExecutor:
     scheduler_cfg = config["scheduler"]
 
     action_resolver = ActionResolver(config["env"])
-    noop_action = action_resolver.noop_action
-    env = build_env_adapter(config, noop_action)
+    env = build_env_adapter(config, action_resolver.noop_action)
+    noop_action = env.noop_action
     clock = EnvClock(fps_env=env.fps_env)
     policy = build_policy(config, action_resolver)
     decision_scheduler = _build_decision_scheduler(control_cfg, env.fps_env)
@@ -141,8 +141,8 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
     executor_cfg = config["executor"]
 
     action_resolver = ActionResolver(config["env"])
-    noop_action = action_resolver.noop_action
-    env = build_env_adapter(config, noop_action)
+    env = build_env_adapter(config, action_resolver.noop_action)
+    noop_action = env.noop_action
     clock = EnvClock(fps_env=env.fps_env)
     policy = build_policy(config, action_resolver)
     decision_scheduler = _build_decision_scheduler(control_cfg, env.fps_env)
