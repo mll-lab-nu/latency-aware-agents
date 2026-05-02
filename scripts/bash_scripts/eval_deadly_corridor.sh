@@ -49,6 +49,7 @@ if [[ ${#CONFIG_DIRS[@]} -eq 0 ]]; then
 fi
 
 EVAL_RUNS=0
+EVAL_FAILURES=0
 
 for CONFIG_DIR in "${CONFIG_DIRS[@]}"; do
     EXPERIMENT_NAME="$(read_config_value "${CONFIG_DIR}/eval.yaml" "experiment.name")"
@@ -60,12 +61,25 @@ for CONFIG_DIR in "${CONFIG_DIRS[@]}"; do
     fi
 
     echo "==> Evaluating ${CONFIG_DIR}"
-    python -m training.train --config "${CONFIG_DIR}/eval.yaml"
-    python -m latency_bench.run --config "${CONFIG_DIR}/latency_bench_eval.yaml"
     EVAL_RUNS=$((EVAL_RUNS + 1))
+    if ! python -m training.train --config "${CONFIG_DIR}/eval.yaml"; then
+        echo "Eval failed for ${CONFIG_DIR}: training eval command failed" >&2
+        EVAL_FAILURES=$((EVAL_FAILURES + 1))
+        continue
+    fi
+    if ! python -m latency_bench.run --config "${CONFIG_DIR}/latency_bench_eval.yaml"; then
+        echo "Eval failed for ${CONFIG_DIR}: latency_bench eval command failed" >&2
+        EVAL_FAILURES=$((EVAL_FAILURES + 1))
+        continue
+    fi
 done
 
 if [[ ${EVAL_RUNS} -eq 0 ]]; then
     echo "Error: no checkpoint-backed eval configs found under ${CONFIG_ROOT}." >&2
     exit 2
+fi
+
+if [[ ${EVAL_FAILURES} -ne 0 ]]; then
+    echo "Error: ${EVAL_FAILURES} eval run(s) failed; completed remaining checkpoint-backed configs." >&2
+    exit 1
 fi
