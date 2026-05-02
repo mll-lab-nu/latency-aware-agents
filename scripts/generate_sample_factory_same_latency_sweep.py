@@ -82,6 +82,8 @@ ENV_KEYS_BY_NAME = {
         "obs_mode",
         "use_gpu_render",
         "gpu_render_device",
+        "gpu_render_profile",
+        "gpu_render_profile_interval",
         "pipe_gap",
         "bird_color",
         "pipe_color",

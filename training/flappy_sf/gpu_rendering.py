@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import time
+from contextlib import nullcontext
 from typing import Any, Sequence
 
 import gymnasium as gym
@@ -16,6 +19,98 @@ ensure_flappy_gymnasium_on_path()
 
 from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState  # noqa: E402
 from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer  # noqa: E402
+
+
+_PROFILE_FIELDS = (
+    "env_step_s",
+    "get_render_state_s",
+    "state_batch_from_states_s",
+    "render_into_s",
+    "pipeline_s",
+    "reset_obs_total_s",
+    "step_obs_total_s",
+)
+
+
+class _GpuRenderProfiler:
+    def __init__(
+        self,
+        *,
+        enabled: bool,
+        interval: int,
+        device: torch.device,
+        worker_index: int,
+        vector_index: int,
+        env_id: int,
+    ):
+        self.enabled = bool(enabled)
+        self.interval = max(1, int(interval))
+        self.device = torch.device(device)
+        self.worker_index = int(worker_index)
+        self.vector_index = int(vector_index)
+        self.env_id = int(env_id)
+        self.total_steps = 0
+        self.totals = {field: 0.0 for field in _PROFILE_FIELDS}
+        self.counts = {field: 0 for field in _PROFILE_FIELDS}
+
+    def time(self, field: str):
+        if not self.enabled:
+            return nullcontext()
+        return _GpuRenderProfileTimer(self, field)
+
+    def record(self, field: str, elapsed: float) -> None:
+        if field not in self.totals:
+            self.totals[field] = 0.0
+            self.counts[field] = 0
+        self.totals[field] += float(elapsed)
+        self.counts[field] += 1
+
+    def synchronize(self) -> None:
+        if self.enabled and self.device.type == "cuda":
+            torch.cuda.synchronize(self.device)
+
+    def observe_step(self) -> None:
+        if not self.enabled:
+            return
+        self.total_steps += 1
+        if self.total_steps % self.interval == 0:
+            self.log_and_reset()
+
+    def log_and_reset(self) -> None:
+        parts = [
+            "[FlappyGpuRenderProfile]",
+            f"pid={os.getpid()}",
+            f"worker={self.worker_index}",
+            f"vector={self.vector_index}",
+            f"env_id={self.env_id}",
+            f"steps={self.total_steps}",
+        ]
+        for field in _PROFILE_FIELDS:
+            count = self.counts.get(field, 0)
+            avg_ms = 0.0 if count <= 0 else 1000.0 * self.totals[field] / float(count)
+            parts.append(f"{field}_avg_ms={avg_ms:.3f}")
+            parts.append(f"{field}_n={count}")
+        print(" ".join(parts), flush=True)
+        for field in _PROFILE_FIELDS:
+            self.totals[field] = 0.0
+            self.counts[field] = 0
+
+
+class _GpuRenderProfileTimer:
+    def __init__(self, profiler: _GpuRenderProfiler, field: str):
+        self.profiler = profiler
+        self.field = field
+        self.start = 0.0
+
+    def __enter__(self):
+        self.profiler.synchronize()
+        self.start = time.perf_counter()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.profiler.synchronize()
+        self.profiler.record(self.field, time.perf_counter() - self.start)
+        return False
 
 
 def resolve_gpu_render_device(device: str | torch.device) -> torch.device:
@@ -54,6 +149,11 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
         obs_mode: str,
         frame_skip_values: Sequence[int],
         gpu_render_device: str | torch.device,
+        gpu_render_profile: bool = False,
+        gpu_render_profile_interval: int = 1000,
+        worker_index: int = 0,
+        vector_index: int = 0,
+        env_id: int = 0,
     ):
         super().__init__(env)
         if obs_resize is None:
@@ -91,30 +191,48 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
         )
         self.renderer: TorchFlappyRenderer | None = None
         self._raw_rgb_buffer: torch.Tensor | None = None
+        self.gpu_render_profiler = _GpuRenderProfiler(
+            enabled=bool(gpu_render_profile),
+            interval=int(gpu_render_profile_interval),
+            device=self.render_device,
+            worker_index=int(worker_index),
+            vector_index=int(vector_index),
+            env_id=int(env_id),
+        )
 
     def reset(self, **kwargs):
         numeric_obs, info = self.env.reset(**kwargs)
         info = self._with_numeric_obs(info, numeric_obs)
-        obs = self.pipeline.reset(self._render_raw_rgb(), frame_skips=self._frame_skips(info))
+        with self.gpu_render_profiler.time("reset_obs_total_s"):
+            raw_rgb = self._render_raw_rgb()
+            with self.gpu_render_profiler.time("pipeline_s"):
+                obs = self.pipeline.reset(raw_rgb, frame_skips=self._frame_skips(info))
         return self._obs(obs), [info]
 
     def step(self, action):
         scalar_action = self._scalar_action(action)
-        numeric_obs, reward, terminated, truncated, info = self.env.step(scalar_action)
+        with self.gpu_render_profiler.time("env_step_s"):
+            numeric_obs, reward, terminated, truncated, info = self.env.step(scalar_action)
         info = self._with_numeric_obs(info, numeric_obs)
         done = bool(terminated or truncated)
 
-        if done:
-            reset_numeric_obs, reset_info = self.env.reset()
-            reset_info = self._with_numeric_obs(reset_info, reset_numeric_obs)
-            info["reset_info"] = reset_info
-            obs = self.pipeline.reset(self._render_raw_rgb(), frame_skips=self._frame_skips(reset_info))
-        else:
-            obs = self.pipeline.step(
-                self._render_raw_rgb(),
-                dones=np.zeros(1, dtype=np.bool_),
-                frame_skips=self._frame_skips(info),
-            )
+        with self.gpu_render_profiler.time("step_obs_total_s"):
+            if done:
+                reset_numeric_obs, reset_info = self.env.reset()
+                reset_info = self._with_numeric_obs(reset_info, reset_numeric_obs)
+                info["reset_info"] = reset_info
+                raw_rgb = self._render_raw_rgb()
+                with self.gpu_render_profiler.time("pipeline_s"):
+                    obs = self.pipeline.reset(raw_rgb, frame_skips=self._frame_skips(reset_info))
+            else:
+                raw_rgb = self._render_raw_rgb()
+                with self.gpu_render_profiler.time("pipeline_s"):
+                    obs = self.pipeline.step(
+                        raw_rgb,
+                        dones=np.zeros(1, dtype=np.bool_),
+                        frame_skips=self._frame_skips(info),
+                    )
+        self.gpu_render_profiler.observe_step()
 
         return (
             self._obs(obs),
@@ -130,12 +248,15 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
         return {"obs": obs}
 
     def _render_raw_rgb(self) -> torch.Tensor:
-        state = self.env.unwrapped.get_render_state()
+        with self.gpu_render_profiler.time("get_render_state_s"):
+            state = self.env.unwrapped.get_render_state()
         if self.renderer is None:
             assets = FlappyRenderAssets.for_state(state)
             self.renderer = TorchFlappyRenderer(assets, device=self.render_device)
-        batch = BatchedFlappyRenderState.from_states([state])
-        return self.renderer.render_into(batch, self._raw_rgb_output_buffer(batch))
+        with self.gpu_render_profiler.time("state_batch_from_states_s"):
+            batch = BatchedFlappyRenderState.from_states([state])
+        with self.gpu_render_profiler.time("render_into_s"):
+            return self.renderer.render_into(batch, self._raw_rgb_output_buffer(batch))
 
     def _raw_rgb_output_buffer(self, batch: BatchedFlappyRenderState) -> torch.Tensor:
         expected_shape = (int(batch.batch_size), int(batch.screen_height), int(batch.screen_width), 3)

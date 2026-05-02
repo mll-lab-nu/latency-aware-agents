@@ -348,6 +348,11 @@ def make_flappy_sf_env(
             obs_mode=obs_mode,
             frame_skip_values=latency_values or [0],
             gpu_render_device=getattr(cfg, "gpu_render_device", "auto"),
+            gpu_render_profile=bool(getattr(cfg, "gpu_render_profile", False)),
+            gpu_render_profile_interval=int(getattr(cfg, "gpu_render_profile_interval", 1000) or 1000),
+            worker_index=int(getattr(env_config, "worker_index", 0) or 0),
+            vector_index=int(getattr(env_config, "vector_index", 0) or 0),
+            env_id=int(getattr(env_config, "env_id", 0) or 0),
         )
     log_flappy_sf_resolved_config(cfg, _flappy_final_obs_shape(env.observation_space))
     return env
@@ -384,6 +389,8 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--obs_mode", type=str, default="image_only", choices=["image_only", "latency_channel"])
     parser.add_argument("--use-gpu-render", dest="use_gpu_render", type=str2bool, default=False)
     parser.add_argument("--gpu-render-device", dest="gpu_render_device", type=str, default="auto")
+    parser.add_argument("--gpu-render-profile", dest="gpu_render_profile", type=str2bool, default=False)
+    parser.add_argument("--gpu-render-profile-interval", dest="gpu_render_profile_interval", type=int, default=1000)
     parser.add_argument("--pipe_gap", type=int, default=100)
     parser.add_argument("--bird_color", type=str, default="yellow")
     parser.add_argument("--pipe_color", type=str, default="green")
@@ -452,6 +459,8 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--obs_mode", obs_mode or "image_only")
     append_cli_arg(args, "--use-gpu-render", env_cfg.get("use_gpu_render", False))
     append_cli_arg(args, "--gpu-render-device", env_cfg.get("gpu_render_device", "auto"))
+    append_cli_arg(args, "--gpu-render-profile", env_cfg.get("gpu_render_profile", False))
+    append_cli_arg(args, "--gpu-render-profile-interval", env_cfg.get("gpu_render_profile_interval", 1000))
     append_cli_arg(args, "--pipe_gap", env_cfg.get("pipe_gap", 100))
     append_cli_arg(args, "--bird_color", env_cfg.get("bird_color", "yellow"))
     append_cli_arg(args, "--pipe_color", env_cfg.get("pipe_color", "green"))

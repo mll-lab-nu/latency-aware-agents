@@ -141,6 +141,15 @@ def _validate_flappy_sf_config(config: dict[str, Any]) -> None:
     if obs_mode not in {"image_only", "latency_channel"}:
         raise ValueError("env.obs_mode must be 'image_only' or 'latency_channel' for Flappy Sample Factory")
 
+    profile_interval = env_cfg.get("gpu_render_profile_interval")
+    if profile_interval is not None:
+        try:
+            profile_interval_int = int(profile_interval)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("env.gpu_render_profile_interval must be a positive integer") from exc
+        if profile_interval_int <= 0:
+            raise ValueError("env.gpu_render_profile_interval must be a positive integer")
+
     if _config_bool(env_cfg.get("use_gpu_render", False)):
         if "batched_sampling" in config["training"] and not _config_bool(config["training"].get("batched_sampling")):
             raise ValueError("training.batched_sampling must be true when env.use_gpu_render=true")

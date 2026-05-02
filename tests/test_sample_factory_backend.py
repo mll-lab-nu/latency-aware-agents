@@ -23,6 +23,7 @@ from training.sample_factory_common.config_adapter import (
     apply_training_overrides,
     build_common_sf_args,
     load_training_config,
+    validate_training_config,
 )
 
 
@@ -47,6 +48,32 @@ class _ScriptedAtariInfoEnv(gym.Env):
         self.index += 1
         obs = np.full((2, 2), self.index + 10, dtype=np.uint8)
         return obs, float(reward), bool(terminated), bool(truncated), dict(info)
+
+
+class _RenderedRgbEnv(gym.Env):
+    action_space = gym.spaces.Discrete(2)
+
+    def __init__(self, shape=(512, 288, 3)):
+        super().__init__()
+        self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32)
+        self.screen_size = (288, 512)
+        self.shape = tuple(shape)
+        self.step_count = 0
+
+    def reset(self, *, seed=None, options=None):
+        self.step_count = 0
+        return np.zeros((2,), dtype=np.float32), {}
+
+    def step(self, action):
+        self.step_count += 1
+        return np.zeros((2,), dtype=np.float32), 0.0, False, False, {}
+
+    def render(self):
+        frame = np.zeros(self.shape, dtype=np.uint8)
+        frame[..., 0] = 17
+        frame[..., 1] = 91
+        frame[..., 2] = 203
+        return frame
 
 
 def test_sample_factory_training_configs_load():
@@ -101,6 +128,175 @@ def test_apply_training_overrides_updates_run_name_train_dir_and_mode():
     assert updated["experiment"]["name"] == "override_run"
     assert updated["backend"]["train_dir"] == "tmp/sample_factory"
     assert updated["backend"]["run_mode"] == "train"
+
+
+def test_flappy_sf_obs_resize_single_frame_shape():
+    from training.flappy_sf.integration import FlappyImageObsWrapper
+
+    wrapped = FlappyImageObsWrapper(_RenderedRgbEnv(), obs_resize=(84, 84))
+
+    assert wrapped.observation_space.shape == (3, 84, 84)
+    obs, _ = wrapped.reset()
+    assert obs.shape == (3, 84, 84)
+
+
+def test_flappy_sf_frame_stack_after_resize_shape():
+    from training.flappy_sf.integration import FlappyFrameStackWrapper, FlappyImageObsWrapper
+
+    image_env = FlappyImageObsWrapper(_RenderedRgbEnv(), obs_resize=(84, 84))
+    wrapped = FlappyFrameStackWrapper(image_env, num_frames=4)
+
+    assert wrapped.observation_space.shape == (12, 84, 84)
+    obs, _ = wrapped.reset()
+    assert obs.shape == (12, 84, 84)
+
+
+def test_flappy_sf_resize_preserves_uint8_rgb():
+    from training.flappy_sf.integration import FlappyImageObsWrapper
+
+    wrapped = FlappyImageObsWrapper(_RenderedRgbEnv(), obs_resize=(84, 84))
+    obs, _ = wrapped.reset()
+
+    assert obs.dtype == np.uint8
+    assert obs.shape[0] == 3
+
+
+def test_flappy_sf_resize_does_not_change_env_screen_size():
+    from training.flappy_sf.integration import FlappyImageObsWrapper
+
+    base_env = _RenderedRgbEnv()
+    wrapped = FlappyImageObsWrapper(base_env, obs_resize=(84, 84))
+    wrapped.reset()
+
+    assert base_env.screen_size == (288, 512)
+
+
+def test_flappy_sf_rejects_screen_size_config():
+    cfg = load_training_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg["env"]["screen_size"] = [84, 84]
+
+    with pytest.raises(ValueError, match="env\\.obs_resize"):
+        validate_training_config(cfg)
+
+
+def test_flappy_sf_native_eval_uses_same_obs_resize():
+    full_cfg = _build_full_run_config(
+        env_name="flappy",
+        seed=0,
+        latency=0,
+        max_steps=1800,
+        train_dir="/workspace/sample_factory_runs",
+        output_root="/workspace/latency_sweeps",
+        device="gpu",
+        restart_behavior="resume",
+        train_for_env_steps=None,
+    )
+    train_cfg = _build_train_config(
+        env_name="flappy",
+        seed=0,
+        latency=0,
+        max_steps=1800,
+        train_dir="/workspace/sample_factory_runs",
+        output_root="/workspace/latency_sweeps",
+        device="gpu",
+        restart_behavior="resume",
+        train_for_env_steps=None,
+    )
+    eval_cfg = _build_eval_config(
+        train_config=full_cfg,
+        env_name="flappy",
+        seed=0,
+        latency=0,
+        max_steps=1800,
+        output_root="/workspace/latency_sweeps",
+        eval_episodes=10,
+    )
+
+    assert train_cfg["env"]["obs_resize"] == [84, 84]
+    assert eval_cfg["env"]["obs_resize"] == [84, 84]
+    assert train_cfg["env"]["obs_mode"] == eval_cfg["env"]["obs_mode"] == "image_only"
+
+
+def test_flappy_sf_sweep_config_preserves_gpu_render_fields():
+    full_cfg = _build_full_run_config(
+        env_name="flappy",
+        seed=0,
+        latency=0,
+        max_steps=1800,
+        train_dir="/workspace/sample_factory_runs",
+        output_root="/workspace/latency_sweeps",
+        device="gpu",
+        restart_behavior="resume",
+        train_for_env_steps=None,
+    )
+    train_cfg = _build_train_config(
+        env_name="flappy",
+        seed=0,
+        latency=0,
+        max_steps=1800,
+        train_dir="/workspace/sample_factory_runs",
+        output_root="/workspace/latency_sweeps",
+        device="gpu",
+        restart_behavior="resume",
+        train_for_env_steps=None,
+    )
+    eval_cfg = _build_eval_config(
+        train_config=full_cfg,
+        env_name="flappy",
+        seed=0,
+        latency=0,
+        max_steps=1800,
+        output_root="/workspace/latency_sweeps",
+        eval_episodes=10,
+    )
+
+    assert train_cfg["env"]["use_gpu_render"] is True
+    assert train_cfg["env"]["gpu_render_device"] == "auto"
+    assert train_cfg["env"]["gpu_render_profile"] is False
+    assert train_cfg["env"]["gpu_render_profile_interval"] == 1000
+    assert eval_cfg["env"]["use_gpu_render"] is True
+    assert eval_cfg["env"]["gpu_render_device"] == "auto"
+    assert eval_cfg["env"]["gpu_render_profile"] is False
+    assert eval_cfg["env"]["gpu_render_profile_interval"] == 1000
+
+
+def test_flappy_sf_latency_channel_shape():
+    from modeling.flappy_ppo.preprocessing import latency_channel_value
+    from training.flappy_sf.integration import (
+        FlappyFrameStackWrapper,
+        FlappyImageObsWrapper,
+        FlappyLatencyChannelWrapper,
+    )
+
+    image_env = FlappyImageObsWrapper(_RenderedRgbEnv(), obs_resize=(84, 84))
+    stacked = FlappyFrameStackWrapper(image_env, num_frames=4)
+    wrapped = FlappyLatencyChannelWrapper(stacked, max_frame_skip=5)
+
+    assert wrapped.observation_space.shape == (13, 84, 84)
+    obs, info = wrapped.reset()
+    assert obs.shape == (13, 84, 84)
+    assert np.all(obs[-1] == latency_channel_value(0, 5))
+    latency_obs = wrapped.observation(obs[:12], {"frame_skip": 3})
+    assert np.all(latency_obs[-1] == latency_channel_value(3, 5))
+
+
+def test_flappy_sf_shape_mismatch_fails_fast():
+    from latency_bench.policy.sample_factory_common import validate_sample_factory_obs_shape
+
+    with pytest.raises(ValueError, match="observation shape mismatch"):
+        validate_sample_factory_obs_shape(
+            {"obs": np.zeros((1, 12, 512, 288), dtype=np.uint8)},
+            expected_shape=(12, 84, 84),
+            policy_type="flappy_sf",
+        )
+
+
+def test_flappy_sf_update_ratio_metadata():
+    from training.sample_factory_common.config_adapter import estimate_optimizer_steps_per_1m_env_steps
+
+    assert estimate_optimizer_steps_per_1m_env_steps(
+        {"batch_size": 1024, "num_epochs": 4, "num_batches_per_epoch": 2}
+    ) == pytest.approx(3906.25)
 
 
 def test_queue_latency_wrapper_exposes_fixed_non_zero_latency():
