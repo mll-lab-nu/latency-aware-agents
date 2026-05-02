@@ -150,6 +150,18 @@ def _to_python_scalar(value: Any):
     return value
 
 
+def _extract_action_id(action_value: Any) -> int:
+    scalar = _to_python_scalar(action_value)
+    if isinstance(scalar, np.ndarray):
+        scalar = np.asarray(scalar).reshape(-1)[0]
+    if isinstance(scalar, (list, tuple)):
+        if not scalar:
+            raise ValueError("Encountered empty action container while exporting teacher data")
+        scalar = _extract_action_id(scalar[0])
+        return int(scalar)
+    return int(scalar)
+
+
 def _extract_single_info(info: Any) -> dict[str, Any]:
     if isinstance(info, list):
         return dict(info[0] or {}) if info else {}
@@ -532,7 +544,7 @@ def _collect_latency_dataset(
             actions = preprocess_actions(env_info, actions)
             rnn_states = policy_outputs["new_rnn_states"]
 
-            action_id = int(_to_python_scalar(actions[0]))
+            action_id = _extract_action_id(actions[0])
             action_text = action_labels.get(action_id, str(action_id))
             prompt_text = _prompt_for_episode(
                 dataset_mode=dataset_mode,
