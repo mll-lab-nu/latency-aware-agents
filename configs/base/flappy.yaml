@@ -31,8 +31,8 @@ env:
   obs_mode: image_only
   use_gpu_render: true
   gpu_render_device: auto
-  gpu_render_profile: false
-  gpu_render_profile_interval: 1000
+  gpu_render_profile: true
+  gpu_render_profile_interval: 200
   noop_action: noop
   action_map:
     noop: 0
@@ -68,12 +68,12 @@ policy:
     - flap
 
 training:
-  train_for_env_steps: 50000000
-  num_workers: 8
-  num_envs_per_worker: 8
-  worker_num_splits: 2
+  train_for_env_steps: 75000000
+  num_workers: 2
+  num_envs_per_worker: 64
+  worker_num_splits: 1
   num_policies: 1
-  batch_size: 2048
+  batch_size: 4096
   rollout: 256
   recurrence: 1
   num_epochs: 8

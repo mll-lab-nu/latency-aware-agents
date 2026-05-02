@@ -275,6 +275,29 @@ def make_flappy_sf_env(
     env_config = env_config or {}
     gymnasium = _import_flappy_gymnasium()
     use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))
+    obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
+    obs_mode = resolve_flappy_obs_mode(cfg)
+    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+
+    if use_gpu_render:
+        from training.flappy_sf.batched_gpu_env import FlappyBatchedGpuRenderedEnv
+
+        latency_values = parse_int_list(getattr(cfg, "queue_latency_values", "0"))
+        env = FlappyBatchedGpuRenderedEnv(
+            cfg=cfg,
+            env_config=env_config,
+            obs_resize=obs_resize,
+            frame_stack=frame_stack,
+            obs_mode=obs_mode,
+            frame_skip_values=latency_values or [0],
+            gpu_render_device=getattr(cfg, "gpu_render_device", "auto"),
+            gpu_render_batch_size=int(getattr(cfg, "gpu_render_batch_size", 1) or 1),
+            gpu_render_profile=bool(getattr(cfg, "gpu_render_profile", False)),
+            gpu_render_profile_interval=int(getattr(cfg, "gpu_render_profile_interval", 1000) or 1000),
+        )
+        log_flappy_sf_resolved_config(cfg, _flappy_final_obs_shape(env.observation_space))
+        return env
+
     kwargs: dict[str, Any] = {
         "use_lidar": bool(getattr(cfg, "use_lidar", False)),
         "normalize_obs": bool(getattr(cfg, "normalize_obs", True)),
@@ -296,9 +319,6 @@ def make_flappy_sf_env(
     if score_limit not in (None, "", 0, -1):
         kwargs["score_limit"] = int(score_limit)
     env = gymnasium.make(getattr(cfg, "gym_id", "FlappyBird-v0"), **kwargs)
-    obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
-    obs_mode = resolve_flappy_obs_mode(cfg)
-    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
     if not use_gpu_render:
         env = FlappyImageObsWrapper(env, obs_resize=obs_resize)
         if frame_stack > 1:
@@ -338,22 +358,6 @@ def make_flappy_sf_env(
         vector_index=int(getattr(env_config, "vector_index", 0) or 0),
         env_id=int(getattr(env_config, "env_id", 0) or 0),
     )
-    if use_gpu_render:
-        from training.flappy_sf.gpu_rendering import FlappyGpuRenderedObsWrapper
-
-        env = FlappyGpuRenderedObsWrapper(
-            env,
-            obs_resize=obs_resize,
-            frame_stack=frame_stack,
-            obs_mode=obs_mode,
-            frame_skip_values=latency_values or [0],
-            gpu_render_device=getattr(cfg, "gpu_render_device", "auto"),
-            gpu_render_profile=bool(getattr(cfg, "gpu_render_profile", False)),
-            gpu_render_profile_interval=int(getattr(cfg, "gpu_render_profile_interval", 1000) or 1000),
-            worker_index=int(getattr(env_config, "worker_index", 0) or 0),
-            vector_index=int(getattr(env_config, "vector_index", 0) or 0),
-            env_id=int(getattr(env_config, "env_id", 0) or 0),
-        )
     log_flappy_sf_resolved_config(cfg, _flappy_final_obs_shape(env.observation_space))
     return env
 
@@ -389,6 +393,7 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--obs_mode", type=str, default="image_only", choices=["image_only", "latency_channel"])
     parser.add_argument("--use-gpu-render", dest="use_gpu_render", type=str2bool, default=False)
     parser.add_argument("--gpu-render-device", dest="gpu_render_device", type=str, default="auto")
+    parser.add_argument("--gpu-render-batch-size", dest="gpu_render_batch_size", type=int, default=1)
     parser.add_argument("--gpu-render-profile", dest="gpu_render_profile", type=str2bool, default=False)
     parser.add_argument("--gpu-render-profile-interval", dest="gpu_render_profile_interval", type=int, default=1000)
     parser.add_argument("--pipe_gap", type=int, default=100)

@@ -151,6 +151,19 @@ def _validate_flappy_sf_config(config: dict[str, Any]) -> None:
             raise ValueError("env.gpu_render_profile_interval must be a positive integer")
 
     if _config_bool(env_cfg.get("use_gpu_render", False)):
+        training_cfg = config["training"]
+        try:
+            original_num_envs_per_worker = int(training_cfg.get("num_envs_per_worker", 0) or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("training.num_envs_per_worker must be a positive integer when env.use_gpu_render=true") from exc
+        if original_num_envs_per_worker < 1:
+            raise ValueError("training.num_envs_per_worker must be >= 1 when env.use_gpu_render=true")
+        try:
+            worker_num_splits = int(training_cfg.get("worker_num_splits", 1) or 1)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("training.worker_num_splits must be 1 when env.use_gpu_render=true") from exc
+        if worker_num_splits != 1:
+            raise ValueError("training.worker_num_splits must be 1 when env.use_gpu_render=true")
         if "batched_sampling" in config["training"] and not _config_bool(config["training"].get("batched_sampling")):
             raise ValueError("training.batched_sampling must be true when env.use_gpu_render=true")
         if obs_resize is None:
@@ -322,6 +335,16 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     if use_gpu_render:
         append_cli_arg(args, "--env_gpu_observations", gpu_render_device != "cpu")
         append_cli_arg(args, "--env_gpu_actions", False)
+        original_num_envs_per_worker = int(training_cfg.get("num_envs_per_worker", 0) or 0)
+        if original_num_envs_per_worker < 1:
+            raise ValueError("training.num_envs_per_worker must be >= 1 when env.use_gpu_render=true")
+        try:
+            worker_num_splits = int(training_cfg.get("worker_num_splits", 1) or 1)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("training.worker_num_splits must be 1 when env.use_gpu_render=true") from exc
+        if worker_num_splits != 1:
+            raise ValueError("training.worker_num_splits must be 1 when env.use_gpu_render=true")
+        append_cli_arg(args, "--gpu-render-batch-size", original_num_envs_per_worker)
     append_cli_arg(args, "--seed", experiment_cfg.get("seed", 0))
     if backend_cfg.get("train_dir") and experiment_cfg.get("name"):
         metrics_path = Path(str(backend_cfg["train_dir"])).expanduser() / str(experiment_cfg["name"]) / "episode_metrics.jsonl"
@@ -368,7 +391,12 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     )
 
     for field in scalar_fields:
-        append_cli_arg(args, f"--{field}", training_cfg.get(field))
+        value = training_cfg.get(field)
+        if use_gpu_render and field == "num_envs_per_worker":
+            value = 1
+        elif use_gpu_render and field == "worker_num_splits" and value is None:
+            value = 1
+        append_cli_arg(args, f"--{field}", value)
     if use_gpu_render:
         append_cli_arg(args, "--batched_sampling", True)
     for field in bool_fields:
