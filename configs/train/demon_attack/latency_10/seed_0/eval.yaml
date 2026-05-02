@@ -31,8 +31,8 @@ latency:
   within_episode_change_prob: 1.0
   add_latency_info: false
 training:
-  train_for_env_steps: 100000000
-  num_workers: 12
+  train_for_env_steps: 50000000
+  num_workers: 16
   num_envs_per_worker: 4
   worker_num_splits: 2
   num_policies: 1
