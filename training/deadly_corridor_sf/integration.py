@@ -33,6 +33,7 @@ from training.sample_factory_common.queue_eval import (
     queue_eval_output_dir,
     write_queue_eval_result,
 )
+from training.sample_factory_common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
 from training.sample_factory_common.wandb_compat import patch_sample_factory_wandb
 
 
@@ -129,6 +130,7 @@ def make_latency_doom_env_from_spec(
         render_mode=render_mode,
         **kwargs,
     )
+    ensure_vizdoom_init_guard_installed(env, env_name=env_name, cfg=cfg, env_config=env_config)
     env = RewardTraceWrapper(
         env,
         raw_reward_fn=lambda transformed_reward, info, scale=float(spec_to_use.reward_scaling): _doom_raw_reward_from_scaled(
@@ -234,6 +236,10 @@ def add_latency_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--frame_stack", type=int, default=1)
     parser.add_argument("--max_episode_steps", type=int, default=0)
     parser.add_argument("--episode_metrics_path", type=str, default="")
+    parser.add_argument("--vizdoom_init_max_parallel", type=int, default=10)
+    parser.add_argument("--vizdoom_init_lock_timeout_sec", type=float, default=5.0)
+    parser.add_argument("--vizdoom_init_lock_max_wait_sec", type=float, default=60.0)
+    parser.add_argument("--vizdoom_init_retry_jitter_sec", type=float, default=0.25)
 
 
 def parse_cfg(argv=None):
@@ -443,6 +449,10 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--wide_aspect_ratio", env_cfg.get("wide_aspect_ratio", False))
     append_cli_arg(args, "--frame_stack", env_cfg.get("frame_stack", 1))
     append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
+    append_cli_arg(args, "--vizdoom_init_max_parallel", env_cfg.get("vizdoom_init_max_parallel"))
+    append_cli_arg(args, "--vizdoom_init_lock_timeout_sec", env_cfg.get("vizdoom_init_lock_timeout_sec"))
+    append_cli_arg(args, "--vizdoom_init_lock_max_wait_sec", env_cfg.get("vizdoom_init_lock_max_wait_sec"))
+    append_cli_arg(args, "--vizdoom_init_retry_jitter_sec", env_cfg.get("vizdoom_init_retry_jitter_sec"))
     append_cli_arg(args, "--disable-reward-scaling", evaluation_cfg.get("eval_raw_reward", False))
     return args
 
