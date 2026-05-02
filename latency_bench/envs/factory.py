@@ -46,6 +46,23 @@ def _normalize_env_name(name: str) -> str:
     return normalized
 
 
+def _find_key_path(value: Any, target_key: str, prefix: str = "") -> str | None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            path = f"{prefix}.{key}" if prefix else str(key)
+            if str(key) == target_key:
+                return path
+            found = _find_key_path(item, target_key, path)
+            if found is not None:
+                return found
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            found = _find_key_path(item, target_key, f"{prefix}[{index}]")
+            if found is not None:
+                return found
+    return None
+
+
 @register_env_adapter("dummy")
 def _build_dummy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
     env_cfg = config["env"]
@@ -60,9 +77,21 @@ def _build_dummy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
 @register_env_adapter("flappy")
 def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
     env_cfg = config["env"]
+    policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
     screen_size = env_cfg.get("screen_size")
+    screen_size_path = _find_key_path(config, "screen_size") if policy_type == "flappy_sf" else None
+    if screen_size_path is not None:
+        raise ValueError(
+            f"{screen_size_path} is not supported for Flappy Sample Factory eval; "
+            "use env.obs_resize to resize observations without changing env geometry"
+        )
     if screen_size is not None:
         screen_size = tuple(int(value) for value in screen_size)
+    obs_resize = env_cfg.get("obs_resize")
+    if obs_resize is not None:
+        if len(obs_resize) != 2:
+            raise ValueError("env.obs_resize must be [height, width]")
+        obs_resize = tuple(int(value) for value in obs_resize)
     return FlappyBirdEnvAdapter(
         gym_id=env_cfg.get("gym_id", "FlappyBird-v0"),
         fps_env=float(env_cfg["fps_env"]),
@@ -79,6 +108,7 @@ def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
         background=env_cfg.get("background", "day"),
         score_limit=env_cfg.get("score_limit"),
         debug=bool(env_cfg.get("debug", False)),
+        obs_resize=obs_resize,
     )
 
 
@@ -87,6 +117,13 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
     from latency_bench.envs.demon_attack import DemonAttackEnvAdapter
 
     env_cfg = config["env"]
+    eval_raw_reward = bool(config.get("evaluation", {}).get("eval_raw_reward", False))
+    is_latency_bench_eval = str(config.get("backend", {}).get("run_mode", "")).lower() == "eval"
+    terminal_on_life_loss = bool(env_cfg.get("terminal_on_life_loss", False))
+    clip_reward = bool(env_cfg.get("clip_reward", True))
+    if is_latency_bench_eval and eval_raw_reward:
+        terminal_on_life_loss = False
+        clip_reward = False
     return DemonAttackEnvAdapter(
         env_id=env_cfg.get("env_id", env_cfg.get("gym_id", "ALE/DemonAttack-v5")),
         fps_env=float(env_cfg["fps_env"]),
@@ -94,8 +131,8 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
         screen_size=int(env_cfg.get("screen_size", 84)),
         noop_max=int(env_cfg.get("noop_max", 30)),
         action_repeat=int(env_cfg.get("action_repeat", 1)),
-        terminal_on_life_loss=bool(env_cfg.get("terminal_on_life_loss", False)),
-        clip_reward=bool(env_cfg.get("clip_reward", True)),
+        terminal_on_life_loss=terminal_on_life_loss,
+        clip_reward=clip_reward,
         repeat_action_probability=float(env_cfg.get("repeat_action_probability", 0.0)),
         full_action_space=bool(env_cfg.get("full_action_space", False)),
     )

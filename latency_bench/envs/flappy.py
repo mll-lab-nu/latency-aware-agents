@@ -4,8 +4,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+from PIL import Image
+
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
+from modeling.flappy_ppo.preprocessing import resize_frame_pil
 
 
 class FlappyBirdEnvAdapter(EnvAdapter):
@@ -28,6 +32,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         background: str | None = "day",
         score_limit: int | None = None,
         debug: bool = False,
+        obs_resize: tuple[int, int] | None = None,
     ):
         if observation_mode != "image":
             raise ValueError("FlappyBirdEnvAdapter currently supports observation_mode='image' only")
@@ -58,6 +63,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         self.noop_action = noop_action or Action(value=0, name="noop", is_noop=True)
         self.render_mode = render_mode
         self.observation_mode = observation_mode
+        self.obs_resize = obs_resize
         self.env_step = 0
         self._last_info: dict[str, Any] = {}
         self._last_numeric_obs: Any = None
@@ -125,7 +131,21 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         frame = self.gym_env.render()
         if frame is None:
             raise RuntimeError("FlappyBird-v0 render() returned None; use render_mode='rgb_array'")
-        return frame
+        if self.obs_resize is None:
+            return frame
+        arr = np.asarray(frame, dtype=np.uint8)
+        if arr.ndim != 3 or arr.shape[-1] != 3:
+            raise RuntimeError(f"Expected Flappy RGB frame with shape (H, W, 3), got {arr.shape!r}")
+        height, width = self.obs_resize
+        if height == width:
+            arr = resize_frame_pil(arr, image_size=height, grayscale=False)
+        else:
+            image = Image.fromarray(arr).convert("RGB")
+            image = image.resize((width, height), Image.BILINEAR)
+            arr = np.asarray(image, dtype=np.uint8)
+        if arr.shape[:2] != (height, width):
+            raise RuntimeError(f"obs_resize expected HWC frame {(height, width, 3)}, got {arr.shape!r}")
+        return np.transpose(arr, (2, 0, 1))
 
     def _make_observation(self, numeric_obs: Any, info: dict[str, Any]) -> Observation:
         metadata = dict(info)
@@ -160,4 +180,3 @@ def _import_flappy_gymnasium():
         import gymnasium
 
         return gymnasium
-

@@ -201,10 +201,51 @@ def _build_observation_builder(config: dict[str, Any]) -> ObservationBuilder:
         return ObservationBuilder()
 
     env_cfg = config["env"]
+    obs_mode = str(env_cfg.get("obs_mode", "image_only")).strip().lower()
+    if policy_type == "flappy_sf" and bool(config.get("latency", {}).get("add_latency_info", False)):
+        obs_mode = "latency_channel"
+    if policy_type != "flappy_sf":
+        obs_mode = "image_only"
+    constant_frame_skip, max_frame_skip = _latency_channel_frame_skip_config(config, obs_mode)
     return SampleFactoryFrameStackObservationBuilder(
         frame_stack=int(env_cfg.get("frame_stack", 1)),
         base_channels=_SAMPLE_FACTORY_BASE_CHANNELS[policy_type],
+        obs_mode=obs_mode,
+        constant_frame_skip=constant_frame_skip,
+        max_frame_skip=max_frame_skip,
     )
+
+
+def _latency_channel_frame_skip_config(config: dict[str, Any], obs_mode: str) -> tuple[int | None, int]:
+    latency_cfg = config.get("latency", {})
+    train_values = latency_cfg.get("train_values") or []
+    if isinstance(train_values, (str, bytes)):
+        train_values = [int(item.strip()) for item in str(train_values).split(",") if item.strip()]
+    train_values = [int(item) for item in train_values]
+
+    latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
+    constant_frame_skip: int | None
+    if latency_type == LatencySourceType.ZERO.value:
+        constant_frame_skip = 0
+    elif latency_type == LatencySourceType.FIXED.value:
+        fps_env = float(config["env"]["fps_env"])
+        latency_steps = float(latency_cfg["fixed_latency_ms"]) * fps_env / 1000.0
+        rounded = round(latency_steps)
+        if abs(latency_steps - rounded) > 1e-9:
+            raise ValueError(
+                "flappy_sf latency_channel eval requires fixed_latency_ms to map exactly to env frames"
+            )
+        constant_frame_skip = int(rounded)
+    else:
+        if obs_mode == "latency_channel":
+            raise ValueError(
+                "flappy_sf latency_channel eval only supports zero or fixed latency sources; "
+                "cannot exactly align the latency channel for this latency_bench config"
+            )
+        constant_frame_skip = None
+
+    max_frame_skip = max(1, max([0, *train_values, constant_frame_skip or 0]))
+    return constant_frame_skip, max_frame_skip
 
 
 def _history_len(control_cfg: dict[str, Any], env_cfg: dict[str, Any], policy_cfg: dict[str, Any]) -> int:

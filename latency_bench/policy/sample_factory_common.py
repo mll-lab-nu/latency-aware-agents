@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 import numpy as np
 import torch
+from gymnasium.spaces import Box, Dict as SpaceDict
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import Action, Observation, PolicyOutput
@@ -78,6 +79,36 @@ def _load_sf_policy_state_dict(cfg, actor_critic, device: torch.device, checkpoi
     return checkpoint_dict
 
 
+def _shape_from_observation_space(space: Any) -> tuple[int, ...] | None:
+    if isinstance(space, Box):
+        return tuple(int(dim) for dim in space.shape)
+    if isinstance(space, SpaceDict) and "obs" in space.spaces:
+        obs_space = space.spaces["obs"]
+        if isinstance(obs_space, Box):
+            return tuple(int(dim) for dim in obs_space.shape)
+    return None
+
+
+def validate_sample_factory_obs_shape(
+    obs_dict: Mapping[str, torch.Tensor | np.ndarray],
+    *,
+    expected_shape: tuple[int, ...] | None,
+    policy_type: str,
+) -> None:
+    if expected_shape is None:
+        return
+    obs = obs_dict.get("obs")
+    if obs is None:
+        return
+    actual_shape = tuple(int(dim) for dim in obs.shape[-len(expected_shape) :])
+    if actual_shape != tuple(int(dim) for dim in expected_shape):
+        raise ValueError(
+            f"{policy_type} observation shape mismatch: policy/checkpoint expects "
+            f"{tuple(expected_shape)}, got {actual_shape}. Check env.obs_resize/env.obs_mode "
+            "and retrain checkpoints when channel count or resize changes."
+        )
+
+
 class SampleFactoryPolicyRunner(PolicyRunner):
     def __init__(
         self,
@@ -117,7 +148,14 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         self.actor_critic.eval()
         self.actor_critic.model_to_device(self.device)
 
-        checkpoint = _load_sf_policy_state_dict(cfg, self.actor_critic, self.device, checkpoint_path)
+        self.expected_obs_shape = _shape_from_observation_space(reference_env.observation_space)
+        try:
+            checkpoint = _load_sf_policy_state_dict(cfg, self.actor_critic, self.device, checkpoint_path)
+        except RuntimeError as exc:
+            raise ValueError(
+                f"{policy_type} checkpoint/model shape mismatch. Check env.obs_resize/env.obs_mode "
+                "and use a checkpoint trained with the same observation shape."
+            ) from exc
         self.checkpoint_global_step = int(checkpoint.get("train_step", checkpoint.get("env_steps", 0)))
         rnn_size = int(get_rnn_size(cfg))
         self.rnn_states = torch.zeros([1, rnn_size], dtype=torch.float32, device=self.device)
@@ -128,6 +166,11 @@ class SampleFactoryPolicyRunner(PolicyRunner):
             self.rnn_states.zero_()
 
         obs_dict, _action_mask = _obs_to_sf_inputs(observation, self.device)
+        validate_sample_factory_obs_shape(
+            obs_dict,
+            expected_shape=self.expected_obs_shape,
+            policy_type=self.policy_type,
+        )
         normalized_obs = self._prepare_and_normalize_obs(self.actor_critic, obs_dict)
         with torch.no_grad():
             policy_outputs = self.actor_critic(normalized_obs, self.rnn_states)
