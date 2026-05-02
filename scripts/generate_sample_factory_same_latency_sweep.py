@@ -78,7 +78,10 @@ ENV_KEYS_BY_NAME = {
         "normalize_obs",
         "audio_on",
         "frame_stack",
-        "screen_size",
+        "obs_resize",
+        "obs_mode",
+        "use_gpu_render",
+        "gpu_render_device",
         "pipe_gap",
         "bird_color",
         "pipe_color",
@@ -178,6 +181,10 @@ def _build_full_run_config(
     env_cfg["max_episode_steps"] = int(max_steps)
     if frame_stack_override is not None:
         env_cfg["frame_stack"] = int(frame_stack_override)
+    if env_name == "flappy":
+        env_cfg["obs_resize"] = [84, 84]
+        env_cfg.setdefault("obs_mode", "image_only")
+        env_cfg.pop("screen_size", None)
     latency_cfg["train_values"] = [int(latency)]
     latency_cfg["train_mode"] = "episode_fixed"
     latency_cfg["train_sampling_mode"] = "uniform_all"

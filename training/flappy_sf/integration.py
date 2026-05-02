@@ -8,13 +8,16 @@ from typing import Any, Optional
 
 import gymnasium as gym
 import numpy as np
-from gymnasium.spaces import Box
+from gymnasium.spaces import Box, Dict as GymDict
+from PIL import Image
 
+from modeling.flappy_ppo.preprocessing import latency_channel_value, resize_frame_pil
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
 from training.sample_factory_common.config_adapter import (
     append_cli_arg,
     apply_runtime_logging_config,
     build_common_sf_args,
+    sample_factory_training_summary,
 )
 from training.sample_factory_common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
 from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, QueueLatencyWrapper, RewardTraceWrapper
@@ -49,13 +52,103 @@ def _import_flappy_gymnasium():
         return gymnasium
 
 
+def parse_obs_resize(value: Any) -> tuple[int, int] | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        parts = [item.strip() for item in value.split(",") if item.strip()]
+    elif isinstance(value, (list, tuple)):
+        parts = list(value)
+    else:
+        raise ValueError("obs_resize must be [height, width] or a 'height,width' string")
+    if len(parts) != 2:
+        raise ValueError("obs_resize must contain exactly two positive integers: height,width")
+    height, width = int(parts[0]), int(parts[1])
+    if height <= 0 or width <= 0:
+        raise ValueError("obs_resize height and width must be positive")
+    return height, width
+
+
+def resolve_flappy_obs_mode(cfg: Any) -> str:
+    explicit = str(getattr(cfg, "obs_mode", "") or "").strip().lower()
+    if not explicit:
+        explicit = "latency_channel" if bool(getattr(cfg, "add_latency_info", False)) else "image_only"
+    if explicit not in {"image_only", "latency_channel"}:
+        raise ValueError("obs_mode must be 'image_only' or 'latency_channel'")
+    return explicit
+
+
+def _max_frame_skip_from_cfg(cfg: Any) -> int:
+    values = parse_int_list(getattr(cfg, "queue_latency_values", "0"))
+    return max(1, max([0, *values]))
+
+
+def _final_obs_shape(single_frame_shape: tuple[int, int, int], frame_stack: int, obs_mode: str) -> tuple[int, int, int]:
+    channels, height, width = single_frame_shape
+    stacked_channels = int(channels) * int(frame_stack)
+    if obs_mode == "latency_channel":
+        stacked_channels += 1
+    return stacked_channels, int(height), int(width)
+
+
+def _format_shape(shape: tuple[int, ...]) -> str:
+    return "(" + ", ".join(str(int(dim)) for dim in shape) + ")"
+
+
+def log_flappy_sf_resolved_config(cfg: Any, final_obs_shape: tuple[int, int, int]) -> None:
+    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+    obs_mode = resolve_flappy_obs_mode(cfg)
+    obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
+    single_frame_shape = (3, int(final_obs_shape[1]), int(final_obs_shape[2]))
+    stacked_shape = (3 * frame_stack, int(final_obs_shape[1]), int(final_obs_shape[2]))
+    print(
+        "[flappy_sf] observation "
+        f"single_frame_shape={_format_shape(single_frame_shape)} "
+        f"stacked_rgb_shape={_format_shape(stacked_shape)} "
+        f"final_model_input_shape={_format_shape(final_obs_shape)} "
+        "dtype=uint8 "
+        f"obs_resize={obs_resize} "
+        f"obs_mode={obs_mode} "
+        f"latency_channel={obs_mode == 'latency_channel'}"
+    )
+
+
+def _flappy_final_obs_shape(space: gym.Space) -> tuple[int, int, int]:
+    if isinstance(space, GymDict):
+        obs_space = space.spaces.get("obs")
+        if not isinstance(obs_space, Box):
+            raise TypeError("Flappy Sample Factory Dict observation space must contain Box space at key 'obs'")
+        shape = obs_space.shape
+    elif isinstance(space, Box):
+        shape = space.shape
+    else:
+        raise TypeError(f"Unsupported Flappy observation space: {space!r}")
+    if shape is None or len(shape) != 3:
+        raise ValueError(f"Expected Flappy CHW observation shape, got {shape!r}")
+    return tuple(int(dim) for dim in shape)
+
+
+def log_flappy_sf_training_summary(config: dict) -> None:
+    summary = sample_factory_training_summary(config)
+    print(
+        "[flappy_sf] training "
+        f"effective_envs={summary['effective_envs']} "
+        f"batch_size={summary['batch_size']} "
+        f"num_epochs={summary['num_epochs']} "
+        f"num_batches_per_epoch={summary['num_batches_per_epoch']} "
+        f"estimated_optimizer_steps_per_1m_env_steps={summary['optimizer_steps_per_1m_env_steps']:.2f} "
+        f"async_rl={summary['async_rl']}"
+    )
+
+
 class FlappyImageObsWrapper(gym.Wrapper):
     """Expose rendered RGB frames as the environment observation."""
 
     observation_space: Box
 
-    def __init__(self, env: gym.Env):
+    def __init__(self, env: gym.Env, obs_resize: tuple[int, int] | None = None):
         super().__init__(env)
+        self.obs_resize = obs_resize
         obs, _ = self.env.reset(seed=0)
         frame = self._render_frame()
         self._last_numeric_obs = obs
@@ -73,6 +166,20 @@ class FlappyImageObsWrapper(gym.Wrapper):
         frame = np.asarray(frame, dtype=np.uint8)
         if frame.ndim != 3 or frame.shape[-1] != 3:
             raise RuntimeError(f"Expected Flappy RGB frame with shape (H, W, 3), got {frame.shape!r}")
+        if self.obs_resize is not None:
+            height, width = self.obs_resize
+            if height == width:
+                frame = resize_frame_pil(frame, image_size=height, grayscale=False)
+            else:
+                image = Image.fromarray(frame).convert("RGB")
+                image = image.resize((width, height), Image.BILINEAR)
+                frame = np.asarray(image, dtype=np.uint8)
+            if frame.shape[:2] != (height, width):
+                frame = np.asarray(frame, dtype=np.uint8)
+                if frame.shape[:2] != (height, width):
+                    raise RuntimeError(
+                        f"Flappy obs_resize expected HWC frame {(height, width, 3)}, got {frame.shape!r}"
+                    )
         return np.transpose(frame, (2, 0, 1))
 
     def reset(self, **kwargs):
@@ -123,6 +230,41 @@ class FlappyFrameStackWrapper(gym.Wrapper):
         return self._stack_frames(), reward, terminated, truncated, info
 
 
+class FlappyLatencyChannelWrapper(gym.Wrapper):
+    observation_space: Box
+
+    def __init__(self, env: gym.Env, max_frame_skip: int):
+        super().__init__(env)
+        if not isinstance(env.observation_space, Box):
+            raise TypeError("FlappyLatencyChannelWrapper expects a Box observation space")
+        base_shape = tuple(int(dim) for dim in env.observation_space.shape)
+        if len(base_shape) != 3:
+            raise ValueError(f"Expected stacked CHW observation, got shape {base_shape}")
+        self.max_frame_skip = max(1, int(max_frame_skip))
+        final_shape = (base_shape[0] + 1, base_shape[1], base_shape[2])
+        self.observation_space = Box(low=0, high=255, shape=final_shape, dtype=np.uint8)
+
+    def observation(self, obs: np.ndarray, info: dict[str, Any] | None = None) -> np.ndarray:
+        arr = np.asarray(obs, dtype=np.uint8)
+        if arr.ndim != 3:
+            raise ValueError(f"Expected stacked CHW observation, got shape {arr.shape!r}")
+        metadata = dict(info or {})
+        frame_skip = metadata.get("frame_skip", metadata.get("latency_frame_skip", metadata.get("queue_latency", 0)))
+        value = latency_channel_value(frame_skip, self.max_frame_skip)
+        channel = np.full((1, arr.shape[1], arr.shape[2]), value, dtype=np.uint8)
+        return np.concatenate([arr, channel], axis=0)
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        info = dict(info or {})
+        return self.observation(obs, info), info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        info = dict(info or {})
+        return self.observation(obs, info), reward, terminated, truncated, info
+
+
 def make_flappy_sf_env(
     _full_env_name: str,
     cfg=None,
@@ -132,6 +274,7 @@ def make_flappy_sf_env(
     del render_mode
     env_config = env_config or {}
     gymnasium = _import_flappy_gymnasium()
+    use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))
     kwargs: dict[str, Any] = {
         "use_lidar": bool(getattr(cfg, "use_lidar", False)),
         "normalize_obs": bool(getattr(cfg, "normalize_obs", True)),
@@ -141,24 +284,25 @@ def make_flappy_sf_env(
         "pipe_color": getattr(cfg, "pipe_color", "green"),
         "background": getattr(cfg, "background", "day"),
         "debug": bool(getattr(cfg, "debug", False)),
-        "render_mode": "rgb_array",
+        "render_mode": None if use_gpu_render else "rgb_array",
     }
     screen_size = getattr(cfg, "screen_size", None)
     if screen_size not in (None, ""):
-        if isinstance(screen_size, str):
-            parts = [int(item.strip()) for item in screen_size.split(",") if item.strip()]
-            if parts:
-                kwargs["screen_size"] = tuple(parts)
-        else:
-            kwargs["screen_size"] = tuple(int(item) for item in screen_size)
+        raise ValueError(
+            "screen_size is not supported for Flappy Sample Factory; "
+            "use env.obs_resize to resize observations without changing env geometry"
+        )
     score_limit = getattr(cfg, "score_limit", None)
     if score_limit not in (None, "", 0, -1):
         kwargs["score_limit"] = int(score_limit)
     env = gymnasium.make(getattr(cfg, "gym_id", "FlappyBird-v0"), **kwargs)
-    env = FlappyImageObsWrapper(env)
+    obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
+    obs_mode = resolve_flappy_obs_mode(cfg)
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
-    if frame_stack > 1:
-        env = FlappyFrameStackWrapper(env, num_frames=frame_stack)
+    if not use_gpu_render:
+        env = FlappyImageObsWrapper(env, obs_resize=obs_resize)
+        if frame_stack > 1:
+            env = FlappyFrameStackWrapper(env, num_frames=frame_stack)
     max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
     if max_episode_steps > 0:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
@@ -182,8 +326,10 @@ def make_flappy_sf_env(
         seed=wrapper_seed,
         env_reset_seed_base=wrapper_seed + 104729,
         latency_info_keys=("queue_latency", "frame_skip", "latency_frame_skip"),
-        add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
+        add_latency_info=bool(getattr(cfg, "add_latency_info", False)) or obs_mode == "latency_channel",
     )
+    if not use_gpu_render and obs_mode == "latency_channel":
+        env = FlappyLatencyChannelWrapper(env, max_frame_skip=_max_frame_skip_from_cfg(cfg))
     env = EpisodeMetricsWrapper(
         env,
         frames_per_decision=1,
@@ -192,6 +338,18 @@ def make_flappy_sf_env(
         vector_index=int(getattr(env_config, "vector_index", 0) or 0),
         env_id=int(getattr(env_config, "env_id", 0) or 0),
     )
+    if use_gpu_render:
+        from training.flappy_sf.gpu_rendering import FlappyGpuRenderedObsWrapper
+
+        env = FlappyGpuRenderedObsWrapper(
+            env,
+            obs_resize=obs_resize,
+            frame_stack=frame_stack,
+            obs_mode=obs_mode,
+            frame_skip_values=latency_values or [0],
+            gpu_render_device=getattr(cfg, "gpu_render_device", "auto"),
+        )
+    log_flappy_sf_resolved_config(cfg, _flappy_final_obs_shape(env.observation_space))
     return env
 
 
@@ -222,6 +380,10 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--normalize_obs", type=str2bool, default=True)
     parser.add_argument("--audio_on", type=str2bool, default=False)
     parser.add_argument("--screen_size", type=str, default="")
+    parser.add_argument("--obs_resize", type=str, default="")
+    parser.add_argument("--obs_mode", type=str, default="image_only", choices=["image_only", "latency_channel"])
+    parser.add_argument("--use-gpu-render", dest="use_gpu_render", type=str2bool, default=False)
+    parser.add_argument("--gpu-render-device", dest="gpu_render_device", type=str, default="auto")
     parser.add_argument("--pipe_gap", type=int, default=100)
     parser.add_argument("--bird_color", type=str, default="yellow")
     parser.add_argument("--pipe_color", type=str, default="green")
@@ -272,12 +434,24 @@ def parse_cfg(argv=None, evaluation: bool = False):
 
 def build_cli_args_from_config(config: dict) -> list[str]:
     env_cfg = config["env"]
+    latency_cfg = config.get("latency", {})
     args = build_common_sf_args(config, sf_env_name=SF_ENV_NAME)
     append_cli_arg(args, "--gym_id", env_cfg.get("gym_id", "FlappyBird-v0"))
     append_cli_arg(args, "--use_lidar", env_cfg.get("use_lidar", False))
     append_cli_arg(args, "--normalize_obs", env_cfg.get("normalize_obs", True))
     append_cli_arg(args, "--audio_on", env_cfg.get("audio_on", False))
-    append_cli_arg(args, "--screen_size", env_cfg.get("screen_size"))
+    if env_cfg.get("screen_size") is not None:
+        raise ValueError(
+            "env.screen_size is not supported for Flappy Sample Factory; "
+            "use env.obs_resize to resize observations without changing env geometry"
+        )
+    append_cli_arg(args, "--obs_resize", env_cfg.get("obs_resize"))
+    obs_mode = env_cfg.get("obs_mode")
+    if bool(latency_cfg.get("add_latency_info", False)):
+        obs_mode = "latency_channel"
+    append_cli_arg(args, "--obs_mode", obs_mode or "image_only")
+    append_cli_arg(args, "--use-gpu-render", env_cfg.get("use_gpu_render", False))
+    append_cli_arg(args, "--gpu-render-device", env_cfg.get("gpu_render_device", "auto"))
     append_cli_arg(args, "--pipe_gap", env_cfg.get("pipe_gap", 100))
     append_cli_arg(args, "--bird_color", env_cfg.get("bird_color", "yellow"))
     append_cli_arg(args, "--pipe_color", env_cfg.get("pipe_color", "green"))
@@ -302,6 +476,7 @@ def run_from_config(config: dict) -> int:
     apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))
     patch_sample_factory_wandb()
+    log_flappy_sf_training_summary(config)
     from sample_factory.train import run_rl
 
     metrics_stop_event = None

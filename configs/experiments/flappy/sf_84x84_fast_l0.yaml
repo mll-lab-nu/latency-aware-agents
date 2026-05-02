@@ -1,0 +1,27 @@
+__base__: ../../base/flappy.yaml
+
+experiment:
+  name: flappy_sf_84x84_fast_l0
+
+env:
+  frame_stack: 4
+  obs_resize:
+    - 84
+    - 84
+  obs_mode: image_only
+
+latency:
+  train_values:
+    - 0
+  add_latency_info: false
+
+training:
+  num_workers: 16
+  num_envs_per_worker: 4
+  rollout: 128
+  batch_size: 1024
+  num_epochs: 4
+  num_batches_per_epoch: 2
+
+logging:
+  output_dir: outputs/flappy_sf_84x84_fast_l0

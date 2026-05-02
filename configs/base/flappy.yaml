@@ -7,7 +7,7 @@ experiment:
 backend:
   type: sample_factory
   algo: APPO
-  device: cpu
+  device: gpu
   train_dir: results/sample_factory
   restart_behavior: overwrite
   run_mode: train
@@ -25,6 +25,12 @@ env:
   normalize_obs: true
   audio_on: false
   frame_stack: 4
+  obs_resize:
+    - 84
+    - 84
+  obs_mode: image_only
+  use_gpu_render: true
+  gpu_render_device: auto
   noop_action: noop
   action_map:
     noop: 0
@@ -61,23 +67,23 @@ policy:
 
 training:
   train_for_env_steps: 50000000
-  num_workers: 16
-  num_envs_per_worker: 4
+  num_workers: 8
+  num_envs_per_worker: 8
   worker_num_splits: 2
   num_policies: 1
-  batch_size: 1024
-  rollout: 128
-  recurrence: 32
+  batch_size: 2048
+  rollout: 256
+  recurrence: 1
   num_epochs: 8
-  num_batches_per_epoch: 4
+  num_batches_per_epoch: 8
   learning_rate: 0.00025
-  gamma: 0.995
+  gamma: 0.99
   gae_lambda: 0.95
   ppo_clip_ratio: 0.1
   ppo_clip_value: 0.2
   value_loss_coeff: 0.5
   max_grad_norm: 0.5
-  async_rl: true
+  async_rl: false
   use_rnn: false
   normalize_input: true
   normalize_returns: true

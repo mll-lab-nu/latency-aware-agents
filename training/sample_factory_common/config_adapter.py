@@ -120,6 +120,124 @@ def validate_training_config(config: dict[str, Any]) -> None:
             f"Unsupported env.name for Sample Factory backend: {env_name}. "
             f"Supported envs: {sorted(ENV_INTEGRATIONS)}"
         )
+    if env_name == "flappy":
+        _validate_flappy_sf_config(config)
+
+
+def _validate_flappy_sf_config(config: dict[str, Any]) -> None:
+    screen_size_path = _find_key_path(config, "screen_size")
+    if screen_size_path is not None:
+        raise ValueError(
+            f"{screen_size_path} is not supported for Flappy Sample Factory; "
+            "use env.obs_resize to resize observations without changing env geometry"
+        )
+
+    env_cfg = config["env"]
+    obs_resize = env_cfg.get("obs_resize")
+    if obs_resize is not None:
+        _parse_obs_resize_config(obs_resize)
+
+    obs_mode = str(env_cfg.get("obs_mode", "image_only")).strip().lower()
+    if obs_mode not in {"image_only", "latency_channel"}:
+        raise ValueError("env.obs_mode must be 'image_only' or 'latency_channel' for Flappy Sample Factory")
+
+    if _config_bool(env_cfg.get("use_gpu_render", False)):
+        if "batched_sampling" in config["training"] and not _config_bool(config["training"].get("batched_sampling")):
+            raise ValueError("training.batched_sampling must be true when env.use_gpu_render=true")
+        if obs_resize is None:
+            raise ValueError("env.obs_resize is required when env.use_gpu_render=true for Flappy Sample Factory")
+        height, width = _parse_obs_resize_config(obs_resize)
+        if height != width:
+            raise ValueError("env.obs_resize must be square when env.use_gpu_render=true for Flappy Sample Factory")
+        gpu_render_device = str(env_cfg.get("gpu_render_device", "auto") or "auto").strip().lower()
+        if not (gpu_render_device in {"auto", "cpu", "cuda"} or gpu_render_device.startswith("cuda:")):
+            raise ValueError("env.gpu_render_device must be 'auto', 'cpu', 'cuda', or a cuda device string")
+        actor_worker_gpus = _parse_actor_worker_gpus_config(config["backend"].get("actor_worker_gpus"))
+        if gpu_render_device != "cpu" and actor_worker_gpus == []:
+            raise ValueError(
+                "backend.actor_worker_gpus must be omitted or non-empty when Flappy GPU rendering uses CUDA"
+            )
+
+
+def _find_key_path(value: Any, target_key: str, prefix: str = "") -> str | None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            path = f"{prefix}.{key}" if prefix else str(key)
+            if str(key) == target_key:
+                return path
+            found = _find_key_path(item, target_key, path)
+            if found is not None:
+                return found
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            found = _find_key_path(item, target_key, f"{prefix}[{index}]")
+            if found is not None:
+                return found
+    return None
+
+
+def _parse_obs_resize_config(value: Any) -> tuple[int, int]:
+    if isinstance(value, str):
+        parts = [item.strip() for item in value.split(",") if item.strip()]
+    elif isinstance(value, (list, tuple)):
+        parts = list(value)
+    else:
+        raise ValueError("env.obs_resize must be [height, width] for Flappy Sample Factory")
+    if len(parts) != 2:
+        raise ValueError("env.obs_resize must contain exactly two positive integers: [height, width]")
+    height, width = (int(parts[0]), int(parts[1]))
+    if height <= 0 or width <= 0:
+        raise ValueError("env.obs_resize height and width must be positive")
+    return height, width
+
+
+def _config_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_actor_worker_gpus_config(value: Any) -> list[int] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return []
+        parts = stripped.replace(",", " ").split()
+    elif isinstance(value, (list, tuple)):
+        parts = list(value)
+    else:
+        raise ValueError("backend.actor_worker_gpus must be a list of GPU indices")
+    return [int(item) for item in parts]
+
+
+def estimate_optimizer_steps_per_1m_env_steps(training_cfg: dict[str, Any]) -> float:
+    batch_size = int(training_cfg.get("batch_size", 0) or 0)
+    num_epochs = int(training_cfg.get("num_epochs", 0) or 0)
+    if batch_size <= 0:
+        raise ValueError("training.batch_size must be positive to estimate optimizer update ratio")
+    if num_epochs <= 0:
+        raise ValueError("training.num_epochs must be positive to estimate optimizer update ratio")
+    return 1_000_000.0 * float(num_epochs) / float(batch_size)
+
+
+def sample_factory_training_summary(config: dict[str, Any]) -> dict[str, Any]:
+    training_cfg = config.get("training", {})
+    num_workers = int(training_cfg.get("num_workers", 0) or 0)
+    num_envs_per_worker = int(training_cfg.get("num_envs_per_worker", 0) or 0)
+    return {
+        "effective_envs": num_workers * num_envs_per_worker,
+        "batch_size": int(training_cfg.get("batch_size", 0) or 0),
+        "num_epochs": int(training_cfg.get("num_epochs", 0) or 0),
+        "num_batches_per_epoch": int(training_cfg.get("num_batches_per_epoch", 0) or 0),
+        "optimizer_steps_per_1m_env_steps": estimate_optimizer_steps_per_1m_env_steps(training_cfg),
+        "async_rl": bool(training_cfg.get("async_rl", True)),
+    }
 
 
 def import_integration_module(config: dict[str, Any]):
@@ -142,6 +260,14 @@ def append_cli_arg(args: list[str], flag: str, value: Any) -> None:
         args.extend([flag, _list_to_csv(value)])
         return
     args.extend([flag, str(value)])
+
+
+def append_cli_multi_value_arg(args: list[str], flag: str, values: Any) -> None:
+    parsed = _parse_actor_worker_gpus_config(values)
+    if parsed is None:
+        return
+    args.append(flag)
+    args.extend(str(item) for item in parsed)
 
 
 def apply_runtime_logging_config(sf_cfg: Any, logging_cfg: dict[str, Any] | None) -> None:
@@ -175,6 +301,18 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--train_dir", backend_cfg.get("train_dir"))
     append_cli_arg(args, "--restart_behavior", backend_cfg.get("restart_behavior", "overwrite"))
     append_cli_arg(args, "--device", backend_cfg.get("device", "cpu"))
+    env_cfg = config.get("env", {})
+    use_gpu_render = _config_bool(env_cfg.get("use_gpu_render", False))
+    gpu_render_device = str(env_cfg.get("gpu_render_device", "auto") or "auto").strip().lower()
+    actor_worker_gpus = backend_cfg.get("actor_worker_gpus")
+    if use_gpu_render and gpu_render_device != "cpu" and actor_worker_gpus is None:
+        actor_worker_gpus = [0]
+    elif use_gpu_render and gpu_render_device != "cpu" and _parse_actor_worker_gpus_config(actor_worker_gpus) == []:
+        raise ValueError("backend.actor_worker_gpus must be omitted or non-empty when Flappy GPU rendering uses CUDA")
+    append_cli_multi_value_arg(args, "--actor_worker_gpus", actor_worker_gpus)
+    if use_gpu_render:
+        append_cli_arg(args, "--env_gpu_observations", gpu_render_device != "cpu")
+        append_cli_arg(args, "--env_gpu_actions", False)
     append_cli_arg(args, "--seed", experiment_cfg.get("seed", 0))
     if backend_cfg.get("train_dir") and experiment_cfg.get("name"):
         metrics_path = Path(str(backend_cfg["train_dir"])).expanduser() / str(experiment_cfg["name"]) / "episode_metrics.jsonl"
@@ -222,7 +360,11 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
 
     for field in scalar_fields:
         append_cli_arg(args, f"--{field}", training_cfg.get(field))
+    if use_gpu_render:
+        append_cli_arg(args, "--batched_sampling", True)
     for field in bool_fields:
+        if use_gpu_render and field == "batched_sampling":
+            continue
         if field in training_cfg:
             append_cli_arg(args, f"--{field}", training_cfg.get(field))
 

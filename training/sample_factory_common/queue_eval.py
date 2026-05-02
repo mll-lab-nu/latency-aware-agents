@@ -9,11 +9,200 @@ from typing import Any, Callable
 import numpy as np
 import torch
 
+from training.atari_episode_stats import (
+    TRUE_EPISODE_END_INFO_KEY,
+    _batched_info_for_agent,
+    _flatten_numeric_episode_extra_stats,
+    is_true_atari_episode_end,
+)
 from training.sample_factory_common.checkpoint_io import load_sample_factory_checkpoint_from_paths
 from training.sample_factory_common.common import maybe_set_cli_override
 
 
 EvalCfgAdjuster = Callable[[Any, Any], None]
+DemonAttackEvalEpisodeResult = dict[str, float | int]
+
+_DEMON_ATTACK_SF_ENV = "latency_demon_attack"
+
+
+def _cfg_value(cfg: Any, key: str) -> Any:
+    if cfg is None:
+        return None
+    if isinstance(cfg, dict):
+        return cfg.get(key)
+    return getattr(cfg, key, None)
+
+
+def _is_demon_attack_queue_eval_cfg(cfg: Any) -> bool:
+    return str(_cfg_value(cfg, "env") or "") == _DEMON_ATTACK_SF_ENV
+
+
+def _numeric_scalar(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return float(value)
+    if hasattr(value, "numel") and callable(value.numel) and value.numel() == 1:
+        try:
+            item = value.item()
+        except (TypeError, ValueError):
+            return None
+        return None if isinstance(item, bool) else _numeric_scalar(item)
+    array = np.asarray(value) if not isinstance(value, (dict, list, tuple, str, bytes)) else None
+    if array is not None and array.size == 1:
+        item = array.item()
+        return None if isinstance(item, bool) else _numeric_scalar(item)
+    return None
+
+
+def _metric_from_info(
+    info: dict[str, Any],
+    direct_keys: tuple[str, ...],
+    extra_stat_keys: tuple[str, ...],
+) -> float | None:
+    for key in direct_keys:
+        value = _numeric_scalar(info.get(key))
+        if value is not None:
+            return value
+
+    extra_stats = _flatten_numeric_episode_extra_stats(info.get("episode_extra_stats") or {})
+    for key in extra_stat_keys:
+        value = extra_stats.get(key)
+        if value is not None:
+            return float(value)
+    return None
+
+
+def _demon_attack_true_eval_episode_end(info: dict[str, Any]) -> bool:
+    if TRUE_EPISODE_END_INFO_KEY in info:
+        return bool(info[TRUE_EPISODE_END_INFO_KEY])
+    return is_true_atari_episode_end(
+        terminated=True,
+        truncated=bool(info.get("TimeLimit.truncated", False)),
+        info=info,
+    )
+
+
+def _demon_attack_eval_episode_result(
+    info: dict[str, Any],
+    *,
+    fallback_return: float,
+    fallback_length: int,
+    eval_raw_reward: bool,
+) -> DemonAttackEvalEpisodeResult | None:
+    if not _demon_attack_true_eval_episode_end(info):
+        return None
+
+    raw_return = _metric_from_info(
+        info,
+        ("episodic_raw_return",),
+        ("episode/raw_return", "raw_return"),
+    )
+    clipped_return = _metric_from_info(
+        info,
+        ("episodic_clipped_return",),
+        ("episode/clipped_return", "clipped_return"),
+    )
+    episodic_return = _metric_from_info(
+        info,
+        ("episodic_return",),
+        ("episode/return", "return"),
+    )
+    length = _metric_from_info(
+        info,
+        ("episodic_length",),
+        ("episode/length", "length"),
+    )
+
+    if raw_return is None:
+        raw_return = episodic_return
+    if clipped_return is None and not eval_raw_reward:
+        clipped_return = float(fallback_return)
+
+    selected_return = raw_return if eval_raw_reward else clipped_return
+    if selected_return is None:
+        selected_return = episodic_return
+    if selected_return is None:
+        selected_return = float(fallback_return)
+
+    if raw_return is None:
+        raw_return = float(selected_return)
+    if clipped_return is None:
+        clipped_return = float(selected_return)
+
+    return {
+        "return": float(selected_return),
+        "raw_return": float(raw_return),
+        "clipped_return": float(clipped_return),
+        "length": int(length if length is not None else fallback_length),
+    }
+
+
+def _mean_or_nan(values: list[float]) -> float:
+    return float(np.mean(values)) if values else float("nan")
+
+
+def _std_or_nan(values: list[float]) -> float:
+    return float(np.std(values)) if values else float("nan")
+
+
+def _build_queue_eval_result(
+    *,
+    latency_value: int,
+    returns: list[float],
+    lengths: list[int],
+    eval_episodes: int,
+    eval_max_steps: int,
+    total_frames: int,
+    hit_eval_step_budget: bool,
+    raw_returns: list[float] | None = None,
+    clipped_returns: list[float] | None = None,
+    eval_raw_reward: bool = False,
+    env_name: str | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "latency": int(latency_value),
+        "mean_return": _mean_or_nan(returns),
+        "std_return": _std_or_nan(returns),
+        "mean_length": _mean_or_nan([float(length) for length in lengths]),
+        "returns": [float(item) for item in returns],
+        "lengths": [int(item) for item in lengths],
+        "completed_episodes": int(len(returns)),
+        "requested_episodes": int(eval_episodes),
+        "eval_max_steps": int(eval_max_steps),
+        "total_frames": int(total_frames),
+        "hit_eval_step_budget": bool(hit_eval_step_budget),
+    }
+
+    if raw_returns is not None:
+        result["raw_returns"] = [float(item) for item in raw_returns]
+        result["mean_raw_return"] = _mean_or_nan(raw_returns)
+        result["std_raw_return"] = _std_or_nan(raw_returns)
+    if clipped_returns is not None:
+        result["clipped_returns"] = [float(item) for item in clipped_returns]
+        result["mean_clipped_return"] = _mean_or_nan(clipped_returns)
+        result["std_clipped_return"] = _std_or_nan(clipped_returns)
+    if eval_raw_reward:
+        result["eval_return_source"] = "raw_return"
+    elif clipped_returns is not None:
+        result["eval_return_source"] = "clipped_return"
+
+    if (
+        str(env_name or "") == _DEMON_ATTACK_SF_ENV
+        and hit_eval_step_budget
+        and len(returns) < int(eval_episodes)
+    ):
+        if returns:
+            result["warning"] = (
+                f"Only {len(returns)}/{int(eval_episodes)} DemonAttack eval episodes reached true game-over "
+                f"before eval_max_steps={int(eval_max_steps)}."
+            )
+        else:
+            result["warning"] = (
+                "No true DemonAttack game-over completed within "
+                f"eval_max_steps={int(eval_max_steps)}; completed-episode stats are unavailable."
+            )
+    return result
 
 
 def init_queue_eval_wandb(base_cfg):
@@ -57,10 +246,28 @@ def log_queue_eval_result(wandb_run, result: dict[str, Any]) -> None:
         "queue_eval/std_return": float(result["std_return"]),
         "queue_eval/mean_length": float(result["mean_length"]),
     }
+    for result_key, wandb_key in (
+        ("mean_raw_return", "queue_eval/mean_raw_return"),
+        ("std_raw_return", "queue_eval/std_raw_return"),
+        ("mean_clipped_return", "queue_eval/mean_clipped_return"),
+        ("std_clipped_return", "queue_eval/std_clipped_return"),
+        ("completed_episodes", "queue_eval/completed_episodes"),
+    ):
+        if result_key in result:
+            payload[wandb_key] = float(result[result_key])
     wandb_run.log(payload)
     wandb_run.summary[f"queue_eval/latency_{latency}/mean_return"] = float(result["mean_return"])
     wandb_run.summary[f"queue_eval/latency_{latency}/std_return"] = float(result["std_return"])
     wandb_run.summary[f"queue_eval/latency_{latency}/mean_length"] = float(result["mean_length"])
+    for result_key, summary_suffix in (
+        ("mean_raw_return", "mean_raw_return"),
+        ("std_raw_return", "std_raw_return"),
+        ("mean_clipped_return", "mean_clipped_return"),
+        ("std_clipped_return", "std_clipped_return"),
+        ("completed_episodes", "completed_episodes"),
+    ):
+        if result_key in result:
+            wandb_run.summary[f"queue_eval/latency_{latency}/{summary_suffix}"] = float(result[result_key])
 
 
 def finish_queue_eval_wandb(wandb_run, owned_run: bool) -> None:
@@ -96,6 +303,34 @@ def write_queue_eval_result(base_cfg, result: dict[str, Any]) -> None:
         "returns": [float(item) for item in result.get("returns", [])],
         "lengths": [int(item) for item in result.get("lengths", [])],
     }
+    for key in (
+        "raw_returns",
+        "clipped_returns",
+    ):
+        if key in result:
+            payload[key] = [float(item) for item in result.get(key, [])]
+    for key in (
+        "mean_raw_return",
+        "mean_clipped_return",
+        "std_raw_return",
+        "std_clipped_return",
+        "completed_episodes",
+        "requested_episodes",
+        "eval_max_steps",
+        "total_frames",
+    ):
+        if key in result:
+            value = result[key]
+            if key.endswith("episodes") or key in {"eval_max_steps", "total_frames"}:
+                payload[key] = int(value)
+            else:
+                payload[key] = float(value)
+    for key in ("hit_eval_step_budget",):
+        if key in result:
+            payload[key] = bool(result[key])
+    for key in ("eval_return_source", "warning"):
+        if key in result:
+            payload[key] = str(result[key])
 
     latency = int(result["latency"])
     latency_file = output_dir / f"queue_eval_latency_{latency}.json"
@@ -116,7 +351,13 @@ def load_sf_policy_state_dict(cfg, actor_critic, device: torch.device) -> None:
     name_prefix = dict(latest="checkpoint", best="best")[load_checkpoint_kind]
     checkpoints = Learner.get_checkpoints(Learner.checkpoint_dir(cfg, policy_id), f"{name_prefix}_*")
     checkpoint_dict = load_sample_factory_checkpoint_from_paths(checkpoints, device)
-    actor_critic.load_state_dict(checkpoint_dict["model"])
+    try:
+        actor_critic.load_state_dict(checkpoint_dict["model"])
+    except RuntimeError as exc:
+        raise ValueError(
+            "Sample Factory eval checkpoint/model shape mismatch. Check env.obs_resize/env.obs_mode "
+            "and use the same observation config for train and eval."
+        ) from exc
 
 
 def prepare_queue_eval_cfg(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdjuster | None = None):
@@ -172,18 +413,26 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     load_sf_policy_state_dict(cfg, actor_critic, device)
 
     returns: list[float] = []
+    raw_returns: list[float] | None = None
+    clipped_returns: list[float] | None = None
     lengths: list[int] = []
     eval_episodes = int(getattr(base_cfg, "eval_episodes", 20))
     eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 30000))
     max_total_frames = int(1e9 if eval_max_steps <= 0 else eval_max_steps * max(1, eval_episodes))
+    is_demon_attack_eval = _is_demon_attack_queue_eval_cfg(cfg) or _is_demon_attack_queue_eval_cfg(base_cfg)
+    eval_raw_reward = bool(getattr(base_cfg, "eval_raw_reward", False))
+    if is_demon_attack_eval:
+        raw_returns = []
+        clipped_returns = []
 
     obs, _ = env.reset()
     rnn_states = torch.zeros([env.num_agents, get_rnn_size(cfg)], dtype=torch.float32, device=device)
     episode_reward = torch.zeros([env.num_agents], dtype=torch.float32, device=device)
     episode_length = np.zeros([env.num_agents], dtype=np.int64)
     total_frames = 0
+    hit_eval_step_budget = False
 
-    while len(returns) < eval_episodes and total_frames < max_total_frames:
+    while len(returns) < eval_episodes and total_frames < max_total_frames and not hit_eval_step_budget:
         normalized_obs = prepare_and_normalize_obs(actor_critic, obs)
         policy_outputs = actor_critic(normalized_obs, rnn_states)
         actions = policy_outputs["actions"]
@@ -193,7 +442,7 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
             actions = unsqueeze_tensor(actions, dim=-1)
         actions = preprocess_actions(env_info, actions)
         rnn_states = policy_outputs["new_rnn_states"]
-        obs, rew, terminated, truncated, _ = env.step(actions)
+        obs, rew, terminated, truncated, infos = env.step(actions)
         dones = make_dones(terminated, truncated)
         reward_tensor = rew if isinstance(rew, torch.Tensor) else torch.as_tensor(rew, dtype=torch.float32, device=device)
         episode_reward += reward_tensor.to(device=device, dtype=torch.float32)
@@ -201,7 +450,36 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
         total_frames += 1
 
         for agent_i, done_flag in enumerate(dones.cpu().numpy()):
-            if done_flag and len(returns) < eval_episodes:
+            done = bool(done_flag)
+            if is_demon_attack_eval:
+                if done:
+                    info = _batched_info_for_agent(infos, int(agent_i))
+                    episode_result = _demon_attack_eval_episode_result(
+                        info,
+                        fallback_return=float(episode_reward[agent_i].item()),
+                        fallback_length=int(episode_length[agent_i]),
+                        eval_raw_reward=eval_raw_reward,
+                    )
+                    rnn_states[agent_i] = torch.zeros_like(rnn_states[agent_i])
+                    if episode_result is not None and len(returns) < eval_episodes:
+                        returns.append(float(episode_result["return"]))
+                        assert raw_returns is not None
+                        assert clipped_returns is not None
+                        raw_returns.append(float(episode_result["raw_return"]))
+                        clipped_returns.append(float(episode_result["clipped_return"]))
+                        lengths.append(int(episode_result["length"]))
+                        episode_reward[agent_i] = 0.0
+                        episode_length[agent_i] = 0
+                if (
+                    eval_max_steps > 0
+                    and len(returns) < eval_episodes
+                    and int(episode_length[agent_i]) >= eval_max_steps
+                ):
+                    hit_eval_step_budget = True
+                    break
+                continue
+
+            if done and len(returns) < eval_episodes:
                 returns.append(float(episode_reward[agent_i].item()))
                 lengths.append(int(episode_length[agent_i]))
                 episode_reward[agent_i] = 0.0
@@ -209,14 +487,19 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
                 rnn_states[agent_i] = torch.zeros_like(rnn_states[agent_i])
 
     env.close()
-    if not returns:
+    if not is_demon_attack_eval and not returns:
         returns = [float("nan")]
         lengths = [0]
-    return {
-        "latency": int(latency_value),
-        "mean_return": float(np.nanmean(returns)),
-        "std_return": float(np.nanstd(returns)),
-        "mean_length": float(np.mean(lengths)),
-        "returns": returns,
-        "lengths": lengths,
-    }
+    return _build_queue_eval_result(
+        latency_value=int(latency_value),
+        returns=returns,
+        lengths=lengths,
+        eval_episodes=eval_episodes,
+        eval_max_steps=eval_max_steps,
+        total_frames=total_frames,
+        hit_eval_step_budget=hit_eval_step_budget,
+        raw_returns=raw_returns,
+        clipped_returns=clipped_returns,
+        eval_raw_reward=eval_raw_reward,
+        env_name=str(getattr(cfg, "env", "")),
+    )
