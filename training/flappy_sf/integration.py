@@ -28,6 +28,9 @@ from training.sample_factory_common.queue_eval import (
     log_queue_eval_result,
     write_queue_eval_result,
 )
+from training.sample_factory_common.sf_episode_extra_stats_compat import (
+    ensure_sample_factory_episode_extra_stats_installed,
+)
 from training.sample_factory_common.wandb_compat import patch_sample_factory_wandb
 
 
@@ -272,6 +275,7 @@ def make_flappy_sf_env(
     render_mode: Optional[str] = None,
 ):
     del render_mode
+    ensure_sample_factory_episode_extra_stats_installed(env_name=SF_ENV_NAME)
     env_config = env_config or {}
     gymnasium = _import_flappy_gymnasium()
     use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))
@@ -490,6 +494,7 @@ def run_from_config(config: dict) -> int:
     apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))
     patch_sample_factory_wandb()
+    ensure_sample_factory_episode_extra_stats_installed(env_name=SF_ENV_NAME)
     log_flappy_sf_training_summary(config)
     from sample_factory.train import run_rl
 

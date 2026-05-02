@@ -13,7 +13,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from training.sample_factory_common.config_adapter import load_training_config
+from latency_bench.core.config import load_config
+from training.sample_factory_common.config_adapter import validate_training_config
 
 GENERATED_ROOT = REPO_ROOT / "configs" / "generated" / "sample_factory_same_latency_sweep"
 
@@ -164,7 +165,7 @@ def _build_full_run_config(
     if int(latency) < 0:
         raise ValueError("latency must be non-negative")
 
-    config = deepcopy(load_training_config(BASE_CONFIGS[env_name]))
+    config = deepcopy(load_config(BASE_CONFIGS[env_name]))
     run_name = _build_run_name(env_name, latency, seed)
     experiment_cfg = config.setdefault("experiment", {})
     backend_cfg = config.setdefault("backend", {})
@@ -195,8 +196,10 @@ def _build_full_run_config(
         Path(output_root) / "train" / env_name / f"latency_{int(latency)}" / f"seed_{int(seed)}"
     )
     logging_cfg["wandb_name"] = _build_wandb_name(env_name, latency, seed)
+    training_cfg = config.setdefault("training", {})
     if train_for_env_steps is not None:
-        config.setdefault("training", {})["train_for_env_steps"] = int(train_for_env_steps)
+        training_cfg["train_for_env_steps"] = int(train_for_env_steps)
+    validate_training_config(config)
     return config
 
 
