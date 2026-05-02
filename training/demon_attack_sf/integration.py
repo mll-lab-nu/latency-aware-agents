@@ -159,11 +159,12 @@ def make_demon_attack_sf_env(
 
 
 def make_reference_env(cfg):
+    from sample_factory.algo.utils.make_env import make_env_func_batched
     from sample_factory.utils.attr_dict import AttrDict
 
-    return make_demon_attack_sf_env(
-        SF_ENV_NAME,
-        cfg=cfg,
+    register_demon_attack_envs()
+    return make_env_func_batched(
+        cfg,
         env_config=AttrDict(worker_index=0, vector_index=0, env_id=0),
         render_mode=None,
     )
