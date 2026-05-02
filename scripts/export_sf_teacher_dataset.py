@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 from pathlib import Path
 import sys
@@ -33,6 +32,17 @@ def _register_components(module, env_name: str) -> None:
     raise ValueError(f"No environment registration entrypoint found for env '{env_name}'")
 
 
+def _infer_env_name_from_experiment_dir(experiment_dir: Path) -> str:
+    name = experiment_dir.name.strip().lower()
+    for env_name in ("deadly_corridor", "demon_attack", "flappy"):
+        if name == env_name or name.startswith(f"{env_name}_"):
+            return env_name
+    raise ValueError(
+        f"Could not infer env name from experiment directory '{experiment_dir.name}'. "
+        "Pass --config with a matching env.name if the checkpoint naming scheme is different."
+    )
+
+
 def _parse_module_cfg(module, cli_args: list[str]):
     parse_cfg = getattr(module, "parse_cfg")
     try:
@@ -41,28 +51,22 @@ def _parse_module_cfg(module, cli_args: list[str]):
         return parse_cfg(cli_args)
 
 
-def _runtime_config_for_experiment(
-    base_config: dict[str, Any],
-    *,
-    experiment_dir: Path,
-    latency: int,
-    max_steps_per_episode: int,
-    device_override: str | None,
-) -> dict[str, Any]:
-    config = copy.deepcopy(base_config)
-    config["experiment"]["name"] = experiment_dir.name
-    config["backend"]["train_dir"] = str(experiment_dir.parent)
-    config["backend"]["run_mode"] = "eval"
+def _minimal_export_cfg(module, *, experiment_dir: Path, device_override: str | None):
+    cli_args = [
+        "--mode",
+        "eval",
+        "--algo",
+        "APPO",
+        "--env",
+        str(getattr(module, "SF_ENV_NAME")),
+        "--experiment",
+        str(experiment_dir.name),
+        "--train_dir",
+        str(experiment_dir.parent),
+    ]
     if device_override:
-        config["backend"]["device"] = device_override
-    config.setdefault("latency", {})
-    config["latency"]["train_values"] = [int(latency)]
-    config.setdefault("evaluation", {})
-    config["evaluation"]["eval_latency_values"] = [int(latency)]
-    config["evaluation"]["eval_episodes"] = 1
-    config["evaluation"]["eval_max_steps"] = int(max_steps_per_episode)
-    config["env"]["max_episode_steps"] = int(max_steps_per_episode)
-    return config
+        cli_args.extend(["--device", str(device_override)])
+    return _parse_module_cfg(module, cli_args)
 
 
 def _prepare_export_cfg(module, env_name: str, base_cfg, latency: int):
@@ -242,18 +246,12 @@ def _save_observation_image(
     return str(image_path)
 
 
-def _flappy_action_labels(config: dict[str, Any]) -> dict[int, str]:
-    action_map = config.get("env", {}).get("action_map", {})
-    if isinstance(action_map, Mapping):
-        return {
-            int(value): str(name).upper()
-            for name, value in action_map.items()
-        }
+def _flappy_action_labels() -> dict[int, str]:
     return {0: "NOOP", 1: "FLAP"}
 
 
-def _demon_action_labels(config: dict[str, Any]) -> dict[int, str]:
-    if bool(config.get("env", {}).get("full_action_space", False)):
+def _demon_action_labels(cfg: Any) -> dict[int, str]:
+    if bool(getattr(cfg, "full_action_space", False)):
         return {idx: f"ACTION_{idx}" for idx in range(18)}
     return {
         0: "NOOP",
@@ -316,11 +314,11 @@ def _deadly_action_labels(env) -> dict[int, str]:
     return {idx: f"ACTION_{idx}" for idx in range(n_actions)}
 
 
-def _action_labels_for_env(env_name: str, config: dict[str, Any], env) -> dict[int, str]:
+def _action_labels_for_env(env_name: str, cfg: Any, env) -> dict[int, str]:
     if env_name == "flappy":
-        return _flappy_action_labels(config)
+        return _flappy_action_labels()
     if env_name == "demon_attack":
-        return _demon_action_labels(config)
+        return _demon_action_labels(cfg)
     if env_name == "deadly_corridor":
         return _deadly_action_labels(env)
     raise ValueError(f"Unsupported env for action labels: {env_name}")
@@ -343,21 +341,15 @@ def _prompt_for_episode(
     return prompt
 
 
-def _decision_period_ms(config: dict[str, Any]) -> float:
-    env_cfg = config.get("env", {})
-    env_name = str(env_cfg.get("name", "")).strip().lower()
-    fps_env = float(env_cfg.get("fps_env", 0) or 0)
-    if fps_env <= 0:
-        raise ValueError(f"env.fps_env must be positive to compute latency_ms, got {fps_env}")
-
+def _decision_period_ms_from_cfg(env_name: str, cfg: Any) -> float:
     if env_name == "flappy":
-        return 1000.0 / fps_env
+        return 1000.0 / 30.0
     if env_name == "demon_attack":
-        action_repeat = int(env_cfg.get("action_repeat", 1) or 1)
-        return action_repeat * (1000.0 / fps_env)
+        action_repeat = int(getattr(cfg, "action_repeat", 4) or 4)
+        return action_repeat * (1000.0 / 60.0)
     if env_name == "deadly_corridor":
-        env_frameskip = int(env_cfg.get("env_frameskip", 1) or 1)
-        return env_frameskip * (1000.0 / fps_env)
+        env_frameskip = int(getattr(cfg, "env_frameskip", 4) or 4)
+        return env_frameskip * (1000.0 / 35.0)
     raise ValueError(f"Unsupported env for latency_ms conversion: {env_name}")
 
 
@@ -477,7 +469,6 @@ def _collect_latency_dataset(
     *,
     env_name: str,
     module,
-    base_config: dict[str, Any],
     base_cfg,
     latency: int,
     episode_count: int,
@@ -504,10 +495,10 @@ def _collect_latency_dataset(
     prepare_and_normalize_obs = runtime["prepare_and_normalize_obs"]
     unsqueeze_tensor = runtime["unsqueeze_tensor"]
     rnn_size = runtime["rnn_size"]
-    action_labels = _action_labels_for_env(env_name, base_config, env)
-    prefer_raw_reward = bool(base_config.get("evaluation", {}).get("eval_raw_reward", False))
-    frame_stack = int(base_config.get("env", {}).get("frame_stack", 1) or 1)
-    decision_period_ms = _decision_period_ms(base_config)
+    action_labels = _action_labels_for_env(env_name, cfg, env)
+    prefer_raw_reward = bool(getattr(cfg, "eval_raw_reward", False))
+    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+    decision_period_ms = _decision_period_ms_from_cfg(env_name, cfg)
     latency_ms = float(latency) * decision_period_ms
 
     train_rows: list[dict[str, Any]] = []
@@ -517,7 +508,7 @@ def _collect_latency_dataset(
         episode_idx = global_episode_start + episode_local_idx
         split = "val" if episode_local_idx in val_indices else "train"
         split_rows = val_rows if split == "val" else train_rows
-        episode_seed = int(base_config["experiment"].get("seed", 0) or 0) + int(latency) * 100_000 + episode_local_idx
+        episode_seed = int(getattr(cfg, "seed", 0) or 0) + int(latency) * 100_000 + episode_local_idx
 
         obs, _ = env.reset(seed=episode_seed)
         rnn_states = torch.zeros([env.num_agents, rnn_size], dtype=torch.float32, device=device)
@@ -595,7 +586,8 @@ def _build_plan(args) -> list[tuple[int, int, int]]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export Sample Factory teacher trajectories as parquet datasets for SFT.")
-    parser.add_argument("--config", required=True, help="Sample Factory training YAML for the target environment.")
+    parser.add_argument("--config", default="", help="Optional Sample Factory training YAML used only to disambiguate env.name if needed.")
+    parser.add_argument("--env-name", default="", choices=["", "deadly_corridor", "demon_attack", "flappy"], help="Optional environment name. Use this instead of --config when checkpoint root contains multiple environments.")
     parser.add_argument("--checkpoint-root", required=True, help="Directory containing latency-specific experiment folders.")
     parser.add_argument("--output-dir", required=True, help="Directory where parquet files and images will be written.")
     parser.add_argument("--dataset-mode", required=True, choices=["zero_latency", "mixed_latency"])
@@ -626,11 +618,23 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    base_config = load_training_config(args.config)
-    env_name = str(base_config["env"]["name"]).strip().lower()
-    checkpoint_seed = int(args.checkpoint_seed if args.checkpoint_seed is not None else base_config["experiment"].get("seed", 0))
     checkpoint_root = Path(args.checkpoint_root).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
+    env_name_hint = str(args.env_name).strip().lower() or None
+    if args.config:
+        hint_config = load_training_config(args.config)
+        config_env_name = str(hint_config["env"]["name"]).strip().lower()
+        if env_name_hint is None:
+            env_name_hint = config_env_name
+        elif env_name_hint != config_env_name:
+            raise ValueError(
+                f"--env-name={env_name_hint} conflicts with env.name={config_env_name} in {args.config}"
+            )
+        default_seed = int(hint_config["experiment"].get("seed", 0))
+    else:
+        hint_config = None
+        default_seed = 0
+    checkpoint_seed = int(args.checkpoint_seed if args.checkpoint_seed is not None else default_seed)
 
     if args.dataset_mode == "zero_latency" and args.max_episodes <= 0:
         raise ValueError("--max-episodes must be positive for zero-latency export")
@@ -640,20 +644,17 @@ def main() -> None:
         if args.latency_end < args.latency_start:
             raise ValueError("--latency-end must be >= --latency-start")
 
-    module = import_integration_module(base_config)
-    _register_components(module, env_name)
-
     train_rows: list[dict[str, Any]] = []
     val_rows: list[dict[str, Any]] = []
     metadata: dict[str, Any] = {
-        "env_name": env_name,
+        "env_name": None,
         "dataset_mode": args.dataset_mode,
         "prompt": args.prompt,
         "mixed_prompt_template": args.mixed_prompt_template,
         "max_steps_per_episode": int(args.max_steps_per_episode),
         "deterministic": bool(args.deterministic),
         "checkpoint_root": str(checkpoint_root),
-        "decision_period_ms": float(_decision_period_ms(base_config)),
+        "decision_period_ms": None,
         "latencies": [],
         "action_labels": {},
     }
@@ -662,20 +663,38 @@ def main() -> None:
     plan = _build_plan(args)
     for latency, episode_count, val_count in plan:
         val_indices = _select_val_indices(episode_count, val_count, split_seed=args.split_seed + latency)
-        experiment_dir = _find_experiment_dir(checkpoint_root, env_name, latency, checkpoint_seed)
-        runtime_config = _runtime_config_for_experiment(
-            base_config,
+        env_name = env_name_hint
+        if env_name is None:
+            matches: list[tuple[str, Path]] = []
+            for candidate in ("deadly_corridor", "demon_attack", "flappy"):
+                try:
+                    matches.append((candidate, _find_experiment_dir(checkpoint_root, candidate, latency, checkpoint_seed)))
+                except FileNotFoundError:
+                    continue
+            if len(matches) != 1:
+                raise ValueError(
+                    f"Could not uniquely infer env for latency {latency} under {checkpoint_root}. "
+                    "Pass --config with the correct env.name."
+                )
+            env_name, experiment_dir = matches[0]
+        else:
+            experiment_dir = _find_experiment_dir(checkpoint_root, env_name, latency, checkpoint_seed)
+
+        module = import_integration_module({"env": {"name": env_name}})
+        _register_components(module, env_name)
+        base_cfg = _minimal_export_cfg(
+            module,
             experiment_dir=experiment_dir,
-            latency=latency,
-            max_steps_per_episode=args.max_steps_per_episode,
             device_override=args.device or None,
         )
-        cli_args = module.build_cli_args_from_config(runtime_config)
-        base_cfg = _parse_module_cfg(module, cli_args)
+        if metadata["env_name"] is None:
+            metadata["env_name"] = env_name
+        if metadata["decision_period_ms"] is None:
+            prepared_cfg = _prepare_export_cfg(module, env_name, base_cfg, latency)
+            metadata["decision_period_ms"] = float(_decision_period_ms_from_cfg(env_name, prepared_cfg))
         latency_train_rows, latency_val_rows, latency_meta = _collect_latency_dataset(
             env_name=env_name,
             module=module,
-            base_config=runtime_config,
             base_cfg=base_cfg,
             latency=latency,
             episode_count=episode_count,

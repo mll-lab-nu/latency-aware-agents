@@ -49,7 +49,7 @@ python -m training.train --config /workspace/one_run/deadly_corridor/latency_0/s
 
 # DEADLY CORRIDOR: zero-latency teacher dataset
 python scripts/export_sf_teacher_dataset.py \
-  --config configs/base/deadly_corridor.yaml \
+  --env-name deadly_corridor \
   --checkpoint-root /workspace/latency-checkpoints/checkpoints \
   --output-dir /workspace/teacher_datasets/deadly_corridor_zero_latency \
   --dataset-mode zero_latency \
@@ -65,7 +65,7 @@ python scripts/export_sf_teacher_dataset.py \
 
 # DEADLY CORRIDOR: mixed-latency teacher dataset
 python scripts/export_sf_teacher_dataset.py \
-  --config configs/base/deadly_corridor.yaml \
+  --env-name deadly_corridor \
   --checkpoint-root /workspace/latency-checkpoints/checkpoints \
   --output-dir /workspace/teacher_datasets/deadly_corridor_mixed_latency \
   --dataset-mode mixed_latency \
