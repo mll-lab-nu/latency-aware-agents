@@ -31,7 +31,7 @@ env:
   obs_mode: image_only
   use_gpu_render: true
   gpu_render_device: auto
-  gpu_render_profile: true
+  gpu_render_profile: false
   gpu_render_profile_interval: 200
   noop_action: noop
   action_map:
