@@ -4,10 +4,15 @@ import argparse
 import copy
 import json
 from pathlib import Path
+import sys
 from typing import Any, Mapping
 
 import numpy as np
 from PIL import Image
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from training.sample_factory_common import import_integration_module, load_training_config
 from training.sample_factory_common.common import maybe_set_cli_override
