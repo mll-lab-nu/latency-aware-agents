@@ -24,5 +24,6 @@ pygame-ce==2.5.7
 # Analysis, rendering, and tests.
 matplotlib==3.10.9
 pandas==2.3.3
+datasets==4.0.0
 opencv-python==4.10.0.84
 pytest==9.0.3

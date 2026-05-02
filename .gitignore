@@ -9,3 +9,4 @@ distill/
 
 # Python cache files
 __pycache__/
+_vizdoom.ini
