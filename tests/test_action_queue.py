@@ -33,6 +33,34 @@ def test_fixed_two_frame_latency_action_applies_at_correct_step():
     assert scheduler.get_applied_events()[0].applied_env_step == 2
 
 
+def test_one_frame_latency_ready_on_float_boundary_applies_at_next_step():
+    clock = EnvClock(35)
+    noop = Action("noop", is_noop=True)
+    action = Action("jump")
+    obs_step = 6
+    ready_step = obs_step + 1
+    obs_time_ms = clock.step_to_time_ms(obs_step)
+    ready_time_ms = obs_time_ms + clock.frame_ms
+    event = ActionEvent(
+        action_id=0,
+        obs_id=0,
+        action=action,
+        obs_env_step=obs_step,
+        obs_time_ms=obs_time_ms,
+        latency_ms=clock.frame_ms,
+        ready_time_ms=ready_time_ms,
+        ready_step_float=clock.time_ms_to_step_float(ready_time_ms),
+    )
+    scheduler = ActionScheduler(clock, noop, HoldPreviousActionPolicy())
+    scheduler.enqueue(event)
+
+    assert ready_time_ms > clock.step_to_time_ms(ready_step)
+    assert scheduler.update(ready_step, clock.step_to_time_ms(ready_step)) is action
+    assert event.applied
+    assert not event.dropped
+    assert scheduler.get_pending_events() == []
+
+
 def test_fifo_mode_applies_ready_actions_in_order():
     clock = EnvClock(30)
     noop = Action("noop", is_noop=True)

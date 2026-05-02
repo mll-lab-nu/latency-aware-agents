@@ -34,10 +34,11 @@ def _executor(
     max_steps: int = 5,
     logger: TrajectoryLogger | None = None,
     stale_action_mode: StaleActionMode = StaleActionMode.LATEST_READY,
+    fps_env: float = 30,
 ) -> tuple[SimulatedLatencyExecutor, DummyEnvAdapter, EnvClock, Action]:
     noop = Action("noop", is_noop=True)
-    env = DummyEnvAdapter(fps_env=30, max_steps=max_steps, noop_action=noop)
-    clock = EnvClock(30)
+    env = DummyEnvAdapter(fps_env=fps_env, max_steps=max_steps, noop_action=noop)
+    clock = EnvClock(fps_env)
     action_scheduler = ActionScheduler(
         clock=clock,
         noop_action=noop,
@@ -75,6 +76,31 @@ def test_fixed_two_frame_latency_applies_at_t_plus_two():
     executor.run_episode(episode_id=0, max_env_steps=4)
 
     assert [action.value for action in env.applied_actions[:3]] == [noop.value, noop.value, "jump"]
+
+
+def test_fixed_one_frame_latency_at_35_fps_does_not_drop_boundary_action():
+    clock = EnvClock(35)
+    executor, env, _, noop = _executor(
+        FixedLatencySource(clock.frame_ms),
+        policy=CountingPolicyRunner(),
+        max_steps=9,
+        fps_env=35,
+    )
+
+    metrics = executor.run_episode(episode_id=0, max_env_steps=9)
+
+    assert [action.value for action in env.applied_actions] == [
+        noop.value,
+        "a0",
+        "a1",
+        "a2",
+        "a3",
+        "a4",
+        "a5",
+        "a6",
+        "a7",
+    ]
+    assert metrics.num_dropped_actions == 0
 
 
 def test_trace_replay_latency_applies_event_at_trace_ready_step(tmp_path: Path):

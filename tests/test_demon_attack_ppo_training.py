@@ -41,6 +41,30 @@ class _FakeAtariEnv(gym.Env):
         return obs, 1.0, False, False, {"base_action": int(action)}
 
 
+class _ScriptedDemonAttackEnv(gym.Env):
+    metadata = {}
+
+    def __init__(self, steps):
+        super().__init__()
+        self.action_space = gym.spaces.Discrete(10)
+        self.observation_space = gym.spaces.Box(0, 255, shape=(4, 4), dtype=np.uint8)
+        self.steps = list(steps)
+        self.index = 0
+        self.reset_count = 0
+
+    def reset(self, **kwargs):
+        self.reset_count += 1
+        return np.full((4, 4), self.reset_count, dtype=np.uint8), {}
+
+    def step(self, action):
+        if self.index >= len(self.steps):
+            raise AssertionError("script exhausted")
+        reward, terminated, truncated, info = self.steps[self.index]
+        self.index += 1
+        obs = np.full((4, 4), self.index + 10, dtype=np.uint8)
+        return obs, float(reward), bool(terminated), bool(truncated), dict(info)
+
+
 def _args() -> Namespace:
     return Namespace(
         screen_size=4,
@@ -423,6 +447,74 @@ def test_queue_latency_wrapper_schedules_actions_with_episode_fixed_latency():
     assert info2["applied_action"] == 5
     assert info2["pending_queue_len"] == 2
     assert env.unwrapped.applied_actions == [0, 0, 5]
+
+
+def test_sync_batch_accumulates_full_game_return_across_life_losses():
+    envs = SyncDemonAttackBatch(
+        n_envs=1,
+        seed=0,
+        frame_skip_values=(0,),
+        device="cpu",
+        env_fns=[
+            lambda: _ScriptedDemonAttackEnv(
+                [
+                    (1.0, True, False, {"lives": 2}),
+                    (2.0, True, False, {"lives": 1}),
+                    (3.0, True, False, {"lives": 0}),
+                ]
+            )
+        ],
+    )
+
+    try:
+        envs.reset()
+        rewards, dones_np, infos, _ = envs.step(np.asarray([0]))
+        assert rewards[0] == 1.0
+        assert bool(dones_np[0]) is True
+        assert "episodic_return" not in infos[0]
+        assert envs.episode_returns[0] == 1.0
+        assert envs.episode_lengths[0] == 1
+
+        _, dones_np, infos, _ = envs.step(np.asarray([0]))
+        assert bool(dones_np[0]) is True
+        assert "episodic_return" not in infos[0]
+        assert envs.episode_returns[0] == 3.0
+        assert envs.episode_lengths[0] == 2
+
+        _, dones_np, infos, _ = envs.step(np.asarray([0]))
+        assert bool(dones_np[0]) is True
+        assert infos[0]["episodic_return"] == 6.0
+        assert infos[0]["episodic_length"] == 3
+        assert envs.episode_returns[0] == 0.0
+        assert envs.episode_lengths[0] == 0
+    finally:
+        envs.close()
+
+
+def test_sync_batch_vectorized_life_loss_and_game_over_metrics_are_separate():
+    envs = SyncDemonAttackBatch(
+        n_envs=2,
+        seed=0,
+        frame_skip_values=(0,),
+        device="cpu",
+        env_fns=[
+            lambda: _ScriptedDemonAttackEnv([(4.0, True, False, {"lives": 2})]),
+            lambda: _ScriptedDemonAttackEnv([(5.0, True, False, {"lives": 0})]),
+        ],
+    )
+
+    try:
+        envs.reset()
+        _, dones_np, infos, _ = envs.step(np.asarray([0, 0]))
+
+        assert dones_np.tolist() == [True, True]
+        assert "episodic_return" not in infos[0]
+        assert infos[1]["episodic_return"] == 5.0
+        assert infos[1]["episodic_length"] == 1
+        assert envs.episode_returns.tolist() == [4.0, 0.0]
+        assert envs.episode_lengths.tolist() == [1, 0]
+    finally:
+        envs.close()
 
 
 def test_optional_ale_smoke_can_build_sync_batch_when_roms_are_available():

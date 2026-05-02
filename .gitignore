@@ -6,3 +6,4 @@ models/
 results/
 logs/
 __pycache__/
+configs/train
