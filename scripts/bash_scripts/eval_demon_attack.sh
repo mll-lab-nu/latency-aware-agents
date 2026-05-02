@@ -11,7 +11,32 @@ if [[ $# -ne 0 ]]; then
     exit 2
 fi
 
-CONFIG_ROOT="configs/train/demon_attack"
+DEFAULT_CONFIG_ROOT="configs/train/demon_attack"
+CONFIG_ROOT="${LATENCY_BENCH_EVAL_CONFIG_ROOT:-${DEFAULT_CONFIG_ROOT}}"
+
+read_config_value() {
+    local config_path="$1"
+    local dotted_key="$2"
+    local section="${dotted_key%%.*}"
+    local key="${dotted_key#*.}"
+    awk -v section="${section}" -v key="${key}" '
+        /^[^[:space:]][^:]*:/ {
+            current = $1
+            sub(":$", "", current)
+            next
+        }
+        current == section {
+            line = $0
+            sub(/^[[:space:]]+/, "", line)
+            if (line ~ "^" key ":") {
+                sub(/^[^:]*:[[:space:]]*/, "", line)
+                sub(/[[:space:]]+#.*$/, "", line)
+                print line
+                exit
+            }
+        }
+    ' "${config_path}"
+}
 
 mapfile -t CONFIG_DIRS < <(
     find "${CONFIG_ROOT}" -maxdepth 3 -mindepth 3 -type f -path "${CONFIG_ROOT}/latency_*/seed_0/eval.yaml" \
@@ -23,8 +48,24 @@ if [[ ${#CONFIG_DIRS[@]} -eq 0 ]]; then
     exit 2
 fi
 
+EVAL_RUNS=0
+
 for CONFIG_DIR in "${CONFIG_DIRS[@]}"; do
+    EXPERIMENT_NAME="$(read_config_value "${CONFIG_DIR}/eval.yaml" "experiment.name")"
+    TRAIN_DIR="$(read_config_value "${CONFIG_DIR}/eval.yaml" "backend.train_dir")"
+    CHECKPOINT_CONFIG="${TRAIN_DIR}/${EXPERIMENT_NAME}/config.json"
+    if [[ ! -f "${CHECKPOINT_CONFIG}" ]]; then
+        echo "Skipping ${CONFIG_DIR}: missing checkpoint config ${CHECKPOINT_CONFIG}" >&2
+        continue
+    fi
+
     echo "==> Evaluating ${CONFIG_DIR}"
     python -m training.train --config "${CONFIG_DIR}/eval.yaml"
     python -m latency_bench.run --config "${CONFIG_DIR}/latency_bench_eval.yaml"
+    EVAL_RUNS=$((EVAL_RUNS + 1))
 done
+
+if [[ ${EVAL_RUNS} -eq 0 ]]; then
+    echo "Error: no checkpoint-backed eval configs found under ${CONFIG_ROOT}." >&2
+    exit 2
+fi
