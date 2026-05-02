@@ -122,6 +122,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         from sample_factory.algo.utils.action_distributions import argmax_actions
         from sample_factory.algo.utils.env_info import extract_env_info
         from sample_factory.algo.utils.rl_utils import prepare_and_normalize_obs
+        from sample_factory.algo.utils.tensor_utils import unsqueeze_tensor
         from sample_factory.model.actor_critic import create_actor_critic
         from sample_factory.model.model_utils import get_rnn_size
 
@@ -134,6 +135,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         self._prepare_and_normalize_obs = prepare_and_normalize_obs
         self._argmax_actions = argmax_actions
         self._preprocess_actions = preprocess_actions
+        self._unsqueeze_tensor = unsqueeze_tensor
 
         integration_module.register_components()
         cfg = integration_module.build_sf_cfg_from_config(config)
@@ -177,6 +179,8 @@ class SampleFactoryPolicyRunner(PolicyRunner):
             actions = policy_outputs["actions"]
             if self.deterministic:
                 actions = self._argmax_actions(self.actor_critic.action_distribution())
+            if actions.ndim == 1:
+                actions = self._unsqueeze_tensor(actions, dim=-1)
             self.rnn_states = policy_outputs["new_rnn_states"]
 
         processed_actions = self._preprocess_actions(self.env_info, actions)
