@@ -14,6 +14,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from training.sample_factory_common import import_integration_module, load_training_config
+from training.sample_factory_common.checkpoint_io import load_sample_factory_checkpoint_from_paths
 from training.sample_factory_common.common import maybe_set_cli_override
 from training.sample_factory_common.queue_eval import prepare_queue_eval_cfg
 
@@ -49,6 +50,19 @@ def _parse_module_cfg(module, cli_args: list[str]):
         return parse_cfg(cli_args, evaluation=True)
     except TypeError:
         return parse_cfg(cli_args)
+
+
+def _parse_image_size(value: str) -> tuple[int, int] | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    parts = [int(item.strip()) for item in raw.split(",") if item.strip()]
+    if len(parts) != 2:
+        raise ValueError(f"Expected image size in 'W,H' format, got: {value!r}")
+    width, height = parts
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Image size must be positive, got: {value!r}")
+    return (width, height)
 
 
 def _minimal_export_cfg(module, *, experiment_dir: Path, device_override: str | None):
@@ -143,24 +157,80 @@ def _build_env_and_policy(module, cfg):
     from sample_factory.model.actor_critic import create_actor_critic
     from sample_factory.model.model_utils import get_rnn_size
     from sample_factory.utils.attr_dict import AttrDict
+    from sample_factory.algo.learning.learner import Learner
 
-    env = make_env_func_batched(
-        cfg,
-        env_config=AttrDict(worker_index=0, vector_index=0, env_id=0),
-        render_mode=None,
-    )
-    env_info = extract_env_info(env, cfg)
-    actor_critic = create_actor_critic(cfg, env.observation_space, env.action_space)
-    actor_critic.eval()
+    def build_env_and_model(local_cfg):
+        local_env = make_env_func_batched(
+            local_cfg,
+            env_config=AttrDict(worker_index=0, vector_index=0, env_id=0),
+            render_mode=None,
+        )
+        local_env_info = extract_env_info(local_env, local_cfg)
+        local_actor_critic = create_actor_critic(local_cfg, local_env.observation_space, local_env.action_space)
+        local_actor_critic.eval()
+        return local_env, local_env_info, local_actor_critic
+
+    def checkpoint_dict_for_cfg(local_cfg, device):
+        if hasattr(module, "_load_policy_state_dict"):
+            policy_id = local_cfg.policy_index
+            name_prefix = dict(latest="checkpoint", best="best")[local_cfg.load_checkpoint_kind]
+            checkpoints = Learner.get_checkpoints(Learner.checkpoint_dir(local_cfg, policy_id), f"{name_prefix}_*")
+            return load_sample_factory_checkpoint_from_paths(checkpoints, device)
+        policy_id = local_cfg.policy_index
+        name_prefix = dict(latest="checkpoint", best="best")[local_cfg.load_checkpoint_kind]
+        checkpoints = Learner.get_checkpoints(Learner.checkpoint_dir(local_cfg, policy_id), f"{name_prefix}_*")
+        return load_sample_factory_checkpoint_from_paths(checkpoints, device)
+
+    def obs_shape_from_space(obs_space):
+        if hasattr(obs_space, "spaces") and "obs" in getattr(obs_space, "spaces", {}):
+            obs_space = obs_space.spaces["obs"]
+        return tuple(int(dim) for dim in getattr(obs_space, "shape", ()))
+
+    def expected_obs_shape_from_checkpoint(checkpoint_dict):
+        model_state = checkpoint_dict.get("model", {})
+        keys_to_try = (
+            "obs_normalizer.running_mean_std.running_mean_std.obs.running_mean",
+            "obs_normalizer.running_mean_std.running_mean_std.running_mean",
+        )
+        for key in keys_to_try:
+            tensor = model_state.get(key)
+            if tensor is not None and hasattr(tensor, "shape"):
+                shape = tuple(int(dim) for dim in tensor.shape)
+                if len(shape) == 3:
+                    return shape
+        return None
+
     device = torch.device("cpu" if str(cfg.device) == "cpu" else "cuda")
+    checkpoint_dict = checkpoint_dict_for_cfg(cfg, device)
+
+    env, env_info, actor_critic = build_env_and_model(cfg)
     actor_critic.model_to_device(device)
 
+    expected_obs_shape = expected_obs_shape_from_checkpoint(checkpoint_dict)
+    actual_obs_shape = obs_shape_from_space(env.observation_space)
+    if expected_obs_shape and actual_obs_shape and expected_obs_shape != actual_obs_shape:
+        env.close()
+        if len(expected_obs_shape) == 3:
+            expected_h = int(expected_obs_shape[1])
+            expected_w = int(expected_obs_shape[2])
+            if hasattr(cfg, "res_h"):
+                maybe_set_cli_override(cfg, "res_h", expected_h)
+            if hasattr(cfg, "res_w"):
+                maybe_set_cli_override(cfg, "res_w", expected_w)
+            if hasattr(cfg, "screen_size"):
+                maybe_set_cli_override(cfg, "screen_size", f"{expected_w},{expected_h}")
+        env, env_info, actor_critic = build_env_and_model(cfg)
+        actor_critic.model_to_device(device)
+
     if hasattr(module, "_load_policy_state_dict"):
-        module._load_policy_state_dict(cfg, actor_critic, device)
+        actor_critic.load_state_dict(checkpoint_dict["model"])
     else:
         from training.sample_factory_common.queue_eval import load_sf_policy_state_dict
 
-        load_sf_policy_state_dict(cfg, actor_critic, device)
+        try:
+            actor_critic.load_state_dict(checkpoint_dict["model"])
+        except Exception:
+            load_sf_policy_state_dict(cfg, actor_critic, device)
 
     return {
         "env": env,
@@ -305,11 +375,15 @@ def _save_observation_image(
     env_name: str,
     frame_stack: int,
     image_path: Path,
+    export_image_size: tuple[int, int] | None,
 ) -> str:
     image_path.parent.mkdir(parents=True, exist_ok=True)
     single_obs = _extract_single_observation(obs)
     frame = _latest_frame_from_observation(single_obs, env_name=env_name, frame_stack=frame_stack)
-    Image.fromarray(np.asarray(frame, dtype=np.uint8)).save(image_path)
+    image = Image.fromarray(np.asarray(frame, dtype=np.uint8))
+    if export_image_size is not None and image.size != export_image_size:
+        image = image.resize(export_image_size, Image.BILINEAR)
+    image.save(image_path)
     return str(image_path)
 
 
@@ -614,6 +688,7 @@ def _collect_latency_dataset(
     output_dir: Path,
     global_episode_start: int,
     deterministic: bool,
+    export_image_size: tuple[int, int] | None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     import torch
     from sample_factory.algo.utils.rl_utils import make_dones
@@ -653,6 +728,7 @@ def _collect_latency_dataset(
                 env_name=env_name,
                 frame_stack=frame_stack,
                 image_path=image_path,
+                export_image_size=export_image_size,
             )
 
             normalized_obs = prepare_and_normalize_obs(actor_critic, obs)
@@ -724,6 +800,7 @@ def main() -> None:
     parser.add_argument("--env-name", default="", choices=["", "deadly_corridor", "demon_attack", "flappy"], help="Optional environment name. Use this instead of --config when checkpoint root contains multiple environments.")
     parser.add_argument("--checkpoint-root", required=True, help="Directory containing latency-specific experiment folders.")
     parser.add_argument("--output-dir", required=True, help="Directory where parquet files and images will be written.")
+    parser.add_argument("--export-image-size", type=str, default="", help="Optional saved image size in 'W,H' format, e.g. '512,288'. This does not affect teacher inference.")
     parser.add_argument("--dataset-mode", required=True, choices=["zero_latency", "mixed_latency"])
     parser.add_argument("--prompt", required=True, help="Base prompt used for the zero-latency dataset.")
     parser.add_argument(
@@ -754,6 +831,7 @@ def main() -> None:
 
     checkpoint_root = Path(args.checkpoint_root).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
+    export_image_size = _parse_image_size(args.export_image_size)
     env_name_hint = str(args.env_name).strip().lower() or None
     if args.config:
         hint_config = load_training_config(args.config)
@@ -788,6 +866,7 @@ def main() -> None:
         "max_steps_per_episode": int(args.max_steps_per_episode),
         "deterministic": bool(args.deterministic),
         "checkpoint_root": str(checkpoint_root),
+        "export_image_size": list(export_image_size) if export_image_size is not None else None,
         "decision_period_ms": None,
         "latencies": [],
         "action_labels": {},
@@ -837,10 +916,11 @@ def main() -> None:
             prompt=args.prompt,
             mixed_prompt_template=args.mixed_prompt_template,
             dataset_mode=args.dataset_mode,
-            output_dir=output_dir,
-            global_episode_start=episode_offset,
-            deterministic=bool(args.deterministic),
-        )
+                output_dir=output_dir,
+                global_episode_start=episode_offset,
+                deterministic=bool(args.deterministic),
+                export_image_size=export_image_size,
+            )
         train_rows.extend(latency_train_rows)
         val_rows.extend(latency_val_rows)
         metadata["latencies"].append(
