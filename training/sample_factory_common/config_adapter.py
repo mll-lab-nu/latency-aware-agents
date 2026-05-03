@@ -11,6 +11,8 @@ ENV_INTEGRATIONS = {
     "flappy": "training.flappy_sf.integration",
 }
 
+CHECKPOINT_KINDS = {"latest", "best"}
+
 
 def _list_to_csv(value: Any) -> str:
     if isinstance(value, str):
@@ -18,6 +20,33 @@ def _list_to_csv(value: Any) -> str:
     if isinstance(value, (list, tuple)):
         return ",".join(str(item) for item in value)
     return str(value)
+
+
+def normalize_checkpoint_kind(checkpoint_kind: str) -> str:
+    normalized = str(checkpoint_kind).strip().lower()
+    if normalized not in CHECKPOINT_KINDS:
+        raise ValueError("checkpoint kind must be 'latest' or 'best'")
+    return normalized
+
+
+def apply_checkpoint_kind_override(backend_cfg: dict[str, Any], checkpoint_kind: str) -> None:
+    normalized = normalize_checkpoint_kind(checkpoint_kind)
+    extra_args = list(backend_cfg.get("extra_args") or [])
+    filtered_args: list[str] = []
+    skip_next = False
+    for item in extra_args:
+        text = str(item)
+        if skip_next:
+            skip_next = False
+            continue
+        if text == "--load_checkpoint_kind":
+            skip_next = True
+            continue
+        if text.startswith("--load_checkpoint_kind="):
+            continue
+        filtered_args.append(text)
+    filtered_args.extend(["--load_checkpoint_kind", normalized])
+    backend_cfg["extra_args"] = filtered_args
 
 
 def load_training_config(path: str | Path) -> dict[str, Any]:
@@ -74,16 +103,23 @@ def apply_training_overrides(
     run_name: str | None = None,
     train_dir: str | Path | None = None,
     mode: str | None = None,
+    checkpoint_kind: str | None = None,
+    output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     updated = deepcopy(config)
     backend_cfg = updated.setdefault("backend", {})
     experiment_cfg = updated.setdefault("experiment", {})
+    logging_cfg = updated.setdefault("logging", {})
     if run_name is not None:
         experiment_cfg["name"] = str(run_name)
     if train_dir is not None:
         backend_cfg["train_dir"] = str(train_dir)
     if mode is not None:
         backend_cfg["run_mode"] = str(mode)
+    if checkpoint_kind is not None:
+        apply_checkpoint_kind_override(backend_cfg, checkpoint_kind)
+    if output_dir is not None:
+        logging_cfg["output_dir"] = str(output_dir)
     return updated
 
 

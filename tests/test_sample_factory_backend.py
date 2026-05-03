@@ -151,15 +151,25 @@ def test_apply_runtime_logging_config_maps_wandb_name_to_sample_factory_unique_i
 
 def test_apply_training_overrides_updates_run_name_train_dir_and_mode():
     cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg.setdefault("backend", {})["extra_args"] = ["--some-existing-flag", "1"]
     updated = apply_training_overrides(
         cfg,
         run_name="override_run",
         train_dir="tmp/sample_factory",
         mode="train",
+        checkpoint_kind="best",
+        output_dir="outputs/eval/best/flappy/latency_0/seed_0",
     )
     assert updated["experiment"]["name"] == "override_run"
     assert updated["backend"]["train_dir"] == "tmp/sample_factory"
     assert updated["backend"]["run_mode"] == "train"
+    assert updated["backend"]["extra_args"] == [
+        "--some-existing-flag",
+        "1",
+        "--load_checkpoint_kind",
+        "best",
+    ]
+    assert updated["logging"]["output_dir"] == "outputs/eval/best/flappy/latency_0/seed_0"
 
 
 def test_flappy_sf_obs_resize_single_frame_shape():

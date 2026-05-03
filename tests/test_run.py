@@ -261,6 +261,8 @@ def test_main_applies_runtime_overrides(tmp_path: Path):
             "override_run",
             "--output-dir",
             str(override_output_dir),
+            "--checkpoint-kind",
+            "best",
         ]
     )
 
@@ -270,7 +272,10 @@ def test_main_applies_runtime_overrides(tmp_path: Path):
     assert metrics["metadata"]["config_name"] == "override_run"
     assert metrics["metadata"]["run_name"] == "override_run"
     assert metrics["metadata"]["checkpoint_path"] == "override_checkpoint.pt"
+    assert metrics["metadata"]["checkpoint_kind"] == "best"
     assert metrics["metadata"]["output_dir"] == str(override_output_dir)
+    summary = json.loads((override_output_dir / "queue_eval_latency_0.json").read_text(encoding="utf-8"))
+    assert summary["checkpoint_kind"] == "best"
 
 
 def test_main_writes_non_sweep_queue_eval_summary(tmp_path: Path, capsys):

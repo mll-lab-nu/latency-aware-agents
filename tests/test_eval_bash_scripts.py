@@ -32,11 +32,17 @@ def test_eval_bash_scripts_are_batch_eval_wrappers():
 
         text = script_path.read_text(encoding="utf-8")
         assert f'DEFAULT_CONFIG_ROOT="configs/train/{env_name}"' in text
-        assert 'python -m training.train --config "${CONFIG_DIR}/eval.yaml"' in text
-        assert 'python -m latency_bench.run --config "${CONFIG_DIR}/latency_bench_eval.yaml"' in text
+        assert 'CHECKPOINT_KINDS=(latest best)' in text
+        assert "--checkpoint-kind" in text
+        assert "--output-dir" in text
+        assert 'python -m training.train \\' in text
+        assert 'python -m latency_bench.run \\' in text
         assert "${CONFIG_DIR}/train.yaml" not in text
         assert "sort -V" in text
         assert "/config.json" in text
+        assert "checkpoint_p0" in text
+        assert "outputs/eval/${checkpoint_kind}/" in text
+        assert "outputs/latency_bench/${checkpoint_kind}/" in text
         assert "Skipping" in text
 
 
@@ -94,12 +100,26 @@ experiment:
   name: demon_attack_sf_same_latency_l{latency}_seed0
 backend:
   train_dir: {train_dir}
+logging:
+  output_dir: {tmp_path}/outputs/eval/demon_attack/latency_{latency}/seed_0
+""".strip()
+        latency_bench_yaml = f"""
+experiment:
+  name: demon_attack_sf_same_latency_l{latency}_seed0
+backend:
+  train_dir: {train_dir}
+logging:
+  output_dir: {tmp_path}/outputs/latency_bench/demon_attack/train_latency_{latency}/seed_0
 """.strip()
         (config_dir / "eval.yaml").write_text(eval_yaml + "\n", encoding="utf-8")
-        (config_dir / "latency_bench_eval.yaml").write_text(eval_yaml + "\n", encoding="utf-8")
+        (config_dir / "latency_bench_eval.yaml").write_text(latency_bench_yaml + "\n", encoding="utf-8")
         checkpoint_dir = train_dir / f"demon_attack_sf_same_latency_l{latency}_seed0"
         checkpoint_dir.mkdir(parents=True)
         (checkpoint_dir / "config.json").write_text("{}\n", encoding="utf-8")
+        policy_checkpoint_dir = checkpoint_dir / "checkpoint_p0"
+        policy_checkpoint_dir.mkdir()
+        (policy_checkpoint_dir / "checkpoint_000000001_000000000001.pth").write_text("", encoding="utf-8")
+        (policy_checkpoint_dir / "best_000000001_000000000001.pth").write_text("", encoding="utf-8")
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -138,7 +158,82 @@ backend:
     assert result.returncode == 1
     calls = calls_path.read_text(encoding="utf-8")
     assert "-m latency_bench.run --config" in calls
+    assert "--checkpoint-kind latest" in calls
+    assert "--checkpoint-kind best" in calls
+    assert f"--output-dir {tmp_path}/outputs/eval/latest/demon_attack/latency_8/seed_0" in calls
+    assert f"--output-dir {tmp_path}/outputs/eval/best/demon_attack/latency_8/seed_0" in calls
+    assert f"--output-dir {tmp_path}/outputs/latency_bench/latest/demon_attack/train_latency_8/seed_0" in calls
+    assert f"--output-dir {tmp_path}/outputs/latency_bench/best/demon_attack/train_latency_8/seed_0" in calls
     assert "latency_8/seed_0/latency_bench_eval.yaml" in calls
     assert "latency_9/seed_0/eval.yaml" in calls
     assert "latency_9/seed_0/latency_bench_eval.yaml" in calls
     assert "latency_bench eval command failed" in result.stderr
+
+
+def test_eval_bash_script_reports_missing_best_checkpoint_but_runs_latest(tmp_path):
+    config_root = tmp_path / "demon_attack"
+    train_dir = tmp_path / "checkpoints"
+    config_dir = config_root / "latency_8" / "seed_0"
+    config_dir.mkdir(parents=True)
+    eval_yaml = f"""
+experiment:
+  name: demon_attack_sf_same_latency_l8_seed0
+backend:
+  train_dir: {train_dir}
+logging:
+  output_dir: {tmp_path}/outputs/eval/demon_attack/latency_8/seed_0
+""".strip()
+    latency_bench_yaml = f"""
+experiment:
+  name: demon_attack_sf_same_latency_l8_seed0
+backend:
+  train_dir: {train_dir}
+logging:
+  output_dir: {tmp_path}/outputs/latency_bench/demon_attack/train_latency_8/seed_0
+""".strip()
+    (config_dir / "eval.yaml").write_text(eval_yaml + "\n", encoding="utf-8")
+    (config_dir / "latency_bench_eval.yaml").write_text(latency_bench_yaml + "\n", encoding="utf-8")
+    checkpoint_dir = train_dir / "demon_attack_sf_same_latency_l8_seed0"
+    checkpoint_dir.mkdir(parents=True)
+    (checkpoint_dir / "config.json").write_text("{}\n", encoding="utf-8")
+    policy_checkpoint_dir = checkpoint_dir / "checkpoint_p0"
+    policy_checkpoint_dir.mkdir()
+    (policy_checkpoint_dir / "checkpoint_000000001_000000000001.pth").write_text("", encoding="utf-8")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls_path = tmp_path / "python_calls.txt"
+    fake_python = bin_dir / "python"
+    fake_python.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "printf '%s\\n' \"$*\" >> \"$LATENCY_BENCH_FAKE_PYTHON_CALLS\"",
+                "exit 0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts" / "bash_scripts" / "eval_demon_attack.sh")],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "LATENCY_BENCH_EVAL_CONFIG_ROOT": str(config_root),
+            "LATENCY_BENCH_FAKE_PYTHON_CALLS": str(calls_path),
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "--checkpoint-kind latest" in calls
+    assert "--checkpoint-kind best" not in calls
+    assert "missing checkpoint matching" in result.stderr
+    assert "best_*" in result.stderr

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 from types import SimpleNamespace
 
 
@@ -77,6 +76,34 @@ def test_demon_attack_eval_done_accepts_lives_zero_game_over_with_extra_stats():
     }
 
 
+def test_demon_attack_eval_done_accepts_timelimit_truncated_timeout_with_extra_stats():
+    from training.sample_factory_common.queue_eval import _demon_attack_eval_episode_result
+
+    result = _demon_attack_eval_episode_result(
+        {
+            "TimeLimit.truncated": True,
+            "episode_extra_stats": {
+                "episode/raw_return": 12.0,
+                "episode/clipped_return": 3.0,
+                "episode/length": 4,
+                "episode/truncated": 1.0,
+                "episode/timeout": 1.0,
+            },
+        },
+        fallback_return=999.0,
+        fallback_length=99,
+        eval_raw_reward=True,
+    )
+
+    assert result == {
+        "return": 12.0,
+        "raw_return": 12.0,
+        "clipped_return": 3.0,
+        "length": 4,
+        "timeout": True,
+    }
+
+
 def test_queue_eval_result_keeps_raw_and_clipped_fields_with_raw_compat_returns():
     from training.sample_factory_common.queue_eval import _build_queue_eval_result
 
@@ -106,33 +133,35 @@ def test_queue_eval_result_keeps_raw_and_clipped_fields_with_raw_compat_returns(
     assert "warning" not in result
 
 
-def test_queue_eval_result_reports_missing_true_game_over_clearly():
+def test_queue_eval_result_reports_timeout_episodes_without_missing_game_over_warning():
     from training.sample_factory_common.queue_eval import _build_queue_eval_result
 
     result = _build_queue_eval_result(
         latency_value=5,
-        returns=[],
-        lengths=[],
+        returns=[12.0],
+        lengths=[3600],
         eval_episodes=1,
         eval_max_steps=3600,
         total_frames=3600,
         hit_eval_step_budget=True,
-        raw_returns=[],
-        clipped_returns=[],
+        raw_returns=[12.0],
+        clipped_returns=[3.0],
         eval_raw_reward=True,
         env_name="latency_demon_attack",
+        timeout_episodes=1,
     )
 
-    assert result["returns"] == []
-    assert result["raw_returns"] == []
-    assert result["clipped_returns"] == []
-    assert result["completed_episodes"] == 0
+    assert result["returns"] == [12.0]
+    assert result["raw_returns"] == [12.0]
+    assert result["clipped_returns"] == [3.0]
+    assert result["completed_episodes"] == 1
     assert result["requested_episodes"] == 1
     assert result["hit_eval_step_budget"] is True
-    assert "No true DemonAttack game-over" in result["warning"]
-    assert math.isnan(result["mean_return"])
-    assert math.isnan(result["mean_raw_return"])
-    assert math.isnan(result["mean_clipped_return"])
+    assert result["timeout_episodes"] == 1
+    assert "warning" not in result
+    assert result["mean_return"] == 12.0
+    assert result["mean_raw_return"] == 12.0
+    assert result["mean_clipped_return"] == 3.0
 
 
 def test_prepare_queue_eval_cfg_uses_eval_max_steps_as_eval_only_timelimit():
@@ -152,7 +181,7 @@ def test_prepare_queue_eval_cfg_uses_eval_max_steps_as_eval_only_timelimit():
     assert cfg.cli_args["max_episode_steps"] == 123
 
 
-def test_prepare_queue_eval_cfg_does_not_convert_demon_attack_eval_budget_to_timelimit():
+def test_prepare_queue_eval_cfg_uses_eval_max_steps_as_demon_attack_timelimit():
     from training.sample_factory_common.queue_eval import prepare_queue_eval_cfg
 
     cfg = prepare_queue_eval_cfg(
@@ -165,14 +194,14 @@ def test_prepare_queue_eval_cfg_does_not_convert_demon_attack_eval_budget_to_tim
         latency_value=0,
     )
 
-    assert cfg.max_episode_steps == 0
-    assert "max_episode_steps" not in cfg.cli_args
+    assert cfg.max_episode_steps == 123
+    assert cfg.cli_args["max_episode_steps"] == 123
 
 
 def test_write_and_log_queue_eval_result_preserve_raw_and_clipped_metrics(tmp_path):
     from training.sample_factory_common.queue_eval import log_queue_eval_result, write_queue_eval_result
 
-    cfg = SimpleNamespace(output_dir=str(tmp_path), experiment="exp", seed=7)
+    cfg = SimpleNamespace(output_dir=str(tmp_path), experiment="exp", seed=7, load_checkpoint_kind="best")
     result = {
         "latency": 5,
         "mean_return": 40.0,
@@ -187,6 +216,7 @@ def test_write_and_log_queue_eval_result_preserve_raw_and_clipped_metrics(tmp_pa
         "std_raw_return": 10.0,
         "std_clipped_return": 1.0,
         "completed_episodes": 2,
+        "timeout_episodes": 1,
         "requested_episodes": 2,
     }
 
@@ -194,9 +224,11 @@ def test_write_and_log_queue_eval_result_preserve_raw_and_clipped_metrics(tmp_pa
     payload = json.loads((tmp_path / "queue_eval_latency_5.json").read_text(encoding="utf-8"))
 
     assert payload["raw_returns"] == [30.0, 50.0]
+    assert payload["checkpoint_kind"] == "best"
     assert payload["clipped_returns"] == [2.0, 4.0]
     assert payload["mean_raw_return"] == 40.0
     assert payload["mean_clipped_return"] == 3.0
+    assert payload["timeout_episodes"] == 1
 
     class _Run:
         def __init__(self):
@@ -211,4 +243,6 @@ def test_write_and_log_queue_eval_result_preserve_raw_and_clipped_metrics(tmp_pa
 
     assert run.logged["queue_eval/mean_raw_return"] == 40.0
     assert run.logged["queue_eval/mean_clipped_return"] == 3.0
+    assert run.logged["queue_eval/timeout_episodes"] == 1.0
     assert run.summary["queue_eval/latency_5/mean_raw_return"] == 40.0
+    assert run.summary["queue_eval/latency_5/timeout_episodes"] == 1.0

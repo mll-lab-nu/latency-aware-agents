@@ -15,6 +15,7 @@ _LATENCY_METADATA_KEYS = (
     "train_latency_steps",
     "eval_latency_steps",
     "configured_latency_ms",
+    "checkpoint_kind",
 )
 
 

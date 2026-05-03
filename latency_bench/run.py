@@ -24,6 +24,7 @@ def apply_runtime_overrides(
     checkpoint_path: str | Path | None = None,
     run_name: str | None = None,
     output_dir: str | Path | None = None,
+    checkpoint_kind: str | None = None,
 ) -> dict[str, Any]:
     if checkpoint_path is not None:
         config["policy"]["checkpoint_path"] = str(checkpoint_path)
@@ -31,6 +32,15 @@ def apply_runtime_overrides(
         config["experiment"]["name"] = str(run_name)
     if output_dir is not None:
         config["logging"]["output_dir"] = str(output_dir)
+    if checkpoint_kind is not None:
+        from training.sample_factory_common.config_adapter import (
+            apply_checkpoint_kind_override,
+            normalize_checkpoint_kind,
+        )
+
+        normalized_kind = normalize_checkpoint_kind(checkpoint_kind)
+        apply_checkpoint_kind_override(config.setdefault("backend", {}), normalized_kind)
+        config.setdefault("policy", {})["checkpoint_kind"] = normalized_kind
     return config
 
 
@@ -83,6 +93,8 @@ def run_from_config(
             episode_metrics.metadata["run_name"] = experiment_cfg.get("name")
             if "checkpoint_path" in policy_cfg:
                 episode_metrics.metadata["checkpoint_path"] = str(policy_cfg["checkpoint_path"])
+            if "checkpoint_kind" in policy_cfg:
+                episode_metrics.metadata["checkpoint_kind"] = str(policy_cfg["checkpoint_kind"])
             episode_metrics.metadata["output_dir"] = str(logging_cfg["output_dir"])
             if extra_metadata:
                 episode_metrics.metadata.update(extra_metadata)
@@ -270,6 +282,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--checkpoint-path", type=Path)
     parser.add_argument("--run-name", type=str)
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--checkpoint-kind", choices=["latest", "best"])
     args = parser.parse_args(argv)
     config = load_config(args.config)
     apply_runtime_overrides(
@@ -277,6 +290,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         checkpoint_path=args.checkpoint_path,
         run_name=args.run_name,
         output_dir=args.output_dir,
+        checkpoint_kind=args.checkpoint_kind,
     )
     metrics = run_eval_sweep_from_config(config)
     for episode_metrics in metrics:
