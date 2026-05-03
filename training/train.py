@@ -21,6 +21,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--run-name", type=str)
     parser.add_argument("--train-dir", type=str)
     parser.add_argument("--mode", type=str)
+    parser.add_argument("--checkpoint-kind", choices=["latest", "best"])
+    parser.add_argument("--output-dir", type=str)
     args = parser.parse_args(argv)
 
     config = load_training_config(args.config)
@@ -29,6 +31,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         run_name=args.run_name,
         train_dir=args.train_dir,
         mode=args.mode,
+        checkpoint_kind=args.checkpoint_kind,
+        output_dir=args.output_dir,
     )
     raise SystemExit(run_from_config(config))
 
