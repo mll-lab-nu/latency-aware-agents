@@ -92,7 +92,15 @@ evaluation:
     - 3
     - 4
     - 5
+    - 6
+    - 7
+    - 8
+    - 9
     - 10
+    - 11
+    - 12
+    - 13
+    - 14
     - 15
   eval_max_steps: 3600
   eval_deterministic: true
