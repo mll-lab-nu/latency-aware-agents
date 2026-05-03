@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from latency_bench.core.types import EpisodeMetrics
 import latency_bench.run as latency_run
 from latency_bench.run import main
@@ -15,7 +17,6 @@ experiment:
   name: config_default
   seed: 0
   num_episodes: {num_episodes}
-  max_env_steps: 1
 executor:
   mode: simulated
 env:
@@ -37,6 +38,8 @@ policy:
   type: constant
   action: jump
   checkpoint_path: config_checkpoint.pt
+evaluation:
+  eval_max_steps: 1
 logging:
   output_dir: {output_dir}
 """,
@@ -51,7 +54,6 @@ experiment:
   name: sweep_config
   seed: 0
   num_episodes: 1
-  max_env_steps: 1
 executor:
   mode: simulated
 env:
@@ -78,6 +80,7 @@ policy:
 logging:
   output_dir: {output_dir}
 evaluation:
+  eval_max_steps: 1
   eval_latency_values:
     - 0
     - 3
@@ -92,7 +95,6 @@ def _run_config(policy_type: str, tmp_path: Path, seed: int = 7, num_episodes: i
             "name": "seed_test",
             "seed": seed,
             "num_episodes": num_episodes,
-            "max_env_steps": 1,
         },
         "executor": {
             "mode": "simulated",
@@ -124,6 +126,9 @@ def _run_config(policy_type: str, tmp_path: Path, seed: int = 7, num_episodes: i
         "logging": {
             "output_dir": str(tmp_path),
         },
+        "evaluation": {
+            "eval_max_steps": 1,
+        },
     }
 
 
@@ -141,7 +146,7 @@ def test_run_from_config_uses_sample_factory_eval_episode_seeds(monkeypatch, tmp
         logger = None
         env = FakeEnv()
 
-        def run_episode(self, *, episode_id, seed, max_env_steps):
+        def run_episode(self, *, episode_id, seed, eval_max_steps):
             episode_seeds.append(seed)
             return EpisodeMetrics(
                 episode_id=episode_id,
@@ -174,7 +179,7 @@ def test_run_from_config_keeps_existing_episode_seeds_for_non_sample_factory_pol
         logger = None
         env = FakeEnv()
 
-        def run_episode(self, *, episode_id, seed, max_env_steps):
+        def run_episode(self, *, episode_id, seed, eval_max_steps):
             episode_seeds.append(seed)
             return EpisodeMetrics(
                 episode_id=episode_id,
@@ -189,6 +194,55 @@ def test_run_from_config_keeps_existing_episode_seeds_for_non_sample_factory_pol
     latency_run.run_from_config(config)
 
     assert episode_seeds == [11, 12, 13]
+
+
+def test_run_from_config_uses_evaluation_eval_max_steps(
+    monkeypatch,
+    tmp_path: Path,
+):
+    eval_steps_seen = []
+
+    class FakeEnv:
+        def close(self):
+            pass
+
+    class FakeExecutor:
+        logger = None
+        env = FakeEnv()
+
+        def run_episode(self, *, episode_id, seed, eval_max_steps):
+            eval_steps_seen.append(eval_max_steps)
+            return EpisodeMetrics(
+                episode_id=episode_id,
+                episode_return=0.0,
+                survival_steps=0,
+                metadata={},
+            )
+
+    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
+    config["evaluation"] = {"eval_max_steps": 7}
+
+    latency_run.run_from_config(config)
+
+    assert eval_steps_seen == [7]
+
+
+def test_run_from_config_requires_evaluation_eval_max_steps(monkeypatch, tmp_path: Path):
+    class FakeEnv:
+        def close(self):
+            pass
+
+    class FakeExecutor:
+        logger = None
+        env = FakeEnv()
+
+    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
+    config.pop("evaluation")
+
+    with pytest.raises(ValueError, match="evaluation.eval_max_steps is required"):
+        latency_run.run_from_config(config)
 
 
 def test_main_applies_runtime_overrides(tmp_path: Path):

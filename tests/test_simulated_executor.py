@@ -62,7 +62,7 @@ def _executor(
 def test_zero_latency_action_can_affect_same_frame():
     executor, env, _, _ = _executor(ZeroLatencySource(), max_steps=3)
 
-    metrics = executor.run_episode(episode_id=0, max_env_steps=3)
+    metrics = executor.run_episode(episode_id=0, eval_max_steps=3)
 
     assert env.applied_actions[0].value == "jump"
     assert metrics.survival_steps == 3
@@ -73,7 +73,7 @@ def test_fixed_two_frame_latency_applies_at_t_plus_two():
     clock = EnvClock(30)
     executor, env, _, noop = _executor(FixedLatencySource(clock.frame_ms * 2), max_steps=4)
 
-    executor.run_episode(episode_id=0, max_env_steps=4)
+    executor.run_episode(episode_id=0, eval_max_steps=4)
 
     assert [action.value for action in env.applied_actions[:3]] == [noop.value, noop.value, "jump"]
 
@@ -87,7 +87,7 @@ def test_fixed_one_frame_latency_at_35_fps_does_not_drop_boundary_action():
         fps_env=35,
     )
 
-    metrics = executor.run_episode(episode_id=0, max_env_steps=9)
+    metrics = executor.run_episode(episode_id=0, eval_max_steps=9)
 
     assert [action.value for action in env.applied_actions] == [
         noop.value,
@@ -119,7 +119,7 @@ def test_trace_replay_latency_applies_event_at_trace_ready_step(tmp_path: Path):
         stale_action_mode=StaleActionMode.FIFO,
     )
 
-    executor.run_episode(episode_id=0, max_env_steps=4)
+    executor.run_episode(episode_id=0, eval_max_steps=4)
     applied = executor.action_scheduler.get_applied_events()
 
     assert applied[0].action.value == "a0"
@@ -135,7 +135,7 @@ def test_simulated_executor_does_not_sleep(monkeypatch):
     monkeypatch.setattr(time, "sleep", fail_sleep)
     executor, env, _, _ = _executor(ZeroLatencySource(), max_steps=2)
 
-    executor.run_episode(episode_id=0, max_env_steps=2)
+    executor.run_episode(episode_id=0, eval_max_steps=2)
 
     assert len(env.applied_actions) == 2
 
@@ -144,7 +144,7 @@ def test_simulated_executor_logs_records_and_metrics(tmp_path: Path):
     logger = TrajectoryLogger(tmp_path)
     executor, _, _, _ = _executor(ZeroLatencySource(), max_steps=3, logger=logger)
 
-    metrics = executor.run_episode(episode_id=7, max_env_steps=3)
+    metrics = executor.run_episode(episode_id=7, eval_max_steps=3)
     logger.flush()
 
     assert metrics.episode_id == 7
@@ -163,7 +163,7 @@ def test_each_episode_resets_scheduler_to_noop_for_fixed_latency():
     clock = EnvClock(30)
     executor, env, _, noop = _executor(FixedLatencySource(clock.frame_ms * 2), max_steps=3)
 
-    executor.run_episode(episode_id=0, max_env_steps=3)
-    executor.run_episode(episode_id=1, max_env_steps=3)
+    executor.run_episode(episode_id=0, eval_max_steps=3)
+    executor.run_episode(episode_id=1, eval_max_steps=3)
 
     assert env.applied_actions[0].value == noop.value

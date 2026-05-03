@@ -10,6 +10,7 @@ import gymnasium as gym
 import numpy as np
 
 from latency_bench.core.config import load_config
+import scripts.generate_sample_factory_same_latency_sweep as same_latency_sweep
 from scripts.generate_sample_factory_same_latency_sweep import (
     _build_eval_config,
     _build_full_run_config,
@@ -25,6 +26,15 @@ from training.sample_factory_common.config_adapter import (
     load_training_config,
     validate_training_config,
 )
+
+
+def _patch_flappy_base_config(tmp_path, monkeypatch, *, worker_num_splits: int) -> None:
+    cfg = load_config("configs/base/flappy.yaml")
+    cfg["env"]["use_gpu_render"] = True
+    cfg["training"]["worker_num_splits"] = int(worker_num_splits)
+    path = tmp_path / f"flappy_worker_splits_{worker_num_splits}.yaml"
+    path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    monkeypatch.setitem(same_latency_sweep.BASE_CONFIGS, "flappy", path)
 
 
 class _ScriptedAtariInfoEnv(gym.Env):
@@ -91,6 +101,28 @@ def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
     assert "--eval-queue-latency-values" in args
     assert "--experiment" in args
     assert "deadly_corridor_sf_fixed_latency_4" in args
+
+
+def test_flappy_sf_cli_maps_explicit_env_max_episode_steps():
+    from training.flappy_sf.integration import build_cli_args_from_config
+
+    cfg = load_config("configs/base/flappy.yaml")
+    cfg["env"]["max_episode_steps"] = 1800
+
+    args = build_cli_args_from_config(cfg)
+
+    assert args[args.index("--max_episode_steps") + 1] == "1800"
+
+
+def test_flappy_sf_cli_omits_max_episode_steps_when_env_field_is_absent():
+    from training.flappy_sf.integration import build_cli_args_from_config
+
+    cfg = load_config("configs/base/flappy.yaml")
+    cfg["env"].pop("max_episode_steps", None)
+
+    args = build_cli_args_from_config(cfg)
+
+    assert "--max_episode_steps" not in args
 
 
 def test_build_common_sf_args_does_not_emit_unsupported_wandb_unique_id_arg():
@@ -179,7 +211,9 @@ def test_flappy_sf_rejects_screen_size_config():
         validate_training_config(cfg)
 
 
-def test_flappy_sf_native_eval_uses_same_obs_resize():
+def test_flappy_sf_native_eval_uses_same_obs_resize(tmp_path, monkeypatch):
+    _patch_flappy_base_config(tmp_path, monkeypatch, worker_num_splits=1)
+
     full_cfg = _build_full_run_config(
         env_name="flappy",
         seed=0,
@@ -217,7 +251,9 @@ def test_flappy_sf_native_eval_uses_same_obs_resize():
     assert train_cfg["env"]["obs_mode"] == eval_cfg["env"]["obs_mode"] == "image_only"
 
 
-def test_flappy_sf_sweep_config_preserves_gpu_render_fields():
+def test_flappy_sf_sweep_config_preserves_gpu_render_fields(tmp_path, monkeypatch):
+    _patch_flappy_base_config(tmp_path, monkeypatch, worker_num_splits=1)
+
     full_cfg = _build_full_run_config(
         env_name="flappy",
         seed=0,
@@ -252,12 +288,31 @@ def test_flappy_sf_sweep_config_preserves_gpu_render_fields():
 
     assert train_cfg["env"]["use_gpu_render"] is True
     assert train_cfg["env"]["gpu_render_device"] == "auto"
-    assert train_cfg["env"]["gpu_render_profile"] is False
-    assert train_cfg["env"]["gpu_render_profile_interval"] == 1000
+    assert train_cfg["env"]["gpu_render_profile"] == full_cfg["env"]["gpu_render_profile"]
+    assert train_cfg["env"]["gpu_render_profile_interval"] == full_cfg["env"]["gpu_render_profile_interval"]
     assert eval_cfg["env"]["use_gpu_render"] is True
     assert eval_cfg["env"]["gpu_render_device"] == "auto"
-    assert eval_cfg["env"]["gpu_render_profile"] is False
-    assert eval_cfg["env"]["gpu_render_profile_interval"] == 1000
+    assert eval_cfg["env"]["gpu_render_profile"] == full_cfg["env"]["gpu_render_profile"]
+    assert eval_cfg["env"]["gpu_render_profile_interval"] == full_cfg["env"]["gpu_render_profile_interval"]
+    assert train_cfg["training"]["worker_num_splits"] == full_cfg["training"]["worker_num_splits"] == 1
+    assert eval_cfg["training"]["worker_num_splits"] == full_cfg["training"]["worker_num_splits"] == 1
+
+
+def test_flappy_sf_sweep_config_rejects_gpu_worker_splits_without_rewrite(tmp_path, monkeypatch):
+    _patch_flappy_base_config(tmp_path, monkeypatch, worker_num_splits=2)
+
+    with pytest.raises(ValueError, match="worker_num_splits"):
+        _build_full_run_config(
+            env_name="flappy",
+            seed=0,
+            latency=0,
+            max_steps=1800,
+            train_dir="/workspace/sample_factory_runs",
+            output_root="/workspace/latency_sweeps",
+            device="gpu",
+            restart_behavior="resume",
+            train_for_env_steps=None,
+        )
 
 
 def test_flappy_sf_latency_channel_shape():
@@ -570,6 +625,85 @@ def test_episode_metrics_wrapper_marks_truncation_as_true_episode_end(tmp_path):
     assert metrics_path.exists()
 
 
+def test_episode_metrics_wrapper_emits_flappy_timeout_and_issued_action_debug_metrics(tmp_path):
+    import json
+
+    from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper
+
+    metrics_path = tmp_path / "episodes.jsonl"
+    wrapped = EpisodeMetricsWrapper(
+        _ScriptedAtariInfoEnv(
+            [
+                (0.5, False, False, {"score": 1}),
+                (0.5, False, False, {"score": 1, "applied_action": 0}),
+                (1.0, False, True, {"score": 2, "pipes_passed": 2}),
+            ]
+        ),
+        metrics_path=str(metrics_path),
+        issued_action_labels={0: "noop", 1: "flap"},
+    )
+
+    wrapped.reset()
+    wrapped.step(0)
+    wrapped.step(0)
+    _, _, terminated, truncated, info = wrapped.step(1)
+
+    assert terminated is False
+    assert truncated is True
+    extra = info["episode_extra_stats"]
+    assert extra["episode/length"] == 3
+    assert extra["episode/terminated"] == 0.0
+    assert extra["episode/truncated"] == 1.0
+    assert extra["episode/timeout"] == 1.0
+    assert extra["episode/return_per_step"] == pytest.approx(2.0 / 3.0)
+    assert extra["episode/score"] == 2.0
+    assert extra["episode/pipes_passed"] == 2.0
+    assert extra["action/issued_noop_ratio"] == pytest.approx(2.0 / 3.0)
+    assert extra["action/issued_flap_ratio"] == pytest.approx(1.0 / 3.0)
+    assert extra["action/issued_entropy"] > 0.0
+    assert extra["action/issued_consecutive_noop_mean"] == 2.0
+    assert extra["action/issued_consecutive_noop_max"] == 2.0
+    assert extra["action/issued_consecutive_flap_mean"] == 1.0
+    assert extra["action/issued_consecutive_flap_max"] == 1.0
+    assert "done_reason" not in extra
+
+    event = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert event["terminated"] is False
+    assert event["truncated"] is True
+    assert event["time_limit_truncated"] is True
+    assert event["done_reason"] == "truncated"
+    assert event["action/issued_flap_ratio"] == pytest.approx(1.0 / 3.0)
+
+
+def test_flappy_reward_trace_keeps_raw_and_transformed_returns_equal(tmp_path):
+    import json
+
+    from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, RewardTraceWrapper
+
+    metrics_path = tmp_path / "flappy_rewards.jsonl"
+    wrapped = EpisodeMetricsWrapper(
+        RewardTraceWrapper(
+            _ScriptedAtariInfoEnv(
+                [
+                    (0.5, False, False, {}),
+                    (1.5, True, False, {}),
+                ]
+            )
+        ),
+        metrics_path=str(metrics_path),
+    )
+
+    wrapped.reset()
+    wrapped.step(0)
+    _, _, _, _, info = wrapped.step(0)
+
+    assert info["episode_extra_stats"]["episode/raw_return"] == 2.0
+    assert info["episode_extra_stats"]["episode/clipped_return"] == 2.0
+    event = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert event["raw_return"] == 2.0
+    assert event["clipped_return"] == 2.0
+
+
 def test_episode_metrics_aggregator_logs_raw_visible_metrics_with_clipped_debug_key(tmp_path):
     from training.sample_factory_common.episode_metrics import EpisodeMetricsAggregator
 
@@ -597,6 +731,49 @@ def test_episode_metrics_aggregator_logs_raw_visible_metrics_with_clipped_debug_
     assert payload["episode_train/cumulative_mean_raw_return"] == 30.0
     assert payload["rollout/ep_clipped_rew_mean"] == 2.0
     assert [key for key in payload if "clipped" in key] == ["rollout/ep_clipped_rew_mean"]
+
+
+def test_episode_metrics_aggregator_logs_numeric_debug_metrics_and_omits_done_reason(tmp_path):
+    from training.sample_factory_common.episode_metrics import EpisodeMetricsAggregator
+
+    aggregator = EpisodeMetricsAggregator(path=tmp_path / "episodes.jsonl", rolling_window=10)
+
+    payload = aggregator.process_event(
+        {
+            "return": 12.0,
+            "raw_return": 12.0,
+            "clipped_return": 12.0,
+            "length": 4,
+            "raw_frames": 4,
+            "terminated": False,
+            "truncated": True,
+            "timeout": True,
+            "done_reason": "truncated",
+            "score": 3,
+            "action/issued_flap_ratio": 0.25,
+            "action/issued_noop_ratio": 0.75,
+            "action/issued_entropy": 0.562,
+            "action/issued_consecutive_noop_mean": 3.0,
+            "action/issued_consecutive_noop_max": 3.0,
+            "action/issued_consecutive_flap_mean": 1.0,
+            "action/issued_consecutive_flap_max": 1.0,
+        }
+    )
+
+    assert payload["episode/length"] == 4
+    assert payload["episode/terminated_rate"] == 0.0
+    assert payload["episode/truncated_rate"] == 1.0
+    assert payload["episode/timeout_rate"] == 1.0
+    assert payload["episode/return_per_step"] == 3.0
+    assert payload["episode/score"] == 3.0
+    assert payload["action/issued_flap_ratio"] == 0.25
+    assert payload["action/issued_noop_ratio"] == 0.75
+    assert payload["action/issued_entropy"] == 0.562
+    assert payload["action/issued_consecutive_noop_mean"] == 3.0
+    assert payload["action/issued_consecutive_noop_max"] == 3.0
+    assert payload["action/issued_consecutive_flap_mean"] == 1.0
+    assert payload["action/issued_consecutive_flap_max"] == 1.0
+    assert "done_reason" not in payload
 
 
 def test_sample_factory_atari_episode_patch_suppresses_native_life_loss_report():
@@ -845,6 +1022,56 @@ def test_demon_attack_env_factory_patches_sample_factory_stats_in_worker_process
         env.close()
 
 
+def test_demon_attack_reference_env_is_sample_factory_compatible(monkeypatch):
+    from sample_factory.algo.utils.env_info import extract_env_info
+
+    from training.demon_attack_sf import integration
+
+    monkeypatch.setattr(integration, "_ENVS_REGISTERED", False)
+    monkeypatch.setattr(
+        integration,
+        "make_demon_attack_benchmark_env",
+        lambda **kwargs: _ScriptedAtariInfoEnv([]),
+    )
+
+    cfg = SimpleNamespace(
+        env=integration.SF_ENV_NAME,
+        env_gpu_actions=False,
+        env_gpu_observations=False,
+        env_frameskip=1,
+        seed=0,
+        action_repeat=4,
+        frame_stack=4,
+        terminal_on_life_loss=True,
+        clip_reward=True,
+        queue_latency_values="0",
+        latency_mode="episode_fixed",
+        latency_sampling_mode="uniform_all",
+        episodes_per_stage=10,
+        randomize_within_stage=False,
+        within_episode_change_interval=1,
+        within_episode_change_prob=1.0,
+        add_latency_info=False,
+        max_episode_steps=0,
+    )
+
+    env = integration.make_reference_env(cfg)
+    try:
+        assert env.num_agents == 1
+        assert env.is_multiagent is True
+        assert isinstance(env.observation_space, gym.spaces.Dict)
+        assert env.observation_space["obs"].shape == (4, 2, 2)
+        assert env.action_space == _ScriptedAtariInfoEnv.action_space
+
+        env_info = extract_env_info(env, cfg)
+
+        assert env_info.num_agents == 1
+        assert env_info.obs_space == env.observation_space
+        assert env_info.action_space == env.action_space
+    finally:
+        env.close()
+
+
 def test_doom_frame_stack_wrapper_supports_box_observations():
     import gymnasium as gym
     import numpy as np
@@ -922,8 +1149,11 @@ def test_deadly_corridor_prepare_eval_cfg_keeps_positive_base_fps_synchronous():
     ),
 )
 def test_same_latency_sweep_generator_emits_train_wandb_names(
-    env_name, seed, latency, expected_wandb_name
+    tmp_path, monkeypatch, env_name, seed, latency, expected_wandb_name
 ):
+    if env_name == "flappy":
+        _patch_flappy_base_config(tmp_path, monkeypatch, worker_num_splits=1)
+
     train_cfg = _build_train_config(
         env_name=env_name,
         seed=seed,
@@ -938,6 +1168,8 @@ def test_same_latency_sweep_generator_emits_train_wandb_names(
 
     assert train_cfg["logging"]["wandb_name"] == expected_wandb_name
     assert train_cfg["experiment"]["name"] == f"{env_name}_sf_same_latency_l{latency}_seed{seed}"
+    if env_name == "flappy":
+        assert "max_episode_steps" not in train_cfg["env"]
 
 
 def test_same_latency_sweep_generator_emits_sample_factory_queue_eval_configs():
@@ -982,22 +1214,26 @@ def test_same_latency_sweep_generator_emits_sample_factory_queue_eval_configs():
     assert eval_cfg["evaluation"]["eval_episodes"] == 10
     assert eval_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
     assert eval_cfg["evaluation"]["eval_max_steps"] == 3600
+    assert "max_episode_steps" not in eval_cfg["env"]
     assert eval_cfg["logging"] == {
         "output_dir": "/workspace/latency_sweeps/eval/demon_attack/latency_4/seed_0"
     }
 
 
 @pytest.mark.parametrize(
-    ("env_name", "max_steps", "expected_policy", "expected_ms", "expected_max_env_steps"),
+    ("env_name", "max_steps", "expected_policy", "expected_ms", "expected_eval_max_steps"),
     (
-        ("flappy", 1800, "flappy_sf", 100.0, 1800),
+        ("flappy", 1800, "flappy_sf", 100.0, 3600),
         ("demon_attack", 25000, "demon_attack_sf", 50.0, 3600),
-        ("deadly_corridor", 2100, "deadly_corridor_sf", 85.7142857143, 2100),
+        ("deadly_corridor", 2100, "deadly_corridor_sf", 85.7142857143, 30000),
     ),
 )
 def test_same_latency_sweep_generator_emits_latency_bench_eval_configs(
-    tmp_path, env_name, max_steps, expected_policy, expected_ms, expected_max_env_steps
+    tmp_path, monkeypatch, env_name, max_steps, expected_policy, expected_ms, expected_eval_max_steps
 ):
+    if env_name == "flappy":
+        _patch_flappy_base_config(tmp_path, monkeypatch, worker_num_splits=1)
+
     full_cfg = _build_full_run_config(
         env_name=env_name,
         seed=0,
@@ -1026,7 +1262,7 @@ def test_same_latency_sweep_generator_emits_latency_bench_eval_configs(
 
     assert loaded["experiment"]["name"] == f"{env_name}_sf_same_latency_l3_seed0"
     assert loaded["experiment"]["num_episodes"] == 10
-    assert loaded["experiment"]["max_env_steps"] == expected_max_env_steps
+    assert set(loaded["experiment"]) == {"name", "seed", "num_episodes"}
     assert loaded["backend"]["train_dir"] == "results/checkpoints/sample_factory_runs"
     assert loaded["backend"]["run_mode"] == "eval"
     assert loaded["policy"]["type"] == expected_policy
@@ -1045,12 +1281,16 @@ def test_same_latency_sweep_generator_emits_latency_bench_eval_configs(
         "deadly_corridor": [0, 1, 2, 3, 4, 5, 10, 15, 40],
     }
     assert loaded["evaluation"]["eval_latency_values"] == expected_eval_latencies[env_name]
+    assert loaded["evaluation"]["eval_max_steps"] == expected_eval_max_steps
+    assert "max_episode_steps" not in loaded["env"]
     if env_name == "deadly_corridor":
         assert loaded["env"]["fps_env"] == 35
         assert loaded["env"]["noop_action"] == [0, 0, 0, 0]
 
 
-def test_same_latency_sweep_generator_maps_zero_latency_to_zero_source(tmp_path):
+def test_same_latency_sweep_generator_maps_zero_latency_to_zero_source(tmp_path, monkeypatch):
+    _patch_flappy_base_config(tmp_path, monkeypatch, worker_num_splits=1)
+
     full_cfg = _build_full_run_config(
         env_name="flappy",
         seed=0,
@@ -1120,12 +1360,16 @@ def test_same_latency_sweep_generator_preserves_deadly_corridor_eval_latencies_f
     assert bench_cfg["latency"]["train_values"] == [0]
     assert eval_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
     assert bench_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
+    assert "max_episode_steps" not in eval_cfg["env"]
+    assert "max_episode_steps" not in bench_cfg["env"]
     assert eval_cfg["env"]["fps_env"] == 35
     assert bench_cfg["env"]["fps_env"] == 35
     assert bench_cfg["env"]["noop_action"] == [0, 0, 0, 0]
 
 
-def test_same_latency_sweep_generator_writes_three_configs_and_commands(tmp_path):
+def test_same_latency_sweep_generator_writes_three_configs_and_commands(tmp_path, monkeypatch):
+    _patch_flappy_base_config(tmp_path, monkeypatch, worker_num_splits=1)
+
     generated_root = tmp_path / "generated"
     output_root = tmp_path / "outputs"
 
@@ -1193,6 +1437,13 @@ def test_same_latency_sweep_generator_writes_three_configs_and_commands(tmp_path
             assert loaded["policy"]["type"] == policy_type
             assert loaded["policy"]["checkpoint_path"] == ""
             assert loaded["evaluation"]["eval_latency_values"] == expected_eval_latencies[env_name]
+            assert set(loaded["experiment"]) == {"name", "seed", "num_episodes"}
+            assert "max_episode_steps" not in loaded["env"]
+            assert "max_episode_steps" not in eval_loaded["env"]
+            if env_name == "flappy":
+                assert "max_episode_steps" not in train_loaded["env"]
+            if env_name == "demon_attack":
+                assert train_loaded["env"]["max_episode_steps"] == 25000
             assert loaded["logging"]["output_dir"] == str(
                 output_root / "latency_bench" / env_name / f"train_latency_{latency}" / "seed_0"
             )

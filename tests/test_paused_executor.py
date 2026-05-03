@@ -37,7 +37,7 @@ def test_paused_fixed_latency_action_applies_same_frame():
     _, clock, noop_action, jump_action, _ = make_dummy_parts()
     executor = _executor(clock.frame_ms * 2, [jump_action], max_steps=3)
 
-    executor.run_episode(episode_id=0, max_env_steps=3)
+    executor.run_episode(episode_id=0, eval_max_steps=3)
 
     assert executor.env.applied_actions[0] is jump_action
     assert executor.env.applied_actions[0] is not noop_action
@@ -49,8 +49,8 @@ def test_paused_slow_policy_does_not_change_trajectory():
     fast_executor = _executor(clock.frame_ms * 2, actions, max_steps=4, sleep_s=0.0)
     slow_executor = _executor(clock.frame_ms * 2, actions, max_steps=4, sleep_s=0.01)
 
-    fast_executor.run_episode(episode_id=0, max_env_steps=4)
-    slow_executor.run_episode(episode_id=1, max_env_steps=4)
+    fast_executor.run_episode(episode_id=0, eval_max_steps=4)
+    slow_executor.run_episode(episode_id=1, eval_max_steps=4)
 
     assert [action.value for action in fast_executor.env.applied_actions] == [
         action.value for action in slow_executor.env.applied_actions
@@ -63,7 +63,7 @@ def test_paused_logs_configured_latency_without_delaying_action(tmp_path: Path):
     logger = TrajectoryLogger(tmp_path)
     executor = _executor(fixed_latency_ms, [jump_action], max_steps=2, logger=logger)
 
-    metrics = executor.run_episode(episode_id=0, max_env_steps=2)
+    metrics = executor.run_episode(episode_id=0, eval_max_steps=2)
 
     assert logger.action_records[0].latency_ms == 0.0
     assert logger.latency_records[0].latency_ms == fixed_latency_ms

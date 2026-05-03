@@ -167,7 +167,7 @@ def test_realtime_sleeps_to_each_frame_target():
         max_steps=3,
     )
 
-    executor.run_episode(episode_id=0, max_env_steps=3)
+    executor.run_episode(episode_id=0, eval_max_steps=3)
 
     assert sleeps == pytest.approx([executor.clock.frame_ms / 1000.0, executor.clock.frame_ms / 1000.0])
     assert worker.closed
@@ -187,7 +187,7 @@ def test_realtime_completion_applies_on_next_frame_tick():
     worker = CompleteFirstTaskOnSecondDrainWorker(action=jump, completion_time_ms=1.0)
     executor = _executor(worker=worker, actions=[jump], time_fn=time_fn, sleep_fn=sleep_fn, max_steps=2)
 
-    executor.run_episode(episode_id=0, max_env_steps=2)
+    executor.run_episode(episode_id=0, eval_max_steps=2)
 
     assert [action.value for action in executor.env.applied_actions] == ["noop", "jump"]
 
@@ -226,7 +226,7 @@ def test_realtime_measured_latency_records_policy_duration(tmp_path):
         logger=logger,
     )
 
-    executor.run_episode(episode_id=0, max_env_steps=2)
+    executor.run_episode(episode_id=0, eval_max_steps=2)
 
     assert logger.latency_records[0].source == "measured"
     assert logger.latency_records[0].latency_ms > 0
@@ -251,7 +251,7 @@ def test_realtime_measured_latency_sets_effective_action_delay():
     )
     executor = _measured_executor(worker=worker, actions=[jump], time_fn=time_fn, sleep_fn=sleep_fn, max_steps=3)
 
-    executor.run_episode(episode_id=0, max_env_steps=3)
+    executor.run_episode(episode_id=0, eval_max_steps=3)
 
     assert [action.value for action in executor.env.applied_actions] == ["noop", "noop", "jump"]
     assert executor.action_scheduler.get_applied_events()[0].latency_ms == 50.0
@@ -276,7 +276,7 @@ def test_realtime_measured_metadata_includes_queue_wait_and_effective_latency(tm
         logger=logger,
     )
 
-    executor.run_episode(episode_id=0, max_env_steps=2)
+    executor.run_episode(episode_id=0, eval_max_steps=2)
 
     metadata = logger.latency_records[0].metadata
     assert metadata["queue_wait_ms"] == 10.0

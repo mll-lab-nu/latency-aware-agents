@@ -3,10 +3,11 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from latency_bench.core.config import load_config
-from latency_bench.core.types import Action
+from latency_bench.core.types import Action, Observation, PolicyOutput, StepResult
 from latency_bench.envs.base import DummyEnvAdapter
 from latency_bench.envs import deadly_corridor
 from latency_bench.envs.deadly_corridor import _noop_action_from_space
@@ -23,7 +24,6 @@ def _config(env_name: str = "dummy", output_dir: str = "outputs/factory_test") -
             "name": "factory_test",
             "seed": 0,
             "num_episodes": 1,
-            "max_env_steps": 5,
         },
         "executor": {
             "mode": "simulated",
@@ -51,6 +51,9 @@ def _config(env_name: str = "dummy", output_dir: str = "outputs/factory_test") -
         "policy": {
             "type": "constant",
             "action": "noop",
+        },
+        "evaluation": {
+            "eval_max_steps": 5,
         },
         "logging": {
             "output_dir": output_dir,
@@ -352,6 +355,44 @@ def test_build_env_adapter_passes_demon_attack_action_repeat(monkeypatch):
     assert captured["action_repeat"] == 4
 
 
+def test_demon_attack_latency_bench_eval_raw_reward_disables_clipping_and_life_loss_terminal(monkeypatch):
+    from latency_bench.envs import demon_attack
+
+    captured = {}
+
+    class FakeDemonAttackEnvAdapter:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        demon_attack,
+        "DemonAttackEnvAdapter",
+        FakeDemonAttackEnvAdapter,
+    )
+    config = _config("demon_attack")
+    config["backend"] = {"run_mode": "eval"}
+    config["evaluation"] = {"eval_raw_reward": True}
+    config["policy"] = {"type": "demon_attack_sf"}
+    config["env"].update(
+        {
+            "env_id": "ALE/DemonAttack-v5",
+            "action_repeat": 4,
+            "screen_size": 84,
+            "noop_max": 30,
+            "terminal_on_life_loss": True,
+            "clip_reward": True,
+            "repeat_action_probability": 0.0,
+            "full_action_space": False,
+        }
+    )
+    noop = Action(value=0, name="noop", is_noop=True)
+
+    build_env_adapter(config, noop)
+
+    assert captured["terminal_on_life_loss"] is False
+    assert captured["clip_reward"] is False
+
+
 def test_build_executor_uses_registered_env_factory(tmp_path):
     executor = build_executor(_config("dummy", output_dir=str(tmp_path)))
 
@@ -406,6 +447,128 @@ def test_sample_factory_policy_uses_frame_stack_observation_builder(monkeypatch,
     assert isinstance(executor.observation_builder, SampleFactoryFrameStackObservationBuilder)
     assert executor.observation_builder.frame_stack == 4
     assert executor.observation_builder.expected_channels == 12
+
+
+def test_latency_bench_flappy_sf_eval_uses_same_obs_resize(monkeypatch, tmp_path):
+    from latency_bench.executors import factory
+    from latency_bench.envs.base import EnvAdapter
+    from latency_bench.policy.base import PolicyRunner
+
+    captured = {}
+    noop = Action(value=0, name="noop", is_noop=True)
+
+    class SingleFrameEnv(EnvAdapter):
+        fps_env = 30.0
+        noop_action = noop
+
+        def __init__(self):
+            self.env_step = 0
+
+        @property
+        def frame_ms(self):
+            return 1000.0 / self.fps_env
+
+        def reset(self, seed=None):
+            self.env_step = 0
+            return Observation(
+                data=np.zeros((3, 84, 84), dtype=np.uint8),
+                env_step=0,
+                sim_time_ms=0.0,
+                metadata={"frame_skip": 0},
+            )
+
+        def step(self, action):
+            self.env_step += 1
+            return StepResult(
+                observation=Observation(
+                    data=np.ones((3, 84, 84), dtype=np.uint8),
+                    env_step=self.env_step,
+                    sim_time_ms=self.env_step * self.frame_ms,
+                    metadata={"frame_skip": 0},
+                ),
+                reward=0.0,
+                done=True,
+            )
+
+        def render_frame(self):
+            return np.zeros((3, 84, 84), dtype=np.uint8)
+
+        def get_state_info(self):
+            return {"env_step": self.env_step, "sim_time_ms": self.env_step * self.frame_ms}
+
+        def close(self):
+            pass
+
+    class CapturingPolicy(PolicyRunner):
+        def predict(self, observation):
+            captured["shape"] = observation.data.shape
+            captured["dtype"] = observation.data.dtype
+            return PolicyOutput(action=noop)
+
+    monkeypatch.setattr(factory, "build_env_adapter", lambda config, noop_action: SingleFrameEnv())
+    monkeypatch.setattr(factory, "build_policy", lambda config, action_resolver: CapturingPolicy())
+    config = _flappy_config(output_dir=str(tmp_path))
+    config["env"].update({"frame_stack": 4, "obs_resize": [84, 84], "obs_mode": "image_only"})
+    config["policy"]["type"] = "flappy_sf"
+
+    executor = build_executor(config)
+    executor.run_episode(episode_id=0, seed=0, eval_max_steps=1)
+
+    assert captured["shape"] == (12, 84, 84)
+    assert captured["dtype"] == np.uint8
+
+
+def test_latency_bench_flappy_sf_latency_channel_shape(monkeypatch, tmp_path):
+    from modeling.flappy_ppo.preprocessing import latency_channel_value
+    from latency_bench.executors import factory
+    from latency_bench.envs.base import EnvAdapter
+    from latency_bench.policy.base import PolicyRunner
+
+    captured = {}
+    noop = Action(value=0, name="noop", is_noop=True)
+
+    class SingleFrameEnv(EnvAdapter):
+        fps_env = 30.0
+        noop_action = noop
+
+        def reset(self, seed=None):
+            return Observation(
+                data=np.zeros((3, 84, 84), dtype=np.uint8),
+                env_step=0,
+                sim_time_ms=0.0,
+                metadata={"frame_skip": 3},
+            )
+
+        def step(self, action):
+            return StepResult(observation=None, reward=0.0, done=True)
+
+        def render_frame(self):
+            return np.zeros((3, 84, 84), dtype=np.uint8)
+
+        def get_state_info(self):
+            return {"env_step": 0, "sim_time_ms": 0.0}
+
+        def close(self):
+            pass
+
+    class CapturingPolicy(PolicyRunner):
+        def predict(self, observation):
+            captured["shape"] = observation.data.shape
+            captured["latency_value"] = int(observation.data[-1, 0, 0])
+            return PolicyOutput(action=noop)
+
+    monkeypatch.setattr(factory, "build_env_adapter", lambda config, noop_action: SingleFrameEnv())
+    monkeypatch.setattr(factory, "build_policy", lambda config, action_resolver: CapturingPolicy())
+    config = _flappy_config(output_dir=str(tmp_path))
+    config["env"].update({"frame_stack": 4, "obs_resize": [84, 84], "obs_mode": "latency_channel"})
+    config["latency"].update({"type": "fixed", "fixed_latency_ms": 100.0, "train_values": [0, 3]})
+    config["policy"]["type"] = "flappy_sf"
+
+    executor = build_executor(config)
+    executor.run_episode(episode_id=0, seed=0, eval_max_steps=1)
+
+    assert captured["shape"] == (13, 84, 84)
+    assert captured["latency_value"] == int(latency_channel_value(3, 3))
 
 
 def test_non_sample_factory_policy_uses_default_observation_builder(monkeypatch, tmp_path):

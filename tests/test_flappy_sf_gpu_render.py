@@ -20,6 +20,7 @@ def _flappy_gpu_cfg(**overrides):
         "pipe_color": "green",
         "background": "day",
         "debug": False,
+        "debug_timelimit_diagnostics": False,
         "screen_size": "",
         "score_limit": -1,
         "obs_resize": "84,84",
@@ -38,6 +39,7 @@ def _flappy_gpu_cfg(**overrides):
         "episode_metrics_path": "",
         "use_gpu_render": True,
         "gpu_render_device": "cpu",
+        "gpu_render_batch_size": 1,
         "gpu_render_profile": False,
         "gpu_render_profile_interval": 1000,
     }
@@ -53,10 +55,12 @@ def test_flappy_sf_gpu_render_cpu_reset_contract_image_only():
     torch = pytest.importorskip("torch")
     from gymnasium.spaces import Dict as GymDict
 
+    from training.flappy_sf.batched_gpu_env import FlappyBatchedGpuRenderedEnv
     from training.flappy_sf.integration import make_flappy_sf_env
 
     env = make_flappy_sf_env("latency_flappy", cfg=_flappy_gpu_cfg(), env_config=_env_config())
     try:
+        assert isinstance(env, FlappyBatchedGpuRenderedEnv)
         assert getattr(env, "num_agents") == 1
         assert getattr(env, "is_multiagent") is True
         assert isinstance(env.observation_space, GymDict)
@@ -76,6 +80,79 @@ def test_flappy_sf_gpu_render_cpu_reset_contract_image_only():
         env.close()
 
 
+def test_flappy_sf_timelimit_diagnostics_default_quiet(capsys):
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env("latency_flappy", cfg=_flappy_gpu_cfg(), env_config=_env_config())
+    try:
+        captured = capsys.readouterr()
+        assert "[flappy_sf][timelimit]" not in captured.out
+    finally:
+        env.close()
+
+
+def test_flappy_sf_timelimit_diagnostics_prints_essential_fields_when_enabled(capsys):
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(debug_timelimit_diagnostics=True, max_episode_steps=17),
+        env_config=_env_config(),
+    )
+    try:
+        captured = capsys.readouterr()
+        assert "[flappy_sf][timelimit]" in captured.out
+        assert "cfg.max_episode_steps=17" in captured.out
+        assert "wrapper_chain=" in captured.out
+        assert "obs_shape=(12, 84, 84)" in captured.out
+        assert "gpu_render_batch_size=1" in captured.out
+    finally:
+        env.close()
+
+
+def test_flappy_sf_gpu_render_has_no_timelimit_when_max_episode_steps_absent():
+    pytest.importorskip("torch")
+    from training.flappy_sf.integration import _time_limit_max_episode_steps, make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(max_episode_steps=0),
+        env_config=_env_config(),
+    )
+    try:
+        assert _time_limit_max_episode_steps(env.sub_envs[0]) is None
+    finally:
+        env.close()
+
+
+def test_flappy_sf_gpu_render_batched_reset_contract_image_only():
+    torch = pytest.importorskip("torch")
+
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(gpu_render_batch_size=4),
+        env_config=_env_config(),
+    )
+    try:
+        assert getattr(env, "num_agents") == 4
+        assert getattr(env, "is_multiagent") is True
+        assert env.observation_space.spaces["obs"].shape == (12, 84, 84)
+
+        obs, infos = env.reset(seed=123)
+
+        assert isinstance(obs["obs"], torch.Tensor)
+        assert obs["obs"].shape == (4, 12, 84, 84)
+        assert obs["obs"].dtype == torch.uint8
+        assert obs["obs"].device.type == "cpu"
+        assert isinstance(infos, list)
+        assert len(infos) == 4
+        assert all("numeric_obs" in info for info in infos)
+    finally:
+        env.close()
+
+
 def test_flappy_sf_gpu_render_cpu_latency_channel_contract():
     torch = pytest.importorskip("torch")
 
@@ -84,15 +161,15 @@ def test_flappy_sf_gpu_render_cpu_latency_channel_contract():
 
     env = make_flappy_sf_env(
         "latency_flappy",
-        cfg=_flappy_gpu_cfg(obs_mode="latency_channel", queue_latency_values="3"),
+        cfg=_flappy_gpu_cfg(obs_mode="latency_channel", queue_latency_values="3", gpu_render_batch_size=3),
         env_config=_env_config(),
     )
     try:
         obs, _ = env.reset(seed=123)
 
         assert isinstance(obs["obs"], torch.Tensor)
-        assert obs["obs"].shape == (1, 13, 84, 84)
-        assert torch.all(obs["obs"][0, -1] == int(latency_channel_value(3, 3)))
+        assert obs["obs"].shape == (3, 13, 84, 84)
+        assert torch.all(obs["obs"][:, -1] == int(latency_channel_value(3, 3)))
     finally:
         env.close()
 
@@ -104,7 +181,7 @@ def test_flappy_sf_gpu_render_auto_resets_on_done():
     env = make_flappy_sf_env("latency_flappy", cfg=_flappy_gpu_cfg(), env_config=_env_config())
     try:
         env.reset(seed=123)
-        env.unwrapped._score_limit = 0
+        env.sub_envs[0].unwrapped._score_limit = 0
 
         obs, rewards, terminated, truncated, infos = env.step(np.asarray([0], dtype=np.int64))
 
@@ -116,6 +193,110 @@ def test_flappy_sf_gpu_render_auto_resets_on_done():
         assert isinstance(infos, list)
         assert "reset_info" in infos[0]
         assert "numeric_obs" in infos[0]["reset_info"]
+        assert infos[0]["episode_extra_stats"].keys() >= {
+            "episode/return",
+            "episode/raw_return",
+            "episode/clipped_return",
+            "episode/length",
+            "episode/raw_frames",
+            "episode/index",
+            "episode/queue_latency",
+        }
+    finally:
+        env.close()
+
+
+def _stack_frames_equal(frame_stack: np.ndarray, agent_idx: int, *, stack_frames: int, base_channels: int = 3) -> bool:
+    stack = frame_stack[agent_idx]
+    chunks = [
+        stack[:, :, idx * base_channels : (idx + 1) * base_channels]
+        for idx in range(stack_frames)
+    ]
+    return all(np.array_equal(chunks[0], item) for item in chunks[1:])
+
+
+def test_flappy_sf_gpu_render_auto_reset_resets_only_done_agent_frame_stack():
+    pytest.importorskip("torch")
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(gpu_render_batch_size=2, frame_stack=3),
+        env_config=_env_config(),
+    )
+    try:
+        env.reset(seed=123)
+
+        for _ in range(5):
+            env.step(np.asarray([1, 1], dtype=np.int64))
+            stack = env.pipeline.current_frame_stack
+            assert stack is not None
+            if not _stack_frames_equal(stack, 0, stack_frames=3) and not _stack_frames_equal(
+                stack, 1, stack_frames=3
+            ):
+                break
+        stack = env.pipeline.current_frame_stack
+        assert stack is not None
+        assert not _stack_frames_equal(stack, 0, stack_frames=3)
+        assert not _stack_frames_equal(stack, 1, stack_frames=3)
+
+        env.sub_envs[0].unwrapped._score_limit = 0
+        obs, rewards, terminated, truncated, infos = env.step(np.asarray([0, 1], dtype=np.int64))
+
+        assert obs["obs"].shape == (2, 9, 84, 84)
+        assert rewards.shape == (2,)
+        assert bool(terminated[0] or truncated[0])
+        assert not bool(terminated[1] or truncated[1])
+        assert "reset_info" in infos[0]
+        assert "reset_info" not in infos[1]
+        assert "episode_extra_stats" in infos[0]
+        assert infos[0]["episode_extra_stats"].keys() >= {
+            "episode/return",
+            "episode/raw_return",
+            "episode/clipped_return",
+            "episode/length",
+            "episode/raw_frames",
+            "episode/index",
+            "episode/queue_latency",
+        }
+
+        stack = env.pipeline.current_frame_stack
+        assert stack is not None
+        assert _stack_frames_equal(stack, 0, stack_frames=3)
+        assert not _stack_frames_equal(stack, 1, stack_frames=3)
+    finally:
+        env.close()
+
+
+def test_flappy_sf_gpu_render_accepts_sample_factory_discrete_action_format():
+    pytest.importorskip("torch")
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(gpu_render_batch_size=4),
+        env_config=_env_config(),
+    )
+    try:
+        env.reset(seed=123)
+
+        obs, rewards, terminated, truncated, infos = env.step(
+            np.asarray([0, 1, 0, 1], dtype=np.int32)
+        )
+        assert obs["obs"].shape == (4, 12, 84, 84)
+        assert rewards.shape == (4,)
+        assert terminated.shape == (4,)
+        assert truncated.shape == (4,)
+        assert len(infos) == 4
+
+        obs, rewards, terminated, truncated, infos = env.step(
+            np.asarray([[0], [1], [0], [1]], dtype=np.int32)
+        )
+        assert obs["obs"].shape == (4, 12, 84, 84)
+        assert rewards.shape == (4,)
+        assert terminated.shape == (4,)
+        assert truncated.shape == (4,)
+        assert len(infos) == 4
     finally:
         env.close()
 
@@ -221,6 +402,7 @@ def test_flappy_gpu_render_config_emits_cuda_actor_worker_args():
     cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
     cfg["env"]["use_gpu_render"] = True
     cfg["env"]["gpu_render_device"] = "cuda"
+    cfg["training"]["worker_num_splits"] = 1
     cfg["backend"].pop("actor_worker_gpus", None)
 
     args = build_cli_args_from_config(cfg)
@@ -231,6 +413,8 @@ def test_flappy_gpu_render_config_emits_cuda_actor_worker_args():
     assert args[args.index("--env_gpu_observations") + 1] == "True"
     assert args[args.index("--env_gpu_actions") + 1] == "False"
     assert args[args.index("--batched_sampling") + 1] == "True"
+    assert args[args.index("--gpu-render-batch-size") + 1] == str(cfg["training"]["num_envs_per_worker"])
+    assert args[args.index("--num_envs_per_worker") + 1] == "1"
 
 
 def test_flappy_gpu_render_config_cpu_does_not_force_actor_worker_gpu():
@@ -239,6 +423,7 @@ def test_flappy_gpu_render_config_cpu_does_not_force_actor_worker_gpu():
     cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
     cfg["env"]["use_gpu_render"] = True
     cfg["env"]["gpu_render_device"] = "cpu"
+    cfg["training"]["worker_num_splits"] = 1
     cfg["backend"].pop("actor_worker_gpus", None)
 
     args = build_cli_args_from_config(cfg)
@@ -249,6 +434,24 @@ def test_flappy_gpu_render_config_cpu_does_not_force_actor_worker_gpu():
     assert args[args.index("--env_gpu_observations") + 1] == "False"
     assert args[args.index("--env_gpu_actions") + 1] == "False"
     assert args[args.index("--batched_sampling") + 1] == "True"
+    assert args[args.index("--gpu-render-batch-size") + 1] == str(cfg["training"]["num_envs_per_worker"])
+    assert args[args.index("--num_envs_per_worker") + 1] == "1"
+
+
+def test_flappy_gpu_render_config_does_not_remap_cpu_render_path():
+    from training.flappy_sf.integration import build_cli_args_from_config
+
+    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg["env"]["use_gpu_render"] = False
+    cfg["training"]["num_envs_per_worker"] = 7
+    cfg["training"]["worker_num_splits"] = 2
+
+    args = build_cli_args_from_config(cfg)
+
+    assert args[args.index("--use-gpu-render") + 1] == "False"
+    assert args[args.index("--num_envs_per_worker") + 1] == "7"
+    assert args[args.index("--worker_num_splits") + 1] == "2"
+    assert "--gpu-render-batch-size" not in args
 
 
 def test_flappy_gpu_render_config_maps_profile_args():
@@ -259,6 +462,7 @@ def test_flappy_gpu_render_config_maps_profile_args():
     cfg["env"]["gpu_render_device"] = "cpu"
     cfg["env"]["gpu_render_profile"] = True
     cfg["env"]["gpu_render_profile_interval"] = 7
+    cfg["training"]["worker_num_splits"] = 1
 
     args = build_cli_args_from_config(cfg)
 
@@ -266,11 +470,24 @@ def test_flappy_gpu_render_config_maps_profile_args():
     assert args[args.index("--gpu-render-profile-interval") + 1] == "7"
 
 
+def test_flappy_gpu_render_config_maps_timelimit_diagnostics_arg():
+    from training.flappy_sf.integration import build_cli_args_from_config
+
+    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg["env"]["debug_timelimit_diagnostics"] = True
+    cfg["training"]["worker_num_splits"] = 1
+
+    args = build_cli_args_from_config(cfg)
+
+    assert args[args.index("--debug-timelimit-diagnostics") + 1] == "True"
+
+
 def test_flappy_gpu_render_validation_requires_square_obs_resize():
     cfg = load_training_config("configs/experiments/flappy/sf_zero_latency.yaml")
     cfg["env"]["use_gpu_render"] = True
     cfg["env"]["gpu_render_device"] = "cpu"
     cfg["env"]["obs_resize"] = [84, 96]
+    cfg["training"]["worker_num_splits"] = 1
 
     with pytest.raises(ValueError, match="square"):
         validate_training_config(cfg)
@@ -280,10 +497,35 @@ def test_flappy_gpu_render_validation_rejects_explicit_non_batched_sampling():
     cfg = load_training_config("configs/experiments/flappy/sf_zero_latency.yaml")
     cfg["env"]["use_gpu_render"] = True
     cfg["env"]["gpu_render_device"] = "cpu"
+    cfg["training"]["worker_num_splits"] = 1
     cfg["training"]["batched_sampling"] = False
 
     with pytest.raises(ValueError, match="batched_sampling"):
         validate_training_config(cfg)
+
+
+def test_flappy_gpu_render_validation_rejects_worker_splits_not_one():
+    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg["env"]["use_gpu_render"] = True
+    cfg["env"]["gpu_render_device"] = "cpu"
+    cfg["training"]["num_envs_per_worker"] = 4
+    cfg["training"]["worker_num_splits"] = 2
+
+    with pytest.raises(ValueError, match="worker_num_splits"):
+        validate_training_config(cfg)
+
+
+def test_flappy_gpu_render_cli_rejects_worker_splits_not_one_without_remap():
+    from training.flappy_sf.integration import build_cli_args_from_config
+
+    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg["env"]["use_gpu_render"] = True
+    cfg["env"]["gpu_render_device"] = "cpu"
+    cfg["training"]["num_envs_per_worker"] = 4
+    cfg["training"]["worker_num_splits"] = 2
+
+    with pytest.raises(ValueError, match="worker_num_splits"):
+        build_cli_args_from_config(cfg)
 
 
 def test_flappy_gpu_render_validation_rejects_non_positive_profile_interval():

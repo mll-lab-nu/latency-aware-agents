@@ -15,10 +15,10 @@ from latency_bench.experiments.run_simulated_latency import build_executor as bu
 @register_env_adapter("normalized_noop_test")
 def _build_normalized_noop_env(config: dict, noop_action: Action) -> EnvAdapter:
     env_cfg = config["env"]
-    experiment_cfg = config["experiment"]
+    evaluation_cfg = config["evaluation"]
     return DummyEnvAdapter(
         fps_env=float(env_cfg["fps_env"]),
-        max_steps=int(experiment_cfg.get("max_env_steps", 5)),
+        max_steps=int(evaluation_cfg["eval_max_steps"]),
         noop_action=Action(value="env-noop", name="env-noop", is_noop=True),
     )
 
@@ -29,7 +29,6 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
             "name": "executor_factory_test",
             "seed": 0,
             "num_episodes": 1,
-            "max_env_steps": 5,
         },
         "executor": {
             "mode": mode,
@@ -57,6 +56,9 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
         "policy": {
             "type": "constant",
             "action": "jump",
+        },
+        "evaluation": {
+            "eval_max_steps": 5,
         },
         "logging": {
             "output_dir": output_dir,
