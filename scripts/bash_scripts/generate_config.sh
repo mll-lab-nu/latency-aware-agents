@@ -11,5 +11,4 @@ python scripts/generate_sample_factory_same_latency_sweep.py \
   --train-dir results/checkpoints \
   --output-root outputs \
   --device gpu \
-  --restart-behavior overwrite \
   --eval-episodes 100

@@ -84,7 +84,7 @@ training:
   ppo_clip_value: 0.2
   value_loss_coeff: 0.5
   max_grad_norm: 0.5
-  async_rl: false
+  async_rl: true
   use_rnn: false
   normalize_input: true
   normalize_returns: true
