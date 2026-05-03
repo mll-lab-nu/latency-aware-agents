@@ -95,7 +95,6 @@ def make_demon_attack_sf_env(
     env_config=None,
     render_mode: Optional[str] = None,
 ):
-    del render_mode
     env_config = env_config or {}
     env = make_demon_attack_benchmark_env(
         env_id=getattr(cfg, "env_id", "ALE/DemonAttack-v5"),
@@ -106,6 +105,7 @@ def make_demon_attack_sf_env(
         clip_reward=False,
         repeat_action_probability=float(getattr(cfg, "repeat_action_probability", 0.0)),
         full_action_space=bool(getattr(cfg, "full_action_space", False)),
+        render_mode=render_mode,
     )
     env = AtariObsFormatWrapper(env)
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)

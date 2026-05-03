@@ -123,6 +123,7 @@ def make_demon_attack_benchmark_env(
     clip_reward: bool = True,
     repeat_action_probability: float = 0.0,
     full_action_space: bool = False,
+    render_mode: str | None = None,
 ) -> gym.Env:
     _register_ale()
     from stable_baselines3.common.atari_wrappers import AtariWrapper
@@ -137,7 +138,7 @@ def make_demon_attack_benchmark_env(
         frameskip=1,
         repeat_action_probability=float(repeat_action_probability),
         full_action_space=bool(full_action_space),
-        render_mode=None,
+        render_mode=render_mode,
     )
     return AtariWrapper(
         env,

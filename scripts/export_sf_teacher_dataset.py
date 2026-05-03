@@ -163,7 +163,7 @@ def _build_env_and_policy(module, cfg, env_name: str):
         local_env = make_env_func_batched(
             local_cfg,
             env_config=AttrDict(worker_index=0, vector_index=0, env_id=0),
-            render_mode=None,
+            render_mode="rgb_array" if env_name in {"flappy", "demon_attack"} else None,
         )
         local_env_info = extract_env_info(local_env, local_cfg)
         local_actor_critic = create_actor_critic(local_cfg, local_env.observation_space, local_env.action_space)
@@ -383,7 +383,7 @@ def _save_observation_image(
 ) -> str:
     image_path.parent.mkdir(parents=True, exist_ok=True)
     frame = None
-    if env_name == "flappy":
+    if env_name in {"flappy", "demon_attack"}:
         render_fn = getattr(env, "render", None)
         if callable(render_fn):
             rendered = render_fn()
@@ -393,7 +393,7 @@ def _save_observation_image(
         single_obs = _extract_single_observation(obs)
         frame = _latest_frame_from_observation(single_obs, env_name=env_name, frame_stack=frame_stack)
     image = Image.fromarray(np.asarray(frame, dtype=np.uint8))
-    if export_image_size is not None and env_name != "flappy" and image.size != export_image_size:
+    if export_image_size is not None and env_name not in {"flappy", "demon_attack"} and image.size != export_image_size:
         image = image.resize(export_image_size, Image.BILINEAR)
     image.save(image_path)
     return str(image_path)
