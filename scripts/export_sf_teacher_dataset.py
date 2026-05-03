@@ -53,6 +53,7 @@ def _parse_module_cfg(module, cli_args: list[str]):
 
 def _minimal_export_cfg(module, *, experiment_dir: Path, device_override: str | None):
     env_id = str(getattr(module, "SF_ENV_NAME"))
+    checkpoint_cfg: dict[str, Any] = {}
     checkpoint_config_path = experiment_dir / "config.json"
     if checkpoint_config_path.exists():
         try:
@@ -61,7 +62,7 @@ def _minimal_export_cfg(module, *, experiment_dir: Path, device_override: str | 
             if saved_env_id:
                 env_id = str(saved_env_id)
         except Exception:
-            pass
+            checkpoint_cfg = {}
 
     cli_args = [
         "--mode",
@@ -75,6 +76,35 @@ def _minimal_export_cfg(module, *, experiment_dir: Path, device_override: str | 
         "--train_dir",
         str(experiment_dir.parent),
     ]
+
+    # Seed parse_cfg with the saved checkpoint env/render settings so the env is
+    # reconstructed with the correct observation shape before loading weights.
+    saved_cli_fields = (
+        "device",
+        "env_frameskip",
+        "eval_env_frameskip",
+        "frame_stack",
+        "max_episode_steps",
+        "res_w",
+        "res_h",
+        "wide_aspect_ratio",
+        "fps",
+        "screen_size",
+        "action_repeat",
+        "full_action_space",
+        "terminal_on_life_loss",
+        "clip_reward",
+        "repeat_action_probability",
+        "noop_max",
+        "use_lidar",
+        "normalize_obs",
+    )
+    for field in saved_cli_fields:
+        value = checkpoint_cfg.get(field)
+        if value is None:
+            continue
+        cli_args.extend([f"--{field}", str(value)])
+
     if device_override:
         cli_args.extend(["--device", str(device_override)])
     return _parse_module_cfg(module, cli_args)
