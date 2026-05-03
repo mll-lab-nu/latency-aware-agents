@@ -9,6 +9,7 @@ from typing import Any, Optional
 import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box
+from PIL import Image
 
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
 from training.sample_factory_common.config_adapter import append_cli_arg, build_common_sf_args
@@ -46,13 +47,15 @@ def _import_flappy_gymnasium():
 
 
 class FlappyImageObsWrapper(gym.Wrapper):
-    """Expose rendered RGB frames as the environment observation."""
+    """Expose rendered RGB frames as resized policy observations."""
 
     observation_space: Box
 
-    def __init__(self, env: gym.Env):
+    def __init__(self, env: gym.Env, image_size: tuple[int, int]):
         super().__init__(env)
         obs, _ = self.env.reset(seed=0)
+        self.image_width = int(image_size[0])
+        self.image_height = int(image_size[1])
         frame = self._render_frame()
         self._last_numeric_obs = obs
         self.observation_space = Box(
@@ -69,6 +72,10 @@ class FlappyImageObsWrapper(gym.Wrapper):
         frame = np.asarray(frame, dtype=np.uint8)
         if frame.ndim != 3 or frame.shape[-1] != 3:
             raise RuntimeError(f"Expected Flappy RGB frame with shape (H, W, 3), got {frame.shape!r}")
+        image = Image.fromarray(frame)
+        if image.size != (self.image_width, self.image_height):
+            image = image.resize((self.image_width, self.image_height), Image.BILINEAR)
+        frame = np.asarray(image, dtype=np.uint8)
         return np.transpose(frame, (2, 0, 1))
 
     def reset(self, **kwargs):
@@ -139,19 +146,22 @@ def make_flappy_sf_env(
         "debug": bool(getattr(cfg, "debug", False)),
         "render_mode": "rgb_array",
     }
-    screen_size = getattr(cfg, "screen_size", None)
-    if screen_size not in (None, ""):
-        if isinstance(screen_size, str):
-            parts = [int(item.strip()) for item in screen_size.split(",") if item.strip()]
-            if parts:
-                kwargs["screen_size"] = tuple(parts)
-        else:
-            kwargs["screen_size"] = tuple(int(item) for item in screen_size)
     score_limit = getattr(cfg, "score_limit", None)
     if score_limit not in (None, "", 0, -1):
         kwargs["score_limit"] = int(score_limit)
     env = gymnasium.make(getattr(cfg, "gym_id", "FlappyBird-v0"), **kwargs)
-    env = FlappyImageObsWrapper(env)
+    policy_screen_size = getattr(cfg, "policy_screen_size", None)
+    if policy_screen_size in (None, ""):
+        policy_screen_size = getattr(cfg, "screen_size", None)
+    if policy_screen_size in (None, ""):
+        resize_size = (84, 84)
+    elif isinstance(policy_screen_size, str):
+        parts = [int(item.strip()) for item in policy_screen_size.split(",") if item.strip()]
+        resize_size = (parts[0], parts[1]) if len(parts) == 2 else (84, 84)
+    else:
+        size = tuple(int(item) for item in policy_screen_size)
+        resize_size = (size[0], size[1]) if len(size) == 2 else (84, 84)
+    env = FlappyImageObsWrapper(env, image_size=resize_size)
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
     if frame_stack > 1:
         env = FlappyFrameStackWrapper(env, num_frames=frame_stack)
@@ -218,6 +228,7 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--normalize_obs", type=str2bool, default=True)
     parser.add_argument("--audio_on", type=str2bool, default=False)
     parser.add_argument("--screen_size", type=str, default="")
+    parser.add_argument("--policy_screen_size", type=str, default="")
     parser.add_argument("--pipe_gap", type=int, default=100)
     parser.add_argument("--bird_color", type=str, default="yellow")
     parser.add_argument("--pipe_color", type=str, default="green")
@@ -274,6 +285,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--normalize_obs", env_cfg.get("normalize_obs", True))
     append_cli_arg(args, "--audio_on", env_cfg.get("audio_on", False))
     append_cli_arg(args, "--screen_size", env_cfg.get("screen_size"))
+    append_cli_arg(args, "--policy_screen_size", env_cfg.get("policy_screen_size"))
     append_cli_arg(args, "--pipe_gap", env_cfg.get("pipe_gap", 100))
     append_cli_arg(args, "--bird_color", env_cfg.get("bird_color", "yellow"))
     append_cli_arg(args, "--pipe_color", env_cfg.get("pipe_color", "green"))

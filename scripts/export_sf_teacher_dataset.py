@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import json
 from pathlib import Path
 import sys
@@ -147,7 +146,7 @@ def _prepare_export_cfg(module, env_name: str, base_cfg, latency: int):
     return cfg
 
 
-def _build_env_and_policy(module, cfg):
+def _build_env_and_policy(module, cfg, env_name: str):
     import torch
     from sample_factory.algo.sampling.batched_sampling import preprocess_actions
     from sample_factory.algo.utils.action_distributions import argmax_actions
@@ -214,11 +213,14 @@ def _build_env_and_policy(module, cfg):
         if len(expected_obs_shape) == 3:
             expected_h = int(expected_obs_shape[1])
             expected_w = int(expected_obs_shape[2])
+            if env_name == "flappy":
+                maybe_set_cli_override(cfg, "screen_size", "288,512")
+                maybe_set_cli_override(cfg, "policy_screen_size", f"{expected_w},{expected_h}")
             if hasattr(cfg, "res_h"):
                 maybe_set_cli_override(cfg, "res_h", expected_h)
             if hasattr(cfg, "res_w"):
                 maybe_set_cli_override(cfg, "res_w", expected_w)
-            if hasattr(cfg, "screen_size"):
+            if hasattr(cfg, "screen_size") and env_name != "flappy":
                 maybe_set_cli_override(cfg, "screen_size", f"{expected_w},{expected_h}")
         env, env_info, actor_critic = build_env_and_model(cfg)
         actor_critic.model_to_device(device)
@@ -381,8 +383,12 @@ def _save_observation_image(
 ) -> str:
     image_path.parent.mkdir(parents=True, exist_ok=True)
     frame = None
-    if env_name == "flappy" and export_image_size is not None:
-        frame = _render_flappy_frame_from_state(env, export_image_size)
+    if env_name == "flappy":
+        render_fn = getattr(env, "render", None)
+        if callable(render_fn):
+            rendered = render_fn()
+            if rendered is not None:
+                frame = np.asarray(rendered, dtype=np.uint8)
     if frame is None:
         single_obs = _extract_single_observation(obs)
         frame = _latest_frame_from_observation(single_obs, env_name=env_name, frame_stack=frame_stack)
@@ -391,43 +397,6 @@ def _save_observation_image(
         image = image.resize(export_image_size, Image.BILINEAR)
     image.save(image_path)
     return str(image_path)
-
-
-def _render_flappy_frame_from_state(env: Any, export_image_size: tuple[int, int]) -> np.ndarray | None:
-    try:
-        from flappy_bird_gymnasium.envs.render_state import FlappyRenderState
-        from flappy_bird_gymnasium.gpu_render.assets import FlappyRenderAssets
-    except Exception:
-        return None
-
-    state = _unwrap_env_attr(env, "get_render_state")
-    if not callable(state):
-        return None
-    render_state = state()
-    if not isinstance(render_state, FlappyRenderState):
-        return None
-
-    target_w, target_h = int(export_image_size[0]), int(export_image_size[1])
-    src_w, src_h = int(render_state.screen_width), int(render_state.screen_height)
-    if src_w <= 0 or src_h <= 0:
-        return None
-
-    sx = float(target_w) / float(src_w)
-    sy = float(target_h) / float(src_h)
-
-    scaled_state = dataclasses.replace(
-        render_state,
-        player_x=float(render_state.player_x) * sx,
-        player_y=float(render_state.player_y) * sy,
-        upper_pipes=tuple((float(x) * sx, float(y) * sy) for x, y in render_state.upper_pipes),
-        lower_pipes=tuple((float(x) * sx, float(y) * sy) for x, y in render_state.lower_pipes),
-        ground_x=float(render_state.ground_x) * sx,
-        ground_y=float(render_state.ground_y) * sy,
-        screen_width=target_w,
-        screen_height=target_h,
-    )
-    assets = FlappyRenderAssets.for_state(scaled_state)
-    return assets.reference_frame(scaled_state)
 
 
 def _flappy_action_labels() -> dict[int, str]:
@@ -737,7 +706,7 @@ def _collect_latency_dataset(
     from sample_factory.algo.utils.rl_utils import make_dones
 
     cfg = _prepare_export_cfg(module, env_name, base_cfg, latency)
-    runtime = _build_env_and_policy(module, cfg)
+    runtime = _build_env_and_policy(module, cfg, env_name)
     env = runtime["env"]
     env_info = runtime["env_info"]
     actor_critic = runtime["actor_critic"]
