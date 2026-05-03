@@ -9,6 +9,7 @@ from typing import Any, Optional
 import gymnasium as gym
 import numpy as np
 import torch
+from gymnasium.spaces import Discrete
 
 from training.sample_factory_common.common import (
     env_instance_seed,
@@ -31,8 +32,42 @@ from training.sample_factory_common.wandb_compat import patch_sample_factory_wan
 
 
 SF_ENV_NAME = "doom_deadly_corridor"
+SF_ENV_NAME_DISCRETE7 = "doom_deadly_corridor_discrete7"
 _ENVS_REGISTERED = False
 _MODELS_REGISTERED = False
+
+DEADLY_CORRIDOR_DISCRETE7_ACTION_LABELS = {
+    0: "MOVE_FORWARD",
+    1: "MOVE_BACKWARD",
+    2: "MOVE_LEFT",
+    3: "MOVE_RIGHT",
+    4: "TURN_LEFT",
+    5: "TURN_RIGHT",
+    6: "ATTACK",
+}
+
+
+def build_deadly_corridor_discrete7_spec():
+    from sf_examples.vizdoom.doom.doom_utils import DoomSpec
+
+    return DoomSpec(
+        SF_ENV_NAME_DISCRETE7,
+        "deadly_corridor.cfg",
+        Discrete(8),  # internal idle + 7 primitive buttons
+        0.01,
+    )
+
+
+def get_deadly_corridor_spec(env_id: str):
+    from sf_examples.vizdoom.doom.doom_utils import DOOM_ENVS
+
+    if str(env_id) == SF_ENV_NAME_DISCRETE7:
+        return build_deadly_corridor_discrete7_spec()
+
+    spec = next((item for item in DOOM_ENVS if item.name == str(env_id)), None)
+    if spec is None:
+        raise ValueError(f"Unknown ViZDoom env spec: {env_id}")
+    return spec
 
 
 def _doom_raw_reward_from_scaled(transformed_reward: float, info: dict[str, Any], reward_scale: float) -> float:
@@ -108,6 +143,30 @@ class DoomFrameStackWrapper(gym.Wrapper):
         return self._stack_obs(observation), reward, terminated, truncated, info
 
 
+class DoomDiscrete7ActionWrapper(gym.ActionWrapper):
+    """Expose Deadly Corridor as 7 primitive policy actions, with an internal idle action for latency handling."""
+
+    def __init__(self, env: gym.Env):
+        super().__init__(env)
+        self.action_space = Discrete(7)
+        self.noop_action = -1
+        self.action_labels = dict(DEADLY_CORRIDOR_DISCRETE7_ACTION_LABELS)
+
+    def action(self, action):
+        action_value = int(np.asarray(action).item())
+        if action_value == self.noop_action:
+            return 0  # internal Doom idle action
+        if action_value < 0 or action_value >= int(self.action_space.n):
+            raise ValueError(f"Invalid discrete7 Deadly Corridor action: {action_value}")
+        return action_value + 1
+
+    def reverse_action(self, action):
+        action_value = int(np.asarray(action).item())
+        if action_value <= 0:
+            return self.noop_action
+        return action_value - 1
+
+
 def make_latency_doom_env_from_spec(
     spec,
     env_name: str,
@@ -130,6 +189,10 @@ def make_latency_doom_env_from_spec(
         render_mode=render_mode,
         **kwargs,
     )
+    policy_noop_action = None
+    if env_name == SF_ENV_NAME_DISCRETE7:
+        env = DoomDiscrete7ActionWrapper(env)
+        policy_noop_action = env.noop_action
     env = RewardTraceWrapper(
         env,
         raw_reward_fn=lambda transformed_reward, info, scale=float(spec_to_use.reward_scaling): _doom_raw_reward_from_scaled(
@@ -155,6 +218,7 @@ def make_latency_doom_env_from_spec(
     env = QueueLatencyWrapper(
         env,
         queue_latency_values=latency_values or [0],
+        noop_action=policy_noop_action,
         latency_mode=getattr(cfg, "latency_mode", "episode_fixed"),
         latency_sampling_mode=getattr(cfg, "latency_sampling_mode", "uniform_all"),
         episodes_per_stage=int(getattr(cfg, "episodes_per_stage", 10)),
@@ -186,6 +250,9 @@ def register_deadly_corridor_envs() -> None:
 
     for env_spec in DOOM_ENVS:
         register_env(env_spec.name, functools.partial(make_latency_doom_env_from_spec, env_spec))
+
+    discrete7_spec = build_deadly_corridor_discrete7_spec()
+    register_env(discrete7_spec.name, functools.partial(make_latency_doom_env_from_spec, discrete7_spec))
     _ENVS_REGISTERED = True
 
 

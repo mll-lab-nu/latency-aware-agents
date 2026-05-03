@@ -38,6 +38,7 @@ class QueueLatencyWrapper(gym.Wrapper):
         env: gym.Env,
         queue_latency_values: Sequence[int],
         *,
+        noop_action: Any | None = None,
         latency_mode: str = "episode_fixed",
         latency_sampling_mode: str = "uniform_all",
         episodes_per_stage: int = 10,
@@ -69,7 +70,7 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.latency_info_keys = tuple(str(item) for item in latency_info_keys if str(item))
         self.add_latency_info = bool(add_latency_info)
 
-        self.noop_action = noop_action_from_space(env.action_space)
+        self.noop_action = clone_action(noop_action) if noop_action is not None else noop_action_from_space(env.action_space)
         self.rng = np.random.RandomState(seed)
         self.env_reset_seed_base = None if env_reset_seed_base is None else int(env_reset_seed_base)
         self.current_latency = 0

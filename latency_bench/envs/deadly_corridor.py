@@ -35,7 +35,13 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         if fps_env <= 0:
             raise ValueError("fps_env must be positive")
 
-        from training.deadly_corridor_sf.integration import parse_cfg, register_deadly_corridor_components
+        from training.deadly_corridor_sf.integration import (
+            DoomDiscrete7ActionWrapper,
+            SF_ENV_NAME_DISCRETE7,
+            get_deadly_corridor_spec,
+            parse_cfg,
+            register_deadly_corridor_components,
+        )
 
         register_deadly_corridor_components()
         cfg = parse_cfg(
@@ -61,11 +67,9 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
             ]
         )
         from sample_factory.utils.attr_dict import AttrDict
-        from sf_examples.vizdoom.doom.doom_utils import DOOM_ENVS, make_doom_env_from_spec
+        from sf_examples.vizdoom.doom.doom_utils import make_doom_env_from_spec
 
-        spec = next((item for item in DOOM_ENVS if item.name == str(env_id)), None)
-        if spec is None:
-            raise ValueError(f"Unknown ViZDoom env spec: {env_id}")
+        spec = get_deadly_corridor_spec(str(env_id))
         self.gym_env = make_doom_env_from_spec(
             spec,
             str(env_id),
@@ -73,11 +77,13 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
             AttrDict(worker_index=0, vector_index=0, env_id=0),
             render_mode=None,
         )
+        if str(env_id) == SF_ENV_NAME_DISCRETE7:
+            self.gym_env = DoomDiscrete7ActionWrapper(self.gym_env)
         self.cfg = cfg
         self.env_id = env_id
         self.fps_env = float(fps_env)
         action_space = self.gym_env.action_space
-        noop_value = _noop_action_from_space(action_space)
+        noop_value = getattr(self.gym_env, "noop_action", _noop_action_from_space(action_space))
         self.noop_action = noop_action or Action(value=noop_value, name=str(noop_value), is_noop=True)
         self.env_step = 0
         self._last_info: dict[str, Any] = {}

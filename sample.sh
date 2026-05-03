@@ -29,7 +29,9 @@ python -m training.train --config /workspace/one_run_demon/demon_attack/latency_
 python -m training.train --config /workspace/one_run_demon/demon_attack/latency_0/seed_0/eval.yaml
 
 
-# DEADLY CORRIDOR 
+# DEADLY CORRIDOR
+# Base config now points to the discrete-7 SF env variant:
+#   env_id: doom_deadly_corridor_discrete7
 python scripts/generate_sample_factory_same_latency_sweep.py \
   --envs deadly_corridor \
   --seeds 0 \
@@ -48,6 +50,8 @@ python -m training.train --config /workspace/one_run/deadly_corridor/latency_0/s
 ## TEACHER DATASET EXPORTS
 
 # DEADLY CORRIDOR: zero-latency teacher dataset
+# --env-name selects the exporter/integration family; the actual Doom env_id is
+# loaded from each checkpoint's config.json (e.g. doom_deadly_corridor_discrete7).
 python scripts/export_sf_teacher_dataset.py \
   --env-name deadly_corridor \
   --checkpoint-root /workspace/latency-checkpoints/checkpoints \
@@ -75,7 +79,7 @@ python scripts/export_sf_teacher_dataset.py \
   --latency-start 0 \
   --latency-end 5 \
   --episodes-per-latency 50 \
-  --val-episodes-per-latency 5 \
+  --val-episodes-per-latency 10 \
   --push-to-hub \
   --hf-private \
   --hf-token "$HF_TOKEN" \

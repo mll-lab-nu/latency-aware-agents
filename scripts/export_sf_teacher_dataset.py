@@ -52,13 +52,24 @@ def _parse_module_cfg(module, cli_args: list[str]):
 
 
 def _minimal_export_cfg(module, *, experiment_dir: Path, device_override: str | None):
+    env_id = str(getattr(module, "SF_ENV_NAME"))
+    checkpoint_config_path = experiment_dir / "config.json"
+    if checkpoint_config_path.exists():
+        try:
+            checkpoint_cfg = json.loads(checkpoint_config_path.read_text(encoding="utf-8"))
+            saved_env_id = checkpoint_cfg.get("env")
+            if saved_env_id:
+                env_id = str(saved_env_id)
+        except Exception:
+            pass
+
     cli_args = [
         "--mode",
         "eval",
         "--algo",
         "APPO",
         "--env",
-        str(getattr(module, "SF_ENV_NAME")),
+        env_id,
         "--experiment",
         str(experiment_dir.name),
         "--train_dir",
@@ -160,6 +171,20 @@ def _extract_action_id(action_value: Any) -> int:
         scalar = _extract_action_id(scalar[0])
         return int(scalar)
     return int(scalar)
+
+
+def _extract_action_components(action_value: Any) -> list[int]:
+    scalar = _to_python_scalar(action_value)
+    if isinstance(scalar, np.ndarray):
+        if scalar.ndim == 0:
+            return [int(scalar.item())]
+        return [int(x) for x in scalar.reshape(-1).tolist()]
+    if isinstance(scalar, (list, tuple)):
+        components: list[int] = []
+        for item in scalar:
+            components.extend(_extract_action_components(item))
+        return components
+    return [int(scalar)]
 
 
 def _extract_single_info(info: Any) -> dict[str, Any]:
@@ -311,8 +336,61 @@ def _extract_vizdoom_buttons(env) -> list[str]:
     return []
 
 
+def _unwrap_env_attr(env, attr_name: str):
+    visited: set[int] = set()
+    queue: list[Any] = [env]
+    while queue:
+        current = queue.pop(0)
+        if current is None or id(current) in visited:
+            continue
+        visited.add(id(current))
+        if hasattr(current, attr_name):
+            return getattr(current, attr_name)
+        child = getattr(current, "env", None)
+        if child is not None:
+            queue.append(child)
+        unwrapped = getattr(current, "unwrapped", None)
+        if unwrapped is not None and unwrapped is not current:
+            queue.append(unwrapped)
+        envs = getattr(current, "envs", None)
+        if isinstance(envs, list):
+            queue.extend(envs)
+    return None
+
+
 def _deadly_action_labels(env) -> dict[int, str]:
     action_space = getattr(env, "action_space", None)
+    wrapper_labels = _unwrap_env_attr(env, "action_labels")
+    if isinstance(wrapper_labels, dict) and wrapper_labels:
+        return {int(key): str(value) for key, value in wrapper_labels.items()}
+    if isinstance(action_space, gym.spaces.Tuple):
+        expected_component_labels = [
+            ["NOOP", "TURN_LEFT", "TURN_RIGHT"],
+            ["NOOP", "MOVE_FORWARD", "MOVE_BACKWARD"],
+            ["NOOP", "MOVE_LEFT", "MOVE_RIGHT"],
+            ["NOOP", "ATTACK"],
+        ]
+        if (
+            len(action_space.spaces) == 4
+            and all(isinstance(space, gym.spaces.Discrete) for space in action_space.spaces)
+            and [int(space.n) for space in action_space.spaces] == [3, 3, 3, 2]
+        ):
+            labels: dict[int, str] = {}
+            action_id = 0
+            for turn in range(3):
+                for move_fb in range(3):
+                    for move_lr in range(3):
+                        for attack in range(2):
+                            components = [turn, move_fb, move_lr, attack]
+                            parts = [
+                                expected_component_labels[idx][value]
+                                for idx, value in enumerate(components)
+                                if value != 0
+                            ]
+                            labels[action_id] = " + ".join(parts) if parts else "NOOP"
+                            action_id += 1
+            return labels
+
     n_actions = int(getattr(action_space, "n", 0) or 0)
     buttons = _extract_vizdoom_buttons(env)
     if n_actions <= 0:
@@ -334,6 +412,20 @@ def _action_labels_for_env(env_name: str, cfg: Any, env) -> dict[int, str]:
     if env_name == "deadly_corridor":
         return _deadly_action_labels(env)
     raise ValueError(f"Unsupported env for action labels: {env_name}")
+
+
+def _deadly_action_id_from_policy_action(action_value: Any) -> int:
+    components = _extract_action_components(action_value)
+    if len(components) != 4:
+        return _extract_action_id(action_value)
+    turn, move_fb, move_lr, attack = [int(x) for x in components]
+    return (((turn * 3) + move_fb) * 3 + move_lr) * 2 + attack
+
+
+def _policy_action_id(env_name: str, action_value: Any) -> int:
+    if env_name == "deadly_corridor" and len(_extract_action_components(action_value)) == 4:
+        return _deadly_action_id_from_policy_action(action_value)
+    return _extract_action_id(action_value)
 
 
 def _prompt_for_episode(
@@ -515,7 +607,6 @@ def _collect_latency_dataset(
 
     train_rows: list[dict[str, Any]] = []
     val_rows: list[dict[str, Any]] = []
-
     for episode_local_idx in range(episode_count):
         episode_idx = global_episode_start + episode_local_idx
         split = "val" if episode_local_idx in val_indices else "train"
@@ -541,10 +632,11 @@ def _collect_latency_dataset(
                 actions = argmax_actions(actor_critic.action_distribution())
             if actions.ndim == 1:
                 actions = unsqueeze_tensor(actions, dim=-1)
+            policy_actions = actions
             actions = preprocess_actions(env_info, actions)
             rnn_states = policy_outputs["new_rnn_states"]
 
-            action_id = _extract_action_id(actions[0])
+            action_id = _policy_action_id(env_name, policy_actions[0])
             action_text = action_labels.get(action_id, str(action_id))
             prompt_text = _prompt_for_episode(
                 dataset_mode=dataset_mode,
