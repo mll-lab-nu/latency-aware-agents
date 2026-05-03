@@ -104,6 +104,47 @@ def test_demon_attack_eval_done_accepts_timelimit_truncated_timeout_with_extra_s
     }
 
 
+def test_demon_attack_timeout_count_uses_eval_budget_not_short_truncated_info():
+    from training.sample_factory_common.queue_eval import (
+        _demon_attack_eval_episode_result,
+        _demon_attack_eval_step_budget_timeout,
+    )
+
+    short_truncated = _demon_attack_eval_episode_result(
+        {
+            "TimeLimit.truncated": True,
+            "episode_extra_stats": {
+                "episode/raw_return": 12.0,
+                "episode/clipped_return": 3.0,
+                "episode/length": 4,
+                "episode/truncated": 1.0,
+                "episode/timeout": 1.0,
+            },
+        },
+        fallback_return=999.0,
+        fallback_length=99,
+        eval_raw_reward=True,
+    )
+    assert short_truncated is not None
+
+    assert (
+        _demon_attack_eval_step_budget_timeout(
+            short_truncated,
+            eval_max_steps=3600,
+            timed_out_by_eval_budget=False,
+        )
+        is False
+    )
+    assert (
+        _demon_attack_eval_step_budget_timeout(
+            short_truncated,
+            eval_max_steps=4,
+            timed_out_by_eval_budget=True,
+        )
+        is True
+    )
+
+
 def test_queue_eval_result_keeps_raw_and_clipped_fields_with_raw_compat_returns():
     from training.sample_factory_common.queue_eval import _build_queue_eval_result
 
@@ -181,7 +222,7 @@ def test_prepare_queue_eval_cfg_uses_eval_max_steps_as_eval_only_timelimit():
     assert cfg.cli_args["max_episode_steps"] == 123
 
 
-def test_prepare_queue_eval_cfg_uses_eval_max_steps_as_demon_attack_timelimit():
+def test_prepare_queue_eval_cfg_does_not_convert_demon_attack_eval_budget_to_timelimit():
     from training.sample_factory_common.queue_eval import prepare_queue_eval_cfg
 
     cfg = prepare_queue_eval_cfg(
@@ -194,8 +235,8 @@ def test_prepare_queue_eval_cfg_uses_eval_max_steps_as_demon_attack_timelimit():
         latency_value=0,
     )
 
-    assert cfg.max_episode_steps == 123
-    assert cfg.cli_args["max_episode_steps"] == 123
+    assert cfg.max_episode_steps == 0
+    assert "max_episode_steps" not in cfg.cli_args
 
 
 def test_write_and_log_queue_eval_result_preserve_raw_and_clipped_metrics(tmp_path):

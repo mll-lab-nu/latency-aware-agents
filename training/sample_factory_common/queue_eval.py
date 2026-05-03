@@ -26,6 +26,9 @@ _DEMON_ATTACK_SF_ENV = "latency_demon_attack"
 
 
 def _apply_eval_only_max_episode_steps(cfg: Any, base_cfg: Any) -> None:
+    if _is_demon_attack_queue_eval_cfg(cfg) or _is_demon_attack_queue_eval_cfg(base_cfg):
+        return
+
     current_max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
     if current_max_episode_steps > 0:
         return
@@ -199,6 +202,17 @@ def _demon_attack_eval_episode_result(
     if timeout:
         result["timeout"] = True
     return result
+
+
+def _demon_attack_eval_step_budget_timeout(
+    episode_result: DemonAttackEvalEpisodeResult,
+    *,
+    eval_max_steps: int,
+    timed_out_by_eval_budget: bool,
+) -> bool:
+    if not timed_out_by_eval_budget or int(eval_max_steps) <= 0:
+        return False
+    return int(episode_result["length"]) >= int(eval_max_steps)
 
 
 def _mean_or_nan(values: list[float]) -> float:
@@ -504,7 +518,12 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     hit_eval_step_budget = False
     timeout_episodes = 0
 
-    def record_demon_attack_episode(agent_i: int, episode_result: DemonAttackEvalEpisodeResult | None) -> bool:
+    def record_demon_attack_episode(
+        agent_i: int,
+        episode_result: DemonAttackEvalEpisodeResult | None,
+        *,
+        timed_out_by_eval_budget: bool = False,
+    ) -> bool:
         nonlocal hit_eval_step_budget, timeout_episodes
         if episode_result is None or len(returns) >= eval_episodes:
             return False
@@ -515,7 +534,11 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
         raw_returns.append(float(episode_result["raw_return"]))
         clipped_returns.append(float(episode_result["clipped_return"]))
         lengths.append(int(episode_result["length"]))
-        if bool(episode_result.get("timeout", False)):
+        if _demon_attack_eval_step_budget_timeout(
+            episode_result,
+            eval_max_steps=eval_max_steps,
+            timed_out_by_eval_budget=timed_out_by_eval_budget,
+        ):
             timeout_episodes += 1
             hit_eval_step_budget = True
         episode_reward[agent_i] = 0.0
@@ -569,7 +592,11 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
                         eval_raw_reward=eval_raw_reward,
                     )
                     rnn_states[agent_i] = torch.zeros_like(rnn_states[agent_i])
-                    if record_demon_attack_episode(int(agent_i), episode_result):
+                    if record_demon_attack_episode(
+                        int(agent_i),
+                        episode_result,
+                        timed_out_by_eval_budget=True,
+                    ):
                         obs, _ = env.reset()
                 continue
 
