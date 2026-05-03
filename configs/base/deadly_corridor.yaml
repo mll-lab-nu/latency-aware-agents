@@ -8,7 +8,7 @@ backend:
   algo: APPO
   device: cpu
   train_dir: results/sample_factory
-  restart_behavior: overwrite
+  restart_behavior: resume
   run_mode: train
 
 executor:
@@ -52,7 +52,7 @@ policy:
     - 0
 
 training:
-  train_for_env_steps: 50000000
+  train_for_env_steps: 25000000
   num_workers: 16
   num_envs_per_worker: 4
   worker_num_splits: 2

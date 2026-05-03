@@ -8,7 +8,7 @@ backend:
   algo: APPO
   device: cpu
   train_dir: results/sample_factory
-  restart_behavior: overwrite
+  restart_behavior: resume
   run_mode: train
 
 executor:

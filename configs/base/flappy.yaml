@@ -8,7 +8,7 @@ backend:
   algo: APPO
   device: gpu
   train_dir: results/sample_factory
-  restart_behavior: overwrite
+  restart_behavior: resume
   run_mode: train
 
 executor:
@@ -67,7 +67,7 @@ policy:
     - flap
 
 training:
-  train_for_env_steps: 75000000
+  train_for_env_steps: 15000000
   num_workers: 2
   num_envs_per_worker: 64
   worker_num_splits: 1
