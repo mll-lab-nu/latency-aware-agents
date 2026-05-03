@@ -75,10 +75,16 @@ def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
         "res_h",
         "wide_aspect_ratio",
         "frame_stack",
-        "max_episode_steps",
     ):
         if hasattr(base_cfg, key):
             maybe_set_cli_override(cfg, key, getattr(base_cfg, key))
+    explicit_max_episode_steps = int(getattr(base_cfg, "max_episode_steps", 0) or 0)
+    if explicit_max_episode_steps > 0:
+        maybe_set_cli_override(cfg, "max_episode_steps", explicit_max_episode_steps)
+    else:
+        eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 0) or 0)
+        if eval_max_steps > 0:
+            maybe_set_cli_override(cfg, "max_episode_steps", eval_max_steps)
 
     env_frameskip = int(getattr(cfg, "env_frameskip", getattr(base_cfg, "env_frameskip", 4)) or 1)
     maybe_set_cli_override(cfg, "mode", "eval")

@@ -106,7 +106,21 @@ class EpisodeMetricsAggregator:
             "episode_train/cumulative_mean_raw_return": cumulative_raw_return,
             "episode_train/cumulative_mean_length": float(self.length_sum / self.completed_episodes),
             "episode_train/cumulative_mean_raw_frames": float(self.raw_frames_sum / self.completed_episodes),
+            "episode/length": int(episode_length),
+            "episode/terminated_rate": float(bool(event.get("terminated", False))),
+            "episode/truncated_rate": float(bool(event.get("truncated", False))),
+            "episode/timeout_rate": float(bool(event.get("timeout", event.get("truncated", False)))),
+            "episode/return_per_step": (
+                float(raw_episode_return) / float(episode_length) if episode_length > 0 else 0.0
+            ),
         }
+        if event.get("score") is not None:
+            payload["episode/score"] = float(event["score"])
+        if event.get("pipes_passed") is not None:
+            payload["episode/pipes_passed"] = float(event["pipes_passed"])
+        for key, value in event.items():
+            if str(key).startswith("action/issued_") and isinstance(value, (int, float)):
+                payload[str(key)] = float(value)
         if self.clipped_return_window:
             payload["rollout/ep_clipped_rew_mean"] = float(
                 sum(self.clipped_return_window) / len(self.clipped_return_window)

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import copy
+import math
 from bisect import insort_right
+from collections import defaultdict
 from collections.abc import Sequence
 from typing import Any
 
@@ -227,6 +229,7 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         worker_index: int = 0,
         vector_index: int = 0,
         env_id: int = 0,
+        issued_action_labels: dict[Any, str] | None = None,
     ):
         super().__init__(env)
         self.frames_per_decision = max(1, int(frames_per_decision))
@@ -234,10 +237,15 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         self.worker_index = int(worker_index)
         self.vector_index = int(vector_index)
         self.env_id = int(env_id)
+        self.issued_action_labels = dict(issued_action_labels or {})
         self.full_game_return = 0.0
         self.full_game_raw_return = 0.0
         self.full_game_clipped_return = 0.0
         self.full_game_length = 0
+        self.issued_action_counts: dict[str, int] = defaultdict(int)
+        self.issued_action_runs: dict[str, list[int]] = defaultdict(list)
+        self._last_issued_action_label: str | None = None
+        self._last_issued_action_run_len = 0
         self.episode_idx = 0
         self._preserve_full_game_on_next_reset = False
 
@@ -246,6 +254,62 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         self.full_game_raw_return = 0.0
         self.full_game_clipped_return = 0.0
         self.full_game_length = 0
+        self.issued_action_counts.clear()
+        self.issued_action_runs.clear()
+        self._last_issued_action_label = None
+        self._last_issued_action_run_len = 0
+
+    def _action_key(self, action: Any) -> Any:
+        if isinstance(action, np.ndarray):
+            if action.size == 1:
+                return self._action_key(action.reshape(-1)[0].item())
+            return tuple(self._action_key(item) for item in action.reshape(-1).tolist())
+        if isinstance(action, np.generic):
+            return action.item()
+        if isinstance(action, (list, tuple)) and len(action) == 1:
+            return self._action_key(action[0])
+        return action
+
+    def _record_issued_action(self, action: Any) -> None:
+        if not self.issued_action_labels:
+            return
+        label = self.issued_action_labels.get(self._action_key(action))
+        if label is None:
+            return
+        label = str(label)
+        self.issued_action_counts[label] += 1
+        if label == self._last_issued_action_label:
+            self._last_issued_action_run_len += 1
+            return
+        if self._last_issued_action_label is not None:
+            self.issued_action_runs[self._last_issued_action_label].append(self._last_issued_action_run_len)
+        self._last_issued_action_label = label
+        self._last_issued_action_run_len = 1
+
+    def _issued_action_stats(self) -> dict[str, float]:
+        if self._last_issued_action_label is not None and self._last_issued_action_run_len > 0:
+            self.issued_action_runs[self._last_issued_action_label].append(self._last_issued_action_run_len)
+            self._last_issued_action_label = None
+            self._last_issued_action_run_len = 0
+
+        total = sum(self.issued_action_counts.values())
+        if total <= 0:
+            return {}
+
+        stats: dict[str, float] = {}
+        entropy = 0.0
+        labels = sorted({str(label) for label in self.issued_action_labels.values()})
+        for label in labels:
+            count = int(self.issued_action_counts.get(label, 0))
+            ratio = float(count) / float(total)
+            stats[f"action/issued_{label}_ratio"] = ratio
+            if ratio > 0.0:
+                entropy -= ratio * math.log(ratio)
+            runs = self.issued_action_runs.get(label, [])
+            stats[f"action/issued_consecutive_{label}_mean"] = float(np.mean(runs)) if runs else 0.0
+            stats[f"action/issued_consecutive_{label}_max"] = float(max(runs)) if runs else 0.0
+        stats["action/issued_entropy"] = float(entropy)
+        return stats
 
     def reset(self, **kwargs):
         if not self._preserve_full_game_on_next_reset:
@@ -255,6 +319,7 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         return obs, dict(info or {})
 
     def step(self, action):
+        self._record_issued_action(action)
         obs, reward, terminated, truncated, info = self.env.step(action)
         reward_value = float(reward)
         info = dict(info or {})
@@ -276,6 +341,19 @@ class EpisodeMetricsWrapper(gym.Wrapper):
             extra_stats["episode/length"] = int(self.full_game_length)
             extra_stats["episode/raw_frames"] = int(self.full_game_length * self.frames_per_decision)
             extra_stats["episode/index"] = int(self.episode_idx)
+            extra_stats["episode/terminated"] = float(bool(terminated))
+            extra_stats["episode/truncated"] = float(bool(truncated))
+            timeout = bool(truncated or info.get("TimeLimit.truncated", False))
+            extra_stats["episode/timeout"] = float(timeout)
+            extra_stats["episode/return_per_step"] = (
+                float(self.full_game_return) / float(self.full_game_length) if self.full_game_length > 0 else 0.0
+            )
+            if info.get("score") is not None:
+                extra_stats["episode/score"] = float(info["score"])
+            if info.get("pipes_passed") is not None:
+                extra_stats["episode/pipes_passed"] = float(info["pipes_passed"])
+            action_stats = self._issued_action_stats()
+            extra_stats.update(action_stats)
 
             queue_latency = info.get("queue_latency")
             if queue_latency is None:
@@ -291,20 +369,33 @@ class EpisodeMetricsWrapper(gym.Wrapper):
             info["episodic_clipped_return"] = float(self.full_game_clipped_return)
             info["episodic_return"] = float(self.full_game_return)
             info["episodic_length"] = int(self.full_game_length)
+            done_reason = "terminated" if bool(terminated) else "truncated" if bool(truncated) else "unknown"
+            time_limit_truncated = bool(info.get("TimeLimit.truncated", truncated))
+            event = {
+                "episode_idx": int(self.episode_idx),
+                "return": float(self.full_game_return),
+                "raw_return": float(self.full_game_raw_return),
+                "clipped_return": float(self.full_game_clipped_return),
+                "length": int(self.full_game_length),
+                "raw_frames": int(self.full_game_length * self.frames_per_decision),
+                "queue_latency": None if queue_latency is None else int(queue_latency),
+                "worker_index": int(self.worker_index),
+                "vector_index": int(self.vector_index),
+                "env_id": int(self.env_id),
+                "terminated": bool(terminated),
+                "truncated": bool(truncated),
+                "time_limit_truncated": time_limit_truncated,
+                "timeout": bool(truncated or time_limit_truncated),
+                "done_reason": done_reason,
+            }
+            if info.get("score") is not None:
+                event["score"] = float(info["score"])
+            if info.get("pipes_passed") is not None:
+                event["pipes_passed"] = float(info["pipes_passed"])
+            event.update(action_stats)
             append_episode_metrics_event(
                 self.metrics_path,
-                {
-                    "episode_idx": int(self.episode_idx),
-                    "return": float(self.full_game_return),
-                    "raw_return": float(self.full_game_raw_return),
-                    "clipped_return": float(self.full_game_clipped_return),
-                    "length": int(self.full_game_length),
-                    "raw_frames": int(self.full_game_length * self.frames_per_decision),
-                    "queue_latency": None if queue_latency is None else int(queue_latency),
-                    "worker_index": int(self.worker_index),
-                    "vector_index": int(self.vector_index),
-                    "env_id": int(self.env_id),
-                },
+                event,
             )
             self.episode_idx += 1
             self._reset_full_game_counters()

@@ -314,6 +314,10 @@ def _prepare_eval_cfg(base_cfg, latency_value: int):
     maybe_set_cli_override(cfg, "fps", _synchronous_eval_fps(base_cfg))
     maybe_set_cli_override(cfg, "eval_deterministic", bool(getattr(base_cfg, "eval_deterministic", True)))
     maybe_set_cli_override(cfg, "disable_reward_scaling", bool(getattr(base_cfg, "eval_raw_reward", False)))
+    if int(getattr(cfg, "max_episode_steps", 0) or 0) <= 0:
+        eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 0) or 0)
+        if eval_max_steps > 0:
+            maybe_set_cli_override(cfg, "max_episode_steps", eval_max_steps)
     return cfg
 
 
@@ -336,6 +340,10 @@ def evaluate_latency(base_cfg, latency_value: int) -> dict[str, Any]:
     cfg.latency_mode = "episode_fixed"
     cfg.latency_sampling_mode = "uniform_all"
     cfg.eval_env_frameskip = cfg.env_frameskip
+    if int(getattr(cfg, "max_episode_steps", 0) or 0) <= 0:
+        eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 0) or 0)
+        if eval_max_steps > 0:
+            maybe_set_cli_override(cfg, "max_episode_steps", eval_max_steps)
 
     env = make_env_func_batched(
         cfg,

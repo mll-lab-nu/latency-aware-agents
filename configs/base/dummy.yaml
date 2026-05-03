@@ -2,7 +2,6 @@ experiment:
   name: dummy_base
   seed: 0
   num_episodes: 10
-  max_env_steps: 10000
 
 executor:
   mode: simulated
@@ -28,6 +27,9 @@ scheduler:
 
 policy:
   type: random
+
+evaluation:
+  eval_max_steps: 10000
 
 logging:
   output_dir: outputs/dummy_base

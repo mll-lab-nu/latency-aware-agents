@@ -30,12 +30,6 @@ DEFAULT_LATENCIES = {
     "deadly_corridor": [0, 1, 2, 3, 4, 5, 10, 15, 40],
 }
 
-DEFAULT_MAX_STEPS = {
-    "flappy": 1800,
-    "demon_attack": 25000,
-    "deadly_corridor": 2100,
-}
-
 TOP_LEVEL_SAMPLE_FACTORY_KEYS = (
     "experiment",
     "backend",
@@ -91,6 +85,7 @@ ENV_KEYS_BY_NAME = {
         "background",
         "score_limit",
         "debug",
+        "debug_timelimit_diagnostics",
         "max_episode_steps",
     ),
     "demon_attack": (
@@ -152,7 +147,7 @@ def _build_full_run_config(
     env_name: str,
     seed: int,
     latency: int,
-    max_steps: int,
+    max_steps: int | None,
     train_dir: str,
     output_root: str,
     device: str,
@@ -175,13 +170,11 @@ def _build_full_run_config(
 
     experiment_cfg["name"] = run_name
     experiment_cfg["seed"] = int(seed)
-    experiment_cfg["max_env_steps"] = int(max_steps)
     backend_cfg["type"] = "sample_factory"
     backend_cfg["device"] = str(device)
     backend_cfg["train_dir"] = str(train_dir)
     backend_cfg["restart_behavior"] = str(restart_behavior)
     backend_cfg["run_mode"] = "train"
-    env_cfg["max_episode_steps"] = int(max_steps)
     if frame_stack_override is not None:
         env_cfg["frame_stack"] = int(frame_stack_override)
     if env_name == "flappy":
@@ -207,7 +200,7 @@ def _build_train_config(
     env_name: str,
     seed: int,
     latency: int,
-    max_steps: int,
+    max_steps: int | None,
     train_dir: str,
     output_root: str,
     device: str,
@@ -248,16 +241,16 @@ def _latency_bench_policy_type(env_name: str) -> str:
         raise ValueError(f"Unsupported env '{env_name}'. Expected one of: {sorted(LATENCY_BENCH_POLICY_TYPES)}") from exc
 
 
-def _benchmark_max_env_steps(config: dict) -> int:
-    env_max_steps = config.get("env", {}).get("max_episode_steps")
+def _require_eval_max_steps(config: dict) -> int:
     eval_max_steps = config.get("evaluation", {}).get("eval_max_steps")
-    values = [int(value) for value in (env_max_steps, eval_max_steps) if value is not None]
-    if values:
-        return min(values)
-    experiment_max_steps = config.get("experiment", {}).get("max_env_steps")
-    if experiment_max_steps is None:
-        raise ValueError("max_env_steps could not be inferred from env, evaluation, or experiment config")
-    return int(experiment_max_steps)
+    if eval_max_steps is None:
+        raise ValueError("evaluation.eval_max_steps must be declared in the base config")
+    return int(eval_max_steps)
+
+
+def _drop_eval_time_limit_fields(config: dict) -> None:
+    # Eval configs use evaluation.eval_max_steps as the single persisted step-limit source.
+    config.setdefault("env", {}).pop("max_episode_steps", None)
 
 
 def _build_latency_bench_eval_config(
@@ -265,19 +258,19 @@ def _build_latency_bench_eval_config(
     env_name: str,
     seed: int,
     latency: int,
-    max_steps: int,
+    max_steps: int | None,
     output_root: str,
     eval_episodes: int,
     latency_bench_policy_device: str = "auto",
 ) -> dict:
     config = deepcopy(full_config)
-    config.setdefault("experiment", {}).setdefault("max_env_steps", int(max_steps))
+    _require_eval_max_steps(config)
+    _drop_eval_time_limit_fields(config)
 
     experiment_cfg = config.setdefault("experiment", {})
     experiment_cfg["name"] = _build_run_name(env_name, latency, seed)
     experiment_cfg["seed"] = int(seed)
     experiment_cfg["num_episodes"] = int(eval_episodes)
-    experiment_cfg["max_env_steps"] = _benchmark_max_env_steps(config)
 
     config.setdefault("backend", {})["run_mode"] = "eval"
 
@@ -321,12 +314,13 @@ def _build_eval_config(
     env_name: str,
     seed: int,
     latency: int,
-    max_steps: int,
+    max_steps: int | None,
     output_root: str,
     eval_episodes: int,
 ) -> dict:
     config = deepcopy(train_config)
-    config["experiment"]["max_env_steps"] = int(max_steps)
+    _require_eval_max_steps(config)
+    _drop_eval_time_limit_fields(config)
     config["experiment"]["num_episodes"] = int(eval_episodes)
     config["backend"]["run_mode"] = "eval"
     config["latency"]["train_values"] = [int(latency)]
@@ -382,9 +376,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--flappy-latencies", type=str, default="0,1,2,3,4,5")
     parser.add_argument("--demon-attack-latencies", type=str, default="0,1,2,3,4,5,10,15")
     parser.add_argument("--deadly-corridor-latencies", type=str, default="0,1,2,3,4,5,10,15,40")
-    parser.add_argument("--flappy-max-steps", type=int, default=DEFAULT_MAX_STEPS["flappy"])
-    parser.add_argument("--demon-attack-max-steps", type=int, default=DEFAULT_MAX_STEPS["demon_attack"])
-    parser.add_argument("--deadly-corridor-max-steps", type=int, default=DEFAULT_MAX_STEPS["deadly_corridor"])
     parser.add_argument("--train-dir", type=str, default="/workspace/sample_factory_runs")
     parser.add_argument("--output-root", type=str, default="/workspace/latency_sweeps")
     parser.add_argument("--generated-root", type=Path, default=GENERATED_ROOT)
@@ -404,11 +395,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         "flappy": parse_int_csv(args.flappy_latencies) or DEFAULT_LATENCIES["flappy"],
         "demon_attack": parse_int_csv(args.demon_attack_latencies) or DEFAULT_LATENCIES["demon_attack"],
         "deadly_corridor": parse_int_csv(args.deadly_corridor_latencies) or DEFAULT_LATENCIES["deadly_corridor"],
-    }
-    max_steps_by_env = {
-        "flappy": int(args.flappy_max_steps),
-        "demon_attack": int(args.demon_attack_max_steps),
-        "deadly_corridor": int(args.deadly_corridor_max_steps),
     }
     frame_stack_by_env = {
         "flappy": args.flappy_frame_stack,
@@ -442,12 +428,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             raise ValueError(f"Unsupported env '{env_name}'. Expected one of: {sorted(BASE_CONFIGS)}")
         for latency in latency_by_env[env_name]:
             for seed in seeds:
-                max_steps = max_steps_by_env[env_name]
                 full_config = _build_full_run_config(
                     env_name=env_name,
                     seed=int(seed),
                     latency=int(latency),
-                    max_steps=max_steps,
+                    max_steps=None,
                     train_dir=args.train_dir,
                     output_root=args.output_root,
                     device=args.device,
@@ -461,7 +446,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     env_name=env_name,
                     seed=int(seed),
                     latency=int(latency),
-                    max_steps=max_steps,
+                    max_steps=None,
                     output_root=args.output_root,
                     eval_episodes=args.eval_episodes,
                 )
@@ -470,7 +455,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     env_name=env_name,
                     seed=int(seed),
                     latency=int(latency),
-                    max_steps=max_steps,
+                    max_steps=None,
                     output_root=args.output_root,
                     eval_episodes=args.eval_episodes,
                     latency_bench_policy_device=args.latency_bench_policy_device,

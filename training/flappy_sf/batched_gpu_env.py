@@ -169,6 +169,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             worker_index=self._worker_index,
             vector_index=self._vector_index,
             env_id=self._sub_env_id(agent_idx),
+            issued_action_labels={0: "noop", 1: "flap"},
         )
         return env
 

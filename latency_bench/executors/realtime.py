@@ -190,10 +190,10 @@ class RealtimeLatencyExecutor:
         self,
         episode_id: int,
         seed: int | None = None,
-        max_env_steps: int = 10000,
+        eval_max_steps: int = 10000,
     ) -> EpisodeMetrics:
-        if max_env_steps < 0:
-            raise ValueError("max_env_steps must be non-negative")
+        if eval_max_steps < 0:
+            raise ValueError("eval_max_steps must be non-negative")
 
         self.history.clear()
         self.action_scheduler.reset()
@@ -218,7 +218,7 @@ class RealtimeLatencyExecutor:
 
         try:
             env_step = 0
-            while env_step < max_env_steps:
+            while env_step < eval_max_steps:
                 scheduled_time_ms = self.clock.step_to_time_ms(env_step)
                 target_wall_s = self._episode_start_s + scheduled_time_ms / 1000.0
                 now_s = self.time_fn()

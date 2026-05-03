@@ -2,7 +2,6 @@ experiment:
   name: demon_attack_base
   seed: 0
   num_episodes: 10
-  max_env_steps: 10000
 
 backend:
   type: sample_factory
@@ -27,8 +26,8 @@ env:
   clip_reward: true
   repeat_action_probability: 0.0
   full_action_space: false
-  noop_action: 0
   max_episode_steps: 25000
+  noop_action: 0
 
 control:
   frequency_hz: 60

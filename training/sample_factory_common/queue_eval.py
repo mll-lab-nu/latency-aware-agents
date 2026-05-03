@@ -25,6 +25,19 @@ DemonAttackEvalEpisodeResult = dict[str, float | int]
 _DEMON_ATTACK_SF_ENV = "latency_demon_attack"
 
 
+def _apply_eval_only_max_episode_steps(cfg: Any, base_cfg: Any) -> None:
+    if _is_demon_attack_queue_eval_cfg(cfg) or _is_demon_attack_queue_eval_cfg(base_cfg):
+        return
+
+    current_max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
+    if current_max_episode_steps > 0:
+        return
+
+    eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 0) or 0)
+    if eval_max_steps > 0:
+        maybe_set_cli_override(cfg, "max_episode_steps", eval_max_steps)
+
+
 def _cfg_value(cfg: Any, key: str) -> Any:
     if cfg is None:
         return None
@@ -373,6 +386,7 @@ def prepare_queue_eval_cfg(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     maybe_set_cli_override(cfg, "save_video", False)
     maybe_set_cli_override(cfg, "fps", 0)
     maybe_set_cli_override(cfg, "eval_deterministic", bool(getattr(base_cfg, "eval_deterministic", True)))
+    _apply_eval_only_max_episode_steps(cfg, base_cfg)
     if adjust_cfg is not None:
         adjust_cfg(cfg, base_cfg)
     return cfg
@@ -396,6 +410,7 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     maybe_set_cli_override(cfg, "queue_latency_values", str(int(latency_value)))
     maybe_set_cli_override(cfg, "latency_mode", "episode_fixed")
     maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
+    _apply_eval_only_max_episode_steps(cfg, base_cfg)
     if adjust_cfg is not None:
         adjust_cfg(cfg, base_cfg)
 

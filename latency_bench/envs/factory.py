@@ -66,10 +66,12 @@ def _find_key_path(value: Any, target_key: str, prefix: str = "") -> str | None:
 @register_env_adapter("dummy")
 def _build_dummy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
     env_cfg = config["env"]
-    experiment_cfg = config["experiment"]
+    evaluation_cfg = config.get("evaluation", {})
+    if evaluation_cfg.get("eval_max_steps") is None:
+        raise ValueError("evaluation.eval_max_steps is required for dummy env episode limits")
     return DummyEnvAdapter(
         fps_env=float(env_cfg["fps_env"]),
-        max_steps=int(experiment_cfg.get("max_env_steps", 10000)),
+        max_steps=int(evaluation_cfg["eval_max_steps"]),
         noop_action=noop_action,
     )
 

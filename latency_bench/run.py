@@ -46,6 +46,13 @@ def _episode_seed(config: dict[str, Any], episode_id: int) -> int:
     return seed + int(episode_id)
 
 
+def _eval_max_steps(config: dict[str, Any]) -> int:
+    evaluation_cfg = config.get("evaluation")
+    if isinstance(evaluation_cfg, dict) and evaluation_cfg.get("eval_max_steps") is not None:
+        return int(evaluation_cfg["eval_max_steps"])
+    raise ValueError("evaluation.eval_max_steps is required for latency_bench episode limits")
+
+
 def run_from_config(
     config: dict[str, Any],
     extra_metadata: dict[str, Any] | None = None,
@@ -57,7 +64,7 @@ def run_from_config(
     logging_cfg = config["logging"]
     seed = int(experiment_cfg.get("seed", 0))
     num_episodes = int(experiment_cfg.get("num_episodes", 1))
-    max_env_steps = int(experiment_cfg.get("max_env_steps", 10000))
+    eval_max_steps = _eval_max_steps(config)
     if _is_sample_factory_policy(config):
         from training.sample_factory_common.common import seed_everything
 
@@ -70,7 +77,7 @@ def run_from_config(
             episode_metrics = executor.run_episode(
                 episode_id=episode_id,
                 seed=_episode_seed(config, episode_id),
-                max_env_steps=max_env_steps,
+                eval_max_steps=eval_max_steps,
             )
             episode_metrics.metadata["config_name"] = experiment_cfg.get("name")
             episode_metrics.metadata["run_name"] = experiment_cfg.get("name")

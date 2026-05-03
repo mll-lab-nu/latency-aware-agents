@@ -36,6 +36,7 @@ from training.sample_factory_common.wandb_compat import patch_sample_factory_wan
 
 SF_ENV_NAME = "latency_flappy"
 _ENVS_REGISTERED = False
+_TIMELIMIT_DIAGNOSTICS_PRINTED: set[tuple[int, int, int]] = set()
 
 
 def _import_flappy_gymnasium():
@@ -99,6 +100,8 @@ def _format_shape(shape: tuple[int, ...]) -> str:
 
 
 def log_flappy_sf_resolved_config(cfg: Any, final_obs_shape: tuple[int, int, int]) -> None:
+    if not bool(getattr(cfg, "debug_timelimit_diagnostics", False)):
+        return
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
     obs_mode = resolve_flappy_obs_mode(cfg)
     obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
@@ -113,6 +116,69 @@ def log_flappy_sf_resolved_config(cfg: Any, final_obs_shape: tuple[int, int, int
         f"obs_resize={obs_resize} "
         f"obs_mode={obs_mode} "
         f"latency_channel={obs_mode == 'latency_channel'}"
+    )
+
+
+def _wrapper_chain(env: gym.Env) -> list[str]:
+    chain: list[str] = []
+    current: Any = env
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        chain.append(type(current).__name__)
+        current = getattr(current, "env", None)
+    return chain
+
+
+def _time_limit_max_episode_steps(env: gym.Env) -> int | None:
+    current: Any = env
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        value = getattr(current, "_max_episode_steps", None)
+        if value is not None:
+            return int(value)
+        current = getattr(current, "env", None)
+    return None
+
+
+def _spec_max_episode_steps(env: gym.Env) -> int | None:
+    spec = getattr(env, "spec", None)
+    value = getattr(spec, "max_episode_steps", None)
+    return None if value is None else int(value)
+
+
+def _maybe_log_flappy_timelimit_diagnostics(
+    cfg: Any,
+    *,
+    env: gym.Env,
+    representative_env: gym.Env,
+    final_obs_shape: tuple[int, int, int],
+    env_config: Any,
+) -> None:
+    if not bool(getattr(cfg, "debug_timelimit_diagnostics", False)):
+        return
+    worker_index = int(getattr(env_config, "worker_index", 0) or 0)
+    vector_index = int(getattr(env_config, "vector_index", 0) or 0)
+    env_id = int(getattr(env_config, "env_id", 0) or 0)
+    key = (worker_index, vector_index, env_id)
+    if key in _TIMELIMIT_DIAGNOSTICS_PRINTED:
+        return
+    _TIMELIMIT_DIAGNOSTICS_PRINTED.add(key)
+    print(
+        "[flappy_sf][timelimit] "
+        f"worker_index={worker_index} "
+        f"vector_index={vector_index} "
+        f"env_id={env_id} "
+        f"cfg.max_episode_steps={int(getattr(cfg, 'max_episode_steps', 0) or 0)} "
+        f"env.spec.max_episode_steps={_spec_max_episode_steps(representative_env)} "
+        f"TimeLimit._max_episode_steps={_time_limit_max_episode_steps(representative_env)} "
+        f"wrapper_chain={'->'.join(_wrapper_chain(representative_env))} "
+        f"resolved_max_episode_steps={_time_limit_max_episode_steps(representative_env)} "
+        f"use_gpu_render={bool(getattr(cfg, 'use_gpu_render', False))} "
+        f"gpu_render_batch_size={int(getattr(cfg, 'gpu_render_batch_size', 1) or 1)} "
+        f"num_agents={int(getattr(env, 'num_agents', 1) or 1)} "
+        f"obs_shape={_format_shape(final_obs_shape)}"
     )
 
 
@@ -299,7 +365,16 @@ def make_flappy_sf_env(
             gpu_render_profile=bool(getattr(cfg, "gpu_render_profile", False)),
             gpu_render_profile_interval=int(getattr(cfg, "gpu_render_profile_interval", 1000) or 1000),
         )
-        log_flappy_sf_resolved_config(cfg, _flappy_final_obs_shape(env.observation_space))
+        final_obs_shape = _flappy_final_obs_shape(env.observation_space)
+        log_flappy_sf_resolved_config(cfg, final_obs_shape)
+        representative_env = env.sub_envs[0] if getattr(env, "sub_envs", None) else env
+        _maybe_log_flappy_timelimit_diagnostics(
+            cfg,
+            env=env,
+            representative_env=representative_env,
+            final_obs_shape=final_obs_shape,
+            env_config=env_config,
+        )
         return env
 
     kwargs: dict[str, Any] = {
@@ -361,8 +436,17 @@ def make_flappy_sf_env(
         worker_index=int(getattr(env_config, "worker_index", 0) or 0),
         vector_index=int(getattr(env_config, "vector_index", 0) or 0),
         env_id=int(getattr(env_config, "env_id", 0) or 0),
+        issued_action_labels={0: "noop", 1: "flap"},
     )
-    log_flappy_sf_resolved_config(cfg, _flappy_final_obs_shape(env.observation_space))
+    final_obs_shape = _flappy_final_obs_shape(env.observation_space)
+    log_flappy_sf_resolved_config(cfg, final_obs_shape)
+    _maybe_log_flappy_timelimit_diagnostics(
+        cfg,
+        env=env,
+        representative_env=env,
+        final_obs_shape=final_obs_shape,
+        env_config=env_config,
+    )
     return env
 
 
@@ -407,6 +491,7 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--score_limit", type=int, default=-1)
     parser.add_argument("--frame_stack", type=int, default=1)
     parser.add_argument("--debug", type=str2bool, default=False)
+    parser.add_argument("--debug-timelimit-diagnostics", dest="debug_timelimit_diagnostics", type=str2bool, default=False)
     parser.add_argument("--max_episode_steps", type=int, default=0)
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "train_eval"])
     parser.add_argument("--queue-latency-values", type=str, default="0")
@@ -478,6 +563,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
         append_cli_arg(args, "--score_limit", env_cfg.get("score_limit"))
     append_cli_arg(args, "--frame_stack", env_cfg.get("frame_stack", 1))
     append_cli_arg(args, "--debug", env_cfg.get("debug", False))
+    append_cli_arg(args, "--debug-timelimit-diagnostics", env_cfg.get("debug_timelimit_diagnostics", False))
     append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
     return args
 

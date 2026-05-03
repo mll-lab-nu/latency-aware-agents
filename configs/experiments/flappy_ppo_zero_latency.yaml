@@ -3,7 +3,9 @@ __base__: ../base/flappy.yaml
 experiment:
   name: flappy_ppo_fs0_zero_latency
   num_episodes: 10
-  max_env_steps: 10000
+
+evaluation:
+  eval_max_steps: 10000
 
 latency:
   type: zero

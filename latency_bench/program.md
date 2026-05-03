@@ -320,7 +320,9 @@ experiment:
   name: flappy_base
   seed: 0
   num_episodes: 10
-  max_env_steps: 10000
+
+evaluation:
+  eval_max_steps: 10000
 
 env:
   name: flappy
@@ -737,7 +739,7 @@ class SimulatedLatencyExecutor:
     ):
         ...
 
-    def run_episode(self, episode_id: int, seed: int | None = None, max_env_steps: int = 10000) -> EpisodeMetrics:
+    def run_episode(self, episode_id: int, seed: int | None = None, eval_max_steps: int = 10000) -> EpisodeMetrics:
         ...
 ```
 
