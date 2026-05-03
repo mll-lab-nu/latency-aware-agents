@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 from pathlib import Path
 import sys
@@ -372,19 +373,61 @@ def _latest_frame_from_observation(single_obs: Any, *, env_name: str, frame_stac
 def _save_observation_image(
     obs: Any,
     *,
+    env: Any,
     env_name: str,
     frame_stack: int,
     image_path: Path,
     export_image_size: tuple[int, int] | None,
 ) -> str:
     image_path.parent.mkdir(parents=True, exist_ok=True)
-    single_obs = _extract_single_observation(obs)
-    frame = _latest_frame_from_observation(single_obs, env_name=env_name, frame_stack=frame_stack)
+    frame = None
+    if env_name == "flappy" and export_image_size is not None:
+        frame = _render_flappy_frame_from_state(env, export_image_size)
+    if frame is None:
+        single_obs = _extract_single_observation(obs)
+        frame = _latest_frame_from_observation(single_obs, env_name=env_name, frame_stack=frame_stack)
     image = Image.fromarray(np.asarray(frame, dtype=np.uint8))
-    if export_image_size is not None and image.size != export_image_size:
+    if export_image_size is not None and env_name != "flappy" and image.size != export_image_size:
         image = image.resize(export_image_size, Image.BILINEAR)
     image.save(image_path)
     return str(image_path)
+
+
+def _render_flappy_frame_from_state(env: Any, export_image_size: tuple[int, int]) -> np.ndarray | None:
+    try:
+        from flappy_bird_gymnasium.envs.render_state import FlappyRenderState
+        from flappy_bird_gymnasium.gpu_render.assets import FlappyRenderAssets
+    except Exception:
+        return None
+
+    state = _unwrap_env_attr(env, "get_render_state")
+    if not callable(state):
+        return None
+    render_state = state()
+    if not isinstance(render_state, FlappyRenderState):
+        return None
+
+    target_w, target_h = int(export_image_size[0]), int(export_image_size[1])
+    src_w, src_h = int(render_state.screen_width), int(render_state.screen_height)
+    if src_w <= 0 or src_h <= 0:
+        return None
+
+    sx = float(target_w) / float(src_w)
+    sy = float(target_h) / float(src_h)
+
+    scaled_state = dataclasses.replace(
+        render_state,
+        player_x=float(render_state.player_x) * sx,
+        player_y=float(render_state.player_y) * sy,
+        upper_pipes=tuple((float(x) * sx, float(y) * sy) for x, y in render_state.upper_pipes),
+        lower_pipes=tuple((float(x) * sx, float(y) * sy) for x, y in render_state.lower_pipes),
+        ground_x=float(render_state.ground_x) * sx,
+        ground_y=float(render_state.ground_y) * sy,
+        screen_width=target_w,
+        screen_height=target_h,
+    )
+    assets = FlappyRenderAssets.for_state(scaled_state)
+    return assets.reference_frame(scaled_state)
 
 
 def _flappy_action_labels() -> dict[int, str]:
@@ -725,6 +768,7 @@ def _collect_latency_dataset(
             image_path = output_dir / "images" / split / f"episode_{episode_idx:06d}" / f"t_{t:06d}.png"
             saved_image = _save_observation_image(
                 obs,
+                env=env,
                 env_name=env_name,
                 frame_stack=frame_stack,
                 image_path=image_path,
