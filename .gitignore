@@ -5,5 +5,14 @@ wandb/
 models/
 results/
 logs/
-__pycache__/
 configs/train
+
+
+# temp files
+tmp/
+_vizdoom.ini
+__pycache__/
+.codex
+
+# onle reference for agents, not to upload
+reference/
