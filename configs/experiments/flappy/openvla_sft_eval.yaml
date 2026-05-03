@@ -1,0 +1,47 @@
+__base__:
+  - ../../base/flappy.yaml
+
+experiment:
+  name: flappy_openvla_sft_eval
+  seed: 0
+  num_episodes: 20
+
+logging:
+  output_dir: outputs/flappy_openvla_sft_eval
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+
+env:
+  obs_resize: [84, 84]
+
+policy:
+  type: flappy_openvla
+  base_model_path: /inspire/hdd/project/spatialintelligence/public/lzj/latency-sensitive-bench/openvla-7b-rlvla-warmup
+  checkpoint_path: /inspire/hdd/project/spatialintelligence/public/lzj/latency-sensitive-bench/flappy_openvla_sft_checkpoints/global_step_1500
+  prompt: "You are playing Flappy Bird from a single image. Choose exactly one action from: NOOP, FLAP. Navigate through pipes without crashing to maximize score."
+  image_size: 224
+  action_dim: 2
+  num_action_chunks: 1
+  add_value_head: false
+  max_prompt_length: 50
+  num_images_in_input: 1
+  center_crop: true
+  trust_remote_code: true
+  unnorm_key: flappy_bird
+  device: cuda
+  actions:
+    - noop
+    - flap
+
+latency:
+  type: zero
+  train_values:
+    - 0
+
+evaluation:
+  eval_latency_values: [0, 1, 2, 3, 4, 5]
+  eval_max_steps: 3600
+
+scheduler:
+  stale_action_mode: latest_ready
