@@ -408,9 +408,10 @@ class FlappySampleFactoryGpuEnvAdapter(EnvAdapter):
         self.env_step = 0
         self._last_info: dict[str, Any] = {}
         self._last_frame: Any = None
+        self.sf_cfg = self._sf_cfg(config)
         self.sf_env = make_flappy_sf_env(
             "latency_flappy",
-            cfg=self._sf_cfg(config),
+            cfg=self.sf_cfg,
             env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
         )
 
@@ -435,6 +436,7 @@ class FlappySampleFactoryGpuEnvAdapter(EnvAdapter):
         self._last_info = info
         self._last_frame = frame
         step_info = dict(info)
+        step_info.pop("numeric_obs", None)
         step_info.update(
             {
                 "env_step": self.env_step,

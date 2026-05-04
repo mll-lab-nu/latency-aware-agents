@@ -223,6 +223,7 @@ def test_flappy_sf_gpu_adapter_reset_and_step_contract():
         assert isinstance(result.truncated, bool)
         assert result.info["applied_action"] == 0
         assert result.info["applied_action_name"] == "noop"
+        assert "numeric_obs" not in result.info
     finally:
         env.close()
 
