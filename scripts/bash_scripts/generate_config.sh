@@ -10,5 +10,4 @@ python scripts/generate_sample_factory_same_latency_sweep.py \
   --generated-root configs/train \
   --train-dir results/checkpoints \
   --output-root outputs \
-  --device gpu \
-  --eval-episodes 100
+  --device gpu

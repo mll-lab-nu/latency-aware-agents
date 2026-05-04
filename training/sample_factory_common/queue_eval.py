@@ -127,6 +127,16 @@ def _apply_eval_only_max_episode_steps(cfg: Any, base_cfg: Any) -> None:
         maybe_set_cli_override(cfg, "max_episode_steps", eval_max_steps)
 
 
+def _apply_demon_attack_raw_eval_runtime_overrides(cfg: Any, base_cfg: Any) -> None:
+    if not (_is_demon_attack_queue_eval_cfg(cfg) or _is_demon_attack_queue_eval_cfg(base_cfg)):
+        return
+    if not bool(getattr(base_cfg, "eval_raw_reward", getattr(cfg, "eval_raw_reward", False))):
+        return
+
+    maybe_set_cli_override(cfg, "terminal_on_life_loss", True)
+    maybe_set_cli_override(cfg, "clip_reward", False)
+
+
 def _apply_queue_eval_runtime_overrides(cfg: Any, base_cfg: Any, latency_value: int) -> None:
     maybe_set_cli_override(cfg, "queue_latency_values", str(int(latency_value)))
     maybe_set_cli_override(cfg, "latency_mode", "episode_fixed")
@@ -155,6 +165,7 @@ def _apply_queue_eval_runtime_overrides(cfg: Any, base_cfg: Any, latency_value: 
     maybe_set_cli_override(cfg, "fps", 0)
     maybe_set_cli_override(cfg, "eval_deterministic", bool(getattr(base_cfg, "eval_deterministic", True)))
     _apply_eval_only_max_episode_steps(cfg, base_cfg)
+    _apply_demon_attack_raw_eval_runtime_overrides(cfg, base_cfg)
 
 
 def _cfg_value(cfg: Any, key: str) -> Any:
@@ -261,8 +272,9 @@ def _demon_attack_eval_episode_result(
     fallback_return: float,
     fallback_length: int,
     eval_raw_reward: bool,
+    count_life_loss_terminal: bool = False,
 ) -> DemonAttackEvalEpisodeResult | None:
-    if not _demon_attack_true_eval_episode_end(info):
+    if not count_life_loss_terminal and not _demon_attack_true_eval_episode_end(info):
         return None
 
     raw_return = _metric_from_info(
@@ -329,27 +341,30 @@ def _demon_attack_eval_episode_result(
 
 def _demon_attack_eval_budget_timeout_info(
     *,
-    raw_return: float,
-    clipped_return: float,
-    length: int,
+    accumulated_return: float,
+    episode_length: int,
+    eval_raw_reward: bool,
 ) -> dict[str, Any]:
-    return {
-        TRUE_EPISODE_END_INFO_KEY: True,
+    metric_key = "episode/raw_return" if eval_raw_reward else "episode/clipped_return"
+    stats = {
+        metric_key: float(accumulated_return),
+        "episode/return": float(accumulated_return),
+        "episode/length": int(episode_length),
+        "episode/truncated": 1.0,
+        "episode/timeout": 1.0,
+    }
+    info = {
         "TimeLimit.truncated": True,
         "truncated": True,
-        "episodic_raw_return": float(raw_return),
-        "episodic_clipped_return": float(clipped_return),
-        "episodic_return": float(raw_return),
-        "episodic_length": int(length),
-        "episode_extra_stats": {
-            "episode/raw_return": float(raw_return),
-            "episode/clipped_return": float(clipped_return),
-            "episode/return": float(raw_return),
-            "episode/length": int(length),
-            "episode/truncated": 1.0,
-            "episode/timeout": 1.0,
-        },
+        "episodic_return": float(accumulated_return),
+        "episodic_length": int(episode_length),
+        "episode_extra_stats": stats,
     }
+    if eval_raw_reward:
+        info["episodic_raw_return"] = float(accumulated_return)
+    else:
+        info["episodic_clipped_return"] = float(accumulated_return)
+    return info
 
 
 def _demon_attack_eval_step_budget_timeout(
@@ -603,6 +618,7 @@ def prepare_queue_eval_cfg(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     _apply_queue_eval_runtime_overrides(cfg, base_cfg, latency_value)
     if adjust_cfg is not None:
         adjust_cfg(cfg, base_cfg)
+    _apply_demon_attack_raw_eval_runtime_overrides(cfg, base_cfg)
     return cfg
 
 
@@ -624,6 +640,7 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     _apply_queue_eval_runtime_overrides(cfg, base_cfg, latency_value)
     if adjust_cfg is not None:
         adjust_cfg(cfg, base_cfg)
+    _apply_demon_attack_raw_eval_runtime_overrides(cfg, base_cfg)
 
     eval_episodes = int(getattr(base_cfg, "eval_episodes", 20))
     eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 30000))
@@ -692,6 +709,9 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     if is_demon_attack_eval:
         raw_returns = []
         clipped_returns = []
+    count_demon_life_loss_terminal = bool(
+        getattr(cfg, "terminal_on_life_loss", getattr(base_cfg, "terminal_on_life_loss", False))
+    )
 
     tracker: _QueueEvalEpisodeTracker | None = None
     episode_ids: list[int] = []
@@ -821,6 +841,7 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
                         fallback_return=float(episode_reward[agent_i].item()),
                         fallback_length=int(episode_length[agent_i]),
                         eval_raw_reward=eval_raw_reward,
+                        count_life_loss_terminal=count_demon_life_loss_terminal,
                     )
                     rnn_states[agent_i] = torch.zeros_like(rnn_states[agent_i])
                     if not record_demon_attack_episode(
@@ -836,13 +857,14 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
                 ):
                     episode_result = _demon_attack_eval_episode_result(
                         _demon_attack_eval_budget_timeout_info(
-                            raw_return=float(demon_episode_raw_reward[agent_i]),
-                            clipped_return=float(demon_episode_clipped_reward[agent_i]),
-                            length=int(episode_length[agent_i]),
+                            accumulated_return=float(episode_reward[agent_i].item()),
+                            episode_length=int(episode_length[agent_i]),
+                            eval_raw_reward=eval_raw_reward,
                         ),
-                        fallback_return=float(demon_episode_clipped_reward[agent_i]),
+                        fallback_return=float(episode_reward[agent_i].item()),
                         fallback_length=int(episode_length[agent_i]),
                         eval_raw_reward=eval_raw_reward,
+                        count_life_loss_terminal=count_demon_life_loss_terminal,
                     )
                     rnn_states[agent_i] = torch.zeros_like(rnn_states[agent_i])
                     if record_demon_attack_episode(

@@ -411,37 +411,35 @@ def test_build_env_adapter_returns_flappy_adapter_for_flappy_config():
         env.close()
 
 
-def test_build_env_adapter_uses_flappy_sample_factory_gpu_adapter_when_enabled(monkeypatch):
-    from latency_bench.envs import factory as env_factory
+def test_build_env_adapter_returns_flappy_sf_gpu_adapter_when_enabled(monkeypatch):
+    from latency_bench.envs import factory as factory_module
 
     captured = {}
 
-    class FakeFlappySampleFactoryGpuEnvAdapter:
+    class FakeFlappyGpuAdapter:
         def __init__(self, *, config, noop_action):
             captured["config"] = config
             captured["noop_action"] = noop_action
 
-    monkeypatch.setattr(
-        env_factory,
-        "FlappySampleFactoryGpuEnvAdapter",
-        FakeFlappySampleFactoryGpuEnvAdapter,
-    )
-    noop = Action(value=0, name="noop", is_noop=True)
+        def close(self):
+            return None
+
+    monkeypatch.setattr(factory_module, "FlappySampleFactoryGpuEnvAdapter", FakeFlappyGpuAdapter)
     config = _flappy_config()
-    config["policy"]["type"] = "flappy_sf"
+    config["policy"] = {"type": "flappy_sf"}
     config["env"].update(
         {
             "use_gpu_render": True,
-            "gpu_render_device": "cpu",
             "obs_resize": [84, 84],
             "obs_mode": "image_only",
             "frame_stack": 4,
         }
     )
+    noop = Action(value=0, name="noop", is_noop=True)
 
-    env = build_env_adapter(config, noop)
+    env = factory_module.build_env_adapter(config, noop)
 
-    assert isinstance(env, FakeFlappySampleFactoryGpuEnvAdapter)
+    assert isinstance(env, FakeFlappyGpuAdapter)
     assert captured["config"] is config
     assert captured["noop_action"] is noop
 
