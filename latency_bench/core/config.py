@@ -114,6 +114,21 @@ def validate_config(config: dict) -> None:
         _require_field(latency, "fixed_latency_ms")
     if latency_type == LatencySourceType.TRACE_REPLAY.value:
         _require_field(latency, "trace_path")
+    if latency_type in {
+        LatencySourceType.EMPIRICAL_SAMPLE.value,
+        LatencySourceType.EMPIRICAL_TRACE_REPLAY.value,
+    }:
+        if "profile_path" not in latency:
+            raise ValueError("Missing required field: latency.profile_path")
+        profile_path = latency["profile_path"]
+        if profile_path is None or str(profile_path).strip() == "":
+            raise ValueError("latency.profile_path must be provided")
+        if "seed" in latency:
+            _validate_latency_seed(latency["seed"])
+    if latency_type == LatencySourceType.EMPIRICAL_TRACE_REPLAY.value:
+        trace_replay_order = latency.get("trace_replay_order", "sequential")
+        if trace_replay_order not in {"sequential", "random"}:
+            raise ValueError("latency.trace_replay_order must be one of ['random', 'sequential']")
     if latency_type == LatencySourceType.NORMAL_DISTRIBUTION.value:
         if "mean_latency_ms" not in latency:
             raise ValueError("Missing required field: latency.mean_latency_ms")
@@ -163,3 +178,8 @@ def _validate_enum_value(value: Any, enum_type: type, field_name: str) -> None:
     allowed = {item.value for item in enum_type}
     if value not in allowed:
         raise ValueError(f"{field_name} must be one of {sorted(allowed)}")
+
+
+def _validate_latency_seed(seed: Any) -> None:
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError("latency.seed must be an int or null")

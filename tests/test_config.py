@@ -147,6 +147,52 @@ latency:
     assert config["latency"]["std_latency_ms"] == 20
 
 
+def test_load_config_accepts_empirical_sample_latency(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG.replace(
+            "latency:\n  type: zero",
+            """
+latency:
+  type: empirical_sample
+  profile_path: profiles/L_test/profile.json
+  seed: 0
+""".strip(),
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config["latency"]["type"] == "empirical_sample"
+    assert config["latency"]["profile_path"] == "profiles/L_test/profile.json"
+    assert config["latency"]["seed"] == 0
+
+
+def test_load_config_accepts_empirical_trace_replay_latency(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG.replace(
+            "latency:\n  type: zero",
+            """
+latency:
+  type: empirical_trace_replay
+  profile_path: profiles/L_test
+  trace_replay_order: random
+  loop_trace: false
+  seed: 3
+""".strip(),
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config["latency"]["type"] == "empirical_trace_replay"
+    assert config["latency"]["trace_replay_order"] == "random"
+    assert config["latency"]["loop_trace"] is False
+
+
 def test_load_config_requires_normal_distribution_mean_and_std(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -162,6 +208,61 @@ latency:
     )
 
     with pytest.raises(ValueError, match="latency.std_latency_ms"):
+        load_config(config_path)
+
+
+def test_load_config_requires_empirical_profile_path(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG.replace(
+            "latency:\n  type: zero",
+            """
+latency:
+  type: empirical_sample
+""".strip(),
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="latency.profile_path"):
+        load_config(config_path)
+
+
+def test_load_config_rejects_invalid_empirical_trace_replay_order(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG.replace(
+            "latency:\n  type: zero",
+            """
+latency:
+  type: empirical_trace_replay
+  profile_path: profiles/L_test
+  trace_replay_order: reverse
+""".strip(),
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="latency.trace_replay_order"):
+        load_config(config_path)
+
+
+def test_load_config_rejects_invalid_empirical_seed(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG.replace(
+            "latency:\n  type: zero",
+            """
+latency:
+  type: empirical_sample
+  profile_path: profiles/L_test
+  seed: true
+""".strip(),
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="latency.seed"):
         load_config(config_path)
 
 

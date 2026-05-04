@@ -10,6 +10,8 @@ from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.experiments.run_simulated_latency import build_executor as build_legacy_executor
+from latency_bench.latency.profile import save_profile_manifest, write_latency_samples
+from latency_bench.latency.sources import EmpiricalSampleLatencySource, EmpiricalTraceReplayLatencySource
 
 
 @register_env_adapter("normalized_noop_test")
@@ -64,6 +66,32 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
             "output_dir": output_dir,
         },
     }
+
+
+def _write_latency_profile(tmp_path) -> str:
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    write_latency_samples([10.0, 20.0, 30.0], profile_dir / "latencies.jsonl")
+    save_profile_manifest(
+        {
+            "schema_version": 1,
+            "profile_id": "L_test",
+            "profile_type": "rollout_profile",
+            "latency_scope": "end_to_end_action_ready",
+            "policy_id": "pi_test",
+            "env_id": "env_test",
+            "target_device": "test_gpu",
+            "fps": 25.0,
+            "frame_ms": 40.0,
+            "n_warmup": 0,
+            "n_samples": 3,
+            "batch_size": 1,
+            "trace_path": "latencies.jsonl",
+            "summary": {},
+        },
+        profile_dir / "profile.json",
+    )
+    return str(profile_dir)
 
 
 @register_env_adapter("tuple_action_parallel_test")
@@ -256,6 +284,44 @@ def test_simulated_parallel_trace_replay_profile_is_not_rejected(tmp_path):
 
     try:
         assert isinstance(executor, SimulatedLatencyExecutor)
+    finally:
+        executor.env.close()
+
+
+def test_factory_builds_empirical_sample_latency_source(tmp_path):
+    profile_dir = _write_latency_profile(tmp_path)
+    config = _config(output_dir=str(tmp_path))
+    config["latency"] = {
+        "type": "empirical_sample",
+        "profile_path": profile_dir,
+        "seed": 0,
+    }
+
+    executor = build_executor(config)
+
+    try:
+        assert isinstance(executor.latency_source, EmpiricalSampleLatencySource)
+        assert executor.latency_source.profile_id == "L_test"
+    finally:
+        executor.env.close()
+
+
+def test_factory_builds_empirical_trace_replay_latency_source(tmp_path):
+    profile_dir = _write_latency_profile(tmp_path)
+    config = _config(output_dir=str(tmp_path))
+    config["latency"] = {
+        "type": "empirical_trace_replay",
+        "profile_path": profile_dir,
+        "trace_replay_order": "sequential",
+        "loop_trace": True,
+        "seed": 0,
+    }
+
+    executor = build_executor(config)
+
+    try:
+        assert isinstance(executor.latency_source, EmpiricalTraceReplayLatencySource)
+        assert executor.latency_source.next_latency_ms() == 10.0
     finally:
         executor.env.close()
 

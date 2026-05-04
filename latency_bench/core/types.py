@@ -27,6 +27,8 @@ class LatencySourceType(str, Enum):
     FIXED = "fixed"
     NORMAL_DISTRIBUTION = "normal_distribution"
     TRACE_REPLAY = "trace_replay"
+    EMPIRICAL_SAMPLE = "empirical_sample"
+    EMPIRICAL_TRACE_REPLAY = "empirical_trace_replay"
     MEASURED = "measured"
 
 
