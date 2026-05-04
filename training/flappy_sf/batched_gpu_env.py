@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import gymnasium as gym
 import numpy as np
@@ -87,6 +87,9 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         self.renderer: TorchFlappyRenderer | None = None
         self._raw_rgb_buffer: torch.Tensor | None = None
         self._has_reset = False
+        self._active_agents = np.ones(self.num_agents, dtype=np.bool_)
+        self._auto_reset_done = True
+        self._last_observation_infos: list[dict[str, Any]] = [{} for _ in range(self.num_agents)]
 
         self.gpu_render_profiler = _GpuRenderProfiler(
             enabled=bool(gpu_render_profile),
@@ -188,6 +191,50 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             with self.gpu_render_profiler.time("pipeline_s"):
                 obs = self.pipeline.reset(raw_rgb, frame_skips=self._frame_skips(infos))
         self._has_reset = True
+        self._last_observation_infos = [dict(info) for info in infos]
+        return self._obs(obs), infos
+
+    def set_auto_reset_done(self, enabled: bool) -> None:
+        self._auto_reset_done = bool(enabled)
+
+    def set_active_agents(self, active_mask: Sequence[bool]) -> None:
+        mask = np.asarray(list(active_mask), dtype=np.bool_).reshape(-1)
+        if int(mask.shape[0]) != self.num_agents:
+            raise ValueError(f"Expected active mask with {self.num_agents} entries, got {int(mask.shape[0])}")
+        self._active_agents = mask
+
+    def reset_agents(
+        self,
+        reset_plan: Mapping[int, int],
+        *,
+        active_mask: Sequence[bool] | None = None,
+    ):
+        if active_mask is not None:
+            self.set_active_agents(active_mask)
+        if not self._has_reset:
+            return self.reset()
+
+        infos = [dict(info) for info in self._last_observation_infos]
+        reset_mask = np.zeros(self.num_agents, dtype=np.bool_)
+        with self.gpu_render_profiler.time("env_step_s"):
+            for raw_agent_idx, raw_seed in reset_plan.items():
+                agent_idx = int(raw_agent_idx)
+                if agent_idx < 0 or agent_idx >= self.num_agents:
+                    raise IndexError(f"agent index out of range: {agent_idx}")
+                numeric_obs, info = self.sub_envs[agent_idx].reset(seed=int(raw_seed))
+                info = self._with_numeric_obs(info, numeric_obs)
+                infos[agent_idx] = info
+                self._last_observation_infos[agent_idx] = dict(info)
+                reset_mask[agent_idx] = True
+
+        with self.gpu_render_profiler.time("reset_obs_total_s"):
+            raw_rgb = self._render_raw_rgb()
+            with self.gpu_render_profiler.time("pipeline_s"):
+                obs = self.pipeline.reset_indices(
+                    raw_rgb,
+                    reset_mask=reset_mask,
+                    frame_skips=self._frame_skips(infos),
+                )
         return self._obs(obs), infos
 
     def step(self, action):
@@ -203,19 +250,28 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
 
         with self.gpu_render_profiler.time("env_step_s"):
             for agent_idx, (env, scalar_action) in enumerate(zip(self.sub_envs, actions)):
+                if not bool(self._active_agents[agent_idx]):
+                    observation_info = dict(self._last_observation_infos[agent_idx])
+                    observation_info["inactive"] = True
+                    infos.append(observation_info)
+                    observation_infos.append(observation_info)
+                    continue
+
                 numeric_obs, reward, term, trunc, info = env.step(scalar_action)
                 info = self._with_numeric_obs(info, numeric_obs)
                 done = bool(term or trunc)
                 rewards[agent_idx] = float(reward)
                 terminated[agent_idx] = bool(term)
                 truncated[agent_idx] = bool(trunc)
-                if done:
+                if done and self._auto_reset_done:
                     reset_numeric_obs, reset_info = env.reset()
                     reset_info = self._with_numeric_obs(reset_info, reset_numeric_obs)
                     info["reset_info"] = reset_info
                     observation_infos.append(reset_info)
+                    self._last_observation_infos[agent_idx] = dict(reset_info)
                 else:
                     observation_infos.append(info)
+                    self._last_observation_infos[agent_idx] = dict(info)
                 infos.append(info)
 
         with self.gpu_render_profiler.time("step_obs_total_s"):
@@ -225,6 +281,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                     raw_rgb,
                     dones=np.logical_or(terminated, truncated),
                     frame_skips=self._frame_skips(observation_infos),
+                    active_mask=self._active_agents,
                 )
         self.gpu_render_profiler.observe_step()
         return self._obs(obs), rewards, terminated, truncated, infos

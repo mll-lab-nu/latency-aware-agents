@@ -268,6 +268,74 @@ def test_flappy_sf_gpu_render_auto_reset_resets_only_done_agent_frame_stack():
         env.close()
 
 
+def test_flappy_sf_gpu_render_manual_reset_preserves_terminal_info_and_resets_requested_agent_only():
+    pytest.importorskip("torch")
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(gpu_render_batch_size=2, frame_stack=3),
+        env_config=_env_config(),
+    )
+    try:
+        env.reset(seed=123)
+        env.set_auto_reset_done(False)
+
+        for _ in range(5):
+            env.step(np.asarray([1, 1], dtype=np.int64))
+            stack = env.pipeline.current_frame_stack
+            assert stack is not None
+            if not _stack_frames_equal(stack, 0, stack_frames=3) and not _stack_frames_equal(
+                stack, 1, stack_frames=3
+            ):
+                break
+
+        env.sub_envs[0].unwrapped._score_limit = 0
+        _obs, rewards, terminated, truncated, infos = env.step(np.asarray([0, 1], dtype=np.int64))
+
+        assert rewards.shape == (2,)
+        assert bool(terminated[0] or truncated[0])
+        assert not bool(terminated[1] or truncated[1])
+        assert "episode_extra_stats" in infos[0]
+        assert "reset_info" not in infos[0]
+        assert "reset_info" not in infos[1]
+
+        _obs, reset_infos = env.reset_agents({0: 777}, active_mask=[True, True])
+        assert "numeric_obs" in reset_infos[0]
+        stack = env.pipeline.current_frame_stack
+        assert stack is not None
+        assert _stack_frames_equal(stack, 0, stack_frames=3)
+        assert not _stack_frames_equal(stack, 1, stack_frames=3)
+    finally:
+        env.close()
+
+
+def test_flappy_sf_gpu_render_inactive_agent_does_not_emit_done_reward_or_reset():
+    pytest.importorskip("torch")
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(gpu_render_batch_size=2),
+        env_config=_env_config(),
+    )
+    try:
+        env.reset(seed=123)
+        env.set_auto_reset_done(False)
+        env.set_active_agents([False, True])
+        env.sub_envs[0].unwrapped._score_limit = 0
+
+        _obs, rewards, terminated, truncated, infos = env.step(np.asarray([0, 1], dtype=np.int64))
+
+        assert rewards[0] == 0.0
+        assert not bool(terminated[0])
+        assert not bool(truncated[0])
+        assert infos[0]["inactive"] is True
+        assert "reset_info" not in infos[0]
+    finally:
+        env.close()
+
+
 def test_flappy_sf_gpu_render_accepts_sample_factory_discrete_action_format():
     pytest.importorskip("torch")
     from training.flappy_sf.integration import make_flappy_sf_env

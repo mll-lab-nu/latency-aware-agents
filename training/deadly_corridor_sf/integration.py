@@ -228,6 +228,7 @@ def add_latency_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--within-episode-change-prob", type=float, default=1.0)
     parser.add_argument("--add-latency-info", type=str2bool, default=False)
     parser.add_argument("--eval-episodes", type=int, default=20)
+    parser.add_argument("--eval-parallel-envs", type=int, default=1)
     parser.add_argument("--eval-queue-latency-values", type=str, default="0,1,2,3,4,5,10,15,40")
     parser.add_argument("--eval-max-steps", type=int, default=30000)
     parser.add_argument("--eval-raw-reward", action="store_true")

@@ -452,6 +452,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--add-latency-info", latency_cfg.get("add_latency_info", False))
 
     append_cli_arg(args, "--eval-episodes", evaluation_cfg.get("eval_episodes"))
+    append_cli_arg(args, "--eval-parallel-envs", evaluation_cfg.get("eval_parallel_envs"))
     append_cli_arg(args, "--eval-queue-latency-values", evaluation_cfg.get("eval_latency_values"))
     append_cli_arg(args, "--eval-max-steps", evaluation_cfg.get("eval_max_steps"))
     append_cli_arg(args, "--eval-deterministic", evaluation_cfg.get("eval_deterministic", True))

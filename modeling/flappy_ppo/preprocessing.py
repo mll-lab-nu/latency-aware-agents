@@ -254,24 +254,59 @@ class FlappyPpoTorchObservationPipeline:
         dones: np.ndarray,
         frame_skips: np.ndarray | torch.Tensor | None = None,
         profiler: Any | None = None,
+        active_mask: np.ndarray | torch.Tensor | None = None,
     ) -> torch.Tensor:
         frame_obs = self._resize(raw_rgb_batch, profiler=profiler)
-        done_indices = np.flatnonzero(np.asarray(dones, dtype=np.bool_))
+        active = self._active_mask(active_mask)
+        active_indices = [int(item) for item in np.flatnonzero(active)]
+        done_indices = np.flatnonzero(np.asarray(dones, dtype=np.bool_) & active)
         timer = profiler.time("stack_update_s") if profiler is not None else nullcontext()
         with timer:
             if self.observation_config.stack_frames <= 1:
-                self._stack[:, :, :, :] = frame_obs
+                self._stack[active_indices, :, :, :] = frame_obs[active_indices]
             else:
-                self._stack[:, :, :, : -self.base_channels] = self._stack[
-                    :, :, :, self.base_channels :
+                self._stack[active_indices, :, :, : -self.base_channels] = self._stack[
+                    active_indices, :, :, self.base_channels :
                 ].clone()
-                self._stack[:, :, :, -self.base_channels :] = frame_obs
+                self._stack[active_indices, :, :, -self.base_channels :] = frame_obs[active_indices]
             for idx in done_indices:
                 for stack_idx in range(self.observation_config.stack_frames):
                     c0 = stack_idx * self.base_channels
                     c1 = c0 + self.base_channels
                     self._stack[idx, :, :, c0:c1] = frame_obs[idx]
         return self._final_obs(frame_skips, profiler=profiler)
+
+    def reset_indices(
+        self,
+        raw_rgb_batch: torch.Tensor,
+        reset_mask: np.ndarray | torch.Tensor,
+        frame_skips: np.ndarray | torch.Tensor | None = None,
+        profiler: Any | None = None,
+    ) -> torch.Tensor:
+        if self._last_observation is None:
+            return self.reset(raw_rgb_batch, frame_skips=frame_skips, profiler=profiler)
+
+        frame_obs = self._resize(raw_rgb_batch, profiler=profiler)
+        mask = self._active_mask(reset_mask)
+        reset_indices = [int(item) for item in np.flatnonzero(mask)]
+        timer = profiler.time("stack_update_s") if profiler is not None else nullcontext()
+        with timer:
+            for idx in reset_indices:
+                for stack_idx in range(self.observation_config.stack_frames):
+                    c0 = stack_idx * self.base_channels
+                    c1 = c0 + self.base_channels
+                    self._stack[idx, :, :, c0:c1] = frame_obs[idx]
+        return self._final_obs(frame_skips, profiler=profiler)
+
+    def _active_mask(self, value: np.ndarray | torch.Tensor | None) -> np.ndarray:
+        if value is None:
+            return np.ones(self.n_envs, dtype=np.bool_)
+        if isinstance(value, torch.Tensor):
+            value = value.detach().cpu().numpy()
+        mask = np.asarray(value, dtype=np.bool_).reshape(-1)
+        if int(mask.shape[0]) != self.n_envs:
+            raise ValueError("mask must have one value per environment")
+        return mask
 
     def _resize(self, raw_rgb_batch: torch.Tensor, profiler: Any | None = None) -> torch.Tensor:
         if not isinstance(raw_rgb_batch, torch.Tensor):

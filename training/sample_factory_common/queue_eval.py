@@ -22,7 +22,75 @@ from training.sample_factory_common.common import maybe_set_cli_override
 EvalCfgAdjuster = Callable[[Any, Any], None]
 DemonAttackEvalEpisodeResult = dict[str, float | int | bool]
 
+_FLAPPY_SF_ENV = "latency_flappy"
 _DEMON_ATTACK_SF_ENV = "latency_demon_attack"
+
+
+class _QueueEvalEpisodeTracker:
+    def __init__(self, *, eval_episodes: int, eval_parallel_envs: int):
+        self.eval_episodes = int(eval_episodes)
+        self.eval_parallel_envs = int(eval_parallel_envs)
+        if self.eval_episodes < 0:
+            raise ValueError("eval_episodes must be non-negative")
+        if self.eval_parallel_envs <= 0:
+            raise ValueError("eval_parallel_envs must be positive")
+
+        initial_slots = min(self.eval_parallel_envs, self.eval_episodes)
+        self.started_episodes = int(initial_slots)
+        self.completed_episodes = 0
+        self.slot_episode_id: list[int | None] = list(range(initial_slots))
+
+    @property
+    def active_slots(self) -> int:
+        return sum(episode_id is not None for episode_id in self.slot_episode_id)
+
+    @property
+    def active_mask(self) -> list[bool]:
+        return [episode_id is not None for episode_id in self.slot_episode_id]
+
+    def complete_slot(self, slot: int) -> tuple[int, int | None]:
+        slot_idx = int(slot)
+        episode_id = self.slot_episode_id[slot_idx]
+        if episode_id is None:
+            raise RuntimeError(f"slot {slot_idx} is inactive")
+        if self.completed_episodes >= self.eval_episodes:
+            raise RuntimeError("cannot complete more episodes than requested")
+
+        completed_episode_id = int(episode_id)
+        self.completed_episodes += 1
+
+        next_episode_id: int | None = None
+        if self.started_episodes < self.eval_episodes:
+            next_episode_id = int(self.started_episodes)
+            self.started_episodes += 1
+        self.slot_episode_id[slot_idx] = next_episode_id
+        return completed_episode_id, next_episode_id
+
+
+def _is_flappy_queue_eval_cfg(cfg: Any) -> bool:
+    return str(_cfg_value(cfg, "env") or "") == _FLAPPY_SF_ENV
+
+
+def _eval_parallel_envs(base_cfg: Any) -> int:
+    value = getattr(base_cfg, "eval_parallel_envs", 1)
+    parsed = int(value)
+    if parsed <= 0:
+        raise ValueError("evaluation.eval_parallel_envs must be positive")
+    return parsed
+
+
+def _eval_episode_seed(base_cfg: Any, episode_id: int) -> int:
+    return int(getattr(base_cfg, "seed", 0) or 0) + 104729 + int(episode_id)
+
+
+def _config_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _apply_eval_only_max_episode_steps(cfg: Any, base_cfg: Any) -> None:
@@ -36,6 +104,31 @@ def _apply_eval_only_max_episode_steps(cfg: Any, base_cfg: Any) -> None:
     eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 0) or 0)
     if eval_max_steps > 0:
         maybe_set_cli_override(cfg, "max_episode_steps", eval_max_steps)
+
+
+def _apply_queue_eval_runtime_overrides(cfg: Any, base_cfg: Any, latency_value: int) -> None:
+    maybe_set_cli_override(cfg, "queue_latency_values", str(int(latency_value)))
+    maybe_set_cli_override(cfg, "latency_mode", "episode_fixed")
+    maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
+    maybe_set_cli_override(cfg, "episodes_per_stage", int(10**9))
+    maybe_set_cli_override(cfg, "randomize_within_stage", False)
+    eval_parallel_envs = _eval_parallel_envs(base_cfg)
+    eval_episodes = int(getattr(base_cfg, "eval_episodes", 20))
+    effective_parallel_envs = min(eval_parallel_envs, max(0, eval_episodes))
+    maybe_set_cli_override(cfg, "eval_parallel_envs", eval_parallel_envs)
+    maybe_set_cli_override(cfg, "num_envs", 1)
+    maybe_set_cli_override(cfg, "num_envs_per_worker", 1)
+    if _is_flappy_queue_eval_cfg(cfg) or _is_flappy_queue_eval_cfg(base_cfg):
+        use_gpu_render = _config_bool(getattr(cfg, "use_gpu_render", getattr(base_cfg, "use_gpu_render", False)))
+        if eval_parallel_envs > 1 and not use_gpu_render:
+            raise ValueError("Flappy queue eval eval_parallel_envs>1 requires env.use_gpu_render=true")
+        if use_gpu_render:
+            maybe_set_cli_override(cfg, "gpu_render_batch_size", max(1, effective_parallel_envs))
+    maybe_set_cli_override(cfg, "no_render", True)
+    maybe_set_cli_override(cfg, "save_video", False)
+    maybe_set_cli_override(cfg, "fps", 0)
+    maybe_set_cli_override(cfg, "eval_deterministic", bool(getattr(base_cfg, "eval_deterministic", True)))
+    _apply_eval_only_max_episode_steps(cfg, base_cfg)
 
 
 def _cfg_value(cfg: Any, key: str) -> Any:
@@ -421,6 +514,13 @@ def write_queue_eval_result(base_cfg, result: dict[str, Any]) -> None:
         json.dump(payload, handle, indent=2, sort_keys=True)
         handle.write("\n")
 
+    meta = result.get("_meta")
+    if isinstance(meta, dict):
+        meta_file = output_dir / f"queue_eval_latency_{latency}.meta.json"
+        with meta_file.open("w", encoding="utf-8") as handle:
+            json.dump(meta, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+
     jsonl_path = output_dir / "queue_eval_results.jsonl"
     with jsonl_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
@@ -445,18 +545,7 @@ def load_sf_policy_state_dict(cfg, actor_critic, device: torch.device) -> None:
 
 def prepare_queue_eval_cfg(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdjuster | None = None):
     cfg = copy.deepcopy(base_cfg)
-    maybe_set_cli_override(cfg, "queue_latency_values", str(int(latency_value)))
-    maybe_set_cli_override(cfg, "latency_mode", "episode_fixed")
-    maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
-    maybe_set_cli_override(cfg, "episodes_per_stage", int(10**9))
-    maybe_set_cli_override(cfg, "randomize_within_stage", False)
-    maybe_set_cli_override(cfg, "num_envs", 1)
-    maybe_set_cli_override(cfg, "num_envs_per_worker", 1)
-    maybe_set_cli_override(cfg, "no_render", True)
-    maybe_set_cli_override(cfg, "save_video", False)
-    maybe_set_cli_override(cfg, "fps", 0)
-    maybe_set_cli_override(cfg, "eval_deterministic", bool(getattr(base_cfg, "eval_deterministic", True)))
-    _apply_eval_only_max_episode_steps(cfg, base_cfg)
+    _apply_queue_eval_runtime_overrides(cfg, base_cfg, latency_value)
     if adjust_cfg is not None:
         adjust_cfg(cfg, base_cfg)
     return cfg
@@ -477,10 +566,7 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
 
     cfg = prepare_queue_eval_cfg(base_cfg, latency_value, adjust_cfg=adjust_cfg)
     cfg = load_from_checkpoint(cfg)
-    maybe_set_cli_override(cfg, "queue_latency_values", str(int(latency_value)))
-    maybe_set_cli_override(cfg, "latency_mode", "episode_fixed")
-    maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
-    _apply_eval_only_max_episode_steps(cfg, base_cfg)
+    _apply_queue_eval_runtime_overrides(cfg, base_cfg, latency_value)
     if adjust_cfg is not None:
         adjust_cfg(cfg, base_cfg)
 
@@ -505,12 +591,33 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 30000))
     max_total_frames = int(1e9 if eval_max_steps <= 0 else eval_max_steps * max(1, eval_episodes))
     is_demon_attack_eval = _is_demon_attack_queue_eval_cfg(cfg) or _is_demon_attack_queue_eval_cfg(base_cfg)
+    is_flappy_eval = _is_flappy_queue_eval_cfg(cfg) or _is_flappy_queue_eval_cfg(base_cfg)
+    eval_parallel_envs = _eval_parallel_envs(base_cfg)
+    use_explicit_flappy_accounting = (
+        is_flappy_eval
+        and hasattr(env, "set_auto_reset_done")
+        and hasattr(env, "reset_agents")
+        and int(getattr(env, "num_agents", 1)) > 0
+    )
     eval_raw_reward = bool(getattr(base_cfg, "eval_raw_reward", False))
     if is_demon_attack_eval:
         raw_returns = []
         clipped_returns = []
 
-    obs, _ = env.reset()
+    tracker: _QueueEvalEpisodeTracker | None = None
+    episode_ids: list[int] = []
+    slot_ids: list[int] = []
+    if use_explicit_flappy_accounting:
+        tracker = _QueueEvalEpisodeTracker(
+            eval_episodes=eval_episodes,
+            eval_parallel_envs=int(getattr(env, "num_agents", eval_parallel_envs)),
+        )
+        env.set_auto_reset_done(False)
+        env.set_active_agents(tracker.active_mask)
+        initial_seed = _eval_episode_seed(base_cfg, 0) if tracker.active_slots > 0 else None
+        obs, _ = env.reset(seed=initial_seed)
+    else:
+        obs, _ = env.reset()
     rnn_states = torch.zeros([env.num_agents, get_rnn_size(cfg)], dtype=torch.float32, device=device)
     episode_reward = torch.zeros([env.num_agents], dtype=torch.float32, device=device)
     episode_length = np.zeros([env.num_agents], dtype=np.int64)
@@ -545,7 +652,10 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
         episode_length[agent_i] = 0
         return True
 
-    while len(returns) < eval_episodes and total_frames < max_total_frames:
+    while (
+        (tracker is not None and tracker.completed_episodes < eval_episodes)
+        or (tracker is None and len(returns) < eval_episodes and total_frames < max_total_frames)
+    ):
         normalized_obs = prepare_and_normalize_obs(actor_critic, obs)
         policy_outputs = actor_critic(normalized_obs, rnn_states)
         actions = policy_outputs["actions"]
@@ -554,15 +664,32 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
         if actions.ndim == 1:
             actions = unsqueeze_tensor(actions, dim=-1)
         actions = preprocess_actions(env_info, actions)
+        active_mask = np.ones([env.num_agents], dtype=np.bool_)
+        if tracker is not None:
+            active_mask = np.asarray(tracker.active_mask, dtype=np.bool_)
+            env.set_active_agents(active_mask.tolist())
         rnn_states = policy_outputs["new_rnn_states"]
+        if tracker is not None and not bool(active_mask.all()):
+            inactive_mask_tensor = torch.as_tensor(~active_mask, dtype=torch.bool, device=device)
+            rnn_states[inactive_mask_tensor] = 0.0
         obs, rew, terminated, truncated, infos = env.step(actions)
         dones = make_dones(terminated, truncated)
         reward_tensor = rew if isinstance(rew, torch.Tensor) else torch.as_tensor(rew, dtype=torch.float32, device=device)
-        episode_reward += reward_tensor.to(device=device, dtype=torch.float32)
-        episode_length += 1
-        total_frames += 1
+        reward_tensor = reward_tensor.to(device=device, dtype=torch.float32)
+        if tracker is None:
+            episode_reward += reward_tensor
+            episode_length += 1
+            total_frames += 1
+        else:
+            active_mask_tensor = torch.as_tensor(active_mask, dtype=torch.bool, device=device)
+            episode_reward[active_mask_tensor] += reward_tensor[active_mask_tensor]
+            episode_length[active_mask] += 1
+            total_frames += int(active_mask.sum())
 
+        reset_plan: dict[int, int] = {}
         for agent_i, done_flag in enumerate(dones.cpu().numpy()):
+            if tracker is not None and not bool(active_mask[agent_i]):
+                continue
             done = bool(done_flag)
             if is_demon_attack_eval:
                 if done:
@@ -600,18 +727,57 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
                         obs, _ = env.reset()
                 continue
 
+            forced_eval_timeout = (
+                tracker is not None
+                and eval_max_steps > 0
+                and int(episode_length[agent_i]) >= eval_max_steps
+                and not done
+            )
+            if forced_eval_timeout:
+                done = True
+
             if done and len(returns) < eval_episodes:
                 returns.append(float(episode_reward[agent_i].item()))
                 lengths.append(int(episode_length[agent_i]))
+                if forced_eval_timeout:
+                    hit_eval_step_budget = True
+                    timeout_episodes += 1
+                if tracker is not None:
+                    completed_episode_id, next_episode_id = tracker.complete_slot(int(agent_i))
+                    episode_ids.append(int(completed_episode_id))
+                    slot_ids.append(int(agent_i))
+                    if next_episode_id is not None:
+                        reset_plan[int(agent_i)] = _eval_episode_seed(base_cfg, int(next_episode_id))
                 episode_reward[agent_i] = 0.0
                 episode_length[agent_i] = 0
                 rnn_states[agent_i] = torch.zeros_like(rnn_states[agent_i])
+
+        if tracker is not None:
+            env.set_active_agents(tracker.active_mask)
+            if reset_plan:
+                obs, _ = env.reset_agents(reset_plan, active_mask=tracker.active_mask)
 
     env.close()
     if not is_demon_attack_eval and not returns:
         returns = [float("nan")]
         lengths = [0]
-    return _build_queue_eval_result(
+    if tracker is None:
+        return _build_queue_eval_result(
+            latency_value=int(latency_value),
+            returns=returns,
+            lengths=lengths,
+            eval_episodes=eval_episodes,
+            eval_max_steps=eval_max_steps,
+            total_frames=total_frames,
+            hit_eval_step_budget=hit_eval_step_budget,
+            raw_returns=raw_returns,
+            clipped_returns=clipped_returns,
+            eval_raw_reward=eval_raw_reward,
+            env_name=str(getattr(cfg, "env", "")),
+            timeout_episodes=timeout_episodes,
+        )
+
+    result = _build_queue_eval_result(
         latency_value=int(latency_value),
         returns=returns,
         lengths=lengths,
@@ -625,3 +791,12 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
         env_name=str(getattr(cfg, "env", "")),
         timeout_episodes=timeout_episodes,
     )
+    result["_meta"] = {
+        "eval_parallel_envs": int(eval_parallel_envs),
+        "effective_parallel_envs": int(len(tracker.slot_episode_id)),
+        "started_episodes": int(tracker.started_episodes),
+        "completed_episodes": int(tracker.completed_episodes),
+        "episode_ids": [int(item) for item in episode_ids],
+        "slot_ids": [int(item) for item in slot_ids],
+    }
+    return result

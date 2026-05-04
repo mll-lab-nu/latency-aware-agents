@@ -222,6 +222,113 @@ def test_prepare_queue_eval_cfg_uses_eval_max_steps_as_eval_only_timelimit():
     assert cfg.cli_args["max_episode_steps"] == 123
 
 
+def test_prepare_queue_eval_cfg_maps_flappy_gpu_eval_parallel_envs_to_batch_size():
+    from training.sample_factory_common.queue_eval import prepare_queue_eval_cfg
+
+    cfg = prepare_queue_eval_cfg(
+        SimpleNamespace(
+            env="latency_flappy",
+            use_gpu_render=True,
+            eval_episodes=100,
+            eval_parallel_envs=4,
+            eval_max_steps=123,
+            max_episode_steps=0,
+            eval_deterministic=True,
+        ),
+        latency_value=0,
+    )
+
+    assert cfg.gpu_render_batch_size == 4
+    assert cfg.cli_args["gpu_render_batch_size"] == 4
+    assert cfg.num_envs == 1
+    assert cfg.num_envs_per_worker == 1
+
+
+def test_prepare_queue_eval_cfg_caps_flappy_gpu_eval_parallel_envs_to_eval_episodes():
+    from training.sample_factory_common.queue_eval import prepare_queue_eval_cfg
+
+    cfg = prepare_queue_eval_cfg(
+        SimpleNamespace(
+            env="latency_flappy",
+            use_gpu_render=True,
+            eval_episodes=3,
+            eval_parallel_envs=8,
+            eval_max_steps=123,
+            max_episode_steps=0,
+            eval_deterministic=True,
+        ),
+        latency_value=0,
+    )
+
+    assert cfg.gpu_render_batch_size == 3
+    assert cfg.cli_args["gpu_render_batch_size"] == 3
+
+
+def test_flappy_queue_eval_episode_tracker_assigns_exact_unique_episode_ids():
+    from training.sample_factory_common.queue_eval import _QueueEvalEpisodeTracker
+
+    tracker = _QueueEvalEpisodeTracker(eval_episodes=10, eval_parallel_envs=4)
+
+    assert tracker.started_episodes == 4
+    assert tracker.completed_episodes == 0
+    assert tracker.active_slots == 4
+    assert tracker.slot_episode_id == [0, 1, 2, 3]
+
+    completed = []
+    while tracker.completed_episodes < tracker.eval_episodes:
+        for slot in range(len(tracker.slot_episode_id)):
+            if tracker.slot_episode_id[slot] is None:
+                continue
+            completed_episode_id, _next_episode_id = tracker.complete_slot(slot)
+            completed.append(completed_episode_id)
+            if tracker.completed_episodes == tracker.eval_episodes:
+                break
+
+    assert completed == list(range(10))
+    assert tracker.started_episodes == 10
+    assert tracker.completed_episodes == 10
+    assert tracker.active_slots == 0
+    assert sorted(completed) == list(range(10))
+    assert len(set(completed)) == 10
+    assert all(episode_id is None for episode_id in tracker.slot_episode_id)
+
+
+def test_flappy_queue_eval_episode_tracker_single_slot_serial_order():
+    from training.sample_factory_common.queue_eval import _QueueEvalEpisodeTracker
+
+    tracker = _QueueEvalEpisodeTracker(eval_episodes=5, eval_parallel_envs=1)
+
+    completed = []
+    while tracker.completed_episodes < tracker.eval_episodes:
+        completed_episode_id, next_episode_id = tracker.complete_slot(0)
+        completed.append(completed_episode_id)
+        if next_episode_id is not None:
+            assert next_episode_id == tracker.started_episodes - 1
+
+    assert completed == [0, 1, 2, 3, 4]
+    assert tracker.started_episodes == 5
+    assert tracker.completed_episodes == 5
+    assert tracker.active_slots == 0
+
+
+def test_flappy_queue_eval_episode_tracker_supports_more_parallel_envs_than_episodes():
+    from training.sample_factory_common.queue_eval import _QueueEvalEpisodeTracker
+
+    tracker = _QueueEvalEpisodeTracker(eval_episodes=3, eval_parallel_envs=8)
+
+    assert tracker.started_episodes == 3
+    assert tracker.active_slots == 3
+    assert tracker.slot_episode_id == [0, 1, 2]
+
+    completed = [tracker.complete_slot(slot)[0] for slot in range(3)]
+
+    assert completed == [0, 1, 2]
+    assert tracker.started_episodes == 3
+    assert tracker.completed_episodes == 3
+    assert tracker.active_slots == 0
+    assert tracker.slot_episode_id == [None, None, None]
+
+
 def test_prepare_queue_eval_cfg_does_not_convert_demon_attack_eval_budget_to_timelimit():
     from training.sample_factory_common.queue_eval import prepare_queue_eval_cfg
 
@@ -287,3 +394,39 @@ def test_write_and_log_queue_eval_result_preserve_raw_and_clipped_metrics(tmp_pa
     assert run.logged["queue_eval/timeout_episodes"] == 1.0
     assert run.summary["queue_eval/latency_5/mean_raw_return"] == 40.0
     assert run.summary["queue_eval/latency_5/timeout_episodes"] == 1.0
+
+
+def test_write_queue_eval_result_keeps_summary_schema_and_writes_optional_meta(tmp_path):
+    from training.sample_factory_common.queue_eval import write_queue_eval_result
+
+    cfg = SimpleNamespace(output_dir=str(tmp_path), experiment="exp", seed=7, load_checkpoint_kind="latest")
+    result = {
+        "latency": 2,
+        "mean_return": 1.5,
+        "std_return": 0.5,
+        "mean_length": 3.5,
+        "returns": [1.0, 2.0],
+        "lengths": [3, 4],
+        "completed_episodes": 2,
+        "requested_episodes": 2,
+        "_meta": {
+            "eval_parallel_envs": 4,
+            "started_episodes": 2,
+            "completed_episodes": 2,
+            "episode_ids": [0, 1],
+            "slot_ids": [0, 1],
+        },
+    }
+
+    write_queue_eval_result(cfg, result)
+
+    payload = json.loads((tmp_path / "queue_eval_latency_2.json").read_text(encoding="utf-8"))
+    assert "_meta" not in payload
+    assert "episode_ids" not in payload
+    assert payload["returns"] == [1.0, 2.0]
+    assert payload["lengths"] == [3, 4]
+    assert payload["completed_episodes"] == 2
+
+    meta = json.loads((tmp_path / "queue_eval_latency_2.meta.json").read_text(encoding="utf-8"))
+    assert meta["eval_parallel_envs"] == 4
+    assert meta["episode_ids"] == [0, 1]
