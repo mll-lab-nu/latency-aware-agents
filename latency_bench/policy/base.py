@@ -12,6 +12,9 @@ class PolicyRunner(ABC):
     def predict(self, observation: Observation) -> PolicyOutput:
         ...
 
+    def reset_state(self, slot_id: int | None = None) -> None:
+        return None
+
     def predict_batch(self, observations: Sequence[Observation]) -> list[PolicyOutput]:
         raise NotImplementedError(
             f"{self.__class__.__name__} does not implement safe batched prediction. "

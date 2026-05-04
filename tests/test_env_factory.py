@@ -391,6 +391,7 @@ def test_demon_attack_latency_bench_eval_raw_reward_disables_clipping_and_keeps_
 
     assert captured["terminal_on_life_loss"] is True
     assert captured["clip_reward"] is False
+    assert captured["continue_life_loss_terminal"] is True
 
 
 def test_build_executor_uses_registered_env_factory(tmp_path):

@@ -216,6 +216,9 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         self.rnn_states = torch.zeros([1, self.rnn_size], dtype=torch.float32, device=self.device)
         reference_env.close()
 
+    def reset_state(self, slot_id: int | None = None) -> None:
+        self.rnn_states.zero_()
+
     def predict(self, observation: Observation) -> PolicyOutput:
         if int(observation.env_step) == 0:
             self.rnn_states.zero_()

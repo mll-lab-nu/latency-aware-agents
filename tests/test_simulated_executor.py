@@ -5,8 +5,8 @@ import time
 from pathlib import Path
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, Observation, PolicyOutput, StaleActionMode
-from latency_bench.envs.base import DummyEnvAdapter
+from latency_bench.core.types import Action, Observation, PolicyOutput, StaleActionMode, StepResult
+from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.latency.sources import FixedLatencySource, TraceReplayLatencySource, ZeroLatencySource
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
@@ -26,6 +26,77 @@ class CountingPolicyRunner(PolicyRunner):
         action = Action(value=f"a{self.count}", name=f"a{self.count}")
         self.count += 1
         return PolicyOutput(action=action)
+
+
+class ResetTrackingPolicyRunner(PolicyRunner):
+    def __init__(self, action: Action):
+        self.action = action
+        self.reset_calls: list[int | None] = []
+
+    def predict(self, observation: Observation) -> PolicyOutput:
+        return PolicyOutput(action=self.action)
+
+    def reset_state(self, slot_id: int | None = None) -> None:
+        self.reset_calls.append(slot_id)
+
+
+class SoftResetEnvAdapter(EnvAdapter):
+    def __init__(self, *, noop_action: Action):
+        self.fps_env = 30.0
+        self.noop_action = noop_action
+        self.env_step = 0
+        self.total_steps = 0
+        self.applied_actions: list[Action] = []
+
+    @property
+    def frame_ms(self) -> float:
+        return 1000.0 / self.fps_env
+
+    def reset(self, seed: int | None = None) -> Observation:
+        self.env_step = 0
+        self.total_steps = 0
+        self.applied_actions.clear()
+        return self._observation(seed=seed)
+
+    def step(self, action: Action) -> StepResult:
+        self.applied_actions.append(action)
+        self.total_steps += 1
+        if self.total_steps == 2:
+            self.env_step = 0
+            return StepResult(
+                observation=self._observation(phase="soft_reset"),
+                reward=1.0,
+                done=False,
+                truncated=False,
+                info={"soft_reset": True},
+            )
+
+        self.env_step += 1
+        return StepResult(
+            observation=self._observation(),
+            reward=1.0,
+            done=self.total_steps >= 4,
+            truncated=False,
+            info={"total_steps": self.total_steps},
+        )
+
+    def render_frame(self):
+        return {"env_step": self.env_step, "total_steps": self.total_steps}
+
+    def get_state_info(self):
+        return {
+            "env_step": self.env_step,
+            "sim_time_ms": self.env_step * self.frame_ms,
+            "total_steps": self.total_steps,
+        }
+
+    def _observation(self, **metadata) -> Observation:
+        return Observation(
+            data={"env_step": self.env_step, "total_steps": self.total_steps},
+            env_step=self.env_step,
+            sim_time_ms=self.env_step * self.frame_ms,
+            metadata=metadata,
+        )
 
 
 def _executor(
@@ -167,3 +238,31 @@ def test_each_episode_resets_scheduler_to_noop_for_fixed_latency():
     executor.run_episode(episode_id=1, eval_max_steps=3)
 
     assert env.applied_actions[0].value == noop.value
+
+
+def test_soft_reset_continues_same_episode_and_clears_latency_state():
+    clock = EnvClock(30)
+    noop = Action("noop", name="noop", is_noop=True)
+    env = SoftResetEnvAdapter(noop_action=noop)
+    policy = ResetTrackingPolicyRunner(Action("jump", name="jump"))
+    executor = SimulatedLatencyExecutor(
+        env=env,
+        policy=policy,
+        observation_builder=ObservationBuilder(),
+        history=HistoryBuffer(),
+        decision_scheduler=EveryFrameDecisionScheduler(),
+        latency_source=FixedLatencySource(clock.frame_ms * 2),
+        action_scheduler=ActionScheduler(
+            clock=clock,
+            noop_action=noop,
+            persistence_policy=HoldPreviousActionPolicy(),
+        ),
+        clock=clock,
+    )
+
+    metrics = executor.run_episode(episode_id=0, seed=5, eval_max_steps=10)
+
+    assert metrics.survival_steps == 4
+    assert metrics.episode_return == 4.0
+    assert [action.value for action in env.applied_actions] == ["noop", "noop", "noop", "noop"]
+    assert policy.reset_calls == [None, None]

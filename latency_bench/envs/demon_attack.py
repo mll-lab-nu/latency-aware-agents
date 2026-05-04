@@ -6,6 +6,7 @@ import gymnasium as gym
 
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
+from training.atari_episode_stats import is_true_atari_episode_end
 
 
 class DemonAttackEnvAdapter(EnvAdapter):
@@ -21,6 +22,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
         action_repeat: int = 1,
         terminal_on_life_loss: bool = False,
         clip_reward: bool = True,
+        continue_life_loss_terminal: bool = False,
         repeat_action_probability: float = 0.0,
         full_action_space: bool = False,
     ):
@@ -40,6 +42,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
         self.fps_env = float(fps_env)
         self.action_repeat = int(action_repeat)
         self.noop_action = noop_action or Action(value=0, name="0", is_noop=True)
+        self.continue_life_loss_terminal = bool(continue_life_loss_terminal)
         self.env_step = 0
         self._last_info: dict[str, Any] = {}
         self._last_frame: Any = None
@@ -61,6 +64,44 @@ class DemonAttackEnvAdapter(EnvAdapter):
         self.env_step += 1
         self._last_frame = frame
         self._last_info = dict(info or {})
+        true_episode_end = _is_true_episode_end(
+            self.gym_env,
+            terminated=bool(terminated),
+            truncated=bool(truncated),
+            info=self._last_info,
+        )
+        if self.continue_life_loss_terminal and bool(terminated or truncated) and not true_episode_end:
+            terminal_info = dict(self._last_info)
+            terminal_env_step = int(self.env_step)
+            reset_frame, reset_info = self.gym_env.reset()
+            self.env_step = 0
+            self._last_frame = reset_frame
+            self._last_info = dict(reset_info or {})
+            observation = self._make_observation(info=self._last_info)
+            step_info = dict(terminal_info)
+            step_info.update(
+                {
+                    "env_step": terminal_env_step,
+                    "sim_time_ms": terminal_env_step * self.frame_ms,
+                    "applied_action": gym_action,
+                    "applied_action_name": action.name,
+                    "observation": "atari_frame_v1",
+                    "soft_reset": True,
+                    "ignored_life_loss_terminal": True,
+                    "original_terminated": bool(terminated),
+                    "original_truncated": bool(truncated),
+                    "is_true_episode_end": False,
+                    "reset_info": dict(reset_info or {}),
+                }
+            )
+            return StepResult(
+                observation=observation,
+                reward=float(reward),
+                done=False,
+                truncated=False,
+                info=step_info,
+            )
+
         observation = self._make_observation(info=self._last_info)
         step_info = dict(self._last_info)
         step_info.update(
@@ -70,6 +111,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
                 "applied_action": gym_action,
                 "applied_action_name": action.name,
                 "observation": "atari_frame_v1",
+                "is_true_episode_end": bool(true_episode_end) if bool(terminated or truncated) else False,
             }
         )
         return StepResult(
@@ -112,6 +154,38 @@ class DemonAttackEnvAdapter(EnvAdapter):
             sim_time_ms=self.env_step * self.frame_ms,
             metadata=metadata,
         )
+
+
+def _is_true_episode_end(
+    env: gym.Env,
+    *,
+    terminated: bool,
+    truncated: bool,
+    info: dict[str, Any],
+) -> bool:
+    if bool(truncated):
+        return True
+    if not bool(terminated):
+        return False
+    if any(key in info for key in ("is_true_episode_end", "game_over", "lives")):
+        return is_true_atari_episode_end(terminated=True, truncated=False, info=info)
+
+    was_real_done = _episodic_life_was_real_done(env)
+    if was_real_done is not None:
+        return bool(was_real_done)
+
+    return is_true_atari_episode_end(terminated=True, truncated=False, info=info)
+
+
+def _episodic_life_was_real_done(env: gym.Env) -> bool | None:
+    current: Any = env
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if hasattr(current, "was_real_done"):
+            return bool(getattr(current, "was_real_done"))
+        current = getattr(current, "env", None)
+    return None
 
 
 def make_demon_attack_benchmark_env(

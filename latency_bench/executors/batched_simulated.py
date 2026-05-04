@@ -192,21 +192,27 @@ class BatchedSimulatedLatencyExecutor:
                 current_time_ms = self.clock.step_to_time_ms(slot.env_step)
                 active_action = actions_by_slot[slot.slot_id]
                 result = step_responses[slot.slot_id].result
+                soft_reset = bool(result.info.get("soft_reset")) if isinstance(result.info, dict) else False
+                episode_done = bool(result.done or result.truncated) and not soft_reset
                 record = StepRecord(
                     episode_id=int(slot.episode_id),
                     env_step=slot.env_step,
                     sim_time_ms=current_time_ms,
                     active_action=active_action,
                     reward=float(result.reward),
-                    done=bool(result.done or result.truncated),
+                    done=episode_done,
                     info=result.info,
                 )
                 slot.buffers.step_records.append(record)
+                if soft_reset:
+                    slot.history.clear()
+                    slot.action_scheduler.reset()
+                    self.policy.reset_state(slot_id=slot.slot_id)
                 if result.observation is not None:
                     slot.history.append(result.observation)
 
                 slot.env_step += 1
-                if result.done or result.truncated or slot.env_step >= eval_max_steps:
+                if episode_done or slot.env_step >= eval_max_steps:
                     self._complete_slot(slot)
                     if next_episode_index < len(episode_ids):
                         self._start_slot(
@@ -247,6 +253,7 @@ class BatchedSimulatedLatencyExecutor:
         slot.buffers = _EpisodeBuffers()
         slot.history.clear()
         slot.action_scheduler.reset()
+        self.policy.reset_state(slot_id=slot.slot_id)
         initial_observation = self.env_backend.reset_slot(slot.slot_id, episode_id=episode_id, seed=seed)
         slot.history.append(initial_observation)
         self.slot_episode_id[slot.slot_id] = int(episode_id)

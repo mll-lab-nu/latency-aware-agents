@@ -68,6 +68,21 @@ class TupleActionPolicy(PolicyRunner):
         ]
 
 
+class ResetTrackingBatchPolicy(PolicyRunner):
+    def __init__(self, action: Action):
+        self.action = action
+        self.reset_calls: list[int | None] = []
+
+    def predict(self, observation: Observation) -> PolicyOutput:
+        raise AssertionError("batched executor must call predict_batch")
+
+    def predict_batch(self, observations):
+        return [PolicyOutput(action=self.action) for _observation in observations]
+
+    def reset_state(self, slot_id: int | None = None) -> None:
+        self.reset_calls.append(slot_id)
+
+
 class TupleActionEnvAdapter(EnvAdapter):
     def __init__(self, *, slot_id: int, max_steps: int, noop_action: Action):
         import gymnasium as gym
@@ -105,6 +120,65 @@ class TupleActionEnvAdapter(EnvAdapter):
             data={"state": self.env_step},
             env_step=self.env_step,
             sim_time_ms=self.env_step * (1000.0 / self.fps_env),
+            metadata=metadata,
+        )
+
+
+class SoftResetEnvAdapter(EnvAdapter):
+    def __init__(self, *, noop_action: Action):
+        self.fps_env = 30.0
+        self.noop_action = noop_action
+        self.env_step = 0
+        self.total_steps = 0
+        self.applied_actions: list[Action] = []
+
+    @property
+    def frame_ms(self) -> float:
+        return 1000.0 / self.fps_env
+
+    def reset(self, seed: int | None = None) -> Observation:
+        self.env_step = 0
+        self.total_steps = 0
+        self.applied_actions.clear()
+        return self._observation(seed=seed)
+
+    def step(self, action: Action) -> StepResult:
+        self.applied_actions.append(action)
+        self.total_steps += 1
+        if self.total_steps == 2:
+            self.env_step = 0
+            return StepResult(
+                observation=self._observation(phase="soft_reset"),
+                reward=1.0,
+                done=False,
+                truncated=False,
+                info={"soft_reset": True},
+            )
+
+        self.env_step += 1
+        return StepResult(
+            observation=self._observation(),
+            reward=1.0,
+            done=self.total_steps >= 4,
+            truncated=False,
+            info={"total_steps": self.total_steps},
+        )
+
+    def render_frame(self):
+        return {"env_step": self.env_step, "total_steps": self.total_steps}
+
+    def get_state_info(self):
+        return {
+            "env_step": self.env_step,
+            "sim_time_ms": self.env_step * self.frame_ms,
+            "total_steps": self.total_steps,
+        }
+
+    def _observation(self, **metadata) -> Observation:
+        return Observation(
+            data={"env_step": self.env_step, "total_steps": self.total_steps},
+            env_step=self.env_step,
+            sim_time_ms=self.env_step * self.frame_ms,
             metadata=metadata,
         )
 
@@ -456,6 +530,45 @@ def test_batched_executor_keeps_slot_action_queues_independent(tmp_path: Path):
 
     assert envs[0].applied_actions[0].value == "jump"
     assert [action.value for action in envs[1].applied_actions[:2]] == ["noop", "noop"]
+
+
+def test_batched_executor_soft_reset_continues_same_episode_and_clears_slot_latency_state(tmp_path: Path):
+    clock = EnvClock(30.0)
+    noop = Action("noop", name="noop", is_noop=True)
+    env = SoftResetEnvAdapter(noop_action=noop)
+    policy = ResetTrackingBatchPolicy(Action("jump", name="jump"))
+    executor = BatchedSimulatedLatencyExecutor(
+        envs=[env],
+        policy=policy,
+        observation_builder=ObservationBuilder(),
+        histories=[HistoryBuffer()],
+        decision_scheduler=EveryFrameDecisionScheduler(),
+        latency_sources=[FixedLatencySource(clock.frame_ms * 2)],
+        action_schedulers=[
+            ActionScheduler(
+                clock=clock,
+                noop_action=noop,
+                persistence_policy=HoldPreviousActionPolicy(),
+            )
+        ],
+        clock=clock,
+        logger=TrajectoryLogger(tmp_path),
+    )
+
+    try:
+        metrics = executor.run_episodes(
+            episode_ids=[7],
+            seeds=[5],
+            eval_max_steps=10,
+        )
+    finally:
+        executor.close()
+
+    assert metrics[0].episode_id == 7
+    assert metrics[0].survival_steps == 4
+    assert metrics[0].episode_return == 4.0
+    assert [action.value for action in env.applied_actions] == ["noop", "noop", "noop", "noop"]
+    assert policy.reset_calls == [0, 0]
 
 
 def test_batched_executor_keeps_slot_latency_sources_independent(tmp_path: Path):

@@ -49,6 +49,7 @@ class SimulatedLatencyExecutor:
 
         self.history.clear()
         self.action_scheduler.reset()
+        self.policy.reset_state()
         initial_observation = self.env.reset(seed=seed)
         self.history.append(initial_observation)
 
@@ -97,23 +98,29 @@ class SimulatedLatencyExecutor:
 
             active_action = self.action_scheduler.update(env_step, current_time_ms)
             result = self.env.step(active_action)
+            soft_reset = bool(result.info.get("soft_reset")) if isinstance(result.info, dict) else False
+            episode_done = bool(result.done or result.truncated) and not soft_reset
             record = StepRecord(
                 episode_id=episode_id,
                 env_step=env_step,
                 sim_time_ms=current_time_ms,
                 active_action=active_action,
                 reward=float(result.reward),
-                done=bool(result.done or result.truncated),
+                done=episode_done,
                 info=result.info,
             )
             step_records.append(record)
             if self.logger is not None:
                 self.logger.log_step(record)
+            if soft_reset:
+                self.history.clear()
+                self.action_scheduler.reset()
+                self.policy.reset_state()
             if result.observation is not None:
                 self.history.append(result.observation)
 
             env_step += 1
-            if result.done or result.truncated:
+            if episode_done:
                 break
 
         metrics = compute_episode_metrics(

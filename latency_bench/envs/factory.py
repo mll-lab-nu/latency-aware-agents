@@ -128,6 +128,7 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
     if is_latency_bench_eval and eval_raw_reward:
         terminal_on_life_loss = True
         clip_reward = False
+    continue_life_loss_terminal = bool(is_latency_bench_eval and eval_raw_reward)
     return DemonAttackEnvAdapter(
         env_id=env_cfg.get("env_id", env_cfg.get("gym_id", "ALE/DemonAttack-v5")),
         fps_env=float(env_cfg["fps_env"]),
@@ -137,6 +138,7 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
         action_repeat=int(env_cfg.get("action_repeat", 1)),
         terminal_on_life_loss=terminal_on_life_loss,
         clip_reward=clip_reward,
+        continue_life_loss_terminal=continue_life_loss_terminal,
         repeat_action_probability=float(env_cfg.get("repeat_action_probability", 0.0)),
         full_action_space=bool(env_cfg.get("full_action_space", False)),
     )
