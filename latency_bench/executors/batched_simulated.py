@@ -1,0 +1,325 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+
+from latency_bench.core.clock import EnvClock
+from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
+from latency_bench.envs.base import EnvAdapter
+from latency_bench.latency.sources import LatencySource
+from latency_bench.logging.metrics import compute_episode_metrics
+from latency_bench.logging.trajectory_logger import TrajectoryLogger
+from latency_bench.observation.builder import ObservationBuilder
+from latency_bench.observation.history import HistoryBuffer
+from latency_bench.policy.base import PolicyRunner
+from latency_bench.scheduler.action_queue import ActionScheduler
+from latency_bench.scheduler.decision import DecisionScheduler
+
+
+@dataclass
+class _EpisodeBuffers:
+    step_records: list[StepRecord] = field(default_factory=list)
+    action_events: list[ActionEvent] = field(default_factory=list)
+    latency_records: list[LatencyRecord] = field(default_factory=list)
+    latency_values_ms: list[float] = field(default_factory=list)
+
+
+@dataclass
+class _SlotState:
+    slot_id: int
+    env: EnvAdapter
+    history: HistoryBuffer
+    latency_source: LatencySource
+    action_scheduler: ActionScheduler
+    active: bool = False
+    episode_id: int | None = None
+    episode_seed: int | None = None
+    env_step: int = 0
+    buffers: _EpisodeBuffers = field(default_factory=_EpisodeBuffers)
+
+
+class _BatchedEnvCollection:
+    def __init__(self, envs: Sequence[EnvAdapter]):
+        self.envs = list(envs)
+        self.noop_action = self.envs[0].noop_action if self.envs else None
+        self.fps_env = self.envs[0].fps_env if self.envs else 0.0
+
+    def close(self) -> None:
+        for env in self.envs:
+            env.close()
+
+
+class BatchedSimulatedLatencyExecutor:
+    """Run multiple simulated episodes concurrently with independent slot state.
+
+    Phase 3B intentionally steps envs in a Python loop. The useful batching surface
+    here is policy inference and exact episode accounting; subprocess env stepping
+    is a later phase for CPU-bound environments.
+    """
+
+    def __init__(
+        self,
+        *,
+        envs: Sequence[EnvAdapter],
+        policy: PolicyRunner,
+        observation_builder: ObservationBuilder,
+        histories: Sequence[HistoryBuffer],
+        decision_scheduler: DecisionScheduler,
+        latency_sources: Sequence[LatencySource],
+        action_schedulers: Sequence[ActionScheduler],
+        clock: EnvClock,
+        logger: TrajectoryLogger | None = None,
+    ):
+        slot_count = len(envs)
+        if slot_count <= 0:
+            raise ValueError("BatchedSimulatedLatencyExecutor requires at least one env slot")
+        if len(histories) != slot_count:
+            raise ValueError("histories length must match envs length")
+        if len(latency_sources) != slot_count:
+            raise ValueError("latency_sources length must match envs length")
+        if len(action_schedulers) != slot_count:
+            raise ValueError("action_schedulers length must match envs length")
+
+        self.envs = list(envs)
+        self.env = _BatchedEnvCollection(self.envs)
+        self.policy = policy
+        self.observation_builder = observation_builder
+        self.decision_scheduler = decision_scheduler
+        self.clock = clock
+        self.logger = logger
+        self.slots = [
+            _SlotState(
+                slot_id=slot_id,
+                env=self.envs[slot_id],
+                history=histories[slot_id],
+                latency_source=latency_sources[slot_id],
+                action_scheduler=action_schedulers[slot_id],
+            )
+            for slot_id in range(slot_count)
+        ]
+        self._next_obs_id = 0
+        self._next_action_id = 0
+        self.started_episodes = 0
+        self.completed_episodes = 0
+        self.active_slots = 0
+        self.slot_episode_id: list[int | None] = [None for _slot in self.slots]
+        self._completed_metrics: dict[int, EpisodeMetrics] = {}
+        self._completed_buffers: dict[int, _EpisodeBuffers] = {}
+        self._episode_log_order: list[int] = []
+        self._next_episode_log_index = 0
+
+    @property
+    def num_slots(self) -> int:
+        return len(self.slots)
+
+    def close(self) -> None:
+        self.env.close()
+
+    def run_episodes(
+        self,
+        *,
+        episode_ids: Sequence[int],
+        seeds: Sequence[int | None],
+        eval_max_steps: int = 10000,
+    ) -> list[EpisodeMetrics]:
+        if eval_max_steps < 0:
+            raise ValueError("eval_max_steps must be non-negative")
+        episode_ids = [int(episode_id) for episode_id in episode_ids]
+        if len(seeds) != len(episode_ids):
+            raise ValueError("seeds length must match episode_ids length")
+
+        self._reset_run_state(episode_ids)
+        if not episode_ids:
+            return []
+
+        next_episode_index = 0
+        initial_slots = min(self.num_slots, len(episode_ids))
+        for slot in self.slots[:initial_slots]:
+            self._start_slot(
+                slot,
+                episode_id=episode_ids[next_episode_index],
+                seed=seeds[next_episode_index],
+            )
+            next_episode_index += 1
+
+        while self.completed_episodes < len(episode_ids):
+            active_slots = self._active_slots()
+            if eval_max_steps == 0:
+                for slot in active_slots:
+                    self._complete_slot(slot)
+                    if next_episode_index < len(episode_ids):
+                        self._start_slot(
+                            slot,
+                            episode_id=episode_ids[next_episode_index],
+                            seed=seeds[next_episode_index],
+                        )
+                        next_episode_index += 1
+                continue
+
+            observations = []
+            observation_slots: list[_SlotState] = []
+            for slot in active_slots:
+                current_time_ms = self.clock.step_to_time_ms(slot.env_step)
+                if self.decision_scheduler.should_observe(slot.env_step, current_time_ms):
+                    observations.append(self.observation_builder.build(slot.env, slot.history))
+                    observation_slots.append(slot)
+
+            if observations:
+                policy_outputs = self.policy.predict_batch(observations)
+                if len(policy_outputs) != len(observations):
+                    raise RuntimeError("policy.predict_batch returned the wrong number of outputs")
+                for slot, observation, policy_output in zip(observation_slots, observations, policy_outputs):
+                    self._enqueue_policy_output(slot, observation, policy_output)
+
+            for slot in active_slots:
+                current_time_ms = self.clock.step_to_time_ms(slot.env_step)
+                active_action = slot.action_scheduler.update(slot.env_step, current_time_ms)
+                result = slot.env.step(active_action)
+                record = StepRecord(
+                    episode_id=int(slot.episode_id),
+                    env_step=slot.env_step,
+                    sim_time_ms=current_time_ms,
+                    active_action=active_action,
+                    reward=float(result.reward),
+                    done=bool(result.done or result.truncated),
+                    info=result.info,
+                )
+                slot.buffers.step_records.append(record)
+                if result.observation is not None:
+                    slot.history.append(result.observation)
+
+                slot.env_step += 1
+                if result.done or result.truncated or slot.env_step >= eval_max_steps:
+                    self._complete_slot(slot)
+                    if next_episode_index < len(episode_ids):
+                        self._start_slot(
+                            slot,
+                            episode_id=episode_ids[next_episode_index],
+                            seed=seeds[next_episode_index],
+                        )
+                        next_episode_index += 1
+
+        return self._ordered_metrics(episode_ids)
+
+    def _reset_run_state(self, episode_ids: Sequence[int]) -> None:
+        self.started_episodes = 0
+        self.completed_episodes = 0
+        self.active_slots = 0
+        self.slot_episode_id = [None for _slot in self.slots]
+        self._completed_metrics.clear()
+        self._completed_buffers.clear()
+        self._episode_log_order = [int(episode_id) for episode_id in episode_ids]
+        self._next_episode_log_index = 0
+        for slot in self.slots:
+            slot.active = False
+            slot.episode_id = None
+            slot.episode_seed = None
+            slot.env_step = 0
+            slot.buffers = _EpisodeBuffers()
+            slot.history.clear()
+            slot.action_scheduler.reset()
+
+    def _active_slots(self) -> list[_SlotState]:
+        return [slot for slot in self.slots if slot.active]
+
+    def _start_slot(self, slot: _SlotState, *, episode_id: int, seed: int | None) -> None:
+        slot.active = True
+        slot.episode_id = int(episode_id)
+        slot.episode_seed = None if seed is None else int(seed)
+        slot.env_step = 0
+        slot.buffers = _EpisodeBuffers()
+        slot.history.clear()
+        slot.action_scheduler.reset()
+        initial_observation = slot.env.reset(seed=seed)
+        slot.history.append(initial_observation)
+        self.slot_episode_id[slot.slot_id] = int(episode_id)
+        self.started_episodes += 1
+        self.active_slots = sum(1 for item in self.slots if item.active)
+
+    def _complete_slot(self, slot: _SlotState) -> None:
+        if not slot.active or slot.episode_id is None:
+            return
+        episode_id = int(slot.episode_id)
+        metrics = compute_episode_metrics(
+            episode_id=episode_id,
+            step_records=slot.buffers.step_records,
+            action_events=slot.buffers.action_events,
+            latency_values_ms=slot.buffers.latency_values_ms,
+        )
+        self._completed_metrics[episode_id] = metrics
+        self._completed_buffers[episode_id] = slot.buffers
+        self.completed_episodes += 1
+        slot.active = False
+        slot.episode_id = None
+        slot.episode_seed = None
+        slot.env_step = 0
+        slot.buffers = _EpisodeBuffers()
+        slot.history.clear()
+        slot.action_scheduler.reset()
+        self.slot_episode_id[slot.slot_id] = None
+        self.active_slots = sum(1 for item in self.slots if item.active)
+        self._flush_completed_in_episode_order()
+
+    def _enqueue_policy_output(self, slot: _SlotState, observation, policy_output) -> None:
+        obs_id = self._next_obs_id
+        self._next_obs_id += 1
+        latency_ms = float(slot.latency_source.next_latency_ms({
+            "observation": observation,
+            "obs_id": obs_id,
+            "env_step": slot.env_step,
+            "sim_time_ms": self.clock.step_to_time_ms(slot.env_step),
+            "episode_id": slot.episode_id,
+            "slot_id": slot.slot_id,
+        }))
+        current_time_ms = self.clock.step_to_time_ms(slot.env_step)
+        ready_time_ms = current_time_ms + latency_ms
+        metadata = {
+            **policy_output.metadata,
+            "episode_id": int(slot.episode_id),
+            "slot_id": int(slot.slot_id),
+        }
+        event = ActionEvent(
+            action_id=self._next_action_id,
+            obs_id=obs_id,
+            action=policy_output.action,
+            obs_env_step=observation.env_step,
+            obs_time_ms=observation.sim_time_ms,
+            latency_ms=latency_ms,
+            ready_time_ms=ready_time_ms,
+            ready_step_float=self.clock.time_ms_to_step_float(ready_time_ms),
+            metadata=metadata,
+        )
+        self._next_action_id += 1
+        slot.action_scheduler.enqueue(event)
+        slot.buffers.action_events.append(event)
+        slot.buffers.latency_values_ms.append(latency_ms)
+        slot.buffers.latency_records.append(LatencyRecord(
+            obs_id=obs_id,
+            latency_ms=latency_ms,
+            source=slot.latency_source.__class__.__name__,
+            metadata={
+                "episode_id": int(slot.episode_id),
+                "slot_id": int(slot.slot_id),
+            },
+        ))
+
+    def _flush_completed_in_episode_order(self) -> None:
+        if self.logger is None:
+            return
+        while self._next_episode_log_index < len(self._episode_log_order):
+            episode_id = self._episode_log_order[self._next_episode_log_index]
+            if episode_id not in self._completed_metrics:
+                break
+            buffers = self._completed_buffers[episode_id]
+            metrics = self._completed_metrics[episode_id]
+            for record in buffers.step_records:
+                self.logger.log_step(record)
+            for event in buffers.action_events:
+                self.logger.log_action_event(event)
+            for latency_record in buffers.latency_records:
+                self.logger.log_latency(latency_record)
+            self.logger.log_episode_metrics(metrics)
+            self._next_episode_log_index += 1
+
+    def _ordered_metrics(self, episode_ids: Sequence[int]) -> list[EpisodeMetrics]:
+        return [self._completed_metrics[int(episode_id)] for episode_id in episode_ids]

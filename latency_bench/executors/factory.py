@@ -6,7 +6,9 @@ from typing import Any
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ExecutorMode, LatencySourceType, PersistenceMode, StaleActionMode
+from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import build_env_adapter
+from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
 from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
@@ -22,6 +24,7 @@ from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.observation.builder import ObservationBuilder
 from latency_bench.observation.history import HistoryBuffer
 from latency_bench.observation.sample_factory import SampleFactoryFrameStackObservationBuilder
+from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.factory import build_policy
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import (
@@ -58,6 +61,12 @@ def register_executor(mode: ExecutorMode | str) -> Callable[[ExecutorBuilder], E
 def build_executor(config: dict[str, Any]) -> Any:
     executor_cfg = config["executor"]
     mode = ExecutorMode(executor_cfg["mode"])
+    eval_parallel_envs = _eval_parallel_envs(config)
+    if eval_parallel_envs > 1 and mode in {ExecutorMode.PAUSED, ExecutorMode.REALTIME}:
+        raise ValueError(
+            "evaluation.eval_parallel_envs > 1 is only supported for executor.mode=simulated; "
+            f"got executor.mode={mode.value}"
+        )
     builder = _EXECUTOR_BUILDERS.get(mode)
     if builder is None:
         registered = ", ".join(get_registered_executor_modes()) or "<none>"
@@ -73,7 +82,20 @@ def get_registered_executor_modes() -> list[str]:
 
 
 @register_executor(ExecutorMode.SIMULATED)
-def _build_simulated_executor(config: dict[str, Any]) -> SimulatedLatencyExecutor:
+def _build_simulated_executor(config: dict[str, Any]) -> SimulatedLatencyExecutor | BatchedSimulatedLatencyExecutor:
+    eval_parallel_envs = _eval_parallel_envs(config)
+    num_episodes = int(config.get("experiment", {}).get("num_episodes", 1))
+    if (
+        eval_parallel_envs > 1
+        and num_episodes > 0
+        and _supports_phase_3b_batched_latency(config.get("latency", {}))
+    ):
+        return _build_batched_simulated_executor(config, max_parallel_envs=min(eval_parallel_envs, num_episodes))
+
+    return _build_single_simulated_executor(config)
+
+
+def _build_single_simulated_executor(config: dict[str, Any]) -> SimulatedLatencyExecutor:
     control_cfg = config["control"]
     scheduler_cfg = config["scheduler"]
 
@@ -104,6 +126,64 @@ def _build_simulated_executor(config: dict[str, Any]) -> SimulatedLatencyExecuto
         clock=clock,
         logger=logger,
     )
+
+
+def _build_batched_simulated_executor(
+    config: dict[str, Any],
+    *,
+    max_parallel_envs: int,
+) -> BatchedSimulatedLatencyExecutor:
+    control_cfg = config["control"]
+    scheduler_cfg = config["scheduler"]
+    if max_parallel_envs <= 0:
+        raise ValueError("max_parallel_envs must be positive")
+
+    action_resolver = ActionResolver(config["env"])
+    envs: list[EnvAdapter] = []
+    try:
+        for _slot in range(int(max_parallel_envs)):
+            envs.append(build_env_adapter(config, action_resolver.noop_action))
+        _raise_if_unsupported_batched_action_space(envs)
+
+        clock = EnvClock(fps_env=envs[0].fps_env)
+        policy = build_policy(config, action_resolver)
+        if type(policy).predict_batch is PolicyRunner.predict_batch:
+            raise ValueError(
+                f"policy.type={config['policy']['type']} does not support safe batched simulated eval yet; "
+                "implement PolicyRunner.predict_batch before using evaluation.eval_parallel_envs > 1"
+            )
+        decision_scheduler = _build_decision_scheduler(control_cfg, envs[0].fps_env)
+        action_schedulers = [
+            ActionScheduler(
+                clock=clock,
+                noop_action=env.noop_action,
+                persistence_policy=_build_persistence_policy(scheduler_cfg),
+                stale_action_mode=StaleActionMode(
+                    scheduler_cfg.get("stale_action_mode", StaleActionMode.LATEST_READY.value)
+                ),
+                expiration_ms=scheduler_cfg.get("expiration_ms"),
+            )
+            for env in envs
+        ]
+        logger = TrajectoryLogger(config["logging"]["output_dir"])
+        return BatchedSimulatedLatencyExecutor(
+            envs=envs,
+            policy=policy,
+            observation_builder=_build_observation_builder(config),
+            histories=[
+                HistoryBuffer(max_len=_history_len(control_cfg, config["env"], config["policy"]))
+                for _env in envs
+            ],
+            decision_scheduler=decision_scheduler,
+            latency_sources=[_build_latency_source(config["latency"]) for _env in envs],
+            action_schedulers=action_schedulers,
+            clock=clock,
+            logger=logger,
+        )
+    except Exception:
+        for env in envs:
+            env.close()
+        raise
 
 
 @register_executor(ExecutorMode.PAUSED)
@@ -294,3 +374,41 @@ def _build_persistence_policy(scheduler_cfg: dict[str, Any]) -> ActionPersistenc
     if mode == PersistenceMode.NOOP_AFTER_ONESHOT:
         return NoopAfterOneShotPolicy()
     raise ValueError(f"Unsupported persistence mode: {mode}")
+
+
+def _eval_parallel_envs(config: dict[str, Any]) -> int:
+    value = config.get("evaluation", {}).get("eval_parallel_envs", 1)
+    eval_parallel_envs = int(value)
+    if eval_parallel_envs <= 0:
+        raise ValueError("evaluation.eval_parallel_envs must be positive")
+    return eval_parallel_envs
+
+
+def _supports_phase_3b_batched_latency(latency_cfg: dict[str, Any]) -> bool:
+    latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
+    return latency_type in {LatencySourceType.ZERO.value, LatencySourceType.FIXED.value}
+
+
+def _raise_if_unsupported_batched_action_space(envs: list[EnvAdapter]) -> None:
+    try:
+        from gymnasium.spaces import MultiDiscrete, Tuple
+    except Exception:
+        return
+
+    for env in envs:
+        action_space = _env_action_space(env)
+        if isinstance(action_space, (Tuple, MultiDiscrete)):
+            raise ValueError(
+                "evaluation.eval_parallel_envs > 1 does not support Tuple/MultiDiscrete action spaces "
+                "until Phase 3D"
+            )
+
+
+def _env_action_space(env: EnvAdapter) -> Any:
+    for owner in (env, getattr(env, "gym_env", None), getattr(env, "sf_env", None)):
+        if owner is None:
+            continue
+        action_space = getattr(owner, "action_space", None)
+        if action_space is not None:
+            return action_space
+    return None

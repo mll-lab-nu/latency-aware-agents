@@ -66,6 +66,24 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
     }
 
 
+@register_env_adapter("tuple_action_parallel_test")
+def _build_tuple_action_parallel_test_env(config: dict, noop_action: Action) -> EnvAdapter:
+    import gymnasium as gym
+
+    class TupleActionEnv(DummyEnvAdapter):
+        action_space = gym.spaces.Tuple((gym.spaces.Discrete(2), gym.spaces.Discrete(2)))
+
+    env_cfg = config["env"]
+    evaluation_cfg = config["evaluation"]
+    env = TupleActionEnv(
+        fps_env=float(env_cfg["fps_env"]),
+        max_steps=int(evaluation_cfg["eval_max_steps"]),
+        noop_action=noop_action,
+    )
+    env.gym_env = env
+    return env
+
+
 def test_simulated_mode_builds_simulated_executor(tmp_path):
     executor = build_executor(_config(output_dir=str(tmp_path)))
 
@@ -73,6 +91,43 @@ def test_simulated_mode_builds_simulated_executor(tmp_path):
         assert isinstance(executor, SimulatedLatencyExecutor)
     finally:
         executor.env.close()
+
+
+def test_simulated_eval_parallel_envs_1_keeps_old_executor_path(tmp_path):
+    config = _config(output_dir=str(tmp_path))
+    config["evaluation"]["eval_parallel_envs"] = 1
+
+    executor = build_executor(config)
+
+    try:
+        assert isinstance(executor, SimulatedLatencyExecutor)
+    finally:
+        executor.env.close()
+
+
+def test_simulated_parallel_builds_batched_executor_for_supported_zero_latency(tmp_path):
+    from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
+
+    config = _config(output_dir=str(tmp_path))
+    config["experiment"]["num_episodes"] = 3
+    config["evaluation"]["eval_parallel_envs"] = 4
+
+    executor = build_executor(config)
+
+    try:
+        assert isinstance(executor, BatchedSimulatedLatencyExecutor)
+        assert executor.num_slots == 3
+    finally:
+        executor.close()
+
+
+@pytest.mark.parametrize("mode", ["paused", "realtime"])
+def test_non_simulated_modes_reject_parallel_eval(tmp_path, mode):
+    config = _config(mode=mode, output_dir=str(tmp_path))
+    config["evaluation"]["eval_parallel_envs"] = 2
+
+    with pytest.raises(ValueError, match="eval_parallel_envs.*simulated"):
+        build_executor(config)
 
 
 def test_paused_mode_builds_paused_executor(tmp_path):
@@ -105,12 +160,57 @@ def test_factory_accepts_measured_latency_for_realtime(tmp_path):
         executor.env.close()
 
 
-@pytest.mark.parametrize("mode", ["simulated", "paused"])
-def test_factory_rejects_measured_latency_for_paused_and_simulated(tmp_path, mode):
+def test_factory_rejects_measured_latency_for_paused(tmp_path):
+    mode = "paused"
     config = _config(mode=mode, output_dir=str(tmp_path))
     config["latency"] = {"type": "measured"}
 
     with pytest.raises(ValueError, match="measured"):
+        build_executor(config)
+
+
+def test_simulated_parallel_trace_replay_profile_is_not_rejected(tmp_path):
+    trace_path = tmp_path / "profile_device_latency.jsonl"
+    trace_path.write_text('{"latency_ms": 0.0}\n', encoding="utf-8")
+    config = _config(output_dir=str(tmp_path))
+    config["evaluation"]["eval_parallel_envs"] = 4
+    config["latency"] = {
+        "type": "trace_replay",
+        "trace_path": str(trace_path),
+        "loop_trace": True,
+    }
+
+    executor = build_executor(config)
+
+    try:
+        assert isinstance(executor, SimulatedLatencyExecutor)
+    finally:
+        executor.env.close()
+
+
+def test_parallel_simulated_tuple_action_space_fails_before_phase_3d(tmp_path):
+    config = _config(output_dir=str(tmp_path))
+    config["experiment"]["num_episodes"] = 2
+    config["evaluation"]["eval_parallel_envs"] = 2
+    config["env"]["name"] = "tuple_action_parallel_test"
+    config["env"]["noop_action"] = (0, 0)
+    config["env"]["action_map"] = {"noop": (0, 0), "jump": (1, 0)}
+    config["policy"]["action"] = "jump"
+
+    with pytest.raises(ValueError, match="Tuple.*MultiDiscrete"):
+        build_executor(config)
+
+
+def test_parallel_simulated_stateful_policy_without_predict_batch_fails_fast(tmp_path):
+    config = _config(output_dir=str(tmp_path))
+    config["experiment"]["num_episodes"] = 2
+    config["evaluation"]["eval_parallel_envs"] = 2
+    config["policy"] = {
+        "type": "random",
+        "actions": ["jump"],
+    }
+
+    with pytest.raises(ValueError, match="does not support safe batched simulated eval"):
         build_executor(config)
 
 

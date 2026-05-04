@@ -228,6 +228,43 @@ def test_run_from_config_uses_evaluation_eval_max_steps(
     assert eval_steps_seen == [7]
 
 
+def test_run_from_config_uses_batched_executor_run_episodes_when_available(
+    monkeypatch,
+    tmp_path: Path,
+):
+    run_calls = []
+
+    class FakeEnv:
+        def close(self):
+            pass
+
+    class FakeBatchedExecutor:
+        logger = None
+        env = FakeEnv()
+
+        def run_episodes(self, *, episode_ids, seeds, eval_max_steps):
+            run_calls.append((list(episode_ids), list(seeds), eval_max_steps))
+            return [
+                EpisodeMetrics(
+                    episode_id=int(episode_id),
+                    episode_return=float(episode_id),
+                    survival_steps=1,
+                    metadata={},
+                )
+                for episode_id in episode_ids
+            ]
+
+    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeBatchedExecutor())
+    config = _run_config("constant", tmp_path, seed=11, num_episodes=3)
+    config["evaluation"]["eval_max_steps"] = 7
+
+    metrics = latency_run.run_from_config(config)
+
+    assert run_calls == [([0, 1, 2], [11, 12, 13], 7)]
+    assert [metric.episode_id for metric in metrics] == [0, 1, 2]
+    assert [metric.metadata["run_name"] for metric in metrics] == ["seed_test"] * 3
+
+
 def test_run_from_config_requires_evaluation_eval_max_steps(monkeypatch, tmp_path: Path):
     class FakeEnv:
         def close(self):

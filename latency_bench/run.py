@@ -83,12 +83,26 @@ def run_from_config(
     executor = build_executor(config)
     metrics = []
     try:
-        for episode_id in range(num_episodes):
-            episode_metrics = executor.run_episode(
-                episode_id=episode_id,
-                seed=_episode_seed(config, episode_id),
-                eval_max_steps=eval_max_steps,
+        run_episodes = getattr(executor, "run_episodes", None)
+        if callable(run_episodes):
+            episode_ids = list(range(num_episodes))
+            metrics = list(
+                run_episodes(
+                    episode_ids=episode_ids,
+                    seeds=[_episode_seed(config, episode_id) for episode_id in episode_ids],
+                    eval_max_steps=eval_max_steps,
+                )
             )
+        else:
+            for episode_id in range(num_episodes):
+                episode_metrics = executor.run_episode(
+                    episode_id=episode_id,
+                    seed=_episode_seed(config, episode_id),
+                    eval_max_steps=eval_max_steps,
+                )
+                metrics.append(episode_metrics)
+        metrics.sort(key=lambda item: int(item.episode_id))
+        for episode_metrics in metrics:
             episode_metrics.metadata["config_name"] = experiment_cfg.get("name")
             episode_metrics.metadata["run_name"] = experiment_cfg.get("name")
             if "checkpoint_path" in policy_cfg:
@@ -98,13 +112,16 @@ def run_from_config(
             episode_metrics.metadata["output_dir"] = str(logging_cfg["output_dir"])
             if extra_metadata:
                 episode_metrics.metadata.update(extra_metadata)
-            metrics.append(episode_metrics)
         if executor.logger is not None:
             executor.logger.flush()
         if write_summary:
             _write_non_sweep_summary(config, metrics)
     finally:
-        executor.env.close()
+        close = getattr(executor, "close", None)
+        if callable(close):
+            close()
+        else:
+            executor.env.close()
     return metrics
 
 
