@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -9,6 +10,7 @@ from latency_bench.core.types import ExecutorMode, LatencySourceType, Persistenc
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import build_env_adapter
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
+from latency_bench.executors.env_step_backend import SerialEnvStepBackend, SubprocEnvStepBackend
 from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
@@ -44,6 +46,9 @@ _SAMPLE_FACTORY_BASE_CHANNELS = {
     "demon_attack_sf": 1,
     "deadly_corridor_sf": 3,
 }
+_LATENCY_BENCH_ENV_BACKENDS = {"serial", "subproc", "auto"}
+_ENV_BACKEND_DEBUG_ENV = "LATENCY_BENCH_ENV_BACKEND"
+_AUTO_SUBPROC_ENV_NAMES = {"demon_attack", "deadly_corridor"}
 
 
 def register_executor(mode: ExecutorMode | str) -> Callable[[ExecutorBuilder], ExecutorBuilder]:
@@ -140,19 +145,30 @@ def _build_batched_simulated_executor(
 
     action_resolver = ActionResolver(config["env"])
     envs: list[EnvAdapter] = []
+    env_backend = None
     try:
-        for _slot in range(int(max_parallel_envs)):
-            envs.append(build_env_adapter(config, action_resolver.noop_action))
-        _raise_if_unsupported_batched_action_space(envs)
+        backend_name = _resolve_latency_bench_env_backend(config, eval_parallel_envs=max_parallel_envs)
+        if backend_name == "subproc":
+            env_backend = SubprocEnvStepBackend(
+                config=config,
+                noop_action=action_resolver.noop_action,
+                num_slots=int(max_parallel_envs),
+            )
+        else:
+            for _slot in range(int(max_parallel_envs)):
+                envs.append(build_env_adapter(config, action_resolver.noop_action))
+            env_backend = SerialEnvStepBackend(envs)
 
-        clock = EnvClock(fps_env=envs[0].fps_env)
+        _raise_if_unsupported_batched_action_space(env_backend.slot_handles)
+
+        clock = EnvClock(fps_env=env_backend.fps_env)
         policy = build_policy(config, action_resolver)
         if type(policy).predict_batch is PolicyRunner.predict_batch:
             raise ValueError(
                 f"policy.type={config['policy']['type']} does not support safe batched simulated eval yet; "
                 "implement PolicyRunner.predict_batch before using evaluation.eval_parallel_envs > 1"
             )
-        decision_scheduler = _build_decision_scheduler(control_cfg, envs[0].fps_env)
+        decision_scheduler = _build_decision_scheduler(control_cfg, env_backend.fps_env)
         action_schedulers = [
             ActionScheduler(
                 clock=clock,
@@ -163,26 +179,29 @@ def _build_batched_simulated_executor(
                 ),
                 expiration_ms=scheduler_cfg.get("expiration_ms"),
             )
-            for env in envs
+            for env in env_backend.slot_handles
         ]
         logger = TrajectoryLogger(config["logging"]["output_dir"])
         return BatchedSimulatedLatencyExecutor(
-            envs=envs,
+            env_backend=env_backend,
             policy=policy,
             observation_builder=_build_observation_builder(config),
             histories=[
                 HistoryBuffer(max_len=_history_len(control_cfg, config["env"], config["policy"]))
-                for _env in envs
+                for _env in env_backend.slot_handles
             ],
             decision_scheduler=decision_scheduler,
-            latency_sources=[_build_latency_source(config["latency"]) for _env in envs],
+            latency_sources=[_build_latency_source(config["latency"]) for _env in env_backend.slot_handles],
             action_schedulers=action_schedulers,
             clock=clock,
             logger=logger,
         )
     except Exception:
-        for env in envs:
-            env.close()
+        if env_backend is not None:
+            env_backend.close()
+        else:
+            for env in envs:
+                env.close()
         raise
 
 
@@ -382,6 +401,34 @@ def _eval_parallel_envs(config: dict[str, Any]) -> int:
     if eval_parallel_envs <= 0:
         raise ValueError("evaluation.eval_parallel_envs must be positive")
     return eval_parallel_envs
+
+
+def _resolve_latency_bench_env_backend(config: dict[str, Any], *, eval_parallel_envs: int) -> str:
+    configured = os.environ.get(_ENV_BACKEND_DEBUG_ENV)
+    if configured is None:
+        configured = config.get("evaluation", {}).get("latency_bench_env_backend", "serial")
+    backend = str(configured).strip().lower()
+    if backend not in _LATENCY_BENCH_ENV_BACKENDS:
+        raise ValueError(
+            "evaluation.latency_bench_env_backend must be one of "
+            f"{sorted(_LATENCY_BENCH_ENV_BACKENDS)}; got {configured!r}"
+        )
+    if int(eval_parallel_envs) <= 1:
+        return "serial"
+    if backend == "auto":
+        return _auto_latency_bench_env_backend(config)
+    return backend
+
+
+def _auto_latency_bench_env_backend(config: dict[str, Any]) -> str:
+    env_cfg = config.get("env", {})
+    env_name = str(env_cfg.get("name", "")).strip().lower()
+    policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
+    if env_name == "flappy" and policy_type == "flappy_sf" and bool(env_cfg.get("use_gpu_render", False)):
+        return "serial"
+    if env_name in _AUTO_SUBPROC_ENV_NAMES:
+        return "subproc"
+    return "serial"
 
 
 def _supports_phase_3b_batched_latency(latency_cfg: dict[str, Any]) -> bool:

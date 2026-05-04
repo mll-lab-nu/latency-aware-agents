@@ -218,3 +218,19 @@ executor:
 
     with pytest.raises(ValueError, match="executor.max_pending_observations"):
         load_config(config_path)
+
+
+def test_load_config_rejects_invalid_latency_bench_env_backend(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG
+        + """
+evaluation:
+  eval_max_steps: 1
+  latency_bench_env_backend: invalid
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="latency_bench_env_backend"):
+        load_config(config_path)

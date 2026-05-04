@@ -128,6 +128,7 @@ def test_simulated_eval_parallel_envs_1_keeps_old_executor_path(tmp_path):
 
 def test_simulated_parallel_builds_batched_executor_for_supported_zero_latency(tmp_path):
     from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
+    from latency_bench.executors.env_step_backend import SerialEnvStepBackend
 
     config = _config(output_dir=str(tmp_path))
     config["experiment"]["num_episodes"] = 3
@@ -137,9 +138,59 @@ def test_simulated_parallel_builds_batched_executor_for_supported_zero_latency(t
 
     try:
         assert isinstance(executor, BatchedSimulatedLatencyExecutor)
+        assert isinstance(executor.env_backend, SerialEnvStepBackend)
         assert executor.num_slots == 3
     finally:
         executor.close()
+
+
+def test_simulated_parallel_explicit_subproc_builds_subproc_backend(tmp_path):
+    from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
+    from latency_bench.executors.env_step_backend import SubprocEnvStepBackend
+
+    config = _config(output_dir=str(tmp_path))
+    config["experiment"]["num_episodes"] = 3
+    config["evaluation"]["eval_parallel_envs"] = 4
+    config["evaluation"]["latency_bench_env_backend"] = "subproc"
+    config["env"]["name"] = "dummy"
+    config["env"]["noop_action"] = "noop"
+    config["env"]["action_map"] = {"noop": "noop", "jump": "jump"}
+
+    executor = build_executor(config)
+
+    try:
+        assert isinstance(executor, BatchedSimulatedLatencyExecutor)
+        assert isinstance(executor.env_backend, SubprocEnvStepBackend)
+        assert executor.num_slots == 3
+        metrics = executor.run_episodes(episode_ids=range(3), seeds=[1, 2, 3], eval_max_steps=1)
+    finally:
+        executor.close()
+
+    assert [metric.episode_id for metric in metrics] == [0, 1, 2]
+
+
+def test_latency_bench_env_backend_auto_selects_subproc_for_cpu_bound_envs(tmp_path):
+    from latency_bench.executors.factory import _resolve_latency_bench_env_backend
+
+    config = _config(output_dir=str(tmp_path))
+    config["evaluation"]["eval_parallel_envs"] = 2
+    config["evaluation"]["latency_bench_env_backend"] = "auto"
+    config["env"]["name"] = "demon_attack"
+
+    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "subproc"
+
+
+def test_latency_bench_env_backend_auto_keeps_flappy_gpu_render_serial(tmp_path):
+    from latency_bench.executors.factory import _resolve_latency_bench_env_backend
+
+    config = _config(output_dir=str(tmp_path))
+    config["evaluation"]["eval_parallel_envs"] = 2
+    config["evaluation"]["latency_bench_env_backend"] = "auto"
+    config["env"]["name"] = "flappy"
+    config["env"]["use_gpu_render"] = True
+    config["policy"]["type"] = "flappy_sf"
+
+    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "serial"
 
 
 @pytest.mark.parametrize("mode", ["paused", "realtime"])

@@ -82,6 +82,7 @@ def validate_config(config: dict) -> None:
     scheduler = _require_dict(config, "scheduler")
     policy = _require_dict(config, "policy")
     logging = _require_dict(config, "logging")
+    evaluation = config.get("evaluation")
 
     _require_field(experiment, "name")
     executor_mode = _require_field(executor, "mode")
@@ -128,6 +129,14 @@ def validate_config(config: dict) -> None:
 
     _require_field(policy, "type")
     _require_field(logging, "output_dir")
+    if isinstance(evaluation, dict) and "latency_bench_env_backend" in evaluation:
+        backend = str(evaluation["latency_bench_env_backend"]).strip().lower()
+        allowed_backends = {"serial", "subproc", "auto"}
+        if backend not in allowed_backends:
+            raise ValueError(
+                "evaluation.latency_bench_env_backend must be one of "
+                f"{sorted(allowed_backends)}"
+            )
 
 
 def _require_dict(config: dict, key: str) -> dict:

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
 from latency_bench.envs.base import EnvAdapter
+from latency_bench.executors.env_step_backend import EnvStepBackend, SerialEnvStepBackend
 from latency_bench.latency.sources import LatencySource
 from latency_bench.logging.metrics import compute_episode_metrics
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
@@ -39,28 +40,29 @@ class _SlotState:
 
 
 class _BatchedEnvCollection:
-    def __init__(self, envs: Sequence[EnvAdapter]):
+    def __init__(self, envs: Sequence[EnvAdapter], close_fn: Callable[[], None]):
         self.envs = list(envs)
+        self._close_fn = close_fn
         self.noop_action = self.envs[0].noop_action if self.envs else None
         self.fps_env = self.envs[0].fps_env if self.envs else 0.0
 
     def close(self) -> None:
-        for env in self.envs:
-            env.close()
+        self._close_fn()
 
 
 class BatchedSimulatedLatencyExecutor:
     """Run multiple simulated episodes concurrently with independent slot state.
 
-    Phase 3B intentionally steps envs in a Python loop. The useful batching surface
-    here is policy inference and exact episode accounting; subprocess env stepping
-    is a later phase for CPU-bound environments.
+    The main process owns policy inference, latency scheduling, episode accounting,
+    and logging. Env stepping can be serial in-process or delegated to worker
+    subprocesses through env_backend.
     """
 
     def __init__(
         self,
         *,
-        envs: Sequence[EnvAdapter],
+        envs: Sequence[EnvAdapter] | None = None,
+        env_backend: EnvStepBackend | None = None,
         policy: PolicyRunner,
         observation_builder: ObservationBuilder,
         histories: Sequence[HistoryBuffer],
@@ -70,7 +72,14 @@ class BatchedSimulatedLatencyExecutor:
         clock: EnvClock,
         logger: TrajectoryLogger | None = None,
     ):
-        slot_count = len(envs)
+        if env_backend is None:
+            if envs is None:
+                raise ValueError("BatchedSimulatedLatencyExecutor requires envs or env_backend")
+            env_backend = SerialEnvStepBackend(envs)
+        elif envs is not None:
+            raise ValueError("provide either envs or env_backend, not both")
+
+        slot_count = int(env_backend.num_slots)
         if slot_count <= 0:
             raise ValueError("BatchedSimulatedLatencyExecutor requires at least one env slot")
         if len(histories) != slot_count:
@@ -80,8 +89,9 @@ class BatchedSimulatedLatencyExecutor:
         if len(action_schedulers) != slot_count:
             raise ValueError("action_schedulers length must match envs length")
 
-        self.envs = list(envs)
-        self.env = _BatchedEnvCollection(self.envs)
+        self.env_backend = env_backend
+        self.envs = list(env_backend.slot_handles)
+        self.env = _BatchedEnvCollection(self.envs, close_fn=self.env_backend.close)
         self.policy = policy
         self.observation_builder = observation_builder
         self.decision_scheduler = decision_scheduler
@@ -113,7 +123,7 @@ class BatchedSimulatedLatencyExecutor:
         return len(self.slots)
 
     def close(self) -> None:
-        self.env.close()
+        self.env_backend.close()
 
     def run_episodes(
         self,
@@ -171,10 +181,17 @@ class BatchedSimulatedLatencyExecutor:
                 for slot, observation, policy_output in zip(observation_slots, observations, policy_outputs):
                     self._enqueue_policy_output(slot, observation, policy_output)
 
+            actions_by_slot = {}
             for slot in active_slots:
                 current_time_ms = self.clock.step_to_time_ms(slot.env_step)
                 active_action = slot.action_scheduler.update(slot.env_step, current_time_ms)
-                result = slot.env.step(active_action)
+                actions_by_slot[slot.slot_id] = active_action
+
+            step_responses = self.env_backend.step_slots(actions_by_slot)
+            for slot in active_slots:
+                current_time_ms = self.clock.step_to_time_ms(slot.env_step)
+                active_action = actions_by_slot[slot.slot_id]
+                result = step_responses[slot.slot_id].result
                 record = StepRecord(
                     episode_id=int(slot.episode_id),
                     env_step=slot.env_step,
@@ -230,7 +247,7 @@ class BatchedSimulatedLatencyExecutor:
         slot.buffers = _EpisodeBuffers()
         slot.history.clear()
         slot.action_scheduler.reset()
-        initial_observation = slot.env.reset(seed=seed)
+        initial_observation = self.env_backend.reset_slot(slot.slot_id, episode_id=episode_id, seed=seed)
         slot.history.append(initial_observation)
         self.slot_episode_id[slot.slot_id] = int(episode_id)
         self.started_episodes += 1

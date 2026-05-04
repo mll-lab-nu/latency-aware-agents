@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import json
+import multiprocessing as mp
+import os
+import time
 from pathlib import Path
+
+import pytest
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, Observation, PolicyOutput, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
+from latency_bench.envs.factory import register_env_adapter
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
 from latency_bench.latency.sources import FixedLatencySource, LatencySource, ZeroLatencySource
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
@@ -103,6 +109,56 @@ class TupleActionEnvAdapter(EnvAdapter):
         )
 
 
+class FailingStepEnvAdapter(DummyEnvAdapter):
+    def step(self, action: Action) -> StepResult:
+        raise RuntimeError("subproc step boom")
+
+
+class MultiDiscreteSubprocEnvAdapter(DummyEnvAdapter):
+    def __init__(self, *, fps_env: float, max_steps: int, noop_action: Action):
+        import gymnasium as gym
+
+        super().__init__(fps_env=fps_env, max_steps=max_steps, noop_action=noop_action)
+        self.action_space = gym.spaces.MultiDiscrete([2, 3])
+        self.gym_env = self
+
+
+class DiscreteSubprocEnvAdapter(DummyEnvAdapter):
+    def __init__(self, *, fps_env: float, max_steps: int, noop_action: Action):
+        import gymnasium as gym
+
+        super().__init__(fps_env=fps_env, max_steps=max_steps, noop_action=noop_action)
+        self.action_space = gym.spaces.Discrete(3)
+        self.gym_env = self
+
+
+@register_env_adapter("subproc_failure_test")
+def _build_subproc_failure_test_env(config: dict, noop_action: Action) -> EnvAdapter:
+    return FailingStepEnvAdapter(
+        fps_env=float(config["env"]["fps_env"]),
+        max_steps=int(config["evaluation"]["eval_max_steps"]),
+        noop_action=noop_action,
+    )
+
+
+@register_env_adapter("discrete_subproc_test")
+def _build_discrete_subproc_test_env(config: dict, noop_action: Action) -> EnvAdapter:
+    return DiscreteSubprocEnvAdapter(
+        fps_env=float(config["env"]["fps_env"]),
+        max_steps=int(config["evaluation"]["eval_max_steps"]),
+        noop_action=noop_action,
+    )
+
+
+@register_env_adapter("multidiscrete_subproc_test")
+def _build_multidiscrete_subproc_test_env(config: dict, noop_action: Action) -> EnvAdapter:
+    return MultiDiscreteSubprocEnvAdapter(
+        fps_env=float(config["env"]["fps_env"]),
+        max_steps=int(config["evaluation"]["eval_max_steps"]),
+        noop_action=noop_action,
+    )
+
+
 def _executor(
     tmp_path: Path,
     *,
@@ -147,6 +203,128 @@ def _executor(
         logger=TrajectoryLogger(tmp_path),
     )
     return executor, envs
+
+
+def _subproc_config(
+    tmp_path: Path,
+    *,
+    env_name: str = "dummy",
+    num_episodes: int = 4,
+    eval_max_steps: int = 2,
+    noop_value="noop",
+    jump_value="jump",
+) -> dict:
+    return {
+        "experiment": {
+            "name": "subproc_batched_test",
+            "seed": 0,
+            "num_episodes": num_episodes,
+        },
+        "executor": {
+            "mode": "simulated",
+        },
+        "env": {
+            "name": env_name,
+            "fps_env": 30,
+            "noop_action": noop_value,
+            "action_map": {
+                "noop": noop_value,
+                "jump": jump_value,
+            },
+        },
+        "control": {
+            "frequency_hz": 30,
+            "observe_every_n_frames": 1,
+        },
+        "latency": {
+            "type": "zero",
+        },
+        "scheduler": {
+            "persistence_mode": "noop_after_oneshot",
+            "stale_action_mode": "latest_ready",
+        },
+        "policy": {
+            "type": "constant",
+            "action": "jump",
+        },
+        "evaluation": {
+            "eval_max_steps": eval_max_steps,
+            "latency_bench_env_backend": "subproc",
+        },
+        "logging": {
+            "output_dir": str(tmp_path),
+        },
+    }
+
+
+def _subproc_executor(
+    tmp_path: Path,
+    *,
+    num_slots: int = 2,
+    env_name: str = "dummy",
+    num_episodes: int = 4,
+    eval_max_steps: int = 2,
+    noop_value="noop",
+    jump_value="jump",
+    start_method: str | None = None,
+    policy: PolicyRunner | None = None,
+) -> BatchedSimulatedLatencyExecutor:
+    from latency_bench.executors.env_step_backend import SubprocEnvStepBackend
+
+    config = _subproc_config(
+        tmp_path,
+        env_name=env_name,
+        num_episodes=num_episodes,
+        eval_max_steps=eval_max_steps,
+        noop_value=noop_value,
+        jump_value=jump_value,
+    )
+    noop_action = Action(noop_value, name="noop", is_noop=True)
+    backend = SubprocEnvStepBackend(
+        config=config,
+        noop_action=noop_action,
+        num_slots=num_slots,
+        start_method=start_method,
+    )
+    clock = EnvClock(backend.fps_env)
+    action_schedulers = [
+        ActionScheduler(
+            clock=clock,
+            noop_action=env.noop_action,
+            persistence_policy=HoldPreviousActionPolicy(),
+        )
+        for env in backend.slot_handles
+    ]
+    return BatchedSimulatedLatencyExecutor(
+        env_backend=backend,
+        policy=policy or ConstantPolicyRunner(Action(jump_value, name="jump")),
+        observation_builder=ObservationBuilder(),
+        histories=[HistoryBuffer() for _ in backend.slot_handles],
+        decision_scheduler=EveryFrameDecisionScheduler(),
+        latency_sources=[ZeroLatencySource() for _env in backend.slot_handles],
+        action_schedulers=action_schedulers,
+        clock=clock,
+        logger=TrajectoryLogger(tmp_path),
+    )
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_for_pids_to_exit(pids: list[int], timeout_sec: float = 3.0) -> bool:
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        if all(not _pid_alive(pid) for pid in pids):
+            return True
+        time.sleep(0.02)
+    return all(not _pid_alive(pid) for pid in pids)
 
 
 def _tuple_executor(
@@ -348,3 +526,172 @@ def test_batched_executor_steps_tuple_actions_and_serializes_schema_compatibly(t
     action = json.loads((tmp_path / "actions.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert {"action_id", "obs_id", "action", "latency_ms", "ready_time_ms", "metadata"} <= set(action)
     assert isinstance(action["action"]["value"], list)
+
+
+def test_subproc_backend_completes_exact_episode_ids_and_uses_child_pids(tmp_path: Path):
+    executor = _subproc_executor(tmp_path, num_slots=3, num_episodes=5, eval_max_steps=2)
+    worker_pids = executor.env_backend.worker_pids()
+
+    try:
+        metrics = executor.run_episodes(
+            episode_ids=range(5),
+            seeds=[10, 11, 12, 13, 14],
+            eval_max_steps=2,
+        )
+        step_worker_pids = {
+            metadata["worker_pid"]
+            for metadata in executor.env_backend.last_step_metadata_by_slot.values()
+        }
+    finally:
+        executor.close()
+
+    assert [metric.episode_id for metric in metrics] == [0, 1, 2, 3, 4]
+    assert sorted(metric.episode_id for metric in metrics) == list(range(5))
+    assert len(set(metric.episode_id for metric in metrics)) == 5
+    assert executor.started_episodes == 5
+    assert executor.completed_episodes == 5
+    assert worker_pids
+    assert all(pid != os.getpid() for pid in worker_pids)
+    assert step_worker_pids <= set(worker_pids)
+    assert step_worker_pids
+
+
+def test_subproc_backend_parallel_envs_gt_episodes_is_safe(tmp_path: Path):
+    executor = _subproc_executor(tmp_path, num_slots=5, num_episodes=2, eval_max_steps=1)
+
+    try:
+        metrics = executor.run_episodes(
+            episode_ids=range(2),
+            seeds=[7, 8],
+            eval_max_steps=3,
+        )
+    finally:
+        executor.close()
+
+    assert [metric.episode_id for metric in metrics] == [0, 1]
+    assert executor.started_episodes == 2
+    assert executor.completed_episodes == 2
+
+
+def test_subproc_backend_output_records_remain_schema_compatible(tmp_path: Path):
+    executor = _subproc_executor(tmp_path, num_slots=2, num_episodes=3, eval_max_steps=1)
+
+    try:
+        executor.run_episodes(
+            episode_ids=range(3),
+            seeds=[1, 2, 3],
+            eval_max_steps=1,
+        )
+        executor.logger.flush()
+    finally:
+        executor.close()
+
+    step = json.loads((tmp_path / "steps.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    action = json.loads((tmp_path / "actions.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    latency = json.loads((tmp_path / "latencies.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    metrics = json.loads((tmp_path / "episode_metrics.jsonl").read_text(encoding="utf-8").splitlines()[0])
+
+    assert {"episode_id", "env_step", "sim_time_ms", "active_action", "reward", "done", "info"} <= set(step)
+    assert {"action_id", "obs_id", "action", "latency_ms", "ready_time_ms", "metadata"} <= set(action)
+    assert {"obs_id", "latency_ms", "source", "metadata"} <= set(latency)
+    assert {"episode_id", "episode_return", "survival_steps", "metadata"} <= set(metrics)
+
+
+def test_subproc_backend_worker_exception_does_not_hang_and_closes_workers(tmp_path: Path):
+    if "fork" not in mp.get_all_start_methods():
+        pytest.skip("fork debug start method is required for test-registered env workers")
+
+    executor = _subproc_executor(
+        tmp_path,
+        num_slots=2,
+        env_name="subproc_failure_test",
+        num_episodes=2,
+        eval_max_steps=1,
+        start_method="fork",
+    )
+    worker_pids = executor.env_backend.worker_pids()
+
+    with pytest.raises(RuntimeError, match="subproc step boom"):
+        executor.run_episodes(
+            episode_ids=range(2),
+            seeds=[1, 2],
+            eval_max_steps=1,
+        )
+
+    assert executor.env_backend.closed
+    assert _wait_for_pids_to_exit(worker_pids)
+
+
+def test_subproc_backend_workers_close_cleanly_after_normal_completion(tmp_path: Path):
+    executor = _subproc_executor(tmp_path, num_slots=2, num_episodes=2, eval_max_steps=1)
+    worker_pids = executor.env_backend.worker_pids()
+
+    executor.run_episodes(
+        episode_ids=range(2),
+        seeds=[1, 2],
+        eval_max_steps=1,
+    )
+    executor.close()
+
+    assert executor.env_backend.closed
+    assert _wait_for_pids_to_exit(worker_pids)
+
+
+def test_subproc_backend_discrete_action_path(tmp_path: Path):
+    if "fork" not in mp.get_all_start_methods():
+        pytest.skip("fork debug start method is required for test-registered env workers")
+
+    executor = _subproc_executor(
+        tmp_path,
+        num_slots=2,
+        env_name="discrete_subproc_test",
+        num_episodes=2,
+        eval_max_steps=1,
+        noop_value=0,
+        jump_value=1,
+        start_method="fork",
+    )
+
+    try:
+        metrics = executor.run_episodes(
+            episode_ids=range(2),
+            seeds=[1, 2],
+            eval_max_steps=1,
+        )
+        executor.logger.flush()
+    finally:
+        executor.close()
+
+    assert [metric.episode_id for metric in metrics] == [0, 1]
+    step = json.loads((tmp_path / "steps.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert step["active_action"]["value"] == 1
+
+
+def test_subproc_backend_multidiscrete_action_path(tmp_path: Path):
+    if "fork" not in mp.get_all_start_methods():
+        pytest.skip("fork debug start method is required for test-registered env workers")
+
+    executor = _subproc_executor(
+        tmp_path,
+        num_slots=2,
+        env_name="multidiscrete_subproc_test",
+        num_episodes=2,
+        eval_max_steps=1,
+        noop_value=(0, 0),
+        jump_value=(1, 2),
+        start_method="fork",
+    )
+
+    try:
+        metrics = executor.run_episodes(
+            episode_ids=range(2),
+            seeds=[1, 2],
+            eval_max_steps=1,
+        )
+        executor.logger.flush()
+    finally:
+        executor.close()
+
+    assert [metric.episode_id for metric in metrics] == [0, 1]
+    step = json.loads((tmp_path / "steps.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert step["active_action"]["value"] == [1, 2]

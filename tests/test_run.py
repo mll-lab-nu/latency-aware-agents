@@ -348,6 +348,36 @@ def test_main_writes_non_sweep_queue_eval_summary(tmp_path: Path, capsys):
     )
 
 
+def test_main_parallel_subproc_simulated_eval_keeps_output_schema(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    output_dir = tmp_path / "subproc_output"
+    _write_dummy_config(config_path, output_dir, num_episodes=3)
+    config_text = config_path.read_text(encoding="utf-8")
+    config_path.write_text(
+        config_text.replace(
+            "  eval_max_steps: 1\n",
+            "  eval_max_steps: 1\n  eval_parallel_envs: 4\n  latency_bench_env_backend: subproc\n",
+        ),
+        encoding="utf-8",
+    )
+
+    main(["--config", str(config_path)])
+
+    metrics_path = output_dir / "episode_metrics.jsonl"
+    step_path = output_dir / "steps.jsonl"
+    summary_path = output_dir / "queue_eval_latency_0.json"
+    assert metrics_path.is_file()
+    assert step_path.is_file()
+    assert summary_path.is_file()
+    metrics = [json.loads(line) for line in metrics_path.read_text(encoding="utf-8").splitlines()]
+    step = json.loads(step_path.read_text(encoding="utf-8").splitlines()[0])
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+
+    assert [metric["episode_id"] for metric in metrics] == [0, 1, 2]
+    assert {"episode_id", "env_step", "sim_time_ms", "active_action", "reward", "done", "info"} <= set(step)
+    assert summary["returns"] == [1.0, 1.0, 1.0]
+
+
 def test_main_runs_eval_latency_sweep_into_separate_output_dirs(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     output_dir = tmp_path / "sweep_output"
