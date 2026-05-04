@@ -220,6 +220,21 @@ executor:
         load_config(config_path)
 
 
+def test_load_config_rejects_nonpositive_realtime_max_catchup_steps(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG
+        + """
+realtime:
+  max_catchup_steps_per_loop: 0
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="realtime.max_catchup_steps_per_loop"):
+        load_config(config_path)
+
+
 def test_load_config_rejects_invalid_latency_bench_env_backend(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(

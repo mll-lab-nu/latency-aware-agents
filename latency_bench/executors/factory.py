@@ -244,6 +244,7 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
     control_cfg = config["control"]
     scheduler_cfg = config["scheduler"]
     executor_cfg = config["executor"]
+    realtime_cfg = config.get("realtime", {})
 
     action_resolver = ActionResolver(config["env"])
     env = build_env_adapter(config, action_resolver.noop_action)
@@ -282,6 +283,7 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
         logger=logger,
         max_pending_observations=int(executor_cfg.get("max_pending_observations", 16)),
         latency_profiler=latency_profiler,
+        max_catchup_steps_per_loop=realtime_cfg.get("max_catchup_steps_per_loop"),
     )
 
 

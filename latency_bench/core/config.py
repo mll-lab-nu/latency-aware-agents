@@ -83,12 +83,19 @@ def validate_config(config: dict) -> None:
     policy = _require_dict(config, "policy")
     logging = _require_dict(config, "logging")
     evaluation = config.get("evaluation")
+    realtime = config.get("realtime")
 
     _require_field(experiment, "name")
     executor_mode = _require_field(executor, "mode")
     _validate_enum_value(executor_mode, ExecutorMode, "executor.mode")
     if "max_pending_observations" in executor and int(executor["max_pending_observations"]) <= 0:
         raise ValueError("executor.max_pending_observations must be positive")
+    if realtime is not None:
+        if not isinstance(realtime, dict):
+            raise ValueError("realtime must be a mapping")
+        max_catchup_steps = realtime.get("max_catchup_steps_per_loop")
+        if max_catchup_steps is not None and int(max_catchup_steps) <= 0:
+            raise ValueError("realtime.max_catchup_steps_per_loop must be positive or null")
 
     _require_field(env, "name")
     fps_env = _require_field(env, "fps_env")

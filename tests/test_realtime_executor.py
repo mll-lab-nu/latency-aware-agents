@@ -17,6 +17,19 @@ from latency_bench.scheduler.decision import EveryFrameDecisionScheduler
 from executor_mode_helpers import SequencePolicyRunner, make_dummy_parts
 
 
+class FakeClock:
+    def __init__(self, now: float = 0.0):
+        self.now = float(now)
+        self.sleeps: list[float] = []
+
+    def time(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(float(seconds))
+        self.now += float(seconds)
+
+
 class ManualPolicyWorker:
     def __init__(self):
         self.submitted: list[RealtimeObservationTask] = []
@@ -103,6 +116,7 @@ def _executor(
     time_fn,
     sleep_fn,
     max_steps: int = 5,
+    max_catchup_steps_per_loop: int | None = None,
 ) -> RealtimeLatencyExecutor:
     env, clock, _, _, action_scheduler = make_dummy_parts(max_steps=max_steps, fps_env=30.0)
     return RealtimeLatencyExecutor(
@@ -117,6 +131,7 @@ def _executor(
         time_fn=time_fn,
         sleep_fn=sleep_fn,
         policy_worker=worker,
+        max_catchup_steps_per_loop=max_catchup_steps_per_loop,
     )
 
 
@@ -173,6 +188,54 @@ def test_realtime_sleeps_to_each_frame_target():
     assert worker.closed
 
 
+def test_realtime_on_time_ticking_steps_once_per_frame():
+    fake_clock = FakeClock()
+    worker = ManualPolicyWorker()
+    executor = _executor(
+        worker=worker,
+        actions=[Action("jump")],
+        time_fn=fake_clock.time,
+        sleep_fn=fake_clock.sleep,
+        max_steps=4,
+    )
+
+    metrics = executor.run_episode(episode_id=0, eval_max_steps=4)
+
+    assert len(executor.env.applied_actions) == 4
+    assert metrics.metadata["total_catchup_steps"] == 0
+    assert metrics.metadata["total_missed_ticks"] == 0
+
+
+def test_realtime_late_by_three_frames_catches_up_in_one_loop():
+    fake_clock = FakeClock()
+    worker = ManualPolicyWorker()
+    executor = _executor(
+        worker=worker,
+        actions=[Action("jump")],
+        time_fn=fake_clock.time,
+        sleep_fn=fake_clock.sleep,
+        max_steps=10,
+    )
+    original_step = executor.env.step
+
+    def step_and_jump_wall_clock(action):
+        result = original_step(action)
+        if len(executor.env.applied_actions) == 1:
+            fake_clock.now = executor.clock.step_to_time_ms(3) / 1000.0
+        return result
+
+    executor.env.step = step_and_jump_wall_clock
+
+    metrics = executor.run_episode(episode_id=0, eval_max_steps=5)
+
+    assert len(executor.env.applied_actions) == 5
+    assert metrics.survival_steps == 5
+    assert metrics.metadata["total_catchup_steps"] == 3
+    assert metrics.metadata["total_missed_ticks"] == 2
+    assert metrics.metadata["skipped_observation_frames"] == 3
+    assert metrics.metadata["submitted_observation_frames"] == 2
+
+
 def test_realtime_completion_applies_on_next_frame_tick():
     now = 0.0
 
@@ -190,6 +253,94 @@ def test_realtime_completion_applies_on_next_frame_tick():
     executor.run_episode(episode_id=0, eval_max_steps=2)
 
     assert [action.value for action in executor.env.applied_actions] == ["noop", "jump"]
+
+
+def test_realtime_action_ready_midway_through_catchup_applies_only_after_ready_frame():
+    fake_clock = FakeClock()
+    jump = Action("jump")
+    worker = CompleteMeasuredTaskOnSecondDrainWorker(
+        action=jump,
+        completion_time_ms=80.0,
+        inference_latency_ms=80.0,
+        worker_start_time_ms=0.0,
+    )
+    executor = _measured_executor(
+        worker=worker,
+        actions=[jump],
+        time_fn=fake_clock.time,
+        sleep_fn=fake_clock.sleep,
+        max_steps=10,
+    )
+    original_step = executor.env.step
+
+    def step_and_jump_wall_clock(action):
+        result = original_step(action)
+        if len(executor.env.applied_actions) == 1:
+            fake_clock.now = executor.clock.step_to_time_ms(3) / 1000.0
+        return result
+
+    executor.env.step = step_and_jump_wall_clock
+
+    executor.run_episode(episode_id=0, eval_max_steps=4)
+
+    assert [action.value for action in executor.env.applied_actions] == ["noop", "noop", "noop", "jump"]
+    assert executor.action_scheduler.get_applied_events()[0].applied_env_step == 3
+
+
+def test_realtime_episode_done_stops_during_catchup():
+    fake_clock = FakeClock()
+    worker = ManualPolicyWorker()
+    executor = _executor(
+        worker=worker,
+        actions=[Action("jump")],
+        time_fn=fake_clock.time,
+        sleep_fn=fake_clock.sleep,
+        max_steps=2,
+    )
+    original_step = executor.env.step
+
+    def step_and_jump_wall_clock(action):
+        result = original_step(action)
+        if len(executor.env.applied_actions) == 1:
+            fake_clock.now = executor.clock.step_to_time_ms(3) / 1000.0
+        return result
+
+    executor.env.step = step_and_jump_wall_clock
+
+    metrics = executor.run_episode(episode_id=0, eval_max_steps=10)
+
+    assert len(executor.env.applied_actions) == 2
+    assert metrics.survival_steps == 2
+    assert metrics.metadata["total_catchup_steps"] == 1
+
+
+def test_realtime_catchup_cap_logs_dropped_frames_and_truncates_episode():
+    fake_clock = FakeClock()
+    worker = ManualPolicyWorker()
+    executor = _executor(
+        worker=worker,
+        actions=[Action("jump")],
+        time_fn=fake_clock.time,
+        sleep_fn=fake_clock.sleep,
+        max_steps=10,
+        max_catchup_steps_per_loop=2,
+    )
+    original_step = executor.env.step
+
+    def step_and_jump_wall_clock(action):
+        result = original_step(action)
+        if len(executor.env.applied_actions) == 1:
+            fake_clock.now = executor.clock.step_to_time_ms(5) / 1000.0
+        return result
+
+    executor.env.step = step_and_jump_wall_clock
+
+    metrics = executor.run_episode(episode_id=0, eval_max_steps=10)
+
+    assert len(executor.env.applied_actions) == 3
+    assert metrics.metadata["catchup_capped"] is True
+    assert metrics.metadata["realtime_catchup_truncated"] is True
+    assert metrics.metadata["dropped_catchup_frames"] == 3
 
 
 def test_bounded_observation_queue_drops_oldest_pending_task():
