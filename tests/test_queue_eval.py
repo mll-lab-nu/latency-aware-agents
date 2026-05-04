@@ -285,7 +285,11 @@ def test_demon_attack_eval_budget_timeout_info_uses_raw_accumulator_not_fallback
     )
 
     result = _demon_attack_eval_episode_result(
-        _demon_attack_eval_budget_timeout_info(raw_return=12.0, clipped_return=12.0, length=4),
+        _demon_attack_eval_budget_timeout_info(
+            accumulated_return=12.0,
+            episode_length=4,
+            eval_raw_reward=True,
+        ),
         fallback_return=999.0,
         fallback_length=99,
         eval_raw_reward=True,
@@ -947,13 +951,13 @@ def test_prepare_queue_eval_cfg_aligns_demon_attack_raw_eval_runtime_config():
     )
 
     assert cfg.terminal_on_life_loss is True
-<<<<<<< HEAD
-    assert cfg.clip_reward is True
+    assert cfg.clip_reward is False
     assert cfg.cli_args["terminal_on_life_loss"] is True
-    assert "clip_reward" not in cfg.cli_args
+    assert cfg.cli_args["clip_reward"] is False
 
 
 def test_write_and_log_queue_eval_result_preserve_raw_and_clipped_metrics(tmp_path):
+    from training.sample_factory_common.queue_eval import log_queue_eval_result, write_queue_eval_result
 
     cfg = SimpleNamespace(output_dir=str(tmp_path), experiment="exp", seed=7, load_checkpoint_kind="best")
     result = {

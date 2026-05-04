@@ -344,11 +344,14 @@ def _demon_attack_eval_budget_timeout_info(
     accumulated_return: float,
     episode_length: int,
     eval_raw_reward: bool,
+    clipped_return: float | None = None,
 ) -> dict[str, Any]:
     metric_key = "episode/raw_return" if eval_raw_reward else "episode/clipped_return"
+    clipped_metric = float(accumulated_return if clipped_return is None else clipped_return)
     stats = {
         metric_key: float(accumulated_return),
         "episode/return": float(accumulated_return),
+        "episode/clipped_return": clipped_metric,
         "episode/length": int(episode_length),
         "episode/truncated": 1.0,
         "episode/timeout": 1.0,
@@ -362,6 +365,7 @@ def _demon_attack_eval_budget_timeout_info(
     }
     if eval_raw_reward:
         info["episodic_raw_return"] = float(accumulated_return)
+        info["episodic_clipped_return"] = clipped_metric
     else:
         info["episodic_clipped_return"] = float(accumulated_return)
     return info
@@ -709,8 +713,9 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     if is_demon_attack_eval:
         raw_returns = []
         clipped_returns = []
-    count_demon_life_loss_terminal = bool(
-        getattr(cfg, "terminal_on_life_loss", getattr(base_cfg, "terminal_on_life_loss", False))
+    count_demon_life_loss_terminal = (
+        not eval_raw_reward
+        and bool(getattr(cfg, "terminal_on_life_loss", getattr(base_cfg, "terminal_on_life_loss", False)))
     )
 
     tracker: _QueueEvalEpisodeTracker | None = None
@@ -822,10 +827,13 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
                 info = _batched_info_for_agent(infos, int(agent_i))
                 raw_step_reward = _numeric_scalar(info.get("raw_reward"))
                 transformed_step_reward = _numeric_scalar(info.get("clipped_reward"))
-                if transformed_step_reward is None:
-                    transformed_step_reward = _numeric_scalar(info.get("transformed_reward"))
                 if raw_step_reward is None:
                     raw_step_reward = float(reward_tensor[agent_i].item())
+                if transformed_step_reward is None:
+                    if eval_raw_reward:
+                        transformed_step_reward = float(np.sign(raw_step_reward))
+                    else:
+                        transformed_step_reward = _numeric_scalar(info.get("transformed_reward"))
                 if transformed_step_reward is None:
                     transformed_step_reward = float(reward_tensor[agent_i].item())
                 demon_episode_raw_reward[agent_i] += float(raw_step_reward)
@@ -836,6 +844,11 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
                     if _bool_for_agent(truncated, int(agent_i)):
                         info.setdefault("truncated", True)
                         info.setdefault("TimeLimit.truncated", True)
+                    if eval_raw_reward and _demon_attack_true_eval_episode_end(info):
+                        extra_stats = dict(info.get("episode_extra_stats") or {})
+                        extra_stats["episode/clipped_return"] = float(demon_episode_clipped_reward[agent_i])
+                        info["episode_extra_stats"] = extra_stats
+                        info["episodic_clipped_return"] = float(demon_episode_clipped_reward[agent_i])
                     episode_result = _demon_attack_eval_episode_result(
                         info,
                         fallback_return=float(episode_reward[agent_i].item()),
@@ -857,9 +870,14 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
                 ):
                     episode_result = _demon_attack_eval_episode_result(
                         _demon_attack_eval_budget_timeout_info(
-                            accumulated_return=float(episode_reward[agent_i].item()),
+                            accumulated_return=float(
+                                demon_episode_raw_reward[agent_i]
+                                if eval_raw_reward
+                                else episode_reward[agent_i].item()
+                            ),
                             episode_length=int(episode_length[agent_i]),
                             eval_raw_reward=eval_raw_reward,
+                            clipped_return=float(demon_episode_clipped_reward[agent_i]),
                         ),
                         fallback_return=float(episode_reward[agent_i].item()),
                         fallback_length=int(episode_length[agent_i]),
