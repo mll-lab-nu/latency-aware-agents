@@ -253,6 +253,13 @@ def _drop_eval_time_limit_fields(config: dict) -> None:
     config.setdefault("env", {}).pop("max_episode_steps", None)
 
 
+def _align_eval_env_config(config: dict, env_name: str) -> None:
+    evaluation_cfg = config.get("evaluation", {})
+    if env_name == "demon_attack" and bool(evaluation_cfg.get("eval_raw_reward", False)):
+        env_cfg = config.setdefault("env", {})
+        env_cfg["terminal_on_life_loss"] = True
+
+
 def _build_latency_bench_eval_config(
     full_config: dict,
     env_name: str,
@@ -266,6 +273,7 @@ def _build_latency_bench_eval_config(
     config = deepcopy(full_config)
     _require_eval_max_steps(config)
     _drop_eval_time_limit_fields(config)
+    _align_eval_env_config(config, env_name)
 
     experiment_cfg = config.setdefault("experiment", {})
     experiment_cfg["name"] = _build_run_name(env_name, latency, seed)
@@ -321,6 +329,7 @@ def _build_eval_config(
     config = deepcopy(train_config)
     _require_eval_max_steps(config)
     _drop_eval_time_limit_fields(config)
+    _align_eval_env_config(config, env_name)
     config["experiment"]["num_episodes"] = int(eval_episodes)
     config["backend"]["run_mode"] = "eval"
     config["latency"]["train_values"] = [int(latency)]

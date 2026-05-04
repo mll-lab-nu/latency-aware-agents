@@ -1,7 +1,142 @@
 from __future__ import annotations
 
 import json
+import os
 from types import SimpleNamespace
+
+import pytest
+
+import gymnasium as gym
+import numpy as np
+import torch
+
+
+class _ScriptedAtariInfoEnv(gym.Env):
+    observation_space = gym.spaces.Box(low=0, high=255, shape=(2, 2), dtype=np.uint8)
+    action_space = gym.spaces.Discrete(2)
+
+    def __init__(self, steps):
+        super().__init__()
+        self.steps = list(steps)
+        self.index = 0
+        self.reset_count = 0
+
+    def reset(self, *, seed=None, options=None):
+        self.reset_count += 1
+        return np.full((2, 2), self.reset_count, dtype=np.uint8), {}
+
+    def step(self, action):
+        if self.index >= len(self.steps):
+            raise AssertionError("script exhausted")
+        reward, terminated, truncated, info = self.steps[self.index]
+        self.index += 1
+        obs = np.full((2, 2), self.index + 10, dtype=np.uint8)
+        return obs, float(reward), bool(terminated), bool(truncated), dict(info)
+
+
+class _SubprocScriptedSfEnv(gym.Env):
+    observation_space = gym.spaces.Box(low=0, high=255, shape=(1, 2, 2), dtype=np.uint8)
+    action_space = gym.spaces.Discrete(2)
+
+    def __init__(self, steps):
+        super().__init__()
+        self.steps = list(steps)
+        self.index = 0
+        self.reset_count = 0
+
+    def reset(self, *, seed=None, options=None):
+        self.reset_count += 1
+        return np.full((1, 2, 2), self.reset_count, dtype=np.uint8), {
+            "reset_seed": seed,
+            "worker_env_pid": os.getpid(),
+        }
+
+    def step(self, action):
+        if self.index >= len(self.steps):
+            raise AssertionError("script exhausted")
+        reward, terminated, truncated, info = self.steps[self.index]
+        self.index += 1
+        obs = np.full((1, 2, 2), self.index + 10, dtype=np.uint8)
+        step_info = dict(info)
+        step_info.setdefault("raw_reward", float(reward))
+        step_info.setdefault("transformed_reward", float(np.sign(float(reward))))
+        step_info["worker_env_pid"] = os.getpid()
+        return obs, float(np.sign(float(reward))), bool(terminated), bool(truncated), step_info
+
+
+class _FakeActorCritic:
+    def eval(self):
+        return self
+
+    def model_to_device(self, device):
+        self.device = torch.device(device)
+
+    def normalize_obs(self, obs):
+        return obs
+
+    def device_for_input_tensor(self, _key):
+        return torch.device("cpu")
+
+    def type_for_input_tensor(self, _key):
+        return torch.float32
+
+    def __call__(self, obs, rnn_states):
+        batch = int(next(iter(obs.values())).shape[0])
+        return {
+            "actions": torch.zeros((batch, 1), dtype=torch.int64),
+            "new_rnn_states": torch.zeros_like(rnn_states),
+        }
+
+
+def _patch_queue_eval_sample_factory(monkeypatch):
+    import sample_factory.cfg.arguments as sf_arguments
+    import sample_factory.model.actor_critic as sf_actor_critic
+    import sample_factory.model.model_utils as sf_model_utils
+
+    from training.sample_factory_common import queue_eval
+
+    monkeypatch.setattr(sf_arguments, "load_from_checkpoint", lambda cfg: cfg)
+    monkeypatch.setattr(sf_actor_critic, "create_actor_critic", lambda *_args, **_kwargs: _FakeActorCritic())
+    monkeypatch.setattr(sf_model_utils, "get_rnn_size", lambda _cfg: 1)
+    monkeypatch.setattr(queue_eval, "load_sf_policy_state_dict", lambda *_args, **_kwargs: None)
+    return queue_eval
+
+
+def _demon_attack_queue_eval_cfg(integration, **overrides):
+    values = {
+        "env": integration.SF_ENV_NAME,
+        "device": "cpu",
+        "env_gpu_actions": False,
+        "env_gpu_observations": False,
+        "env_frameskip": 1,
+        "seed": 0,
+        "env_id": "ALE/DemonAttack-v5",
+        "screen_size": 84,
+        "noop_max": 0,
+        "action_repeat": 1,
+        "frame_stack": 1,
+        "terminal_on_life_loss": True,
+        "clip_reward": True,
+        "repeat_action_probability": 0.0,
+        "full_action_space": False,
+        "queue_latency_values": "0",
+        "latency_mode": "episode_fixed",
+        "latency_sampling_mode": "uniform_all",
+        "episodes_per_stage": 10,
+        "randomize_within_stage": False,
+        "within_episode_change_interval": 1,
+        "within_episode_change_prob": 1.0,
+        "add_latency_info": False,
+        "max_episode_steps": 0,
+        "episode_metrics_path": "",
+        "eval_episodes": 1,
+        "eval_parallel_envs": 1,
+        "eval_max_steps": 10,
+        "eval_deterministic": False,
+        "eval_raw_reward": True,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
 
 
 def test_demon_attack_eval_done_ignores_life_loss_pseudo_terminal():
@@ -104,6 +239,43 @@ def test_demon_attack_eval_done_accepts_timelimit_truncated_timeout_with_extra_s
     }
 
 
+def test_demon_attack_raw_eval_rejects_timeout_without_raw_stats():
+    from training.sample_factory_common.queue_eval import _demon_attack_eval_episode_result
+
+    with pytest.raises(ValueError, match="requires raw episode stats"):
+        _demon_attack_eval_episode_result(
+            {
+                "TimeLimit.truncated": True,
+                "truncated": True,
+            },
+            fallback_return=999.0,
+            fallback_length=99,
+            eval_raw_reward=True,
+        )
+
+
+def test_demon_attack_eval_budget_timeout_info_uses_raw_accumulator_not_fallback():
+    from training.sample_factory_common.queue_eval import (
+        _demon_attack_eval_budget_timeout_info,
+        _demon_attack_eval_episode_result,
+    )
+
+    result = _demon_attack_eval_episode_result(
+        _demon_attack_eval_budget_timeout_info(raw_return=12.0, clipped_return=12.0, length=4),
+        fallback_return=999.0,
+        fallback_length=99,
+        eval_raw_reward=True,
+    )
+
+    assert result == {
+        "return": 12.0,
+        "raw_return": 12.0,
+        "clipped_return": 12.0,
+        "length": 4,
+        "timeout": True,
+    }
+
+
 def test_demon_attack_timeout_count_uses_eval_budget_not_short_truncated_info():
     from training.sample_factory_common.queue_eval import (
         _demon_attack_eval_episode_result,
@@ -143,6 +315,366 @@ def test_demon_attack_timeout_count_uses_eval_budget_not_short_truncated_info():
         )
         is True
     )
+
+
+def test_demon_attack_vector_backend_defaults_to_serial_for_single_eval_env(monkeypatch):
+    from training.sample_factory_common.queue_eval import _demon_attack_vector_backend
+
+    monkeypatch.delenv("DEMON_EVAL_VECTOR_BACKEND", raising=False)
+    monkeypatch.delenv("DEMON_EVAL_NUM_WORKERS", raising=False)
+
+    assert _demon_attack_vector_backend(eval_parallel_envs=1) == "serial"
+
+
+def test_demon_attack_vector_backend_defaults_to_subproc_for_parallel_eval_env(monkeypatch):
+    from training.sample_factory_common.queue_eval import _demon_attack_vector_backend
+
+    monkeypatch.delenv("DEMON_EVAL_VECTOR_BACKEND", raising=False)
+    monkeypatch.delenv("DEMON_EVAL_NUM_WORKERS", raising=False)
+
+    assert _demon_attack_vector_backend(eval_parallel_envs=4) == "subproc"
+
+
+def test_demon_attack_vector_backend_debug_override_can_force_serial(monkeypatch):
+    from training.sample_factory_common.queue_eval import _demon_attack_vector_backend
+
+    monkeypatch.setenv("DEMON_EVAL_VECTOR_BACKEND", "serial")
+    monkeypatch.delenv("DEMON_EVAL_NUM_WORKERS", raising=False)
+
+    assert _demon_attack_vector_backend(eval_parallel_envs=4) == "serial"
+
+
+def test_demon_attack_effective_workers_ignores_legacy_num_workers_env(monkeypatch):
+    from training.sample_factory_common.queue_eval import _demon_attack_effective_parallel_envs
+
+    monkeypatch.setenv("DEMON_EVAL_NUM_WORKERS", "1")
+
+    assert _demon_attack_effective_parallel_envs(eval_parallel_envs=8, eval_episodes=3) == 3
+
+
+def test_demon_attack_queue_eval_n1_uses_true_game_over_for_episode_accounting(monkeypatch, capsys):
+    from training.demon_attack_sf import integration
+
+    queue_eval = _patch_queue_eval_sample_factory(monkeypatch)
+    monkeypatch.delenv("DEMON_EVAL_VECTOR_BACKEND", raising=False)
+    monkeypatch.delenv("DEMON_EVAL_NUM_WORKERS", raising=False)
+    monkeypatch.setattr(
+        integration,
+        "make_demon_attack_benchmark_env",
+        lambda **_kwargs: _ScriptedAtariInfoEnv(
+            [
+                (1.0, True, False, {"lives": 2}),
+                (2.0, True, False, {"lives": 0}),
+            ]
+        ),
+    )
+
+    cfg = _demon_attack_queue_eval_cfg(integration)
+
+    result = queue_eval.evaluate_queue_latency(cfg, latency_value=0)
+    stdout = capsys.readouterr().out
+
+    assert result["completed_episodes"] == 1
+    assert result["returns"] == [3.0]
+    assert result["raw_returns"] == [3.0]
+    assert result["clipped_returns"] == [2.0]
+    assert result["_meta"]["episode_ids"] == [0]
+    assert result["_meta"]["vector_backend"] == "serial"
+    assert result["_meta"]["started_episodes"] == 1
+    assert result["_meta"]["completed_episodes"] == 1
+    assert "env=demon_attack eval_parallel_envs=1 vector_backend=serial effective_workers=1 mp_start_method=" in stdout
+
+
+def test_demon_attack_queue_eval_n4_reassigns_slots_and_completes_exact_episode_ids(monkeypatch):
+    from training.demon_attack_sf import integration
+
+    queue_eval = _patch_queue_eval_sample_factory(monkeypatch)
+    monkeypatch.setenv("DEMON_EVAL_VECTOR_BACKEND", "serial")
+    monkeypatch.delenv("DEMON_EVAL_NUM_WORKERS", raising=False)
+    scripted_envs = [
+        _ScriptedAtariInfoEnv(
+            [
+                (10.0, True, False, {"lives": 0}),
+                (11.0, True, False, {"lives": 0}),
+            ]
+        ),
+        _ScriptedAtariInfoEnv(
+            [
+                (20.0, True, False, {"lives": 0}),
+                (21.0, True, False, {"lives": 0}),
+            ]
+        ),
+        _ScriptedAtariInfoEnv([(30.0, True, False, {"lives": 0})]),
+        _ScriptedAtariInfoEnv([(40.0, True, False, {"lives": 0})]),
+    ]
+    created_envs = []
+
+    def make_scripted_env(**_kwargs):
+        env = scripted_envs.pop(0)
+        created_envs.append(env)
+        return env
+
+    monkeypatch.setattr(integration, "make_demon_attack_benchmark_env", make_scripted_env)
+
+    cfg = _demon_attack_queue_eval_cfg(
+        integration,
+        eval_episodes=6,
+        eval_parallel_envs=4,
+        eval_max_steps=10,
+    )
+
+    result = queue_eval.evaluate_queue_latency(cfg, latency_value=0)
+
+    assert len(created_envs) == 4
+    assert result["completed_episodes"] == 6
+    assert result["_meta"]["started_episodes"] == 6
+    assert result["_meta"]["completed_episodes"] == 6
+    assert result["_meta"]["effective_parallel_envs"] == 4
+    assert result["_meta"]["episode_ids"] == [0, 1, 2, 3, 4, 5]
+    assert sorted(result["_meta"]["episode_ids"]) == list(range(6))
+    assert len(set(result["_meta"]["episode_ids"])) == 6
+    assert len(result["returns"]) == 6
+    assert result["total_frames"] == 6
+    assert result["_meta"]["vector_backend"] == "serial"
+
+
+def test_demon_attack_queue_eval_parallel_envs_gt_episodes_only_starts_requested_episodes(monkeypatch):
+    from training.demon_attack_sf import integration
+
+    queue_eval = _patch_queue_eval_sample_factory(monkeypatch)
+    monkeypatch.setenv("DEMON_EVAL_VECTOR_BACKEND", "serial")
+    monkeypatch.delenv("DEMON_EVAL_NUM_WORKERS", raising=False)
+    scripted_envs = [
+        _ScriptedAtariInfoEnv([(1.0, True, False, {"lives": 0})]),
+        _ScriptedAtariInfoEnv([(2.0, True, False, {"lives": 0})]),
+        _ScriptedAtariInfoEnv([(3.0, True, False, {"lives": 0})]),
+    ]
+    created_envs = []
+
+    def make_scripted_env(**_kwargs):
+        env = scripted_envs.pop(0)
+        created_envs.append(env)
+        return env
+
+    monkeypatch.setattr(integration, "make_demon_attack_benchmark_env", make_scripted_env)
+
+    cfg = _demon_attack_queue_eval_cfg(
+        integration,
+        eval_episodes=3,
+        eval_parallel_envs=8,
+        eval_max_steps=10,
+    )
+
+    result = queue_eval.evaluate_queue_latency(cfg, latency_value=0)
+
+    assert len(created_envs) == 3
+    assert result["completed_episodes"] == 3
+    assert result["_meta"]["started_episodes"] == 3
+    assert result["_meta"]["completed_episodes"] == 3
+    assert result["_meta"]["effective_parallel_envs"] == 3
+    assert result["_meta"]["episode_ids"] == [0, 1, 2]
+    assert len(set(result["_meta"]["episode_ids"])) == 3
+    assert len(result["returns"]) == 3
+    assert result["total_frames"] == 3
+    assert result["_meta"]["vector_backend"] == "serial"
+
+
+def test_demon_attack_queue_eval_max_steps_is_per_episode_slot(monkeypatch):
+    from training.demon_attack_sf import integration
+
+    queue_eval = _patch_queue_eval_sample_factory(monkeypatch)
+    monkeypatch.setenv("DEMON_EVAL_VECTOR_BACKEND", "serial")
+    monkeypatch.delenv("DEMON_EVAL_NUM_WORKERS", raising=False)
+    scripted_envs = [
+        _ScriptedAtariInfoEnv(
+            [
+                (2.0, False, False, {"lives": 3}),
+                (2.0, False, False, {"lives": 3}),
+            ]
+        ),
+        _ScriptedAtariInfoEnv(
+            [
+                (3.0, False, False, {"lives": 3}),
+                (3.0, False, False, {"lives": 3}),
+            ]
+        ),
+    ]
+    monkeypatch.setattr(integration, "make_demon_attack_benchmark_env", lambda **_kwargs: scripted_envs.pop(0))
+
+    cfg = _demon_attack_queue_eval_cfg(
+        integration,
+        eval_episodes=2,
+        eval_parallel_envs=2,
+        eval_max_steps=2,
+    )
+
+    result = queue_eval.evaluate_queue_latency(cfg, latency_value=0)
+
+    assert result["completed_episodes"] == 2
+    assert result["timeout_episodes"] == 2
+    assert result["hit_eval_step_budget"] is True
+    assert result["lengths"] == [2, 2]
+    assert result["returns"] == [4.0, 6.0]
+    assert result["raw_returns"] == [4.0, 6.0]
+    assert result["clipped_returns"] == [2.0, 2.0]
+    assert result["_meta"]["episode_ids"] == [0, 1]
+    assert result["total_frames"] == 4
+
+
+def test_demon_attack_queue_eval_timeout_after_life_loss_does_not_reset_inactive_slot(monkeypatch):
+    from training.demon_attack_sf import integration
+
+    queue_eval = _patch_queue_eval_sample_factory(monkeypatch)
+    monkeypatch.delenv("DEMON_EVAL_VECTOR_BACKEND", raising=False)
+    monkeypatch.delenv("DEMON_EVAL_NUM_WORKERS", raising=False)
+    scripted_env = _ScriptedAtariInfoEnv([(5.0, True, False, {"lives": 2})])
+    monkeypatch.setattr(integration, "make_demon_attack_benchmark_env", lambda **_kwargs: scripted_env)
+
+    cfg = _demon_attack_queue_eval_cfg(
+        integration,
+        eval_episodes=1,
+        eval_parallel_envs=1,
+        eval_max_steps=1,
+    )
+
+    result = queue_eval.evaluate_queue_latency(cfg, latency_value=0)
+
+    assert result["completed_episodes"] == 1
+    assert result["timeout_episodes"] == 1
+    assert result["_meta"]["episode_ids"] == [0]
+    assert scripted_env.reset_count == 1
+
+
+def test_demon_attack_queue_eval_subproc_backend_counts_true_game_over_and_timeout(monkeypatch, capsys):
+    from training.demon_attack_sf import integration
+
+    queue_eval = _patch_queue_eval_sample_factory(monkeypatch)
+
+    def make_scripted_sf_env(_full_env_name, cfg=None, env_config=None, render_mode=None):
+        del cfg, render_mode
+        slot_idx = int(getattr(env_config, "vector_index", 0) or 0)
+        if slot_idx == 0:
+            return _SubprocScriptedSfEnv(
+                [
+                    (1.0, True, False, {"lives": 2, "is_true_episode_end": False}),
+                    (
+                        2.0,
+                        True,
+                        False,
+                        {
+                            "lives": 0,
+                            "is_true_episode_end": True,
+                            "episodic_raw_return": 3.0,
+                            "episodic_clipped_return": 2.0,
+                            "episodic_return": 3.0,
+                            "episodic_length": 2,
+                            "episode_extra_stats": {
+                                "episode/raw_return": 3.0,
+                                "episode/clipped_return": 2.0,
+                                "episode/return": 3.0,
+                                "episode/length": 2,
+                            },
+                        },
+                    ),
+                ]
+            )
+        return _SubprocScriptedSfEnv(
+            [
+                (3.0, False, False, {"lives": 3}),
+                (3.0, False, False, {"lives": 3}),
+            ]
+        )
+
+    monkeypatch.setattr(integration, "make_demon_attack_sf_env", make_scripted_sf_env)
+    monkeypatch.delenv("DEMON_EVAL_VECTOR_BACKEND", raising=False)
+    monkeypatch.delenv("DEMON_EVAL_NUM_WORKERS", raising=False)
+    monkeypatch.setenv("DEMON_EVAL_MP_START_METHOD", "fork")
+
+    cfg = _demon_attack_queue_eval_cfg(
+        integration,
+        eval_episodes=4,
+        eval_parallel_envs=4,
+        eval_max_steps=2,
+    )
+
+    result = queue_eval.evaluate_queue_latency(cfg, latency_value=0)
+    stdout = capsys.readouterr().out
+
+    assert result["completed_episodes"] == 4
+    assert result["timeout_episodes"] == 3
+    assert result["returns"] == [3.0, 6.0, 6.0, 6.0]
+    assert result["raw_returns"] == [3.0, 6.0, 6.0, 6.0]
+    assert result["clipped_returns"] == [2.0, 2.0, 2.0, 2.0]
+    assert result["lengths"] == [2, 2, 2, 2]
+    assert result["_meta"]["episode_ids"] == [0, 1, 2, 3]
+    assert sorted(result["_meta"]["episode_ids"]) == [0, 1, 2, 3]
+    assert len(set(result["_meta"]["episode_ids"])) == 4
+    assert result["_meta"]["started_episodes"] == 4
+    assert result["_meta"]["completed_episodes"] == 4
+    assert result["_meta"]["effective_parallel_envs"] == 4
+    assert result["_meta"]["vector_backend"] == "subproc"
+    assert len(set(result["_meta"]["worker_pids"])) == 4
+    assert all(pid != os.getpid() for pid in result["_meta"]["worker_pids"])
+    assert "env=demon_attack eval_parallel_envs=4 vector_backend=subproc effective_workers=4 mp_start_method=fork" in stdout
+
+
+def test_demon_attack_queue_eval_subproc_backend_parallel_envs_gt_episodes(monkeypatch):
+    from training.demon_attack_sf import integration
+
+    queue_eval = _patch_queue_eval_sample_factory(monkeypatch)
+
+    def make_scripted_sf_env(_full_env_name, cfg=None, env_config=None, render_mode=None):
+        del cfg, env_config, render_mode
+        return _SubprocScriptedSfEnv(
+            [
+                (
+                    4.0,
+                    True,
+                    False,
+                    {
+                        "lives": 0,
+                        "is_true_episode_end": True,
+                        "episodic_raw_return": 4.0,
+                        "episodic_clipped_return": 1.0,
+                        "episodic_return": 4.0,
+                        "episodic_length": 1,
+                        "episode_extra_stats": {
+                            "episode/raw_return": 4.0,
+                            "episode/clipped_return": 1.0,
+                            "episode/return": 4.0,
+                            "episode/length": 1,
+                        },
+                    },
+                )
+            ]
+        )
+
+    monkeypatch.setattr(integration, "make_demon_attack_sf_env", make_scripted_sf_env)
+    monkeypatch.delenv("DEMON_EVAL_VECTOR_BACKEND", raising=False)
+    monkeypatch.delenv("DEMON_EVAL_NUM_WORKERS", raising=False)
+    monkeypatch.setenv("DEMON_EVAL_MP_START_METHOD", "fork")
+
+    cfg = _demon_attack_queue_eval_cfg(
+        integration,
+        eval_episodes=1,
+        eval_parallel_envs=8,
+        eval_max_steps=10,
+    )
+
+    result = queue_eval.evaluate_queue_latency(cfg, latency_value=0)
+
+    assert result["completed_episodes"] == 1
+    assert result["_meta"]["started_episodes"] == 1
+    assert result["_meta"]["completed_episodes"] == 1
+    assert result["_meta"]["effective_parallel_envs"] == 1
+    assert result["_meta"]["episode_ids"] == [0]
+    assert len(set(result["_meta"]["episode_ids"])) == 1
+    assert result["_meta"]["vector_backend"] == "subproc"
+    assert len(result["_meta"]["worker_pids"]) == 1
+    assert result["_meta"]["worker_pids"][0] != os.getpid()
+    assert result["returns"] == [4.0]
+    assert result["raw_returns"] == [4.0]
+    assert result["clipped_returns"] == [1.0]
 
 
 def test_queue_eval_result_keeps_raw_and_clipped_fields_with_raw_compat_returns():
@@ -344,6 +876,28 @@ def test_prepare_queue_eval_cfg_does_not_convert_demon_attack_eval_budget_to_tim
 
     assert cfg.max_episode_steps == 0
     assert "max_episode_steps" not in cfg.cli_args
+
+
+def test_prepare_queue_eval_cfg_aligns_demon_attack_raw_reward_runtime_config():
+    from training.sample_factory_common.queue_eval import prepare_queue_eval_cfg
+
+    cfg = prepare_queue_eval_cfg(
+        SimpleNamespace(
+            env="latency_demon_attack",
+            eval_raw_reward=True,
+            terminal_on_life_loss=False,
+            clip_reward=True,
+            eval_max_steps=123,
+            max_episode_steps=0,
+            eval_deterministic=True,
+        ),
+        latency_value=0,
+    )
+
+    assert cfg.terminal_on_life_loss is True
+    assert cfg.clip_reward is True
+    assert cfg.cli_args["terminal_on_life_loss"] is True
+    assert "clip_reward" not in cfg.cli_args
 
 
 def test_write_and_log_queue_eval_result_preserve_raw_and_clipped_metrics(tmp_path):

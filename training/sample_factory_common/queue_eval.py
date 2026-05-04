@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -24,6 +25,7 @@ DemonAttackEvalEpisodeResult = dict[str, float | int | bool]
 
 _FLAPPY_SF_ENV = "latency_flappy"
 _DEMON_ATTACK_SF_ENV = "latency_demon_attack"
+_DEMON_ATTACK_VECTOR_BACKENDS = {"serial", "subproc"}
 
 
 class _QueueEvalEpisodeTracker:
@@ -83,6 +85,25 @@ def _eval_episode_seed(base_cfg: Any, episode_id: int) -> int:
     return int(getattr(base_cfg, "seed", 0) or 0) + 104729 + int(episode_id)
 
 
+def _demon_attack_vector_backend(*, eval_parallel_envs: int) -> str:
+    override = str(os.environ.get("DEMON_EVAL_VECTOR_BACKEND", "")).strip().lower()
+    backend = override or ("subproc" if int(eval_parallel_envs) > 1 else "serial")
+    if backend not in _DEMON_ATTACK_VECTOR_BACKENDS:
+        raise ValueError(
+            "DEMON_EVAL_VECTOR_BACKEND must be one of "
+            f"{sorted(_DEMON_ATTACK_VECTOR_BACKENDS)}, got {backend!r}"
+        )
+    return backend
+
+
+def _demon_attack_effective_parallel_envs(
+    *,
+    eval_parallel_envs: int,
+    eval_episodes: int,
+) -> int:
+    return min(int(eval_parallel_envs), int(eval_episodes))
+
+
 def _config_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -124,6 +145,11 @@ def _apply_queue_eval_runtime_overrides(cfg: Any, base_cfg: Any, latency_value: 
             raise ValueError("Flappy queue eval eval_parallel_envs>1 requires env.use_gpu_render=true")
         if use_gpu_render:
             maybe_set_cli_override(cfg, "gpu_render_batch_size", max(1, effective_parallel_envs))
+    if (
+        (_is_demon_attack_queue_eval_cfg(cfg) or _is_demon_attack_queue_eval_cfg(base_cfg))
+        and bool(getattr(base_cfg, "eval_raw_reward", getattr(cfg, "eval_raw_reward", False)))
+    ):
+        maybe_set_cli_override(cfg, "terminal_on_life_loss", True)
     maybe_set_cli_override(cfg, "no_render", True)
     maybe_set_cli_override(cfg, "save_video", False)
     maybe_set_cli_override(cfg, "fps", 0)
@@ -262,6 +288,10 @@ def _demon_attack_eval_episode_result(
 
     if raw_return is None:
         raw_return = episodic_return
+    if eval_raw_reward and raw_return is None:
+        raise ValueError(
+            "DemonAttack raw eval requires raw episode stats; refusing to use fallback_return as raw_return"
+        )
     if clipped_return is None and not eval_raw_reward:
         clipped_return = float(fallback_return)
 
@@ -295,6 +325,31 @@ def _demon_attack_eval_episode_result(
     if timeout:
         result["timeout"] = True
     return result
+
+
+def _demon_attack_eval_budget_timeout_info(
+    *,
+    raw_return: float,
+    clipped_return: float,
+    length: int,
+) -> dict[str, Any]:
+    return {
+        TRUE_EPISODE_END_INFO_KEY: True,
+        "TimeLimit.truncated": True,
+        "truncated": True,
+        "episodic_raw_return": float(raw_return),
+        "episodic_clipped_return": float(clipped_return),
+        "episodic_return": float(raw_return),
+        "episodic_length": int(length),
+        "episode_extra_stats": {
+            "episode/raw_return": float(raw_return),
+            "episode/clipped_return": float(clipped_return),
+            "episode/return": float(raw_return),
+            "episode/length": int(length),
+            "episode/truncated": 1.0,
+            "episode/timeout": 1.0,
+        },
+    }
 
 
 def _demon_attack_eval_step_budget_timeout(
@@ -570,11 +625,51 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     if adjust_cfg is not None:
         adjust_cfg(cfg, base_cfg)
 
-    env = make_env_func_batched(
-        cfg,
-        env_config=AttrDict(worker_index=0, vector_index=0, env_id=0),
-        render_mode=None,
-    )
+    eval_episodes = int(getattr(base_cfg, "eval_episodes", 20))
+    eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 30000))
+    max_total_frames = int(1e9 if eval_max_steps <= 0 else eval_max_steps * max(1, eval_episodes))
+    is_demon_attack_eval = _is_demon_attack_queue_eval_cfg(cfg) or _is_demon_attack_queue_eval_cfg(base_cfg)
+    is_flappy_eval = _is_flappy_queue_eval_cfg(cfg) or _is_flappy_queue_eval_cfg(base_cfg)
+    eval_parallel_envs = _eval_parallel_envs(base_cfg)
+    env_config = AttrDict(worker_index=0, vector_index=0, env_id=0)
+    demon_attack_vector_backend = "serial"
+    if is_demon_attack_eval:
+        from training.sample_factory_common.queue_eval_vector_env import (
+            DemonAttackQueueEvalSubprocVectorEnv,
+            DemonAttackQueueEvalVectorEnv,
+            demon_attack_queue_eval_mp_start_method,
+        )
+
+        demon_attack_vector_backend = _demon_attack_vector_backend(eval_parallel_envs=eval_parallel_envs)
+        effective_parallel_envs = _demon_attack_effective_parallel_envs(
+            eval_parallel_envs=eval_parallel_envs,
+            eval_episodes=eval_episodes,
+        )
+        mp_start_method = demon_attack_queue_eval_mp_start_method()
+        print(
+            "env=demon_attack "
+            f"eval_parallel_envs={int(eval_parallel_envs)} "
+            f"vector_backend={demon_attack_vector_backend} "
+            f"effective_workers={int(effective_parallel_envs)} "
+            f"mp_start_method={mp_start_method}",
+            flush=True,
+        )
+        vector_env_cls = (
+            DemonAttackQueueEvalSubprocVectorEnv
+            if demon_attack_vector_backend == "subproc"
+            else DemonAttackQueueEvalVectorEnv
+        )
+        env = vector_env_cls(
+            cfg=cfg,
+            num_slots=effective_parallel_envs,
+            env_config=env_config,
+        )
+    else:
+        env = make_env_func_batched(
+            cfg,
+            env_config=env_config,
+            render_mode=None,
+        )
     env_info = extract_env_info(env, cfg)
     actor_critic = create_actor_critic(cfg, env.observation_space, env.action_space)
     actor_critic.eval()
@@ -587,14 +682,8 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     raw_returns: list[float] | None = None
     clipped_returns: list[float] | None = None
     lengths: list[int] = []
-    eval_episodes = int(getattr(base_cfg, "eval_episodes", 20))
-    eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 30000))
-    max_total_frames = int(1e9 if eval_max_steps <= 0 else eval_max_steps * max(1, eval_episodes))
-    is_demon_attack_eval = _is_demon_attack_queue_eval_cfg(cfg) or _is_demon_attack_queue_eval_cfg(base_cfg)
-    is_flappy_eval = _is_flappy_queue_eval_cfg(cfg) or _is_flappy_queue_eval_cfg(base_cfg)
-    eval_parallel_envs = _eval_parallel_envs(base_cfg)
-    use_explicit_flappy_accounting = (
-        is_flappy_eval
+    use_explicit_queue_accounting = (
+        (is_flappy_eval or is_demon_attack_eval)
         and hasattr(env, "set_auto_reset_done")
         and hasattr(env, "reset_agents")
         and int(getattr(env, "num_agents", 1)) > 0
@@ -607,7 +696,7 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     tracker: _QueueEvalEpisodeTracker | None = None
     episode_ids: list[int] = []
     slot_ids: list[int] = []
-    if use_explicit_flappy_accounting:
+    if use_explicit_queue_accounting:
         tracker = _QueueEvalEpisodeTracker(
             eval_episodes=eval_episodes,
             eval_parallel_envs=int(getattr(env, "num_agents", eval_parallel_envs)),
@@ -621,6 +710,8 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     rnn_states = torch.zeros([env.num_agents, get_rnn_size(cfg)], dtype=torch.float32, device=device)
     episode_reward = torch.zeros([env.num_agents], dtype=torch.float32, device=device)
     episode_length = np.zeros([env.num_agents], dtype=np.int64)
+    demon_episode_raw_reward = np.zeros([env.num_agents], dtype=np.float64)
+    demon_episode_clipped_reward = np.zeros([env.num_agents], dtype=np.float64)
     total_frames = 0
     hit_eval_step_budget = False
     timeout_episodes = 0
@@ -630,6 +721,7 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
         episode_result: DemonAttackEvalEpisodeResult | None,
         *,
         timed_out_by_eval_budget: bool = False,
+        reset_plan: dict[int, int | None] | None = None,
     ) -> bool:
         nonlocal hit_eval_step_budget, timeout_episodes
         if episode_result is None or len(returns) >= eval_episodes:
@@ -648,8 +740,23 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
         ):
             timeout_episodes += 1
             hit_eval_step_budget = True
+        if tracker is not None:
+            completed_episode_id, next_episode_id = tracker.complete_slot(int(agent_i))
+            episode_ids.append(int(completed_episode_id))
+            slot_ids.append(int(agent_i))
+            if next_episode_id is not None:
+                if reset_plan is None:
+                    raise RuntimeError("tracked DemonAttack eval requires a reset_plan")
+                reset_plan[int(agent_i)] = (
+                    int(next_episode_id),
+                    _eval_episode_seed(base_cfg, int(next_episode_id)),
+                )
+            elif reset_plan is not None:
+                reset_plan.pop(int(agent_i), None)
         episode_reward[agent_i] = 0.0
         episode_length[agent_i] = 0
+        demon_episode_raw_reward[agent_i] = 0.0
+        demon_episode_clipped_reward[agent_i] = 0.0
         return True
 
     while (
@@ -686,14 +793,24 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
             episode_length[active_mask] += 1
             total_frames += int(active_mask.sum())
 
-        reset_plan: dict[int, int] = {}
+        reset_plan: dict[int, int | None] = {}
         for agent_i, done_flag in enumerate(dones.cpu().numpy()):
             if tracker is not None and not bool(active_mask[agent_i]):
                 continue
             done = bool(done_flag)
             if is_demon_attack_eval:
+                info = _batched_info_for_agent(infos, int(agent_i))
+                raw_step_reward = _numeric_scalar(info.get("raw_reward"))
+                transformed_step_reward = _numeric_scalar(info.get("clipped_reward"))
+                if transformed_step_reward is None:
+                    transformed_step_reward = _numeric_scalar(info.get("transformed_reward"))
+                if raw_step_reward is None:
+                    raw_step_reward = float(reward_tensor[agent_i].item())
+                if transformed_step_reward is None:
+                    transformed_step_reward = float(reward_tensor[agent_i].item())
+                demon_episode_raw_reward[agent_i] += float(raw_step_reward)
+                demon_episode_clipped_reward[agent_i] += float(transformed_step_reward)
                 if done:
-                    info = _batched_info_for_agent(infos, int(agent_i))
                     if _bool_for_agent(terminated, int(agent_i)):
                         info.setdefault("terminated", True)
                     if _bool_for_agent(truncated, int(agent_i)):
@@ -706,15 +823,24 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
                         eval_raw_reward=eval_raw_reward,
                     )
                     rnn_states[agent_i] = torch.zeros_like(rnn_states[agent_i])
-                    record_demon_attack_episode(int(agent_i), episode_result)
+                    if not record_demon_attack_episode(
+                        int(agent_i),
+                        episode_result,
+                        reset_plan=reset_plan,
+                    ) and tracker is not None:
+                        reset_plan[int(agent_i)] = (tracker.slot_episode_id[int(agent_i)], None)
                 if (
                     eval_max_steps > 0
                     and len(returns) < eval_episodes
                     and int(episode_length[agent_i]) >= eval_max_steps
                 ):
                     episode_result = _demon_attack_eval_episode_result(
-                        {"TimeLimit.truncated": True, "truncated": True},
-                        fallback_return=float(episode_reward[agent_i].item()),
+                        _demon_attack_eval_budget_timeout_info(
+                            raw_return=float(demon_episode_raw_reward[agent_i]),
+                            clipped_return=float(demon_episode_clipped_reward[agent_i]),
+                            length=int(episode_length[agent_i]),
+                        ),
+                        fallback_return=float(demon_episode_clipped_reward[agent_i]),
                         fallback_length=int(episode_length[agent_i]),
                         eval_raw_reward=eval_raw_reward,
                     )
@@ -723,8 +849,10 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
                         int(agent_i),
                         episode_result,
                         timed_out_by_eval_budget=True,
+                        reset_plan=reset_plan,
                     ):
-                        obs, _ = env.reset()
+                        if tracker is None:
+                            obs, _ = env.reset()
                 continue
 
             forced_eval_timeout = (
@@ -747,7 +875,10 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
                     episode_ids.append(int(completed_episode_id))
                     slot_ids.append(int(agent_i))
                     if next_episode_id is not None:
-                        reset_plan[int(agent_i)] = _eval_episode_seed(base_cfg, int(next_episode_id))
+                        reset_plan[int(agent_i)] = (
+                            int(next_episode_id),
+                            _eval_episode_seed(base_cfg, int(next_episode_id)),
+                        )
                 episode_reward[agent_i] = 0.0
                 episode_length[agent_i] = 0
                 rnn_states[agent_i] = torch.zeros_like(rnn_states[agent_i])
@@ -798,5 +929,8 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
         "completed_episodes": int(tracker.completed_episodes),
         "episode_ids": [int(item) for item in episode_ids],
         "slot_ids": [int(item) for item in slot_ids],
+        "vector_backend": str(demon_attack_vector_backend if is_demon_attack_eval else "sample_factory"),
     }
+    if hasattr(env, "worker_pids") and callable(env.worker_pids):
+        result["_meta"]["worker_pids"] = [int(pid) for pid in env.worker_pids()]
     return result

@@ -1214,7 +1214,7 @@ def test_same_latency_sweep_generator_emits_sample_factory_queue_eval_configs():
         output_root="/workspace/latency_sweeps",
         eval_episodes=10,
     )
-    expected_eval_latencies = [0, 1, 2, 3, 4, 5, 10, 15]
+    expected_eval_latencies = list(range(16))
     assert train_cfg["training"]["train_for_env_steps"] == 1234
     assert train_cfg["latency"]["train_values"] == [4]
     assert train_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
@@ -1225,6 +1225,8 @@ def test_same_latency_sweep_generator_emits_sample_factory_queue_eval_configs():
     assert eval_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
     assert eval_cfg["evaluation"]["eval_max_steps"] == 3600
     assert "max_episode_steps" not in eval_cfg["env"]
+    assert eval_cfg["env"]["terminal_on_life_loss"] is True
+    assert eval_cfg["env"]["clip_reward"] is True
     assert eval_cfg["logging"] == {
         "output_dir": "/workspace/latency_sweeps/eval/demon_attack/latency_4/seed_0"
     }
@@ -1286,13 +1288,16 @@ def test_same_latency_sweep_generator_emits_latency_bench_eval_configs(
         tmp_path / "outputs" / "latency_bench" / env_name / "train_latency_3" / "seed_0"
     )
     expected_eval_latencies = {
-        "flappy": [0, 1, 2, 3, 4, 5],
-        "demon_attack": [0, 1, 2, 3, 4, 5, 10, 15],
-        "deadly_corridor": [0, 1, 2, 3, 4, 5, 10, 15, 40],
+        "flappy": list(range(16)),
+        "demon_attack": list(range(16)),
+        "deadly_corridor": [*range(16), 40],
     }
     assert loaded["evaluation"]["eval_latency_values"] == expected_eval_latencies[env_name]
     assert loaded["evaluation"]["eval_max_steps"] == expected_eval_max_steps
     assert "max_episode_steps" not in loaded["env"]
+    if env_name == "demon_attack":
+        assert loaded["env"]["terminal_on_life_loss"] is True
+        assert loaded["env"]["clip_reward"] is True
     if env_name == "deadly_corridor":
         assert loaded["env"]["fps_env"] == 35
         assert loaded["env"]["noop_action"] == [0, 0, 0, 0]
@@ -1325,7 +1330,7 @@ def test_same_latency_sweep_generator_maps_zero_latency_to_zero_source(tmp_path,
 
     assert bench_cfg["latency"]["type"] == "zero"
     assert "fixed_latency_ms" not in bench_cfg["latency"]
-    assert bench_cfg["evaluation"]["eval_latency_values"] == [0, 1, 2, 3, 4, 5]
+    assert bench_cfg["evaluation"]["eval_latency_values"] == list(range(16))
     assert bench_cfg["logging"]["output_dir"] == str(
         tmp_path / "outputs" / "latency_bench" / "flappy" / "train_latency_0" / "seed_0"
     )
@@ -1363,7 +1368,7 @@ def test_same_latency_sweep_generator_preserves_deadly_corridor_eval_latencies_f
         output_root=str(tmp_path / "outputs"),
         eval_episodes=100,
     )
-    expected_eval_latencies = [0, 1, 2, 3, 4, 5, 10, 15, 40]
+    expected_eval_latencies = [*range(16), 40]
 
     assert full_cfg["latency"]["train_values"] == [0]
     assert eval_cfg["latency"]["train_values"] == [0]
@@ -1421,9 +1426,9 @@ def test_same_latency_sweep_generator_writes_three_configs_and_commands(tmp_path
         "deadly_corridor": 85.7142857143,
     }
     expected_eval_latencies = {
-        "flappy": [0, 1, 2, 3, 4, 5],
-        "demon_attack": [0, 1, 2, 3, 4, 5, 10, 15],
-        "deadly_corridor": [0, 1, 2, 3, 4, 5, 10, 15, 40],
+        "flappy": list(range(16)),
+        "demon_attack": list(range(16)),
+        "deadly_corridor": [*range(16), 40],
     }
     for env_name, policy_type in expected_policy_types.items():
         for latency in (0, 3):

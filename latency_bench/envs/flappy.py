@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -180,3 +181,177 @@ def _import_flappy_gymnasium():
         import gymnasium
 
         return gymnasium
+
+
+class FlappySampleFactoryGpuEnvAdapter(EnvAdapter):
+    """Latency-bench adapter for the Sample Factory Flappy GPU-rendered env."""
+
+    def __init__(
+        self,
+        *,
+        config: dict[str, Any],
+        noop_action: Action | None = None,
+    ):
+        env_cfg = config["env"]
+        if float(env_cfg["fps_env"]) <= 0:
+            raise ValueError("fps_env must be positive")
+
+        from training.flappy_sf.integration import make_flappy_sf_env
+
+        self.fps_env = float(env_cfg["fps_env"])
+        self.noop_action = noop_action or Action(value=0, name="noop", is_noop=True)
+        self.env_step = 0
+        self._last_info: dict[str, Any] = {}
+        self._last_frame: Any = None
+        self.sf_env = make_flappy_sf_env(
+            "latency_flappy",
+            cfg=self._sf_cfg(config),
+            env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
+        )
+
+    @property
+    def frame_ms(self) -> float:
+        return 1000.0 / self.fps_env
+
+    def reset(self, seed: int | None = None) -> Observation:
+        self.env_step = 0
+        obs, infos = self.sf_env.reset(seed=seed)
+        info = self._single_info(infos)
+        frame = self._single_observation(obs)
+        self._last_info = info
+        self._last_frame = frame
+        return self._make_observation(frame, info)
+
+    def step(self, action: Action) -> StepResult:
+        obs, reward, terminated, truncated, infos = self.sf_env.step(int(action.value))
+        self.env_step += 1
+        info = self._single_info(infos)
+        frame = self._single_observation(obs)
+        self._last_info = info
+        self._last_frame = frame
+        step_info = dict(info)
+        step_info.update(
+            {
+                "env_step": self.env_step,
+                "sim_time_ms": self.env_step * self.frame_ms,
+                "applied_action": int(action.value),
+                "applied_action_name": action.name,
+                "observation_mode": "sample_factory_gpu",
+            }
+        )
+        return StepResult(
+            observation=self._make_observation(frame, info),
+            reward=float(self._single_scalar(reward)),
+            done=bool(self._single_scalar(terminated)),
+            truncated=bool(self._single_scalar(truncated)),
+            info=step_info,
+        )
+
+    def render_frame(self) -> Any:
+        return self._last_frame
+
+    def get_state_info(self) -> dict[str, Any]:
+        info = dict(self._last_info)
+        info.update(
+            {
+                "env_step": self.env_step,
+                "sim_time_ms": self.env_step * self.frame_ms,
+                "score": info.get("score"),
+                "observation_mode": "sample_factory_gpu",
+            }
+        )
+        return info
+
+    def close(self) -> None:
+        self.sf_env.close()
+
+    def _make_observation(self, frame: Any, info: dict[str, Any]) -> Observation:
+        metadata = dict(info)
+        metadata.update(
+            {
+                "env_step": self.env_step,
+                "sim_time_ms": self.env_step * self.frame_ms,
+                "observation_mode": "sample_factory_gpu",
+            }
+        )
+        return Observation(
+            data=frame,
+            env_step=self.env_step,
+            sim_time_ms=self.env_step * self.frame_ms,
+            metadata=metadata,
+        )
+
+    def _sf_cfg(self, config: dict[str, Any]) -> SimpleNamespace:
+        env_cfg = config["env"]
+        experiment_cfg = config.get("experiment", {})
+        return SimpleNamespace(
+            gym_id=env_cfg.get("gym_id", "FlappyBird-v0"),
+            use_lidar=bool(env_cfg.get("use_lidar", False)),
+            normalize_obs=bool(env_cfg.get("normalize_obs", True)),
+            audio_on=bool(env_cfg.get("audio_on", False)),
+            pipe_gap=int(env_cfg.get("pipe_gap", 100)),
+            bird_color=env_cfg.get("bird_color", "yellow"),
+            pipe_color=env_cfg.get("pipe_color", "green"),
+            background=env_cfg.get("background", "day"),
+            debug=bool(env_cfg.get("debug", False)),
+            debug_timelimit_diagnostics=bool(env_cfg.get("debug_timelimit_diagnostics", False)),
+            screen_size=env_cfg.get("screen_size", ""),
+            score_limit=env_cfg.get("score_limit", -1),
+            obs_resize=env_cfg.get("obs_resize"),
+            obs_mode="image_only",
+            frame_stack=int(env_cfg.get("frame_stack", 1) or 1),
+            max_episode_steps=int(env_cfg.get("max_episode_steps", 0) or 0),
+            queue_latency_values="0",
+            latency_mode="episode_fixed",
+            latency_sampling_mode="uniform_all",
+            episodes_per_stage=int(10**9),
+            randomize_within_stage=False,
+            within_episode_change_interval=1,
+            within_episode_change_prob=1.0,
+            add_latency_info=False,
+            seed=int(experiment_cfg.get("seed", 0) or 0),
+            episode_metrics_path="",
+            use_gpu_render=True,
+            gpu_render_device=env_cfg.get("gpu_render_device", "auto"),
+            gpu_render_batch_size=1,
+            gpu_render_profile=bool(env_cfg.get("gpu_render_profile", False)),
+            gpu_render_profile_interval=int(env_cfg.get("gpu_render_profile_interval", 1000) or 1000),
+        )
+
+    @staticmethod
+    def _single_observation(obs: Any) -> np.ndarray:
+        if isinstance(obs, dict):
+            obs = obs["obs"]
+        if hasattr(obs, "detach") and callable(obs.detach):
+            obs = obs.detach().cpu().numpy()
+        elif hasattr(obs, "cpu") and callable(obs.cpu):
+            obs = obs.cpu().numpy()
+        arr = np.asarray(obs)
+        if arr.ndim == 4:
+            if arr.shape[0] != 1:
+                raise ValueError(f"Expected one Flappy GPU env observation, got batch shape {arr.shape!r}")
+            arr = arr[0]
+        if arr.ndim != 3:
+            raise ValueError(f"Expected Flappy GPU CHW observation, got shape {arr.shape!r}")
+        return np.asarray(arr, dtype=np.uint8)
+
+    @staticmethod
+    def _single_info(infos: Any) -> dict[str, Any]:
+        if isinstance(infos, (list, tuple)):
+            if len(infos) != 1:
+                raise ValueError(f"Expected one Flappy GPU env info dict, got {len(infos)}")
+            return dict(infos[0] or {})
+        return dict(infos or {})
+
+    @staticmethod
+    def _single_scalar(value: Any) -> float:
+        if hasattr(value, "detach") and callable(value.detach):
+            value = value.detach().cpu().numpy()
+        elif hasattr(value, "cpu") and callable(value.cpu):
+            value = value.cpu().numpy()
+        arr = np.asarray(value)
+        if arr.shape == ():
+            return float(arr.item())
+        if arr.size != 1:
+            raise ValueError(f"Expected scalar Flappy GPU env value, got shape {arr.shape!r}")
+        return float(arr.reshape(-1)[0])
