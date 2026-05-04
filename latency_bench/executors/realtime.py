@@ -11,7 +11,15 @@ from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord,
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.latency.profiler import LatencyProfiler
 from latency_bench.latency.sources import LatencySource
-from latency_bench.logging.metrics import compute_episode_metrics
+from latency_bench.logging.metrics import (
+    active_action_step_info,
+    apply_latency_raw_fields,
+    apply_latency_record_raw_fields,
+    compute_episode_metrics,
+    episode_raw_fact_metadata,
+    latency_type_from_source,
+    profile_metadata_from_source,
+)
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.observation.builder import ObservationBuilder
 from latency_bench.observation.history import HistoryBuffer
@@ -220,6 +228,18 @@ class RealtimeLatencyExecutor:
         dropped_catchup_frames = 0
         realtime_catchup_truncated = False
         last_submitted_observation_env_step: int | None = None
+        episode_latency_type = latency_type_from_source(
+            self.latency_source,
+            measured=self.latency_profiler is not None,
+        )
+        episode_metadata = episode_raw_fact_metadata(
+            mode="realtime",
+            episode_seed=seed,
+            fps=self.clock.fps_env,
+            frame_ms=self.clock.frame_ms,
+            latency_type=episode_latency_type,
+            latency_source=self.latency_source,
+        )
 
         self._episode_start_s = self.time_fn()
         policy_worker = self.policy_worker
@@ -258,9 +278,17 @@ class RealtimeLatencyExecutor:
                         latency_ms=source_latency_ms,
                         source=self.latency_source.__class__.__name__,
                     )
+                    latency_type = latency_type_from_source(self.latency_source)
+                    latency_ms_sampled = source_latency_ms
+                    latency_ms_measured = None
+                    profile_metadata = profile_metadata_from_source(self.latency_source)
                 else:
                     ready_time_ms = completion.completion_time_ms
                     latency_record = completion.latency_record
+                    latency_type = "measured"
+                    latency_ms_sampled = None
+                    latency_ms_measured = completion.latency_record.latency_ms
+                    profile_metadata = {key: None for key in profile_metadata_from_source(self.latency_source)}
 
                 effective_latency_ms = ready_time_ms - completion.task.submit_time_ms
                 if completion.latency_record is not None:
@@ -276,6 +304,13 @@ class RealtimeLatencyExecutor:
                         "submit_time_ms": completion.task.submit_time_ms,
                         "ready_time_ms": ready_time_ms,
                     }
+                apply_latency_record_raw_fields(
+                    record=latency_record,
+                    latency_type=latency_type,
+                    latency_ms_sampled=latency_ms_sampled,
+                    latency_ms_measured=latency_ms_measured,
+                    profile_metadata=profile_metadata,
+                )
 
                 event = ActionEvent(
                     action_id=self._next_action_id,
@@ -287,6 +322,14 @@ class RealtimeLatencyExecutor:
                     ready_time_ms=ready_time_ms,
                     ready_step_float=self.clock.time_ms_to_step_float(ready_time_ms),
                     metadata=completion.policy_output.metadata,
+                )
+                apply_latency_raw_fields(
+                    event=event,
+                    latency_type=latency_type,
+                    frame_ms=self.clock.frame_ms,
+                    latency_ms_sampled=latency_ms_sampled,
+                    latency_ms_measured=effective_latency_ms if latency_type == "measured" else None,
+                    profile_metadata=profile_metadata,
                 )
                 self._next_action_id += 1
                 self.action_scheduler.enqueue(event)
@@ -375,7 +418,7 @@ class RealtimeLatencyExecutor:
                         {
                             "scheduled_time_ms": frame_time_ms,
                             "wall_elapsed_ms_at_loop_start": current_wall_elapsed_ms,
-                            "frame_time_ms": frame_time_ms,
+                            "frame_time_ms": self.clock.frame_ms,
                             "wall_clock_lag_ms": wall_clock_lag_ms,
                             "catchup_frame": is_catchup_batch,
                             "catchup_batch_size": due_steps,
@@ -387,6 +430,16 @@ class RealtimeLatencyExecutor:
                             "dropped_catchup_frames": loop_dropped_catchup_frames,
                             "uncapped_catchup_batch_size": uncapped_due_steps,
                         }
+                    )
+                    step_info.update(
+                        active_action_step_info(
+                            applied_events=self.action_scheduler.get_applied_events(),
+                            env_step=env_step,
+                            scheduled_time_ms=frame_time_ms,
+                            frame_ms=self.clock.frame_ms,
+                            latency_type=episode_latency_type,
+                            profile_metadata=profile_metadata_from_source(self.latency_source),
+                        )
                     )
                     record = StepRecord(
                         episode_id=episode_id,
@@ -436,7 +489,9 @@ class RealtimeLatencyExecutor:
                     "catchup_capped": catchup_capped,
                     "dropped_catchup_frames": dropped_catchup_frames,
                     "realtime_catchup_truncated": realtime_catchup_truncated,
+                    **episode_metadata,
                 },
+                frame_ms=self.clock.frame_ms,
             )
             if self.logger is not None:
                 self.logger.log_episode_metrics(metrics)

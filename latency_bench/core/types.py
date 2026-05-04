@@ -76,6 +76,16 @@ class LatencyRecord:
     postprocess_ms: float | None = None
     end_to_end_ms: float | None = None
     device: str | None = None
+    latency_ms_measured: float | None = None
+    latency_ms_sampled: float | None = None
+    latency_type: str | None = None
+    profile_id: str | None = None
+    profile_type: str | None = None
+    latency_scope: str | None = None
+    target_device: str | None = None
+    profile_path: str | None = None
+    sample_index: int | None = None
+    trace_index: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -93,6 +103,23 @@ class ActionEvent:
     applied_env_step: int | None = None
     applied_time_ms: float | None = None
     dropped: bool = False
+    obs_step: int | None = None
+    action_emit_time_ms: float | None = None
+    action_ready_time_ms: float | None = None
+    action_apply_time_ms: float | None = None
+    action_applied_step: int | None = None
+    latency_ms_measured: float | None = None
+    latency_ms_sampled: float | None = None
+    effective_k: float | None = None
+    action_age_frames: int | None = None
+    latency_type: str | None = None
+    profile_id: str | None = None
+    profile_type: str | None = None
+    latency_scope: str | None = None
+    target_device: str | None = None
+    profile_path: str | None = None
+    sample_index: int | None = None
+    trace_index: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -112,6 +139,9 @@ class EpisodeMetrics:
     episode_id: int
     episode_return: float
     survival_steps: int
+    episode_return_env: float | None = None
+    return_raw: float | None = None
+    return_clipped: float | None = None
     game_score: float | None = None
     mean_latency_ms: float | None = None
     p90_latency_ms: float | None = None

@@ -8,7 +8,15 @@ from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord,
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors.env_step_backend import EnvStepBackend, SerialEnvStepBackend
 from latency_bench.latency.sources import LatencySource
-from latency_bench.logging.metrics import compute_episode_metrics
+from latency_bench.logging.metrics import (
+    active_action_step_info,
+    apply_latency_raw_fields,
+    apply_latency_record_raw_fields,
+    compute_episode_metrics,
+    episode_raw_fact_metadata,
+    latency_type_from_source,
+    profile_metadata_from_source,
+)
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.observation.builder import ObservationBuilder
 from latency_bench.observation.history import HistoryBuffer
@@ -194,6 +202,18 @@ class BatchedSimulatedLatencyExecutor:
                 result = step_responses[slot.slot_id].result
                 soft_reset = bool(result.info.get("soft_reset")) if isinstance(result.info, dict) else False
                 episode_done = bool(result.done or result.truncated) and not soft_reset
+                latency_type = latency_type_from_source(slot.latency_source)
+                step_info = dict(result.info)
+                step_info.update(
+                    active_action_step_info(
+                        applied_events=slot.action_scheduler.get_applied_events(),
+                        env_step=slot.env_step,
+                        scheduled_time_ms=current_time_ms,
+                        frame_ms=self.clock.frame_ms,
+                        latency_type=latency_type,
+                        profile_metadata=profile_metadata_from_source(slot.latency_source),
+                    )
+                )
                 record = StepRecord(
                     episode_id=int(slot.episode_id),
                     env_step=slot.env_step,
@@ -201,7 +221,7 @@ class BatchedSimulatedLatencyExecutor:
                     active_action=active_action,
                     reward=float(result.reward),
                     done=episode_done,
-                    info=result.info,
+                    info=step_info,
                 )
                 slot.buffers.step_records.append(record)
                 if soft_reset:
@@ -269,6 +289,15 @@ class BatchedSimulatedLatencyExecutor:
             step_records=slot.buffers.step_records,
             action_events=slot.buffers.action_events,
             latency_values_ms=slot.buffers.latency_values_ms,
+            metadata=episode_raw_fact_metadata(
+                mode="simulated",
+                episode_seed=slot.episode_seed,
+                fps=self.clock.fps_env,
+                frame_ms=self.clock.frame_ms,
+                latency_type=latency_type_from_source(slot.latency_source),
+                latency_source=slot.latency_source,
+            ),
+            frame_ms=self.clock.frame_ms,
         )
         self._completed_metrics[episode_id] = metrics
         self._completed_buffers[episode_id] = slot.buffers
@@ -297,6 +326,8 @@ class BatchedSimulatedLatencyExecutor:
         }))
         current_time_ms = self.clock.step_to_time_ms(slot.env_step)
         ready_time_ms = current_time_ms + latency_ms
+        latency_type = latency_type_from_source(slot.latency_source)
+        profile_metadata = profile_metadata_from_source(slot.latency_source)
         metadata = {
             **policy_output.metadata,
             "episode_id": int(slot.episode_id),
@@ -313,11 +344,19 @@ class BatchedSimulatedLatencyExecutor:
             ready_step_float=self.clock.time_ms_to_step_float(ready_time_ms),
             metadata=metadata,
         )
+        apply_latency_raw_fields(
+            event=event,
+            latency_type=latency_type,
+            frame_ms=self.clock.frame_ms,
+            latency_ms_sampled=latency_ms,
+            latency_ms_measured=None,
+            profile_metadata=profile_metadata,
+        )
         self._next_action_id += 1
         slot.action_scheduler.enqueue(event)
         slot.buffers.action_events.append(event)
         slot.buffers.latency_values_ms.append(latency_ms)
-        slot.buffers.latency_records.append(LatencyRecord(
+        latency_record = LatencyRecord(
             obs_id=obs_id,
             latency_ms=latency_ms,
             source=slot.latency_source.__class__.__name__,
@@ -325,7 +364,15 @@ class BatchedSimulatedLatencyExecutor:
                 "episode_id": int(slot.episode_id),
                 "slot_id": int(slot.slot_id),
             },
-        ))
+        )
+        apply_latency_record_raw_fields(
+            record=latency_record,
+            latency_type=latency_type,
+            latency_ms_sampled=latency_ms,
+            latency_ms_measured=None,
+            profile_metadata=profile_metadata,
+        )
+        slot.buffers.latency_records.append(latency_record)
 
     def _flush_completed_in_episode_order(self) -> None:
         if self.logger is None:

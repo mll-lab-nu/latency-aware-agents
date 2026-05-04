@@ -381,6 +381,10 @@ def test_realtime_measured_latency_records_policy_duration(tmp_path):
 
     assert logger.latency_records[0].source == "measured"
     assert logger.latency_records[0].latency_ms > 0
+    assert logger.latency_records[0].latency_ms_measured == 40.0
+    assert logger.latency_records[0].latency_ms_sampled is None
+    assert logger.action_records[0].latency_ms_measured == 50.0
+    assert logger.action_records[0].latency_ms_sampled is None
 
 
 def test_realtime_measured_latency_sets_effective_action_delay():

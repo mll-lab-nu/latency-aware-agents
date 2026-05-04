@@ -103,6 +103,9 @@ def run_from_config(
                 metrics.append(episode_metrics)
         metrics.sort(key=lambda item: int(item.episode_id))
         for episode_metrics in metrics:
+            for key, value in _evaluation_raw_fact_metadata(config, int(episode_metrics.episode_id)).items():
+                if episode_metrics.metadata.get(key) is None:
+                    episode_metrics.metadata[key] = value
             episode_metrics.metadata["config_name"] = experiment_cfg.get("name")
             episode_metrics.metadata["run_name"] = experiment_cfg.get("name")
             if "checkpoint_path" in policy_cfg:
@@ -123,6 +126,38 @@ def run_from_config(
         else:
             executor.env.close()
     return metrics
+
+
+def _evaluation_raw_fact_metadata(config: dict[str, Any], episode_id: int) -> dict[str, Any]:
+    env_cfg = config.get("env", {})
+    policy_cfg = config.get("policy", {})
+    latency_cfg = config.get("latency", {})
+    evaluation_cfg = config.get("evaluation", {})
+    executor_cfg = config.get("executor", {})
+    fps = float(env_cfg["fps_env"]) if "fps_env" in env_cfg else None
+    frame_ms = None if fps is None or fps <= 0 else 1000.0 / fps
+    return {
+        "mode": executor_cfg.get("mode"),
+        "episode_seed": _episode_seed(config, episode_id),
+        "policy_id": _metadata_id(policy_cfg, "policy_id", "id", "type"),
+        "env_id": _metadata_id(env_cfg, "env_id", "id", "name"),
+        "profile_id": latency_cfg.get("profile_id"),
+        "profile_type": latency_cfg.get("profile_type"),
+        "latency_scope": latency_cfg.get("latency_scope"),
+        "target_device": latency_cfg.get("target_device"),
+        "replay_host": latency_cfg.get("replay_host", evaluation_cfg.get("replay_host")),
+        "fps": fps,
+        "frame_ms": frame_ms,
+        "latency_type": latency_cfg.get("type"),
+    }
+
+
+def _metadata_id(config: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = config.get(key)
+        if value is not None:
+            return str(value)
+    return None
 
 
 def run_eval_sweep_from_config(config: dict[str, Any]) -> list[EpisodeMetrics]:
