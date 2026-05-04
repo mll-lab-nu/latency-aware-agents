@@ -23,6 +23,30 @@ def test_demon_attack_eval_done_ignores_life_loss_pseudo_terminal():
     assert result is None
 
 
+def test_demon_attack_eval_done_counts_life_loss_when_terminal_on_life_loss_enabled():
+    from training.sample_factory_common.queue_eval import _demon_attack_eval_episode_result
+
+    result = _demon_attack_eval_episode_result(
+        {
+            "is_true_episode_end": False,
+            "episodic_raw_return": 30.0,
+            "episodic_return": 30.0,
+            "episodic_length": 3,
+        },
+        fallback_return=999.0,
+        fallback_length=99,
+        eval_raw_reward=True,
+        count_life_loss_terminal=True,
+    )
+
+    assert result == {
+        "return": 30.0,
+        "raw_return": 30.0,
+        "clipped_return": 30.0,
+        "length": 3,
+    }
+
+
 def test_demon_attack_eval_done_uses_episode_metrics_wrapper_keys_for_raw_scoring():
     from training.sample_factory_common.queue_eval import _demon_attack_eval_episode_result
 
@@ -205,6 +229,34 @@ def test_queue_eval_result_reports_timeout_episodes_without_missing_game_over_wa
     assert result["mean_clipped_return"] == 3.0
 
 
+def test_demon_attack_eval_budget_timeout_info_carries_raw_metrics():
+    from training.sample_factory_common.queue_eval import (
+        _demon_attack_eval_budget_timeout_info,
+        _demon_attack_eval_episode_result,
+    )
+
+    info = _demon_attack_eval_budget_timeout_info(
+        accumulated_return=123.0,
+        episode_length=3600,
+        eval_raw_reward=True,
+    )
+    result = _demon_attack_eval_episode_result(
+        info,
+        fallback_return=-1.0,
+        fallback_length=1,
+        eval_raw_reward=True,
+        count_life_loss_terminal=True,
+    )
+
+    assert result == {
+        "return": 123.0,
+        "raw_return": 123.0,
+        "clipped_return": 123.0,
+        "length": 3600,
+        "timeout": True,
+    }
+
+
 def test_prepare_queue_eval_cfg_uses_eval_max_steps_as_eval_only_timelimit():
     from training.sample_factory_common.queue_eval import prepare_queue_eval_cfg
 
@@ -344,6 +396,28 @@ def test_prepare_queue_eval_cfg_does_not_convert_demon_attack_eval_budget_to_tim
 
     assert cfg.max_episode_steps == 0
     assert "max_episode_steps" not in cfg.cli_args
+
+
+def test_prepare_queue_eval_cfg_aligns_demon_attack_raw_eval_runtime_config():
+    from training.sample_factory_common.queue_eval import prepare_queue_eval_cfg
+
+    cfg = prepare_queue_eval_cfg(
+        SimpleNamespace(
+            env="latency_demon_attack",
+            eval_raw_reward=True,
+            terminal_on_life_loss=False,
+            clip_reward=True,
+            eval_max_steps=123,
+            max_episode_steps=0,
+            eval_deterministic=True,
+        ),
+        latency_value=0,
+    )
+
+    assert cfg.terminal_on_life_loss is True
+    assert cfg.clip_reward is False
+    assert cfg.cli_args["terminal_on_life_loss"] is True
+    assert cfg.cli_args["clip_reward"] is False
 
 
 def test_write_and_log_queue_eval_result_preserve_raw_and_clipped_metrics(tmp_path):

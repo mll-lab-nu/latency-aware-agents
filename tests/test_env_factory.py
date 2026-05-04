@@ -355,7 +355,7 @@ def test_build_env_adapter_passes_demon_attack_action_repeat(monkeypatch):
     assert captured["action_repeat"] == 4
 
 
-def test_demon_attack_latency_bench_eval_raw_reward_disables_clipping_and_life_loss_terminal(monkeypatch):
+def test_demon_attack_latency_bench_eval_raw_reward_disables_clipping_and_keeps_life_loss_terminal(monkeypatch):
     from latency_bench.envs import demon_attack
 
     captured = {}
@@ -389,7 +389,7 @@ def test_demon_attack_latency_bench_eval_raw_reward_disables_clipping_and_life_l
 
     build_env_adapter(config, noop)
 
-    assert captured["terminal_on_life_loss"] is False
+    assert captured["terminal_on_life_loss"] is True
     assert captured["clip_reward"] is False
 
 
@@ -409,6 +409,39 @@ def test_build_env_adapter_returns_flappy_adapter_for_flappy_config():
         assert env.noop_action is noop
     finally:
         env.close()
+
+
+def test_build_env_adapter_returns_flappy_sf_gpu_adapter_when_enabled(monkeypatch):
+    from latency_bench.envs import factory as factory_module
+
+    captured = {}
+
+    class FakeFlappyGpuAdapter:
+        def __init__(self, *, config, noop_action):
+            captured["config"] = config
+            captured["noop_action"] = noop_action
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(factory_module, "FlappySampleFactoryGpuEnvAdapter", FakeFlappyGpuAdapter)
+    config = _flappy_config()
+    config["policy"] = {"type": "flappy_sf"}
+    config["env"].update(
+        {
+            "use_gpu_render": True,
+            "obs_resize": [84, 84],
+            "obs_mode": "image_only",
+            "frame_stack": 4,
+        }
+    )
+    noop = Action(value=0, name="noop", is_noop=True)
+
+    env = factory_module.build_env_adapter(config, noop)
+
+    assert isinstance(env, FakeFlappyGpuAdapter)
+    assert captured["config"] is config
+    assert captured["noop_action"] is noop
 
 
 def test_build_executor_maps_flappy_policy_actions(tmp_path):

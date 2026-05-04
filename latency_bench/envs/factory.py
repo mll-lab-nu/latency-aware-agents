@@ -5,7 +5,7 @@ from typing import Any
 
 from latency_bench.core.types import Action
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
-from latency_bench.envs.flappy import FlappyBirdEnvAdapter
+from latency_bench.envs.flappy import FlappyBirdEnvAdapter, FlappySampleFactoryGpuEnvAdapter
 
 
 EnvAdapterBuilder = Callable[[dict[str, Any], Action], EnvAdapter]
@@ -94,6 +94,8 @@ def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
         if len(obs_resize) != 2:
             raise ValueError("env.obs_resize must be [height, width]")
         obs_resize = tuple(int(value) for value in obs_resize)
+    if policy_type == "flappy_sf" and bool(env_cfg.get("use_gpu_render", False)):
+        return FlappySampleFactoryGpuEnvAdapter(config=config, noop_action=noop_action)
     return FlappyBirdEnvAdapter(
         gym_id=env_cfg.get("gym_id", "FlappyBird-v0"),
         fps_env=float(env_cfg["fps_env"]),
@@ -124,7 +126,7 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
     terminal_on_life_loss = bool(env_cfg.get("terminal_on_life_loss", False))
     clip_reward = bool(env_cfg.get("clip_reward", True))
     if is_latency_bench_eval and eval_raw_reward:
-        terminal_on_life_loss = False
+        terminal_on_life_loss = True
         clip_reward = False
     return DemonAttackEnvAdapter(
         env_id=env_cfg.get("env_id", env_cfg.get("gym_id", "ALE/DemonAttack-v5")),
