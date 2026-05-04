@@ -391,16 +391,28 @@ def _supports_phase_3b_batched_latency(latency_cfg: dict[str, Any]) -> bool:
 
 def _raise_if_unsupported_batched_action_space(envs: list[EnvAdapter]) -> None:
     try:
-        from gymnasium.spaces import MultiDiscrete, Tuple
+        import numpy as np
+        from gymnasium.spaces import Discrete, MultiDiscrete, Tuple
     except Exception:
         return
 
     for env in envs:
         action_space = _env_action_space(env)
-        if isinstance(action_space, (Tuple, MultiDiscrete)):
+        if action_space is None or isinstance(action_space, Discrete):
+            continue
+        if isinstance(action_space, Tuple):
+            if all(isinstance(subspace, Discrete) for subspace in action_space.spaces):
+                continue
             raise ValueError(
-                "evaluation.eval_parallel_envs > 1 does not support Tuple/MultiDiscrete action spaces "
-                "until Phase 3D"
+                "evaluation.eval_parallel_envs > 1 supports only flat Tuple(Discrete, ...) action spaces; "
+                f"got unsupported or nested Tuple action space {action_space!r}"
+            )
+        if isinstance(action_space, MultiDiscrete):
+            if np.asarray(action_space.nvec).ndim == 1:
+                continue
+            raise ValueError(
+                "evaluation.eval_parallel_envs > 1 supports only one-dimensional MultiDiscrete action spaces; "
+                f"got nvec={action_space.nvec!r}"
             )
 
 

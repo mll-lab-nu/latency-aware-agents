@@ -84,6 +84,27 @@ def _build_tuple_action_parallel_test_env(config: dict, noop_action: Action) -> 
     return env
 
 
+@register_env_adapter("nested_tuple_action_parallel_test")
+def _build_nested_tuple_action_parallel_test_env(config: dict, noop_action: Action) -> EnvAdapter:
+    import gymnasium as gym
+
+    class NestedTupleActionEnv(DummyEnvAdapter):
+        action_space = gym.spaces.Tuple((
+            gym.spaces.Tuple((gym.spaces.Discrete(2), gym.spaces.Discrete(2))),
+            gym.spaces.Discrete(2),
+        ))
+
+    env_cfg = config["env"]
+    evaluation_cfg = config["evaluation"]
+    env = NestedTupleActionEnv(
+        fps_env=float(env_cfg["fps_env"]),
+        max_steps=int(evaluation_cfg["eval_max_steps"]),
+        noop_action=noop_action,
+    )
+    env.gym_env = env
+    return env
+
+
 def test_simulated_mode_builds_simulated_executor(tmp_path):
     executor = build_executor(_config(output_dir=str(tmp_path)))
 
@@ -188,7 +209,9 @@ def test_simulated_parallel_trace_replay_profile_is_not_rejected(tmp_path):
         executor.env.close()
 
 
-def test_parallel_simulated_tuple_action_space_fails_before_phase_3d(tmp_path):
+def test_parallel_simulated_tuple_action_space_builds_batched_executor_after_phase_3d(tmp_path):
+    from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
+
     config = _config(output_dir=str(tmp_path))
     config["experiment"]["num_episodes"] = 2
     config["evaluation"]["eval_parallel_envs"] = 2
@@ -197,7 +220,24 @@ def test_parallel_simulated_tuple_action_space_fails_before_phase_3d(tmp_path):
     config["env"]["action_map"] = {"noop": (0, 0), "jump": (1, 0)}
     config["policy"]["action"] = "jump"
 
-    with pytest.raises(ValueError, match="Tuple.*MultiDiscrete"):
+    executor = build_executor(config)
+
+    try:
+        assert isinstance(executor, BatchedSimulatedLatencyExecutor)
+    finally:
+        executor.close()
+
+
+def test_parallel_simulated_nested_tuple_action_space_still_fails_fast(tmp_path):
+    config = _config(output_dir=str(tmp_path))
+    config["experiment"]["num_episodes"] = 2
+    config["evaluation"]["eval_parallel_envs"] = 2
+    config["env"]["name"] = "nested_tuple_action_parallel_test"
+    config["env"]["noop_action"] = ((0, 0), 0)
+    config["env"]["action_map"] = {"noop": ((0, 0), 0), "jump": ((1, 0), 1)}
+    config["policy"]["action"] = "jump"
+
+    with pytest.raises(ValueError, match="nested|unsupported|Tuple"):
         build_executor(config)
 
 

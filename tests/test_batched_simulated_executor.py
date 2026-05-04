@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, Observation, PolicyOutput
-from latency_bench.envs.base import DummyEnvAdapter
+from latency_bench.core.types import Action, Observation, PolicyOutput, StepResult
+from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
 from latency_bench.latency.sources import FixedLatencySource, LatencySource, ZeroLatencySource
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
@@ -41,6 +41,66 @@ class SlotLatencySource(LatencySource):
     def next_latency_ms(self, context=None) -> float:
         self.calls += 1
         return float(self.slot_id)
+
+
+class TupleActionPolicy(PolicyRunner):
+    def predict(self, observation: Observation) -> PolicyOutput:
+        raise AssertionError("batched executor must call predict_batch")
+
+    def predict_batch(self, observations):
+        return [
+            PolicyOutput(
+                action=Action(
+                    value=(
+                        int(observation.metadata["slot_index"]),
+                        int(observation.env_step),
+                    ),
+                    name=str((int(observation.metadata["slot_index"]), int(observation.env_step))),
+                )
+            )
+            for observation in observations
+        ]
+
+
+class TupleActionEnvAdapter(EnvAdapter):
+    def __init__(self, *, slot_id: int, max_steps: int, noop_action: Action):
+        import gymnasium as gym
+
+        self.action_space = gym.spaces.Tuple((gym.spaces.Discrete(4), gym.spaces.Discrete(4)))
+        self.gym_env = self
+        self.slot_id = int(slot_id)
+        self.fps_env = 30.0
+        self.max_steps = int(max_steps)
+        self.noop_action = noop_action
+        self.env_step = 0
+        self.applied_actions: list[Action] = []
+
+    def reset(self, seed: int | None = None) -> Observation:
+        self.env_step = 0
+        self.applied_actions.clear()
+        return self._observation(seed=seed)
+
+    def step(self, action: Action) -> StepResult:
+        self.applied_actions.append(action)
+        self.env_step += 1
+        return StepResult(
+            observation=self._observation(),
+            reward=1.0,
+            done=self.env_step >= self.max_steps,
+            truncated=False,
+            info={"applied_action": action.value},
+        )
+
+    def _observation(self, seed: int | None = None) -> Observation:
+        metadata = {"slot_index": self.slot_id}
+        if seed is not None:
+            metadata["seed"] = seed
+        return Observation(
+            data={"state": self.env_step},
+            env_step=self.env_step,
+            sim_time_ms=self.env_step * (1000.0 / self.fps_env),
+            metadata=metadata,
+        )
 
 
 def _executor(
@@ -82,6 +142,40 @@ def _executor(
         histories=[HistoryBuffer() for _ in envs],
         decision_scheduler=EveryFrameDecisionScheduler(),
         latency_sources=latency_sources or [ZeroLatencySource() for _ in envs],
+        action_schedulers=action_schedulers,
+        clock=clock,
+        logger=TrajectoryLogger(tmp_path),
+    )
+    return executor, envs
+
+
+def _tuple_executor(
+    tmp_path: Path,
+    *,
+    num_slots: int = 2,
+    env_max_steps: int = 2,
+) -> tuple[BatchedSimulatedLatencyExecutor, list[TupleActionEnvAdapter]]:
+    noop = Action((0, 0), name="noop", is_noop=True)
+    envs = [
+        TupleActionEnvAdapter(slot_id=slot, max_steps=env_max_steps, noop_action=noop)
+        for slot in range(num_slots)
+    ]
+    clock = EnvClock(30.0)
+    action_schedulers = [
+        ActionScheduler(
+            clock=clock,
+            noop_action=env.noop_action,
+            persistence_policy=HoldPreviousActionPolicy(),
+        )
+        for env in envs
+    ]
+    executor = BatchedSimulatedLatencyExecutor(
+        envs=envs,
+        policy=TupleActionPolicy(),
+        observation_builder=ObservationBuilder(),
+        histories=[HistoryBuffer() for _ in envs],
+        decision_scheduler=EveryFrameDecisionScheduler(),
+        latency_sources=[ZeroLatencySource() for _env in envs],
         action_schedulers=action_schedulers,
         clock=clock,
         logger=TrajectoryLogger(tmp_path),
@@ -234,3 +328,23 @@ def test_batched_executor_output_records_remain_schema_compatible(tmp_path: Path
     assert {"action_id", "obs_id", "action", "latency_ms", "ready_time_ms", "metadata"} <= set(action)
     assert {"obs_id", "latency_ms", "source", "metadata"} <= set(latency)
     assert {"episode_id", "episode_return", "survival_steps", "metadata"} <= set(metrics)
+
+
+def test_batched_executor_steps_tuple_actions_and_serializes_schema_compatibly(tmp_path: Path):
+    executor, envs = _tuple_executor(tmp_path, num_slots=2, env_max_steps=1)
+
+    try:
+        metrics = executor.run_episodes(
+            episode_ids=range(2),
+            seeds=[1, 2],
+            eval_max_steps=1,
+        )
+        executor.logger.flush()
+    finally:
+        executor.close()
+
+    assert [metric.episode_id for metric in metrics] == [0, 1]
+    assert [env.applied_actions[0].value for env in envs] == [(0, 0), (1, 0)]
+    action = json.loads((tmp_path / "actions.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert {"action_id", "obs_id", "action", "latency_ms", "ready_time_ms", "metadata"} <= set(action)
+    assert isinstance(action["action"]["value"], list)
