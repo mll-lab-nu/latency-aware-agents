@@ -84,7 +84,7 @@ training:
 
 evaluation:
   eval_episodes: 20
-  eval_parallel_envs: 100
+  eval_parallel_envs: 1
   eval_latency_values:
     - 0
     - 1
