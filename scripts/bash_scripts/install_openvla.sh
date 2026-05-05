@@ -1,46 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build a conda-based RLinf/OpenVLA-OFT environment for latency_bench Flappy eval.
-#
-# This uses RL-inf's OpenVLA-OFT implementation because latency_bench imports:
-#   rlinf.models.embodiment.openvla_oft.rlinf.get_model
-#
-# The cloned ./openvla repository is intentionally not installed here; installing
-# it can replace the prismatic package needed by RLinf's OpenVLA-OFT path.
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-RLINF_DIR="${RLINF_DIR:-${REPO_ROOT}/RL-inf}"
 CONDA_ENV_NAME="${CONDA_ENV_NAME:-latency-openvla}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.10}"
-TORCH_SPEC="${TORCH_SPEC:-torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0}"
-TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu130}"
-OPENVLA_OFT_SPEC="${OPENVLA_OFT_SPEC:-git+https://github.com/moojink/openvla-oft.git}"
-INSTALL_FLASH_ATTN="${INSTALL_FLASH_ATTN:-0}"
-FLASH_ATTN_SPEC="${FLASH_ATTN_SPEC:-flash-attn==2.7.4.post1}"
-OPENVLA_OFT_RUNTIME_DEPS=(
-    "draccus==0.8.0"
-    "diffusers==0.30.3"
-    "json-numpy"
-    "jsonlines"
-    "peft==0.11.1"
-    "rich"
-    "sentencepiece==0.1.99"
-    "timm==0.9.10"
-    "tokenizers==0.19.1"
-    "transformers==4.40.1"
-)
+REQUIREMENTS_FILE="${REPO_ROOT}/requirements_openvla.txt"
 
-if [[ ! -d "${RLINF_DIR}" ]]; then
-    echo "RLINF_DIR does not exist: ${RLINF_DIR}" >&2
-    echo "Clone RL-inf under the repo root or set RLINF_DIR=/path/to/RL-inf." >&2
+if [[ ! -f "${REQUIREMENTS_FILE}" ]]; then
+    echo "Missing requirements file: ${REQUIREMENTS_FILE}" >&2
     exit 1
 fi
 
-if [[ ! -f "${RLINF_DIR}/pyproject.toml" ]]; then
-    echo "RLinf pyproject.toml not found: ${RLINF_DIR}/pyproject.toml" >&2
+if [[ ! -d "${REPO_ROOT}/RL-inf" ]]; then
+    echo "Missing RL-inf checkout at ${REPO_ROOT}/RL-inf" >&2
     exit 1
 fi
 
@@ -67,83 +41,31 @@ if ! conda env list | awk '{print $1}' | grep -qx "${CONDA_ENV_NAME}"; then
 fi
 
 conda activate "${CONDA_ENV_NAME}"
+cd "${REPO_ROOT}"
 
-echo "[openvla] repo root: ${REPO_ROOT}"
-echo "[openvla] RLinf dir: ${RLINF_DIR}"
-echo "[openvla] conda env: ${CONDA_ENV_NAME}"
-echo "[openvla] python: $(python --version)"
+python -m pip install --upgrade pip
+python -m pip install -r "${REQUIREMENTS_FILE}"
 
-python -m pip install --upgrade pip setuptools wheel
-# shellcheck disable=SC2086
-python -m pip install ${TORCH_SPEC} --index-url "${TORCH_INDEX_URL}"
-python -m pip install -e "${RLINF_DIR}[embodied]"
-python -m pip install "${OPENVLA_OFT_RUNTIME_DEPS[@]}"
-
-if [[ -n "${OPENVLA_OFT_DIR:-}" ]]; then
-    if [[ ! -d "${OPENVLA_OFT_DIR}" ]]; then
-        echo "OPENVLA_OFT_DIR does not exist: ${OPENVLA_OFT_DIR}" >&2
-        exit 1
-    fi
-    # Upstream openvla-oft pins an older PyTorch stack. RLinf requires torch>=2.5,
-    # so install only the package code here and let TORCH_SPEC own PyTorch.
-    python -m pip install -e "${OPENVLA_OFT_DIR}" --no-build-isolation --no-deps
-else
-    # Upstream openvla-oft pins an older PyTorch stack. RLinf requires torch>=2.5,
-    # so install only the package code here and let TORCH_SPEC own PyTorch.
-    python -m pip install "${OPENVLA_OFT_SPEC}" --no-build-isolation --no-deps
-fi
-
-python -m pip install -e "${REPO_ROOT}/flappy-bird-gymnasium"
-python -m pip install PyYAML==6.0.3 pillow==12.1.1
-
-if [[ "${INSTALL_FLASH_ATTN}" == "1" ]]; then
-    python -m pip install "${FLASH_ATTN_SPEC}" --no-build-isolation
-fi
-
-activate_dir="${CONDA_PREFIX}/etc/conda/activate.d"
-mkdir -p "${activate_dir}"
-cat > "${activate_dir}/latency_bench_openvla.sh" <<EOF
-export LATENCY_BENCH_REPO_ROOT="${REPO_ROOT}"
-export RLINF_DIR="${RLINF_DIR}"
-export PYTHONPATH="${REPO_ROOT}:${RLINF_DIR}:\${PYTHONPATH:-}"
-EOF
-
-export LATENCY_BENCH_REPO_ROOT="${REPO_ROOT}"
-export PYTHONPATH="${REPO_ROOT}:${RLINF_DIR}:${PYTHONPATH:-}"
+# openvla-oft provides prismatic, but its metadata pins an old torch stack.
+python -m pip install "git+https://github.com/moojink/openvla-oft.git" --no-deps --no-build-isolation
 
 python - <<'PY'
-import torch
-from packaging.version import Version
+from importlib.util import find_spec
+from pathlib import Path
 
-if Version(torch.__version__.split("+", 1)[0]) < Version("2.5.0"):
-    raise RuntimeError(f"RLinf requires torch>=2.5.0, got {torch.__version__}")
-if not hasattr(torch, "Event"):
-    raise RuntimeError(f"Expected torch.Event for RLinf, got torch {torch.__version__}")
+spec = find_spec("prismatic")
+if spec is None or spec.origin is None:
+    raise SystemExit("prismatic package not found after openvla-oft install")
 
-from rlinf.models.embodiment.openvla_oft.rlinf import get_model
-from rlinf.models.embodiment.openvla_oft.rlinf.openvla_oft_action_model import (
-    OpenVLAOFTForRLActionPrediction,
-)
-import latency_bench.policy.flappy_openvla
-
-print(
-    "OpenVLA/RLinf preflight ok:",
-    get_model.__module__,
-    OpenVLAOFTForRLActionPrediction.__name__,
-    torch.__version__,
-)
+root = Path(spec.origin).parent
+patch_text = '"""Minimal init patched for latency_bench OpenVLA eval."""\n'
+for relative_path in ("__init__.py", "vla/__init__.py"):
+    path = root / relative_path
+    if not path.is_file():
+        raise SystemExit(f"Expected prismatic file not found: {path}")
+    path.write_text(patch_text, encoding="utf-8")
 PY
 
-cat <<EOF
+export PYTHONPATH="${REPO_ROOT}:${REPO_ROOT}/RL-inf:${PYTHONPATH:-}"
 
-OpenVLA conda environment is ready.
-
-Activate it with:
-  conda activate "${CONDA_ENV_NAME}"
-
-Before full eval, set configs/experiments/flappy/openvla_sft_eval.yaml paths:
-  policy.base_model_path
-  policy.checkpoint_path
-
-Keep evaluation.eval_parallel_envs=1 for flappy_openvla until predict_batch() exists.
-EOF
+python -c "from rlinf.models.embodiment.openvla_oft.rlinf import get_model; import latency_bench.policy.flappy_openvla; print('ok')"

@@ -48,9 +48,11 @@ def test_eval_bash_scripts_are_batch_eval_wrappers():
 
 def test_openvla_install_script_bootstraps_rlinf_oft_environment():
     script_path = REPO_ROOT / "scripts" / "bash_scripts" / "install_openvla.sh"
+    requirements_path = REPO_ROOT / "requirements_openvla.txt"
 
     assert script_path.is_file()
     assert os.access(script_path, os.X_OK)
+    assert requirements_path.is_file()
 
     syntax = subprocess.run(
         ["bash", "-n", str(script_path)],
@@ -62,30 +64,36 @@ def test_openvla_install_script_bootstraps_rlinf_oft_environment():
     assert syntax.returncode == 0, syntax.stderr
 
     text = script_path.read_text(encoding="utf-8")
-    assert 'RLINF_DIR="${RLINF_DIR:-${REPO_ROOT}/RL-inf}"' in text
     assert 'CONDA_ENV_NAME="${CONDA_ENV_NAME:-latency-openvla}"' in text
     assert 'PYTHON_VERSION="${PYTHON_VERSION:-3.10}"' in text
-    assert 'TORCH_SPEC="${TORCH_SPEC:-torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0}"' in text
-    assert 'TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu130}"' in text
+    assert 'REQUIREMENTS_FILE="${REPO_ROOT}/requirements_openvla.txt"' in text
     assert 'conda create -n "${CONDA_ENV_NAME}" "python=${PYTHON_VERSION}" -y' in text
     assert 'conda activate "${CONDA_ENV_NAME}"' in text
-    assert 'python -m pip install -e "${RLINF_DIR}[embodied]"' in text
-    assert 'OPENVLA_OFT_SPEC="${OPENVLA_OFT_SPEC:-git+https://github.com/moojink/openvla-oft.git}"' in text
-    assert "OPENVLA_OFT_RUNTIME_DEPS=(" in text
-    assert 'python -m pip install "${OPENVLA_OFT_RUNTIME_DEPS[@]}"' in text
-    assert 'python -m pip install -e "${OPENVLA_OFT_DIR}" --no-build-isolation --no-deps' in text
-    assert 'python -m pip install "${OPENVLA_OFT_SPEC}" --no-build-isolation --no-deps' in text
-    assert "python -m pip install -e \"${REPO_ROOT}/flappy-bird-gymnasium\"" in text
-    assert 'activate_dir="${CONDA_PREFIX}/etc/conda/activate.d"' in text
-    assert "PYTHONPATH=\"${REPO_ROOT}:${RLINF_DIR}" in text
-    assert 'Version(torch.__version__.split("+", 1)[0]) < Version("2.5.0")' in text
-    assert 'hasattr(torch, "Event")' in text
+    assert 'python -m pip install -r "${REQUIREMENTS_FILE}"' in text
+    assert (
+        'python -m pip install "git+https://github.com/moojink/openvla-oft.git" '
+        "--no-deps --no-build-isolation"
+    ) in text
+    assert 'find_spec("prismatic")' in text
+    assert '(".__init__.py", "vla/__init__.py")' not in text
+    assert '("__init__.py", "vla/__init__.py")' in text
+    assert "Minimal init patched for latency_bench OpenVLA eval" in text
+    assert 'PYTHONPATH="${REPO_ROOT}:${REPO_ROOT}/RL-inf' in text
     assert "from rlinf.models.embodiment.openvla_oft.rlinf import get_model" in text
-    assert "OpenVLAOFTForRLActionPrediction" in text
     assert "import latency_bench.policy.flappy_openvla" in text
+    assert "OPENVLA_OFT_RUNTIME_DEPS" not in text
+    assert "activate_dir=" not in text
+
+    requirements = requirements_path.read_text(encoding="utf-8")
+    assert "-e ./RL-inf[embodied]" in requirements
+    assert "-e ./flappy-bird-gymnasium" in requirements
+    assert "torch==2.9.0+cu130" in requirements
+    assert "tensorflow" not in requirements
+    assert "tensorflow-datasets" not in requirements
+    assert "tensorflow-graphics" not in requirements
+    assert "dlimp" not in requirements
     assert "torch==2.2.0" not in text
-    assert "torchvision==0.17.0" not in text
-    assert "torchaudio==2.2.0" not in text
+    assert "torch==2.2.0" not in requirements
     assert "OPENVLA_VENV_DIR" not in text
     assert "--venv" not in text
     assert ".venv-latency-openvla" not in text

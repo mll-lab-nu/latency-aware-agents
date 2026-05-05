@@ -76,55 +76,32 @@ wandb login
 
 ## OpenVLA / RLinf Environment
 
-`latency_bench.policy.flappy_openvla` is an adapter around RLinf's OpenVLA-OFT
-model path:
+`latency_bench.policy.flappy_openvla` uses RLinf's OpenVLA-OFT model path:
 
 ```python
 from rlinf.models.embodiment.openvla_oft.rlinf import get_model
 ```
 
-Install the RLinf OpenVLA-OFT environment, not the cloned `./openvla` repository.
-The local `./openvla` tree is useful as reference source, but installing it into
-the same environment can replace the `prismatic` package expected by RLinf's
-OpenVLA-OFT implementation.
-
-After cloning `RL-inf` under this repository root, create the isolated eval
-environment with:
+Create the isolated OpenVLA eval environment with:
 
 ```bash
 bash scripts/bash_scripts/install_openvla.sh
 ```
 
-The script defaults to:
-
-- `RLINF_DIR=./RL-inf`
-- `CONDA_ENV_NAME=latency-openvla`
-- `PYTHON_VERSION=3.10`
-- `TORCH_SPEC="torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0"`
-- `TORCH_INDEX_URL=https://download.pytorch.org/whl/cu130`
-
-Override the conda environment name or PyTorch build when needed:
-
-```bash
-CONDA_ENV_NAME=my-openvla-env bash scripts/bash_scripts/install_openvla.sh
-TORCH_INDEX_URL=https://download.pytorch.org/whl/cu128 bash scripts/bash_scripts/install_openvla.sh
-```
-
-If you have a local OpenVLA-OFT checkout, use it instead of the default GitHub
-install source:
-
-```bash
-OPENVLA_OFT_DIR=/path/to/openvla-oft bash scripts/bash_scripts/install_openvla.sh
-```
-
-Set `INSTALL_FLASH_ATTN=1` to install `flash-attn` after PyTorch is installed.
-It is off by default because local CUDA compiler and wheel availability vary by
-machine.
-
-Activate the environment:
+The installer creates or reuses the `latency-openvla` conda environment and
+installs dependencies from `requirements_openvla.txt`. The PyTorch lines in that
+file default to CUDA 13.0 for B200/Blackwell; edit them first if your machine
+needs a different CUDA build.
+The environment is eval-only and does not install TensorFlow/RLDS training deps.
 
 ```bash
 conda activate latency-openvla
+```
+
+Smoke test from the repository root:
+
+```bash
+PYTHONPATH="$PWD:$PWD/RL-inf:${PYTHONPATH:-}" python -c "from rlinf.models.embodiment.openvla_oft.rlinf import get_model; import latency_bench.policy.flappy_openvla; print('ok')"
 ```
 
 Before running Flappy OpenVLA eval, set these config paths in
