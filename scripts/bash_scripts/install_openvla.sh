@@ -15,11 +15,23 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 RLINF_DIR="${RLINF_DIR:-${REPO_ROOT}/RL-inf}"
 CONDA_ENV_NAME="${CONDA_ENV_NAME:-latency-openvla}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.10}"
-TORCH_SPEC="${TORCH_SPEC:-torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0}"
-TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu124}"
+TORCH_SPEC="${TORCH_SPEC:-torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0}"
+TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu130}"
 OPENVLA_OFT_SPEC="${OPENVLA_OFT_SPEC:-git+https://github.com/moojink/openvla-oft.git}"
 INSTALL_FLASH_ATTN="${INSTALL_FLASH_ATTN:-0}"
 FLASH_ATTN_SPEC="${FLASH_ATTN_SPEC:-flash-attn==2.7.4.post1}"
+OPENVLA_OFT_RUNTIME_DEPS=(
+    "draccus==0.8.0"
+    "diffusers==0.30.3"
+    "json-numpy"
+    "jsonlines"
+    "peft==0.11.1"
+    "rich"
+    "sentencepiece==0.1.99"
+    "timm==0.9.10"
+    "tokenizers==0.19.1"
+    "transformers==4.40.1"
+)
 
 if [[ ! -d "${RLINF_DIR}" ]]; then
     echo "RLINF_DIR does not exist: ${RLINF_DIR}" >&2
@@ -65,15 +77,20 @@ python -m pip install --upgrade pip setuptools wheel
 # shellcheck disable=SC2086
 python -m pip install ${TORCH_SPEC} --index-url "${TORCH_INDEX_URL}"
 python -m pip install -e "${RLINF_DIR}[embodied]"
+python -m pip install "${OPENVLA_OFT_RUNTIME_DEPS[@]}"
 
 if [[ -n "${OPENVLA_OFT_DIR:-}" ]]; then
     if [[ ! -d "${OPENVLA_OFT_DIR}" ]]; then
         echo "OPENVLA_OFT_DIR does not exist: ${OPENVLA_OFT_DIR}" >&2
         exit 1
     fi
-    python -m pip install -e "${OPENVLA_OFT_DIR}" --no-build-isolation
+    # Upstream openvla-oft pins an older PyTorch stack. RLinf requires torch>=2.5,
+    # so install only the package code here and let TORCH_SPEC own PyTorch.
+    python -m pip install -e "${OPENVLA_OFT_DIR}" --no-build-isolation --no-deps
 else
-    python -m pip install "${OPENVLA_OFT_SPEC}" --no-build-isolation
+    # Upstream openvla-oft pins an older PyTorch stack. RLinf requires torch>=2.5,
+    # so install only the package code here and let TORCH_SPEC own PyTorch.
+    python -m pip install "${OPENVLA_OFT_SPEC}" --no-build-isolation --no-deps
 fi
 
 python -m pip install -e "${REPO_ROOT}/flappy-bird-gymnasium"
@@ -95,10 +112,26 @@ export LATENCY_BENCH_REPO_ROOT="${REPO_ROOT}"
 export PYTHONPATH="${REPO_ROOT}:${RLINF_DIR}:${PYTHONPATH:-}"
 
 python - <<'PY'
+import torch
+from packaging.version import Version
+
+if Version(torch.__version__.split("+", 1)[0]) < Version("2.5.0"):
+    raise RuntimeError(f"RLinf requires torch>=2.5.0, got {torch.__version__}")
+if not hasattr(torch, "Event"):
+    raise RuntimeError(f"Expected torch.Event for RLinf, got torch {torch.__version__}")
+
 from rlinf.models.embodiment.openvla_oft.rlinf import get_model
+from rlinf.models.embodiment.openvla_oft.rlinf.openvla_oft_action_model import (
+    OpenVLAOFTForRLActionPrediction,
+)
 import latency_bench.policy.flappy_openvla
 
-print("OpenVLA/RLinf preflight ok:", get_model.__module__)
+print(
+    "OpenVLA/RLinf preflight ok:",
+    get_model.__module__,
+    OpenVLAOFTForRLActionPrediction.__name__,
+    torch.__version__,
+)
 PY
 
 cat <<EOF

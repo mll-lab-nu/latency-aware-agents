@@ -100,14 +100,14 @@ The script defaults to:
 - `RLINF_DIR=./RL-inf`
 - `CONDA_ENV_NAME=latency-openvla`
 - `PYTHON_VERSION=3.10`
-- `TORCH_SPEC="torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0"`
-- `TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124`
+- `TORCH_SPEC="torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0"`
+- `TORCH_INDEX_URL=https://download.pytorch.org/whl/cu130`
 
 Override the conda environment name or PyTorch build when needed:
 
 ```bash
 CONDA_ENV_NAME=my-openvla-env bash scripts/bash_scripts/install_openvla.sh
-TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126 bash scripts/bash_scripts/install_openvla.sh
+TORCH_INDEX_URL=https://download.pytorch.org/whl/cu128 bash scripts/bash_scripts/install_openvla.sh
 ```
 
 If you have a local OpenVLA-OFT checkout, use it instead of the default GitHub
