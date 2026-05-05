@@ -1,3 +1,6 @@
 [submodule "flappy-bird-gymnasium"]
 	path = flappy-bird-gymnasium
 	url = git@github.com:mindorigin150/flappy-bird-gymnasium.git
+[submodule "RL-inf"]
+	path = RL-inf
+	url = git@github.com:talha1503/RL-inf.git
