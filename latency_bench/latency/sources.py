@@ -67,6 +67,29 @@ class NormalDistributionLatencySource(LatencySource):
         return float(value)
 
 
+class UniformDistributionLatencySource(LatencySource):
+    def __init__(
+        self,
+        min_latency_ms: float,
+        max_latency_ms: float,
+        seed: int | None = None,
+    ):
+        min_latency_ms = float(min_latency_ms)
+        max_latency_ms = float(max_latency_ms)
+        if min_latency_ms < 0:
+            raise ValueError("min_latency_ms must be non-negative")
+        if max_latency_ms < min_latency_ms:
+            raise ValueError("max_latency_ms must be greater than or equal to min_latency_ms")
+        self.min_latency_ms = min_latency_ms
+        self.max_latency_ms = max_latency_ms
+        self.rng = random.Random(seed)
+
+    def next_latency_ms(self, context: dict[str, Any] | None = None) -> float:
+        if self.min_latency_ms == self.max_latency_ms:
+            return float(self.min_latency_ms)
+        return float(self.rng.uniform(self.min_latency_ms, self.max_latency_ms))
+
+
 class TraceReplayLatencySource(LatencySource):
     def __init__(self, trace_path: str | Path, loop_trace: bool = False):
         self.trace_path = Path(trace_path)

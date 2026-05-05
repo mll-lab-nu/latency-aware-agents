@@ -147,6 +147,29 @@ latency:
     assert config["latency"]["std_latency_ms"] == 20
 
 
+def test_load_config_accepts_uniform_distribution_latency(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG.replace(
+            "latency:\n  type: zero",
+            """
+latency:
+  type: uniform_distribution
+  min_latency_ms: 10
+  max_latency_ms: 30
+  seed: 0
+""".strip(),
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config["latency"]["type"] == "uniform_distribution"
+    assert config["latency"]["min_latency_ms"] == 10
+    assert config["latency"]["max_latency_ms"] == 30
+
+
 def test_load_config_accepts_empirical_sample_latency(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -208,6 +231,25 @@ latency:
     )
 
     with pytest.raises(ValueError, match="latency.std_latency_ms"):
+        load_config(config_path)
+
+
+def test_load_config_rejects_invalid_uniform_distribution_bounds(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG.replace(
+            "latency:\n  type: zero",
+            """
+latency:
+  type: uniform_distribution
+  min_latency_ms: 30
+  max_latency_ms: 10
+""".strip(),
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="latency.max_latency_ms"):
         load_config(config_path)
 
 

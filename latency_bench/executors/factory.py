@@ -22,6 +22,7 @@ from latency_bench.latency.sources import (
     LatencySource,
     NormalDistributionLatencySource,
     TraceReplayLatencySource,
+    UniformDistributionLatencySource,
     ZeroLatencySource,
 )
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
@@ -381,6 +382,12 @@ def _build_latency_source(latency_cfg: dict[str, Any]) -> LatencySource:
             seed=latency_cfg.get("seed"),
             min_latency_ms=float(latency_cfg.get("min_latency_ms", 0.0)),
             max_latency_ms=latency_cfg.get("max_latency_ms"),
+        )
+    if latency_type == LatencySourceType.UNIFORM_DISTRIBUTION.value:
+        return UniformDistributionLatencySource(
+            min_latency_ms=float(latency_cfg["min_latency_ms"]),
+            max_latency_ms=float(latency_cfg["max_latency_ms"]),
+            seed=latency_cfg.get("seed"),
         )
     if latency_type == LatencySourceType.TRACE_REPLAY.value:
         return TraceReplayLatencySource(

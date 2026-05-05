@@ -153,6 +153,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         env = QueueLatencyWrapper(
             env,
             queue_latency_values=latency_values or [0],
+            latency_distribution_spec=getattr(self.cfg, "latency_distribution_spec", None) or None,
             latency_mode=getattr(self.cfg, "latency_mode", "episode_fixed"),
             latency_sampling_mode=getattr(self.cfg, "latency_sampling_mode", "uniform_all"),
             episodes_per_stage=int(getattr(self.cfg, "episodes_per_stage", 10)),
@@ -164,6 +165,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             latency_info_keys=("queue_latency", "frame_skip", "latency_frame_skip"),
             add_latency_info=bool(getattr(self.cfg, "add_latency_info", False))
             or self.observation_config.obs_mode == "latency_channel",
+            max_pending_actions=getattr(self.cfg, "max_pending_actions", None),
         )
         env = EpisodeMetricsWrapper(
             env,

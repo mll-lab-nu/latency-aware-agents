@@ -11,6 +11,7 @@ from latency_bench.latency.sources import (
     FixedLatencySource,
     NormalDistributionLatencySource,
     TraceReplayLatencySource,
+    UniformDistributionLatencySource,
     ZeroLatencySource,
 )
 from latency_bench.latency.profile import save_profile_manifest, write_latency_samples
@@ -86,6 +87,22 @@ def test_normal_distribution_respects_min_and_max_bounds():
 def test_normal_distribution_rejects_negative_std():
     with pytest.raises(ValueError, match="std_latency_ms must be non-negative"):
         NormalDistributionLatencySource(mean_latency_ms=100.0, std_latency_ms=-1.0)
+
+
+def test_uniform_distribution_samples_deterministically_with_seed_and_bounds():
+    first = UniformDistributionLatencySource(min_latency_ms=10.0, max_latency_ms=20.0, seed=0)
+    second = UniformDistributionLatencySource(min_latency_ms=10.0, max_latency_ms=20.0, seed=0)
+
+    first_values = [first.next_latency_ms() for _ in range(10)]
+    second_values = [second.next_latency_ms() for _ in range(10)]
+
+    assert first_values == second_values
+    assert all(10.0 <= value <= 20.0 for value in first_values)
+
+
+def test_uniform_distribution_rejects_invalid_bounds():
+    with pytest.raises(ValueError, match="max_latency_ms"):
+        UniformDistributionLatencySource(min_latency_ms=20.0, max_latency_ms=10.0)
 
 
 def test_trace_replay_returns_values_in_order(tmp_path: Path):

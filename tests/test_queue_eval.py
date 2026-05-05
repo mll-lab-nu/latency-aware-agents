@@ -832,6 +832,98 @@ def test_prepare_queue_eval_cfg_maps_flappy_gpu_eval_parallel_envs_to_batch_size
     assert cfg.num_envs_per_worker == 1
 
 
+def test_prepare_queue_eval_distribution_cfg_preserves_distribution_and_enables_info():
+    from training.sample_factory_common.queue_eval import prepare_queue_eval_distribution_cfg
+
+    cfg = prepare_queue_eval_distribution_cfg(
+        SimpleNamespace(
+            env="latency_flappy",
+            use_gpu_render=True,
+            eval_episodes=4,
+            eval_parallel_envs=8,
+            eval_max_steps=123,
+            max_episode_steps=0,
+            eval_deterministic=True,
+            latency_distribution_spec='{"type":"uniform","min":0,"max":15}',
+            latency_mode="within_episode_random",
+            within_episode_change_interval=2,
+            within_episode_change_prob=0.5,
+        )
+    )
+
+    assert cfg.latency_distribution_spec == '{"max":15,"min":0,"type":"uniform"}'
+    assert cfg.latency_mode == "within_episode_random"
+    assert cfg.within_episode_change_interval == 2
+    assert cfg.within_episode_change_prob == 0.5
+    assert cfg.add_latency_info is True
+    assert cfg.gpu_render_batch_size == 4
+
+
+def test_write_queue_eval_result_uses_distribution_filename_and_payload(tmp_path):
+    from training.sample_factory_common.queue_eval import write_queue_eval_result
+
+    base_cfg = SimpleNamespace(
+        output_dir=str(tmp_path),
+        experiment="dist_eval",
+        seed=7,
+        load_checkpoint_kind="latest",
+    )
+    result = {
+        "latency_distribution": {"type": "uniform", "min": 0, "max": 15},
+        "latency_distribution_label": "uniform_min_0_max_15",
+        "mean_return": 1.0,
+        "std_return": 0.0,
+        "mean_length": 10.0,
+        "returns": [1.0],
+        "lengths": [10],
+        "sample_count_frames": 3,
+        "sample_mean_frames": 5.0,
+        "sample_std_frames": 4.0,
+        "sample_min_frames": 0,
+        "sample_max_frames": 15,
+    }
+
+    write_queue_eval_result(base_cfg, result)
+
+    payload = json.loads((tmp_path / "queue_eval_distribution_uniform_min_0_max_15.json").read_text())
+    assert payload["latency_distribution_label"] == "uniform_min_0_max_15"
+    assert payload["sample_count_frames"] == 3
+    assert payload["sample_mean_frames"] == 5.0
+    assert "latency" not in payload
+
+
+def test_log_queue_eval_result_uses_distribution_wandb_keys():
+    from training.sample_factory_common.queue_eval import log_queue_eval_result
+
+    class FakeRun:
+        def __init__(self):
+            self.logged = []
+            self.summary = {}
+
+        def log(self, payload):
+            self.logged.append(dict(payload))
+
+    run = FakeRun()
+    log_queue_eval_result(
+        run,
+        {
+            "latency_distribution": {"type": "uniform", "min": 0, "max": 15},
+            "latency_distribution_label": "uniform_min_0_max_15",
+            "mean_return": 1.0,
+            "std_return": 0.0,
+            "mean_length": 10.0,
+            "sample_mean_frames": 5.0,
+            "sample_std_frames": 4.0,
+            "sample_min_frames": 0,
+            "sample_max_frames": 15,
+        },
+    )
+
+    assert run.logged[0]["queue_eval/distribution_label"] == "uniform_min_0_max_15"
+    assert run.logged[0]["queue_eval/distribution/uniform_min_0_max_15/sample_mean_frames"] == 5.0
+    assert run.summary["queue_eval/distribution/uniform_min_0_max_15/mean_return"] == 1.0
+
+
 def test_prepare_queue_eval_cfg_caps_flappy_gpu_eval_parallel_envs_to_eval_episodes():
     from training.sample_factory_common.queue_eval import prepare_queue_eval_cfg
 

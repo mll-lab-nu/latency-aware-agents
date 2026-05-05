@@ -364,6 +364,47 @@ def test_flappy_sf_update_ratio_metadata():
     ) == pytest.approx(3906.25)
 
 
+def test_common_sf_args_passes_latency_distribution_without_train_values():
+    config = {
+        "experiment": {"name": "dist_run", "seed": 3},
+        "backend": {"type": "sample_factory", "train_dir": "runs", "run_mode": "train"},
+        "env": {"name": "demon_attack"},
+        "latency": {
+            "train_distribution": {"type": "uniform", "min": 0, "max": 15},
+            "train_mode": "within_episode_random",
+            "within_episode_change_interval": 2,
+            "within_episode_change_prob": 0.5,
+            "add_latency_info": False,
+        },
+        "training": {"train_for_env_steps": 100, "num_workers": 1, "num_envs_per_worker": 1, "batch_size": 1},
+        "evaluation": {},
+        "logging": {},
+    }
+
+    args = build_common_sf_args(config, sf_env_name="latency_demon_attack")
+
+    assert "--queue-latency-values" not in args
+    spec_index = args.index("--latency-distribution-spec") + 1
+    assert args[spec_index] == '{"max":15,"min":0,"type":"uniform"}'
+    assert args[args.index("--latency-mode") + 1] == "within_episode_random"
+
+
+def test_training_config_rejects_train_values_with_train_distribution():
+    config = {
+        "experiment": {"name": "dist_run", "seed": 3},
+        "backend": {"type": "sample_factory", "train_dir": "runs", "run_mode": "train"},
+        "env": {"name": "demon_attack"},
+        "latency": {
+            "train_values": [0],
+            "train_distribution": {"type": "uniform", "min": 0, "max": 15},
+        },
+        "training": {"train_for_env_steps": 100, "num_workers": 1, "num_envs_per_worker": 1, "batch_size": 1},
+    }
+
+    with pytest.raises(ValueError, match="train_values.*train_distribution"):
+        validate_training_config(config)
+
+
 def test_queue_latency_wrapper_exposes_fixed_non_zero_latency():
     import gymnasium as gym
     from training.sample_factory_common.latency_wrapper import QueueLatencyWrapper
@@ -380,6 +421,123 @@ def test_queue_latency_wrapper_exposes_fixed_non_zero_latency():
     _, _, _, _, step_info = wrapped.step(0)
     assert step_info["queue_latency"] == 4
     wrapped.close()
+
+
+def test_queue_latency_wrapper_distribution_samples_deterministically():
+    import gymnasium as gym
+    import numpy as np
+    from gymnasium.spaces import Box, Discrete
+
+    from training.sample_factory_common.latency_wrapper import QueueLatencyWrapper
+
+    class NeverDoneEnv(gym.Env):
+        observation_space = Box(low=0, high=1, shape=(1,), dtype=np.float32)
+        action_space = Discrete(2)
+
+        def reset(self, *, seed=None, options=None):
+            return np.zeros((1,), dtype=np.float32), {}
+
+        def step(self, action):
+            return np.zeros((1,), dtype=np.float32), 0.0, False, False, {}
+
+    spec = {"type": "uniform", "min": 0, "max": 15}
+    first = QueueLatencyWrapper(
+        NeverDoneEnv(),
+        queue_latency_values=[0],
+        latency_distribution_spec=spec,
+        latency_mode="within_episode_random",
+        within_episode_change_interval=1,
+        within_episode_change_prob=1.0,
+        seed=123,
+    )
+    second = QueueLatencyWrapper(
+        NeverDoneEnv(),
+        queue_latency_values=[0],
+        latency_distribution_spec=spec,
+        latency_mode="within_episode_random",
+        within_episode_change_interval=1,
+        within_episode_change_prob=1.0,
+        seed=123,
+    )
+    other = QueueLatencyWrapper(
+        NeverDoneEnv(),
+        queue_latency_values=[0],
+        latency_distribution_spec=spec,
+        latency_mode="within_episode_random",
+        within_episode_change_interval=1,
+        within_episode_change_prob=1.0,
+        seed=124,
+    )
+
+    try:
+        first.reset()
+        second.reset()
+        other.reset()
+        first_values = [first.step(0)[4]["queue_latency"] for _ in range(20)]
+        second_values = [second.step(0)[4]["queue_latency"] for _ in range(20)]
+        other_values = [other.step(0)[4]["queue_latency"] for _ in range(20)]
+    finally:
+        first.close()
+        second.close()
+        other.close()
+
+    assert first_values == second_values
+    assert first_values != other_values
+    assert all(0 <= value <= 15 for value in first_values)
+
+
+def test_queue_latency_wrapper_distribution_resets_episode_rng():
+    import gymnasium as gym
+    import numpy as np
+    from gymnasium.spaces import Box, Discrete
+
+    from training.sample_factory_common.latency_wrapper import QueueLatencyWrapper
+
+    class NeverDoneEnv(gym.Env):
+        observation_space = Box(low=0, high=1, shape=(1,), dtype=np.float32)
+        action_space = Discrete(2)
+
+        def reset(self, *, seed=None, options=None):
+            return np.zeros((1,), dtype=np.float32), {}
+
+        def step(self, action):
+            return np.zeros((1,), dtype=np.float32), 0.0, False, False, {}
+
+    wrapped = QueueLatencyWrapper(
+        NeverDoneEnv(),
+        queue_latency_values=[0],
+        latency_distribution_spec={"type": "uniform", "min": 0, "max": 15},
+        latency_mode="within_episode_random",
+        within_episode_change_interval=1,
+        seed=99,
+    )
+
+    try:
+        wrapped.reset()
+        first_episode = [wrapped.step(0)[4]["queue_latency"] for _ in range(20)]
+        wrapped.reset()
+        second_episode = [wrapped.step(0)[4]["queue_latency"] for _ in range(20)]
+    finally:
+        wrapped.close()
+
+    assert first_episode != second_episode
+
+
+def test_queue_latency_wrapper_distribution_rejects_too_small_pending_action_bound():
+    import gymnasium as gym
+    import pytest
+
+    from training.sample_factory_common.latency_wrapper import QueueLatencyWrapper
+
+    env = gym.make("CartPole-v1")
+    with pytest.raises(ValueError, match="max_pending_actions"):
+        QueueLatencyWrapper(
+            env,
+            queue_latency_values=[0],
+            latency_distribution_spec={"type": "uniform", "min": 0, "max": 5},
+            max_pending_actions=5,
+        )
+    env.close()
 
 
 def test_queue_latency_wrapper_auto_seeds_underlying_env_resets():
@@ -1182,6 +1340,38 @@ def test_same_latency_sweep_generator_emits_train_wandb_names(
         assert "max_episode_steps" not in train_cfg["env"]
 
 
+def test_same_latency_sweep_generator_cli_overrides_train_wandb_group(tmp_path):
+    generated_root = tmp_path / "generated"
+    output_root = tmp_path / "outputs"
+
+    generate_same_latency_sweep(
+        [
+            "--envs",
+            "demon_attack",
+            "--seeds",
+            "0",
+            "--demon-attack-latencies",
+            "4",
+            "--generated-root",
+            str(generated_root),
+            "--train-dir",
+            "results/checkpoints/sample_factory_runs",
+            "--output-root",
+            str(output_root),
+            "--device",
+            "gpu",
+            "--wandb-group",
+            "dist-sweeps-v1",
+        ]
+    )
+
+    train_path = generated_root / "demon_attack" / "latency_4" / "seed_0" / "train.yaml"
+    train_loaded = yaml.safe_load(train_path.read_text(encoding="utf-8"))
+
+    assert train_loaded["logging"]["wandb_group"] == "dist-sweeps-v1"
+    assert train_loaded["logging"]["wandb_project"] == "latency-sensitive-bench"
+
+
 def test_same_latency_sweep_generator_emits_sample_factory_queue_eval_configs():
     full_cfg = _build_full_run_config(
         env_name="demon_attack",
@@ -1483,3 +1673,99 @@ def test_same_latency_sweep_generator_writes_three_configs_and_commands(tmp_path
         encoding="utf-8"
     )
     assert "python -m latency_bench.run --config" in latency_bench_commands
+
+
+def test_same_latency_generator_writes_single_normal_distribution_run(tmp_path):
+    generated_root = tmp_path / "generated"
+    output_root = tmp_path / "outputs"
+
+    generate_same_latency_sweep(
+        [
+            "--envs",
+            "demon_attack",
+            "--seeds",
+            "0",
+            "--latency-distribution",
+            "normal",
+            "--latency-mean-frames",
+            "5.0",
+            "--latency-std-frames",
+            "2",
+            "--latency-min-frames",
+            "0",
+            "--latency-max-frames",
+            "15",
+            "--generated-root",
+            str(generated_root),
+            "--train-dir",
+            "results/checkpoints/sample_factory_runs",
+            "--output-root",
+            str(output_root),
+            "--device",
+            "gpu",
+        ]
+    )
+
+    label = "normal_mean_5_std_2_min_0_max_15"
+    run_dir = generated_root / "demon_attack" / f"latency_{label}" / "seed_0"
+    train_loaded = yaml.safe_load((run_dir / "train.yaml").read_text(encoding="utf-8"))
+    eval_loaded = yaml.safe_load((run_dir / "eval.yaml").read_text(encoding="utf-8"))
+    bench_loaded = load_config(run_dir / "latency_bench_eval.yaml")
+    manifest = (generated_root / "manifest.tsv").read_text(encoding="utf-8")
+
+    assert train_loaded["latency"]["train_distribution"] == {
+        "type": "normal",
+        "mean": 5.0,
+        "std": 2.0,
+        "min": 0,
+        "max": 15,
+    }
+    assert "train_values" not in train_loaded["latency"]
+    assert eval_loaded["latency"]["train_distribution"] == train_loaded["latency"]["train_distribution"]
+    assert "eval_latency_values" not in eval_loaded["evaluation"]
+    assert train_loaded["latency"]["train_mode"] == "within_episode_random"
+    assert bench_loaded["latency"]["type"] == "normal_distribution"
+    assert bench_loaded["latency"]["mean_latency_ms"] == pytest.approx(5.0 * 1000.0 / 60.0)
+    assert bench_loaded["latency"]["std_latency_ms"] == pytest.approx(2.0 * 1000.0 / 60.0)
+    assert bench_loaded["latency"]["min_latency_ms"] == pytest.approx(0.0)
+    assert bench_loaded["latency"]["max_latency_ms"] == pytest.approx(15.0 * 1000.0 / 60.0)
+    assert f"demon_attack\t{label}\t0" in manifest
+
+
+def test_same_latency_generator_writes_single_uniform_distribution_bench_config(tmp_path):
+    generated_root = tmp_path / "generated"
+    output_root = tmp_path / "outputs"
+
+    generate_same_latency_sweep(
+        [
+            "--envs",
+            "deadly_corridor",
+            "--seeds",
+            "0",
+            "--latency-distribution",
+            "uniform",
+            "--latency-min-frames",
+            "0",
+            "--latency-max-frames",
+            "15",
+            "--generated-root",
+            str(generated_root),
+            "--train-dir",
+            "results/checkpoints/sample_factory_runs",
+            "--output-root",
+            str(output_root),
+            "--device",
+            "gpu",
+        ]
+    )
+
+    label = "uniform_min_0_max_15"
+    run_dir = generated_root / "deadly_corridor" / f"latency_{label}" / "seed_0"
+    loaded = load_config(run_dir / "latency_bench_eval.yaml")
+
+    assert loaded["latency"]["type"] == "uniform_distribution"
+    assert loaded["latency"]["min_latency_ms"] == pytest.approx(0.0)
+    assert loaded["latency"]["max_latency_ms"] == pytest.approx(15.0 * 1000.0 / 35.0)
+    assert loaded["logging"]["output_dir"] == str(
+        output_root / "latency_bench" / "deadly_corridor" / f"train_latency_{label}" / "seed_0"
+    )

@@ -10,6 +10,7 @@ from typing import Any, Callable
 import numpy as np
 import torch
 
+from latency_bench.core.latency_distribution import latency_distribution_label, parse_latency_distribution
 from training.atari_episode_stats import (
     TRUE_EPISODE_END_INFO_KEY,
     _batched_info_for_agent,
@@ -166,6 +167,29 @@ def _apply_queue_eval_runtime_overrides(cfg: Any, base_cfg: Any, latency_value: 
     maybe_set_cli_override(cfg, "eval_deterministic", bool(getattr(base_cfg, "eval_deterministic", True)))
     _apply_eval_only_max_episode_steps(cfg, base_cfg)
     _apply_demon_attack_raw_eval_runtime_overrides(cfg, base_cfg)
+
+
+def _canonical_distribution_spec_json(raw: Any) -> str:
+    spec = parse_latency_distribution(raw)
+    return json.dumps(spec.to_dict(), sort_keys=True, separators=(",", ":"))
+
+
+def _apply_queue_eval_distribution_runtime_overrides(cfg: Any, base_cfg: Any) -> None:
+    raw_spec = getattr(base_cfg, "latency_distribution_spec", None)
+    if raw_spec is None or not str(raw_spec).strip():
+        raise ValueError("latency_distribution_spec is required for distribution queue eval")
+    spec_json = _canonical_distribution_spec_json(raw_spec)
+    maybe_set_cli_override(cfg, "latency_distribution_spec", spec_json)
+    maybe_set_cli_override(cfg, "queue_latency_values", "0")
+    maybe_set_cli_override(cfg, "latency_mode", getattr(base_cfg, "latency_mode", "within_episode_random"))
+    maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
+    maybe_set_cli_override(cfg, "within_episode_change_interval", int(getattr(base_cfg, "within_episode_change_interval", 1)))
+    maybe_set_cli_override(cfg, "within_episode_change_prob", float(getattr(base_cfg, "within_episode_change_prob", 1.0)))
+    maybe_set_cli_override(cfg, "randomize_within_stage", False)
+    maybe_set_cli_override(cfg, "add_latency_info", True)
+    max_pending_actions = getattr(base_cfg, "max_pending_actions", None)
+    if max_pending_actions is not None:
+        maybe_set_cli_override(cfg, "max_pending_actions", int(max_pending_actions))
 
 
 def _cfg_value(cfg: Any, key: str) -> Any:
@@ -451,6 +475,43 @@ def _build_queue_eval_result(
     return result
 
 
+def _latency_samples_from_infos(infos: Any, num_agents: int, active_mask: np.ndarray | None = None) -> list[int]:
+    samples: list[int] = []
+    for agent_i in range(int(num_agents)):
+        if active_mask is not None and not bool(active_mask[agent_i]):
+            continue
+        info = _batched_info_for_agent(infos, int(agent_i))
+        for key in ("queue_latency", "frame_skip", "latency_frame_skip"):
+            value = _numeric_scalar(info.get(key))
+            if value is not None:
+                samples.append(max(0, int(value)))
+                break
+    return samples
+
+
+def _attach_distribution_eval_metadata(
+    result: dict[str, Any],
+    raw_spec: Any,
+    sampled_frames: list[int],
+) -> dict[str, Any]:
+    spec = parse_latency_distribution(raw_spec)
+    result["latency_distribution"] = spec.to_dict()
+    result["latency_distribution_label"] = latency_distribution_label(spec)
+    result["sample_count_frames"] = int(len(sampled_frames))
+    if sampled_frames:
+        values = np.asarray(sampled_frames, dtype=np.float64)
+        result["sample_mean_frames"] = float(np.mean(values))
+        result["sample_std_frames"] = float(np.std(values))
+        result["sample_min_frames"] = int(np.min(values))
+        result["sample_max_frames"] = int(np.max(values))
+    else:
+        result["sample_mean_frames"] = float("nan")
+        result["sample_std_frames"] = float("nan")
+        result["sample_min_frames"] = float("nan")
+        result["sample_max_frames"] = float("nan")
+    return result
+
+
 def init_queue_eval_wandb(base_cfg):
     try:
         import wandb
@@ -483,6 +544,37 @@ def init_queue_eval_wandb(base_cfg):
 
 def log_queue_eval_result(wandb_run, result: dict[str, Any]) -> None:
     if wandb_run is None:
+        return
+
+    if "latency_distribution_label" in result:
+        label = str(result["latency_distribution_label"])
+        prefix = f"queue_eval/distribution/{label}"
+        payload = {
+            "queue_eval/distribution_label": label,
+            f"{prefix}/mean_return": float(result["mean_return"]),
+            f"{prefix}/std_return": float(result["std_return"]),
+            f"{prefix}/mean_length": float(result["mean_length"]),
+        }
+        for result_key, suffix in (
+            ("mean_raw_return", "mean_raw_return"),
+            ("std_raw_return", "std_raw_return"),
+            ("mean_clipped_return", "mean_clipped_return"),
+            ("std_clipped_return", "std_clipped_return"),
+            ("completed_episodes", "completed_episodes"),
+            ("timeout_episodes", "timeout_episodes"),
+            ("sample_count_frames", "sample_count_frames"),
+            ("sample_mean_frames", "sample_mean_frames"),
+            ("sample_std_frames", "sample_std_frames"),
+            ("sample_min_frames", "sample_min_frames"),
+            ("sample_max_frames", "sample_max_frames"),
+        ):
+            if result_key in result:
+                payload[f"{prefix}/{suffix}"] = float(result[result_key])
+        wandb_run.log(payload)
+        for key, value in payload.items():
+            if key.startswith(prefix):
+                wandb_run.summary[key] = value
+        wandb_run.summary["queue_eval/distribution_label"] = label
         return
 
     latency = int(result["latency"])
@@ -533,6 +625,11 @@ def queue_eval_output_dir(base_cfg) -> Path | None:
     return path
 
 
+def has_queue_latency_distribution(base_cfg) -> bool:
+    raw_spec = getattr(base_cfg, "latency_distribution_spec", None)
+    return raw_spec is not None and bool(str(raw_spec).strip())
+
+
 def write_queue_eval_result(base_cfg, result: dict[str, Any]) -> None:
     output_dir = queue_eval_output_dir(base_cfg)
     if output_dir is None:
@@ -540,18 +637,23 @@ def write_queue_eval_result(base_cfg, result: dict[str, Any]) -> None:
 
     experiment_name = str(getattr(base_cfg, "experiment", "sample_factory_eval"))
     seed = int(getattr(base_cfg, "seed", 0) or 0)
+    distribution_label = result.get("latency_distribution_label")
     payload = {
         "experiment_name": experiment_name,
         "seed": seed,
         "checkpoint_kind": str(getattr(base_cfg, "load_checkpoint_kind", "latest")),
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "latency": int(result["latency"]),
         "mean_return": float(result["mean_return"]),
         "std_return": float(result["std_return"]),
         "mean_length": float(result["mean_length"]),
         "returns": [float(item) for item in result.get("returns", [])],
         "lengths": [int(item) for item in result.get("lengths", [])],
     }
+    if distribution_label is not None:
+        payload["latency_distribution_label"] = str(distribution_label)
+        payload["latency_distribution"] = dict(result.get("latency_distribution") or {})
+    else:
+        payload["latency"] = int(result["latency"])
     for key in (
         "raw_returns",
         "clipped_returns",
@@ -568,13 +670,22 @@ def write_queue_eval_result(base_cfg, result: dict[str, Any]) -> None:
         "requested_episodes",
         "eval_max_steps",
         "total_frames",
+        "sample_count_frames",
     ):
         if key in result:
             value = result[key]
-            if key.endswith("episodes") or key in {"eval_max_steps", "total_frames"}:
+            if key.endswith("episodes") or key in {"eval_max_steps", "total_frames", "sample_count_frames"}:
                 payload[key] = int(value)
             else:
                 payload[key] = float(value)
+    for key in (
+        "sample_mean_frames",
+        "sample_std_frames",
+        "sample_min_frames",
+        "sample_max_frames",
+    ):
+        if key in result:
+            payload[key] = float(result[key])
     for key in ("hit_eval_step_budget",):
         if key in result:
             payload[key] = bool(result[key])
@@ -582,15 +693,21 @@ def write_queue_eval_result(base_cfg, result: dict[str, Any]) -> None:
         if key in result:
             payload[key] = str(result[key])
 
-    latency = int(result["latency"])
-    latency_file = output_dir / f"queue_eval_latency_{latency}.json"
-    with latency_file.open("w", encoding="utf-8") as handle:
+    if distribution_label is not None:
+        result_file = output_dir / f"queue_eval_distribution_{distribution_label}.json"
+    else:
+        latency = int(result["latency"])
+        result_file = output_dir / f"queue_eval_latency_{latency}.json"
+    with result_file.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
         handle.write("\n")
 
     meta = result.get("_meta")
     if isinstance(meta, dict):
-        meta_file = output_dir / f"queue_eval_latency_{latency}.meta.json"
+        if distribution_label is not None:
+            meta_file = output_dir / f"queue_eval_distribution_{distribution_label}.meta.json"
+        else:
+            meta_file = output_dir / f"queue_eval_latency_{int(result['latency'])}.meta.json"
         with meta_file.open("w", encoding="utf-8") as handle:
             json.dump(meta, handle, indent=2, sort_keys=True)
             handle.write("\n")
@@ -626,6 +743,16 @@ def prepare_queue_eval_cfg(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     return cfg
 
 
+def prepare_queue_eval_distribution_cfg(base_cfg, adjust_cfg: EvalCfgAdjuster | None = None):
+    cfg = copy.deepcopy(base_cfg)
+    _apply_queue_eval_runtime_overrides(cfg, base_cfg, 0)
+    _apply_queue_eval_distribution_runtime_overrides(cfg, base_cfg)
+    if adjust_cfg is not None:
+        adjust_cfg(cfg, base_cfg)
+    _apply_demon_attack_raw_eval_runtime_overrides(cfg, base_cfg)
+    return cfg
+
+
 @torch.no_grad()
 def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdjuster | None = None) -> dict[str, Any]:
     from sample_factory.algo.sampling.batched_sampling import preprocess_actions
@@ -645,6 +772,10 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     if adjust_cfg is not None:
         adjust_cfg(cfg, base_cfg)
     _apply_demon_attack_raw_eval_runtime_overrides(cfg, base_cfg)
+    distribution_spec = getattr(cfg, "latency_distribution_spec", None)
+    if distribution_spec is not None and not str(distribution_spec).strip():
+        distribution_spec = None
+    sampled_latency_frames: list[int] = []
 
     eval_episodes = int(getattr(base_cfg, "eval_episodes", 20))
     eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 30000))
@@ -805,6 +936,8 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
             inactive_mask_tensor = torch.as_tensor(~active_mask, dtype=torch.bool, device=device)
             rnn_states[inactive_mask_tensor] = 0.0
         obs, rew, terminated, truncated, infos = env.step(actions)
+        if distribution_spec is not None:
+            sampled_latency_frames.extend(_latency_samples_from_infos(infos, env.num_agents, active_mask))
         dones = make_dones(terminated, truncated)
         reward_tensor = rew if isinstance(rew, torch.Tensor) else torch.as_tensor(rew, dtype=torch.float32, device=device)
         reward_tensor = reward_tensor.to(device=device, dtype=torch.float32)
@@ -933,7 +1066,7 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
         returns = [float("nan")]
         lengths = [0]
     if tracker is None:
-        return _build_queue_eval_result(
+        result = _build_queue_eval_result(
             latency_value=int(latency_value),
             returns=returns,
             lengths=lengths,
@@ -947,6 +1080,9 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
             env_name=str(getattr(cfg, "env", "")),
             timeout_episodes=timeout_episodes,
         )
+        if distribution_spec is not None:
+            _attach_distribution_eval_metadata(result, distribution_spec, sampled_latency_frames)
+        return result
 
     result = _build_queue_eval_result(
         latency_value=int(latency_value),
@@ -973,4 +1109,23 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     }
     if hasattr(env, "worker_pids") and callable(env.worker_pids):
         result["_meta"]["worker_pids"] = [int(pid) for pid in env.worker_pids()]
+    if distribution_spec is not None:
+        _attach_distribution_eval_metadata(result, distribution_spec, sampled_latency_frames)
+    return result
+
+
+@torch.no_grad()
+def evaluate_queue_latency_distribution(base_cfg, adjust_cfg: EvalCfgAdjuster | None = None) -> dict[str, Any]:
+    def distribution_adjuster(cfg: Any, original_base_cfg: Any) -> None:
+        _apply_queue_eval_distribution_runtime_overrides(cfg, original_base_cfg)
+        if adjust_cfg is not None:
+            adjust_cfg(cfg, original_base_cfg)
+
+    result = evaluate_queue_latency(base_cfg, latency_value=0, adjust_cfg=distribution_adjuster)
+    if "latency_distribution_label" not in result:
+        _attach_distribution_eval_metadata(
+            result,
+            getattr(base_cfg, "latency_distribution_spec"),
+            [],
+        )
     return result

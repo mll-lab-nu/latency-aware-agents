@@ -27,7 +27,9 @@ from training.sample_factory_common.config_adapter import (
 from training.sample_factory_common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
 from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, QueueLatencyWrapper, RewardTraceWrapper
 from training.sample_factory_common.queue_eval import (
+    evaluate_queue_latency_distribution,
     finish_queue_eval_wandb,
+    has_queue_latency_distribution,
     init_queue_eval_wandb,
     log_queue_eval_result,
     queue_eval_output_dir,
@@ -156,6 +158,7 @@ def make_latency_doom_env_from_spec(
     env = QueueLatencyWrapper(
         env,
         queue_latency_values=latency_values or [0],
+        latency_distribution_spec=getattr(cfg, "latency_distribution_spec", None) or None,
         latency_mode=getattr(cfg, "latency_mode", "episode_fixed"),
         latency_sampling_mode=getattr(cfg, "latency_sampling_mode", "uniform_all"),
         episodes_per_stage=int(getattr(cfg, "episodes_per_stage", 10)),
@@ -166,6 +169,7 @@ def make_latency_doom_env_from_spec(
         env_reset_seed_base=wrapper_seed + 104729,
         latency_info_keys=("queue_latency",),
         add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
+        max_pending_actions=getattr(cfg, "max_pending_actions", None),
     )
     env = EpisodeMetricsWrapper(
         env,
@@ -220,6 +224,7 @@ def make_reference_env(cfg):
 def add_latency_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "train_eval"])
     parser.add_argument("--queue-latency-values", type=str, default="0")
+    parser.add_argument("--latency-distribution-spec", dest="latency_distribution_spec", type=str, default="")
     parser.add_argument("--latency-mode", type=str, default="episode_fixed")
     parser.add_argument("--latency-sampling-mode", type=str, default="uniform_all")
     parser.add_argument("--episodes-per-stage", type=int, default=10)
@@ -227,6 +232,7 @@ def add_latency_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--within-episode-change-interval", type=int, default=1)
     parser.add_argument("--within-episode-change-prob", type=float, default=1.0)
     parser.add_argument("--add-latency-info", type=str2bool, default=False)
+    parser.add_argument("--max-pending-actions", dest="max_pending_actions", type=int)
     parser.add_argument("--eval-episodes", type=int, default=20)
     parser.add_argument("--eval-parallel-envs", type=int, default=1)
     parser.add_argument("--eval-queue-latency-values", type=str, default="0,1,2,3,4,5,10,15,40")
@@ -487,17 +493,27 @@ def run_from_config(config: dict) -> int:
         if cfg.mode in {"train", "train_eval"}:
             status = run_rl(cfg)
         if cfg.mode in {"eval", "train_eval"}:
-            latencies = parse_int_list(cfg.eval_queue_latency_values)
             wandb_run, owned_wandb_run = init_queue_eval_wandb(cfg)
             try:
-                for latency in latencies:
-                    result = evaluate_latency(cfg, int(latency))
+                if has_queue_latency_distribution(cfg):
+                    result = evaluate_queue_latency_distribution(cfg)
                     write_queue_eval_result(cfg, result)
                     log_queue_eval_result(wandb_run, result)
                     print(
-                        f"[eval] latency={latency} mean_return={result['mean_return']:.3f} "
+                        f"[eval] distribution={result['latency_distribution_label']} "
+                        f"mean_return={result['mean_return']:.3f} "
                         f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
                     )
+                else:
+                    latencies = parse_int_list(cfg.eval_queue_latency_values)
+                    for latency in latencies:
+                        result = evaluate_latency(cfg, int(latency))
+                        write_queue_eval_result(cfg, result)
+                        log_queue_eval_result(wandb_run, result)
+                        print(
+                            f"[eval] latency={latency} mean_return={result['mean_return']:.3f} "
+                            f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
+                        )
             finally:
                 finish_queue_eval_wandb(wandb_run, owned_wandb_run)
     finally:

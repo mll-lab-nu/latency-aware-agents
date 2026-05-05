@@ -143,6 +143,19 @@ def validate_config(config: dict) -> None:
         max_latency_ms = latency.get("max_latency_ms")
         if max_latency_ms is not None and float(max_latency_ms) < min_latency_ms:
             raise ValueError("latency.max_latency_ms must be greater than or equal to latency.min_latency_ms")
+    if latency_type == LatencySourceType.UNIFORM_DISTRIBUTION.value:
+        if "min_latency_ms" not in latency:
+            raise ValueError("Missing required field: latency.min_latency_ms")
+        if "max_latency_ms" not in latency:
+            raise ValueError("Missing required field: latency.max_latency_ms")
+        min_latency_ms = float(latency["min_latency_ms"])
+        max_latency_ms = float(latency["max_latency_ms"])
+        if min_latency_ms < 0:
+            raise ValueError("latency.min_latency_ms must be non-negative")
+        if max_latency_ms < min_latency_ms:
+            raise ValueError("latency.max_latency_ms must be greater than or equal to latency.min_latency_ms")
+        if "seed" in latency:
+            _validate_latency_seed(latency["seed"])
 
     if "persistence_mode" in scheduler:
         _validate_enum_value(scheduler["persistence_mode"], PersistenceMode, "scheduler.persistence_mode")

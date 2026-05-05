@@ -12,6 +12,14 @@ import numpy as np
 from gymnasium.spaces import Box, Discrete, Tuple as GymTuple
 
 from training.atari_episode_stats import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
+from latency_bench.core.latency_distribution import (
+    LatencyDistributionSpec,
+    derive_latency_seed,
+    distribution_max_frame_latency,
+    latency_distribution_label,
+    make_latency_distribution_sampler,
+    parse_latency_distribution,
+)
 from training.sample_factory_common.episode_metrics import append_episode_metrics_event
 
 
@@ -51,6 +59,8 @@ class QueueLatencyWrapper(gym.Wrapper):
         env_reset_seed_base: int | None = None,
         latency_info_keys: Sequence[str] = ("queue_latency",),
         add_latency_info: bool = True,
+        latency_distribution_spec: LatencyDistributionSpec | dict[str, Any] | str | None = None,
+        max_pending_actions: int | None = None,
     ):
         super().__init__(env)
         if latency_mode == "within_episode_change":
@@ -63,17 +73,40 @@ class QueueLatencyWrapper(gym.Wrapper):
             raise ValueError(f"Unsupported latency sampling mode: {latency_sampling_mode}")
 
         self.queue_latency_values = [max(0, int(item)) for item in queue_latency_values]
+        self.latency_distribution_spec = (
+            None if latency_distribution_spec is None else parse_latency_distribution(latency_distribution_spec)
+        )
+        self.latency_distribution_label = (
+            None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
+        )
+        if self.latency_distribution_spec is not None and latency_mode == "within_episode_curriculum":
+            raise ValueError("latency.train_distribution does not support within_episode_curriculum")
         self.latency_mode = str(latency_mode)
         self.latency_sampling_mode = str(latency_sampling_mode)
         self.episodes_per_stage = max(1, int(episodes_per_stage))
         self.randomize_within_stage = bool(randomize_within_stage)
         self.within_episode_change_interval = max(1, int(within_episode_change_interval))
         self.within_episode_change_prob = float(within_episode_change_prob)
+        if not 0.0 <= self.within_episode_change_prob <= 1.0:
+            raise ValueError("latency.within_episode_change_prob must be in [0, 1]")
         self.latency_info_keys = tuple(str(item) for item in latency_info_keys if str(item))
         self.add_latency_info = bool(add_latency_info)
+        self.max_frame_latency = (
+            distribution_max_frame_latency(self.latency_distribution_spec)
+            if self.latency_distribution_spec is not None
+            else max(self.queue_latency_values)
+        )
+        self.max_pending_actions = None if max_pending_actions is None else int(max_pending_actions)
+        if self.max_pending_actions is not None and self.max_pending_actions < self.max_frame_latency + 1:
+            raise ValueError(
+                "latency.max_pending_actions must be at least train_distribution.max + 1 "
+                f"({self.max_frame_latency + 1})"
+            )
 
         self.noop_action = noop_action_from_space(env.action_space)
+        self.base_latency_seed = int(seed)
         self.rng = np.random.RandomState(seed)
+        self.latency_distribution_sampler = None
         self.env_reset_seed_base = None if env_reset_seed_base is None else int(env_reset_seed_base)
         self.current_latency = 0
         self.current_applied_action = clone_action(self.noop_action)
@@ -88,6 +121,16 @@ class QueueLatencyWrapper(gym.Wrapper):
         return min(stage, len(self.queue_latency_values) - 1)
 
     def _sample_latency(self) -> int:
+        if self.latency_distribution_spec is not None:
+            if self.latency_distribution_sampler is None:
+                self._reset_latency_distribution_sampler()
+            latency = int(self.latency_distribution_sampler.sample_frame())
+            if latency > self.max_frame_latency:
+                raise RuntimeError(
+                    f"sampled latency {latency} exceeds configured max_frame_latency {self.max_frame_latency}"
+                )
+            return latency
+
         if self.latency_sampling_mode == "uniform_all":
             return int(self.rng.choice(self.queue_latency_values))
 
@@ -122,6 +165,11 @@ class QueueLatencyWrapper(gym.Wrapper):
             self.pending_actions,
             (apply_step, self._schedule_seq, clone_action(action), latency_for_action),
         )
+        if self.max_pending_actions is not None and len(self.pending_actions) > self.max_pending_actions:
+            raise RuntimeError(
+                "pending action queue exceeded latency.max_pending_actions="
+                f"{self.max_pending_actions}"
+            )
         return apply_step
 
     def _advance_pending_actions(self) -> None:
@@ -140,7 +188,20 @@ class QueueLatencyWrapper(gym.Wrapper):
         }
         for key in self.latency_info_keys:
             info[key] = int(latency_value)
+        if self.latency_distribution_spec is not None:
+            info["latency_distribution"] = self.latency_distribution_spec.to_dict()
+            info["latency_distribution_label"] = str(self.latency_distribution_label)
         return info
+
+    def _reset_latency_distribution_sampler(self) -> None:
+        if self.latency_distribution_spec is None:
+            self.latency_distribution_sampler = None
+            return
+        seed = derive_latency_seed(self.base_latency_seed, episode_idx=int(self.episode_idx))
+        self.latency_distribution_sampler = make_latency_distribution_sampler(
+            self.latency_distribution_spec,
+            seed=seed,
+        )
 
     def reset(self, **kwargs):
         self.current_applied_action = clone_action(self.noop_action)
@@ -148,6 +209,7 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.decision_step_idx = 0
         self.pending_actions.clear()
         self._schedule_seq = 0
+        self._reset_latency_distribution_sampler()
         if self.latency_mode == "within_episode_curriculum":
             self.current_latency = int(self.queue_latency_values[0])
         else:

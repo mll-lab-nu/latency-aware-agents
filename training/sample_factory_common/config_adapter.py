@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import importlib
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+
+from latency_bench.core.latency_distribution import parse_latency_distribution
 
 ENV_INTEGRATIONS = {
     "deadly_corridor": "training.deadly_corridor_sf.integration",
@@ -156,8 +159,36 @@ def validate_training_config(config: dict[str, Any]) -> None:
             f"Unsupported env.name for Sample Factory backend: {env_name}. "
             f"Supported envs: {sorted(ENV_INTEGRATIONS)}"
         )
+    _validate_latency_training_config(latency_cfg)
     if env_name == "flappy":
         _validate_flappy_sf_config(config)
+
+
+def _validate_latency_training_config(latency_cfg: dict[str, Any]) -> None:
+    has_distribution = latency_cfg.get("train_distribution") is not None
+    train_values = latency_cfg.get("train_values")
+    has_train_values = train_values is not None and not (
+        isinstance(train_values, (list, tuple)) and len(train_values) == 0
+    )
+    if has_distribution and has_train_values:
+        raise ValueError("latency.train_values and latency.train_distribution are mutually exclusive")
+    if has_distribution:
+        parse_latency_distribution(latency_cfg["train_distribution"])
+
+    if "within_episode_change_interval" in latency_cfg:
+        try:
+            interval = int(latency_cfg["within_episode_change_interval"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("latency.within_episode_change_interval must be a positive integer") from exc
+        if interval < 1:
+            raise ValueError("latency.within_episode_change_interval must be >= 1")
+    if "within_episode_change_prob" in latency_cfg:
+        try:
+            probability = float(latency_cfg["within_episode_change_prob"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("latency.within_episode_change_prob must be a number in [0, 1]") from exc
+        if not 0.0 <= probability <= 1.0:
+            raise ValueError("latency.within_episode_change_prob must be in [0, 1]")
 
 
 def _validate_flappy_sf_config(config: dict[str, Any]) -> None:
@@ -441,7 +472,15 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         if field in training_cfg:
             append_cli_arg(args, f"--{field}", training_cfg.get(field))
 
-    if "train_values" in latency_cfg:
+    if latency_cfg.get("train_distribution") is not None:
+        distribution_spec = parse_latency_distribution(latency_cfg["train_distribution"]).to_dict()
+        args.extend(
+            [
+                "--latency-distribution-spec",
+                json.dumps(distribution_spec, sort_keys=True, separators=(",", ":")),
+            ]
+        )
+    elif "train_values" in latency_cfg:
         append_cli_arg(args, "--queue-latency-values", latency_cfg.get("train_values"))
     append_cli_arg(args, "--latency-mode", latency_cfg.get("train_mode", "episode_fixed"))
     append_cli_arg(args, "--latency-sampling-mode", latency_cfg.get("train_sampling_mode", "uniform_all"))
@@ -450,6 +489,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--within-episode-change-interval", latency_cfg.get("within_episode_change_interval"))
     append_cli_arg(args, "--within-episode-change-prob", latency_cfg.get("within_episode_change_prob"))
     append_cli_arg(args, "--add-latency-info", latency_cfg.get("add_latency_info", False))
+    append_cli_arg(args, "--max-pending-actions", latency_cfg.get("max_pending_actions"))
 
     append_cli_arg(args, "--eval-episodes", evaluation_cfg.get("eval_episodes"))
     append_cli_arg(args, "--eval-parallel-envs", evaluation_cfg.get("eval_parallel_envs"))
