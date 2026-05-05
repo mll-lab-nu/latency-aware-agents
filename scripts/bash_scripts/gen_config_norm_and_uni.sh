@@ -21,8 +21,6 @@ SEEDS="${SEEDS:-0}"
 GENERATED_ROOT="${GENERATED_ROOT:-configs/train}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-outputs}"
 DEVICE="${DEVICE:-gpu}"
-NORMAL_TRAIN_DIR="${NORMAL_TRAIN_DIR:-results/checkpoints_normal}"
-UNIFORM_TRAIN_DIR="${UNIFORM_TRAIN_DIR:-results/checkpoints_uniform}"
 
 if [[ "${#ENVS_LIST[@]}" -eq 0 ]]; then
   echo "ENVS must contain at least one environment." >&2
@@ -31,8 +29,7 @@ fi
 
 generate_for_envs() {
   local family="$1"
-  local train_dir="$2"
-  shift 2
+  shift
 
   local env
   for env in "${ENVS_LIST[@]}"; do
@@ -43,7 +40,6 @@ generate_for_envs() {
     ENVS="${env}" \
     SEEDS="${SEEDS}" \
     GENERATED_ROOT="${GENERATED_ROOT}" \
-    TRAIN_DIR="${train_dir}" \
     OUTPUT_ROOT="${OUTPUT_ROOT}" \
     DEVICE="${DEVICE}" \
     bash scripts/bash_scripts/generate_config.sh \
@@ -61,7 +57,7 @@ generate_normal_case() {
   local max="$5"
 
   echo "[normal] ${name}: mean=${mean}, std=${std}, min=${min}, max=${max}"
-  generate_for_envs normal "${NORMAL_TRAIN_DIR}" \
+  generate_for_envs normal \
     --latency-distribution normal \
     --latency-mean-frames "${mean}" \
     --latency-std-frames "${std}" \
@@ -75,7 +71,7 @@ generate_uniform_case() {
   local max="$3"
 
   echo "[uniform] ${name}: min=${min}, max=${max}"
-  generate_for_envs uniform "${UNIFORM_TRAIN_DIR}" \
+  generate_for_envs uniform \
     --latency-distribution uniform \
     --latency-min-frames "${min}" \
     --latency-max-frames "${max}"
