@@ -143,6 +143,8 @@ def _prepare_export_cfg(module, env_name: str, base_cfg, latency: int):
     maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
     if env_name == "demon_attack" and bool(getattr(base_cfg, "eval_raw_reward", False)):
         maybe_set_cli_override(cfg, "clip_reward", False)
+    if env_name == "demon_attack":
+        maybe_set_cli_override(cfg, "terminal_on_life_loss", False)
     return cfg
 
 
