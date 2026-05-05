@@ -46,6 +46,40 @@ def test_eval_bash_scripts_are_batch_eval_wrappers():
         assert "Skipping" in text
 
 
+def test_openvla_install_script_bootstraps_rlinf_oft_environment():
+    script_path = REPO_ROOT / "scripts" / "bash_scripts" / "install_openvla.sh"
+
+    assert script_path.is_file()
+    assert os.access(script_path, os.X_OK)
+
+    syntax = subprocess.run(
+        ["bash", "-n", str(script_path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert syntax.returncode == 0, syntax.stderr
+
+    text = script_path.read_text(encoding="utf-8")
+    assert 'RLINF_DIR="${RLINF_DIR:-${REPO_ROOT}/RL-inf}"' in text
+    assert 'CONDA_ENV_NAME="${CONDA_ENV_NAME:-latency-openvla}"' in text
+    assert 'PYTHON_VERSION="${PYTHON_VERSION:-3.10}"' in text
+    assert 'conda create -n "${CONDA_ENV_NAME}" "python=${PYTHON_VERSION}" -y' in text
+    assert 'conda activate "${CONDA_ENV_NAME}"' in text
+    assert 'python -m pip install -e "${RLINF_DIR}[embodied]"' in text
+    assert 'OPENVLA_OFT_SPEC="${OPENVLA_OFT_SPEC:-git+https://github.com/moojink/openvla-oft.git}"' in text
+    assert "python -m pip install -e \"${REPO_ROOT}/flappy-bird-gymnasium\"" in text
+    assert 'activate_dir="${CONDA_PREFIX}/etc/conda/activate.d"' in text
+    assert "PYTHONPATH=\"${REPO_ROOT}:${RLINF_DIR}" in text
+    assert "from rlinf.models.embodiment.openvla_oft.rlinf import get_model" in text
+    assert "import latency_bench.policy.flappy_openvla" in text
+    assert "OPENVLA_VENV_DIR" not in text
+    assert "--venv" not in text
+    assert ".venv-latency-openvla" not in text
+    assert "pip install -e \"${REPO_ROOT}/openvla\"" not in text
+
+
 def test_eval_bash_scripts_reject_manual_latency_argument():
     for script_name in ("eval_flappy.sh", "eval_demon_attack.sh", "eval_deadly_corridor.sh"):
         script_path = REPO_ROOT / "scripts" / "bash_scripts" / script_name

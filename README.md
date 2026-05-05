@@ -74,6 +74,96 @@ If you want the default Sample Factory runs to report to Weights & Biases, log i
 wandb login
 ```
 
+## OpenVLA / RLinf Environment
+
+`latency_bench.policy.flappy_openvla` is an adapter around RLinf's OpenVLA-OFT
+model path:
+
+```python
+from rlinf.models.embodiment.openvla_oft.rlinf import get_model
+```
+
+Install the RLinf OpenVLA-OFT environment, not the cloned `./openvla` repository.
+The local `./openvla` tree is useful as reference source, but installing it into
+the same environment can replace the `prismatic` package expected by RLinf's
+OpenVLA-OFT implementation.
+
+After cloning `RL-inf` under this repository root, create the isolated eval
+environment with:
+
+```bash
+bash scripts/bash_scripts/install_openvla.sh
+```
+
+The script defaults to:
+
+- `RLINF_DIR=./RL-inf`
+- `CONDA_ENV_NAME=latency-openvla`
+- `PYTHON_VERSION=3.10`
+- `TORCH_SPEC="torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0"`
+- `TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124`
+
+Override the conda environment name or PyTorch build when needed:
+
+```bash
+CONDA_ENV_NAME=my-openvla-env bash scripts/bash_scripts/install_openvla.sh
+TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126 bash scripts/bash_scripts/install_openvla.sh
+```
+
+If you have a local OpenVLA-OFT checkout, use it instead of the default GitHub
+install source:
+
+```bash
+OPENVLA_OFT_DIR=/path/to/openvla-oft bash scripts/bash_scripts/install_openvla.sh
+```
+
+Set `INSTALL_FLASH_ATTN=1` to install `flash-attn` after PyTorch is installed.
+It is off by default because local CUDA compiler and wheel availability vary by
+machine.
+
+Activate the environment:
+
+```bash
+conda activate latency-openvla
+```
+
+Before running Flappy OpenVLA eval, set these config paths in
+`configs/experiments/flappy/openvla_sft_eval.yaml` or override them at runtime:
+
+- `policy.base_model_path`: local `gen-robot/openvla-7b-rlvla-warmup` directory.
+  It must contain `dataset_statistics.json` with a `flappy_bird` entry.
+- `policy.checkpoint_path`: a `flappy_openvla_sft_checkpoints/global_step_*`
+  directory containing `actor/model_state_dict/full_weights.pt`.
+
+`flappy_openvla` currently implements single-observation inference only. Keep
+`evaluation.eval_parallel_envs=1` until `FlappyOpenVlaPolicyRunner.predict_batch()`
+is implemented.
+
+Smoke test with one short zero-latency episode:
+
+```bash
+python - <<'PY'
+from latency_bench.core.config import load_config
+from latency_bench.run import run_eval_sweep_from_config
+
+c = load_config("configs/experiments/flappy/openvla_sft_eval.yaml")
+c["policy"]["base_model_path"] = "/path/to/openvla-7b-rlvla-warmup"
+c["policy"]["checkpoint_path"] = "/path/to/flappy_openvla_sft_checkpoints/global_step_1500"
+c["policy"]["device"] = "cuda"
+c["experiment"]["num_episodes"] = 1
+c["evaluation"]["eval_parallel_envs"] = 1
+c["evaluation"]["eval_latency_values"] = [0]
+c["evaluation"]["eval_max_steps"] = 200
+c["logging"]["output_dir"] = "outputs/flappy_openvla_smoke"
+
+run_eval_sweep_from_config(c)
+PY
+```
+
+After the smoke test passes, restore the desired episode count and latency sweep,
+for example `eval_latency_values: [0, 1, 2, 3, 4, 5]`, while still keeping
+`eval_parallel_envs: 1`.
+
 ## Common Entrypoints
 
 Main benchmark example:

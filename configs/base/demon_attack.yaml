@@ -17,7 +17,9 @@ executor:
 env:
   name: demon_attack
   env_id: ALE/DemonAttack-v5
-  fps_env: 60
+  # fps_env is the frequency of the upper wrapper, cause the Atari has wrapped the env and repaet action = 4
+  # for raw frames, it should be 15 x 4 = 60
+  fps_env: 15
   screen_size: 84
   noop_max: 30
   action_repeat: 4
@@ -30,7 +32,7 @@ env:
   noop_action: 0
 
 control:
-  frequency_hz: 60
+  frequency_hz: 15
   observe_every_n_frames: 1
 
 latency:

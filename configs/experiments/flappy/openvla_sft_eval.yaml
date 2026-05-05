@@ -40,6 +40,7 @@ latency:
     - 0
 
 evaluation:
+  eval_parallel_envs: 1
   eval_latency_values: [0, 1, 2, 3, 4, 5]
   eval_max_steps: 3600
 

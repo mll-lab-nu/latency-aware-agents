@@ -110,6 +110,13 @@ logging:
     assert config["control"]["frequency_hz"] == 15
 
 
+def test_flappy_openvla_eval_config_uses_serial_eval():
+    config = load_config("configs/experiments/flappy/openvla_sft_eval.yaml")
+
+    assert config["policy"]["type"] == "flappy_openvla"
+    assert config["evaluation"]["eval_parallel_envs"] == 1
+
+
 def test_load_config_validates_executor_mode(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(BASE_CONFIG.replace("mode: simulated", "mode: unknown"), encoding="utf-8")
