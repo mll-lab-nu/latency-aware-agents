@@ -85,3 +85,36 @@ python scripts/export_sf_teacher_dataset.py \
   --hf-token "$HF_TOKEN" \
   --hf-max-shard-size 500MB \
   --hf-repo-id talha1503/deadly_corridor_mixed_latency_parquet
+
+# Demon attack Zero latency
+python scripts/export_sf_teacher_dataset.py \
+  --env-name demon_attack \
+  --checkpoint-root /workspace/latency-checkpoints/checkpoints \
+  --output-dir /workspace/teacher_datasets/demon_attack_zero_latency \
+  --dataset-mode zero_latency \
+  --prompt "You are playing Demon Attack from a single game image. Choose exactly one action from: NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE. Survive, avoid enemy fire, and shoot enemies to maximize score." \
+  --max-steps-per-episode 3600 \
+  --max-episodes 100 \
+  --val-fraction 0.2 \
+  --push-to-hub \
+  --hf-token "$HF_TOKEN" \
+  --hf-max-shard-size 500MB \
+  --hf-repo-id talha1503/demon_attack_zero_latency_parquet
+
+# DEMON ATTACK: mixed-latency teacher dataset
+python scripts/export_sf_teacher_dataset.py \
+  --env-name demon_attack \
+  --checkpoint-root /workspace/latency-checkpoints/checkpoints \
+  --output-dir /workspace/teacher_datasets/demon_attack_mixed_latency \
+  --dataset-mode mixed_latency \
+  --prompt "You are playing Demon Attack from a single game image. Choose exactly one action from: NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE. Survive, avoid enemy fire, and shoot enemies to maximize score." \
+  --mixed-prompt-template "{prompt} Your actions take {latency_ms} milliseconds to take effect. Choose the best next action while accounting for the delay." \
+  --max-steps-per-episode 3600 \
+  --latency-start 0 \
+  --latency-end 7 \
+  --episodes-per-latency 50 \
+  --val-episodes-per-latency 10 \
+  --push-to-hub \
+  --hf-token "$HF_TOKEN" \
+  --hf-max-shard-size 500MB \
+  --hf-repo-id talha1503/demon_attack_mixed_latency_parquet
