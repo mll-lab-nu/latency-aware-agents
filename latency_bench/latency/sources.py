@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from latency_bench.latency.profile import load_latency_samples, load_profile_manifest
-from latency_bench.latency.profiler import LatencyProfiler
+from latency_bench.latency.measurement import RuntimeLatencyMeasurer
 from latency_bench.latency.trace import load_latency_trace
 
 
@@ -147,7 +147,13 @@ class EmpiricalTraceReplayLatencySource(LatencySource):
 
 
 class MeasuredLatencySource(LatencySource):
-    def __init__(self, profiler: LatencyProfiler):
+    """Compatibility adapter for older code that measured via a latency source.
+
+    Realtime measured execution now measures policy work in the executor's
+    policy worker so it can preserve queue wait and effective action delay.
+    """
+
+    def __init__(self, profiler: RuntimeLatencyMeasurer):
         self.profiler = profiler
         self.last_record = None
 

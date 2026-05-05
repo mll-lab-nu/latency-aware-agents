@@ -2,9 +2,9 @@
 
 ## Measured Latency Integration
 
-- `MeasuredLatencySource` is currently a hook, not a complete executor path.
-- `SimulatedLatencyExecutor` currently calls `policy.predict(observation)` before asking the latency source for `latency_ms`, which works for zero/fixed/distribution/trace latency but does not let the profiler wrap the actual policy inference call.
-- To support `latency.type: measured`, refactor prediction and latency acquisition so measured mode can run `LatencyProfiler.run_and_measure(policy.predict, observation)` and return both `PolicyOutput` and `LatencyRecord`.
+- `latency.type: measured` is supported on the realtime executor path through `RuntimeLatencyMeasurer`, which wraps `policy.predict(observation)` inside the realtime policy worker and records both inference latency and effective action delay.
+- `MeasuredLatencySource` remains only as a compatibility adapter for older code that measured through a latency source. New measured runtime paths should use `RuntimeLatencyMeasurer` directly.
+- `SimulatedLatencyExecutor` still calls `policy.predict(observation)` before asking the latency source for `latency_ms`, so simulated mode remains appropriate for zero/fixed/distribution/trace/profile replay latency, not live wall-clock inference measurement.
 
 ## Logging Scalability and Output Controls
 

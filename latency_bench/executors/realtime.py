@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, PolicyOutput, StepRecord
 from latency_bench.envs.base import EnvAdapter
-from latency_bench.latency.profiler import LatencyProfiler
+from latency_bench.latency.measurement import RuntimeLatencyMeasurer
 from latency_bench.latency.sources import LatencySource
 from latency_bench.logging.metrics import (
     active_action_step_info,
@@ -72,7 +72,7 @@ class SerialPolicyWorker:
         policy: PolicyRunner,
         max_pending_observations: int,
         time_fn: Callable[[], float],
-        latency_profiler: LatencyProfiler | None = None,
+        latency_profiler: RuntimeLatencyMeasurer | None = None,
         episode_start_s_getter: Callable[[], float] | None = None,
     ):
         self.policy = policy
@@ -173,7 +173,7 @@ class RealtimeLatencyExecutor:
         time_fn: Callable[[], float] = time.perf_counter,
         sleep_fn: Callable[[float], None] = time.sleep,
         policy_worker: SerialPolicyWorker | None = None,
-        latency_profiler: LatencyProfiler | None = None,
+        latency_profiler: RuntimeLatencyMeasurer | None = None,
         max_catchup_steps_per_loop: int | None = None,
     ):
         if max_pending_observations <= 0:

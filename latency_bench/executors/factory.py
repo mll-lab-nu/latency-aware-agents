@@ -14,7 +14,7 @@ from latency_bench.executors.env_step_backend import SerialEnvStepBackend, Subpr
 from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
-from latency_bench.latency.profiler import LatencyProfiler
+from latency_bench.latency.measurement import RuntimeLatencyMeasurer
 from latency_bench.latency.sources import (
     EmpiricalSampleLatencySource,
     EmpiricalTraceReplayLatencySource,
@@ -258,7 +258,7 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
     latency_profiler = None
     if latency_cfg.get("type", LatencySourceType.ZERO.value) == LatencySourceType.MEASURED.value:
         latency_source = ZeroLatencySource()
-        latency_profiler = LatencyProfiler(
+        latency_profiler = RuntimeLatencyMeasurer(
             device=latency_cfg.get("device"),
             sync_cuda=bool(latency_cfg.get("sync_cuda", True)),
         )
