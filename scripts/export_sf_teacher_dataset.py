@@ -6,6 +6,8 @@ from pathlib import Path
 import sys
 from typing import Any, Mapping
 
+import gymnasium as gym
+
 import numpy as np
 from PIL import Image
 
