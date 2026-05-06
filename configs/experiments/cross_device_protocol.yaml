@@ -1,0 +1,125 @@
+protocol_id: cross_device_latency_v1
+output_root: results/cross_device
+latency_scope: policy_predict_only
+trace_replay_order: sequential
+loop_trace: true
+checkpoint_kind: best
+n_warmup: 10
+n_episodes: 10
+seed_set:
+  - 0
+
+runtime_envs:
+  small_model:
+    conda_env: latency
+    description: "Sample Factory / small RL models"
+  openvla:
+    conda_env: latency-openvla
+    description: "OpenVLA Flappy policy"
+
+devices:
+  - id: rtx3090
+    display_name: RTX 3090
+    profile_id: L_3090
+    speed_rank: 1
+    aliases:
+      - RTX 3090
+      - NVIDIA GeForce RTX 3090
+  - id: rtx4090
+    display_name: RTX 4090
+    profile_id: L_4090
+    speed_rank: 2
+    aliases:
+      - RTX 4090
+      - NVIDIA GeForce RTX 4090
+  - id: a6000
+    display_name: RTX A6000
+    profile_id: L_A6000
+    speed_rank: 2
+    aliases:
+      - RTX A6000
+      - NVIDIA RTX A6000
+  - id: l40s
+    display_name: L40S
+    profile_id: L_L40S
+    speed_rank: 2
+    aliases:
+      - L40S
+      - NVIDIA L40S
+  - id: a100
+    display_name: A100
+    profile_id: L_A100
+    speed_rank: 3
+    aliases:
+      - A100
+      - NVIDIA A100
+      - NVIDIA A100-SXM4-80GB
+      - NVIDIA A100-SXM4-40GB
+      - NVIDIA A100-PCIE-80GB
+      - NVIDIA A100-PCIE-40GB
+  - id: h200
+    display_name: H200
+    profile_id: L_H200
+    speed_rank: 4
+    aliases:
+      - H200
+      - NVIDIA H200
+  - id: b200
+    display_name: B200
+    profile_id: L_B200
+    speed_rank: 5
+    aliases:
+      - B200
+      - NVIDIA B200
+
+experiments:
+  exp1_latency_profile_summary:
+    panel: a
+    rows:
+      - policy: OpenVLA-Flappy
+        env: Flappy
+        policy_type: flappy_openvla
+        runtime_env: openvla
+        env_name: flappy
+        fps: 30
+        base_config: configs/experiments/flappy/realtime/openvla_30fps.yaml
+
+  exp2_same_device_calibration:
+    panel: b
+    rows:
+      - policy: flappy-sf-l1
+        env: Flappy
+        policy_type: flappy_sf
+        runtime_env: small_model
+        env_name: flappy
+        fps: 30
+        base_config: configs/train/flappy/latency_1/seed_0/latency_bench_eval.yaml
+      - policy: demon-attack-sf-l1
+        env: Demon Attack
+        policy_type: demon_attack_sf
+        runtime_env: small_model
+        env_name: demon_attack
+        fps: 60
+        base_config: configs/train/demon_attack/latency_1/seed_0/latency_bench_eval.yaml
+      - policy: deadly-corridor-sf-l1
+        env: Deadly Corridor
+        policy_type: deadly_corridor_sf
+        runtime_env: small_model
+        env_name: deadly_corridor
+        fps: 35
+        base_config: configs/train/deadly_corridor/latency_1/seed_0/latency_bench_eval.yaml
+
+  exp3_cross_device_prediction:
+    panel: c
+    rows:
+      - policy: OpenVLA-Flappy
+        env: Flappy
+        policy_type: flappy_openvla
+        runtime_env: openvla
+        env_name: flappy
+        fps: 30
+        base_config: configs/experiments/flappy/realtime/openvla_30fps.yaml
+    replay_devices:
+      - h200
+      - a100
+    main_claim_rule: replay_device_speed_rank > target_device_speed_rank

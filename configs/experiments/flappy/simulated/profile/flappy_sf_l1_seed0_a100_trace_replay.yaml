@@ -1,0 +1,44 @@
+__base__: ../../../../base/flappy.yaml
+
+experiment:
+  name: flappy_sf_same_latency_l1_seed0
+  seed: 0
+  num_episodes: 10
+
+backend:
+  type: sample_factory
+  algo: APPO
+  device: gpu
+  train_dir: results/checkpoints
+  restart_behavior: resume
+  run_mode: eval
+
+executor:
+  mode: simulated
+
+latency:
+  type: empirical_trace_replay
+  profile_path: outputs/profiles/flappy_sf_l1_seed0_best_a100_action_ready/profile.json
+  trace_replay_order: sequential
+  loop_trace: true
+  train_values: null
+  add_latency_info: false
+
+policy:
+  type: flappy_sf
+  policy_id: flappy_sf_l1_seed0_best
+  actions: [noop, flap]
+  checkpoint_path: ""
+  device: auto
+  deterministic: true
+
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_latency_values: null
+  eval_max_steps: 3600
+  eval_deterministic: true
+  eval_raw_reward: false
+
+logging:
+  output_dir: outputs/simulated/flappy/flappy_sf_l1_seed0_a100_trace_replay
