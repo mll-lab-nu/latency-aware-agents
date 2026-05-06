@@ -34,8 +34,8 @@ env:
 
 policy:
   type: flappy_openvla
-  base_model_path: /root/openvla-7b
-  checkpoint_path: /root/flappy_openvla_sft_checkpoints/global_step_1500
+  base_model_path: /workspace/openvla-7b
+  checkpoint_path: /workspace/flappy_openvla_sft_checkpoints/global_step_1500
   prompt: "You are playing Flappy Bird from a single image. Choose exactly one action from: NOOP, FLAP. Navigate through pipes without crashing to maximize score."
   image_size: 224
   action_dim: 2
