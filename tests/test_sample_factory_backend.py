@@ -1240,6 +1240,74 @@ def test_demon_attack_reference_env_is_sample_factory_compatible(monkeypatch):
         env.close()
 
 
+def test_flappy_cpu_render_reference_env_is_sample_factory_compatible(monkeypatch):
+    from sample_factory.algo.utils.env_info import extract_env_info
+
+    from training.flappy_sf import integration
+
+    class FakeFlappyGymnasium:
+        @staticmethod
+        def make(gym_id, **kwargs):
+            assert gym_id == "FlappyBird-v0"
+            assert kwargs["render_mode"] == "rgb_array"
+            return _RenderedRgbEnv()
+
+    monkeypatch.setattr(integration, "_ENVS_REGISTERED", False)
+    monkeypatch.setattr(integration, "_import_flappy_gymnasium", lambda: FakeFlappyGymnasium)
+
+    cfg = SimpleNamespace(
+        env=integration.SF_ENV_NAME,
+        env_gpu_actions=False,
+        env_gpu_observations=False,
+        env_frameskip=1,
+        seed=0,
+        gym_id="FlappyBird-v0",
+        use_lidar=False,
+        normalize_obs=True,
+        audio_on=False,
+        pipe_gap=100,
+        bird_color="yellow",
+        pipe_color="green",
+        background="day",
+        debug=False,
+        debug_timelimit_diagnostics=False,
+        screen_size="",
+        score_limit=-1,
+        obs_resize="84,84",
+        obs_mode="image_only",
+        frame_stack=4,
+        max_episode_steps=0,
+        queue_latency_values="0",
+        latency_distribution_spec="",
+        latency_mode="episode_fixed",
+        latency_sampling_mode="uniform_all",
+        episodes_per_stage=10,
+        randomize_within_stage=False,
+        within_episode_change_interval=1,
+        within_episode_change_prob=1.0,
+        add_latency_info=False,
+        max_pending_actions=None,
+        episode_metrics_path="",
+        use_gpu_render=False,
+    )
+
+    env = integration.make_reference_env(cfg)
+    try:
+        assert env.num_agents == 1
+        assert env.is_multiagent is True
+        assert isinstance(env.observation_space, gym.spaces.Dict)
+        assert env.observation_space["obs"].shape == (12, 84, 84)
+        assert env.action_space == _RenderedRgbEnv.action_space
+
+        env_info = extract_env_info(env, cfg)
+
+        assert env_info.num_agents == 1
+        assert env_info.obs_space == env.observation_space
+        assert env_info.action_space == env.action_space
+    finally:
+        env.close()
+
+
 def test_doom_frame_stack_wrapper_supports_box_observations():
     import gymnasium as gym
     import numpy as np

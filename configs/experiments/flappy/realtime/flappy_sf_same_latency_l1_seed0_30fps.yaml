@@ -1,7 +1,7 @@
 experiment:
   name: flappy_sf_same_latency_l1_seed0
   seed: 0
-  num_episodes: 100
+  num_episodes: 10
 backend:
   type: sample_factory
   algo: APPO
@@ -26,7 +26,7 @@ env:
   - 84
   - 84
   obs_mode: image_only
-  use_gpu_render: true
+  use_gpu_render: false
   gpu_render_device: auto
   gpu_render_profile: false
   gpu_render_profile_interval: 200
@@ -89,4 +89,4 @@ evaluation:
   eval_deterministic: true
   eval_raw_reward: false
 logging:
-  output_dir: outputs/latency_bench/flappy/train_latency_1/seed_0
+  output_dir: outputs/realtime/flappy/train_latency_1_cpu_render/seed_0
