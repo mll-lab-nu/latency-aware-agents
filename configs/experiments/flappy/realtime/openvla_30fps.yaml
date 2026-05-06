@@ -10,8 +10,27 @@ experiment:
   num_episodes: 100
 
 env:
-  obs_resize: [84, 84]
+  name: flappy
+  gym_id: FlappyBird-v0
   fps_env: 30
+  render_mode: rgb_array
+  observation_mode: image
+  use_lidar: false
+  normalize_obs: true
+  audio_on: false
+  frame_stack: 4
+  obs_resize: [84, 84]
+  obs_mode: image_only
+  use_gpu_render: false
+  gpu_render_device: auto
+  gpu_render_profile: false
+  gpu_render_profile_interval: 200
+  noop_action: noop
+  action_map:
+    noop: 0
+    flap: 1
+  oneshot_actions:
+  - flap
 
 policy:
   type: flappy_openvla

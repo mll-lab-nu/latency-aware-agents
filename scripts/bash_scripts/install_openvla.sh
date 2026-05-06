@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 CONDA_ENV_NAME="${CONDA_ENV_NAME:-latency-openvla}"
-PYTHON_VERSION="${PYTHON_VERSION:-3.10}"
+PYTHON_VERSION="3.10"
 REQUIREMENTS_FILE="${REPO_ROOT}/requirements_openvla.txt"
 
 if [[ ! -f "${REQUIREMENTS_FILE}" ]]; then
