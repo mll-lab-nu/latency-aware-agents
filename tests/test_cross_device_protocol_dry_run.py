@@ -241,6 +241,7 @@ def test_hardware_detection_accepts_full_gpu_model_names_and_multi_gpu_text():
 
     cases = {
         "NVIDIA A100-SXM4-80GB": "a100",
+        "NVIDIA A100-SXM4-40GB": "a100",
         "NVIDIA A100-SXM4-80GB; NVIDIA A100-SXM4-80GB": "a100",
         "NVIDIA L40S": "l40s",
         "NVIDIA GeForce RTX 3090": "rtx3090",
@@ -519,6 +520,105 @@ def test_measure_dry_run_preserves_integral_fps_as_int_for_deadly_corridor(tmp_p
     assert isinstance(config["env"]["fps_env"], int)
     assert config["control"]["frequency_hz"] == 35
     assert isinstance(config["control"]["frequency_hz"], int)
+
+
+def test_stage_overrides_can_raise_deadly_corridor_measure_episodes_only(tmp_path: Path):
+    base_config = tmp_path / "base.yaml"
+    spec = tmp_path / "protocol.yaml"
+    _write_base_config(base_config)
+    _write_spec(spec, base_config)
+    spec_data = yaml.safe_load(spec.read_text(encoding="utf-8"))
+    spec_data["n_episodes"] = 10
+    row = spec_data["experiments"]["exp2_same_device_calibration"]["rows"][0]
+    row.update(
+        {
+            "policy": "deadly-corridor-sf-l1",
+            "env": "Deadly Corridor",
+            "policy_type": "deadly_corridor_sf",
+            "env_name": "deadly_corridor",
+            "fps": 35,
+            "stage_overrides": {"measure": {"n_episodes": 1000}},
+        }
+    )
+    spec.write_text(yaml.safe_dump(spec_data, sort_keys=False), encoding="utf-8")
+
+    measure_out = tmp_path / "measure_results"
+    _run_cli(
+        tmp_path,
+        "measure",
+        "--spec",
+        str(spec),
+        "--hardware",
+        "a100",
+        "--out",
+        str(measure_out),
+        "--dry-run",
+        "--only-experiment",
+        "exp2_same_device_calibration",
+        "--max-runs",
+        "1",
+    )
+    measure_config = yaml.safe_load(next((measure_out / "generated_configs" / "measure").rglob("*.yaml")).read_text())
+    assert measure_config["experiment"]["num_episodes"] == 1000
+    assert measure_config["evaluation"]["eval_episodes"] == 1000
+    assert "best_seed_0_n1000" in measure_config["logging"]["output_dir"]
+
+    realtime_out = tmp_path / "realtime_results"
+    _run_cli(
+        tmp_path,
+        "realtime",
+        "--spec",
+        str(spec),
+        "--hardware",
+        "a100",
+        "--out",
+        str(realtime_out),
+        "--dry-run",
+        "--only-experiment",
+        "exp2_same_device_calibration",
+        "--max-runs",
+        "1",
+    )
+    realtime_config = yaml.safe_load(next((realtime_out / "generated_configs" / "realtime").rglob("*.yaml")).read_text())
+    assert realtime_config["experiment"]["num_episodes"] == 10
+    assert realtime_config["evaluation"]["eval_episodes"] == 10
+    assert "best_seed_0_n10" in realtime_config["logging"]["output_dir"]
+
+
+def test_cli_n_episodes_overrides_stage_overrides(tmp_path: Path):
+    base_config = tmp_path / "base.yaml"
+    spec = tmp_path / "protocol.yaml"
+    out = tmp_path / "results"
+    _write_base_config(base_config)
+    _write_spec(spec, base_config)
+    spec_data = yaml.safe_load(spec.read_text(encoding="utf-8"))
+    spec_data["experiments"]["exp2_same_device_calibration"]["rows"][0]["stage_overrides"] = {
+        "measure": {"n_episodes": 1000}
+    }
+    spec.write_text(yaml.safe_dump(spec_data, sort_keys=False), encoding="utf-8")
+
+    _run_cli(
+        tmp_path,
+        "measure",
+        "--spec",
+        str(spec),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--dry-run",
+        "--only-experiment",
+        "exp2_same_device_calibration",
+        "--max-runs",
+        "1",
+        "--n-episodes",
+        "20",
+    )
+
+    config = yaml.safe_load(next((out / "generated_configs" / "measure").rglob("*.yaml")).read_text())
+    assert config["experiment"]["num_episodes"] == 20
+    assert config["evaluation"]["eval_episodes"] == 20
+    assert "best_seed_0_n20" in config["logging"]["output_dir"]
 
 
 def test_aggregate_dry_run_accepts_common_filters_without_writing_tables(tmp_path: Path):

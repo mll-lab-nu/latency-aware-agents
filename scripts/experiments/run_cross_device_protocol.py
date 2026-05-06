@@ -321,9 +321,9 @@ def _build_plan(
 ) -> list[PlannedTask]:
     plan_by_key: dict[tuple[Any, ...], PlannedTask] = {}
     seed_set = _seed_set(spec, args)
-    n_episodes = int(args.n_episodes or spec.get("n_episodes", 1))
     checkpoint_kind = str(args.checkpoint_kind or spec.get("checkpoint_kind", "best"))
     for experiment_id, experiment, row in _iter_selected_rows(spec, args, include_stage=stage):
+        n_episodes = _n_episodes_for_row_stage(spec, args, row, stage)
         target_devices = _target_devices_for_stage(spec, args, stage, current_device)
         if not target_devices:
             target_devices = [current_device]
@@ -1124,6 +1124,26 @@ def _seed_set(spec: dict[str, Any], args: argparse.Namespace) -> list[int]:
     else:
         items = [raw]
     return [int(item) for item in items]
+
+
+def _n_episodes_for_row_stage(
+    spec: dict[str, Any],
+    args: argparse.Namespace,
+    row: dict[str, Any],
+    stage: str,
+) -> int:
+    if getattr(args, "n_episodes", None) is not None:
+        return int(args.n_episodes)
+    stage_overrides = row.get("stage_overrides", {})
+    if isinstance(stage_overrides, dict):
+        stage_cfg = stage_overrides.get(stage)
+        if stage_cfg is None:
+            stage_cfg = stage_overrides.get(stage.replace("_", "-"))
+        if isinstance(stage_cfg, dict) and stage_cfg.get("n_episodes") is not None:
+            return int(stage_cfg["n_episodes"])
+    if row.get("n_episodes") is not None:
+        return int(row["n_episodes"])
+    return int(spec.get("n_episodes", 1))
 
 
 def _spec_with_cli_overrides(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:

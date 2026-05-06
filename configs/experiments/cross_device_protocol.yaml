@@ -108,6 +108,9 @@ experiments:
         env_name: deadly_corridor
         fps: 35
         base_config: configs/train/deadly_corridor/latency_1/seed_0/latency_bench_eval.yaml
+        stage_overrides:
+          measure:
+            n_episodes: 1000
 
   exp3_cross_device_prediction:
     panel: c

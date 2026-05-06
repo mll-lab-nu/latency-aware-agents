@@ -51,6 +51,19 @@ More episodes:
 N_EPISODES=100 SEED_SET=0,1,2 bash scripts/bash_scripts/run_cross_device_small_models.sh
 ```
 
+Official clean run root:
+
+```bash
+OUT=results/cross_device_official \
+PROFILES_DIR=results/cross_device_official/profiles \
+bash scripts/bash_scripts/run_cross_device_small_models.sh
+```
+
+The default protocol keeps most evaluation rows at 10 episodes, but uses a
+`stage_overrides.measure.n_episodes` row override for `deadly-corridor-sf-l1`
+so its latency profile is measured with 1000 episodes. Passing `N_EPISODES`
+explicitly still overrides all row/stage defaults.
+
 Launcher logs are written to:
 
 ```text
