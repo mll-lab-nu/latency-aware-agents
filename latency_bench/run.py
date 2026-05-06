@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+import sys
+import time
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -68,6 +70,7 @@ def run_from_config(
     extra_metadata: dict[str, Any] | None = None,
     *,
     write_summary: bool = True,
+    on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
 ) -> list[EpisodeMetrics]:
     experiment_cfg = config["experiment"]
     policy_cfg = config["policy"]
@@ -86,13 +89,14 @@ def run_from_config(
         run_episodes = getattr(executor, "run_episodes", None)
         if callable(run_episodes):
             episode_ids = list(range(num_episodes))
-            metrics = list(
-                run_episodes(
-                    episode_ids=episode_ids,
-                    seeds=[_episode_seed(config, episode_id) for episode_id in episode_ids],
-                    eval_max_steps=eval_max_steps,
-                )
-            )
+            run_episodes_kwargs: dict[str, Any] = {
+                "episode_ids": episode_ids,
+                "seeds": [_episode_seed(config, episode_id) for episode_id in episode_ids],
+                "eval_max_steps": eval_max_steps,
+            }
+            if on_episode_complete is not None:
+                run_episodes_kwargs["on_episode_complete"] = on_episode_complete
+            metrics = list(run_episodes(**run_episodes_kwargs))
         else:
             for episode_id in range(num_episodes):
                 episode_metrics = executor.run_episode(
@@ -101,6 +105,8 @@ def run_from_config(
                     eval_max_steps=eval_max_steps,
                 )
                 metrics.append(episode_metrics)
+                if on_episode_complete is not None:
+                    on_episode_complete(episode_metrics)
         metrics.sort(key=lambda item: int(item.episode_id))
         for episode_metrics in metrics:
             for key, value in _evaluation_raw_fact_metadata(config, int(episode_metrics.episode_id)).items():
@@ -160,15 +166,51 @@ def _metadata_id(config: dict[str, Any], *keys: str) -> str | None:
     return None
 
 
-def run_eval_sweep_from_config(config: dict[str, Any]) -> list[EpisodeMetrics]:
+def run_eval_sweep_from_config(
+    config: dict[str, Any],
+    *,
+    progress: bool = False,
+) -> list[EpisodeMetrics]:
     eval_latency_values = _eval_latency_values(config)
     if eval_latency_values is None:
-        return run_from_config(config)
+        if not progress:
+            return run_from_config(config)
+        _print_progress_start(config, num_sweeps=1)
+        start_time = time.perf_counter()
+        latency_label = _progress_latency_label(_summary_latency_label(config))
+        print(f"[bench] sweep 1/1: eval_latency={latency_label}", file=sys.stderr, flush=True)
+        completed = 0
+        num_episodes = int(config["experiment"].get("num_episodes", 1))
+
+        def on_episode_complete(_episode_metrics: EpisodeMetrics) -> None:
+            nonlocal completed
+            completed += 1
+            print(
+                f"[bench] sweep 1/1 episode {completed}/{num_episodes} done",
+                file=sys.stderr,
+                flush=True,
+            )
+
+        metrics = run_from_config(config, on_episode_complete=on_episode_complete)
+        elapsed = time.perf_counter() - start_time
+        print(f"[bench] sweep 1/1 complete elapsed={elapsed:.1f}s", file=sys.stderr, flush=True)
+        return metrics
 
     base_output_dir = Path(config["logging"]["output_dir"])
     train_latency_steps = _train_latency_steps(config)
     all_metrics: list[EpisodeMetrics] = []
-    for eval_latency_steps in eval_latency_values:
+    num_sweeps = len(eval_latency_values)
+    num_episodes = int(config["experiment"].get("num_episodes", 1))
+    if progress:
+        _print_progress_start(config, num_sweeps=num_sweeps)
+    for sweep_index, eval_latency_steps in enumerate(eval_latency_values, start=1):
+        if progress:
+            print(
+                f"[bench] sweep {sweep_index}/{num_sweeps}: eval_latency={eval_latency_steps}",
+                file=sys.stderr,
+                flush=True,
+            )
+        start_time = time.perf_counter()
         sweep_config = deepcopy(config)
         configured_latency_ms = _latency_steps_to_ms(sweep_config, eval_latency_steps)
         _apply_eval_latency(sweep_config, eval_latency_steps, configured_latency_ms)
@@ -179,10 +221,22 @@ def run_eval_sweep_from_config(config: dict[str, Any]) -> list[EpisodeMetrics]:
             "eval_latency_steps": eval_latency_steps,
             "configured_latency_ms": configured_latency_ms,
         }
+        completed = 0
+
+        def on_episode_complete(_episode_metrics: EpisodeMetrics) -> None:
+            nonlocal completed
+            completed += 1
+            print(
+                f"[bench] sweep {sweep_index}/{num_sweeps} episode {completed}/{num_episodes} done",
+                file=sys.stderr,
+                flush=True,
+            )
+
         latency_metrics = run_from_config(
             sweep_config,
             extra_metadata=summary_metadata,
             write_summary=False,
+            on_episode_complete=on_episode_complete if progress else None,
         )
         write_queue_eval_summary(
             base_output_dir,
@@ -192,8 +246,33 @@ def run_eval_sweep_from_config(config: dict[str, Any]) -> list[EpisodeMetrics]:
             latency=eval_latency_steps,
             metadata=summary_metadata,
         )
+        if progress:
+            elapsed = time.perf_counter() - start_time
+            print(
+                f"[bench] sweep {sweep_index}/{num_sweeps} complete elapsed={elapsed:.1f}s",
+                file=sys.stderr,
+                flush=True,
+            )
         all_metrics.extend(latency_metrics)
     return all_metrics
+
+
+def _print_progress_start(config: dict[str, Any], *, num_sweeps: int) -> None:
+    num_episodes = int(config["experiment"].get("num_episodes", 1))
+    print(
+        f"[bench] run={config['experiment'].get('name', 'latency_bench')} "
+        f"sweeps={num_sweeps} "
+        f"episodes_per_sweep={num_episodes} "
+        f"total_episode_runs={num_sweeps * num_episodes}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _progress_latency_label(latency_label: int | str | None) -> str:
+    if latency_label is None:
+        return "current"
+    return str(latency_label)
 
 
 def _eval_latency_values(config: dict[str, Any]) -> list[int] | None:
@@ -238,15 +317,15 @@ def _write_non_sweep_summary(
     config: dict[str, Any],
     metrics: list[EpisodeMetrics],
 ) -> dict[str, Any] | None:
-    latency_steps = _infer_latency_steps(config)
-    if latency_steps is None:
+    latency_label = _summary_latency_label(config)
+    if latency_label is None:
         return None
     return write_queue_eval_summary(
         config["logging"]["output_dir"],
         metrics,
         experiment_name=str(config["experiment"].get("name", "latency_bench")),
         seed=int(config["experiment"].get("seed", 0)),
-        latency=latency_steps,
+        latency=latency_label,
     )
 
 
@@ -283,6 +362,18 @@ def _single_latency_value(values: Any) -> int | None:
     return int(values[0])
 
 
+def _summary_latency_label(config: dict[str, Any]) -> int | str | None:
+    latency_steps = _infer_latency_steps(config)
+    if latency_steps is not None:
+        return latency_steps
+
+    executor_mode = str(config.get("executor", {}).get("mode", "")).strip().lower()
+    latency_type = str(config.get("latency", {}).get("type", "")).strip().lower()
+    if executor_mode == "realtime" and latency_type:
+        return latency_type
+    return None
+
+
 def _summary_payloads_for_printing(
     config: dict[str, Any],
     metrics: list[EpisodeMetrics],
@@ -291,15 +382,15 @@ def _summary_payloads_for_printing(
     seed = int(config["experiment"].get("seed", 0))
     eval_latency_values = _eval_latency_values(config)
     if eval_latency_values is None:
-        latency_steps = _infer_latency_steps(config)
-        if latency_steps is None:
+        latency_label = _summary_latency_label(config)
+        if latency_label is None:
             return []
         return [
             build_queue_eval_summary(
                 metrics,
                 experiment_name=experiment_name,
                 seed=seed,
-                latency=latency_steps,
+                latency=latency_label,
             )
         ]
 
@@ -344,7 +435,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         output_dir=args.output_dir,
         checkpoint_kind=args.checkpoint_kind,
     )
-    metrics = run_eval_sweep_from_config(config)
+    metrics = run_eval_sweep_from_config(config, progress=True)
     for episode_metrics in metrics:
         eval_latency = episode_metrics.metadata.get("eval_latency_steps")
         latency_fragment = f"eval_latency={eval_latency} " if eval_latency is not None else ""
@@ -357,7 +448,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     for summary in _summary_payloads_for_printing(config, metrics):
         print(
-            f"summary latency={int(summary['latency'])} "
+            f"summary latency={summary['latency']} "
             f"episodes={len(summary['returns'])} "
             f"mean_return={float(summary['mean_return']):.3f} "
             f"std_return={float(summary['std_return']):.3f} "

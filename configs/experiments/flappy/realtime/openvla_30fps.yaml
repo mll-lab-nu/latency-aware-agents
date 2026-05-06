@@ -1,0 +1,57 @@
+__base__:
+  - ../../../base/flappy.yaml
+
+executor:
+  mode: realtime
+
+experiment:
+  name: flappy_openvla_sft_eval
+  seed: 0
+  num_episodes: 100
+
+env:
+  obs_resize: [84, 84]
+  fps_env: 30
+
+policy:
+  type: flappy_openvla
+  base_model_path: /root/openvla-7b
+  checkpoint_path: /root/flappy_openvla_sft_checkpoints/global_step_1500
+  prompt: "You are playing Flappy Bird from a single image. Choose exactly one action from: NOOP, FLAP. Navigate through pipes without crashing to maximize score."
+  image_size: 224
+  action_dim: 2
+  num_action_chunks: 1
+  add_value_head: false
+  max_prompt_length: 50
+  num_images_in_input: 1
+  center_crop: true
+  trust_remote_code: true
+  unnorm_key: flappy_bird
+  device: cuda
+  actions:
+    - noop
+    - flap
+
+control:
+  frequency_hz: 30
+
+latency:
+  type: measured
+  device: cuda:0
+  sync_cuda: true
+  train_values: null
+
+evaluation:
+  eval_parallel_envs: 1
+  eval_latency_values: null
+  eval_max_steps: 3600
+
+scheduler:
+  stale_action_mode: latest_ready
+
+
+logging:
+  output_dir: outputs/flappy_openvla_realtime_measured_30fps
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

@@ -89,6 +89,47 @@ evaluation:
     )
 
 
+def _write_dummy_realtime_measured_config(
+    path: Path,
+    output_dir: Path,
+    num_episodes: int = 1,
+) -> None:
+    path.write_text(
+        f"""
+experiment:
+  name: realtime_default
+  seed: 0
+  num_episodes: {num_episodes}
+executor:
+  mode: realtime
+env:
+  name: dummy
+  fps_env: 30
+  noop_action: noop
+  action_map:
+    noop: noop
+    jump: jump
+control:
+  frequency_hz: 30
+  observe_every_n_frames: 1
+latency:
+  type: measured
+  train_values: null
+scheduler:
+  persistence_mode: noop_after_oneshot
+  stale_action_mode: latest_ready
+policy:
+  type: constant
+  action: jump
+evaluation:
+  eval_max_steps: 1
+logging:
+  output_dir: {output_dir}
+""",
+        encoding="utf-8",
+    )
+
+
 def _run_config(policy_type: str, tmp_path: Path, seed: int = 7, num_episodes: int = 3) -> dict:
     return {
         "experiment": {
@@ -282,6 +323,16 @@ def test_run_from_config_requires_evaluation_eval_max_steps(monkeypatch, tmp_pat
         latency_run.run_from_config(config)
 
 
+def test_run_from_config_is_quiet_by_default(tmp_path: Path, capsys):
+    config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
+
+    latency_run.run_from_config(config, write_summary=False)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
 def test_main_applies_runtime_overrides(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_output_dir = tmp_path / "config_output"
@@ -343,9 +394,48 @@ def test_main_writes_non_sweep_queue_eval_summary(tmp_path: Path, capsys):
 
     results = [json.loads(line) for line in results_path.read_text(encoding="utf-8").splitlines()]
     assert results == [summary]
-    assert "summary latency=0 episodes=3 mean_return=1.000 std_return=0.000 mean_length=1.0" in (
-        capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert "summary latency=0 episodes=3 mean_return=1.000 std_return=0.000 mean_length=1.0" in captured.out
+    assert "[bench] run=config_default sweeps=1 episodes_per_sweep=3 total_episode_runs=3" in captured.err
+    assert "[bench] sweep 1/1: eval_latency=0" in captured.err
+    assert "[bench] sweep 1/1 episode 3/3 done" in captured.err
+    assert "[bench] sweep 1/1 complete elapsed=" in captured.err
+
+
+def test_main_writes_realtime_measured_summary_with_string_latency_label(tmp_path: Path, capsys):
+    config_path = tmp_path / "config.yaml"
+    output_dir = tmp_path / "realtime_output"
+    _write_dummy_realtime_measured_config(config_path, output_dir, num_episodes=2)
+
+    main(["--config", str(config_path)])
+
+    metrics_path = output_dir / "episode_metrics.jsonl"
+    summary_path = output_dir / "queue_eval_latency_measured.json"
+    results_path = output_dir / "queue_eval_results.jsonl"
+    assert metrics_path.is_file()
+    assert len(metrics_path.read_text(encoding="utf-8").splitlines()) == 2
+    assert summary_path.is_file()
+    assert results_path.is_file()
+    assert not (output_dir / "queue_eval_latency_0.json").exists()
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["experiment_name"] == "realtime_default"
+    assert summary["seed"] == 0
+    assert summary["latency"] == "measured"
+    assert summary["mean_return"] == 1.0
+    assert summary["std_return"] == 0.0
+    assert summary["mean_length"] == 1.0
+    assert summary["returns"] == [1.0, 1.0]
+    assert summary["lengths"] == [1, 1]
+
+    results = [json.loads(line) for line in results_path.read_text(encoding="utf-8").splitlines()]
+    assert results == [summary]
+    captured = capsys.readouterr()
+    assert (
+        "summary latency=measured episodes=2 mean_return=1.000 std_return=0.000 mean_length=1.0"
+        in captured.out
     )
+    assert "[bench] sweep 1/1: eval_latency=measured" in captured.err
 
 
 def test_main_parallel_subproc_simulated_eval_keeps_output_schema(tmp_path: Path):
@@ -378,7 +468,7 @@ def test_main_parallel_subproc_simulated_eval_keeps_output_schema(tmp_path: Path
     assert summary["returns"] == [1.0, 1.0, 1.0]
 
 
-def test_main_runs_eval_latency_sweep_into_separate_output_dirs(tmp_path: Path):
+def test_main_runs_eval_latency_sweep_into_separate_output_dirs(tmp_path: Path, capsys):
     config_path = tmp_path / "config.yaml"
     output_dir = tmp_path / "sweep_output"
     _write_dummy_sweep_config(config_path, output_dir)
@@ -433,3 +523,14 @@ def test_main_runs_eval_latency_sweep_into_separate_output_dirs(tmp_path: Path):
     assert latency_3_summary["returns"] == [1.0]
     assert latency_3_summary["lengths"] == [1]
     assert results == [latency_0_summary, latency_3_summary]
+
+    captured = capsys.readouterr()
+    assert "summary latency=0 episodes=1 mean_return=1.000 std_return=0.000 mean_length=1.0" in captured.out
+    assert "summary latency=3 episodes=1 mean_return=1.000 std_return=0.000 mean_length=1.0" in captured.out
+    assert "[bench] run=sweep_config sweeps=2 episodes_per_sweep=1 total_episode_runs=2" in captured.err
+    assert "[bench] sweep 1/2: eval_latency=0" in captured.err
+    assert "[bench] sweep 1/2 episode 1/1 done" in captured.err
+    assert "[bench] sweep 1/2 complete elapsed=" in captured.err
+    assert "[bench] sweep 2/2: eval_latency=3" in captured.err
+    assert "[bench] sweep 2/2 episode 1/1 done" in captured.err
+    assert "[bench] sweep 2/2 complete elapsed=" in captured.err

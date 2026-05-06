@@ -139,6 +139,7 @@ class BatchedSimulatedLatencyExecutor:
         episode_ids: Sequence[int],
         seeds: Sequence[int | None],
         eval_max_steps: int = 10000,
+        on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
     ) -> list[EpisodeMetrics]:
         if eval_max_steps < 0:
             raise ValueError("eval_max_steps must be non-negative")
@@ -164,7 +165,7 @@ class BatchedSimulatedLatencyExecutor:
             active_slots = self._active_slots()
             if eval_max_steps == 0:
                 for slot in active_slots:
-                    self._complete_slot(slot)
+                    self._complete_slot(slot, on_episode_complete=on_episode_complete)
                     if next_episode_index < len(episode_ids):
                         self._start_slot(
                             slot,
@@ -233,7 +234,7 @@ class BatchedSimulatedLatencyExecutor:
 
                 slot.env_step += 1
                 if episode_done or slot.env_step >= eval_max_steps:
-                    self._complete_slot(slot)
+                    self._complete_slot(slot, on_episode_complete=on_episode_complete)
                     if next_episode_index < len(episode_ids):
                         self._start_slot(
                             slot,
@@ -280,7 +281,12 @@ class BatchedSimulatedLatencyExecutor:
         self.started_episodes += 1
         self.active_slots = sum(1 for item in self.slots if item.active)
 
-    def _complete_slot(self, slot: _SlotState) -> None:
+    def _complete_slot(
+        self,
+        slot: _SlotState,
+        *,
+        on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
+    ) -> None:
         if not slot.active or slot.episode_id is None:
             return
         episode_id = int(slot.episode_id)
@@ -312,6 +318,8 @@ class BatchedSimulatedLatencyExecutor:
         self.slot_episode_id[slot.slot_id] = None
         self.active_slots = sum(1 for item in self.slots if item.active)
         self._flush_completed_in_episode_order()
+        if on_episode_complete is not None:
+            on_episode_complete(metrics)
 
     def _enqueue_policy_output(self, slot: _SlotState, observation, policy_output) -> None:
         obs_id = self._next_obs_id

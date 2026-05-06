@@ -1,0 +1,12 @@
+python -m latency_bench.experiments.build_latency_profile_from_trace \
+    --latencies outputs/realtime/flappy_l0_seed0_best_measured/actions.jsonl \
+    --output-dir outputs/profiles/flappy_sf_l0_seed0_best_cuda0_action_ready \
+    --profile-id flappy_sf_l0_seed0_best_b200_action_ready \
+    --profile-type rollout_profile \
+    --latency-scope policy_predict_only \
+    --policy-id flappy_sf_l0_seed0_best \
+    --env-id flappy \
+    --target-device b200 \
+    --fps 30 \
+    --batch-size 1 \
+    --n-warmup 10

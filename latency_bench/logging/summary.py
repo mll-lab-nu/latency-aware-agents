@@ -10,6 +10,8 @@ from typing import Any
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.logging.records import to_jsonable
 
+LatencyLabel = int | str
+
 
 _LATENCY_METADATA_KEYS = (
     "train_latency_steps",
@@ -24,7 +26,7 @@ def build_queue_eval_summary(
     *,
     experiment_name: str,
     seed: int,
-    latency: int,
+    latency: LatencyLabel,
     metadata: Mapping[str, Any] | None = None,
     timestamp_utc: str | None = None,
 ) -> dict[str, Any]:
@@ -34,7 +36,7 @@ def build_queue_eval_summary(
         "experiment_name": str(experiment_name),
         "seed": int(seed),
         "timestamp_utc": timestamp_utc or datetime.now(timezone.utc).isoformat(),
-        "latency": int(latency),
+        "latency": _latency_payload_value(latency),
         "mean_return": _mean(returns),
         "std_return": _std(returns),
         "mean_length": _mean([float(length) for length in lengths]),
@@ -51,7 +53,7 @@ def write_queue_eval_summary(
     *,
     experiment_name: str,
     seed: int,
-    latency: int,
+    latency: LatencyLabel,
     metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     output_path = Path(output_dir)
@@ -64,7 +66,8 @@ def write_queue_eval_summary(
         metadata=metadata,
     )
 
-    latency_file = output_path / f"queue_eval_latency_{int(latency)}.json"
+    latency_fragment = _latency_filename_fragment(payload["latency"])
+    latency_file = output_path / f"queue_eval_latency_{latency_fragment}.json"
     with latency_file.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
         handle.write("\n")
@@ -74,6 +77,28 @@ def write_queue_eval_summary(
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
     return payload
+
+
+def _latency_payload_value(latency: LatencyLabel) -> int | str:
+    if isinstance(latency, int) and not isinstance(latency, bool):
+        return int(latency)
+    label = str(latency).strip()
+    if not label:
+        raise ValueError("latency label must not be empty")
+    return label
+
+
+def _latency_filename_fragment(latency: int | str) -> str:
+    if isinstance(latency, int) and not isinstance(latency, bool):
+        return str(int(latency))
+    fragment = "".join(
+        char if char.isalnum() or char in {"-", "_", "."} else "_"
+        for char in str(latency)
+    )
+    fragment = fragment.strip("._-")
+    if not fragment:
+        raise ValueError("latency label must contain at least one filename-safe character")
+    return fragment
 
 
 def _latency_metadata(
