@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 import json
 from pathlib import Path
 import sys
-from typing import Any, Mapping
+from typing import Any, Mapping, NamedTuple, Sequence
 
 import gymnasium as gym
 
@@ -19,6 +20,13 @@ from training.sample_factory_common import import_integration_module, load_train
 from training.sample_factory_common.checkpoint_io import load_sample_factory_checkpoint_from_paths
 from training.sample_factory_common.common import maybe_set_cli_override
 from training.sample_factory_common.queue_eval import prepare_queue_eval_cfg
+
+
+class EpisodeSpec(NamedTuple):
+    local_idx: int
+    episode_idx: int
+    split: str
+    seed: int
 
 
 def _register_components(module, env_name: str) -> None:
@@ -150,7 +158,7 @@ def _prepare_export_cfg(module, env_name: str, base_cfg, latency: int):
     return cfg
 
 
-def _build_env_and_policy(module, cfg, env_name: str):
+def _build_env_and_policy(module, cfg, env_name: str, num_envs: int):
     import torch
     from sample_factory.algo.sampling.batched_sampling import preprocess_actions
     from sample_factory.algo.utils.action_distributions import argmax_actions
@@ -163,12 +171,20 @@ def _build_env_and_policy(module, cfg, env_name: str):
     from sample_factory.utils.attr_dict import AttrDict
     from sample_factory.algo.learning.learner import Learner
 
-    def build_env_and_model(local_cfg):
+    env_count = int(num_envs)
+    if env_count < 1:
+        raise ValueError(f"num_envs must be positive, got {num_envs}")
+
+    def build_env(local_cfg, env_id: int):
         local_env = make_env_func_batched(
             local_cfg,
-            env_config=AttrDict(worker_index=0, vector_index=0, env_id=0),
+            env_config=AttrDict(worker_index=0, vector_index=int(env_id), env_id=int(env_id)),
             render_mode="rgb_array" if env_name in {"flappy", "demon_attack"} else None,
         )
+        return local_env
+
+    def build_env_and_model(local_cfg):
+        local_env = build_env(local_cfg, 0)
         local_env_info = extract_env_info(local_env, local_cfg)
         local_actor_critic = create_actor_critic(local_cfg, local_env.observation_space, local_env.action_space)
         local_actor_critic.eval()
@@ -239,8 +255,13 @@ def _build_env_and_policy(module, cfg, env_name: str):
         except Exception:
             load_sf_policy_state_dict(cfg, actor_critic, device)
 
+    envs = [env]
+    for env_id in range(1, env_count):
+        envs.append(build_env(cfg, env_id))
+
     return {
         "env": env,
+        "envs": envs,
         "env_info": env_info,
         "actor_critic": actor_critic,
         "device": device,
@@ -401,6 +422,87 @@ def _save_observation_image(
         image = image.resize(export_image_size, Image.BILINEAR)
     image.save(image_path)
     return str(image_path)
+
+
+def _frame_from_observation(obs: Any, env_name: str, frame_stack: int) -> np.ndarray:
+    single_obs = _extract_single_observation(obs)
+    return _latest_frame_from_observation(single_obs, env_name=env_name, frame_stack=frame_stack)
+
+
+def _frame_for_image_source(
+    obs: Any,
+    env: Any,
+    env_name: str,
+    frame_stack: int,
+    image_source: str,
+) -> np.ndarray:
+    source = str(image_source)
+    if source == "observation":
+        return _frame_from_observation(obs, env_name=env_name, frame_stack=frame_stack)
+    if source != "render":
+        raise ValueError(f"Unsupported image source: {image_source}")
+    if env_name not in {"flappy", "demon_attack"}:
+        return _frame_from_observation(obs, env_name=env_name, frame_stack=frame_stack)
+    render_fn = getattr(env, "render", None)
+    if not callable(render_fn):
+        raise RuntimeError(f"Environment {env_name} does not expose render() for image export")
+    rendered = render_fn()
+    if rendered is None:
+        raise RuntimeError(f"Environment {env_name} returned None from render()")
+    return np.asarray(rendered, dtype=np.uint8)
+
+
+def _save_frame_image(
+    frame: np.ndarray,
+    image_path: Path,
+    export_image_size: tuple[int, int] | None,
+    resize_image: bool,
+) -> str:
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.fromarray(np.asarray(frame, dtype=np.uint8))
+    if resize_image and export_image_size is not None and image.size != export_image_size:
+        image = image.resize(export_image_size, Image.BILINEAR)
+    image.save(image_path)
+    return str(image_path)
+
+
+def _drain_completed_image_writes(pending_futures: set[Future[str]]) -> set[Future[str]]:
+    remaining: set[Future[str]] = set()
+    for future in pending_futures:
+        if future.done():
+            future.result()
+        else:
+            remaining.add(future)
+    return remaining
+
+
+def _submit_image_write(
+    executor: ThreadPoolExecutor | None,
+    pending_futures: set[Future[str]],
+    frame: np.ndarray,
+    image_path: Path,
+    export_image_size: tuple[int, int] | None,
+    resize_image: bool,
+    max_pending_writes: int,
+) -> tuple[str, set[Future[str]]]:
+    frame_to_write = np.array(frame, copy=True)
+    if executor is None:
+        return _save_frame_image(frame_to_write, image_path, export_image_size, resize_image), pending_futures
+
+    limit = max(1, int(max_pending_writes))
+    pending = _drain_completed_image_writes(pending_futures)
+    while len(pending) >= limit:
+        completed, pending = wait(pending, return_when=FIRST_COMPLETED)
+        for future in completed:
+            future.result()
+    future = executor.submit(_save_frame_image, frame_to_write, image_path, export_image_size, resize_image)
+    pending.add(future)
+    return str(image_path), pending
+
+
+def _wait_for_image_writes(pending_futures: set[Future[str]]) -> None:
+    for future in pending_futures:
+        future.result()
 
 
 def _flappy_action_labels() -> dict[int, str]:
@@ -586,6 +688,91 @@ def _select_val_indices(total: int, val_count: int, split_seed: int) -> set[int]
     return set(int(item) for item in indices[:val_count])
 
 
+def _build_episode_specs(
+    episode_count: int,
+    val_indices: set[int],
+    global_episode_start: int,
+    base_seed: int,
+    latency: int,
+) -> list[EpisodeSpec]:
+    specs: list[EpisodeSpec] = []
+    for local_idx in range(int(episode_count)):
+        split = "val" if int(local_idx) in val_indices else "train"
+        specs.append(
+            EpisodeSpec(
+                local_idx=int(local_idx),
+                episode_idx=int(global_episode_start) + int(local_idx),
+                split=split,
+                seed=int(base_seed) + int(latency) * 100_000 + int(local_idx),
+            )
+        )
+    return specs
+
+
+def _take_next_episode_specs(
+    specs: Sequence[EpisodeSpec],
+    start_index: int,
+    slot_count: int,
+) -> tuple[list[EpisodeSpec], int]:
+    start = int(start_index)
+    if start < 0:
+        raise ValueError(f"start_index must be non-negative, got {start_index}")
+    slots = int(slot_count)
+    if slots < 0:
+        raise ValueError(f"slot_count must be non-negative, got {slot_count}")
+    end = min(len(specs), start + slots)
+    return list(specs[start:end]), end
+
+
+def _batch_observations(observations: Sequence[Any]) -> Any:
+    if not observations:
+        raise ValueError("Cannot batch an empty observation sequence")
+    first = observations[0]
+    if isinstance(first, Mapping):
+        keys = tuple(first.keys())
+        for obs in observations:
+            if not isinstance(obs, Mapping):
+                raise TypeError("All observations must have the same structure")
+            if tuple(obs.keys()) != keys:
+                raise ValueError("All mapping observations must have identical keys")
+        return {
+            key: _batch_observations([obs[key] for obs in observations])
+            for key in keys
+        }
+
+    arrays = [np.asarray(obs) for obs in observations]
+    if arrays[0].ndim >= 1 and arrays[0].shape[0] == 1:
+        return np.concatenate(arrays, axis=0)
+    return np.stack(arrays, axis=0)
+
+
+def _select_batch_item(value: Any, index: int) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            key: _select_batch_item(item, index)
+            for key, item in value.items()
+        }
+    try:
+        import torch
+    except ImportError:
+        torch = None
+    if torch is not None and isinstance(value, torch.Tensor):
+        return value[int(index) : int(index) + 1]
+    if isinstance(value, np.ndarray):
+        return value[int(index) : int(index) + 1]
+    if isinstance(value, list):
+        if value:
+            first_item = value[0]
+            is_structured_item = isinstance(first_item, (Mapping, list, tuple, np.ndarray))
+            is_tensor_item = torch is not None and isinstance(first_item, torch.Tensor)
+            if is_structured_item or is_tensor_item:
+                return [_select_batch_item(item, index) for item in value]
+        return [value[int(index)]]
+    if isinstance(value, tuple):
+        return tuple(_select_batch_item(item, index) for item in value)
+    raise TypeError(f"Unsupported batched value type: {type(value).__name__}")
+
+
 def _find_experiment_dir(checkpoint_root: Path, env_name: str, latency: int, seed: int) -> Path:
     expected_name = f"{env_name}_sf_same_latency_l{latency}_seed{seed}"
     direct = checkpoint_root / expected_name
@@ -689,6 +876,249 @@ def _reward_from_step(reward_value: Any, info: dict[str, Any], *, prefer_raw_rew
     return float(_to_python_scalar(reward_value))
 
 
+def _build_export_row(
+    image_path: str,
+    split: str,
+    prompt_text: str,
+    action_id: int,
+    action_text: str,
+    latency: int,
+    latency_ms: float,
+    reward_value: float,
+    done: bool,
+    episode_idx: int,
+    t: int,
+    seed: int,
+    deterministic: bool,
+) -> dict[str, Any]:
+    return {
+        "image": image_path,
+        "split": split,
+        "prompt": prompt_text,
+        "action_id": int(action_id),
+        "action_text": action_text,
+        "latency": int(latency),
+        "latency_ms": float(latency_ms),
+        "reward": float(reward_value),
+        "done": bool(done),
+        "episode_idx": int(episode_idx),
+        "t": int(t),
+        "seed": int(seed),
+        "deterministic": bool(deterministic),
+    }
+
+
+def _batched_reward_item(reward: Any, index: int) -> Any:
+    try:
+        import torch
+    except ImportError:
+        torch = None
+    if torch is not None and isinstance(reward, torch.Tensor):
+        return reward[int(index)]
+    if isinstance(reward, np.ndarray):
+        return reward[int(index)]
+    if isinstance(reward, (list, tuple)):
+        return reward[int(index)]
+    return reward
+
+
+def _collect_latency_dataset_batched(
+    *,
+    env_name: str,
+    module,
+    base_cfg,
+    latency: int,
+    episode_count: int,
+    val_indices: set[int],
+    max_steps_per_episode: int,
+    prompt: str,
+    mixed_prompt_template: str,
+    dataset_mode: str,
+    output_dir: Path,
+    global_episode_start: int,
+    deterministic: bool,
+    export_image_size: tuple[int, int] | None,
+    num_envs: int,
+    image_writer_workers: int,
+    row_buffer_size: int,
+    image_source: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    import torch
+    from sample_factory.algo.utils.rl_utils import make_dones
+
+    cfg = _prepare_export_cfg(module, env_name, base_cfg, latency)
+    runtime = _build_env_and_policy(module, cfg, env_name, int(num_envs))
+    envs = list(runtime["envs"])
+    env_info = runtime["env_info"]
+    actor_critic = runtime["actor_critic"]
+    device = runtime["device"]
+    preprocess_actions = runtime["preprocess_actions"]
+    argmax_actions = runtime["argmax_actions"]
+    prepare_and_normalize_obs = runtime["prepare_and_normalize_obs"]
+    unsqueeze_tensor = runtime["unsqueeze_tensor"]
+    rnn_size = runtime["rnn_size"]
+    action_labels = _action_labels_for_env(env_name, cfg, envs[0])
+    prefer_raw_reward = bool(getattr(cfg, "eval_raw_reward", False))
+    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+    decision_period_ms = _decision_period_ms_from_cfg(env_name, cfg)
+    latency_ms = float(latency) * decision_period_ms
+    base_seed = int(getattr(cfg, "seed", 0) or 0)
+    specs = _build_episode_specs(
+        episode_count=int(episode_count),
+        val_indices=val_indices,
+        global_episode_start=int(global_episode_start),
+        base_seed=base_seed,
+        latency=int(latency),
+    )
+
+    train_rows: list[dict[str, Any]] = []
+    val_rows: list[dict[str, Any]] = []
+    active_specs: list[EpisodeSpec | None] = [None for _ in envs]
+    active_obs: list[Any | None] = [None for _ in envs]
+    active_t: list[int] = [0 for _ in envs]
+    rnn_states = torch.zeros([len(envs), rnn_size], dtype=torch.float32, device=device)
+    pending_futures: set[Future[str]] = set()
+    executor = (
+        ThreadPoolExecutor(max_workers=int(image_writer_workers))
+        if int(image_writer_workers) > 0
+        else None
+    )
+
+    def start_episode(slot: int, spec: EpisodeSpec) -> None:
+        obs, _ = envs[int(slot)].reset(seed=int(spec.seed))
+        active_specs[int(slot)] = spec
+        active_obs[int(slot)] = obs
+        active_t[int(slot)] = 0
+        rnn_states[int(slot)] = torch.zeros_like(rnn_states[int(slot)])
+
+    try:
+        next_spec_index = 0
+        initial_specs, next_spec_index = _take_next_episode_specs(
+            specs=specs,
+            start_index=next_spec_index,
+            slot_count=len(envs),
+        )
+        for slot, spec in enumerate(initial_specs):
+            start_episode(slot, spec)
+
+        completed_episodes = 0
+        while completed_episodes < int(episode_count):
+            active_slots = [idx for idx, spec in enumerate(active_specs) if spec is not None]
+            if not active_slots:
+                break
+
+            obs_batch = _batch_observations([active_obs[idx] for idx in active_slots])
+            rnn_batch = rnn_states[active_slots]
+            normalized_obs = prepare_and_normalize_obs(actor_critic, obs_batch)
+            with torch.no_grad():
+                policy_outputs = actor_critic(normalized_obs, rnn_batch)
+                actions = policy_outputs["actions"]
+                if deterministic:
+                    actions = argmax_actions(actor_critic.action_distribution())
+                if actions.ndim == 1:
+                    actions = unsqueeze_tensor(actions, dim=-1)
+                policy_actions = actions
+                processed_actions = preprocess_actions(env_info, actions)
+                new_rnn_states = policy_outputs["new_rnn_states"]
+
+            for batch_idx, slot in enumerate(active_slots):
+                spec = active_specs[slot]
+                obs = active_obs[slot]
+                if spec is None or obs is None:
+                    raise RuntimeError(f"Active slot {slot} has no episode state")
+
+                split_rows = val_rows if spec.split == "val" else train_rows
+                t = int(active_t[slot])
+                image_path = output_dir / "images" / spec.split / f"episode_{spec.episode_idx:06d}" / f"t_{t:06d}.png"
+                frame = _frame_for_image_source(
+                    obs=obs,
+                    env=envs[slot],
+                    env_name=env_name,
+                    frame_stack=frame_stack,
+                    image_source=image_source,
+                )
+                saved_image, pending_futures = _submit_image_write(
+                    executor,
+                    pending_futures,
+                    frame,
+                    image_path,
+                    export_image_size,
+                    env_name not in {"flappy", "demon_attack"},
+                    int(row_buffer_size),
+                )
+
+                slot_policy_action = _select_batch_item(policy_actions, batch_idx)
+                action_id = _policy_action_id(env_name, slot_policy_action)
+                action_text = action_labels.get(action_id, str(action_id))
+                prompt_text = _prompt_for_episode(
+                    dataset_mode=dataset_mode,
+                    prompt=prompt,
+                    mixed_prompt_template=mixed_prompt_template,
+                    latency=latency,
+                    latency_ms=latency_ms,
+                )
+
+                next_obs, reward, terminated, truncated, info = envs[slot].step(
+                    _select_batch_item(processed_actions, batch_idx)
+                )
+                dones = make_dones(terminated, truncated)
+                done = bool(_to_python_scalar(dones[0]))
+                info_single = _extract_single_info(info)
+                reward_value = _reward_from_step(
+                    _batched_reward_item(reward, 0),
+                    info_single,
+                    prefer_raw_reward=prefer_raw_reward,
+                )
+                split_rows.append(
+                    _build_export_row(
+                        image_path=saved_image,
+                        split=spec.split,
+                        prompt_text=prompt_text,
+                        action_id=action_id,
+                        action_text=action_text,
+                        latency=int(latency),
+                        latency_ms=float(latency_ms),
+                        reward_value=float(reward_value),
+                        done=bool(done),
+                        episode_idx=int(spec.episode_idx),
+                        t=t,
+                        seed=int(spec.seed),
+                        deterministic=bool(deterministic),
+                    )
+                )
+
+                rnn_states[slot] = new_rnn_states[batch_idx]
+                next_t = t + 1
+                episode_finished = bool(done) or next_t >= int(max_steps_per_episode)
+                if episode_finished:
+                    completed_episodes += 1
+                    replacement_specs, next_spec_index = _take_next_episode_specs(
+                        specs=specs,
+                        start_index=next_spec_index,
+                        slot_count=1,
+                    )
+                    if replacement_specs:
+                        start_episode(slot, replacement_specs[0])
+                    else:
+                        active_specs[slot] = None
+                        active_obs[slot] = None
+                        active_t[slot] = 0
+                        rnn_states[slot] = torch.zeros_like(rnn_states[slot])
+                else:
+                    active_obs[slot] = next_obs
+                    active_t[slot] = next_t
+    finally:
+        try:
+            _wait_for_image_writes(pending_futures)
+        finally:
+            if executor is not None:
+                executor.shutdown(wait=True)
+            for env in envs:
+                env.close()
+
+    return train_rows, val_rows, {"latency": int(latency), "action_labels": action_labels}
+
+
 def _collect_latency_dataset(
     *,
     env_name: str,
@@ -710,7 +1140,7 @@ def _collect_latency_dataset(
     from sample_factory.algo.utils.rl_utils import make_dones
 
     cfg = _prepare_export_cfg(module, env_name, base_cfg, latency)
-    runtime = _build_env_and_policy(module, cfg, env_name)
+    runtime = _build_env_and_policy(module, cfg, env_name, 1)
     env = runtime["env"]
     env_info = runtime["env_info"]
     actor_critic = runtime["actor_critic"]
@@ -776,21 +1206,21 @@ def _collect_latency_dataset(
             reward_value = _reward_from_step(reward[0] if isinstance(reward, (list, tuple, np.ndarray)) else reward, info_single, prefer_raw_reward=prefer_raw_reward)
 
             split_rows.append(
-                {
-                    "image": saved_image,
-                    "split": split,
-                    "prompt": prompt_text,
-                    "action_id": action_id,
-                    "action_text": action_text,
-                    "latency": int(latency),
-                    "latency_ms": float(latency_ms),
-                    "reward": float(reward_value),
-                    "done": bool(done),
-                    "episode_idx": int(episode_idx),
-                    "t": int(t),
-                    "seed": int(episode_seed),
-                    "deterministic": bool(deterministic),
-                }
+                _build_export_row(
+                    image_path=saved_image,
+                    split=split,
+                    prompt_text=prompt_text,
+                    action_id=action_id,
+                    action_text=action_text,
+                    latency=int(latency),
+                    latency_ms=float(latency_ms),
+                    reward_value=float(reward_value),
+                    done=bool(done),
+                    episode_idx=int(episode_idx),
+                    t=int(t),
+                    seed=int(episode_seed),
+                    deterministic=bool(deterministic),
+                )
             )
 
             obs = next_obs
@@ -802,10 +1232,11 @@ def _collect_latency_dataset(
 
 
 def _build_plan(args) -> list[tuple[int, int, int]]:
-    if args.dataset_mode == "zero_latency":
+    if args.dataset_mode in {"zero_latency", "fixed_latency"}:
         val_count = int(round(args.max_episodes * args.val_fraction))
         val_count = max(0, min(int(args.max_episodes), val_count))
-        return [(0, int(args.max_episodes), val_count)]
+        latency = 0 if args.dataset_mode == "zero_latency" else int(args.fixed_latency)
+        return [(latency, int(args.max_episodes), val_count)]
 
     latencies = list(range(int(args.latency_start), int(args.latency_end) + 1))
     return [(latency, int(args.episodes_per_latency), int(args.val_episodes_per_latency)) for latency in latencies]
@@ -818,7 +1249,7 @@ def main() -> None:
     parser.add_argument("--checkpoint-root", required=True, help="Directory containing latency-specific experiment folders.")
     parser.add_argument("--output-dir", required=True, help="Directory where parquet files and images will be written.")
     parser.add_argument("--export-image-size", type=str, default="", help="Optional saved image size in 'W,H' format, e.g. '512,288'. This does not affect teacher inference.")
-    parser.add_argument("--dataset-mode", required=True, choices=["zero_latency", "mixed_latency"])
+    parser.add_argument("--dataset-mode", required=True, choices=["zero_latency", "fixed_latency", "mixed_latency"])
     parser.add_argument("--prompt", required=True, help="Base prompt used for the zero-latency dataset.")
     parser.add_argument(
         "--mixed-prompt-template",
@@ -828,6 +1259,11 @@ def main() -> None:
     parser.add_argument("--max-steps-per-episode", type=int, required=True)
     parser.add_argument("--device", type=str, default="", help="Optional override for Sample Factory device, e.g. cpu or gpu.")
     parser.add_argument("--deterministic", action="store_true", default=True)
+    parser.add_argument("--collector-mode", type=str, default="batched", choices=["serial", "batched"], help="Rollout collector implementation.")
+    parser.add_argument("--num-envs", type=int, default=1, help="Number of independent environments to roll out concurrently per latency.")
+    parser.add_argument("--image-writer-workers", type=int, default=0, help="Background PNG writer threads. Use 0 for synchronous writes.")
+    parser.add_argument("--row-buffer-size", type=int, default=8192, help="Maximum pending background image writes.")
+    parser.add_argument("--image-source", type=str, default="render", choices=["render", "observation"], help="Source for exported images. 'observation' avoids render() and is fastest.")
     parser.add_argument("--checkpoint-seed", type=int, default=None, help="Seed encoded in checkpoint folder names. Defaults to experiment.seed from the config.")
     parser.add_argument("--split-seed", type=int, default=0)
     parser.add_argument("--push-to-hub", action="store_true", help="Upload the resulting dataset to Hugging Face after writing local parquet files.")
@@ -838,6 +1274,7 @@ def main() -> None:
 
     parser.add_argument("--max-episodes", type=int, default=0, help="Zero-latency mode only.")
     parser.add_argument("--val-fraction", type=float, default=0.1, help="Zero-latency mode only.")
+    parser.add_argument("--fixed-latency", type=int, default=0, help="Fixed-latency mode only.")
 
     parser.add_argument("--latency-start", type=int, default=0, help="Mixed-latency mode only.")
     parser.add_argument("--latency-end", type=int, default=0, help="Mixed-latency mode only.")
@@ -865,13 +1302,21 @@ def main() -> None:
         default_seed = 0
     checkpoint_seed = int(args.checkpoint_seed if args.checkpoint_seed is not None else default_seed)
 
-    if args.dataset_mode == "zero_latency" and args.max_episodes <= 0:
-        raise ValueError("--max-episodes must be positive for zero-latency export")
+    if args.dataset_mode in {"zero_latency", "fixed_latency"} and args.max_episodes <= 0:
+        raise ValueError("--max-episodes must be positive for fixed-latency export")
+    if args.dataset_mode == "fixed_latency" and args.fixed_latency < 0:
+        raise ValueError("--fixed-latency must be non-negative")
     if args.dataset_mode == "mixed_latency":
         if args.episodes_per_latency <= 0:
             raise ValueError("--episodes-per-latency must be positive for mixed-latency export")
         if args.latency_end < args.latency_start:
             raise ValueError("--latency-end must be >= --latency-start")
+    if args.num_envs <= 0:
+        raise ValueError("--num-envs must be positive")
+    if args.image_writer_workers < 0:
+        raise ValueError("--image-writer-workers must be non-negative")
+    if args.row_buffer_size <= 0:
+        raise ValueError("--row-buffer-size must be positive")
 
     train_rows: list[dict[str, Any]] = []
     val_rows: list[dict[str, Any]] = []
@@ -884,6 +1329,11 @@ def main() -> None:
         "deterministic": bool(args.deterministic),
         "checkpoint_root": str(checkpoint_root),
         "export_image_size": list(export_image_size) if export_image_size is not None else None,
+        "collector_mode": str(args.collector_mode),
+        "num_envs": int(args.num_envs),
+        "image_writer_workers": int(args.image_writer_workers),
+        "row_buffer_size": int(args.row_buffer_size),
+        "image_source": str(args.image_source),
         "decision_period_ms": None,
         "latencies": [],
         "action_labels": {},
@@ -922,17 +1372,39 @@ def main() -> None:
         if metadata["decision_period_ms"] is None:
             prepared_cfg = _prepare_export_cfg(module, env_name, base_cfg, latency)
             metadata["decision_period_ms"] = float(_decision_period_ms_from_cfg(env_name, prepared_cfg))
-        latency_train_rows, latency_val_rows, latency_meta = _collect_latency_dataset(
-            env_name=env_name,
-            module=module,
-            base_cfg=base_cfg,
-            latency=latency,
-            episode_count=episode_count,
-            val_indices=val_indices,
-            max_steps_per_episode=int(args.max_steps_per_episode),
-            prompt=args.prompt,
-            mixed_prompt_template=args.mixed_prompt_template,
-            dataset_mode=args.dataset_mode,
+        if args.collector_mode == "batched":
+            latency_train_rows, latency_val_rows, latency_meta = _collect_latency_dataset_batched(
+                env_name=env_name,
+                module=module,
+                base_cfg=base_cfg,
+                latency=latency,
+                episode_count=episode_count,
+                val_indices=val_indices,
+                max_steps_per_episode=int(args.max_steps_per_episode),
+                prompt=args.prompt,
+                mixed_prompt_template=args.mixed_prompt_template,
+                dataset_mode=args.dataset_mode,
+                output_dir=output_dir,
+                global_episode_start=episode_offset,
+                deterministic=bool(args.deterministic),
+                export_image_size=export_image_size,
+                num_envs=int(args.num_envs),
+                image_writer_workers=int(args.image_writer_workers),
+                row_buffer_size=int(args.row_buffer_size),
+                image_source=str(args.image_source),
+            )
+        else:
+            latency_train_rows, latency_val_rows, latency_meta = _collect_latency_dataset(
+                env_name=env_name,
+                module=module,
+                base_cfg=base_cfg,
+                latency=latency,
+                episode_count=episode_count,
+                val_indices=val_indices,
+                max_steps_per_episode=int(args.max_steps_per_episode),
+                prompt=args.prompt,
+                mixed_prompt_template=args.mixed_prompt_template,
+                dataset_mode=args.dataset_mode,
                 output_dir=output_dir,
                 global_episode_start=episode_offset,
                 deterministic=bool(args.deterministic),
