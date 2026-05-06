@@ -86,6 +86,7 @@ NORMAL_CASES=(
   "medium_high_jitter 4 4 0 15"
   "high_stable 8 0.5 0 15"
   "high_jitter 8 2.5 0 15"
+  "medium_medium 2 1 0 15"    # NEW
 )
 
 UNIFORM_CASES=(
@@ -97,6 +98,8 @@ UNIFORM_CASES=(
   "high_medium_jitter 6 10"
   "high_high_jitter 4 12"
   "full_range 0 15"
+  "uni_stable 1 3"    # NEW
+  "uni_jitter 0 4"    # NEW
 )
 
 for row in "${NORMAL_CASES[@]}"; do
