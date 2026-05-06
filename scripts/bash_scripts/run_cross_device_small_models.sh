@@ -21,6 +21,8 @@ cross_device_activate_env "latency"
 cross_device_verify_protocol_script
 cross_device_optional_args
 
+export CROSS_DEVICE_RUNTIME_ENV="latency"
+
 echo "== Cross-device small model protocol =="
 cross_device_print_environment
 echo "Spec: ${SPEC}"
