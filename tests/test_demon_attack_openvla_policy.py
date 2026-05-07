@@ -139,7 +139,7 @@ def test_demon_openvla_missing_dataset_statistics_fails_before_model_load(tmp_pa
         },
     }
 
-    with pytest.raises(FileNotFoundError, match="dataset_statistics.json"):
+    with pytest.raises(FileNotFoundError, match="demon_attack_dataset_statistics.json"):
         build_policy(config, ActionResolver(config["env"]))
 
 

@@ -86,6 +86,7 @@ class DeadlyCorridorOpenVlaPolicyRunner(PolicyRunner):
                 "policy_type": "deadly_corridor_openvla",
                 "base_model_path": str(self._config.base_model_path),
                 "checkpoint_path": str(self._config.checkpoint_path),
+                "dataset_statistics_path": str(self._config.dataset_statistics_path),
                 "prompt_sha256": sha256_text(self._config.prompt),
                 "image_size": self._config.image_size,
                 "action_dim": self._config.action_dim,

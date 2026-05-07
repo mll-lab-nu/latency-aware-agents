@@ -27,6 +27,7 @@ from latency_bench.analysis.cross_device_protocol_tables import (
     write_protocol_tables,
 )
 from latency_bench.core.config import load_config, validate_config
+from latency_bench.policy.openvla_statistics import openvla_dataset_statistics_path
 
 
 OPENVLA_POLICY_TYPES = {
@@ -690,21 +691,25 @@ def _openvla_dependency_errors(config: dict[str, Any]) -> list[str]:
         base_model_path = Path(base_model_value)
         if not _path_exists_safe(base_model_path):
             errors.append(f"missing OpenVLA policy.base_model_path: {base_model_path}")
-    statistics_path = base_model_path / "dataset_statistics.json" if base_model_path is not None else None
+    statistics_path = (
+        openvla_dataset_statistics_path(base_model_path, policy_type)
+        if base_model_path is not None
+        else None
+    )
     if statistics_path is not None:
         if not _path_is_file_safe(statistics_path):
-            errors.append(f"missing OpenVLA dataset_statistics.json: {statistics_path}")
+            errors.append(f"missing OpenVLA dataset statistics file: {statistics_path}")
         else:
             try:
                 statistics = json.loads(statistics_path.read_text(encoding="utf-8"))
             except Exception as exc:
-                errors.append(f"failed to read OpenVLA dataset_statistics.json at {statistics_path}: {exc}")
+                errors.append(f"failed to read OpenVLA dataset statistics file at {statistics_path}: {exc}")
             else:
                 if not isinstance(statistics, dict):
-                    errors.append(f"OpenVLA dataset_statistics.json must contain a JSON object: {statistics_path}")
+                    errors.append(f"OpenVLA dataset statistics file must contain a JSON object: {statistics_path}")
                 elif unnorm_key not in statistics:
                     errors.append(
-                        f"missing OpenVLA unnorm_key {unnorm_key!r} in dataset_statistics.json: {statistics_path}"
+                        f"missing OpenVLA unnorm_key {unnorm_key!r} in dataset statistics file: {statistics_path}"
                     )
     if not unnorm_key:
         errors.append("missing OpenVLA policy.unnorm_key")
@@ -737,11 +742,16 @@ def _openvla_dependency_config(row: dict[str, Any]) -> dict[str, Any]:
 
 def _openvla_dependency_report(config: dict[str, Any]) -> dict[str, str]:
     policy = config.get("policy", {})
+    policy_type = _policy_type(config)
     base_model_value = str(policy.get("base_model_path") or "").strip()
     checkpoint_value = str(policy.get("checkpoint_path") or "").strip()
     unnorm_key = str(policy.get("unnorm_key") or "").strip()
     base_model_path = Path(base_model_value) if base_model_value else None
-    stats_path = base_model_path / "dataset_statistics.json" if base_model_path is not None else None
+    stats_path = (
+        openvla_dataset_statistics_path(base_model_path, policy_type)
+        if base_model_path is not None
+        else None
+    )
     checkpoint_path = Path(checkpoint_value) if checkpoint_value else None
     weights_path = checkpoint_path / "actor" / "model_state_dict" / "full_weights.pt" if checkpoint_path is not None else None
 
@@ -1298,7 +1308,13 @@ def _print_openvla_dependency_status(config: dict[str, Any]) -> None:
     base_model_path = str(policy.get("base_model_path") or "")
     checkpoint_path = str(policy.get("checkpoint_path") or "")
     unnorm_key = str(policy.get("unnorm_key") or "")
+    stats_path = (
+        str(openvla_dataset_statistics_path(Path(base_model_path), _policy_type(config)))
+        if base_model_path
+        else ""
+    )
     print(f"resolved_base_model_path: {base_model_path}")
+    print(f"resolved_dataset_statistics_path: {stats_path}")
     print(f"resolved_checkpoint_path: {checkpoint_path}")
     print(f"resolved_unnorm_key: {unnorm_key}")
     dependency_errors = _openvla_dependency_errors(config)

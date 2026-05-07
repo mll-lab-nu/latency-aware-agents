@@ -15,6 +15,10 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.factory import register_policy
+from latency_bench.policy.openvla_statistics import (
+    openvla_dataset_statistics_filename,
+    openvla_dataset_statistics_path,
+)
 
 
 OpenVlaActionOutput = npt.NDArray[np.floating[Any]] | torch.Tensor
@@ -42,6 +46,11 @@ class OpenVlaPolicyConfig:
     trust_remote_code: bool
     unnorm_key: str
     device: torch.device
+    policy_type: str = "flappy_openvla"
+
+    @property
+    def dataset_statistics_path(self) -> Path:
+        return openvla_dataset_statistics_path(self.base_model_path, self.policy_type)
 
 
 class OpenVlaLoaderConfig(dict[str, Any]):
@@ -119,6 +128,7 @@ class FlappyOpenVlaPolicyRunner(PolicyRunner):
                 "policy_type": "flappy_openvla",
                 "base_model_path": str(self._config.base_model_path),
                 "checkpoint_path": str(self._config.checkpoint_path),
+                "dataset_statistics_path": str(self._config.dataset_statistics_path),
                 "prompt_sha256": sha256_text(self._config.prompt),
                 "image_size": self._config.image_size,
                 "action_dim": self._config.action_dim,
@@ -142,6 +152,7 @@ def sha256_array(value: npt.NDArray[Any]) -> str:
 
 def extract_openvla_policy_config(policy_cfg: Mapping[str, object]) -> OpenVlaPolicyConfig:
     device_name = _required_string(policy_cfg, "device")
+    policy_type = _openvla_policy_type(policy_cfg)
     try:
         device = torch.device(device_name)
     except RuntimeError as error:
@@ -160,11 +171,16 @@ def extract_openvla_policy_config(policy_cfg: Mapping[str, object]) -> OpenVlaPo
         trust_remote_code=_required_bool(policy_cfg, "trust_remote_code"),
         unnorm_key=_required_string(policy_cfg, "unnorm_key"),
         device=device,
+        policy_type=policy_type,
     )
 
 
-def openvla_loader_config(config: OpenVlaPolicyConfig) -> OpenVlaLoaderConfig:
-    return OpenVlaLoaderConfig(
+def openvla_loader_config(
+    config: OpenVlaPolicyConfig,
+    *,
+    norm_stats: Mapping[str, Any] | None = None,
+) -> OpenVlaLoaderConfig:
+    loader_config = OpenVlaLoaderConfig(
         {
             "model_path": str(config.base_model_path),
             "action_dim": config.action_dim,
@@ -177,26 +193,13 @@ def openvla_loader_config(config: OpenVlaPolicyConfig) -> OpenVlaLoaderConfig:
             "unnorm_key": config.unnorm_key,
         }
     )
+    if norm_stats is not None:
+        loader_config["norm_stats"] = norm_stats
+    return loader_config
 
 
 def load_openvla_sft_model(config: OpenVlaPolicyConfig) -> tuple[object, torch.device]:
-    statistics_path = _require_file(config.base_model_path / "dataset_statistics.json")
-    raw = statistics_path.read_text(encoding="utf-8").strip()
-    if not raw:
-        raise ValueError(
-            f"dataset_statistics.json at {statistics_path} is empty. "
-            "Populate it with a flappy_bird entry — see RL-inf ensure_dataset_statistics()."
-        )
-    statistics = json.loads(raw)
-    if not isinstance(statistics, Mapping):
-        raise TypeError(
-            "Expected dataset statistics JSON object at "
-            f"{statistics_path}, got {type(statistics).__name__}"
-        )
-    if config.unnorm_key not in statistics:
-        raise KeyError(
-            f"Missing unnorm key {config.unnorm_key} in dataset statistics at {statistics_path}"
-        )
+    statistics = load_openvla_dataset_statistics(config)
     weights_path = _require_file(_full_weights_path(config.checkpoint_path))
     try:
         from rlinf.models.embodiment.openvla_oft.rlinf import get_model
@@ -212,7 +215,10 @@ def load_openvla_sft_model(config: OpenVlaPolicyConfig) -> tuple[object, torch.d
         f"{config.base_model_path}",
         flush=True,
     )
-    model = cast(OpenVlaModelProtocol, get_model(openvla_loader_config(config)))
+    model = cast(
+        OpenVlaModelProtocol,
+        get_model(openvla_loader_config(config, norm_stats=statistics)),
+    )
     print(
         "[DEBUG][latency_bench.openvla] Loading OpenVLA SFT checkpoint from "
         f"{weights_path}",
@@ -237,6 +243,27 @@ def load_openvla_sft_model(config: OpenVlaPolicyConfig) -> tuple[object, torch.d
     model.to(config.device)
     model.eval()
     return model, config.device
+
+
+def load_openvla_dataset_statistics(config: OpenVlaPolicyConfig) -> dict[str, Any]:
+    statistics_path = _require_file(config.dataset_statistics_path)
+    raw = statistics_path.read_text(encoding="utf-8").strip()
+    if not raw:
+        raise ValueError(
+            f"OpenVLA dataset statistics file at {statistics_path} is empty. "
+            f"Populate it with a {config.unnorm_key} entry."
+        )
+    statistics = json.loads(raw)
+    if not isinstance(statistics, Mapping):
+        raise TypeError(
+            "Expected dataset statistics JSON object at "
+            f"{statistics_path}, got {type(statistics).__name__}"
+        )
+    if config.unnorm_key not in statistics:
+        raise KeyError(
+            f"Missing unnorm key {config.unnorm_key} in dataset statistics at {statistics_path}"
+        )
+    return dict(statistics)
 
 
 @register_policy("flappy_openvla")
@@ -422,6 +449,17 @@ def _required_path(policy_cfg: Mapping[str, object], key: str) -> Path:
     return Path(value)
 
 
+def _openvla_policy_type(policy_cfg: Mapping[str, object]) -> str:
+    value = policy_cfg.get("type", "flappy_openvla")
+    if not isinstance(value, str):
+        raise TypeError(f"policy.type must be str, got {type(value).__name__}.")
+    if value == "":
+        raise ValueError("policy.type must be a non-empty string for OpenVLA policies.")
+    policy_type = value.strip().lower()
+    openvla_dataset_statistics_filename(policy_type)
+    return policy_type
+
+
 def _required_positive_int(policy_cfg: Mapping[str, object], key: str) -> int:
     value = _required_value(policy_cfg, key)
     if isinstance(value, bool) or not isinstance(value, int):
@@ -475,6 +513,7 @@ __all__ = [
     "build_openvla_env_obs",
     "discrete_action_from_openvla_output",
     "extract_openvla_policy_config",
+    "load_openvla_dataset_statistics",
     "load_openvla_sft_model",
     "observation_data_to_hwc_uint8",
     "openvla_action_from_prediction",

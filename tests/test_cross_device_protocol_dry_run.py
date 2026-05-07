@@ -494,7 +494,10 @@ def test_real_openvla_protocol_max_runs_limits_dry_run_rows(tmp_path: Path):
 def test_openvla_env_var_overrides_are_written_and_printed_in_dry_run(tmp_path: Path):
     base_model = tmp_path / "base_model"
     base_model.mkdir()
-    (base_model / "dataset_statistics.json").write_text('{"demon_attack": {}}\n', encoding="utf-8")
+    (base_model / "demon_attack_dataset_statistics.json").write_text(
+        '{"demon_attack": {}}\n',
+        encoding="utf-8",
+    )
     checkpoint = tmp_path / "demon_checkpoint"
     weights = checkpoint / "actor" / "model_state_dict" / "full_weights.pt"
     weights.parent.mkdir(parents=True)
@@ -603,7 +606,10 @@ def test_openvla_check_deps_only_reports_missing_dependencies_without_eval_outpu
 def test_openvla_check_deps_only_returns_zero_when_selected_dependencies_exist(tmp_path: Path):
     base_model = tmp_path / "base_model"
     base_model.mkdir()
-    (base_model / "dataset_statistics.json").write_text('{"demon_attack": {}}\n', encoding="utf-8")
+    (base_model / "demon_attack_dataset_statistics.json").write_text(
+        '{"demon_attack": {}}\n',
+        encoding="utf-8",
+    )
     checkpoint = tmp_path / "demon_checkpoint"
     weights = checkpoint / "actor" / "model_state_dict" / "full_weights.pt"
     weights.parent.mkdir(parents=True)
@@ -638,7 +644,10 @@ def test_openvla_check_deps_only_returns_zero_when_selected_dependencies_exist(t
 def test_flappy_openvla_checkpoint_env_override_is_written_in_dry_run(tmp_path: Path):
     base_model = tmp_path / "base_model"
     base_model.mkdir()
-    (base_model / "dataset_statistics.json").write_text('{"flappy_bird": {}}\n', encoding="utf-8")
+    (base_model / "flappy_dataset_statistics.json").write_text(
+        '{"flappy_bird": {}}\n',
+        encoding="utf-8",
+    )
     checkpoint = tmp_path / "flappy_checkpoint"
     weights = checkpoint / "actor" / "model_state_dict" / "full_weights.pt"
     weights.parent.mkdir(parents=True)

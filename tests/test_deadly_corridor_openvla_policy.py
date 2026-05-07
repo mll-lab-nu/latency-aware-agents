@@ -153,7 +153,10 @@ def test_deadly_openvla_missing_unnorm_key_fails_before_model_load(tmp_path):
 
     base = tmp_path / "base"
     base.mkdir()
-    (base / "dataset_statistics.json").write_text('{"other_env": {}}\n', encoding="utf-8")
+    (base / "deadly_corridor_dataset_statistics.json").write_text(
+        '{"other_env": {}}\n',
+        encoding="utf-8",
+    )
     config = {
         "experiment": {"seed": 0},
         "env": {"name": "deadly_corridor", "fps_env": 35, "noop_action": [0, 0, 0, 0]},
@@ -185,7 +188,10 @@ def test_deadly_openvla_missing_full_weights_fails_before_model_load(tmp_path):
 
     base = tmp_path / "base"
     base.mkdir()
-    (base / "dataset_statistics.json").write_text('{"deadly_corridor": {}}\n', encoding="utf-8")
+    (base / "deadly_corridor_dataset_statistics.json").write_text(
+        '{"deadly_corridor": {}}\n',
+        encoding="utf-8",
+    )
     config = {
         "experiment": {"seed": 0},
         "env": {"name": "deadly_corridor", "fps_env": 35, "noop_action": [0, 0, 0, 0]},
