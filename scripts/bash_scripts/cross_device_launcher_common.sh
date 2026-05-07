@@ -119,7 +119,7 @@ cross_device_openvla_resolve_stages() {
         if [[ "${OPENVLA_SMOKE:-0}" == "1" ]]; then
             OPENVLA_SELECTED_STAGES=(doctor measure realtime)
         else
-            OPENVLA_SELECTED_STAGES=(doctor measure realtime sim-cross)
+            OPENVLA_SELECTED_STAGES=(doctor measure realtime sim-same sim-cross)
         fi
         return 0
     fi
@@ -132,11 +132,11 @@ cross_device_openvla_resolve_stages() {
         stage="$(echo "${raw}" | xargs)"
         stage="${stage/_/-}"
         case "${stage}" in
-            doctor|measure|realtime|sim-cross)
+            doctor|measure|realtime|sim-same|sim-cross)
                 OPENVLA_SELECTED_STAGES[$i]="${stage}"
                 ;;
             *)
-                echo "Error: unsupported OPENVLA_STAGES entry '${raw}'. Use doctor,measure,realtime,sim-cross." >&2
+                echo "Error: unsupported OPENVLA_STAGES entry '${raw}'. Use doctor,measure,realtime,sim-same,sim-cross." >&2
                 return 2
                 ;;
         esac

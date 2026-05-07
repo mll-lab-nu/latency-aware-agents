@@ -125,6 +125,27 @@ experiments:
         stage_overrides:
           measure:
             n_episodes: 1000
+      - policy: OpenVLA-Flappy
+        env: Flappy
+        policy_type: flappy_openvla
+        runtime_env: openvla
+        env_name: flappy
+        fps: 30
+        base_config: configs/experiments/flappy/realtime/openvla_30fps.yaml
+      - policy: demon-attack-openvla
+        env: Demon Attack
+        policy_type: demon_attack_openvla
+        runtime_env: openvla
+        env_name: demon_attack
+        fps: 60
+        base_config: configs/experiments/demon_attack/realtime/openvla_60fps.yaml
+      - policy: deadly-corridor-openvla
+        env: Deadly Corridor
+        policy_type: deadly_corridor_openvla
+        runtime_env: openvla
+        env_name: deadly_corridor
+        fps: 35
+        base_config: configs/experiments/deadly_corridor/realtime/openvla_35fps.yaml
 
   exp3_cross_device_prediction:
     panel: c
@@ -151,6 +172,6 @@ experiments:
         fps: 35
         base_config: configs/experiments/deadly_corridor/realtime/openvla_35fps.yaml
     replay_devices:
+      - b200
       - h200
-      - a100
     main_claim_rule: replay_device_speed_rank > target_device_speed_rank

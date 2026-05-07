@@ -399,6 +399,38 @@ def test_real_openvla_protocol_dry_run_selects_flappy_demon_and_deadly(tmp_path:
     assert "deadly-corridor-openvla/deadly_corridor" in result.stdout
 
 
+def test_real_protocol_exp2_includes_openvla_calibration_rows():
+    spec = yaml.safe_load(REAL_PROTOCOL.read_text(encoding="utf-8"))
+
+    rows = spec["experiments"]["exp2_same_device_calibration"]["rows"]
+    openvla_rows = {
+        row["policy"]: row
+        for row in rows
+        if row.get("runtime_env") == "openvla"
+    }
+
+    assert set(openvla_rows) == {
+        "OpenVLA-Flappy",
+        "demon-attack-openvla",
+        "deadly-corridor-openvla",
+    }
+    assert openvla_rows["OpenVLA-Flappy"]["base_config"] == "configs/experiments/flappy/realtime/openvla_30fps.yaml"
+    assert openvla_rows["demon-attack-openvla"]["base_config"] == (
+        "configs/experiments/demon_attack/realtime/openvla_60fps.yaml"
+    )
+    assert openvla_rows["deadly-corridor-openvla"]["base_config"] == (
+        "configs/experiments/deadly_corridor/realtime/openvla_35fps.yaml"
+    )
+
+
+def test_real_protocol_exp3_uses_b200_and_h200_replay_devices():
+    spec = yaml.safe_load(REAL_PROTOCOL.read_text(encoding="utf-8"))
+
+    replay_devices = spec["experiments"]["exp3_cross_device_prediction"]["replay_devices"]
+
+    assert replay_devices == ["b200", "h200"]
+
+
 def test_real_openvla_protocol_only_policy_accepts_slug_and_preserves_flappy_path(tmp_path: Path):
     out = tmp_path / "results"
 

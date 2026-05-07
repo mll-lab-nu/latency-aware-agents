@@ -103,6 +103,18 @@ python scripts/experiments/run_cross_device_protocol.py realtime \
     "${EXECUTION_OPTIONAL_ARGS[@]}"
 fi
 
+if cross_device_openvla_stage_selected sim-same; then
+cross_device_run_protocol_stage sim-same \
+python scripts/experiments/run_cross_device_protocol.py sim-same \
+    --spec "${SPEC}" \
+    --hardware auto \
+    --runtime-env "${RUNTIME_ENV}" \
+    --profiles-dir "${PROFILES_DIR}" \
+    --out "${OUT}" \
+    --resume \
+    "${EXECUTION_OPTIONAL_ARGS[@]}"
+fi
+
 if cross_device_openvla_stage_selected sim-cross; then
 cross_device_run_protocol_stage sim-cross \
 python scripts/experiments/run_cross_device_protocol.py sim-cross \

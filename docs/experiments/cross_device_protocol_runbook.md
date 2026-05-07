@@ -225,6 +225,18 @@ python scripts/experiments/run_cross_device_protocol.py realtime \
   --resume
 ```
 
+Run same-device simulated OpenVLA replay using the current hardware profile:
+
+```bash
+python scripts/experiments/run_cross_device_protocol.py sim-same \
+  --spec configs/experiments/cross_device_protocol.yaml \
+  --hardware auto \
+  --runtime-env auto \
+  --profiles-dir results/cross_device/profiles \
+  --out results/cross_device \
+  --resume
+```
+
 Run cross-device replay on the current replay hardware:
 
 ```bash

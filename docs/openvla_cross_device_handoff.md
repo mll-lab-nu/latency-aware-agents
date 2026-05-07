@@ -136,7 +136,7 @@ wrappers, Doom frameskip, or frame stack.
 By default, non-smoke runs execute:
 
 ```text
-doctor, measure, realtime, sim-cross
+doctor, measure, realtime, sim-same, sim-cross
 ```
 
 By default, smoke runs execute:
@@ -149,11 +149,11 @@ Set explicit stages when needed:
 
 ```bash
 OPENVLA_STAGES=doctor bash scripts/bash_scripts/run_cross_device_openvla.sh
-OPENVLA_STAGES=measure,realtime bash scripts/bash_scripts/run_cross_device_openvla.sh
+OPENVLA_STAGES=measure,realtime,sim-same bash scripts/bash_scripts/run_cross_device_openvla.sh
 ```
 
-Smoke does not run `sim-cross` unless explicitly requested because `sim-cross`
-depends on existing latency profiles.
+Smoke does not run `sim-same` or `sim-cross` unless explicitly requested because
+both stages depend on existing latency profiles.
 
 ## Full Sweep
 

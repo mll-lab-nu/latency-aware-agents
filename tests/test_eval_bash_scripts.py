@@ -131,6 +131,7 @@ def test_cross_device_openvla_script_forwards_filters_and_uses_openvla_runtime()
     assert "OPENVLA_CHECK_DEPS_ONLY" in script
     assert "check-deps" in script
     assert "cross_device_openvla_resolve_stages" in script
+    assert "sim-same" in script
     for env_var, flag in (
         ("ONLY_ENV", "--only-env"),
         ("ONLY_POLICY", "--only-policy"),
@@ -205,11 +206,12 @@ def test_cross_device_common_resolves_openvla_stage_selection():
             OPENVLA_SMOKE=1
             cross_device_openvla_resolve_stages
             printf 'smoke:%s\\n' "${{OPENVLA_SELECTED_STAGES[*]}}"
-            OPENVLA_STAGES=measure,realtime
+            OPENVLA_STAGES=measure,realtime,sim-same
             cross_device_openvla_resolve_stages
             printf 'explicit:%s\\n' "${{OPENVLA_SELECTED_STAGES[*]}}"
             cross_device_openvla_stage_selected doctor && printf 'doctor=yes\\n' || printf 'doctor=no\\n'
             cross_device_openvla_stage_selected measure && printf 'measure=yes\\n' || printf 'measure=no\\n'
+            cross_device_openvla_stage_selected sim-same && printf 'sim_same=yes\\n' || printf 'sim_same=no\\n'
             """,
         ],
         cwd=REPO_ROOT,
@@ -219,11 +221,12 @@ def test_cross_device_common_resolves_openvla_stage_selection():
     )
 
     assert result.returncode == 0, result.stderr
-    assert "default:doctor measure realtime sim-cross" in result.stdout
+    assert "default:doctor measure realtime sim-same sim-cross" in result.stdout
     assert "smoke:doctor measure realtime" in result.stdout
-    assert "explicit:measure realtime" in result.stdout
+    assert "explicit:measure realtime sim-same" in result.stdout
     assert "doctor=no" in result.stdout
     assert "measure=yes" in result.stdout
+    assert "sim_same=yes" in result.stdout
 
 
 def test_cross_device_common_keeps_continue_on_error_out_of_doctor_args():
