@@ -71,7 +71,7 @@ env:
 policy:
   type: deadly_corridor_openvla
   base_model_path: /workspace/openvla-7b-rlvla-warmup
-  checkpoint_path: /workspace/deadly_corridor_openvla_sft_checkpoints/global_step_5000
+  checkpoint_path: /workspace/corridor-sft-openvla-v1/global_step_1500
   prompt: "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action."
   image_size: 84
   action_dim: 7

@@ -36,7 +36,7 @@ env:
 policy:
   type: demon_attack_openvla
   base_model_path: /workspace/openvla-7b-rlvla-warmup
-  checkpoint_path: /workspace/demon_attack_openvla_sft_checkpoints/global_step_5000
+  checkpoint_path: /workspace/demon-attack-sft-openvla-v_verda/global_step_8000
   prompt: "You are playing Demon Attack from a single game image. Choose exactly one action from: NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE. Survive, avoid enemy fire, and shoot enemies to maximize score."
   image_size: 84
   action_dim: 6
