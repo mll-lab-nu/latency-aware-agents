@@ -13,7 +13,7 @@ class ActionResolver:
         self.env_config = env_config
         self._action_map = self._normalize_action_map(env_config.get("action_map", {}))
         self._noop_ref = self._require_noop_ref(env_config)
-        self._oneshot_refs = set(env_config.get("oneshot_actions", []))
+        self._oneshot_refs = list(env_config.get("oneshot_actions", []))
         self._oneshot_ref_names = {str(item) for item in self._oneshot_refs}
         noop_value, noop_name = self._resolve_value_and_name(self._noop_ref)
         self.noop_action = Action(value=noop_value, name=noop_name, is_noop=True, is_oneshot=False)
@@ -45,8 +45,8 @@ class ActionResolver:
 
     def _is_oneshot(self, action_ref: Any, value: Any, name: str) -> bool:
         return (
-            action_ref in self._oneshot_refs
-            or value in self._oneshot_refs
+            _contains_equal(self._oneshot_refs, action_ref)
+            or _contains_equal(self._oneshot_refs, value)
             or str(action_ref) in self._oneshot_ref_names
             or str(value) in self._oneshot_ref_names
             or name in self._oneshot_ref_names
@@ -65,3 +65,7 @@ class ActionResolver:
         if "noop_action" not in env_config:
             raise ValueError("Missing required field: noop_action")
         return env_config["noop_action"]
+
+
+def _contains_equal(values: Iterable[Any], target: Any) -> bool:
+    return any(item == target for item in values)

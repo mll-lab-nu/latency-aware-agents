@@ -25,6 +25,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
         continue_life_loss_terminal: bool = False,
         repeat_action_probability: float = 0.0,
         full_action_space: bool = False,
+        expected_action_meanings: list[str] | tuple[str, ...] | None = None,
     ):
         if fps_env <= 0:
             raise ValueError("fps_env must be positive")
@@ -38,6 +39,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
             repeat_action_probability=repeat_action_probability,
             full_action_space=full_action_space,
         )
+        _validate_expected_action_meanings(self.gym_env, expected_action_meanings)
         self.env_id = env_id
         self.fps_env = float(fps_env)
         self.action_repeat = int(action_repeat)
@@ -186,6 +188,27 @@ def _episodic_life_was_real_done(env: gym.Env) -> bool | None:
             return bool(getattr(current, "was_real_done"))
         current = getattr(current, "env", None)
     return None
+
+
+def _validate_expected_action_meanings(
+    env: gym.Env,
+    expected_action_meanings: list[str] | tuple[str, ...] | None,
+) -> None:
+    if expected_action_meanings is None:
+        return
+    get_action_meanings = getattr(env, "get_action_meanings", None)
+    if not callable(get_action_meanings):
+        raise ValueError(
+            "Demon Attack expected_action_meanings was provided, but the created env "
+            "does not expose get_action_meanings()."
+        )
+    actual = list(get_action_meanings())
+    expected = [str(item) for item in expected_action_meanings]
+    if actual != expected:
+        raise ValueError(
+            "Demon Attack action meanings mismatch: "
+            f"expected_action_meanings={expected}, actual={actual}"
+        )
 
 
 def make_demon_attack_benchmark_env(

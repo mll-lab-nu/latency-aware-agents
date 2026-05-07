@@ -1,0 +1,116 @@
+__base__:
+  - ../../../base/deadly_corridor.yaml
+
+executor:
+  mode: realtime
+
+experiment:
+  name: deadly_corridor_openvla_sft_eval
+  seed: 0
+  num_episodes: 100
+
+backend:
+  run_mode: eval
+
+env:
+  name: deadly_corridor
+  env_id: doom_deadly_corridor
+  fps_env: 35
+  env_frameskip: 4
+  frame_stack: 4
+  res_w: 128
+  res_h: 72
+  wide_aspect_ratio: false
+  noop_action:
+    - 0
+    - 0
+    - 0
+    - 0
+  action_map:
+    noop:
+      - 0
+      - 0
+      - 0
+      - 0
+    move_forward:
+      - 0
+      - 1
+      - 0
+      - 0
+    move_backward:
+      - 0
+      - 2
+      - 0
+      - 0
+    move_left:
+      - 0
+      - 0
+      - 1
+      - 0
+    move_right:
+      - 0
+      - 0
+      - 2
+      - 0
+    turn_left:
+      - 1
+      - 0
+      - 0
+      - 0
+    turn_right:
+      - 2
+      - 0
+      - 0
+      - 0
+    attack:
+      - 0
+      - 0
+      - 0
+      - 1
+
+policy:
+  type: deadly_corridor_openvla
+  base_model_path: /workspace/openvla-7b-rlvla-warmup
+  checkpoint_path: /workspace/deadly_corridor_openvla_sft_checkpoints/global_step_5000
+  prompt: "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action."
+  image_size: 84
+  action_dim: 7
+  num_action_chunks: 1
+  add_value_head: false
+  max_prompt_length: 50
+  num_images_in_input: 1
+  center_crop: true
+  trust_remote_code: true
+  unnorm_key: deadly_corridor
+  device: cuda
+  actions:
+    - MOVE_FORWARD
+    - MOVE_BACKWARD
+    - MOVE_LEFT
+    - MOVE_RIGHT
+    - TURN_LEFT
+    - TURN_RIGHT
+    - ATTACK
+
+control:
+  frequency_hz: 35
+
+latency:
+  type: measured
+  device: cuda:0
+  sync_cuda: true
+  train_values: null
+
+evaluation:
+  eval_parallel_envs: 1
+  eval_latency_values: null
+  eval_max_steps: 30000
+
+scheduler:
+  stale_action_mode: latest_ready
+
+logging:
+  output_dir: outputs/deadly_corridor_openvla_realtime_measured_35fps
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

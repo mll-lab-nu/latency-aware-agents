@@ -141,6 +141,7 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
         continue_life_loss_terminal=continue_life_loss_terminal,
         repeat_action_probability=float(env_cfg.get("repeat_action_probability", 0.0)),
         full_action_space=bool(env_cfg.get("full_action_space", False)),
+        expected_action_meanings=env_cfg.get("expected_action_meanings"),
     )
 
 

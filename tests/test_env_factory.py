@@ -289,6 +289,7 @@ def test_deadly_corridor_adapter_builds_prepared_eval_cfg_from_full_config(monke
     config["backend"] = {"run_mode": "eval"}
     config["training"] = {}
     config["evaluation"] = {"eval_raw_reward": True}
+    config["policy"] = {"type": "deadly_corridor_sf"}
     config["env"].update(
         {
             "env_id": "doom_deadly_corridor",
@@ -317,6 +318,119 @@ def test_deadly_corridor_adapter_builds_prepared_eval_cfg_from_full_config(monke
     assert captured["doom_spec"] is not original_spec
     assert captured["doom_spec"].reward_scaling == 1.0
     assert original_spec.reward_scaling == 0.01
+
+
+def test_deadly_corridor_openvla_env_does_not_require_sample_factory_checkpoint(monkeypatch):
+    from gymnasium.spaces import Tuple, Discrete
+    from training.deadly_corridor_sf import integration
+
+    captured = {}
+
+    def fake_build_cli_args_from_config(config):
+        captured["build_config"] = config
+        return ["--from-full-config", "1"]
+
+    def fake_parse_cfg(argv):
+        captured["parse_argv"] = list(argv)
+        return SimpleNamespace(
+            mode="eval",
+            fps=35,
+            env_frameskip=4,
+            frame_stack=4,
+            res_w=128,
+            res_h=72,
+            wide_aspect_ratio=False,
+            eval_raw_reward=True,
+            disable_reward_scaling=False,
+            max_episode_steps=30000,
+        )
+
+    def fake_prepare_eval_cfg(base_cfg, latency_value):
+        captured["prepared_base_cfg"] = base_cfg
+        captured["prepared_latency"] = latency_value
+        return SimpleNamespace(
+            mode=base_cfg.mode,
+            fps=base_cfg.fps,
+            env_frameskip=base_cfg.env_frameskip,
+            eval_env_frameskip=base_cfg.env_frameskip,
+            frame_stack=base_cfg.frame_stack,
+            res_w=base_cfg.res_w,
+            res_h=base_cfg.res_h,
+            wide_aspect_ratio=base_cfg.wide_aspect_ratio,
+            eval_raw_reward=base_cfg.eval_raw_reward,
+            disable_reward_scaling=True,
+            max_episode_steps=base_cfg.max_episode_steps,
+            queue_latency_values="0",
+            latency_mode="episode_fixed",
+            latency_sampling_mode="uniform_all",
+            no_render=True,
+        )
+
+    def fail_load_from_checkpoint(cfg):
+        raise AssertionError("OpenVLA env creation must not load Sample Factory checkpoint config")
+
+    class FakeGymEnv:
+        action_space = Tuple((Discrete(3), Discrete(3), Discrete(3), Discrete(2)))
+
+        def close(self):
+            pass
+
+    original_spec = SimpleNamespace(name="doom_deadly_corridor", reward_scaling=0.01)
+
+    def fake_make_doom_env_from_spec(spec, env_name, cfg, env_config, render_mode=None, **kwargs):
+        captured["doom_cfg"] = cfg
+        return FakeGymEnv()
+
+    monkeypatch.setattr(integration, "register_deadly_corridor_components", lambda: None)
+    monkeypatch.setattr(integration, "build_cli_args_from_config", fake_build_cli_args_from_config)
+    monkeypatch.setattr(integration, "parse_cfg", fake_parse_cfg)
+    monkeypatch.setattr(integration, "_prepare_eval_cfg", fake_prepare_eval_cfg)
+    monkeypatch.setitem(
+        sys.modules,
+        "sample_factory.cfg.arguments",
+        SimpleNamespace(load_from_checkpoint=fail_load_from_checkpoint),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "sample_factory.utils.attr_dict",
+        SimpleNamespace(AttrDict=lambda **kwargs: SimpleNamespace(**kwargs)),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "sf_examples.vizdoom.doom.doom_utils",
+        SimpleNamespace(
+            DOOM_ENVS=[original_spec],
+            make_doom_env_from_spec=fake_make_doom_env_from_spec,
+        ),
+    )
+
+    config = _config("deadly_corridor")
+    config["policy"] = {"type": "deadly_corridor_openvla"}
+    config["evaluation"] = {"eval_raw_reward": True}
+    config["env"].update(
+        {
+            "env_id": "doom_deadly_corridor",
+            "fps_env": 35,
+            "env_frameskip": 4,
+            "frame_stack": 4,
+            "res_w": 128,
+            "res_h": 72,
+            "wide_aspect_ratio": False,
+            "max_episode_steps": 30000,
+        }
+    )
+    noop = Action(value=[0, 0, 0, 0], name="noop", is_noop=True)
+
+    env = deadly_corridor.DeadlyCorridorEnvAdapter(config=config, noop_action=noop)
+
+    assert captured["prepared_latency"] == 0
+    assert env.cfg.env_frameskip == 4
+    assert env.cfg.eval_env_frameskip == 4
+    assert env.cfg.frame_stack == 4
+    assert env.cfg.fps == 35
+    assert env.cfg.res_w == 128
+    assert env.cfg.res_h == 72
+    assert captured["doom_cfg"] is env.cfg
 
 
 def test_build_env_adapter_passes_demon_attack_action_repeat(monkeypatch):

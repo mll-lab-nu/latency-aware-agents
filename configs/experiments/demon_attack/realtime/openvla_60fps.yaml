@@ -1,0 +1,80 @@
+__base__:
+  - ../../../base/demon_attack.yaml
+
+executor:
+  mode: realtime
+
+experiment:
+  name: demon_attack_openvla_sft_eval
+  seed: 0
+  num_episodes: 100
+
+backend:
+  run_mode: eval
+
+env:
+  name: demon_attack
+  env_id: ALE/DemonAttack-v5
+  fps_env: 60
+  screen_size: 84
+  noop_max: 30
+  action_repeat: 4
+  frame_stack: 4
+  terminal_on_life_loss: true
+  clip_reward: false
+  repeat_action_probability: 0.0
+  full_action_space: false
+  noop_action: 0
+  expected_action_meanings:
+    - NOOP
+    - FIRE
+    - RIGHT
+    - LEFT
+    - RIGHTFIRE
+    - LEFTFIRE
+
+policy:
+  type: demon_attack_openvla
+  base_model_path: /workspace/openvla-7b-rlvla-warmup
+  checkpoint_path: /workspace/demon_attack_openvla_sft_checkpoints/global_step_5000
+  prompt: "You are playing Demon Attack from a single game image. Choose exactly one action from: NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE. Survive, avoid enemy fire, and shoot enemies to maximize score."
+  image_size: 84
+  action_dim: 6
+  num_action_chunks: 1
+  add_value_head: false
+  max_prompt_length: 50
+  num_images_in_input: 1
+  center_crop: true
+  trust_remote_code: true
+  unnorm_key: demon_attack
+  device: cuda
+  actions:
+    - NOOP
+    - FIRE
+    - RIGHT
+    - LEFT
+    - RIGHTFIRE
+    - LEFTFIRE
+
+control:
+  frequency_hz: 60
+
+latency:
+  type: measured
+  device: cuda:0
+  sync_cuda: true
+  train_values: null
+
+evaluation:
+  eval_parallel_envs: 1
+  eval_latency_values: null
+  eval_max_steps: 3600
+
+scheduler:
+  stale_action_mode: latest_ready
+
+logging:
+  output_dir: outputs/demon_attack_openvla_realtime_measured_60fps
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

@@ -58,7 +58,6 @@ def _synchronous_eval_fps_from_config(config: dict[str, Any], default: int = 35)
 
 
 def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
-    from sample_factory.cfg.arguments import load_from_checkpoint
     from training.deadly_corridor_sf import integration
     from training.sample_factory_common.common import maybe_set_cli_override
 
@@ -66,7 +65,10 @@ def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
     base_cfg = integration.parse_cfg(integration.build_cli_args_from_config(config))
     eval_fps = _synchronous_eval_fps_from_config(config)
     cfg = integration._prepare_eval_cfg(base_cfg, latency_value=0)
-    cfg = load_from_checkpoint(cfg)
+    if _requires_sample_factory_checkpoint_config(config):
+        from sample_factory.cfg.arguments import load_from_checkpoint
+
+        cfg = load_from_checkpoint(cfg)
 
     for key in (
         "seed",
@@ -99,6 +101,11 @@ def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
     maybe_set_cli_override(cfg, "eval_deterministic", bool(getattr(base_cfg, "eval_deterministic", True)))
     maybe_set_cli_override(cfg, "disable_reward_scaling", bool(getattr(base_cfg, "eval_raw_reward", False)))
     return cfg
+
+
+def _requires_sample_factory_checkpoint_config(config: dict[str, Any]) -> bool:
+    policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
+    return policy_type == "deadly_corridor_sf"
 
 
 class DeadlyCorridorEnvAdapter(EnvAdapter):

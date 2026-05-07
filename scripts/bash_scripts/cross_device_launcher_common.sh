@@ -85,6 +85,57 @@ cross_device_optional_args() {
     if [[ "${DRY_RUN:-0}" == "1" ]]; then
         OPTIONAL_ARGS+=(--dry-run)
     fi
+    if [[ -n "${ONLY_ENV:-}" ]]; then
+        OPTIONAL_ARGS+=(--only-env "${ONLY_ENV}")
+    fi
+    if [[ -n "${ONLY_POLICY:-}" ]]; then
+        OPTIONAL_ARGS+=(--only-policy "${ONLY_POLICY}")
+    fi
+    if [[ -n "${ONLY_DEVICE:-}" ]]; then
+        OPTIONAL_ARGS+=(--only-device "${ONLY_DEVICE}")
+    fi
+    if [[ -n "${ONLY_EXPERIMENT:-}" ]]; then
+        OPTIONAL_ARGS+=(--only-experiment "${ONLY_EXPERIMENT}")
+    fi
+    if [[ -n "${MAX_RUNS:-}" ]]; then
+        OPTIONAL_ARGS+=(--max-runs "${MAX_RUNS}")
+    fi
+    if [[ "${CONTINUE_ON_ERROR:-0}" == "1" ]]; then
+        OPTIONAL_ARGS+=(--continue-on-error)
+    fi
+}
+
+cross_device_reset_failures() {
+    CROSS_DEVICE_FAILED_STAGES=()
+}
+
+cross_device_run_protocol_stage() {
+    local stage_name="$1"
+    shift
+    echo "== ${stage_name} =="
+    if "$@"; then
+        return 0
+    fi
+    local status=$?
+    if [[ "${CONTINUE_ON_ERROR:-0}" == "1" ]]; then
+        echo "Stage failed but CONTINUE_ON_ERROR=1, continuing: ${stage_name} (exit ${status})" >&2
+        CROSS_DEVICE_FAILED_STAGES+=("${stage_name}|${status}|$*")
+        return 0
+    fi
+    return "${status}"
+}
+
+cross_device_finish_protocol_runs() {
+    if [[ ${#CROSS_DEVICE_FAILED_STAGES[@]} -eq 0 ]]; then
+        return 0
+    fi
+    echo "FAILED STAGES:" >&2
+    local item stage status command
+    for item in "${CROSS_DEVICE_FAILED_STAGES[@]}"; do
+        IFS='|' read -r stage status command <<<"${item}"
+        echo "  - stage=${stage} exit_code=${status} command=${command}" >&2
+    done
+    return 1
 }
 
 cross_device_print_environment() {

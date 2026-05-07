@@ -29,6 +29,17 @@ from latency_bench.analysis.cross_device_protocol_tables import (
 from latency_bench.core.config import load_config, validate_config
 
 
+OPENVLA_POLICY_TYPES = {
+    "flappy_openvla",
+    "demon_attack_openvla",
+    "deadly_corridor_openvla",
+}
+OPENVLA_CHECKPOINT_ENV_BY_POLICY = {
+    "demon_attack_openvla": "DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH",
+    "deadly_corridor_openvla": "DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH",
+}
+
+
 STAGE_TO_EXPERIMENTS = {
     "measure": ("exp1_latency_profile_summary", "exp2_same_device_calibration", "exp3_cross_device_prediction"),
     "realtime": ("exp2_same_device_calibration", "exp3_cross_device_prediction"),
@@ -120,6 +131,7 @@ def main(argv: list[str] | None = None) -> None:
     aggregate = subparsers.add_parser("aggregate", help="Aggregate protocol outputs into paper tables.")
     aggregate.add_argument("--spec", type=Path, required=True)
     aggregate.add_argument("--root", type=Path, required=True)
+    aggregate.add_argument("--raw-root", type=Path)
     aggregate.add_argument("--out", type=Path, required=True)
     aggregate.add_argument("--dry-run", action="store_true")
     aggregate.add_argument("--overwrite", action="store_true")
@@ -136,6 +148,8 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "aggregate":
         spec = _filtered_spec_for_aggregate(spec, args)
         if args.dry_run:
+            if args.raw_root is not None:
+                print(f"raw_root: {args.raw_root}")
             for filename in (
                 "experiment1_latency_profile_summary.csv",
                 "experiment2_same_device_calibration.csv",
@@ -143,7 +157,13 @@ def main(argv: list[str] | None = None) -> None:
             ):
                 print(f"would_write: {args.out / filename}")
             return
-        outputs = write_protocol_tables(spec=spec, root=args.root, out=args.out, overwrite=args.overwrite)
+        outputs = write_protocol_tables(
+            spec=spec,
+            root=args.root,
+            raw_root=args.raw_root,
+            out=args.out,
+            overwrite=args.overwrite,
+        )
         for name, path in outputs.items():
             print(f"{name}: {path}")
     else:
@@ -174,6 +194,7 @@ def _add_execution_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--continue-on-error", action="store_true")
     _add_runtime_flags(parser)
     _add_selection_flags(parser)
     _add_override_flags(parser)
@@ -255,13 +276,34 @@ def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> Non
     if not plan:
         print("No protocol runs selected.")
         return
+    failures: list[dict[str, str]] = []
     for item in plan:
         if not item.runnable:
             _record_skipped_task(item.task, spec, detected, runtime, item.skip_reason or "skipped", out)
             print(f"skipping {item.task.row.get('policy')} {item.task.stage}: {item.skip_reason}")
             continue
         task = item.task
-        _run_task(task, spec, detected, runtime, args, out)
+        try:
+            print(
+                "running "
+                f"stage={task.stage} policy={task.row.get('policy')} env={task.row.get('env')} "
+                f"output_dir={task.output_dir}"
+            )
+            _run_task(task, spec, detected, runtime, args, out)
+        except Exception as exc:
+            failures.append(_failed_run_summary(task, exc))
+            print(
+                "failed "
+                f"stage={task.stage} policy={task.row.get('policy')} env={task.row.get('env')} "
+                f"output_dir={task.output_dir}: {exc}",
+                file=sys.stderr,
+            )
+            if not args.continue_on_error:
+                _print_failed_summary(failures)
+                raise
+    if failures:
+        _print_failed_summary(failures)
+        raise SystemExit(1)
 
 
 def _run_task(
@@ -276,22 +318,27 @@ def _run_task(
         print(f"resume: skipping completed run {task.output_dir}")
         return
 
-    config = _generated_config(task, spec)
-    _write_generated_config(task.generated_config_path, config)
     eval_cmd = _eval_command(task)
     profile_cmd = _profile_command(task, spec, args.overwrite) if task.stage == "measure" else None
+    manifest = _base_manifest(task, spec, detected, runtime, eval_cmd, profile_cmd)
+    task.output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.dry_run:
+        config = _generated_config(task, spec)
+        _write_generated_config(task.generated_config_path, config)
         print(f"generated_config: {task.generated_config_path}")
         print(shlex.join(eval_cmd))
         if profile_cmd is not None:
             print(shlex.join(profile_cmd))
         return
 
-    manifest = _base_manifest(task, spec, detected, runtime, eval_cmd, profile_cmd)
-    task.output_dir.mkdir(parents=True, exist_ok=True)
-    _write_json(task.output_dir / "manifest.json", manifest)
     try:
+        config = _generated_config(task, spec)
+        _write_generated_config(task.generated_config_path, config)
+        dependency_errors = _openvla_dependency_errors(config)
+        if dependency_errors:
+            raise FileNotFoundError("; ".join(dependency_errors))
+        _write_json(task.output_dir / "manifest.json", manifest)
         subprocess.run(eval_cmd, check=True)
         if profile_cmd is not None:
             subprocess.run(profile_cmd, check=True)
@@ -300,6 +347,7 @@ def _run_task(
     except Exception as exc:
         manifest["status"] = "failed"
         manifest["completed_at"] = _now_iso()
+        manifest["error"] = str(exc)
         manifest["notes"] = _append_note(manifest.get("notes"), str(exc))
         _write_json(task.output_dir / "manifest.json", manifest)
         _append_manifest(out, manifest)
@@ -489,9 +537,11 @@ def _task_skip_reason(
 ) -> str | None:
     reasons: list[str] = []
     only_devices = _csv_filter(getattr(args, "only_device", None))
-    if stage in {"measure", "realtime", "sim_same"} and only_devices and current_device.get("id") not in only_devices:
+    if stage in {"measure", "realtime", "sim_same"} and not _matches_filter(
+        _device_filter_candidates(current_device), only_devices
+    ):
         reasons.append(f"hardware mismatch: current hardware {current_device.get('id')} not in --only-device")
-    if stage == "sim_cross" and only_devices and task.target_device.get("id") not in only_devices:
+    if stage == "sim_cross" and not _matches_filter(_device_filter_candidates(task.target_device), only_devices):
         reasons.append(f"hardware mismatch: target hardware {task.target_device.get('id')} not in --only-device")
     if stage == "sim_cross" and task.replay_device is not None and not getattr(args, "include_controls", False):
         if int(task.replay_device.get("speed_rank", -1)) <= int(task.target_device.get("speed_rank", -1)):
@@ -558,18 +608,65 @@ def _config_dependency_reason(row: dict[str, Any]) -> str | None:
         config = load_config(path)
     except Exception as exc:
         return f"config load failed: {exc}"
-    policy = config.get("policy", {})
-    missing: list[str] = []
-    for key in ("base_model_path", "checkpoint_path"):
-        value = str(policy.get(key) or "").strip()
-        if value and not _path_exists_safe(Path(value)):
-            missing.append(f"missing policy.{key}: {value}")
-    return "; ".join(missing) if missing else None
+    return None
 
 
 def _path_exists_safe(path: Path) -> bool:
     try:
         return path.exists()
+    except OSError:
+        return False
+
+
+def _openvla_dependency_errors(config: dict[str, Any]) -> list[str]:
+    policy = config.get("policy", {})
+    policy_type = _policy_type(config)
+    if policy_type not in OPENVLA_POLICY_TYPES:
+        return []
+    errors: list[str] = []
+    base_model_value = str(policy.get("base_model_path") or "").strip()
+    checkpoint_value = str(policy.get("checkpoint_path") or "").strip()
+    unnorm_key = str(policy.get("unnorm_key") or "").strip()
+    if not base_model_value:
+        errors.append("missing OpenVLA policy.base_model_path")
+        base_model_path = None
+    else:
+        base_model_path = Path(base_model_value)
+        if not _path_exists_safe(base_model_path):
+            errors.append(f"missing OpenVLA policy.base_model_path: {base_model_path}")
+    statistics_path = base_model_path / "dataset_statistics.json" if base_model_path is not None else None
+    if statistics_path is not None:
+        if not _path_is_file_safe(statistics_path):
+            errors.append(f"missing OpenVLA dataset_statistics.json: {statistics_path}")
+        else:
+            try:
+                statistics = json.loads(statistics_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                errors.append(f"failed to read OpenVLA dataset_statistics.json at {statistics_path}: {exc}")
+            else:
+                if not isinstance(statistics, dict):
+                    errors.append(f"OpenVLA dataset_statistics.json must contain a JSON object: {statistics_path}")
+                elif unnorm_key not in statistics:
+                    errors.append(
+                        f"missing OpenVLA unnorm_key {unnorm_key!r} in dataset_statistics.json: {statistics_path}"
+                    )
+    if not unnorm_key:
+        errors.append("missing OpenVLA policy.unnorm_key")
+    if not checkpoint_value:
+        errors.append("missing OpenVLA policy.checkpoint_path")
+    else:
+        checkpoint_path = Path(checkpoint_value)
+        if not _path_exists_safe(checkpoint_path):
+            errors.append(f"missing OpenVLA policy.checkpoint_path: {checkpoint_path}")
+        weights_path = checkpoint_path / "actor" / "model_state_dict" / "full_weights.pt"
+        if not _path_is_file_safe(weights_path):
+            errors.append(f"missing OpenVLA full_weights.pt: {weights_path}")
+    return errors
+
+
+def _path_is_file_safe(path: Path) -> bool:
+    try:
+        return path.is_file()
     except OSError:
         return False
 
@@ -586,6 +683,7 @@ def _generated_config(task: ProtocolTask, spec: dict[str, Any]) -> dict[str, Any
     config.setdefault("logging", {})["output_dir"] = str(task.output_dir)
     config.setdefault("policy", {})["type"] = task.row.get("policy_type", config.get("policy", {}).get("type"))
     config.setdefault("env", {})["name"] = task.row.get("env_name", config.get("env", {}).get("name"))
+    _apply_openvla_env_overrides(config)
     if task.row.get("fps") is not None:
         fps = _config_fps_value(task.row["fps"])
         config["env"]["fps_env"] = fps
@@ -604,6 +702,25 @@ def _generated_config(task: ProtocolTask, spec: dict[str, Any]) -> dict[str, Any
 def _config_fps_value(raw: Any) -> int | float:
     fps = float(raw)
     return int(fps) if fps.is_integer() else fps
+
+
+def _apply_openvla_env_overrides(config: dict[str, Any]) -> None:
+    policy = config.setdefault("policy", {})
+    policy_type = _policy_type(config)
+    if policy_type not in OPENVLA_POLICY_TYPES:
+        return
+    base_model_path = os.environ.get("OPENVLA_BASE_MODEL_PATH")
+    if base_model_path:
+        policy["base_model_path"] = base_model_path
+    checkpoint_env = OPENVLA_CHECKPOINT_ENV_BY_POLICY.get(policy_type)
+    if checkpoint_env:
+        checkpoint_path = os.environ.get(checkpoint_env)
+        if checkpoint_path:
+            policy["checkpoint_path"] = checkpoint_path
+
+
+def _policy_type(config: dict[str, Any]) -> str:
+    return str(config.get("policy", {}).get("type", "")).strip().lower()
 
 
 def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask, spec: dict[str, Any]) -> None:
@@ -747,6 +864,7 @@ def _base_manifest(
         "latency_scope": spec.get("latency_scope", "policy_predict_only"),
         "status": "running",
         "skip_reason": "",
+        "error": "",
         "started_at": _now_iso(),
         "completed_at": None,
         "git_sha": _git_sha(),
@@ -1020,9 +1138,13 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
         print(f"command: {shlex.join(_eval_command(task))}")
         if task.stage == "measure":
             print(f"profile_command: {shlex.join(_profile_command(task, spec, False))}")
-        if item.runnable:
+        try:
             config = _generated_config(task, spec)
             _write_generated_config(task.generated_config_path, config)
+        except Exception as exc:
+            print(f"generated_config_error: {exc}")
+            continue
+        _print_openvla_dependency_status(config)
     _print_plan_summary("Summary", plan)
 
 
@@ -1042,6 +1164,23 @@ def _print_plan_summary(label: str, plan: list[PlannedTask]) -> None:
     print(f"{label}:")
     for key in sorted(counts):
         print(f"  {key}: {counts[key]}")
+
+
+def _print_openvla_dependency_status(config: dict[str, Any]) -> None:
+    if _policy_type(config) not in OPENVLA_POLICY_TYPES:
+        return
+    policy = config.get("policy", {})
+    base_model_path = str(policy.get("base_model_path") or "")
+    checkpoint_path = str(policy.get("checkpoint_path") or "")
+    unnorm_key = str(policy.get("unnorm_key") or "")
+    print(f"resolved_base_model_path: {base_model_path}")
+    print(f"resolved_checkpoint_path: {checkpoint_path}")
+    print(f"resolved_unnorm_key: {unnorm_key}")
+    dependency_errors = _openvla_dependency_errors(config)
+    if dependency_errors:
+        print(f"openvla_dependency_status: missing ({'; '.join(dependency_errors)})")
+    else:
+        print("openvla_dependency_status: ok")
 
 
 def _skip_reason_bucket(reason: str) -> str:
@@ -1072,16 +1211,19 @@ def _iter_selected_rows(
     only_experiments = _csv_filter(getattr(args, "only_experiment", None))
     only_policies = _csv_filter(getattr(args, "only_policy", None))
     only_envs = _csv_filter(getattr(args, "only_env", None))
+    runtime_filter = _runtime_row_filter(spec, getattr(args, "runtime_env", "auto"))
     output: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
     for experiment_id, experiment in spec.get("experiments", {}).items():
         if allowed_experiments is not None and experiment_id not in allowed_experiments:
             continue
-        if only_experiments and experiment_id not in only_experiments:
+        if not _matches_filter(_experiment_filter_candidates(experiment_id), only_experiments):
             continue
         for row in experiment.get("rows", []):
-            if only_policies and str(row.get("policy")) not in only_policies:
+            if runtime_filter and not _matches_filter(_runtime_filter_candidates(spec, row), runtime_filter):
                 continue
-            if only_envs and str(row.get("env")) not in only_envs and str(row.get("env_name")) not in only_envs:
+            if not _matches_filter(_policy_filter_candidates(row), only_policies):
+                continue
+            if not _matches_filter(_env_filter_candidates(row), only_envs):
                 continue
             output.append((experiment_id, experiment, row))
     return output
@@ -1095,12 +1237,12 @@ def _target_devices_for_stage(
 ) -> list[dict[str, Any]]:
     only_devices = _csv_filter(getattr(args, "only_device", None))
     if stage in {"measure", "realtime", "sim_same"}:
-        if only_devices and current_device["id"] not in only_devices:
+        if not _matches_filter(_device_filter_candidates(current_device), only_devices):
             return []
         return [current_device]
     devices = _devices(spec)
     if only_devices:
-        devices = [device for device in devices if device.get("id") in only_devices]
+        devices = [device for device in devices if _matches_filter(_device_filter_candidates(device), only_devices)]
     return devices
 
 
@@ -1163,12 +1305,15 @@ def _filtered_spec_for_aggregate(spec: dict[str, Any], args: argparse.Namespace)
     only_policies = _csv_filter(getattr(args, "only_policy", None))
     only_envs = _csv_filter(getattr(args, "only_env", None))
     only_devices = _csv_filter(getattr(args, "only_device", None))
+    runtime_filter = _runtime_row_filter(updated, getattr(args, "runtime_env", "auto"))
     if only_devices:
-        updated["devices"] = [device for device in _devices(updated) if str(device.get("id")) in only_devices]
+        updated["devices"] = [
+            device for device in _devices(updated) if _matches_filter(_device_filter_candidates(device), only_devices)
+        ]
     experiments = updated.get("experiments", {})
     if isinstance(experiments, dict):
         for experiment_id in list(experiments):
-            if only_experiments and experiment_id not in only_experiments:
+            if not _matches_filter(_experiment_filter_candidates(experiment_id), only_experiments):
                 experiments.pop(experiment_id)
                 continue
             experiment = experiments[experiment_id]
@@ -1176,9 +1321,11 @@ def _filtered_spec_for_aggregate(spec: dict[str, Any], args: argparse.Namespace)
                 continue
             rows = []
             for row in experiment.get("rows", []):
-                if only_policies and str(row.get("policy")) not in only_policies:
+                if runtime_filter and not _matches_filter(_runtime_filter_candidates(updated, row), runtime_filter):
                     continue
-                if only_envs and str(row.get("env")) not in only_envs and str(row.get("env_name")) not in only_envs:
+                if not _matches_filter(_policy_filter_candidates(row), only_policies):
+                    continue
+                if not _matches_filter(_env_filter_candidates(row), only_envs):
                     continue
                 rows.append(row)
             experiment["rows"] = rows
@@ -1189,6 +1336,61 @@ def _csv_filter(value: str | None) -> set[str]:
     if not value:
         return set()
     return {item.strip() for item in value.split(",") if item.strip()}
+
+
+def _matches_filter(candidates: list[Any], filters: set[str]) -> bool:
+    if not filters:
+        return True
+    candidate_tokens = set()
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        candidate_tokens.update(_filter_token_variants(candidate))
+    filter_tokens = set()
+    for item in filters:
+        filter_tokens.update(_filter_token_variants(item))
+    return bool(candidate_tokens & filter_tokens)
+
+
+def _filter_token_variants(value: Any) -> set[str]:
+    raw = str(value).strip()
+    if not raw:
+        return set()
+    return {raw, raw.lower(), slugify(raw), _normalize_name(raw)}
+
+
+def _policy_filter_candidates(row: dict[str, Any]) -> list[Any]:
+    return [row.get("policy"), row.get("policy_type")]
+
+
+def _env_filter_candidates(row: dict[str, Any]) -> list[Any]:
+    return [row.get("env"), row.get("env_name")]
+
+
+def _experiment_filter_candidates(experiment_id: str) -> list[Any]:
+    return [experiment_id]
+
+
+def _device_filter_candidates(device: dict[str, Any]) -> list[Any]:
+    return [
+        device.get("id"),
+        device.get("display_name"),
+        device.get("profile_id"),
+        *device.get("aliases", []),
+    ]
+
+
+def _runtime_row_filter(spec: dict[str, Any], requested: Any) -> set[str]:
+    value = str(requested or "auto")
+    if value in {"auto", "all"}:
+        return set()
+    alias = _resolve_runtime_alias(spec, value)
+    return {alias or value}
+
+
+def _runtime_filter_candidates(spec: dict[str, Any], row: dict[str, Any]) -> list[Any]:
+    alias = row.get("runtime_env")
+    return [alias, _runtime_conda_env(spec, str(alias)) if alias else None]
 
 
 def _base_config_path(row: dict[str, Any]) -> Path:
@@ -1278,6 +1480,32 @@ def _append_note(existing: Any, note: str) -> str:
     if existing:
         return f"{existing}; {note}"
     return note
+
+
+def _failed_run_summary(task: ProtocolTask, exc: BaseException) -> dict[str, str]:
+    return {
+        "stage": str(task.stage),
+        "policy": str(task.row.get("policy")),
+        "env": str(task.row.get("env")),
+        "output_dir": str(task.output_dir),
+        "error": str(exc),
+    }
+
+
+def _print_failed_summary(failures: list[dict[str, str]]) -> None:
+    if not failures:
+        return
+    print("FAILED RUNS:", file=sys.stderr)
+    for failure in failures:
+        print(
+            "  - "
+            f"stage={failure['stage']} "
+            f"policy={failure['policy']} "
+            f"env={failure['env']} "
+            f"output_dir={failure['output_dir']} "
+            f"error={failure['error']}",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":

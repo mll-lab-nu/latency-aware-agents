@@ -100,6 +100,47 @@ def test_openvla_install_script_bootstraps_rlinf_oft_environment():
     assert "pip install -e \"${REPO_ROOT}/openvla\"" not in text
 
 
+def test_cross_device_openvla_script_forwards_filters_and_uses_openvla_runtime():
+    script_path = REPO_ROOT / "scripts" / "bash_scripts" / "run_cross_device_openvla.sh"
+    common_path = REPO_ROOT / "scripts" / "bash_scripts" / "cross_device_launcher_common.sh"
+
+    syntax = subprocess.run(
+        ["bash", "-n", str(script_path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert syntax.returncode == 0, syntax.stderr
+
+    common_syntax = subprocess.run(
+        ["bash", "-n", str(common_path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert common_syntax.returncode == 0, common_syntax.stderr
+
+    script = script_path.read_text(encoding="utf-8")
+    common = common_path.read_text(encoding="utf-8")
+    assert "RUNTIME_ENV=${RUNTIME_ENV:-openvla}" in script
+    assert '--runtime-env "${RUNTIME_ENV}"' in script
+    assert "cross_device_run_protocol_stage" in script
+    assert "cross_device_finish_protocol_runs" in script
+    for env_var, flag in (
+        ("ONLY_ENV", "--only-env"),
+        ("ONLY_POLICY", "--only-policy"),
+        ("ONLY_DEVICE", "--only-device"),
+        ("ONLY_EXPERIMENT", "--only-experiment"),
+        ("MAX_RUNS", "--max-runs"),
+    ):
+        assert env_var in common
+        assert flag in common
+    assert "CONTINUE_ON_ERROR" in common
+    assert "--continue-on-error" in common
+
+
 def test_eval_bash_scripts_reject_manual_latency_argument():
     for script_name in ("eval_flappy.sh", "eval_demon_attack.sh", "eval_deadly_corridor.sh"):
         script_path = REPO_ROOT / "scripts" / "bash_scripts" / script_name

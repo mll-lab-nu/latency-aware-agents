@@ -117,6 +117,42 @@ def test_flappy_openvla_eval_config_uses_serial_eval():
     assert config["evaluation"]["eval_parallel_envs"] == 1
 
 
+def test_flappy_openvla_realtime_config_remains_unchanged():
+    config = load_config("configs/experiments/flappy/realtime/openvla_30fps.yaml")
+
+    assert config["policy"]["type"] == "flappy_openvla"
+    assert config["logging"]["output_dir"] == "outputs/flappy_openvla_realtime_measured_30fps"
+    assert config["policy"]["unnorm_key"] == "flappy_bird"
+
+
+def test_demon_attack_openvla_realtime_config_loads():
+    config = load_config("configs/experiments/demon_attack/realtime/openvla_60fps.yaml")
+
+    assert config["env"]["name"] == "demon_attack"
+    assert config["env"]["expected_action_meanings"] == [
+        "NOOP",
+        "FIRE",
+        "RIGHT",
+        "LEFT",
+        "RIGHTFIRE",
+        "LEFTFIRE",
+    ]
+    assert config["policy"]["type"] == "demon_attack_openvla"
+    assert config["policy"]["action_dim"] == 6
+    assert config["policy"]["unnorm_key"] == "demon_attack"
+
+
+def test_deadly_corridor_openvla_realtime_config_loads():
+    config = load_config("configs/experiments/deadly_corridor/realtime/openvla_35fps.yaml")
+
+    assert config["env"]["name"] == "deadly_corridor"
+    assert config["env"]["env_frameskip"] == 4
+    assert config["env"]["frame_stack"] == 4
+    assert config["policy"]["type"] == "deadly_corridor_openvla"
+    assert config["policy"]["action_dim"] == 7
+    assert config["policy"]["unnorm_key"] == "deadly_corridor"
+
+
 def test_load_config_validates_executor_mode(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(BASE_CONFIG.replace("mode: simulated", "mode: unknown"), encoding="utf-8")

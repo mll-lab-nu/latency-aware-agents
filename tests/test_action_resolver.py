@@ -52,3 +52,26 @@ def test_missing_action_map_does_not_invent_flap():
 
     assert resolver.default_action_refs() == ["noop"]
     assert resolver.resolve("flap").value == "flap"
+
+
+def test_list_valued_action_map_does_not_raise_type_error():
+    resolver = ActionResolver(
+        {
+            "name": "deadly_corridor",
+            "fps_env": 35,
+            "noop_action": "noop",
+            "action_map": {
+                "noop": [0, 0, 0, 0],
+                "attack": [0, 0, 0, 1],
+            },
+            "oneshot_actions": ["attack"],
+        }
+    )
+
+    noop = resolver.resolve("noop")
+    attack = resolver.resolve("attack")
+
+    assert noop.value == [0, 0, 0, 0]
+    assert noop.is_noop
+    assert attack.value == [0, 0, 0, 1]
+    assert attack.is_oneshot

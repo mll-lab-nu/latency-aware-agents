@@ -10,6 +10,7 @@ import yaml
 
 
 SCRIPT = Path("scripts/experiments/run_cross_device_protocol.py")
+REAL_PROTOCOL = Path("configs/experiments/cross_device_protocol.yaml")
 
 
 RUNTIME_SPEC = {
@@ -33,6 +34,67 @@ def _write_base_config(path: Path) -> None:
         "evaluation": {"eval_episodes": 2, "eval_parallel_envs": 4, "eval_latency_values": [0, 1], "eval_max_steps": 10},
     }
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+
+def _write_base_config_with_policy(path: Path, policy_type: str) -> None:
+    config = {
+        "experiment": {"name": f"{policy_type}_seed0", "seed": 0, "num_episodes": 1},
+        "executor": {"mode": "simulated"},
+        "env": {"name": "dummy", "fps_env": 30, "noop_action": "noop"},
+        "control": {"frequency_hz": 30, "observe_every_n_frames": 1},
+        "latency": {"type": "zero"},
+        "scheduler": {"persistence_mode": "hold_previous", "stale_action_mode": "latest_ready"},
+        "policy": {"type": policy_type, "actions": ["noop"]},
+        "logging": {"output_dir": "unused"},
+        "evaluation": {"eval_episodes": 1, "eval_parallel_envs": 1, "eval_latency_values": None, "eval_max_steps": 1},
+    }
+    path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+
+def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: Path) -> None:
+    first = {
+        "policy": "failing-policy",
+        "env": "Dummy",
+        "policy_type": "unknown_policy",
+        "runtime_env": "small_model",
+        "env_name": "dummy",
+        "fps": 30,
+        "base_config": str(first_config),
+    }
+    second = {
+        "policy": "passing-policy",
+        "env": "Dummy",
+        "policy_type": "random",
+        "runtime_env": "small_model",
+        "env_name": "dummy",
+        "fps": 30,
+        "base_config": str(second_config),
+    }
+    spec = {
+        "protocol_id": "cross_device_latency_v1",
+        "output_root": str(path.parent / "results"),
+        "latency_scope": "policy_predict_only",
+        "trace_replay_order": "sequential",
+        "loop_trace": True,
+        "checkpoint_kind": "best",
+        "n_warmup": 0,
+        "n_episodes": 1,
+        "seed_set": [0],
+        "runtime_envs": {"small_model": {"conda_env": "latency", "description": "small"}},
+        "devices": [
+            {
+                "id": "a100",
+                "display_name": "A100",
+                "profile_id": "L_A100",
+                "speed_rank": 3,
+                "aliases": ["NVIDIA A100"],
+            }
+        ],
+        "experiments": {
+            "exp2_same_device_calibration": {"panel": "b", "rows": [first, second]},
+        },
+    }
+    path.write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
 
 
 def _write_spec(path: Path, base_config: Path) -> None:
@@ -291,6 +353,182 @@ def test_runtime_env_filtering_small_and_openvla_rows(tmp_path: Path):
     )
     assert "policy: vla-policy" in openvla.stdout
     assert "skipped runtime_env mismatch: 1" in openvla.stdout
+
+
+def test_real_openvla_protocol_dry_run_selects_flappy_demon_and_deadly(tmp_path: Path):
+    out = tmp_path / "results"
+
+    result = _run_cli(
+        tmp_path,
+        "measure",
+        "--spec",
+        str(REAL_PROTOCOL),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--runtime-env",
+        "openvla",
+        "--dry-run",
+        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+    )
+
+    assert "policy: OpenVLA-Flappy" in result.stdout
+    assert "policy: demon-attack-openvla" in result.stdout
+    assert "policy: deadly-corridor-openvla" in result.stdout
+    assert "openvla-flappy/flappy" in result.stdout
+    assert "demon-attack-openvla/demon_attack" in result.stdout
+    assert "deadly-corridor-openvla/deadly_corridor" in result.stdout
+
+
+def test_real_openvla_protocol_only_policy_accepts_slug_and_preserves_flappy_path(tmp_path: Path):
+    out = tmp_path / "results"
+
+    flappy = _run_cli(
+        tmp_path,
+        "measure",
+        "--spec",
+        str(REAL_PROTOCOL),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--runtime-env",
+        "openvla",
+        "--dry-run",
+        "--only-policy",
+        "openvla-flappy",
+        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+    )
+    assert "policy: OpenVLA-Flappy" in flappy.stdout
+    assert "policy: demon-attack-openvla" not in flappy.stdout
+    assert "policy: deadly-corridor-openvla" not in flappy.stdout
+    assert "openvla-flappy/flappy" in flappy.stdout
+
+    demon = _run_cli(
+        tmp_path,
+        "measure",
+        "--spec",
+        str(REAL_PROTOCOL),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--runtime-env",
+        "openvla",
+        "--dry-run",
+        "--only-policy",
+        "demon-attack-openvla",
+        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+    )
+    assert "policy: OpenVLA-Flappy" not in demon.stdout
+    assert "policy: demon-attack-openvla" in demon.stdout
+    assert "policy: deadly-corridor-openvla" not in demon.stdout
+
+
+def test_real_openvla_protocol_only_env_accepts_raw_and_slug_values(tmp_path: Path):
+    out = tmp_path / "results"
+
+    slug = _run_cli(
+        tmp_path,
+        "measure",
+        "--spec",
+        str(REAL_PROTOCOL),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--runtime-env",
+        "openvla",
+        "--dry-run",
+        "--only-env",
+        "deadly_corridor",
+        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+    )
+    assert "policy: deadly-corridor-openvla" in slug.stdout
+    assert "policy: OpenVLA-Flappy" not in slug.stdout
+    assert "policy: demon-attack-openvla" not in slug.stdout
+
+    raw = _run_cli(
+        tmp_path,
+        "measure",
+        "--spec",
+        str(REAL_PROTOCOL),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--runtime-env",
+        "openvla",
+        "--dry-run",
+        "--only-env",
+        "Deadly Corridor",
+        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+    )
+    assert "policy: deadly-corridor-openvla" in raw.stdout
+    assert "policy: OpenVLA-Flappy" not in raw.stdout
+    assert "policy: demon-attack-openvla" not in raw.stdout
+
+
+def test_real_openvla_protocol_max_runs_limits_dry_run_rows(tmp_path: Path):
+    result = _run_cli(
+        tmp_path,
+        "measure",
+        "--spec",
+        str(REAL_PROTOCOL),
+        "--hardware",
+        "a100",
+        "--out",
+        str(tmp_path / "results"),
+        "--runtime-env",
+        "openvla",
+        "--dry-run",
+        "--max-runs",
+        "1",
+        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+    )
+
+    assert result.stdout.count("policy: ") == 1
+
+
+def test_openvla_env_var_overrides_are_written_and_printed_in_dry_run(tmp_path: Path):
+    base_model = tmp_path / "base_model"
+    base_model.mkdir()
+    (base_model / "dataset_statistics.json").write_text('{"demon_attack": {}}\n', encoding="utf-8")
+    checkpoint = tmp_path / "demon_checkpoint"
+    weights = checkpoint / "actor" / "model_state_dict" / "full_weights.pt"
+    weights.parent.mkdir(parents=True)
+    weights.write_bytes(b"not a real checkpoint")
+    out = tmp_path / "results"
+
+    result = _run_cli(
+        tmp_path,
+        "measure",
+        "--spec",
+        str(REAL_PROTOCOL),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--runtime-env",
+        "openvla",
+        "--dry-run",
+        "--only-policy",
+        "demon-attack-openvla",
+        env={
+            "CROSS_DEVICE_RUNTIME_ENV": "latency-openvla",
+            "OPENVLA_BASE_MODEL_PATH": str(base_model),
+            "DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH": str(checkpoint),
+        },
+    )
+
+    assert f"resolved_base_model_path: {base_model}" in result.stdout
+    assert f"resolved_checkpoint_path: {checkpoint}" in result.stdout
+    assert "openvla_dependency_status: ok" in result.stdout
+    generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
+    config = yaml.safe_load(generated.read_text(encoding="utf-8"))
+    assert config["policy"]["base_model_path"] == str(base_model)
+    assert config["policy"]["checkpoint_path"] == str(checkpoint)
 
 
 def test_runtime_env_all_safety_and_strict_mode(tmp_path: Path):
@@ -619,6 +857,89 @@ def test_cli_n_episodes_overrides_stage_overrides(tmp_path: Path):
     assert config["experiment"]["num_episodes"] == 20
     assert config["evaluation"]["eval_episodes"] == 20
     assert "best_seed_0_n20" in config["logging"]["output_dir"]
+
+
+def test_continue_on_error_runs_later_tasks_and_returns_nonzero_summary(tmp_path: Path):
+    failing_config = tmp_path / "failing.yaml"
+    passing_config = tmp_path / "passing.yaml"
+    spec = tmp_path / "protocol.yaml"
+    out = tmp_path / "results"
+    _write_base_config_with_policy(failing_config, "unknown_policy")
+    _write_base_config_with_policy(passing_config, "random")
+    _write_two_row_realtime_spec(spec, failing_config, passing_config)
+
+    result = _run_cli(
+        tmp_path,
+        "realtime",
+        "--spec",
+        str(spec),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--runtime-env",
+        "small_model",
+        "--continue-on-error",
+        env={"CROSS_DEVICE_RUNTIME_ENV": "latency"},
+        check=False,
+    )
+
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert "FAILED RUNS:" in combined
+    assert "policy=failing-policy" in combined
+    assert "env=Dummy" in combined
+    assert "stage=realtime" in combined
+    assert "output_dir=" in combined
+    assert "error=" in combined
+    assert "passing-policy" in combined
+    failed_manifest = next((out / "runs" / "realtime" / "failing-policy").rglob("manifest.json"))
+    manifest = yaml.safe_load(failed_manifest.read_text(encoding="utf-8"))
+    assert manifest["status"] == "failed"
+    assert manifest["error"]
+    assert next((out / "runs" / "realtime" / "passing-policy").rglob("manifest.json")).exists()
+
+
+def test_resume_skips_completed_manifest_but_retries_failed_run(tmp_path: Path):
+    failing_config = tmp_path / "failing.yaml"
+    passing_config = tmp_path / "passing.yaml"
+    spec = tmp_path / "protocol.yaml"
+    out = tmp_path / "results"
+    _write_base_config_with_policy(failing_config, "unknown_policy")
+    _write_base_config_with_policy(passing_config, "random")
+    _write_two_row_realtime_spec(spec, failing_config, passing_config)
+
+    completed_dir = out / "runs" / "realtime" / "passing-policy" / "dummy" / "a100" / "best_seed_0_n1"
+    completed_dir.mkdir(parents=True)
+    (completed_dir / "manifest.json").write_text('{"status": "completed"}\n', encoding="utf-8")
+    failed_dir = out / "runs" / "realtime" / "failing-policy" / "dummy" / "a100" / "best_seed_0_n1"
+    failed_dir.mkdir(parents=True)
+    (failed_dir / "manifest.json").write_text('{"status": "failed", "error": "old"}\n', encoding="utf-8")
+
+    result = _run_cli(
+        tmp_path,
+        "realtime",
+        "--spec",
+        str(spec),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--runtime-env",
+        "small_model",
+        "--resume",
+        "--continue-on-error",
+        env={"CROSS_DEVICE_RUNTIME_ENV": "latency"},
+        check=False,
+    )
+
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert f"resume: skipping completed run {completed_dir}" in combined
+    assert f"resume: skipping completed run {failed_dir}" not in combined
+    retried_manifest = yaml.safe_load((failed_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert retried_manifest["status"] == "failed"
+    assert retried_manifest["error"] != "old"
 
 
 def test_aggregate_dry_run_accepts_common_filters_without_writing_tables(tmp_path: Path):
