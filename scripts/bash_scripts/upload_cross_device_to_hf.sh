@@ -5,6 +5,10 @@ REPO_DIR=${REPO_DIR:-}
 OUT=${OUT:-results/cross_device}
 HF_REPO=${HF_REPO:-}
 HF_REPO_TYPE=${HF_REPO_TYPE:-dataset}
+HF_TOKEN=${HF_TOKEN:-}
+HUGGINGFACE_HUB_TOKEN=${HUGGINGFACE_HUB_TOKEN:-}
+HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN:-}
+HF_TOKEN_FILE=${HF_TOKEN_FILE:-}
 DEVICE=${DEVICE:-auto}
 RUNTIME=${RUNTIME:-combined}
 REMOTE_PREFIX=${REMOTE_PREFIX:-raw}
@@ -61,6 +65,30 @@ find_hf_cli() {
     return 1
 }
 
+resolve_hf_token() {
+    if [[ -n "${HF_TOKEN}" ]]; then
+        printf '%s' "${HF_TOKEN}"
+        return
+    fi
+    if [[ -n "${HUGGINGFACE_HUB_TOKEN}" ]]; then
+        printf '%s' "${HUGGINGFACE_HUB_TOKEN}"
+        return
+    fi
+    if [[ -n "${HUGGINGFACE_TOKEN}" ]]; then
+        printf '%s' "${HUGGINGFACE_TOKEN}"
+        return
+    fi
+    if [[ -n "${HF_TOKEN_FILE}" ]]; then
+        if [[ ! -f "${HF_TOKEN_FILE}" ]]; then
+            echo "Error: HF_TOKEN_FILE does not exist: ${HF_TOKEN_FILE}" >&2
+            return 1
+        fi
+        head -n 1 "${HF_TOKEN_FILE}" | tr -d '\r\n'
+        return
+    fi
+    return 0
+}
+
 REPO_ROOT="$(cross_device_resolve_repo_root "${BASH_SOURCE[0]}")"
 cd "${REPO_ROOT}"
 cross_device_init_logging "${REPO_ROOT}" "upload"
@@ -86,12 +114,22 @@ if [[ -z "${RUN_TAG}" ]]; then
 fi
 REMOTE_PATH="${REMOTE_PREFIX}/${DEVICE_SLUG}/${RUNTIME}/${RUN_TAG}/cross_device"
 HF_CLI="$(find_hf_cli)"
+RESOLVED_HF_TOKEN="$(resolve_hf_token)"
+if [[ -n "${RESOLVED_HF_TOKEN}" ]]; then
+    export HF_TOKEN="${RESOLVED_HF_TOKEN}"
+    export HUGGINGFACE_HUB_TOKEN="${RESOLVED_HF_TOKEN}"
+fi
 
 echo "== Upload cross-device protocol outputs =="
 echo "Repo root: ${REPO_ROOT}"
 echo "Local OUT: ${OUT}"
 echo "HF repo: ${HF_REPO}"
 echo "HF repo type: ${HF_REPO_TYPE}"
+if [[ -n "${RESOLVED_HF_TOKEN}" ]]; then
+    echo "HF token: provided"
+else
+    echo "HF token: not provided; relying on existing hf login/cache"
+fi
 echo "Device: ${DEVICE_SLUG}"
 echo "Runtime label: ${RUNTIME}"
 echo "Remote path: ${REMOTE_PATH}"

@@ -38,11 +38,19 @@ Aggregate:
 bash scripts/bash_scripts/aggregate_cross_device.sh
 ```
 
+Upload one machine's collected outputs to Hugging Face:
+
+```bash
+HF_REPO=your-name/cross-device-latency-v1 HF_TOKEN=hf_xxx \
+bash scripts/bash_scripts/upload_cross_device_to_hf.sh
+```
+
 Dry run:
 
 ```bash
 DRY_RUN=1 bash scripts/bash_scripts/run_cross_device_small_models.sh
 DRY_RUN=1 bash scripts/bash_scripts/run_cross_device_openvla.sh
+DRY_RUN=1 HF_REPO=your-name/cross-device-latency-v1 bash scripts/bash_scripts/upload_cross_device_to_hf.sh
 ```
 
 More episodes:
@@ -81,6 +89,27 @@ N_EPISODES=100
 SEED_SET=0,1,2
 CHECKPOINT_KIND=best
 DRY_RUN=1
+```
+
+The upload launcher also accepts:
+
+```bash
+HF_REPO=your-name/cross-device-latency-v1
+HF_TOKEN=hf_xxx        # optional if already logged in with hf auth login
+HF_TOKEN_FILE=/path/to/token.txt
+HF_REPO_TYPE=dataset
+OUT=results/cross_device
+DEVICE=auto          # or rtx3090 / rtx4090 / l40s / a100 / h200 / b200
+RUNTIME=combined     # use this when small_model and OpenVLA both ran on the machine
+REMOTE_PREFIX=raw
+RUN_TAG=$(hostname)_$(date +%Y%m%d_%H%M%S)
+DRY_RUN=1
+```
+
+The default remote layout is:
+
+```text
+raw/<device>/<runtime>/<hostname>_<timestamp>/cross_device/
 ```
 
 ## 1. Small models in `latency`
