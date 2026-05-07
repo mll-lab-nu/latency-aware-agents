@@ -38,6 +38,11 @@ Aggregate:
 bash scripts/bash_scripts/aggregate_cross_device.sh
 ```
 
+If Hugging Face outputs were downloaded to `results/raw`, the aggregate script
+auto-detects `results/raw/**/cross_device` and reads those raw machine outputs
+directly. It also accepts the older nested `results/raw/raw/**/cross_device`
+layout.
+
 Upload one machine's collected outputs to Hugging Face:
 
 ```bash
@@ -111,6 +116,24 @@ The default remote layout is:
 ```text
 raw/<device>/<runtime>/<hostname>_<timestamp>/cross_device/
 ```
+
+Download all uploaded machine outputs and aggregate directly:
+
+```bash
+rm -rf results/raw
+hf download \
+  --repo-type dataset \
+  --token "$HF_TOKEN" \
+  "$HF_REPO" \
+  --local-dir results/raw \
+  --include "raw/**"
+
+bash scripts/bash_scripts/aggregate_cross_device.sh
+```
+
+Use `USE_RAW=0` to force aggregation from the standard local
+`results/cross_device` tree instead of the downloaded raw layout. Use
+`RAW_ROOT=/path/to/raw` if the downloaded raw tree is not under `results/raw`.
 
 ## 1. Small models in `latency`
 

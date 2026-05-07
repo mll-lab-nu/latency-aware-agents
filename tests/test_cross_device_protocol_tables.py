@@ -146,6 +146,58 @@ def _write_fixture(root: Path) -> None:
     _write_jsonl(root / "manifests" / "runs.jsonl", manifests)
 
 
+def _write_raw_download_fixture(protocol_root: Path, *, include_skipped_duplicates: bool = False) -> None:
+    profile_path = _build_profile(protocol_root)
+    realtime = protocol_root / "runs" / "realtime" / "flappy-sf-l1" / "flappy" / "a100" / "seed_0"
+    sim_same = protocol_root / "runs" / "sim_same" / "flappy-sf-l1" / "flappy" / "a100" / "seed_0"
+    old_root = Path("results/cross_device")
+    _write_jsonl(realtime / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
+    _write_jsonl(sim_same / "episode_metrics.jsonl", _episode_records(110.0, 1100.0))
+    manifests = [
+        _manifest(
+            stage="measure",
+            experiment_id="exp1_latency_profile_summary",
+            target_device_id="a100",
+            output_dir=old_root / "runs" / "measure",
+            profile_path=old_root / profile_path.relative_to(protocol_root),
+        ),
+        _manifest(
+            stage="realtime",
+            experiment_id="exp2_same_device_calibration",
+            target_device_id="a100",
+            output_dir=old_root / realtime.relative_to(protocol_root),
+        ),
+        _manifest(
+            stage="sim_same",
+            experiment_id="exp2_same_device_calibration",
+            target_device_id="a100",
+            output_dir=old_root / sim_same.relative_to(protocol_root),
+        ),
+    ]
+    if include_skipped_duplicates:
+        manifests.extend(
+            [
+                _manifest(
+                    stage="realtime",
+                    experiment_id="exp2_same_device_calibration",
+                    target_device_id="a100",
+                    output_dir=old_root / realtime.relative_to(protocol_root),
+                    status="skipped",
+                    skip_reason="runtime_env selection mismatch: selected openvla, row requires small_model",
+                ),
+                _manifest(
+                    stage="sim_same",
+                    experiment_id="exp2_same_device_calibration",
+                    target_device_id="a100",
+                    output_dir=old_root / sim_same.relative_to(protocol_root),
+                    status="skipped",
+                    skip_reason="runtime_env selection mismatch: selected openvla, row requires small_model",
+                ),
+            ]
+        )
+    _write_jsonl(protocol_root / "manifests" / "runs.jsonl", manifests)
+
+
 def test_profile_summary_mapping_and_exact_error_formulas(tmp_path: Path):
     spec = _spec()
     _write_fixture(tmp_path)
@@ -206,6 +258,62 @@ def test_write_protocol_tables_uses_requested_schemas(tmp_path: Path):
     with pytest.raises(FileExistsError, match="Refusing to overwrite"):
         write_protocol_tables(spec=spec, root=tmp_path, out=output_dir)
     write_protocol_tables(spec=spec, root=tmp_path, out=output_dir, overwrite=True)
+
+
+def test_write_protocol_tables_reads_hf_raw_download_layout(tmp_path: Path):
+    spec = _spec()
+    raw_root = tmp_path / "results" / "raw" / "raw"
+    protocol_root = raw_root / "a100" / "combined" / "host_20260101_000000" / "cross_device"
+    standard_root = tmp_path / "results" / "cross_device"
+    output_dir = standard_root / "tables"
+    _write_raw_download_fixture(protocol_root)
+
+    outputs = write_protocol_tables(spec=spec, root=standard_root, raw_root=raw_root, out=output_dir)
+
+    with outputs["experiment1"].open("r", encoding="utf-8", newline="") as f:
+        exp1 = list(csv.DictReader(f))
+    a100_profile = next(row for row in exp1 if row["profile_id"] == "L_A100")
+    assert float(a100_profile["mean_ms"]) == pytest.approx(20.0)
+    assert int(a100_profile["n_samples"]) == 3
+
+    with outputs["experiment2"].open("r", encoding="utf-8", newline="") as f:
+        exp2 = list(csv.DictReader(f))
+    a100_calibration = next(row for row in exp2 if row["hardware"] == "A100")
+    assert float(a100_calibration["realtime_return"]) == pytest.approx(100.0)
+    assert float(a100_calibration["simulated_return_using_L_d"]) == pytest.approx(110.0)
+    assert a100_calibration["notes"] == ""
+
+
+def test_write_protocol_tables_reads_direct_results_raw_layout(tmp_path: Path):
+    spec = _spec()
+    raw_root = tmp_path / "results" / "raw"
+    protocol_root = raw_root / "a100" / "combined" / "host_20260101_000000" / "cross_device"
+    standard_root = tmp_path / "results" / "cross_device"
+    output_dir = standard_root / "tables"
+    _write_raw_download_fixture(protocol_root)
+
+    outputs = write_protocol_tables(spec=spec, root=standard_root, raw_root=raw_root, out=output_dir)
+
+    with outputs["experiment2"].open("r", encoding="utf-8", newline="") as f:
+        exp2 = list(csv.DictReader(f))
+    a100_calibration = next(row for row in exp2 if row["hardware"] == "A100")
+    assert float(a100_calibration["realtime_return"]) == pytest.approx(100.0)
+    assert float(a100_calibration["simulated_return_using_L_d"]) == pytest.approx(110.0)
+
+
+def test_completed_manifest_wins_over_later_skipped_duplicate(tmp_path: Path):
+    spec = _spec()
+    raw_root = tmp_path / "results" / "raw"
+    protocol_root = raw_root / "a100" / "combined" / "host_20260101_000000" / "cross_device"
+    standard_root = tmp_path / "results" / "cross_device"
+    _write_raw_download_fixture(protocol_root, include_skipped_duplicates=True)
+
+    exp2 = build_experiment2_rows(spec, standard_root, raw_root=raw_root)
+
+    a100_calibration = next(row for row in exp2 if row["hardware"] == "A100")
+    assert float(a100_calibration["realtime_return"]) == pytest.approx(100.0)
+    assert float(a100_calibration["simulated_return_using_L_d"]) == pytest.approx(110.0)
+    assert "runtime_env selection mismatch" not in a100_calibration["notes"]
 
 
 def test_aggregate_notes_include_skipped_manifest_reasons(tmp_path: Path):

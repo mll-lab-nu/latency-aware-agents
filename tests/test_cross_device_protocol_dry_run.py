@@ -650,6 +650,34 @@ def test_aggregate_dry_run_accepts_common_filters_without_writing_tables(tmp_pat
     assert not tables.exists()
 
 
+def test_aggregate_dry_run_accepts_raw_root(tmp_path: Path):
+    base_config = tmp_path / "base.yaml"
+    spec = tmp_path / "protocol.yaml"
+    root = tmp_path / "results" / "cross_device"
+    raw_root = tmp_path / "results" / "raw" / "raw"
+    tables = root / "tables"
+    _write_base_config(base_config)
+    _write_spec(spec, base_config)
+
+    result = _run_cli(
+        tmp_path,
+        "aggregate",
+        "--spec",
+        str(spec),
+        "--root",
+        str(root),
+        "--raw-root",
+        str(raw_root),
+        "--out",
+        str(tables),
+        "--dry-run",
+    )
+
+    assert f"raw_root: {raw_root}" in result.stdout
+    assert "would_write:" in result.stdout
+    assert not tables.exists()
+
+
 def test_sim_cross_skips_replay_hardware_not_configured_for_experiment(tmp_path: Path):
     base_config = tmp_path / "base.yaml"
     spec = tmp_path / "protocol.yaml"
