@@ -42,7 +42,7 @@ policy:
   action_dim: 6
   num_action_chunks: 1
   add_value_head: false
-  max_prompt_length: 50
+  max_prompt_length: 512
   num_images_in_input: 1
   center_crop: true
   trust_remote_code: true

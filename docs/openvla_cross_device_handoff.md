@@ -32,12 +32,15 @@ optional override is set:
 export FLAPPY_OPENVLA_CHECKPOINT_PATH=/path/to/flappy_ckpt
 ```
 
-The base model directory must contain `dataset_statistics.json`. The selected
-rows require these keys:
+The base model directory must contain policy-specific statistics files:
 
-- `flappy_bird`
-- `demon_attack`
-- `deadly_corridor`
+- `flappy_dataset_statistics.json` with key `flappy_bird`
+- `demon_attack_dataset_statistics.json` with key `demon_attack`
+- `deadly_corridor_dataset_statistics.json` with key `deadly_corridor`
+
+Deadly Corridor OpenVLA uses RL-inf's current 11-dim factorized action layout,
+`deadly_corridor_factorized_11`. The `deadly_corridor.action` statistics
+fields `q01`, `q99`, `min`, `max`, and `mask` must all have length 11.
 
 Each checkpoint directory must contain:
 
@@ -47,8 +50,8 @@ actor/model_state_dict/full_weights.pt
 
 ## Dependency Check
 
-This checks paths and unnormalization keys only. It does not load the model,
-initialize an environment, or write eval output.
+This checks paths, unnormalization keys, and OpenVLA action-stat dimensions. It
+does not load the model, initialize an environment, or write eval output.
 
 ```bash
 CROSS_DEVICE_HARDWARE=a100 \
@@ -182,9 +185,12 @@ results/cross_device/runs/<stage>/<policy>/<env>/<device>/smoke_seed_0_n1/
 ## Common Failures
 
 - Missing base model: set `OPENVLA_BASE_MODEL_PATH` to an existing directory.
-- Missing `dataset_statistics.json`: ensure it exists directly under the base
-  model directory.
-- Missing unnorm key: add the selected env key to `dataset_statistics.json`.
+- Missing policy statistics file: ensure the selected policy has its
+  `*_dataset_statistics.json` file directly under the base model directory.
+- Missing unnorm key: add the selected env key to the matching statistics file.
+- Deadly action stats length mismatch: `deadly_corridor.action.q01`,
+  `q99`, `min`, `max`, and `mask` must be length 11 for
+  `deadly_corridor_factorized_11`.
 - Missing `full_weights.pt`: point the checkpoint env var at the directory that
   contains `actor/model_state_dict/full_weights.pt`.
 - Demon action meanings mismatch: the latency_bench Demon env will fail fast if

@@ -74,22 +74,27 @@ policy:
   checkpoint_path: /workspace/corridor-sft-openvla-v1/global_step_1500
   prompt: "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action."
   image_size: 84
-  action_dim: 7
   num_action_chunks: 1
   add_value_head: false
-  max_prompt_length: 50
+  max_prompt_length: 512
   num_images_in_input: 1
   center_crop: true
   trust_remote_code: true
   unnorm_key: deadly_corridor
   device: cuda
+  action_layout: deadly_corridor_factorized_11
+  action_dim: 11
   actions:
-    - MOVE_FORWARD
-    - MOVE_BACKWARD
-    - MOVE_LEFT
-    - MOVE_RIGHT
+    - TURN_NOOP
     - TURN_LEFT
     - TURN_RIGHT
+    - MOVE_NOOP
+    - MOVE_FORWARD
+    - MOVE_BACKWARD
+    - STRAFE_NOOP
+    - MOVE_LEFT
+    - MOVE_RIGHT
+    - ATTACK_NOOP
     - ATTACK
 
 control:

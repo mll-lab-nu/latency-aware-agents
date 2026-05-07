@@ -711,6 +711,8 @@ def _openvla_dependency_errors(config: dict[str, Any]) -> list[str]:
                     errors.append(
                         f"missing OpenVLA unnorm_key {unnorm_key!r} in dataset statistics file: {statistics_path}"
                     )
+                else:
+                    errors.extend(_openvla_action_stats_errors(config, statistics, unnorm_key, statistics_path))
     if not unnorm_key:
         errors.append("missing OpenVLA policy.unnorm_key")
     if not checkpoint_value:
@@ -722,6 +724,47 @@ def _openvla_dependency_errors(config: dict[str, Any]) -> list[str]:
         weights_path = checkpoint_path / "actor" / "model_state_dict" / "full_weights.pt"
         if not _path_is_file_safe(weights_path):
             errors.append(f"missing OpenVLA full_weights.pt: {weights_path}")
+    return errors
+
+
+def _openvla_action_stats_errors(
+    config: dict[str, Any],
+    statistics: dict[str, Any],
+    unnorm_key: str,
+    statistics_path: Path,
+) -> list[str]:
+    policy = config.get("policy", {})
+    raw_action_dim = policy.get("action_dim")
+    if isinstance(raw_action_dim, bool) or not isinstance(raw_action_dim, int) or raw_action_dim <= 0:
+        return [f"missing or invalid OpenVLA policy.action_dim for action stats validation: {raw_action_dim!r}"]
+    dataset_stats = statistics.get(unnorm_key)
+    if not isinstance(dataset_stats, dict):
+        return [
+            f"OpenVLA stats for {unnorm_key!r} must be an object in dataset statistics file: {statistics_path}"
+        ]
+    action_stats = dataset_stats.get("action")
+    if not isinstance(action_stats, dict):
+        return [
+            f"OpenVLA stats for {unnorm_key!r} must contain action stats object in dataset statistics file: {statistics_path}"
+        ]
+    errors: list[str] = []
+    for key in ("q01", "q99", "min", "max", "mask"):
+        value = action_stats.get(key)
+        if value is None:
+            errors.append(f"{unnorm_key} action stats missing {key} in dataset statistics file: {statistics_path}")
+            continue
+        try:
+            length = len(value)
+        except TypeError:
+            errors.append(
+                f"{unnorm_key} action stats {key} must be a sequence of length {raw_action_dim}, "
+                f"got {type(value).__name__}"
+            )
+            continue
+        if length != raw_action_dim:
+            errors.append(
+                f"{unnorm_key} action stats {key} length {length} != policy.action_dim {raw_action_dim}"
+            )
     return errors
 
 

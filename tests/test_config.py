@@ -149,7 +149,8 @@ def test_deadly_corridor_openvla_realtime_config_loads():
     assert config["env"]["env_frameskip"] == 4
     assert config["env"]["frame_stack"] == 4
     assert config["policy"]["type"] == "deadly_corridor_openvla"
-    assert config["policy"]["action_dim"] == 7
+    assert config["policy"]["action_dim"] == 11
+    assert config["policy"]["action_layout"] == "deadly_corridor_factorized_11"
     assert config["policy"]["unnorm_key"] == "deadly_corridor"
 
 

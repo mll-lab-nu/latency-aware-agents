@@ -11,8 +11,8 @@ from latency_bench.core.types import Observation
 from latency_bench.policy import deadly_corridor_openvla
 from latency_bench.policy.deadly_corridor_openvla import (
     DEADLY_CORRIDOR_OPENVLA_ACTION_LABELS,
-    DEADLY_CORRIDOR_OPENVLA_ACTION_VALUES,
     DeadlyCorridorOpenVlaPolicyRunner,
+    deadly_corridor_action_from_factorized_vector,
     observation_data_to_single_hwc_rgb_uint8,
 )
 
@@ -31,7 +31,7 @@ def _policy_config() -> deadly_corridor_openvla.DeadlyCorridorOpenVlaPolicyConfi
         checkpoint_path=Path("/missing/checkpoint"),
         prompt="play deadly corridor",
         image_size=84,
-        action_dim=7,
+        action_dim=11,
         num_action_chunks=1,
         add_value_head=False,
         max_prompt_length=50,
@@ -43,10 +43,19 @@ def _policy_config() -> deadly_corridor_openvla.DeadlyCorridorOpenVlaPolicyConfi
     )
 
 
-@pytest.mark.parametrize("action_id", range(7))
-def test_deadly_openvla_argmax_maps_to_expected_list_action(action_id: int):
-    vector = np.zeros(7, dtype=np.float32)
-    vector[action_id] = 1.0
+@pytest.mark.parametrize(
+    ("vector", "expected_value", "expected_name"),
+    [
+        ([1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 0, 0, 0], "NOOP"),
+        ([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [1, 1, 1, 1], "TURN_LEFT+MOVE_FORWARD+MOVE_LEFT+ATTACK"),
+        ([0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0], [2, 2, 2, 0], "TURN_RIGHT+MOVE_BACKWARD+MOVE_RIGHT"),
+    ],
+)
+def test_deadly_openvla_factorized_vector_maps_to_runtime_action(
+    vector: list[float],
+    expected_value: list[int],
+    expected_name: str,
+):
     policy = DeadlyCorridorOpenVlaPolicyRunner(
         model=_MockOpenVlaModel(vector),
         config=_policy_config(),
@@ -60,9 +69,26 @@ def test_deadly_openvla_argmax_maps_to_expected_list_action(action_id: int):
 
     output = policy.predict(observation)
 
-    assert output.action.value == DEADLY_CORRIDOR_OPENVLA_ACTION_VALUES[action_id]
-    assert output.action.name == DEADLY_CORRIDOR_OPENVLA_ACTION_LABELS[action_id]
-    assert output.raw_output == action_id
+    assert output.action.value == expected_value
+    assert output.action.name == expected_name
+    assert output.raw_output == expected_value
+    assert output.metadata["decoded_action_tuple"] == expected_value
+
+
+def test_deadly_corridor_factorized_decode_helper_exposes_branch_labels():
+    action, metadata = deadly_corridor_action_from_factorized_vector(
+        np.asarray([0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1], dtype=np.float32)
+    )
+
+    assert action.value == [2, 1, 0, 1]
+    assert action.name == "TURN_RIGHT+MOVE_FORWARD+ATTACK"
+    assert metadata == {
+        "decoded_action_tuple": [2, 1, 0, 1],
+        "turn_label": "TURN_RIGHT",
+        "move_label": "MOVE_FORWARD",
+        "strafe_label": "STRAFE_NOOP",
+        "attack_label": "ATTACK",
+    }
 
 
 def test_deadly_openvla_accepts_hwc_rgb():
@@ -116,7 +142,7 @@ def test_deadly_openvla_factory_can_build_with_mock_loader(monkeypatch):
     from latency_bench.policy.factory import build_policy
 
     def fake_load(config):
-        return _MockOpenVlaModel([0, 0, 0, 0, 0, 0, 1]), torch.device("cpu")
+        return _MockOpenVlaModel([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]), torch.device("cpu")
 
     monkeypatch.setattr(deadly_corridor_openvla, "load_openvla_sft_model", fake_load)
     config = {
@@ -128,7 +154,7 @@ def test_deadly_openvla_factory_can_build_with_mock_loader(monkeypatch):
             "checkpoint_path": "/missing/checkpoint",
             "prompt": "play deadly corridor",
             "image_size": 84,
-            "action_dim": 7,
+            "action_dim": 11,
             "num_action_chunks": 1,
             "add_value_head": False,
             "max_prompt_length": 50,
@@ -137,6 +163,7 @@ def test_deadly_openvla_factory_can_build_with_mock_loader(monkeypatch):
             "trust_remote_code": True,
             "unnorm_key": "deadly_corridor",
             "device": "cpu",
+            "actions": list(DEADLY_CORRIDOR_OPENVLA_ACTION_LABELS),
         },
     }
 
@@ -145,7 +172,7 @@ def test_deadly_openvla_factory_can_build_with_mock_loader(monkeypatch):
     output = policy.predict(
         Observation(data=np.zeros((12, 84, 84), dtype=np.uint8), env_step=0, sim_time_ms=0.0)
     )
-    assert output.action.value == [0, 0, 0, 1]
+    assert output.action.value == [1, 1, 1, 1]
 
 
 def test_deadly_openvla_missing_unnorm_key_fails_before_model_load(tmp_path):
@@ -166,7 +193,7 @@ def test_deadly_openvla_missing_unnorm_key_fails_before_model_load(tmp_path):
             "checkpoint_path": str(tmp_path / "checkpoint"),
             "prompt": "play deadly corridor",
             "image_size": 84,
-            "action_dim": 7,
+            "action_dim": 11,
             "num_action_chunks": 1,
             "add_value_head": False,
             "max_prompt_length": 50,
@@ -201,7 +228,7 @@ def test_deadly_openvla_missing_full_weights_fails_before_model_load(tmp_path):
             "checkpoint_path": str(tmp_path / "checkpoint"),
             "prompt": "play deadly corridor",
             "image_size": 84,
-            "action_dim": 7,
+            "action_dim": 11,
             "num_action_chunks": 1,
             "add_value_head": False,
             "max_prompt_length": 50,
@@ -215,4 +242,36 @@ def test_deadly_openvla_missing_full_weights_fails_before_model_load(tmp_path):
     }
 
     with pytest.raises(FileNotFoundError, match="full_weights.pt"):
+        build_policy(config, ActionResolver(config["env"]))
+
+
+def test_deadly_openvla_action_dim_must_be_eleven(monkeypatch):
+    from latency_bench.policy.factory import build_policy
+
+    def fake_load(config):
+        raise AssertionError("model loader should not be called")
+
+    monkeypatch.setattr(deadly_corridor_openvla, "load_openvla_sft_model", fake_load)
+    config = {
+        "experiment": {"seed": 0},
+        "env": {"name": "deadly_corridor", "fps_env": 35, "noop_action": [0, 0, 0, 0]},
+        "policy": {
+            "type": "deadly_corridor_openvla",
+            "base_model_path": "/missing/base",
+            "checkpoint_path": "/missing/checkpoint",
+            "prompt": "play deadly corridor",
+            "image_size": 84,
+            "action_dim": 7,
+            "num_action_chunks": 1,
+            "add_value_head": False,
+            "max_prompt_length": 50,
+            "num_images_in_input": 1,
+            "center_crop": True,
+            "trust_remote_code": True,
+            "unnorm_key": "deadly_corridor",
+            "device": "cpu",
+        },
+    }
+
+    with pytest.raises(ValueError, match="requires policy.action_dim 11"):
         build_policy(config, ActionResolver(config["env"]))

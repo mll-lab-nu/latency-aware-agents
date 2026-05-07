@@ -15,7 +15,6 @@ from latency_bench.policy.flappy_openvla import (
     OpenVlaPolicyConfig,
     OpenVlaPredictProtocol,
     build_openvla_env_obs,
-    discrete_action_from_openvla_output,
     extract_openvla_policy_config,
     load_openvla_sft_model,
     openvla_action_from_prediction,
@@ -29,24 +28,39 @@ from latency_bench.policy.flappy_openvla import (
 DeadlyCorridorOpenVlaPolicyConfig = OpenVlaPolicyConfig
 
 DEADLY_CORRIDOR_OPENVLA_ACTION_LABELS: tuple[str, ...] = (
-    "MOVE_FORWARD",
-    "MOVE_BACKWARD",
-    "MOVE_LEFT",
-    "MOVE_RIGHT",
+    "TURN_NOOP",
     "TURN_LEFT",
     "TURN_RIGHT",
+    "MOVE_NOOP",
+    "MOVE_FORWARD",
+    "MOVE_BACKWARD",
+    "STRAFE_NOOP",
+    "MOVE_LEFT",
+    "MOVE_RIGHT",
+    "ATTACK_NOOP",
     "ATTACK",
 )
-DEADLY_CORRIDOR_OPENVLA_ACTION_VALUES: tuple[list[int], ...] = (
-    [0, 1, 0, 0],
-    [0, 2, 0, 0],
-    [0, 0, 1, 0],
-    [0, 0, 2, 0],
-    [1, 0, 0, 0],
-    [2, 0, 0, 0],
-    [0, 0, 0, 1],
+DEADLY_CORRIDOR_OPENVLA_ACTION_LAYOUT = "deadly_corridor_factorized_11"
+DEADLY_CORRIDOR_OPENVLA_ACTION_DIM = 11
+DEADLY_CORRIDOR_TURN_LABELS: tuple[str, ...] = (
+    "TURN_NOOP",
+    "TURN_LEFT",
+    "TURN_RIGHT",
 )
-DEADLY_CORRIDOR_OPENVLA_ACTION_DIM = 7
+DEADLY_CORRIDOR_MOVE_LABELS: tuple[str, ...] = (
+    "MOVE_NOOP",
+    "MOVE_FORWARD",
+    "MOVE_BACKWARD",
+)
+DEADLY_CORRIDOR_STRAFE_LABELS: tuple[str, ...] = (
+    "STRAFE_NOOP",
+    "MOVE_LEFT",
+    "MOVE_RIGHT",
+)
+DEADLY_CORRIDOR_ATTACK_LABELS: tuple[str, ...] = (
+    "ATTACK_NOOP",
+    "ATTACK",
+)
 
 
 class DeadlyCorridorOpenVlaPolicyRunner(PolicyRunner):
@@ -76,12 +90,11 @@ class DeadlyCorridorOpenVlaPolicyRunner(PolicyRunner):
             top_k=1,
         )
         raw_action = openvla_action_from_prediction(prediction)
-        raw_action_id = discrete_action_from_openvla_output(raw_action, self._config.action_dim)
         raw_action_head = openvla_action_head(raw_action, self._config.action_dim)
-        action = deadly_corridor_action_from_id(raw_action_id)
+        action, action_metadata = deadly_corridor_action_from_factorized_vector(raw_action_head)
         return PolicyOutput(
             action=action,
-            raw_output=raw_action_id,
+            raw_output=list(action.value),
             metadata={
                 "policy_type": "deadly_corridor_openvla",
                 "base_model_path": str(self._config.base_model_path),
@@ -97,22 +110,48 @@ class DeadlyCorridorOpenVlaPolicyRunner(PolicyRunner):
                 "unnorm_key": self._config.unnorm_key,
                 "device": str(self._device),
                 "action_label": action.name,
+                "action_layout": DEADLY_CORRIDOR_OPENVLA_ACTION_LAYOUT,
+                **action_metadata,
             },
         )
 
 
-def deadly_corridor_action_from_id(action_id: int) -> Action:
-    if action_id < 0 or action_id >= DEADLY_CORRIDOR_OPENVLA_ACTION_DIM:
+def deadly_corridor_action_from_factorized_vector(values: Any) -> tuple[Action, dict[str, object]]:
+    vector = np.asarray(values, dtype=np.float32)
+    if vector.ndim != 1:
+        raise ValueError(f"Expected Deadly Corridor factorized action rank 1, got shape {vector.shape}")
+    if vector.shape[0] != DEADLY_CORRIDOR_OPENVLA_ACTION_DIM:
         raise ValueError(
-            f"Deadly Corridor OpenVLA emitted action id {action_id}; "
-            f"expected 0..{DEADLY_CORRIDOR_OPENVLA_ACTION_DIM - 1}"
+            "Deadly Corridor OpenVLA emitted action vector with shape "
+            f"{vector.shape}; expected ({DEADLY_CORRIDOR_OPENVLA_ACTION_DIM},)"
         )
+    turn = int(np.argmax(vector[0:3]))
+    move = int(np.argmax(vector[3:6]))
+    strafe = int(np.argmax(vector[6:9]))
+    attack = int(np.argmax(vector[9:11]))
+    action_value = [turn, move, strafe, attack]
+    turn_label = DEADLY_CORRIDOR_TURN_LABELS[turn]
+    move_label = DEADLY_CORRIDOR_MOVE_LABELS[move]
+    strafe_label = DEADLY_CORRIDOR_STRAFE_LABELS[strafe]
+    attack_label = DEADLY_CORRIDOR_ATTACK_LABELS[attack]
+    active_labels = [
+        label
+        for label in (turn_label, move_label, strafe_label, attack_label)
+        if not label.endswith("_NOOP")
+    ]
+    action_name = "+".join(active_labels) if active_labels else "NOOP"
     return Action(
-        value=list(DEADLY_CORRIDOR_OPENVLA_ACTION_VALUES[action_id]),
-        name=DEADLY_CORRIDOR_OPENVLA_ACTION_LABELS[action_id],
-        is_noop=False,
+        value=action_value,
+        name=action_name,
+        is_noop=action_value == [0, 0, 0, 0],
         is_oneshot=False,
-    )
+    ), {
+        "decoded_action_tuple": action_value,
+        "turn_label": turn_label,
+        "move_label": move_label,
+        "strafe_label": strafe_label,
+        "attack_label": attack_label,
+    }
 
 
 def observation_data_to_single_hwc_rgb_uint8(
@@ -201,6 +240,12 @@ def _validate_policy_config(
             "deadly_corridor_openvla requires policy.action_dim "
             f"{DEADLY_CORRIDOR_OPENVLA_ACTION_DIM}, got {openvla_config.action_dim}"
         )
+    action_layout = policy_cfg.get("action_layout", DEADLY_CORRIDOR_OPENVLA_ACTION_LAYOUT)
+    if action_layout != DEADLY_CORRIDOR_OPENVLA_ACTION_LAYOUT:
+        raise ValueError(
+            "deadly_corridor_openvla requires policy.action_layout "
+            f"{DEADLY_CORRIDOR_OPENVLA_ACTION_LAYOUT!r}, got {action_layout!r}"
+        )
     configured_actions = policy_cfg.get("actions")
     if configured_actions is not None and list(configured_actions) != list(DEADLY_CORRIDOR_OPENVLA_ACTION_LABELS):
         raise ValueError(
@@ -211,10 +256,10 @@ def _validate_policy_config(
 
 __all__ = [
     "DEADLY_CORRIDOR_OPENVLA_ACTION_DIM",
+    "DEADLY_CORRIDOR_OPENVLA_ACTION_LAYOUT",
     "DEADLY_CORRIDOR_OPENVLA_ACTION_LABELS",
-    "DEADLY_CORRIDOR_OPENVLA_ACTION_VALUES",
     "DeadlyCorridorOpenVlaPolicyConfig",
     "DeadlyCorridorOpenVlaPolicyRunner",
-    "deadly_corridor_action_from_id",
+    "deadly_corridor_action_from_factorized_vector",
     "observation_data_to_single_hwc_rgb_uint8",
 ]
