@@ -10,6 +10,11 @@ SEED_SET=${SEED_SET:-}
 CHECKPOINT_KIND=${CHECKPOINT_KIND:-}
 DRY_RUN=${DRY_RUN:-0}
 RUNTIME_ENV=${RUNTIME_ENV:-openvla}
+OPENVLA_SMOKE=${OPENVLA_SMOKE:-0}
+OPENVLA_SMOKE_EPISODES=${OPENVLA_SMOKE_EPISODES:-1}
+OPENVLA_SMOKE_MAX_STEPS=${OPENVLA_SMOKE_MAX_STEPS:-}
+OPENVLA_STAGES=${OPENVLA_STAGES:-}
+OPENVLA_CHECK_DEPS_ONLY=${OPENVLA_CHECK_DEPS_ONLY:-0}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/bash_scripts/cross_device_launcher_common.sh
@@ -22,6 +27,7 @@ cross_device_activate_env "latency-openvla"
 cross_device_verify_protocol_script
 cross_device_optional_args
 cross_device_reset_failures
+cross_device_openvla_resolve_stages
 
 export CROSS_DEVICE_RUNTIME_ENV="latency-openvla"
 
@@ -38,10 +44,33 @@ echo "ONLY_DEVICE: ${ONLY_DEVICE:-}"
 echo "ONLY_EXPERIMENT: ${ONLY_EXPERIMENT:-}"
 echo "MAX_RUNS: ${MAX_RUNS:-}"
 echo "CONTINUE_ON_ERROR: ${CONTINUE_ON_ERROR:-0}"
+echo "OPENVLA_SMOKE: ${OPENVLA_SMOKE}"
+echo "OPENVLA_SMOKE_EPISODES: ${OPENVLA_SMOKE_EPISODES}"
+echo "OPENVLA_SMOKE_MAX_STEPS: ${OPENVLA_SMOKE_MAX_STEPS}"
+echo "OPENVLA_STAGES: ${OPENVLA_STAGES}"
+echo "OPENVLA_SELECTED_STAGES: ${OPENVLA_SELECTED_STAGES[*]}"
+echo "OPENVLA_CHECK_DEPS_ONLY: ${OPENVLA_CHECK_DEPS_ONLY}"
 echo "OPENVLA_BASE_MODEL_PATH: ${OPENVLA_BASE_MODEL_PATH:-}"
+echo "FLAPPY_OPENVLA_CHECKPOINT_PATH: ${FLAPPY_OPENVLA_CHECKPOINT_PATH:-}"
 echo "DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH: ${DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH:-}"
 echo "DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH: ${DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH:-}"
 
+if [[ "${OPENVLA_CHECK_DEPS_ONLY}" == "1" ]]; then
+cross_device_run_protocol_stage check-deps \
+python scripts/experiments/run_cross_device_protocol.py check-deps \
+    --spec "${SPEC}" \
+    --hardware auto \
+    --runtime-env "${RUNTIME_ENV}" \
+    --out "${OUT}" \
+    --profiles-dir "${PROFILES_DIR}" \
+    "${OPTIONAL_ARGS[@]}"
+echo "== complete =="
+echo "Log file: ${LOG_FILE}"
+cross_device_finish_protocol_runs
+exit $?
+fi
+
+if cross_device_openvla_stage_selected doctor; then
 cross_device_run_protocol_stage doctor \
 python scripts/experiments/run_cross_device_protocol.py doctor \
     --spec "${SPEC}" \
@@ -50,7 +79,9 @@ python scripts/experiments/run_cross_device_protocol.py doctor \
     --out "${OUT}" \
     --profiles-dir "${PROFILES_DIR}" \
     "${OPTIONAL_ARGS[@]}"
+fi
 
+if cross_device_openvla_stage_selected measure; then
 cross_device_run_protocol_stage measure \
 python scripts/experiments/run_cross_device_protocol.py measure \
     --spec "${SPEC}" \
@@ -58,8 +89,10 @@ python scripts/experiments/run_cross_device_protocol.py measure \
     --runtime-env "${RUNTIME_ENV}" \
     --out "${OUT}" \
     --resume \
-    "${OPTIONAL_ARGS[@]}"
+    "${EXECUTION_OPTIONAL_ARGS[@]}"
+fi
 
+if cross_device_openvla_stage_selected realtime; then
 cross_device_run_protocol_stage realtime \
 python scripts/experiments/run_cross_device_protocol.py realtime \
     --spec "${SPEC}" \
@@ -67,8 +100,10 @@ python scripts/experiments/run_cross_device_protocol.py realtime \
     --runtime-env "${RUNTIME_ENV}" \
     --out "${OUT}" \
     --resume \
-    "${OPTIONAL_ARGS[@]}"
+    "${EXECUTION_OPTIONAL_ARGS[@]}"
+fi
 
+if cross_device_openvla_stage_selected sim-cross; then
 cross_device_run_protocol_stage sim-cross \
 python scripts/experiments/run_cross_device_protocol.py sim-cross \
     --spec "${SPEC}" \
@@ -77,7 +112,8 @@ python scripts/experiments/run_cross_device_protocol.py sim-cross \
     --profiles-dir "${PROFILES_DIR}" \
     --out "${OUT}" \
     --resume \
-    "${OPTIONAL_ARGS[@]}"
+    "${EXECUTION_OPTIONAL_ARGS[@]}"
+fi
 
 echo "If sim-cross selected no runnable rows, check the doctor output above for skip reasons."
 echo "== complete =="

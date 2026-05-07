@@ -35,6 +35,7 @@ OPENVLA_POLICY_TYPES = {
     "deadly_corridor_openvla",
 }
 OPENVLA_CHECKPOINT_ENV_BY_POLICY = {
+    "flappy_openvla": "FLAPPY_OPENVLA_CHECKPOINT_PATH",
     "demon_attack_openvla": "DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH",
     "deadly_corridor_openvla": "DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH",
 }
@@ -78,6 +79,8 @@ class ProtocolTask:
     profile_output_dir: Path | None
     runtime_env_alias: str | None
     runtime_conda_env: str | None
+    smoke: bool = False
+    smoke_max_steps: int | None = None
 
 
 @dataclass
@@ -100,6 +103,16 @@ def main(argv: list[str] | None = None) -> None:
     _add_runtime_flags(doctor)
     _add_selection_flags(doctor)
     _add_override_flags(doctor)
+
+    check_deps = subparsers.add_parser("check-deps", help="Check selected OpenVLA checkpoint dependencies only.")
+    check_deps.add_argument("--spec", type=Path, required=True)
+    check_deps.add_argument("--hardware", default="auto")
+    check_deps.add_argument("--out", type=Path)
+    check_deps.add_argument("--profiles-dir", type=Path)
+    check_deps.add_argument("--dry-run", action="store_true")
+    _add_runtime_flags(check_deps)
+    _add_selection_flags(check_deps)
+    _add_override_flags(check_deps)
 
     measure = subparsers.add_parser("measure", help="Run realtime measured eval and build latency profiles.")
     measure.add_argument("--spec", type=Path, required=True)
@@ -145,6 +158,8 @@ def main(argv: list[str] | None = None) -> None:
     spec = _spec_with_cli_overrides(spec, args)
     if args.command == "doctor":
         run_doctor(args, spec)
+    elif args.command == "check-deps":
+        run_check_deps(args, spec)
     elif args.command == "aggregate":
         spec = _filtered_spec_for_aggregate(spec, args)
         if args.dry_run:
@@ -195,6 +210,9 @@ def _add_execution_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--smoke-episodes", type=int, default=1)
+    parser.add_argument("--smoke-max-steps", type=int)
     _add_runtime_flags(parser)
     _add_selection_flags(parser)
     _add_override_flags(parser)
@@ -249,12 +267,44 @@ def run_doctor(args: argparse.Namespace, spec: dict[str, Any]) -> None:
         print("  none")
 
 
+def run_check_deps(args: argparse.Namespace, spec: dict[str, Any]) -> None:
+    rows = _dedup_openvla_rows(_iter_selected_rows(spec, args, include_stage=None))
+    if args.max_runs is not None:
+        rows = rows[: int(args.max_runs)]
+
+    print("OpenVLA dependency check")
+    print("policy | env | base_model | stats_json | unnorm_key | checkpoint | weights | status")
+    if not rows:
+        print("no selected OpenVLA rows")
+        return
+
+    failures = 0
+    for _experiment_id, _experiment, row in rows:
+        try:
+            config = _openvla_dependency_config(row)
+            report = _openvla_dependency_report(config)
+        except Exception as exc:
+            failures += 1
+            print(
+                f"{row.get('policy')} | {row.get('env')} | error | error | error | error | error | missing: {exc}"
+            )
+            continue
+        if report["status"] != "ok":
+            failures += 1
+        print(
+            f"{row.get('policy')} | {row.get('env')} | {report['base_model']} | {report['stats_json']} | "
+            f"{report['unnorm_key']} | {report['checkpoint']} | {report['weights']} | {report['status']}"
+        )
+    if failures:
+        raise SystemExit(1)
+
+
 def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> None:
     out = _output_root(spec, args.out)
     detected = _stage_hardware(spec, args, stage)
     runtime = detect_runtime_env(spec, args.runtime_env, bool(args.allow_runtime_env_mismatch))
     _validate_runtime_safety(args, runtime)
-    profiles_dir = Path(getattr(args, "profiles_dir", out / "profiles"))
+    profiles_dir = _profiles_dir_for_args(args, out)
     plan = _build_plan(args, spec, stage, out, profiles_dir, detected["device"], runtime)
     if args.max_runs is not None:
         plan = plan[: int(args.max_runs)]
@@ -399,6 +449,8 @@ def _build_plan(
                     profile_output_dir=profile_dir if stage == "measure" else None,
                     runtime_env_alias=runtime_alias or None,
                     runtime_conda_env=runtime_conda,
+                    smoke=bool(getattr(args, "smoke", False)),
+                    smoke_max_steps=getattr(args, "smoke_max_steps", None),
                 )
                 key = _dedup_key(task, spec)
                 skip_reason = _task_skip_reason(
@@ -445,11 +497,13 @@ def _make_task(
     profile_output_dir: Path | None,
     runtime_env_alias: str | None,
     runtime_conda_env: str | None,
+    smoke: bool = False,
+    smoke_max_steps: int | None = None,
 ) -> ProtocolTask:
     policy_slug = slugify(row.get("policy"))
     env_slug = slugify(row.get("env"))
     stage_dir = stage
-    run_id = f"{checkpoint_kind}_seed_{seed}_n{n_episodes}"
+    run_id = f"smoke_seed_{seed}_n{n_episodes}" if smoke else f"{checkpoint_kind}_seed_{seed}_n{n_episodes}"
     if stage == "sim_cross" and replay_device is not None:
         device_or_pair = f"{target_device['id']}_replay_{replay_device['id']}"
         output_dir = out / "runs" / stage_dir / policy_slug / env_slug / str(target_device["id"]) / f"replay_{replay_device['id']}" / run_id
@@ -475,6 +529,8 @@ def _make_task(
         profile_output_dir=profile_output_dir,
         runtime_env_alias=runtime_env_alias,
         runtime_conda_env=runtime_conda_env,
+        smoke=smoke,
+        smoke_max_steps=None if smoke_max_steps is None else int(smoke_max_steps),
     )
 
 
@@ -664,6 +720,68 @@ def _openvla_dependency_errors(config: dict[str, Any]) -> list[str]:
     return errors
 
 
+def _openvla_dependency_config(row: dict[str, Any]) -> dict[str, Any]:
+    base_config = _base_config_path(row)
+    if not base_config.exists():
+        raise FileNotFoundError(f"base_config does not exist: {base_config}")
+    config = deepcopy(load_config(base_config))
+    config.setdefault("policy", {})["type"] = row.get("policy_type", config.get("policy", {}).get("type"))
+    config.setdefault("env", {})["name"] = row.get("env_name", config.get("env", {}).get("name"))
+    if row.get("fps") is not None:
+        fps = _config_fps_value(row["fps"])
+        config.setdefault("env", {})["fps_env"] = fps
+        config.setdefault("control", {})["frequency_hz"] = fps
+    _apply_openvla_env_overrides(config)
+    return config
+
+
+def _openvla_dependency_report(config: dict[str, Any]) -> dict[str, str]:
+    policy = config.get("policy", {})
+    base_model_value = str(policy.get("base_model_path") or "").strip()
+    checkpoint_value = str(policy.get("checkpoint_path") or "").strip()
+    unnorm_key = str(policy.get("unnorm_key") or "").strip()
+    base_model_path = Path(base_model_value) if base_model_value else None
+    stats_path = base_model_path / "dataset_statistics.json" if base_model_path is not None else None
+    checkpoint_path = Path(checkpoint_value) if checkpoint_value else None
+    weights_path = checkpoint_path / "actor" / "model_state_dict" / "full_weights.pt" if checkpoint_path is not None else None
+
+    base_status = _dependency_path_status(base_model_path, want_file=False)
+    stats_status = _dependency_path_status(stats_path, want_file=True)
+    checkpoint_status = _dependency_path_status(checkpoint_path, want_file=False)
+    weights_status = _dependency_path_status(weights_path, want_file=True)
+    unnorm_status = _dependency_unnorm_status(stats_path, unnorm_key)
+    errors = _openvla_dependency_errors(config)
+    return {
+        "base_model": base_status,
+        "stats_json": stats_status,
+        "unnorm_key": unnorm_status,
+        "checkpoint": checkpoint_status,
+        "weights": weights_status,
+        "status": "ok" if not errors else f"missing: {'; '.join(errors)}",
+    }
+
+
+def _dependency_path_status(path: Path | None, *, want_file: bool) -> str:
+    if path is None:
+        return "missing"
+    exists = _path_is_file_safe(path) if want_file else _path_exists_safe(path)
+    return f"ok {path}" if exists else f"missing {path}"
+
+
+def _dependency_unnorm_status(stats_path: Path | None, unnorm_key: str) -> str:
+    if not unnorm_key:
+        return "missing"
+    if stats_path is None or not _path_is_file_safe(stats_path):
+        return f"unknown {unnorm_key}"
+    try:
+        statistics = json.loads(stats_path.read_text(encoding="utf-8"))
+    except Exception:
+        return f"unreadable {unnorm_key}"
+    if isinstance(statistics, dict) and unnorm_key in statistics:
+        return f"ok {unnorm_key}"
+    return f"missing {unnorm_key}"
+
+
 def _path_is_file_safe(path: Path) -> bool:
     try:
         return path.is_file()
@@ -680,6 +798,8 @@ def _generated_config(task: ProtocolTask, spec: dict[str, Any]) -> dict[str, Any
     config.setdefault("experiment", {})["seed"] = int(task.seed)
     config["experiment"]["num_episodes"] = int(task.n_episodes)
     config.setdefault("evaluation", {})["eval_episodes"] = int(task.n_episodes)
+    if task.smoke_max_steps is not None:
+        config["evaluation"]["eval_max_steps"] = int(task.smoke_max_steps)
     config.setdefault("logging", {})["output_dir"] = str(task.output_dir)
     config.setdefault("policy", {})["type"] = task.row.get("policy_type", config.get("policy", {}).get("type"))
     config.setdefault("env", {})["name"] = task.row.get("env_name", config.get("env", {}).get("name"))
@@ -859,6 +979,8 @@ def _base_manifest(
         "profile_command": "" if profile_cmd is None else shlex.join(profile_cmd),
         "checkpoint_kind": task.checkpoint_kind,
         "n_episodes": task.n_episodes,
+        "smoke": task.smoke,
+        "smoke_max_steps": task.smoke_max_steps,
         "seed_set": task.seed_set,
         "seed": task.seed,
         "latency_scope": spec.get("latency_scope", "policy_predict_only"),
@@ -1126,6 +1248,8 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
         print(f"target_hardware: {task.target_device.get('id')}")
         print(f"replay_hardware: {task.replay_device.get('id') if task.replay_device else ''}")
         print(f"runtime_env: {task.runtime_env_alias} ({task.runtime_conda_env})")
+        print(f"smoke: {str(task.smoke).lower()}")
+        print(f"episodes: {task.n_episodes}")
         print(f"status: {'runnable' if item.runnable else 'skipped'}")
         if item.skip_reason:
             print(f"skip_reason: {item.skip_reason}")
@@ -1144,6 +1268,7 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
         except Exception as exc:
             print(f"generated_config_error: {exc}")
             continue
+        print(f"eval_max_steps: {config.get('evaluation', {}).get('eval_max_steps', '')}")
         _print_openvla_dependency_status(config)
     _print_plan_summary("Summary", plan)
 
@@ -1229,6 +1354,24 @@ def _iter_selected_rows(
     return output
 
 
+def _dedup_openvla_rows(
+    rows: list[tuple[str, dict[str, Any], dict[str, Any]]],
+) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+    output: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in rows:
+        _experiment_id, _experiment, row = item
+        policy_type = str(row.get("policy_type") or "").strip().lower()
+        if policy_type not in OPENVLA_POLICY_TYPES:
+            continue
+        key = (slugify(row.get("policy")), slugify(row.get("env")), policy_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(item)
+    return output
+
+
 def _target_devices_for_stage(
     spec: dict[str, Any],
     args: argparse.Namespace,
@@ -1268,12 +1411,23 @@ def _seed_set(spec: dict[str, Any], args: argparse.Namespace) -> list[int]:
     return [int(item) for item in items]
 
 
+def _profiles_dir_for_args(args: argparse.Namespace, out: Path) -> Path:
+    raw = getattr(args, "profiles_dir", None)
+    if raw is not None:
+        return Path(raw)
+    if bool(getattr(args, "smoke", False)):
+        return out / "profiles_smoke"
+    return out / "profiles"
+
+
 def _n_episodes_for_row_stage(
     spec: dict[str, Any],
     args: argparse.Namespace,
     row: dict[str, Any],
     stage: str,
 ) -> int:
+    if bool(getattr(args, "smoke", False)):
+        return int(getattr(args, "smoke_episodes", 1))
     if getattr(args, "n_episodes", None) is not None:
         return int(args.n_episodes)
     stage_overrides = row.get("stage_overrides", {})

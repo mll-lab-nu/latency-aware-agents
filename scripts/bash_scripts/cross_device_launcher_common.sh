@@ -100,9 +100,58 @@ cross_device_optional_args() {
     if [[ -n "${MAX_RUNS:-}" ]]; then
         OPTIONAL_ARGS+=(--max-runs "${MAX_RUNS}")
     fi
+    EXECUTION_OPTIONAL_ARGS=("${OPTIONAL_ARGS[@]}")
     if [[ "${CONTINUE_ON_ERROR:-0}" == "1" ]]; then
-        OPTIONAL_ARGS+=(--continue-on-error)
+        EXECUTION_OPTIONAL_ARGS+=(--continue-on-error)
     fi
+    if [[ "${OPENVLA_SMOKE:-0}" == "1" ]]; then
+        EXECUTION_OPTIONAL_ARGS+=(--smoke --smoke-episodes "${OPENVLA_SMOKE_EPISODES:-1}")
+        if [[ -n "${OPENVLA_SMOKE_MAX_STEPS:-}" ]]; then
+            EXECUTION_OPTIONAL_ARGS+=(--smoke-max-steps "${OPENVLA_SMOKE_MAX_STEPS}")
+        fi
+    fi
+}
+
+cross_device_openvla_resolve_stages() {
+    OPENVLA_SELECTED_STAGES=()
+    local raw_stages="${OPENVLA_STAGES:-}"
+    if [[ -z "${raw_stages}" ]]; then
+        if [[ "${OPENVLA_SMOKE:-0}" == "1" ]]; then
+            OPENVLA_SELECTED_STAGES=(doctor measure realtime)
+        else
+            OPENVLA_SELECTED_STAGES=(doctor measure realtime sim-cross)
+        fi
+        return 0
+    fi
+
+    local IFS=,
+    local raw stage
+    read -ra OPENVLA_SELECTED_STAGES <<<"${raw_stages}"
+    for i in "${!OPENVLA_SELECTED_STAGES[@]}"; do
+        raw="${OPENVLA_SELECTED_STAGES[$i]}"
+        stage="$(echo "${raw}" | xargs)"
+        stage="${stage/_/-}"
+        case "${stage}" in
+            doctor|measure|realtime|sim-cross)
+                OPENVLA_SELECTED_STAGES[$i]="${stage}"
+                ;;
+            *)
+                echo "Error: unsupported OPENVLA_STAGES entry '${raw}'. Use doctor,measure,realtime,sim-cross." >&2
+                return 2
+                ;;
+        esac
+    done
+}
+
+cross_device_openvla_stage_selected() {
+    local wanted="$1"
+    local stage
+    for stage in "${OPENVLA_SELECTED_STAGES[@]}"; do
+        if [[ "${stage}" == "${wanted}" ]]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 cross_device_reset_failures() {
@@ -113,10 +162,19 @@ cross_device_run_protocol_stage() {
     local stage_name="$1"
     shift
     echo "== ${stage_name} =="
-    if "$@"; then
+    local errexit_was_set=0
+    if [[ "$-" == *e* ]]; then
+        errexit_was_set=1
+        set +e
+    fi
+    "$@"
+    local status=$?
+    if [[ "${errexit_was_set}" -eq 1 ]]; then
+        set -e
+    fi
+    if [[ "${status}" -eq 0 ]]; then
         return 0
     fi
-    local status=$?
     if [[ "${CONTINUE_ON_ERROR:-0}" == "1" ]]; then
         echo "Stage failed but CONTINUE_ON_ERROR=1, continuing: ${stage_name} (exit ${status})" >&2
         CROSS_DEVICE_FAILED_STAGES+=("${stage_name}|${status}|$*")

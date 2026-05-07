@@ -531,6 +531,149 @@ def test_openvla_env_var_overrides_are_written_and_printed_in_dry_run(tmp_path: 
     assert config["policy"]["checkpoint_path"] == str(checkpoint)
 
 
+def test_openvla_smoke_dry_run_uses_isolated_run_id_and_step_cap(tmp_path: Path):
+    out = tmp_path / "results"
+
+    result = _run_cli(
+        tmp_path,
+        "measure",
+        "--spec",
+        str(REAL_PROTOCOL),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--runtime-env",
+        "openvla",
+        "--dry-run",
+        "--smoke",
+        "--smoke-episodes",
+        "1",
+        "--smoke-max-steps",
+        "7",
+        "--only-policy",
+        "demon-attack-openvla",
+        "--max-runs",
+        "1",
+        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+    )
+
+    assert "smoke: true" in result.stdout
+    assert "episodes: 1" in result.stdout
+    assert "eval_max_steps: 7" in result.stdout
+    assert "smoke_seed_0_n1" in result.stdout
+    assert "profiles_smoke/demon-attack-openvla/demon_attack" in result.stdout
+    generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
+    config = yaml.safe_load(generated.read_text(encoding="utf-8"))
+    assert config["experiment"]["num_episodes"] == 1
+    assert config["evaluation"]["eval_episodes"] == 1
+    assert config["evaluation"]["eval_max_steps"] == 7
+    assert "smoke_seed_0_n1" in config["logging"]["output_dir"]
+    assert not (out / "runs").exists()
+
+
+def test_openvla_check_deps_only_reports_missing_dependencies_without_eval_outputs(tmp_path: Path):
+    out = tmp_path / "results"
+
+    result = _run_cli(
+        tmp_path,
+        "check-deps",
+        "--spec",
+        str(REAL_PROTOCOL),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--runtime-env",
+        "openvla",
+        "--only-policy",
+        "demon-attack-openvla",
+        check=False,
+        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+    )
+
+    assert result.returncode != 0
+    assert "policy | env | base_model | stats_json | unnorm_key | checkpoint | weights | status" in result.stdout
+    assert "demon-attack-openvla" in result.stdout
+    assert "demon_attack" in result.stdout
+    assert "missing" in result.stdout.lower()
+    assert not (out / "runs").exists()
+
+
+def test_openvla_check_deps_only_returns_zero_when_selected_dependencies_exist(tmp_path: Path):
+    base_model = tmp_path / "base_model"
+    base_model.mkdir()
+    (base_model / "dataset_statistics.json").write_text('{"demon_attack": {}}\n', encoding="utf-8")
+    checkpoint = tmp_path / "demon_checkpoint"
+    weights = checkpoint / "actor" / "model_state_dict" / "full_weights.pt"
+    weights.parent.mkdir(parents=True)
+    weights.write_bytes(b"not a real checkpoint")
+    out = tmp_path / "results"
+
+    result = _run_cli(
+        tmp_path,
+        "check-deps",
+        "--spec",
+        str(REAL_PROTOCOL),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--runtime-env",
+        "openvla",
+        "--only-policy",
+        "demon-attack-openvla",
+        env={
+            "CROSS_DEVICE_RUNTIME_ENV": "latency-openvla",
+            "OPENVLA_BASE_MODEL_PATH": str(base_model),
+            "DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH": str(checkpoint),
+        },
+    )
+
+    assert "demon-attack-openvla" in result.stdout
+    assert "| ok" in result.stdout
+    assert not (out / "runs").exists()
+
+
+def test_flappy_openvla_checkpoint_env_override_is_written_in_dry_run(tmp_path: Path):
+    base_model = tmp_path / "base_model"
+    base_model.mkdir()
+    (base_model / "dataset_statistics.json").write_text('{"flappy_bird": {}}\n', encoding="utf-8")
+    checkpoint = tmp_path / "flappy_checkpoint"
+    weights = checkpoint / "actor" / "model_state_dict" / "full_weights.pt"
+    weights.parent.mkdir(parents=True)
+    weights.write_bytes(b"not a real checkpoint")
+    out = tmp_path / "results"
+
+    _run_cli(
+        tmp_path,
+        "measure",
+        "--spec",
+        str(REAL_PROTOCOL),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--runtime-env",
+        "openvla",
+        "--dry-run",
+        "--only-policy",
+        "openvla-flappy",
+        "--max-runs",
+        "1",
+        env={
+            "CROSS_DEVICE_RUNTIME_ENV": "latency-openvla",
+            "OPENVLA_BASE_MODEL_PATH": str(base_model),
+            "FLAPPY_OPENVLA_CHECKPOINT_PATH": str(checkpoint),
+        },
+    )
+
+    generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
+    config = yaml.safe_load(generated.read_text(encoding="utf-8"))
+    assert config["policy"]["base_model_path"] == str(base_model)
+    assert config["policy"]["checkpoint_path"] == str(checkpoint)
+
+
 def test_runtime_env_all_safety_and_strict_mode(tmp_path: Path):
     base_config = tmp_path / "base.yaml"
     spec = tmp_path / "protocol.yaml"

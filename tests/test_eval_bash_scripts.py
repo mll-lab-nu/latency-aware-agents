@@ -128,6 +128,9 @@ def test_cross_device_openvla_script_forwards_filters_and_uses_openvla_runtime()
     assert '--runtime-env "${RUNTIME_ENV}"' in script
     assert "cross_device_run_protocol_stage" in script
     assert "cross_device_finish_protocol_runs" in script
+    assert "OPENVLA_CHECK_DEPS_ONLY" in script
+    assert "check-deps" in script
+    assert "cross_device_openvla_resolve_stages" in script
     for env_var, flag in (
         ("ONLY_ENV", "--only-env"),
         ("ONLY_POLICY", "--only-policy"),
@@ -139,6 +142,174 @@ def test_cross_device_openvla_script_forwards_filters_and_uses_openvla_runtime()
         assert flag in common
     assert "CONTINUE_ON_ERROR" in common
     assert "--continue-on-error" in common
+
+
+def test_cross_device_common_builds_openvla_smoke_execution_args():
+    common_path = REPO_ROOT / "scripts" / "bash_scripts" / "cross_device_launcher_common.sh"
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            f"""
+            set -euo pipefail
+            source {common_path}
+            DRY_RUN=1
+            OPENVLA_SMOKE=1
+            OPENVLA_SMOKE_EPISODES=1
+            OPENVLA_SMOKE_MAX_STEPS=7
+            cross_device_optional_args
+            for arg in "${{OPTIONAL_ARGS[@]}}"; do
+                printf 'doctor:%s\\n' "$arg"
+            done
+            for arg in "${{EXECUTION_OPTIONAL_ARGS[@]}}"; do
+                printf 'execution:%s\\n' "$arg"
+            done
+            """,
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    doctor_args = [line.removeprefix("doctor:") for line in result.stdout.splitlines() if line.startswith("doctor:")]
+    execution_args = [
+        line.removeprefix("execution:")
+        for line in result.stdout.splitlines()
+        if line.startswith("execution:")
+    ]
+    assert "--smoke" not in doctor_args
+    assert "--smoke" in execution_args
+    assert ["--smoke-episodes", "1"] == execution_args[
+        execution_args.index("--smoke-episodes") : execution_args.index("--smoke-episodes") + 2
+    ]
+    assert ["--smoke-max-steps", "7"] == execution_args[
+        execution_args.index("--smoke-max-steps") : execution_args.index("--smoke-max-steps") + 2
+    ]
+
+
+def test_cross_device_common_resolves_openvla_stage_selection():
+    common_path = REPO_ROOT / "scripts" / "bash_scripts" / "cross_device_launcher_common.sh"
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            f"""
+            set -euo pipefail
+            source {common_path}
+            unset OPENVLA_STAGES
+            OPENVLA_SMOKE=0
+            cross_device_openvla_resolve_stages
+            printf 'default:%s\\n' "${{OPENVLA_SELECTED_STAGES[*]}}"
+            OPENVLA_SMOKE=1
+            cross_device_openvla_resolve_stages
+            printf 'smoke:%s\\n' "${{OPENVLA_SELECTED_STAGES[*]}}"
+            OPENVLA_STAGES=measure,realtime
+            cross_device_openvla_resolve_stages
+            printf 'explicit:%s\\n' "${{OPENVLA_SELECTED_STAGES[*]}}"
+            cross_device_openvla_stage_selected doctor && printf 'doctor=yes\\n' || printf 'doctor=no\\n'
+            cross_device_openvla_stage_selected measure && printf 'measure=yes\\n' || printf 'measure=no\\n'
+            """,
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "default:doctor measure realtime sim-cross" in result.stdout
+    assert "smoke:doctor measure realtime" in result.stdout
+    assert "explicit:measure realtime" in result.stdout
+    assert "doctor=no" in result.stdout
+    assert "measure=yes" in result.stdout
+
+
+def test_cross_device_common_keeps_continue_on_error_out_of_doctor_args():
+    common_path = REPO_ROOT / "scripts" / "bash_scripts" / "cross_device_launcher_common.sh"
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            f"""
+            set -euo pipefail
+            source {common_path}
+            CONTINUE_ON_ERROR=1
+            DRY_RUN=1
+            ONLY_POLICY=demon-attack-openvla
+            ONLY_ENV=demon_attack
+            MAX_RUNS=1
+            cross_device_optional_args
+            for arg in "${{OPTIONAL_ARGS[@]}}"; do
+                printf 'doctor:%s\\n' "$arg"
+            done
+            for arg in "${{EXECUTION_OPTIONAL_ARGS[@]}}"; do
+                printf 'execution:%s\\n' "$arg"
+            done
+            """,
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    doctor_args = [line.removeprefix("doctor:") for line in result.stdout.splitlines() if line.startswith("doctor:")]
+    execution_args = [
+        line.removeprefix("execution:")
+        for line in result.stdout.splitlines()
+        if line.startswith("execution:")
+    ]
+    assert "--continue-on-error" not in doctor_args
+    assert "--continue-on-error" in execution_args
+    assert "--dry-run" in doctor_args
+    assert "--dry-run" in execution_args
+    assert ["--only-policy", "demon-attack-openvla"] == doctor_args[
+        doctor_args.index("--only-policy") : doctor_args.index("--only-policy") + 2
+    ]
+    assert ["--only-env", "demon_attack"] == doctor_args[
+        doctor_args.index("--only-env") : doctor_args.index("--only-env") + 2
+    ]
+    assert ["--max-runs", "1"] == doctor_args[
+        doctor_args.index("--max-runs") : doctor_args.index("--max-runs") + 2
+    ]
+
+
+def test_cross_device_common_records_real_stage_exit_codes_and_continues():
+    common_path = REPO_ROOT / "scripts" / "bash_scripts" / "cross_device_launcher_common.sh"
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            f"""
+            set -u
+            source {common_path}
+            CONTINUE_ON_ERROR=1
+            cross_device_reset_failures
+            cross_device_run_protocol_stage measure bash -c 'exit 17'
+            printf 'after_measure\\n'
+            cross_device_run_protocol_stage realtime bash -c 'exit 23'
+            printf 'after_realtime\\n'
+            finish_rc=0
+            cross_device_finish_protocol_runs || finish_rc=$?
+            printf 'finish_rc=%s\\n' "$finish_rc"
+            """,
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, combined
+    assert "after_measure" in combined
+    assert "after_realtime" in combined
+    assert "stage=measure exit_code=17" in combined
+    assert "stage=realtime exit_code=23" in combined
+    assert "finish_rc=1" in combined
 
 
 def test_eval_bash_scripts_reject_manual_latency_argument():
