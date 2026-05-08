@@ -1,0 +1,231 @@
+from __future__ import annotations
+
+import pytest
+
+from latency_bench.core.clock import EnvClock
+from latency_bench.core.types import Action, ActionEvent, Observation, StaleActionMode
+from latency_bench.executors.realtime import BoundedObservationQueue, RealtimeObservationTask
+from latency_bench.scheduler.action_queue import ActionScheduler
+from latency_bench.scheduler.persistence import HoldPreviousActionPolicy
+
+
+def _event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> ActionEvent:
+    ready_time_ms = clock.step_to_time_ms(ready_step)
+    return ActionEvent(
+        action_id=action_id,
+        obs_id=action_id,
+        action=action,
+        obs_env_step=0,
+        obs_time_ms=0.0,
+        latency_ms=ready_time_ms,
+        ready_time_ms=ready_time_ms,
+        ready_step_float=float(ready_step),
+    )
+
+
+def _task(obs_id: int) -> RealtimeObservationTask:
+    return RealtimeObservationTask(
+        obs_id=obs_id,
+        observation=Observation(data=f"obs-{obs_id}", env_step=obs_id, sim_time_ms=float(obs_id)),
+        submit_env_step=obs_id,
+        submit_time_ms=float(obs_id),
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Phase 1 has not introduced obs_fps validation or obs_stride_raw_frames on the clock API.",
+)
+def test_env_fps_obs_fps_validation_and_stride_contract():
+    clock = EnvClock(env_fps=60, obs_fps=15)
+    assert clock.env_fps == 60
+    assert clock.obs_fps == 15
+    assert clock.obs_stride_raw_frames == 4
+
+    with pytest.raises(ValueError, match="env_fps.*obs_fps"):
+        EnvClock(env_fps=60, obs_fps=17)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Phase 1 has not introduced the canonical ceil ms-to-raw-frame conversion helper.",
+)
+def test_latency_ms_to_raw_frames_uses_ceil_contract():
+    clock = EnvClock(env_fps=30, obs_fps=10)
+
+    assert clock.latency_ms_to_raw_frames(0.0) == 0
+    assert clock.latency_ms_to_raw_frames(1.0) == 1
+    assert clock.latency_ms_to_raw_frames(1000.0 / 30.0) == 1
+    assert clock.latency_ms_to_raw_frames((1000.0 / 30.0) + 0.001) == 2
+    assert clock.latency_ms_to_raw_frames(100.0) == 3
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Current FIFO selects among ready actions instead of blocking on the earlier issued not-ready action.",
+)
+def test_issue_order_fifo_blocks_later_ready_action_contract():
+    clock = EnvClock(30)
+    noop = Action("noop", is_noop=True)
+    first = Action("first")
+    second = Action("second")
+    scheduler = ActionScheduler(
+        clock,
+        noop,
+        HoldPreviousActionPolicy(),
+        stale_action_mode=StaleActionMode.FIFO,
+    )
+    scheduler.enqueue(_event(0, first, ready_step=10, clock=clock))
+    scheduler.enqueue(_event(1, second, ready_step=1, clock=clock))
+
+    assert scheduler.update(1, clock.step_to_time_ms(1)) is noop
+    assert scheduler.get_applied_events() == []
+
+    assert scheduler.update(10, clock.step_to_time_ms(10)) is first
+    assert scheduler.update(11, clock.step_to_time_ms(11)) is second
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Current ActionScheduler default is latest_ready; Phase 2 should make issue-order FIFO the default.",
+)
+def test_latest_ready_is_explicit_ablation_not_default_contract():
+    scheduler = ActionScheduler(EnvClock(30), Action("noop", is_noop=True), HoldPreviousActionPolicy())
+    assert scheduler.stale_action_mode == StaleActionMode.FIFO
+
+
+def test_latest_ready_ablation_can_be_requested_explicitly():
+    clock = EnvClock(30)
+    noop = Action("noop", is_noop=True)
+    first = Action("first")
+    second = Action("second")
+    scheduler = ActionScheduler(
+        clock,
+        noop,
+        HoldPreviousActionPolicy(),
+        stale_action_mode=StaleActionMode.LATEST_READY,
+    )
+    first_event = _event(0, first, ready_step=1, clock=clock)
+    second_event = _event(1, second, ready_step=1, clock=clock)
+    scheduler.enqueue(first_event)
+    scheduler.enqueue(second_event)
+
+    assert scheduler.update(1, clock.step_to_time_ms(1)) is second
+    assert first_event.dropped
+    assert second_event.applied
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Phase 2 has not introduced an explicit one_frame_then_noop hold policy.",
+)
+def test_one_frame_then_noop_hold_policy_contract():
+    from latency_bench.scheduler.persistence import OneFrameThenNoopPolicy
+
+    clock = EnvClock(30)
+    noop = Action("noop", is_noop=True)
+    action = Action("move", is_oneshot=False)
+    scheduler = ActionScheduler(clock, noop, OneFrameThenNoopPolicy(), stale_action_mode=StaleActionMode.FIFO)
+    scheduler.enqueue(_event(0, action, ready_step=0, clock=clock))
+
+    assert scheduler.update(0, clock.step_to_time_ms(0)) is action
+    assert scheduler.update(1, clock.step_to_time_ms(1)) is noop
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Phase 2 has not introduced a fixed raw-frame duration hold policy.",
+)
+def test_hold_for_fixed_duration_policy_contract():
+    from latency_bench.scheduler.persistence import HoldForFixedDurationPolicy
+
+    clock = EnvClock(30)
+    noop = Action("noop", is_noop=True)
+    action = Action("move")
+    scheduler = ActionScheduler(
+        clock,
+        noop,
+        HoldForFixedDurationPolicy(duration_raw_frames=3),
+        stale_action_mode=StaleActionMode.FIFO,
+    )
+    scheduler.enqueue(_event(0, action, ready_step=0, clock=clock))
+
+    assert scheduler.update(0, clock.step_to_time_ms(0)) is action
+    assert scheduler.update(1, clock.step_to_time_ms(1)) is action
+    assert scheduler.update(2, clock.step_to_time_ms(2)) is action
+    assert scheduler.update(3, clock.step_to_time_ms(3)) is noop
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Phase 2 has not introduced an explicit hold_until_next_action policy name.",
+)
+def test_hold_until_next_action_policy_contract():
+    from latency_bench.scheduler.persistence import HoldUntilNextActionPolicy
+
+    clock = EnvClock(30)
+    noop = Action("noop", is_noop=True)
+    first = Action("first")
+    second = Action("second")
+    scheduler = ActionScheduler(clock, noop, HoldUntilNextActionPolicy(), stale_action_mode=StaleActionMode.FIFO)
+    scheduler.enqueue(_event(0, first, ready_step=0, clock=clock))
+    scheduler.enqueue(_event(1, second, ready_step=3, clock=clock))
+
+    assert scheduler.update(0, clock.step_to_time_ms(0)) is first
+    assert scheduler.update(1, clock.step_to_time_ms(1)) is first
+    assert scheduler.update(2, clock.step_to_time_ms(2)) is first
+    assert scheduler.update(3, clock.step_to_time_ms(3)) is second
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Current realtime queue exposes drop-oldest behavior; Phase 4 should make drop_new_observation the default.",
+)
+def test_realtime_queue_full_default_is_drop_new_observation_contract():
+    queue = BoundedObservationQueue(max_len=1)
+    first = _task(0)
+    second = _task(1)
+
+    assert queue.push_drop_oldest(first) is None
+    assert queue.push_drop_oldest(second) is second
+    assert queue.pop() is first
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Phase 4 has not introduced timeout/skipped job state or FIFO timeout unblocking.",
+)
+def test_timeout_marks_skipped_unblocks_fifo_and_ignores_late_results_contract():
+    clock = EnvClock(30)
+    noop = Action("noop", is_noop=True)
+    scheduler = ActionScheduler(
+        clock,
+        noop,
+        HoldPreviousActionPolicy(),
+        stale_action_mode=StaleActionMode.FIFO,
+    )
+    scheduler.enqueue(_event(0, Action("first"), ready_step=100, clock=clock))
+    scheduler.enqueue(_event(1, Action("second"), ready_step=1, clock=clock))
+
+    scheduler.mark_timed_out(action_id=0, timeout_raw_frame=2)
+    assert scheduler.update(2, clock.step_to_time_ms(2)).value == "second"
+
+    scheduler.ignore_late_result(action_id=0)
+    assert [event.action_id for event in scheduler.get_applied_events()] == [1]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Phase 5 has not added the required raw-frame and job-status logging fields.",
+)
+def test_required_action_event_logging_fields_contract():
+    required_fields = {
+        "obs_raw_frame",
+        "latency_raw_frames",
+        "ready_raw_frame",
+        "apply_raw_frame",
+        "action_age_raw_frames",
+        "job_status",
+    }
+
+    assert required_fields.issubset(ActionEvent.__dataclass_fields__)

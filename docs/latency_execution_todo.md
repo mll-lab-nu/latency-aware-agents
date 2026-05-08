@@ -15,6 +15,15 @@
 | `docs/latency_execution_semantics_en.md` | Stable English semantic contract | definitions, invariants, executor semantics | current-code bugs, TODOs, temporary plans |
 | `docs/latency_execution_todo.md` | Dynamic implementation tracker | bugs, phases, audit tables, open questions | stable semantic redefinitions |
 
+### Audit Baseline
+
+Phase 0 audit artifacts:
+
+- `docs/audits/latency_code_alignment_audit.md`
+- `docs/audits/latency_refactor_plan.md`
+
+The audit docs are the current detailed baseline for code/semantics mismatches and the corrected Phase 0 through Phase 6 refactor plan.
+
 ---
 
 ## 2. Relevant code map
@@ -69,63 +78,17 @@
 
 ## 5. Proposed phased implementation plan
 
-### Phase 0: Documentation and audit only
+The canonical Phase 0 through Phase 6 plan is maintained in `docs/audits/latency_refactor_plan.md`.
 
-- Keep the stable semantic docs free of current-code status and TODOs.
-- Keep this TODO file as the dynamic tracker.
-- Do not refactor executor, scheduler, training wrapper, or config behavior in this phase.
+Summary:
 
-### Phase 1: Raw-frame clock and config
-
-- Add canonical `clock.env_fps` and `clock.obs_fps`.
-- Enforce `env_fps % obs_fps == 0`.
-- Derive and log `obs_stride_raw_frames`.
-- Keep legacy keys as explicit aliases during migration.
-- Add tests for valid/invalid clock configs and non-divisible rates.
-
-### Phase 2: Latency units and raw-frame conversion
-
-- Add explicit latency units: `raw_frames` and `ms`.
-- Add one helper for `ceil(latency_ms / 1000 * env_fps)`.
-- Store sampled/effective latency in both ms and raw frames.
-- Add deterministic tests for fixed, stochastic, and replay sources.
-
-### Phase 3: Scheduler and hold policy
-
-- Implement issue-order FIFO with head-of-line blocking.
-- Add skipped/timeout unblocking semantics.
-- Add explicit hold policies:
-  - `one_frame_then_noop`
-  - `hold_for_fixed_duration`
-  - `hold_until_next_action`
-- Keep `latest_ready` as an explicit ablation.
-- Add unit tests for each ordering and hold case.
-
-### Phase 4: Simulated executor alignment
-
-- Route observation cadence through `obs_stride_raw_frames`.
-- Schedule action readiness and application by raw-frame index.
-- Preserve reproducibility under seeds and trace replay.
-- Update logs to include raw-frame fields.
-
-### Phase 5: Realtime inference pool
-
-- Add executor-owned `InferencePool` with `max_in_flight`.
-- Add queue-full policy: default `drop_new_observation`, optional `drop_oldest_pending`.
-- Add timeout, skipped-job, and late-result ignore handling.
-- Log queue, in-flight, timeout, and drop events.
-
-### Phase 6: Realtime timing validation
-
-- Log target vs actual env FPS, deadline misses, wall-clock lag, and catchup behavior.
-- Add degraded/invalid-run flags based on configured thresholds.
-- Add fake slow-policy tests for overlap, queue pressure, timeout, and deadline misses.
-
-### Phase 7: Training wrapper alignment
-
-- Decide whether Sample Factory training latency remains decision-step legacy behavior or migrates to raw-frame semantics.
-- If migrating, map Atari `action_repeat` and Doom `env_frameskip` to raw-frame latency explicitly.
-- If not migrating, label it clearly as training-time decision-step latency.
+- Phase 0: semantic tests and audit baseline.
+- Phase 1: explicit timing units.
+- Phase 2: action scheduler and hold policies.
+- Phase 3: simulated executor alignment.
+- Phase 4: realtime async inference.
+- Phase 5: logging and validation.
+- Phase 6: cleanup.
 
 ---
 
