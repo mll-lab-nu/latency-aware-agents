@@ -11,7 +11,7 @@ class ActionScheduler:
         clock: EnvClock,
         noop_action: Action,
         persistence_policy: ActionPersistencePolicy,
-        stale_action_mode: StaleActionMode = StaleActionMode.LATEST_READY,
+        stale_action_mode: StaleActionMode = StaleActionMode.FIFO,
         expiration_ms: float | None = None,
     ):
         self.clock = clock
@@ -36,23 +36,29 @@ class ActionScheduler:
 
     def enqueue(self, event: ActionEvent) -> None:
         self._pending_events.append(event)
-        self._pending_events.sort(key=lambda item: (item.ready_time_ms, item.action_id))
+        self._pending_events.sort(key=lambda item: item.action_id)
 
     def update(self, current_step: int, current_time_ms: float) -> Action:
-        ready = [event for event in self._pending_events if self._is_ready(event, current_time_ms)]
-        not_ready = [event for event in self._pending_events if not self._is_ready(event, current_time_ms)]
-
         selected: ActionEvent | None = None
-        if ready:
+        if self._pending_events:
             if self.stale_action_mode == StaleActionMode.FIFO:
-                selected = ready[0]
-                self._pending_events = ready[1:] + not_ready
+                head = self._pending_events[0]
+                if self._is_ready(head, current_time_ms):
+                    selected = head
+                    self._pending_events = self._pending_events[1:]
             elif self.stale_action_mode == StaleActionMode.LATEST_READY:
-                selected = ready[-1]
-                for event in ready[:-1]:
-                    self._mark_dropped(event)
-                self._pending_events = not_ready
+                ready = [event for event in self._pending_events if self._is_ready(event, current_time_ms)]
+                not_ready = [event for event in self._pending_events if not self._is_ready(event, current_time_ms)]
+                if not ready:
+                    selected = None
+                else:
+                    selected = ready[-1]
+                    for event in ready[:-1]:
+                        self._mark_dropped(event)
+                    self._pending_events = not_ready
             elif self.stale_action_mode == StaleActionMode.DROP_EXPIRED:
+                ready = [event for event in self._pending_events if self._is_ready(event, current_time_ms)]
+                not_ready = [event for event in self._pending_events if not self._is_ready(event, current_time_ms)]
                 expired: list[ActionEvent] = []
                 fresh: list[ActionEvent] = []
                 for event in ready:

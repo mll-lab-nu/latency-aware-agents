@@ -14,6 +14,9 @@ class ExecutorMode(str, Enum):
 class PersistenceMode(str, Enum):
     HOLD_PREVIOUS = "hold_previous"
     NOOP_AFTER_ONESHOT = "noop_after_oneshot"
+    ONE_FRAME_THEN_NOOP = "one_frame_then_noop"
+    HOLD_FOR_FIXED_DURATION = "hold_for_fixed_duration"
+    HOLD_UNTIL_NEXT_ACTION = "hold_until_next_action"
 
 
 class StaleActionMode(str, Enum):

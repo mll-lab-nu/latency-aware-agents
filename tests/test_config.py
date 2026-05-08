@@ -547,3 +547,54 @@ evaluation:
 
     with pytest.raises(ValueError, match="latency_bench_env_backend"):
         load_config(config_path)
+
+
+def test_load_config_accepts_phase2_scheduler_fields(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG.replace(
+            "persistence_mode: noop_after_oneshot\n  stale_action_mode: latest_ready",
+            "hold_policy: hold_for_fixed_duration\n  hold_duration_raw_frames: 3\n  ordering_policy: issue_order_fifo",
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config["scheduler"]["hold_policy"] == "hold_for_fixed_duration"
+    assert config["scheduler"]["hold_duration_raw_frames"] == 3
+    assert config["scheduler"]["ordering_policy"] == "issue_order_fifo"
+
+
+def test_load_config_rejects_conflicting_ordering_fields(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG
+        + """
+scheduler:
+  persistence_mode: noop_after_oneshot
+  stale_action_mode: latest_ready
+  ordering_policy: fifo
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="ordering_policy.*stale_action_mode"):
+        load_config(config_path)
+
+
+def test_load_config_rejects_conflicting_hold_policy_fields(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG
+        + """
+scheduler:
+  persistence_mode: noop_after_oneshot
+  hold_policy: hold_until_next_action
+  stale_action_mode: latest_ready
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="hold_policy.*persistence_mode"):
+        load_config(config_path)

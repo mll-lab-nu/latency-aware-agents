@@ -168,6 +168,7 @@ def validate_config(config: dict) -> None:
         _validate_enum_value(scheduler["persistence_mode"], PersistenceMode, "scheduler.persistence_mode")
     if "stale_action_mode" in scheduler:
         _validate_enum_value(scheduler["stale_action_mode"], StaleActionMode, "scheduler.stale_action_mode")
+    _validate_scheduler_phase2_fields(scheduler)
 
     _require_field(policy, "type")
     _require_field(logging, "output_dir")
@@ -258,6 +259,62 @@ def _coerce_positive_int(value: Any, field_name: str) -> int:
 
 def _numeric_conflict(left: Any, right: Any) -> bool:
     return not math.isclose(float(left), float(right), rel_tol=1e-9, abs_tol=1e-9)
+
+
+def _validate_scheduler_phase2_fields(scheduler: dict[str, Any]) -> None:
+    ordering_policy = scheduler.get("ordering_policy")
+    stale_action_mode = scheduler.get("stale_action_mode")
+    if ordering_policy is not None:
+        normalized_ordering = _normalize_ordering_policy(ordering_policy, "scheduler.ordering_policy")
+        if stale_action_mode is not None:
+            normalized_legacy = _normalize_ordering_policy(stale_action_mode, "scheduler.stale_action_mode")
+            if normalized_ordering != normalized_legacy:
+                raise ValueError("scheduler.ordering_policy conflicts with scheduler.stale_action_mode")
+
+    hold_policy = scheduler.get("hold_policy")
+    persistence_mode = scheduler.get("persistence_mode")
+    if hold_policy is not None:
+        normalized_hold = _normalize_hold_policy(hold_policy, "scheduler.hold_policy")
+        if persistence_mode is not None:
+            normalized_legacy_hold = _normalize_hold_policy(persistence_mode, "scheduler.persistence_mode")
+            if normalized_hold != normalized_legacy_hold:
+                raise ValueError("scheduler.hold_policy conflicts with scheduler.persistence_mode")
+
+    if "hold_duration_raw_frames" in scheduler:
+        _coerce_positive_int(scheduler["hold_duration_raw_frames"], "scheduler.hold_duration_raw_frames")
+
+
+def _normalize_ordering_policy(value: Any, field_name: str) -> str:
+    normalized = str(value).strip().lower()
+    aliases = {
+        "issue_order_fifo": StaleActionMode.FIFO.value,
+        StaleActionMode.FIFO.value: StaleActionMode.FIFO.value,
+        StaleActionMode.LATEST_READY.value: StaleActionMode.LATEST_READY.value,
+        StaleActionMode.DROP_EXPIRED.value: StaleActionMode.DROP_EXPIRED.value,
+    }
+    if normalized not in aliases:
+        raise ValueError(
+            f"{field_name} must be one of ['fifo', 'issue_order_fifo', 'latest_ready', 'drop_expired']"
+        )
+    return aliases[normalized]
+
+
+def _normalize_hold_policy(value: Any, field_name: str) -> str:
+    normalized = str(value).strip().lower()
+    aliases = {
+        PersistenceMode.HOLD_PREVIOUS.value: PersistenceMode.HOLD_UNTIL_NEXT_ACTION.value,
+        PersistenceMode.HOLD_UNTIL_NEXT_ACTION.value: PersistenceMode.HOLD_UNTIL_NEXT_ACTION.value,
+        PersistenceMode.NOOP_AFTER_ONESHOT.value: PersistenceMode.NOOP_AFTER_ONESHOT.value,
+        PersistenceMode.ONE_FRAME_THEN_NOOP.value: PersistenceMode.ONE_FRAME_THEN_NOOP.value,
+        PersistenceMode.HOLD_FOR_FIXED_DURATION.value: PersistenceMode.HOLD_FOR_FIXED_DURATION.value,
+    }
+    if normalized not in aliases:
+        raise ValueError(
+            f"{field_name} must be one of "
+            "['hold_previous', 'noop_after_oneshot', 'one_frame_then_noop', "
+            "'hold_for_fixed_duration', 'hold_until_next_action']"
+        )
+    return aliases[normalized]
 
 
 def _require_dict(config: dict, key: str) -> dict:

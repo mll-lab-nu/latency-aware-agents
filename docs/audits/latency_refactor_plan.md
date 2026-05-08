@@ -84,6 +84,8 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 
 ## Phase 2: Action scheduler and hold policies
 
+**Status:** Implemented.
+
 **Goal:** Separate action readiness, application ordering, and hold behavior.
 
 **Likely files:**
@@ -100,7 +102,7 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 
 - Make issue-order FIFO the benchmark default.
 - Preserve `latest_ready` as an explicit ablation.
-- Add skipped/timed-out action states that can unblock FIFO.
+- Keep skipped/timed-out action states for the realtime timeout phase.
 - Add explicit hold policies:
   - `one_frame_then_noop`
   - `hold_for_fixed_duration`
@@ -117,7 +119,7 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 - Later issued actions cannot overtake earlier issued unskipped actions in FIFO mode.
 - `latest_ready` only occurs when explicitly configured.
 - Three hold policies pass direct unit tests using raw-frame counts.
-- Existing environment-specific defaults are migrated deliberately.
+- Legacy hold names remain accepted through compatibility mappings.
 
 **Independent:** Depends on Phase 1 for final raw-frame naming, but unit-level scheduler work can start earlier with compatibility shims.
 

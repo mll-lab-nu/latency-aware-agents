@@ -33,6 +33,12 @@ def test_fixed_two_frame_latency_action_applies_at_correct_step():
     assert scheduler.get_applied_events()[0].applied_env_step == 2
 
 
+def test_default_mode_is_issue_order_fifo():
+    scheduler = ActionScheduler(EnvClock(30), Action("noop", is_noop=True), HoldPreviousActionPolicy())
+
+    assert scheduler.stale_action_mode == StaleActionMode.FIFO
+
+
 def test_one_frame_latency_ready_on_float_boundary_applies_at_next_step():
     clock = EnvClock(35)
     noop = Action("noop", is_noop=True)
@@ -73,6 +79,42 @@ def test_fifo_mode_applies_ready_actions_in_order():
     assert scheduler.update(1, clock.step_to_time_ms(1)) is first
     assert scheduler.update(2, clock.step_to_time_ms(2)) is second
     assert [event.action.value for event in scheduler.get_applied_events()] == ["first", "second"]
+
+
+def test_fifo_mode_blocks_later_ready_action_until_head_of_line_ready():
+    clock = EnvClock(30)
+    noop = Action("noop", is_noop=True)
+    first = Action("first")
+    second = Action("second")
+    scheduler = ActionScheduler(clock, noop, HoldPreviousActionPolicy(), stale_action_mode=StaleActionMode.FIFO)
+    scheduler.enqueue(_event(0, first, ready_step=10, clock=clock))
+    scheduler.enqueue(_event(1, second, ready_step=5, clock=clock))
+
+    assert scheduler.update(5, clock.step_to_time_ms(5)) is noop
+    assert scheduler.get_applied_events() == []
+
+    assert scheduler.update(10, clock.step_to_time_ms(10)) is first
+    assert scheduler.update(11, clock.step_to_time_ms(11)) is second
+    assert [event.action.value for event in scheduler.get_applied_events()] == ["first", "second"]
+
+
+def test_latest_ready_mode_allows_explicit_overtake_ablation():
+    clock = EnvClock(30)
+    noop = Action("noop", is_noop=True)
+    first = Action("first")
+    second = Action("second")
+    scheduler = ActionScheduler(
+        clock,
+        noop,
+        HoldPreviousActionPolicy(),
+        stale_action_mode=StaleActionMode.LATEST_READY,
+    )
+    scheduler.enqueue(_event(0, first, ready_step=10, clock=clock))
+    scheduler.enqueue(_event(1, second, ready_step=5, clock=clock))
+
+    assert scheduler.update(5, clock.step_to_time_ms(5)) is second
+    assert scheduler.get_applied_events()[0].action is second
+    assert scheduler.get_pending_events()[0].action is first
 
 
 def test_latest_ready_mode_drops_older_ready_actions():

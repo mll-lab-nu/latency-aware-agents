@@ -38,7 +38,13 @@ from latency_bench.scheduler.decision import (
     FixedFrameIntervalDecisionScheduler,
     FixedFrequencyDecisionScheduler,
 )
-from latency_bench.scheduler.persistence import ActionPersistencePolicy, HoldPreviousActionPolicy, NoopAfterOneShotPolicy
+from latency_bench.scheduler.persistence import (
+    ActionPersistencePolicy,
+    HoldForFixedDurationPolicy,
+    HoldUntilNextActionPolicy,
+    NoopAfterOneShotPolicy,
+    OneFrameThenNoopPolicy,
+)
 
 
 ExecutorBuilder = Callable[[dict[str, Any]], Any]
@@ -114,12 +120,12 @@ def _build_single_simulated_executor(config: dict[str, Any]) -> SimulatedLatency
     policy = build_policy(config, action_resolver)
     decision_scheduler = _build_decision_scheduler(control_cfg, env.fps_env)
     latency_source = _build_latency_source(config["latency"])
-    persistence_policy = _build_persistence_policy(scheduler_cfg)
+    persistence_policy = _build_persistence_policy(scheduler_cfg, clock=clock)
     action_scheduler = ActionScheduler(
         clock=clock,
         noop_action=noop_action,
         persistence_policy=persistence_policy,
-        stale_action_mode=StaleActionMode(scheduler_cfg.get("stale_action_mode", StaleActionMode.LATEST_READY.value)),
+        stale_action_mode=_build_action_ordering_mode(scheduler_cfg),
         expiration_ms=scheduler_cfg.get("expiration_ms"),
     )
     logger = TrajectoryLogger(config["logging"]["output_dir"])
@@ -176,10 +182,8 @@ def _build_batched_simulated_executor(
             ActionScheduler(
                 clock=clock,
                 noop_action=env.noop_action,
-                persistence_policy=_build_persistence_policy(scheduler_cfg),
-                stale_action_mode=StaleActionMode(
-                    scheduler_cfg.get("stale_action_mode", StaleActionMode.LATEST_READY.value)
-                ),
+                persistence_policy=_build_persistence_policy(scheduler_cfg, clock=clock),
+                stale_action_mode=_build_action_ordering_mode(scheduler_cfg),
                 expiration_ms=scheduler_cfg.get("expiration_ms"),
             )
             for env in env_backend.slot_handles
@@ -220,12 +224,12 @@ def _build_paused_executor(config: dict[str, Any]) -> PausedLatencyExecutor:
     policy = build_policy(config, action_resolver)
     decision_scheduler = _build_decision_scheduler(control_cfg, env.fps_env)
     latency_source = _build_latency_source(config["latency"])
-    persistence_policy = _build_persistence_policy(scheduler_cfg)
+    persistence_policy = _build_persistence_policy(scheduler_cfg, clock=clock)
     action_scheduler = ActionScheduler(
         clock=clock,
         noop_action=noop_action,
         persistence_policy=persistence_policy,
-        stale_action_mode=StaleActionMode(scheduler_cfg.get("stale_action_mode", StaleActionMode.LATEST_READY.value)),
+        stale_action_mode=_build_action_ordering_mode(scheduler_cfg),
         expiration_ms=scheduler_cfg.get("expiration_ms"),
     )
     logger = TrajectoryLogger(config["logging"]["output_dir"])
@@ -265,12 +269,12 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
         )
     else:
         latency_source = _build_latency_source(latency_cfg)
-    persistence_policy = _build_persistence_policy(scheduler_cfg)
+    persistence_policy = _build_persistence_policy(scheduler_cfg, clock=clock)
     action_scheduler = ActionScheduler(
         clock=clock,
         noop_action=noop_action,
         persistence_policy=persistence_policy,
-        stale_action_mode=StaleActionMode(scheduler_cfg.get("stale_action_mode", StaleActionMode.LATEST_READY.value)),
+        stale_action_mode=_build_action_ordering_mode(scheduler_cfg),
         expiration_ms=scheduler_cfg.get("expiration_ms"),
     )
     logger = TrajectoryLogger(config["logging"]["output_dir"])
@@ -409,13 +413,97 @@ def _build_latency_source(latency_cfg: dict[str, Any]) -> LatencySource:
     raise ValueError(f"Unsupported latency.type for simulated executor: {latency_type}")
 
 
-def _build_persistence_policy(scheduler_cfg: dict[str, Any]) -> ActionPersistencePolicy:
-    mode = PersistenceMode(scheduler_cfg.get("persistence_mode", PersistenceMode.NOOP_AFTER_ONESHOT.value))
-    if mode == PersistenceMode.HOLD_PREVIOUS:
-        return HoldPreviousActionPolicy()
-    if mode == PersistenceMode.NOOP_AFTER_ONESHOT:
+def _build_action_ordering_mode(scheduler_cfg: dict[str, Any]) -> StaleActionMode:
+    ordering_policy = scheduler_cfg.get("ordering_policy")
+    stale_action_mode = scheduler_cfg.get("stale_action_mode")
+    if ordering_policy is not None:
+        resolved = _normalize_ordering_policy(ordering_policy, field_name="scheduler.ordering_policy")
+        if stale_action_mode is not None:
+            legacy = _normalize_ordering_policy(stale_action_mode, field_name="scheduler.stale_action_mode")
+            if resolved != legacy:
+                raise ValueError("scheduler.ordering_policy conflicts with scheduler.stale_action_mode")
+        return resolved
+    if stale_action_mode is not None:
+        return _normalize_ordering_policy(stale_action_mode, field_name="scheduler.stale_action_mode")
+    return StaleActionMode.FIFO
+
+
+def _normalize_ordering_policy(value: Any, *, field_name: str) -> StaleActionMode:
+    normalized = str(value).strip().lower()
+    if normalized == "issue_order_fifo":
+        normalized = StaleActionMode.FIFO.value
+    try:
+        return StaleActionMode(normalized)
+    except ValueError as exc:
+        raise ValueError(
+            f"{field_name} must be one of ['fifo', 'issue_order_fifo', 'latest_ready', 'drop_expired']"
+        ) from exc
+
+
+def _build_persistence_policy(
+    scheduler_cfg: dict[str, Any],
+    *,
+    clock: EnvClock | None = None,
+) -> ActionPersistencePolicy:
+    mode = _resolve_hold_policy_mode(scheduler_cfg)
+    if mode == PersistenceMode.ONE_FRAME_THEN_NOOP.value:
+        return OneFrameThenNoopPolicy()
+    if mode == PersistenceMode.HOLD_FOR_FIXED_DURATION.value:
+        return HoldForFixedDurationPolicy(_resolve_hold_duration_raw_frames(scheduler_cfg, clock=clock))
+    if mode == PersistenceMode.HOLD_UNTIL_NEXT_ACTION.value:
+        return HoldUntilNextActionPolicy()
+    if mode == PersistenceMode.NOOP_AFTER_ONESHOT.value:
         return NoopAfterOneShotPolicy()
-    raise ValueError(f"Unsupported persistence mode: {mode}")
+    raise ValueError(f"Unsupported hold policy: {mode}")
+
+
+def _resolve_hold_policy_mode(scheduler_cfg: dict[str, Any]) -> str:
+    hold_policy = scheduler_cfg.get("hold_policy")
+    persistence_mode = scheduler_cfg.get("persistence_mode")
+    if hold_policy is not None:
+        resolved = _normalize_hold_policy(hold_policy, field_name="scheduler.hold_policy")
+        if persistence_mode is not None:
+            legacy = _normalize_hold_policy(persistence_mode, field_name="scheduler.persistence_mode")
+            if resolved != legacy:
+                raise ValueError("scheduler.hold_policy conflicts with scheduler.persistence_mode")
+        return resolved
+    if persistence_mode is not None:
+        return _normalize_hold_policy(persistence_mode, field_name="scheduler.persistence_mode")
+    return PersistenceMode.NOOP_AFTER_ONESHOT.value
+
+
+def _normalize_hold_policy(value: Any, *, field_name: str) -> str:
+    normalized = str(value).strip().lower()
+    aliases = {
+        PersistenceMode.HOLD_PREVIOUS.value: PersistenceMode.HOLD_UNTIL_NEXT_ACTION.value,
+        PersistenceMode.HOLD_UNTIL_NEXT_ACTION.value: PersistenceMode.HOLD_UNTIL_NEXT_ACTION.value,
+        PersistenceMode.NOOP_AFTER_ONESHOT.value: PersistenceMode.NOOP_AFTER_ONESHOT.value,
+        PersistenceMode.ONE_FRAME_THEN_NOOP.value: PersistenceMode.ONE_FRAME_THEN_NOOP.value,
+        PersistenceMode.HOLD_FOR_FIXED_DURATION.value: PersistenceMode.HOLD_FOR_FIXED_DURATION.value,
+    }
+    if normalized not in aliases:
+        raise ValueError(
+            f"{field_name} must be one of "
+            "['hold_previous', 'noop_after_oneshot', 'one_frame_then_noop', "
+            "'hold_for_fixed_duration', 'hold_until_next_action']"
+        )
+    return aliases[normalized]
+
+
+def _resolve_hold_duration_raw_frames(
+    scheduler_cfg: dict[str, Any],
+    *,
+    clock: EnvClock | None,
+) -> int:
+    if "hold_duration_raw_frames" in scheduler_cfg:
+        duration = int(scheduler_cfg["hold_duration_raw_frames"])
+    elif clock is not None and getattr(clock, "obs_stride_raw_frames", None) is not None:
+        duration = int(clock.obs_stride_raw_frames)
+    else:
+        raise ValueError("scheduler.hold_duration_raw_frames is required for hold_for_fixed_duration")
+    if duration <= 0:
+        raise ValueError("scheduler.hold_duration_raw_frames must be positive")
+    return duration
 
 
 def _eval_parallel_envs(config: dict[str, Any]) -> int:

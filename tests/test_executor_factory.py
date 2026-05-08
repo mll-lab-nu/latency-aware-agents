@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from latency_bench.core.types import Action
+from latency_bench.core.types import Action, StaleActionMode
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.executors.factory import build_executor
@@ -12,6 +12,12 @@ from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.experiments.run_simulated_latency import build_executor as build_legacy_executor
 from latency_bench.latency.profile import save_profile_manifest, write_latency_samples
 from latency_bench.latency.sources import EmpiricalSampleLatencySource, EmpiricalTraceReplayLatencySource
+from latency_bench.scheduler.persistence import (
+    HoldForFixedDurationPolicy,
+    HoldUntilNextActionPolicy,
+    NoopAfterOneShotPolicy,
+    OneFrameThenNoopPolicy,
+)
 
 
 @register_env_adapter("normalized_noop_test")
@@ -140,6 +146,83 @@ def test_simulated_mode_builds_simulated_executor(tmp_path):
         assert isinstance(executor, SimulatedLatencyExecutor)
     finally:
         executor.env.close()
+
+
+def test_factory_defaults_to_issue_order_fifo_when_ordering_is_omitted(tmp_path):
+    config = _config(output_dir=str(tmp_path))
+    del config["scheduler"]["stale_action_mode"]
+
+    executor = build_executor(config)
+
+    try:
+        assert executor.action_scheduler.stale_action_mode == StaleActionMode.FIFO
+    finally:
+        executor.env.close()
+
+
+def test_factory_preserves_explicit_latest_ready_ablation(tmp_path):
+    config = _config(output_dir=str(tmp_path))
+    config["scheduler"]["ordering_policy"] = "latest_ready"
+    del config["scheduler"]["stale_action_mode"]
+
+    executor = build_executor(config)
+
+    try:
+        assert executor.action_scheduler.stale_action_mode == StaleActionMode.LATEST_READY
+    finally:
+        executor.env.close()
+
+
+@pytest.mark.parametrize(
+    ("hold_policy", "expected_type"),
+    [
+        ("one_frame_then_noop", OneFrameThenNoopPolicy),
+        ("hold_for_fixed_duration", HoldForFixedDurationPolicy),
+        ("hold_until_next_action", HoldUntilNextActionPolicy),
+    ],
+)
+def test_factory_builds_explicit_hold_policies(tmp_path, hold_policy, expected_type):
+    config = _config(output_dir=str(tmp_path))
+    config["scheduler"].pop("persistence_mode", None)
+    config["scheduler"]["hold_policy"] = hold_policy
+    if hold_policy == "hold_for_fixed_duration":
+        config["scheduler"]["hold_duration_raw_frames"] = 3
+
+    executor = build_executor(config)
+
+    try:
+        assert isinstance(executor.action_scheduler.persistence_policy, expected_type)
+        if hold_policy == "hold_for_fixed_duration":
+            assert executor.action_scheduler.persistence_policy.duration_raw_frames == 3
+    finally:
+        executor.env.close()
+
+
+def test_factory_keeps_legacy_noop_after_oneshot_policy(tmp_path):
+    executor = build_executor(_config(output_dir=str(tmp_path)))
+
+    try:
+        assert isinstance(executor.action_scheduler.persistence_policy, NoopAfterOneShotPolicy)
+    finally:
+        executor.env.close()
+
+
+def test_factory_rejects_conflicting_ordering_fields(tmp_path):
+    config = _config(output_dir=str(tmp_path))
+    config["scheduler"]["ordering_policy"] = "fifo"
+    config["scheduler"]["stale_action_mode"] = "latest_ready"
+
+    with pytest.raises(ValueError, match="ordering_policy.*stale_action_mode"):
+        build_executor(config)
+
+
+def test_factory_rejects_conflicting_hold_policy_fields(tmp_path):
+    config = _config(output_dir=str(tmp_path))
+    config["scheduler"]["hold_policy"] = "hold_until_next_action"
+    config["scheduler"]["persistence_mode"] = "noop_after_oneshot"
+
+    with pytest.raises(ValueError, match="hold_policy.*persistence_mode"):
+        build_executor(config)
 
 
 def test_simulated_eval_parallel_envs_1_keeps_old_executor_path(tmp_path):

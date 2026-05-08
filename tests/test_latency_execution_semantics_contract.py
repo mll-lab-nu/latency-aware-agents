@@ -52,10 +52,6 @@ def test_latency_ms_to_raw_frames_uses_ceil_contract():
     assert clock.latency_ms_to_raw_frames(100.0) == 3
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Current FIFO selects among ready actions instead of blocking on the earlier issued not-ready action.",
-)
 def test_issue_order_fifo_blocks_later_ready_action_contract():
     clock = EnvClock(30)
     noop = Action("noop", is_noop=True)
@@ -77,10 +73,6 @@ def test_issue_order_fifo_blocks_later_ready_action_contract():
     assert scheduler.update(11, clock.step_to_time_ms(11)) is second
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Current ActionScheduler default is latest_ready; Phase 2 should make issue-order FIFO the default.",
-)
 def test_latest_ready_is_explicit_ablation_not_default_contract():
     scheduler = ActionScheduler(EnvClock(30), Action("noop", is_noop=True), HoldPreviousActionPolicy())
     assert scheduler.stale_action_mode == StaleActionMode.FIFO
@@ -107,10 +99,6 @@ def test_latest_ready_ablation_can_be_requested_explicitly():
     assert second_event.applied
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Phase 2 has not introduced an explicit one_frame_then_noop hold policy.",
-)
 def test_one_frame_then_noop_hold_policy_contract():
     from latency_bench.scheduler.persistence import OneFrameThenNoopPolicy
 
@@ -124,10 +112,6 @@ def test_one_frame_then_noop_hold_policy_contract():
     assert scheduler.update(1, clock.step_to_time_ms(1)) is noop
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Phase 2 has not introduced a fixed raw-frame duration hold policy.",
-)
 def test_hold_for_fixed_duration_policy_contract():
     from latency_bench.scheduler.persistence import HoldForFixedDurationPolicy
 
@@ -148,10 +132,6 @@ def test_hold_for_fixed_duration_policy_contract():
     assert scheduler.update(3, clock.step_to_time_ms(3)) is noop
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Phase 2 has not introduced an explicit hold_until_next_action policy name.",
-)
 def test_hold_until_next_action_policy_contract():
     from latency_bench.scheduler.persistence import HoldUntilNextActionPolicy
 
