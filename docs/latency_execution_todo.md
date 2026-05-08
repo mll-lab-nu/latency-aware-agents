@@ -24,6 +24,17 @@ Phase 0 audit artifacts:
 
 The audit docs are the current detailed baseline for code/semantics mismatches and the corrected Phase 0 through Phase 6 refactor plan.
 
+### Phase 1 Timing Baseline
+
+Phase 1 adds explicit timing helpers and a backward-compatible `clock` config shim:
+
+- `latency_bench.core.clock.validate_clock_rates`
+- `latency_bench.core.clock.compute_obs_stride_raw_frames`
+- `latency_bench.core.clock.ms_to_raw_frames`
+- `latency_bench.core.config.resolve_clock_config`
+
+Executor scheduling, scheduler ordering, realtime behavior, hold policies, and logging schema are intentionally unchanged.
+
 ---
 
 ## 2. Relevant code map

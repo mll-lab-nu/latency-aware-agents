@@ -4,6 +4,8 @@
 **Date:** 2026-05-08
 **Scope:** Current implementation gaps against the stable latency execution semantics.
 
+**Phase 1 note:** Central clock helpers and backward-compatible `clock` config resolution have been added. Executor scheduling, scheduler ordering, realtime behavior, hold policies, and logging schema remain as audited until later phases.
+
 The stable execution contract remains in:
 
 - `docs/latency_execution_semantics_en.md`

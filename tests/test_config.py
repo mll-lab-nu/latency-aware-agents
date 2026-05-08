@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from latency_bench.core.config import load_config, merge_dicts
+from latency_bench.core.config import load_config, merge_dicts, resolve_clock_config
 
 
 BASE_CONFIG = """
@@ -51,6 +51,117 @@ def test_load_config_without_base(tmp_path: Path):
 
     assert config["experiment"]["name"] == "base"
     assert config["env"]["fps_env"] == 30
+    assert config["clock"] == {
+        "env_fps": 30.0,
+        "obs_fps": 30.0,
+        "obs_stride_raw_frames": 1,
+    }
+
+
+def test_resolve_clock_config_derives_from_legacy_observe_every_n_frames():
+    config = {
+        "env": {"fps_env": 60},
+        "control": {"frequency_hz": 30, "observe_every_n_frames": 4},
+    }
+
+    assert resolve_clock_config(config) == {
+        "env_fps": 60.0,
+        "obs_fps": 15.0,
+        "obs_stride_raw_frames": 4,
+    }
+
+
+def test_load_config_accepts_clock_only_and_backfills_legacy_fields(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG.replace(
+            "env:\n  name: dummy\n  fps_env: 30\n  noop_action: noop\ncontrol:\n  frequency_hz: 30\n  observe_every_n_frames: 1",
+            """
+clock:
+  env_fps: 60
+  obs_fps: 15
+env:
+  name: dummy
+  noop_action: noop
+control: {}
+""".strip(),
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config["clock"] == {
+        "env_fps": 60.0,
+        "obs_fps": 15.0,
+        "obs_stride_raw_frames": 4,
+    }
+    assert config["env"]["fps_env"] == 60.0
+    assert config["control"]["frequency_hz"] == 15.0
+    assert config["control"]["observe_every_n_frames"] == 4
+
+
+def test_load_config_rejects_conflicting_clock_env_fps(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG
+        + """
+clock:
+  env_fps: 60
+  obs_fps: 30
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="clock.env_fps.*env.fps_env"):
+        load_config(config_path)
+
+
+def test_load_config_rejects_conflicting_clock_obs_stride(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG.replace("frequency_hz: 30", "frequency_hz: 10")
+        + """
+clock:
+  env_fps: 30
+  obs_fps: 10
+  obs_stride_raw_frames: 2
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="clock.obs_stride_raw_frames"):
+        load_config(config_path)
+
+
+def test_load_config_rejects_conflicting_clock_obs_fps_with_legacy_cadence(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG
+        + """
+clock:
+  env_fps: 30
+  obs_fps: 10
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="clock.obs_fps.*control.frequency_hz"):
+        load_config(config_path)
+
+
+def test_load_config_rejects_nondivisible_clock_rates(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG.replace(
+            "frequency_hz: 30",
+            "frequency_hz: 17",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="env_fps.*obs_fps"):
+        load_config(config_path)
 
 
 def test_load_config_with_one_base(tmp_path: Path):

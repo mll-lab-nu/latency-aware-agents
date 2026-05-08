@@ -32,10 +32,6 @@ def _task(obs_id: int) -> RealtimeObservationTask:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Phase 1 has not introduced obs_fps validation or obs_stride_raw_frames on the clock API.",
-)
 def test_env_fps_obs_fps_validation_and_stride_contract():
     clock = EnvClock(env_fps=60, obs_fps=15)
     assert clock.env_fps == 60
@@ -46,10 +42,6 @@ def test_env_fps_obs_fps_validation_and_stride_contract():
         EnvClock(env_fps=60, obs_fps=17)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Phase 1 has not introduced the canonical ceil ms-to-raw-frame conversion helper.",
-)
 def test_latency_ms_to_raw_frames_uses_ceil_contract():
     clock = EnvClock(env_fps=30, obs_fps=10)
 

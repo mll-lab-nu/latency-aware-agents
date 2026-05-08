@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import math
 from pathlib import Path
 from typing import Any
 
+from latency_bench.core.clock import compute_obs_stride_raw_frames
 from latency_bench.core.types import ExecutorMode, LatencySourceType, PersistenceMode, StaleActionMode
 
 
@@ -84,6 +86,11 @@ def validate_config(config: dict) -> None:
     logging = _require_dict(config, "logging")
     evaluation = config.get("evaluation")
     realtime = config.get("realtime")
+    clock_config = resolve_clock_config(config)
+    config["clock"] = clock_config
+    env.setdefault("fps_env", clock_config["env_fps"])
+    control.setdefault("frequency_hz", clock_config["obs_fps"])
+    control.setdefault("observe_every_n_frames", clock_config["obs_stride_raw_frames"])
 
     _require_field(experiment, "name")
     executor_mode = _require_field(executor, "mode")
@@ -172,6 +179,85 @@ def validate_config(config: dict) -> None:
                 "evaluation.latency_bench_env_backend must be one of "
                 f"{sorted(allowed_backends)}"
             )
+
+
+def resolve_clock_config(config: dict) -> dict[str, float | int]:
+    if not isinstance(config, dict):
+        raise ValueError("config must be a dict")
+    env = _require_dict(config, "env")
+    control = _require_dict(config, "control")
+    clock = config.get("clock", {})
+    if clock is None:
+        clock = {}
+    if not isinstance(clock, dict):
+        raise ValueError("clock must be a mapping")
+
+    clock_env_fps = clock.get("env_fps")
+    legacy_env_fps = env.get("fps_env")
+    if clock_env_fps is not None and legacy_env_fps is not None:
+        if _numeric_conflict(clock_env_fps, legacy_env_fps):
+            raise ValueError(
+                f"clock.env_fps conflicts with env.fps_env: "
+                f"clock.env_fps={clock_env_fps}, env.fps_env={legacy_env_fps}"
+            )
+    if clock_env_fps is None and legacy_env_fps is None:
+        raise ValueError("Missing required field: clock.env_fps or env.fps_env")
+    env_fps = float(clock_env_fps if clock_env_fps is not None else legacy_env_fps)
+
+    clock_stride = clock.get("obs_stride_raw_frames")
+    legacy_obs_fps, legacy_obs_source = _legacy_obs_fps(env_fps, control)
+    if "obs_fps" in clock:
+        obs_fps = float(clock["obs_fps"])
+        if legacy_obs_source is not None and _numeric_conflict(obs_fps, legacy_obs_fps):
+            raise ValueError(
+                f"clock.obs_fps conflicts with {legacy_obs_source}: "
+                f"clock.obs_fps={obs_fps}, {legacy_obs_source}={legacy_obs_fps}"
+            )
+    elif legacy_obs_source is not None:
+        obs_fps = legacy_obs_fps
+    elif clock_stride is not None:
+        stride = _coerce_positive_int(clock_stride, "clock.obs_stride_raw_frames")
+        obs_fps = env_fps / stride
+    else:
+        obs_fps = env_fps
+
+    computed_stride = compute_obs_stride_raw_frames(env_fps, obs_fps)
+    if clock_stride is not None:
+        explicit_stride = _coerce_positive_int(clock_stride, "clock.obs_stride_raw_frames")
+        if explicit_stride != computed_stride:
+            raise ValueError(
+                f"clock.obs_stride_raw_frames conflicts with clock rates: "
+                f"clock.obs_stride_raw_frames={explicit_stride}, computed={computed_stride}"
+            )
+
+    return {
+        "env_fps": float(env_fps),
+        "obs_fps": float(obs_fps),
+        "obs_stride_raw_frames": int(computed_stride),
+    }
+
+
+def _legacy_obs_fps(env_fps: float, control: dict[str, Any]) -> tuple[float, str | None]:
+    if "observe_every_n_frames" in control and int(control["observe_every_n_frames"]) > 1:
+        stride = _coerce_positive_int(control["observe_every_n_frames"], "control.observe_every_n_frames")
+        return float(env_fps) / stride, "control.observe_every_n_frames"
+    if "frequency_hz" in control:
+        return float(control["frequency_hz"]), "control.frequency_hz"
+    return float(env_fps), None
+
+
+def _coerce_positive_int(value: Any, field_name: str) -> int:
+    try:
+        int_value = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a positive integer") from exc
+    if int_value <= 0 or not math.isclose(float(value), float(int_value), rel_tol=0.0, abs_tol=0.0):
+        raise ValueError(f"{field_name} must be a positive integer")
+    return int_value
+
+
+def _numeric_conflict(left: Any, right: Any) -> bool:
+    return not math.isclose(float(left), float(right), rel_tol=1e-9, abs_tol=1e-9)
 
 
 def _require_dict(config: dict, key: str) -> dict:

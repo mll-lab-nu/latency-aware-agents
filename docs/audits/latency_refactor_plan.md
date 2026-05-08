@@ -46,6 +46,7 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 ## Phase 1: Explicit timing units
 
 **Goal:** Make raw-frame and observation-frame units explicit.
+**Status:** Implemented for central helpers and backward-compatible config resolution. Executor alignment remains in later phases.
 
 **Likely files:**
 
