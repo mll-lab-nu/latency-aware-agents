@@ -49,8 +49,8 @@ latency:
   add_latency_info: false
 
 scheduler:
-  persistence_mode: hold_previous
-  stale_action_mode: latest_ready
+  hold_policy: hold_until_next_action
+  ordering_policy: latest_ready
 
 policy:
   type: random

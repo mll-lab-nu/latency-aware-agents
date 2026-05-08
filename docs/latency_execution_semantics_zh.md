@@ -777,7 +777,7 @@ latency:
 action:
   hold_policy: one_frame_then_noop  # one_frame_then_noop | hold_for_fixed_duration | hold_until_next_action
   default_action: noop
-  ordering_policy: fifo  # fifo | latest_ready
+  ordering_policy: issue_order_fifo  # issue_order_fifo | latest_ready
 
 realtime:
   max_in_flight: 4

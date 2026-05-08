@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, Observation, PolicyOutput, StaleActionMode, StepResult
+from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.latency.sources import FixedLatencySource, TraceReplayLatencySource, ZeroLatencySource
@@ -15,7 +15,7 @@ from latency_bench.observation.history import HistoryBuffer
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import EveryFrameDecisionScheduler
-from latency_bench.scheduler.persistence import HoldPreviousActionPolicy
+from latency_bench.scheduler.persistence import HoldUntilNextActionPolicy
 
 
 class CountingPolicyRunner(PolicyRunner):
@@ -104,7 +104,7 @@ def _executor(
     policy: PolicyRunner | None = None,
     max_steps: int = 5,
     logger: TrajectoryLogger | None = None,
-    stale_action_mode: StaleActionMode = StaleActionMode.LATEST_READY,
+    ordering_policy: OrderingPolicy = OrderingPolicy.LATEST_READY,
     fps_env: float = 30,
 ) -> tuple[SimulatedLatencyExecutor, DummyEnvAdapter, EnvClock, Action]:
     noop = Action("noop", is_noop=True)
@@ -113,8 +113,8 @@ def _executor(
     action_scheduler = ActionScheduler(
         clock=clock,
         noop_action=noop,
-        persistence_policy=HoldPreviousActionPolicy(),
-        stale_action_mode=stale_action_mode,
+        persistence_policy=HoldUntilNextActionPolicy(),
+        ordering_policy=ordering_policy,
     )
     executor = SimulatedLatencyExecutor(
         env=env,
@@ -187,7 +187,7 @@ def test_trace_replay_latency_applies_event_at_trace_ready_step(tmp_path: Path):
         TraceReplayLatencySource(trace_path, loop_trace=True),
         policy=CountingPolicyRunner(),
         max_steps=4,
-        stale_action_mode=StaleActionMode.FIFO,
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
 
     executor.run_episode(episode_id=0, eval_max_steps=4)
@@ -255,7 +255,7 @@ def test_soft_reset_continues_same_episode_and_clears_latency_state():
         action_scheduler=ActionScheduler(
             clock=clock,
             noop_action=noop,
-            persistence_policy=HoldPreviousActionPolicy(),
+            persistence_policy=HoldUntilNextActionPolicy(),
         ),
         clock=clock,
     )

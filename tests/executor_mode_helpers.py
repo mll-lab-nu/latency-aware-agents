@@ -3,11 +3,11 @@ from __future__ import annotations
 import time
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, Observation, PolicyOutput, StaleActionMode
+from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput
 from latency_bench.envs.base import DummyEnvAdapter
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
-from latency_bench.scheduler.persistence import HoldPreviousActionPolicy
+from latency_bench.scheduler.persistence import HoldUntilNextActionPolicy
 
 
 class SequencePolicyRunner(PolicyRunner):
@@ -36,7 +36,7 @@ def make_dummy_parts(max_steps: int = 5, fps_env: float = 30.0):
     action_scheduler = ActionScheduler(
         clock=clock,
         noop_action=noop_action,
-        persistence_policy=HoldPreviousActionPolicy(),
-        stale_action_mode=StaleActionMode.LATEST_READY,
+        persistence_policy=HoldUntilNextActionPolicy(),
+        ordering_policy=OrderingPolicy.LATEST_READY,
     )
     return env, clock, noop_action, jump_action, action_scheduler

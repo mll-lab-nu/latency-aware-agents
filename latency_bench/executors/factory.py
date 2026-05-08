@@ -6,7 +6,7 @@ from typing import Any
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import ExecutorMode, LatencySourceType, PersistenceMode, StaleActionMode
+from latency_bench.core.types import ActionHoldPolicy, ExecutorMode, LatencySourceType, OrderingPolicy
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import build_env_adapter
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
@@ -42,7 +42,6 @@ from latency_bench.scheduler.persistence import (
     ActionPersistencePolicy,
     HoldForFixedDurationPolicy,
     HoldUntilNextActionPolicy,
-    NoopAfterOneShotPolicy,
     OneFrameThenNoopPolicy,
 )
 
@@ -58,6 +57,7 @@ _SAMPLE_FACTORY_BASE_CHANNELS = {
 _LATENCY_BENCH_ENV_BACKENDS = {"serial", "subproc", "auto"}
 _ENV_BACKEND_DEBUG_ENV = "LATENCY_BENCH_ENV_BACKEND"
 _AUTO_SUBPROC_ENV_NAMES = {"demon_attack", "deadly_corridor"}
+_SCHEDULER_ALLOWED_KEYS = frozenset({"ordering_policy", "hold_policy", "hold_duration_raw_frames"})
 
 
 def register_executor(mode: ExecutorMode | str) -> Callable[[ExecutorBuilder], ExecutorBuilder]:
@@ -125,8 +125,7 @@ def _build_single_simulated_executor(config: dict[str, Any]) -> SimulatedLatency
         clock=clock,
         noop_action=noop_action,
         persistence_policy=persistence_policy,
-        stale_action_mode=_build_action_ordering_mode(scheduler_cfg),
-        expiration_ms=scheduler_cfg.get("expiration_ms"),
+        ordering_policy=_build_ordering_policy(scheduler_cfg),
     )
     logger = TrajectoryLogger(config["logging"]["output_dir"])
     return SimulatedLatencyExecutor(
@@ -183,8 +182,7 @@ def _build_batched_simulated_executor(
                 clock=clock,
                 noop_action=env.noop_action,
                 persistence_policy=_build_persistence_policy(scheduler_cfg, clock=clock),
-                stale_action_mode=_build_action_ordering_mode(scheduler_cfg),
-                expiration_ms=scheduler_cfg.get("expiration_ms"),
+                ordering_policy=_build_ordering_policy(scheduler_cfg),
             )
             for env in env_backend.slot_handles
         ]
@@ -229,8 +227,7 @@ def _build_paused_executor(config: dict[str, Any]) -> PausedLatencyExecutor:
         clock=clock,
         noop_action=noop_action,
         persistence_policy=persistence_policy,
-        stale_action_mode=_build_action_ordering_mode(scheduler_cfg),
-        expiration_ms=scheduler_cfg.get("expiration_ms"),
+        ordering_policy=_build_ordering_policy(scheduler_cfg),
     )
     logger = TrajectoryLogger(config["logging"]["output_dir"])
     return PausedLatencyExecutor(
@@ -274,8 +271,7 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
         clock=clock,
         noop_action=noop_action,
         persistence_policy=persistence_policy,
-        stale_action_mode=_build_action_ordering_mode(scheduler_cfg),
-        expiration_ms=scheduler_cfg.get("expiration_ms"),
+        ordering_policy=_build_ordering_policy(scheduler_cfg),
     )
     logger = TrajectoryLogger(config["logging"]["output_dir"])
     return RealtimeLatencyExecutor(
@@ -413,31 +409,18 @@ def _build_latency_source(latency_cfg: dict[str, Any]) -> LatencySource:
     raise ValueError(f"Unsupported latency.type for simulated executor: {latency_type}")
 
 
-def _build_action_ordering_mode(scheduler_cfg: dict[str, Any]) -> StaleActionMode:
-    ordering_policy = scheduler_cfg.get("ordering_policy")
-    stale_action_mode = scheduler_cfg.get("stale_action_mode")
-    if ordering_policy is not None:
-        resolved = _normalize_ordering_policy(ordering_policy, field_name="scheduler.ordering_policy")
-        if stale_action_mode is not None:
-            legacy = _normalize_ordering_policy(stale_action_mode, field_name="scheduler.stale_action_mode")
-            if resolved != legacy:
-                raise ValueError("scheduler.ordering_policy conflicts with scheduler.stale_action_mode")
-        return resolved
-    if stale_action_mode is not None:
-        return _normalize_ordering_policy(stale_action_mode, field_name="scheduler.stale_action_mode")
-    return StaleActionMode.FIFO
+def _build_ordering_policy(scheduler_cfg: dict[str, Any]) -> OrderingPolicy:
+    _raise_if_unsupported_scheduler_fields(scheduler_cfg)
+    ordering_policy = scheduler_cfg.get("ordering_policy", OrderingPolicy.ISSUE_ORDER_FIFO.value)
+    return _normalize_ordering_policy(ordering_policy, field_name="scheduler.ordering_policy")
 
 
-def _normalize_ordering_policy(value: Any, *, field_name: str) -> StaleActionMode:
+def _normalize_ordering_policy(value: Any, *, field_name: str) -> OrderingPolicy:
     normalized = str(value).strip().lower()
-    if normalized == "issue_order_fifo":
-        normalized = StaleActionMode.FIFO.value
     try:
-        return StaleActionMode(normalized)
+        return OrderingPolicy(normalized)
     except ValueError as exc:
-        raise ValueError(
-            f"{field_name} must be one of ['fifo', 'issue_order_fifo', 'latest_ready', 'drop_expired']"
-        ) from exc
+        raise ValueError(f"{field_name} must be one of ['issue_order_fifo', 'latest_ready']") from exc
 
 
 def _build_persistence_policy(
@@ -446,48 +429,38 @@ def _build_persistence_policy(
     clock: EnvClock | None = None,
 ) -> ActionPersistencePolicy:
     mode = _resolve_hold_policy_mode(scheduler_cfg)
-    if mode == PersistenceMode.ONE_FRAME_THEN_NOOP.value:
+    if mode == ActionHoldPolicy.ONE_FRAME_THEN_NOOP:
         return OneFrameThenNoopPolicy()
-    if mode == PersistenceMode.HOLD_FOR_FIXED_DURATION.value:
+    if mode == ActionHoldPolicy.HOLD_FOR_FIXED_DURATION:
         return HoldForFixedDurationPolicy(_resolve_hold_duration_raw_frames(scheduler_cfg, clock=clock))
-    if mode == PersistenceMode.HOLD_UNTIL_NEXT_ACTION.value:
+    if mode == ActionHoldPolicy.HOLD_UNTIL_NEXT_ACTION:
         return HoldUntilNextActionPolicy()
-    if mode == PersistenceMode.NOOP_AFTER_ONESHOT.value:
-        return NoopAfterOneShotPolicy()
-    raise ValueError(f"Unsupported hold policy: {mode}")
+    raise ValueError(f"Unsupported hold policy: {mode.value}")
 
 
-def _resolve_hold_policy_mode(scheduler_cfg: dict[str, Any]) -> str:
-    hold_policy = scheduler_cfg.get("hold_policy")
-    persistence_mode = scheduler_cfg.get("persistence_mode")
-    if hold_policy is not None:
-        resolved = _normalize_hold_policy(hold_policy, field_name="scheduler.hold_policy")
-        if persistence_mode is not None:
-            legacy = _normalize_hold_policy(persistence_mode, field_name="scheduler.persistence_mode")
-            if resolved != legacy:
-                raise ValueError("scheduler.hold_policy conflicts with scheduler.persistence_mode")
-        return resolved
-    if persistence_mode is not None:
-        return _normalize_hold_policy(persistence_mode, field_name="scheduler.persistence_mode")
-    return PersistenceMode.NOOP_AFTER_ONESHOT.value
+def _resolve_hold_policy_mode(scheduler_cfg: dict[str, Any]) -> ActionHoldPolicy:
+    _raise_if_unsupported_scheduler_fields(scheduler_cfg)
+    hold_policy = scheduler_cfg.get("hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value)
+    return _normalize_hold_policy(hold_policy, field_name="scheduler.hold_policy")
 
 
-def _normalize_hold_policy(value: Any, *, field_name: str) -> str:
+def _raise_if_unsupported_scheduler_fields(scheduler_cfg: dict[str, Any]) -> None:
+    if set(scheduler_cfg) - _SCHEDULER_ALLOWED_KEYS:
+        raise ValueError(
+            "scheduler contains unsupported fields; use only "
+            "['hold_duration_raw_frames', 'hold_policy', 'ordering_policy']"
+        )
+
+
+def _normalize_hold_policy(value: Any, *, field_name: str) -> ActionHoldPolicy:
     normalized = str(value).strip().lower()
-    aliases = {
-        PersistenceMode.HOLD_PREVIOUS.value: PersistenceMode.HOLD_UNTIL_NEXT_ACTION.value,
-        PersistenceMode.HOLD_UNTIL_NEXT_ACTION.value: PersistenceMode.HOLD_UNTIL_NEXT_ACTION.value,
-        PersistenceMode.NOOP_AFTER_ONESHOT.value: PersistenceMode.NOOP_AFTER_ONESHOT.value,
-        PersistenceMode.ONE_FRAME_THEN_NOOP.value: PersistenceMode.ONE_FRAME_THEN_NOOP.value,
-        PersistenceMode.HOLD_FOR_FIXED_DURATION.value: PersistenceMode.HOLD_FOR_FIXED_DURATION.value,
-    }
-    if normalized not in aliases:
+    try:
+        return ActionHoldPolicy(normalized)
+    except ValueError as exc:
         raise ValueError(
             f"{field_name} must be one of "
-            "['hold_previous', 'noop_after_oneshot', 'one_frame_then_noop', "
-            "'hold_for_fixed_duration', 'hold_until_next_action']"
-        )
-    return aliases[normalized]
+            "['one_frame_then_noop', 'hold_for_fixed_duration', 'hold_until_next_action']"
+        ) from exc
 
 
 def _resolve_hold_duration_raw_frames(

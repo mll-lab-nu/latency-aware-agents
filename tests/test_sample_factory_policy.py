@@ -732,8 +732,8 @@ def test_latency_bench_run_with_batched_sample_factory_discrete_policy_completes
             "type": "zero",
         },
         "scheduler": {
-            "persistence_mode": "noop_after_oneshot",
-            "stale_action_mode": "latest_ready",
+            "hold_policy": "one_frame_then_noop",
+            "ordering_policy": "latest_ready",
         },
         "policy": {
             "type": "flappy_sf",
@@ -802,8 +802,8 @@ def test_latency_bench_run_with_batched_deadly_tuple_policy_completes_exact_epis
             "type": "zero",
         },
         "scheduler": {
-            "persistence_mode": "hold_previous",
-            "stale_action_mode": "latest_ready",
+            "hold_policy": "hold_until_next_action",
+            "ordering_policy": "latest_ready",
         },
         "policy": {
             "type": "deadly_corridor_sf",

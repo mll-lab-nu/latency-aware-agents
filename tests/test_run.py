@@ -32,8 +32,8 @@ control:
 latency:
   type: zero
 scheduler:
-  persistence_mode: noop_after_oneshot
-  stale_action_mode: latest_ready
+  hold_policy: one_frame_then_noop
+  ordering_policy: latest_ready
 policy:
   type: constant
   action: jump
@@ -71,8 +71,8 @@ latency:
   train_values:
     - 0
 scheduler:
-  persistence_mode: noop_after_oneshot
-  stale_action_mode: latest_ready
+  hold_policy: one_frame_then_noop
+  ordering_policy: latest_ready
 policy:
   type: constant
   action: jump
@@ -116,8 +116,8 @@ latency:
   type: measured
   train_values: null
 scheduler:
-  persistence_mode: noop_after_oneshot
-  stale_action_mode: latest_ready
+  hold_policy: one_frame_then_noop
+  ordering_policy: latest_ready
 policy:
   type: constant
   action: jump
@@ -157,8 +157,8 @@ def _run_config(policy_type: str, tmp_path: Path, seed: int = 7, num_episodes: i
             "type": "zero",
         },
         "scheduler": {
-            "persistence_mode": "noop_after_oneshot",
-            "stale_action_mode": "latest_ready",
+            "hold_policy": "one_frame_then_noop",
+            "ordering_policy": "latest_ready",
         },
         "policy": {
             "type": policy_type,

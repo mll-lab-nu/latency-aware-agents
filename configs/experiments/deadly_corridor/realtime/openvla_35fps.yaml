@@ -112,7 +112,7 @@ evaluation:
   eval_max_steps: 30000
 
 scheduler:
-  stale_action_mode: latest_ready
+  ordering_policy: latest_ready
 
 logging:
   output_dir: outputs/deadly_corridor_openvla_realtime_measured_35fps

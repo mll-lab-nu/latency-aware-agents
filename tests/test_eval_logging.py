@@ -70,8 +70,8 @@ def _config(tmp_path: Path, *, latency: dict | None = None, env_name: str = "dum
             "fixed_latency_ms": 80.0,
         },
         "scheduler": {
-            "persistence_mode": "noop_after_oneshot",
-            "stale_action_mode": "fifo",
+            "hold_policy": "one_frame_then_noop",
+            "ordering_policy": "issue_order_fifo",
         },
         "policy": {
             "type": "constant",

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from latency_bench.core.config import load_config, merge_dicts, resolve_clock_config
+from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 
 
 BASE_CONFIG = """
@@ -23,8 +24,8 @@ control:
 latency:
   type: zero
 scheduler:
-  persistence_mode: noop_after_oneshot
-  stale_action_mode: latest_ready
+  hold_policy: one_frame_then_noop
+  ordering_policy: latest_ready
 policy:
   type: random
 logging:
@@ -41,6 +42,15 @@ def test_merge_dicts_overrides_nested_values():
     assert merged["env"]["name"] == "base"
     assert merged["env"]["fps_env"] == 60
     assert merged["latency"]["type"] == "zero"
+
+
+def test_scheduler_public_core_types_are_clean():
+    assert {item.value for item in OrderingPolicy} == {"issue_order_fifo", "latest_ready"}
+    assert {item.value for item in ActionHoldPolicy} == {
+        "one_frame_then_noop",
+        "hold_for_fixed_duration",
+        "hold_until_next_action",
+    }
 
 
 def test_load_config_without_base(tmp_path: Path):
@@ -553,7 +563,7 @@ def test_load_config_accepts_phase2_scheduler_fields(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         BASE_CONFIG.replace(
-            "persistence_mode: noop_after_oneshot\n  stale_action_mode: latest_ready",
+            "hold_policy: one_frame_then_noop\n  ordering_policy: latest_ready",
             "hold_policy: hold_for_fixed_duration\n  hold_duration_raw_frames: 3\n  ordering_policy: issue_order_fifo",
         ),
         encoding="utf-8",
@@ -566,35 +576,39 @@ def test_load_config_accepts_phase2_scheduler_fields(tmp_path: Path):
     assert config["scheduler"]["ordering_policy"] == "issue_order_fifo"
 
 
-def test_load_config_rejects_conflicting_ordering_fields(tmp_path: Path):
+def test_load_config_rejects_unsupported_scheduler_fields(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         BASE_CONFIG
         + """
 scheduler:
-  persistence_mode: noop_after_oneshot
-  stale_action_mode: latest_ready
-  ordering_policy: fifo
+  unsupported_scheduler_field: latest_ready
+  hold_policy: one_frame_then_noop
 """,
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="ordering_policy.*stale_action_mode"):
+    with pytest.raises(ValueError, match="unsupported fields.*hold_policy.*ordering_policy"):
         load_config(config_path)
 
 
-def test_load_config_rejects_conflicting_hold_policy_fields(tmp_path: Path):
+def test_load_config_rejects_unsupported_ordering_policy_values(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        BASE_CONFIG
-        + """
-scheduler:
-  persistence_mode: noop_after_oneshot
-  hold_policy: hold_until_next_action
-  stale_action_mode: latest_ready
-""",
+        BASE_CONFIG.replace("ordering_policy: latest_ready", "ordering_policy: unsupported_ordering"),
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="hold_policy.*persistence_mode"):
+    with pytest.raises(ValueError, match="ordering_policy.*issue_order_fifo.*latest_ready"):
+        load_config(config_path)
+
+
+def test_load_config_rejects_unsupported_hold_policy_values(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        BASE_CONFIG.replace("hold_policy: one_frame_then_noop", "hold_policy: unsupported_hold"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="hold_policy.*one_frame_then_noop"):
         load_config(config_path)

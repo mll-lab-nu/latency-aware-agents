@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from latency_bench.core.types import Action, StaleActionMode
+from latency_bench.core.types import Action, OrderingPolicy
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.executors.factory import build_executor
@@ -15,7 +15,6 @@ from latency_bench.latency.sources import EmpiricalSampleLatencySource, Empirica
 from latency_bench.scheduler.persistence import (
     HoldForFixedDurationPolicy,
     HoldUntilNextActionPolicy,
-    NoopAfterOneShotPolicy,
     OneFrameThenNoopPolicy,
 )
 
@@ -58,8 +57,8 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
             "type": "zero",
         },
         "scheduler": {
-            "persistence_mode": "noop_after_oneshot",
-            "stale_action_mode": "latest_ready",
+            "hold_policy": "one_frame_then_noop",
+            "ordering_policy": "latest_ready",
         },
         "policy": {
             "type": "constant",
@@ -150,12 +149,12 @@ def test_simulated_mode_builds_simulated_executor(tmp_path):
 
 def test_factory_defaults_to_issue_order_fifo_when_ordering_is_omitted(tmp_path):
     config = _config(output_dir=str(tmp_path))
-    del config["scheduler"]["stale_action_mode"]
+    del config["scheduler"]["ordering_policy"]
 
     executor = build_executor(config)
 
     try:
-        assert executor.action_scheduler.stale_action_mode == StaleActionMode.FIFO
+        assert executor.action_scheduler.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO
     finally:
         executor.env.close()
 
@@ -163,12 +162,11 @@ def test_factory_defaults_to_issue_order_fifo_when_ordering_is_omitted(tmp_path)
 def test_factory_preserves_explicit_latest_ready_ablation(tmp_path):
     config = _config(output_dir=str(tmp_path))
     config["scheduler"]["ordering_policy"] = "latest_ready"
-    del config["scheduler"]["stale_action_mode"]
 
     executor = build_executor(config)
 
     try:
-        assert executor.action_scheduler.stale_action_mode == StaleActionMode.LATEST_READY
+        assert executor.action_scheduler.ordering_policy == OrderingPolicy.LATEST_READY
     finally:
         executor.env.close()
 
@@ -183,7 +181,6 @@ def test_factory_preserves_explicit_latest_ready_ablation(tmp_path):
 )
 def test_factory_builds_explicit_hold_policies(tmp_path, hold_policy, expected_type):
     config = _config(output_dir=str(tmp_path))
-    config["scheduler"].pop("persistence_mode", None)
     config["scheduler"]["hold_policy"] = hold_policy
     if hold_policy == "hold_for_fixed_duration":
         config["scheduler"]["hold_duration_raw_frames"] = 3
@@ -198,30 +195,39 @@ def test_factory_builds_explicit_hold_policies(tmp_path, hold_policy, expected_t
         executor.env.close()
 
 
-def test_factory_keeps_legacy_noop_after_oneshot_policy(tmp_path):
-    executor = build_executor(_config(output_dir=str(tmp_path)))
+def test_factory_defaults_to_one_frame_then_noop_when_hold_policy_is_omitted(tmp_path):
+    config = _config(output_dir=str(tmp_path))
+    del config["scheduler"]["hold_policy"]
+
+    executor = build_executor(config)
 
     try:
-        assert isinstance(executor.action_scheduler.persistence_policy, NoopAfterOneShotPolicy)
+        assert isinstance(executor.action_scheduler.persistence_policy, OneFrameThenNoopPolicy)
     finally:
         executor.env.close()
 
 
-def test_factory_rejects_conflicting_ordering_fields(tmp_path):
+def test_factory_rejects_unsupported_scheduler_fields(tmp_path):
     config = _config(output_dir=str(tmp_path))
-    config["scheduler"]["ordering_policy"] = "fifo"
-    config["scheduler"]["stale_action_mode"] = "latest_ready"
+    config["scheduler"]["unsupported_scheduler_field"] = "latest_ready"
 
-    with pytest.raises(ValueError, match="ordering_policy.*stale_action_mode"):
+    with pytest.raises(ValueError, match="unsupported fields.*hold_policy.*ordering_policy"):
         build_executor(config)
 
 
-def test_factory_rejects_conflicting_hold_policy_fields(tmp_path):
+def test_factory_rejects_unsupported_ordering_policy_values(tmp_path):
     config = _config(output_dir=str(tmp_path))
-    config["scheduler"]["hold_policy"] = "hold_until_next_action"
-    config["scheduler"]["persistence_mode"] = "noop_after_oneshot"
+    config["scheduler"]["ordering_policy"] = "unsupported_ordering"
 
-    with pytest.raises(ValueError, match="hold_policy.*persistence_mode"):
+    with pytest.raises(ValueError, match="ordering_policy.*issue_order_fifo.*latest_ready"):
+        build_executor(config)
+
+
+def test_factory_rejects_unsupported_hold_policy_values(tmp_path):
+    config = _config(output_dir=str(tmp_path))
+    config["scheduler"]["hold_policy"] = "unsupported_hold"
+
+    with pytest.raises(ValueError, match="hold_policy.*one_frame_then_noop"):
         build_executor(config)
 
 

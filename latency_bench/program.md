@@ -105,14 +105,14 @@ class ExecutorMode(str, Enum):
     SIMULATED = "simulated"
     REALTIME = "realtime"
 
-class PersistenceMode(str, Enum):
-    HOLD_PREVIOUS = "hold_previous"
-    NOOP_AFTER_ONESHOT = "noop_after_oneshot"
+class ActionHoldPolicy(str, Enum):
+    ONE_FRAME_THEN_NOOP = "one_frame_then_noop"
+    HOLD_FOR_FIXED_DURATION = "hold_for_fixed_duration"
+    HOLD_UNTIL_NEXT_ACTION = "hold_until_next_action"
 
-class StaleActionMode(str, Enum):
-    FIFO = "fifo"
+class OrderingPolicy(str, Enum):
+    ISSUE_ORDER_FIFO = "issue_order_fifo"
     LATEST_READY = "latest_ready"
-    DROP_EXPIRED = "drop_expired"
 
 class LatencySourceType(str, Enum):
     ZERO = "zero"
@@ -337,8 +337,8 @@ latency:
   type: zero
 
 scheduler:
-  persistence_mode: noop_after_oneshot
-  stale_action_mode: latest_ready
+  hold_policy: one_frame_then_noop
+  ordering_policy: latest_ready
 
 policy:
   type: random
@@ -652,24 +652,23 @@ class ActionPersistencePolicy(ABC):
 Implement:
 
 ```python
-class HoldPreviousActionPolicy(ActionPersistencePolicy):
+class HoldUntilNextActionPolicy(ActionPersistencePolicy):
     """
     Keep executing the latest applied action until a new action is applied.
     """
     ...
 
-class NoopAfterOneShotPolicy(ActionPersistencePolicy):
+class OneFrameThenNoopPolicy(ActionPersistencePolicy):
     """
-    If an action is one-shot, apply it for one frame and then fall back to noop.
-    Non-one-shot actions may be held.
+    Apply each action for one frame and then fall back to noop.
     """
     ...
 ```
 
 Tests:
 
-* Hold previous keeps action across frames.
-* Noop-after-one-shot applies one-shot action once, then returns noop.
+* Hold-until-next-action keeps action across frames.
+* One-frame-then-noop applies action once, then returns noop.
 
 ---
 
@@ -684,7 +683,7 @@ class ActionScheduler:
         clock: EnvClock,
         noop_action: Action,
         persistence_policy: ActionPersistencePolicy,
-        stale_action_mode: StaleActionMode = StaleActionMode.LATEST_READY,
+        ordering_policy: OrderingPolicy = OrderingPolicy.ISSUE_ORDER_FIFO,
     ):
         ...
 
@@ -705,9 +704,8 @@ Semantics:
 
 * Each action event has `ready_time_ms`.
 * At each env step, all events with `ready_time_ms <= current_time_ms` are ready.
-* If stale mode is `FIFO`, apply the earliest ready event.
-* If stale mode is `LATEST_READY`, apply the latest ready event and mark older ready events as dropped.
-* If stale mode is `DROP_EXPIRED`, drop events older than a configurable expiration window.
+* If ordering policy is issue-order FIFO, apply the head-of-line ready event.
+* If ordering policy is latest-ready, apply the latest ready event and mark older ready events as dropped.
 * After applying a new action, delegate to the persistence policy for later frames.
 
 Tests:

@@ -3,10 +3,10 @@ from __future__ import annotations
 import pytest
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, ActionEvent, Observation, StaleActionMode
+from latency_bench.core.types import Action, ActionEvent, Observation, OrderingPolicy
 from latency_bench.executors.realtime import BoundedObservationQueue, RealtimeObservationTask
 from latency_bench.scheduler.action_queue import ActionScheduler
-from latency_bench.scheduler.persistence import HoldPreviousActionPolicy
+from latency_bench.scheduler.persistence import HoldUntilNextActionPolicy
 
 
 def _event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> ActionEvent:
@@ -60,8 +60,8 @@ def test_issue_order_fifo_blocks_later_ready_action_contract():
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldPreviousActionPolicy(),
-        stale_action_mode=StaleActionMode.FIFO,
+        HoldUntilNextActionPolicy(),
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     scheduler.enqueue(_event(0, first, ready_step=10, clock=clock))
     scheduler.enqueue(_event(1, second, ready_step=1, clock=clock))
@@ -74,8 +74,8 @@ def test_issue_order_fifo_blocks_later_ready_action_contract():
 
 
 def test_latest_ready_is_explicit_ablation_not_default_contract():
-    scheduler = ActionScheduler(EnvClock(30), Action("noop", is_noop=True), HoldPreviousActionPolicy())
-    assert scheduler.stale_action_mode == StaleActionMode.FIFO
+    scheduler = ActionScheduler(EnvClock(30), Action("noop", is_noop=True), HoldUntilNextActionPolicy())
+    assert scheduler.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO
 
 
 def test_latest_ready_ablation_can_be_requested_explicitly():
@@ -86,8 +86,8 @@ def test_latest_ready_ablation_can_be_requested_explicitly():
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldPreviousActionPolicy(),
-        stale_action_mode=StaleActionMode.LATEST_READY,
+        HoldUntilNextActionPolicy(),
+        ordering_policy=OrderingPolicy.LATEST_READY,
     )
     first_event = _event(0, first, ready_step=1, clock=clock)
     second_event = _event(1, second, ready_step=1, clock=clock)
@@ -105,7 +105,12 @@ def test_one_frame_then_noop_hold_policy_contract():
     clock = EnvClock(30)
     noop = Action("noop", is_noop=True)
     action = Action("move", is_oneshot=False)
-    scheduler = ActionScheduler(clock, noop, OneFrameThenNoopPolicy(), stale_action_mode=StaleActionMode.FIFO)
+    scheduler = ActionScheduler(
+        clock,
+        noop,
+        OneFrameThenNoopPolicy(),
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
+    )
     scheduler.enqueue(_event(0, action, ready_step=0, clock=clock))
 
     assert scheduler.update(0, clock.step_to_time_ms(0)) is action
@@ -122,7 +127,7 @@ def test_hold_for_fixed_duration_policy_contract():
         clock,
         noop,
         HoldForFixedDurationPolicy(duration_raw_frames=3),
-        stale_action_mode=StaleActionMode.FIFO,
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     scheduler.enqueue(_event(0, action, ready_step=0, clock=clock))
 
@@ -139,7 +144,12 @@ def test_hold_until_next_action_policy_contract():
     noop = Action("noop", is_noop=True)
     first = Action("first")
     second = Action("second")
-    scheduler = ActionScheduler(clock, noop, HoldUntilNextActionPolicy(), stale_action_mode=StaleActionMode.FIFO)
+    scheduler = ActionScheduler(
+        clock,
+        noop,
+        HoldUntilNextActionPolicy(),
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
+    )
     scheduler.enqueue(_event(0, first, ready_step=0, clock=clock))
     scheduler.enqueue(_event(1, second, ready_step=3, clock=clock))
 
@@ -173,8 +183,8 @@ def test_timeout_marks_skipped_unblocks_fifo_and_ignores_late_results_contract()
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldPreviousActionPolicy(),
-        stale_action_mode=StaleActionMode.FIFO,
+        HoldUntilNextActionPolicy(),
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     scheduler.enqueue(_event(0, Action("first"), ready_step=100, clock=clock))
     scheduler.enqueue(_event(1, Action("second"), ready_step=1, clock=clock))

@@ -20,7 +20,7 @@ from latency_bench.observation.history import HistoryBuffer
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import EveryFrameDecisionScheduler
-from latency_bench.scheduler.persistence import HoldPreviousActionPolicy
+from latency_bench.scheduler.persistence import HoldUntilNextActionPolicy
 
 
 class SlotIdPolicy(PolicyRunner):
@@ -261,7 +261,7 @@ def _executor(
         ActionScheduler(
             clock=clock,
             noop_action=env.noop_action,
-            persistence_policy=HoldPreviousActionPolicy(),
+            persistence_policy=HoldUntilNextActionPolicy(),
         )
         for env in envs
     ]
@@ -314,8 +314,8 @@ def _subproc_config(
             "type": "zero",
         },
         "scheduler": {
-            "persistence_mode": "noop_after_oneshot",
-            "stale_action_mode": "latest_ready",
+            "hold_policy": "one_frame_then_noop",
+            "ordering_policy": "latest_ready",
         },
         "policy": {
             "type": "constant",
@@ -365,7 +365,7 @@ def _subproc_executor(
         ActionScheduler(
             clock=clock,
             noop_action=env.noop_action,
-            persistence_policy=HoldPreviousActionPolicy(),
+            persistence_policy=HoldUntilNextActionPolicy(),
         )
         for env in backend.slot_handles
     ]
@@ -417,7 +417,7 @@ def _tuple_executor(
         ActionScheduler(
             clock=clock,
             noop_action=env.noop_action,
-            persistence_policy=HoldPreviousActionPolicy(),
+            persistence_policy=HoldUntilNextActionPolicy(),
         )
         for env in envs
     ]
@@ -548,7 +548,7 @@ def test_batched_executor_soft_reset_continues_same_episode_and_clears_slot_late
             ActionScheduler(
                 clock=clock,
                 noop_action=noop,
-                persistence_policy=HoldPreviousActionPolicy(),
+                persistence_policy=HoldUntilNextActionPolicy(),
             )
         ],
         clock=clock,

@@ -11,18 +11,15 @@ class ExecutorMode(str, Enum):
     REALTIME = "realtime"
 
 
-class PersistenceMode(str, Enum):
-    HOLD_PREVIOUS = "hold_previous"
-    NOOP_AFTER_ONESHOT = "noop_after_oneshot"
+class ActionHoldPolicy(str, Enum):
     ONE_FRAME_THEN_NOOP = "one_frame_then_noop"
     HOLD_FOR_FIXED_DURATION = "hold_for_fixed_duration"
     HOLD_UNTIL_NEXT_ACTION = "hold_until_next_action"
 
 
-class StaleActionMode(str, Enum):
-    FIFO = "fifo"
+class OrderingPolicy(str, Enum):
+    ISSUE_ORDER_FIFO = "issue_order_fifo"
     LATEST_READY = "latest_ready"
-    DROP_EXPIRED = "drop_expired"
 
 
 class LatencySourceType(str, Enum):

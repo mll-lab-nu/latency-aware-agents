@@ -119,9 +119,25 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 - Later issued actions cannot overtake earlier issued unskipped actions in FIFO mode.
 - `latest_ready` only occurs when explicitly configured.
 - Three hold policies pass direct unit tests using raw-frame counts.
-- Legacy hold names remain accepted through compatibility mappings.
+- New runtime API names are `ordering_policy` and `hold_policy`; legacy aliases are not accepted after Phase 2.5.
 
 **Independent:** Depends on Phase 1 for final raw-frame naming, but unit-level scheduler work can start earlier with compatibility shims.
+
+### Phase 2.5: Legacy scheduler / persistence cleanup
+
+**Status:** Implemented.
+
+**Work:**
+
+- Replace legacy scheduler and hold enums with `OrderingPolicy` / `ActionHoldPolicy`.
+- Remove the previous runtime config aliases and obsolete ordering variants from code, tests, and tracked configs.
+- Migrate tracked configs to `ordering_policy` and `hold_policy`.
+- Leave old names only in historical audit notes or explicit rejection tests.
+
+**Acceptance criteria:**
+
+- Implementation code exposes only `ordering_policy` and `hold_policy` as accepted runtime scheduler config.
+- Contract, scheduler, persistence, factory, and config tests continue to pass without increasing Phase 3+ xfails.
 
 ## Phase 3: Simulated executor alignment
 

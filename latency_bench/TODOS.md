@@ -23,7 +23,7 @@
 ## Policy and Scheduler
 
 - `FixedFrequencyDecisionScheduler` rounds `fps_env / frequency_hz` to an integer frame interval, so non-integer ratios can drift from the requested long-run control frequency.
-- `DROP_EXPIRED` currently applies the latest fresh ready event and drops older fresh ready events; this stale-action policy should be documented explicitly or split into configurable behavior.
+- Obsolete scheduler variants were removed from the public runtime API in Phase 2.5; reintroduce any needed variant only as a separately named ablation.
 - `ActionScheduler.enqueue()` sorts the full pending list after each append; high-action-rate workloads should use a heap or ordered queue.
 - Dropped `ActionEvent`s only store `dropped=True`; they do not record drop time, drop step, or drop reason.
 - Policy runners are minimal test runners only. Real model integration still needs model loading, batching, device placement, preprocessing/postprocessing, deterministic/stochastic modes, and measured-latency-aware inference.

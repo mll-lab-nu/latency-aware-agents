@@ -5,22 +5,9 @@ import pytest
 
 from latency_bench.scheduler.persistence import (
     HoldForFixedDurationPolicy,
-    HoldPreviousActionPolicy,
     HoldUntilNextActionPolicy,
-    NoopAfterOneShotPolicy,
     OneFrameThenNoopPolicy,
 )
-
-
-def test_hold_previous_keeps_action_across_frames():
-    noop = Action("noop", is_noop=True)
-    action = Action("move")
-    policy = HoldPreviousActionPolicy()
-
-    policy.on_action_applied(action)
-
-    assert policy.get_action_for_step(action, noop) is action
-    assert policy.get_action_for_step(action, noop) is action
 
 
 def test_hold_until_next_action_keeps_action_across_frames():
@@ -63,23 +50,12 @@ def test_hold_for_fixed_duration_rejects_nonpositive_duration():
         HoldForFixedDurationPolicy(duration_raw_frames=0)
 
 
-def test_noop_after_oneshot_applies_once_then_noop():
+def test_one_frame_then_noop_does_not_depend_on_is_oneshot_metadata():
     noop = Action("noop", is_noop=True)
-    action = Action("flap", is_oneshot=True)
-    policy = NoopAfterOneShotPolicy()
+    action = Action("hold", is_oneshot=False)
+    policy = OneFrameThenNoopPolicy()
 
     policy.on_action_applied(action)
 
     assert policy.get_action_for_step(action, noop) is action
     assert policy.get_action_for_step(action, noop) is noop
-
-
-def test_noop_after_oneshot_holds_non_oneshot_actions():
-    noop = Action("noop", is_noop=True)
-    action = Action("hold")
-    policy = NoopAfterOneShotPolicy()
-
-    policy.on_action_applied(action)
-
-    assert policy.get_action_for_step(action, noop) is action
-    assert policy.get_action_for_step(action, noop) is action

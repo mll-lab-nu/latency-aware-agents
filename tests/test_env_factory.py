@@ -45,8 +45,8 @@ def _config(env_name: str = "dummy", output_dir: str = "outputs/factory_test") -
             "type": "zero",
         },
         "scheduler": {
-            "persistence_mode": "noop_after_oneshot",
-            "stale_action_mode": "latest_ready",
+            "hold_policy": "one_frame_then_noop",
+            "ordering_policy": "latest_ready",
         },
         "policy": {
             "type": "constant",
