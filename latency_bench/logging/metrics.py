@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
 from statistics import mean
 from typing import Any
 
+from latency_bench.core.clock import ms_to_raw_frames
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, StepRecord
 
 
@@ -157,11 +159,18 @@ def active_action_step_info(
 ) -> dict[str, Any]:
     active_event = applied_events[-1] if applied_events else None
     profile_metadata = profile_metadata or {}
+    active_obs_frame = None
+    if active_event is not None:
+        active_obs_frame = (
+            active_event.obs_raw_frame
+            if active_event.obs_raw_frame is not None
+            else active_event.obs_env_step
+        )
     return {
         "active_action_id": None if active_event is None else active_event.action_id,
-        "active_action_obs_step": None if active_event is None else active_event.obs_env_step,
+        "active_action_obs_step": None if active_event is None else active_obs_frame,
         "active_action_age_frames": (
-            None if active_event is None else int(env_step) - int(active_event.obs_env_step)
+            None if active_event is None else int(env_step) - int(active_obs_frame)
         ),
         "scheduled_time_ms": float(scheduled_time_ms),
         "frame_time_ms": float(frame_ms),
@@ -204,15 +213,56 @@ def _first_number(mapping: dict[str, Any], keys: tuple[str, ...]) -> float | Non
 
 def _finalize_action_events(action_events: list[ActionEvent], *, frame_ms: float | None) -> None:
     for event in action_events:
+        _backfill_action_event_raw_fields(event, frame_ms=frame_ms)
         event.obs_step = event.obs_env_step
         event.action_emit_time_ms = event.obs_time_ms
         event.action_ready_time_ms = event.ready_time_ms
-        event.action_applied_step = event.applied_env_step
+        if event.applied_env_step is None and event.apply_raw_frame is not None:
+            event.applied_env_step = int(event.apply_raw_frame)
+        if event.apply_raw_frame is None and event.applied_env_step is not None:
+            event.apply_raw_frame = int(event.applied_env_step)
+        if event.applied_time_ms is None and event.apply_raw_frame is not None and frame_ms is not None:
+            event.applied_time_ms = int(event.apply_raw_frame) * float(frame_ms)
+        event.action_applied_step = (
+            event.applied_env_step if event.applied_env_step is not None else event.apply_raw_frame
+        )
         event.action_apply_time_ms = event.applied_time_ms
-        if event.applied_env_step is not None:
-            event.action_age_frames = int(event.applied_env_step) - int(event.obs_env_step)
+        obs_frame = event.obs_raw_frame if event.obs_raw_frame is not None else event.obs_env_step
+        apply_frame = event.apply_raw_frame if event.apply_raw_frame is not None else event.applied_env_step
+        if apply_frame is not None:
+            event.action_age_frames = int(apply_frame) - int(obs_frame)
         if frame_ms is not None and event.effective_k is None and float(frame_ms) > 0:
             event.effective_k = float(event.latency_ms) / float(frame_ms)
+
+
+def _backfill_action_event_raw_fields(event: ActionEvent, *, frame_ms: float | None) -> None:
+    if event.obs_raw_frame is None:
+        event.obs_raw_frame = int(event.obs_env_step)
+    if event.latency_raw_frames is None:
+        latency_raw_frames = _latency_ms_to_raw_frames(event.latency_ms, frame_ms=frame_ms)
+        if latency_raw_frames is not None:
+            event.latency_raw_frames = latency_raw_frames
+    if event.ready_raw_frame is None:
+        if event.obs_raw_frame is not None and event.latency_raw_frames is not None:
+            event.ready_raw_frame = int(event.obs_raw_frame) + int(event.latency_raw_frames)
+        elif event.ready_step_float is not None:
+            event.ready_raw_frame = _ceil_step_float(event.ready_step_float)
+    if event.apply_raw_frame is None and event.applied_env_step is not None:
+        event.apply_raw_frame = int(event.applied_env_step)
+
+
+def _latency_ms_to_raw_frames(latency_ms: float, *, frame_ms: float | None) -> int | None:
+    if frame_ms is None or float(frame_ms) <= 0:
+        return None
+    return ms_to_raw_frames(latency_ms, env_fps=1000.0 / float(frame_ms))
+
+
+def _ceil_step_float(value: float) -> int:
+    numeric = float(value)
+    rounded = round(numeric)
+    if math.isclose(numeric, rounded, rel_tol=1e-12, abs_tol=1e-12):
+        return int(rounded)
+    return int(math.ceil(numeric))
 
 
 def _apply_profile_metadata(target: Any, profile_metadata: dict[str, Any]) -> None:

@@ -39,12 +39,20 @@ class ActionScheduler:
         if self._pending_events:
             if self.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO:
                 head = self._pending_events[0]
-                if self._is_ready(head, current_time_ms):
+                if self._is_ready(head, current_step, current_time_ms):
                     selected = head
                     self._pending_events = self._pending_events[1:]
             elif self.ordering_policy == OrderingPolicy.LATEST_READY:
-                ready = [event for event in self._pending_events if self._is_ready(event, current_time_ms)]
-                not_ready = [event for event in self._pending_events if not self._is_ready(event, current_time_ms)]
+                ready = [
+                    event
+                    for event in self._pending_events
+                    if self._is_ready(event, current_step, current_time_ms)
+                ]
+                not_ready = [
+                    event
+                    for event in self._pending_events
+                    if not self._is_ready(event, current_step, current_time_ms)
+                ]
                 if not ready:
                     selected = None
                 else:
@@ -58,6 +66,7 @@ class ActionScheduler:
         if selected is not None:
             selected.applied = True
             selected.applied_env_step = int(current_step)
+            selected.apply_raw_frame = int(current_step)
             selected.applied_time_ms = float(current_time_ms)
             self._current_action = selected.action
             self._applied_events.append(selected)
@@ -71,7 +80,9 @@ class ActionScheduler:
     def get_applied_events(self) -> list[ActionEvent]:
         return list(self._applied_events)
 
-    def _is_ready(self, event: ActionEvent, current_time_ms: float) -> bool:
+    def _is_ready(self, event: ActionEvent, current_step: int, current_time_ms: float) -> bool:
+        if event.ready_raw_frame is not None:
+            return int(event.ready_raw_frame) <= int(current_step)
         return event.ready_time_ms <= current_time_ms + self.ready_time_epsilon_ms
 
     def _mark_dropped(self, event: ActionEvent) -> None:

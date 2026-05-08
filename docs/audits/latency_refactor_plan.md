@@ -1,6 +1,6 @@
 # Latency Execution Refactor Plan
 
-**Status:** Phase 0 planning baseline
+**Status:** Phases 1-3 implemented; Phase 4/5/6 remain planned
 **Date:** 2026-05-08
 **Scope:** Proposed implementation phases for aligning code with the stable latency execution semantics.
 
@@ -142,6 +142,7 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 ## Phase 3: Simulated executor alignment
 
 **Goal:** Make simulated latency scheduling occur on the raw environment timeline.
+**Status:** Implemented for single and batched simulated executors. Existing millisecond latency sources remain compatible; simulated executors convert to raw-frame latency before scheduling. Full realtime job lifecycle and logging schema remain Phase 4/5 work.
 
 **Likely files:**
 
@@ -172,6 +173,19 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 - Zero, fixed, distribution, and trace latency tests agree on raw-frame readiness.
 - Applied action frame is deterministic and logged.
 - Batched simulated behavior is either aligned or explicitly limited by tests and docs.
+
+**Implemented scope:**
+
+- `ActionEvent` has Phase 3 raw fields: `obs_raw_frame`, `latency_raw_frames`, `ready_raw_frame`, and `apply_raw_frame`.
+- `ActionScheduler` uses `ready_raw_frame` when present, preserves FIFO/latest-ready ordering semantics, and records `apply_raw_frame`.
+- Single and batched simulated executors share an executor-local latency helper. The helper calls `next_latency_raw_frames(context)` when a source provides it; otherwise it converts `next_latency_ms(context)` with ceiling semantics.
+- Metrics finalization backfills missing raw fields from legacy aliases for compatibility.
+
+**Remaining non-Phase-3 xfails:**
+
+- Realtime queue-full default policy.
+- Timeout/skipped/late-result lifecycle.
+- Full Phase 5 logging schema, including `action_age_raw_frames` and `job_status`.
 
 **Independent:** Depends on Phase 1 and Phase 2.
 
@@ -232,10 +246,10 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 **Work:**
 
 - Standardize required action/job fields:
-  - `obs_raw_frame`
-  - `latency_raw_frames`
-  - `ready_raw_frame`
-  - `apply_raw_frame`
+  - `obs_raw_frame` (Phase 3 core field present)
+  - `latency_raw_frames` (Phase 3 core field present)
+  - `ready_raw_frame` (Phase 3 core field present)
+  - `apply_raw_frame` (Phase 3 core field present)
   - `action_age_raw_frames`
   - `job_status`
 - Log realtime queue-full events, dropped observations, skipped/timed-out jobs, actual env FPS, deadline misses, in-flight counts, and queue sizes.

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
 from latency_bench.envs.base import EnvAdapter
+from latency_bench.executors._simulated_timeline import sample_simulated_latency
 from latency_bench.executors.env_step_backend import EnvStepBackend, SerialEnvStepBackend
 from latency_bench.latency.sources import LatencySource
 from latency_bench.logging.metrics import (
@@ -324,16 +325,25 @@ class BatchedSimulatedLatencyExecutor:
     def _enqueue_policy_output(self, slot: _SlotState, observation, policy_output) -> None:
         obs_id = self._next_obs_id
         self._next_obs_id += 1
-        latency_ms = float(slot.latency_source.next_latency_ms({
+        raw_frame = int(slot.env_step)
+        current_time_ms = self.clock.step_to_time_ms(raw_frame)
+        latency_context = {
             "observation": observation,
             "obs_id": obs_id,
-            "env_step": slot.env_step,
-            "sim_time_ms": self.clock.step_to_time_ms(slot.env_step),
+            "env_step": raw_frame,
+            "raw_frame": raw_frame,
+            "sim_time_ms": current_time_ms,
             "episode_id": slot.episode_id,
             "slot_id": slot.slot_id,
-        }))
-        current_time_ms = self.clock.step_to_time_ms(slot.env_step)
-        ready_time_ms = current_time_ms + latency_ms
+        }
+        latency_sample = sample_simulated_latency(
+            latency_source=slot.latency_source,
+            clock=self.clock,
+            context=latency_context,
+        )
+        latency_ms = latency_sample.latency_ms
+        ready_raw_frame = raw_frame + latency_sample.latency_raw_frames
+        ready_time_ms = self.clock.step_to_time_ms(ready_raw_frame)
         latency_type = latency_type_from_source(slot.latency_source)
         profile_metadata = profile_metadata_from_source(slot.latency_source)
         metadata = {
@@ -345,11 +355,14 @@ class BatchedSimulatedLatencyExecutor:
             action_id=self._next_action_id,
             obs_id=obs_id,
             action=policy_output.action,
-            obs_env_step=observation.env_step,
-            obs_time_ms=observation.sim_time_ms,
+            obs_env_step=raw_frame,
+            obs_time_ms=current_time_ms,
             latency_ms=latency_ms,
             ready_time_ms=ready_time_ms,
-            ready_step_float=self.clock.time_ms_to_step_float(ready_time_ms),
+            ready_step_float=float(ready_raw_frame),
+            obs_raw_frame=raw_frame,
+            latency_raw_frames=latency_sample.latency_raw_frames,
+            ready_raw_frame=ready_raw_frame,
             metadata=metadata,
         )
         apply_latency_raw_fields(

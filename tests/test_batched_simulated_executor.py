@@ -616,7 +616,22 @@ def test_batched_executor_output_records_remain_schema_compatible(tmp_path: Path
     metrics = json.loads((tmp_path / "episode_metrics.jsonl").read_text(encoding="utf-8").splitlines()[0])
 
     assert {"episode_id", "env_step", "sim_time_ms", "active_action", "reward", "done", "info"} <= set(step)
-    assert {"action_id", "obs_id", "action", "latency_ms", "ready_time_ms", "metadata"} <= set(action)
+    assert {
+        "action_id",
+        "obs_id",
+        "action",
+        "latency_ms",
+        "ready_time_ms",
+        "obs_raw_frame",
+        "latency_raw_frames",
+        "ready_raw_frame",
+        "apply_raw_frame",
+        "metadata",
+    } <= set(action)
+    assert action["obs_raw_frame"] == 0
+    assert action["latency_raw_frames"] == 0
+    assert action["ready_raw_frame"] == 0
+    assert action["apply_raw_frame"] == 0
     assert {"obs_id", "latency_ms", "source", "metadata"} <= set(latency)
     assert {"episode_id", "episode_return", "survival_steps", "metadata"} <= set(metrics)
 

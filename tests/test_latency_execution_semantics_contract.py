@@ -99,6 +99,17 @@ def test_latest_ready_ablation_can_be_requested_explicitly():
     assert second_event.applied
 
 
+def test_action_event_exposes_phase3_raw_frame_fields_contract():
+    required_fields = {
+        "obs_raw_frame",
+        "latency_raw_frames",
+        "ready_raw_frame",
+        "apply_raw_frame",
+    }
+
+    assert required_fields.issubset(ActionEvent.__dataclass_fields__)
+
+
 def test_one_frame_then_noop_hold_policy_contract():
     from latency_bench.scheduler.persistence import OneFrameThenNoopPolicy
 
@@ -202,10 +213,6 @@ def test_timeout_marks_skipped_unblocks_fifo_and_ignores_late_results_contract()
 )
 def test_required_action_event_logging_fields_contract():
     required_fields = {
-        "obs_raw_frame",
-        "latency_raw_frames",
-        "ready_raw_frame",
-        "apply_raw_frame",
         "action_age_raw_frames",
         "job_status",
     }

@@ -186,7 +186,11 @@ def test_simulated_latency_records_distinguish_sampled_latency_and_action_age(tm
     assert actions[0]["latency_ms_sampled"] == pytest.approx(80.0)
     assert actions[0]["latency_ms_measured"] is None
     assert actions[0]["effective_k"] == pytest.approx(2.0)
+    assert actions[0]["obs_raw_frame"] == 0
+    assert actions[0]["latency_raw_frames"] == 2
+    assert actions[0]["ready_raw_frame"] == 2
     assert applied
+    assert applied[0]["apply_raw_frame"] == 2
     assert applied[0]["action_age_frames"] == applied[0]["action_applied_step"] - applied[0]["obs_step"]
     assert steps[0]["info"]["scheduled_time_ms"] == pytest.approx(0.0)
     assert steps[0]["info"]["frame_time_ms"] == pytest.approx(40.0)

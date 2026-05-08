@@ -8,14 +8,14 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
-from latency_bench.latency.sources import FixedLatencySource, TraceReplayLatencySource, ZeroLatencySource
+from latency_bench.latency.sources import FixedLatencySource, LatencySource, TraceReplayLatencySource, ZeroLatencySource
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.observation.builder import ObservationBuilder
 from latency_bench.observation.history import HistoryBuffer
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
-from latency_bench.scheduler.decision import EveryFrameDecisionScheduler
-from latency_bench.scheduler.persistence import HoldUntilNextActionPolicy
+from latency_bench.scheduler.decision import DecisionScheduler, EveryFrameDecisionScheduler, FixedFrameIntervalDecisionScheduler
+from latency_bench.scheduler.persistence import ActionPersistencePolicy, HoldUntilNextActionPolicy, OneFrameThenNoopPolicy
 
 
 class CountingPolicyRunner(PolicyRunner):
@@ -26,6 +26,29 @@ class CountingPolicyRunner(PolicyRunner):
         action = Action(value=f"a{self.count}", name=f"a{self.count}")
         self.count += 1
         return PolicyOutput(action=action)
+
+
+class RawFrameLatencySource(LatencySource):
+    def __init__(self, raw_frames: list[int]):
+        self.raw_frames = list(raw_frames)
+        self.calls: list[dict] = []
+
+    def next_latency_ms(self, context=None) -> float:
+        raise AssertionError("simulated executor should use next_latency_raw_frames when available")
+
+    def next_latency_raw_frames(self, context=None) -> int:
+        self.calls.append(dict(context or {}))
+        if not self.raw_frames:
+            raise AssertionError("raw-frame latency source exhausted")
+        return self.raw_frames.pop(0)
+
+
+class SelectedRawFrameDecisionScheduler(DecisionScheduler):
+    def __init__(self, raw_frames: set[int]):
+        self.raw_frames = set(raw_frames)
+
+    def should_observe(self, env_step: int, sim_time_ms: float) -> bool:
+        return int(env_step) in self.raw_frames
 
 
 class ResetTrackingPolicyRunner(PolicyRunner):
@@ -106,14 +129,17 @@ def _executor(
     logger: TrajectoryLogger | None = None,
     ordering_policy: OrderingPolicy = OrderingPolicy.LATEST_READY,
     fps_env: float = 30,
+    obs_fps: float | None = None,
+    decision_scheduler: DecisionScheduler | None = None,
+    persistence_policy: ActionPersistencePolicy | None = None,
 ) -> tuple[SimulatedLatencyExecutor, DummyEnvAdapter, EnvClock, Action]:
     noop = Action("noop", is_noop=True)
     env = DummyEnvAdapter(fps_env=fps_env, max_steps=max_steps, noop_action=noop)
-    clock = EnvClock(fps_env)
+    clock = EnvClock(env_fps=fps_env, obs_fps=obs_fps) if obs_fps is not None else EnvClock(fps_env)
     action_scheduler = ActionScheduler(
         clock=clock,
         noop_action=noop,
-        persistence_policy=HoldUntilNextActionPolicy(),
+        persistence_policy=persistence_policy or HoldUntilNextActionPolicy(),
         ordering_policy=ordering_policy,
     )
     executor = SimulatedLatencyExecutor(
@@ -121,7 +147,7 @@ def _executor(
         policy=policy or ConstantPolicyRunner(Action("jump")),
         observation_builder=ObservationBuilder(),
         history=HistoryBuffer(),
-        decision_scheduler=EveryFrameDecisionScheduler(),
+        decision_scheduler=decision_scheduler or EveryFrameDecisionScheduler(),
         latency_source=latency_source,
         action_scheduler=action_scheduler,
         clock=clock,
@@ -136,8 +162,110 @@ def test_zero_latency_action_can_affect_same_frame():
     metrics = executor.run_episode(episode_id=0, eval_max_steps=3)
 
     assert env.applied_actions[0].value == "jump"
+    applied = executor.action_scheduler.get_applied_events()
+    assert applied[0].obs_raw_frame == 0
+    assert applied[0].latency_raw_frames == 0
+    assert applied[0].ready_raw_frame == 0
+    assert applied[0].apply_raw_frame == 0
     assert metrics.survival_steps == 3
     assert metrics.episode_return == 3.0
+
+
+def test_raw_frame_latency_source_and_observation_stride_share_raw_timeline():
+    latency_source = RawFrameLatencySource([3, 3])
+    executor, _, _, _ = _executor(
+        latency_source,
+        policy=CountingPolicyRunner(),
+        max_steps=8,
+        fps_env=60,
+        obs_fps=10,
+        decision_scheduler=FixedFrameIntervalDecisionScheduler(interval_frames=6),
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
+    )
+
+    executor.run_episode(episode_id=0, eval_max_steps=8)
+
+    events = executor.action_scheduler.get_applied_events() + executor.action_scheduler.get_pending_events()
+    assert [event.obs_raw_frame for event in events] == [0, 6]
+    assert events[0].latency_raw_frames == 3
+    assert events[0].ready_raw_frame == 3
+    assert events[0].apply_raw_frame == 3
+    assert events[1].latency_raw_frames == 3
+    assert events[1].ready_raw_frame == 9
+    assert events[1].apply_raw_frame is None
+    assert [call["raw_frame"] for call in latency_source.calls] == [0, 6]
+
+
+def test_fixed_ms_latency_is_ceil_converted_to_raw_frames():
+    executor, _, _, _ = _executor(FixedLatencySource(50.0), max_steps=4, fps_env=60)
+
+    executor.run_episode(episode_id=0, eval_max_steps=4)
+
+    event = executor.action_scheduler.get_applied_events()[0]
+    assert event.latency_raw_frames == 3
+    assert event.ready_raw_frame == 3
+    assert event.ready_time_ms == 50.0
+
+
+def test_one_frame_then_noop_applies_raw_frame_then_returns_to_noop():
+    executor, env, _, noop = _executor(
+        RawFrameLatencySource([3]),
+        max_steps=5,
+        decision_scheduler=SelectedRawFrameDecisionScheduler({0}),
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
+        persistence_policy=OneFrameThenNoopPolicy(),
+    )
+
+    executor.run_episode(episode_id=0, eval_max_steps=5)
+
+    assert [action.value for action in env.applied_actions] == [
+        noop.value,
+        noop.value,
+        noop.value,
+        "jump",
+        noop.value,
+    ]
+
+
+def test_hold_until_next_action_persists_after_raw_frame_apply():
+    executor, env, _, noop = _executor(
+        RawFrameLatencySource([3]),
+        max_steps=5,
+        decision_scheduler=SelectedRawFrameDecisionScheduler({0}),
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
+        persistence_policy=HoldUntilNextActionPolicy(),
+    )
+
+    executor.run_episode(episode_id=0, eval_max_steps=5)
+
+    assert [action.value for action in env.applied_actions] == [
+        noop.value,
+        noop.value,
+        noop.value,
+        "jump",
+        "jump",
+    ]
+
+
+def test_fifo_raw_frame_blocking_waits_for_head_of_line_ready():
+    executor, env, _, noop = _executor(
+        RawFrameLatencySource([10, 6]),
+        policy=CountingPolicyRunner(),
+        max_steps=12,
+        decision_scheduler=SelectedRawFrameDecisionScheduler({0, 1}),
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
+        persistence_policy=HoldUntilNextActionPolicy(),
+    )
+
+    executor.run_episode(episode_id=0, eval_max_steps=12)
+
+    assert env.applied_actions[7].value == noop.value
+    assert env.applied_actions[10].value == "a0"
+    assert env.applied_actions[11].value == "a1"
+    applied = executor.action_scheduler.get_applied_events()
+    assert [event.action.value for event in applied] == ["a0", "a1"]
+    assert [event.ready_raw_frame for event in applied] == [10, 7]
+    assert [event.apply_raw_frame for event in applied] == [10, 11]
 
 
 def test_fixed_two_frame_latency_applies_at_t_plus_two():
