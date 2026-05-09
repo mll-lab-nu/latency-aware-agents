@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 from latency_bench.core.types import Action
-from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
+from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.flappy import FlappyBirdEnvAdapter
 
 
@@ -61,19 +61,6 @@ def _find_key_path(value: Any, target_key: str, prefix: str = "") -> str | None:
             if found is not None:
                 return found
     return None
-
-
-@register_env_adapter("dummy")
-def _build_dummy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
-    env_cfg = config["env"]
-    evaluation_cfg = config.get("evaluation", {})
-    if evaluation_cfg.get("eval_max_steps") is None:
-        raise ValueError("evaluation.eval_max_steps is required for dummy env episode limits")
-    return DummyEnvAdapter(
-        env_fps=float(env_cfg["env_fps"]),
-        max_steps=int(evaluation_cfg["eval_max_steps"]),
-        noop_action=noop_action,
-    )
 
 
 @register_env_adapter("flappy")
