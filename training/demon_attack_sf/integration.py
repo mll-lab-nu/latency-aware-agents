@@ -8,6 +8,9 @@ import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box
 
+from latency_bench.core.clock import EnvClock
+from latency_bench.core.latency_distribution import distribution_max_frame_latency, parse_latency_distribution
+from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from latency_bench.envs.demon_attack import make_demon_attack_benchmark_env
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
 from training.sample_factory_common.config_adapter import (
@@ -17,9 +20,8 @@ from training.sample_factory_common.config_adapter import (
 )
 from training.sample_factory_common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
 from training.sample_factory_common.latency_wrapper import (
-    ClipRewardWithRawInfoWrapper,
+    ActionLatencyWrapper,
     EpisodeMetricsWrapper,
-    QueueLatencyWrapper,
     RewardTraceWrapper,
 )
 from training.sample_factory_common.queue_eval import (
@@ -39,6 +41,34 @@ from training.sample_factory_common.wandb_compat import patch_sample_factory_wan
 
 SF_ENV_NAME = "latency_demon_attack"
 _ENVS_REGISTERED = False
+
+
+def _force_sample_factory_raw_frame_step_cfg(cfg) -> None:
+    setattr(cfg, "env_frameskip", 1)
+    setattr(cfg, "eval_env_frameskip", 1)
+
+
+def _clock_from_cfg(cfg) -> EnvClock:
+    env_fps = getattr(cfg, "env_fps", None)
+    obs_fps = getattr(cfg, "obs_fps", None)
+    if env_fps is None or obs_fps is None:
+        raise ValueError("DemonAttack Sample Factory requires env_fps and obs_fps")
+    return EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
+
+
+def _latency_distribution_spec_from_cfg(cfg):
+    raw = getattr(cfg, "latency_distribution_spec", None)
+    if raw is None or not str(raw).strip():
+        return None
+    return parse_latency_distribution(raw)
+
+
+def _latency_raw_frame_values_from_cfg(cfg) -> list[int]:
+    values = parse_int_list(getattr(cfg, "latency_raw_frame_values", "0"))
+    spec = _latency_distribution_spec_from_cfg(cfg)
+    if spec is not None:
+        values.append(distribution_max_frame_latency(spec))
+    return sorted({max(0, int(value)) for value in values}) or [0]
 
 
 class AtariObsFormatWrapper(gym.ObservationWrapper):
@@ -107,11 +137,12 @@ def make_demon_attack_sf_env(
     del render_mode
     ensure_sample_factory_raw_reward_console_stats_installed(env_name=SF_ENV_NAME)
     env_config = env_config or {}
+    _force_sample_factory_raw_frame_step_cfg(cfg)
+    clock = _clock_from_cfg(cfg)
     env = make_demon_attack_benchmark_env(
         env_id=getattr(cfg, "env_id", "ALE/DemonAttack-v5"),
         screen_size=int(getattr(cfg, "screen_size", 84)),
         noop_max=int(getattr(cfg, "noop_max", 30)),
-        action_repeat=int(getattr(cfg, "action_repeat", 1)),
         terminal_on_life_loss=bool(getattr(cfg, "terminal_on_life_loss", False)),
         clip_reward=False,
         repeat_action_probability=float(getattr(cfg, "repeat_action_probability", 0.0)),
@@ -125,19 +156,23 @@ def make_demon_attack_sf_env(
     if max_episode_steps > 0:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
     if bool(getattr(cfg, "clip_reward", True)):
-        env = ClipRewardWithRawInfoWrapper(env)
+        env = RewardTraceWrapper(env, learner_reward_fn=lambda raw_reward, info: float(np.sign(raw_reward)))
     else:
         env = RewardTraceWrapper(env)
-    latency_values = parse_int_list(getattr(cfg, "queue_latency_values", "0"))
+    latency_values = _latency_raw_frame_values_from_cfg(cfg)
     wrapper_seed = env_instance_seed(
         base_seed=int(getattr(cfg, "seed", 0) or 0),
         worker_index=int(getattr(env_config, "worker_index", 0) or 0),
         vector_index=int(getattr(env_config, "vector_index", 0) or 0),
         env_id=int(getattr(env_config, "env_id", 0) or 0),
     )
-    env = QueueLatencyWrapper(
+    env = ActionLatencyWrapper(
         env,
-        queue_latency_values=latency_values or [0],
+        latency_raw_frame_values=latency_values or [0],
+        env_fps=clock.env_fps,
+        obs_fps=clock.obs_fps,
+        hold_policy=getattr(cfg, "hold_policy", ActionHoldPolicy.HOLD.value),
+        ordering_policy=getattr(cfg, "ordering_policy", OrderingPolicy.LATEST_READY.value),
         latency_distribution_spec=getattr(cfg, "latency_distribution_spec", None) or None,
         latency_mode=getattr(cfg, "latency_mode", "episode_fixed"),
         latency_sampling_mode=getattr(cfg, "latency_sampling_mode", "uniform_all"),
@@ -147,13 +182,12 @@ def make_demon_attack_sf_env(
         within_episode_change_prob=float(getattr(cfg, "within_episode_change_prob", 1.0)),
         seed=wrapper_seed,
         env_reset_seed_base=wrapper_seed + 104729,
-        latency_info_keys=("queue_latency", "frame_skip", "latency_frame_skip"),
         add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
         max_pending_actions=getattr(cfg, "max_pending_actions", None),
     )
     env = EpisodeMetricsWrapper(
         env,
-        frames_per_decision=int(getattr(cfg, "action_repeat", 1) or 1),
+        frames_per_decision=clock.obs_stride_raw_frames,
         metrics_path=str(getattr(cfg, "episode_metrics_path", "") or ""),
         worker_index=int(getattr(env_config, "worker_index", 0) or 0),
         vector_index=int(getattr(env_config, "vector_index", 0) or 0),
@@ -166,6 +200,7 @@ def make_reference_env(cfg):
     from sample_factory.algo.utils.make_env import make_env_func_batched
     from sample_factory.utils.attr_dict import AttrDict
 
+    _force_sample_factory_raw_frame_step_cfg(cfg)
     register_demon_attack_envs()
     return make_env_func_batched(
         cfg,
@@ -186,9 +221,10 @@ def register_demon_attack_envs() -> None:
 
 def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--env_id", type=str, default="ALE/DemonAttack-v5")
+    parser.add_argument("--env-fps", dest="env_fps", type=float, default=60)
+    parser.add_argument("--obs-fps", dest="obs_fps", type=float, default=15)
     parser.add_argument("--screen_size", type=int, default=84)
     parser.add_argument("--noop_max", type=int, default=30)
-    parser.add_argument("--action_repeat", type=int, default=1)
     parser.add_argument("--frame_stack", type=int, default=1)
     parser.add_argument("--terminal_on_life_loss", type=str2bool, default=False)
     parser.add_argument("--clip_reward", type=str2bool, default=True)
@@ -196,7 +232,7 @@ def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--full_action_space", type=str2bool, default=False)
     parser.add_argument("--max_episode_steps", type=int, default=0)
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "train_eval"])
-    parser.add_argument("--queue-latency-values", type=str, default="0")
+    parser.add_argument("--latency-raw-frame-values", dest="latency_raw_frame_values", type=str, default="0")
     parser.add_argument("--latency-distribution-spec", dest="latency_distribution_spec", type=str, default="")
     parser.add_argument("--latency-mode", type=str, default="episode_fixed")
     parser.add_argument("--latency-sampling-mode", type=str, default="uniform_all")
@@ -206,9 +242,28 @@ def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--within-episode-change-prob", type=float, default=1.0)
     parser.add_argument("--add-latency-info", type=str2bool, default=False)
     parser.add_argument("--max-pending-actions", dest="max_pending_actions", type=int)
+    parser.add_argument(
+        "--hold-policy",
+        dest="hold_policy",
+        type=str,
+        default=ActionHoldPolicy.HOLD.value,
+        choices=[item.value for item in ActionHoldPolicy],
+    )
+    parser.add_argument(
+        "--ordering-policy",
+        dest="ordering_policy",
+        type=str,
+        default=OrderingPolicy.LATEST_READY.value,
+        choices=[item.value for item in OrderingPolicy],
+    )
     parser.add_argument("--eval-episodes", type=int, default=20)
     parser.add_argument("--eval-parallel-envs", type=int, default=1)
-    parser.add_argument("--eval-queue-latency-values", type=str, default="0,1,2,3,4,5")
+    parser.add_argument(
+        "--eval-latency-raw-frame-values",
+        dest="eval_latency_raw_frame_values",
+        type=str,
+        default="0,1,2,3,4,5",
+    )
     parser.add_argument("--eval-max-steps", type=int, default=30000)
     parser.add_argument("--eval-deterministic", type=str2bool, default=True)
     parser.add_argument("--eval-raw-reward", action="store_true")
@@ -235,22 +290,30 @@ def parse_cfg(argv=None, evaluation: bool = False):
     parser, _ = parse_sf_args(argv=argv, evaluation=evaluation)
     add_demon_attack_env_args(parser)
     demon_attack_override_defaults(parser)
-    return parse_full_cfg(parser, argv)
+    cfg = parse_full_cfg(parser, argv)
+    _force_sample_factory_raw_frame_step_cfg(cfg)
+    return cfg
 
 
 def build_cli_args_from_config(config: dict) -> list[str]:
     env_cfg = config["env"]
+    scheduler_cfg = config.get("scheduler")
+    if not isinstance(scheduler_cfg, dict):
+        raise ValueError("scheduler must be a mapping for DemonAttack Sample Factory")
     args = build_common_sf_args(config, sf_env_name=SF_ENV_NAME)
     append_cli_arg(args, "--env_id", env_cfg.get("env_id", "ALE/DemonAttack-v5"))
+    append_cli_arg(args, "--env-fps", env_cfg["env_fps"])
+    append_cli_arg(args, "--obs-fps", env_cfg["obs_fps"])
     append_cli_arg(args, "--screen_size", env_cfg.get("screen_size", 84))
     append_cli_arg(args, "--noop_max", env_cfg.get("noop_max", 30))
-    append_cli_arg(args, "--action_repeat", env_cfg.get("action_repeat", 1))
     append_cli_arg(args, "--frame_stack", env_cfg.get("frame_stack", 1))
     append_cli_arg(args, "--terminal_on_life_loss", env_cfg.get("terminal_on_life_loss", False))
     append_cli_arg(args, "--clip_reward", env_cfg.get("clip_reward", True))
     append_cli_arg(args, "--repeat_action_probability", env_cfg.get("repeat_action_probability", 0.0))
     append_cli_arg(args, "--full_action_space", env_cfg.get("full_action_space", False))
     append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
+    append_cli_arg(args, "--hold-policy", scheduler_cfg["hold_policy"])
+    append_cli_arg(args, "--ordering-policy", scheduler_cfg["ordering_policy"])
     return args
 
 
@@ -291,7 +354,7 @@ def run_from_config(config: dict) -> int:
                         f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
                     )
                 else:
-                    latencies = parse_int_list(cfg.eval_queue_latency_values)
+                    latencies = parse_int_list(cfg.eval_latency_raw_frame_values)
                     for latency in latencies:
                         result = evaluate_queue_latency(cfg, int(latency))
                         write_queue_eval_result(cfg, result)

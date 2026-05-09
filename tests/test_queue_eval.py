@@ -59,7 +59,6 @@ class _SubprocScriptedSfEnv(gym.Env):
         obs = np.full((1, 2, 2), self.index + 10, dtype=np.uint8)
         step_info = dict(info)
         step_info.setdefault("raw_reward", float(reward))
-        step_info.setdefault("transformed_reward", float(np.sign(float(reward))))
         step_info["worker_env_pid"] = os.getpid()
         return obs, float(np.sign(float(reward))), bool(terminated), bool(truncated), step_info
 
@@ -108,18 +107,19 @@ def _demon_attack_queue_eval_cfg(integration, **overrides):
         "device": "cpu",
         "env_gpu_actions": False,
         "env_gpu_observations": False,
-        "env_frameskip": 1,
         "seed": 0,
         "env_id": "ALE/DemonAttack-v5",
+        "env_fps": 60,
+        "obs_fps": 15,
         "screen_size": 84,
         "noop_max": 0,
-        "action_repeat": 1,
         "frame_stack": 1,
         "terminal_on_life_loss": True,
         "clip_reward": True,
         "repeat_action_probability": 0.0,
         "full_action_space": False,
-        "queue_latency_values": "0",
+        "latency_raw_frame_values": "0",
+        "latency_distribution_spec": "",
         "latency_mode": "episode_fixed",
         "latency_sampling_mode": "uniform_all",
         "episodes_per_stage": 10,
@@ -127,6 +127,9 @@ def _demon_attack_queue_eval_cfg(integration, **overrides):
         "within_episode_change_interval": 1,
         "within_episode_change_prob": 1.0,
         "add_latency_info": False,
+        "hold_policy": "hold",
+        "ordering_policy": "latest_ready",
+        "max_pending_actions": None,
         "max_episode_steps": 0,
         "episode_metrics_path": "",
         "eval_episodes": 1,
@@ -146,7 +149,6 @@ def test_demon_attack_eval_done_ignores_life_loss_pseudo_terminal():
         {
             "is_true_episode_end": False,
             "episodic_raw_return": 30.0,
-            "episodic_clipped_return": 2.0,
             "episodic_return": 30.0,
             "episodic_length": 3,
         },
@@ -177,7 +179,6 @@ def test_demon_attack_eval_done_counts_life_loss_when_terminal_on_life_loss_enab
     assert result == {
         "return": 30.0,
         "raw_return": 30.0,
-        "clipped_return": 30.0,
         "length": 3,
     }
 
@@ -189,12 +190,10 @@ def test_demon_attack_eval_done_uses_episode_metrics_wrapper_keys_for_raw_scorin
         {
             "is_true_episode_end": True,
             "episodic_raw_return": 30.0,
-            "episodic_clipped_return": 2.0,
             "episodic_return": 30.0,
             "episodic_length": 3,
             "episode_extra_stats": {
                 "episode/raw_return": 30.0,
-                "episode/clipped_return": 2.0,
             },
         },
         fallback_return=999.0,
@@ -205,7 +204,6 @@ def test_demon_attack_eval_done_uses_episode_metrics_wrapper_keys_for_raw_scorin
     assert result == {
         "return": 30.0,
         "raw_return": 30.0,
-        "clipped_return": 2.0,
         "length": 3,
     }
 
@@ -218,7 +216,6 @@ def test_demon_attack_eval_done_accepts_lives_zero_game_over_with_extra_stats():
             "lives": 0,
             "episode_extra_stats": {
                 "episode/raw_return": 50.0,
-                "episode/clipped_return": 4.0,
                 "episode/length": 8,
             },
         },
@@ -228,9 +225,8 @@ def test_demon_attack_eval_done_accepts_lives_zero_game_over_with_extra_stats():
     )
 
     assert result == {
-        "return": 4.0,
+        "return": 50.0,
         "raw_return": 50.0,
-        "clipped_return": 4.0,
         "length": 8,
     }
 
@@ -243,7 +239,6 @@ def test_demon_attack_eval_done_accepts_timelimit_truncated_timeout_with_extra_s
             "TimeLimit.truncated": True,
             "episode_extra_stats": {
                 "episode/raw_return": 12.0,
-                "episode/clipped_return": 3.0,
                 "episode/length": 4,
                 "episode/truncated": 1.0,
                 "episode/timeout": 1.0,
@@ -257,7 +252,6 @@ def test_demon_attack_eval_done_accepts_timelimit_truncated_timeout_with_extra_s
     assert result == {
         "return": 12.0,
         "raw_return": 12.0,
-        "clipped_return": 3.0,
         "length": 4,
         "timeout": True,
     }
@@ -288,7 +282,6 @@ def test_demon_attack_eval_budget_timeout_info_uses_raw_accumulator_not_fallback
         _demon_attack_eval_budget_timeout_info(
             accumulated_return=12.0,
             episode_length=4,
-            eval_raw_reward=True,
         ),
         fallback_return=999.0,
         fallback_length=99,
@@ -298,7 +291,6 @@ def test_demon_attack_eval_budget_timeout_info_uses_raw_accumulator_not_fallback
     assert result == {
         "return": 12.0,
         "raw_return": 12.0,
-        "clipped_return": 12.0,
         "length": 4,
         "timeout": True,
     }
@@ -315,7 +307,6 @@ def test_demon_attack_timeout_count_uses_eval_budget_not_short_truncated_info():
             "TimeLimit.truncated": True,
             "episode_extra_stats": {
                 "episode/raw_return": 12.0,
-                "episode/clipped_return": 3.0,
                 "episode/length": 4,
                 "episode/truncated": 1.0,
                 "episode/timeout": 1.0,
@@ -405,7 +396,7 @@ def test_demon_attack_queue_eval_n1_uses_true_game_over_for_episode_accounting(m
     assert result["completed_episodes"] == 1
     assert result["returns"] == [3.0]
     assert result["raw_returns"] == [3.0]
-    assert result["clipped_returns"] == [2.0]
+    assert "clipped_returns" not in result
     assert result["_meta"]["episode_ids"] == [0]
     assert result["_meta"]["vector_backend"] == "serial"
     assert result["_meta"]["started_episodes"] == 1
@@ -531,6 +522,7 @@ def test_demon_attack_queue_eval_max_steps_is_per_episode_slot(monkeypatch):
 
     cfg = _demon_attack_queue_eval_cfg(
         integration,
+        obs_fps=60,
         eval_episodes=2,
         eval_parallel_envs=2,
         eval_max_steps=2,
@@ -544,7 +536,7 @@ def test_demon_attack_queue_eval_max_steps_is_per_episode_slot(monkeypatch):
     assert result["lengths"] == [2, 2]
     assert result["returns"] == [4.0, 6.0]
     assert result["raw_returns"] == [4.0, 6.0]
-    assert result["clipped_returns"] == [2.0, 2.0]
+    assert "clipped_returns" not in result
     assert result["_meta"]["episode_ids"] == [0, 1]
     assert result["total_frames"] == 4
 
@@ -593,12 +585,10 @@ def test_demon_attack_queue_eval_subproc_backend_counts_true_game_over_and_timeo
                             "lives": 0,
                             "is_true_episode_end": True,
                             "episodic_raw_return": 3.0,
-                            "episodic_clipped_return": 2.0,
                             "episodic_return": 3.0,
                             "episodic_length": 2,
                             "episode_extra_stats": {
                                 "episode/raw_return": 3.0,
-                                "episode/clipped_return": 2.0,
                                 "episode/return": 3.0,
                                 "episode/length": 2,
                             },
@@ -632,7 +622,7 @@ def test_demon_attack_queue_eval_subproc_backend_counts_true_game_over_and_timeo
     assert result["timeout_episodes"] == 3
     assert result["returns"] == [3.0, 6.0, 6.0, 6.0]
     assert result["raw_returns"] == [3.0, 6.0, 6.0, 6.0]
-    assert result["clipped_returns"] == [2.0, 2.0, 2.0, 2.0]
+    assert "clipped_returns" not in result
     assert result["lengths"] == [2, 2, 2, 2]
     assert result["_meta"]["episode_ids"] == [0, 1, 2, 3]
     assert sorted(result["_meta"]["episode_ids"]) == [0, 1, 2, 3]
@@ -663,12 +653,10 @@ def test_demon_attack_queue_eval_subproc_backend_parallel_envs_gt_episodes(monke
                         "lives": 0,
                         "is_true_episode_end": True,
                         "episodic_raw_return": 4.0,
-                        "episodic_clipped_return": 1.0,
                         "episodic_return": 4.0,
                         "episodic_length": 1,
                         "episode_extra_stats": {
                             "episode/raw_return": 4.0,
-                            "episode/clipped_return": 1.0,
                             "episode/return": 4.0,
                             "episode/length": 1,
                         },
@@ -702,10 +690,10 @@ def test_demon_attack_queue_eval_subproc_backend_parallel_envs_gt_episodes(monke
     assert result["_meta"]["worker_pids"][0] != os.getpid()
     assert result["returns"] == [4.0]
     assert result["raw_returns"] == [4.0]
-    assert result["clipped_returns"] == [1.0]
+    assert "clipped_returns" not in result
 
 
-def test_queue_eval_result_keeps_raw_and_clipped_fields_with_raw_compat_returns():
+def test_queue_eval_result_keeps_raw_fields_with_raw_compat_returns():
     from training.sample_factory_common.queue_eval import _build_queue_eval_result
 
     result = _build_queue_eval_result(
@@ -717,7 +705,6 @@ def test_queue_eval_result_keeps_raw_and_clipped_fields_with_raw_compat_returns(
         total_frames=11,
         hit_eval_step_budget=False,
         raw_returns=[30.0, 50.0],
-        clipped_returns=[2.0, 4.0],
         eval_raw_reward=True,
         env_name="latency_demon_attack",
     )
@@ -725,13 +712,11 @@ def test_queue_eval_result_keeps_raw_and_clipped_fields_with_raw_compat_returns(
     assert result["returns"] == [30.0, 50.0]
     assert result["mean_return"] == 40.0
     assert result["raw_returns"] == [30.0, 50.0]
-    assert result["clipped_returns"] == [2.0, 4.0]
     assert result["mean_raw_return"] == 40.0
-    assert result["mean_clipped_return"] == 3.0
     assert result["std_raw_return"] == 10.0
-    assert result["std_clipped_return"] == 1.0
     assert result["completed_episodes"] == 2
     assert "warning" not in result
+    assert "clipped_returns" not in result
 
 
 def test_queue_eval_result_reports_timeout_episodes_without_missing_game_over_warning():
@@ -746,7 +731,6 @@ def test_queue_eval_result_reports_timeout_episodes_without_missing_game_over_wa
         total_frames=3600,
         hit_eval_step_budget=True,
         raw_returns=[12.0],
-        clipped_returns=[3.0],
         eval_raw_reward=True,
         env_name="latency_demon_attack",
         timeout_episodes=1,
@@ -754,7 +738,6 @@ def test_queue_eval_result_reports_timeout_episodes_without_missing_game_over_wa
 
     assert result["returns"] == [12.0]
     assert result["raw_returns"] == [12.0]
-    assert result["clipped_returns"] == [3.0]
     assert result["completed_episodes"] == 1
     assert result["requested_episodes"] == 1
     assert result["hit_eval_step_budget"] is True
@@ -762,7 +745,7 @@ def test_queue_eval_result_reports_timeout_episodes_without_missing_game_over_wa
     assert "warning" not in result
     assert result["mean_return"] == 12.0
     assert result["mean_raw_return"] == 12.0
-    assert result["mean_clipped_return"] == 3.0
+    assert "mean_clipped_return" not in result
 
 
 def test_demon_attack_eval_budget_timeout_info_carries_raw_metrics():
@@ -774,7 +757,6 @@ def test_demon_attack_eval_budget_timeout_info_carries_raw_metrics():
     info = _demon_attack_eval_budget_timeout_info(
         accumulated_return=123.0,
         episode_length=3600,
-        eval_raw_reward=True,
     )
     result = _demon_attack_eval_episode_result(
         info,
@@ -787,7 +769,6 @@ def test_demon_attack_eval_budget_timeout_info_carries_raw_metrics():
     assert result == {
         "return": 123.0,
         "raw_return": 123.0,
-        "clipped_return": 123.0,
         "length": 3600,
         "timeout": True,
     }
@@ -1048,7 +1029,7 @@ def test_prepare_queue_eval_cfg_aligns_demon_attack_raw_eval_runtime_config():
     assert cfg.cli_args["clip_reward"] is False
 
 
-def test_write_and_log_queue_eval_result_preserve_raw_and_clipped_metrics(tmp_path):
+def test_write_and_log_queue_eval_result_preserve_raw_metrics(tmp_path):
     from training.sample_factory_common.queue_eval import log_queue_eval_result, write_queue_eval_result
 
     cfg = SimpleNamespace(output_dir=str(tmp_path), experiment="exp", seed=7, load_checkpoint_kind="best")
@@ -1060,11 +1041,8 @@ def test_write_and_log_queue_eval_result_preserve_raw_and_clipped_metrics(tmp_pa
         "returns": [30.0, 50.0],
         "lengths": [3, 8],
         "raw_returns": [30.0, 50.0],
-        "clipped_returns": [2.0, 4.0],
         "mean_raw_return": 40.0,
-        "mean_clipped_return": 3.0,
         "std_raw_return": 10.0,
-        "std_clipped_return": 1.0,
         "completed_episodes": 2,
         "timeout_episodes": 1,
         "requested_episodes": 2,
@@ -1075,10 +1053,9 @@ def test_write_and_log_queue_eval_result_preserve_raw_and_clipped_metrics(tmp_pa
 
     assert payload["raw_returns"] == [30.0, 50.0]
     assert payload["checkpoint_kind"] == "best"
-    assert payload["clipped_returns"] == [2.0, 4.0]
     assert payload["mean_raw_return"] == 40.0
-    assert payload["mean_clipped_return"] == 3.0
     assert payload["timeout_episodes"] == 1
+    assert "clipped_returns" not in payload
 
     class _Run:
         def __init__(self):
@@ -1092,10 +1069,10 @@ def test_write_and_log_queue_eval_result_preserve_raw_and_clipped_metrics(tmp_pa
     log_queue_eval_result(run, result)
 
     assert run.logged["queue_eval/mean_raw_return"] == 40.0
-    assert run.logged["queue_eval/mean_clipped_return"] == 3.0
     assert run.logged["queue_eval/timeout_episodes"] == 1.0
     assert run.summary["queue_eval/latency_5/mean_raw_return"] == 40.0
     assert run.summary["queue_eval/latency_5/timeout_episodes"] == 1.0
+    assert "queue_eval/mean_clipped_return" not in run.logged
 
 
 def test_write_queue_eval_result_keeps_summary_schema_and_writes_optional_meta(tmp_path):

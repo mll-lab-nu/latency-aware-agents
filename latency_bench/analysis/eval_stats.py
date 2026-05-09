@@ -14,7 +14,7 @@ EPISODE_METRICS_CANDIDATES = ("episode_metrics.jsonl", "metrics.jsonl", "episode
 LATENCY_RECORD_CANDIDATES = ("latencies.jsonl", "latency_records.jsonl")
 ACTION_RECORD_CANDIDATES = ("actions.jsonl", "action_records.jsonl")
 
-RETURN_FIELD_PRIORITY = ("episode_return_env", "episode_return", "return_raw", "return_clipped")
+RETURN_FIELD_PRIORITY = ("episode_return_env", "episode_return", "return_raw")
 LENGTH_FIELD_PRIORITY = ("episode_length", "survival_steps", "length", "steps", "num_steps")
 METADATA_KEYS = (
     "mode",

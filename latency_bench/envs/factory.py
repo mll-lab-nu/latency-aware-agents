@@ -130,7 +130,6 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
         noop_action=noop_action,
         screen_size=int(env_cfg.get("screen_size", 84)),
         noop_max=int(env_cfg.get("noop_max", 30)),
-        action_repeat=int(env_cfg.get("action_repeat", 1)),
         terminal_on_life_loss=terminal_on_life_loss,
         clip_reward=clip_reward,
         continue_life_loss_terminal=continue_life_loss_terminal,

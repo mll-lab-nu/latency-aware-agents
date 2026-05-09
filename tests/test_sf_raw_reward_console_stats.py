@@ -128,7 +128,7 @@ def _batched_runner(BatchedVectorEnvRunner, *, env_name: str = "latency_demon_at
     return runner
 
 
-def test_non_batched_report_main_reward_is_raw_and_clipped_return_is_debug_stat(monkeypatch):
+def test_non_batched_report_main_reward_is_raw(monkeypatch):
     ActorState, _, misc = _install_fake_sample_factory(monkeypatch)
     from training.sample_factory_common.sf_raw_reward_stats_compat import (
         ensure_sample_factory_raw_reward_console_stats_installed,
@@ -146,7 +146,6 @@ def test_non_batched_report_main_reward_is_raw_and_clipped_return_is_debug_stat(
             "episodic_return": 30.0,
             "episode_extra_stats": {
                 "episode/raw_return": 30.0,
-                "episode/clipped_return": 3.0,
                 "episode/return": 30.0,
             },
         },
@@ -156,8 +155,8 @@ def test_non_batched_report_main_reward_is_raw_and_clipped_return_is_debug_stat(
     stats = report[misc.EPISODIC]
     assert stats["reward"] == 30.0
     assert stats["episode_extra_stats"]["episode/raw_return"] == 30.0
-    assert stats["episode_extra_stats"]["episode/clipped_return"] == 3.0
     assert stats["episode_extra_stats"]["episode/return"] == 30.0
+    assert "episode/clipped_return" not in stats["episode_extra_stats"]
 
 
 def test_non_batched_life_loss_report_is_suppressed(monkeypatch):
@@ -211,7 +210,6 @@ def test_batched_report_main_reward_is_raw_after_life_loss(monkeypatch):
                 "is_true_episode_end": True,
                 "episode_extra_stats": {
                     "episode/raw_return": 50.0,
-                    "episode/clipped_return": 3.0,
                     "episode/return": 50.0,
                 },
             }
@@ -222,8 +220,8 @@ def test_batched_report_main_reward_is_raw_after_life_loss(monkeypatch):
     assert stats["reward"].tolist() == [50.0]
     assert stats["len"].tolist() == [2]
     assert stats["episode/raw_return"].tolist() == [50.0]
-    assert stats["episode/clipped_return"].tolist() == [3.0]
     assert stats["episode/return"].tolist() == [50.0]
+    assert "episode/clipped_return" not in stats
 
 
 def test_patch_is_idempotent(monkeypatch):
@@ -307,7 +305,7 @@ def test_demon_attack_env_factory_installs_worker_compat(monkeypatch):
 
     env = integration.make_demon_attack_sf_env(
         integration.SF_ENV_NAME,
-        cfg=SimpleNamespace(),
+        cfg=SimpleNamespace(env_fps=60, obs_fps=15),
         env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
     )
     try:

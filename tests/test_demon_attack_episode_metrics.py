@@ -28,12 +28,15 @@ class _ScriptedAtariInfoEnv(gym.Env):
 
 def test_learner_reward_stays_clipped_while_episode_return_is_raw(tmp_path):
     from training.sample_factory_common.latency_wrapper import (
-        ClipRewardWithRawInfoWrapper,
         EpisodeMetricsWrapper,
+        RewardTraceWrapper,
     )
 
     wrapped = EpisodeMetricsWrapper(
-        ClipRewardWithRawInfoWrapper(_ScriptedAtariInfoEnv([(10.0, True, False, {"lives": 0})])),
+        RewardTraceWrapper(
+            _ScriptedAtariInfoEnv([(10.0, True, False, {"lives": 0})]),
+            learner_reward_fn=lambda raw_reward, info: float(np.sign(raw_reward)),
+        ),
         metrics_path=str(tmp_path / "episodes.jsonl"),
     )
 
@@ -41,27 +44,30 @@ def test_learner_reward_stays_clipped_while_episode_return_is_raw(tmp_path):
     _, reward, _, _, info = wrapped.step(0)
 
     assert reward == 1.0
-    assert info["clipped_reward"] == 1.0
+    assert info["raw_reward"] == 10.0
     assert info["episodic_return"] == 10.0
     assert info["episodic_raw_return"] == 10.0
-    assert info["episodic_clipped_return"] == 1.0
+    assert "clipped_reward" not in info
+    assert "episodic_clipped_return" not in info
+    assert "episode/clipped_return" not in info["episode_extra_stats"]
 
 
 def test_true_game_over_emits_raw_full_game_return_after_life_loss(tmp_path):
     from training.sample_factory_common.latency_wrapper import (
-        ClipRewardWithRawInfoWrapper,
         EpisodeMetricsWrapper,
+        RewardTraceWrapper,
     )
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
-        ClipRewardWithRawInfoWrapper(
+        RewardTraceWrapper(
             _ScriptedAtariInfoEnv(
                 [
                     (10.0, True, False, {"lives": 2}),
                     (20.0, True, False, {"lives": 0}),
                 ]
-            )
+            ),
+            learner_reward_fn=lambda raw_reward, info: float(np.sign(raw_reward)),
         ),
         metrics_path=str(metrics_path),
     )
@@ -77,24 +83,28 @@ def test_true_game_over_emits_raw_full_game_return_after_life_loss(tmp_path):
     assert second_reward == 1.0
     assert second_info["is_true_episode_end"] is True
     assert second_info["episodic_return"] == 30.0
-    assert second_info["episodic_clipped_return"] == 2.0
+    assert second_info["episodic_raw_return"] == 30.0
+    assert "episodic_clipped_return" not in second_info
 
     events = [json.loads(line) for line in metrics_path.read_text(encoding="utf-8").splitlines()]
     assert len(events) == 1
     assert events[0]["return"] == 30.0
     assert events[0]["raw_return"] == 30.0
-    assert events[0]["clipped_return"] == 2.0
+    assert "clipped_return" not in events[0]
 
 
-def test_clipped_return_is_debug_metric_and_does_not_replace_main_reward(tmp_path):
+def test_episode_metrics_records_only_raw_return(tmp_path):
     from training.sample_factory_common.latency_wrapper import (
-        ClipRewardWithRawInfoWrapper,
         EpisodeMetricsWrapper,
+        RewardTraceWrapper,
     )
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
-        ClipRewardWithRawInfoWrapper(_ScriptedAtariInfoEnv([(10.0, True, False, {"lives": 0})])),
+        RewardTraceWrapper(
+            _ScriptedAtariInfoEnv([(10.0, True, False, {"lives": 0})]),
+            learner_reward_fn=lambda raw_reward, info: float(np.sign(raw_reward)),
+        ),
         metrics_path=str(metrics_path),
     )
 
@@ -105,9 +115,9 @@ def test_clipped_return_is_debug_metric_and_does_not_replace_main_reward(tmp_pat
     assert info["episodic_return"] == 10.0
     assert info["episode_extra_stats"]["episode/return"] == 10.0
     assert info["episode_extra_stats"]["episode/raw_return"] == 10.0
-    assert info["episode_extra_stats"]["episode/clipped_return"] == 1.0
+    assert "episode/clipped_return" not in info["episode_extra_stats"]
 
     event = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert event["return"] == 10.0
     assert event["raw_return"] == 10.0
-    assert event["clipped_return"] == 1.0
+    assert "clipped_return" not in event

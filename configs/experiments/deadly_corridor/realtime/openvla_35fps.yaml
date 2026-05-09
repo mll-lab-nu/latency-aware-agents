@@ -17,7 +17,6 @@ env:
   env_id: doom_deadly_corridor
   env_fps: 35
   obs_fps: 35
-  env_frameskip: 4
   frame_stack: 4
   res_w: 128
   res_h: 72

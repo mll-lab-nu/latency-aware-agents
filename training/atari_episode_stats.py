@@ -56,7 +56,6 @@ def _patch_non_batched_sample_factory_atari_episode_stats() -> None:
             report = original_record_env_step(self, reward, terminated, truncated, info, rollout_step)
             if done and true_episode_end:
                 _apply_raw_full_game_return_to_report(report, info, EPISODIC)
-                _filter_report_clipped_return_stats(report, EPISODIC)
             return report
 
         episode_reward = self.last_episode_reward
@@ -182,23 +181,6 @@ def _flatten_numeric_episode_extra_stats(value: Any, prefix: str = "") -> dict[s
     return flattened
 
 
-def _is_clipped_return_metric_key(key: str) -> bool:
-    return "clipped_return" in str(key)
-
-
-def _filter_episode_extra_stats_for_reporting(value: Any) -> Any:
-    if not isinstance(value, dict):
-        return value
-
-    filtered: dict[str, Any] = {}
-    for key, item in value.items():
-        key_str = str(key)
-        if _is_clipped_return_metric_key(key_str):
-            continue
-        filtered[key_str] = _filter_episode_extra_stats_for_reporting(item)
-    return filtered
-
-
 def _raw_full_game_return_from_info(info: Any) -> float | None:
     if not isinstance(info, dict):
         return None
@@ -227,31 +209,12 @@ def _apply_raw_full_game_return_to_report(report: Any, info: Any, episodic_key: 
         episodic_stats["reward"] = float(raw_return)
 
 
-def _filter_report_clipped_return_stats(report: Any, episodic_key: str) -> None:
-    if not isinstance(report, dict):
-        return
-    episodic_stats = report.get(episodic_key)
-    if not isinstance(episodic_stats, dict):
-        return
-
-    for key in list(episodic_stats):
-        if _is_clipped_return_metric_key(str(key)):
-            del episodic_stats[key]
-
-    if "episode_extra_stats" in episodic_stats:
-        episodic_stats["episode_extra_stats"] = _filter_episode_extra_stats_for_reporting(
-            episodic_stats["episode_extra_stats"]
-        )
-
-
 def _episode_extra_stats_for_finished_agents(infos: Any, finished_agents: list[int]) -> dict[str, np.ndarray]:
     collected: dict[str, list[float]] = {}
     for agent_idx in finished_agents:
         info = _batched_info_for_agent(infos, int(agent_idx))
         extra_stats = _flatten_numeric_episode_extra_stats(info.get("episode_extra_stats") or {})
         for key, value in extra_stats.items():
-            if _is_clipped_return_metric_key(key):
-                continue
             collected.setdefault(key, []).append(value)
     return {key: np.asarray(values, dtype=np.float64) for key, values in collected.items()}
 
@@ -312,7 +275,6 @@ def _patch_batched_sample_factory_atari_episode_stats() -> None:
                         episodic_stats["reward"] = raw_returns
                     if extra_stats:
                         episodic_stats.update(extra_stats)
-                    _filter_report_clipped_return_stats(report, EPISODIC)
         return reports
 
     process_env_step_full_game._latency_bench_atari_episode_stats_patched = True

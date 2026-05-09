@@ -107,6 +107,25 @@ class _ActionTraceEnv(gym.Env):
         return obs, 1.0, False, False, {"raw_step": self.step_count}
 
 
+class _RawRewardTraceEnv(gym.Env):
+    observation_space = gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.uint8)
+    action_space = gym.spaces.Discrete(2)
+
+    def __init__(self, rewards):
+        super().__init__()
+        self.rewards = list(rewards)
+        self.step_count = 0
+
+    def reset(self, *, seed=None, options=None):
+        self.step_count = 0
+        return np.array([0], dtype=np.uint8), {}
+
+    def step(self, action):
+        reward = float(self.rewards[self.step_count])
+        self.step_count += 1
+        return np.array([self.step_count], dtype=np.uint8), reward, False, False, {}
+
+
 def test_sample_factory_training_configs_load():
     cfg = load_training_config("configs/experiments/demon_attack/sf_fixed_latency_4.yaml")
     assert cfg["backend"]["type"] == "sample_factory"
@@ -117,9 +136,9 @@ def test_sample_factory_training_configs_load():
 def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
     cfg = load_config("configs/experiments/deadly_corridor/sf_fixed_latency_4.yaml")
     args = build_common_sf_args(cfg, sf_env_name="doom_deadly_corridor")
-    assert "--queue-latency-values" in args
+    assert "--latency-raw-frame-values" in args
     assert "4" in args
-    assert "--eval-queue-latency-values" in args
+    assert "--eval-latency-raw-frame-values" in args
     assert "--experiment" in args
     assert "deadly_corridor_sf_fixed_latency_4" in args
 
@@ -402,7 +421,7 @@ def test_common_sf_args_passes_latency_distribution_without_train_values():
     config = {
         "experiment": {"name": "dist_run", "seed": 3},
         "backend": {"type": "sample_factory", "train_dir": "runs", "run_mode": "train"},
-        "env": {"name": "demon_attack"},
+        "env": {"name": "demon_attack", "env_fps": 60, "obs_fps": 15},
         "latency": {
             "train_distribution": {"type": "uniform", "min": 0, "max": 15},
             "train_mode": "within_episode_random",
@@ -417,7 +436,7 @@ def test_common_sf_args_passes_latency_distribution_without_train_values():
 
     args = build_common_sf_args(config, sf_env_name="latency_demon_attack")
 
-    assert "--queue-latency-values" not in args
+    assert "--latency-raw-frame-values" not in args
     spec_index = args.index("--latency-distribution-spec") + 1
     assert args[spec_index] == '{"max":15,"min":0,"type":"uniform"}'
     assert args[args.index("--latency-mode") + 1] == "within_episode_random"
@@ -427,11 +446,12 @@ def test_training_config_rejects_train_values_with_train_distribution():
     config = {
         "experiment": {"name": "dist_run", "seed": 3},
         "backend": {"type": "sample_factory", "train_dir": "runs", "run_mode": "train"},
-        "env": {"name": "demon_attack"},
+        "env": {"name": "demon_attack", "env_fps": 60, "obs_fps": 15},
         "latency": {
             "train_values": [0],
             "train_distribution": {"type": "uniform", "min": 0, "max": 15},
         },
+        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
         "training": {"train_for_env_steps": 100, "num_workers": 1, "num_envs_per_worker": 1, "batch_size": 1},
     }
 
@@ -439,30 +459,34 @@ def test_training_config_rejects_train_values_with_train_distribution():
         validate_training_config(config)
 
 
-def test_queue_latency_wrapper_exposes_fixed_non_zero_latency():
+def test_action_latency_wrapper_exposes_fixed_non_zero_latency():
     import gymnasium as gym
-    from training.sample_factory_common.latency_wrapper import QueueLatencyWrapper
+    from training.sample_factory_common import latency_wrapper
+    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
 
+    assert not hasattr(latency_wrapper, "QueueLatencyWrapper")
+    assert not hasattr(latency_wrapper, "RawFrameActionLatencyWrapper")
     env = gym.make("CartPole-v1")
-    wrapped = QueueLatencyWrapper(
+    wrapped = ActionLatencyWrapper(
         env,
-        queue_latency_values=[4],
+        latency_raw_frame_values=[4],
+        env_fps=60,
+        obs_fps=60,
         latency_mode="episode_fixed",
-        latency_info_keys=("queue_latency",),
     )
     _, info = wrapped.reset(seed=123)
-    assert info["queue_latency"] == 4
+    assert info["latency_raw_frames"] == 4
     _, _, _, _, step_info = wrapped.step(0)
-    assert step_info["queue_latency"] == 4
+    assert step_info["latency_raw_frames"] == 4
     wrapped.close()
 
 
-def test_queue_latency_wrapper_distribution_samples_deterministically():
+def test_action_latency_wrapper_distribution_samples_deterministically():
     import gymnasium as gym
     import numpy as np
     from gymnasium.spaces import Box, Discrete
 
-    from training.sample_factory_common.latency_wrapper import QueueLatencyWrapper
+    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
 
     class NeverDoneEnv(gym.Env):
         observation_space = Box(low=0, high=1, shape=(1,), dtype=np.float32)
@@ -475,27 +499,33 @@ def test_queue_latency_wrapper_distribution_samples_deterministically():
             return np.zeros((1,), dtype=np.float32), 0.0, False, False, {}
 
     spec = {"type": "uniform", "min": 0, "max": 15}
-    first = QueueLatencyWrapper(
+    first = ActionLatencyWrapper(
         NeverDoneEnv(),
-        queue_latency_values=[0],
+        latency_raw_frame_values=[0],
+        env_fps=30,
+        obs_fps=30,
         latency_distribution_spec=spec,
         latency_mode="within_episode_random",
         within_episode_change_interval=1,
         within_episode_change_prob=1.0,
         seed=123,
     )
-    second = QueueLatencyWrapper(
+    second = ActionLatencyWrapper(
         NeverDoneEnv(),
-        queue_latency_values=[0],
+        latency_raw_frame_values=[0],
+        env_fps=30,
+        obs_fps=30,
         latency_distribution_spec=spec,
         latency_mode="within_episode_random",
         within_episode_change_interval=1,
         within_episode_change_prob=1.0,
         seed=123,
     )
-    other = QueueLatencyWrapper(
+    other = ActionLatencyWrapper(
         NeverDoneEnv(),
-        queue_latency_values=[0],
+        latency_raw_frame_values=[0],
+        env_fps=30,
+        obs_fps=30,
         latency_distribution_spec=spec,
         latency_mode="within_episode_random",
         within_episode_change_interval=1,
@@ -507,9 +537,9 @@ def test_queue_latency_wrapper_distribution_samples_deterministically():
         first.reset()
         second.reset()
         other.reset()
-        first_values = [first.step(0)[4]["queue_latency"] for _ in range(20)]
-        second_values = [second.step(0)[4]["queue_latency"] for _ in range(20)]
-        other_values = [other.step(0)[4]["queue_latency"] for _ in range(20)]
+        first_values = [first.step(0)[4]["latency_raw_frames"] for _ in range(20)]
+        second_values = [second.step(0)[4]["latency_raw_frames"] for _ in range(20)]
+        other_values = [other.step(0)[4]["latency_raw_frames"] for _ in range(20)]
     finally:
         first.close()
         second.close()
@@ -520,12 +550,12 @@ def test_queue_latency_wrapper_distribution_samples_deterministically():
     assert all(0 <= value <= 15 for value in first_values)
 
 
-def test_queue_latency_wrapper_distribution_resets_episode_rng():
+def test_action_latency_wrapper_distribution_resets_episode_rng():
     import gymnasium as gym
     import numpy as np
     from gymnasium.spaces import Box, Discrete
 
-    from training.sample_factory_common.latency_wrapper import QueueLatencyWrapper
+    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
 
     class NeverDoneEnv(gym.Env):
         observation_space = Box(low=0, high=1, shape=(1,), dtype=np.float32)
@@ -537,9 +567,11 @@ def test_queue_latency_wrapper_distribution_resets_episode_rng():
         def step(self, action):
             return np.zeros((1,), dtype=np.float32), 0.0, False, False, {}
 
-    wrapped = QueueLatencyWrapper(
+    wrapped = ActionLatencyWrapper(
         NeverDoneEnv(),
-        queue_latency_values=[0],
+        latency_raw_frame_values=[0],
+        env_fps=30,
+        obs_fps=30,
         latency_distribution_spec={"type": "uniform", "min": 0, "max": 15},
         latency_mode="within_episode_random",
         within_episode_change_interval=1,
@@ -548,44 +580,45 @@ def test_queue_latency_wrapper_distribution_resets_episode_rng():
 
     try:
         wrapped.reset()
-        first_episode = [wrapped.step(0)[4]["queue_latency"] for _ in range(20)]
+        first_episode = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(20)]
         wrapped.reset()
-        second_episode = [wrapped.step(0)[4]["queue_latency"] for _ in range(20)]
+        second_episode = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(20)]
     finally:
         wrapped.close()
 
     assert first_episode != second_episode
 
 
-def test_queue_latency_wrapper_distribution_rejects_too_small_pending_action_bound():
+def test_action_latency_wrapper_distribution_rejects_too_small_pending_action_bound():
     import gymnasium as gym
     import pytest
 
-    from training.sample_factory_common.latency_wrapper import QueueLatencyWrapper
+    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
 
     env = gym.make("CartPole-v1")
     with pytest.raises(ValueError, match="max_pending_actions"):
-        QueueLatencyWrapper(
+        ActionLatencyWrapper(
             env,
-            queue_latency_values=[0],
+            latency_raw_frame_values=[0],
+            env_fps=30,
+            obs_fps=30,
             latency_distribution_spec={"type": "uniform", "min": 0, "max": 5},
             max_pending_actions=5,
         )
     env.close()
 
 
-def test_raw_frame_latency_wrapper_advances_obs_stride_with_one_frame_noop():
-    from training.sample_factory_common.latency_wrapper import RawFrameActionLatencyWrapper
+def test_action_latency_wrapper_advances_obs_stride_with_one_frame_noop():
+    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
 
     base_env = _ActionTraceEnv()
-    wrapped = RawFrameActionLatencyWrapper(
+    wrapped = ActionLatencyWrapper(
         base_env,
-        queue_latency_values=[3],
+        latency_raw_frame_values=[3],
         env_fps=60,
         obs_fps=10,
         hold_policy="one_frame_then_noop",
         ordering_policy="latest_ready",
-        latency_info_keys=("queue_latency",),
         add_latency_info=True,
     )
 
@@ -600,7 +633,7 @@ def test_raw_frame_latency_wrapper_advances_obs_stride_with_one_frame_noop():
     assert not terminated
     assert not truncated
     assert base_env.actions == [0, 0, 0, 1, 0, 0]
-    assert info["queue_latency"] == 3
+    assert info["latency_raw_frames"] == 3
     assert info["obs_stride_raw_frames"] == 6
     assert info["raw_frames_advanced"] == 6
     applied_events = wrapped.action_scheduler.get_applied_events()
@@ -610,13 +643,13 @@ def test_raw_frame_latency_wrapper_advances_obs_stride_with_one_frame_noop():
     assert applied_events[0].apply_raw_frame == 3
 
 
-def test_raw_frame_latency_wrapper_hold_policy_holds_for_observation_stride():
-    from training.sample_factory_common.latency_wrapper import RawFrameActionLatencyWrapper
+def test_action_latency_wrapper_hold_policy_holds_for_observation_stride():
+    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
 
     base_env = _ActionTraceEnv()
-    wrapped = RawFrameActionLatencyWrapper(
+    wrapped = ActionLatencyWrapper(
         base_env,
-        queue_latency_values=[0],
+        latency_raw_frame_values=[0],
         env_fps=30,
         obs_fps=10,
         hold_policy="hold",
@@ -635,12 +668,35 @@ def test_raw_frame_latency_wrapper_hold_policy_holds_for_observation_stride():
     assert info["obs_stride_raw_frames"] == 3
 
 
-def test_queue_latency_wrapper_auto_seeds_underlying_env_resets():
+def test_action_latency_wrapper_sums_raw_reward_across_observation_stride():
+    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper, RewardTraceWrapper
+
+    wrapped = ActionLatencyWrapper(
+        RewardTraceWrapper(_RawRewardTraceEnv([1.0, 2.0, 3.0])),
+        latency_raw_frame_values=[0],
+        env_fps=30,
+        obs_fps=10,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        add_latency_info=True,
+    )
+
+    try:
+        wrapped.reset()
+        _, reward, _, _, info = wrapped.step(1)
+    finally:
+        wrapped.close()
+
+    assert reward == pytest.approx(6.0)
+    assert info["raw_reward"] == pytest.approx(6.0)
+
+
+def test_action_latency_wrapper_auto_seeds_underlying_env_resets():
     import gymnasium as gym
     import numpy as np
     from gymnasium.spaces import Box, Discrete
 
-    from training.sample_factory_common.latency_wrapper import QueueLatencyWrapper
+    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
 
     class SeedEchoEnv(gym.Env):
         observation_space = Box(low=0, high=1, shape=(1,), dtype=np.float32)
@@ -657,9 +713,11 @@ def test_queue_latency_wrapper_auto_seeds_underlying_env_resets():
             return np.zeros((1,), dtype=np.float32), 0.0, False, False, {}
 
     env = SeedEchoEnv()
-    wrapped = QueueLatencyWrapper(
+    wrapped = ActionLatencyWrapper(
         env,
-        queue_latency_values=[0],
+        latency_raw_frame_values=[0],
+        env_fps=30,
+        obs_fps=30,
         latency_mode="episode_fixed",
         seed=11,
         env_reset_seed_base=500,
@@ -725,17 +783,20 @@ def test_episode_metrics_wrapper_reports_game_over_full_game_return(tmp_path):
     assert event["env_id"] == 3
 
 
-def test_episode_metrics_wrapper_separates_raw_and_clipped_full_game_returns(tmp_path):
+def test_episode_metrics_wrapper_keeps_learner_reward_clipped_and_episode_return_raw(tmp_path):
     import json
 
     from training.sample_factory_common.latency_wrapper import (
-        ClipRewardWithRawInfoWrapper,
         EpisodeMetricsWrapper,
+        RewardTraceWrapper,
     )
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
-        ClipRewardWithRawInfoWrapper(_ScriptedAtariInfoEnv([(10.0, True, False, {"lives": 0})])),
+        RewardTraceWrapper(
+            _ScriptedAtariInfoEnv([(10.0, True, False, {"lives": 0})]),
+            learner_reward_fn=lambda raw_reward, info: float(np.sign(raw_reward)),
+        ),
         metrics_path=str(metrics_path),
     )
 
@@ -744,35 +805,36 @@ def test_episode_metrics_wrapper_separates_raw_and_clipped_full_game_returns(tmp
 
     assert reward == 1.0
     assert info["episodic_raw_return"] == 10.0
-    assert info["episodic_clipped_return"] == 1.0
     assert info["episodic_return"] == 10.0
     assert info["episode_extra_stats"]["episode/raw_return"] == 10.0
-    assert info["episode_extra_stats"]["episode/clipped_return"] == 1.0
     assert info["episode_extra_stats"]["episode/return"] == 10.0
+    assert "episodic_clipped_return" not in info
+    assert "episode/clipped_return" not in info["episode_extra_stats"]
     event = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert event["raw_return"] == 10.0
-    assert event["clipped_return"] == 1.0
     assert event["return"] == 10.0
+    assert "clipped_return" not in event
 
 
-def test_episode_metrics_wrapper_accumulates_raw_and_clipped_across_steps(tmp_path):
+def test_episode_metrics_wrapper_accumulates_raw_return_across_steps(tmp_path):
     import json
 
     from training.sample_factory_common.latency_wrapper import (
-        ClipRewardWithRawInfoWrapper,
         EpisodeMetricsWrapper,
+        RewardTraceWrapper,
     )
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
-        ClipRewardWithRawInfoWrapper(
+        RewardTraceWrapper(
             _ScriptedAtariInfoEnv(
                 [
                     (10.0, False, False, {"lives": 3}),
                     (-5.0, False, False, {"lives": 3}),
                     (0.0, True, False, {"lives": 0}),
                 ]
-            )
+            ),
+            learner_reward_fn=lambda raw_reward, info: float(np.sign(raw_reward)),
         ),
         metrics_path=str(metrics_path),
     )
@@ -783,23 +845,26 @@ def test_episode_metrics_wrapper_accumulates_raw_and_clipped_across_steps(tmp_pa
     _, _, _, _, info = wrapped.step(0)
 
     assert info["episodic_raw_return"] == 5.0
-    assert info["episodic_clipped_return"] == 0.0
     assert info["episodic_return"] == 5.0
+    assert "episodic_clipped_return" not in info
     event = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert event["raw_return"] == 5.0
-    assert event["clipped_return"] == 0.0
     assert event["return"] == 5.0
+    assert "clipped_return" not in event
 
 
 def test_episode_metrics_wrapper_does_not_emit_raw_return_on_life_loss(tmp_path):
     from training.sample_factory_common.latency_wrapper import (
-        ClipRewardWithRawInfoWrapper,
         EpisodeMetricsWrapper,
+        RewardTraceWrapper,
     )
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
-        ClipRewardWithRawInfoWrapper(_ScriptedAtariInfoEnv([(10.0, True, False, {"lives": 2})])),
+        RewardTraceWrapper(
+            _ScriptedAtariInfoEnv([(10.0, True, False, {"lives": 2})]),
+            learner_reward_fn=lambda raw_reward, info: float(np.sign(raw_reward)),
+        ),
         metrics_path=str(metrics_path),
     )
 
@@ -815,13 +880,16 @@ def test_episode_metrics_wrapper_does_not_emit_raw_return_on_life_loss(tmp_path)
 
 def test_episode_metrics_wrapper_emits_raw_full_game_return_on_game_over(tmp_path):
     from training.sample_factory_common.latency_wrapper import (
-        ClipRewardWithRawInfoWrapper,
         EpisodeMetricsWrapper,
+        RewardTraceWrapper,
     )
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
-        ClipRewardWithRawInfoWrapper(_ScriptedAtariInfoEnv([(10.0, True, False, {"lives": 0})])),
+        RewardTraceWrapper(
+            _ScriptedAtariInfoEnv([(10.0, True, False, {"lives": 0})]),
+            learner_reward_fn=lambda raw_reward, info: float(np.sign(raw_reward)),
+        ),
         metrics_path=str(metrics_path),
     )
 
@@ -830,8 +898,8 @@ def test_episode_metrics_wrapper_emits_raw_full_game_return_on_game_over(tmp_pat
 
     assert info["is_true_episode_end"] is True
     assert info["episodic_raw_return"] == 10.0
-    assert info["episodic_clipped_return"] == 1.0
     assert info["episodic_return"] == 10.0
+    assert "episodic_clipped_return" not in info
 
 
 def test_episode_metrics_wrapper_accumulates_return_across_life_losses(tmp_path):
@@ -938,7 +1006,7 @@ def test_episode_metrics_wrapper_emits_flappy_timeout_and_issued_action_debug_me
     assert event["action/issued_flap_ratio"] == pytest.approx(1.0 / 3.0)
 
 
-def test_flappy_reward_trace_keeps_raw_and_transformed_returns_equal(tmp_path):
+def test_flappy_reward_trace_records_raw_return(tmp_path):
     import json
 
     from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, RewardTraceWrapper
@@ -961,13 +1029,13 @@ def test_flappy_reward_trace_keeps_raw_and_transformed_returns_equal(tmp_path):
     _, _, _, _, info = wrapped.step(0)
 
     assert info["episode_extra_stats"]["episode/raw_return"] == 2.0
-    assert info["episode_extra_stats"]["episode/clipped_return"] == 2.0
+    assert "episode/clipped_return" not in info["episode_extra_stats"]
     event = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert event["raw_return"] == 2.0
-    assert event["clipped_return"] == 2.0
+    assert "clipped_return" not in event
 
 
-def test_episode_metrics_aggregator_logs_raw_visible_metrics_with_clipped_debug_key(tmp_path):
+def test_episode_metrics_aggregator_logs_raw_visible_metrics(tmp_path):
     from training.sample_factory_common.episode_metrics import EpisodeMetricsAggregator
 
     aggregator = EpisodeMetricsAggregator(path=tmp_path / "episodes.jsonl", rolling_window=10)
@@ -975,7 +1043,6 @@ def test_episode_metrics_aggregator_logs_raw_visible_metrics_with_clipped_debug_
     payload = aggregator.process_event(
         {
             "return": 30.0,
-            "clipped_return": 2.0,
             "raw_return": 30.0,
             "length": 3,
             "raw_frames": 12,
@@ -992,8 +1059,7 @@ def test_episode_metrics_aggregator_logs_raw_visible_metrics_with_clipped_debug_
     assert payload["episode_train/rolling_mean_raw_return"] == 30.0
     assert payload["episode_train/cumulative_mean_return"] == 30.0
     assert payload["episode_train/cumulative_mean_raw_return"] == 30.0
-    assert payload["rollout/ep_clipped_rew_mean"] == 2.0
-    assert [key for key in payload if "clipped" in key] == ["rollout/ep_clipped_rew_mean"]
+    assert [key for key in payload if "clipped" in key] == []
 
 
 def test_episode_metrics_aggregator_logs_numeric_debug_metrics_and_omits_done_reason(tmp_path):
@@ -1005,7 +1071,6 @@ def test_episode_metrics_aggregator_logs_numeric_debug_metrics_and_omits_done_re
         {
             "return": 12.0,
             "raw_return": 12.0,
-            "clipped_return": 12.0,
             "length": 4,
             "raw_frames": 4,
             "terminated": False,
@@ -1115,7 +1180,6 @@ def test_sample_factory_non_batched_episode_patch_reports_raw_full_game_return()
             "episodic_return": 30.0,
             "episode_extra_stats": {
                 "episode/raw_return": 30.0,
-                "episode/clipped_return": 2.0,
                 "episode/return": 30.0,
             },
         },
@@ -1168,7 +1232,6 @@ def test_sample_factory_batched_episode_patch_accumulates_across_life_loss():
                 "is_true_episode_end": True,
                 "episode_extra_stats": {
                     "episode/raw_return": 10.0,
-                    "episode/clipped_return": 4.0,
                     "episode/return": 10.0,
                 },
             }
@@ -1242,7 +1305,6 @@ def test_sample_factory_batched_patch_forwards_episode_extra_raw_stats():
                 "is_true_episode_end": True,
                 "episode_extra_stats": {
                     "episode/raw_return": 30.0,
-                    "episode/clipped_return": 2.0,
                     "episode/return": 30.0,
                     "episode/label": "ignored",
                 },
@@ -1276,7 +1338,24 @@ def test_demon_attack_env_factory_patches_sample_factory_stats_in_worker_process
 
     env = integration.make_demon_attack_sf_env(
         integration.SF_ENV_NAME,
-        cfg=SimpleNamespace(),
+        cfg=SimpleNamespace(
+            env_fps=60,
+            obs_fps=15,
+            frame_stack=1,
+            latency_raw_frame_values="0",
+            latency_distribution_spec="",
+            latency_mode="episode_fixed",
+            latency_sampling_mode="uniform_all",
+            episodes_per_stage=10,
+            randomize_within_stage=False,
+            within_episode_change_interval=1,
+            within_episode_change_prob=1.0,
+            add_latency_info=False,
+            hold_policy="hold",
+            ordering_policy="latest_ready",
+            max_episode_steps=0,
+            episode_metrics_path="",
+        ),
         env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
     )
     try:
@@ -1301,13 +1380,14 @@ def test_demon_attack_reference_env_is_sample_factory_compatible(monkeypatch):
         env=integration.SF_ENV_NAME,
         env_gpu_actions=False,
         env_gpu_observations=False,
-        env_frameskip=1,
         seed=0,
-        action_repeat=4,
+        env_fps=60,
+        obs_fps=15,
         frame_stack=4,
         terminal_on_life_loss=True,
         clip_reward=True,
-        queue_latency_values="0",
+        latency_raw_frame_values="0",
+        latency_distribution_spec="",
         latency_mode="episode_fixed",
         latency_sampling_mode="uniform_all",
         episodes_per_stage=10,
@@ -1315,7 +1395,11 @@ def test_demon_attack_reference_env_is_sample_factory_compatible(monkeypatch):
         within_episode_change_interval=1,
         within_episode_change_prob=1.0,
         add_latency_info=False,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        max_pending_actions=None,
         max_episode_steps=0,
+        episode_metrics_path="",
     )
 
     env = integration.make_reference_env(cfg)
@@ -1348,13 +1432,12 @@ def test_flappy_cpu_render_reference_env_is_sample_factory_compatible(monkeypatc
             return _RenderedRgbEnv()
 
     monkeypatch.setattr(integration, "_ENVS_REGISTERED", False)
-    monkeypatch.setattr(integration, "_import_flappy_gymnasium", lambda: FakeFlappyGymnasium)
+    monkeypatch.setattr(integration.gym, "make", FakeFlappyGymnasium.make)
 
     cfg = SimpleNamespace(
         env=integration.SF_ENV_NAME,
         env_gpu_actions=False,
         env_gpu_observations=False,
-        env_frameskip=1,
         seed=0,
         gym_id="FlappyBird-v0",
         env_fps=30,
@@ -1373,7 +1456,7 @@ def test_flappy_cpu_render_reference_env_is_sample_factory_compatible(monkeypatc
         obs_resize="84,84",
         frame_stack=4,
         max_episode_steps=0,
-        queue_latency_values="0",
+        latency_raw_frame_values="0",
         latency_distribution_spec="",
         latency_mode="episode_fixed",
         latency_sampling_mode="uniform_all",
@@ -1445,7 +1528,6 @@ def test_deadly_corridor_prepare_eval_cfg_uses_synchronous_fps_when_base_is_asyn
 
     base_cfg = SimpleNamespace(
         fps=0,
-        env_frameskip=4,
         eval_deterministic=True,
         eval_raw_reward=False,
     )
@@ -1462,7 +1544,6 @@ def test_deadly_corridor_prepare_eval_cfg_keeps_positive_base_fps_synchronous():
 
     base_cfg = SimpleNamespace(
         fps=50,
-        env_frameskip=4,
         eval_deterministic=True,
         eval_raw_reward=False,
     )

@@ -296,7 +296,6 @@ def test_generic_patch_and_demon_attack_raw_patch_can_coexist(monkeypatch, insta
                 "is_true_episode_end": True,
                 "episode_extra_stats": {
                     "episode/raw_return": 50.0,
-                    "episode/clipped_return": 3.0,
                     "episode/return": 50.0,
                 },
             }
@@ -308,5 +307,5 @@ def test_generic_patch_and_demon_attack_raw_patch_can_coexist(monkeypatch, insta
     assert stats["reward"].tolist() == [50.0]
     assert stats["len"].tolist() == [2]
     assert stats["episode/raw_return"].tolist() == [50.0]
-    assert stats["episode/clipped_return"].tolist() == [3.0]
     assert stats["episode/return"].tolist() == [50.0]
+    assert "episode/clipped_return" not in stats

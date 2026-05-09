@@ -100,10 +100,13 @@ def test_build_env_adapter_rejects_unsupported_env_name():
         build_env_adapter(_config("unknown"), noop)
 
 
-def test_demon_attack_base_config_declares_action_repeat():
+def test_demon_attack_base_config_uses_clock_for_action_hold():
     config = load_config("configs/base/demon_attack.yaml")
 
-    assert config["env"]["action_repeat"] == 4
+    assert "action_repeat" not in config["env"]
+    assert config["env"]["env_fps"] == 60
+    assert config["env"]["obs_fps"] == 15
+    assert config["scheduler"]["hold_policy"] == "hold"
 
 
 def test_deadly_corridor_noop_action_supports_tuple_action_space():
@@ -214,13 +217,13 @@ def test_deadly_corridor_adapter_builds_prepared_eval_cfg_from_full_config(monke
         return SimpleNamespace(
             mode=base_cfg.mode,
             fps=0,
-            env_frameskip=base_cfg.env_frameskip,
-            eval_env_frameskip=base_cfg.env_frameskip,
+            env_frameskip=1,
+            eval_env_frameskip=1,
             frame_stack=base_cfg.frame_stack,
             eval_raw_reward=base_cfg.eval_raw_reward,
             disable_reward_scaling=True,
             max_episode_steps=base_cfg.max_episode_steps,
-            queue_latency_values="0",
+            latency_raw_frame_values="0",
             latency_mode="episode_fixed",
             latency_sampling_mode="uniform_all",
             no_render=True,
@@ -343,8 +346,8 @@ def test_deadly_corridor_openvla_env_does_not_require_sample_factory_checkpoint(
         return SimpleNamespace(
             mode=base_cfg.mode,
             fps=base_cfg.fps,
-            env_frameskip=base_cfg.env_frameskip,
-            eval_env_frameskip=base_cfg.env_frameskip,
+            env_frameskip=1,
+            eval_env_frameskip=1,
             frame_stack=base_cfg.frame_stack,
             res_w=base_cfg.res_w,
             res_h=base_cfg.res_h,
@@ -352,7 +355,7 @@ def test_deadly_corridor_openvla_env_does_not_require_sample_factory_checkpoint(
             eval_raw_reward=base_cfg.eval_raw_reward,
             disable_reward_scaling=True,
             max_episode_steps=base_cfg.max_episode_steps,
-            queue_latency_values="0",
+            latency_raw_frame_values="0",
             latency_mode="episode_fixed",
             latency_sampling_mode="uniform_all",
             no_render=True,
@@ -403,7 +406,6 @@ def test_deadly_corridor_openvla_env_does_not_require_sample_factory_checkpoint(
         {
             "env_id": "doom_deadly_corridor",
             "env_fps": 35,
-            "env_frameskip": 4,
             "frame_stack": 4,
             "res_w": 128,
             "res_h": 72,
@@ -416,8 +418,8 @@ def test_deadly_corridor_openvla_env_does_not_require_sample_factory_checkpoint(
     env = deadly_corridor.DeadlyCorridorEnvAdapter(config=config, noop_action=noop)
 
     assert captured["prepared_latency"] == 0
-    assert env.cfg.env_frameskip == 4
-    assert env.cfg.eval_env_frameskip == 4
+    assert env.cfg.env_frameskip == 1
+    assert env.cfg.eval_env_frameskip == 1
     assert env.frame_stack == 4
     assert env.cfg.frame_stack == 1
     assert env.cfg.fps == 35
@@ -426,14 +428,13 @@ def test_deadly_corridor_openvla_env_does_not_require_sample_factory_checkpoint(
     assert captured["doom_cfg"] is env.cfg
 
 
-def test_build_env_adapter_passes_demon_attack_action_repeat(monkeypatch):
+def test_build_env_adapter_does_not_pass_demon_attack_action_repeat(monkeypatch):
     from latency_bench.envs import demon_attack
 
     captured = {}
 
     class FakeDemonAttackEnvAdapter:
-        def __init__(self, *, action_repeat: int, **kwargs):
-            captured["action_repeat"] = action_repeat
+        def __init__(self, **kwargs):
             captured["kwargs"] = kwargs
 
     monkeypatch.setattr(
@@ -445,7 +446,6 @@ def test_build_env_adapter_passes_demon_attack_action_repeat(monkeypatch):
     config["env"].update(
         {
             "env_id": "ALE/DemonAttack-v5",
-            "action_repeat": 4,
             "screen_size": 84,
             "noop_max": 30,
             "terminal_on_life_loss": False,
@@ -459,7 +459,7 @@ def test_build_env_adapter_passes_demon_attack_action_repeat(monkeypatch):
     env = build_env_adapter(config, noop)
 
     assert isinstance(env, FakeDemonAttackEnvAdapter)
-    assert captured["action_repeat"] == 4
+    assert "action_repeat" not in captured["kwargs"]
 
 
 def test_demon_attack_latency_bench_eval_raw_reward_disables_clipping_and_keeps_life_loss_terminal(monkeypatch):
@@ -483,7 +483,6 @@ def test_demon_attack_latency_bench_eval_raw_reward_disables_clipping_and_keeps_
     config["env"].update(
         {
             "env_id": "ALE/DemonAttack-v5",
-            "action_repeat": 4,
             "screen_size": 84,
             "noop_max": 30,
             "terminal_on_life_loss": True,

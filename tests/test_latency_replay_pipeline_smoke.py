@@ -59,7 +59,6 @@ def _episode_record(
         "episode_return_env": episode_return,
         "episode_return": episode_return,
         "return_raw": None,
-        "return_clipped": None,
         "episode_length": episode_length,
         "mode": mode,
         "policy_id": "flappy_pi0",

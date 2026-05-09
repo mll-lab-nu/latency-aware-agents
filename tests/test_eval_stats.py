@@ -61,7 +61,6 @@ def test_extract_episode_return_defaults_to_env_return_before_legacy_or_raw():
         "episode_return_env": 3.0,
         "episode_return": 4.0,
         "return_raw": 30.0,
-        "return_clipped": 1.0,
     }
 
     assert extract_episode_return(record) == pytest.approx(3.0)

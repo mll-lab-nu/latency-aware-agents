@@ -11,6 +11,9 @@ import gymnasium as gym
 import numpy as np
 import torch
 
+from latency_bench.core.clock import EnvClock
+from latency_bench.core.latency_distribution import distribution_max_frame_latency, parse_latency_distribution
+from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from training.sample_factory_common.common import (
     env_instance_seed,
     maybe_set_cli_override,
@@ -25,7 +28,7 @@ from training.sample_factory_common.config_adapter import (
     build_common_sf_args,
 )
 from training.sample_factory_common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
-from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, QueueLatencyWrapper, RewardTraceWrapper
+from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper, EpisodeMetricsWrapper, RewardTraceWrapper
 from training.sample_factory_common.queue_eval import (
     evaluate_queue_latency_distribution,
     finish_queue_eval_wandb,
@@ -44,12 +47,40 @@ _ENVS_REGISTERED = False
 _MODELS_REGISTERED = False
 
 
-def _doom_raw_reward_from_scaled(transformed_reward: float, info: dict[str, Any], reward_scale: float) -> float:
+def _clock_from_cfg(cfg) -> EnvClock:
+    env_fps = getattr(cfg, "env_fps", None)
+    obs_fps = getattr(cfg, "obs_fps", None)
+    if env_fps is None or obs_fps is None:
+        raise ValueError("DeadlyCorridor Sample Factory requires env_fps and obs_fps")
+    return EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
+
+
+def _latency_distribution_spec_from_cfg(cfg):
+    raw = getattr(cfg, "latency_distribution_spec", None)
+    if raw is None or not str(raw).strip():
+        return None
+    return parse_latency_distribution(raw)
+
+
+def _latency_raw_frame_values_from_cfg(cfg) -> list[int]:
+    values = parse_int_list(getattr(cfg, "latency_raw_frame_values", "0"))
+    spec = _latency_distribution_spec_from_cfg(cfg)
+    if spec is not None:
+        values.append(distribution_max_frame_latency(spec))
+    return sorted({max(0, int(value)) for value in values}) or [0]
+
+
+def _force_doom_raw_frame_step_cfg(cfg) -> None:
+    maybe_set_cli_override(cfg, "env_frameskip", 1)
+    maybe_set_cli_override(cfg, "eval_env_frameskip", 1)
+
+
+def _doom_raw_reward_from_scaled(env_reward: float, info: dict[str, Any], reward_scale: float) -> float:
     if "raw_reward" in info:
         return float(info["raw_reward"])
     if reward_scale == 0.0:
-        return float(transformed_reward)
-    return float(transformed_reward) / float(reward_scale)
+        return float(env_reward)
+    return float(env_reward) / float(reward_scale)
 
 
 class DoomFrameStackWrapper(gym.Wrapper):
@@ -123,6 +154,8 @@ def make_latency_doom_env_from_spec(
     spec_to_use = copy.copy(spec)
     if bool(getattr(cfg, "disable_reward_scaling", False)):
         spec_to_use.reward_scaling = 1.0
+    _force_doom_raw_frame_step_cfg(cfg)
+    clock = _clock_from_cfg(cfg)
 
     env = sf_make_doom_env_from_spec(
         spec_to_use,
@@ -135,8 +168,8 @@ def make_latency_doom_env_from_spec(
     ensure_vizdoom_init_guard_installed(env, env_name=env_name, cfg=cfg, env_config=env_config)
     env = RewardTraceWrapper(
         env,
-        raw_reward_fn=lambda transformed_reward, info, scale=float(spec_to_use.reward_scaling): _doom_raw_reward_from_scaled(
-            transformed_reward,
+        raw_reward_fn=lambda env_reward, info, scale=float(spec_to_use.reward_scaling): _doom_raw_reward_from_scaled(
+            env_reward,
             info,
             scale,
         ),
@@ -148,16 +181,20 @@ def make_latency_doom_env_from_spec(
     if max_episode_steps > 0:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
 
-    latency_values = parse_int_list(getattr(cfg, "queue_latency_values", "0"))
+    latency_values = _latency_raw_frame_values_from_cfg(cfg)
     wrapper_seed = env_instance_seed(
         base_seed=int(getattr(cfg, "seed", 0) or 0),
         worker_index=int(getattr(env_config, "worker_index", 0) or 0),
         vector_index=int(getattr(env_config, "vector_index", 0) or 0),
         env_id=int(getattr(env_config, "env_id", 0) or 0),
     )
-    env = QueueLatencyWrapper(
+    env = ActionLatencyWrapper(
         env,
-        queue_latency_values=latency_values or [0],
+        latency_raw_frame_values=latency_values or [0],
+        env_fps=clock.env_fps,
+        obs_fps=clock.obs_fps,
+        hold_policy=getattr(cfg, "hold_policy", ActionHoldPolicy.HOLD.value),
+        ordering_policy=getattr(cfg, "ordering_policy", OrderingPolicy.LATEST_READY.value),
         latency_distribution_spec=getattr(cfg, "latency_distribution_spec", None) or None,
         latency_mode=getattr(cfg, "latency_mode", "episode_fixed"),
         latency_sampling_mode=getattr(cfg, "latency_sampling_mode", "uniform_all"),
@@ -167,13 +204,12 @@ def make_latency_doom_env_from_spec(
         within_episode_change_prob=float(getattr(cfg, "within_episode_change_prob", 1.0)),
         seed=wrapper_seed,
         env_reset_seed_base=wrapper_seed + 104729,
-        latency_info_keys=("queue_latency",),
         add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
         max_pending_actions=getattr(cfg, "max_pending_actions", None),
     )
     env = EpisodeMetricsWrapper(
         env,
-        frames_per_decision=int(getattr(cfg, "env_frameskip", 4) or 1),
+        frames_per_decision=clock.obs_stride_raw_frames,
         metrics_path=str(getattr(cfg, "episode_metrics_path", "") or ""),
         worker_index=int(getattr(env_config, "worker_index", 0) or 0),
         vector_index=int(getattr(env_config, "vector_index", 0) or 0),
@@ -223,7 +259,9 @@ def make_reference_env(cfg):
 
 def add_latency_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "train_eval"])
-    parser.add_argument("--queue-latency-values", type=str, default="0")
+    parser.add_argument("--env-fps", dest="env_fps", type=float, default=35)
+    parser.add_argument("--obs-fps", dest="obs_fps", type=float, default=8.75)
+    parser.add_argument("--latency-raw-frame-values", dest="latency_raw_frame_values", type=str, default="0")
     parser.add_argument("--latency-distribution-spec", dest="latency_distribution_spec", type=str, default="")
     parser.add_argument("--latency-mode", type=str, default="episode_fixed")
     parser.add_argument("--latency-sampling-mode", type=str, default="uniform_all")
@@ -233,9 +271,28 @@ def add_latency_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--within-episode-change-prob", type=float, default=1.0)
     parser.add_argument("--add-latency-info", type=str2bool, default=False)
     parser.add_argument("--max-pending-actions", dest="max_pending_actions", type=int)
+    parser.add_argument(
+        "--hold-policy",
+        dest="hold_policy",
+        type=str,
+        default=ActionHoldPolicy.HOLD.value,
+        choices=[item.value for item in ActionHoldPolicy],
+    )
+    parser.add_argument(
+        "--ordering-policy",
+        dest="ordering_policy",
+        type=str,
+        default=OrderingPolicy.LATEST_READY.value,
+        choices=[item.value for item in OrderingPolicy],
+    )
     parser.add_argument("--eval-episodes", type=int, default=20)
     parser.add_argument("--eval-parallel-envs", type=int, default=1)
-    parser.add_argument("--eval-queue-latency-values", type=str, default="0,1,2,3,4,5,10,15,40")
+    parser.add_argument(
+        "--eval-latency-raw-frame-values",
+        dest="eval_latency_raw_frame_values",
+        type=str,
+        default="0,1,2,3,4,5,10,15,40",
+    )
     parser.add_argument("--eval-max-steps", type=int, default=30000)
     parser.add_argument("--eval-raw-reward", action="store_true")
     parser.add_argument("--eval-deterministic", type=str2bool, default=True)
@@ -262,7 +319,10 @@ def parse_cfg(argv=None):
     add_doom_env_eval_args(parser)
     add_latency_args(parser)
     doom_override_defaults(parser)
-    return parse_full_cfg(parser, argv)
+    parser.set_defaults(env_frameskip=1, eval_env_frameskip=1)
+    cfg = parse_full_cfg(parser, argv)
+    _force_doom_raw_frame_step_cfg(cfg)
+    return cfg
 
 
 def _load_policy_state_dict(cfg, actor_critic, device: torch.device) -> None:
@@ -309,12 +369,12 @@ def _synchronous_eval_fps(base_cfg, default: int = 35) -> int:
 
 def _prepare_eval_cfg(base_cfg, latency_value: int):
     cfg = copy.deepcopy(base_cfg)
-    maybe_set_cli_override(cfg, "queue_latency_values", str(int(latency_value)))
+    maybe_set_cli_override(cfg, "latency_raw_frame_values", str(int(latency_value)))
     maybe_set_cli_override(cfg, "latency_mode", "episode_fixed")
     maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
     maybe_set_cli_override(cfg, "episodes_per_stage", int(10**9))
     maybe_set_cli_override(cfg, "randomize_within_stage", False)
-    maybe_set_cli_override(cfg, "eval_env_frameskip", int(cfg.env_frameskip))
+    _force_doom_raw_frame_step_cfg(cfg)
     maybe_set_cli_override(cfg, "num_envs", 1)
     maybe_set_cli_override(cfg, "no_render", True)
     maybe_set_cli_override(cfg, "save_video", False)
@@ -343,10 +403,10 @@ def evaluate_latency(base_cfg, latency_value: int) -> dict[str, Any]:
 
     cfg = _prepare_eval_cfg(base_cfg, latency_value)
     cfg = load_from_checkpoint(cfg)
-    cfg.queue_latency_values = str(int(latency_value))
+    cfg.latency_raw_frame_values = str(int(latency_value))
     cfg.latency_mode = "episode_fixed"
     cfg.latency_sampling_mode = "uniform_all"
-    cfg.eval_env_frameskip = cfg.env_frameskip
+    _force_doom_raw_frame_step_cfg(cfg)
     if int(getattr(cfg, "max_episode_steps", 0) or 0) <= 0:
         eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 0) or 0)
         if eval_max_steps > 0:
@@ -454,11 +514,14 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     env_cfg = config["env"]
     backend_cfg = config.get("backend", {})
     evaluation_cfg = config.get("evaluation", {})
+    scheduler_cfg = config.get("scheduler")
+    if not isinstance(scheduler_cfg, dict):
+        raise ValueError("scheduler must be a mapping for DeadlyCorridor Sample Factory")
     args = build_common_sf_args(config, sf_env_name=env_cfg.get("env_id", SF_ENV_NAME))
     if str(backend_cfg.get("run_mode", "train")).strip().lower() in {"eval", "train_eval"}:
         append_cli_arg(args, "--fps", env_cfg.get("env_fps", 35))
-    append_cli_arg(args, "--env_frameskip", env_cfg.get("env_frameskip", 4))
-    append_cli_arg(args, "--eval_env_frameskip", env_cfg.get("env_frameskip", 4))
+    append_cli_arg(args, "--env-fps", env_cfg["env_fps"])
+    append_cli_arg(args, "--obs-fps", env_cfg["obs_fps"])
     append_cli_arg(args, "--res_w", env_cfg.get("res_w", 128))
     append_cli_arg(args, "--res_h", env_cfg.get("res_h", 72))
     append_cli_arg(args, "--wide_aspect_ratio", env_cfg.get("wide_aspect_ratio", False))
@@ -469,6 +532,8 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--vizdoom_init_lock_max_wait_sec", env_cfg.get("vizdoom_init_lock_max_wait_sec"))
     append_cli_arg(args, "--vizdoom_init_retry_jitter_sec", env_cfg.get("vizdoom_init_retry_jitter_sec"))
     append_cli_arg(args, "--disable-reward-scaling", evaluation_cfg.get("eval_raw_reward", False))
+    append_cli_arg(args, "--hold-policy", scheduler_cfg["hold_policy"])
+    append_cli_arg(args, "--ordering-policy", scheduler_cfg["ordering_policy"])
     return args
 
 
@@ -505,7 +570,7 @@ def run_from_config(config: dict) -> int:
                         f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
                     )
                 else:
-                    latencies = parse_int_list(cfg.eval_queue_latency_values)
+                    latencies = parse_int_list(cfg.eval_latency_raw_frame_values)
                     for latency in latencies:
                         result = evaluate_latency(cfg, int(latency))
                         write_queue_eval_result(cfg, result)

@@ -12,9 +12,9 @@ from latency_bench.latency.profile import save_profile_manifest, write_latency_s
 from latency_bench.run import run_from_config
 
 
-@register_env_adapter("raw_clipped_return_test")
-def _build_raw_clipped_return_env(config: dict, noop_action: Action) -> EnvAdapter:
-    class RawClippedReturnEnv(DummyEnvAdapter):
+@register_env_adapter("raw_return_test")
+def _build_raw_return_env(config: dict, noop_action: Action) -> EnvAdapter:
+    class RawReturnEnv(DummyEnvAdapter):
         def step(self, action: Action) -> StepResult:
             result = super().step(action)
             info = dict(result.info)
@@ -22,7 +22,6 @@ def _build_raw_clipped_return_env(config: dict, noop_action: Action) -> EnvAdapt
                 info.update(
                     {
                         "episodic_raw_return": 123.0,
-                        "episodic_clipped_return": 2.0,
                     }
                 )
             return StepResult(
@@ -35,7 +34,7 @@ def _build_raw_clipped_return_env(config: dict, noop_action: Action) -> EnvAdapt
 
     env_cfg = config["env"]
     evaluation_cfg = config["evaluation"]
-    return RawClippedReturnEnv(
+    return RawReturnEnv(
         env_fps=float(env_cfg["env_fps"]),
         max_steps=int(evaluation_cfg["eval_max_steps"]),
         noop_action=noop_action,
@@ -122,7 +121,7 @@ def test_episode_metrics_log_evaluation_raw_fact_metadata(tmp_path: Path):
     assert metrics["episode_return_env"] == pytest.approx(3.0)
     assert metrics["episode_return"] == pytest.approx(3.0)
     assert metrics["return_raw"] is None
-    assert metrics["return_clipped"] is None
+    assert "return_clipped" not in metrics
     assert metrics["metadata"]["mode"] == "simulated"
     assert metrics["metadata"]["episode_seed"] == 7
     assert metrics["metadata"]["policy_id"] == "constant"
@@ -134,8 +133,8 @@ def test_episode_metrics_log_evaluation_raw_fact_metadata(tmp_path: Path):
     assert metrics["metadata"]["replay_host"] == "test_replay_host"
 
 
-def test_return_raw_and_clipped_are_only_from_explicit_info(tmp_path: Path):
-    config = _config(tmp_path, env_name="raw_clipped_return_test")
+def test_return_raw_is_only_from_explicit_info(tmp_path: Path):
+    config = _config(tmp_path, env_name="raw_return_test")
     run_from_config(config, write_summary=False)
 
     metrics = _read_jsonl(tmp_path / "episode_metrics.jsonl")[0]
@@ -143,7 +142,7 @@ def test_return_raw_and_clipped_are_only_from_explicit_info(tmp_path: Path):
     assert metrics["episode_return_env"] == pytest.approx(3.0)
     assert metrics["episode_return"] == pytest.approx(3.0)
     assert metrics["return_raw"] == pytest.approx(123.0)
-    assert metrics["return_clipped"] == pytest.approx(2.0)
+    assert "return_clipped" not in metrics
 
 
 def test_empirical_profile_metadata_is_logged(tmp_path: Path):

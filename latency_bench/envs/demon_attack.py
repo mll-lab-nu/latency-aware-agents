@@ -21,7 +21,6 @@ class DemonAttackEnvAdapter(EnvAdapter):
         noop_action: Action | None = None,
         screen_size: int = 84,
         noop_max: int = 30,
-        action_repeat: int = 1,
         terminal_on_life_loss: bool = False,
         clip_reward: bool = True,
         continue_life_loss_terminal: bool = False,
@@ -38,7 +37,6 @@ class DemonAttackEnvAdapter(EnvAdapter):
             env_id=env_id,
             screen_size=screen_size,
             noop_max=noop_max,
-            action_repeat=action_repeat,
             terminal_on_life_loss=terminal_on_life_loss,
             clip_reward=clip_reward,
             repeat_action_probability=repeat_action_probability,
@@ -47,7 +45,6 @@ class DemonAttackEnvAdapter(EnvAdapter):
         _validate_expected_action_meanings(self.gym_env, expected_action_meanings)
         self.env_id = env_id
         self.env_fps = float(env_fps)
-        self.action_repeat = int(action_repeat)
         self.frame_stack = int(frame_stack)
         self.noop_action = noop_action or Action(value=0, name="0", is_noop=True)
         self.continue_life_loss_terminal = bool(continue_life_loss_terminal)
@@ -266,7 +263,6 @@ def make_demon_attack_benchmark_env(
     env_id: str = "ALE/DemonAttack-v5",
     screen_size: int = 84,
     noop_max: int = 30,
-    action_repeat: int = 1,
     terminal_on_life_loss: bool = False,
     clip_reward: bool = True,
     repeat_action_probability: float = 0.0,
@@ -274,10 +270,6 @@ def make_demon_attack_benchmark_env(
 ) -> gym.Env:
     _register_ale()
     from stable_baselines3.common.atari_wrappers import AtariWrapper
-
-    action_repeat = int(action_repeat)
-    if action_repeat < 1:
-        raise ValueError("action_repeat must be >= 1")
 
     env = gym.make(
         env_id,
@@ -290,7 +282,7 @@ def make_demon_attack_benchmark_env(
     return AtariWrapper(
         env,
         noop_max=int(noop_max),
-        frame_skip=action_repeat,
+        frame_skip=1,
         screen_size=int(screen_size),
         terminal_on_life_loss=bool(terminal_on_life_loss),
         clip_reward=bool(clip_reward),

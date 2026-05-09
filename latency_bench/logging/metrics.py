@@ -21,7 +21,6 @@ def compute_episode_metrics(
     survival_steps = len(step_records)
     game_score = _extract_game_score(step_records)
     return_raw = _extract_explicit_return(step_records, _RAW_RETURN_KEYS)
-    return_clipped = _extract_explicit_return(step_records, _CLIPPED_RETURN_KEYS)
     latencies = [float(value) for value in latency_values_ms]
     return EpisodeMetrics(
         episode_id=episode_id,
@@ -29,7 +28,6 @@ def compute_episode_metrics(
         survival_steps=survival_steps,
         episode_return_env=episode_return_env,
         return_raw=return_raw,
-        return_clipped=return_clipped,
         game_score=game_score,
         mean_latency_ms=mean(latencies) if latencies else None,
         p90_latency_ms=_percentile(latencies, 90.0) if latencies else None,
@@ -56,12 +54,6 @@ _RAW_RETURN_KEYS = (
     "raw_return",
     "episodic_raw_return",
     "episode/raw_return",
-)
-_CLIPPED_RETURN_KEYS = (
-    "return_clipped",
-    "clipped_return",
-    "episodic_clipped_return",
-    "episode/clipped_return",
 )
 
 

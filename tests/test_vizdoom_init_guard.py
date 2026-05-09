@@ -175,9 +175,12 @@ def test_deadly_corridor_env_factory_installs_guard(monkeypatch):
 
     cfg = SimpleNamespace(
         disable_reward_scaling=False,
+        env_fps=35,
+        obs_fps=8.75,
         frame_stack=1,
         max_episode_steps=0,
-        queue_latency_values="0",
+        latency_raw_frame_values="0",
+        latency_distribution_spec="",
         latency_mode="episode_fixed",
         latency_sampling_mode="uniform_all",
         episodes_per_stage=10,
@@ -186,7 +189,9 @@ def test_deadly_corridor_env_factory_installs_guard(monkeypatch):
         within_episode_change_prob=1.0,
         seed=0,
         add_latency_info=False,
-        env_frameskip=4,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        max_pending_actions=None,
     )
     env_config = _env_config()
 

@@ -45,7 +45,6 @@ class EpisodeMetricsAggregator:
         self.latency_sum = 0.0
         self.return_window: deque[float] = deque(maxlen=self.rolling_window)
         self.raw_return_window: deque[float] = deque(maxlen=self.rolling_window)
-        self.clipped_return_window: deque[float] = deque(maxlen=self.rolling_window)
         self.length_window: deque[int] = deque(maxlen=self.rolling_window)
         self.raw_frames_window: deque[int] = deque(maxlen=self.rolling_window)
         self.latency_window: deque[int] = deque(maxlen=self.rolling_window)
@@ -56,12 +55,10 @@ class EpisodeMetricsAggregator:
     def process_event(self, event: dict[str, Any]) -> dict[str, Any]:
         raw_episode_return = float(event.get("raw_return", event["return"]))
         episode_return = raw_episode_return
-        clipped_episode_return = event.get("clipped_return")
-        clipped_episode_return = None if clipped_episode_return is None else float(clipped_episode_return)
         episode_length = int(event["length"])
         raw_frames = int(event["raw_frames"])
-        queue_latency = event.get("queue_latency")
-        queue_latency_value = float(queue_latency) if queue_latency is not None else None
+        latency_raw_frames = event.get("latency_raw_frames")
+        latency_raw_frame_value = float(latency_raw_frames) if latency_raw_frames is not None else None
 
         self.completed_episodes += 1
         self.completed_decision_steps += episode_length
@@ -70,17 +67,15 @@ class EpisodeMetricsAggregator:
         self.raw_return_sum += raw_episode_return
         self.length_sum += episode_length
         self.raw_frames_sum += raw_frames
-        if queue_latency_value is not None:
-            self.latency_sum += queue_latency_value
+        if latency_raw_frame_value is not None:
+            self.latency_sum += latency_raw_frame_value
 
         self.return_window.append(episode_return)
         self.raw_return_window.append(raw_episode_return)
-        if clipped_episode_return is not None:
-            self.clipped_return_window.append(clipped_episode_return)
         self.length_window.append(episode_length)
         self.raw_frames_window.append(raw_frames)
-        if queue_latency is not None:
-            self.latency_window.append(int(queue_latency))
+        if latency_raw_frames is not None:
+            self.latency_window.append(int(latency_raw_frames))
 
         rolling_raw_return = float(sum(self.raw_return_window) / len(self.raw_return_window))
         rolling_return = float(sum(self.return_window) / len(self.return_window))
@@ -121,14 +116,14 @@ class EpisodeMetricsAggregator:
         for key, value in event.items():
             if str(key).startswith("action/issued_") and isinstance(value, (int, float)):
                 payload[str(key)] = float(value)
-        if self.clipped_return_window:
-            payload["rollout/ep_clipped_rew_mean"] = float(
-                sum(self.clipped_return_window) / len(self.clipped_return_window)
+        if latency_raw_frames is not None:
+            payload["episode_train/latest_latency_raw_frames"] = int(latency_raw_frames)
+            payload["episode_train/rolling_mean_latency_raw_frames"] = float(
+                sum(self.latency_window) / len(self.latency_window)
             )
-        if queue_latency is not None:
-            payload["episode_train/latest_queue_latency"] = int(queue_latency)
-            payload["episode_train/rolling_mean_queue_latency"] = float(sum(self.latency_window) / len(self.latency_window))
-            payload["episode_train/cumulative_mean_queue_latency"] = float(self.latency_sum / self.completed_episodes)
+            payload["episode_train/cumulative_mean_latency_raw_frames"] = float(
+                self.latency_sum / self.completed_episodes
+            )
         return payload
 
     def _ensure_wandb(self):

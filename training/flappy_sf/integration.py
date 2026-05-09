@@ -30,8 +30,8 @@ from training.sample_factory_common.config_adapter import (
 )
 from training.sample_factory_common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
 from training.sample_factory_common.latency_wrapper import (
+    ActionLatencyWrapper,
     EpisodeMetricsWrapper,
-    RawFrameActionLatencyWrapper,
     RewardTraceWrapper,
 )
 from training.sample_factory_common.queue_eval import (
@@ -55,6 +55,11 @@ from sample_factory.train import run_rl
 SF_ENV_NAME = "latency_flappy"
 _ENVS_REGISTERED = False
 _TIMELIMIT_DIAGNOSTICS_PRINTED: set[tuple[int, int, int]] = set()
+
+
+def _force_sample_factory_raw_frame_step_cfg(cfg: Any) -> None:
+    setattr(cfg, "env_frameskip", 1)
+    setattr(cfg, "eval_env_frameskip", 1)
 
 
 
@@ -91,8 +96,8 @@ def _latency_distribution_spec_from_cfg(cfg: Any):
     return parse_latency_distribution(raw)
 
 
-def _frame_skip_values_from_cfg(cfg: Any) -> list[int]:
-    values = parse_int_list(getattr(cfg, "queue_latency_values", "0"))
+def _latency_raw_frame_values_from_cfg(cfg: Any) -> list[int]:
+    values = parse_int_list(getattr(cfg, "latency_raw_frame_values", "0"))
     spec = _latency_distribution_spec_from_cfg(cfg)
     if spec is not None:
         values.append(distribution_max_frame_latency(spec))
@@ -309,6 +314,7 @@ def make_flappy_sf_env(
     del render_mode
     ensure_sample_factory_episode_extra_stats_installed(env_name=SF_ENV_NAME)
     env_config = env_config or {}
+    _force_sample_factory_raw_frame_step_cfg(cfg)
     use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))
     obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
@@ -368,16 +374,16 @@ def make_flappy_sf_env(
     if max_episode_steps > 0:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
     env = RewardTraceWrapper(env)
-    latency_values = _frame_skip_values_from_cfg(cfg)
+    latency_values = _latency_raw_frame_values_from_cfg(cfg)
     wrapper_seed = env_instance_seed(
         base_seed=int(getattr(cfg, "seed", 0) or 0),
         worker_index=int(getattr(env_config, "worker_index", 0) or 0),
         vector_index=int(getattr(env_config, "vector_index", 0) or 0),
         env_id=int(getattr(env_config, "env_id", 0) or 0),
     )
-    env = RawFrameActionLatencyWrapper(
+    env = ActionLatencyWrapper(
         env,
-        queue_latency_values=latency_values or [0],
+        latency_raw_frame_values=latency_values or [0],
         env_fps=clock.env_fps,
         obs_fps=clock.obs_fps,
         hold_policy=getattr(cfg, "hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value),
@@ -391,7 +397,6 @@ def make_flappy_sf_env(
         within_episode_change_prob=float(getattr(cfg, "within_episode_change_prob", 1.0)),
         seed=wrapper_seed,
         env_reset_seed_base=wrapper_seed + 104729,
-        latency_info_keys=("queue_latency", "frame_skip", "latency_frame_skip"),
         add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
         max_pending_actions=getattr(cfg, "max_pending_actions", None),
     )
@@ -420,6 +425,7 @@ def make_reference_env(cfg):
     from sample_factory.algo.utils.make_env import make_env_func_batched
     from sample_factory.utils.attr_dict import AttrDict
 
+    _force_sample_factory_raw_frame_step_cfg(cfg)
     register_flappy_envs()
     return make_env_func_batched(
         cfg,
@@ -462,7 +468,7 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--debug-timelimit-diagnostics", dest="debug_timelimit_diagnostics", type=str2bool, default=False)
     parser.add_argument("--max_episode_steps", type=int, default=0)
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "train_eval"])
-    parser.add_argument("--queue-latency-values", type=str, default="0")
+    parser.add_argument("--latency-raw-frame-values", dest="latency_raw_frame_values", type=str, default="0")
     parser.add_argument("--latency-distribution-spec", dest="latency_distribution_spec", type=str, default="")
     parser.add_argument("--latency-mode", type=str, default="episode_fixed")
     parser.add_argument("--latency-sampling-mode", type=str, default="uniform_all")
@@ -488,7 +494,12 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--eval-episodes", type=int, default=20)
     parser.add_argument("--eval-parallel-envs", type=int, default=1)
-    parser.add_argument("--eval-queue-latency-values", type=str, default="0,1,2,3,4,5")
+    parser.add_argument(
+        "--eval-latency-raw-frame-values",
+        dest="eval_latency_raw_frame_values",
+        type=str,
+        default="0,1,2,3,4,5",
+    )
     parser.add_argument("--eval-max-steps", type=int, default=30000)
     parser.add_argument("--eval-deterministic", type=str2bool, default=True)
     parser.add_argument("--eval-raw-reward", action="store_true")
@@ -515,7 +526,9 @@ def parse_cfg(argv=None, evaluation: bool = False):
     parser, _ = parse_sf_args(argv=argv, evaluation=evaluation)
     add_flappy_env_args(parser)
     flappy_override_defaults(parser)
-    return parse_full_cfg(parser, argv)
+    cfg = parse_full_cfg(parser, argv)
+    _force_sample_factory_raw_frame_step_cfg(cfg)
+    return cfg
 
 
 def build_cli_args_from_config(config: dict) -> list[str]:
@@ -588,7 +601,7 @@ def run_from_config(config: dict) -> int:
                         f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
                     )
                 else:
-                    latencies = parse_int_list(cfg.eval_queue_latency_values)
+                    latencies = parse_int_list(cfg.eval_latency_raw_frame_values)
                     for latency in latencies:
                         result = evaluate_queue_latency(cfg, int(latency))
                         write_queue_eval_result(cfg, result)

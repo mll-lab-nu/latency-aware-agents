@@ -74,7 +74,6 @@ def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
 
     for key in (
         "seed",
-        "env_frameskip",
         "res_w",
         "res_h",
         "wide_aspect_ratio",
@@ -90,12 +89,12 @@ def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
         if eval_max_steps > 0:
             maybe_set_cli_override(cfg, "max_episode_steps", eval_max_steps)
 
-    env_frameskip = int(getattr(cfg, "env_frameskip", getattr(base_cfg, "env_frameskip", 4)) or 1)
     maybe_set_cli_override(cfg, "mode", "eval")
-    maybe_set_cli_override(cfg, "queue_latency_values", "0")
+    maybe_set_cli_override(cfg, "latency_raw_frame_values", "0")
     maybe_set_cli_override(cfg, "latency_mode", "episode_fixed")
     maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
-    maybe_set_cli_override(cfg, "eval_env_frameskip", env_frameskip)
+    maybe_set_cli_override(cfg, "env_frameskip", 1)
+    maybe_set_cli_override(cfg, "eval_env_frameskip", 1)
     maybe_set_cli_override(cfg, "num_envs", 1)
     maybe_set_cli_override(cfg, "no_render", True)
     maybe_set_cli_override(cfg, "save_video", False)

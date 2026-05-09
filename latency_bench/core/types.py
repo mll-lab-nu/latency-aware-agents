@@ -145,7 +145,6 @@ class EpisodeMetrics:
     survival_steps: int
     episode_return_env: float | None = None
     return_raw: float | None = None
-    return_clipped: float | None = None
     game_score: float | None = None
     mean_latency_ms: float | None = None
     p90_latency_ms: float | None = None

@@ -56,7 +56,6 @@ class _PidReportingSfEnv(gym.Env):
             "slot_idx": self.slot_idx,
             "worker_env_pid": os.getpid(),
             "raw_reward": float(self.slot_idx + 1),
-            "transformed_reward": 1.0,
         }
         return obs, 1.0, False, False, info
 
@@ -66,18 +65,19 @@ def _demon_cfg(**overrides):
         "env": "latency_demon_attack",
         "env_gpu_actions": False,
         "env_gpu_observations": False,
-        "env_frameskip": 1,
         "seed": 0,
         "env_id": "ALE/DemonAttack-v5",
+        "env_fps": 60,
+        "obs_fps": 15,
         "screen_size": 84,
         "noop_max": 0,
-        "action_repeat": 1,
         "frame_stack": 1,
         "terminal_on_life_loss": True,
         "clip_reward": True,
         "repeat_action_probability": 0.0,
         "full_action_space": False,
-        "queue_latency_values": "0",
+        "latency_raw_frame_values": "0",
+        "latency_distribution_spec": "",
         "latency_mode": "episode_fixed",
         "latency_sampling_mode": "uniform_all",
         "episodes_per_stage": 10,
@@ -85,6 +85,9 @@ def _demon_cfg(**overrides):
         "within_episode_change_interval": 1,
         "within_episode_change_prob": 1.0,
         "add_latency_info": False,
+        "hold_policy": "hold",
+        "ordering_policy": "latest_ready",
+        "max_pending_actions": None,
         "max_episode_steps": 0,
         "episode_metrics_path": "",
     }
@@ -111,7 +114,7 @@ def test_demon_attack_queue_eval_vector_env_n1_matches_sample_factory_single_env
     monkeypatch.setattr(integration, "_ENVS_REGISTERED", False)
     monkeypatch.setattr(integration, "make_demon_attack_benchmark_env", make_scripted_env)
 
-    cfg = _demon_cfg()
+    cfg = _demon_cfg(obs_fps=60)
     old_env = integration.make_reference_env(cfg)
     new_env = DemonAttackQueueEvalVectorEnv(cfg=cfg, num_slots=1)
     try:
@@ -141,7 +144,8 @@ def test_demon_attack_queue_eval_vector_env_n1_matches_sample_factory_single_env
         assert old_infos[0]["is_true_episode_end"] is True
         assert new_infos[0]["is_true_episode_end"] is True
         assert old_infos[0]["episodic_raw_return"] == new_infos[0]["episodic_raw_return"] == 2.5
-        assert old_infos[0]["episodic_clipped_return"] == new_infos[0]["episodic_clipped_return"] == 2.0
+        assert "episodic_clipped_return" not in old_infos[0]
+        assert "episodic_clipped_return" not in new_infos[0]
         assert "reset_info" in old_infos[0]
         assert old_infos == new_infos
     finally:
@@ -185,9 +189,9 @@ def test_demon_attack_queue_eval_vector_env_manual_life_loss_reset_preserves_ful
         assert truncated.tolist() == [False]
         assert infos[0]["is_true_episode_end"] is True
         assert infos[0]["episodic_raw_return"] == 3.0
-        assert infos[0]["episodic_clipped_return"] == 2.0
+        assert "episodic_clipped_return" not in infos[0]
         assert infos[0]["episode_extra_stats"]["episode/raw_return"] == 3.0
-        assert infos[0]["episode_extra_stats"]["episode/clipped_return"] == 2.0
+        assert "episode/clipped_return" not in infos[0]["episode_extra_stats"]
         assert infos[0]["episode_extra_stats"]["episode/length"] == 2
         assert scripted_env.reset_seeds == [500, 104730]
     finally:

@@ -15,8 +15,8 @@ from modeling.flappy_ppo.preprocessing import FlappyPpoTorchObservationPipeline
 from training.flappy_ppo.paths import ensure_flappy_gymnasium_on_path
 from training.sample_factory_common.common import parse_int_list
 from training.sample_factory_common.latency_wrapper import (
+    ActionLatencyWrapper,
     EpisodeMetricsWrapper,
-    RawFrameActionLatencyWrapper,
     RewardTraceWrapper,
 )
 
@@ -156,11 +156,11 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
         env = RewardTraceWrapper(env)
 
-        latency_values = self._frame_skip_values()
+        latency_values = self._latency_raw_frame_values()
         sub_seed = self._sub_seed(agent_idx)
-        env = RawFrameActionLatencyWrapper(
+        env = ActionLatencyWrapper(
             env,
-            queue_latency_values=latency_values or [0],
+            latency_raw_frame_values=latency_values or [0],
             env_fps=self.clock.env_fps,
             obs_fps=self.clock.obs_fps,
             hold_policy=getattr(self.cfg, "hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value),
@@ -174,7 +174,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             within_episode_change_prob=float(getattr(self.cfg, "within_episode_change_prob", 1.0)),
             seed=sub_seed,
             env_reset_seed_base=sub_seed + 104729,
-            latency_info_keys=("queue_latency", "frame_skip", "latency_frame_skip"),
             add_latency_info=bool(getattr(self.cfg, "add_latency_info", False)),
             max_pending_actions=getattr(self.cfg, "max_pending_actions", None),
         )
@@ -189,8 +188,8 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         )
         return env
 
-    def _frame_skip_values(self) -> list[int]:
-        values = parse_int_list(getattr(self.cfg, "queue_latency_values", "0"))
+    def _latency_raw_frame_values(self) -> list[int]:
+        values = parse_int_list(getattr(self.cfg, "latency_raw_frame_values", "0"))
         raw_spec = getattr(self.cfg, "latency_distribution_spec", None)
         if raw_spec is not None and str(raw_spec).strip():
             values.append(distribution_max_frame_latency(parse_latency_distribution(raw_spec)))
@@ -209,7 +208,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         with self.gpu_render_profiler.time("reset_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
             with self.gpu_render_profiler.time("pipeline_s"):
-                obs = self.pipeline.reset(raw_rgb, frame_skips=self._frame_skips(infos))
+                obs = self.pipeline.reset(raw_rgb, frame_skips=self._latency_raw_frames(infos))
         self._has_reset = True
         self._last_observation_infos = [dict(info) for info in infos]
         return self._obs(obs), infos
@@ -253,7 +252,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 obs = self.pipeline.reset_indices(
                     raw_rgb,
                     reset_mask=reset_mask,
-                    frame_skips=self._frame_skips(infos),
+                    frame_skips=self._latency_raw_frames(infos),
                 )
         return self._obs(obs), infos
 
@@ -300,7 +299,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 obs = self.pipeline.step(
                     raw_rgb,
                     dones=np.logical_or(terminated, truncated),
-                    frame_skips=self._frame_skips(observation_infos),
+                    frame_skips=self._latency_raw_frames(observation_infos),
                     active_mask=self._active_agents,
                 )
         self.gpu_render_profiler.observe_step()
@@ -375,10 +374,10 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         return out
 
     @staticmethod
-    def _frame_skips(infos: Sequence[dict[str, Any]]) -> np.ndarray:
+    def _latency_raw_frames(infos: Sequence[dict[str, Any]]) -> np.ndarray:
         values = []
         for info in infos:
-            values.append(int(info.get("frame_skip", info.get("latency_frame_skip", info.get("queue_latency", 0)))))
+            values.append(int(info.get("latency_raw_frames", 0)))
         return np.asarray(values, dtype=np.int64)
 
     def close(self):

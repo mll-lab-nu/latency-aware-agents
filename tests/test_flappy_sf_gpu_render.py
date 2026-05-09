@@ -26,7 +26,7 @@ def _flappy_gpu_cfg(**overrides):
         "obs_resize": "84,84",
         "frame_stack": 4,
         "max_episode_steps": 0,
-        "queue_latency_values": "0",
+        "latency_raw_frame_values": "0",
         "latency_mode": "episode_fixed",
         "latency_sampling_mode": "uniform_all",
         "episodes_per_stage": 10,
@@ -178,12 +178,12 @@ def test_flappy_sf_gpu_render_auto_resets_on_done():
         assert infos[0]["episode_extra_stats"].keys() >= {
             "episode/return",
             "episode/raw_return",
-            "episode/clipped_return",
             "episode/length",
             "episode/raw_frames",
             "episode/index",
-            "episode/queue_latency",
+            "episode/latency_raw_frames",
         }
+        assert "episode/clipped_return" not in infos[0]["episode_extra_stats"]
     finally:
         env.close()
 
@@ -235,12 +235,12 @@ def test_flappy_sf_gpu_render_auto_reset_resets_only_done_agent_frame_stack():
         assert infos[0]["episode_extra_stats"].keys() >= {
             "episode/return",
             "episode/raw_return",
-            "episode/clipped_return",
             "episode/length",
             "episode/raw_frames",
             "episode/index",
-            "episode/queue_latency",
+            "episode/latency_raw_frames",
         }
+        assert "episode/clipped_return" not in infos[0]["episode_extra_stats"]
 
         stack = env.pipeline.current_frame_stack
         assert stack is not None

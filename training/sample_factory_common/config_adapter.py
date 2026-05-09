@@ -17,6 +17,21 @@ ENV_INTEGRATIONS = {
 }
 
 CHECKPOINT_KINDS = {"latest", "best"}
+REMOVED_SAMPLE_FACTORY_KEYS = (
+    "action_repeat",
+    "env_frameskip",
+    "queue_latency_values",
+    "eval_queue_latency_values",
+    "frame_skip",
+    "latency_frame_skip",
+)
+REMOVED_SAMPLE_FACTORY_FLAGS = (
+    "--action_repeat",
+    "--env_frameskip",
+    "--eval_env_frameskip",
+    "--queue-latency-values",
+    "--eval-queue-latency-values",
+)
 
 
 def _list_to_csv(value: Any) -> str:
@@ -161,9 +176,58 @@ def validate_training_config(config: dict[str, Any]) -> None:
             f"Unsupported env.name for Sample Factory backend: {env_name}. "
             f"Supported envs: {sorted(ENV_INTEGRATIONS)}"
         )
+    _validate_no_removed_sample_factory_fields(config)
+    _validate_sample_factory_clock_and_scheduler(config)
     _validate_latency_training_config(latency_cfg)
     if env_name == "flappy":
         _validate_flappy_sf_config(config)
+
+
+def _validate_no_removed_sample_factory_fields(config: dict[str, Any]) -> None:
+    for key in REMOVED_SAMPLE_FACTORY_KEYS:
+        key_path = _find_key_path(config, key)
+        if key_path is not None:
+            raise ValueError(
+                f"{key_path} is no longer supported for Sample Factory latency semantics; "
+                "configure env.env_fps, env.obs_fps, scheduler, and latency.train_values instead"
+            )
+
+    backend_cfg = config.get("backend", {})
+    extra_args = backend_cfg.get("extra_args", ()) if isinstance(backend_cfg, dict) else ()
+    extra_arg_text = [str(item) for item in (extra_args or ())]
+    for flag in REMOVED_SAMPLE_FACTORY_FLAGS:
+        if any(item == flag or item.startswith(f"{flag}=") for item in extra_arg_text):
+            raise ValueError(
+                f"backend.extra_args contains removed flag {flag}; "
+                "use the shared latency config instead"
+            )
+
+
+def _validate_sample_factory_clock_and_scheduler(config: dict[str, Any]) -> None:
+    env_cfg = config["env"]
+    env_fps = _require_positive_float(env_cfg, "env_fps", "env.env_fps")
+    obs_fps = _require_positive_float(env_cfg, "obs_fps", "env.obs_fps")
+    try:
+        EnvClock(env_fps=env_fps, obs_fps=obs_fps)
+    except ValueError as exc:
+        raise ValueError(f"env.env_fps/env.obs_fps invalid: {exc}") from exc
+
+    scheduler_cfg = config.get("scheduler")
+    if not isinstance(scheduler_cfg, dict):
+        raise ValueError("scheduler must be a mapping for Sample Factory")
+    unsupported_scheduler_keys = set(scheduler_cfg) - {"hold_policy", "ordering_policy"}
+    if unsupported_scheduler_keys:
+        raise ValueError("scheduler contains unsupported fields; use only ['hold_policy', 'ordering_policy']")
+    _validate_enum_value(
+        scheduler_cfg.get("hold_policy"),
+        ActionHoldPolicy,
+        "scheduler.hold_policy",
+    )
+    _validate_enum_value(
+        scheduler_cfg.get("ordering_policy"),
+        OrderingPolicy,
+        "scheduler.ordering_policy",
+    )
 
 
 def _validate_latency_training_config(latency_cfg: dict[str, Any]) -> None:
@@ -202,31 +266,6 @@ def _validate_flappy_sf_config(config: dict[str, Any]) -> None:
         )
 
     env_cfg = config["env"]
-    env_fps = _require_positive_float(env_cfg, "env_fps", "env.env_fps")
-    obs_fps = _require_positive_float(env_cfg, "obs_fps", "env.obs_fps")
-    try:
-        EnvClock(env_fps=env_fps, obs_fps=obs_fps)
-    except ValueError as exc:
-        raise ValueError(f"env.env_fps/env.obs_fps invalid: {exc}") from exc
-
-    scheduler_cfg = config.get("scheduler")
-    if not isinstance(scheduler_cfg, dict):
-        raise ValueError("scheduler must be a mapping for Flappy Sample Factory")
-    unsupported_scheduler_keys = set(scheduler_cfg) - {"hold_policy", "ordering_policy"}
-    if unsupported_scheduler_keys:
-        raise ValueError(
-            "scheduler contains unsupported fields; use only ['hold_policy', 'ordering_policy']"
-        )
-    _validate_enum_value(
-        scheduler_cfg.get("hold_policy"),
-        ActionHoldPolicy,
-        "scheduler.hold_policy",
-    )
-    _validate_enum_value(
-        scheduler_cfg.get("ordering_policy"),
-        OrderingPolicy,
-        "scheduler.ordering_policy",
-    )
 
     obs_resize = env_cfg.get("obs_resize")
     if obs_resize is not None:
@@ -331,7 +370,7 @@ def _parse_actor_worker_gpus_config(value: Any) -> list[int] | None:
 
 def _require_positive_float(mapping: dict[str, Any], key: str, field_name: str) -> float:
     if key not in mapping:
-        raise ValueError(f"{field_name} is required for Flappy Sample Factory")
+        raise ValueError(f"{field_name} is required for Sample Factory")
     try:
         value = float(mapping[key])
     except (TypeError, ValueError) as exc:
@@ -343,7 +382,7 @@ def _require_positive_float(mapping: dict[str, Any], key: str, field_name: str) 
 
 def _validate_enum_value(value: Any, enum_type, field_name: str) -> None:
     if value is None:
-        raise ValueError(f"{field_name} is required for Flappy Sample Factory")
+        raise ValueError(f"{field_name} is required for Sample Factory")
     normalized = value if isinstance(value, enum_type) else str(value).strip().lower()
     try:
         enum_type(normalized)
@@ -528,7 +567,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
             ]
         )
     elif "train_values" in latency_cfg:
-        append_cli_arg(args, "--queue-latency-values", latency_cfg.get("train_values"))
+        append_cli_arg(args, "--latency-raw-frame-values", latency_cfg.get("train_values"))
     append_cli_arg(args, "--latency-mode", latency_cfg.get("train_mode", "episode_fixed"))
     append_cli_arg(args, "--latency-sampling-mode", latency_cfg.get("train_sampling_mode", "uniform_all"))
     append_cli_arg(args, "--episodes-per-stage", latency_cfg.get("episodes_per_stage"))
@@ -540,7 +579,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
 
     append_cli_arg(args, "--eval-episodes", evaluation_cfg.get("eval_episodes"))
     append_cli_arg(args, "--eval-parallel-envs", evaluation_cfg.get("eval_parallel_envs"))
-    append_cli_arg(args, "--eval-queue-latency-values", evaluation_cfg.get("eval_latency_values"))
+    append_cli_arg(args, "--eval-latency-raw-frame-values", evaluation_cfg.get("eval_latency_values"))
     append_cli_arg(args, "--eval-max-steps", evaluation_cfg.get("eval_max_steps"))
     append_cli_arg(args, "--eval-deterministic", evaluation_cfg.get("eval_deterministic", True))
     if evaluation_cfg.get("eval_raw_reward"):
