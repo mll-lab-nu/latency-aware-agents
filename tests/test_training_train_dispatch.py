@@ -39,6 +39,5 @@ def test_training_train_keeps_sample_factory_integration_dispatch(monkeypatch):
     module = SimpleNamespace(run_from_config=lambda config: 17)
 
     monkeypatch.setattr(train_entry, "import_integration_module", lambda config: module)
-    monkeypatch.setattr(train_entry, "validate_training_config", lambda config: None)
 
     assert train_entry.run_from_config(cfg) == 17

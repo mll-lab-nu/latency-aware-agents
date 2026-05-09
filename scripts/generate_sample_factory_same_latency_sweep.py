@@ -19,7 +19,6 @@ from latency_bench.core.latency_distribution import (
     latency_distribution_label,
     parse_latency_distribution,
 )
-from training.sample_factory_common.config_adapter import validate_training_config
 
 GENERATED_ROOT = REPO_ROOT / "configs" / "generated" / "sample_factory_same_latency_sweep"
 
@@ -255,7 +254,6 @@ def _build_full_run_config(
     training_cfg = config.setdefault("training", {})
     if train_for_env_steps is not None:
         training_cfg["train_for_env_steps"] = int(train_for_env_steps)
-    validate_training_config(config)
     return config
 
 

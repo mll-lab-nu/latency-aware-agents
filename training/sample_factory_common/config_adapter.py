@@ -6,32 +6,13 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import parse_latency_distribution
-from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 
 ENV_INTEGRATIONS = {
     "deadly_corridor": "training.deadly_corridor_sf.integration",
     "demon_attack": "training.demon_attack_sf.integration",
     "flappy": "training.flappy_sf.integration",
 }
-
-CHECKPOINT_KINDS = {"latest", "best"}
-REMOVED_SAMPLE_FACTORY_KEYS = (
-    "action_repeat",
-    "env_frameskip",
-    "queue_latency_values",
-    "eval_queue_latency_values",
-    "frame_skip",
-    "latency_frame_skip",
-)
-REMOVED_SAMPLE_FACTORY_FLAGS = (
-    "--action_repeat",
-    "--env_frameskip",
-    "--eval_env_frameskip",
-    "--queue-latency-values",
-    "--eval-queue-latency-values",
-)
 
 
 def _list_to_csv(value: Any) -> str:
@@ -43,10 +24,7 @@ def _list_to_csv(value: Any) -> str:
 
 
 def normalize_checkpoint_kind(checkpoint_kind: str) -> str:
-    normalized = str(checkpoint_kind).strip().lower()
-    if normalized not in CHECKPOINT_KINDS:
-        raise ValueError("checkpoint kind must be 'latest' or 'best'")
-    return normalized
+    return str(checkpoint_kind).strip().lower()
 
 
 def apply_checkpoint_kind_override(backend_cfg: dict[str, Any], checkpoint_kind: str) -> None:
@@ -69,12 +47,6 @@ def apply_checkpoint_kind_override(backend_cfg: dict[str, Any], checkpoint_kind:
     backend_cfg["extra_args"] = filtered_args
 
 
-def load_training_config(path: str | Path) -> dict[str, Any]:
-    config = _load_training_config_unvalidated(Path(path))
-    validate_training_config(config)
-    return config
-
-
 def _merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged = deepcopy(base)
     for key, value in override.items():
@@ -87,14 +59,12 @@ def _merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, An
     return merged
 
 
-def _load_training_config_unvalidated(path: Path) -> dict[str, Any]:
+def load_training_config(path: Path) -> dict[str, Any]:
     import yaml
 
     path = path.expanduser().resolve()
     with path.open("r", encoding="utf-8") as handle:
         current = yaml.safe_load(handle) or {}
-    if not isinstance(current, dict):
-        raise ValueError(f"Config must be a mapping: {path}")
 
     base_ref = current.get("__base__")
     if not base_ref:
@@ -102,17 +72,15 @@ def _load_training_config_unvalidated(path: Path) -> dict[str, Any]:
 
     if isinstance(base_ref, (str, Path)):
         base_paths = [base_ref]
-    elif isinstance(base_ref, list):
-        base_paths = base_ref
     else:
-        raise ValueError("__base__ must be a path string or list of path strings")
+        base_paths = base_ref
 
     merged: dict[str, Any] = {}
     for base_item in base_paths:
         base_path = Path(base_item)
         if not base_path.is_absolute():
             base_path = path.parent / base_path
-        merged = _merge_dicts(merged, _load_training_config_unvalidated(base_path))
+        merged = _merge_dicts(merged, load_training_config(base_path))
 
     return _merge_dicts(merged, current)
 
@@ -143,216 +111,6 @@ def apply_training_overrides(
     return updated
 
 
-def validate_training_config(config: dict[str, Any]) -> None:
-    experiment_cfg = config.get("experiment")
-    if not isinstance(experiment_cfg, dict):
-        raise ValueError("experiment must be a mapping for Sample Factory training")
-    if not str(experiment_cfg.get("name", "")).strip():
-        raise ValueError("experiment.name must be a non-empty string")
-    backend_cfg = config.get("backend")
-    if not isinstance(backend_cfg, dict):
-        raise ValueError("backend must be a mapping for Sample Factory training")
-    backend_type = str(backend_cfg.get("type", "")).strip().lower()
-    if backend_type != "sample_factory":
-        raise ValueError("backend.type must be 'sample_factory' for training.train")
-    env_cfg = config.get("env")
-    if not isinstance(env_cfg, dict):
-        raise ValueError("env must be a mapping for Sample Factory training")
-    latency_cfg = config.get("latency")
-    if not isinstance(latency_cfg, dict):
-        raise ValueError("latency must be a mapping for Sample Factory training")
-    training_cfg = config.get("training")
-    if not isinstance(training_cfg, dict):
-        raise ValueError("training must be a mapping for Sample Factory training")
-    evaluation_cfg = config.get("evaluation")
-    if evaluation_cfg is not None and not isinstance(evaluation_cfg, dict):
-        raise ValueError("evaluation must be a mapping when provided")
-    logging_cfg = config.get("logging")
-    if logging_cfg is not None and not isinstance(logging_cfg, dict):
-        raise ValueError("logging must be a mapping when provided")
-    env_name = str(env_cfg.get("name", "")).strip().lower()
-    if env_name not in ENV_INTEGRATIONS:
-        raise ValueError(
-            f"Unsupported env.name for Sample Factory backend: {env_name}. "
-            f"Supported envs: {sorted(ENV_INTEGRATIONS)}"
-        )
-    _validate_no_removed_sample_factory_fields(config)
-    _validate_sample_factory_clock_and_scheduler(config)
-    _validate_latency_training_config(latency_cfg)
-    if env_name == "flappy":
-        _validate_flappy_sf_config(config)
-
-
-def _validate_no_removed_sample_factory_fields(config: dict[str, Any]) -> None:
-    for key in REMOVED_SAMPLE_FACTORY_KEYS:
-        key_path = _find_key_path(config, key)
-        if key_path is not None:
-            raise ValueError(
-                f"{key_path} is no longer supported for Sample Factory latency semantics; "
-                "configure env.env_fps, env.obs_fps, scheduler, and latency.train_values instead"
-            )
-
-    backend_cfg = config.get("backend", {})
-    extra_args = backend_cfg.get("extra_args", ()) if isinstance(backend_cfg, dict) else ()
-    extra_arg_text = [str(item) for item in (extra_args or ())]
-    for flag in REMOVED_SAMPLE_FACTORY_FLAGS:
-        if any(item == flag or item.startswith(f"{flag}=") for item in extra_arg_text):
-            raise ValueError(
-                f"backend.extra_args contains removed flag {flag}; "
-                "use the shared latency config instead"
-            )
-
-
-def _validate_sample_factory_clock_and_scheduler(config: dict[str, Any]) -> None:
-    env_cfg = config["env"]
-    env_fps = _require_positive_float(env_cfg, "env_fps", "env.env_fps")
-    obs_fps = _require_positive_float(env_cfg, "obs_fps", "env.obs_fps")
-    try:
-        EnvClock(env_fps=env_fps, obs_fps=obs_fps)
-    except ValueError as exc:
-        raise ValueError(f"env.env_fps/env.obs_fps invalid: {exc}") from exc
-
-    scheduler_cfg = config.get("scheduler")
-    if not isinstance(scheduler_cfg, dict):
-        raise ValueError("scheduler must be a mapping for Sample Factory")
-    unsupported_scheduler_keys = set(scheduler_cfg) - {"hold_policy", "ordering_policy"}
-    if unsupported_scheduler_keys:
-        raise ValueError("scheduler contains unsupported fields; use only ['hold_policy', 'ordering_policy']")
-    _validate_enum_value(
-        scheduler_cfg.get("hold_policy"),
-        ActionHoldPolicy,
-        "scheduler.hold_policy",
-    )
-    _validate_enum_value(
-        scheduler_cfg.get("ordering_policy"),
-        OrderingPolicy,
-        "scheduler.ordering_policy",
-    )
-
-
-def _validate_latency_training_config(latency_cfg: dict[str, Any]) -> None:
-    has_distribution = latency_cfg.get("train_distribution") is not None
-    train_values = latency_cfg.get("train_values")
-    has_train_values = train_values is not None and not (
-        isinstance(train_values, (list, tuple)) and len(train_values) == 0
-    )
-    if has_distribution and has_train_values:
-        raise ValueError("latency.train_values and latency.train_distribution are mutually exclusive")
-    if has_distribution:
-        parse_latency_distribution(latency_cfg["train_distribution"])
-
-    if "within_episode_change_interval" in latency_cfg:
-        try:
-            interval = int(latency_cfg["within_episode_change_interval"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("latency.within_episode_change_interval must be a positive integer") from exc
-        if interval < 1:
-            raise ValueError("latency.within_episode_change_interval must be >= 1")
-    if "within_episode_change_prob" in latency_cfg:
-        try:
-            probability = float(latency_cfg["within_episode_change_prob"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("latency.within_episode_change_prob must be a number in [0, 1]") from exc
-        if not 0.0 <= probability <= 1.0:
-            raise ValueError("latency.within_episode_change_prob must be in [0, 1]")
-
-
-def _validate_flappy_sf_config(config: dict[str, Any]) -> None:
-    screen_size_path = _find_key_path(config, "screen_size")
-    if screen_size_path is not None:
-        raise ValueError(
-            f"{screen_size_path} is not supported for Flappy Sample Factory; "
-            "use env.obs_resize to resize observations without changing env geometry"
-        )
-
-    env_cfg = config["env"]
-
-    obs_resize = env_cfg.get("obs_resize")
-    if obs_resize is not None:
-        _parse_obs_resize_config(obs_resize)
-
-    profile_interval = env_cfg.get("gpu_render_profile_interval")
-    if profile_interval is not None:
-        try:
-            profile_interval_int = int(profile_interval)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("env.gpu_render_profile_interval must be a positive integer") from exc
-        if profile_interval_int <= 0:
-            raise ValueError("env.gpu_render_profile_interval must be a positive integer")
-
-    if _config_bool(env_cfg.get("use_gpu_render", False)):
-        training_cfg = config["training"]
-        try:
-            original_num_envs_per_worker = int(training_cfg.get("num_envs_per_worker", 0) or 0)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("training.num_envs_per_worker must be a positive integer when env.use_gpu_render=true") from exc
-        if original_num_envs_per_worker < 1:
-            raise ValueError("training.num_envs_per_worker must be >= 1 when env.use_gpu_render=true")
-        try:
-            worker_num_splits = int(training_cfg.get("worker_num_splits", 1) or 1)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("training.worker_num_splits must be 1 when env.use_gpu_render=true") from exc
-        if worker_num_splits != 1:
-            raise ValueError("training.worker_num_splits must be 1 when env.use_gpu_render=true")
-        if "batched_sampling" in config["training"] and not _config_bool(config["training"].get("batched_sampling")):
-            raise ValueError("training.batched_sampling must be true when env.use_gpu_render=true")
-        if obs_resize is None:
-            raise ValueError("env.obs_resize is required when env.use_gpu_render=true for Flappy Sample Factory")
-        height, width = _parse_obs_resize_config(obs_resize)
-        if height != width:
-            raise ValueError("env.obs_resize must be square when env.use_gpu_render=true for Flappy Sample Factory")
-        gpu_render_device = str(env_cfg.get("gpu_render_device", "auto") or "auto").strip().lower()
-        if not (gpu_render_device in {"auto", "cpu", "cuda"} or gpu_render_device.startswith("cuda:")):
-            raise ValueError("env.gpu_render_device must be 'auto', 'cpu', 'cuda', or a cuda device string")
-        actor_worker_gpus = _parse_actor_worker_gpus_config(config["backend"].get("actor_worker_gpus"))
-        if gpu_render_device != "cpu" and actor_worker_gpus == []:
-            raise ValueError(
-                "backend.actor_worker_gpus must be omitted or non-empty when Flappy GPU rendering uses CUDA"
-            )
-
-
-def _find_key_path(value: Any, target_key: str, prefix: str = "") -> str | None:
-    if isinstance(value, dict):
-        for key, item in value.items():
-            path = f"{prefix}.{key}" if prefix else str(key)
-            if str(key) == target_key:
-                return path
-            found = _find_key_path(item, target_key, path)
-            if found is not None:
-                return found
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            found = _find_key_path(item, target_key, f"{prefix}[{index}]")
-            if found is not None:
-                return found
-    return None
-
-
-def _parse_obs_resize_config(value: Any) -> tuple[int, int]:
-    if isinstance(value, str):
-        parts = [item.strip() for item in value.split(",") if item.strip()]
-    elif isinstance(value, (list, tuple)):
-        parts = list(value)
-    else:
-        raise ValueError("env.obs_resize must be [height, width] for Flappy Sample Factory")
-    if len(parts) != 2:
-        raise ValueError("env.obs_resize must contain exactly two positive integers: [height, width]")
-    height, width = (int(parts[0]), int(parts[1]))
-    if height <= 0 or width <= 0:
-        raise ValueError("env.obs_resize height and width must be positive")
-    return height, width
-
-
-def _config_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    if isinstance(value, (int, float)):
-        return bool(value)
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _parse_actor_worker_gpus_config(value: Any) -> list[int] | None:
     if value is None:
         return None
@@ -361,43 +119,14 @@ def _parse_actor_worker_gpus_config(value: Any) -> list[int] | None:
         if not stripped:
             return []
         parts = stripped.replace(",", " ").split()
-    elif isinstance(value, (list, tuple)):
-        parts = list(value)
     else:
-        raise ValueError("backend.actor_worker_gpus must be a list of GPU indices")
+        parts = list(value)
     return [int(item) for item in parts]
-
-
-def _require_positive_float(mapping: dict[str, Any], key: str, field_name: str) -> float:
-    if key not in mapping:
-        raise ValueError(f"{field_name} is required for Sample Factory")
-    try:
-        value = float(mapping[key])
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field_name} must be a positive number") from exc
-    if value <= 0:
-        raise ValueError(f"{field_name} must be positive")
-    return value
-
-
-def _validate_enum_value(value: Any, enum_type, field_name: str) -> None:
-    if value is None:
-        raise ValueError(f"{field_name} is required for Sample Factory")
-    normalized = value if isinstance(value, enum_type) else str(value).strip().lower()
-    try:
-        enum_type(normalized)
-    except ValueError as exc:
-        allowed = ", ".join(repr(item.value) for item in enum_type)
-        raise ValueError(f"{field_name} must be one of [{allowed}]") from exc
 
 
 def estimate_optimizer_steps_per_1m_env_steps(training_cfg: dict[str, Any]) -> float:
     batch_size = int(training_cfg.get("batch_size", 0) or 0)
     num_epochs = int(training_cfg.get("num_epochs", 0) or 0)
-    if batch_size <= 0:
-        raise ValueError("training.batch_size must be positive to estimate optimizer update ratio")
-    if num_epochs <= 0:
-        raise ValueError("training.num_epochs must be positive to estimate optimizer update ratio")
     return 1_000_000.0 * float(num_epochs) / float(batch_size)
 
 
@@ -445,10 +174,7 @@ def append_cli_multi_value_arg(args: list[str], flag: str, values: Any) -> None:
     args.extend(str(item) for item in parsed)
 
 
-def apply_runtime_logging_config(sf_cfg: Any, logging_cfg: dict[str, Any] | None) -> None:
-    if not isinstance(logging_cfg, dict):
-        return
-
+def apply_runtime_logging_config(sf_cfg: Any, logging_cfg: dict[str, Any]) -> None:
     output_dir = logging_cfg.get("output_dir")
     if output_dir:
         sf_cfg.output_dir = str(output_dir)
@@ -477,26 +203,16 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--restart_behavior", backend_cfg.get("restart_behavior", "overwrite"))
     append_cli_arg(args, "--device", backend_cfg.get("device", "cpu"))
     env_cfg = config.get("env", {})
-    use_gpu_render = _config_bool(env_cfg.get("use_gpu_render", False))
+    use_gpu_render = env_cfg.get("use_gpu_render", False)
     gpu_render_device = str(env_cfg.get("gpu_render_device", "auto") or "auto").strip().lower()
     actor_worker_gpus = backend_cfg.get("actor_worker_gpus")
     if use_gpu_render and gpu_render_device != "cpu" and actor_worker_gpus is None:
         actor_worker_gpus = [0]
-    elif use_gpu_render and gpu_render_device != "cpu" and _parse_actor_worker_gpus_config(actor_worker_gpus) == []:
-        raise ValueError("backend.actor_worker_gpus must be omitted or non-empty when Flappy GPU rendering uses CUDA")
     append_cli_multi_value_arg(args, "--actor_worker_gpus", actor_worker_gpus)
     if use_gpu_render:
         append_cli_arg(args, "--env_gpu_observations", gpu_render_device != "cpu")
         append_cli_arg(args, "--env_gpu_actions", False)
-        original_num_envs_per_worker = int(training_cfg.get("num_envs_per_worker", 0) or 0)
-        if original_num_envs_per_worker < 1:
-            raise ValueError("training.num_envs_per_worker must be >= 1 when env.use_gpu_render=true")
-        try:
-            worker_num_splits = int(training_cfg.get("worker_num_splits", 1) or 1)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("training.worker_num_splits must be 1 when env.use_gpu_render=true") from exc
-        if worker_num_splits != 1:
-            raise ValueError("training.worker_num_splits must be 1 when env.use_gpu_render=true")
+        original_num_envs_per_worker = int(training_cfg["num_envs_per_worker"])
         append_cli_arg(args, "--gpu-render-batch-size", original_num_envs_per_worker)
     append_cli_arg(args, "--seed", experiment_cfg.get("seed", 0))
     if backend_cfg.get("train_dir") and experiment_cfg.get("name"):

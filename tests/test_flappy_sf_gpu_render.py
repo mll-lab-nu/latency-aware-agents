@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from latency_bench.core.config import load_config
-from training.sample_factory_common.config_adapter import load_training_config, validate_training_config
+from training.sample_factory_common.config_adapter import load_training_config
 
 
 def _flappy_gpu_cfg(**overrides):
@@ -532,40 +532,7 @@ def test_flappy_gpu_render_config_maps_timelimit_diagnostics_arg():
     assert args[args.index("--debug-timelimit-diagnostics") + 1] == "True"
 
 
-def test_flappy_gpu_render_validation_requires_square_obs_resize():
-    cfg = load_training_config("configs/experiments/flappy/sf_zero_latency.yaml")
-    cfg["env"]["use_gpu_render"] = True
-    cfg["env"]["gpu_render_device"] = "cpu"
-    cfg["env"]["obs_resize"] = [84, 96]
-    cfg["training"]["worker_num_splits"] = 1
-
-    with pytest.raises(ValueError, match="square"):
-        validate_training_config(cfg)
-
-
-def test_flappy_gpu_render_validation_rejects_explicit_non_batched_sampling():
-    cfg = load_training_config("configs/experiments/flappy/sf_zero_latency.yaml")
-    cfg["env"]["use_gpu_render"] = True
-    cfg["env"]["gpu_render_device"] = "cpu"
-    cfg["training"]["worker_num_splits"] = 1
-    cfg["training"]["batched_sampling"] = False
-
-    with pytest.raises(ValueError, match="batched_sampling"):
-        validate_training_config(cfg)
-
-
-def test_flappy_gpu_render_validation_rejects_worker_splits_not_one():
-    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
-    cfg["env"]["use_gpu_render"] = True
-    cfg["env"]["gpu_render_device"] = "cpu"
-    cfg["training"]["num_envs_per_worker"] = 4
-    cfg["training"]["worker_num_splits"] = 2
-
-    with pytest.raises(ValueError, match="worker_num_splits"):
-        validate_training_config(cfg)
-
-
-def test_flappy_gpu_render_cli_rejects_worker_splits_not_one_without_remap():
+def test_flappy_gpu_render_cli_keeps_worker_splits_without_validation():
     from training.flappy_sf.integration import build_cli_args_from_config
 
     cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
@@ -574,13 +541,9 @@ def test_flappy_gpu_render_cli_rejects_worker_splits_not_one_without_remap():
     cfg["training"]["num_envs_per_worker"] = 4
     cfg["training"]["worker_num_splits"] = 2
 
-    with pytest.raises(ValueError, match="worker_num_splits"):
-        build_cli_args_from_config(cfg)
+    args = build_cli_args_from_config(cfg)
 
+    assert args[args.index("--gpu-render-batch-size") + 1] == "4"
+    assert args[args.index("--num_envs_per_worker") + 1] == "1"
+    assert args[args.index("--worker_num_splits") + 1] == "2"
 
-def test_flappy_gpu_render_validation_rejects_non_positive_profile_interval():
-    cfg = load_training_config("configs/experiments/flappy/sf_zero_latency.yaml")
-    cfg["env"]["gpu_render_profile_interval"] = 0
-
-    with pytest.raises(ValueError, match="gpu_render_profile_interval"):
-        validate_training_config(cfg)

@@ -24,7 +24,6 @@ from training.sample_factory_common.config_adapter import (
     apply_training_overrides,
     build_common_sf_args,
     load_training_config,
-    validate_training_config,
 )
 
 
@@ -270,23 +269,6 @@ def test_flappy_sf_resize_does_not_change_env_screen_size():
     assert base_env.screen_size == (288, 512)
 
 
-def test_flappy_sf_rejects_screen_size_config():
-    cfg = load_training_config("configs/experiments/flappy/sf_zero_latency.yaml")
-    cfg["env"]["screen_size"] = [84, 84]
-
-    with pytest.raises(ValueError, match="env\\.obs_resize"):
-        validate_training_config(cfg)
-
-
-def test_flappy_sf_rejects_non_integer_obs_stride():
-    cfg = load_config("configs/base/flappy.yaml")
-    cfg["env"]["env_fps"] = 60
-    cfg["env"]["obs_fps"] = 17
-
-    with pytest.raises(ValueError, match="integer multiple"):
-        validate_training_config(cfg)
-
-
 def test_flappy_sf_native_eval_uses_same_obs_resize(tmp_path, monkeypatch):
     _patch_flappy_base_config(tmp_path, monkeypatch, worker_num_splits=1)
 
@@ -381,21 +363,22 @@ def test_flappy_sf_sweep_config_preserves_gpu_render_fields(tmp_path, monkeypatc
     assert eval_cfg["training"]["worker_num_splits"] == full_cfg["training"]["worker_num_splits"] == 1
 
 
-def test_flappy_sf_sweep_config_rejects_gpu_worker_splits_without_rewrite(tmp_path, monkeypatch):
+def test_flappy_sf_sweep_config_preserves_gpu_worker_splits_without_validation(tmp_path, monkeypatch):
     _patch_flappy_base_config(tmp_path, monkeypatch, worker_num_splits=2)
 
-    with pytest.raises(ValueError, match="worker_num_splits"):
-        _build_full_run_config(
-            env_name="flappy",
-            seed=0,
-            latency=0,
-            max_steps=1800,
-            train_dir="/workspace/sample_factory_runs",
-            output_root="/workspace/latency_sweeps",
-            device="gpu",
-            restart_behavior="resume",
-            train_for_env_steps=None,
-        )
+    cfg = _build_full_run_config(
+        env_name="flappy",
+        seed=0,
+        latency=0,
+        max_steps=1800,
+        train_dir="/workspace/sample_factory_runs",
+        output_root="/workspace/latency_sweeps",
+        device="gpu",
+        restart_behavior="resume",
+        train_for_env_steps=None,
+    )
+
+    assert cfg["training"]["worker_num_splits"] == 2
 
 
 def test_flappy_sf_shape_mismatch_fails_fast():
@@ -440,23 +423,6 @@ def test_common_sf_args_passes_latency_distribution_without_train_values():
     spec_index = args.index("--latency-distribution-spec") + 1
     assert args[spec_index] == '{"max":15,"min":0,"type":"uniform"}'
     assert args[args.index("--latency-mode") + 1] == "within_episode_random"
-
-
-def test_training_config_rejects_train_values_with_train_distribution():
-    config = {
-        "experiment": {"name": "dist_run", "seed": 3},
-        "backend": {"type": "sample_factory", "train_dir": "runs", "run_mode": "train"},
-        "env": {"name": "demon_attack", "env_fps": 60, "obs_fps": 15},
-        "latency": {
-            "train_values": [0],
-            "train_distribution": {"type": "uniform", "min": 0, "max": 15},
-        },
-        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
-        "training": {"train_for_env_steps": 100, "num_workers": 1, "num_envs_per_worker": 1, "batch_size": 1},
-    }
-
-    with pytest.raises(ValueError, match="train_values.*train_distribution"):
-        validate_training_config(config)
 
 
 def test_action_latency_wrapper_exposes_fixed_non_zero_latency():
