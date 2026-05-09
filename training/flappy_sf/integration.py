@@ -6,6 +6,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Optional
 
+import flappy_bird_gymnasium
 import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box, Dict as GymDict
@@ -42,22 +43,6 @@ _ENVS_REGISTERED = False
 _TIMELIMIT_DIAGNOSTICS_PRINTED: set[tuple[int, int, int]] = set()
 
 
-def _import_flappy_gymnasium():
-    try:
-        import flappy_bird_gymnasium  # noqa: F401
-        import gymnasium
-
-        return gymnasium
-    except ImportError:
-        repo_root = Path(__file__).resolve().parents[2]
-        flappy_root = repo_root / "flappy-bird-gymnasium"
-        if flappy_root.exists() and str(flappy_root) not in sys.path:
-            sys.path.insert(0, str(flappy_root))
-        import flappy_bird_gymnasium  # noqa: F401
-        import gymnasium
-
-        return gymnasium
-
 
 def parse_obs_resize(value: Any) -> tuple[int, int] | None:
     if value in (None, ""):
@@ -89,12 +74,6 @@ def _frame_skip_values_from_cfg(cfg: Any) -> list[int]:
     if spec is not None:
         values.append(distribution_max_frame_latency(spec))
     return sorted({max(0, int(value)) for value in values}) or [0]
-
-
-def _final_obs_shape(single_frame_shape: tuple[int, int, int], frame_stack: int) -> tuple[int, int, int]:
-    channels, height, width = single_frame_shape
-    stacked_channels = int(channels) * int(frame_stack)
-    return stacked_channels, int(height), int(width)
 
 
 def _format_shape(shape: tuple[int, ...]) -> str:
@@ -307,7 +286,6 @@ def make_flappy_sf_env(
     del render_mode
     ensure_sample_factory_episode_extra_stats_installed(env_name=SF_ENV_NAME)
     env_config = env_config or {}
-    gymnasium = _import_flappy_gymnasium()
     use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))
     obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
@@ -357,7 +335,7 @@ def make_flappy_sf_env(
     score_limit = getattr(cfg, "score_limit", None)
     if score_limit not in (None, "", 0, -1):
         kwargs["score_limit"] = int(score_limit)
-    env = gymnasium.make(getattr(cfg, "gym_id", "FlappyBird-v0"), **kwargs)
+    env = gym.make(getattr(cfg, "gym_id", "FlappyBird-v0"), **kwargs)
     if not use_gpu_render:
         env = FlappyImageObsWrapper(env, obs_resize=obs_resize)
         if frame_stack > 1:
