@@ -8,6 +8,28 @@ from typing import Any
 
 
 _PATCHED = False
+_FILTERED_TENSORBOARD_PREFIXES = ("len/", "policy_stats/", "reward/", "stats/")
+
+
+class _FilteredSummaryWriter:
+    def __init__(self, wrapped_writer: Any):
+        self._wrapped_writer = wrapped_writer
+
+    def add_scalar(self, tag: str, *args: Any, **kwargs: Any):
+        if tag.startswith(_FILTERED_TENSORBOARD_PREFIXES):
+            return None
+        return self._wrapped_writer.add_scalar(tag, *args, **kwargs)
+
+    def __getattr__(self, name: str):
+        return getattr(self._wrapped_writer, name)
+
+
+def _filtered_summary_writer_class(summary_writer_class: Any):
+    class FilteredSummaryWriter(_FilteredSummaryWriter):
+        def __init__(self, *args: Any, **kwargs: Any):
+            super().__init__(summary_writer_class(*args, **kwargs))
+
+    return FilteredSummaryWriter
 
 
 def _normalize_tags(value: Any) -> list[str] | None:
@@ -101,10 +123,6 @@ def patch_sample_factory_wandb() -> None:
         wandb.define_metric("train/env_steps")
         wandb.define_metric("train/*", step_metric="train/env_steps")
         wandb.define_metric("perf/*", step_metric="train/env_steps")
-        wandb.define_metric("len/*", step_metric="train/env_steps")
-        wandb.define_metric("policy_stats/*", step_metric="train/env_steps")
-        wandb.define_metric("reward/*", step_metric="train/env_steps")
-        wandb.define_metric("stats/*", step_metric="train/env_steps")
 
     def finish_wandb(cfg):
         if not getattr(cfg, "with_wandb", False):
@@ -120,6 +138,7 @@ def patch_sample_factory_wandb() -> None:
     try:
         import sample_factory.algo.runners.runner as sf_runner
 
+        sf_runner.SummaryWriter = _filtered_summary_writer_class(sf_runner.SummaryWriter)
         sf_runner.init_wandb = init_wandb
     except Exception:
         pass

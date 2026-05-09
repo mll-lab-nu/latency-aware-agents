@@ -1043,9 +1043,9 @@ def test_episode_metrics_aggregator_logs_numeric_debug_metrics_and_omits_done_re
     )
 
     assert payload["episode/length"] == 4
-    assert payload["episode/terminated_rate"] == 0.0
-    assert payload["episode/truncated_rate"] == 1.0
-    assert payload["episode/timeout_rate"] == 1.0
+    assert "episode/terminated_rate" not in payload
+    assert "episode/truncated_rate" not in payload
+    assert "episode/timeout_rate" not in payload
     assert payload["episode/return_per_step"] == 3.0
     assert payload["episode/score"] == 3.0
     assert payload["action/issued_flap_ratio"] == 0.25

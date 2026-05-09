@@ -102,9 +102,6 @@ class EpisodeMetricsAggregator:
             "episode_train/cumulative_mean_length": float(self.length_sum / self.completed_episodes),
             "episode_train/cumulative_mean_raw_frames": float(self.raw_frames_sum / self.completed_episodes),
             "episode/length": int(episode_length),
-            "episode/terminated_rate": float(bool(event.get("terminated", False))),
-            "episode/truncated_rate": float(bool(event.get("truncated", False))),
-            "episode/timeout_rate": float(bool(event.get("timeout", event.get("truncated", False)))),
             "episode/return_per_step": (
                 float(raw_episode_return) / float(episode_length) if episode_length > 0 else 0.0
             ),
