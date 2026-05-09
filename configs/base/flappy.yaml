@@ -29,6 +29,7 @@ env:
   obs_resize:
     - 84
     - 84
+  # for training it could be true, but for realtime mode, THIS MUST BE FALSE!
   use_gpu_render: true
   gpu_render_device: auto
   gpu_render_profile: false
