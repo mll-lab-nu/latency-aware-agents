@@ -9,7 +9,6 @@ import numpy as np
 from gymnasium.spaces import Box
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.latency_distribution import distribution_max_frame_latency, parse_latency_distribution
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from latency_bench.envs.demon_attack import make_demon_attack_benchmark_env
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
@@ -23,6 +22,10 @@ from training.sample_factory_common.latency_wrapper import (
     ActionLatencyWrapper,
     EpisodeMetricsWrapper,
     RewardTraceWrapper,
+)
+from training.sample_factory_common.latency_config import (
+    sample_factory_latency_params_from_flat_config,
+    sample_factory_latency_seed_from_flat_config,
 )
 from training.sample_factory_common.queue_eval import (
     evaluate_queue_latency,
@@ -54,21 +57,6 @@ def _clock_from_cfg(cfg) -> EnvClock:
     if env_fps is None or obs_fps is None:
         raise ValueError("DemonAttack Sample Factory requires env_fps and obs_fps")
     return EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
-
-
-def _latency_distribution_spec_from_cfg(cfg):
-    raw = getattr(cfg, "latency_distribution_spec", None)
-    if raw is None or not str(raw).strip():
-        return None
-    return parse_latency_distribution(raw)
-
-
-def _latency_raw_frame_values_from_cfg(cfg) -> list[int]:
-    values = parse_int_list(getattr(cfg, "latency_raw_frame_values", "0"))
-    spec = _latency_distribution_spec_from_cfg(cfg)
-    if spec is not None:
-        values.append(distribution_max_frame_latency(spec))
-    return sorted({max(0, int(value)) for value in values}) or [0]
 
 
 class AtariObsFormatWrapper(gym.ObservationWrapper):
@@ -159,28 +147,29 @@ def make_demon_attack_sf_env(
         env = RewardTraceWrapper(env, learner_reward_fn=lambda raw_reward, info: float(np.sign(raw_reward)))
     else:
         env = RewardTraceWrapper(env)
-    latency_values = _latency_raw_frame_values_from_cfg(cfg)
     wrapper_seed = env_instance_seed(
         base_seed=int(getattr(cfg, "seed", 0) or 0),
         worker_index=int(getattr(env_config, "worker_index", 0) or 0),
         vector_index=int(getattr(env_config, "vector_index", 0) or 0),
         env_id=int(getattr(env_config, "env_id", 0) or 0),
     )
+    latency_seed = sample_factory_latency_seed_from_flat_config(
+        cfg,
+        fallback_seed=wrapper_seed,
+        worker_index=int(getattr(env_config, "worker_index", 0) or 0),
+        vector_index=int(getattr(env_config, "vector_index", 0) or 0),
+        env_id=int(getattr(env_config, "env_id", 0) or 0),
+    )
+    latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=clock.env_fps)
     env = ActionLatencyWrapper(
         env,
-        latency_raw_frame_values=latency_values or [0],
+        fixed_latency_raw_frames=latency_params.fixed_latency_raw_frames,
         env_fps=clock.env_fps,
         obs_fps=clock.obs_fps,
         hold_policy=getattr(cfg, "hold_policy", ActionHoldPolicy.HOLD.value),
         ordering_policy=getattr(cfg, "ordering_policy", OrderingPolicy.LATEST_READY.value),
-        latency_distribution_spec=getattr(cfg, "latency_distribution_spec", None) or None,
-        latency_mode=getattr(cfg, "latency_mode", "episode_fixed"),
-        latency_sampling_mode=getattr(cfg, "latency_sampling_mode", "uniform_all"),
-        episodes_per_stage=int(getattr(cfg, "episodes_per_stage", 10)),
-        randomize_within_stage=bool(getattr(cfg, "randomize_within_stage", False)),
-        within_episode_change_interval=int(getattr(cfg, "within_episode_change_interval", 1)),
-        within_episode_change_prob=float(getattr(cfg, "within_episode_change_prob", 1.0)),
-        seed=wrapper_seed,
+        latency_distribution_spec=latency_params.latency_distribution_spec,
+        seed=latency_seed,
         env_reset_seed_base=wrapper_seed + 104729,
         add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
         max_pending_actions=getattr(cfg, "max_pending_actions", None),
@@ -232,14 +221,13 @@ def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--full_action_space", type=str2bool, default=False)
     parser.add_argument("--max_episode_steps", type=int, default=0)
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "train_eval"])
-    parser.add_argument("--latency-raw-frame-values", dest="latency_raw_frame_values", type=str, default="0")
-    parser.add_argument("--latency-distribution-spec", dest="latency_distribution_spec", type=str, default="")
-    parser.add_argument("--latency-mode", type=str, default="episode_fixed")
-    parser.add_argument("--latency-sampling-mode", type=str, default="uniform_all")
-    parser.add_argument("--episodes-per-stage", type=int, default=10)
-    parser.add_argument("--randomize-within-stage", type=str2bool, default=False)
-    parser.add_argument("--within-episode-change-interval", type=int, default=1)
-    parser.add_argument("--within-episode-change-prob", type=float, default=1.0)
+    parser.add_argument("--latency-type", dest="latency_type", type=str, default="zero")
+    parser.add_argument("--fixed-latency-ms", dest="fixed_latency_ms", type=float)
+    parser.add_argument("--mean-latency-ms", dest="mean_latency_ms", type=float)
+    parser.add_argument("--std-latency-ms", dest="std_latency_ms", type=float)
+    parser.add_argument("--min-latency-ms", dest="min_latency_ms", type=float)
+    parser.add_argument("--max-latency-ms", dest="max_latency_ms", type=float)
+    parser.add_argument("--latency-seed", dest="latency_seed", type=int)
     parser.add_argument("--add-latency-info", type=str2bool, default=False)
     parser.add_argument("--max-pending-actions", dest="max_pending_actions", type=int)
     parser.add_argument(

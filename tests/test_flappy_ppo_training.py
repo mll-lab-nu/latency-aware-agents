@@ -87,7 +87,7 @@ def test_sync_flappy_batch_reset_returns_full_size_raw_rgb_and_skips_env_render(
     envs = SyncFlappyBatch(
         n_envs=1,
         seed=0,
-        frame_skip_values=(0,),
+        fixed_frame_skip=0,
         device="cpu",
     )
     try:

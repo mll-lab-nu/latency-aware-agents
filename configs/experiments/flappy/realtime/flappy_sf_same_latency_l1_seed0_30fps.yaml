@@ -38,7 +38,6 @@ env:
   - flap
 latency:
   type: measured
-  train_values: null
   device: cuda:0
   sync_cuda: true
 scheduler:

@@ -21,7 +21,6 @@ latency:
   profile_path: outputs/profiles/flappy_sf_l1_seed0_best_a100_action_ready/profile.json
   trace_replay_order: sequential
   loop_trace: true
-  train_values: null
   add_latency_info: false
 
 policy:

@@ -129,14 +129,16 @@ def test_sample_factory_training_configs_load():
     cfg = load_training_config("configs/experiments/demon_attack/sf_fixed_latency_4.yaml")
     assert cfg["backend"]["type"] == "sample_factory"
     assert cfg["env"]["name"] == "demon_attack"
-    assert cfg["latency"]["train_values"] == [4]
+    assert cfg["latency"]["type"] == "fixed"
+    assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(4 * 1000.0 / 60.0)
 
 
 def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
     cfg = load_config("configs/experiments/deadly_corridor/sf_fixed_latency_4.yaml")
     args = build_common_sf_args(cfg, sf_env_name="doom_deadly_corridor")
-    assert "--latency-raw-frame-values" in args
-    assert "4" in args
+    assert "--latency-type" in args
+    assert args[args.index("--latency-type") + 1] == "fixed"
+    assert "--fixed-latency-ms" in args
     assert "--eval-latency-raw-frame-values" in args
     assert "--experiment" in args
     assert "deadly_corridor_sf_fixed_latency_4" in args
@@ -400,16 +402,15 @@ def test_flappy_sf_update_ratio_metadata():
     ) == pytest.approx(3906.25)
 
 
-def test_common_sf_args_passes_latency_distribution_without_train_values():
+def test_common_sf_args_passes_latency_distribution_without_legacy_train_values():
     config = {
         "experiment": {"name": "dist_run", "seed": 3},
         "backend": {"type": "sample_factory", "train_dir": "runs", "run_mode": "train"},
         "env": {"name": "demon_attack", "env_fps": 60, "obs_fps": 15},
         "latency": {
-            "train_distribution": {"type": "uniform", "min": 0, "max": 15},
-            "train_mode": "within_episode_random",
-            "within_episode_change_interval": 2,
-            "within_episode_change_prob": 0.5,
+            "type": "uniform_distribution",
+            "min_latency_ms": 0.0,
+            "max_latency_ms": 250.0,
             "add_latency_info": False,
         },
         "training": {"train_for_env_steps": 100, "num_workers": 1, "num_envs_per_worker": 1, "batch_size": 1},
@@ -420,9 +421,9 @@ def test_common_sf_args_passes_latency_distribution_without_train_values():
     args = build_common_sf_args(config, sf_env_name="latency_demon_attack")
 
     assert "--latency-raw-frame-values" not in args
-    spec_index = args.index("--latency-distribution-spec") + 1
-    assert args[spec_index] == '{"max":15,"min":0,"type":"uniform"}'
-    assert args[args.index("--latency-mode") + 1] == "within_episode_random"
+    assert "--latency-mode" not in args
+    assert args[args.index("--latency-type") + 1] == "uniform_distribution"
+    assert args[args.index("--max-latency-ms") + 1] == "250.0"
 
 
 def test_action_latency_wrapper_exposes_fixed_non_zero_latency():
@@ -435,10 +436,9 @@ def test_action_latency_wrapper_exposes_fixed_non_zero_latency():
     env = gym.make("CartPole-v1")
     wrapped = ActionLatencyWrapper(
         env,
-        latency_raw_frame_values=[4],
+        fixed_latency_raw_frames=4,
         env_fps=60,
         obs_fps=60,
-        latency_mode="episode_fixed",
     )
     _, info = wrapped.reset(seed=123)
     assert info["latency_raw_frames"] == 4
@@ -467,35 +467,26 @@ def test_action_latency_wrapper_distribution_samples_deterministically():
     spec = {"type": "uniform", "min": 0, "max": 15}
     first = ActionLatencyWrapper(
         NeverDoneEnv(),
-        latency_raw_frame_values=[0],
+        fixed_latency_raw_frames=0,
         env_fps=30,
         obs_fps=30,
         latency_distribution_spec=spec,
-        latency_mode="within_episode_random",
-        within_episode_change_interval=1,
-        within_episode_change_prob=1.0,
         seed=123,
     )
     second = ActionLatencyWrapper(
         NeverDoneEnv(),
-        latency_raw_frame_values=[0],
+        fixed_latency_raw_frames=0,
         env_fps=30,
         obs_fps=30,
         latency_distribution_spec=spec,
-        latency_mode="within_episode_random",
-        within_episode_change_interval=1,
-        within_episode_change_prob=1.0,
         seed=123,
     )
     other = ActionLatencyWrapper(
         NeverDoneEnv(),
-        latency_raw_frame_values=[0],
+        fixed_latency_raw_frames=0,
         env_fps=30,
         obs_fps=30,
         latency_distribution_spec=spec,
-        latency_mode="within_episode_random",
-        within_episode_change_interval=1,
-        within_episode_change_prob=1.0,
         seed=124,
     )
 
@@ -535,12 +526,10 @@ def test_action_latency_wrapper_distribution_resets_episode_rng():
 
     wrapped = ActionLatencyWrapper(
         NeverDoneEnv(),
-        latency_raw_frame_values=[0],
+        fixed_latency_raw_frames=0,
         env_fps=30,
         obs_fps=30,
         latency_distribution_spec={"type": "uniform", "min": 0, "max": 15},
-        latency_mode="within_episode_random",
-        within_episode_change_interval=1,
         seed=99,
     )
 
@@ -565,7 +554,7 @@ def test_action_latency_wrapper_distribution_rejects_too_small_pending_action_bo
     with pytest.raises(ValueError, match="max_pending_actions"):
         ActionLatencyWrapper(
             env,
-            latency_raw_frame_values=[0],
+            fixed_latency_raw_frames=0,
             env_fps=30,
             obs_fps=30,
             latency_distribution_spec={"type": "uniform", "min": 0, "max": 5},
@@ -580,7 +569,7 @@ def test_action_latency_wrapper_advances_obs_stride_with_one_frame_noop():
     base_env = _ActionTraceEnv()
     wrapped = ActionLatencyWrapper(
         base_env,
-        latency_raw_frame_values=[3],
+        fixed_latency_raw_frames=3,
         env_fps=60,
         obs_fps=10,
         hold_policy="one_frame_then_noop",
@@ -615,7 +604,7 @@ def test_action_latency_wrapper_hold_policy_holds_for_observation_stride():
     base_env = _ActionTraceEnv()
     wrapped = ActionLatencyWrapper(
         base_env,
-        latency_raw_frame_values=[0],
+        fixed_latency_raw_frames=0,
         env_fps=30,
         obs_fps=10,
         hold_policy="hold",
@@ -639,7 +628,7 @@ def test_action_latency_wrapper_sums_raw_reward_across_observation_stride():
 
     wrapped = ActionLatencyWrapper(
         RewardTraceWrapper(_RawRewardTraceEnv([1.0, 2.0, 3.0])),
-        latency_raw_frame_values=[0],
+        fixed_latency_raw_frames=0,
         env_fps=30,
         obs_fps=10,
         hold_policy="hold",
@@ -681,10 +670,9 @@ def test_action_latency_wrapper_auto_seeds_underlying_env_resets():
     env = SeedEchoEnv()
     wrapped = ActionLatencyWrapper(
         env,
-        latency_raw_frame_values=[0],
+        fixed_latency_raw_frames=0,
         env_fps=30,
         obs_fps=30,
-        latency_mode="episode_fixed",
         seed=11,
         env_reset_seed_base=500,
     )
@@ -1308,14 +1296,13 @@ def test_demon_attack_env_factory_patches_sample_factory_stats_in_worker_process
             env_fps=60,
             obs_fps=15,
             frame_stack=1,
-            latency_raw_frame_values="0",
-            latency_distribution_spec="",
-            latency_mode="episode_fixed",
-            latency_sampling_mode="uniform_all",
-            episodes_per_stage=10,
-            randomize_within_stage=False,
-            within_episode_change_interval=1,
-            within_episode_change_prob=1.0,
+            latency_type="zero",
+            fixed_latency_ms=None,
+            mean_latency_ms=None,
+            std_latency_ms=None,
+            min_latency_ms=None,
+            max_latency_ms=None,
+            latency_seed=None,
             add_latency_info=False,
             hold_policy="hold",
             ordering_policy="latest_ready",
@@ -1352,14 +1339,13 @@ def test_demon_attack_reference_env_is_sample_factory_compatible(monkeypatch):
         frame_stack=4,
         terminal_on_life_loss=True,
         clip_reward=True,
-        latency_raw_frame_values="0",
-        latency_distribution_spec="",
-        latency_mode="episode_fixed",
-        latency_sampling_mode="uniform_all",
-        episodes_per_stage=10,
-        randomize_within_stage=False,
-        within_episode_change_interval=1,
-        within_episode_change_prob=1.0,
+        latency_type="zero",
+        fixed_latency_ms=None,
+        mean_latency_ms=None,
+        std_latency_ms=None,
+        min_latency_ms=None,
+        max_latency_ms=None,
+        latency_seed=None,
         add_latency_info=False,
         hold_policy="hold",
         ordering_policy="latest_ready",
@@ -1422,14 +1408,13 @@ def test_flappy_cpu_render_reference_env_is_sample_factory_compatible(monkeypatc
         obs_resize="84,84",
         frame_stack=4,
         max_episode_steps=0,
-        latency_raw_frame_values="0",
-        latency_distribution_spec="",
-        latency_mode="episode_fixed",
-        latency_sampling_mode="uniform_all",
-        episodes_per_stage=10,
-        randomize_within_stage=False,
-        within_episode_change_interval=1,
-        within_episode_change_prob=1.0,
+        latency_type="zero",
+        fixed_latency_ms=None,
+        mean_latency_ms=None,
+        std_latency_ms=None,
+        min_latency_ms=None,
+        max_latency_ms=None,
+        latency_seed=None,
         add_latency_info=False,
         hold_policy="one_frame_then_noop",
         ordering_policy="latest_ready",
@@ -1494,6 +1479,7 @@ def test_deadly_corridor_prepare_eval_cfg_uses_synchronous_fps_when_base_is_asyn
 
     base_cfg = SimpleNamespace(
         fps=0,
+        env_fps=35,
         eval_deterministic=True,
         eval_raw_reward=False,
     )
@@ -1510,6 +1496,7 @@ def test_deadly_corridor_prepare_eval_cfg_keeps_positive_base_fps_synchronous():
 
     base_cfg = SimpleNamespace(
         fps=50,
+        env_fps=35,
         eval_deterministic=True,
         eval_raw_reward=False,
     )
@@ -1619,11 +1606,12 @@ def test_same_latency_sweep_generator_emits_sample_factory_queue_eval_configs():
     )
     expected_eval_latencies = full_cfg["evaluation"]["eval_latency_values"]
     assert train_cfg["training"]["train_for_env_steps"] == 1234
-    assert train_cfg["latency"]["train_values"] == [4]
+    assert train_cfg["latency"]["type"] == "fixed"
+    assert train_cfg["latency"]["fixed_latency_ms"] == pytest.approx(4 * 1000.0 / 60.0)
     assert train_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
     assert train_cfg["logging"]["wandb_name"] == "demon-attack-l4-s0"
     assert eval_cfg["backend"]["run_mode"] == "eval"
-    assert eval_cfg["latency"]["train_values"] == [4]
+    assert eval_cfg["latency"] == train_cfg["latency"]
     assert eval_cfg["evaluation"]["eval_episodes"] == 10
     assert eval_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
     assert eval_cfg["evaluation"]["eval_max_steps"] == 3600
@@ -1685,7 +1673,6 @@ def test_same_latency_sweep_generator_emits_latency_bench_eval_configs(
     assert loaded["policy"]["device"] == "auto"
     assert loaded["policy"]["deterministic"] is True
     assert loaded["latency"]["type"] == "fixed"
-    assert loaded["latency"]["train_values"] == [3]
     assert math.isclose(loaded["latency"]["fixed_latency_ms"], expected_ms, rel_tol=1e-9)
     assert loaded["logging"]["output_dir"] == str(
         tmp_path / "outputs" / "latency_bench" / env_name / "train_latency_3" / "seed_0"
@@ -1768,9 +1755,9 @@ def test_same_latency_sweep_generator_preserves_deadly_corridor_eval_latencies_f
     )
     expected_eval_latencies = full_cfg["evaluation"]["eval_latency_values"]
 
-    assert full_cfg["latency"]["train_values"] == [0]
-    assert eval_cfg["latency"]["train_values"] == [0]
-    assert bench_cfg["latency"]["train_values"] == [0]
+    assert full_cfg["latency"]["type"] == "zero"
+    assert eval_cfg["latency"]["type"] == "zero"
+    assert bench_cfg["latency"]["type"] == "zero"
     assert eval_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
     assert bench_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
     assert "max_episode_steps" not in eval_cfg["env"]
@@ -1840,10 +1827,10 @@ def test_same_latency_sweep_generator_writes_three_configs_and_commands(tmp_path
             train_loaded = yaml.safe_load(train_path.read_text(encoding="utf-8"))
             eval_loaded = yaml.safe_load(eval_path.read_text(encoding="utf-8"))
             loaded = load_config(bench_path)
-            assert train_loaded["latency"]["train_values"] == [latency]
             assert train_loaded["evaluation"]["eval_latency_values"] == expected_eval_latencies[env_name]
-            assert eval_loaded["latency"]["train_values"] == [latency]
             assert eval_loaded["evaluation"]["eval_latency_values"] == expected_eval_latencies[env_name]
+            assert train_loaded["latency"]["type"] == ("zero" if latency == 0 else "fixed")
+            assert eval_loaded["latency"] == train_loaded["latency"]
             assert loaded["experiment"]["name"] == f"{env_name}_sf_same_latency_l{latency}_seed0"
             assert loaded["backend"]["train_dir"] == "results/checkpoints/sample_factory_runs"
             assert loaded["policy"]["type"] == policy_type
@@ -1926,17 +1913,16 @@ def test_same_latency_generator_writes_single_normal_distribution_run(tmp_path):
     bench_loaded = load_config(run_dir / "latency_bench_eval.yaml")
     manifest = (generated_root / "manifest.tsv").read_text(encoding="utf-8")
 
-    assert train_loaded["latency"]["train_distribution"] == {
-        "type": "normal",
-        "mean": 5.0,
-        "std": 2.0,
-        "min": 0,
-        "max": 15,
-    }
+    assert train_loaded["latency"]["type"] == "normal_distribution"
+    assert train_loaded["latency"]["mean_latency_ms"] == pytest.approx(5.0 * 1000.0 / 60.0)
+    assert train_loaded["latency"]["std_latency_ms"] == pytest.approx(2.0 * 1000.0 / 60.0)
+    assert train_loaded["latency"]["min_latency_ms"] == pytest.approx(0.0)
+    assert train_loaded["latency"]["max_latency_ms"] == pytest.approx(15.0 * 1000.0 / 60.0)
     assert "train_values" not in train_loaded["latency"]
-    assert eval_loaded["latency"]["train_distribution"] == train_loaded["latency"]["train_distribution"]
+    assert "train_distribution" not in train_loaded["latency"]
+    assert eval_loaded["latency"] == train_loaded["latency"]
     assert "eval_latency_values" not in eval_loaded["evaluation"]
-    assert train_loaded["latency"]["train_mode"] == "within_episode_random"
+    assert "train_mode" not in train_loaded["latency"]
     assert bench_loaded["latency"]["type"] == "normal_distribution"
     assert bench_loaded["latency"]["mean_latency_ms"] == pytest.approx(5.0 * 1000.0 / 60.0)
     assert bench_loaded["latency"]["std_latency_ms"] == pytest.approx(2.0 * 1000.0 / 60.0)

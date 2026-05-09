@@ -12,13 +12,11 @@ from training.atari_episode_stats import is_true_atari_episode_end
 
 
 class QueueLatencyWrapper(gym.Wrapper):
-    """True input-delay wrapper for fixed-per-episode queue latency."""
+    """True input-delay wrapper for queue latency."""
 
     def __init__(self, env: gym.Env, frame_skip_values: Sequence[int], seed: int):
         super().__init__(env)
-        if not frame_skip_values:
-            raise ValueError("frame_skip_values cannot be empty")
-        self.frame_skip_values = [max(0, int(x)) for x in frame_skip_values]
+        self.frame_skip_values = [int(x) for x in frame_skip_values]
         self.rng = np.random.RandomState(seed)
         self.current_frame_skip = 0
         self.current_applied_action = 0
@@ -52,18 +50,18 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.decision_step_idx = 0
         self.pending_actions.clear()
         self._schedule_seq = 0
-        self.current_frame_skip = self._sample_frame_skip()
+        self.current_frame_skip = int(self.frame_skip_values[0])
         obs, info = self.env.reset(**kwargs)
         info = dict(info or {})
         info["frame_skip"] = int(self.current_frame_skip)
         info["episode_idx"] = int(self.episode_idx)
-        info["latency_mode"] = "episode_fixed"
         info["applied_action"] = int(self.current_applied_action)
         info["pending_queue_len"] = 0
         self.episode_idx += 1
         return obs, info
 
     def step(self, action):
+        self.current_frame_skip = self._sample_frame_skip()
         scheduled_delay = int(self.current_frame_skip)
         scheduled_apply_step = self._schedule_action(int(action))
         self._advance_pending_actions()
@@ -76,7 +74,6 @@ class QueueLatencyWrapper(gym.Wrapper):
         info["frame_skip"] = scheduled_delay
         info["decision_step_idx"] = int(self.decision_step_idx)
         info["env_step_idx"] = int(self.env_step_idx)
-        info["latency_mode"] = "episode_fixed"
         info["applied_action"] = int(self.current_applied_action)
         info["queued_action"] = int(action)
         info["scheduled_apply_step"] = int(scheduled_apply_step)

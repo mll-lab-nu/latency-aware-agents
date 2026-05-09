@@ -4,8 +4,8 @@ experiment:
   name: deadly_corridor_sf_fixed_latency_4
 
 latency:
-  train_values:
-    - 4
+  type: fixed
+  fixed_latency_ms: 114.28571428571429
 
 logging:
   output_dir: outputs/deadly_corridor_sf_fixed_latency_4

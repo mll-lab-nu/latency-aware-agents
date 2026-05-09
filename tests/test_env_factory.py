@@ -223,9 +223,13 @@ def test_deadly_corridor_adapter_builds_prepared_eval_cfg_from_full_config(monke
             eval_raw_reward=base_cfg.eval_raw_reward,
             disable_reward_scaling=True,
             max_episode_steps=base_cfg.max_episode_steps,
-            latency_raw_frame_values="0",
-            latency_mode="episode_fixed",
-            latency_sampling_mode="uniform_all",
+            latency_type="zero",
+            fixed_latency_ms=None,
+            mean_latency_ms=None,
+            std_latency_ms=None,
+            min_latency_ms=None,
+            max_latency_ms=None,
+            latency_seed=None,
             no_render=True,
         )
 
@@ -355,9 +359,13 @@ def test_deadly_corridor_openvla_env_does_not_require_sample_factory_checkpoint(
             eval_raw_reward=base_cfg.eval_raw_reward,
             disable_reward_scaling=True,
             max_episode_steps=base_cfg.max_episode_steps,
-            latency_raw_frame_values="0",
-            latency_mode="episode_fixed",
-            latency_sampling_mode="uniform_all",
+            latency_type="zero",
+            fixed_latency_ms=None,
+            mean_latency_ms=None,
+            std_latency_ms=None,
+            min_latency_ms=None,
+            max_latency_ms=None,
+            latency_seed=None,
             no_render=True,
         )
 

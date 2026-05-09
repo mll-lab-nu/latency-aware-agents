@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import math
 from collections import defaultdict
-from collections.abc import Sequence
 from typing import Any
 
 import gymnasium as gym
@@ -50,18 +49,12 @@ class ActionLatencyWrapper(gym.Wrapper):
     def __init__(
         self,
         env: gym.Env,
-        latency_raw_frame_values: Sequence[int],
+        fixed_latency_raw_frames: int = 0,
         *,
         env_fps: float,
         obs_fps: float,
         hold_policy: str | ActionHoldPolicy = ActionHoldPolicy.ONE_FRAME_THEN_NOOP,
         ordering_policy: str | OrderingPolicy = OrderingPolicy.LATEST_READY,
-        latency_mode: str = "episode_fixed",
-        latency_sampling_mode: str = "uniform_all",
-        episodes_per_stage: int = 10,
-        randomize_within_stage: bool = False,
-        within_episode_change_interval: int = 1,
-        within_episode_change_prob: float = 1.0,
         seed: int = 0,
         env_reset_seed_base: int | None = None,
         add_latency_info: bool = True,
@@ -69,37 +62,18 @@ class ActionLatencyWrapper(gym.Wrapper):
         max_pending_actions: int | None = None,
     ):
         super().__init__(env)
-        if latency_mode == "within_episode_change":
-            latency_mode = "within_episode_random"
-        if not latency_raw_frame_values:
-            raise ValueError("latency_raw_frame_values cannot be empty")
-        if latency_mode not in {"episode_fixed", "within_episode_random", "within_episode_curriculum"}:
-            raise ValueError(f"Unsupported latency mode: {latency_mode}")
-        if latency_sampling_mode not in {"uniform_all", "curriculum"}:
-            raise ValueError(f"Unsupported latency sampling mode: {latency_sampling_mode}")
-
-        self.latency_raw_frame_values = [max(0, int(item)) for item in latency_raw_frame_values]
+        self.fixed_latency_raw_frames = int(fixed_latency_raw_frames)
         self.latency_distribution_spec = (
             None if latency_distribution_spec is None else parse_latency_distribution(latency_distribution_spec)
         )
         self.latency_distribution_label = (
             None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
         )
-        if self.latency_distribution_spec is not None and latency_mode == "within_episode_curriculum":
-            raise ValueError("latency.train_distribution does not support within_episode_curriculum")
-        self.latency_mode = str(latency_mode)
-        self.latency_sampling_mode = str(latency_sampling_mode)
-        self.episodes_per_stage = max(1, int(episodes_per_stage))
-        self.randomize_within_stage = bool(randomize_within_stage)
-        self.within_episode_change_interval = max(1, int(within_episode_change_interval))
-        self.within_episode_change_prob = float(within_episode_change_prob)
-        if not 0.0 <= self.within_episode_change_prob <= 1.0:
-            raise ValueError("latency.within_episode_change_prob must be in [0, 1]")
         self.add_latency_info = bool(add_latency_info)
         self.max_frame_latency = (
             distribution_max_frame_latency(self.latency_distribution_spec)
             if self.latency_distribution_spec is not None
-            else max(self.latency_raw_frame_values)
+            else int(self.fixed_latency_raw_frames)
         )
         self.max_pending_actions = None if max_pending_actions is None else int(max_pending_actions)
         if self.max_pending_actions is not None and self.max_pending_actions < self.max_frame_latency + 1:
@@ -127,7 +101,6 @@ class ActionLatencyWrapper(gym.Wrapper):
             ordering_policy=self.ordering_policy,
         )
         self.base_latency_seed = int(seed)
-        self.rng = np.random.RandomState(seed)
         self.latency_distribution_sampler = None
         self.env_reset_seed_base = None if env_reset_seed_base is None else int(env_reset_seed_base)
         self.current_latency_raw_frames = 0
@@ -144,51 +117,16 @@ class ActionLatencyWrapper(gym.Wrapper):
             return HoldPolicy(duration_raw_frames=self.clock.obs_stride_raw_frames)
         raise ValueError(f"Unsupported hold policy: {self.hold_policy}")
 
-    def _get_stage_index(self) -> int:
-        stage = self.episode_idx // self.episodes_per_stage
-        return min(stage, len(self.latency_raw_frame_values) - 1)
-
-    def _sample_latency(self) -> int:
+    def _next_latency_raw_frames(self) -> int:
         if self.latency_distribution_spec is not None:
             if self.latency_distribution_sampler is None:
                 self._reset_latency_distribution_sampler()
-            latency = int(self.latency_distribution_sampler.sample_frame())
-            if latency > self.max_frame_latency:
-                raise RuntimeError(
-                    f"sampled latency {latency} exceeds configured max_frame_latency {self.max_frame_latency}"
-                )
-            return latency
-
-        if self.latency_sampling_mode == "uniform_all":
-            return int(self.rng.choice(self.latency_raw_frame_values))
-
-        stage = self._get_stage_index()
-        if self.randomize_within_stage:
-            return int(self.rng.choice(self.latency_raw_frame_values[: stage + 1]))
-        return int(self.latency_raw_frame_values[stage])
-
-    def _current_curriculum_latency(self) -> int:
-        stage = self.decision_step_idx // self.within_episode_change_interval
-        stage = min(stage, len(self.latency_raw_frame_values) - 1)
-        return int(self.latency_raw_frame_values[stage])
-
-    def _maybe_update_latency_for_this_decision(self) -> None:
-        if self.latency_mode == "episode_fixed":
-            return
-        if self.latency_mode == "within_episode_random":
-            if self.decision_step_idx == 0:
-                return
-            if self.decision_step_idx % self.within_episode_change_interval != 0:
-                return
-            if self.rng.rand() <= self.within_episode_change_prob:
-                self.current_latency_raw_frames = self._sample_latency()
-            return
-        self.current_latency_raw_frames = self._current_curriculum_latency()
+            return int(self.latency_distribution_sampler.sample_frame())
+        return int(self.fixed_latency_raw_frames)
 
     def _latency_info(self, latency_value: int) -> dict[str, Any]:
         latency_raw_frames = int(latency_value)
         info = {
-            "latency_mode": self.latency_mode,
             "episode_idx": int(self.episode_idx),
             "decision_step_idx": int(self.decision_step_idx),
             "env_step_idx": int(self.env_step_idx),
@@ -225,10 +163,7 @@ class ActionLatencyWrapper(gym.Wrapper):
         self.decision_step_idx = 0
         self._next_action_id = 0
         self._reset_latency_distribution_sampler()
-        if self.latency_mode == "within_episode_curriculum":
-            self.current_latency_raw_frames = int(self.latency_raw_frame_values[0])
-        else:
-            self.current_latency_raw_frames = self._sample_latency()
+        self.current_latency_raw_frames = 0 if self.latency_distribution_spec is not None else int(self.fixed_latency_raw_frames)
         reset_kwargs = dict(kwargs)
         inserted_seed = False
         if reset_kwargs.get("seed") is None and self.env_reset_seed_base is not None:
@@ -275,10 +210,13 @@ class ActionLatencyWrapper(gym.Wrapper):
         return ready_raw_frame
 
     def step(self, action):
-        self._maybe_update_latency_for_this_decision()
-        scheduled_delay = int(self.current_latency_raw_frames)
+        # 1. decide delay for this action
+        scheduled_delay = int(self._next_latency_raw_frames())
+        self.current_latency_raw_frames = scheduled_delay
+        # 2. enqueue this action, instead of execute it directly
         scheduled_ready_raw_frame = self._enqueue_action_event(action, scheduled_delay)
 
+        # 3. step raw env, raw frames
         obs = None
         info: dict[str, Any] = {}
         total_reward = 0.0
@@ -288,12 +226,14 @@ class ActionLatencyWrapper(gym.Wrapper):
         truncated = False
         raw_frames_advanced = 0
         for _ in range(self.clock.obs_stride_raw_frames):
+            # for each raw frame step, ask scheduler which action should be taken
             active_action = self.action_scheduler.update(
                 current_step=int(self.env_step_idx),
                 current_time_ms=self.clock.step_to_time_ms(int(self.env_step_idx)),
             )
             self.current_applied_action = clone_action(active_action.value)
             obs, reward, terminated, truncated, info = self.env.step(clone_action(active_action.value))
+            # accumulate rewards for raw frames
             total_reward += float(reward)
             step_info = dict(info or {})
             if "raw_reward" in step_info:

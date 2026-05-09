@@ -9,10 +9,7 @@ backend:
   run_mode: train
 
 latency:
-  train_values:
-    - 0
-  train_mode: episode_fixed
-  train_sampling_mode: uniform_all
+  type: zero
   add_latency_info: false
 
 logging:

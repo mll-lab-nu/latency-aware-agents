@@ -36,8 +36,6 @@ policy:
 
 latency:
   type: zero
-  train_values:
-    - 0
 
 evaluation:
   eval_parallel_envs: 1

@@ -11,6 +11,7 @@ import numpy as np
 import torch
 
 from latency_bench.core.latency_distribution import latency_distribution_label, parse_latency_distribution
+from latency_bench.core.types import LatencySourceType
 from training.atari_episode_stats import (
     TRUE_EPISODE_END_INFO_KEY,
     _batched_info_for_agent,
@@ -19,6 +20,10 @@ from training.atari_episode_stats import (
 )
 from training.sample_factory_common.checkpoint_io import load_sample_factory_checkpoint_from_paths
 from training.sample_factory_common.common import maybe_set_cli_override
+from training.sample_factory_common.latency_config import (
+    latency_distribution_spec_from_flat_config,
+    raw_frames_to_latency_ms,
+)
 
 
 EvalCfgAdjuster = Callable[[Any, Any], None]
@@ -139,11 +144,12 @@ def _apply_demon_attack_raw_eval_runtime_overrides(cfg: Any, base_cfg: Any) -> N
 
 
 def _apply_queue_eval_runtime_overrides(cfg: Any, base_cfg: Any, latency_value: int) -> None:
-    maybe_set_cli_override(cfg, "latency_raw_frame_values", str(int(latency_value)))
-    maybe_set_cli_override(cfg, "latency_mode", "episode_fixed")
-    maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
-    maybe_set_cli_override(cfg, "episodes_per_stage", int(10**9))
-    maybe_set_cli_override(cfg, "randomize_within_stage", False)
+    maybe_set_cli_override(cfg, "latency_type", "zero" if int(latency_value) == 0 else "fixed")
+    maybe_set_cli_override(
+        cfg,
+        "fixed_latency_ms",
+        raw_frames_to_latency_ms(latency_value, env_fps=float(getattr(base_cfg, "env_fps"))),
+    )
     eval_parallel_envs = _eval_parallel_envs(base_cfg)
     eval_episodes = int(getattr(base_cfg, "eval_episodes", 20))
     effective_parallel_envs = min(eval_parallel_envs, max(0, eval_episodes))
@@ -171,23 +177,13 @@ def _apply_queue_eval_runtime_overrides(cfg: Any, base_cfg: Any, latency_value: 
     _apply_demon_attack_raw_eval_runtime_overrides(cfg, base_cfg)
 
 
-def _canonical_distribution_spec_json(raw: Any) -> str:
-    spec = parse_latency_distribution(raw)
-    return json.dumps(spec.to_dict(), sort_keys=True, separators=(",", ":"))
-
-
 def _apply_queue_eval_distribution_runtime_overrides(cfg: Any, base_cfg: Any) -> None:
-    raw_spec = getattr(base_cfg, "latency_distribution_spec", None)
-    if raw_spec is None or not str(raw_spec).strip():
-        raise ValueError("latency_distribution_spec is required for distribution queue eval")
-    spec_json = _canonical_distribution_spec_json(raw_spec)
-    maybe_set_cli_override(cfg, "latency_distribution_spec", spec_json)
-    maybe_set_cli_override(cfg, "latency_raw_frame_values", "0")
-    maybe_set_cli_override(cfg, "latency_mode", getattr(base_cfg, "latency_mode", "within_episode_random"))
-    maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
-    maybe_set_cli_override(cfg, "within_episode_change_interval", int(getattr(base_cfg, "within_episode_change_interval", 1)))
-    maybe_set_cli_override(cfg, "within_episode_change_prob", float(getattr(base_cfg, "within_episode_change_prob", 1.0)))
-    maybe_set_cli_override(cfg, "randomize_within_stage", False)
+    maybe_set_cli_override(cfg, "latency_type", getattr(base_cfg, "latency_type"))
+    maybe_set_cli_override(cfg, "mean_latency_ms", getattr(base_cfg, "mean_latency_ms", None))
+    maybe_set_cli_override(cfg, "std_latency_ms", getattr(base_cfg, "std_latency_ms", None))
+    maybe_set_cli_override(cfg, "min_latency_ms", getattr(base_cfg, "min_latency_ms", None))
+    maybe_set_cli_override(cfg, "max_latency_ms", getattr(base_cfg, "max_latency_ms", None))
+    maybe_set_cli_override(cfg, "latency_seed", getattr(base_cfg, "latency_seed", None))
     maybe_set_cli_override(cfg, "add_latency_info", True)
     max_pending_actions = getattr(base_cfg, "max_pending_actions", None)
     if max_pending_actions is not None:
@@ -593,8 +589,8 @@ def queue_eval_output_dir(base_cfg) -> Path | None:
 
 
 def has_queue_latency_distribution(base_cfg) -> bool:
-    raw_spec = getattr(base_cfg, "latency_distribution_spec", None)
-    return raw_spec is not None and bool(str(raw_spec).strip())
+    latency_type = LatencySourceType(str(getattr(base_cfg, "latency_type")))
+    return latency_type in {LatencySourceType.NORMAL_DISTRIBUTION, LatencySourceType.UNIFORM_DISTRIBUTION}
 
 
 def write_queue_eval_result(base_cfg, result: dict[str, Any]) -> None:
@@ -734,9 +730,11 @@ def evaluate_queue_latency(base_cfg, latency_value: int, adjust_cfg: EvalCfgAdju
     if adjust_cfg is not None:
         adjust_cfg(cfg, base_cfg)
     _apply_demon_attack_raw_eval_runtime_overrides(cfg, base_cfg)
-    distribution_spec = getattr(cfg, "latency_distribution_spec", None)
-    if distribution_spec is not None and not str(distribution_spec).strip():
-        distribution_spec = None
+    distribution_spec = (
+        latency_distribution_spec_from_flat_config(cfg, env_fps=float(getattr(cfg, "env_fps")))
+        if has_queue_latency_distribution(cfg)
+        else None
+    )
     sampled_latency_frames: list[int] = []
 
     eval_episodes = int(getattr(base_cfg, "eval_episodes", 20))
@@ -1059,7 +1057,7 @@ def evaluate_queue_latency_distribution(base_cfg, adjust_cfg: EvalCfgAdjuster | 
     if "latency_distribution_label" not in result:
         _attach_distribution_eval_metadata(
             result,
-            getattr(base_cfg, "latency_distribution_spec"),
+            latency_distribution_spec_from_flat_config(base_cfg, env_fps=float(getattr(base_cfg, "env_fps"))),
             [],
         )
     return result

@@ -26,13 +26,13 @@ def _flappy_gpu_cfg(**overrides):
         "obs_resize": "84,84",
         "frame_stack": 4,
         "max_episode_steps": 0,
-        "latency_raw_frame_values": "0",
-        "latency_mode": "episode_fixed",
-        "latency_sampling_mode": "uniform_all",
-        "episodes_per_stage": 10,
-        "randomize_within_stage": False,
-        "within_episode_change_interval": 1,
-        "within_episode_change_prob": 1.0,
+        "latency_type": "zero",
+        "fixed_latency_ms": None,
+        "mean_latency_ms": None,
+        "std_latency_ms": None,
+        "min_latency_ms": None,
+        "max_latency_ms": None,
+        "latency_seed": None,
         "add_latency_info": False,
         "seed": 0,
         "env_fps": 30,
@@ -546,4 +546,3 @@ def test_flappy_gpu_render_cli_keeps_worker_splits_without_validation():
     assert args[args.index("--gpu-render-batch-size") + 1] == "4"
     assert args[args.index("--num_envs_per_worker") + 1] == "1"
     assert args[args.index("--worker_num_splits") + 1] == "2"
-

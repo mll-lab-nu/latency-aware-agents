@@ -27,7 +27,7 @@ def _write_base_config(path: Path) -> None:
         "experiment": {"name": "dry_run_policy_seed0", "seed": 0, "num_episodes": 2},
         "executor": {"mode": "simulated"},
         "env": {"name": "flappy", "env_fps": 30, "obs_fps": 30, "noop_action": "noop"},
-        "latency": {"type": "fixed", "fixed_latency_ms": 33.333333333333336, "train_values": [1]},
+        "latency": {"type": "fixed", "fixed_latency_ms": 33.333333333333336},
         "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
         "policy": {"type": "random", "actions": ["noop", "flap"]},
         "logging": {"output_dir": "unused"},

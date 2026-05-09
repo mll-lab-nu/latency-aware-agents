@@ -70,8 +70,6 @@ def _advance_checkpoint_step(
 
 def train(args, wandb_module) -> str:
     frame_skip_values = parse_int_list(args.frame_skip_values)
-    if not frame_skip_values:
-        raise ValueError("--frame-skip-values must contain at least one value")
 
     random.seed(args.seed)
     np.random.seed(args.seed)

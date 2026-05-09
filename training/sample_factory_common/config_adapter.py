@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import json
 import importlib
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
-
-from latency_bench.core.latency_distribution import parse_latency_distribution
 
 ENV_INTEGRATIONS = {
     "deadly_corridor": "training.deadly_corridor_sf.integration",
@@ -59,10 +56,10 @@ def _merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, An
     return merged
 
 
-def load_training_config(path: Path) -> dict[str, Any]:
+def load_training_config(path: str | Path) -> dict[str, Any]:
     import yaml
 
-    path = path.expanduser().resolve()
+    path = Path(path).expanduser().resolve()
     with path.open("r", encoding="utf-8") as handle:
         current = yaml.safe_load(handle) or {}
 
@@ -274,22 +271,13 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         if field in training_cfg:
             append_cli_arg(args, f"--{field}", training_cfg.get(field))
 
-    if latency_cfg.get("train_distribution") is not None:
-        distribution_spec = parse_latency_distribution(latency_cfg["train_distribution"]).to_dict()
-        args.extend(
-            [
-                "--latency-distribution-spec",
-                json.dumps(distribution_spec, sort_keys=True, separators=(",", ":")),
-            ]
-        )
-    elif "train_values" in latency_cfg:
-        append_cli_arg(args, "--latency-raw-frame-values", latency_cfg.get("train_values"))
-    append_cli_arg(args, "--latency-mode", latency_cfg.get("train_mode", "episode_fixed"))
-    append_cli_arg(args, "--latency-sampling-mode", latency_cfg.get("train_sampling_mode", "uniform_all"))
-    append_cli_arg(args, "--episodes-per-stage", latency_cfg.get("episodes_per_stage"))
-    append_cli_arg(args, "--randomize-within-stage", latency_cfg.get("randomize_within_stage", False))
-    append_cli_arg(args, "--within-episode-change-interval", latency_cfg.get("within_episode_change_interval"))
-    append_cli_arg(args, "--within-episode-change-prob", latency_cfg.get("within_episode_change_prob"))
+    append_cli_arg(args, "--latency-type", latency_cfg.get("type"))
+    append_cli_arg(args, "--fixed-latency-ms", latency_cfg.get("fixed_latency_ms"))
+    append_cli_arg(args, "--mean-latency-ms", latency_cfg.get("mean_latency_ms"))
+    append_cli_arg(args, "--std-latency-ms", latency_cfg.get("std_latency_ms"))
+    append_cli_arg(args, "--min-latency-ms", latency_cfg.get("min_latency_ms"))
+    append_cli_arg(args, "--max-latency-ms", latency_cfg.get("max_latency_ms"))
+    append_cli_arg(args, "--latency-seed", latency_cfg.get("seed"))
     append_cli_arg(args, "--add-latency-info", latency_cfg.get("add_latency_info", False))
     append_cli_arg(args, "--max-pending-actions", latency_cfg.get("max_pending_actions"))
 

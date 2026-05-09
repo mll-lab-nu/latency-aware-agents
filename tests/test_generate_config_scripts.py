@@ -55,7 +55,9 @@ def test_generate_config_script_uses_env_overrides_for_one_distribution(tmp_path
         output_root / "train" / "flappy" / "latency_uniform_min_0_max_2" / "seed_0"
     )
     assert train_cfg["logging"]["wandb_group"] == "flappy-uniform"
-    assert train_cfg["latency"]["train_distribution"] == {"type": "uniform", "min": 0, "max": 2}
+    assert train_cfg["latency"]["type"] == "uniform_distribution"
+    assert train_cfg["latency"]["min_latency_ms"] == 0.0
+    assert train_cfg["latency"]["max_latency_ms"] == 2 * 1000.0 / 30.0
     assert "train_values" not in train_cfg["latency"]
 
 

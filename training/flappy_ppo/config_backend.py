@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from modeling.flappy_ppo import FlappyPpoObservationConfig
 from training.common.checkpoints import experiment_dir
 from training.flappy_ppo.cli import build_parser
+from training.sample_factory_common.latency_config import latency_ms_to_raw_frames
 
 
 UNSUPPORTED_TOP_LEVEL_FIELDS = {
@@ -50,13 +51,6 @@ UNSUPPORTED_TRAINING_FIELDS = {
     "with_wandb",
 }
 
-UNSUPPORTED_LATENCY_FIELDS = {
-    "episodes_per_stage",
-    "train_enabled",
-    "within_episode_change_interval",
-    "within_episode_change_prob",
-}
-
 SUPPORTED_TRAINING_FIELDS = {
     "batch_size",
     "gae_lambda",
@@ -80,6 +74,7 @@ SUPPORTED_BACKEND_FIELDS = {
 }
 
 SUPPORTED_ENV_FIELDS = {
+    "env_fps",
     "frame_stack",
     "name",
     "observation_mode",
@@ -139,7 +134,6 @@ def validate_flappy_ppo_config(config: Mapping[str, Any]) -> None:
 
     _reject_present_fields(backend_cfg, UNSUPPORTED_BACKEND_FIELDS, "backend")
     _reject_present_fields(training_cfg, UNSUPPORTED_TRAINING_FIELDS, "training")
-    _reject_present_fields(latency_cfg, UNSUPPORTED_LATENCY_FIELDS, "latency")
     _reject_unknown_fields(backend_cfg, SUPPORTED_BACKEND_FIELDS, "backend")
     _reject_unknown_fields(env_cfg, SUPPORTED_ENV_FIELDS, "env")
     _reject_unknown_fields(training_cfg, SUPPORTED_TRAINING_FIELDS, "training")
@@ -153,15 +147,6 @@ def validate_flappy_ppo_config(config: Mapping[str, Any]) -> None:
     if "observation_mode" in env_cfg and env_cfg.get("observation_mode") not in (None, "image"):
         raise ValueError("env.observation_mode must be omitted or 'image' for flappy_ppo")
 
-    latency_values = _int_list(latency_cfg.get("train_values"), "latency.train_values")
-    if not latency_values:
-        raise ValueError("latency.train_values must contain at least one action-delay/frame-skip value")
-    if str(latency_cfg.get("train_mode", "episode_fixed")) != "episode_fixed":
-        raise ValueError("latency.train_mode must be 'episode_fixed' for flappy_ppo")
-    if str(latency_cfg.get("train_sampling_mode", "uniform_all")) != "uniform_all":
-        raise ValueError("latency.train_sampling_mode must be 'uniform_all' for flappy_ppo")
-    if bool(latency_cfg.get("randomize_within_stage", False)):
-        raise ValueError("latency.randomize_within_stage must be false for flappy_ppo")
     if bool(latency_cfg.get("add_latency_info", False)):
         raise ValueError("latency.add_latency_info must be false for flappy_ppo image observations")
 
@@ -206,6 +191,7 @@ def build_flappy_ppo_args(config: Mapping[str, Any]) -> Namespace:
     args.n_epochs = int(training_cfg["num_epochs"])
     args.seed = int(experiment_cfg.get("seed", 0))
     args.device = str(backend_cfg.get("device", "auto"))
+    args.env_fps = float(env_cfg.get("env_fps", 30))
     args.learning_rate = float(training_cfg["learning_rate"])
     args.gamma = float(training_cfg["gamma"])
     args.gae_lambda = float(training_cfg["gae_lambda"])
@@ -218,7 +204,19 @@ def build_flappy_ppo_args(config: Mapping[str, Any]) -> Namespace:
     args.image_size = obs_config.image_size
     args.grayscale = obs_config.grayscale
     args.stack_frames = obs_config.stack_frames
-    args.frame_skip_values = ",".join(str(value) for value in _int_list(latency_cfg.get("train_values"), "latency.train_values"))
+    args.latency_type = str(latency_cfg["type"])
+    args.fixed_latency_ms = latency_cfg.get("fixed_latency_ms")
+    args.mean_latency_ms = latency_cfg.get("mean_latency_ms")
+    args.std_latency_ms = latency_cfg.get("std_latency_ms")
+    args.min_latency_ms = latency_cfg.get("min_latency_ms")
+    args.max_latency_ms = latency_cfg.get("max_latency_ms")
+    args.latency_seed = latency_cfg.get("seed")
+    if str(latency_cfg["type"]) == "zero":
+        args.frame_skip_values = "0"
+    elif str(latency_cfg["type"]) == "fixed":
+        args.frame_skip_values = str(latency_ms_to_raw_frames(latency_cfg["fixed_latency_ms"], env_fps=args.env_fps))
+    else:
+        args.frame_skip_values = "0"
     args.frame_skip_training_setting = "action_delay_frame_skip"
 
     for field in SUPPORTED_FLAPPY_PPO_FIELDS:
@@ -267,7 +265,7 @@ def write_resolved_artifacts(config: Mapping[str, Any], args: Namespace) -> None
         "backend_type": "flappy_ppo",
         "experiment_name": args.experiment_name,
         "frame_skip_training_setting": "action_delay_frame_skip",
-        "latency_train_values": _int_list(config["latency"].get("train_values"), "latency.train_values"),
+        "latency": deepcopy(dict(config["latency"])),
         "obs_shape": [obs_config.in_channels, obs_config.image_size, obs_config.image_size],
         "observation_config": obs_config.to_dict(),
     }
@@ -328,15 +326,6 @@ def _positive_int(value: Any, path: str) -> int:
         raise ValueError(f"{path} must be a positive integer") from exc
     if parsed <= 0:
         raise ValueError(f"{path} must be a positive integer")
-    return parsed
-
-
-def _int_list(value: Any, path: str) -> list[int]:
-    if not isinstance(value, (list, tuple)):
-        raise ValueError(f"{path} must be a list of integers")
-    parsed = [int(item) for item in value]
-    if any(item < 0 for item in parsed):
-        raise ValueError(f"{path} values must be non-negative")
     return parsed
 
 

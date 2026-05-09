@@ -4,8 +4,7 @@ experiment:
   name: deadly_corridor_sf_zero_latency
 
 latency:
-  train_values:
-    - 0
+  type: zero
 
 logging:
   output_dir: outputs/deadly_corridor_sf_zero_latency

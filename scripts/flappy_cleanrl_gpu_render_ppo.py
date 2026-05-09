@@ -134,9 +134,7 @@ class QueueLatencyWrapper(gym.Wrapper):
 
     def __init__(self, env: gym.Env, frame_skip_values: Sequence[int], seed: int):
         super().__init__(env)
-        if not frame_skip_values:
-            raise ValueError("frame_skip_values cannot be empty")
-        self.frame_skip_values = [max(0, int(x)) for x in frame_skip_values]
+        self.frame_skip_values = [int(x) for x in frame_skip_values]
         self.rng = np.random.RandomState(seed)
         self.current_frame_skip = 0
         self.current_applied_action = 0
@@ -170,7 +168,7 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.decision_step_idx = 0
         self.pending_actions.clear()
         self._schedule_seq = 0
-        self.current_frame_skip = self._sample_frame_skip()
+        self.current_frame_skip = int(self.frame_skip_values[0])
         obs, info = self.env.reset(**kwargs)
         info = dict(info or {})
         info["frame_skip"] = int(self.current_frame_skip)
@@ -180,6 +178,7 @@ class QueueLatencyWrapper(gym.Wrapper):
         return obs, info
 
     def step(self, action):
+        self.current_frame_skip = self._sample_frame_skip()
         scheduled_delay = int(self.current_frame_skip)
         scheduled_apply_step = self._schedule_action(int(action))
         self._advance_pending_actions()
@@ -542,8 +541,6 @@ def print_profile_row(row: Dict[str, object]) -> None:
 
 def train(args, wandb_module) -> str:
     frame_skip_values = parse_int_list(args.frame_skip_values)
-    if not frame_skip_values:
-        raise ValueError("--frame-skip-values must contain at least one value")
     if args.observation_render_mode == "direct_84" and args.renderer != "torch":
         raise ValueError("--observation-render-mode direct_84 requires --renderer torch")
     if args.observation_render_mode == "direct_84" and args.resize_backend != "torch":

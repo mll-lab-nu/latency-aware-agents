@@ -14,7 +14,6 @@ from modeling.flappy_ppo import (
     FlappyPpoAgent,
     load_flappy_ppo_checkpoint,
     observation_config_from_args,
-    parse_int_list,
     save_flappy_ppo_checkpoint,
     save_flappy_ppo_unified_checkpoint,
 )
@@ -38,6 +37,7 @@ from training.flappy_ppo.profiler import (
     init_profile_csv,
     print_profile_row,
 )
+from training.sample_factory_common.latency_config import sample_factory_latency_params_from_flat_config
 
 
 ensure_flappy_gymnasium_on_path()
@@ -76,10 +76,6 @@ def save_checkpoint(
 
 
 def train(args, wandb_module) -> str:
-    frame_skip_values = parse_int_list(args.frame_skip_values)
-    if not frame_skip_values:
-        raise ValueError("--frame-skip-values must contain at least one value")
-
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -88,11 +84,13 @@ def train(args, wandb_module) -> str:
     if args.device == "auto":
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(args.device)
+    latency_params = sample_factory_latency_params_from_flat_config(args, env_fps=float(args.env_fps))
 
     envs = SyncFlappyBatch(
         n_envs=args.n_envs,
         seed=args.seed,
-        frame_skip_values=frame_skip_values,
+        fixed_frame_skip=latency_params.fixed_latency_raw_frames,
+        latency_distribution_spec=latency_params.latency_distribution_spec,
         device=device,
     )
 
@@ -150,6 +148,7 @@ def train(args, wandb_module) -> str:
             "batch_size": int(minibatch_size),
             "num_updates": int(num_updates),
             "frame_skip_values": args.frame_skip_values,
+            "latency_type": args.latency_type,
             "stats_window_size": int(stats_window_size),
             "save_path": args.save,
             "wandb_project": getattr(args, "wandb_project", ""),

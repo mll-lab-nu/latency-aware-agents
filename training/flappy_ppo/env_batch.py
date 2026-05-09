@@ -7,6 +7,11 @@ from typing import Any, Dict, List, Sequence
 import numpy as np
 import torch
 
+from latency_bench.core.latency_distribution import (
+    LatencyDistributionSpec,
+    derive_latency_seed,
+    make_latency_distribution_sampler,
+)
 from training.flappy_ppo.paths import ensure_flappy_gymnasium_on_path
 
 
@@ -26,12 +31,18 @@ from flappy_bird_gymnasium.gpu_render import (  # noqa: E402
 class QueueLatencyWrapper(gym.Wrapper):
     """True input-delay wrapper matching the SB3 queue-latency scripts."""
 
-    def __init__(self, env: gym.Env, frame_skip_values: Sequence[int], seed: int):
+    def __init__(
+        self,
+        env: gym.Env,
+        fixed_frame_skip: int,
+        seed: int,
+        latency_distribution_spec: LatencyDistributionSpec | None = None,
+    ):
         super().__init__(env)
-        if not frame_skip_values:
-            raise ValueError("frame_skip_values cannot be empty")
-        self.frame_skip_values = [max(0, int(x)) for x in frame_skip_values]
-        self.rng = np.random.RandomState(seed)
+        self.fixed_frame_skip = int(fixed_frame_skip)
+        self.latency_distribution_spec = latency_distribution_spec
+        self.base_latency_seed = int(seed)
+        self.latency_distribution_sampler = None
         self.current_frame_skip = 0
         self.current_applied_action = 0
         self.episode_idx = 0
@@ -40,8 +51,21 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.pending_actions: List[tuple[int, int, int, int]] = []
         self._schedule_seq = 0
 
-    def _sample_frame_skip(self) -> int:
-        return int(self.rng.choice(self.frame_skip_values))
+    def _reset_latency_distribution_sampler(self) -> None:
+        if self.latency_distribution_spec is None:
+            self.latency_distribution_sampler = None
+            return
+        self.latency_distribution_sampler = make_latency_distribution_sampler(
+            self.latency_distribution_spec,
+            seed=derive_latency_seed(self.base_latency_seed, episode_idx=int(self.episode_idx)),
+        )
+
+    def _next_frame_skip(self) -> int:
+        if self.latency_distribution_spec is not None:
+            if self.latency_distribution_sampler is None:
+                self._reset_latency_distribution_sampler()
+            return int(self.latency_distribution_sampler.sample_frame())
+        return int(self.fixed_frame_skip)
 
     def _schedule_action(self, action: int) -> int:
         latency_for_action = int(self.current_frame_skip)
@@ -64,7 +88,8 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.decision_step_idx = 0
         self.pending_actions.clear()
         self._schedule_seq = 0
-        self.current_frame_skip = self._sample_frame_skip()
+        self._reset_latency_distribution_sampler()
+        self.current_frame_skip = 0 if self.latency_distribution_spec is not None else int(self.fixed_frame_skip)
         obs, info = self.env.reset(**kwargs)
         info = dict(info or {})
         info["frame_skip"] = int(self.current_frame_skip)
@@ -74,6 +99,7 @@ class QueueLatencyWrapper(gym.Wrapper):
         return obs, info
 
     def step(self, action):
+        self.current_frame_skip = int(self._next_frame_skip())
         scheduled_delay = int(self.current_frame_skip)
         scheduled_apply_step = self._schedule_action(int(action))
         self._advance_pending_actions()
@@ -98,8 +124,9 @@ class SyncFlappyBatch:
         self,
         n_envs: int,
         seed: int,
-        frame_skip_values: Sequence[int],
+        fixed_frame_skip: int,
         device: str | torch.device,
+        latency_distribution_spec: LatencyDistributionSpec | None = None,
     ) -> None:
         self.envs = []
         self.device = torch.device(device)
@@ -113,7 +140,12 @@ class SyncFlappyBatch:
                 normalize_obs=True,
                 render_mode=None,
             )
-            env = QueueLatencyWrapper(env, frame_skip_values, seed=seed + idx)
+            env = QueueLatencyWrapper(
+                env,
+                fixed_frame_skip=fixed_frame_skip,
+                latency_distribution_spec=latency_distribution_spec,
+                seed=seed + idx,
+            )
             env.reset(seed=seed + idx)
             if first_state is None:
                 first_state = env.unwrapped.get_render_state()

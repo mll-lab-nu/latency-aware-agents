@@ -46,14 +46,13 @@ TOP_LEVEL_SAMPLE_FACTORY_KEYS = (
 )
 
 LATENCY_KEYS = (
-    "train_values",
-    "train_mode",
-    "train_sampling_mode",
-    "train_distribution",
-    "episodes_per_stage",
-    "randomize_within_stage",
-    "within_episode_change_interval",
-    "within_episode_change_prob",
+    "type",
+    "fixed_latency_ms",
+    "mean_latency_ms",
+    "std_latency_ms",
+    "min_latency_ms",
+    "max_latency_ms",
+    "seed",
     "add_latency_info",
     "max_pending_actions",
 )
@@ -187,20 +186,25 @@ def _apply_training_latency_config(config: dict, latency: int | None, latency_di
     if latency_distribution is None:
         if latency is None:
             raise ValueError("latency is required for fixed latency configs")
-        latency_cfg["train_values"] = [int(latency)]
-        latency_cfg.pop("train_distribution", None)
-        latency_cfg["train_mode"] = "episode_fixed"
-        latency_cfg["train_sampling_mode"] = "uniform_all"
+        latency_cfg["type"] = "zero" if int(latency) == 0 else "fixed"
+        if int(latency) == 0:
+            latency_cfg.pop("fixed_latency_ms", None)
+        else:
+            latency_cfg["fixed_latency_ms"] = _latency_steps_to_ms(config, int(latency))
+        for key in ("mean_latency_ms", "std_latency_ms", "min_latency_ms", "max_latency_ms", "seed"):
+            latency_cfg.pop(key, None)
         latency_cfg["add_latency_info"] = False
         return
 
     spec = parse_latency_distribution(latency_distribution)
-    latency_cfg.pop("train_values", None)
-    latency_cfg["train_distribution"] = spec.to_dict()
-    latency_cfg["train_mode"] = "within_episode_random"
-    latency_cfg["train_sampling_mode"] = "uniform_all"
-    latency_cfg["within_episode_change_interval"] = int(latency_cfg.get("within_episode_change_interval", 1) or 1)
-    latency_cfg["within_episode_change_prob"] = float(latency_cfg.get("within_episode_change_prob", 1.0))
+    latency_cfg.pop("fixed_latency_ms", None)
+    latency_cfg.update(
+        distribution_frames_to_ms_latency_config(
+            spec,
+            env_fps=float(config["env"]["env_fps"]),
+            seed=int(config["experiment"]["seed"]),
+        )
+    )
     latency_cfg["add_latency_info"] = False
     config.setdefault("evaluation", {}).pop("eval_latency_values", None)
 
@@ -355,12 +359,8 @@ def _build_latency_bench_eval_config(
     latency_label = _latency_run_label(latency, latency_distribution)
     if latency_distribution is not None:
         spec = parse_latency_distribution(latency_distribution)
-        latency_cfg.pop("train_values", None)
-        latency_cfg["train_distribution"] = spec.to_dict()
-        latency_cfg["train_mode"] = "within_episode_random"
-        latency_cfg["train_sampling_mode"] = "uniform_all"
-        latency_cfg["add_latency_info"] = False
         latency_cfg.pop("fixed_latency_ms", None)
+        latency_cfg["add_latency_info"] = False
         latency_cfg.update(
             distribution_frames_to_ms_latency_config(
                 spec,
@@ -370,9 +370,6 @@ def _build_latency_bench_eval_config(
         )
         config.setdefault("evaluation", {}).pop("eval_latency_values", None)
     else:
-        latency_cfg["train_values"] = [int(latency)]
-        latency_cfg["train_mode"] = "episode_fixed"
-        latency_cfg["train_sampling_mode"] = "uniform_all"
         latency_cfg["add_latency_info"] = False
         if int(latency) == 0:
             latency_cfg["type"] = "zero"

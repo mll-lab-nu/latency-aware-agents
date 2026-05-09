@@ -64,8 +64,6 @@ env:
     jump: jump
 latency:
   type: zero
-  train_values:
-    - 0
 scheduler:
   hold_policy: one_frame_then_noop
   ordering_policy: latest_ready
@@ -108,7 +106,6 @@ env:
     jump: jump
 latency:
   type: measured
-  train_values: null
 scheduler:
   hold_policy: one_frame_then_noop
   ordering_policy: latest_ready

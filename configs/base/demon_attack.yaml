@@ -33,15 +33,6 @@ env:
 
 latency:
   type: zero
-  train_enabled: true
-  train_values:
-    - 0
-  train_mode: episode_fixed
-  train_sampling_mode: uniform_all
-  episodes_per_stage: 10
-  randomize_within_stage: false
-  within_episode_change_interval: 1
-  within_episode_change_prob: 1.0
   add_latency_info: false
 
 scheduler:

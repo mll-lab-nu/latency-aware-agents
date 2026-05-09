@@ -90,9 +90,8 @@ def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
             maybe_set_cli_override(cfg, "max_episode_steps", eval_max_steps)
 
     maybe_set_cli_override(cfg, "mode", "eval")
-    maybe_set_cli_override(cfg, "latency_raw_frame_values", "0")
-    maybe_set_cli_override(cfg, "latency_mode", "episode_fixed")
-    maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
+    maybe_set_cli_override(cfg, "latency_type", "zero")
+    maybe_set_cli_override(cfg, "fixed_latency_ms", 0.0)
     maybe_set_cli_override(cfg, "env_frameskip", 1)
     maybe_set_cli_override(cfg, "eval_env_frameskip", 1)
     maybe_set_cli_override(cfg, "num_envs", 1)

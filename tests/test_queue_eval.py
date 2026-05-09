@@ -118,14 +118,13 @@ def _demon_attack_queue_eval_cfg(integration, **overrides):
         "clip_reward": True,
         "repeat_action_probability": 0.0,
         "full_action_space": False,
-        "latency_raw_frame_values": "0",
-        "latency_distribution_spec": "",
-        "latency_mode": "episode_fixed",
-        "latency_sampling_mode": "uniform_all",
-        "episodes_per_stage": 10,
-        "randomize_within_stage": False,
-        "within_episode_change_interval": 1,
-        "within_episode_change_prob": 1.0,
+        "latency_type": "zero",
+        "fixed_latency_ms": None,
+        "mean_latency_ms": None,
+        "std_latency_ms": None,
+        "min_latency_ms": None,
+        "max_latency_ms": None,
+        "latency_seed": None,
         "add_latency_info": False,
         "hold_policy": "hold",
         "ordering_policy": "latest_ready",
@@ -780,6 +779,7 @@ def test_prepare_queue_eval_cfg_uses_eval_max_steps_as_eval_only_timelimit():
     cfg = prepare_queue_eval_cfg(
         SimpleNamespace(
             env="latency_flappy",
+            env_fps=30,
             eval_max_steps=123,
             max_episode_steps=0,
             eval_deterministic=True,
@@ -797,6 +797,7 @@ def test_prepare_queue_eval_cfg_maps_flappy_gpu_eval_parallel_envs_to_batch_size
     cfg = prepare_queue_eval_cfg(
         SimpleNamespace(
             env="latency_flappy",
+            env_fps=30,
             use_gpu_render=True,
             eval_episodes=100,
             eval_parallel_envs=4,
@@ -825,17 +826,16 @@ def test_prepare_queue_eval_distribution_cfg_preserves_distribution_and_enables_
             eval_max_steps=123,
             max_episode_steps=0,
             eval_deterministic=True,
-            latency_distribution_spec='{"type":"uniform","min":0,"max":15}',
-            latency_mode="within_episode_random",
-            within_episode_change_interval=2,
-            within_episode_change_prob=0.5,
+            env_fps=30,
+            latency_type="uniform_distribution",
+            min_latency_ms=0.0,
+            max_latency_ms=500.0,
         )
     )
 
-    assert cfg.latency_distribution_spec == '{"max":15,"min":0,"type":"uniform"}'
-    assert cfg.latency_mode == "within_episode_random"
-    assert cfg.within_episode_change_interval == 2
-    assert cfg.within_episode_change_prob == 0.5
+    assert cfg.latency_type == "uniform_distribution"
+    assert cfg.min_latency_ms == 0.0
+    assert cfg.max_latency_ms == 500.0
     assert cfg.add_latency_info is True
     assert cfg.gpu_render_batch_size == 4
 
@@ -911,6 +911,7 @@ def test_prepare_queue_eval_cfg_caps_flappy_gpu_eval_parallel_envs_to_eval_episo
     cfg = prepare_queue_eval_cfg(
         SimpleNamespace(
             env="latency_flappy",
+            env_fps=30,
             use_gpu_render=True,
             eval_episodes=3,
             eval_parallel_envs=8,
@@ -996,6 +997,7 @@ def test_prepare_queue_eval_cfg_does_not_convert_demon_attack_eval_budget_to_tim
     cfg = prepare_queue_eval_cfg(
         SimpleNamespace(
             env="latency_demon_attack",
+            env_fps=60,
             eval_max_steps=123,
             max_episode_steps=0,
             eval_deterministic=True,
@@ -1013,6 +1015,7 @@ def test_prepare_queue_eval_cfg_aligns_demon_attack_raw_eval_runtime_config():
     cfg = prepare_queue_eval_cfg(
         SimpleNamespace(
             env="latency_demon_attack",
+            env_fps=60,
             eval_raw_reward=True,
             terminal_on_life_loss=False,
             clip_reward=True,

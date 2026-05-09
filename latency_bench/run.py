@@ -292,10 +292,7 @@ def _eval_latency_values(config: dict[str, Any]) -> list[int] | None:
 
 
 def _train_latency_steps(config: dict[str, Any]) -> int | None:
-    train_values = config.get("latency", {}).get("train_values")
-    if not train_values:
-        return None
-    return int(train_values[0])
+    return _latency_steps_from_config(config)
 
 
 def _latency_steps_to_ms(config: dict[str, Any], latency_steps: int) -> float:
@@ -332,14 +329,14 @@ def _write_non_sweep_summary(
 
 
 def _infer_latency_steps(config: dict[str, Any]) -> int | None:
+    return _latency_steps_from_config(config)
+
+
+def _latency_steps_from_config(config: dict[str, Any]) -> int | None:
     latency_cfg = config.get("latency", {})
     latency_type = str(latency_cfg.get("type", "")).strip().lower()
     if latency_type == "zero":
         return 0
-
-    train_latency_steps = _single_latency_value(latency_cfg.get("train_values"))
-    if train_latency_steps is not None:
-        return train_latency_steps
 
     if "fixed_latency_ms" not in latency_cfg:
         return None
@@ -352,16 +349,6 @@ def _infer_latency_steps(config: dict[str, Any]) -> int | None:
     if abs(latency_steps - rounded_steps) > 1e-9:
         return None
     return int(rounded_steps)
-
-
-def _single_latency_value(values: Any) -> int | None:
-    if values is None or isinstance(values, (str, bytes)):
-        return None
-    if not isinstance(values, Sequence):
-        return int(values)
-    if len(values) != 1:
-        return None
-    return int(values[0])
 
 
 def _summary_latency_label(config: dict[str, Any]) -> int | str | None:

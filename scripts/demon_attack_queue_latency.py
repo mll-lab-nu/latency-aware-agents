@@ -55,29 +55,10 @@ class QueueLatencyWrapper(gym.Wrapper):
         self,
         env: gym.Env,
         frame_skip_values: List[int],
-        latency_mode: str = "episode_fixed",
-        latency_sampling_mode: str = "uniform_all",
-        episodes_per_stage: int = 10,
-        randomize_within_stage: bool = False,
-        within_episode_change_interval: int = 1,
-        within_episode_change_prob: float = 1.0,
         seed: int = 0,
     ):
         super().__init__(env)
-        assert len(frame_skip_values) > 0, "frame_skip_values cannot be empty"
-
-        if latency_mode == "within_episode_change":
-            latency_mode = "within_episode_random"
-        assert latency_mode in {"episode_fixed", "within_episode_random", "within_episode_curriculum"}
-        assert latency_sampling_mode in {"uniform_all", "curriculum"}
-
-        self.frame_skip_values = [max(0, int(x)) for x in frame_skip_values]
-        self.latency_mode = str(latency_mode)
-        self.latency_sampling_mode = str(latency_sampling_mode)
-        self.episodes_per_stage = max(1, int(episodes_per_stage))
-        self.randomize_within_stage = bool(randomize_within_stage)
-        self.within_episode_change_interval = max(1, int(within_episode_change_interval))
-        self.within_episode_change_prob = float(within_episode_change_prob)
+        self.frame_skip_values = [int(x) for x in frame_skip_values]
 
         self.rng = np.random.RandomState(seed)
 
@@ -89,39 +70,8 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.pending_actions: List[tuple[int, int, int, int]] = []
         self._schedule_seq = 0
 
-    def _get_stage_index(self) -> int:
-        stage = self.episode_idx // self.episodes_per_stage
-        return min(stage, len(self.frame_skip_values) - 1)
-
     def _sample_frame_skip(self) -> int:
-        if self.latency_sampling_mode == "uniform_all":
-            return int(self.rng.choice(self.frame_skip_values))
-
-        stage = self._get_stage_index()
-        if self.randomize_within_stage:
-            candidates = self.frame_skip_values[: stage + 1]
-            return int(self.rng.choice(candidates))
-        return int(self.frame_skip_values[stage])
-
-    def _current_curriculum_frame_skip(self) -> int:
-        stage = self.decision_step_idx // self.within_episode_change_interval
-        stage = min(stage, len(self.frame_skip_values) - 1)
-        return int(self.frame_skip_values[stage])
-
-    def _maybe_update_frame_skip_for_this_decision(self) -> None:
-        if self.latency_mode == "episode_fixed":
-            return
-        if self.latency_mode == "within_episode_random":
-            if self.decision_step_idx == 0:
-                return
-            if self.decision_step_idx % self.within_episode_change_interval != 0:
-                return
-            if self.rng.rand() <= self.within_episode_change_prob:
-                self.current_frame_skip = self._sample_frame_skip()
-            return
-        if self.latency_mode == "within_episode_curriculum":
-            self.current_frame_skip = self._current_curriculum_frame_skip()
-            return
+        return int(self.rng.choice(self.frame_skip_values))
 
     def _schedule_action(self, action: int) -> int:
         latency_for_action = int(self.current_frame_skip)
@@ -142,24 +92,20 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.pending_actions.clear()
         self._schedule_seq = 0
 
-        if self.latency_mode == "within_episode_curriculum":
-            self.current_frame_skip = int(self.frame_skip_values[0])
-        else:
-            self.current_frame_skip = self._sample_frame_skip()
+        self.current_frame_skip = int(self.frame_skip_values[0])
 
         obs, info = self.env.reset(**kwargs)
         if not isinstance(info, dict):
             info = {}
         info["frame_skip"] = int(self.current_frame_skip)
         info["episode_idx"] = int(self.episode_idx)
-        info["latency_mode"] = self.latency_mode
         info["applied_action"] = int(self.current_applied_action)
         info["pending_queue_len"] = 0
         self.episode_idx += 1
         return obs, info
 
     def step(self, action):
-        self._maybe_update_frame_skip_for_this_decision()
+        self.current_frame_skip = self._sample_frame_skip()
         scheduled_delay = int(self.current_frame_skip)
         scheduled_apply_step = self._schedule_action(int(action))
         self._advance_pending_actions()
@@ -171,7 +117,6 @@ class QueueLatencyWrapper(gym.Wrapper):
         info["frame_skip"] = scheduled_delay
         info["decision_step_idx"] = int(self.decision_step_idx)
         info["env_step_idx"] = int(self.env_step_idx)
-        info["latency_mode"] = self.latency_mode
         info["applied_action"] = int(self.current_applied_action)
         info["queued_action"] = int(action)
         info["scheduled_apply_step"] = int(scheduled_apply_step)
@@ -757,12 +702,6 @@ def make_env(
     env_id: str = "ALE/DemonAttack-v5",
     obs_mode: str = "latency_channel",
     frame_skip_values: Optional[List[int]] = None,
-    episodes_per_stage: int = 10,
-    randomize_within_stage: bool = False,
-    latency_mode: str = "episode_fixed",
-    latency_sampling_mode: str = "uniform_all",
-    within_episode_change_interval: int = 1,
-    within_episode_change_prob: float = 1.0,
     screen_size: int = 84,
     noop_max: int = 30,
     clip_reward: bool = True,
@@ -798,12 +737,6 @@ def make_env(
         env = QueueLatencyWrapper(
             env,
             frame_skip_values=latency_values,
-            latency_mode=latency_mode,
-            latency_sampling_mode=latency_sampling_mode,
-            episodes_per_stage=episodes_per_stage,
-            randomize_within_stage=randomize_within_stage,
-            within_episode_change_interval=within_episode_change_interval,
-            within_episode_change_prob=within_episode_change_prob,
             seed=seed,
         )
 
@@ -832,12 +765,6 @@ def make_vec_demon_attack(
     env_id: str = "ALE/DemonAttack-v5",
     obs_mode: str = "latency_channel",
     frame_skip_values: Optional[List[int]] = None,
-    episodes_per_stage: int = 10,
-    randomize_within_stage: bool = False,
-    latency_mode: str = "episode_fixed",
-    latency_sampling_mode: str = "uniform_all",
-    within_episode_change_interval: int = 1,
-    within_episode_change_prob: float = 1.0,
     screen_size: int = 84,
     noop_max: int = 30,
     clip_reward: bool = True,
@@ -855,12 +782,6 @@ def make_vec_demon_attack(
             env_id=env_id,
             obs_mode=obs_mode,
             frame_skip_values=frame_skip_values,
-            episodes_per_stage=episodes_per_stage,
-            randomize_within_stage=randomize_within_stage,
-            latency_mode=latency_mode,
-            latency_sampling_mode=latency_sampling_mode,
-            within_episode_change_interval=within_episode_change_interval,
-            within_episode_change_prob=within_episode_change_prob,
             screen_size=screen_size,
             noop_max=noop_max,
             clip_reward=clip_reward,
@@ -943,12 +864,6 @@ def train(args, wandb_module):
         env_id=args.env_id,
         obs_mode=args.obs_mode,
         frame_skip_values=frame_skip_values,
-        episodes_per_stage=args.episodes_per_stage,
-        randomize_within_stage=args.randomize_within_stage,
-        latency_mode=args.latency_mode,
-        latency_sampling_mode=args.latency_sampling_mode,
-        within_episode_change_interval=args.within_episode_change_interval,
-        within_episode_change_prob=args.within_episode_change_prob,
         screen_size=args.screen_size,
         noop_max=args.noop_max,
         clip_reward=args.clip_reward,
@@ -967,12 +882,6 @@ def train(args, wandb_module):
         env_id=args.env_id,
         obs_mode=args.obs_mode,
         frame_skip_values=frame_skip_values,
-        episodes_per_stage=args.episodes_per_stage,
-        randomize_within_stage=args.randomize_within_stage,
-        latency_mode=args.latency_mode,
-        latency_sampling_mode=args.latency_sampling_mode,
-        within_episode_change_interval=args.within_episode_change_interval,
-        within_episode_change_prob=args.within_episode_change_prob,
         screen_size=args.screen_size,
         noop_max=args.noop_max,
         clip_reward=args.clip_reward,
@@ -1070,12 +979,6 @@ def eval_model(
         env_id=env_id,
         obs_mode=obs_mode,
         frame_skip_values=[eval_frame_skip],
-        episodes_per_stage=10**9,
-        randomize_within_stage=False,
-        latency_mode="episode_fixed",
-        latency_sampling_mode="uniform_all",
-        within_episode_change_interval=1,
-        within_episode_change_prob=1.0,
         screen_size=screen_size,
         noop_max=noop_max,
         clip_reward=clip_reward,
@@ -1140,12 +1043,6 @@ def export_rollouts(
         env_id=env_id,
         obs_mode=obs_mode,
         frame_skip_values=[export_frame_skip],
-        episodes_per_stage=10**9,
-        randomize_within_stage=False,
-        latency_mode="episode_fixed",
-        latency_sampling_mode="uniform_all",
-        within_episode_change_interval=1,
-        within_episode_change_prob=1.0,
         screen_size=screen_size,
         noop_max=noop_max,
         clip_reward=clip_reward,
@@ -1292,36 +1189,6 @@ def main():
         default="0,1,2,3,4,5",
         help="Comma-separated action-delay values in frames. For delay K, action chosen at t is applied at t+K.",
     )
-    ap.add_argument("--episodes-per-stage", type=int, default=10)
-    ap.add_argument("--randomize-within-stage", action="store_true")
-    ap.add_argument(
-        "--latency-mode",
-        type=str,
-        default="episode_fixed",
-        choices=["episode_fixed", "within_episode_random", "within_episode_curriculum", "within_episode_change"],
-        help=(
-            "episode_fixed: one latency per episode; "
-            "within_episode_random: resample latency inside episode; "
-            "within_episode_curriculum: increase latency step-by-step through provided range"
-        ),
-    )
-    ap.add_argument(
-        "--latency-sampling-mode",
-        type=str,
-        default="uniform_all",
-        choices=["uniform_all", "curriculum"],
-        help="For episode_fixed / within_episode_random sampling across the provided latency values",
-    )
-    ap.add_argument(
-        "--within-episode-change-interval",
-        type=int,
-        default=1,
-        help=(
-            "For within_episode_random: number of decision steps between possible resamples. "
-            "For within_episode_curriculum: number of decision steps spent at each latency before moving to the next one."
-        ),
-    )
-    ap.add_argument("--within-episode-change-prob", type=float, default=1.0)
 
     # Logging
     ap.add_argument("--wandb", action="store_true", help=argparse.SUPPRESS)
@@ -1353,7 +1220,7 @@ def main():
         if args.train_steps > 0:
             print(
                 f"[train] steps={args.train_steps} n_envs={args.n_envs} save={args.save} "
-                f"obs_mode={args.obs_mode} latency_mode={args.latency_mode}"
+                f"obs_mode={args.obs_mode} frame_skip_values={args.frame_skip_values}"
             )
             model_path = train(args, wandb_module)
             print(f"[train] saved => {model_path}")

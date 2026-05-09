@@ -176,7 +176,7 @@ def test_sync_flappy_batch_raw_rgb_buffer_matches_fresh_render_after_reset_step(
     envs = SyncFlappyBatch(
         n_envs=3,
         seed=7,
-        frame_skip_values=(0,),
+        fixed_frame_skip=0,
         device="cpu",
     )
     try:

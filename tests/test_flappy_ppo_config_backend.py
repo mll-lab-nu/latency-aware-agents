@@ -18,12 +18,10 @@ def _config() -> dict:
             "train_dir": "results/checkpoints/training_runs",
             "device": "cpu",
         },
-        "env": {"name": "flappy", "frame_stack": 4},
+        "env": {"name": "flappy", "frame_stack": 4, "env_fps": 30},
         "latency": {
-            "train_values": [0, 3],
-            "train_mode": "episode_fixed",
-            "train_sampling_mode": "uniform_all",
-            "randomize_within_stage": False,
+            "type": "fixed",
+            "fixed_latency_ms": 100.0,
             "add_latency_info": False,
         },
         "training": {
@@ -62,7 +60,7 @@ def test_flappy_ppo_config_maps_supported_fields_to_args():
     assert args.n_epochs == 4
     assert args.seed == 7
     assert args.device == "cpu"
-    assert args.frame_skip_values == "0,3"
+    assert args.frame_skip_values == "3"
     assert args.frame_skip_training_setting == "action_delay_frame_skip"
     assert args.image_size == 84
     assert args.stack_frames == 4
@@ -102,14 +100,6 @@ def test_flappy_ppo_config_rejects_batch_size_larger_than_rollout_batch():
     cfg["training"]["batch_size"] = 31
 
     with pytest.raises(ValueError, match="training.batch_size"):
-        validate_flappy_ppo_config(cfg)
-
-
-def test_flappy_ppo_config_rejects_unsupported_latency_schedule_fields():
-    cfg = _config()
-    cfg["latency"]["within_episode_change_prob"] = 0.5
-
-    with pytest.raises(ValueError, match="latency.within_episode_change_prob"):
         validate_flappy_ppo_config(cfg)
 
 

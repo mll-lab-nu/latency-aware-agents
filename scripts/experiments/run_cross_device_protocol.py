@@ -902,7 +902,6 @@ def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask, 
     latency["type"] = "measured"
     latency["device"] = latency.get("device") or "cuda:0"
     latency["sync_cuda"] = latency.get("sync_cuda", True)
-    latency["train_values"] = None
     latency["profile_id"] = task.target_device["profile_id"]
     latency["profile_type"] = "rollout_profile"
     latency["latency_scope"] = spec.get("latency_scope", "policy_predict_only")
@@ -924,7 +923,6 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
     latency["trace_replay_order"] = spec.get("trace_replay_order", "sequential")
     latency["loop_trace"] = bool(spec.get("loop_trace", True))
     latency["seed"] = int(task.seed)
-    latency["train_values"] = None
     latency["profile_id"] = task.target_device["profile_id"]
     latency["profile_type"] = "rollout_profile"
     latency["latency_scope"] = spec.get("latency_scope", "policy_predict_only")
