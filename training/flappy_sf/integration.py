@@ -12,7 +12,7 @@ from gymnasium.spaces import Box, Dict as GymDict
 from PIL import Image
 
 from latency_bench.core.latency_distribution import distribution_max_frame_latency, parse_latency_distribution
-from modeling.flappy_ppo.preprocessing import latency_channel_value, resize_frame_pil
+from modeling.flappy_ppo.preprocessing import resize_frame_pil
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
 from training.sample_factory_common.config_adapter import (
     append_cli_arg,
@@ -76,20 +76,6 @@ def parse_obs_resize(value: Any) -> tuple[int, int] | None:
     return height, width
 
 
-def resolve_flappy_obs_mode(cfg: Any) -> str:
-    explicit = str(getattr(cfg, "obs_mode", "") or "").strip().lower()
-    if not explicit:
-        explicit = "latency_channel" if bool(getattr(cfg, "add_latency_info", False)) else "image_only"
-    if explicit not in {"image_only", "latency_channel"}:
-        raise ValueError("obs_mode must be 'image_only' or 'latency_channel'")
-    return explicit
-
-
-def _max_frame_skip_from_cfg(cfg: Any) -> int:
-    values = _frame_skip_values_from_cfg(cfg)
-    return max(1, max([0, *values]))
-
-
 def _latency_distribution_spec_from_cfg(cfg: Any):
     raw = getattr(cfg, "latency_distribution_spec", None)
     if raw is None or not str(raw).strip():
@@ -105,11 +91,9 @@ def _frame_skip_values_from_cfg(cfg: Any) -> list[int]:
     return sorted({max(0, int(value)) for value in values}) or [0]
 
 
-def _final_obs_shape(single_frame_shape: tuple[int, int, int], frame_stack: int, obs_mode: str) -> tuple[int, int, int]:
+def _final_obs_shape(single_frame_shape: tuple[int, int, int], frame_stack: int) -> tuple[int, int, int]:
     channels, height, width = single_frame_shape
     stacked_channels = int(channels) * int(frame_stack)
-    if obs_mode == "latency_channel":
-        stacked_channels += 1
     return stacked_channels, int(height), int(width)
 
 
@@ -121,7 +105,6 @@ def log_flappy_sf_resolved_config(cfg: Any, final_obs_shape: tuple[int, int, int
     if not bool(getattr(cfg, "debug_timelimit_diagnostics", False)):
         return
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
-    obs_mode = resolve_flappy_obs_mode(cfg)
     obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
     single_frame_shape = (3, int(final_obs_shape[1]), int(final_obs_shape[2]))
     stacked_shape = (3 * frame_stack, int(final_obs_shape[1]), int(final_obs_shape[2]))
@@ -131,9 +114,7 @@ def log_flappy_sf_resolved_config(cfg: Any, final_obs_shape: tuple[int, int, int
         f"stacked_rgb_shape={_format_shape(stacked_shape)} "
         f"final_model_input_shape={_format_shape(final_obs_shape)} "
         "dtype=uint8 "
-        f"obs_resize={obs_resize} "
-        f"obs_mode={obs_mode} "
-        f"latency_channel={obs_mode == 'latency_channel'}"
+        f"obs_resize={obs_resize}"
     )
 
 
@@ -317,41 +298,6 @@ class FlappyFrameStackWrapper(gym.Wrapper):
         return self._stack_frames(), reward, terminated, truncated, info
 
 
-class FlappyLatencyChannelWrapper(gym.Wrapper):
-    observation_space: Box
-
-    def __init__(self, env: gym.Env, max_frame_skip: int):
-        super().__init__(env)
-        if not isinstance(env.observation_space, Box):
-            raise TypeError("FlappyLatencyChannelWrapper expects a Box observation space")
-        base_shape = tuple(int(dim) for dim in env.observation_space.shape)
-        if len(base_shape) != 3:
-            raise ValueError(f"Expected stacked CHW observation, got shape {base_shape}")
-        self.max_frame_skip = max(1, int(max_frame_skip))
-        final_shape = (base_shape[0] + 1, base_shape[1], base_shape[2])
-        self.observation_space = Box(low=0, high=255, shape=final_shape, dtype=np.uint8)
-
-    def observation(self, obs: np.ndarray, info: dict[str, Any] | None = None) -> np.ndarray:
-        arr = np.asarray(obs, dtype=np.uint8)
-        if arr.ndim != 3:
-            raise ValueError(f"Expected stacked CHW observation, got shape {arr.shape!r}")
-        metadata = dict(info or {})
-        frame_skip = metadata.get("frame_skip", metadata.get("latency_frame_skip", metadata.get("queue_latency", 0)))
-        value = latency_channel_value(frame_skip, self.max_frame_skip)
-        channel = np.full((1, arr.shape[1], arr.shape[2]), value, dtype=np.uint8)
-        return np.concatenate([arr, channel], axis=0)
-
-    def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
-        info = dict(info or {})
-        return self.observation(obs, info), info
-
-    def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        info = dict(info or {})
-        return self.observation(obs, info), reward, terminated, truncated, info
-
-
 def make_flappy_sf_env(
     _full_env_name: str,
     cfg=None,
@@ -364,20 +310,16 @@ def make_flappy_sf_env(
     gymnasium = _import_flappy_gymnasium()
     use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))
     obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
-    obs_mode = resolve_flappy_obs_mode(cfg)
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
 
     if use_gpu_render:
         from training.flappy_sf.batched_gpu_env import FlappyBatchedGpuRenderedEnv
 
-        latency_values = _frame_skip_values_from_cfg(cfg)
         env = FlappyBatchedGpuRenderedEnv(
             cfg=cfg,
             env_config=env_config,
             obs_resize=obs_resize,
             frame_stack=frame_stack,
-            obs_mode=obs_mode,
-            frame_skip_values=latency_values or [0],
             gpu_render_device=getattr(cfg, "gpu_render_device", "auto"),
             gpu_render_batch_size=int(getattr(cfg, "gpu_render_batch_size", 1) or 1),
             gpu_render_profile=bool(getattr(cfg, "gpu_render_profile", False)),
@@ -444,11 +386,9 @@ def make_flappy_sf_env(
         seed=wrapper_seed,
         env_reset_seed_base=wrapper_seed + 104729,
         latency_info_keys=("queue_latency", "frame_skip", "latency_frame_skip"),
-        add_latency_info=bool(getattr(cfg, "add_latency_info", False)) or obs_mode == "latency_channel",
+        add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
         max_pending_actions=getattr(cfg, "max_pending_actions", None),
     )
-    if not use_gpu_render and obs_mode == "latency_channel":
-        env = FlappyLatencyChannelWrapper(env, max_frame_skip=_max_frame_skip_from_cfg(cfg))
     env = EpisodeMetricsWrapper(
         env,
         frames_per_decision=1,
@@ -499,7 +439,6 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--audio_on", type=str2bool, default=False)
     parser.add_argument("--screen_size", type=str, default="")
     parser.add_argument("--obs_resize", type=str, default="")
-    parser.add_argument("--obs_mode", type=str, default="image_only", choices=["image_only", "latency_channel"])
     parser.add_argument("--use-gpu-render", dest="use_gpu_render", type=str2bool, default=False)
     parser.add_argument("--gpu-render-device", dest="gpu_render_device", type=str, default="auto")
     parser.add_argument("--gpu-render-batch-size", dest="gpu_render_batch_size", type=int, default=1)
@@ -559,7 +498,6 @@ def parse_cfg(argv=None, evaluation: bool = False):
 
 def build_cli_args_from_config(config: dict) -> list[str]:
     env_cfg = config["env"]
-    latency_cfg = config.get("latency", {})
     args = build_common_sf_args(config, sf_env_name=SF_ENV_NAME)
     append_cli_arg(args, "--gym_id", env_cfg.get("gym_id", "FlappyBird-v0"))
     append_cli_arg(args, "--use_lidar", env_cfg.get("use_lidar", False))
@@ -571,10 +509,6 @@ def build_cli_args_from_config(config: dict) -> list[str]:
             "use env.obs_resize to resize observations without changing env geometry"
         )
     append_cli_arg(args, "--obs_resize", env_cfg.get("obs_resize"))
-    obs_mode = env_cfg.get("obs_mode")
-    if bool(latency_cfg.get("add_latency_info", False)):
-        obs_mode = "latency_channel"
-    append_cli_arg(args, "--obs_mode", obs_mode or "image_only")
     append_cli_arg(args, "--use-gpu-render", env_cfg.get("use_gpu_render", False))
     append_cli_arg(args, "--gpu-render-device", env_cfg.get("gpu_render_device", "auto"))
     append_cli_arg(args, "--gpu-render-profile", env_cfg.get("gpu_render_profile", False))

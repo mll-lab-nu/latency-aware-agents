@@ -26,10 +26,9 @@ def _write_base_config(path: Path) -> None:
     config = {
         "experiment": {"name": "dry_run_policy_seed0", "seed": 0, "num_episodes": 2},
         "executor": {"mode": "simulated"},
-        "env": {"name": "flappy", "fps_env": 30, "noop_action": "noop"},
-        "control": {"frequency_hz": 30, "observe_every_n_frames": 1},
+        "env": {"name": "flappy", "env_fps": 30, "obs_fps": 30, "noop_action": "noop"},
         "latency": {"type": "fixed", "fixed_latency_ms": 33.333333333333336, "train_values": [1]},
-        "scheduler": {"hold_policy": "hold_until_next_action", "ordering_policy": "latest_ready"},
+        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
         "policy": {"type": "random", "actions": ["noop", "flap"]},
         "logging": {"output_dir": "unused"},
         "evaluation": {"eval_episodes": 2, "eval_parallel_envs": 4, "eval_latency_values": [0, 1], "eval_max_steps": 10},
@@ -41,10 +40,9 @@ def _write_base_config_with_policy(path: Path, policy_type: str) -> None:
     config = {
         "experiment": {"name": f"{policy_type}_seed0", "seed": 0, "num_episodes": 1},
         "executor": {"mode": "simulated"},
-        "env": {"name": "dummy", "fps_env": 30, "noop_action": "noop"},
-        "control": {"frequency_hz": 30, "observe_every_n_frames": 1},
+        "env": {"name": "dummy", "env_fps": 30, "obs_fps": 30, "noop_action": "noop"},
         "latency": {"type": "zero"},
-        "scheduler": {"hold_policy": "hold_until_next_action", "ordering_policy": "latest_ready"},
+        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
         "policy": {"type": policy_type, "actions": ["noop"]},
         "logging": {"output_dir": "unused"},
         "evaluation": {"eval_episodes": 1, "eval_parallel_envs": 1, "eval_latency_values": None, "eval_max_steps": 1},
@@ -1057,10 +1055,10 @@ def test_measure_dry_run_preserves_integral_fps_as_int_for_deadly_corridor(tmp_p
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["env"]["name"] == "deadly_corridor"
-    assert config["env"]["fps_env"] == 35
-    assert isinstance(config["env"]["fps_env"], int)
-    assert config["control"]["frequency_hz"] == 35
-    assert isinstance(config["control"]["frequency_hz"], int)
+    assert config["env"]["env_fps"] == 35
+    assert isinstance(config["env"]["env_fps"], int)
+    assert config["env"]["obs_fps"] == 35
+    assert isinstance(config["env"]["obs_fps"], int)
 
 
 def test_stage_overrides_can_raise_deadly_corridor_measure_episodes_only(tmp_path: Path):

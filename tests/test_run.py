@@ -21,14 +21,12 @@ executor:
   mode: simulated
 env:
   name: dummy
-  fps_env: 30
+  env_fps: 30
+  obs_fps: 30
   noop_action: noop
   action_map:
     noop: noop
     jump: jump
-control:
-  frequency_hz: 30
-  observe_every_n_frames: 1
 latency:
   type: zero
 scheduler:
@@ -58,14 +56,12 @@ executor:
   mode: simulated
 env:
   name: dummy
-  fps_env: 30
+  env_fps: 30
+  obs_fps: 30
   noop_action: noop
   action_map:
     noop: noop
     jump: jump
-control:
-  frequency_hz: 30
-  observe_every_n_frames: 1
 latency:
   type: zero
   train_values:
@@ -104,14 +100,12 @@ executor:
   mode: realtime
 env:
   name: dummy
-  fps_env: 30
+  env_fps: 30
+  obs_fps: 30
   noop_action: noop
   action_map:
     noop: noop
     jump: jump
-control:
-  frequency_hz: 30
-  observe_every_n_frames: 1
 latency:
   type: measured
   train_values: null
@@ -142,16 +136,13 @@ def _run_config(policy_type: str, tmp_path: Path, seed: int = 7, num_episodes: i
         },
         "env": {
             "name": "dummy",
-            "fps_env": 30,
+            "env_fps": 30,
+            "obs_fps": 30,
             "noop_action": "noop",
             "action_map": {
                 "noop": "noop",
                 "jump": "jump",
             },
-        },
-        "control": {
-            "frequency_hz": 30,
-            "observe_every_n_frames": 1,
         },
         "latency": {
             "type": "zero",

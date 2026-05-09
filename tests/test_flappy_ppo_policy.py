@@ -25,7 +25,7 @@ from modeling.flappy_ppo import (
 def _env_config() -> dict:
     return {
         "name": "flappy",
-        "fps_env": 30,
+        "env_fps": 30,
         "noop_action": "noop",
         "action_map": {
             "noop": 0,
@@ -57,8 +57,6 @@ def _write_checkpoint(tmp_path, observation_config: FlappyPpoObservationConfig |
         image_size=84,
         grayscale=False,
         stack_frames=4,
-        obs_mode="image_only",
-        frame_skip_values=(0,),
     )
     agent = FlappyPpoAgent(
         in_channels=obs_config.in_channels,
@@ -125,8 +123,6 @@ def test_flappy_ppo_policy_runner_resets_frame_stack_between_episodes(tmp_path):
         image_size=84,
         grayscale=False,
         stack_frames=4,
-        obs_mode="image_only",
-        frame_skip_values=(0,),
     )
     path, _, _ = _write_checkpoint(tmp_path, observation_config=obs_config)
     policy = build_policy(_config(str(path)), ActionResolver(_env_config()))
@@ -149,8 +145,6 @@ def test_flappy_ppo_policy_runner_matches_shared_raw_rgb_preprocessing(tmp_path)
         image_size=84,
         grayscale=False,
         stack_frames=2,
-        obs_mode="latency_channel",
-        frame_skip_values=(0, 4),
     )
     path, _, _ = _write_checkpoint(tmp_path, observation_config=obs_config)
     policy = build_policy(_config(str(path)), ActionResolver(_env_config()))
@@ -189,6 +183,7 @@ def test_flappy_ppo_zero_latency_config_builds_executor_to_policy_layer(tmp_path
     config = load_config("configs/experiments/flappy_ppo_zero_latency.yaml")
     config["policy"]["checkpoint_path"] = str(path)
     config["policy"]["device"] = "cpu"
+    config["env"]["gpu_render_device"] = "cpu"
     config["logging"]["output_dir"] = str(tmp_path / "logs")
 
     executor = build_executor(config)

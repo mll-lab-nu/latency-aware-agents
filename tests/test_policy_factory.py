@@ -15,7 +15,7 @@ def _config(policy: dict) -> dict:
         },
         "env": {
             "name": "flappy",
-            "fps_env": 30,
+            "env_fps": 30,
             "noop_action": "noop",
             "action_map": {
                 "noop": 0,

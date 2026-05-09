@@ -36,7 +36,7 @@ def _build_raw_clipped_return_env(config: dict, noop_action: Action) -> EnvAdapt
     env_cfg = config["env"]
     evaluation_cfg = config["evaluation"]
     return RawClippedReturnEnv(
-        fps_env=float(env_cfg["fps_env"]),
+        env_fps=float(env_cfg["env_fps"]),
         max_steps=int(evaluation_cfg["eval_max_steps"]),
         noop_action=noop_action,
     )
@@ -54,16 +54,13 @@ def _config(tmp_path: Path, *, latency: dict | None = None, env_name: str = "dum
         },
         "env": {
             "name": env_name,
-            "fps_env": 25,
+            "env_fps": 25,
+            "obs_fps": 25,
             "noop_action": "noop",
             "action_map": {
                 "noop": "noop",
                 "jump": "jump",
             },
-        },
-        "control": {
-            "frequency_hz": 25,
-            "observe_every_n_frames": 1,
         },
         "latency": latency or {
             "type": "fixed",
@@ -131,7 +128,8 @@ def test_episode_metrics_log_evaluation_raw_fact_metadata(tmp_path: Path):
     assert metrics["metadata"]["policy_id"] == "constant"
     assert metrics["metadata"]["env_id"] == "dummy"
     assert metrics["metadata"]["latency_type"] == "fixed"
-    assert metrics["metadata"]["fps"] == pytest.approx(25.0)
+    assert metrics["metadata"]["env_fps"] == pytest.approx(25.0)
+    assert metrics["metadata"]["obs_fps"] == pytest.approx(25.0)
     assert metrics["metadata"]["frame_ms"] == pytest.approx(40.0)
     assert metrics["metadata"]["replay_host"] == "test_replay_host"
 

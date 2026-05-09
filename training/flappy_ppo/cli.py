@@ -48,11 +48,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--image-size", type=int, default=84)
     parser.add_argument("--grayscale", action="store_true")
     parser.add_argument("--stack-frames", type=int, default=4)
-    parser.add_argument(
-        "--obs-mode",
-        choices=["image_only", "latency_channel"],
-        default="latency_channel",
-    )
     parser.add_argument("--frame-skip-values", type=str, default="0,1,2,3,4,5")
     parser.add_argument("--wandb-project", type=str, default="flappy_rl_image_queue_latency")
     parser.add_argument("--wandb-entity", type=str, default=None)

@@ -320,7 +320,7 @@ class _SfDiscreteImageEnv(EnvAdapter):
     action_space = Discrete(5)
 
     def __init__(self, *, max_steps: int, noop_action: Action):
-        self.fps_env = 30.0
+        self.env_fps = 30.0
         self.max_steps = int(max_steps)
         self.noop_action = noop_action
         self.gym_env = self
@@ -344,7 +344,7 @@ class _SfDiscreteImageEnv(EnvAdapter):
         return self._frame()
 
     def get_state_info(self):
-        return {"env_step": self.env_step, "sim_time_ms": self.env_step * (1000.0 / self.fps_env)}
+        return {"env_step": self.env_step, "sim_time_ms": self.env_step * (1000.0 / self.env_fps)}
 
     def _observation(self, *, seed: int | None = None) -> Observation:
         metadata = self.get_state_info()
@@ -360,7 +360,7 @@ class _SfTupleImageEnv(EnvAdapter):
     action_space = Tuple((Discrete(3), Discrete(3), Discrete(3), Discrete(2)))
 
     def __init__(self, *, max_steps: int, noop_action: Action):
-        self.fps_env = 35.0
+        self.env_fps = 35.0
         self.max_steps = int(max_steps)
         self.noop_action = noop_action
         self.gym_env = self
@@ -386,7 +386,7 @@ class _SfTupleImageEnv(EnvAdapter):
         return self._frame()
 
     def get_state_info(self):
-        return {"env_step": self.env_step, "sim_time_ms": self.env_step * (1000.0 / self.fps_env)}
+        return {"env_step": self.env_step, "sim_time_ms": self.env_step * (1000.0 / self.env_fps)}
 
     def _observation(self, *, seed: int | None = None) -> Observation:
         metadata = self.get_state_info()
@@ -713,7 +713,8 @@ def test_latency_bench_run_with_batched_sample_factory_discrete_policy_completes
         },
         "env": {
             "name": "sf_discrete_image_policy_test",
-            "fps_env": 30,
+            "env_fps": 30,
+            "obs_fps": 30,
             "frame_stack": 1,
             "noop_action": "noop",
             "action_map": {
@@ -723,10 +724,6 @@ def test_latency_bench_run_with_batched_sample_factory_discrete_policy_completes
                 "three": 3,
                 "four": 4,
             },
-        },
-        "control": {
-            "frequency_hz": 30,
-            "observe_every_n_frames": 1,
         },
         "latency": {
             "type": "zero",
@@ -790,19 +787,16 @@ def test_latency_bench_run_with_batched_deadly_tuple_policy_completes_exact_epis
         "env": {
             "name": "sf_tuple_image_policy_test",
             "env_id": "doom_deadly_corridor",
-            "fps_env": 35,
+            "env_fps": 35,
+            "obs_fps": 35,
             "frame_stack": 4,
             "noop_action": [0, 0, 0, 0],
-        },
-        "control": {
-            "frequency_hz": 35,
-            "observe_every_n_frames": 1,
         },
         "latency": {
             "type": "zero",
         },
         "scheduler": {
-            "hold_policy": "hold_until_next_action",
+            "hold_policy": "hold",
             "ordering_policy": "latest_ready",
         },
         "policy": {

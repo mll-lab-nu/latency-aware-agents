@@ -81,7 +81,6 @@ ENV_KEYS_BY_NAME = {
         "audio_on",
         "frame_stack",
         "obs_resize",
-        "obs_mode",
         "use_gpu_render",
         "gpu_render_device",
         "gpu_render_profile",
@@ -111,7 +110,8 @@ ENV_KEYS_BY_NAME = {
     "deadly_corridor": (
         "name",
         "env_id",
-        "fps_env",
+        "env_fps",
+        "obs_fps",
         "env_frameskip",
         "frame_stack",
         "res_w",
@@ -237,7 +237,6 @@ def _build_full_run_config(
         env_cfg["frame_stack"] = int(frame_stack_override)
     if env_name == "flappy":
         env_cfg["obs_resize"] = [84, 84]
-        env_cfg.setdefault("obs_mode", "image_only")
         env_cfg.pop("screen_size", None)
     _apply_training_latency_config(config, latency, latency_distribution)
     logging_cfg["output_dir"] = str(
@@ -288,10 +287,10 @@ def _latency_steps_to_ms(config: dict, latency_steps: int) -> float:
     latency_steps = int(latency_steps)
     if latency_steps < 0:
         raise ValueError("latency_steps must be non-negative")
-    fps_env = float(config["env"]["fps_env"])
-    if fps_env <= 0:
-        raise ValueError("env.fps_env must be positive")
-    return latency_steps * 1000.0 / fps_env
+    env_fps = float(config["env"]["env_fps"])
+    if env_fps <= 0:
+        raise ValueError("env.env_fps must be positive")
+    return latency_steps * 1000.0 / env_fps
 
 
 def _latency_bench_policy_type(env_name: str) -> str:
@@ -359,7 +358,7 @@ def _build_latency_bench_eval_config(
         latency_cfg.update(
             distribution_frames_to_ms_latency_config(
                 spec,
-                fps_env=float(config["env"]["fps_env"]),
+                env_fps=float(config["env"]["env_fps"]),
                 seed=int(seed),
             )
         )

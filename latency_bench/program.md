@@ -8,8 +8,8 @@ Core semantics:
 
 - The environment is frame-based.
 - One `env.step(action)` advances exactly one environment frame.
-- `fps_env` defines the environment clock.
-- `frame_ms = 1000 / fps_env`.
+- `env_fps` defines the environment clock.
+- `frame_ms = 1000 / env_fps`.
 - The agent observes the environment and launches policy inference at a configurable control frequency.
 - A policy action is not applied immediately. It becomes available only after a latency.
 - Latency can be fixed, sampled from a distribution, replayed from a trace, or measured from real model inference.
@@ -107,8 +107,8 @@ class ExecutorMode(str, Enum):
 
 class ActionHoldPolicy(str, Enum):
     ONE_FRAME_THEN_NOOP = "one_frame_then_noop"
-    HOLD_FOR_FIXED_DURATION = "hold_for_fixed_duration"
-    HOLD_UNTIL_NEXT_ACTION = "hold_until_next_action"
+    HOLD = "hold"
+    
 
 class OrderingPolicy(str, Enum):
     ISSUE_ORDER_FIFO = "issue_order_fifo"
@@ -216,7 +216,7 @@ Implement:
 
 ```python
 class EnvClock:
-    def __init__(self, fps_env: float):
+    def __init__(self, env_fps: float):
         ...
 
     @property
@@ -250,7 +250,7 @@ class FrameAccumulator:
 
 Tests:
 
-* `fps_env=30` gives `frame_ms≈33.333`.
+* `env_fps=30` gives `frame_ms≈33.333`.
 * `latency_ms=100` gives approximately `3.0` frames.
 * Accumulator should preserve fractional frame residuals across calls.
 
@@ -326,12 +326,9 @@ evaluation:
 
 env:
   name: flappy
-  fps_env: 30
+  env_fps: 30
+  obs_fps: 30
   noop_action: noop
-
-control:
-  frequency_hz: 30
-  observe_every_n_frames: 1
 
 latency:
   type: zero
@@ -420,7 +417,7 @@ Implement abstract environment adapter:
 
 ```python
 class EnvAdapter(ABC):
-    fps_env: float
+    env_fps: float
     noop_action: Action
 
     @abstractmethod
@@ -612,25 +609,23 @@ class DecisionScheduler(ABC):
 Implement:
 
 ```python
-class EveryFrameDecisionScheduler(DecisionScheduler):
+class ObservationCadenceDecisionScheduler(DecisionScheduler):
     ...
 
-class FixedFrameIntervalDecisionScheduler(DecisionScheduler):
+class ObservationCadenceDecisionScheduler(DecisionScheduler):
     ...
 
-class FixedFrequencyDecisionScheduler(DecisionScheduler):
+class ObservationCadenceDecisionScheduler(DecisionScheduler):
     ...
 ```
 
 Behavior:
 
-* Every frame: observe at every env step.
-* Fixed frame interval: observe every `n` frames.
-* Fixed frequency: derive interval from `fps_env / frequency_hz`.
+* Observe every `env_fps / obs_fps` raw frames.
 
 Tests:
 
-* `fps_env=30`, `frequency_hz=10` should observe every 3 frames.
+* `env_fps=30`, `obs_fps=10` should observe every 3 frames.
 
 ---
 
@@ -652,7 +647,7 @@ class ActionPersistencePolicy(ABC):
 Implement:
 
 ```python
-class HoldUntilNextActionPolicy(ActionPersistencePolicy):
+class HoldPolicy(ActionPersistencePolicy):
     """
     Keep executing the latest applied action until a new action is applied.
     """

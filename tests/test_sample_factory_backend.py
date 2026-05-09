@@ -258,7 +258,8 @@ def test_flappy_sf_native_eval_uses_same_obs_resize(tmp_path, monkeypatch):
 
     assert train_cfg["env"]["obs_resize"] == [84, 84]
     assert eval_cfg["env"]["obs_resize"] == [84, 84]
-    assert train_cfg["env"]["obs_mode"] == eval_cfg["env"]["obs_mode"] == "image_only"
+    assert "obs_mode" not in train_cfg["env"]
+    assert "obs_mode" not in eval_cfg["env"]
 
 
 def test_flappy_sf_sweep_config_preserves_gpu_render_fields(tmp_path, monkeypatch):
@@ -323,26 +324,6 @@ def test_flappy_sf_sweep_config_rejects_gpu_worker_splits_without_rewrite(tmp_pa
             restart_behavior="resume",
             train_for_env_steps=None,
         )
-
-
-def test_flappy_sf_latency_channel_shape():
-    from modeling.flappy_ppo.preprocessing import latency_channel_value
-    from training.flappy_sf.integration import (
-        FlappyFrameStackWrapper,
-        FlappyImageObsWrapper,
-        FlappyLatencyChannelWrapper,
-    )
-
-    image_env = FlappyImageObsWrapper(_RenderedRgbEnv(), obs_resize=(84, 84))
-    stacked = FlappyFrameStackWrapper(image_env, num_frames=4)
-    wrapped = FlappyLatencyChannelWrapper(stacked, max_frame_skip=5)
-
-    assert wrapped.observation_space.shape == (13, 84, 84)
-    obs, info = wrapped.reset()
-    assert obs.shape == (13, 84, 84)
-    assert np.all(obs[-1] == latency_channel_value(0, 5))
-    latency_obs = wrapped.observation(obs[:12], {"frame_skip": 3})
-    assert np.all(latency_obs[-1] == latency_channel_value(3, 5))
 
 
 def test_flappy_sf_shape_mismatch_fails_fast():
@@ -1274,7 +1255,6 @@ def test_flappy_cpu_render_reference_env_is_sample_factory_compatible(monkeypatc
         screen_size="",
         score_limit=-1,
         obs_resize="84,84",
-        obs_mode="image_only",
         frame_stack=4,
         max_episode_steps=0,
         queue_latency_values="0",
@@ -1552,7 +1532,7 @@ def test_same_latency_sweep_generator_emits_latency_bench_eval_configs(
         assert loaded["env"]["terminal_on_life_loss"] is True
         assert loaded["env"]["clip_reward"] is False
     if env_name == "deadly_corridor":
-        assert loaded["env"]["fps_env"] == 35
+        assert loaded["env"]["env_fps"] == 35
         assert loaded["env"]["noop_action"] == [0, 0, 0, 0]
 
 
@@ -1630,8 +1610,8 @@ def test_same_latency_sweep_generator_preserves_deadly_corridor_eval_latencies_f
     assert bench_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
     assert "max_episode_steps" not in eval_cfg["env"]
     assert "max_episode_steps" not in bench_cfg["env"]
-    assert eval_cfg["env"]["fps_env"] == 35
-    assert bench_cfg["env"]["fps_env"] == 35
+    assert eval_cfg["env"]["env_fps"] == 35
+    assert bench_cfg["env"]["env_fps"] == 35
     assert bench_cfg["env"]["noop_action"] == [0, 0, 0, 0]
 
 
@@ -1719,9 +1699,9 @@ def test_same_latency_sweep_generator_writes_three_configs_and_commands(tmp_path
                 output_root / "latency_bench" / env_name / f"train_latency_{latency}" / "seed_0"
             )
             if env_name == "deadly_corridor":
-                assert train_loaded["env"]["fps_env"] == 35
-                assert eval_loaded["env"]["fps_env"] == 35
-                assert loaded["env"]["fps_env"] == 35
+                assert train_loaded["env"]["env_fps"] == 35
+                assert eval_loaded["env"]["env_fps"] == 35
+                assert loaded["env"]["env_fps"] == 35
                 assert loaded["env"]["noop_action"] == [0, 0, 0, 0]
             if latency == 0:
                 assert loaded["latency"]["type"] == "zero"

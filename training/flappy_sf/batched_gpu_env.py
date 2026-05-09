@@ -34,8 +34,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         env_config: Any | None,
         obs_resize: tuple[int, int] | None,
         frame_stack: int,
-        obs_mode: str,
-        frame_skip_values: Sequence[int],
         gpu_render_device: str | torch.device,
         gpu_render_batch_size: int,
         gpu_render_profile: bool = False,
@@ -59,8 +57,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             image_size=height,
             grayscale=False,
             stack_frames=int(frame_stack),
-            obs_mode=str(obs_mode),
-            frame_skip_values=tuple(int(item) for item in frame_skip_values),
         )
         self.observation_space = GymDict(
             {
@@ -163,8 +159,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             seed=sub_seed,
             env_reset_seed_base=sub_seed + 104729,
             latency_info_keys=("queue_latency", "frame_skip", "latency_frame_skip"),
-            add_latency_info=bool(getattr(self.cfg, "add_latency_info", False))
-            or self.observation_config.obs_mode == "latency_channel",
+            add_latency_info=bool(getattr(self.cfg, "add_latency_info", False)),
             max_pending_actions=getattr(self.cfg, "max_pending_actions", None),
         )
         env = EpisodeMetricsWrapper(

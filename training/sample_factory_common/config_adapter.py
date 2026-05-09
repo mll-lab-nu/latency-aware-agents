@@ -204,10 +204,6 @@ def _validate_flappy_sf_config(config: dict[str, Any]) -> None:
     if obs_resize is not None:
         _parse_obs_resize_config(obs_resize)
 
-    obs_mode = str(env_cfg.get("obs_mode", "image_only")).strip().lower()
-    if obs_mode not in {"image_only", "latency_channel"}:
-        raise ValueError("env.obs_mode must be 'image_only' or 'latency_channel' for Flappy Sample Factory")
-
     profile_interval = env_cfg.get("gpu_render_profile_interval")
     if profile_interval is not None:
         try:

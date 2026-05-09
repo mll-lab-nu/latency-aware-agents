@@ -13,7 +13,7 @@ from latency_bench.latency.sources import ZeroLatencySource
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.observation.builder import ObservationBuilder
 from latency_bench.observation.history import HistoryBuffer
-from latency_bench.scheduler.decision import EveryFrameDecisionScheduler
+from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
 from executor_mode_helpers import SequencePolicyRunner, make_dummy_parts
 
 
@@ -118,13 +118,13 @@ def _executor(
     max_steps: int = 5,
     max_catchup_steps_per_loop: int | None = None,
 ) -> RealtimeLatencyExecutor:
-    env, clock, _, _, action_scheduler = make_dummy_parts(max_steps=max_steps, fps_env=30.0)
+    env, clock, _, _, action_scheduler = make_dummy_parts(max_steps=max_steps, env_fps=30.0)
     return RealtimeLatencyExecutor(
         env=env,
         policy=SequencePolicyRunner(actions),
         observation_builder=ObservationBuilder(),
         history=HistoryBuffer(),
-        decision_scheduler=EveryFrameDecisionScheduler(),
+        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_source=ZeroLatencySource(),
         action_scheduler=action_scheduler,
         clock=clock,
@@ -144,13 +144,13 @@ def _measured_executor(
     max_steps: int = 5,
     logger=None,
 ) -> RealtimeLatencyExecutor:
-    env, clock, _, _, action_scheduler = make_dummy_parts(max_steps=max_steps, fps_env=30.0)
+    env, clock, _, _, action_scheduler = make_dummy_parts(max_steps=max_steps, env_fps=30.0)
     return RealtimeLatencyExecutor(
         env=env,
         policy=SequencePolicyRunner(actions),
         observation_builder=ObservationBuilder(),
         history=HistoryBuffer(),
-        decision_scheduler=EveryFrameDecisionScheduler(),
+        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_source=ZeroLatencySource(),
         action_scheduler=action_scheduler,
         clock=clock,

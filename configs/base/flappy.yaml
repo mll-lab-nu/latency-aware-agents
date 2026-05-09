@@ -16,8 +16,10 @@ executor:
 
 env:
   name: flappy
+  # note that env_fps must be an integer multiple of obs_fps!
+  env_fps: 30
+  obs_fps: 30
   gym_id: FlappyBird-v0
-  fps_env: 30
   render_mode: rgb_array
   observation_mode: image
   use_lidar: false
@@ -27,7 +29,6 @@ env:
   obs_resize:
     - 84
     - 84
-  obs_mode: image_only
   use_gpu_render: true
   gpu_render_device: auto
   gpu_render_profile: false
@@ -38,10 +39,6 @@ env:
     flap: 1
   oneshot_actions:
     - flap
-
-control:
-  frequency_hz: 30
-  observe_every_n_frames: 1
 
 latency:
   type: zero
@@ -57,7 +54,10 @@ latency:
   add_latency_info: false
 
 scheduler:
+  # [one_frame_then_noop, hold]
+  # if hold, default hold duration is: env_fps / obs_fps
   hold_policy: one_frame_then_noop
+  # can be either `issue_order_fifo` or `latest ready`
   ordering_policy: latest_ready
 
 policy:

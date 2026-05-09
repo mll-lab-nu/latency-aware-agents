@@ -15,7 +15,8 @@ backend:
 env:
   name: deadly_corridor
   env_id: doom_deadly_corridor
-  fps_env: 35
+  env_fps: 35
+  obs_fps: 35
   env_frameskip: 4
   frame_stack: 4
   res_w: 128
@@ -97,8 +98,6 @@ policy:
     - ATTACK_NOOP
     - ATTACK
 
-control:
-  frequency_hz: 35
 
 latency:
   type: measured

@@ -16,6 +16,7 @@ from modeling.flappy_ppo import (
     observation_config_from_args,
     parse_int_list,
     save_flappy_ppo_checkpoint,
+    save_flappy_ppo_unified_checkpoint,
 )
 from training.flappy_ppo.env_batch import SyncFlappyBatch
 from training.flappy_ppo.logging import (
@@ -42,12 +43,33 @@ from training.flappy_ppo.profiler import (
 ensure_flappy_gymnasium_on_path()
 
 
-def save_checkpoint(path: str, agent: FlappyPpoAgent, optimizer, args, global_step: int) -> None:
-    save_flappy_ppo_checkpoint(
+def save_checkpoint(
+    path: str,
+    agent: FlappyPpoAgent,
+    optimizer,
+    args,
+    global_step: int,
+    train_step: int | None = None,
+):
+    observation_config = observation_config_from_args(args)
+    if bool(getattr(args, "unified_checkpoint_layout", False)):
+        return save_flappy_ppo_unified_checkpoint(
+            train_dir=getattr(args, "train_dir", "."),
+            experiment_name=getattr(args, "experiment_name", "flappy_ppo"),
+            agent=agent,
+            optimizer=optimizer,
+            observation_config=observation_config,
+            train_step=int(train_step if train_step is not None else global_step),
+            env_steps=int(global_step),
+            train_config=vars(args),
+            resolved_config=getattr(args, "resolved_config", {}),
+            frame_skip_training_setting=getattr(args, "frame_skip_training_setting", "action_delay_frame_skip"),
+        )
+    return save_flappy_ppo_checkpoint(
         path=path,
         agent=agent,
         optimizer=optimizer,
-        observation_config=observation_config_from_args(args),
+        observation_config=observation_config,
         global_step=global_step,
         train_config=vars(args),
     )
@@ -122,7 +144,6 @@ def train(args, wandb_module) -> str:
             "global_step": int(global_step),
             "update": None,
             "device": str(device),
-            "obs_mode": args.obs_mode,
             "n_envs": int(args.n_envs),
             "n_steps": int(args.n_steps),
             "rollout_size": int(rollout_size),

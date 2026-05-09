@@ -177,13 +177,13 @@ def distribution_max_frame_latency(raw: LatencyDistributionSpec | Mapping[str, A
 def distribution_frames_to_ms_latency_config(
     raw: LatencyDistributionSpec | Mapping[str, Any] | str,
     *,
-    fps_env: float,
+    env_fps: float,
     seed: int | None = None,
 ) -> dict[str, Any]:
     spec = parse_latency_distribution(raw)
-    fps = _coerce_finite_float(fps_env, "env.fps_env")
+    fps = _coerce_finite_float(env_fps, "env.env_fps")
     if fps <= 0:
-        raise ValueError("env.fps_env must be positive")
+        raise ValueError("env.env_fps must be positive")
     frame_ms = 1000.0 / fps
     if spec.type == "normal":
         assert spec.mean is not None

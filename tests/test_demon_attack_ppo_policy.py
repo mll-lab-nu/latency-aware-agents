@@ -20,7 +20,7 @@ from modeling.demon_attack_ppo import (
 def _env_config() -> dict:
     return {
         "name": "demon_attack",
-        "fps_env": 60,
+        "env_fps": 60,
         "noop_action": 0,
     }
 

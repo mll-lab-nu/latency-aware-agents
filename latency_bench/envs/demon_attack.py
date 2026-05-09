@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections import deque
 from typing import Any
 
 import gymnasium as gym
+import numpy as np
 
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
@@ -15,7 +17,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
     def __init__(
         self,
         env_id: str = "ALE/DemonAttack-v5",
-        fps_env: float = 60.0,
+        env_fps: float = 60.0,
         noop_action: Action | None = None,
         screen_size: int = 84,
         noop_max: int = 30,
@@ -26,9 +28,12 @@ class DemonAttackEnvAdapter(EnvAdapter):
         repeat_action_probability: float = 0.0,
         full_action_space: bool = False,
         expected_action_meanings: list[str] | tuple[str, ...] | None = None,
+        frame_stack: int = 1,
     ):
-        if fps_env <= 0:
-            raise ValueError("fps_env must be positive")
+        if env_fps <= 0:
+            raise ValueError("env_fps must be positive")
+        if frame_stack <= 0:
+            raise ValueError("frame_stack must be positive")
         self.gym_env = make_demon_attack_benchmark_env(
             env_id=env_id,
             screen_size=screen_size,
@@ -41,20 +46,23 @@ class DemonAttackEnvAdapter(EnvAdapter):
         )
         _validate_expected_action_meanings(self.gym_env, expected_action_meanings)
         self.env_id = env_id
-        self.fps_env = float(fps_env)
+        self.env_fps = float(env_fps)
         self.action_repeat = int(action_repeat)
+        self.frame_stack = int(frame_stack)
         self.noop_action = noop_action or Action(value=0, name="0", is_noop=True)
         self.continue_life_loss_terminal = bool(continue_life_loss_terminal)
         self.env_step = 0
         self._last_info: dict[str, Any] = {}
         self._last_frame: Any = None
+        self._observed_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
 
     @property
     def frame_ms(self) -> float:
-        return 1000.0 / self.fps_env
+        return 1000.0 / self.env_fps
 
     def reset(self, seed: int | None = None) -> Observation:
         self.env_step = 0
+        self._observed_frames.clear()
         frame, info = self.gym_env.reset(seed=seed)
         self._last_frame = frame
         self._last_info = dict(info or {})
@@ -77,6 +85,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
             terminal_env_step = int(self.env_step)
             reset_frame, reset_info = self.gym_env.reset()
             self.env_step = 0
+            self._observed_frames.clear()
             self._last_frame = reset_frame
             self._last_info = dict(reset_info or {})
             observation = self._make_observation(info=self._last_info)
@@ -124,6 +133,19 @@ class DemonAttackEnvAdapter(EnvAdapter):
             info=step_info,
         )
 
+    def observe(self) -> Observation:
+        if self._last_frame is None:
+            raise RuntimeError("DemonAttackEnvAdapter has no current observation; call reset() first")
+        metadata = self._metadata(self._last_info)
+        frame = np.asarray(self._last_frame, dtype=np.uint8)
+        self._observed_frames.append(frame)
+        return Observation(
+            data=self._policy_frame_stack(),
+            env_step=self.env_step,
+            sim_time_ms=self.env_step * self.frame_ms,
+            metadata=metadata,
+        )
+
     def render_frame(self) -> Any:
         return self._last_frame
 
@@ -142,6 +164,15 @@ class DemonAttackEnvAdapter(EnvAdapter):
         self.gym_env.close()
 
     def _make_observation(self, info: dict[str, Any]) -> Observation:
+        metadata = self._metadata(info)
+        return Observation(
+            data=self._last_frame,
+            env_step=self.env_step,
+            sim_time_ms=self.env_step * self.frame_ms,
+            metadata=metadata,
+        )
+
+    def _metadata(self, info: dict[str, Any]) -> dict[str, Any]:
         metadata = dict(info)
         metadata.update(
             {
@@ -150,12 +181,32 @@ class DemonAttackEnvAdapter(EnvAdapter):
                 "observation": "atari_frame_v1",
             }
         )
-        return Observation(
-            data=self._last_frame,
-            env_step=self.env_step,
-            sim_time_ms=self.env_step * self.frame_ms,
-            metadata=metadata,
-        )
+        return metadata
+
+    def _policy_frame_stack(self) -> np.ndarray:
+        frames = list(self._observed_frames)
+        if not frames:
+            raise RuntimeError("DemonAttack observe() has no current frame; call reset() first")
+        if len(frames) < self.frame_stack:
+            frames = [frames[0]] * (self.frame_stack - len(frames)) + frames
+        frames = [_single_frame_data(frame) for frame in frames[-self.frame_stack :]]
+        if self.frame_stack == 1:
+            return frames[-1]
+        axis = 0 if _looks_chw(frames[0]) else -1
+        return np.concatenate(frames, axis=axis)
+
+
+def _single_frame_data(frame: Any) -> np.ndarray:
+    arr = np.asarray(frame, dtype=np.uint8)
+    if arr.ndim == 2:
+        return arr[..., None]
+    if arr.ndim != 3:
+        raise ValueError(f"Expected Demon Attack image frame with 2 or 3 dims, got {arr.shape!r}")
+    return arr
+
+
+def _looks_chw(arr: np.ndarray) -> bool:
+    return arr.ndim == 3 and arr.shape[0] in {1, 3} and arr.shape[-1] not in {1, 3}
 
 
 def _is_true_episode_end(

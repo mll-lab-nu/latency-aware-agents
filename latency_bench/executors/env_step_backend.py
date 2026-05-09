@@ -41,13 +41,16 @@ class EnvStepBackend(Protocol):
         ...
 
     @property
-    def fps_env(self) -> float:
+    def env_fps(self) -> float:
         ...
 
     def worker_pids(self) -> list[int]:
         ...
 
     def reset_slot(self, slot_id: int, *, episode_id: int, seed: int | None) -> Observation:
+        ...
+
+    def observe_slots(self, slot_ids: Sequence[int]) -> dict[int, Observation]:
         ...
 
     def step_slots(self, actions_by_slot: Mapping[int, Action]) -> dict[int, EnvStepResponse]:
@@ -64,12 +67,12 @@ class RemoteEnvSlotHandle(EnvAdapter):
         self,
         *,
         slot_id: int,
-        fps_env: float,
+        env_fps: float,
         noop_action: Action,
         action_space: Any = None,
     ):
         self.slot_id = int(slot_id)
-        self.fps_env = float(fps_env)
+        self.env_fps = float(env_fps)
         self.noop_action = noop_action
         self.action_space = action_space
         self.gym_env = self
@@ -81,6 +84,11 @@ class RemoteEnvSlotHandle(EnvAdapter):
 
     def step(self, action: Action) -> StepResult:
         raise RuntimeError("remote env slots must be stepped through EnvStepBackend")
+
+    def observe(self) -> Observation:
+        if self._last_observation is None:
+            raise RuntimeError("remote env slots must be observed through EnvStepBackend")
+        return self._last_observation
 
     def update_observation(self, observation: Observation | None, info: dict[str, Any] | None = None) -> None:
         if observation is not None:
@@ -118,8 +126,8 @@ class SerialEnvStepBackend:
         return len(self.slot_handles)
 
     @property
-    def fps_env(self) -> float:
-        return float(self.slot_handles[0].fps_env)
+    def env_fps(self) -> float:
+        return float(self.slot_handles[0].env_fps)
 
     def worker_pids(self) -> list[int]:
         return []
@@ -138,6 +146,10 @@ class SerialEnvStepBackend:
         }
         self.last_reset_metadata_by_slot[int(slot_id)] = metadata
         return observation
+
+    def observe_slots(self, slot_ids: Sequence[int]) -> dict[int, Observation]:
+        self._raise_if_closed()
+        return {int(slot_id): self.slot_handles[int(slot_id)].observe() for slot_id in slot_ids}
 
     def step_slots(self, actions_by_slot: Mapping[int, Action]) -> dict[int, EnvStepResponse]:
         self._raise_if_closed()
@@ -204,8 +216,8 @@ class SubprocEnvStepBackend:
         return len(self.slot_handles)
 
     @property
-    def fps_env(self) -> float:
-        return float(self.slot_handles[0].fps_env)
+    def env_fps(self) -> float:
+        return float(self.slot_handles[0].env_fps)
 
     def worker_pids(self) -> list[int]:
         return [int(process.pid) for process in self._processes if process.pid is not None]
@@ -221,6 +233,19 @@ class SubprocEnvStepBackend:
         handle.update_observation(observation, metadata)
         self.last_reset_metadata_by_slot[slot_id] = metadata
         return observation
+
+    def observe_slots(self, slot_ids: Sequence[int]) -> dict[int, Observation]:
+        self._raise_if_closed()
+        slot_ids = [int(slot_id) for slot_id in slot_ids]
+        for slot_id in slot_ids:
+            self._send(slot_id, "observe", {})
+        observations: dict[int, Observation] = {}
+        for slot_id in slot_ids:
+            payload = self._recv(slot_id, "observe_result")
+            observation = payload["observation"]
+            self.slot_handles[slot_id].update_observation(observation, None)
+            observations[slot_id] = observation
+        return observations
 
     def step_slots(self, actions_by_slot: Mapping[int, Action]) -> dict[int, EnvStepResponse]:
         self._raise_if_closed()
@@ -267,7 +292,7 @@ class SubprocEnvStepBackend:
                 self.slot_handles.append(
                     RemoteEnvSlotHandle(
                         slot_id=slot_id,
-                        fps_env=float(payload["fps_env"]),
+                        env_fps=float(payload["env_fps"]),
                         noop_action=payload["noop_action"],
                         action_space=payload.get("action_space"),
                     )
@@ -373,7 +398,7 @@ def _env_worker(connection: Any, config: dict[str, Any], noop_action: Action, sl
             {
                 "slot_id": int(slot_id),
                 "worker_pid": worker_pid,
-                "fps_env": env.fps_env,
+                "env_fps": env.env_fps,
                 "noop_action": env.noop_action,
                 "action_space": _env_action_space(env),
             },
@@ -398,6 +423,15 @@ def _env_worker(connection: Any, config: dict[str, Any], noop_action: Action, sl
                         "observation": observation,
                         "worker_pid": worker_pid,
                         "metadata": metadata,
+                    },
+                ))
+            elif command == "observe":
+                observation = env.observe()
+                connection.send((
+                    "observe_result",
+                    {
+                        "observation": observation,
+                        "worker_pid": worker_pid,
                     },
                 ))
             elif command == "step":

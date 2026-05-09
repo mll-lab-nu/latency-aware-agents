@@ -7,7 +7,7 @@ from latency_bench.core.types import Action, Observation, StepResult
 
 
 class EnvAdapter(ABC):
-    fps_env: float
+    env_fps: float
     noop_action: Action
 
     @abstractmethod
@@ -17,6 +17,17 @@ class EnvAdapter(ABC):
     @abstractmethod
     def step(self, action: Action) -> StepResult:
         ...
+
+    def observe(self) -> Observation:
+        info = self.get_state_info()
+        frame = self.render_frame()
+        data = frame if frame is not None else info
+        return Observation(
+            data=data,
+            env_step=int(info.get("env_step", 0)),
+            sim_time_ms=float(info.get("sim_time_ms", 0.0)),
+            metadata=info,
+        )
 
     def render_frame(self) -> Any:
         return None
@@ -31,13 +42,13 @@ class EnvAdapter(ABC):
 class DummyEnvAdapter(EnvAdapter):
     def __init__(
         self,
-        fps_env: float = 30.0,
+        env_fps: float = 30.0,
         max_steps: int = 100,
         noop_action: Action | None = None,
     ):
         if max_steps < 0:
             raise ValueError("max_steps must be non-negative")
-        self.fps_env = float(fps_env)
+        self.env_fps = float(env_fps)
         self.max_steps = int(max_steps)
         self.noop_action = noop_action or Action(value="noop", name="noop", is_noop=True)
         self.state = 0
@@ -46,7 +57,7 @@ class DummyEnvAdapter(EnvAdapter):
 
     @property
     def frame_ms(self) -> float:
-        return 1000.0 / self.fps_env
+        return 1000.0 / self.env_fps
 
     def reset(self, seed: int | None = None) -> Observation:
         self.state = 0
@@ -67,6 +78,9 @@ class DummyEnvAdapter(EnvAdapter):
             "applied_action_name": action.name,
         }
         return StepResult(observation=obs, reward=1.0, done=done, truncated=False, info=info)
+
+    def observe(self) -> Observation:
+        return self._make_observation()
 
     def render_frame(self) -> Any:
         return {"state": self.state}

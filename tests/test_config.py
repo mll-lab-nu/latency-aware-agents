@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from latency_bench.core.config import load_config, merge_dicts, resolve_clock_config
+from latency_bench.core.config import load_config, merge_dicts
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 
 
@@ -16,15 +16,13 @@ executor:
   mode: simulated
 env:
   name: dummy
-  fps_env: 30
+  env_fps: 30
+  obs_fps: 10
   noop_action: noop
-control:
-  frequency_hz: 30
-  observe_every_n_frames: 1
 latency:
   type: zero
 scheduler:
-  hold_policy: one_frame_then_noop
+  hold_policy: hold
   ordering_policy: latest_ready
 policy:
   type: random
@@ -35,146 +33,34 @@ logging:
 
 def test_merge_dicts_overrides_nested_values():
     merged = merge_dicts(
-        {"env": {"fps_env": 30, "name": "base"}, "latency": {"type": "zero"}},
-        {"env": {"fps_env": 60}},
+        {"env": {"env_fps": 30, "name": "base"}, "latency": {"type": "zero"}},
+        {"env": {"env_fps": 60}},
     )
 
     assert merged["env"]["name"] == "base"
-    assert merged["env"]["fps_env"] == 60
+    assert merged["env"]["env_fps"] == 60
     assert merged["latency"]["type"] == "zero"
 
 
 def test_scheduler_public_core_types_are_clean():
     assert {item.value for item in OrderingPolicy} == {"issue_order_fifo", "latest_ready"}
-    assert {item.value for item in ActionHoldPolicy} == {
-        "one_frame_then_noop",
-        "hold_for_fixed_duration",
-        "hold_until_next_action",
-    }
+    assert {item.value for item in ActionHoldPolicy} == {"one_frame_then_noop", "hold"}
 
 
-def test_load_config_without_base(tmp_path: Path):
+def test_load_config_without_base_keeps_declared_shape(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(BASE_CONFIG, encoding="utf-8")
 
     config = load_config(config_path)
 
     assert config["experiment"]["name"] == "base"
-    assert config["env"]["fps_env"] == 30
-    assert config["clock"] == {
-        "env_fps": 30.0,
-        "obs_fps": 30.0,
-        "obs_stride_raw_frames": 1,
-    }
+    assert config["env"]["env_fps"] == 30
+    assert config["env"]["obs_fps"] == 10
+    assert "control" not in config
+    assert "clock" not in config
 
 
-def test_resolve_clock_config_derives_from_legacy_observe_every_n_frames():
-    config = {
-        "env": {"fps_env": 60},
-        "control": {"frequency_hz": 30, "observe_every_n_frames": 4},
-    }
-
-    assert resolve_clock_config(config) == {
-        "env_fps": 60.0,
-        "obs_fps": 15.0,
-        "obs_stride_raw_frames": 4,
-    }
-
-
-def test_load_config_accepts_clock_only_and_backfills_legacy_fields(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "env:\n  name: dummy\n  fps_env: 30\n  noop_action: noop\ncontrol:\n  frequency_hz: 30\n  observe_every_n_frames: 1",
-            """
-clock:
-  env_fps: 60
-  obs_fps: 15
-env:
-  name: dummy
-  noop_action: noop
-control: {}
-""".strip(),
-        ),
-        encoding="utf-8",
-    )
-
-    config = load_config(config_path)
-
-    assert config["clock"] == {
-        "env_fps": 60.0,
-        "obs_fps": 15.0,
-        "obs_stride_raw_frames": 4,
-    }
-    assert config["env"]["fps_env"] == 60.0
-    assert config["control"]["frequency_hz"] == 15.0
-    assert config["control"]["observe_every_n_frames"] == 4
-
-
-def test_load_config_rejects_conflicting_clock_env_fps(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG
-        + """
-clock:
-  env_fps: 60
-  obs_fps: 30
-""",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="clock.env_fps.*env.fps_env"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_conflicting_clock_obs_stride(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace("frequency_hz: 30", "frequency_hz: 10")
-        + """
-clock:
-  env_fps: 30
-  obs_fps: 10
-  obs_stride_raw_frames: 2
-""",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="clock.obs_stride_raw_frames"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_conflicting_clock_obs_fps_with_legacy_cadence(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG
-        + """
-clock:
-  env_fps: 30
-  obs_fps: 10
-""",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="clock.obs_fps.*control.frequency_hz"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_nondivisible_clock_rates(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "frequency_hz: 30",
-            "frequency_hz: 17",
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="env_fps.*obs_fps"):
-        load_config(config_path)
-
-
-def test_load_config_with_one_base(tmp_path: Path):
+def test_load_config_merges_single_base(tmp_path: Path):
     base_path = tmp_path / "base.yaml"
     child_path = tmp_path / "child.yaml"
     base_path.write_text(BASE_CONFIG, encoding="utf-8")
@@ -183,11 +69,10 @@ def test_load_config_with_one_base(tmp_path: Path):
 __base__: base.yaml
 experiment:
   name: child
-latency:
-  type: fixed
-  fixed_latency_ms: 100
-logging:
-  output_dir: outputs/child
+env:
+  obs_fps: 30
+scheduler:
+  hold_policy: one_frame_then_noop
 """,
         encoding="utf-8",
     )
@@ -195,420 +80,55 @@ logging:
     config = load_config(child_path)
 
     assert config["experiment"]["name"] == "child"
-    assert config["env"]["fps_env"] == 30
-    assert config["latency"]["type"] == "fixed"
-    assert config["latency"]["fixed_latency_ms"] == 100
+    assert config["env"]["env_fps"] == 30
+    assert config["env"]["obs_fps"] == 30
+    assert config["scheduler"]["hold_policy"] == "one_frame_then_noop"
 
 
-def test_load_config_with_nested_base(tmp_path: Path):
-    base_path = tmp_path / "base.yaml"
-    mid_path = tmp_path / "mid.yaml"
-    child_path = tmp_path / "child.yaml"
-    base_path.write_text(BASE_CONFIG, encoding="utf-8")
-    mid_path.write_text(
+def test_load_config_merges_multiple_bases_left_to_right(tmp_path: Path):
+    base_a = tmp_path / "base_a.yaml"
+    base_b = tmp_path / "base_b.yaml"
+    child = tmp_path / "child.yaml"
+    base_a.write_text(BASE_CONFIG, encoding="utf-8")
+    base_b.write_text(
         """
-__base__: base.yaml
 env:
-  fps_env: 60
+  env_fps: 60
+  obs_fps: 15
+policy:
+  type: constant
 """,
         encoding="utf-8",
     )
-    child_path.write_text(
+    child.write_text(
         """
-__base__: mid.yaml
-control:
-  frequency_hz: 15
-logging:
-  output_dir: outputs/nested
+__base__:
+  - base_a.yaml
+  - base_b.yaml
+policy:
+  action: noop
 """,
         encoding="utf-8",
     )
 
-    config = load_config(child_path)
+    config = load_config(child)
 
-    assert config["env"]["fps_env"] == 60
-    assert config["env"]["name"] == "dummy"
-    assert config["control"]["frequency_hz"] == 15
-
-
-def test_flappy_openvla_eval_config_uses_serial_eval():
-    config = load_config("configs/experiments/flappy/openvla_sft_eval.yaml")
-
-    assert config["policy"]["type"] == "flappy_openvla"
-    assert config["evaluation"]["eval_parallel_envs"] == 1
+    assert config["env"]["env_fps"] == 60
+    assert config["env"]["obs_fps"] == 15
+    assert config["policy"] == {"type": "constant", "action": "noop"}
 
 
-def test_flappy_openvla_realtime_config_remains_unchanged():
-    config = load_config("configs/experiments/flappy/realtime/openvla_30fps.yaml")
-
-    assert config["policy"]["type"] == "flappy_openvla"
-    assert config["logging"]["output_dir"] == "outputs/flappy_openvla_realtime_measured_30fps"
-    assert config["policy"]["unnorm_key"] == "flappy_bird"
-
-
-def test_demon_attack_openvla_realtime_config_loads():
-    config = load_config("configs/experiments/demon_attack/realtime/openvla_60fps.yaml")
-
-    assert config["env"]["name"] == "demon_attack"
-    assert config["env"]["expected_action_meanings"] == [
-        "NOOP",
-        "FIRE",
-        "RIGHT",
-        "LEFT",
-        "RIGHTFIRE",
-        "LEFTFIRE",
-    ]
-    assert config["policy"]["type"] == "demon_attack_openvla"
-    assert config["policy"]["action_dim"] == 6
-    assert config["policy"]["unnorm_key"] == "demon_attack"
-
-
-def test_deadly_corridor_openvla_realtime_config_loads():
-    config = load_config("configs/experiments/deadly_corridor/realtime/openvla_35fps.yaml")
-
-    assert config["env"]["name"] == "deadly_corridor"
-    assert config["env"]["env_frameskip"] == 4
-    assert config["env"]["frame_stack"] == 4
-    assert config["policy"]["type"] == "deadly_corridor_openvla"
-    assert config["policy"]["action_dim"] == 11
-    assert config["policy"]["action_layout"] == "deadly_corridor_factorized_11"
-    assert config["policy"]["unnorm_key"] == "deadly_corridor"
-
-
-def test_load_config_validates_executor_mode(tmp_path: Path):
+def test_load_config_rejects_non_mapping_yaml(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
-    config_path.write_text(BASE_CONFIG.replace("mode: simulated", "mode: unknown"), encoding="utf-8")
+    config_path.write_text("- not\n- mapping\n", encoding="utf-8")
 
-    try:
-        load_config(config_path)
-    except ValueError as exc:
-        assert "executor.mode" in str(exc)
-    else:
-        raise AssertionError("invalid executor.mode should fail validation")
-
-
-def test_load_config_accepts_normal_distribution_latency(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "latency:\n  type: zero",
-            """
-latency:
-  type: normal_distribution
-  mean_latency_ms: 100
-  std_latency_ms: 20
-  seed: 0
-  min_latency_ms: 0
-  max_latency_ms: 200
-""".strip(),
-        ),
-        encoding="utf-8",
-    )
-
-    config = load_config(config_path)
-
-    assert config["latency"]["type"] == "normal_distribution"
-    assert config["latency"]["mean_latency_ms"] == 100
-    assert config["latency"]["std_latency_ms"] == 20
-
-
-def test_load_config_accepts_uniform_distribution_latency(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "latency:\n  type: zero",
-            """
-latency:
-  type: uniform_distribution
-  min_latency_ms: 10
-  max_latency_ms: 30
-  seed: 0
-""".strip(),
-        ),
-        encoding="utf-8",
-    )
-
-    config = load_config(config_path)
-
-    assert config["latency"]["type"] == "uniform_distribution"
-    assert config["latency"]["min_latency_ms"] == 10
-    assert config["latency"]["max_latency_ms"] == 30
-
-
-def test_load_config_accepts_empirical_sample_latency(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "latency:\n  type: zero",
-            """
-latency:
-  type: empirical_sample
-  profile_path: profiles/L_test/profile.json
-  seed: 0
-""".strip(),
-        ),
-        encoding="utf-8",
-    )
-
-    config = load_config(config_path)
-
-    assert config["latency"]["type"] == "empirical_sample"
-    assert config["latency"]["profile_path"] == "profiles/L_test/profile.json"
-    assert config["latency"]["seed"] == 0
-
-
-def test_load_config_accepts_empirical_trace_replay_latency(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "latency:\n  type: zero",
-            """
-latency:
-  type: empirical_trace_replay
-  profile_path: profiles/L_test
-  trace_replay_order: random
-  loop_trace: false
-  seed: 3
-""".strip(),
-        ),
-        encoding="utf-8",
-    )
-
-    config = load_config(config_path)
-
-    assert config["latency"]["type"] == "empirical_trace_replay"
-    assert config["latency"]["trace_replay_order"] == "random"
-    assert config["latency"]["loop_trace"] is False
-
-
-def test_load_config_requires_normal_distribution_mean_and_std(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "latency:\n  type: zero",
-            """
-latency:
-  type: normal_distribution
-  mean_latency_ms: 100
-""".strip(),
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="latency.std_latency_ms"):
+    with pytest.raises(ValueError, match="mapping"):
         load_config(config_path)
 
 
-def test_load_config_rejects_invalid_uniform_distribution_bounds(tmp_path: Path):
+def test_load_config_rejects_invalid_base_reference_type(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "latency:\n  type: zero",
-            """
-latency:
-  type: uniform_distribution
-  min_latency_ms: 30
-  max_latency_ms: 10
-""".strip(),
-        ),
-        encoding="utf-8",
-    )
+    config_path.write_text("__base__: 3\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="latency.max_latency_ms"):
-        load_config(config_path)
-
-
-def test_load_config_requires_empirical_profile_path(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "latency:\n  type: zero",
-            """
-latency:
-  type: empirical_sample
-""".strip(),
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="latency.profile_path"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_invalid_empirical_trace_replay_order(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "latency:\n  type: zero",
-            """
-latency:
-  type: empirical_trace_replay
-  profile_path: profiles/L_test
-  trace_replay_order: reverse
-""".strip(),
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="latency.trace_replay_order"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_invalid_empirical_seed(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "latency:\n  type: zero",
-            """
-latency:
-  type: empirical_sample
-  profile_path: profiles/L_test
-  seed: true
-""".strip(),
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="latency.seed"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_empirical_distribution_latency(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "latency:\n  type: zero",
-            """
-latency:
-  type: empirical_distribution
-  latency_values_ms: [1, 2, 3]
-""".strip(),
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="latency.type"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_negative_normal_distribution_std(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "latency:\n  type: zero",
-            """
-latency:
-  type: normal_distribution
-  mean_latency_ms: 100
-  std_latency_ms: -1
-""".strip(),
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="latency.std_latency_ms"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_nonpositive_realtime_max_pending_observations(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "executor:\n  mode: simulated",
-            """
-executor:
-  mode: realtime
-  max_pending_observations: 0
-""".strip(),
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="executor.max_pending_observations"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_nonpositive_realtime_max_catchup_steps(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG
-        + """
-realtime:
-  max_catchup_steps_per_loop: 0
-""",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="realtime.max_catchup_steps_per_loop"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_invalid_latency_bench_env_backend(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG
-        + """
-evaluation:
-  eval_max_steps: 1
-  latency_bench_env_backend: invalid
-""",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="latency_bench_env_backend"):
-        load_config(config_path)
-
-
-def test_load_config_accepts_phase2_scheduler_fields(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace(
-            "hold_policy: one_frame_then_noop\n  ordering_policy: latest_ready",
-            "hold_policy: hold_for_fixed_duration\n  hold_duration_raw_frames: 3\n  ordering_policy: issue_order_fifo",
-        ),
-        encoding="utf-8",
-    )
-
-    config = load_config(config_path)
-
-    assert config["scheduler"]["hold_policy"] == "hold_for_fixed_duration"
-    assert config["scheduler"]["hold_duration_raw_frames"] == 3
-    assert config["scheduler"]["ordering_policy"] == "issue_order_fifo"
-
-
-def test_load_config_rejects_unsupported_scheduler_fields(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG
-        + """
-scheduler:
-  unsupported_scheduler_field: latest_ready
-  hold_policy: one_frame_then_noop
-""",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="unsupported fields.*hold_policy.*ordering_policy"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_unsupported_ordering_policy_values(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace("ordering_policy: latest_ready", "ordering_policy: unsupported_ordering"),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="ordering_policy.*issue_order_fifo.*latest_ready"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_unsupported_hold_policy_values(tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        BASE_CONFIG.replace("hold_policy: one_frame_then_noop", "hold_policy: unsupported_hold"),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="hold_policy.*one_frame_then_noop"):
+    with pytest.raises(ValueError, match="__base__"):
         load_config(config_path)

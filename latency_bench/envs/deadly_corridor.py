@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import copy
+from collections import deque
 from typing import Any
 
+import numpy as np
 from gymnasium.spaces import Box, Tuple
 
 from latency_bench.core.types import Action, Observation, StepResult
@@ -49,11 +51,11 @@ def _spec_with_reward_scaling(spec: Any, disable_reward_scaling: bool) -> Any:
 def _synchronous_eval_fps_from_config(config: dict[str, Any], default: int = 35) -> int:
     env_cfg = config.get("env", {})
     try:
-        fps = int(float(env_cfg.get("fps_env", default)))
+        fps = int(float(env_cfg.get("env_fps", default)))
     except (TypeError, ValueError) as exc:
-        raise ValueError("fps_env must be positive") from exc
+        raise ValueError("env_fps must be positive") from exc
     if fps <= 0:
-        raise ValueError("fps_env must be positive")
+        raise ValueError("env_fps must be positive")
     return fps
 
 
@@ -76,10 +78,10 @@ def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
         "res_w",
         "res_h",
         "wide_aspect_ratio",
-        "frame_stack",
     ):
         if hasattr(base_cfg, key):
             maybe_set_cli_override(cfg, key, getattr(base_cfg, key))
+    maybe_set_cli_override(cfg, "frame_stack", 1)
     explicit_max_episode_steps = int(getattr(base_cfg, "max_episode_steps", 0) or 0)
     if explicit_max_episode_steps > 0:
         maybe_set_cli_override(cfg, "max_episode_steps", explicit_max_episode_steps)
@@ -119,9 +121,12 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
     ):
         env_cfg = config["env"]
         env_id = str(env_cfg.get("env_id", "doom_deadly_corridor"))
-        fps_env = float(env_cfg.get("fps_env", 35))
-        if fps_env <= 0:
-            raise ValueError("fps_env must be positive")
+        env_fps = float(env_cfg.get("env_fps", 35))
+        if env_fps <= 0:
+            raise ValueError("env_fps must be positive")
+        self.frame_stack = int(env_cfg.get("frame_stack", 1) or 1)
+        if self.frame_stack <= 0:
+            raise ValueError("frame_stack must be positive")
 
         from sample_factory.utils.attr_dict import AttrDict
         from sf_examples.vizdoom.doom.doom_utils import DOOM_ENVS, make_doom_env_from_spec
@@ -143,7 +148,7 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         )
         self.cfg = cfg
         self.env_id = env_id
-        self.fps_env = float(fps_env)
+        self.env_fps = float(env_fps)
         action_space = self.gym_env.action_space
         noop_value = _noop_action_from_space(action_space)
         if noop_action is None:
@@ -159,13 +164,15 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         self.env_step = 0
         self._last_info: dict[str, Any] = {}
         self._last_frame: Any = None
+        self._observed_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
 
     @property
     def frame_ms(self) -> float:
-        return 1000.0 / self.fps_env
+        return 1000.0 / self.env_fps
 
     def reset(self, seed: int | None = None) -> Observation:
         self.env_step = 0
+        self._observed_frames.clear()
         if seed is not None:
             try:
                 obs, info = self.gym_env.reset(seed=seed)
@@ -202,6 +209,18 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
             info=step_info,
         )
 
+    def observe(self) -> Observation:
+        if self._last_frame is None:
+            raise RuntimeError("DeadlyCorridorEnvAdapter has no current observation; call reset() first")
+        metadata = self._metadata(self._last_info)
+        self._observed_frames.append(_single_frame_data(self._last_frame))
+        return Observation(
+            data=self._policy_frame_stack(),
+            env_step=self.env_step,
+            sim_time_ms=self.env_step * self.frame_ms,
+            metadata=metadata,
+        )
+
     def render_frame(self) -> Any:
         return self._last_frame
 
@@ -220,6 +239,15 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         self.gym_env.close()
 
     def _make_observation(self, info: dict[str, Any]) -> Observation:
+        metadata = self._metadata(info)
+        return Observation(
+            data=self._last_frame,
+            env_step=self.env_step,
+            sim_time_ms=self.env_step * self.frame_ms,
+            metadata=metadata,
+        )
+
+    def _metadata(self, info: dict[str, Any]) -> dict[str, Any]:
         metadata = dict(info)
         metadata.update(
             {
@@ -228,9 +256,30 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
                 "observation": "vizdoom_frame_v1",
             }
         )
-        return Observation(
-            data=self._last_frame,
-            env_step=self.env_step,
-            sim_time_ms=self.env_step * self.frame_ms,
-            metadata=metadata,
-        )
+        return metadata
+
+    def _policy_frame_stack(self) -> np.ndarray:
+        frames = list(self._observed_frames)
+        if not frames:
+            raise RuntimeError("Deadly Corridor observe() has no current frame; call reset() first")
+        if len(frames) < self.frame_stack:
+            frames = [frames[0]] * (self.frame_stack - len(frames)) + frames
+        frames = [np.asarray(frame, dtype=np.uint8) for frame in frames[-self.frame_stack :]]
+        if self.frame_stack == 1:
+            return frames[-1]
+        axis = 0 if _looks_chw(frames[0]) else -1
+        return np.concatenate(frames, axis=axis)
+
+
+def _single_frame_data(frame: Any) -> np.ndarray:
+    value = frame.get("obs") if isinstance(frame, dict) else frame
+    arr = np.asarray(value, dtype=np.uint8)
+    if arr.ndim == 2:
+        return arr[..., None]
+    if arr.ndim != 3:
+        raise ValueError(f"Expected Deadly Corridor image frame with 2 or 3 dims, got {arr.shape!r}")
+    return arr
+
+
+def _looks_chw(arr: np.ndarray) -> bool:
+    return arr.ndim == 3 and arr.shape[0] in {1, 3} and arr.shape[-1] not in {1, 3}

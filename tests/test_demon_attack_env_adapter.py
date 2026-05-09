@@ -126,3 +126,32 @@ def test_demon_attack_adapter_can_count_life_loss_as_terminal_when_compat_flag_d
     assert result.done is True
     assert "soft_reset" not in result.info
     assert scripted_env.reset_seeds == [123]
+
+
+def test_demon_attack_observe_stacks_only_observed_frames(monkeypatch):
+    scripted_env = ScriptedDemonGymEnv([
+        {"frame_value": 2},
+        {"frame_value": 3},
+    ])
+    monkeypatch.setattr(
+        demon_attack,
+        "make_demon_attack_benchmark_env",
+        lambda **_kwargs: scripted_env,
+    )
+    adapter = demon_attack.DemonAttackEnvAdapter(frame_stack=2)
+    try:
+        reset_observation = adapter.reset(seed=123)
+        first_policy_observation = adapter.observe()
+        adapter.step(Action(value=0, name="noop"))
+        second_step = adapter.step(Action(value=0, name="noop"))
+        second_policy_observation = adapter.observe()
+
+        assert reset_observation.data.shape == (2, 2, 3)
+        assert second_step.observation is not None
+        assert second_step.observation.data.shape == (2, 2, 3)
+        assert first_policy_observation.data.shape == (2, 2, 6)
+        assert second_policy_observation.data.shape == (2, 2, 6)
+        assert np.all(second_policy_observation.data[..., :3] == 1)
+        assert np.all(second_policy_observation.data[..., 3:] == 3)
+    finally:
+        adapter.close()

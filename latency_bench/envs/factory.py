@@ -5,7 +5,7 @@ from typing import Any
 
 from latency_bench.core.types import Action
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
-from latency_bench.envs.flappy import FlappyBirdEnvAdapter, FlappySampleFactoryGpuEnvAdapter
+from latency_bench.envs.flappy import FlappyBirdEnvAdapter
 
 
 EnvAdapterBuilder = Callable[[dict[str, Any], Action], EnvAdapter]
@@ -70,7 +70,7 @@ def _build_dummy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
     if evaluation_cfg.get("eval_max_steps") is None:
         raise ValueError("evaluation.eval_max_steps is required for dummy env episode limits")
     return DummyEnvAdapter(
-        fps_env=float(env_cfg["fps_env"]),
+        env_fps=float(env_cfg["env_fps"]),
         max_steps=int(evaluation_cfg["eval_max_steps"]),
         noop_action=noop_action,
     )
@@ -94,25 +94,22 @@ def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
         if len(obs_resize) != 2:
             raise ValueError("env.obs_resize must be [height, width]")
         obs_resize = tuple(int(value) for value in obs_resize)
-    if policy_type == "flappy_sf" and bool(env_cfg.get("use_gpu_render", False)):
-        return FlappySampleFactoryGpuEnvAdapter(config=config, noop_action=noop_action)
     return FlappyBirdEnvAdapter(
         gym_id=env_cfg.get("gym_id", "FlappyBird-v0"),
-        fps_env=float(env_cfg["fps_env"]),
+        env_fps=float(env_cfg["env_fps"]),
         noop_action=noop_action,
-        render_mode=env_cfg.get("render_mode", "rgb_array"),
-        observation_mode=env_cfg.get("observation_mode", "image"),
-        use_lidar=bool(env_cfg.get("use_lidar", False)),
-        normalize_obs=bool(env_cfg.get("normalize_obs", True)),
-        audio_on=bool(env_cfg.get("audio_on", False)),
         screen_size=screen_size,
         pipe_gap=int(env_cfg.get("pipe_gap", 100)),
         bird_color=env_cfg.get("bird_color", "yellow"),
         pipe_color=env_cfg.get("pipe_color", "green"),
         background=env_cfg.get("background", "day"),
         score_limit=env_cfg.get("score_limit"),
-        debug=bool(env_cfg.get("debug", False)),
         obs_resize=obs_resize,
+        frame_stack=int(env_cfg.get("frame_stack", 1) or 1),
+        use_gpu_render=bool(env_cfg.get("use_gpu_render", False)),
+        gpu_render_device=str(env_cfg.get("gpu_render_device", "auto")),
+        gpu_render_profile=bool(env_cfg.get("gpu_render_profile", False)),
+        gpu_render_profile_interval=int(env_cfg.get("gpu_render_profile_interval", 1000) or 1000),
     )
 
 
@@ -131,7 +128,7 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
     continue_life_loss_terminal = bool(is_latency_bench_eval and eval_raw_reward)
     return DemonAttackEnvAdapter(
         env_id=env_cfg.get("env_id", env_cfg.get("gym_id", "ALE/DemonAttack-v5")),
-        fps_env=float(env_cfg["fps_env"]),
+        env_fps=float(env_cfg["env_fps"]),
         noop_action=noop_action,
         screen_size=int(env_cfg.get("screen_size", 84)),
         noop_max=int(env_cfg.get("noop_max", 30)),
@@ -142,6 +139,7 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
         repeat_action_probability=float(env_cfg.get("repeat_action_probability", 0.0)),
         full_action_space=bool(env_cfg.get("full_action_space", False)),
         expected_action_meanings=env_cfg.get("expected_action_meanings"),
+        frame_stack=int(env_cfg.get("frame_stack", 1) or 1),
     )
 
 

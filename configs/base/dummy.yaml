@@ -8,15 +8,13 @@ executor:
 
 env:
   name: dummy
-  fps_env: 30
+  env_fps: 30
+  obs_fps: 30
   noop_action: noop
   action_map:
     noop: noop
     jump: jump
 
-control:
-  frequency_hz: 30
-  observe_every_n_frames: 1
 
 latency:
   type: zero

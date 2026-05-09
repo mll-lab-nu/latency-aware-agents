@@ -9,7 +9,6 @@ import torch
 from modeling.flappy_ppo import (
     FlappyPpoObservationConfig,
     FlappyPpoTorchObservationPipeline,
-    latency_channel_value,
 )
 from training.flappy_ppo.env_batch import SyncFlappyBatch
 from training.flappy_ppo.observation_pipeline import ObservationPipeline
@@ -20,8 +19,6 @@ def _args() -> Namespace:
         image_size=4,
         grayscale=False,
         stack_frames=3,
-        obs_mode="latency_channel",
-        frame_skip_values="0,4",
     )
 
 
@@ -29,7 +26,7 @@ def _to_hwc(obs: torch.Tensor) -> np.ndarray:
     return obs.permute(0, 2, 3, 1).cpu().numpy()
 
 
-def test_training_observation_pipeline_stack_done_reset_and_latency_channel():
+def test_training_observation_pipeline_stack_done_reset():
     pipeline = ObservationPipeline(args=_args(), n_envs=2, device=torch.device("cpu"))
     raw_rgb = torch.stack(
         [
@@ -41,11 +38,9 @@ def test_training_observation_pipeline_stack_done_reset_and_latency_channel():
 
     reset_obs = _to_hwc(pipeline.reset(raw_rgb, np.asarray([0, 4], dtype=np.int64)))
 
-    assert reset_obs.shape == (2, 4, 4, 10)
+    assert reset_obs.shape == (2, 4, 4, 9)
     assert np.all(reset_obs[0, :, :, :9] == 10)
     assert np.all(reset_obs[1, :, :, :9] == 30)
-    assert np.all(reset_obs[0, :, :, -1] == latency_channel_value(0, 4))
-    assert np.all(reset_obs[1, :, :, -1] == latency_channel_value(4, 4))
 
     next_raw_rgb = torch.stack(
         [
@@ -65,9 +60,7 @@ def test_training_observation_pipeline_stack_done_reset_and_latency_channel():
 
     assert np.all(step_obs[0, :, :, :6] == 10)
     assert np.all(step_obs[0, :, :, 6:9] == 20)
-    assert np.all(step_obs[0, :, :, -1] == latency_channel_value(2, 4))
     assert np.all(step_obs[1, :, :, :9] == 40)
-    assert np.all(step_obs[1, :, :, -1] == latency_channel_value(4, 4))
 
 
 def test_training_pipeline_matches_shared_torch_pipeline_for_same_raw_sequence():

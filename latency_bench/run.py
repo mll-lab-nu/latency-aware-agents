@@ -140,8 +140,9 @@ def _evaluation_raw_fact_metadata(config: dict[str, Any], episode_id: int) -> di
     latency_cfg = config.get("latency", {})
     evaluation_cfg = config.get("evaluation", {})
     executor_cfg = config.get("executor", {})
-    fps = float(env_cfg["fps_env"]) if "fps_env" in env_cfg else None
-    frame_ms = None if fps is None or fps <= 0 else 1000.0 / fps
+    env_fps = float(env_cfg["env_fps"]) if "env_fps" in env_cfg else None
+    obs_fps = float(env_cfg["obs_fps"]) if "obs_fps" in env_cfg else None
+    frame_ms = None if env_fps is None or env_fps <= 0 else 1000.0 / env_fps
     return {
         "mode": executor_cfg.get("mode"),
         "episode_seed": _episode_seed(config, episode_id),
@@ -152,7 +153,8 @@ def _evaluation_raw_fact_metadata(config: dict[str, Any], episode_id: int) -> di
         "latency_scope": latency_cfg.get("latency_scope"),
         "target_device": latency_cfg.get("target_device"),
         "replay_host": latency_cfg.get("replay_host", evaluation_cfg.get("replay_host")),
-        "fps": fps,
+        "env_fps": env_fps,
+        "obs_fps": obs_fps,
         "frame_ms": frame_ms,
         "latency_type": latency_cfg.get("type"),
     }
@@ -297,10 +299,10 @@ def _train_latency_steps(config: dict[str, Any]) -> int | None:
 
 
 def _latency_steps_to_ms(config: dict[str, Any], latency_steps: int) -> float:
-    fps_env = float(config["env"]["fps_env"])
-    if fps_env <= 0:
-        raise ValueError("env.fps_env must be positive")
-    return int(latency_steps) * 1000.0 / fps_env
+    env_fps = float(config["env"]["env_fps"])
+    if env_fps <= 0:
+        raise ValueError("env.env_fps must be positive")
+    return int(latency_steps) * 1000.0 / env_fps
 
 
 def _apply_eval_latency(config: dict[str, Any], latency_steps: int, latency_ms: float) -> None:
@@ -343,7 +345,7 @@ def _infer_latency_steps(config: dict[str, Any]) -> int | None:
         return None
     latency_steps = (
         float(latency_cfg["fixed_latency_ms"])
-        * float(config["env"]["fps_env"])
+        * float(config["env"]["env_fps"])
         / 1000.0
     )
     rounded_steps = round(latency_steps)

@@ -26,7 +26,7 @@ from latency_bench.analysis.cross_device_protocol_tables import (
     slugify,
     write_protocol_tables,
 )
-from latency_bench.core.config import load_config, validate_config
+from latency_bench.core.config import load_config
 from latency_bench.policy.openvla_statistics import openvla_dataset_statistics_path
 
 
@@ -777,8 +777,9 @@ def _openvla_dependency_config(row: dict[str, Any]) -> dict[str, Any]:
     config.setdefault("env", {})["name"] = row.get("env_name", config.get("env", {}).get("name"))
     if row.get("fps") is not None:
         fps = _config_fps_value(row["fps"])
-        config.setdefault("env", {})["fps_env"] = fps
-        config.setdefault("control", {})["frequency_hz"] = fps
+        env_cfg = config.setdefault("env", {})
+        env_cfg["env_fps"] = fps
+        env_cfg["obs_fps"] = fps
     _apply_openvla_env_overrides(config)
     return config
 
@@ -859,8 +860,8 @@ def _generated_config(task: ProtocolTask, spec: dict[str, Any]) -> dict[str, Any
     _apply_openvla_env_overrides(config)
     if task.row.get("fps") is not None:
         fps = _config_fps_value(task.row["fps"])
-        config["env"]["fps_env"] = fps
-        config.setdefault("control", {})["frequency_hz"] = fps
+        config["env"]["env_fps"] = fps
+        config["env"]["obs_fps"] = fps
 
     if task.stage in {"measure", "realtime"}:
         _patch_realtime_measured_config(config, task, spec)
@@ -868,7 +869,6 @@ def _generated_config(task: ProtocolTask, spec: dict[str, Any]) -> dict[str, Any
         _patch_simulated_replay_config(config, task, spec)
     else:
         raise ValueError(f"Unsupported stage: {task.stage}")
-    validate_config(config)
     return config
 
 

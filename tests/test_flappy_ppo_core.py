@@ -11,9 +11,7 @@ from modeling.flappy_ppo import (
     FlappyPpoEvalObservationPipeline,
     FlappyPpoObservationConfig,
     FlappyPpoTorchObservationPipeline,
-    append_latency_channel_torch,
     build_agent_from_checkpoint,
-    latency_channel_value,
     load_flappy_ppo_checkpoint,
     observation_config_from_checkpoint,
     reset_frame_stack,
@@ -25,7 +23,7 @@ from modeling.flappy_ppo import (
 
 
 def test_flappy_ppo_agent_forward_accepts_uint8_and_scales_internally():
-    config = FlappyPpoObservationConfig(obs_mode="image_only", frame_skip_values=(0,))
+    config = FlappyPpoObservationConfig()
     agent = FlappyPpoAgent(config.in_channels, config.image_size, n_actions=2)
     obs = torch.full(
         (2, config.in_channels, config.image_size, config.image_size),
@@ -45,28 +43,12 @@ def test_flappy_ppo_agent_forward_accepts_uint8_and_scales_internally():
 
 
 def test_flappy_ppo_observation_config_channel_counts():
-    assert FlappyPpoObservationConfig(
-        grayscale=False,
-        stack_frames=4,
-        obs_mode="image_only",
-        frame_skip_values=(0,),
-    ).in_channels == 12
-    assert FlappyPpoObservationConfig(
-        grayscale=False,
-        stack_frames=4,
-        obs_mode="latency_channel",
-        frame_skip_values=(0, 5),
-    ).in_channels == 13
-    assert FlappyPpoObservationConfig(
-        grayscale=True,
-        stack_frames=4,
-        obs_mode="latency_channel",
-        frame_skip_values=(0, 5),
-    ).in_channels == 5
+    assert FlappyPpoObservationConfig(grayscale=False, stack_frames=4).in_channels == 12
+    assert FlappyPpoObservationConfig(grayscale=True, stack_frames=4).in_channels == 4
 
 
 def test_checkpoint_save_load_restores_agent_optimizer_config_and_global_step(tmp_path: Path):
-    config = FlappyPpoObservationConfig(obs_mode="latency_channel", frame_skip_values=(0, 5))
+    config = FlappyPpoObservationConfig()
     agent = FlappyPpoAgent(config.in_channels, config.image_size, n_actions=2)
     optimizer = torch.optim.Adam(agent.parameters(), lr=0.001)
     path = tmp_path / "checkpoint.pt"
@@ -96,19 +78,18 @@ def test_checkpoint_save_load_restores_agent_optimizer_config_and_global_step(tm
 
 
 def test_legacy_checkpoint_observation_config_can_be_inferred_from_agent_channels():
-    config = FlappyPpoObservationConfig(obs_mode="latency_channel", frame_skip_values=(0, 5))
+    config = FlappyPpoObservationConfig()
     agent = FlappyPpoAgent(config.in_channels, config.image_size, n_actions=2)
 
     loaded_config = observation_config_from_checkpoint({"agent": agent.state_dict()})
 
     assert loaded_config.in_channels == config.in_channels
     assert loaded_config.stack_frames == 4
-    assert loaded_config.obs_mode == "latency_channel"
     assert loaded_config.observation_protocol == "raw_rgb_v1"
     assert loaded_config.preprocess_backend == "torch"
 
 
-def test_frame_stack_and_latency_channel_match_training_formula():
+def test_frame_stack_matches_training_formula():
     frame_a = np.full((2, 2, 3), 10, dtype=np.uint8)
     frame_b = np.full((2, 2, 3), 20, dtype=np.uint8)
 
@@ -119,7 +100,6 @@ def test_frame_stack_and_latency_channel_match_training_formula():
     assert np.all(stack[:, :, :3] == 10)
     assert np.all(stepped[:, :, :9] == 10)
     assert np.all(stepped[:, :, 9:12] == 20)
-    assert latency_channel_value(frame_skip=3, max_frame_skip=5) == np.uint8(np.rint((3 / 5) * 255))
 
 
 def test_resize_rgb_batch_torch_contract_and_grayscale_formula():
@@ -152,26 +132,11 @@ def test_resize_rgb_batch_torch_contract_and_grayscale_formula():
     assert torch.equal(gray, expected_gray)
 
 
-def test_append_latency_channel_torch_matches_scalar_formula():
-    stacked = torch.zeros((2, 3, 3, 6), dtype=torch.uint8)
-    obs = append_latency_channel_torch(
-        stacked,
-        frame_skips=np.asarray([0, 3], dtype=np.int64),
-        max_frame_skip=5,
-    )
-
-    assert obs.shape == (2, 3, 3, 7)
-    assert torch.all(obs[0, :, :, -1] == int(latency_channel_value(0, 5)))
-    assert torch.all(obs[1, :, :, -1] == int(latency_channel_value(3, 5)))
-
-
 def test_torch_observation_pipeline_reset_step_and_done_reset():
     config = FlappyPpoObservationConfig(
         image_size=4,
         grayscale=False,
         stack_frames=3,
-        obs_mode="latency_channel",
-        frame_skip_values=(0, 4),
     )
     pipeline = FlappyPpoTorchObservationPipeline(config, n_envs=2, device="cpu")
     frame_a = torch.stack(
@@ -201,9 +166,7 @@ def test_torch_observation_pipeline_reset_step_and_done_reset():
     assert obs.dtype == torch.uint8
     assert np.all(hwc[0, :, :, :6] == 11)
     assert np.all(hwc[0, :, :, 6:9] == 22)
-    assert np.all(hwc[0, :, :, -1] == latency_channel_value(2, 4))
     assert np.all(hwc[1, :, :, :9] == 99)
-    assert np.all(hwc[1, :, :, -1] == latency_channel_value(4, 4))
 
 
 def test_eval_pipeline_resets_stack_on_episode_start_and_returns_nchw_tensor():
@@ -211,8 +174,6 @@ def test_eval_pipeline_resets_stack_on_episode_start_and_returns_nchw_tensor():
         image_size=4,
         grayscale=False,
         stack_frames=3,
-        obs_mode="latency_channel",
-        frame_skip_values=(0, 4),
     )
     pipeline = FlappyPpoEvalObservationPipeline(config)
     frame_a = np.full((4, 4, 3), 11, dtype=np.uint8)
@@ -226,9 +187,7 @@ def test_eval_pipeline_resets_stack_on_episode_start_and_returns_nchw_tensor():
 
     assert np.all(obs[:, :, :6] == 11)
     assert np.all(obs[:, :, 6:9] == 22)
-    assert np.all(obs[:, :, -1] == 255)
     assert np.all(reset_obs[:, :, :9] == 99)
-    assert np.all(reset_obs[:, :, -1] == np.uint8(np.rint(0.5 * 255)))
     assert tensor.shape == (1, config.in_channels, config.image_size, config.image_size)
     assert tensor.dtype == torch.uint8
 

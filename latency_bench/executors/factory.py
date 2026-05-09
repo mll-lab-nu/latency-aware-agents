@@ -26,22 +26,16 @@ from latency_bench.latency.sources import (
     ZeroLatencySource,
 )
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
-from latency_bench.observation.builder import ObservationBuilder
-from latency_bench.observation.history import HistoryBuffer
-from latency_bench.observation.sample_factory import SampleFactoryFrameStackObservationBuilder
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.factory import build_policy
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import (
     DecisionScheduler,
-    EveryFrameDecisionScheduler,
-    FixedFrameIntervalDecisionScheduler,
-    FixedFrequencyDecisionScheduler,
+    ObservationCadenceDecisionScheduler,
 )
 from latency_bench.scheduler.persistence import (
     ActionPersistencePolicy,
-    HoldForFixedDurationPolicy,
-    HoldUntilNextActionPolicy,
+    HoldPolicy,
     OneFrameThenNoopPolicy,
 )
 
@@ -49,15 +43,10 @@ from latency_bench.scheduler.persistence import (
 ExecutorBuilder = Callable[[dict[str, Any]], Any]
 
 _EXECUTOR_BUILDERS: dict[ExecutorMode, ExecutorBuilder] = {}
-_SAMPLE_FACTORY_BASE_CHANNELS = {
-    "flappy_sf": 3,
-    "demon_attack_sf": 1,
-    "deadly_corridor_sf": 3,
-}
 _LATENCY_BENCH_ENV_BACKENDS = {"serial", "subproc", "auto"}
 _ENV_BACKEND_DEBUG_ENV = "LATENCY_BENCH_ENV_BACKEND"
 _AUTO_SUBPROC_ENV_NAMES = {"demon_attack", "deadly_corridor"}
-_SCHEDULER_ALLOWED_KEYS = frozenset({"ordering_policy", "hold_policy", "hold_duration_raw_frames"})
+_SCHEDULER_ALLOWED_KEYS = frozenset({"ordering_policy", "hold_policy"})
 
 
 def register_executor(mode: ExecutorMode | str) -> Callable[[ExecutorBuilder], ExecutorBuilder]:
@@ -110,15 +99,14 @@ def _build_simulated_executor(config: dict[str, Any]) -> SimulatedLatencyExecuto
 
 
 def _build_single_simulated_executor(config: dict[str, Any]) -> SimulatedLatencyExecutor:
-    control_cfg = config["control"]
     scheduler_cfg = config["scheduler"]
 
     action_resolver = ActionResolver(config["env"])
     env = build_env_adapter(config, action_resolver.noop_action)
     noop_action = env.noop_action
-    clock = EnvClock(fps_env=env.fps_env)
+    clock = _build_clock(config)
     policy = build_policy(config, action_resolver)
-    decision_scheduler = _build_decision_scheduler(control_cfg, env.fps_env)
+    decision_scheduler = _build_decision_scheduler(clock)
     latency_source = _build_latency_source(config["latency"])
     persistence_policy = _build_persistence_policy(scheduler_cfg, clock=clock)
     action_scheduler = ActionScheduler(
@@ -131,8 +119,6 @@ def _build_single_simulated_executor(config: dict[str, Any]) -> SimulatedLatency
     return SimulatedLatencyExecutor(
         env=env,
         policy=policy,
-        observation_builder=_build_observation_builder(config),
-        history=HistoryBuffer(max_len=_history_len(control_cfg, config["env"], config["policy"])),
         decision_scheduler=decision_scheduler,
         latency_source=latency_source,
         action_scheduler=action_scheduler,
@@ -146,7 +132,6 @@ def _build_batched_simulated_executor(
     *,
     max_parallel_envs: int,
 ) -> BatchedSimulatedLatencyExecutor:
-    control_cfg = config["control"]
     scheduler_cfg = config["scheduler"]
     if max_parallel_envs <= 0:
         raise ValueError("max_parallel_envs must be positive")
@@ -169,14 +154,14 @@ def _build_batched_simulated_executor(
 
         _raise_if_unsupported_batched_action_space(env_backend.slot_handles)
 
-        clock = EnvClock(fps_env=env_backend.fps_env)
+        clock = _build_clock(config)
         policy = build_policy(config, action_resolver)
         if type(policy).predict_batch is PolicyRunner.predict_batch:
             raise ValueError(
                 f"policy.type={config['policy']['type']} does not support safe batched simulated eval yet; "
                 "implement PolicyRunner.predict_batch before using evaluation.eval_parallel_envs > 1"
             )
-        decision_scheduler = _build_decision_scheduler(control_cfg, env_backend.fps_env)
+        decision_scheduler = _build_decision_scheduler(clock)
         action_schedulers = [
             ActionScheduler(
                 clock=clock,
@@ -190,11 +175,6 @@ def _build_batched_simulated_executor(
         return BatchedSimulatedLatencyExecutor(
             env_backend=env_backend,
             policy=policy,
-            observation_builder=_build_observation_builder(config),
-            histories=[
-                HistoryBuffer(max_len=_history_len(control_cfg, config["env"], config["policy"]))
-                for _env in env_backend.slot_handles
-            ],
             decision_scheduler=decision_scheduler,
             latency_sources=[_build_latency_source(config["latency"]) for _env in env_backend.slot_handles],
             action_schedulers=action_schedulers,
@@ -212,15 +192,14 @@ def _build_batched_simulated_executor(
 
 @register_executor(ExecutorMode.PAUSED)
 def _build_paused_executor(config: dict[str, Any]) -> PausedLatencyExecutor:
-    control_cfg = config["control"]
     scheduler_cfg = config["scheduler"]
 
     action_resolver = ActionResolver(config["env"])
     env = build_env_adapter(config, action_resolver.noop_action)
     noop_action = env.noop_action
-    clock = EnvClock(fps_env=env.fps_env)
+    clock = _build_clock(config)
     policy = build_policy(config, action_resolver)
-    decision_scheduler = _build_decision_scheduler(control_cfg, env.fps_env)
+    decision_scheduler = _build_decision_scheduler(clock)
     latency_source = _build_latency_source(config["latency"])
     persistence_policy = _build_persistence_policy(scheduler_cfg, clock=clock)
     action_scheduler = ActionScheduler(
@@ -233,8 +212,6 @@ def _build_paused_executor(config: dict[str, Any]) -> PausedLatencyExecutor:
     return PausedLatencyExecutor(
         env=env,
         policy=policy,
-        observation_builder=_build_observation_builder(config),
-        history=HistoryBuffer(max_len=_history_len(control_cfg, config["env"], config["policy"])),
         decision_scheduler=decision_scheduler,
         latency_source=latency_source,
         action_scheduler=action_scheduler,
@@ -245,7 +222,6 @@ def _build_paused_executor(config: dict[str, Any]) -> PausedLatencyExecutor:
 
 @register_executor(ExecutorMode.REALTIME)
 def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
-    control_cfg = config["control"]
     scheduler_cfg = config["scheduler"]
     executor_cfg = config["executor"]
     realtime_cfg = config.get("realtime", {})
@@ -253,9 +229,9 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
     action_resolver = ActionResolver(config["env"])
     env = build_env_adapter(config, action_resolver.noop_action)
     noop_action = env.noop_action
-    clock = EnvClock(fps_env=env.fps_env)
+    clock = _build_clock(config)
     policy = build_policy(config, action_resolver)
-    decision_scheduler = _build_decision_scheduler(control_cfg, env.fps_env)
+    decision_scheduler = _build_decision_scheduler(clock)
     latency_cfg = config["latency"]
     latency_profiler = None
     if latency_cfg.get("type", LatencySourceType.ZERO.value) == LatencySourceType.MEASURED.value:
@@ -277,8 +253,6 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
     return RealtimeLatencyExecutor(
         env=env,
         policy=policy,
-        observation_builder=_build_observation_builder(config),
-        history=HistoryBuffer(max_len=_history_len(control_cfg, config["env"], config["policy"])),
         decision_scheduler=decision_scheduler,
         latency_source=latency_source,
         action_scheduler=action_scheduler,
@@ -290,83 +264,16 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
     )
 
 
-def _normalize_policy_type(policy_type: str) -> str:
-    return str(policy_type).strip().lower()
-
-
-def _is_sample_factory_policy(policy_type: str) -> bool:
-    return _normalize_policy_type(policy_type) in _SAMPLE_FACTORY_BASE_CHANNELS
-
-
-def _build_observation_builder(config: dict[str, Any]) -> ObservationBuilder:
-    policy_cfg = config["policy"]
-    policy_type = _normalize_policy_type(policy_cfg["type"])
-    if not _is_sample_factory_policy(policy_type):
-        return ObservationBuilder()
-
+def _build_clock(config: dict[str, Any]) -> EnvClock:
     env_cfg = config["env"]
-    obs_mode = str(env_cfg.get("obs_mode", "image_only")).strip().lower()
-    if policy_type == "flappy_sf" and bool(config.get("latency", {}).get("add_latency_info", False)):
-        obs_mode = "latency_channel"
-    if policy_type != "flappy_sf":
-        obs_mode = "image_only"
-    constant_frame_skip, max_frame_skip = _latency_channel_frame_skip_config(config, obs_mode)
-    return SampleFactoryFrameStackObservationBuilder(
-        frame_stack=int(env_cfg.get("frame_stack", 1)),
-        base_channels=_SAMPLE_FACTORY_BASE_CHANNELS[policy_type],
-        obs_mode=obs_mode,
-        constant_frame_skip=constant_frame_skip,
-        max_frame_skip=max_frame_skip,
+    return EnvClock(
+        env_fps=float(env_cfg["env_fps"]),
+        obs_fps=float(env_cfg["obs_fps"]),
     )
 
 
-def _latency_channel_frame_skip_config(config: dict[str, Any], obs_mode: str) -> tuple[int | None, int]:
-    latency_cfg = config.get("latency", {})
-    train_values = latency_cfg.get("train_values") or []
-    if isinstance(train_values, (str, bytes)):
-        train_values = [int(item.strip()) for item in str(train_values).split(",") if item.strip()]
-    train_values = [int(item) for item in train_values]
-
-    latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
-    constant_frame_skip: int | None
-    if latency_type == LatencySourceType.ZERO.value:
-        constant_frame_skip = 0
-    elif latency_type == LatencySourceType.FIXED.value:
-        fps_env = float(config["env"]["fps_env"])
-        latency_steps = float(latency_cfg["fixed_latency_ms"]) * fps_env / 1000.0
-        rounded = round(latency_steps)
-        if abs(latency_steps - rounded) > 1e-9:
-            raise ValueError(
-                "flappy_sf latency_channel eval requires fixed_latency_ms to map exactly to env frames"
-            )
-        constant_frame_skip = int(rounded)
-    else:
-        if obs_mode == "latency_channel":
-            raise ValueError(
-                "flappy_sf latency_channel eval only supports zero or fixed latency sources; "
-                "cannot exactly align the latency channel for this latency_bench config"
-            )
-        constant_frame_skip = None
-
-    max_frame_skip = max(1, max([0, *train_values, constant_frame_skip or 0]))
-    return constant_frame_skip, max_frame_skip
-
-
-def _history_len(control_cfg: dict[str, Any], env_cfg: dict[str, Any], policy_cfg: dict[str, Any]) -> int:
-    requested_history_len = int(control_cfg.get("history_len", 16))
-    if not _is_sample_factory_policy(policy_cfg["type"]):
-        return requested_history_len
-    return max(requested_history_len, int(env_cfg.get("frame_stack", 1)))
-
-
-def _build_decision_scheduler(control_cfg: dict[str, Any], fps_env: float) -> DecisionScheduler:
-    interval = int(control_cfg.get("observe_every_n_frames", 1))
-    if interval > 1:
-        return FixedFrameIntervalDecisionScheduler(interval_frames=interval)
-    frequency_hz = float(control_cfg.get("frequency_hz", fps_env))
-    if abs(frequency_hz - fps_env) < 1e-9:
-        return EveryFrameDecisionScheduler()
-    return FixedFrequencyDecisionScheduler(fps_env=fps_env, frequency_hz=frequency_hz)
+def _build_decision_scheduler(clock: EnvClock) -> DecisionScheduler:
+    return ObservationCadenceDecisionScheduler(clock)
 
 
 def _build_latency_source(latency_cfg: dict[str, Any]) -> LatencySource:
@@ -431,10 +338,10 @@ def _build_persistence_policy(
     mode = _resolve_hold_policy_mode(scheduler_cfg)
     if mode == ActionHoldPolicy.ONE_FRAME_THEN_NOOP:
         return OneFrameThenNoopPolicy()
-    if mode == ActionHoldPolicy.HOLD_FOR_FIXED_DURATION:
-        return HoldForFixedDurationPolicy(_resolve_hold_duration_raw_frames(scheduler_cfg, clock=clock))
-    if mode == ActionHoldPolicy.HOLD_UNTIL_NEXT_ACTION:
-        return HoldUntilNextActionPolicy()
+    if mode == ActionHoldPolicy.HOLD:
+        if clock is None:
+            raise ValueError("clock is required for hold policy")
+        return HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames)
     raise ValueError(f"Unsupported hold policy: {mode.value}")
 
 
@@ -448,7 +355,7 @@ def _raise_if_unsupported_scheduler_fields(scheduler_cfg: dict[str, Any]) -> Non
     if set(scheduler_cfg) - _SCHEDULER_ALLOWED_KEYS:
         raise ValueError(
             "scheduler contains unsupported fields; use only "
-            "['hold_duration_raw_frames', 'hold_policy', 'ordering_policy']"
+            "['hold_policy', 'ordering_policy']"
         )
 
 
@@ -459,24 +366,8 @@ def _normalize_hold_policy(value: Any, *, field_name: str) -> ActionHoldPolicy:
     except ValueError as exc:
         raise ValueError(
             f"{field_name} must be one of "
-            "['one_frame_then_noop', 'hold_for_fixed_duration', 'hold_until_next_action']"
+            "['one_frame_then_noop', 'hold']"
         ) from exc
-
-
-def _resolve_hold_duration_raw_frames(
-    scheduler_cfg: dict[str, Any],
-    *,
-    clock: EnvClock | None,
-) -> int:
-    if "hold_duration_raw_frames" in scheduler_cfg:
-        duration = int(scheduler_cfg["hold_duration_raw_frames"])
-    elif clock is not None and getattr(clock, "obs_stride_raw_frames", None) is not None:
-        duration = int(clock.obs_stride_raw_frames)
-    else:
-        raise ValueError("scheduler.hold_duration_raw_frames is required for hold_for_fixed_duration")
-    if duration <= 0:
-        raise ValueError("scheduler.hold_duration_raw_frames must be positive")
-    return duration
 
 
 def _eval_parallel_envs(config: dict[str, Any]) -> int:

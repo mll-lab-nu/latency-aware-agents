@@ -195,7 +195,7 @@ apply_raw_frame_k = max(ready_raw_frame_k, apply_raw_frame_{k-1} + 1)
 
 Action 被 apply 之后，executor 必须定义在下一个 action apply 之前如何维持当前 action。
 
-本项目支持三类 hold policy。
+本项目支持两类 hold policy。
 
 ### 7.1 `one_frame_then_noop`
 
@@ -214,40 +214,17 @@ frame 13: NOOP
 
 语义：模型输出一次 `FLAP` 只代表一次 flap，而不是持续按住 flap。
 
-### 7.2 `hold_for_fixed_duration`
+### 7.2 `hold`
 
-当前 action 持续固定数量的 raw frames。
-
-常见设置：
+当前 action 持续一个 observation period：
 
 ```text
-hold_duration_raw_frames = obs_stride_raw_frames
+duration_raw_frames = obs_stride_raw_frames = env_fps / obs_fps
 ```
 
-即一个 action 持续一个 observation period。
-
-如果固定持续时间结束后下一个 action 还没有 ready，则系统使用 noop/default action。
+如果这一个 observation period 结束后下一个 action 还没有 ready，则系统使用 noop/default action。
 
 这种策略可能在 jitter 下产生 action gap。
-
-### 7.3 `hold_until_next_action`
-
-当前 action 一直保持，直到下一个 action 被 apply。
-
-默认候选场景：Demon Attack、Deadly Corridor 等需要持续移动、持续开火或持续方向控制的环境。
-
-例子：
-
-```text
-frame 10: LEFT
-frame 11: LEFT
-frame 12: LEFT
-...
-frame 20: FIRE
-frame 21: FIRE
-```
-
-这种策略可以避免 jitter 造成的短暂无动作空窗。
 
 ---
 
@@ -775,7 +752,7 @@ latency:
   rounding: ceil
 
 action:
-  hold_policy: one_frame_then_noop  # one_frame_then_noop | hold_for_fixed_duration | hold_until_next_action
+  hold_policy: one_frame_then_noop  # one_frame_then_noop | hold
   default_action: noop
   ordering_policy: issue_order_fifo  # issue_order_fifo | latest_ready
 

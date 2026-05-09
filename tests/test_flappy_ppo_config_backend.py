@@ -42,7 +42,6 @@ def _config() -> dict:
         "flappy_ppo": {
             "image_size": 84,
             "grayscale": False,
-            "obs_mode": "image_only",
             "checkpoint_freq": 123,
         },
         "logging": {
@@ -67,21 +66,18 @@ def test_flappy_ppo_config_maps_supported_fields_to_args():
     assert args.frame_skip_training_setting == "action_delay_frame_skip"
     assert args.image_size == 84
     assert args.stack_frames == 4
-    assert args.obs_mode == "image_only"
     assert args.checkpoint_freq == 123
     assert args.wandb_project == "latency-test"
     assert args.wandb_run_name == "flappy-bird-l3-s0"
     assert args.wandb_tags == "flappy,l3"
 
 
-def test_flappy_ppo_observation_config_uses_latency_train_values_as_frame_skip_values():
+def test_flappy_ppo_observation_config_is_image_only():
     obs_config = build_observation_config(_config())
 
     assert obs_config.image_size == 84
     assert obs_config.grayscale is False
     assert obs_config.stack_frames == 4
-    assert obs_config.obs_mode == "image_only"
-    assert obs_config.frame_skip_values == (0, 3)
     assert obs_config.in_channels == 12
 
 

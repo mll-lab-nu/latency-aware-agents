@@ -11,8 +11,9 @@ experiment:
 
 env:
   obs_resize: [84, 84]
-  fps_env: 10
+  env_fps: 10
 
+  obs_fps: 10
 policy:
   type: flappy_openvla
   base_model_path: /root/openvla-7b

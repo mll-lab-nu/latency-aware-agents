@@ -15,15 +15,15 @@
 
 ## Observation Pipeline
 
-- `ObservationBuilder` currently returns the latest observation from `HistoryBuffer`; it does not yet implement frame stacking, resizing, normalization, action history, or latency-aware observation variants.
+- `ObservationBuilder` now performs frame stacking from `HistoryBuffer`; resizing, normalization, action history, and latency-aware variants remain policy/env-specific.
 - The observation pipeline does not inject latency values or prior action history into policy inputs, unlike the older queue-latency scripts.
 - The fallback path in `ObservationBuilder` depends on `EnvAdapter.get_state_info()` providing `env_step` and `sim_time_ms`; otherwise it silently defaults both to zero.
 - `Observation.data` is typed as `Any`, so real policy integrations need explicit schema conventions for image shapes, dtypes, dict keys, and tensor/array ownership.
 
 ## Policy and Scheduler
 
-- `FixedFrequencyDecisionScheduler` rounds `fps_env / frequency_hz` to an integer frame interval, so non-integer ratios can drift from the requested long-run control frequency.
-- Obsolete scheduler variants were removed from the public runtime API in Phase 2.5; reintroduce any needed variant only as a separately named ablation.
+- `ObservationCadenceDecisionScheduler` observes strictly every `env_fps / obs_fps` raw frames; non-integer ratios are rejected by `EnvClock`.
+- Obsolete fixed-frame/fixed-frequency scheduler variants were removed from the public runtime API; reintroduce any needed variant only as a separately named ablation.
 - `ActionScheduler.enqueue()` sorts the full pending list after each append; high-action-rate workloads should use a heap or ordered queue.
 - Dropped `ActionEvent`s only store `dropped=True`; they do not record drop time, drop step, or drop reason.
 - Policy runners are minimal test runners only. Real model integration still needs model loading, batching, device placement, preprocessing/postprocessing, deterministic/stochastic modes, and measured-latency-aware inference.

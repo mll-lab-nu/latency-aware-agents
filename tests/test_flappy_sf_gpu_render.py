@@ -24,7 +24,6 @@ def _flappy_gpu_cfg(**overrides):
         "screen_size": "",
         "score_limit": -1,
         "obs_resize": "84,84",
-        "obs_mode": "image_only",
         "frame_stack": 4,
         "max_episode_steps": 0,
         "queue_latency_values": "0",
@@ -149,27 +148,6 @@ def test_flappy_sf_gpu_render_batched_reset_contract_image_only():
         assert isinstance(infos, list)
         assert len(infos) == 4
         assert all("numeric_obs" in info for info in infos)
-    finally:
-        env.close()
-
-
-def test_flappy_sf_gpu_render_cpu_latency_channel_contract():
-    torch = pytest.importorskip("torch")
-
-    from modeling.flappy_ppo.preprocessing import latency_channel_value
-    from training.flappy_sf.integration import make_flappy_sf_env
-
-    env = make_flappy_sf_env(
-        "latency_flappy",
-        cfg=_flappy_gpu_cfg(obs_mode="latency_channel", queue_latency_values="3", gpu_render_batch_size=3),
-        env_config=_env_config(),
-    )
-    try:
-        obs, _ = env.reset(seed=123)
-
-        assert isinstance(obs["obs"], torch.Tensor)
-        assert obs["obs"].shape == (3, 13, 84, 84)
-        assert torch.all(obs["obs"][:, -1] == int(latency_channel_value(3, 3)))
     finally:
         env.close()
 

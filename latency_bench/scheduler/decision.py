@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from latency_bench.core.clock import EnvClock
+
 
 class DecisionScheduler(ABC):
     @abstractmethod
@@ -9,29 +11,13 @@ class DecisionScheduler(ABC):
         ...
 
 
-class EveryFrameDecisionScheduler(DecisionScheduler):
-    def should_observe(self, env_step: int, sim_time_ms: float) -> bool:
-        return True
-
-
-class FixedFrameIntervalDecisionScheduler(DecisionScheduler):
-    def __init__(self, interval_frames: int):
-        if interval_frames <= 0:
-            raise ValueError("interval_frames must be positive")
-        self.interval_frames = int(interval_frames)
+class ObservationCadenceDecisionScheduler(DecisionScheduler):
+    def __init__(self, clock: EnvClock):
+        self.clock = clock
+        self.interval_frames = int(clock.obs_stride_raw_frames)
+        if self.interval_frames <= 0:
+            raise ValueError("clock.obs_stride_raw_frames must be positive")
 
     def should_observe(self, env_step: int, sim_time_ms: float) -> bool:
-        return env_step % self.interval_frames == 0
-
-
-class FixedFrequencyDecisionScheduler(FixedFrameIntervalDecisionScheduler):
-    def __init__(self, fps_env: float, frequency_hz: float):
-        if fps_env <= 0:
-            raise ValueError("fps_env must be positive")
-        if frequency_hz <= 0:
-            raise ValueError("frequency_hz must be positive")
-        interval_frames = max(1, int(round(float(fps_env) / float(frequency_hz))))
-        super().__init__(interval_frames=interval_frames)
-        self.fps_env = float(fps_env)
-        self.frequency_hz = float(frequency_hz)
-
+        del sim_time_ms
+        return int(env_step) % self.interval_frames == 0

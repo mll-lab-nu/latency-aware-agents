@@ -5,14 +5,13 @@ import pytest
 from latency_bench.core.clock import (
     EnvClock,
     FrameAccumulator,
-    compute_obs_stride_raw_frames,
     ms_to_raw_frames,
     validate_clock_rates,
 )
 
 
 def test_env_clock_conversions_at_30_fps():
-    clock = EnvClock(fps_env=30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
 
     assert clock.frame_ms == pytest.approx(33.3333333333)
     assert clock.step_to_time_ms(3) == pytest.approx(100.0)
@@ -23,11 +22,11 @@ def test_env_clock_conversions_at_30_fps():
 def test_clock_rate_helpers_validate_observation_stride():
     validate_clock_rates(env_fps=60, obs_fps=10)
 
-    assert compute_obs_stride_raw_frames(env_fps=60, obs_fps=10) == 6
-    assert compute_obs_stride_raw_frames(env_fps=30, obs_fps=30) == 1
+    assert EnvClock(env_fps=60, obs_fps=10).obs_stride_raw_frames == 6
+    assert EnvClock(env_fps=30, obs_fps=30).obs_stride_raw_frames == 1
 
     with pytest.raises(ValueError, match="env_fps.*obs_fps"):
-        compute_obs_stride_raw_frames(env_fps=60, obs_fps=17)
+        EnvClock(env_fps=60, obs_fps=17)
 
 
 @pytest.mark.parametrize(
@@ -58,29 +57,16 @@ def test_ms_to_raw_frames_uses_ceil_boundaries():
         ms_to_raw_frames(1.0, env_fps=0)
 
 
-def test_env_clock_accepts_explicit_observation_fps_and_preserves_legacy_fps_env():
+def test_env_clock_accepts_explicit_observation_fps():
     clock = EnvClock(env_fps=60, obs_fps=15)
 
     assert clock.env_fps == 60
-    assert clock.fps_env == 60
     assert clock.obs_fps == 15
     assert clock.obs_stride_raw_frames == 4
     assert clock.latency_ms_to_raw_frames(1.0) == 1
 
-    legacy = EnvClock(fps_env=30)
-    assert legacy.env_fps == 30
-    assert legacy.fps_env == 30
-    assert legacy.obs_fps == 30
-    assert legacy.obs_stride_raw_frames == 1
-
-    positional = EnvClock(30)
-    assert positional.env_fps == 30
-    assert positional.obs_fps == 30
-
-
-def test_env_clock_rejects_conflicting_env_fps_aliases():
-    with pytest.raises(ValueError, match="fps_env.*env_fps"):
-        EnvClock(fps_env=30, env_fps=60)
+    with pytest.raises(TypeError):
+        EnvClock(30, 30)
 
 
 def test_frame_accumulator_preserves_fractional_residuals():

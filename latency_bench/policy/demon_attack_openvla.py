@@ -113,6 +113,10 @@ def observation_data_to_hwc_rgb_uint8(
         frame = np.expand_dims(frame, axis=-1)
     if frame.ndim != 3:
         raise ValueError(f"Expected Demon Attack image rank 3, got shape {frame.shape}")
+    if frame.shape[-1] > 3:
+        frame = frame[:, :, -1:]
+    elif frame.shape[0] > 3 and frame.shape[-1] not in {1, 3}:
+        frame = frame[-1:, :, :]
 
     if frame.shape[-1] == 1:
         frame = np.repeat(frame, 3, axis=-1)

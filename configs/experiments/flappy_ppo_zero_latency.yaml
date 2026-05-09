@@ -6,6 +6,7 @@ experiment:
 
 evaluation:
   eval_max_steps: 10000
+  eval_parallel_envs: 1
 
 latency:
   type: zero

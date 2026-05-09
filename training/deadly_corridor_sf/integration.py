@@ -456,7 +456,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     evaluation_cfg = config.get("evaluation", {})
     args = build_common_sf_args(config, sf_env_name=env_cfg.get("env_id", SF_ENV_NAME))
     if str(backend_cfg.get("run_mode", "train")).strip().lower() in {"eval", "train_eval"}:
-        append_cli_arg(args, "--fps", env_cfg.get("fps_env", 35))
+        append_cli_arg(args, "--fps", env_cfg.get("env_fps", 35))
     append_cli_arg(args, "--env_frameskip", env_cfg.get("env_frameskip", 4))
     append_cli_arg(args, "--eval_env_frameskip", env_cfg.get("env_frameskip", 4))
     append_cli_arg(args, "--res_w", env_cfg.get("res_w", 128))

@@ -12,11 +12,7 @@ from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.experiments.run_simulated_latency import build_executor as build_legacy_executor
 from latency_bench.latency.profile import save_profile_manifest, write_latency_samples
 from latency_bench.latency.sources import EmpiricalSampleLatencySource, EmpiricalTraceReplayLatencySource
-from latency_bench.scheduler.persistence import (
-    HoldForFixedDurationPolicy,
-    HoldUntilNextActionPolicy,
-    OneFrameThenNoopPolicy,
-)
+from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 
 
 @register_env_adapter("normalized_noop_test")
@@ -24,7 +20,7 @@ def _build_normalized_noop_env(config: dict, noop_action: Action) -> EnvAdapter:
     env_cfg = config["env"]
     evaluation_cfg = config["evaluation"]
     return DummyEnvAdapter(
-        fps_env=float(env_cfg["fps_env"]),
+        env_fps=float(env_cfg["env_fps"]),
         max_steps=int(evaluation_cfg["eval_max_steps"]),
         noop_action=Action(value="env-noop", name="env-noop", is_noop=True),
     )
@@ -42,16 +38,13 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
         },
         "env": {
             "name": "normalized_noop_test",
-            "fps_env": 30,
+            "env_fps": 30,
+            "obs_fps": 30,
             "noop_action": "config-noop",
             "action_map": {
                 "config-noop": "config-noop",
                 "jump": "jump",
             },
-        },
-        "control": {
-            "frequency_hz": 30,
-            "observe_every_n_frames": 1,
         },
         "latency": {
             "type": "zero",
@@ -109,7 +102,7 @@ def _build_tuple_action_parallel_test_env(config: dict, noop_action: Action) -> 
     env_cfg = config["env"]
     evaluation_cfg = config["evaluation"]
     env = TupleActionEnv(
-        fps_env=float(env_cfg["fps_env"]),
+        env_fps=float(env_cfg["env_fps"]),
         max_steps=int(evaluation_cfg["eval_max_steps"]),
         noop_action=noop_action,
     )
@@ -130,7 +123,7 @@ def _build_nested_tuple_action_parallel_test_env(config: dict, noop_action: Acti
     env_cfg = config["env"]
     evaluation_cfg = config["evaluation"]
     env = NestedTupleActionEnv(
-        fps_env=float(env_cfg["fps_env"]),
+        env_fps=float(env_cfg["env_fps"]),
         max_steps=int(evaluation_cfg["eval_max_steps"]),
         noop_action=noop_action,
     )
@@ -175,21 +168,19 @@ def test_factory_preserves_explicit_latest_ready_ablation(tmp_path):
     ("hold_policy", "expected_type"),
     [
         ("one_frame_then_noop", OneFrameThenNoopPolicy),
-        ("hold_for_fixed_duration", HoldForFixedDurationPolicy),
-        ("hold_until_next_action", HoldUntilNextActionPolicy),
+        ("hold", HoldPolicy),
     ],
 )
 def test_factory_builds_explicit_hold_policies(tmp_path, hold_policy, expected_type):
     config = _config(output_dir=str(tmp_path))
+    config["env"]["obs_fps"] = 10
     config["scheduler"]["hold_policy"] = hold_policy
-    if hold_policy == "hold_for_fixed_duration":
-        config["scheduler"]["hold_duration_raw_frames"] = 3
 
     executor = build_executor(config)
 
     try:
         assert isinstance(executor.action_scheduler.persistence_policy, expected_type)
-        if hold_policy == "hold_for_fixed_duration":
+        if hold_policy == "hold":
             assert executor.action_scheduler.persistence_policy.duration_raw_frames == 3
     finally:
         executor.env.close()

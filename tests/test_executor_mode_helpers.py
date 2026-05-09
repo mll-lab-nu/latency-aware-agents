@@ -19,10 +19,10 @@ def test_sequence_policy_runner_returns_actions_in_order_then_repeats_last():
 
 
 def test_make_dummy_parts_returns_reusable_executor_parts():
-    env, clock, noop_action, jump_action, action_scheduler = make_dummy_parts(max_steps=3, fps_env=60.0)
+    env, clock, noop_action, jump_action, action_scheduler = make_dummy_parts(max_steps=3, env_fps=60.0)
 
-    assert env.fps_env == 60.0
-    assert clock.fps_env == 60.0
+    assert env.env_fps == 60.0
+    assert clock.env_fps == 60.0
     assert noop_action.is_noop
     assert jump_action.value == "jump"
     assert action_scheduler.update(0, 0.0) is noop_action

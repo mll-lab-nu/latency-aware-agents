@@ -32,42 +32,6 @@ def resize_frame_pil(
     return out
 
 
-def latency_channel_value(frame_skip: int | float, max_frame_skip: int) -> np.uint8:
-    max_skip = max(1, int(max_frame_skip))
-    value = min(max(float(frame_skip), 0.0) / float(max_skip), 1.0)
-    return np.uint8(np.rint(value * 255.0))
-
-
-def latency_channel(
-    height: int,
-    width: int,
-    frame_skip: int | float,
-    max_frame_skip: int,
-) -> np.ndarray:
-    value = latency_channel_value(frame_skip, max_frame_skip)
-    return np.full((int(height), int(width), 1), value, dtype=np.uint8)
-
-
-def append_latency_channel(
-    stacked_obs: np.ndarray,
-    frame_skip: int | float,
-    max_frame_skip: int,
-) -> np.ndarray:
-    obs = np.asarray(stacked_obs, dtype=np.uint8)
-    return np.concatenate(
-        [
-            obs,
-            latency_channel(
-                obs.shape[0],
-                obs.shape[1],
-                frame_skip=frame_skip,
-                max_frame_skip=max_frame_skip,
-            ),
-        ],
-        axis=2,
-    )
-
-
 def resize_rgb_batch_torch(
     raw_rgb_batch: torch.Tensor,
     image_size: int,
@@ -109,33 +73,6 @@ def resize_rgb_batch_torch(
     )
 
 
-def append_latency_channel_torch(
-    stacked_obs: torch.Tensor,
-    frame_skips: np.ndarray | torch.Tensor,
-    max_frame_skip: int,
-) -> torch.Tensor:
-    """Append a latency channel to a NHWC uint8 stacked observation batch."""
-
-    if not isinstance(stacked_obs, torch.Tensor):
-        raise TypeError("stacked_obs must be a torch.Tensor")
-    if stacked_obs.ndim != 4:
-        raise ValueError("stacked_obs must have shape (N, H, W, C)")
-    if stacked_obs.dtype != torch.uint8:
-        raise ValueError("stacked_obs must have dtype torch.uint8")
-
-    n_envs, height, width, _ = stacked_obs.shape
-    skips = torch.as_tensor(frame_skips, device=stacked_obs.device)
-    skips = skips.reshape(-1)
-    if int(skips.numel()) != int(n_envs):
-        raise ValueError("frame_skips must have one value per environment")
-
-    max_skip = max(1, int(max_frame_skip))
-    values = torch.clamp(skips.to(torch.float32) / float(max_skip), 0.0, 1.0)
-    values = torch.round(values * 255.0).to(torch.uint8)
-    latency = values.view(n_envs, 1, 1, 1).expand(n_envs, height, width, 1)
-    return torch.cat([stacked_obs, latency], dim=3)
-
-
 def reset_frame_stack(frame_obs: np.ndarray, stack_frames: int) -> np.ndarray:
     frame = np.asarray(frame_obs, dtype=np.uint8)
     return np.concatenate([frame.copy() for _ in range(max(1, int(stack_frames)))], axis=2)
@@ -173,13 +110,8 @@ def build_stacked_observation(
     observation_config: FlappyPpoObservationConfig,
     frame_skip: int | float = 0,
 ) -> np.ndarray:
-    if observation_config.obs_mode == "image_only":
-        return np.asarray(stacked_obs, dtype=np.uint8)
-    return append_latency_channel(
-        stacked_obs,
-        frame_skip=frame_skip,
-        max_frame_skip=observation_config.max_frame_skip,
-    )
+    del observation_config, frame_skip
+    return np.asarray(stacked_obs, dtype=np.uint8)
 
 
 def hwc_to_nchw_tensor(
@@ -331,17 +263,10 @@ class FlappyPpoTorchObservationPipeline:
         frame_skips: np.ndarray | torch.Tensor | None,
         profiler: Any | None = None,
     ) -> torch.Tensor:
+        del frame_skips
         timer = profiler.time("final_obs_s") if profiler is not None else nullcontext()
         with timer:
-            if frame_skips is None:
-                frame_skips = torch.zeros(self.n_envs, dtype=torch.int64, device=self.device)
             obs = self._stack
-            if self.observation_config.obs_mode == "latency_channel":
-                obs = append_latency_channel_torch(
-                    obs,
-                    frame_skips=frame_skips,
-                    max_frame_skip=self.observation_config.max_frame_skip,
-                )
             self._last_observation = obs
             return obs.permute(0, 3, 1, 2).contiguous()
 

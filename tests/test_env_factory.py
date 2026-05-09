@@ -14,7 +14,6 @@ from latency_bench.envs.deadly_corridor import _noop_action_from_space
 from latency_bench.envs.flappy import FlappyBirdEnvAdapter
 from latency_bench.envs.factory import build_env_adapter, get_registered_env_names
 from latency_bench.experiments.run_simulated_latency import build_executor
-from latency_bench.observation.builder import ObservationBuilder
 from latency_bench.policy.base import ConstantPolicyRunner
 
 
@@ -30,16 +29,13 @@ def _config(env_name: str = "dummy", output_dir: str = "outputs/factory_test") -
         },
         "env": {
             "name": env_name,
-            "fps_env": 30,
+            "env_fps": 30,
+            "obs_fps": 30,
             "noop_action": "noop",
             "action_map": {
                 "noop": "noop",
                 "jump": "jump",
             },
-        },
-        "control": {
-            "frequency_hz": 30,
-            "observe_every_n_frames": 1,
         },
         "latency": {
             "type": "zero",
@@ -66,11 +62,6 @@ def _flappy_config(output_dir: str = "outputs/factory_test") -> dict:
     config["env"].update(
         {
             "gym_id": "FlappyBird-v0",
-            "render_mode": "rgb_array",
-            "observation_mode": "image",
-            "use_lidar": False,
-            "normalize_obs": True,
-            "audio_on": False,
             "action_map": {
                 "noop": 0,
                 "flap": 1,
@@ -97,7 +88,7 @@ def test_build_env_adapter_returns_dummy_adapter_for_dummy_config():
     env = build_env_adapter(_config("dummy"), noop)
 
     assert isinstance(env, DummyEnvAdapter)
-    assert env.fps_env == 30.0
+    assert env.env_fps == 30.0
     assert env.max_steps == 5
     assert env.noop_action is noop
 
@@ -293,7 +284,7 @@ def test_deadly_corridor_adapter_builds_prepared_eval_cfg_from_full_config(monke
     config["env"].update(
         {
             "env_id": "doom_deadly_corridor",
-            "fps_env": 35,
+            "env_fps": 35,
             "frame_stack": 4,
             "max_episode_steps": 2100,
         }
@@ -313,7 +304,8 @@ def test_deadly_corridor_adapter_builds_prepared_eval_cfg_from_full_config(monke
     assert captured["doom_cfg"].fps > 0
     assert env.cfg.disable_reward_scaling is True
     assert env.cfg.max_episode_steps == 2100
-    assert env.cfg.frame_stack == 4
+    assert env.frame_stack == 4
+    assert env.cfg.frame_stack == 1
     assert captured["doom_cfg"] is env.cfg
     assert captured["doom_spec"] is not original_spec
     assert captured["doom_spec"].reward_scaling == 1.0
@@ -410,7 +402,7 @@ def test_deadly_corridor_openvla_env_does_not_require_sample_factory_checkpoint(
     config["env"].update(
         {
             "env_id": "doom_deadly_corridor",
-            "fps_env": 35,
+            "env_fps": 35,
             "env_frameskip": 4,
             "frame_stack": 4,
             "res_w": 128,
@@ -426,7 +418,8 @@ def test_deadly_corridor_openvla_env_does_not_require_sample_factory_checkpoint(
     assert captured["prepared_latency"] == 0
     assert env.cfg.env_frameskip == 4
     assert env.cfg.eval_env_frameskip == 4
-    assert env.cfg.frame_stack == 4
+    assert env.frame_stack == 4
+    assert env.cfg.frame_stack == 1
     assert env.cfg.fps == 35
     assert env.cfg.res_w == 128
     assert env.cfg.res_h == 72
@@ -520,43 +513,49 @@ def test_build_env_adapter_returns_flappy_adapter_for_flappy_config():
 
     try:
         assert isinstance(env, FlappyBirdEnvAdapter)
-        assert env.fps_env == 30.0
+        assert env.env_fps == 30.0
         assert env.noop_action is noop
     finally:
         env.close()
 
 
-def test_build_env_adapter_returns_flappy_sf_gpu_adapter_when_enabled(monkeypatch):
+def test_build_env_adapter_passes_explicit_gpu_render_args_when_enabled(monkeypatch):
     from latency_bench.envs import factory as factory_module
 
     captured = {}
 
-    class FakeFlappyGpuAdapter:
-        def __init__(self, *, config, noop_action):
-            captured["config"] = config
-            captured["noop_action"] = noop_action
+    class FakeFlappyAdapter:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
 
         def close(self):
             return None
 
-    monkeypatch.setattr(factory_module, "FlappySampleFactoryGpuEnvAdapter", FakeFlappyGpuAdapter)
+    monkeypatch.setattr(factory_module, "FlappyBirdEnvAdapter", FakeFlappyAdapter)
     config = _flappy_config()
     config["policy"] = {"type": "flappy_sf"}
     config["env"].update(
         {
             "use_gpu_render": True,
             "obs_resize": [84, 84],
-            "obs_mode": "image_only",
             "frame_stack": 4,
+            "gpu_render_device": "cpu",
+            "gpu_render_profile": True,
+            "gpu_render_profile_interval": 17,
         }
     )
     noop = Action(value=0, name="noop", is_noop=True)
 
     env = factory_module.build_env_adapter(config, noop)
 
-    assert isinstance(env, FakeFlappyGpuAdapter)
-    assert captured["config"] is config
+    assert isinstance(env, FakeFlappyAdapter)
     assert captured["noop_action"] is noop
+    assert captured["use_gpu_render"] is True
+    assert captured["gpu_render_device"] == "cpu"
+    assert captured["gpu_render_profile"] is True
+    assert captured["gpu_render_profile_interval"] == 17
+    assert captured["obs_resize"] == (84, 84)
+    assert captured["frame_stack"] == 4
 
 
 def test_build_executor_maps_flappy_policy_actions(tmp_path):
@@ -572,14 +571,13 @@ def test_build_executor_maps_flappy_policy_actions(tmp_path):
         executor.env.close()
 
 
-def test_sample_factory_policy_uses_frame_stack_observation_builder(monkeypatch, tmp_path):
+def test_sample_factory_policy_does_not_install_executor_observation_builder(monkeypatch, tmp_path):
     from latency_bench.executors import factory
-    from latency_bench.observation.sample_factory import SampleFactoryFrameStackObservationBuilder
 
     noop = Action(value=0, name="noop", is_noop=True)
 
     def fake_build_env_adapter(config, noop_action):
-        return DummyEnvAdapter(fps_env=30, max_steps=1, noop_action=noop)
+        return DummyEnvAdapter(env_fps=30, max_steps=1, noop_action=noop)
 
     def fake_build_policy(config, action_resolver):
         return ConstantPolicyRunner(noop)
@@ -592,9 +590,8 @@ def test_sample_factory_policy_uses_frame_stack_observation_builder(monkeypatch,
 
     executor = build_executor(config)
 
-    assert isinstance(executor.observation_builder, SampleFactoryFrameStackObservationBuilder)
-    assert executor.observation_builder.frame_stack == 4
-    assert executor.observation_builder.expected_channels == 12
+    assert not hasattr(executor, "observation_builder")
+    assert not hasattr(executor, "history")
 
 
 def test_latency_bench_flappy_sf_eval_uses_same_obs_resize(monkeypatch, tmp_path):
@@ -606,7 +603,7 @@ def test_latency_bench_flappy_sf_eval_uses_same_obs_resize(monkeypatch, tmp_path
     noop = Action(value=0, name="noop", is_noop=True)
 
     class SingleFrameEnv(EnvAdapter):
-        fps_env = 30.0
+        env_fps = 30.0
         noop_action = noop
 
         def __init__(self):
@@ -614,7 +611,7 @@ def test_latency_bench_flappy_sf_eval_uses_same_obs_resize(monkeypatch, tmp_path
 
         @property
         def frame_ms(self):
-            return 1000.0 / self.fps_env
+            return 1000.0 / self.env_fps
 
         def reset(self, seed=None):
             self.env_step = 0
@@ -644,6 +641,14 @@ def test_latency_bench_flappy_sf_eval_uses_same_obs_resize(monkeypatch, tmp_path
         def get_state_info(self):
             return {"env_step": self.env_step, "sim_time_ms": self.env_step * self.frame_ms}
 
+        def observe(self):
+            return Observation(
+                data=np.zeros((12, 84, 84), dtype=np.uint8),
+                env_step=self.env_step,
+                sim_time_ms=self.env_step * self.frame_ms,
+                metadata={"frame_skip": 0},
+            )
+
         def close(self):
             pass
 
@@ -656,7 +661,7 @@ def test_latency_bench_flappy_sf_eval_uses_same_obs_resize(monkeypatch, tmp_path
     monkeypatch.setattr(factory, "build_env_adapter", lambda config, noop_action: SingleFrameEnv())
     monkeypatch.setattr(factory, "build_policy", lambda config, action_resolver: CapturingPolicy())
     config = _flappy_config(output_dir=str(tmp_path))
-    config["env"].update({"frame_stack": 4, "obs_resize": [84, 84], "obs_mode": "image_only"})
+    config["env"].update({"frame_stack": 4, "obs_resize": [84, 84]})
     config["policy"]["type"] = "flappy_sf"
 
     executor = build_executor(config)
@@ -666,66 +671,13 @@ def test_latency_bench_flappy_sf_eval_uses_same_obs_resize(monkeypatch, tmp_path
     assert captured["dtype"] == np.uint8
 
 
-def test_latency_bench_flappy_sf_latency_channel_shape(monkeypatch, tmp_path):
-    from modeling.flappy_ppo.preprocessing import latency_channel_value
-    from latency_bench.executors import factory
-    from latency_bench.envs.base import EnvAdapter
-    from latency_bench.policy.base import PolicyRunner
-
-    captured = {}
-    noop = Action(value=0, name="noop", is_noop=True)
-
-    class SingleFrameEnv(EnvAdapter):
-        fps_env = 30.0
-        noop_action = noop
-
-        def reset(self, seed=None):
-            return Observation(
-                data=np.zeros((3, 84, 84), dtype=np.uint8),
-                env_step=0,
-                sim_time_ms=0.0,
-                metadata={"frame_skip": 3},
-            )
-
-        def step(self, action):
-            return StepResult(observation=None, reward=0.0, done=True)
-
-        def render_frame(self):
-            return np.zeros((3, 84, 84), dtype=np.uint8)
-
-        def get_state_info(self):
-            return {"env_step": 0, "sim_time_ms": 0.0}
-
-        def close(self):
-            pass
-
-    class CapturingPolicy(PolicyRunner):
-        def predict(self, observation):
-            captured["shape"] = observation.data.shape
-            captured["latency_value"] = int(observation.data[-1, 0, 0])
-            return PolicyOutput(action=noop)
-
-    monkeypatch.setattr(factory, "build_env_adapter", lambda config, noop_action: SingleFrameEnv())
-    monkeypatch.setattr(factory, "build_policy", lambda config, action_resolver: CapturingPolicy())
-    config = _flappy_config(output_dir=str(tmp_path))
-    config["env"].update({"frame_stack": 4, "obs_resize": [84, 84], "obs_mode": "latency_channel"})
-    config["latency"].update({"type": "fixed", "fixed_latency_ms": 100.0, "train_values": [0, 3]})
-    config["policy"]["type"] = "flappy_sf"
-
-    executor = build_executor(config)
-    executor.run_episode(episode_id=0, seed=0, eval_max_steps=1)
-
-    assert captured["shape"] == (13, 84, 84)
-    assert captured["latency_value"] == int(latency_channel_value(3, 3))
-
-
-def test_non_sample_factory_policy_uses_default_observation_builder(monkeypatch, tmp_path):
+def test_non_sample_factory_policy_does_not_install_executor_observation_builder(monkeypatch, tmp_path):
     from latency_bench.executors import factory
 
     noop = Action(value="noop", name="noop", is_noop=True)
 
     def fake_build_env_adapter(config, noop_action):
-        return DummyEnvAdapter(fps_env=30, max_steps=1, noop_action=noop)
+        return DummyEnvAdapter(env_fps=30, max_steps=1, noop_action=noop)
 
     def fake_build_policy(config, action_resolver):
         return ConstantPolicyRunner(noop)
@@ -736,16 +688,17 @@ def test_non_sample_factory_policy_uses_default_observation_builder(monkeypatch,
 
     executor = build_executor(config)
 
-    assert type(executor.observation_builder) is ObservationBuilder
+    assert not hasattr(executor, "observation_builder")
+    assert not hasattr(executor, "history")
 
 
-def test_history_len_expands_to_frame_stack_for_sample_factory_policy(monkeypatch, tmp_path):
+def test_sample_factory_executor_has_no_policy_observation_history(monkeypatch, tmp_path):
     from latency_bench.executors import factory
 
     noop = Action(value=0, name="noop", is_noop=True)
 
     def fake_build_env_adapter(config, noop_action):
-        return DummyEnvAdapter(fps_env=30, max_steps=1, noop_action=noop)
+        return DummyEnvAdapter(env_fps=30, max_steps=1, noop_action=noop)
 
     def fake_build_policy(config, action_resolver):
         return ConstantPolicyRunner(noop)
@@ -753,22 +706,21 @@ def test_history_len_expands_to_frame_stack_for_sample_factory_policy(monkeypatc
     monkeypatch.setattr(factory, "build_env_adapter", fake_build_env_adapter)
     monkeypatch.setattr(factory, "build_policy", fake_build_policy)
     config = _config("deadly_corridor", output_dir=str(tmp_path))
-    config["control"]["history_len"] = 1
     config["env"]["frame_stack"] = 4
     config["policy"]["type"] = "deadly_corridor_sf"
 
     executor = build_executor(config)
 
-    assert executor.history.max_len == 4
+    assert not hasattr(executor, "history")
 
 
-def test_history_len_not_expanded_for_non_sample_factory_policy(monkeypatch, tmp_path):
+def test_non_sample_factory_executor_has_no_policy_observation_history(monkeypatch, tmp_path):
     from latency_bench.executors import factory
 
     noop = Action(value="noop", name="noop", is_noop=True)
 
     def fake_build_env_adapter(config, noop_action):
-        return DummyEnvAdapter(fps_env=30, max_steps=1, noop_action=noop)
+        return DummyEnvAdapter(env_fps=30, max_steps=1, noop_action=noop)
 
     def fake_build_policy(config, action_resolver):
         return ConstantPolicyRunner(noop)
@@ -776,8 +728,9 @@ def test_history_len_not_expanded_for_non_sample_factory_policy(monkeypatch, tmp
     monkeypatch.setattr(factory, "build_env_adapter", fake_build_env_adapter)
     monkeypatch.setattr(factory, "build_policy", fake_build_policy)
     config = _config("dummy", output_dir=str(tmp_path))
-    config["control"]["history_len"] = 1
+    config["env"]["frame_stack"] = 4
 
     executor = build_executor(config)
 
-    assert executor.history.max_len == 1
+    assert not hasattr(executor, "history")
+    assert not hasattr(executor, "observation_builder")

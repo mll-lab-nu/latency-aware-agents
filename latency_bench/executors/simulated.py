@@ -15,8 +15,6 @@ from latency_bench.logging.metrics import (
     profile_metadata_from_source,
 )
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
-from latency_bench.observation.builder import ObservationBuilder
-from latency_bench.observation.history import HistoryBuffer
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
@@ -27,18 +25,16 @@ class SimulatedLatencyExecutor:
         self,
         env: EnvAdapter,
         policy: PolicyRunner,
-        observation_builder: ObservationBuilder,
-        history: HistoryBuffer,
         decision_scheduler: DecisionScheduler,
         latency_source: LatencySource,
         action_scheduler: ActionScheduler,
         clock: EnvClock,
         logger: TrajectoryLogger | None = None,
+        observation_builder=None,
+        history=None,
     ):
         self.env = env
         self.policy = policy
-        self.observation_builder = observation_builder
-        self.history = history
         self.decision_scheduler = decision_scheduler
         self.latency_source = latency_source
         self.action_scheduler = action_scheduler
@@ -56,11 +52,9 @@ class SimulatedLatencyExecutor:
         if eval_max_steps < 0:
             raise ValueError("eval_max_steps must be non-negative")
 
-        self.history.clear()
         self.action_scheduler.reset()
         self.policy.reset_state()
-        initial_observation = self.env.reset(seed=seed)
-        self.history.append(initial_observation)
+        self.env.reset(seed=seed)
 
         step_records: list[StepRecord] = []
         action_events: list[ActionEvent] = []
@@ -69,7 +63,8 @@ class SimulatedLatencyExecutor:
         episode_metadata = episode_raw_fact_metadata(
             mode="simulated",
             episode_seed=seed,
-            fps=self.clock.fps_env,
+            env_fps=self.clock.env_fps,
+            obs_fps=self.clock.obs_fps,
             frame_ms=self.clock.frame_ms,
             latency_type=latency_type,
             latency_source=self.latency_source,
@@ -79,7 +74,7 @@ class SimulatedLatencyExecutor:
         while raw_frame < eval_max_steps:
             current_time_ms = self.clock.step_to_time_ms(raw_frame)
             if self.decision_scheduler.should_observe(raw_frame, current_time_ms):
-                observation = self.observation_builder.build(self.env, self.history)
+                observation = self.env.observe()
                 policy_output = self.policy.predict(observation)
                 obs_id = self._next_obs_id
                 self._next_obs_id += 1
@@ -134,9 +129,9 @@ class SimulatedLatencyExecutor:
                         source=self.latency_source.__class__.__name__,
                     )
                     apply_latency_record_raw_fields(
-                    record=latency_record,
-                    latency_type=latency_type,
-                    latency_ms_sampled=latency_ms,
+                        record=latency_record,
+                        latency_type=latency_type,
+                        latency_ms_sampled=latency_ms,
                         latency_ms_measured=None,
                         profile_metadata=profile_metadata,
                     )
@@ -170,11 +165,8 @@ class SimulatedLatencyExecutor:
             if self.logger is not None:
                 self.logger.log_step(record)
             if soft_reset:
-                self.history.clear()
                 self.action_scheduler.reset()
                 self.policy.reset_state()
-            if result.observation is not None:
-                self.history.append(result.observation)
 
             raw_frame += 1
             if episode_done:

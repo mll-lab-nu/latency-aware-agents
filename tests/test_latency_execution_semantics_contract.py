@@ -6,7 +6,7 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, ActionEvent, Observation, OrderingPolicy
 from latency_bench.executors.realtime import BoundedObservationQueue, RealtimeObservationTask
 from latency_bench.scheduler.action_queue import ActionScheduler
-from latency_bench.scheduler.persistence import HoldUntilNextActionPolicy
+from latency_bench.scheduler.persistence import HoldPolicy
 
 
 def _event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> ActionEvent:
@@ -53,14 +53,14 @@ def test_latency_ms_to_raw_frames_uses_ceil_contract():
 
 
 def test_issue_order_fifo_blocks_later_ready_action_contract():
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     first = Action("first")
     second = Action("second")
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldUntilNextActionPolicy(),
+        HoldPolicy(duration_raw_frames=100),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     scheduler.enqueue(_event(0, first, ready_step=10, clock=clock))
@@ -74,19 +74,24 @@ def test_issue_order_fifo_blocks_later_ready_action_contract():
 
 
 def test_latest_ready_is_explicit_ablation_not_default_contract():
-    scheduler = ActionScheduler(EnvClock(30), Action("noop", is_noop=True), HoldUntilNextActionPolicy())
+    clock = EnvClock(env_fps=30, obs_fps=30)
+    scheduler = ActionScheduler(
+        clock,
+        Action("noop", is_noop=True),
+        HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+    )
     assert scheduler.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO
 
 
 def test_latest_ready_ablation_can_be_requested_explicitly():
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     first = Action("first")
     second = Action("second")
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldUntilNextActionPolicy(),
+        HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
         ordering_policy=OrderingPolicy.LATEST_READY,
     )
     first_event = _event(0, first, ready_step=1, clock=clock)
@@ -113,7 +118,7 @@ def test_action_event_exposes_phase3_raw_frame_fields_contract():
 def test_one_frame_then_noop_hold_policy_contract():
     from latency_bench.scheduler.persistence import OneFrameThenNoopPolicy
 
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     action = Action("move", is_oneshot=False)
     scheduler = ActionScheduler(
@@ -128,16 +133,14 @@ def test_one_frame_then_noop_hold_policy_contract():
     assert scheduler.update(1, clock.step_to_time_ms(1)) is noop
 
 
-def test_hold_for_fixed_duration_policy_contract():
-    from latency_bench.scheduler.persistence import HoldForFixedDurationPolicy
-
-    clock = EnvClock(30)
+def test_hold_policy_contract():
+    clock = EnvClock(env_fps=30, obs_fps=10)
     noop = Action("noop", is_noop=True)
     action = Action("move")
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldForFixedDurationPolicy(duration_raw_frames=3),
+        HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     scheduler.enqueue(_event(0, action, ready_step=0, clock=clock))
@@ -146,29 +149,6 @@ def test_hold_for_fixed_duration_policy_contract():
     assert scheduler.update(1, clock.step_to_time_ms(1)) is action
     assert scheduler.update(2, clock.step_to_time_ms(2)) is action
     assert scheduler.update(3, clock.step_to_time_ms(3)) is noop
-
-
-def test_hold_until_next_action_policy_contract():
-    from latency_bench.scheduler.persistence import HoldUntilNextActionPolicy
-
-    clock = EnvClock(30)
-    noop = Action("noop", is_noop=True)
-    first = Action("first")
-    second = Action("second")
-    scheduler = ActionScheduler(
-        clock,
-        noop,
-        HoldUntilNextActionPolicy(),
-        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
-    )
-    scheduler.enqueue(_event(0, first, ready_step=0, clock=clock))
-    scheduler.enqueue(_event(1, second, ready_step=3, clock=clock))
-
-    assert scheduler.update(0, clock.step_to_time_ms(0)) is first
-    assert scheduler.update(1, clock.step_to_time_ms(1)) is first
-    assert scheduler.update(2, clock.step_to_time_ms(2)) is first
-    assert scheduler.update(3, clock.step_to_time_ms(3)) is second
-
 
 @pytest.mark.xfail(
     strict=True,
@@ -189,12 +169,12 @@ def test_realtime_queue_full_default_is_drop_new_observation_contract():
     reason="Phase 4 has not introduced timeout/skipped job state or FIFO timeout unblocking.",
 )
 def test_timeout_marks_skipped_unblocks_fifo_and_ignores_late_results_contract():
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldUntilNextActionPolicy(),
+        HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     scheduler.enqueue(_event(0, Action("first"), ready_step=100, clock=clock))

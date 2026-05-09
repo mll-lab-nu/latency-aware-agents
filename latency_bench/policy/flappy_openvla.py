@@ -306,6 +306,10 @@ def observation_data_to_hwc_uint8(data: Any, image_size: int) -> npt.NDArray[np.
     frame = np.asarray(data)
     if frame.ndim != 3:
         raise ValueError(f"Expected RGB image with rank 3, got shape {frame.shape}")
+    if frame.shape[-1] > 3 and frame.shape[-1] % 3 == 0:
+        frame = frame[:, :, -3:]
+    elif frame.shape[0] > 3 and frame.shape[0] % 3 == 0:
+        frame = np.transpose(frame[-3:, :, :], (1, 2, 0))
 
     if frame.shape == (image_size, image_size, 3):
         return _as_uint8_image(frame)

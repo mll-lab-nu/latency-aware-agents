@@ -87,7 +87,7 @@ def test_demon_openvla_factory_can_build_with_mock_loader(monkeypatch):
     monkeypatch.setattr(demon_attack_openvla, "load_openvla_sft_model", fake_load)
     config = {
         "experiment": {"seed": 0},
-        "env": {"name": "demon_attack", "fps_env": 60, "noop_action": 0},
+        "env": {"name": "demon_attack", "env_fps": 60, "noop_action": 0},
         "policy": {
             "type": "demon_attack_openvla",
             "base_model_path": "/missing/base",
@@ -119,7 +119,7 @@ def test_demon_openvla_missing_dataset_statistics_fails_before_model_load(tmp_pa
 
     config = {
         "experiment": {"seed": 0},
-        "env": {"name": "demon_attack", "fps_env": 60, "noop_action": 0},
+        "env": {"name": "demon_attack", "env_fps": 60, "noop_action": 0},
         "policy": {
             "type": "demon_attack_openvla",
             "base_model_path": str(tmp_path / "base"),

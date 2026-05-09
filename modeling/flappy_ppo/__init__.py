@@ -7,6 +7,7 @@ from modeling.flappy_ppo.checkpoint import (
     load_flappy_ppo_checkpoint,
     observation_config_from_checkpoint,
     save_flappy_ppo_checkpoint,
+    save_flappy_ppo_unified_checkpoint,
 )
 from modeling.flappy_ppo.observation import (
     FlappyPpoObservationConfig,
@@ -17,12 +18,8 @@ from modeling.flappy_ppo.observation import (
 from modeling.flappy_ppo.preprocessing import (
     FlappyPpoEvalObservationPipeline,
     FlappyPpoTorchObservationPipeline,
-    append_latency_channel,
-    append_latency_channel_torch,
     build_stacked_observation,
     hwc_to_nchw_tensor,
-    latency_channel,
-    latency_channel_value,
     reset_frame_stack,
     resize_frame_pil,
     resize_rgb_batch_torch,
@@ -36,13 +33,9 @@ __all__ = [
     "FlappyPpoEvalObservationPipeline",
     "FlappyPpoObservationConfig",
     "FlappyPpoTorchObservationPipeline",
-    "append_latency_channel",
-    "append_latency_channel_torch",
     "build_agent_from_checkpoint",
     "build_stacked_observation",
     "hwc_to_nchw_tensor",
-    "latency_channel",
-    "latency_channel_value",
     "load_flappy_ppo_checkpoint",
     "observation_config_from_args",
     "observation_config_from_checkpoint",
@@ -52,5 +45,6 @@ __all__ = [
     "resize_frame_pil",
     "resize_rgb_batch_torch",
     "save_flappy_ppo_checkpoint",
+    "save_flappy_ppo_unified_checkpoint",
     "step_frame_stack",
 ]

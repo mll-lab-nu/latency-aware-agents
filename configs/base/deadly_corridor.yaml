@@ -17,7 +17,8 @@ executor:
 env:
   name: deadly_corridor
   env_id: doom_deadly_corridor
-  fps_env: 35
+  env_fps: 35
+  obs_fps: 35
   noop_action: 0
   env_frameskip: 4
   frame_stack: 4
@@ -25,9 +26,6 @@ env:
   res_h: 72
   wide_aspect_ratio: false
 
-control:
-  frequency_hz: 35
-  observe_every_n_frames: 1
 
 latency:
   type: zero
@@ -43,7 +41,7 @@ latency:
   add_latency_info: false
 
 scheduler:
-  hold_policy: hold_until_next_action
+  hold_policy: hold
   ordering_policy: latest_ready
 
 policy:

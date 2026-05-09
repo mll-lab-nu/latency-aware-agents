@@ -12,7 +12,8 @@ experiment:
 env:
   name: flappy
   gym_id: FlappyBird-v0
-  fps_env: 30
+  env_fps: 30
+  obs_fps: 30
   render_mode: rgb_array
   observation_mode: image
   use_lidar: false
@@ -20,7 +21,6 @@ env:
   audio_on: false
   frame_stack: 4
   obs_resize: [84, 84]
-  obs_mode: image_only
   use_gpu_render: false
   gpu_render_device: auto
   gpu_render_profile: false
@@ -51,8 +51,6 @@ policy:
     - noop
     - flap
 
-control:
-  frequency_hz: 30
 
 latency:
   type: measured

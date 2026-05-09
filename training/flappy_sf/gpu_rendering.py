@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 from contextlib import nullcontext
-from typing import Any, Sequence
+from typing import Any
 
 import gymnasium as gym
 import numpy as np
@@ -146,8 +146,6 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
         *,
         obs_resize: tuple[int, int] | None,
         frame_stack: int,
-        obs_mode: str,
-        frame_skip_values: Sequence[int],
         gpu_render_device: str | torch.device,
         gpu_render_profile: bool = False,
         gpu_render_profile_interval: int = 1000,
@@ -167,8 +165,6 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
             image_size=height,
             grayscale=False,
             stack_frames=int(frame_stack),
-            obs_mode=str(obs_mode),
-            frame_skip_values=tuple(int(item) for item in frame_skip_values),
         )
         self.observation_space = GymDict(
             {

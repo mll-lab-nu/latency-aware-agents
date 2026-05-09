@@ -70,7 +70,7 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 
 **Risks:**
 
-- Existing configs use `env.fps_env`, `control.frequency_hz`, and `observe_every_n_frames`.
+- Existing configs use `env.env_fps`, `control.obs_fps`, and `obs_fps`.
 - Atari/Doom wrapper FPS and raw-frame FPS are currently easy to confuse.
 
 **Acceptance criteria:**
@@ -105,8 +105,8 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 - Keep skipped/timed-out action states for the realtime timeout phase.
 - Add explicit hold policies:
   - `one_frame_then_noop`
-  - `hold_for_fixed_duration`
-  - `hold_until_next_action`
+  - `hold`
+  - `hold`
 
 **Risks:**
 
@@ -308,7 +308,7 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 ## Open Decisions
 
 1. Whether legacy config fields are supported through aliases for one release or migrated immediately.
-2. Whether `hold_for_fixed_duration` defaults to `obs_stride_raw_frames`.
+2. Whether `hold` defaults to `obs_stride_raw_frames`.
 3. Realtime timeout defaults: disabled, configured per run, or derived from model latency percentiles.
 4. Whether batched simulated should support every latency source or remain a fixed/zero-only optimization.
 5. Whether Sample Factory training latency should migrate to raw-frame semantics or remain a clearly labeled training-time decision-step augmentation.

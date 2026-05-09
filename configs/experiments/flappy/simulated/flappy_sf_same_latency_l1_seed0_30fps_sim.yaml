@@ -14,7 +14,8 @@ executor:
 env:
   name: flappy
   gym_id: FlappyBird-v0
-  fps_env: 30
+  env_fps: 30
+  obs_fps: 30
   render_mode: rgb_array
   observation_mode: image
   use_lidar: false
@@ -24,7 +25,6 @@ env:
   obs_resize:
   - 84
   - 84
-  obs_mode: image_only
   use_gpu_render: true
   gpu_render_device: auto
   gpu_render_profile: false
@@ -35,9 +35,6 @@ env:
     flap: 1
   oneshot_actions:
   - flap
-control:
-  frequency_hz: 30
-  observe_every_n_frames: 1
 latency:
   type: fixed
   train_enabled: true

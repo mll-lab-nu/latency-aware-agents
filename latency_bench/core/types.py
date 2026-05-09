@@ -13,8 +13,7 @@ class ExecutorMode(str, Enum):
 
 class ActionHoldPolicy(str, Enum):
     ONE_FRAME_THEN_NOOP = "one_frame_then_noop"
-    HOLD_FOR_FIXED_DURATION = "hold_for_fixed_duration"
-    HOLD_UNTIL_NEXT_ACTION = "hold_until_next_action"
+    HOLD = "hold"
 
 
 class OrderingPolicy(str, Enum):

@@ -11,6 +11,7 @@ from modeling.flappy_ppo.observation import (
     FlappyPpoObservationConfig,
     observation_config_from_mapping,
 )
+from training.common.checkpoints import format_checkpoint_name
 
 
 CHECKPOINT_FORMAT = "flappy_ppo"
@@ -23,7 +24,7 @@ def save_flappy_ppo_checkpoint(
     observation_config: FlappyPpoObservationConfig,
     global_step: int,
     train_config: Mapping[str, Any] | None = None,
-) -> None:
+) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     checkpoint: dict[str, Any] = {
@@ -38,6 +39,56 @@ def save_flappy_ppo_checkpoint(
     if optimizer is not None:
         checkpoint["optimizer"] = optimizer.state_dict()
     torch.save(checkpoint, path)
+    return path
+
+
+def save_flappy_ppo_unified_checkpoint(
+    *,
+    train_dir: str | os.PathLike[str],
+    experiment_name: str,
+    agent: FlappyPpoAgent,
+    optimizer: Any | None,
+    observation_config: FlappyPpoObservationConfig,
+    train_step: int,
+    env_steps: int,
+    train_config: Mapping[str, Any] | None = None,
+    resolved_config: Mapping[str, Any] | None = None,
+    frame_skip_training_setting: str = "action_delay_frame_skip",
+) -> Path:
+    path = (
+        Path(train_dir).expanduser()
+        / str(experiment_name)
+        / "checkpoint_p0"
+        / format_checkpoint_name(train_step=int(train_step), env_steps=int(env_steps))
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint: dict[str, Any] = {
+        "backend_type": "flappy_ppo",
+        "format": CHECKPOINT_FORMAT,
+        "agent": agent.state_dict(),
+        "observation_config": observation_config.to_dict(),
+        "global_step": int(env_steps),
+        "train_step": int(train_step),
+        "env_steps": int(env_steps),
+        "train_config": dict(train_config or {}),
+        "resolved_config": dict(resolved_config or {}),
+        "metadata": {
+            "obs_shape": [
+                observation_config.in_channels,
+                observation_config.image_size,
+                observation_config.image_size,
+            ],
+            "frame_stack": observation_config.stack_frames,
+            "image_size": observation_config.image_size,
+            "frame_skip_training_setting": str(frame_skip_training_setting),
+        },
+    }
+    if train_config is not None:
+        checkpoint["args"] = dict(train_config)
+    if optimizer is not None:
+        checkpoint["optimizer"] = optimizer.state_dict()
+    torch.save(checkpoint, path)
+    return path
 
 
 def load_flappy_ppo_checkpoint(
@@ -45,9 +96,20 @@ def load_flappy_ppo_checkpoint(
     map_location: str | torch.device | None = None,
 ) -> dict[str, Any]:
     try:
-        return torch.load(path, map_location=map_location, weights_only=False)
+        checkpoint = torch.load(path, map_location=map_location, weights_only=False)
     except TypeError:
-        return torch.load(path, map_location=map_location)
+        checkpoint = torch.load(path, map_location=map_location)
+    if not isinstance(checkpoint, Mapping):
+        raise ValueError("not a flappy_ppo checkpoint: checkpoint is not a mapping")
+    backend_type = checkpoint.get("backend_type")
+    if backend_type is not None and str(backend_type) != "flappy_ppo":
+        raise ValueError(f"backend_type must be 'flappy_ppo', got {backend_type!r}")
+    checkpoint_format = checkpoint.get("format")
+    if checkpoint_format is not None and str(checkpoint_format) != CHECKPOINT_FORMAT:
+        raise ValueError(f"not a flappy_ppo checkpoint: format={checkpoint_format!r}")
+    if "agent" not in checkpoint:
+        raise ValueError("not a flappy_ppo checkpoint: missing agent state")
+    return dict(checkpoint)
 
 
 def observation_config_from_checkpoint(checkpoint: Mapping[str, Any]) -> FlappyPpoObservationConfig:
@@ -107,21 +169,26 @@ def _infer_observation_config_from_channels(in_channels: int) -> FlappyPpoObserv
     preferred_stack_frames = (4, 1, 2, 3, 5, 6, 8)
     for stack_frames in preferred_stack_frames:
         for base_channels in (3, 1):
-            for has_latency in (False, True):
-                expected = base_channels * stack_frames + int(has_latency)
-                if expected != in_channels:
-                    continue
+            if base_channels * stack_frames == in_channels:
                 return FlappyPpoObservationConfig(
                     image_size=84,
                     grayscale=base_channels == 1,
                     stack_frames=stack_frames,
-                    obs_mode="latency_channel" if has_latency else "image_only",
-                    frame_skip_values=(0, 1, 2, 3, 4, 5),
                 )
+    if in_channels % 3 == 0:
+        return FlappyPpoObservationConfig(
+            image_size=84,
+            grayscale=False,
+            stack_frames=max(1, in_channels // 3),
+        )
+    if in_channels > 0:
+        return FlappyPpoObservationConfig(
+            image_size=84,
+            grayscale=True,
+            stack_frames=in_channels,
+        )
     return FlappyPpoObservationConfig(
         image_size=84,
         grayscale=False,
         stack_frames=max(1, in_channels // 3),
-        obs_mode="image_only",
-        frame_skip_values=(0, 1, 2, 3, 4, 5),
     )

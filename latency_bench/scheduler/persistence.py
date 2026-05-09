@@ -15,20 +15,7 @@ class ActionPersistencePolicy(ABC):
         ...
 
 
-class HoldUntilNextActionPolicy(ActionPersistencePolicy):
-    """Keep executing the latest applied action until a new action is applied."""
-
-    def reset(self) -> None:
-        return None
-
-    def on_action_applied(self, action: Action) -> None:
-        return None
-
-    def get_action_for_step(self, current_action: Action, noop_action: Action) -> Action:
-        return current_action
-
-
-class HoldForFixedDurationPolicy(ActionPersistencePolicy):
+class HoldPolicy(ActionPersistencePolicy):
     """Hold each applied action for a fixed number of environment frames."""
 
     def __init__(self, duration_raw_frames: int):
@@ -51,7 +38,7 @@ class HoldForFixedDurationPolicy(ActionPersistencePolicy):
         return current_action
 
 
-class OneFrameThenNoopPolicy(HoldForFixedDurationPolicy):
+class OneFrameThenNoopPolicy(HoldPolicy):
     """Apply each action for exactly one environment frame, then return to noop."""
 
     def __init__(self):

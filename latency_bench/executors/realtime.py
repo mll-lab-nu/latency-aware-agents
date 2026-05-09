@@ -21,8 +21,6 @@ from latency_bench.logging.metrics import (
     profile_metadata_from_source,
 )
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
-from latency_bench.observation.builder import ObservationBuilder
-from latency_bench.observation.history import HistoryBuffer
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
@@ -162,8 +160,6 @@ class RealtimeLatencyExecutor:
         self,
         env: EnvAdapter,
         policy: PolicyRunner,
-        observation_builder: ObservationBuilder,
-        history: HistoryBuffer,
         decision_scheduler: DecisionScheduler,
         latency_source: LatencySource,
         action_scheduler: ActionScheduler,
@@ -175,6 +171,8 @@ class RealtimeLatencyExecutor:
         policy_worker: SerialPolicyWorker | None = None,
         latency_profiler: RuntimeLatencyMeasurer | None = None,
         max_catchup_steps_per_loop: int | None = None,
+        observation_builder=None,
+        history=None,
     ):
         if max_pending_observations <= 0:
             raise ValueError("max_pending_observations must be positive")
@@ -182,8 +180,6 @@ class RealtimeLatencyExecutor:
             raise ValueError("max_catchup_steps_per_loop must be positive or None")
         self.env = env
         self.policy = policy
-        self.observation_builder = observation_builder
-        self.history = history
         self.decision_scheduler = decision_scheduler
         self.latency_source = latency_source
         self.action_scheduler = action_scheduler
@@ -210,10 +206,8 @@ class RealtimeLatencyExecutor:
         if eval_max_steps < 0:
             raise ValueError("eval_max_steps must be non-negative")
 
-        self.history.clear()
         self.action_scheduler.reset()
-        initial_observation = self.env.reset(seed=seed)
-        self.history.append(initial_observation)
+        self.env.reset(seed=seed)
 
         step_records: list[StepRecord] = []
         action_events: list[ActionEvent] = []
@@ -235,7 +229,8 @@ class RealtimeLatencyExecutor:
         episode_metadata = episode_raw_fact_metadata(
             mode="realtime",
             episode_seed=seed,
-            fps=self.clock.fps_env,
+            env_fps=self.clock.env_fps,
+            obs_fps=self.clock.obs_fps,
             frame_ms=self.clock.frame_ms,
             latency_type=episode_latency_type,
             latency_source=self.latency_source,
@@ -343,7 +338,7 @@ class RealtimeLatencyExecutor:
             nonlocal dropped_observation_count
             nonlocal submitted_observation_frames
             nonlocal last_submitted_observation_env_step
-            observation = self.observation_builder.build(self.env, self.history)
+            observation = self.env.observe()
             obs_id = self._next_obs_id
             self._next_obs_id += 1
             task = RealtimeObservationTask(
@@ -453,9 +448,6 @@ class RealtimeLatencyExecutor:
                     step_records.append(record)
                     if self.logger is not None:
                         self.logger.log_step(record)
-                    if result.observation is not None:
-                        self.history.append(result.observation)
-
                     env_step += 1
                     if result.done or result.truncated:
                         episode_done = True

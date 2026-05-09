@@ -147,7 +147,7 @@ def test_deadly_openvla_factory_can_build_with_mock_loader(monkeypatch):
     monkeypatch.setattr(deadly_corridor_openvla, "load_openvla_sft_model", fake_load)
     config = {
         "experiment": {"seed": 0},
-        "env": {"name": "deadly_corridor", "fps_env": 35, "noop_action": [0, 0, 0, 0]},
+        "env": {"name": "deadly_corridor", "env_fps": 35, "noop_action": [0, 0, 0, 0]},
         "policy": {
             "type": "deadly_corridor_openvla",
             "base_model_path": "/missing/base",
@@ -186,7 +186,7 @@ def test_deadly_openvla_missing_unnorm_key_fails_before_model_load(tmp_path):
     )
     config = {
         "experiment": {"seed": 0},
-        "env": {"name": "deadly_corridor", "fps_env": 35, "noop_action": [0, 0, 0, 0]},
+        "env": {"name": "deadly_corridor", "env_fps": 35, "noop_action": [0, 0, 0, 0]},
         "policy": {
             "type": "deadly_corridor_openvla",
             "base_model_path": str(base),
@@ -221,7 +221,7 @@ def test_deadly_openvla_missing_full_weights_fails_before_model_load(tmp_path):
     )
     config = {
         "experiment": {"seed": 0},
-        "env": {"name": "deadly_corridor", "fps_env": 35, "noop_action": [0, 0, 0, 0]},
+        "env": {"name": "deadly_corridor", "env_fps": 35, "noop_action": [0, 0, 0, 0]},
         "policy": {
             "type": "deadly_corridor_openvla",
             "base_model_path": str(base),
@@ -254,7 +254,7 @@ def test_deadly_openvla_action_dim_must_be_eleven(monkeypatch):
     monkeypatch.setattr(deadly_corridor_openvla, "load_openvla_sft_model", fake_load)
     config = {
         "experiment": {"seed": 0},
-        "env": {"name": "deadly_corridor", "fps_env": 35, "noop_action": [0, 0, 0, 0]},
+        "env": {"name": "deadly_corridor", "env_fps": 35, "noop_action": [0, 0, 0, 0]},
         "policy": {
             "type": "deadly_corridor_openvla",
             "base_model_path": "/missing/base",

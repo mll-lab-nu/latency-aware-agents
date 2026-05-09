@@ -107,7 +107,6 @@ SUPPORTED_FLAPPY_PPO_FIELDS = {
     "stats_window_size",
     "target_kl",
     "torch_deterministic",
-    "obs_mode",
 }
 
 SUPPORTED_LOGGING_FIELDS = {
@@ -164,7 +163,7 @@ def validate_flappy_ppo_config(config: Mapping[str, Any]) -> None:
     if bool(latency_cfg.get("randomize_within_stage", False)):
         raise ValueError("latency.randomize_within_stage must be false for flappy_ppo")
     if bool(latency_cfg.get("add_latency_info", False)):
-        raise ValueError("latency.add_latency_info must be false; use flappy_ppo.obs_mode='latency_channel' instead")
+        raise ValueError("latency.add_latency_info must be false for flappy_ppo image observations")
 
     n_envs = _positive_int(training_cfg.get("num_workers"), "training.num_workers") * _positive_int(
         training_cfg.get("num_envs_per_worker"),
@@ -179,14 +178,11 @@ def validate_flappy_ppo_config(config: Mapping[str, Any]) -> None:
 def build_observation_config(config: Mapping[str, Any]) -> FlappyPpoObservationConfig:
     validate_flappy_ppo_config(config)
     env_cfg = config["env"]
-    latency_cfg = config["latency"]
     flappy_cfg = config.get("flappy_ppo", {})
     return FlappyPpoObservationConfig(
         image_size=int(flappy_cfg.get("image_size", 84)),
         grayscale=bool(flappy_cfg.get("grayscale", False)),
         stack_frames=int(env_cfg.get("frame_stack", 4)),
-        obs_mode=str(flappy_cfg.get("obs_mode", "latency_channel")),
-        frame_skip_values=tuple(_int_list(latency_cfg.get("train_values"), "latency.train_values")),
     )
 
 
@@ -222,8 +218,7 @@ def build_flappy_ppo_args(config: Mapping[str, Any]) -> Namespace:
     args.image_size = obs_config.image_size
     args.grayscale = obs_config.grayscale
     args.stack_frames = obs_config.stack_frames
-    args.obs_mode = obs_config.obs_mode
-    args.frame_skip_values = ",".join(str(value) for value in obs_config.frame_skip_values)
+    args.frame_skip_values = ",".join(str(value) for value in _int_list(latency_cfg.get("train_values"), "latency.train_values"))
     args.frame_skip_training_setting = "action_delay_frame_skip"
 
     for field in SUPPORTED_FLAPPY_PPO_FIELDS:
@@ -272,7 +267,7 @@ def write_resolved_artifacts(config: Mapping[str, Any], args: Namespace) -> None
         "backend_type": "flappy_ppo",
         "experiment_name": args.experiment_name,
         "frame_skip_training_setting": "action_delay_frame_skip",
-        "latency_train_values": list(obs_config.frame_skip_values),
+        "latency_train_values": _int_list(config["latency"].get("train_values"), "latency.train_values"),
         "obs_shape": [obs_config.in_channels, obs_config.image_size, obs_config.image_size],
         "observation_config": obs_config.to_dict(),
     }

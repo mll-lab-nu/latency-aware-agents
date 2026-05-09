@@ -1,50 +1,19 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
+import gymnasium
 import numpy as np
 import pytest
 
 from latency_bench.core.types import Action
-from latency_bench.envs.flappy import FlappyBirdEnvAdapter, FlappySampleFactoryGpuEnvAdapter
+from latency_bench.envs.flappy import FlappyBirdEnvAdapter
 
 
 def _make_adapter() -> FlappyBirdEnvAdapter:
     return FlappyBirdEnvAdapter(
         gym_id="FlappyBird-v0",
-        fps_env=30,
+        env_fps=30,
         noop_action=Action(value=0, name="noop", is_noop=True),
-        render_mode="rgb_array",
-        observation_mode="image",
-        use_lidar=False,
-        normalize_obs=True,
-        audio_on=False,
     )
-
-
-def _gpu_config(obs_mode: str = "image_only") -> dict:
-    return {
-        "experiment": {"seed": 11},
-        "env": {
-            "name": "flappy",
-            "fps_env": 30,
-            "gym_id": "FlappyBird-v0",
-            "use_lidar": False,
-            "normalize_obs": True,
-            "audio_on": False,
-            "pipe_gap": 100,
-            "bird_color": "yellow",
-            "pipe_color": "green",
-            "background": "day",
-            "debug": False,
-            "score_limit": -1,
-            "obs_resize": [84, 84],
-            "obs_mode": obs_mode,
-            "frame_stack": 4,
-            "use_gpu_render": True,
-            "gpu_render_device": "cpu",
-        },
-    }
 
 
 def test_flappy_reset_returns_rgb_image_observation():
@@ -57,7 +26,6 @@ def test_flappy_reset_returns_rgb_image_observation():
         assert observation.data.ndim == 3
         assert observation.data.shape[2] == 3
         assert observation.metadata["score"] == 0
-        assert observation.metadata["observation_mode"] == "image"
         assert observation.metadata["numeric_obs"].shape == (12,)
     finally:
         env.close()
@@ -83,62 +51,102 @@ def test_flappy_step_advances_one_frame_and_records_action_info():
         env.close()
 
 
-def test_flappy_sample_factory_gpu_adapter_uses_renderer_without_internal_latency(monkeypatch):
-    from training.flappy_sf import integration
-
+def test_flappy_gpu_backend_uses_explicit_renderer_args(monkeypatch):
     captured = {}
 
-    class FakeSampleFactoryGpuEnv:
-        def reset(self, **kwargs):
-            captured["reset_seed"] = kwargs.get("seed")
-            return {"obs": np.zeros((1, 12, 84, 84), dtype=np.uint8)}, [{"score": 0}]
+    class FakeBaseEnv:
+        action_space = gymnasium.spaces.Discrete(2)
+        observation_space = gymnasium.spaces.Box(-1.0, 1.0, shape=(12,), dtype=np.float32)
+
+        def close(self):
+            captured["base_closed"] = True
+
+    class FakeGpuRenderWrapper:
+        action_space = gymnasium.spaces.Discrete(2)
+        observation_space = gymnasium.spaces.Box(0, 255, shape=(3, 84, 84), dtype=np.uint8)
+
+        def __init__(
+            self,
+            env,
+            *,
+            obs_resize,
+            frame_stack,
+            gpu_render_device,
+            gpu_render_profile=False,
+            gpu_render_profile_interval=1000,
+            worker_index=0,
+            vector_index=0,
+            env_id=0,
+        ):
+            captured["base_env"] = env
+            captured["obs_resize"] = obs_resize
+            captured["wrapper_frame_stack"] = frame_stack
+            captured["gpu_render_device"] = gpu_render_device
+            captured["gpu_render_profile"] = gpu_render_profile
+            captured["gpu_render_profile_interval"] = gpu_render_profile_interval
+            captured["worker_index"] = worker_index
+            captured["vector_index"] = vector_index
+            captured["env_id"] = env_id
+
+        def reset(self, seed=None):
+            captured["reset_seed"] = seed
+            return {"obs": np.zeros((1, 3, 84, 84), dtype=np.uint8)}, [{"score": 0}]
 
         def step(self, action):
-            captured["step_action"] = action
+            captured["step_action"] = int(action)
             return (
-                {"obs": np.ones((1, 12, 84, 84), dtype=np.uint8)},
-                np.asarray([0.1], dtype=np.float32),
+                {"obs": np.full((1, 3, 84, 84), 7, dtype=np.uint8)},
+                np.asarray([1.25], dtype=np.float32),
                 np.asarray([False], dtype=np.bool_),
-                np.asarray([False], dtype=np.bool_),
-                [{"score": 0}],
+                np.asarray([True], dtype=np.bool_),
+                [{"score": 3}],
             )
 
         def close(self):
             captured["closed"] = True
 
-    def fake_make_flappy_sf_env(_full_env_name, cfg=None, env_config=None, render_mode=None):
-        captured["cfg"] = cfg
-        captured["env_config"] = env_config
-        captured["render_mode"] = render_mode
-        return FakeSampleFactoryGpuEnv()
+    def fake_make(*args, **kwargs):
+        captured["gym_make_args"] = args
+        captured["gym_make_kwargs"] = kwargs
+        return FakeBaseEnv()
 
-    monkeypatch.setattr(integration, "make_flappy_sf_env", fake_make_flappy_sf_env)
+    monkeypatch.setattr("latency_bench.envs.flappy.gymnasium.make", fake_make)
+    monkeypatch.setattr("training.flappy_sf.gpu_rendering.FlappyGpuRenderedObsWrapper", FakeGpuRenderWrapper)
     noop = Action(value=0, name="noop", is_noop=True)
 
-    env = FlappySampleFactoryGpuEnvAdapter(config=_gpu_config(obs_mode="latency_channel"), noop_action=noop)
+    env = FlappyBirdEnvAdapter(
+        use_gpu_render=True,
+        gpu_render_device="cpu",
+        gpu_render_profile=True,
+        gpu_render_profile_interval=17,
+        obs_resize=(84, 84),
+        frame_stack=4,
+        noop_action=noop,
+    )
     try:
-        assert captured["cfg"].use_gpu_render is True
-        assert captured["cfg"].obs_mode == "image_only"
-        assert captured["cfg"].queue_latency_values == "0"
-        assert captured["cfg"].gpu_render_batch_size == 1
-        assert captured["env_config"].env_id == 0
-
         observation = env.reset(seed=123)
         assert captured["reset_seed"] == 123
-        assert observation.data.shape == (12, 84, 84)
+        assert observation.data.shape == (84, 84, 3)
         assert observation.data.dtype == np.uint8
         assert observation.env_step == 0
         assert observation.metadata["score"] == 0
+        assert env.observe().data.shape == (84, 84, 12)
 
         result = env.step(Action(value=1, name="flap", is_oneshot=True))
         assert captured["step_action"] == 1
         assert result.observation is not None
-        assert result.observation.data.shape == (12, 84, 84)
-        assert result.reward == float(np.float32(0.1))
+        assert result.observation.data.shape == (84, 84, 3)
+        assert result.reward == float(np.float32(1.25))
         assert result.done is False
-        assert result.truncated is False
+        assert result.truncated is True
         assert result.info["applied_action"] == 1
         assert result.info["applied_action_name"] == "flap"
+        assert captured["gym_make_kwargs"]["render_mode"] is None
+        assert captured["obs_resize"] == (84, 84)
+        assert captured["wrapper_frame_stack"] == 1
+        assert captured["gpu_render_device"] == "cpu"
+        assert captured["gpu_render_profile"] is True
+        assert captured["gpu_render_profile_interval"] == 17
     finally:
         env.close()
 
@@ -157,66 +165,95 @@ def test_flappy_render_frame_returns_latest_rgb_frame():
         env.close()
 
 
-def _flappy_sf_gpu_config(obs_mode: str = "image_only") -> dict:
-    return {
-        "experiment": {
-            "name": "flappy_gpu_adapter_test",
-            "seed": 0,
-            "num_episodes": 1,
-        },
-        "env": {
-            "name": "flappy",
-            "gym_id": "FlappyBird-v0",
-            "fps_env": 30,
-            "use_lidar": False,
-            "normalize_obs": True,
-            "audio_on": False,
-            "frame_stack": 4,
-            "obs_resize": [84, 84],
-            "obs_mode": obs_mode,
-            "use_gpu_render": True,
-            "gpu_render_device": "cpu",
-            "gpu_render_profile": False,
-            "gpu_render_profile_interval": 1000,
-            "pipe_gap": 100,
-            "bird_color": "yellow",
-            "pipe_color": "green",
-            "background": "day",
-            "debug": False,
-            "score_limit": -1,
-        },
-        "latency": {
-            "train_values": [0],
-            "train_mode": "episode_fixed",
-            "train_sampling_mode": "uniform_all",
-            "episodes_per_stage": 10,
-            "randomize_within_stage": False,
-            "within_episode_change_interval": 1,
-            "within_episode_change_prob": 1.0,
-        },
-    }
+def test_flappy_resize_keeps_hwc_rgb_layout():
+    env = FlappyBirdEnvAdapter(
+        gym_id="FlappyBird-v0",
+        env_fps=30,
+        noop_action=Action(value=0, name="noop", is_noop=True),
+        obs_resize=(84, 84),
+    )
+    try:
+        observation = env.reset(seed=0)
+
+        assert observation.data.shape == (84, 84, 3)
+        assert observation.data.dtype == np.uint8
+    finally:
+        env.close()
 
 
-def test_flappy_sf_gpu_adapter_reset_and_step_contract():
+def test_flappy_chw_render_is_converted_to_hwc_rgb(monkeypatch):
+    from latency_bench.envs import flappy as flappy_module
+
+    class FakeGymEnv:
+        def reset(self, seed=None):
+            return np.zeros((12,), dtype=np.float64), {"score": 0}
+
+        def render(self):
+            return np.zeros((3, 10, 20), dtype=np.uint8)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(flappy_module.gymnasium, "make", lambda *args, **kwargs: FakeGymEnv())
+
+    env = FlappyBirdEnvAdapter(env_fps=30, noop_action=Action(value=0, name="noop", is_noop=True))
+    try:
+        observation = env.reset(seed=0)
+
+        assert observation.data.shape == (10, 20, 3)
+        assert observation.data.dtype == np.uint8
+    finally:
+        env.close()
+
+
+def test_flappy_observe_stacks_only_observed_frames():
+    env = FlappyBirdEnvAdapter(
+        gym_id="FlappyBird-v0",
+        env_fps=30,
+        noop_action=Action(value=0, name="noop", is_noop=True),
+        frame_stack=2,
+    )
+    try:
+        reset_observation = env.reset(seed=0)
+        first_policy_observation = env.observe()
+        env.step(Action(value=0, name="noop", is_noop=True))
+        second_step = env.step(Action(value=0, name="noop", is_noop=True))
+        second_policy_observation = env.observe()
+
+        assert reset_observation.data.shape[-1] == 3
+        assert second_step.observation is not None
+        assert second_step.observation.data.shape[-1] == 3
+        assert first_policy_observation.data.shape[-1] == 6
+        assert second_policy_observation.data.shape[-1] == 6
+        assert np.array_equal(second_policy_observation.data[..., :3], reset_observation.data)
+        assert np.array_equal(second_policy_observation.data[..., 3:], second_step.observation.data)
+    finally:
+        env.close()
+
+
+def test_flappy_gpu_backend_reset_and_step_contract():
     pytest.importorskip("torch")
-    env = FlappySampleFactoryGpuEnvAdapter(
-        config=_flappy_sf_gpu_config(),
+    env = FlappyBirdEnvAdapter(
+        use_gpu_render=True,
+        gpu_render_device="cpu",
+        obs_resize=(84, 84),
+        frame_stack=4,
         noop_action=Action(value=0, name="noop", is_noop=True),
     )
     try:
         observation = env.reset(seed=123)
 
         assert observation.env_step == 0
-        assert observation.data.shape == (12, 84, 84)
+        assert observation.data.shape == (84, 84, 3)
         assert observation.data.dtype == np.uint8
-        assert observation.metadata["observation_mode"] == "sample_factory_gpu"
         assert "numeric_obs" in observation.metadata
+        assert env.observe().data.shape == (84, 84, 12)
 
         result = env.step(Action(value=0, name="noop", is_noop=True))
 
         assert result.observation is not None
         assert result.observation.env_step == 1
-        assert result.observation.data.shape == (12, 84, 84)
+        assert result.observation.data.shape == (84, 84, 3)
         assert result.observation.data.dtype == np.uint8
         assert isinstance(result.reward, float)
         assert isinstance(result.done, bool)
@@ -226,44 +263,3 @@ def test_flappy_sf_gpu_adapter_reset_and_step_contract():
         assert "numeric_obs" not in result.info
     finally:
         env.close()
-
-
-def test_flappy_sf_gpu_adapter_leaves_latency_channel_to_latency_bench_builder():
-    pytest.importorskip("torch")
-    env = FlappySampleFactoryGpuEnvAdapter(
-        config=_flappy_sf_gpu_config(obs_mode="latency_channel"),
-        noop_action=Action(value=0, name="noop", is_noop=True),
-    )
-    try:
-        observation = env.reset(seed=123)
-
-        assert observation.data.shape == (12, 84, 84)
-        assert "queue_latency" not in observation.metadata
-        assert "frame_skip" not in observation.metadata
-        assert "latency_frame_skip" not in observation.metadata
-    finally:
-        env.close()
-
-
-def test_flappy_sf_gpu_adapter_reset_matches_sample_factory_gpu_observation():
-    pytest.importorskip("torch")
-    from training.flappy_sf.integration import make_flappy_sf_env
-
-    adapter = FlappySampleFactoryGpuEnvAdapter(
-        config=_flappy_sf_gpu_config(),
-        noop_action=Action(value=0, name="noop", is_noop=True),
-    )
-    sf_env = make_flappy_sf_env(
-        "latency_flappy",
-        cfg=adapter.sf_cfg,
-        env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
-    )
-    try:
-        adapter_observation = adapter.reset(seed=123)
-        sf_obs, _ = sf_env.reset(seed=123)
-        sf_arr = sf_obs["obs"].detach().cpu().numpy()[0]
-
-        assert np.array_equal(adapter_observation.data, sf_arr)
-    finally:
-        adapter.close()
-        sf_env.close()

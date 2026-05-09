@@ -15,7 +15,8 @@ backend:
 env:
   name: demon_attack
   env_id: ALE/DemonAttack-v5
-  fps_env: 60
+  env_fps: 60
+  obs_fps: 60
   screen_size: 84
   noop_max: 30
   action_repeat: 4
@@ -56,8 +57,6 @@ policy:
     - RIGHTFIRE
     - LEFTFIRE
 
-control:
-  frequency_hz: 60
 
 latency:
   type: measured

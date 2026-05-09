@@ -729,7 +729,7 @@ def load_sf_policy_state_dict(cfg, actor_critic, device: torch.device) -> None:
         actor_critic.load_state_dict(checkpoint_dict["model"])
     except RuntimeError as exc:
         raise ValueError(
-            "Sample Factory eval checkpoint/model shape mismatch. Check env.obs_resize/env.obs_mode "
+            "Sample Factory eval checkpoint/model shape mismatch. Check env.obs_resize "
             "and use the same observation config for train and eval."
         ) from exc
 

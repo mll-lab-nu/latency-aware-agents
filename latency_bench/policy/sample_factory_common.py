@@ -552,9 +552,9 @@ def _to_python_action(value: Any):
 
 
 def _resolve_action(raw_value: Any, action_resolver: ActionResolver) -> Action:
+    if isinstance(raw_value, list):
+        raw_value = tuple(raw_value)
     try:
         return action_resolver.resolve(raw_value)
     except Exception:
-        if isinstance(raw_value, list):
-            raw_value = tuple(raw_value)
         return Action(value=raw_value, name=str(raw_value), is_noop=False, is_oneshot=False)

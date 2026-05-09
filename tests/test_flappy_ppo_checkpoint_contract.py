@@ -19,8 +19,6 @@ def test_unified_flappy_ppo_checkpoint_uses_sample_factory_style_layout(tmp_path
         image_size=84,
         grayscale=False,
         stack_frames=4,
-        obs_mode="image_only",
-        frame_skip_values=(0, 3),
     )
     agent = FlappyPpoAgent(in_channels=obs_config.in_channels, image_size=84, n_actions=2)
 
@@ -51,7 +49,7 @@ def test_unified_flappy_ppo_checkpoint_uses_sample_factory_style_layout(tmp_path
     assert checkpoint["metadata"]["frame_stack"] == 4
     assert checkpoint["metadata"]["image_size"] == 84
     assert checkpoint["metadata"]["frame_skip_training_setting"] == "action_delay_frame_skip"
-    assert checkpoint["observation_config"]["frame_skip_values"] == [0, 3]
+    assert checkpoint["observation_config"]["stack_frames"] == 4
 
 
 def test_flappy_ppo_loader_rejects_sample_factory_checkpoint(tmp_path):
@@ -75,8 +73,6 @@ def test_ppo_loop_save_checkpoint_uses_unified_layout_when_enabled(tmp_path):
         image_size=84,
         grayscale=False,
         stack_frames=4,
-        obs_mode="image_only",
-        frame_skip_values=(0,),
     )
     agent = FlappyPpoAgent(in_channels=obs_config.in_channels, image_size=84, n_actions=2)
     args = Namespace(
@@ -86,7 +82,6 @@ def test_ppo_loop_save_checkpoint_uses_unified_layout_when_enabled(tmp_path):
         image_size=84,
         grayscale=False,
         stack_frames=4,
-        obs_mode="image_only",
         frame_skip_values="0",
         frame_skip_training_setting="action_delay_frame_skip",
         resolved_config={"backend": {"type": "flappy_ppo"}},

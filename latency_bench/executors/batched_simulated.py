@@ -19,8 +19,6 @@ from latency_bench.logging.metrics import (
     profile_metadata_from_source,
 )
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
-from latency_bench.observation.builder import ObservationBuilder
-from latency_bench.observation.history import HistoryBuffer
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
@@ -38,7 +36,6 @@ class _EpisodeBuffers:
 class _SlotState:
     slot_id: int
     env: EnvAdapter
-    history: HistoryBuffer
     latency_source: LatencySource
     action_scheduler: ActionScheduler
     active: bool = False
@@ -53,7 +50,7 @@ class _BatchedEnvCollection:
         self.envs = list(envs)
         self._close_fn = close_fn
         self.noop_action = self.envs[0].noop_action if self.envs else None
-        self.fps_env = self.envs[0].fps_env if self.envs else 0.0
+        self.env_fps = self.envs[0].env_fps if self.envs else 0.0
 
     def close(self) -> None:
         self._close_fn()
@@ -73,13 +70,13 @@ class BatchedSimulatedLatencyExecutor:
         envs: Sequence[EnvAdapter] | None = None,
         env_backend: EnvStepBackend | None = None,
         policy: PolicyRunner,
-        observation_builder: ObservationBuilder,
-        histories: Sequence[HistoryBuffer],
         decision_scheduler: DecisionScheduler,
         latency_sources: Sequence[LatencySource],
         action_schedulers: Sequence[ActionScheduler],
         clock: EnvClock,
         logger: TrajectoryLogger | None = None,
+        observation_builder=None,
+        histories=None,
     ):
         if env_backend is None:
             if envs is None:
@@ -91,7 +88,7 @@ class BatchedSimulatedLatencyExecutor:
         slot_count = int(env_backend.num_slots)
         if slot_count <= 0:
             raise ValueError("BatchedSimulatedLatencyExecutor requires at least one env slot")
-        if len(histories) != slot_count:
+        if histories is not None and len(histories) != slot_count:
             raise ValueError("histories length must match envs length")
         if len(latency_sources) != slot_count:
             raise ValueError("latency_sources length must match envs length")
@@ -102,7 +99,6 @@ class BatchedSimulatedLatencyExecutor:
         self.envs = list(env_backend.slot_handles)
         self.env = _BatchedEnvCollection(self.envs, close_fn=self.env_backend.close)
         self.policy = policy
-        self.observation_builder = observation_builder
         self.decision_scheduler = decision_scheduler
         self.clock = clock
         self.logger = logger
@@ -110,7 +106,6 @@ class BatchedSimulatedLatencyExecutor:
             _SlotState(
                 slot_id=slot_id,
                 env=self.envs[slot_id],
-                history=histories[slot_id],
                 latency_source=latency_sources[slot_id],
                 action_scheduler=action_schedulers[slot_id],
             )
@@ -181,8 +176,11 @@ class BatchedSimulatedLatencyExecutor:
             for slot in active_slots:
                 current_time_ms = self.clock.step_to_time_ms(slot.env_step)
                 if self.decision_scheduler.should_observe(slot.env_step, current_time_ms):
-                    observations.append(self.observation_builder.build(slot.env, slot.history))
                     observation_slots.append(slot)
+
+            if observation_slots:
+                observations_by_slot = self.env_backend.observe_slots([slot.slot_id for slot in observation_slots])
+                observations = [observations_by_slot[slot.slot_id] for slot in observation_slots]
 
             if observations:
                 policy_outputs = self.policy.predict_batch(observations)
@@ -227,11 +225,8 @@ class BatchedSimulatedLatencyExecutor:
                 )
                 slot.buffers.step_records.append(record)
                 if soft_reset:
-                    slot.history.clear()
                     slot.action_scheduler.reset()
                     self.policy.reset_state(slot_id=slot.slot_id)
-                if result.observation is not None:
-                    slot.history.append(result.observation)
 
                 slot.env_step += 1
                 if episode_done or slot.env_step >= eval_max_steps:
@@ -261,7 +256,6 @@ class BatchedSimulatedLatencyExecutor:
             slot.episode_seed = None
             slot.env_step = 0
             slot.buffers = _EpisodeBuffers()
-            slot.history.clear()
             slot.action_scheduler.reset()
 
     def _active_slots(self) -> list[_SlotState]:
@@ -273,11 +267,9 @@ class BatchedSimulatedLatencyExecutor:
         slot.episode_seed = None if seed is None else int(seed)
         slot.env_step = 0
         slot.buffers = _EpisodeBuffers()
-        slot.history.clear()
         slot.action_scheduler.reset()
         self.policy.reset_state(slot_id=slot.slot_id)
-        initial_observation = self.env_backend.reset_slot(slot.slot_id, episode_id=episode_id, seed=seed)
-        slot.history.append(initial_observation)
+        self.env_backend.reset_slot(slot.slot_id, episode_id=episode_id, seed=seed)
         self.slot_episode_id[slot.slot_id] = int(episode_id)
         self.started_episodes += 1
         self.active_slots = sum(1 for item in self.slots if item.active)
@@ -299,7 +291,8 @@ class BatchedSimulatedLatencyExecutor:
             metadata=episode_raw_fact_metadata(
                 mode="simulated",
                 episode_seed=slot.episode_seed,
-                fps=self.clock.fps_env,
+                env_fps=self.clock.env_fps,
+                obs_fps=self.clock.obs_fps,
                 frame_ms=self.clock.frame_ms,
                 latency_type=latency_type_from_source(slot.latency_source),
                 latency_source=slot.latency_source,
@@ -314,7 +307,6 @@ class BatchedSimulatedLatencyExecutor:
         slot.episode_seed = None
         slot.env_step = 0
         slot.buffers = _EpisodeBuffers()
-        slot.history.clear()
         slot.action_scheduler.reset()
         self.slot_episode_id[slot.slot_id] = None
         self.active_slots = sum(1 for item in self.slots if item.active)

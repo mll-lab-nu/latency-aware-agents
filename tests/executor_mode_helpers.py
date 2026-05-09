@@ -7,7 +7,7 @@ from latency_bench.core.types import Action, Observation, OrderingPolicy, Policy
 from latency_bench.envs.base import DummyEnvAdapter
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
-from latency_bench.scheduler.persistence import HoldUntilNextActionPolicy
+from latency_bench.scheduler.persistence import HoldPolicy
 
 
 class SequencePolicyRunner(PolicyRunner):
@@ -28,15 +28,15 @@ class SequencePolicyRunner(PolicyRunner):
         return PolicyOutput(action=action, raw_output=action.value)
 
 
-def make_dummy_parts(max_steps: int = 5, fps_env: float = 30.0):
+def make_dummy_parts(max_steps: int = 5, env_fps: float = 30.0):
     noop_action = Action(value="noop", name="noop", is_noop=True)
     jump_action = Action(value="jump", name="jump")
-    env = DummyEnvAdapter(fps_env=fps_env, max_steps=max_steps, noop_action=noop_action)
-    clock = EnvClock(fps_env=fps_env)
+    env = DummyEnvAdapter(env_fps=env_fps, max_steps=max_steps, noop_action=noop_action)
+    clock = EnvClock(env_fps=env_fps, obs_fps=env_fps)
     action_scheduler = ActionScheduler(
         clock=clock,
         noop_action=noop_action,
-        persistence_policy=HoldUntilNextActionPolicy(),
+        persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
         ordering_policy=OrderingPolicy.LATEST_READY,
     )
     return env, clock, noop_action, jump_action, action_scheduler

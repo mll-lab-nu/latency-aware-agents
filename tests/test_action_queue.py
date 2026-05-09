@@ -3,7 +3,7 @@ from __future__ import annotations
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, ActionEvent, OrderingPolicy
 from latency_bench.scheduler.action_queue import ActionScheduler
-from latency_bench.scheduler.persistence import HoldUntilNextActionPolicy, OneFrameThenNoopPolicy
+from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 
 
 def _event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> ActionEvent:
@@ -21,10 +21,10 @@ def _event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> 
 
 
 def test_fixed_two_frame_latency_action_applies_at_correct_step():
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     action = Action("jump")
-    scheduler = ActionScheduler(clock, noop, HoldUntilNextActionPolicy())
+    scheduler = ActionScheduler(clock, noop, HoldPolicy(duration_raw_frames=100))
     scheduler.enqueue(_event(0, action, ready_step=2, clock=clock))
 
     assert scheduler.update(0, clock.step_to_time_ms(0)) is noop
@@ -34,13 +34,17 @@ def test_fixed_two_frame_latency_action_applies_at_correct_step():
 
 
 def test_default_mode_is_issue_order_fifo():
-    scheduler = ActionScheduler(EnvClock(30), Action("noop", is_noop=True), HoldUntilNextActionPolicy())
+    scheduler = ActionScheduler(
+        EnvClock(env_fps=30, obs_fps=30),
+        Action("noop", is_noop=True),
+        HoldPolicy(duration_raw_frames=100),
+    )
 
     assert scheduler.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO
 
 
 def test_one_frame_latency_ready_on_float_boundary_applies_at_next_step():
-    clock = EnvClock(35)
+    clock = EnvClock(env_fps=35, obs_fps=35)
     noop = Action("noop", is_noop=True)
     action = Action("jump")
     obs_step = 6
@@ -57,7 +61,7 @@ def test_one_frame_latency_ready_on_float_boundary_applies_at_next_step():
         ready_time_ms=ready_time_ms,
         ready_step_float=clock.time_ms_to_step_float(ready_time_ms),
     )
-    scheduler = ActionScheduler(clock, noop, HoldUntilNextActionPolicy())
+    scheduler = ActionScheduler(clock, noop, HoldPolicy(duration_raw_frames=100))
     scheduler.enqueue(event)
 
     assert ready_time_ms > clock.step_to_time_ms(ready_step)
@@ -68,14 +72,14 @@ def test_one_frame_latency_ready_on_float_boundary_applies_at_next_step():
 
 
 def test_fifo_mode_applies_ready_actions_in_order():
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     first = Action("first")
     second = Action("second")
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldUntilNextActionPolicy(),
+        HoldPolicy(duration_raw_frames=100),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     scheduler.enqueue(_event(0, first, ready_step=1, clock=clock))
@@ -87,14 +91,14 @@ def test_fifo_mode_applies_ready_actions_in_order():
 
 
 def test_fifo_mode_blocks_later_ready_action_until_head_of_line_ready():
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     first = Action("first")
     second = Action("second")
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldUntilNextActionPolicy(),
+        HoldPolicy(duration_raw_frames=100),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     scheduler.enqueue(_event(0, first, ready_step=10, clock=clock))
@@ -109,14 +113,14 @@ def test_fifo_mode_blocks_later_ready_action_until_head_of_line_ready():
 
 
 def test_latest_ready_mode_allows_explicit_overtake_ablation():
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     first = Action("first")
     second = Action("second")
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldUntilNextActionPolicy(),
+        HoldPolicy(duration_raw_frames=100),
         ordering_policy=OrderingPolicy.LATEST_READY,
     )
     scheduler.enqueue(_event(0, first, ready_step=10, clock=clock))
@@ -128,7 +132,7 @@ def test_latest_ready_mode_allows_explicit_overtake_ablation():
 
 
 def test_latest_ready_mode_drops_older_ready_actions():
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     first = Action("first")
     second = Action("second")
@@ -137,7 +141,7 @@ def test_latest_ready_mode_drops_older_ready_actions():
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldUntilNextActionPolicy(),
+        HoldPolicy(duration_raw_frames=100),
         ordering_policy=OrderingPolicy.LATEST_READY,
     )
     scheduler.enqueue(first_event)
@@ -150,7 +154,7 @@ def test_latest_ready_mode_drops_older_ready_actions():
 
 
 def test_persistence_policy_controls_active_action():
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     oneshot = Action("flap", is_oneshot=True)
     scheduler = ActionScheduler(clock, noop, OneFrameThenNoopPolicy())
@@ -161,10 +165,10 @@ def test_persistence_policy_controls_active_action():
 
 
 def test_reset_clears_pending_and_active_action():
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     action = Action("jump")
-    scheduler = ActionScheduler(clock, noop, HoldUntilNextActionPolicy())
+    scheduler = ActionScheduler(clock, noop, HoldPolicy(duration_raw_frames=100))
     scheduler.enqueue(_event(0, action, ready_step=0, clock=clock))
     assert scheduler.update(0, clock.step_to_time_ms(0)) is action
 

@@ -197,7 +197,7 @@ apply_raw_frame_k = max(ready_raw_frame_k, apply_raw_frame_{k-1} + 1)
 
 After an action is applied, the executor must define what happens until the next action is applied.
 
-This project supports three hold policies.
+This project supports two hold policies.
 
 ### 7.1 `one_frame_then_noop`
 
@@ -216,40 +216,17 @@ frame 13: NOOP
 
 Semantics: one model output of `FLAP` means one flap, not holding the flap button.
 
-### 7.2 `hold_for_fixed_duration`
+### 7.2 `hold`
 
-The current action is held for a fixed number of raw frames.
-
-A common setting is:
+The current action is held for one observation period:
 
 ```text
-hold_duration_raw_frames = obs_stride_raw_frames
+duration_raw_frames = obs_stride_raw_frames = env_fps / obs_fps
 ```
 
-This means each action is held for one observation period.
-
-If the fixed duration expires before the next action is ready, the system switches to the noop/default action.
+If that observation-period duration expires before the next action is ready, the system switches to the noop/default action.
 
 This policy may create action gaps under latency jitter.
-
-### 7.3 `hold_until_next_action`
-
-The current action remains active until another action is applied.
-
-Default candidate: environments like Demon Attack and Deadly Corridor, where sustained movement, firing, or direction control is meaningful.
-
-Example:
-
-```text
-frame 10: LEFT
-frame 11: LEFT
-frame 12: LEFT
-...
-frame 20: FIRE
-frame 21: FIRE
-```
-
-This policy avoids short no-action gaps under jitter.
 
 ---
 
@@ -777,7 +754,7 @@ latency:
   rounding: ceil
 
 action:
-  hold_policy: one_frame_then_noop  # one_frame_then_noop | hold_for_fixed_duration | hold_until_next_action
+  hold_policy: one_frame_then_noop  # one_frame_then_noop | hold
   default_action: noop
   ordering_policy: issue_order_fifo  # issue_order_fifo | latest_ready
 

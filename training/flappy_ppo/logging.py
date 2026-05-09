@@ -108,7 +108,7 @@ def format_train_start(event: dict[str, Any]) -> str:
     return (
         f"[train] run={event.get('run_id', '')} device={event.get('device', '')} "
         f"envs={event.get('n_envs', '')} steps={event.get('n_steps', '')} "
-        f"updates={event.get('num_updates', '')} obs={event.get('obs_mode', '')} "
+        f"updates={event.get('num_updates', '')} "
         f"save={event.get('save_path', '')}"
     )
 

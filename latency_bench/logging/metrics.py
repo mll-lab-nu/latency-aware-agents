@@ -133,7 +133,8 @@ def episode_raw_fact_metadata(
     *,
     mode: str,
     episode_seed: int | None,
-    fps: float,
+    env_fps: float,
+    obs_fps: float,
     frame_ms: float,
     latency_type: str,
     latency_source: Any,
@@ -141,8 +142,9 @@ def episode_raw_fact_metadata(
     return {
         "mode": mode,
         "episode_seed": episode_seed,
-        "fps": float(fps),
-        "frame_ms": float(frame_ms),
+        "env_fps": env_fps,
+        "obs_fps": obs_fps,
+        "frame_ms": frame_ms,
         "latency_type": latency_type,
         **profile_metadata_from_source(latency_source),
     }

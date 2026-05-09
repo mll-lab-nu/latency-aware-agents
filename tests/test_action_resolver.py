@@ -6,7 +6,7 @@ from latency_bench.core.actions import ActionResolver
 def _flappy_env_config() -> dict:
     return {
         "name": "flappy",
-        "fps_env": 30,
+        "env_fps": 30,
         "noop_action": "noop",
         "action_map": {
             "noop": 0,
@@ -48,7 +48,7 @@ def test_policy_actions_can_be_resolved_in_batches():
 
 
 def test_missing_action_map_does_not_invent_flap():
-    resolver = ActionResolver({"name": "dummy", "fps_env": 30, "noop_action": "noop"})
+    resolver = ActionResolver({"name": "dummy", "env_fps": 30, "noop_action": "noop"})
 
     assert resolver.default_action_refs() == ["noop"]
     assert resolver.resolve("flap").value == "flap"
@@ -58,7 +58,7 @@ def test_list_valued_action_map_does_not_raise_type_error():
     resolver = ActionResolver(
         {
             "name": "deadly_corridor",
-            "fps_env": 35,
+            "env_fps": 35,
             "noop_action": "noop",
             "action_map": {
                 "noop": [0, 0, 0, 0],

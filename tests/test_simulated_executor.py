@@ -14,8 +14,8 @@ from latency_bench.observation.builder import ObservationBuilder
 from latency_bench.observation.history import HistoryBuffer
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
-from latency_bench.scheduler.decision import DecisionScheduler, EveryFrameDecisionScheduler, FixedFrameIntervalDecisionScheduler
-from latency_bench.scheduler.persistence import ActionPersistencePolicy, HoldUntilNextActionPolicy, OneFrameThenNoopPolicy
+from latency_bench.scheduler.decision import DecisionScheduler, ObservationCadenceDecisionScheduler
+from latency_bench.scheduler.persistence import ActionPersistencePolicy, HoldPolicy, OneFrameThenNoopPolicy
 
 
 class CountingPolicyRunner(PolicyRunner):
@@ -65,7 +65,7 @@ class ResetTrackingPolicyRunner(PolicyRunner):
 
 class SoftResetEnvAdapter(EnvAdapter):
     def __init__(self, *, noop_action: Action):
-        self.fps_env = 30.0
+        self.env_fps = 30.0
         self.noop_action = noop_action
         self.env_step = 0
         self.total_steps = 0
@@ -73,7 +73,7 @@ class SoftResetEnvAdapter(EnvAdapter):
 
     @property
     def frame_ms(self) -> float:
-        return 1000.0 / self.fps_env
+        return 1000.0 / self.env_fps
 
     def reset(self, seed: int | None = None) -> Observation:
         self.env_step = 0
@@ -122,24 +122,80 @@ class SoftResetEnvAdapter(EnvAdapter):
         )
 
 
+class ObserveOnlyPolicyInputEnv(EnvAdapter):
+    def __init__(self, *, noop_action: Action, max_steps: int = 1):
+        self.env_fps = 30.0
+        self.noop_action = noop_action
+        self.max_steps = int(max_steps)
+        self.env_step = 0
+        self.observe_calls = 0
+
+    @property
+    def frame_ms(self) -> float:
+        return 1000.0 / self.env_fps
+
+    def reset(self, seed: int | None = None) -> Observation:
+        self.env_step = 0
+        return Observation(
+            data={"source": "reset"},
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"seed": seed},
+        )
+
+    def observe(self) -> Observation:
+        self.observe_calls += 1
+        return Observation(
+            data={"source": "observe", "observe_calls": self.observe_calls},
+            env_step=self.env_step,
+            sim_time_ms=self.env_step * self.frame_ms,
+            metadata={"source": "observe"},
+        )
+
+    def step(self, action: Action) -> StepResult:
+        self.env_step += 1
+        return StepResult(
+            observation=Observation(
+                data={"source": "step"},
+                env_step=self.env_step,
+                sim_time_ms=self.env_step * self.frame_ms,
+                metadata={"source": "step"},
+            ),
+            reward=1.0,
+            done=self.env_step >= self.max_steps,
+            truncated=False,
+            info={"env_step": self.env_step},
+        )
+
+
+class CapturingPolicyRunner(PolicyRunner):
+    def __init__(self, action: Action):
+        self.action = action
+        self.observations: list[Observation] = []
+
+    def predict(self, observation: Observation) -> PolicyOutput:
+        self.observations.append(observation)
+        return PolicyOutput(action=self.action)
+
+
 def _executor(
     latency_source,
     policy: PolicyRunner | None = None,
     max_steps: int = 5,
     logger: TrajectoryLogger | None = None,
     ordering_policy: OrderingPolicy = OrderingPolicy.LATEST_READY,
-    fps_env: float = 30,
+    env_fps: float = 30,
     obs_fps: float | None = None,
     decision_scheduler: DecisionScheduler | None = None,
     persistence_policy: ActionPersistencePolicy | None = None,
 ) -> tuple[SimulatedLatencyExecutor, DummyEnvAdapter, EnvClock, Action]:
     noop = Action("noop", is_noop=True)
-    env = DummyEnvAdapter(fps_env=fps_env, max_steps=max_steps, noop_action=noop)
-    clock = EnvClock(env_fps=fps_env, obs_fps=obs_fps) if obs_fps is not None else EnvClock(fps_env)
+    env = DummyEnvAdapter(env_fps=env_fps, max_steps=max_steps, noop_action=noop)
+    clock = EnvClock(env_fps=env_fps, obs_fps=obs_fps if obs_fps is not None else env_fps)
     action_scheduler = ActionScheduler(
         clock=clock,
         noop_action=noop,
-        persistence_policy=persistence_policy or HoldUntilNextActionPolicy(),
+        persistence_policy=persistence_policy or HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
         ordering_policy=ordering_policy,
     )
     executor = SimulatedLatencyExecutor(
@@ -147,13 +203,69 @@ def _executor(
         policy=policy or ConstantPolicyRunner(Action("jump")),
         observation_builder=ObservationBuilder(),
         history=HistoryBuffer(),
-        decision_scheduler=decision_scheduler or EveryFrameDecisionScheduler(),
+        decision_scheduler=decision_scheduler or ObservationCadenceDecisionScheduler(clock),
         latency_source=latency_source,
         action_scheduler=action_scheduler,
         clock=clock,
         logger=logger,
     )
     return executor, env, clock, noop
+
+
+def test_policy_input_comes_from_env_observe_not_step_history():
+    noop = Action("noop", is_noop=True)
+    env = ObserveOnlyPolicyInputEnv(noop_action=noop)
+    policy = CapturingPolicyRunner(Action("jump"))
+    clock = EnvClock(env_fps=30, obs_fps=30)
+    action_scheduler = ActionScheduler(
+        clock=clock,
+        noop_action=noop,
+        persistence_policy=OneFrameThenNoopPolicy(),
+        ordering_policy=OrderingPolicy.LATEST_READY,
+    )
+    executor = SimulatedLatencyExecutor(
+        env=env,
+        policy=policy,
+        observation_builder=ObservationBuilder(),
+        history=HistoryBuffer(),
+        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
+        latency_source=ZeroLatencySource(),
+        action_scheduler=action_scheduler,
+        clock=clock,
+    )
+
+    executor.run_episode(episode_id=0, eval_max_steps=1)
+
+    assert env.observe_calls == 1
+    assert policy.observations[0].data == {"source": "observe", "observe_calls": 1}
+
+
+def test_observe_cadence_skips_raw_step_observations():
+    noop = Action("noop", is_noop=True)
+    env = ObserveOnlyPolicyInputEnv(noop_action=noop, max_steps=4)
+    policy = CapturingPolicyRunner(Action("jump"))
+    clock = EnvClock(env_fps=30, obs_fps=10)
+    action_scheduler = ActionScheduler(
+        clock=clock,
+        noop_action=noop,
+        persistence_policy=OneFrameThenNoopPolicy(),
+        ordering_policy=OrderingPolicy.LATEST_READY,
+    )
+    executor = SimulatedLatencyExecutor(
+        env=env,
+        policy=policy,
+        observation_builder=ObservationBuilder(),
+        history=HistoryBuffer(),
+        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
+        latency_source=ZeroLatencySource(),
+        action_scheduler=action_scheduler,
+        clock=clock,
+    )
+
+    executor.run_episode(episode_id=0, eval_max_steps=4)
+
+    assert [observation.env_step for observation in policy.observations] == [0, 3]
+    assert [observation.data["observe_calls"] for observation in policy.observations] == [1, 2]
 
 
 def test_zero_latency_action_can_affect_same_frame():
@@ -177,9 +289,8 @@ def test_raw_frame_latency_source_and_observation_stride_share_raw_timeline():
         latency_source,
         policy=CountingPolicyRunner(),
         max_steps=8,
-        fps_env=60,
+        env_fps=60,
         obs_fps=10,
-        decision_scheduler=FixedFrameIntervalDecisionScheduler(interval_frames=6),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
 
@@ -197,7 +308,7 @@ def test_raw_frame_latency_source_and_observation_stride_share_raw_timeline():
 
 
 def test_fixed_ms_latency_is_ceil_converted_to_raw_frames():
-    executor, _, _, _ = _executor(FixedLatencySource(50.0), max_steps=4, fps_env=60)
+    executor, _, _, _ = _executor(FixedLatencySource(50.0), max_steps=4, env_fps=60)
 
     executor.run_episode(episode_id=0, eval_max_steps=4)
 
@@ -216,7 +327,7 @@ def test_one_frame_then_noop_applies_raw_frame_then_returns_to_noop():
         persistence_policy=OneFrameThenNoopPolicy(),
     )
 
-    executor.run_episode(episode_id=0, eval_max_steps=5)
+    executor.run_episode(episode_id=0, eval_max_steps=6)
 
     assert [action.value for action in env.applied_actions] == [
         noop.value,
@@ -227,21 +338,24 @@ def test_one_frame_then_noop_applies_raw_frame_then_returns_to_noop():
     ]
 
 
-def test_hold_until_next_action_persists_after_raw_frame_apply():
+def test_hold_policy_persists_for_observation_step_after_raw_frame_apply():
     executor, env, _, noop = _executor(
         RawFrameLatencySource([3]),
-        max_steps=5,
+        max_steps=6,
+        env_fps=30,
+        obs_fps=10,
         decision_scheduler=SelectedRawFrameDecisionScheduler({0}),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
-        persistence_policy=HoldUntilNextActionPolicy(),
+        persistence_policy=HoldPolicy(duration_raw_frames=3),
     )
 
-    executor.run_episode(episode_id=0, eval_max_steps=5)
+    executor.run_episode(episode_id=0, eval_max_steps=6)
 
     assert [action.value for action in env.applied_actions] == [
         noop.value,
         noop.value,
         noop.value,
+        "jump",
         "jump",
         "jump",
     ]
@@ -254,7 +368,7 @@ def test_fifo_raw_frame_blocking_waits_for_head_of_line_ready():
         max_steps=12,
         decision_scheduler=SelectedRawFrameDecisionScheduler({0, 1}),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
-        persistence_policy=HoldUntilNextActionPolicy(),
+        persistence_policy=HoldPolicy(duration_raw_frames=100),
     )
 
     executor.run_episode(episode_id=0, eval_max_steps=12)
@@ -269,7 +383,7 @@ def test_fifo_raw_frame_blocking_waits_for_head_of_line_ready():
 
 
 def test_fixed_two_frame_latency_applies_at_t_plus_two():
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     executor, env, _, noop = _executor(FixedLatencySource(clock.frame_ms * 2), max_steps=4)
 
     executor.run_episode(episode_id=0, eval_max_steps=4)
@@ -278,12 +392,12 @@ def test_fixed_two_frame_latency_applies_at_t_plus_two():
 
 
 def test_fixed_one_frame_latency_at_35_fps_does_not_drop_boundary_action():
-    clock = EnvClock(35)
+    clock = EnvClock(env_fps=35, obs_fps=35)
     executor, env, _, noop = _executor(
         FixedLatencySource(clock.frame_ms),
         policy=CountingPolicyRunner(),
         max_steps=9,
-        fps_env=35,
+        env_fps=35,
     )
 
     metrics = executor.run_episode(episode_id=0, eval_max_steps=9)
@@ -303,7 +417,7 @@ def test_fixed_one_frame_latency_at_35_fps_does_not_drop_boundary_action():
 
 
 def test_trace_replay_latency_applies_event_at_trace_ready_step(tmp_path: Path):
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     trace_path = tmp_path / "trace.jsonl"
     trace_path.write_text(
         '{"obs_id": 0, "latency_ms": 0.0}\n'
@@ -359,7 +473,7 @@ def test_simulated_executor_logs_records_and_metrics(tmp_path: Path):
 
 
 def test_each_episode_resets_scheduler_to_noop_for_fixed_latency():
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     executor, env, _, noop = _executor(FixedLatencySource(clock.frame_ms * 2), max_steps=3)
 
     executor.run_episode(episode_id=0, eval_max_steps=3)
@@ -369,7 +483,7 @@ def test_each_episode_resets_scheduler_to_noop_for_fixed_latency():
 
 
 def test_soft_reset_continues_same_episode_and_clears_latency_state():
-    clock = EnvClock(30)
+    clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", name="noop", is_noop=True)
     env = SoftResetEnvAdapter(noop_action=noop)
     policy = ResetTrackingPolicyRunner(Action("jump", name="jump"))
@@ -378,12 +492,12 @@ def test_soft_reset_continues_same_episode_and_clears_latency_state():
         policy=policy,
         observation_builder=ObservationBuilder(),
         history=HistoryBuffer(),
-        decision_scheduler=EveryFrameDecisionScheduler(),
+        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_source=FixedLatencySource(clock.frame_ms * 2),
         action_scheduler=ActionScheduler(
             clock=clock,
             noop_action=noop,
-            persistence_policy=HoldUntilNextActionPolicy(),
+            persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
         ),
         clock=clock,
     )

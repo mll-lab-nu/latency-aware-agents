@@ -19,8 +19,8 @@ from latency_bench.observation.builder import ObservationBuilder
 from latency_bench.observation.history import HistoryBuffer
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
-from latency_bench.scheduler.decision import EveryFrameDecisionScheduler
-from latency_bench.scheduler.persistence import HoldUntilNextActionPolicy
+from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
+from latency_bench.scheduler.persistence import HoldPolicy
 
 
 class SlotIdPolicy(PolicyRunner):
@@ -90,7 +90,7 @@ class TupleActionEnvAdapter(EnvAdapter):
         self.action_space = gym.spaces.Tuple((gym.spaces.Discrete(4), gym.spaces.Discrete(4)))
         self.gym_env = self
         self.slot_id = int(slot_id)
-        self.fps_env = 30.0
+        self.env_fps = 30.0
         self.max_steps = int(max_steps)
         self.noop_action = noop_action
         self.env_step = 0
@@ -112,6 +112,9 @@ class TupleActionEnvAdapter(EnvAdapter):
             info={"applied_action": action.value},
         )
 
+    def observe(self) -> Observation:
+        return self._observation()
+
     def _observation(self, seed: int | None = None) -> Observation:
         metadata = {"slot_index": self.slot_id}
         if seed is not None:
@@ -119,14 +122,14 @@ class TupleActionEnvAdapter(EnvAdapter):
         return Observation(
             data={"state": self.env_step},
             env_step=self.env_step,
-            sim_time_ms=self.env_step * (1000.0 / self.fps_env),
+            sim_time_ms=self.env_step * (1000.0 / self.env_fps),
             metadata=metadata,
         )
 
 
 class SoftResetEnvAdapter(EnvAdapter):
     def __init__(self, *, noop_action: Action):
-        self.fps_env = 30.0
+        self.env_fps = 30.0
         self.noop_action = noop_action
         self.env_step = 0
         self.total_steps = 0
@@ -134,7 +137,7 @@ class SoftResetEnvAdapter(EnvAdapter):
 
     @property
     def frame_ms(self) -> float:
-        return 1000.0 / self.fps_env
+        return 1000.0 / self.env_fps
 
     def reset(self, seed: int | None = None) -> Observation:
         self.env_step = 0
@@ -189,19 +192,19 @@ class FailingStepEnvAdapter(DummyEnvAdapter):
 
 
 class MultiDiscreteSubprocEnvAdapter(DummyEnvAdapter):
-    def __init__(self, *, fps_env: float, max_steps: int, noop_action: Action):
+    def __init__(self, *, env_fps: float, max_steps: int, noop_action: Action):
         import gymnasium as gym
 
-        super().__init__(fps_env=fps_env, max_steps=max_steps, noop_action=noop_action)
+        super().__init__(env_fps=env_fps, max_steps=max_steps, noop_action=noop_action)
         self.action_space = gym.spaces.MultiDiscrete([2, 3])
         self.gym_env = self
 
 
 class DiscreteSubprocEnvAdapter(DummyEnvAdapter):
-    def __init__(self, *, fps_env: float, max_steps: int, noop_action: Action):
+    def __init__(self, *, env_fps: float, max_steps: int, noop_action: Action):
         import gymnasium as gym
 
-        super().__init__(fps_env=fps_env, max_steps=max_steps, noop_action=noop_action)
+        super().__init__(env_fps=env_fps, max_steps=max_steps, noop_action=noop_action)
         self.action_space = gym.spaces.Discrete(3)
         self.gym_env = self
 
@@ -209,7 +212,7 @@ class DiscreteSubprocEnvAdapter(DummyEnvAdapter):
 @register_env_adapter("subproc_failure_test")
 def _build_subproc_failure_test_env(config: dict, noop_action: Action) -> EnvAdapter:
     return FailingStepEnvAdapter(
-        fps_env=float(config["env"]["fps_env"]),
+        env_fps=float(config["env"]["env_fps"]),
         max_steps=int(config["evaluation"]["eval_max_steps"]),
         noop_action=noop_action,
     )
@@ -218,7 +221,7 @@ def _build_subproc_failure_test_env(config: dict, noop_action: Action) -> EnvAda
 @register_env_adapter("discrete_subproc_test")
 def _build_discrete_subproc_test_env(config: dict, noop_action: Action) -> EnvAdapter:
     return DiscreteSubprocEnvAdapter(
-        fps_env=float(config["env"]["fps_env"]),
+        env_fps=float(config["env"]["env_fps"]),
         max_steps=int(config["evaluation"]["eval_max_steps"]),
         noop_action=noop_action,
     )
@@ -227,7 +230,7 @@ def _build_discrete_subproc_test_env(config: dict, noop_action: Action) -> EnvAd
 @register_env_adapter("multidiscrete_subproc_test")
 def _build_multidiscrete_subproc_test_env(config: dict, noop_action: Action) -> EnvAdapter:
     return MultiDiscreteSubprocEnvAdapter(
-        fps_env=float(config["env"]["fps_env"]),
+        env_fps=float(config["env"]["env_fps"]),
         max_steps=int(config["evaluation"]["eval_max_steps"]),
         noop_action=noop_action,
     )
@@ -243,7 +246,7 @@ def _executor(
 ) -> tuple[BatchedSimulatedLatencyExecutor, list[DummyEnvAdapter]]:
     noop = Action("noop", name="noop", is_noop=True)
     envs = [
-        DummyEnvAdapter(fps_env=30.0, max_steps=env_max_steps, noop_action=noop)
+        DummyEnvAdapter(env_fps=30.0, max_steps=env_max_steps, noop_action=noop)
         for _ in range(num_slots)
     ]
     for slot, env in enumerate(envs):
@@ -256,12 +259,12 @@ def _executor(
 
         env._make_observation = make_observation
 
-    clock = EnvClock(30.0)
+    clock = EnvClock(env_fps=30.0, obs_fps=30.0)
     action_schedulers = [
         ActionScheduler(
             clock=clock,
             noop_action=env.noop_action,
-            persistence_policy=HoldUntilNextActionPolicy(),
+            persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
         )
         for env in envs
     ]
@@ -270,7 +273,7 @@ def _executor(
         policy=policy or ConstantPolicyRunner(Action("jump", name="jump")),
         observation_builder=ObservationBuilder(),
         histories=[HistoryBuffer() for _ in envs],
-        decision_scheduler=EveryFrameDecisionScheduler(),
+        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_sources=latency_sources or [ZeroLatencySource() for _ in envs],
         action_schedulers=action_schedulers,
         clock=clock,
@@ -299,16 +302,13 @@ def _subproc_config(
         },
         "env": {
             "name": env_name,
-            "fps_env": 30,
+            "env_fps": 30,
+            "obs_fps": 30,
             "noop_action": noop_value,
             "action_map": {
                 "noop": noop_value,
                 "jump": jump_value,
             },
-        },
-        "control": {
-            "frequency_hz": 30,
-            "observe_every_n_frames": 1,
         },
         "latency": {
             "type": "zero",
@@ -360,12 +360,12 @@ def _subproc_executor(
         num_slots=num_slots,
         start_method=start_method,
     )
-    clock = EnvClock(backend.fps_env)
+    clock = EnvClock(env_fps=backend.env_fps, obs_fps=backend.env_fps)
     action_schedulers = [
         ActionScheduler(
             clock=clock,
             noop_action=env.noop_action,
-            persistence_policy=HoldUntilNextActionPolicy(),
+            persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
         )
         for env in backend.slot_handles
     ]
@@ -374,7 +374,7 @@ def _subproc_executor(
         policy=policy or ConstantPolicyRunner(Action(jump_value, name="jump")),
         observation_builder=ObservationBuilder(),
         histories=[HistoryBuffer() for _ in backend.slot_handles],
-        decision_scheduler=EveryFrameDecisionScheduler(),
+        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_sources=[ZeroLatencySource() for _env in backend.slot_handles],
         action_schedulers=action_schedulers,
         clock=clock,
@@ -412,12 +412,12 @@ def _tuple_executor(
         TupleActionEnvAdapter(slot_id=slot, max_steps=env_max_steps, noop_action=noop)
         for slot in range(num_slots)
     ]
-    clock = EnvClock(30.0)
+    clock = EnvClock(env_fps=30.0, obs_fps=30.0)
     action_schedulers = [
         ActionScheduler(
             clock=clock,
             noop_action=env.noop_action,
-            persistence_policy=HoldUntilNextActionPolicy(),
+            persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
         )
         for env in envs
     ]
@@ -426,7 +426,7 @@ def _tuple_executor(
         policy=TupleActionPolicy(),
         observation_builder=ObservationBuilder(),
         histories=[HistoryBuffer() for _ in envs],
-        decision_scheduler=EveryFrameDecisionScheduler(),
+        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_sources=[ZeroLatencySource() for _env in envs],
         action_schedulers=action_schedulers,
         clock=clock,
@@ -508,7 +508,7 @@ def test_batched_executor_global_obs_and_action_ids_are_unique(tmp_path: Path):
 
 
 def test_batched_executor_keeps_slot_action_queues_independent(tmp_path: Path):
-    clock = EnvClock(30.0)
+    clock = EnvClock(env_fps=30.0, obs_fps=30.0)
     executor, envs = _executor(
         tmp_path,
         num_slots=2,
@@ -533,7 +533,7 @@ def test_batched_executor_keeps_slot_action_queues_independent(tmp_path: Path):
 
 
 def test_batched_executor_soft_reset_continues_same_episode_and_clears_slot_latency_state(tmp_path: Path):
-    clock = EnvClock(30.0)
+    clock = EnvClock(env_fps=30.0, obs_fps=30.0)
     noop = Action("noop", name="noop", is_noop=True)
     env = SoftResetEnvAdapter(noop_action=noop)
     policy = ResetTrackingBatchPolicy(Action("jump", name="jump"))
@@ -542,13 +542,13 @@ def test_batched_executor_soft_reset_continues_same_episode_and_clears_slot_late
         policy=policy,
         observation_builder=ObservationBuilder(),
         histories=[HistoryBuffer()],
-        decision_scheduler=EveryFrameDecisionScheduler(),
+        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_sources=[FixedLatencySource(clock.frame_ms * 2)],
         action_schedulers=[
             ActionScheduler(
                 clock=clock,
                 noop_action=noop,
-                persistence_policy=HoldUntilNextActionPolicy(),
+                persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
             )
         ],
         clock=clock,
