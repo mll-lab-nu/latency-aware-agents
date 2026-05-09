@@ -80,10 +80,14 @@ def test_sample_factory_wandb_patch_filters_noisy_tensorboard_tags(monkeypatch, 
     wandb_utils.init_wandb(cfg)
 
     assert [args[0] for args, _ in defined_metrics] == [
+        "global_step",
         "train/env_steps",
         "train/*",
         "perf/*",
+        "eval/global_steps",
+        "eval/*",
     ]
+    assert defined_metrics[-1][1] == {"step_metric": "global_step"}
 
     writer = runner.SummaryWriter(str(tmp_path / "tb"))
     for tag in (

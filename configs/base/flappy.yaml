@@ -7,7 +7,7 @@ backend:
   type: sample_factory
   algo: APPO
   device: gpu
-  train_dir: results/sample_factory
+  train_dir: results/checkpoints
   restart_behavior: resume
   run_mode: train
 
@@ -42,8 +42,12 @@ env:
     - flap
 
 latency:
-  type: zero
-  add_latency_info: false
+  type: normal_distribution
+  mean_latency_ms: 66.7
+  std_latency_ms: 33.3
+  min_latency_ms: 0
+  max_latency_ms: null
+
 
 scheduler:
   # [one_frame_then_noop, hold]
@@ -59,7 +63,7 @@ policy:
     - flap
 
 training:
-  train_for_env_steps: 15000000
+  train_for_env_steps: 25000000
   num_workers: 2
   num_envs_per_worker: 64
   worker_num_splits: 1
@@ -86,28 +90,26 @@ training:
   keep_checkpoints: 5
 
 evaluation:
-  eval_episodes: 20
+  eval_interval_steps: 500000
+  eval_episodes: 15
   eval_parallel_envs: 100
-  eval_latency_values:
-    - 0
-    - 1
-    - 2
-    - 3
-    - 4
-    - 5
-    - 6
-    - 7
-    - 8
-    - 9
-    - 10
-    - 11
-    - 12
-    - 13
-    - 14
-    - 15
   eval_max_steps: 3600
   eval_deterministic: true
   eval_raw_reward: false
+  eval_suites:
+    fixed:
+      - [0, 8]    # [start, end]
+    normal:
+      - [2.0, 0.5, 0, 15]   # low latency, low jitter
+      - [2.0, 1.0, 0, 15]   # low latency, medium jitter
+      - [4.0, 0.5, 0, 15]   # high latency, low jitter
+      - [4.0, 1.0, 0, 15]   # high latency, medium jitter
+      - [4.0, 2.0, 0, 15]   # high latency, high jitter
+    uniform:
+      - [1, 3]  # low latency, low jitter
+      - [0, 4]  # low latency, high jitter
+      - [3, 5]  # high latency, low jitter
+      - [2, 6]  # high latency, high jitter
 
 logging:
   output_dir: outputs/flappy_base

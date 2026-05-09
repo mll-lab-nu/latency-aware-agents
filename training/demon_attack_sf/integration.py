@@ -27,6 +27,7 @@ from training.sample_factory_common.latency_config import (
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
+from training.sample_factory_common.latency_bench_periodic_eval import run_sample_factory_training
 from training.sample_factory_common.queue_eval import (
     evaluate_queue_latency,
     evaluate_queue_latency_distribution,
@@ -318,7 +319,6 @@ def run_from_config(config: dict) -> int:
     seed_everything(int(cfg.seed or 0))
     patch_sample_factory_wandb()
     ensure_sample_factory_raw_reward_console_stats_installed(env_name=SF_ENV_NAME)
-    from sample_factory.train import run_rl
 
     metrics_stop_event = None
     metrics_thread = None
@@ -328,7 +328,7 @@ def run_from_config(config: dict) -> int:
     status = ExperimentStatus.SUCCESS
     try:
         if cfg.mode in {"train", "train_eval"}:
-            status = run_rl(cfg)
+            status = run_sample_factory_training(cfg, config)
         if cfg.mode in {"eval", "train_eval"}:
             wandb_run, owned_wandb_run = init_queue_eval_wandb(cfg)
             try:

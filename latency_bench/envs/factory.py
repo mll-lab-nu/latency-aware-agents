@@ -108,6 +108,7 @@ def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
         gpu_render_device=str(env_cfg.get("gpu_render_device", "auto")),
         gpu_render_profile=bool(env_cfg.get("gpu_render_profile", False)),
         gpu_render_profile_interval=int(env_cfg.get("gpu_render_profile_interval", 1000) or 1000),
+        policy_observation_layout="chw" if policy_type == "flappy_sf" else "hwc",
     )
 
 

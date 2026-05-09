@@ -1,0 +1,88 @@
+__base__: ../base/flappy.yaml
+
+experiment:
+  name: flappy_sf_same_latency_l0_seed0_periodic_eval
+  seed: 0
+
+backend:
+  type: sample_factory
+  algo: APPO
+  device: gpu
+  train_dir: results/checkpoints
+  restart_behavior: resume
+  run_mode: train
+
+env:
+  name: flappy
+  env_fps: 30
+  obs_fps: 30
+  gym_id: FlappyBird-v0
+  use_lidar: false
+  normalize_obs: true
+  audio_on: false
+  frame_stack: 4
+  obs_resize:
+    - 84
+    - 84
+  use_gpu_render: true
+  gpu_render_device: auto
+  gpu_render_profile: false
+  gpu_render_profile_interval: 200
+
+latency:
+  type: zero
+  add_latency_info: false
+
+scheduler:
+  hold_policy: one_frame_then_noop
+  ordering_policy: latest_ready
+
+training:
+  train_for_env_steps: 15000000
+  num_workers: 2
+  num_envs_per_worker: 64
+  worker_num_splits: 1
+  num_policies: 1
+  batch_size: 4096
+  rollout: 256
+  recurrence: 1
+  num_epochs: 8
+  num_batches_per_epoch: 8
+  learning_rate: 0.00025
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  value_loss_coeff: 0.5
+  max_grad_norm: 0.5
+  async_rl: true
+  use_rnn: false
+  normalize_input: true
+  normalize_returns: true
+  stats_avg: 100
+  experiment_summaries_interval: 1
+  save_every_sec: 600
+  keep_checkpoints: 5
+
+evaluation:
+  eval_interval_steps: 1000000
+  eval_episodes: 20
+  eval_parallel_envs: 100
+  eval_max_steps: 3600
+  eval_deterministic: true
+  eval_raw_reward: false
+  eval_suites:
+    fixed:
+      - [0, 15]
+    normal:
+      - [2.0, 1.0, 0, 15]
+      - [4.0, 2.0, 0, 15]
+    uniform:
+      - [0, 5]
+
+logging:
+  output_dir: outputs/train/flappy/latency_0/seed_0_periodic_eval
+  wandb_project: latency-sensitive-bench
+  wandb_group: flappy-new(remove training episode limit)
+  wandb_job_type: sample_factory
+  wandb_name: flappy-bird-l0-s0-periodic-eval

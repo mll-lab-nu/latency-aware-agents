@@ -73,29 +73,26 @@ training:
   keep_checkpoints: 5
 
 evaluation:
+  eval_interval_steps: 1000000
   eval_episodes: 20
   eval_parallel_envs: 64
-  eval_latency_values:
-    - 0
-    - 1
-    - 2
-    - 3
-    - 4
-    - 5
-    - 6
-    - 7
-    - 8
-    - 9
-    - 10
-    - 11
-    - 12
-    - 13
-    - 14
-    - 15
   eval_max_steps: 3600
   eval_deterministic: true
   eval_raw_reward: true
-
+  eval_suites:
+    fixed:
+      - [0, 8]    # [start, end]
+    normal:
+      - [2.0, 0.5, 0, 15]   # low latency, low jitter
+      - [2.0, 1.0, 0, 15]   # low latency, medium jitter
+      - [4.0, 0.5, 0, 15]   # high latency, low jitter
+      - [4.0, 1.0, 0, 15]   # high latency, medium jitter
+      - [4.0, 2.0, 0, 15]   # high latency, high jitter
+    uniform:
+      - [1, 3]  # low latency, low jitter
+      - [0, 4]  # low latency, high jitter
+      - [3, 5]  # high latency, low jitter
+      - [2, 6]  # high latency, high jitter
 logging:
   output_dir: outputs/demon_attack_base
   save_step_records: true

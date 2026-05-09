@@ -33,6 +33,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         gpu_render_device: str = "auto",
         gpu_render_profile: bool = False,
         gpu_render_profile_interval: int = 1000,
+        policy_observation_layout: str = "hwc",
     ):
         self.frame_stack = int(frame_stack)
         if self.frame_stack <= 0:
@@ -46,6 +47,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         self.env_fps = float(env_fps)
         self.noop_action = noop_action or Action(value=0, name="noop", is_noop=True)
         self.obs_resize = tuple(obs_resize) if obs_resize is not None else None
+        self.policy_observation_layout = str(policy_observation_layout).lower()
         self.env_step = 0
         self._last_info: dict[str, Any] = {}
         self._last_numeric_obs: Any = None
@@ -240,6 +242,9 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         if len(frames) < self.frame_stack:
             frames = [frames[0]] * (self.frame_stack - len(frames)) + frames
         frames = [np.asarray(frame, dtype=np.uint8) for frame in frames[-self.frame_stack :]]
+        if self.policy_observation_layout == "chw":
+            chw_frames = [np.transpose(frame, (2, 0, 1)) for frame in frames]
+            return np.concatenate(chw_frames, axis=0)
         if self.frame_stack == 1:
             return frames[-1]
         return np.concatenate(frames, axis=-1)

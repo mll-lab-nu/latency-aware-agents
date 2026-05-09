@@ -139,7 +139,8 @@ def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
     assert "--latency-type" in args
     assert args[args.index("--latency-type") + 1] == "fixed"
     assert "--fixed-latency-ms" in args
-    assert "--eval-latency-raw-frame-values" in args
+    assert "--eval-latency-raw-frame-values" not in args
+    assert "--eval-max-steps" in args
     assert "--experiment" in args
     assert "deadly_corridor_sf_fixed_latency_4" in args
 
@@ -1604,16 +1605,16 @@ def test_same_latency_sweep_generator_emits_sample_factory_queue_eval_configs():
         output_root="/workspace/latency_sweeps",
         eval_episodes=10,
     )
-    expected_eval_latencies = full_cfg["evaluation"]["eval_latency_values"]
+    expected_eval_suites = full_cfg["evaluation"]["eval_suites"]
     assert train_cfg["training"]["train_for_env_steps"] == 1234
     assert train_cfg["latency"]["type"] == "fixed"
     assert train_cfg["latency"]["fixed_latency_ms"] == pytest.approx(4 * 1000.0 / 60.0)
-    assert train_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
+    assert train_cfg["evaluation"]["eval_suites"] == expected_eval_suites
     assert train_cfg["logging"]["wandb_name"] == "demon-attack-l4-s0"
     assert eval_cfg["backend"]["run_mode"] == "eval"
     assert eval_cfg["latency"] == train_cfg["latency"]
     assert eval_cfg["evaluation"]["eval_episodes"] == 10
-    assert eval_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
+    assert eval_cfg["evaluation"]["eval_suites"] == expected_eval_suites
     assert eval_cfg["evaluation"]["eval_max_steps"] == 3600
     assert "max_episode_steps" not in eval_cfg["env"]
     assert eval_cfg["env"]["terminal_on_life_loss"] is True
@@ -1677,7 +1678,7 @@ def test_same_latency_sweep_generator_emits_latency_bench_eval_configs(
     assert loaded["logging"]["output_dir"] == str(
         tmp_path / "outputs" / "latency_bench" / env_name / "train_latency_3" / "seed_0"
     )
-    assert loaded["evaluation"]["eval_latency_values"] == full_cfg["evaluation"]["eval_latency_values"]
+    assert loaded["evaluation"]["eval_suites"] == full_cfg["evaluation"]["eval_suites"]
     assert loaded["evaluation"]["eval_max_steps"] == expected_eval_max_steps
     assert "max_episode_steps" not in loaded["env"]
     if env_name == "demon_attack":
@@ -1715,7 +1716,7 @@ def test_same_latency_sweep_generator_maps_zero_latency_to_zero_source(tmp_path,
 
     assert bench_cfg["latency"]["type"] == "zero"
     assert "fixed_latency_ms" not in bench_cfg["latency"]
-    assert bench_cfg["evaluation"]["eval_latency_values"] == full_cfg["evaluation"]["eval_latency_values"]
+    assert bench_cfg["evaluation"]["eval_suites"] == full_cfg["evaluation"]["eval_suites"]
     assert bench_cfg["logging"]["output_dir"] == str(
         tmp_path / "outputs" / "latency_bench" / "flappy" / "train_latency_0" / "seed_0"
     )
@@ -1753,13 +1754,13 @@ def test_same_latency_sweep_generator_preserves_deadly_corridor_eval_latencies_f
         output_root=str(tmp_path / "outputs"),
         eval_episodes=100,
     )
-    expected_eval_latencies = full_cfg["evaluation"]["eval_latency_values"]
+    expected_eval_suites = full_cfg["evaluation"]["eval_suites"]
 
     assert full_cfg["latency"]["type"] == "zero"
     assert eval_cfg["latency"]["type"] == "zero"
     assert bench_cfg["latency"]["type"] == "zero"
-    assert eval_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
-    assert bench_cfg["evaluation"]["eval_latency_values"] == expected_eval_latencies
+    assert eval_cfg["evaluation"]["eval_suites"] == expected_eval_suites
+    assert bench_cfg["evaluation"]["eval_suites"] == expected_eval_suites
     assert "max_episode_steps" not in eval_cfg["env"]
     assert "max_episode_steps" not in bench_cfg["env"]
     assert eval_cfg["env"]["env_fps"] == 35
@@ -1810,8 +1811,8 @@ def test_same_latency_sweep_generator_writes_three_configs_and_commands(tmp_path
         "demon_attack": 50.0,
         "deadly_corridor": 85.7142857143,
     }
-    expected_eval_latencies = {
-        env_name: load_config(same_latency_sweep.BASE_CONFIGS[env_name])["evaluation"]["eval_latency_values"]
+    expected_eval_suites = {
+        env_name: load_config(same_latency_sweep.BASE_CONFIGS[env_name])["evaluation"]["eval_suites"]
         for env_name in expected_policy_types
     }
     for env_name, policy_type in expected_policy_types.items():
@@ -1827,15 +1828,15 @@ def test_same_latency_sweep_generator_writes_three_configs_and_commands(tmp_path
             train_loaded = yaml.safe_load(train_path.read_text(encoding="utf-8"))
             eval_loaded = yaml.safe_load(eval_path.read_text(encoding="utf-8"))
             loaded = load_config(bench_path)
-            assert train_loaded["evaluation"]["eval_latency_values"] == expected_eval_latencies[env_name]
-            assert eval_loaded["evaluation"]["eval_latency_values"] == expected_eval_latencies[env_name]
+            assert train_loaded["evaluation"]["eval_suites"] == expected_eval_suites[env_name]
+            assert eval_loaded["evaluation"]["eval_suites"] == expected_eval_suites[env_name]
             assert train_loaded["latency"]["type"] == ("zero" if latency == 0 else "fixed")
             assert eval_loaded["latency"] == train_loaded["latency"]
             assert loaded["experiment"]["name"] == f"{env_name}_sf_same_latency_l{latency}_seed0"
             assert loaded["backend"]["train_dir"] == "results/checkpoints/sample_factory_runs"
             assert loaded["policy"]["type"] == policy_type
             assert loaded["policy"]["checkpoint_path"] == ""
-            assert loaded["evaluation"]["eval_latency_values"] == expected_eval_latencies[env_name]
+            assert loaded["evaluation"]["eval_suites"] == expected_eval_suites[env_name]
             assert set(loaded["experiment"]) == {"name", "seed", "num_episodes"}
             assert "max_episode_steps" not in loaded["env"]
             assert "max_episode_steps" not in eval_loaded["env"]

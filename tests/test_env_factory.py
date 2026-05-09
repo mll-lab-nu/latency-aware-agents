@@ -563,6 +563,7 @@ def test_build_env_adapter_passes_explicit_gpu_render_args_when_enabled(monkeypa
     assert captured["gpu_render_profile_interval"] == 17
     assert captured["obs_resize"] == (84, 84)
     assert captured["frame_stack"] == 4
+    assert captured["policy_observation_layout"] == "chw"
 
 
 def test_build_executor_maps_flappy_policy_actions(tmp_path):

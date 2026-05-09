@@ -18,6 +18,12 @@ _LATENCY_METADATA_KEYS = (
     "eval_latency_steps",
     "configured_latency_ms",
     "checkpoint_kind",
+    "suite_name",
+    "eval_phase",
+    "train_env_steps",
+    "checkpoint_path",
+    "checkpoint_global_step",
+    "latency_type",
 )
 
 

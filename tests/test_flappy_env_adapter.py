@@ -231,6 +231,26 @@ def test_flappy_observe_stacks_only_observed_frames():
         env.close()
 
 
+def test_flappy_observe_can_stack_chw_for_sample_factory():
+    env = FlappyBirdEnvAdapter(
+        gym_id="FlappyBird-v0",
+        env_fps=30,
+        noop_action=Action(value=0, name="noop", is_noop=True),
+        obs_resize=(84, 84),
+        frame_stack=4,
+        policy_observation_layout="chw",
+    )
+    try:
+        reset_observation = env.reset(seed=0)
+        policy_observation = env.observe()
+
+        assert reset_observation.data.shape == (84, 84, 3)
+        assert policy_observation.data.shape == (12, 84, 84)
+        assert policy_observation.data.dtype == np.uint8
+    finally:
+        env.close()
+
+
 def test_flappy_gpu_backend_reset_and_step_contract():
     pytest.importorskip("torch")
     env = FlappyBirdEnvAdapter(

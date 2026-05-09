@@ -10,6 +10,7 @@ from typing import Any
 
 from latency_bench.core.config import load_config
 from latency_bench.core.types import EpisodeMetrics
+from latency_bench.eval_suites import has_eval_suites, parse_eval_suites
 from latency_bench.executors.factory import build_executor
 from latency_bench.logging.summary import build_queue_eval_summary, write_queue_eval_summary
 
@@ -173,6 +174,10 @@ def run_eval_sweep_from_config(
     *,
     progress: bool = False,
 ) -> list[EpisodeMetrics]:
+    if has_eval_suites(config):
+        run_eval_suites_from_config(config, progress=progress)
+        return []
+
     eval_latency_values = _eval_latency_values(config)
     if eval_latency_values is None:
         if not progress:
@@ -257,6 +262,133 @@ def run_eval_sweep_from_config(
             )
         all_metrics.extend(latency_metrics)
     return all_metrics
+
+
+def run_eval_suites_from_config(
+    config: dict[str, Any],
+    *,
+    progress: bool = False,
+    extra_metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    suites = parse_eval_suites(config)
+    base_output_dir = Path(config["logging"]["output_dir"])
+    train_latency_steps = _train_latency_steps(config)
+    num_episodes = int(config["experiment"].get("num_episodes", 1))
+    num_sweeps = sum(len(suite.fixed_latency_values or [suite.latency_label]) for suite in suites)
+    if progress:
+        _print_progress_start(config, num_sweeps=num_sweeps)
+
+    summaries: list[dict[str, Any]] = []
+    sweep_index = 0
+    for suite in suites:
+        suite_output_dir = base_output_dir / suite.name
+        if suite.fixed_latency_values is not None:
+            for eval_latency_steps in suite.fixed_latency_values:
+                sweep_index += 1
+                if progress:
+                    print(
+                        f"[bench] sweep {sweep_index}/{num_sweeps}: "
+                        f"suite={suite.name} eval_latency={eval_latency_steps}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                start_time = time.perf_counter()
+                sweep_config = deepcopy(config)
+                configured_latency_ms = _latency_steps_to_ms(sweep_config, eval_latency_steps)
+                _apply_eval_latency(sweep_config, eval_latency_steps, configured_latency_ms)
+                sweep_config["logging"]["output_dir"] = str(suite_output_dir / f"eval_latency_{eval_latency_steps}")
+                summary_metadata = {
+                    "train_latency_steps": train_latency_steps,
+                    "eval_latency_steps": int(eval_latency_steps),
+                    "configured_latency_ms": configured_latency_ms,
+                    **suite.metadata,
+                }
+                if extra_metadata:
+                    summary_metadata.update(extra_metadata)
+                completed = 0
+
+                def on_episode_complete(_episode_metrics: EpisodeMetrics) -> None:
+                    nonlocal completed
+                    completed += 1
+                    print(
+                        f"[bench] sweep {sweep_index}/{num_sweeps} episode {completed}/{num_episodes} done",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+
+                metrics = run_from_config(
+                    sweep_config,
+                    extra_metadata=summary_metadata,
+                    write_summary=False,
+                    on_episode_complete=on_episode_complete if progress else None,
+                )
+                summary = write_queue_eval_summary(
+                    suite_output_dir,
+                    metrics,
+                    experiment_name=str(config["experiment"].get("name", "latency_bench")),
+                    seed=int(config["experiment"].get("seed", 0)),
+                    latency=int(eval_latency_steps),
+                    metadata=summary_metadata,
+                )
+                summaries.append(summary)
+                if progress:
+                    elapsed = time.perf_counter() - start_time
+                    print(
+                        f"[bench] sweep {sweep_index}/{num_sweeps} complete elapsed={elapsed:.1f}s",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+            continue
+
+        sweep_index += 1
+        if progress:
+            print(
+                f"[bench] sweep {sweep_index}/{num_sweeps}: "
+                f"suite={suite.name} eval_latency={suite.latency_label}",
+                file=sys.stderr,
+                flush=True,
+            )
+        start_time = time.perf_counter()
+        suite_config = deepcopy(config)
+        suite_config["latency"] = dict(suite.latency_config or {})
+        suite_config["logging"]["output_dir"] = str(suite_output_dir)
+        summary_metadata = dict(suite.metadata)
+        if extra_metadata:
+            summary_metadata.update(extra_metadata)
+        completed = 0
+
+        def on_episode_complete(_episode_metrics: EpisodeMetrics) -> None:
+            nonlocal completed
+            completed += 1
+            print(
+                f"[bench] sweep {sweep_index}/{num_sweeps} episode {completed}/{num_episodes} done",
+                file=sys.stderr,
+                flush=True,
+            )
+
+        metrics = run_from_config(
+            suite_config,
+            extra_metadata=summary_metadata,
+            write_summary=False,
+            on_episode_complete=on_episode_complete if progress else None,
+        )
+        summary = write_queue_eval_summary(
+            suite_output_dir,
+            metrics,
+            experiment_name=str(config["experiment"].get("name", "latency_bench")),
+            seed=int(config["experiment"].get("seed", 0)),
+            latency=suite.latency_label,
+            metadata=summary_metadata,
+        )
+        summaries.append(summary)
+        if progress:
+            elapsed = time.perf_counter() - start_time
+            print(
+                f"[bench] sweep {sweep_index}/{num_sweeps} complete elapsed={elapsed:.1f}s",
+                file=sys.stderr,
+                flush=True,
+            )
+    return summaries
 
 
 def _print_progress_start(config: dict[str, Any], *, num_sweeps: int) -> None:
@@ -424,6 +556,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         output_dir=args.output_dir,
         checkpoint_kind=args.checkpoint_kind,
     )
+    if has_eval_suites(config):
+        summaries = run_eval_suites_from_config(config, progress=True)
+        for summary in summaries:
+            print(
+                f"summary suite={summary['suite_name']} "
+                f"latency={summary['latency']} "
+                f"episodes={len(summary['returns'])} "
+                f"mean_return={float(summary['mean_return']):.3f} "
+                f"std_return={float(summary['std_return']):.3f} "
+                f"mean_length={float(summary['mean_length']):.1f}"
+            )
+        return
     metrics = run_eval_sweep_from_config(config, progress=True)
     for episode_metrics in metrics:
         eval_latency = episode_metrics.metadata.get("eval_latency_steps")
