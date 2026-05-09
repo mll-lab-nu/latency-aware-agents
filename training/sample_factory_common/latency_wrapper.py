@@ -11,7 +11,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box, Discrete, Tuple as GymTuple
 
-from training.atari_episode_stats import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
+from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import (
     LatencyDistributionSpec,
     derive_latency_seed,
@@ -20,6 +20,10 @@ from latency_bench.core.latency_distribution import (
     make_latency_distribution_sampler,
     parse_latency_distribution,
 )
+from latency_bench.core.types import Action, ActionEvent, ActionHoldPolicy, OrderingPolicy
+from latency_bench.scheduler.action_queue import ActionScheduler
+from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
+from training.atari_episode_stats import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
 from training.sample_factory_common.episode_metrics import append_episode_metrics_event
 
 
@@ -245,6 +249,166 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.env_step_idx += 1
         self.decision_step_idx += 1
         return obs, float(reward), terminated, truncated, info
+
+
+class RawFrameActionLatencyWrapper(QueueLatencyWrapper):
+    """Flappy input-delay wrapper using latency_bench raw-frame scheduler semantics."""
+
+    def __init__(
+        self,
+        env: gym.Env,
+        queue_latency_values: Sequence[int],
+        *,
+        env_fps: float,
+        obs_fps: float,
+        hold_policy: str | ActionHoldPolicy = ActionHoldPolicy.ONE_FRAME_THEN_NOOP,
+        ordering_policy: str | OrderingPolicy = OrderingPolicy.LATEST_READY,
+        latency_mode: str = "episode_fixed",
+        latency_sampling_mode: str = "uniform_all",
+        episodes_per_stage: int = 10,
+        randomize_within_stage: bool = False,
+        within_episode_change_interval: int = 1,
+        within_episode_change_prob: float = 1.0,
+        seed: int = 0,
+        env_reset_seed_base: int | None = None,
+        latency_info_keys: Sequence[str] = ("queue_latency",),
+        add_latency_info: bool = True,
+        latency_distribution_spec: LatencyDistributionSpec | dict[str, Any] | str | None = None,
+        max_pending_actions: int | None = None,
+    ):
+        super().__init__(
+            env,
+            queue_latency_values=queue_latency_values,
+            latency_mode=latency_mode,
+            latency_sampling_mode=latency_sampling_mode,
+            episodes_per_stage=episodes_per_stage,
+            randomize_within_stage=randomize_within_stage,
+            within_episode_change_interval=within_episode_change_interval,
+            within_episode_change_prob=within_episode_change_prob,
+            seed=seed,
+            env_reset_seed_base=env_reset_seed_base,
+            latency_info_keys=latency_info_keys,
+            add_latency_info=add_latency_info,
+            latency_distribution_spec=latency_distribution_spec,
+            max_pending_actions=max_pending_actions,
+        )
+        self.clock = EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
+        self.hold_policy = (
+            hold_policy
+            if isinstance(hold_policy, ActionHoldPolicy)
+            else ActionHoldPolicy(str(hold_policy).strip().lower())
+        )
+        self.ordering_policy = (
+            ordering_policy
+            if isinstance(ordering_policy, OrderingPolicy)
+            else OrderingPolicy(str(ordering_policy).strip().lower())
+        )
+        self.action_scheduler = ActionScheduler(
+            clock=self.clock,
+            noop_action=Action(value=clone_action(self.noop_action), name="noop", is_noop=True),
+            persistence_policy=self._make_persistence_policy(),
+            ordering_policy=self.ordering_policy,
+        )
+        self._next_action_id = 0
+
+    def _make_persistence_policy(self):
+        if self.hold_policy == ActionHoldPolicy.ONE_FRAME_THEN_NOOP:
+            return OneFrameThenNoopPolicy()
+        if self.hold_policy == ActionHoldPolicy.HOLD:
+            return HoldPolicy(duration_raw_frames=self.clock.obs_stride_raw_frames)
+        raise ValueError(f"Unsupported hold policy: {self.hold_policy}")
+
+    def _latency_info(self, latency_value: int) -> dict[str, Any]:
+        info = {
+            "latency_mode": self.latency_mode,
+            "episode_idx": int(self.episode_idx),
+            "decision_step_idx": int(self.decision_step_idx),
+            "env_step_idx": int(self.env_step_idx),
+            "applied_action": clone_action(self.current_applied_action),
+            "pending_queue_len": int(len(self.action_scheduler.get_pending_events())),
+            "env_fps": float(self.clock.env_fps),
+            "obs_fps": float(self.clock.obs_fps),
+            "obs_stride_raw_frames": int(self.clock.obs_stride_raw_frames),
+            "hold_policy": self.hold_policy.value,
+            "ordering_policy": self.ordering_policy.value,
+        }
+        for key in self.latency_info_keys:
+            info[key] = int(latency_value)
+        if self.latency_distribution_spec is not None:
+            info["latency_distribution"] = self.latency_distribution_spec.to_dict()
+            info["latency_distribution_label"] = str(self.latency_distribution_label)
+        return info
+
+    def reset(self, **kwargs):
+        self.action_scheduler.reset()
+        self._next_action_id = 0
+        return super().reset(**kwargs)
+
+    def _enqueue_action_event(self, action, latency_raw_frames: int) -> int:
+        obs_raw_frame = int(self.env_step_idx)
+        ready_raw_frame = obs_raw_frame + int(latency_raw_frames)
+        event = ActionEvent(
+            action_id=int(self._next_action_id),
+            obs_id=int(self.decision_step_idx),
+            action=Action(value=clone_action(action), name=str(action), is_noop=False),
+            obs_env_step=obs_raw_frame,
+            obs_time_ms=self.clock.step_to_time_ms(obs_raw_frame),
+            latency_ms=float(latency_raw_frames) * self.clock.frame_ms,
+            ready_time_ms=self.clock.step_to_time_ms(ready_raw_frame),
+            ready_step_float=float(ready_raw_frame),
+            obs_raw_frame=obs_raw_frame,
+            latency_raw_frames=int(latency_raw_frames),
+            ready_raw_frame=ready_raw_frame,
+        )
+        self._next_action_id += 1
+        self.action_scheduler.enqueue(event)
+        if (
+            self.max_pending_actions is not None
+            and len(self.action_scheduler.get_pending_events()) > self.max_pending_actions
+        ):
+            raise RuntimeError(
+                "pending action queue exceeded latency.max_pending_actions="
+                f"{self.max_pending_actions}"
+            )
+        return ready_raw_frame
+
+    def step(self, action):
+        self._maybe_update_latency_for_this_decision()
+        scheduled_delay = int(self.current_latency)
+        scheduled_ready_raw_frame = self._enqueue_action_event(action, scheduled_delay)
+
+        obs = None
+        info: dict[str, Any] = {}
+        total_reward = 0.0
+        terminated = False
+        truncated = False
+        raw_frames_advanced = 0
+        for _ in range(self.clock.obs_stride_raw_frames):
+            active_action = self.action_scheduler.update(
+                current_step=int(self.env_step_idx),
+                current_time_ms=self.clock.step_to_time_ms(int(self.env_step_idx)),
+            )
+            self.current_applied_action = clone_action(active_action.value)
+            obs, reward, terminated, truncated, info = self.env.step(clone_action(active_action.value))
+            total_reward += float(reward)
+            raw_frames_advanced += 1
+            self.env_step_idx += 1
+            if terminated or truncated:
+                break
+
+        if obs is None:
+            raise RuntimeError("RawFrameActionLatencyWrapper did not advance any raw frames")
+
+        info = dict(info or {})
+        if self.add_latency_info:
+            info.update(self._latency_info(scheduled_delay))
+            info["queued_action"] = clone_action(action)
+            info["scheduled_apply_step"] = int(scheduled_ready_raw_frame)
+            info["scheduled_ready_raw_frame"] = int(scheduled_ready_raw_frame)
+            info["raw_frames_advanced"] = int(raw_frames_advanced)
+            info["obs_stride_raw_frames"] = int(self.clock.obs_stride_raw_frames)
+        self.decision_step_idx += 1
+        return obs, float(total_reward), terminated, truncated, info
 
 
 class RewardTraceWrapper(gym.Wrapper):

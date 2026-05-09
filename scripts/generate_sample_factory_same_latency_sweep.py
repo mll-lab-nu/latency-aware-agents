@@ -40,6 +40,7 @@ TOP_LEVEL_SAMPLE_FACTORY_KEYS = (
     "backend",
     "env",
     "latency",
+    "scheduler",
     "training",
     "evaluation",
     "logging",
@@ -75,6 +76,8 @@ EXPERIMENT_KEYS = (
 ENV_KEYS_BY_NAME = {
     "flappy": (
         "name",
+        "env_fps",
+        "obs_fps",
         "gym_id",
         "use_lidar",
         "normalize_obs",
@@ -120,6 +123,11 @@ ENV_KEYS_BY_NAME = {
         "max_episode_steps",
     ),
 }
+
+SCHEDULER_KEYS = (
+    "hold_policy",
+    "ordering_policy",
+)
 
 WANDB_ENV_SLUGS = {
     "flappy": "flappy-bird",
@@ -443,6 +451,8 @@ def _prune_sample_factory_config(config: dict) -> dict:
     }
     latency_cfg = pruned.setdefault("latency", {})
     pruned["latency"] = {key: deepcopy(latency_cfg[key]) for key in LATENCY_KEYS if key in latency_cfg}
+    scheduler_cfg = pruned.setdefault("scheduler", {})
+    pruned["scheduler"] = {key: deepcopy(scheduler_cfg[key]) for key in SCHEDULER_KEYS if key in scheduler_cfg}
     logging_cfg = pruned.setdefault("logging", {})
     pruned["logging"] = {
         key: deepcopy(logging_cfg[key])

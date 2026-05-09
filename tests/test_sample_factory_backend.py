@@ -86,6 +86,27 @@ class _RenderedRgbEnv(gym.Env):
         return frame
 
 
+class _ActionTraceEnv(gym.Env):
+    observation_space = gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.uint8)
+    action_space = gym.spaces.Discrete(2)
+
+    def __init__(self):
+        super().__init__()
+        self.actions: list[int] = []
+        self.step_count = 0
+
+    def reset(self, *, seed=None, options=None):
+        self.actions.clear()
+        self.step_count = 0
+        return np.array([0], dtype=np.uint8), {}
+
+    def step(self, action):
+        self.actions.append(int(action))
+        self.step_count += 1
+        obs = np.array([self.step_count], dtype=np.uint8)
+        return obs, 1.0, False, False, {"raw_step": self.step_count}
+
+
 def test_sample_factory_training_configs_load():
     cfg = load_training_config("configs/experiments/demon_attack/sf_fixed_latency_4.yaml")
     assert cfg["backend"]["type"] == "sample_factory"
@@ -112,6 +133,23 @@ def test_flappy_sf_cli_maps_explicit_env_max_episode_steps():
     args = build_cli_args_from_config(cfg)
 
     assert args[args.index("--max_episode_steps") + 1] == "1800"
+
+
+def test_flappy_sf_cli_maps_env_rates_and_scheduler_policies():
+    from training.flappy_sf.integration import build_cli_args_from_config
+
+    cfg = load_config("configs/base/flappy.yaml")
+    cfg["env"]["env_fps"] = 60
+    cfg["env"]["obs_fps"] = 10
+    cfg["scheduler"]["hold_policy"] = "hold"
+    cfg["scheduler"]["ordering_policy"] = "issue_order_fifo"
+
+    args = build_cli_args_from_config(cfg)
+
+    assert args[args.index("--env-fps") + 1] == "60"
+    assert args[args.index("--obs-fps") + 1] == "10"
+    assert args[args.index("--hold-policy") + 1] == "hold"
+    assert args[args.index("--ordering-policy") + 1] == "issue_order_fifo"
 
 
 def test_flappy_sf_cli_omits_max_episode_steps_when_env_field_is_absent():
@@ -221,6 +259,15 @@ def test_flappy_sf_rejects_screen_size_config():
         validate_training_config(cfg)
 
 
+def test_flappy_sf_rejects_non_integer_obs_stride():
+    cfg = load_config("configs/base/flappy.yaml")
+    cfg["env"]["env_fps"] = 60
+    cfg["env"]["obs_fps"] = 17
+
+    with pytest.raises(ValueError, match="integer multiple"):
+        validate_training_config(cfg)
+
+
 def test_flappy_sf_native_eval_uses_same_obs_resize(tmp_path, monkeypatch):
     _patch_flappy_base_config(tmp_path, monkeypatch, worker_num_splits=1)
 
@@ -258,6 +305,12 @@ def test_flappy_sf_native_eval_uses_same_obs_resize(tmp_path, monkeypatch):
 
     assert train_cfg["env"]["obs_resize"] == [84, 84]
     assert eval_cfg["env"]["obs_resize"] == [84, 84]
+    assert train_cfg["env"]["env_fps"] == 30
+    assert train_cfg["env"]["obs_fps"] == 30
+    assert eval_cfg["env"]["env_fps"] == 30
+    assert eval_cfg["env"]["obs_fps"] == 30
+    assert train_cfg["scheduler"] == full_cfg["scheduler"]
+    assert eval_cfg["scheduler"] == full_cfg["scheduler"]
     assert "obs_mode" not in train_cfg["env"]
     assert "obs_mode" not in eval_cfg["env"]
 
@@ -519,6 +572,67 @@ def test_queue_latency_wrapper_distribution_rejects_too_small_pending_action_bou
             max_pending_actions=5,
         )
     env.close()
+
+
+def test_raw_frame_latency_wrapper_advances_obs_stride_with_one_frame_noop():
+    from training.sample_factory_common.latency_wrapper import RawFrameActionLatencyWrapper
+
+    base_env = _ActionTraceEnv()
+    wrapped = RawFrameActionLatencyWrapper(
+        base_env,
+        queue_latency_values=[3],
+        env_fps=60,
+        obs_fps=10,
+        hold_policy="one_frame_then_noop",
+        ordering_policy="latest_ready",
+        latency_info_keys=("queue_latency",),
+        add_latency_info=True,
+    )
+
+    try:
+        wrapped.reset()
+        obs, reward, terminated, truncated, info = wrapped.step(1)
+    finally:
+        wrapped.close()
+
+    assert obs.tolist() == [6]
+    assert reward == pytest.approx(6.0)
+    assert not terminated
+    assert not truncated
+    assert base_env.actions == [0, 0, 0, 1, 0, 0]
+    assert info["queue_latency"] == 3
+    assert info["obs_stride_raw_frames"] == 6
+    assert info["raw_frames_advanced"] == 6
+    applied_events = wrapped.action_scheduler.get_applied_events()
+    assert len(applied_events) == 1
+    assert applied_events[0].obs_raw_frame == 0
+    assert applied_events[0].ready_raw_frame == 3
+    assert applied_events[0].apply_raw_frame == 3
+
+
+def test_raw_frame_latency_wrapper_hold_policy_holds_for_observation_stride():
+    from training.sample_factory_common.latency_wrapper import RawFrameActionLatencyWrapper
+
+    base_env = _ActionTraceEnv()
+    wrapped = RawFrameActionLatencyWrapper(
+        base_env,
+        queue_latency_values=[0],
+        env_fps=30,
+        obs_fps=10,
+        hold_policy="hold",
+        ordering_policy="issue_order_fifo",
+        add_latency_info=True,
+    )
+
+    try:
+        wrapped.reset()
+        _, reward, _, _, info = wrapped.step(1)
+    finally:
+        wrapped.close()
+
+    assert reward == pytest.approx(3.0)
+    assert base_env.actions == [1, 1, 1]
+    assert info["obs_stride_raw_frames"] == 3
 
 
 def test_queue_latency_wrapper_auto_seeds_underlying_env_resets():
@@ -1243,6 +1357,8 @@ def test_flappy_cpu_render_reference_env_is_sample_factory_compatible(monkeypatc
         env_frameskip=1,
         seed=0,
         gym_id="FlappyBird-v0",
+        env_fps=30,
+        obs_fps=30,
         use_lidar=False,
         normalize_obs=True,
         audio_on=False,
@@ -1266,6 +1382,8 @@ def test_flappy_cpu_render_reference_env_is_sample_factory_compatible(monkeypatc
         within_episode_change_interval=1,
         within_episode_change_prob=1.0,
         add_latency_info=False,
+        hold_policy="one_frame_then_noop",
+        ordering_policy="latest_ready",
         max_pending_actions=None,
         episode_metrics_path="",
         use_gpu_render=False,

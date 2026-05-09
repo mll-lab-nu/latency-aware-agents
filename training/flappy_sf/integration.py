@@ -12,7 +12,9 @@ import numpy as np
 from gymnasium.spaces import Box, Dict as GymDict
 from PIL import Image
 
+from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import distribution_max_frame_latency, parse_latency_distribution
+from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from modeling.flappy_ppo.preprocessing import resize_frame_pil
 from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
 from training.sample_factory_common.config_adapter import (
@@ -22,7 +24,11 @@ from training.sample_factory_common.config_adapter import (
     sample_factory_training_summary,
 )
 from training.sample_factory_common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
-from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, QueueLatencyWrapper, RewardTraceWrapper
+from training.sample_factory_common.latency_wrapper import (
+    EpisodeMetricsWrapper,
+    RawFrameActionLatencyWrapper,
+    RewardTraceWrapper,
+)
 from training.sample_factory_common.queue_eval import (
     evaluate_queue_latency,
     evaluate_queue_latency_distribution,
@@ -41,6 +47,26 @@ from training.sample_factory_common.wandb_compat import patch_sample_factory_wan
 SF_ENV_NAME = "latency_flappy"
 _ENVS_REGISTERED = False
 _TIMELIMIT_DIAGNOSTICS_PRINTED: set[tuple[int, int, int]] = set()
+
+
+def _import_flappy_gymnasium():
+    return flappy_bird_gymnasium
+
+
+def _make_flappy_gym_env(gym_id: str, **kwargs):
+    module = _import_flappy_gymnasium()
+    make = getattr(module, "make", None)
+    if callable(make):
+        return make(gym_id, **kwargs)
+    return gym.make(gym_id, **kwargs)
+
+
+def _flappy_clock_from_cfg(cfg: Any) -> EnvClock:
+    env_fps = getattr(cfg, "env_fps", None)
+    obs_fps = getattr(cfg, "obs_fps", None)
+    if env_fps is None or obs_fps is None:
+        raise ValueError("Flappy Sample Factory requires env_fps and obs_fps")
+    return EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
 
 
 
@@ -289,6 +315,7 @@ def make_flappy_sf_env(
     use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))
     obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+    clock = _flappy_clock_from_cfg(cfg)
 
     if use_gpu_render:
         from training.flappy_sf.batched_gpu_env import FlappyBatchedGpuRenderedEnv
@@ -335,7 +362,7 @@ def make_flappy_sf_env(
     score_limit = getattr(cfg, "score_limit", None)
     if score_limit not in (None, "", 0, -1):
         kwargs["score_limit"] = int(score_limit)
-    env = gym.make(getattr(cfg, "gym_id", "FlappyBird-v0"), **kwargs)
+    env = _make_flappy_gym_env(getattr(cfg, "gym_id", "FlappyBird-v0"), **kwargs)
     if not use_gpu_render:
         env = FlappyImageObsWrapper(env, obs_resize=obs_resize)
         if frame_stack > 1:
@@ -351,9 +378,13 @@ def make_flappy_sf_env(
         vector_index=int(getattr(env_config, "vector_index", 0) or 0),
         env_id=int(getattr(env_config, "env_id", 0) or 0),
     )
-    env = QueueLatencyWrapper(
+    env = RawFrameActionLatencyWrapper(
         env,
         queue_latency_values=latency_values or [0],
+        env_fps=clock.env_fps,
+        obs_fps=clock.obs_fps,
+        hold_policy=getattr(cfg, "hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value),
+        ordering_policy=getattr(cfg, "ordering_policy", OrderingPolicy.LATEST_READY.value),
         latency_distribution_spec=getattr(cfg, "latency_distribution_spec", None) or None,
         latency_mode=getattr(cfg, "latency_mode", "episode_fixed"),
         latency_sampling_mode=getattr(cfg, "latency_sampling_mode", "uniform_all"),
@@ -369,7 +400,7 @@ def make_flappy_sf_env(
     )
     env = EpisodeMetricsWrapper(
         env,
-        frames_per_decision=1,
+        frames_per_decision=clock.obs_stride_raw_frames,
         metrics_path=str(getattr(cfg, "episode_metrics_path", "") or ""),
         worker_index=int(getattr(env_config, "worker_index", 0) or 0),
         vector_index=int(getattr(env_config, "vector_index", 0) or 0),
@@ -412,6 +443,8 @@ def register_flappy_envs() -> None:
 
 def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--gym_id", type=str, default="FlappyBird-v0")
+    parser.add_argument("--env-fps", dest="env_fps", type=float, default=30)
+    parser.add_argument("--obs-fps", dest="obs_fps", type=float, default=30)
     parser.add_argument("--use_lidar", type=str2bool, default=False)
     parser.add_argument("--normalize_obs", type=str2bool, default=True)
     parser.add_argument("--audio_on", type=str2bool, default=False)
@@ -442,6 +475,20 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--within-episode-change-prob", type=float, default=1.0)
     parser.add_argument("--add-latency-info", type=str2bool, default=False)
     parser.add_argument("--max-pending-actions", dest="max_pending_actions", type=int)
+    parser.add_argument(
+        "--hold-policy",
+        dest="hold_policy",
+        type=str,
+        default=ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value,
+        choices=[item.value for item in ActionHoldPolicy],
+    )
+    parser.add_argument(
+        "--ordering-policy",
+        dest="ordering_policy",
+        type=str,
+        default=OrderingPolicy.LATEST_READY.value,
+        choices=[item.value for item in OrderingPolicy],
+    )
     parser.add_argument("--eval-episodes", type=int, default=20)
     parser.add_argument("--eval-parallel-envs", type=int, default=1)
     parser.add_argument("--eval-queue-latency-values", type=str, default="0,1,2,3,4,5")
@@ -476,8 +523,13 @@ def parse_cfg(argv=None, evaluation: bool = False):
 
 def build_cli_args_from_config(config: dict) -> list[str]:
     env_cfg = config["env"]
+    scheduler_cfg = config.get("scheduler")
+    if not isinstance(scheduler_cfg, dict):
+        raise ValueError("scheduler must be a mapping for Flappy Sample Factory")
     args = build_common_sf_args(config, sf_env_name=SF_ENV_NAME)
     append_cli_arg(args, "--gym_id", env_cfg.get("gym_id", "FlappyBird-v0"))
+    append_cli_arg(args, "--env-fps", env_cfg["env_fps"])
+    append_cli_arg(args, "--obs-fps", env_cfg["obs_fps"])
     append_cli_arg(args, "--use_lidar", env_cfg.get("use_lidar", False))
     append_cli_arg(args, "--normalize_obs", env_cfg.get("normalize_obs", True))
     append_cli_arg(args, "--audio_on", env_cfg.get("audio_on", False))
@@ -501,6 +553,8 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--debug", env_cfg.get("debug", False))
     append_cli_arg(args, "--debug-timelimit-diagnostics", env_cfg.get("debug_timelimit_diagnostics", False))
     append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
+    append_cli_arg(args, "--hold-policy", scheduler_cfg["hold_policy"])
+    append_cli_arg(args, "--ordering-policy", scheduler_cfg["ordering_policy"])
     return args
 
 

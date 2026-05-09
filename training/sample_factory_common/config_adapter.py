@@ -6,7 +6,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import parse_latency_distribution
+from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 
 ENV_INTEGRATIONS = {
     "deadly_corridor": "training.deadly_corridor_sf.integration",
@@ -200,6 +202,32 @@ def _validate_flappy_sf_config(config: dict[str, Any]) -> None:
         )
 
     env_cfg = config["env"]
+    env_fps = _require_positive_float(env_cfg, "env_fps", "env.env_fps")
+    obs_fps = _require_positive_float(env_cfg, "obs_fps", "env.obs_fps")
+    try:
+        EnvClock(env_fps=env_fps, obs_fps=obs_fps)
+    except ValueError as exc:
+        raise ValueError(f"env.env_fps/env.obs_fps invalid: {exc}") from exc
+
+    scheduler_cfg = config.get("scheduler")
+    if not isinstance(scheduler_cfg, dict):
+        raise ValueError("scheduler must be a mapping for Flappy Sample Factory")
+    unsupported_scheduler_keys = set(scheduler_cfg) - {"hold_policy", "ordering_policy"}
+    if unsupported_scheduler_keys:
+        raise ValueError(
+            "scheduler contains unsupported fields; use only ['hold_policy', 'ordering_policy']"
+        )
+    _validate_enum_value(
+        scheduler_cfg.get("hold_policy"),
+        ActionHoldPolicy,
+        "scheduler.hold_policy",
+    )
+    _validate_enum_value(
+        scheduler_cfg.get("ordering_policy"),
+        OrderingPolicy,
+        "scheduler.ordering_policy",
+    )
+
     obs_resize = env_cfg.get("obs_resize")
     if obs_resize is not None:
         _parse_obs_resize_config(obs_resize)
@@ -299,6 +327,29 @@ def _parse_actor_worker_gpus_config(value: Any) -> list[int] | None:
     else:
         raise ValueError("backend.actor_worker_gpus must be a list of GPU indices")
     return [int(item) for item in parts]
+
+
+def _require_positive_float(mapping: dict[str, Any], key: str, field_name: str) -> float:
+    if key not in mapping:
+        raise ValueError(f"{field_name} is required for Flappy Sample Factory")
+    try:
+        value = float(mapping[key])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a positive number") from exc
+    if value <= 0:
+        raise ValueError(f"{field_name} must be positive")
+    return value
+
+
+def _validate_enum_value(value: Any, enum_type, field_name: str) -> None:
+    if value is None:
+        raise ValueError(f"{field_name} is required for Flappy Sample Factory")
+    normalized = value if isinstance(value, enum_type) else str(value).strip().lower()
+    try:
+        enum_type(normalized)
+    except ValueError as exc:
+        allowed = ", ".join(repr(item.value) for item in enum_type)
+        raise ValueError(f"{field_name} must be one of [{allowed}]") from exc
 
 
 def estimate_optimizer_steps_per_1m_env_steps(training_cfg: dict[str, Any]) -> float:

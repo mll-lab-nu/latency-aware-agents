@@ -35,12 +35,16 @@ def _flappy_gpu_cfg(**overrides):
         "within_episode_change_prob": 1.0,
         "add_latency_info": False,
         "seed": 0,
+        "env_fps": 30,
+        "obs_fps": 30,
         "episode_metrics_path": "",
         "use_gpu_render": True,
         "gpu_render_device": "cpu",
         "gpu_render_batch_size": 1,
         "gpu_render_profile": False,
         "gpu_render_profile_interval": 1000,
+        "hold_policy": "one_frame_then_noop",
+        "ordering_policy": "latest_ready",
     }
     values.update(overrides)
     return SimpleNamespace(**values)

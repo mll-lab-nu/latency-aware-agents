@@ -7,11 +7,18 @@ import numpy as np
 import torch
 from gymnasium.spaces import Box, Dict as GymDict
 
+from latency_bench.core.clock import EnvClock
+from latency_bench.core.latency_distribution import distribution_max_frame_latency, parse_latency_distribution
+from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from modeling.flappy_ppo.observation import FlappyPpoObservationConfig
 from modeling.flappy_ppo.preprocessing import FlappyPpoTorchObservationPipeline
 from training.flappy_ppo.paths import ensure_flappy_gymnasium_on_path
 from training.sample_factory_common.common import parse_int_list
-from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, QueueLatencyWrapper, RewardTraceWrapper
+from training.sample_factory_common.latency_wrapper import (
+    EpisodeMetricsWrapper,
+    RawFrameActionLatencyWrapper,
+    RewardTraceWrapper,
+)
 
 from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_render_device
 
@@ -51,6 +58,11 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         self.num_agents = int(gpu_render_batch_size)
         if self.num_agents <= 0:
             raise ValueError("gpu_render_batch_size must be a positive integer")
+        env_fps = getattr(cfg, "env_fps", None)
+        obs_fps = getattr(cfg, "obs_fps", None)
+        if env_fps is None or obs_fps is None:
+            raise ValueError("Flappy Sample Factory GPU rendering requires env_fps and obs_fps")
+        self.clock = EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
 
         self.render_device = resolve_gpu_render_device(gpu_render_device)
         self.observation_config = FlappyPpoObservationConfig(
@@ -144,11 +156,15 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
         env = RewardTraceWrapper(env)
 
-        latency_values = parse_int_list(getattr(self.cfg, "queue_latency_values", "0"))
+        latency_values = self._frame_skip_values()
         sub_seed = self._sub_seed(agent_idx)
-        env = QueueLatencyWrapper(
+        env = RawFrameActionLatencyWrapper(
             env,
             queue_latency_values=latency_values or [0],
+            env_fps=self.clock.env_fps,
+            obs_fps=self.clock.obs_fps,
+            hold_policy=getattr(self.cfg, "hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value),
+            ordering_policy=getattr(self.cfg, "ordering_policy", OrderingPolicy.LATEST_READY.value),
             latency_distribution_spec=getattr(self.cfg, "latency_distribution_spec", None) or None,
             latency_mode=getattr(self.cfg, "latency_mode", "episode_fixed"),
             latency_sampling_mode=getattr(self.cfg, "latency_sampling_mode", "uniform_all"),
@@ -164,7 +180,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         )
         env = EpisodeMetricsWrapper(
             env,
-            frames_per_decision=1,
+            frames_per_decision=self.clock.obs_stride_raw_frames,
             metrics_path=str(getattr(self.cfg, "episode_metrics_path", "") or ""),
             worker_index=self._worker_index,
             vector_index=self._vector_index,
@@ -172,6 +188,13 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             issued_action_labels={0: "noop", 1: "flap"},
         )
         return env
+
+    def _frame_skip_values(self) -> list[int]:
+        values = parse_int_list(getattr(self.cfg, "queue_latency_values", "0"))
+        raw_spec = getattr(self.cfg, "latency_distribution_spec", None)
+        if raw_spec is not None and str(raw_spec).strip():
+            values.append(distribution_max_frame_latency(parse_latency_distribution(raw_spec)))
+        return sorted({max(0, int(value)) for value in values}) or [0]
 
     def reset(self, **kwargs):
         seed = kwargs.pop("seed", None)
