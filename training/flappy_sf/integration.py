@@ -16,7 +16,12 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import distribution_max_frame_latency, parse_latency_distribution
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from modeling.flappy_ppo.preprocessing import resize_frame_pil
-from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
+from training.sample_factory_common.common import (
+    env_instance_seed,
+    parse_int_list,
+    str2bool,
+    seed_everything,
+)
 from training.sample_factory_common.config_adapter import (
     append_cli_arg,
     apply_runtime_logging_config,
@@ -43,22 +48,14 @@ from training.sample_factory_common.sf_episode_extra_stats_compat import (
 )
 from training.sample_factory_common.wandb_compat import patch_sample_factory_wandb
 
+from sample_factory.algo.utils.misc import ExperimentStatus
+from sample_factory.train import run_rl
+
 
 SF_ENV_NAME = "latency_flappy"
 _ENVS_REGISTERED = False
 _TIMELIMIT_DIAGNOSTICS_PRINTED: set[tuple[int, int, int]] = set()
 
-
-def _import_flappy_gymnasium():
-    return flappy_bird_gymnasium
-
-
-def _make_flappy_gym_env(gym_id: str, **kwargs):
-    module = _import_flappy_gymnasium()
-    make = getattr(module, "make", None)
-    if callable(make):
-        return make(gym_id, **kwargs)
-    return gym.make(gym_id, **kwargs)
 
 
 def _flappy_clock_from_cfg(cfg: Any) -> EnvClock:
@@ -362,7 +359,7 @@ def make_flappy_sf_env(
     score_limit = getattr(cfg, "score_limit", None)
     if score_limit not in (None, "", 0, -1):
         kwargs["score_limit"] = int(score_limit)
-    env = _make_flappy_gym_env(getattr(cfg, "gym_id", "FlappyBird-v0"), **kwargs)
+    env = gym.make(getattr(cfg, "gym_id", "FlappyBird-v0"), **kwargs)
     if not use_gpu_render:
         env = FlappyImageObsWrapper(env, obs_resize=obs_resize)
         if frame_stack > 1:
@@ -559,10 +556,6 @@ def build_cli_args_from_config(config: dict) -> list[str]:
 
 
 def run_from_config(config: dict) -> int:
-    from sample_factory.algo.utils.misc import ExperimentStatus
-
-    from training.sample_factory_common.common import seed_everything
-
     register_flappy_envs()
     requested_mode = str(config.get("backend", {}).get("run_mode", "train"))
     cfg = parse_cfg(build_cli_args_from_config(config), evaluation=requested_mode in {"eval", "train_eval"})
@@ -572,7 +565,6 @@ def run_from_config(config: dict) -> int:
     patch_sample_factory_wandb()
     ensure_sample_factory_episode_extra_stats_installed(env_name=SF_ENV_NAME)
     log_flappy_sf_training_summary(config)
-    from sample_factory.train import run_rl
 
     metrics_stop_event = None
     metrics_thread = None
