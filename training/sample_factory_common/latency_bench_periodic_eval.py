@@ -12,7 +12,13 @@ from typing import Any
 from latency_bench.core.config import load_config, merge_dicts
 from latency_bench.run import run_eval_suites_from_config
 from training.common.checkpoints import checkpoint_dir
-from training.sample_factory_common.checkpoint_io import patch_sample_factory_checkpoint_loader
+from training.sample_factory_common.checkpoint_io import (
+    CheckpointEvalLease,
+    acquire_checkpoint_eval_lease,
+    patch_sample_factory_checkpoint_loader,
+    release_checkpoint_eval_lease,
+    update_checkpoint_eval_lease,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -84,7 +90,8 @@ def run_sample_factory_training(cfg, training_config: dict[str, Any]):
     status = runner.init()
     if status == ExperimentStatus.SUCCESS:
         status = runner.run()
-        observer.run_final_eval(runner)
+        if status == ExperimentStatus.SUCCESS:
+            observer.run_final_eval(runner)
     return status
 
 
@@ -96,6 +103,7 @@ class LatencyBenchEvalRequest:
     config: dict[str, Any]
     metadata: dict[str, Any]
     result_path: Path
+    lease: CheckpointEvalLease
     env_steps: int
     phase: str
 
@@ -104,6 +112,7 @@ class LatencyBenchEvalRequest:
 class LatencyBenchEvalJob:
     process: Any
     result_path: Path
+    lease: CheckpointEvalLease
     env_steps: int
     phase: str
 
@@ -195,11 +204,13 @@ class LatencyBenchPeriodicEvalObserver:
             "checkpoint_path": str(checkpoint_path),
         }
         result_path = output_dir / "eval_result.json"
+        lease = acquire_checkpoint_eval_lease(checkpoint_path, metadata=metadata)
         self.pending_jobs.append(
             LatencyBenchEvalRequest(
                 config=config,
                 metadata=metadata,
                 result_path=result_path,
+                lease=lease,
                 env_steps=int(env_steps),
                 phase=phase,
             )
@@ -211,9 +222,11 @@ class LatencyBenchPeriodicEvalObserver:
             return self.active_job
         request = self.pending_jobs.popleft()
         process = _launch_latency_bench_eval_process(request.config, request.metadata, request.result_path)
+        update_checkpoint_eval_lease(request.lease, {"eval_pid": getattr(process, "pid", None)})
         self.active_job = LatencyBenchEvalJob(
             process=process,
             result_path=request.result_path,
+            lease=request.lease,
             env_steps=request.env_steps,
             phase=request.phase,
         )
@@ -233,7 +246,15 @@ class LatencyBenchPeriodicEvalObserver:
             self._complete_eval_job(runner, job)
 
     def _complete_eval_job(self, runner, job: LatencyBenchEvalJob) -> None:
-        summaries = job.read_summaries()
+        if job.process.exitcode != 0:
+            self._fail_eval_job(runner, job, f"process exitcode={job.process.exitcode}")
+            return
+        try:
+            summaries = job.read_summaries()
+        except FileNotFoundError as exc:
+            self._fail_eval_job(runner, job, str(exc))
+            return
+        release_checkpoint_eval_lease(job.lease)
         _log_eval_summaries(
             runner,
             summaries,
@@ -242,6 +263,26 @@ class LatencyBenchPeriodicEvalObserver:
         self.last_eval_step = job.env_steps
         self.active_job = None
         self._start_next_eval_job()
+
+    def _fail_eval_job(self, runner, job: LatencyBenchEvalJob, reason: str) -> None:
+        from sample_factory.utils.utils import log
+
+        log.error(
+            "LatencyBench eval failed at phase=%s env_steps=%s result_path=%s: %s",
+            job.phase,
+            job.env_steps,
+            job.result_path,
+            reason,
+        )
+        release_checkpoint_eval_lease(job.lease)
+        self.active_job = None
+        self._release_pending_eval_leases()
+        runner._stop_training(failed=True)
+
+    def _release_pending_eval_leases(self) -> None:
+        while self.pending_jobs:
+            request = self.pending_jobs.popleft()
+            release_checkpoint_eval_lease(request.lease)
 
     def _latest_checkpoint_for_eval(self) -> Path:
         root = checkpoint_dir(

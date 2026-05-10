@@ -227,6 +227,177 @@ def test_periodic_observer_polls_finished_job_and_runs_overlapping_eval_fifo(mon
     assert observer.last_eval_step == 1_000
 
 
+def test_checkpoint_retention_skips_leased_checkpoint(tmp_path: Path):
+    from training.sample_factory_common.checkpoint_io import (
+        acquire_checkpoint_eval_lease,
+        release_checkpoint_eval_lease,
+        prune_unleased_sample_factory_checkpoints,
+    )
+
+    checkpoint_dir = tmp_path / "checkpoint_p0"
+    checkpoint_dir.mkdir()
+    first = checkpoint_dir / "checkpoint_000000001_1000.pth"
+    second = checkpoint_dir / "checkpoint_000000002_2000.pth"
+    third = checkpoint_dir / "checkpoint_000000003_3000.pth"
+    for path in (first, second, third):
+        path.write_text(path.name, encoding="utf-8")
+
+    lease = acquire_checkpoint_eval_lease(
+        first,
+        metadata={"eval_phase": "train_periodic", "train_env_steps": 1000},
+    )
+    prune_unleased_sample_factory_checkpoints(
+        checkpoint_dir,
+        "checkpoint",
+        keep_checkpoints=2,
+        verbose=False,
+    )
+
+    assert first.exists()
+    assert not second.exists()
+    assert third.exists()
+
+    release_checkpoint_eval_lease(lease)
+    prune_unleased_sample_factory_checkpoints(
+        checkpoint_dir,
+        "checkpoint",
+        keep_checkpoints=1,
+        verbose=False,
+    )
+
+    assert not first.exists()
+    assert third.exists()
+
+
+def test_periodic_observer_releases_checkpoint_lease_after_eval_success(monkeypatch, tmp_path: Path):
+    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+
+    checkpoint_dir = tmp_path / "checkpoints" / "flappy_sf_l0_seed0" / "checkpoint_p0"
+    checkpoint_dir.mkdir(parents=True)
+    checkpoint_path = checkpoint_dir / "checkpoint_000000002_000000001000.pth"
+    launches = []
+
+    class SavePeriodic:
+        def emit(self):
+            checkpoint_path.write_text("checkpoint\n", encoding="utf-8")
+
+    class Writer:
+        def add_scalar(self, tag, scalar, step):
+            raise AssertionError("latency_bench eval should write W&B scalars directly")
+
+        def flush(self):
+            pass
+
+    class Process:
+        def __init__(self, result_path):
+            self.exitcode = None
+            self.result_path = result_path
+
+        def finish(self):
+            self.result_path.parent.mkdir(parents=True, exist_ok=True)
+            self.result_path.write_text(
+                json.dumps(
+                    {
+                        "summaries": [
+                            {
+                                "suite_name": "fixed_0_to_1",
+                                "latency_type": "fixed_sweep",
+                                "latency": 0,
+                                "mean_return": 12.0,
+                                "std_return": 1.0,
+                                "mean_length": 30.0,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.exitcode = 0
+
+        def join(self):
+            self.finish()
+
+    def fake_launch(config, metadata, result_path):
+        process = Process(result_path)
+        launches.append((config, metadata, result_path, process))
+        return process
+
+    monkeypatch.setattr(periodic_eval, "_launch_latency_bench_eval_process", fake_launch)
+    runner = SimpleNamespace(
+        env_steps={0: 1_000},
+        save_periodic=SavePeriodic(),
+        writers={0: Writer()},
+    )
+
+    observer = periodic_eval.LatencyBenchPeriodicEvalObserver(_training_config(tmp_path))
+    observer.on_training_step(runner, training_iteration_since_resume=1)
+
+    lease_dir = checkpoint_dir / ".latency_bench_eval_leases"
+    assert len(list(lease_dir.glob("checkpoint_000000002_000000001000.pth.*.json"))) == 1
+
+    launches[0][3].finish()
+    observer.extra_summaries(runner, policy_id=0, env_steps=1_000, writer=runner.writers[0])
+
+    assert list(lease_dir.glob("checkpoint_000000002_000000001000.pth.*.json")) == []
+
+
+def test_periodic_observer_stops_runner_when_eval_job_fails(monkeypatch, tmp_path: Path):
+    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+
+    checkpoint_dir = tmp_path / "checkpoints" / "flappy_sf_l0_seed0" / "checkpoint_p0"
+    checkpoint_dir.mkdir(parents=True)
+    checkpoint_path = checkpoint_dir / "checkpoint_000000002_000000001000.pth"
+    launches = []
+
+    class SavePeriodic:
+        def emit(self):
+            checkpoint_path.write_text("checkpoint\n", encoding="utf-8")
+
+    class Writer:
+        def add_scalar(self, tag, scalar, step):
+            pass
+
+        def flush(self):
+            pass
+
+    class Process:
+        exitcode = None
+
+        def join(self):
+            self.exitcode = 1
+
+    def fake_launch(config, metadata, result_path):
+        process = Process()
+        launches.append((config, metadata, result_path, process))
+        return process
+
+    class Runner:
+        def __init__(self):
+            self.env_steps = {0: 1_000}
+            self.save_periodic = SavePeriodic()
+            self.writers = {0: Writer()}
+            self.stop_calls = []
+
+        def _stop_training(self, failed=False):
+            self.stop_calls.append(failed)
+
+    monkeypatch.setattr(periodic_eval, "_launch_latency_bench_eval_process", fake_launch)
+    runner = Runner()
+    observer = periodic_eval.LatencyBenchPeriodicEvalObserver(_training_config(tmp_path))
+    observer.on_training_step(runner, training_iteration_since_resume=1)
+
+    lease_dir = checkpoint_dir / ".latency_bench_eval_leases"
+    assert len(list(lease_dir.glob("checkpoint_000000002_000000001000.pth.*.json"))) == 1
+
+    launches[0][3].exitcode = 1
+    observer.extra_summaries(runner, policy_id=0, env_steps=1_000, writer=runner.writers[0])
+
+    assert runner.stop_calls == [True]
+    assert observer.active_job is None
+    assert len(observer.pending_jobs) == 0
+    assert list(lease_dir.glob("checkpoint_000000002_000000001000.pth.*.json")) == []
+
+
 def test_log_eval_summaries_writes_plain_wandb_scalars(monkeypatch):
     import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
 
@@ -381,7 +552,7 @@ def test_run_sample_factory_training_registers_periodic_observer(monkeypatch, tm
             return sf_misc.ExperimentStatus.SUCCESS
 
         def run(self):
-            return 17
+            return sf_misc.ExperimentStatus.SUCCESS
 
     runner = Runner()
     monkeypatch.setattr(periodic_eval, "patch_sample_factory_checkpoint_loader", lambda: calls.append("patch"), raising=False)
@@ -390,7 +561,7 @@ def test_run_sample_factory_training_registers_periodic_observer(monkeypatch, tm
 
     status = run_sample_factory_training(SimpleNamespace(name="cfg"), _training_config(tmp_path))
 
-    assert status == 17
+    assert status == sf_misc.ExperimentStatus.SUCCESS
     assert calls == ["patch", "make_runner"]
     assert len(observers) == 1
     assert isinstance(observers[0], LatencyBenchPeriodicEvalObserver)
@@ -433,7 +604,7 @@ def test_run_sample_factory_training_runs_final_latency_bench_after_runner_finis
             return sf_misc.ExperimentStatus.SUCCESS
 
         def run(self):
-            return 17
+            return sf_misc.ExperimentStatus.SUCCESS
 
     runner = Runner()
     monkeypatch.setattr(sf_train, "make_runner", lambda cfg: (cfg, runner))
@@ -471,7 +642,7 @@ def test_run_sample_factory_training_runs_final_latency_bench_after_runner_finis
 
     status = run_sample_factory_training(SimpleNamespace(name="cfg"), _training_config(tmp_path))
 
-    assert status == 17
+    assert status == sf_misc.ExperimentStatus.SUCCESS
     assert len(calls) == 1
     config, metadata, result_path = calls[0]
     assert config["policy"]["checkpoint_path"] == str(checkpoint_path)
@@ -484,6 +655,39 @@ def test_run_sample_factory_training_runs_final_latency_bench_after_runner_finis
         "train_env_steps": 1234,
         "checkpoint_path": str(checkpoint_path),
     }
+
+
+def test_run_sample_factory_training_skips_final_eval_after_runner_failure(monkeypatch, tmp_path: Path):
+    import sample_factory.algo.utils.misc as sf_misc
+    import sample_factory.train as sf_train
+    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+
+    from training.sample_factory_common.latency_bench_periodic_eval import (
+        LatencyBenchPeriodicEvalObserver,
+        run_sample_factory_training,
+    )
+
+    class Runner:
+        def register_observer(self, observer):
+            self.observer = observer
+
+        def init(self):
+            return sf_misc.ExperimentStatus.SUCCESS
+
+        def run(self):
+            return sf_misc.ExperimentStatus.FAILURE
+
+    runner = Runner()
+    monkeypatch.setattr(sf_train, "make_runner", lambda cfg: (cfg, runner))
+    monkeypatch.setattr(
+        LatencyBenchPeriodicEvalObserver,
+        "run_final_eval",
+        lambda self, runner: (_ for _ in ()).throw(AssertionError("final eval should be skipped after failure")),
+    )
+
+    status = run_sample_factory_training(SimpleNamespace(name="cfg"), _training_config(tmp_path))
+
+    assert status == sf_misc.ExperimentStatus.FAILURE
 
 
 def test_run_final_eval_drains_periodic_fifo_before_starting_final(monkeypatch, tmp_path: Path):
