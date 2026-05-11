@@ -14,6 +14,7 @@ _SAMPLE_FACTORY_CHECKPOINT_LOADER_PATCHED = False
 _SAMPLE_FACTORY_CHECKPOINT_RETENTION_PATCHED = False
 _SAMPLE_FACTORY_LEARNER_INIT_PATCHED = False
 _EVAL_LEASE_DIR = ".latency_bench_eval_leases"
+_EVAL_RETENTION_DIR = ".latency_bench_eval_checkpoints"
 
 
 @dataclass(frozen=True)
@@ -146,6 +147,24 @@ def release_checkpoint_eval_lease(lease: CheckpointEvalLease) -> None:
     lease.marker_path.unlink(missing_ok=True)
 
 
+def mark_checkpoint_for_eval_retention(
+    checkpoint_path: str | Path,
+    *,
+    metadata: dict[str, Any],
+) -> Path:
+    path = Path(checkpoint_path).expanduser()
+    retention_dir = path.parent / _EVAL_RETENTION_DIR
+    retention_dir.mkdir(parents=True, exist_ok=True)
+    marker_path = retention_dir / f"{path.name}.json"
+    payload = {
+        "checkpoint_path": str(path),
+        "runner_pid": os.getpid(),
+        **metadata,
+    }
+    marker_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return marker_path
+
+
 def prune_unleased_sample_factory_checkpoints(
     checkpoint_dir: str | Path,
     name_prefix: str,
@@ -155,11 +174,13 @@ def prune_unleased_sample_factory_checkpoints(
     logger: Any | None = None,
 ) -> None:
     root = Path(checkpoint_dir).expanduser()
-    while len(checkpoints := sorted(root.glob(f"{name_prefix}_*.pth"))) > int(keep_checkpoints):
-        leased_names = _leased_checkpoint_names(root)
-        oldest_unleased = next((path for path in checkpoints if path.name not in leased_names), None)
-        if oldest_unleased is None:
+    while True:
+        checkpoints = sorted(root.glob(f"{name_prefix}_*.pth"))
+        protected_names = _protected_checkpoint_names(root)
+        unprotected_checkpoints = [path for path in checkpoints if path.name not in protected_names]
+        if len(unprotected_checkpoints) <= int(keep_checkpoints):
             return
+        oldest_unleased = unprotected_checkpoints[0]
         if verbose and logger is not None:
             logger.debug("Removing %s", str(oldest_unleased))
         oldest_unleased.unlink()
@@ -168,3 +189,12 @@ def prune_unleased_sample_factory_checkpoints(
 def _leased_checkpoint_names(checkpoint_dir: Path) -> set[str]:
     lease_dir = checkpoint_dir / _EVAL_LEASE_DIR
     return {marker.name.rsplit(".", 2)[0] for marker in lease_dir.glob("*.json")}
+
+
+def _retained_checkpoint_names(checkpoint_dir: Path) -> set[str]:
+    retention_dir = checkpoint_dir / _EVAL_RETENTION_DIR
+    return {marker.name.removesuffix(".json") for marker in retention_dir.glob("*.json")}
+
+
+def _protected_checkpoint_names(checkpoint_dir: Path) -> set[str]:
+    return _leased_checkpoint_names(checkpoint_dir) | _retained_checkpoint_names(checkpoint_dir)

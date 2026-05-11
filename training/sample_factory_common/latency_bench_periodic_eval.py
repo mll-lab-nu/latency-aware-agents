@@ -15,6 +15,7 @@ from training.common.checkpoints import checkpoint_dir
 from training.sample_factory_common.checkpoint_io import (
     CheckpointEvalLease,
     acquire_checkpoint_eval_lease,
+    mark_checkpoint_for_eval_retention,
     patch_sample_factory_checkpoint_loader,
     release_checkpoint_eval_lease,
     update_checkpoint_eval_lease,
@@ -91,7 +92,8 @@ def run_sample_factory_training(cfg, training_config: dict[str, Any]):
     if status == ExperimentStatus.SUCCESS:
         status = runner.run()
         if status == ExperimentStatus.SUCCESS:
-            observer.run_final_eval(runner)
+            if not observer.run_final_eval(runner):
+                status = ExperimentStatus.FAILURE
     return status
 
 
@@ -103,7 +105,7 @@ class LatencyBenchEvalRequest:
     config: dict[str, Any]
     metadata: dict[str, Any]
     result_path: Path
-    lease: CheckpointEvalLease
+    checkpoint_path: Path
     env_steps: int
     phase: str
 
@@ -147,42 +149,48 @@ class LatencyBenchPeriodicEvalObserver:
         pass
 
     def extra_summaries(self, runner, policy_id, env_steps, writer) -> None:
-        del policy_id, env_steps, writer
-        self._poll_eval_job(runner)
+        del runner, policy_id, env_steps, writer
 
     def on_training_step(self, runner, training_iteration_since_resume: int) -> None:
         del training_iteration_since_resume
-        self._poll_eval_job(runner)
         env_steps = _runner_env_steps(runner)
         if env_steps >= self.next_eval_step:
-            self._submit_eval_job(runner, env_steps=env_steps, phase="train_periodic")
+            self._submit_eval_request(runner, env_steps=env_steps, phase="train_periodic")
             while self.next_eval_step <= env_steps:
                 self.next_eval_step += self.interval_steps
 
     def on_stop(self, runner) -> None:
         pass
 
-    def run_final_eval(self, runner) -> None:
-        self._drain_eval_jobs(runner)
+    def run_deferred_eval(self, runner) -> bool:
+        while self.pending_jobs:
+            request = self.pending_jobs.popleft()
+            if not self._run_eval_request(runner, request):
+                self.pending_jobs.clear()
+                return False
+        return True
+
+    def run_final_eval(self, runner) -> bool:
+        if not self.run_deferred_eval(runner):
+            return False
         env_steps = _runner_env_steps(runner)
         checkpoint_path = self._latest_checkpoint_for_eval()
-        job = self._submit_eval_job(
+        self._submit_eval_request(
             runner,
             env_steps=env_steps,
             phase="train_final",
             checkpoint_path=checkpoint_path,
         )
-        job.wait()
-        self._complete_eval_job(runner, job)
+        return self.run_deferred_eval(runner)
 
-    def _submit_eval_job(
+    def _submit_eval_request(
         self,
         runner,
         *,
         env_steps: int,
         phase: str,
         checkpoint_path: Path | None = None,
-    ) -> LatencyBenchEvalJob | None:
+    ) -> LatencyBenchEvalRequest:
         if checkpoint_path is None:
             checkpoint_path = self._save_checkpoint_for_eval(runner)
         step_dir = f"step_{int(env_steps)}"
@@ -204,56 +212,40 @@ class LatencyBenchPeriodicEvalObserver:
             "checkpoint_path": str(checkpoint_path),
         }
         result_path = output_dir / "eval_result.json"
-        lease = acquire_checkpoint_eval_lease(checkpoint_path, metadata=metadata)
-        self.pending_jobs.append(
-            LatencyBenchEvalRequest(
-                config=config,
-                metadata=metadata,
-                result_path=result_path,
-                lease=lease,
-                env_steps=int(env_steps),
-                phase=phase,
-            )
+        mark_checkpoint_for_eval_retention(checkpoint_path, metadata=metadata)
+        request = LatencyBenchEvalRequest(
+            config=config,
+            metadata=metadata,
+            result_path=result_path,
+            checkpoint_path=checkpoint_path,
+            env_steps=int(env_steps),
+            phase=phase,
         )
-        return self._start_next_eval_job()
+        self.pending_jobs.append(request)
+        return request
 
-    def _start_next_eval_job(self) -> LatencyBenchEvalJob | None:
-        if self.active_job is not None or not self.pending_jobs:
-            return self.active_job
-        request = self.pending_jobs.popleft()
+    def _run_eval_request(self, runner, request: LatencyBenchEvalRequest) -> bool:
+        lease = acquire_checkpoint_eval_lease(request.checkpoint_path, metadata=request.metadata)
         process = _launch_latency_bench_eval_process(request.config, request.metadata, request.result_path)
-        update_checkpoint_eval_lease(request.lease, {"eval_pid": getattr(process, "pid", None)})
-        self.active_job = LatencyBenchEvalJob(
+        update_checkpoint_eval_lease(lease, {"eval_pid": getattr(process, "pid", None)})
+        job = LatencyBenchEvalJob(
             process=process,
             result_path=request.result_path,
-            lease=request.lease,
+            lease=lease,
             env_steps=request.env_steps,
             phase=request.phase,
         )
-        return self.active_job
+        self.active_job = job
+        job.wait()
+        return self._complete_eval_job(runner, job)
 
-    def _poll_eval_job(self, runner) -> None:
-        job = self.active_job
-        if job is not None and job.is_done():
-            self._complete_eval_job(runner, job)
-
-    def _drain_eval_jobs(self, runner) -> None:
-        while self.active_job is not None or self.pending_jobs:
-            job = self.active_job
-            if job is None:
-                job = self._start_next_eval_job()
-            job.wait()
-            self._complete_eval_job(runner, job)
-
-    def _complete_eval_job(self, runner, job: LatencyBenchEvalJob) -> None:
+    def _complete_eval_job(self, runner, job: LatencyBenchEvalJob) -> bool:
         if job.process.exitcode != 0:
-            self._fail_eval_job(runner, job, f"process exitcode={job.process.exitcode}")
-            return
+            return self._fail_eval_job(runner, job, f"process exitcode={job.process.exitcode}")
         try:
             summaries = job.read_summaries()
         except FileNotFoundError as exc:
-            self._fail_eval_job(runner, job, str(exc))
-            return
+            return self._fail_eval_job(runner, job, str(exc))
         release_checkpoint_eval_lease(job.lease)
         _log_eval_summaries(
             runner,
@@ -262,9 +254,10 @@ class LatencyBenchPeriodicEvalObserver:
         )
         self.last_eval_step = job.env_steps
         self.active_job = None
-        self._start_next_eval_job()
+        return True
 
-    def _fail_eval_job(self, runner, job: LatencyBenchEvalJob, reason: str) -> None:
+    def _fail_eval_job(self, runner, job: LatencyBenchEvalJob, reason: str) -> bool:
+        del runner
         from sample_factory.utils.utils import log
 
         log.error(
@@ -276,13 +269,7 @@ class LatencyBenchPeriodicEvalObserver:
         )
         release_checkpoint_eval_lease(job.lease)
         self.active_job = None
-        self._release_pending_eval_leases()
-        runner._stop_training(failed=True)
-
-    def _release_pending_eval_leases(self) -> None:
-        while self.pending_jobs:
-            request = self.pending_jobs.popleft()
-            release_checkpoint_eval_lease(request.lease)
+        return False
 
     def _latest_checkpoint_for_eval(self) -> Path:
         root = checkpoint_dir(
