@@ -123,7 +123,7 @@ def test_flappy_sf_gpu_render_has_no_timelimit_when_max_episode_steps_absent():
         env_config=_env_config(),
     )
     try:
-        assert _time_limit_max_episode_steps(env.sub_envs[0]) is None
+        assert _time_limit_max_episode_steps(env) is None
     finally:
         env.close()
 
@@ -163,7 +163,7 @@ def test_flappy_sf_gpu_render_auto_resets_on_done():
     env = make_flappy_sf_env("latency_flappy", cfg=_flappy_gpu_cfg(), env_config=_env_config())
     try:
         env.reset(seed=123)
-        env.sub_envs[0].unwrapped._score_limit = 0
+        env.core.score_limit[0] = 0
 
         obs, rewards, terminated, truncated, infos = env.step(np.asarray([0], dtype=np.int64))
 
@@ -222,7 +222,7 @@ def test_flappy_sf_gpu_render_auto_reset_resets_only_done_agent_frame_stack():
         assert not _stack_frames_equal(stack, 0, stack_frames=3)
         assert not _stack_frames_equal(stack, 1, stack_frames=3)
 
-        env.sub_envs[0].unwrapped._score_limit = 0
+        env.core.score_limit[0] = 0
         obs, rewards, terminated, truncated, infos = env.step(np.asarray([0, 1], dtype=np.int64))
 
         assert obs["obs"].shape == (2, 9, 84, 84)
@@ -272,7 +272,7 @@ def test_flappy_sf_gpu_render_manual_reset_preserves_terminal_info_and_resets_re
             ):
                 break
 
-        env.sub_envs[0].unwrapped._score_limit = 0
+        env.core.score_limit[0] = 0
         _obs, rewards, terminated, truncated, infos = env.step(np.asarray([0, 1], dtype=np.int64))
 
         assert rewards.shape == (2,)
@@ -305,7 +305,7 @@ def test_flappy_sf_gpu_render_inactive_agent_does_not_emit_done_reward_or_reset(
         env.reset(seed=123)
         env.set_auto_reset_done(False)
         env.set_active_agents([False, True])
-        env.sub_envs[0].unwrapped._score_limit = 0
+        env.core.score_limit[0] = 0
 
         _obs, rewards, terminated, truncated, infos = env.step(np.asarray([0, 1], dtype=np.int64))
 

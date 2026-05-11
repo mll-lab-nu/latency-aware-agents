@@ -5,7 +5,7 @@ from typing import Any, Mapping, Sequence
 import gymnasium as gym
 import numpy as np
 import torch
-from gymnasium.spaces import Box, Dict as GymDict
+from gymnasium.spaces import Box, Dict as GymDict, Discrete
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
@@ -27,8 +27,11 @@ from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_ren
 ensure_flappy_gymnasium_on_path()
 
 import flappy_bird_gymnasium  # noqa: F401,E402
+from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore
 from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState
 from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer
+from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
+from training.flappy_sf.batched_metrics import BatchedFlappyEpisodeMetrics
 
 
 class FlappyBatchedGpuRenderedEnv(gym.Env):
@@ -87,8 +90,56 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             }
         )
 
-        self.sub_envs = [self._make_sub_env(agent_idx) for agent_idx in range(self.num_agents)]
-        self.action_space = self.sub_envs[0].action_space
+        self.uses_batched_core = True
+        self.sub_envs: list[gym.Env] = []
+        self.action_space = Discrete(2)
+        score_limit = getattr(self.cfg, "score_limit", None)
+        resolved_score_limit = None if score_limit in (None, "", 0, -1) else int(score_limit)
+        self.core = BatchedFlappyBirdCore(
+            batch_size=self.num_agents,
+            normalize_obs=bool(getattr(self.cfg, "normalize_obs", True)),
+            pipe_gap=int(getattr(self.cfg, "pipe_gap", 100)),
+            bird_color=getattr(self.cfg, "bird_color", "yellow"),
+            pipe_color=getattr(self.cfg, "pipe_color", "green"),
+            background=getattr(self.cfg, "background", "day"),
+            score_limit=resolved_score_limit,
+        )
+        sub_seeds = [self._sub_seed(agent_idx) for agent_idx in range(self.num_agents)]
+        latency_seeds = [
+            sample_factory_latency_seed_from_flat_config(
+                self.cfg,
+                fallback_seed=sub_seeds[agent_idx],
+                worker_index=self._worker_index,
+                vector_index=self._vector_index,
+                env_id=self._sub_env_id(agent_idx),
+            )
+            for agent_idx in range(self.num_agents)
+        ]
+        latency_params = sample_factory_latency_params_from_flat_config(self.cfg, env_fps=self.clock.env_fps)
+        self.latency = BatchedFlappyLatencyScheduler(
+            batch_size=self.num_agents,
+            fixed_latency_raw_frames=latency_params.fixed_latency_raw_frames,
+            env_fps=self.clock.env_fps,
+            obs_fps=self.clock.obs_fps,
+            hold_policy=getattr(self.cfg, "hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value),
+            ordering_policy=getattr(self.cfg, "ordering_policy", OrderingPolicy.LATEST_READY.value),
+            latency_distribution_spec=latency_params.latency_distribution_spec,
+            seeds=latency_seeds,
+            env_reset_seed_bases=[seed + 104729 for seed in sub_seeds],
+            add_latency_info=bool(getattr(self.cfg, "add_latency_info", False)),
+            max_pending_actions=getattr(self.cfg, "max_pending_actions", None),
+        )
+        self.metrics = BatchedFlappyEpisodeMetrics(
+            batch_size=self.num_agents,
+            frames_per_decision=self.clock.obs_stride_raw_frames,
+            metrics_path=str(getattr(self.cfg, "episode_metrics_path", "") or ""),
+            worker_index=self._worker_index,
+            vector_index=self._vector_index,
+            env_ids=[self._sub_env_id(agent_idx) for agent_idx in range(self.num_agents)],
+            issued_action_labels={0: "noop", 1: "flap"},
+        )
+        self._raw_episode_steps = np.zeros(self.num_agents, dtype=np.int64)
+        self._batched_max_episode_steps = int(getattr(self.cfg, "max_episode_steps", 0) or 0)
         self.pipeline = FlappyPpoTorchObservationPipeline(
             self.observation_config,
             n_envs=self.num_agents,
@@ -193,13 +244,20 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
 
     def reset(self, **kwargs):
         seed = kwargs.pop("seed", None)
-        infos: list[dict[str, Any]] = []
-        for agent_idx, env in enumerate(self.sub_envs):
-            reset_kwargs = dict(kwargs)
-            if seed is not None:
-                reset_kwargs["seed"] = int(seed) + int(agent_idx)
-            numeric_obs, info = env.reset(**reset_kwargs)
-            infos.append(self._with_numeric_obs(info, numeric_obs))
+        del kwargs
+        if seed is None:
+            reset_seeds, latency_infos = self.latency.reset()
+        else:
+            reset_seeds, latency_infos = self.latency.reset(
+                seeds=[int(seed) + int(agent_idx) for agent_idx in range(self.num_agents)]
+            )
+        self.metrics.reset()
+        self._raw_episode_steps[:] = 0
+        numeric_obs, core_infos = self.core.reset_batch(seeds=reset_seeds)
+        infos = [
+            self._with_numeric_obs({**core_infos[agent_idx], **latency_infos[agent_idx]}, numeric_obs[agent_idx])
+            for agent_idx in range(self.num_agents)
+        ]
 
         with self.gpu_render_profiler.time("reset_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
@@ -232,15 +290,20 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         infos = [dict(info) for info in self._last_observation_infos]
         reset_mask = np.zeros(self.num_agents, dtype=np.bool_)
         with self.gpu_render_profiler.time("env_step_s"):
-            for raw_agent_idx, raw_seed in reset_plan.items():
-                agent_idx = int(raw_agent_idx)
-                if agent_idx < 0 or agent_idx >= self.num_agents:
-                    raise IndexError(f"agent index out of range: {agent_idx}")
-                numeric_obs, info = self.sub_envs[agent_idx].reset(seed=int(raw_seed))
-                info = self._with_numeric_obs(info, numeric_obs)
+            reset_indices = [int(raw_agent_idx) for raw_agent_idx in reset_plan.keys()]
+            reset_seeds_input = [int(raw_seed) for raw_seed in reset_plan.values()]
+            reset_seeds, latency_infos = self.latency.reset(indices=reset_indices, seeds=reset_seeds_input)
+            self.metrics.reset(indices=reset_indices)
+            numeric_obs, core_infos = self.core.reset_batch(seeds=reset_seeds, indices=reset_indices)
+            for offset, agent_idx in enumerate(reset_indices):
+                info = self._with_numeric_obs(
+                    {**core_infos[agent_idx], **latency_infos[offset]},
+                    numeric_obs[agent_idx],
+                )
                 infos[agent_idx] = info
                 self._last_observation_infos[agent_idx] = dict(info)
                 reset_mask[agent_idx] = True
+                self._raw_episode_steps[agent_idx] = 0
 
         with self.gpu_render_profiler.time("reset_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
@@ -256,38 +319,85 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         if not self._has_reset:
             self.reset()
 
-        actions = self._normalize_actions(action)
+        actions = np.asarray(self._normalize_actions(action), dtype=np.int64)
         rewards = np.zeros(self.num_agents, dtype=np.float32)
         terminated = np.zeros(self.num_agents, dtype=np.bool_)
         truncated = np.zeros(self.num_agents, dtype=np.bool_)
-        infos: list[dict[str, Any]] = []
-        observation_infos: list[dict[str, Any]] = []
+        infos: list[dict[str, Any]] = [{} for _ in range(self.num_agents)]
+        observation_infos: list[dict[str, Any]] = [dict(info) for info in self._last_observation_infos]
 
         with self.gpu_render_profiler.time("env_step_s"):
-            for agent_idx, (env, scalar_action) in enumerate(zip(self.sub_envs, actions)):
-                if not bool(self._active_agents[agent_idx]):
-                    observation_info = dict(self._last_observation_infos[agent_idx])
-                    observation_info["inactive"] = True
-                    infos.append(observation_info)
-                    observation_infos.append(observation_info)
-                    continue
+            active = self._active_agents.copy()
+            for agent_idx in np.flatnonzero(~active):
+                observation_info = dict(self._last_observation_infos[agent_idx])
+                observation_info["inactive"] = True
+                infos[agent_idx] = observation_info
+                observation_infos[agent_idx] = observation_info
 
-                numeric_obs, reward, term, trunc, info = env.step(scalar_action)
-                info = self._with_numeric_obs(info, numeric_obs)
-                done = bool(term or trunc)
-                rewards[agent_idx] = float(reward)
-                terminated[agent_idx] = bool(term)
-                truncated[agent_idx] = bool(trunc)
+            self.latency.begin_decision(actions, active_mask=active)
+            raw_frames_advanced = np.zeros(self.num_agents, dtype=np.int64)
+            still_active = active.copy()
+            latest_numeric_obs = self.core.observations()
+            latest_core_infos = [{"score": int(score)} for score in self.core.score.tolist()]
+            for _ in range(self.clock.obs_stride_raw_frames):
+                raw_actions = self.latency.raw_actions(still_active)
+                step_result = self.core.step_batch(raw_actions, active_mask=still_active)
+                advanced = still_active.copy()
+                raw_frames_advanced[advanced] += 1
+                self._raw_episode_steps[advanced] += 1
+                rewards[advanced] += step_result.rewards[advanced].astype(np.float32)
+                terminated |= step_result.terminated
+                truncated |= step_result.truncated
+                if self._batched_max_episode_steps > 0:
+                    timeout = advanced & (self._raw_episode_steps >= self._batched_max_episode_steps)
+                    truncated[timeout] = True
+                    for timeout_idx in np.flatnonzero(timeout):
+                        step_result.infos[int(timeout_idx)]["TimeLimit.truncated"] = True
+                latest_numeric_obs = step_result.observations
+                latest_core_infos = step_result.infos
+                self.latency.record_raw_step(advanced)
+                still_active &= ~np.logical_or(terminated, truncated)
+                if not np.any(still_active):
+                    break
+
+            latency_infos = self.latency.finish_decision(active, raw_frames_advanced)
+            merged_infos: list[dict[str, Any]] = [{} for _ in range(self.num_agents)]
+            for agent_idx in np.flatnonzero(active):
+                info = {**latest_core_infos[agent_idx], **latency_infos[agent_idx]}
+                info["raw_reward"] = float(rewards[agent_idx])
+                merged_infos[agent_idx] = self._with_numeric_obs(info, latest_numeric_obs[agent_idx])
+            merged_infos = self.metrics.update(
+                issued_actions=actions,
+                rewards=rewards,
+                terminated=terminated,
+                truncated=truncated,
+                infos=merged_infos,
+                active_mask=active,
+                latency_raw_frames=self.latency.current_latency_raw_frames,
+            )
+
+            for agent_idx in np.flatnonzero(active):
+                info = dict(merged_infos[agent_idx])
+                done = bool(terminated[agent_idx] or truncated[agent_idx])
                 if done and self._auto_reset_done:
-                    reset_numeric_obs, reset_info = env.reset()
-                    reset_info = self._with_numeric_obs(reset_info, reset_numeric_obs)
+                    reset_seeds, reset_latency_infos = self.latency.reset(indices=[int(agent_idx)])
+                    self.metrics.reset(indices=[int(agent_idx)])
+                    reset_numeric_obs, reset_core_infos = self.core.reset_batch(
+                        seeds=reset_seeds,
+                        indices=[int(agent_idx)],
+                    )
+                    self._raw_episode_steps[agent_idx] = 0
+                    reset_info = self._with_numeric_obs(
+                        {**reset_core_infos[agent_idx], **reset_latency_infos[0]},
+                        reset_numeric_obs[agent_idx],
+                    )
                     info["reset_info"] = reset_info
-                    observation_infos.append(reset_info)
+                    observation_infos[agent_idx] = reset_info
                     self._last_observation_infos[agent_idx] = dict(reset_info)
                 else:
-                    observation_infos.append(info)
+                    observation_infos[agent_idx] = info
                     self._last_observation_infos[agent_idx] = dict(info)
-                infos.append(info)
+                infos[agent_idx] = info
 
         with self.gpu_render_profiler.time("step_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
@@ -311,12 +421,16 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
 
     def _render_raw_rgb(self) -> torch.Tensor:
         with self.gpu_render_profiler.time("get_render_state_s"):
-            states = [env.unwrapped.get_render_state() for env in self.sub_envs]
+            batch = self.core.render_state_batch()
         if self.renderer is None:
-            assets = FlappyRenderAssets.for_state(states[0])
+            assets = FlappyRenderAssets.load(
+                bird_color=batch.bird_color,
+                pipe_color=batch.pipe_color,
+                background=batch.background,
+            )
             self.renderer = TorchFlappyRenderer(assets, device=self.render_device)
         with self.gpu_render_profiler.time("state_batch_from_states_s"):
-            batch = BatchedFlappyRenderState.from_states(states)
+            pass
         with self.gpu_render_profiler.time("render_into_s"):
             return self.renderer.render_into(batch, self._raw_rgb_output_buffer(batch))
 
