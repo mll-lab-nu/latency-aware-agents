@@ -67,7 +67,7 @@ def test_batched_flappy_core_matches_scalar_env_for_mixed_actions_and_render_sta
             assert float(result.rewards[0]) == float(scalar_reward)
             assert bool(result.terminated[0]) is bool(scalar_term)
             assert bool(result.truncated[0]) is bool(scalar_trunc)
-            assert result.infos[0]["score"] == scalar_info["score"]
+            assert int(result.scores[0]) == scalar_info["score"]
             _assert_render_batch_equal(
                 core.render_state_batch(),
                 BatchedFlappyRenderState.from_states([scalar.unwrapped.get_render_state()]),
@@ -116,7 +116,7 @@ def test_batched_flappy_core_keeps_agents_independent_inside_larger_batch():
             np.testing.assert_array_equal(result.rewards, np.asarray([item[1] for item in expected], dtype=np.float64))
             np.testing.assert_array_equal(result.terminated, np.asarray([item[2] for item in expected], dtype=np.bool_))
             np.testing.assert_array_equal(result.truncated, np.asarray([item[3] for item in expected], dtype=np.bool_))
-            assert [info["score"] for info in result.infos] == [item[4]["score"] for item in expected]
+            assert [int(score) for score in result.scores] == [item[4]["score"] for item in expected]
     finally:
         for env in scalars:
             env.close()

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from collections import defaultdict
 from typing import Any, Sequence
 
 import numpy as np
@@ -34,9 +33,18 @@ class BatchedFlappyEpisodeMetrics:
         self.full_game_length = np.zeros(self.batch_size, dtype=np.int64)
         self.episode_idx = np.zeros(self.batch_size, dtype=np.int64)
         self._preserve_full_game_on_next_reset = np.zeros(self.batch_size, dtype=np.bool_)
-        self.issued_action_counts: list[defaultdict[str, int]] = [defaultdict(int) for _ in range(self.batch_size)]
-        self.issued_action_runs: list[defaultdict[str, list[int]]] = [defaultdict(list) for _ in range(self.batch_size)]
-        self._last_issued_action_label: list[str | None] = [None for _ in range(self.batch_size)]
+        self._action_labels = sorted({str(label) for label in self.issued_action_labels.values()})
+        self._action_label_to_idx = {label: idx for idx, label in enumerate(self._action_labels)}
+        self._action_value_to_label_idx = {
+            int(action): self._action_label_to_idx[str(label)]
+            for action, label in self.issued_action_labels.items()
+        }
+        label_count = len(self._action_labels)
+        self.issued_action_counts = np.zeros((self.batch_size, label_count), dtype=np.int64)
+        self.issued_action_run_sums = np.zeros((self.batch_size, label_count), dtype=np.int64)
+        self.issued_action_run_counts = np.zeros((self.batch_size, label_count), dtype=np.int64)
+        self.issued_action_run_max = np.zeros((self.batch_size, label_count), dtype=np.int64)
+        self._last_issued_action_label_idx = np.full(self.batch_size, -1, dtype=np.int64)
         self._last_issued_action_run_len = np.zeros(self.batch_size, dtype=np.int64)
 
     def reset(self, indices: Sequence[int] | np.ndarray | None = None) -> None:
@@ -52,27 +60,41 @@ class BatchedFlappyEpisodeMetrics:
         rewards: Sequence[float] | np.ndarray,
         terminated: Sequence[bool] | np.ndarray,
         truncated: Sequence[bool] | np.ndarray,
-        infos: list[dict[str, Any]],
+        scores: Sequence[int] | np.ndarray,
         active_mask: Sequence[bool] | np.ndarray,
         latency_raw_frames: Sequence[int] | np.ndarray,
-    ) -> list[dict[str, Any]]:
+        timeout_mask: Sequence[bool] | np.ndarray | None = None,
+    ) -> dict[int, dict[str, Any]]:
         actions = np.asarray(issued_actions, dtype=np.int64).reshape(-1)
         reward_arr = np.asarray(rewards, dtype=np.float64).reshape(-1)
         term_arr = np.asarray(terminated, dtype=np.bool_).reshape(-1)
         trunc_arr = np.asarray(truncated, dtype=np.bool_).reshape(-1)
+        score_arr = np.asarray(scores, dtype=np.int64).reshape(-1)
         active = np.asarray(active_mask, dtype=np.bool_).reshape(-1)
         latency_arr = np.asarray(latency_raw_frames, dtype=np.int64).reshape(-1)
-        out = [dict(info or {}) for info in infos]
-        for agent_idx in np.flatnonzero(active):
-            self._record_issued_action(int(agent_idx), int(actions[agent_idx]))
-            reward_value = float(reward_arr[agent_idx])
-            info = dict(out[agent_idx])
-            raw_reward = float(info.get("raw_reward", reward_value))
-            info["raw_reward"] = float(raw_reward)
-            self.full_game_return[agent_idx] += raw_reward
-            self.full_game_raw_return[agent_idx] += raw_reward
-            self.full_game_length[agent_idx] += 1
-            done = bool(term_arr[agent_idx] or trunc_arr[agent_idx])
+        timeout_arr = (
+            np.zeros(self.batch_size, dtype=np.bool_)
+            if timeout_mask is None
+            else np.asarray(timeout_mask, dtype=np.bool_).reshape(-1)
+        )
+        self._record_issued_actions(actions, active)
+        self.full_game_return[active] += reward_arr[active]
+        self.full_game_raw_return[active] += reward_arr[active]
+        self.full_game_length[active] += 1
+
+        done_mask = active & np.logical_or(term_arr, trunc_arr)
+        if not np.any(done_mask):
+            return {}
+
+        out: dict[int, dict[str, Any]] = {}
+        for agent_idx in np.flatnonzero(done_mask):
+            info: dict[str, Any] = {
+                "score": int(score_arr[agent_idx]),
+                "raw_reward": float(reward_arr[agent_idx]),
+            }
+            if bool(timeout_arr[agent_idx]):
+                info["TimeLimit.truncated"] = True
+            done = True
             true_episode_end = is_true_atari_episode_end(bool(term_arr[agent_idx]), bool(trunc_arr[agent_idx]), info)
             if done:
                 info[TRUE_EPISODE_END_INFO_KEY] = bool(true_episode_end)
@@ -89,7 +111,7 @@ class BatchedFlappyEpisodeMetrics:
                 self._preserve_full_game_on_next_reset[agent_idx] = False
             elif done:
                 self._preserve_full_game_on_next_reset[agent_idx] = True
-            out[agent_idx] = info
+            out[int(agent_idx)] = info
         return out
 
     def _attach_episode_stats(
@@ -156,53 +178,69 @@ class BatchedFlappyEpisodeMetrics:
         self.full_game_return[agent_idx] = 0.0
         self.full_game_raw_return[agent_idx] = 0.0
         self.full_game_length[agent_idx] = 0
-        self.issued_action_counts[agent_idx].clear()
-        self.issued_action_runs[agent_idx].clear()
-        self._last_issued_action_label[agent_idx] = None
+        self.issued_action_counts[agent_idx, :] = 0
+        self.issued_action_run_sums[agent_idx, :] = 0
+        self.issued_action_run_counts[agent_idx, :] = 0
+        self.issued_action_run_max[agent_idx, :] = 0
+        self._last_issued_action_label_idx[agent_idx] = -1
         self._last_issued_action_run_len[agent_idx] = 0
 
-    def _record_issued_action(self, agent_idx: int, action: int) -> None:
-        if not self.issued_action_labels:
+    def _record_issued_actions(self, actions: np.ndarray, active: np.ndarray) -> None:
+        if not self._action_value_to_label_idx:
             return
-        label = self.issued_action_labels.get(int(action))
-        if label is None:
+        label_indices = np.full(self.batch_size, -1, dtype=np.int64)
+        for action, label_idx in self._action_value_to_label_idx.items():
+            label_indices[actions == int(action)] = int(label_idx)
+        valid = active & (label_indices >= 0)
+        rows = np.flatnonzero(valid)
+        if rows.size == 0:
             return
-        label = str(label)
-        self.issued_action_counts[agent_idx][label] += 1
-        if label == self._last_issued_action_label[agent_idx]:
-            self._last_issued_action_run_len[agent_idx] += 1
+        self.issued_action_counts[rows, label_indices[rows]] += 1
+
+        same_run = valid & (self._last_issued_action_label_idx == label_indices)
+        self._last_issued_action_run_len[same_run] += 1
+
+        new_run = valid & ~same_run
+        self._finalize_runs(new_run & (self._last_issued_action_label_idx >= 0))
+        self._last_issued_action_label_idx[new_run] = label_indices[new_run]
+        self._last_issued_action_run_len[new_run] = 1
+
+    def _finalize_runs(self, mask: np.ndarray) -> None:
+        rows = np.flatnonzero(mask)
+        if rows.size == 0:
             return
-        if self._last_issued_action_label[agent_idx] is not None:
-            self.issued_action_runs[agent_idx][self._last_issued_action_label[agent_idx]].append(
-                int(self._last_issued_action_run_len[agent_idx])
-            )
-        self._last_issued_action_label[agent_idx] = label
-        self._last_issued_action_run_len[agent_idx] = 1
+        labels = self._last_issued_action_label_idx[rows]
+        lengths = self._last_issued_action_run_len[rows]
+        self.issued_action_run_sums[rows, labels] += lengths
+        self.issued_action_run_counts[rows, labels] += 1
+        self.issued_action_run_max[rows, labels] = np.maximum(self.issued_action_run_max[rows, labels], lengths)
 
     def _issued_action_stats(self, agent_idx: int) -> dict[str, float]:
-        if self._last_issued_action_label[agent_idx] is not None and self._last_issued_action_run_len[agent_idx] > 0:
-            self.issued_action_runs[agent_idx][self._last_issued_action_label[agent_idx]].append(
-                int(self._last_issued_action_run_len[agent_idx])
-            )
-            self._last_issued_action_label[agent_idx] = None
+        if self._last_issued_action_label_idx[agent_idx] >= 0 and self._last_issued_action_run_len[agent_idx] > 0:
+            mask = np.zeros(self.batch_size, dtype=np.bool_)
+            mask[agent_idx] = True
+            self._finalize_runs(mask)
+            self._last_issued_action_label_idx[agent_idx] = -1
             self._last_issued_action_run_len[agent_idx] = 0
 
-        total = sum(self.issued_action_counts[agent_idx].values())
+        total = int(np.sum(self.issued_action_counts[agent_idx]))
         if total <= 0:
             return {}
 
         stats: dict[str, float] = {}
         entropy = 0.0
-        labels = sorted({str(label) for label in self.issued_action_labels.values()})
-        for label in labels:
-            count = int(self.issued_action_counts[agent_idx].get(label, 0))
+        for label_idx, label in enumerate(self._action_labels):
+            count = int(self.issued_action_counts[agent_idx, label_idx])
             ratio = float(count) / float(total)
             stats[f"action/issued_{label}_ratio"] = ratio
             if ratio > 0.0:
                 entropy -= ratio * math.log(ratio)
-            runs = self.issued_action_runs[agent_idx].get(label, [])
-            stats[f"action/issued_consecutive_{label}_mean"] = float(np.mean(runs)) if runs else 0.0
-            stats[f"action/issued_consecutive_{label}_max"] = float(max(runs)) if runs else 0.0
+            run_count = int(self.issued_action_run_counts[agent_idx, label_idx])
+            run_sum = int(self.issued_action_run_sums[agent_idx, label_idx])
+            stats[f"action/issued_consecutive_{label}_mean"] = (
+                float(run_sum) / float(run_count) if run_count > 0 else 0.0
+            )
+            stats[f"action/issued_consecutive_{label}_max"] = float(self.issued_action_run_max[agent_idx, label_idx])
         stats["action/issued_entropy"] = float(entropy)
         return stats
 

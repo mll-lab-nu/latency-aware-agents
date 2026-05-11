@@ -151,6 +151,8 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         self._active_agents = np.ones(self.num_agents, dtype=np.bool_)
         self._auto_reset_done = True
         self._last_observation_infos: list[dict[str, Any]] = [{} for _ in range(self.num_agents)]
+        self._empty_info: dict[str, Any] = {}
+        self._last_frame_skips = np.zeros(self.num_agents, dtype=np.int64)
 
         self.gpu_render_profiler = _GpuRenderProfiler(
             enabled=bool(gpu_render_profile),
@@ -258,11 +260,12 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             self._with_numeric_obs({**core_infos[agent_idx], **latency_infos[agent_idx]}, numeric_obs[agent_idx])
             for agent_idx in range(self.num_agents)
         ]
+        self._last_frame_skips[:] = self._latency_raw_frames(infos)
 
         with self.gpu_render_profiler.time("reset_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
             with self.gpu_render_profiler.time("pipeline_s"):
-                obs = self.pipeline.reset(raw_rgb, frame_skips=self._latency_raw_frames(infos))
+                obs = self.pipeline.reset(raw_rgb, frame_skips=self._last_frame_skips)
         self._has_reset = True
         self._last_observation_infos = [dict(info) for info in infos]
         return self._obs(obs), infos
@@ -302,6 +305,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 )
                 infos[agent_idx] = info
                 self._last_observation_infos[agent_idx] = dict(info)
+                self._last_frame_skips[agent_idx] = int(info.get("latency_raw_frames", 0))
                 reset_mask[agent_idx] = True
                 self._raw_episode_steps[agent_idx] = 0
 
@@ -311,7 +315,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 obs = self.pipeline.reset_indices(
                     raw_rgb,
                     reset_mask=reset_mask,
-                    frame_skips=self._latency_raw_frames(infos),
+                    frame_skips=self._last_frame_skips,
                 )
         return self._obs(obs), infos
 
@@ -323,8 +327,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         rewards = np.zeros(self.num_agents, dtype=np.float32)
         terminated = np.zeros(self.num_agents, dtype=np.bool_)
         truncated = np.zeros(self.num_agents, dtype=np.bool_)
-        infos: list[dict[str, Any]] = [{} for _ in range(self.num_agents)]
-        observation_infos: list[dict[str, Any]] = [dict(info) for info in self._last_observation_infos]
+        infos: list[dict[str, Any]] = [self._empty_info] * self.num_agents
 
         with self.gpu_render_profiler.time("env_step_s"):
             active = self._active_agents.copy()
@@ -332,13 +335,13 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 observation_info = dict(self._last_observation_infos[agent_idx])
                 observation_info["inactive"] = True
                 infos[agent_idx] = observation_info
-                observation_infos[agent_idx] = observation_info
 
             self.latency.begin_decision(actions, active_mask=active)
             raw_frames_advanced = np.zeros(self.num_agents, dtype=np.int64)
+            timeout_mask = np.zeros(self.num_agents, dtype=np.bool_)
             still_active = active.copy()
             latest_numeric_obs = self.core.observations()
-            latest_core_infos = [{"score": int(score)} for score in self.core.score.tolist()]
+            latest_scores = self.core.score.copy()
             for _ in range(self.clock.obs_stride_raw_frames):
                 raw_actions = self.latency.raw_actions(still_active)
                 step_result = self.core.step_batch(raw_actions, active_mask=still_active)
@@ -351,53 +354,81 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 if self._batched_max_episode_steps > 0:
                     timeout = advanced & (self._raw_episode_steps >= self._batched_max_episode_steps)
                     truncated[timeout] = True
-                    for timeout_idx in np.flatnonzero(timeout):
-                        step_result.infos[int(timeout_idx)]["TimeLimit.truncated"] = True
+                    timeout_mask |= timeout
                 latest_numeric_obs = step_result.observations
-                latest_core_infos = step_result.infos
+                latest_scores = step_result.scores
                 self.latency.record_raw_step(advanced)
                 still_active &= ~np.logical_or(terminated, truncated)
                 if not np.any(still_active):
                     break
 
-            latency_infos = self.latency.finish_decision(active, raw_frames_advanced)
-            merged_infos: list[dict[str, Any]] = [{} for _ in range(self.num_agents)]
-            for agent_idx in np.flatnonzero(active):
-                info = {**latest_core_infos[agent_idx], **latency_infos[agent_idx]}
-                info["raw_reward"] = float(rewards[agent_idx])
-                merged_infos[agent_idx] = self._with_numeric_obs(info, latest_numeric_obs[agent_idx])
-            merged_infos = self.metrics.update(
+            latency_result = self.latency.finish_decision(active, raw_frames_advanced)
+            self._last_frame_skips[active] = latency_result.latency_raw_frames[active]
+            done_infos = self.metrics.update(
                 issued_actions=actions,
                 rewards=rewards,
                 terminated=terminated,
                 truncated=truncated,
-                infos=merged_infos,
+                scores=latest_scores,
                 active_mask=active,
-                latency_raw_frames=self.latency.current_latency_raw_frames,
+                latency_raw_frames=latency_result.latency_raw_frames,
+                timeout_mask=timeout_mask,
             )
 
-            for agent_idx in np.flatnonzero(active):
-                info = dict(merged_infos[agent_idx])
-                done = bool(terminated[agent_idx] or truncated[agent_idx])
-                if done and self._auto_reset_done:
-                    reset_seeds, reset_latency_infos = self.latency.reset(indices=[int(agent_idx)])
-                    self.metrics.reset(indices=[int(agent_idx)])
-                    reset_numeric_obs, reset_core_infos = self.core.reset_batch(
-                        seeds=reset_seeds,
-                        indices=[int(agent_idx)],
-                    )
-                    self._raw_episode_steps[agent_idx] = 0
-                    reset_info = self._with_numeric_obs(
-                        {**reset_core_infos[agent_idx], **reset_latency_infos[0]},
-                        reset_numeric_obs[agent_idx],
-                    )
-                    info["reset_info"] = reset_info
-                    observation_infos[agent_idx] = reset_info
-                    self._last_observation_infos[agent_idx] = dict(reset_info)
-                else:
-                    observation_infos[agent_idx] = info
-                    self._last_observation_infos[agent_idx] = dict(info)
-                infos[agent_idx] = info
+            done_mask = active & np.logical_or(terminated, truncated)
+            if self.latency.add_latency_info:
+                for agent_idx in np.flatnonzero(active):
+                    done = bool(done_mask[agent_idx])
+                    latency_info = self.latency.decision_info_for_agent(int(agent_idx), latency_result)
+                    info = {
+                        "score": int(latest_scores[agent_idx]),
+                        **latency_info,
+                        "raw_reward": float(rewards[agent_idx]),
+                    }
+                    if bool(timeout_mask[agent_idx]):
+                        info["TimeLimit.truncated"] = True
+                    if int(agent_idx) in done_infos:
+                        info.update(done_infos[int(agent_idx)])
+                    info = self._with_numeric_obs(info, latest_numeric_obs[agent_idx])
+                    if done and self._auto_reset_done:
+                        reset_seeds, reset_latency_infos = self.latency.reset(indices=[int(agent_idx)])
+                        self.metrics.reset(indices=[int(agent_idx)])
+                        reset_numeric_obs, reset_core_infos = self.core.reset_batch(
+                            seeds=reset_seeds,
+                            indices=[int(agent_idx)],
+                        )
+                        self._raw_episode_steps[agent_idx] = 0
+                        reset_info = self._with_numeric_obs(
+                            {**reset_core_infos[agent_idx], **reset_latency_infos[0]},
+                            reset_numeric_obs[agent_idx],
+                        )
+                        info["reset_info"] = reset_info
+                        self._last_observation_infos[agent_idx] = dict(reset_info)
+                        self._last_frame_skips[agent_idx] = int(reset_info.get("latency_raw_frames", 0))
+                    else:
+                        self._last_observation_infos[agent_idx] = dict(info)
+                    infos[agent_idx] = info
+            else:
+                for agent_idx in np.flatnonzero(done_mask):
+                    info = dict(done_infos.get(int(agent_idx), {}))
+                    if self._auto_reset_done:
+                        reset_seeds, reset_latency_infos = self.latency.reset(indices=[int(agent_idx)])
+                        self.metrics.reset(indices=[int(agent_idx)])
+                        reset_numeric_obs, reset_core_infos = self.core.reset_batch(
+                            seeds=reset_seeds,
+                            indices=[int(agent_idx)],
+                        )
+                        self._raw_episode_steps[agent_idx] = 0
+                        reset_info = self._with_numeric_obs(
+                            {**reset_core_infos[agent_idx], **reset_latency_infos[0]},
+                            reset_numeric_obs[agent_idx],
+                        )
+                        info["reset_info"] = reset_info
+                        self._last_observation_infos[agent_idx] = dict(reset_info)
+                        self._last_frame_skips[agent_idx] = int(reset_info.get("latency_raw_frames", 0))
+                    else:
+                        self._last_observation_infos[agent_idx] = dict(info)
+                    infos[agent_idx] = info
 
         with self.gpu_render_profiler.time("step_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
@@ -405,7 +436,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 obs = self.pipeline.step(
                     raw_rgb,
                     dones=np.logical_or(terminated, truncated),
-                    frame_skips=self._latency_raw_frames(observation_infos),
+                    frame_skips=self._last_frame_skips,
                     active_mask=self._active_agents,
                 )
         self.gpu_render_profiler.observe_step()
