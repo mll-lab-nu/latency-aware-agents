@@ -172,6 +172,34 @@ def test_render_into_rewrites_full_frame_without_stale_pixels():
     assert torch.equal(out, renderer.render(next_batch))
 
 
+def test_render_into_reuses_cached_blit_index_buffers():
+    states = _edge_states()
+    assets = FlappyRenderAssets.for_state(states[0])
+    renderer = TorchFlappyRenderer(assets, device="cpu")
+    batch = BatchedFlappyRenderState.from_states(states)
+    out = torch.empty(
+        (batch.batch_size, batch.screen_height, batch.screen_width, 3),
+        dtype=torch.uint8,
+    )
+
+    renderer.render_into(batch, out)
+    first_ptrs = {
+        key: tuple(tensor.data_ptr() for tensor in buffers)
+        for key, buffers in renderer._blit_index_cache.items()
+    }
+
+    assert first_ptrs
+
+    renderer.render_into(batch, out)
+    second_ptrs = {
+        key: tuple(tensor.data_ptr() for tensor in buffers)
+        for key, buffers in renderer._blit_index_cache.items()
+    }
+
+    assert second_ptrs == first_ptrs
+    assert torch.equal(out, renderer._render_scalar(batch))
+
+
 def test_sync_flappy_batch_raw_rgb_buffer_matches_fresh_render_after_reset_step():
     envs = SyncFlappyBatch(
         n_envs=3,

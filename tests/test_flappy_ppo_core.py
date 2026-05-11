@@ -169,6 +169,39 @@ def test_torch_observation_pipeline_reset_step_and_done_reset():
     assert np.all(hwc[1, :, :, :9] == 99)
 
 
+def test_torch_observation_pipeline_returns_internal_nchw_stack_without_copy():
+    config = FlappyPpoObservationConfig(
+        image_size=4,
+        grayscale=False,
+        stack_frames=3,
+    )
+    pipeline = FlappyPpoTorchObservationPipeline(config, n_envs=2, device="cpu")
+    frame_a = torch.randint(0, 256, (2, 6, 5, 3), dtype=torch.uint8)
+    frame_b = torch.randint(0, 256, (2, 6, 5, 3), dtype=torch.uint8)
+
+    reset_obs = pipeline.reset(frame_a, frame_skips=np.asarray([0, 4], dtype=np.int64))
+
+    assert pipeline._stack.shape == reset_obs.shape
+    assert reset_obs.data_ptr() == pipeline._stack.data_ptr()
+    np.testing.assert_array_equal(
+        pipeline.current_frame_stack,
+        reset_obs.permute(0, 2, 3, 1).cpu().numpy(),
+    )
+
+    step_obs = pipeline.step(
+        frame_b,
+        dones=np.asarray([False, True], dtype=np.bool_),
+        frame_skips=np.asarray([2, 4], dtype=np.int64),
+    )
+
+    assert pipeline._stack.shape == step_obs.shape
+    assert step_obs.data_ptr() == pipeline._stack.data_ptr()
+    np.testing.assert_array_equal(
+        pipeline.current_frame_stack,
+        step_obs.permute(0, 2, 3, 1).cpu().numpy(),
+    )
+
+
 def test_eval_pipeline_resets_stack_on_episode_start_and_returns_nchw_tensor():
     config = FlappyPpoObservationConfig(
         image_size=4,

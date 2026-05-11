@@ -50,6 +50,19 @@ def resize_rgb_batch_torch(
     if image_size <= 0:
         raise ValueError("image_size must be positive")
 
+    nchw = _resize_rgb_batch_torch_nchw(
+        raw_rgb_batch,
+        image_size=image_size,
+        grayscale=grayscale,
+    )
+    return nchw.permute(0, 2, 3, 1).contiguous()
+
+
+def _resize_rgb_batch_torch_nchw(
+    raw_rgb_batch: torch.Tensor,
+    image_size: int,
+    grayscale: bool = False,
+) -> torch.Tensor:
     nchw = raw_rgb_batch.permute(0, 3, 1, 2).to(torch.float32)
     if grayscale:
         r = nchw[:, 0:1]
@@ -68,7 +81,6 @@ def resize_rgb_batch_torch(
         resized.round()
         .clamp_(0, 255)
         .to(torch.uint8)
-        .permute(0, 2, 3, 1)
         .contiguous()
     )
 
@@ -144,20 +156,21 @@ class FlappyPpoTorchObservationPipeline:
         self._stack = torch.empty(
             (
                 self.n_envs,
-                observation_config.image_size,
-                observation_config.image_size,
                 self.stacked_channels,
+                observation_config.image_size,
+                observation_config.image_size,
             ),
             dtype=torch.uint8,
             device=self.device,
         )
+        self._next_stack = torch.empty_like(self._stack)
         self._last_observation: torch.Tensor | None = None
 
     @property
     def current_frame_stack(self) -> np.ndarray | None:
         if self._last_observation is None:
             return None
-        return self._stack.detach().cpu().numpy().copy()
+        return self._stack.permute(0, 2, 3, 1).detach().cpu().numpy().copy()
 
     @property
     def current_observation(self) -> np.ndarray | None:
@@ -177,7 +190,7 @@ class FlappyPpoTorchObservationPipeline:
             for stack_idx in range(self.observation_config.stack_frames):
                 c0 = stack_idx * self.base_channels
                 c1 = c0 + self.base_channels
-                self._stack[:, :, :, c0:c1] = frame_obs
+                self._stack[:, c0:c1, :, :] = frame_obs
         return self._final_obs(frame_skips, profiler=profiler)
 
     def step(
@@ -190,22 +203,28 @@ class FlappyPpoTorchObservationPipeline:
     ) -> torch.Tensor:
         frame_obs = self._resize(raw_rgb_batch, profiler=profiler)
         active = self._active_mask(active_mask)
-        active_indices = [int(item) for item in np.flatnonzero(active)]
+        active_indices = np.flatnonzero(active)
+        inactive_indices = np.flatnonzero(~active)
         done_indices = np.flatnonzero(np.asarray(dones, dtype=np.bool_) & active)
         timer = profiler.time("stack_update_s") if profiler is not None else nullcontext()
         with timer:
             if self.observation_config.stack_frames <= 1:
-                self._stack[active_indices, :, :, :] = frame_obs[active_indices]
+                if inactive_indices.size:
+                    self._next_stack[inactive_indices] = self._stack[inactive_indices]
+                self._next_stack[active_indices] = frame_obs[active_indices]
             else:
-                self._stack[active_indices, :, :, : -self.base_channels] = self._stack[
-                    active_indices, :, :, self.base_channels :
-                ].clone()
-                self._stack[active_indices, :, :, -self.base_channels :] = frame_obs[active_indices]
+                if inactive_indices.size:
+                    self._next_stack[inactive_indices] = self._stack[inactive_indices]
+                self._next_stack[active_indices, : -self.base_channels, :, :] = self._stack[
+                    active_indices, self.base_channels :, :, :
+                ]
+                self._next_stack[active_indices, -self.base_channels :, :, :] = frame_obs[active_indices]
             for idx in done_indices:
                 for stack_idx in range(self.observation_config.stack_frames):
                     c0 = stack_idx * self.base_channels
                     c1 = c0 + self.base_channels
-                    self._stack[idx, :, :, c0:c1] = frame_obs[idx]
+                    self._next_stack[idx, c0:c1, :, :] = frame_obs[idx]
+            self._stack, self._next_stack = self._next_stack, self._stack
         return self._final_obs(frame_skips, profiler=profiler)
 
     def reset_indices(
@@ -227,7 +246,7 @@ class FlappyPpoTorchObservationPipeline:
                 for stack_idx in range(self.observation_config.stack_frames):
                     c0 = stack_idx * self.base_channels
                     c1 = c0 + self.base_channels
-                    self._stack[idx, :, :, c0:c1] = frame_obs[idx]
+                    self._stack[idx, c0:c1, :, :] = frame_obs[idx]
         return self._final_obs(frame_skips, profiler=profiler)
 
     def _active_mask(self, value: np.ndarray | torch.Tensor | None) -> np.ndarray:
@@ -252,7 +271,7 @@ class FlappyPpoTorchObservationPipeline:
             raise ValueError("raw_rgb_batch must have one frame per environment")
         timer = profiler.time("torch_resize_s") if profiler is not None else nullcontext()
         with timer:
-            return resize_rgb_batch_torch(
+            return _resize_rgb_batch_torch_nchw(
                 raw_rgb_batch,
                 image_size=self.observation_config.image_size,
                 grayscale=self.observation_config.grayscale,
@@ -268,7 +287,7 @@ class FlappyPpoTorchObservationPipeline:
         with timer:
             obs = self._stack
             self._last_observation = obs
-            return obs.permute(0, 3, 1, 2).contiguous()
+            return obs
 
 
 class FlappyPpoEvalObservationPipeline:
