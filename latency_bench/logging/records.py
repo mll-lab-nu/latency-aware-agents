@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
+from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -10,7 +10,10 @@ import numpy as np
 
 def to_jsonable(value: Any) -> Any:
     if is_dataclass(value):
-        return to_jsonable(asdict(value))
+        return {
+            field.name: to_jsonable(getattr(value, field.name))
+            for field in fields(value)
+        }
     if isinstance(value, Enum):
         return value.value
     if isinstance(value, Path):

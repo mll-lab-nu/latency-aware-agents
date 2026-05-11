@@ -56,6 +56,10 @@ def _obs_batch_to_sf_inputs(
     if not observations:
         return {}, None
 
+    stacked_inputs = _obs_batch_to_sf_inputs_stacked(observations, device)
+    if stacked_inputs is not None:
+        return stacked_inputs
+
     batched_parts: dict[str, list[torch.Tensor]] = {}
     expected_keys: set[str] | None = None
     action_masks: list[torch.Tensor | None] = []
@@ -86,6 +90,103 @@ def _obs_batch_to_sf_inputs(
     if all(mask is not None for mask in action_masks):
         return batched_obs, torch.cat([mask for mask in action_masks if mask is not None], dim=0)
     return batched_obs, None
+
+
+def _obs_batch_to_sf_inputs_stacked(
+    observations: Sequence[Observation],
+    device: torch.device,
+) -> tuple[dict[str, torch.Tensor], torch.Tensor | None] | None:
+    first_data = observations[0].data
+    if isinstance(first_data, Mapping):
+        return _mapping_obs_batch_to_sf_inputs_stacked(observations, device)
+    return _plain_obs_batch_to_sf_inputs_stacked(observations, device)
+
+
+def _plain_obs_batch_to_sf_inputs_stacked(
+    observations: Sequence[Observation],
+    device: torch.device,
+) -> tuple[dict[str, torch.Tensor], None] | None:
+    values = []
+    for observation in observations:
+        data = observation.data
+        if isinstance(data, Mapping) or isinstance(data, torch.Tensor):
+            return None
+        values.append(data)
+    stacked = _stack_numpy_values(values)
+    if stacked is None:
+        return None
+    return {"obs": torch.as_tensor(stacked, device=device)}, None
+
+
+def _mapping_obs_batch_to_sf_inputs_stacked(
+    observations: Sequence[Observation],
+    device: torch.device,
+) -> tuple[dict[str, torch.Tensor], torch.Tensor | None] | None:
+    first_data = observations[0].data
+    if not isinstance(first_data, Mapping):
+        return None
+    keys = [str(key) for key in first_data if str(key) != "action_mask"]
+    obs_values: dict[str, list[Any]] = {key: [] for key in keys}
+    action_mask_values = []
+    all_have_action_mask = True
+
+    for observation in observations:
+        data = observation.data
+        if not isinstance(data, Mapping):
+            return None
+        current_values = {
+            str(key): value
+            for key, value in data.items()
+            if str(key) != "action_mask"
+        }
+        if list(current_values) != keys:
+            return None
+        for key in keys:
+            value = current_values[key]
+            if isinstance(value, torch.Tensor):
+                return None
+            obs_values[key].append(value)
+        has_action_mask = False
+        action_mask = None
+        for key, value in data.items():
+            if str(key) == "action_mask":
+                has_action_mask = True
+                action_mask = value
+                break
+        if not has_action_mask:
+            all_have_action_mask = False
+        elif isinstance(action_mask, torch.Tensor):
+            return None
+        else:
+            action_mask_values.append(action_mask)
+
+    batched_obs = {}
+    for key in keys:
+        stacked = _stack_numpy_values(obs_values[key])
+        if stacked is None:
+            return None
+        batched_obs[key] = torch.as_tensor(stacked, device=device)
+
+    action_mask = None
+    if all_have_action_mask:
+        stacked_mask = _stack_numpy_values(action_mask_values)
+        if stacked_mask is None:
+            return None
+        action_mask = torch.as_tensor(stacked_mask, device=device)
+    return batched_obs, action_mask
+
+
+def _stack_numpy_values(values: Sequence[Any]) -> np.ndarray | None:
+    arrays = [np.asarray(value) for value in values]
+    first = arrays[0]
+    if first.dtype == object:
+        return None
+    first_shape = first.shape
+    first_dtype = first.dtype
+    for array in arrays[1:]:
+        if array.shape != first_shape or array.dtype != first_dtype or array.dtype == object:
+            return None
+    return np.stack(arrays, axis=0)
 
 
 def _extract_action_mask(observation: Observation, device: torch.device):

@@ -15,6 +15,57 @@ from latency_bench.envs.factory import register_env_adapter
 from latency_bench.policy import sample_factory_common
 
 
+def _old_obs_batch_to_sf_inputs_reference(observations, device):
+    if not observations:
+        return {}, None
+
+    batched_parts: dict[str, list[torch.Tensor]] = {}
+    expected_keys: set[str] | None = None
+    action_masks: list[torch.Tensor | None] = []
+    for index, observation in enumerate(observations):
+        obs_dict, action_mask = sample_factory_common._obs_to_sf_inputs(observation, device)
+        keys = set(obs_dict)
+        if expected_keys is None:
+            expected_keys = keys
+            for key in keys:
+                batched_parts[key] = []
+        elif keys != expected_keys:
+            raise ValueError(
+                "Cannot batch Sample Factory observations with different keys: "
+                f"expected {sorted(expected_keys)}, got {sorted(keys)} at batch index {index}"
+            )
+        for key, tensor in obs_dict.items():
+            batched_parts[key].append(tensor)
+        action_masks.append(action_mask)
+
+    batched_obs = {
+        key: torch.cat(tensors, dim=0)
+        for key, tensors in batched_parts.items()
+    }
+    if all(mask is not None for mask in action_masks):
+        return batched_obs, torch.cat([mask for mask in action_masks if mask is not None], dim=0)
+    return batched_obs, None
+
+
+def _assert_sf_input_batches_equal(actual, expected):
+    actual_obs, actual_mask = actual
+    expected_obs, expected_mask = expected
+    assert set(actual_obs) == set(expected_obs)
+    for key in expected_obs:
+        assert actual_obs[key].shape == expected_obs[key].shape
+        assert actual_obs[key].dtype == expected_obs[key].dtype
+        assert actual_obs[key].device == expected_obs[key].device
+        assert torch.equal(actual_obs[key], expected_obs[key])
+    if expected_mask is None:
+        assert actual_mask is None
+    else:
+        assert actual_mask is not None
+        assert actual_mask.shape == expected_mask.shape
+        assert actual_mask.dtype == expected_mask.dtype
+        assert actual_mask.device == expected_mask.device
+        assert torch.equal(actual_mask, expected_mask)
+
+
 def _install_fake_sample_factory_modules(
     monkeypatch,
     *,
@@ -578,6 +629,90 @@ def test_sample_factory_predict_batch_runs_one_forward_for_four_discrete_observa
     assert [output.action.value for output in outputs] == [1, 2, 3, 4]
     assert [output.metadata["policy_type"] for output in outputs] == ["flappy_sf"] * 4
     assert [output.metadata["checkpoint_global_step"] for output in outputs] == [123] * 4
+
+
+def test_obs_batch_to_sf_inputs_stacks_homogeneous_numpy_chw_before_tensor_conversion(monkeypatch):
+    observations = [
+        Observation(
+            data=np.full((3, 2, 2), value, dtype=np.uint8),
+            env_step=value,
+            sim_time_ms=float(value),
+        )
+        for value in range(4)
+    ]
+    expected = _old_obs_batch_to_sf_inputs_reference(observations, torch.device("cpu"))
+    original_as_tensor = torch.as_tensor
+    converted_shapes = []
+
+    def tracking_as_tensor(value, *args, **kwargs):
+        converted_shapes.append(tuple(np.asarray(value).shape) if not isinstance(value, torch.Tensor) else tuple(value.shape))
+        return original_as_tensor(value, *args, **kwargs)
+
+    monkeypatch.setattr(sample_factory_common.torch, "as_tensor", tracking_as_tensor)
+
+    actual = sample_factory_common._obs_batch_to_sf_inputs(observations, torch.device("cpu"))
+
+    _assert_sf_input_batches_equal(actual, expected)
+    assert converted_shapes == [(4, 3, 2, 2)]
+
+
+@pytest.mark.parametrize(
+    "observations",
+    [
+        [
+            Observation(
+                data=np.full((2, 2, 3), value, dtype=np.uint8),
+                env_step=value,
+                sim_time_ms=float(value),
+            )
+            for value in range(3)
+        ],
+        [
+            Observation(
+                data={
+                    "obs": np.full((3, 2, 2), value, dtype=np.uint8),
+                    "extra": np.asarray([value, value + 1], dtype=np.float32),
+                },
+                env_step=value,
+                sim_time_ms=float(value),
+            )
+            for value in range(3)
+        ],
+        [
+            Observation(
+                data={
+                    "obs": np.full((3, 2, 2), value, dtype=np.uint8),
+                    "action_mask": np.asarray([1, value % 2], dtype=np.float32),
+                },
+                env_step=value,
+                sim_time_ms=float(value),
+            )
+            for value in range(3)
+        ],
+        [
+            Observation(
+                data=torch.full((3, 2, 2), value, dtype=torch.uint8),
+                env_step=value,
+                sim_time_ms=float(value),
+            )
+            for value in range(3)
+        ],
+        [
+            Observation(
+                data=np.full((3, 2, 2), value, dtype=np.uint8 if value % 2 == 0 else np.float32),
+                env_step=value,
+                sim_time_ms=float(value),
+            )
+            for value in range(3)
+        ],
+    ],
+)
+def test_obs_batch_to_sf_inputs_matches_old_tensor_semantics(observations):
+    device = torch.device("cpu")
+    expected = _old_obs_batch_to_sf_inputs_reference(observations, device)
+    actual = sample_factory_common._obs_batch_to_sf_inputs(observations, device)
+
+    _assert_sf_input_batches_equal(actual, expected)
 
 
 def test_sample_factory_predict_batch_rejects_recurrent_policy_until_phase_3c_supports_rnn(
