@@ -1,0 +1,371 @@
+from __future__ import annotations
+
+import argparse
+import shlex
+import sys
+from collections.abc import Sequence
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from latency_bench.core.config import load_config, merge_dicts
+from latency_bench.core.latency_distribution import (
+    LatencyDistributionSpec,
+    distribution_frames_to_ms_latency_config,
+)
+from scripts.generate_sample_factory_same_latency_sweep import _prune_sample_factory_config
+
+
+DEFAULT_SPEC = REPO_ROOT / "configs" / "experiments" / "flappy" / "factor_sweeps" / "sweep.yaml"
+MANIFEST_COLUMNS = (
+    "sweep",
+    "latency_label",
+    "frame_stack",
+    "obs_fps",
+    "seed",
+    "train_config",
+    "eval_config",
+    "latency_bench_eval_config",
+    "train_command",
+    "eval_command",
+    "latency_bench_eval_command",
+)
+
+
+def _load_yaml(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
+def _write_yaml(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(data, handle, sort_keys=False)
+
+
+def _resolve_path(value: str | Path, *, base_dir: Path) -> Path:
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    return (base_dir / path).resolve()
+
+
+def _frame_ms(config: dict[str, Any]) -> float:
+    return 1000.0 / float(config["env"]["env_fps"])
+
+
+def _apply_latency_setting(config: dict[str, Any], setting: dict[str, Any], seed: int) -> None:
+    latency_cfg = config.setdefault("latency", {})
+    kind = str(setting["kind"])
+    for key in (
+        "fixed_latency_ms",
+        "mean_latency_ms",
+        "std_latency_ms",
+        "min_latency_ms",
+        "max_latency_ms",
+        "seed",
+    ):
+        latency_cfg.pop(key, None)
+
+    if kind == "fixed":
+        latency_cfg["type"] = "fixed"
+        latency_cfg["fixed_latency_ms"] = float(setting["frames"]) * _frame_ms(config)
+    else:
+        spec = _latency_distribution_spec(kind, setting)
+        latency_cfg.update(
+            distribution_frames_to_ms_latency_config(
+                spec,
+                env_fps=float(config["env"]["env_fps"]),
+                seed=int(seed),
+            )
+        )
+    latency_cfg["add_latency_info"] = False
+
+
+def _latency_distribution_spec(kind: str, setting: dict[str, Any]) -> LatencyDistributionSpec:
+    if kind == "normal":
+        return LatencyDistributionSpec(
+            type="normal",
+            mean=float(setting["mean"]),
+            std=float(setting["std"]),
+            min=int(setting["min"]),
+            max=int(setting["max"]),
+        )
+    return LatencyDistributionSpec(
+        type="uniform",
+        mean=None,
+        std=None,
+        min=int(setting["min"]),
+        max=int(setting["max"]),
+    )
+
+
+def _run_axis_fragment(sweep_name: str, frame_stack: int, obs_fps: int) -> str:
+    if sweep_name == "frame_stack":
+        return f"fs{int(frame_stack)}"
+    return f"obs{int(obs_fps)}"
+
+
+def _run_name(sweep_name: str, latency_label: str, frame_stack: int, obs_fps: int, seed: int) -> str:
+    axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps)
+    return f"flappy_{sweep_name}_{latency_label}_{axis}_seed{int(seed)}"
+
+
+def _wandb_name(sweep_name: str, latency_label: str, frame_stack: int, obs_fps: int, seed: int) -> str:
+    axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps)
+    return f"flappy-{axis}-{latency_label}-s{int(seed)}"
+
+
+def _run_dir(
+    generated_root: Path,
+    sweep_name: str,
+    latency_label: str,
+    frame_stack: int,
+    obs_fps: int,
+    seed: int,
+) -> Path:
+    return generated_root / sweep_name / latency_label / _run_axis_fragment(sweep_name, frame_stack, obs_fps) / f"seed_{int(seed)}"
+
+
+def _output_dir(
+    output_root: Path,
+    stage: str,
+    sweep_name: str,
+    latency_label: str,
+    frame_stack: int,
+    obs_fps: int,
+    seed: int,
+) -> Path:
+    return (
+        output_root
+        / stage
+        / sweep_name
+        / latency_label
+        / _run_axis_fragment(sweep_name, frame_stack, obs_fps)
+        / f"seed_{int(seed)}"
+    )
+
+
+def _build_full_train_config(
+    base_config: dict[str, Any],
+    *,
+    sweep_name: str,
+    sweep_cfg: dict[str, Any],
+    latency_label: str,
+    latency_setting: dict[str, Any],
+    frame_stack: int,
+    obs_fps: int,
+    seed: int,
+    train_dir: Path,
+    output_root: Path,
+    device: str,
+    restart_behavior: str,
+) -> dict[str, Any]:
+    config = deepcopy(base_config)
+    config.setdefault("experiment", {})["name"] = _run_name(sweep_name, latency_label, frame_stack, obs_fps, seed)
+    config["experiment"]["seed"] = int(seed)
+    config.setdefault("backend", {})["type"] = "sample_factory"
+    config["backend"]["device"] = str(device)
+    config["backend"]["train_dir"] = str(train_dir)
+    config["backend"]["restart_behavior"] = str(restart_behavior)
+    config["backend"]["run_mode"] = "train"
+    config.setdefault("env", {})["frame_stack"] = int(frame_stack)
+    config["env"]["obs_fps"] = int(obs_fps)
+    _apply_latency_setting(config, latency_setting, int(seed))
+    config.setdefault("logging", {})["output_dir"] = str(
+        _output_dir(output_root, "train", sweep_name, latency_label, frame_stack, obs_fps, seed)
+    )
+    config["logging"]["wandb_group"] = str(sweep_cfg["wandb_group"])
+    config["logging"]["wandb_name"] = _wandb_name(sweep_name, latency_label, frame_stack, obs_fps, seed)
+    return config
+
+
+def _build_eval_config(
+    full_train_config: dict[str, Any],
+    *,
+    sweep_name: str,
+    latency_label: str,
+    frame_stack: int,
+    obs_fps: int,
+    seed: int,
+    output_root: Path,
+) -> dict[str, Any]:
+    config = deepcopy(full_train_config)
+    config["backend"]["run_mode"] = "eval"
+    config.setdefault("evaluation", {})["eval_episodes"] = int(config["evaluation"]["eval_episodes"])
+    config["logging"]["output_dir"] = str(
+        _output_dir(output_root, "eval", sweep_name, latency_label, frame_stack, obs_fps, seed)
+    )
+    return _prune_sample_factory_config(config)
+
+
+def _build_latency_bench_eval_config(
+    base_config: dict[str, Any],
+    full_train_config: dict[str, Any],
+    *,
+    sweep_name: str,
+    latency_label: str,
+    frame_stack: int,
+    obs_fps: int,
+    seed: int,
+    output_root: Path,
+    latency_bench_policy_device: str,
+) -> dict[str, Any]:
+    config = merge_dicts(base_config, full_train_config)
+    config.setdefault("backend", {})["run_mode"] = "eval"
+    config["experiment"]["num_episodes"] = int(config["evaluation"]["eval_episodes"])
+    config["policy"] = merge_dicts(
+        base_config.get("policy", {}),
+        {
+            "type": "flappy_sf",
+            "checkpoint_path": "",
+            "device": str(latency_bench_policy_device),
+            "deterministic": True,
+        },
+    )
+    config["logging"]["output_dir"] = str(
+        _output_dir(output_root, "latency_bench", sweep_name, latency_label, frame_stack, obs_fps, seed)
+    )
+    config["logging"].pop("wandb_name", None)
+    return config
+
+
+def _iter_runs(spec: dict[str, Any]):
+    seeds = [int(seed) for seed in spec["seeds"]]
+    latency_settings = spec["latency_settings"]
+    for sweep_name, sweep_cfg in spec["sweeps"].items():
+        for latency_label, latency_setting in latency_settings.items():
+            for frame_stack in sweep_cfg["frame_stack"]:
+                for obs_fps in sweep_cfg["obs_fps"]:
+                    for seed in seeds:
+                        yield (
+                            sweep_name,
+                            sweep_cfg,
+                            latency_label,
+                            latency_setting,
+                            int(frame_stack),
+                            int(obs_fps),
+                            int(seed),
+                        )
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Generate Flappy frame_stack and obs_fps factor sweep configs.")
+    parser.add_argument("--spec", type=Path, default=DEFAULT_SPEC)
+    parser.add_argument("--generated-root", type=Path)
+    parser.add_argument("--output-root", type=Path)
+    parser.add_argument("--train-dir", type=Path)
+    parser.add_argument("--device", type=str)
+    parser.add_argument("--restart-behavior", type=str)
+    parser.add_argument("--latency-bench-policy-device", type=str, default="auto")
+    args = parser.parse_args(argv)
+
+    spec_path = args.spec.expanduser()
+    if not spec_path.is_absolute():
+        spec_path = (REPO_ROOT / spec_path).resolve()
+    spec = _load_yaml(spec_path)
+    base_config_path = _resolve_path(spec["base_config"], base_dir=REPO_ROOT)
+    base_config = load_config(base_config_path)
+    generated_root = Path(args.generated_root or spec["generated_root"]).expanduser()
+    output_root = Path(args.output_root or spec["output_root"])
+    train_dir = Path(args.train_dir or spec["train_dir"])
+    device = str(args.device or spec.get("device", "gpu"))
+    restart_behavior = str(args.restart_behavior or spec.get("restart_behavior", "resume"))
+
+    manifest_rows = ["\t".join(MANIFEST_COLUMNS)]
+    train_commands: list[str] = []
+    eval_commands: list[str] = []
+    latency_bench_eval_commands: list[str] = []
+
+    for sweep_name, sweep_cfg, latency_label, latency_setting, frame_stack, obs_fps, seed in _iter_runs(spec):
+        full_train_config = _build_full_train_config(
+            base_config,
+            sweep_name=sweep_name,
+            sweep_cfg=sweep_cfg,
+            latency_label=latency_label,
+            latency_setting=latency_setting,
+            frame_stack=frame_stack,
+            obs_fps=obs_fps,
+            seed=seed,
+            train_dir=train_dir,
+            output_root=output_root,
+            device=device,
+            restart_behavior=restart_behavior,
+        )
+        train_config = _prune_sample_factory_config(full_train_config)
+        eval_config = _build_eval_config(
+            full_train_config,
+            sweep_name=sweep_name,
+            latency_label=latency_label,
+            frame_stack=frame_stack,
+            obs_fps=obs_fps,
+            seed=seed,
+            output_root=output_root,
+        )
+        latency_bench_eval_config = _build_latency_bench_eval_config(
+            base_config,
+            full_train_config,
+            sweep_name=sweep_name,
+            latency_label=latency_label,
+            frame_stack=frame_stack,
+            obs_fps=obs_fps,
+            seed=seed,
+            output_root=output_root,
+            latency_bench_policy_device=args.latency_bench_policy_device,
+        )
+
+        run_dir = _run_dir(generated_root, sweep_name, latency_label, frame_stack, obs_fps, seed)
+        train_path = run_dir / "train.yaml"
+        eval_path = run_dir / "eval.yaml"
+        latency_bench_eval_path = run_dir / "latency_bench_eval.yaml"
+        _write_yaml(train_path, train_config)
+        _write_yaml(eval_path, eval_config)
+        _write_yaml(latency_bench_eval_path, latency_bench_eval_config)
+
+        train_cmd = f"python -m training.train --config {shlex.quote(str(train_path))}"
+        eval_cmd = f"python -m training.train --config {shlex.quote(str(eval_path))}"
+        latency_bench_eval_cmd = f"python -m latency_bench.run --config {shlex.quote(str(latency_bench_eval_path))}"
+        train_commands.append(train_cmd)
+        eval_commands.append(eval_cmd)
+        latency_bench_eval_commands.append(latency_bench_eval_cmd)
+        manifest_rows.append(
+            "\t".join(
+                [
+                    sweep_name,
+                    latency_label,
+                    str(frame_stack),
+                    str(obs_fps),
+                    str(seed),
+                    str(train_path),
+                    str(eval_path),
+                    str(latency_bench_eval_path),
+                    train_cmd,
+                    eval_cmd,
+                    latency_bench_eval_cmd,
+                ]
+            )
+        )
+
+    generated_root.mkdir(parents=True, exist_ok=True)
+    (generated_root / "manifest.tsv").write_text("\n".join(manifest_rows) + "\n", encoding="utf-8")
+    (generated_root / "train_commands.txt").write_text("\n".join(train_commands) + "\n", encoding="utf-8")
+    (generated_root / "eval_commands.txt").write_text("\n".join(eval_commands) + "\n", encoding="utf-8")
+    (generated_root / "latency_bench_eval_commands.txt").write_text(
+        "\n".join(latency_bench_eval_commands) + "\n",
+        encoding="utf-8",
+    )
+    print(f"Wrote sweep configs to {generated_root}")
+    print(f"Train commands: {generated_root / 'train_commands.txt'}")
+    print(f"Eval commands: {generated_root / 'eval_commands.txt'}")
+    print(f"Latency bench eval commands: {generated_root / 'latency_bench_eval_commands.txt'}")
+    print(f"Manifest: {generated_root / 'manifest.tsv'}")
+
+
+if __name__ == "__main__":
+    main()
