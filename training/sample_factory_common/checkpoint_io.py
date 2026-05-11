@@ -12,6 +12,7 @@ import torch
 
 _SAMPLE_FACTORY_CHECKPOINT_LOADER_PATCHED = False
 _SAMPLE_FACTORY_CHECKPOINT_RETENTION_PATCHED = False
+_SAMPLE_FACTORY_LEARNER_INIT_PATCHED = False
 _EVAL_LEASE_DIR = ".latency_bench_eval_leases"
 
 
@@ -29,8 +30,19 @@ def trusted_torch_load(path: str | Path, device: torch.device) -> dict[str, Any]
         return torch.load(load_path, map_location=device)
 
 
+def init_learner_process_with_checkpoint_io_patch(sf_context: Any, learner_worker: Any):
+    from sample_factory.algo.learning.learner_worker import init_learner_process
+
+    # Sample Factory uses multiprocessing spawn for learner workers, so parent
+    # monkeypatches are not inherited by the child process.
+    patch_sample_factory_checkpoint_loader()
+    return init_learner_process(sf_context, learner_worker)
+
+
 def patch_sample_factory_checkpoint_loader() -> None:
-    global _SAMPLE_FACTORY_CHECKPOINT_LOADER_PATCHED, _SAMPLE_FACTORY_CHECKPOINT_RETENTION_PATCHED
+    global _SAMPLE_FACTORY_CHECKPOINT_LOADER_PATCHED
+    global _SAMPLE_FACTORY_CHECKPOINT_RETENTION_PATCHED
+    global _SAMPLE_FACTORY_LEARNER_INIT_PATCHED
 
     import sample_factory.algo.learning.learner as sf_learner
 
@@ -83,6 +95,12 @@ def patch_sample_factory_checkpoint_loader() -> None:
 
         sf_learner.Learner._save_impl = _save_impl
         _SAMPLE_FACTORY_CHECKPOINT_RETENTION_PATCHED = True
+
+    if not _SAMPLE_FACTORY_LEARNER_INIT_PATCHED:
+        import sample_factory.algo.runners.runner_parallel as sf_runner_parallel
+
+        sf_runner_parallel.init_learner_process = init_learner_process_with_checkpoint_io_patch
+        _SAMPLE_FACTORY_LEARNER_INIT_PATCHED = True
 
 
 def load_sample_factory_checkpoint_from_paths(checkpoints: list[str] | list[Path], device: torch.device) -> dict[str, Any]:
