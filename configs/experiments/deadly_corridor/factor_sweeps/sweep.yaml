@@ -8,25 +8,25 @@ seeds:
   - 0
 
 latency_settings:
-  fixed_l1:
-    kind: fixed
-    frames: 1
   fixed_l2:
     kind: fixed
     frames: 2
-  fixed_l3:
+  fixed_l4:
     kind: fixed
-    frames: 3
+    frames: 4
+  fixed_l6:
+    kind: fixed
+    frames: 6
   normal_n2_s1:
     kind: normal
-    mean: 2.0
+    mean: 4.0
     std: 1.0
     min: 0
     max: 15
   uniform_u1_3:
     kind: uniform
-    min: 1
-    max: 3
+    min: 2
+    max: 6
 
 sweeps:
   frame_stack:
@@ -37,7 +37,7 @@ sweeps:
       - 8
       - 10
     obs_fps:
-      - 30
+      - 15
   obs_fps:
     wandb_group: deadly-corridor-obs_fps
     frame_stack:

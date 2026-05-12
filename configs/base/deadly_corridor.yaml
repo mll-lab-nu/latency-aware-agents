@@ -79,18 +79,15 @@ evaluation:
   eval_raw_reward: true
   eval_suites:
     fixed:
-      - [0, 8]    # [start, end]
+      - [0, 2, 4, 6, 8]    # [start, end]
     normal:
-      - [2.0, 0.5, 0, 15]   # low latency, low jitter
-      - [2.0, 1.0, 0, 15]   # low latency, medium jitter
-      - [4.0, 0.5, 0, 15]   # high latency, low jitter
-      - [4.0, 1.0, 0, 15]   # high latency, medium jitter
-      - [4.0, 2.0, 0, 15]   # high latency, high jitter
+      - [4.0, 0.5, 0, 15]   # low jitter
+      - [4.0, 1.0, 0, 15]   # medium jitter
+      - [4.0, 2.0, 0, 15]   # high jitter
     uniform:
-      - [1, 3]  # low latency, low jitter
-      - [0, 4]  # low latency, high jitter
-      - [3, 5]  # high latency, low jitter
-      - [2, 6]  # high latency, high jitter
+      - [3, 5]  # low jitter
+      - [2, 6]  # medium jitter
+      - [0, 8]  # high jitter
 
 logging:
   output_dir: outputs/deadly_corridor_base
