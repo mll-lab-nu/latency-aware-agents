@@ -20,6 +20,9 @@ from latency_bench.core.latency_distribution import (
     distribution_frames_to_ms_latency_config,
 )
 from scripts.generate_sample_factory_same_latency_sweep import _prune_sample_factory_config
+from scripts.generate_sample_factory_same_latency_sweep import _align_demon_attack_raw_eval_config
+from scripts.generate_sample_factory_same_latency_sweep import _drop_eval_time_limit_fields
+from scripts.generate_sample_factory_same_latency_sweep import LATENCY_BENCH_POLICY_TYPES
 
 
 DEFAULT_SPEC = REPO_ROOT / "configs" / "experiments" / "flappy" / "factor_sweeps" / "sweep.yaml"
@@ -60,6 +63,21 @@ def _frame_ms(config: dict[str, Any]) -> float:
     return 1000.0 / float(config["env"]["env_fps"])
 
 
+def _env_name(config: dict[str, Any]) -> str:
+    return str(config["env"]["name"])
+
+
+def _env_slug(env_name: str) -> str:
+    return str(env_name).replace("_", "-")
+
+
+def _number_label(value: int | float) -> str:
+    number = float(value)
+    if number.is_integer():
+        return str(int(number))
+    return f"{number:g}".replace(".", "p")
+
+
 def _apply_latency_setting(config: dict[str, Any], setting: dict[str, Any], seed: int) -> None:
     latency_cfg = config.setdefault("latency", {})
     kind = str(setting["kind"])
@@ -94,32 +112,46 @@ def _latency_distribution_spec(kind: str, setting: dict[str, Any]) -> LatencyDis
             type="normal",
             mean=float(setting["mean"]),
             std=float(setting["std"]),
-            min=int(setting["min"]),
-            max=int(setting["max"]),
+            min=float(setting["min"]),
+            max=float(setting["max"]),
         )
     return LatencyDistributionSpec(
         type="uniform",
         mean=None,
         std=None,
-        min=int(setting["min"]),
-        max=int(setting["max"]),
+        min=float(setting["min"]),
+        max=float(setting["max"]),
     )
 
 
-def _run_axis_fragment(sweep_name: str, frame_stack: int, obs_fps: int) -> str:
+def _run_axis_fragment(sweep_name: str, frame_stack: int, obs_fps: int | float) -> str:
     if sweep_name == "frame_stack":
         return f"fs{int(frame_stack)}"
-    return f"obs{int(obs_fps)}"
+    return f"obs{_number_label(obs_fps)}"
 
 
-def _run_name(sweep_name: str, latency_label: str, frame_stack: int, obs_fps: int, seed: int) -> str:
+def _run_name(
+    env_name: str,
+    sweep_name: str,
+    latency_label: str,
+    frame_stack: int,
+    obs_fps: int | float,
+    seed: int,
+) -> str:
     axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps)
-    return f"flappy_{sweep_name}_{latency_label}_{axis}_seed{int(seed)}"
+    return f"{env_name}_{sweep_name}_{latency_label}_{axis}_seed{int(seed)}"
 
 
-def _wandb_name(sweep_name: str, latency_label: str, frame_stack: int, obs_fps: int, seed: int) -> str:
+def _wandb_name(
+    env_name: str,
+    sweep_name: str,
+    latency_label: str,
+    frame_stack: int,
+    obs_fps: int | float,
+    seed: int,
+) -> str:
     axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps)
-    return f"flappy-{axis}-{latency_label}-s{int(seed)}"
+    return f"{_env_slug(env_name)}-{axis}-{latency_label}-s{int(seed)}"
 
 
 def _run_dir(
@@ -127,7 +159,7 @@ def _run_dir(
     sweep_name: str,
     latency_label: str,
     frame_stack: int,
-    obs_fps: int,
+    obs_fps: int | float,
     seed: int,
 ) -> Path:
     return generated_root / sweep_name / latency_label / _run_axis_fragment(sweep_name, frame_stack, obs_fps) / f"seed_{int(seed)}"
@@ -139,7 +171,7 @@ def _output_dir(
     sweep_name: str,
     latency_label: str,
     frame_stack: int,
-    obs_fps: int,
+    obs_fps: int | float,
     seed: int,
 ) -> Path:
     return (
@@ -160,7 +192,7 @@ def _build_full_train_config(
     latency_label: str,
     latency_setting: dict[str, Any],
     frame_stack: int,
-    obs_fps: int,
+    obs_fps: int | float,
     seed: int,
     train_dir: Path,
     output_root: Path,
@@ -168,7 +200,15 @@ def _build_full_train_config(
     restart_behavior: str,
 ) -> dict[str, Any]:
     config = deepcopy(base_config)
-    config.setdefault("experiment", {})["name"] = _run_name(sweep_name, latency_label, frame_stack, obs_fps, seed)
+    env_name = _env_name(config)
+    config.setdefault("experiment", {})["name"] = _run_name(
+        env_name,
+        sweep_name,
+        latency_label,
+        frame_stack,
+        obs_fps,
+        seed,
+    )
     config["experiment"]["seed"] = int(seed)
     config.setdefault("backend", {})["type"] = "sample_factory"
     config["backend"]["device"] = str(device)
@@ -176,13 +216,13 @@ def _build_full_train_config(
     config["backend"]["restart_behavior"] = str(restart_behavior)
     config["backend"]["run_mode"] = "train"
     config.setdefault("env", {})["frame_stack"] = int(frame_stack)
-    config["env"]["obs_fps"] = int(obs_fps)
+    config["env"]["obs_fps"] = obs_fps
     _apply_latency_setting(config, latency_setting, int(seed))
     config.setdefault("logging", {})["output_dir"] = str(
         _output_dir(output_root, "train", sweep_name, latency_label, frame_stack, obs_fps, seed)
     )
     config["logging"]["wandb_group"] = str(sweep_cfg["wandb_group"])
-    config["logging"]["wandb_name"] = _wandb_name(sweep_name, latency_label, frame_stack, obs_fps, seed)
+    config["logging"]["wandb_name"] = _wandb_name(env_name, sweep_name, latency_label, frame_stack, obs_fps, seed)
     return config
 
 
@@ -192,13 +232,16 @@ def _build_eval_config(
     sweep_name: str,
     latency_label: str,
     frame_stack: int,
-    obs_fps: int,
+    obs_fps: int | float,
     seed: int,
     output_root: Path,
 ) -> dict[str, Any]:
     config = deepcopy(full_train_config)
+    env_name = _env_name(config)
     config["backend"]["run_mode"] = "eval"
     config.setdefault("evaluation", {})["eval_episodes"] = int(config["evaluation"]["eval_episodes"])
+    _drop_eval_time_limit_fields(config)
+    _align_demon_attack_raw_eval_config(config, env_name)
     config["logging"]["output_dir"] = str(
         _output_dir(output_root, "eval", sweep_name, latency_label, frame_stack, obs_fps, seed)
     )
@@ -212,18 +255,21 @@ def _build_latency_bench_eval_config(
     sweep_name: str,
     latency_label: str,
     frame_stack: int,
-    obs_fps: int,
+    obs_fps: int | float,
     seed: int,
     output_root: Path,
     latency_bench_policy_device: str,
 ) -> dict[str, Any]:
     config = merge_dicts(base_config, full_train_config)
+    env_name = _env_name(config)
     config.setdefault("backend", {})["run_mode"] = "eval"
+    _drop_eval_time_limit_fields(config)
+    _align_demon_attack_raw_eval_config(config, env_name)
     config["experiment"]["num_episodes"] = int(config["evaluation"]["eval_episodes"])
     config["policy"] = merge_dicts(
         base_config.get("policy", {}),
         {
-            "type": "flappy_sf",
+            "type": LATENCY_BENCH_POLICY_TYPES[env_name],
             "checkpoint_path": "",
             "device": str(latency_bench_policy_device),
             "deterministic": True,
@@ -233,6 +279,8 @@ def _build_latency_bench_eval_config(
         _output_dir(output_root, "latency_bench", sweep_name, latency_label, frame_stack, obs_fps, seed)
     )
     config["logging"].pop("wandb_name", None)
+    if env_name == "deadly_corridor":
+        config.setdefault("env", {})["noop_action"] = [0, 0, 0, 0]
     return config
 
 
@@ -250,7 +298,7 @@ def _iter_runs(spec: dict[str, Any]):
                             latency_label,
                             latency_setting,
                             int(frame_stack),
-                            int(obs_fps),
+                            float(obs_fps),
                             int(seed),
                         )
 

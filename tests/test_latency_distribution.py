@@ -26,7 +26,8 @@ def test_parse_normal_distribution_and_builds_stable_label():
 
     assert spec == LatencyDistributionSpec(type="normal", mean=5.0, std=2.25, min=0, max=15)
     assert latency_distribution_label(spec) == "normal_mean_5_std_2p25_min_0_max_15"
-    assert latency_distribution_label({"type": "normal", "mean": 5, "std": 2.25, "min": 0, "max": 15}) == (
+    parsed = parse_latency_distribution('{"type":"normal","mean":5,"std":2.25,"min":0,"max":15}')
+    assert latency_distribution_label(parsed) == (
         "normal_mean_5_std_2p25_min_0_max_15"
     )
     assert distribution_max_frame_latency(spec) == 15
@@ -40,7 +41,7 @@ def test_parse_uniform_distribution_and_builds_stable_label():
 
 
 def test_sample_latency_frame_clamps_then_uses_ceil_conversion():
-    spec = {"type": "uniform", "min": 0, "max": 15}
+    spec = parse_latency_distribution({"type": "uniform", "min": 0, "max": 15})
 
     assert sample_latency_frame(spec, -10.0) == 0
     assert sample_latency_frame(spec, 0.01) == 1
@@ -50,9 +51,9 @@ def test_sample_latency_frame_clamps_then_uses_ceil_conversion():
 
 
 def test_sample_latency_frame_supports_fractional_bounds():
-    spec = {"type": "uniform", "min": 1.2, "max": 3.2}
+    spec = parse_latency_distribution({"type": "uniform", "min": 1.2, "max": 3.2})
 
-    assert parse_latency_distribution(spec).to_dict() == {"type": "uniform", "min": 1.2, "max": 3.2}
+    assert spec.to_dict() == {"type": "uniform", "min": 1.2, "max": 3.2}
     assert latency_distribution_label(spec) == "uniform_min_1p2_max_3p2"
     assert distribution_max_frame_latency(spec) == 4
     assert sample_latency_frame(spec, -10.0) == 2
@@ -60,23 +61,33 @@ def test_sample_latency_frame_supports_fractional_bounds():
 
 
 @pytest.mark.parametrize(
-    ("raw", "match"),
+    "raw",
     (
-        ({"type": "normal", "mean": 5, "min": 0, "max": 15}, "std"),
-        ({"type": "normal", "mean": 5, "std": -1, "min": 0, "max": 15}, "std"),
-        ({"type": "uniform", "min": -0.5, "max": 15}, "non-negative"),
-        ({"type": "uniform", "min": 2, "max": 1}, "min.*max"),
-        ({"type": "unknown", "min": 0, "max": 1}, "type"),
+        {"type": "normal", "mean": 5, "std": -1, "min": 0, "max": 15},
+        {"type": "uniform", "min": -0.5, "max": 15},
+        {"type": "uniform", "min": 2, "max": 1},
     ),
 )
-def test_distribution_validation_rejects_invalid_specs(raw, match):
-    with pytest.raises(ValueError, match=match):
-        parse_latency_distribution(raw)
+def test_parse_distribution_preserves_contract_values_without_range_validation(raw):
+    spec = parse_latency_distribution(raw)
+
+    assert spec.type == raw["type"]
+    assert spec.min == raw["min"]
+    assert spec.max == raw["max"]
+    if raw["type"] == "normal":
+        assert spec.mean == raw["mean"]
+        assert spec.std == raw["std"]
+
+
+def test_parse_distribution_rejects_unknown_type():
+    with pytest.raises(ValueError, match="type"):
+        parse_latency_distribution({"type": "unknown", "min": 0, "max": 1})
 
 
 def test_normal_mean_may_be_outside_bounds_but_samples_are_clamped_and_rounded():
+    spec = parse_latency_distribution({"type": "normal", "mean": -10.0, "std": 0.0, "min": 0, "max": 15})
     sampler = make_latency_distribution_sampler(
-        {"type": "normal", "mean": -10.0, "std": 0.0, "min": 0, "max": 15},
+        spec,
         seed=123,
     )
 
@@ -84,7 +95,7 @@ def test_normal_mean_may_be_outside_bounds_but_samples_are_clamped_and_rounded()
 
 
 def test_samplers_are_deterministic_without_global_random_state():
-    spec = {"type": "uniform", "min": 0, "max": 15}
+    spec = parse_latency_distribution({"type": "uniform", "min": 0, "max": 15})
     first = make_latency_distribution_sampler(spec, seed=derive_latency_seed(7, worker_index=1, vector_index=2))
     second = make_latency_distribution_sampler(spec, seed=derive_latency_seed(7, worker_index=1, vector_index=2))
     other = make_latency_distribution_sampler(spec, seed=derive_latency_seed(7, worker_index=1, vector_index=3))

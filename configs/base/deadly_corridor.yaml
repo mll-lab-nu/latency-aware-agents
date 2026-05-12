@@ -17,8 +17,8 @@ executor:
 env:
   name: deadly_corridor
   env_id: doom_deadly_corridor
-  env_fps: 35
-  obs_fps: 8.75
+  env_fps: 60
+  obs_fps: 15
   noop_action: 0
   frame_stack: 4
   res_w: 128

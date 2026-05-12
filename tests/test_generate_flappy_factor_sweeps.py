@@ -153,3 +153,110 @@ def test_flappy_factor_sweep_wrapper_uses_env_overrides(tmp_path):
     assert train_cfg["logging"]["output_dir"] == str(
         output_root / "train" / "obs_fps" / "fixed_l2" / "obs10" / "seed_0"
     )
+
+
+def test_factor_sweep_wrapper_generates_selected_envs(tmp_path):
+    generated_root = tmp_path / "generated"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "ENVS": "demon_attack,deadly_corridor",
+            "GENERATED_ROOT": str(generated_root),
+            "OUTPUT_ROOT": str(output_root),
+            "TRAIN_DIR": str(train_dir),
+            "DEVICE": "cpu",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/bash_scripts/generate_factor_sweeps.sh"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (generated_root / "demon_attack" / "manifest.tsv").is_file()
+    assert (generated_root / "deadly_corridor" / "manifest.tsv").is_file()
+    train_cfg = yaml.safe_load(
+        (
+            generated_root
+            / "deadly_corridor"
+            / "obs_fps"
+            / "fixed_l1"
+            / "obs7p5"
+            / "seed_0"
+            / "train.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    assert train_cfg["backend"]["device"] == "cpu"
+    assert train_cfg["backend"]["train_dir"] == str(train_dir / "deadly_corridor")
+    assert train_cfg["env"]["obs_fps"] == pytest.approx(7.5)
+    assert train_cfg["logging"]["output_dir"] == str(
+        output_root / "deadly_corridor" / "train" / "obs_fps" / "fixed_l1" / "obs7p5" / "seed_0"
+    )
+
+
+@pytest.mark.parametrize(
+    ("env_name", "spec_path", "expected_policy"),
+    [
+        ("demon_attack", "configs/experiments/demon_attack/factor_sweeps/sweep.yaml", "demon_attack_sf"),
+        ("deadly_corridor", "configs/experiments/deadly_corridor/factor_sweeps/sweep.yaml", "deadly_corridor_sf"),
+    ],
+)
+def test_factor_sweep_generator_emits_non_flappy_configs(tmp_path, env_name, spec_path, expected_policy):
+    generated_root = tmp_path / "configs"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    generate_flappy_factor_sweeps(
+        [
+            "--spec",
+            spec_path,
+            "--generated-root",
+            str(generated_root),
+            "--output-root",
+            str(output_root),
+            "--train-dir",
+            str(train_dir),
+        ]
+    )
+
+    rows = _read_manifest(generated_root / "manifest.tsv")
+    assert len(rows) == 40
+    assert len({row["train_config"] for row in rows}) == 40
+
+    train_cfg = yaml.safe_load(
+        (
+            generated_root
+            / "obs_fps"
+            / "fixed_l1"
+            / "obs7p5"
+            / "seed_0"
+            / "train.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    assert train_cfg["experiment"]["name"] == f"{env_name}_obs_fps_fixed_l1_obs7p5_seed0"
+    assert train_cfg["env"]["name"] == env_name
+    assert train_cfg["env"]["frame_stack"] == 4
+    assert train_cfg["env"]["obs_fps"] == pytest.approx(7.5)
+    assert train_cfg["logging"]["wandb_name"] == f"{env_name.replace('_', '-')}-obs7p5-fixed_l1-s0"
+    assert train_cfg["logging"]["output_dir"] == str(
+        output_root / "train" / "obs_fps" / "fixed_l1" / "obs7p5" / "seed_0"
+    )
+
+    bench_cfg = load_config(
+        generated_root / "obs_fps" / "fixed_l1" / "obs7p5" / "seed_0" / "latency_bench_eval.yaml"
+    )
+    assert bench_cfg["policy"]["type"] == expected_policy
+    assert bench_cfg["env"]["obs_fps"] == pytest.approx(7.5)
+    if env_name == "demon_attack":
+        assert bench_cfg["env"]["terminal_on_life_loss"] is True
+        assert bench_cfg["env"]["clip_reward"] is False
+    if env_name == "deadly_corridor":
+        assert bench_cfg["env"]["noop_action"] == [0, 0, 0, 0]
