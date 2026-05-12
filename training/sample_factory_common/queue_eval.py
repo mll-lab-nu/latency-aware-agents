@@ -10,7 +10,7 @@ from typing import Any, Callable
 import numpy as np
 import torch
 
-from latency_bench.core.latency_distribution import latency_distribution_label, parse_latency_distribution
+from latency_bench.core.latency_distribution import LatencyDistributionSpec, latency_distribution_label
 from latency_bench.core.types import LatencySourceType
 from training.atari_episode_stats import (
     TRUE_EPISODE_END_INFO_KEY,
@@ -460,10 +460,9 @@ def _latency_samples_from_infos(infos: Any, num_agents: int, active_mask: np.nda
 
 def _attach_distribution_eval_metadata(
     result: dict[str, Any],
-    raw_spec: Any,
+    spec: LatencyDistributionSpec,
     sampled_frames: list[int],
 ) -> dict[str, Any]:
-    spec = parse_latency_distribution(raw_spec)
     result["latency_distribution"] = spec.to_dict()
     result["latency_distribution_label"] = latency_distribution_label(spec)
     result["sample_count_frames"] = int(len(sampled_frames))

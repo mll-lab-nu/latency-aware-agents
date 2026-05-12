@@ -10,6 +10,7 @@ import gymnasium as gym
 import numpy as np
 
 from latency_bench.core.config import load_config
+from latency_bench.core.latency_distribution import parse_latency_distribution
 import scripts.generate_sample_factory_same_latency_sweep as same_latency_sweep
 from scripts.generate_sample_factory_same_latency_sweep import (
     _build_eval_config,
@@ -500,7 +501,7 @@ def test_action_latency_wrapper_distribution_samples_deterministically():
         def step(self, action):
             return np.zeros((1,), dtype=np.float32), 0.0, False, False, {}
 
-    spec = {"type": "uniform", "min": 0, "max": 15}
+    spec = parse_latency_distribution({"type": "uniform", "min": 0, "max": 15})
     first = ActionLatencyWrapper(
         NeverDoneEnv(),
         fixed_latency_raw_frames=0,
@@ -565,7 +566,7 @@ def test_action_latency_wrapper_distribution_resets_episode_rng():
         fixed_latency_raw_frames=0,
         env_fps=30,
         obs_fps=30,
-        latency_distribution_spec={"type": "uniform", "min": 0, "max": 15},
+        latency_distribution_spec=parse_latency_distribution({"type": "uniform", "min": 0, "max": 15}),
         seed=99,
     )
 
@@ -593,7 +594,7 @@ def test_action_latency_wrapper_distribution_rejects_too_small_pending_action_bo
             fixed_latency_raw_frames=0,
             env_fps=30,
             obs_fps=30,
-            latency_distribution_spec={"type": "uniform", "min": 0, "max": 5},
+            latency_distribution_spec=parse_latency_distribution({"type": "uniform", "min": 0, "max": 5}),
             max_pending_actions=5,
         )
     env.close()
@@ -2000,7 +2001,7 @@ def test_same_latency_generator_writes_single_uniform_distribution_bench_config(
 
     assert loaded["latency"]["type"] == "uniform_distribution"
     assert loaded["latency"]["min_latency_ms"] == pytest.approx(0.0)
-    assert loaded["latency"]["max_latency_ms"] == pytest.approx(15.0 * 1000.0 / 35.0)
+    assert loaded["latency"]["max_latency_ms"] == pytest.approx(15.0 * 1000.0 / float(loaded["env"]["env_fps"]))
     assert loaded["logging"]["output_dir"] == str(
         output_root / "latency_bench" / "deadly_corridor" / f"train_latency_{label}" / "seed_0"
     )

@@ -16,7 +16,6 @@ from latency_bench.core.latency_distribution import (
     distribution_max_frame_latency,
     latency_distribution_label,
     make_latency_distribution_sampler,
-    parse_latency_distribution,
 )
 from latency_bench.core.types import Action, ActionEvent, ActionHoldPolicy, OrderingPolicy
 from latency_bench.scheduler.action_queue import ActionScheduler
@@ -58,14 +57,12 @@ class ActionLatencyWrapper(gym.Wrapper):
         seed: int = 0,
         env_reset_seed_base: int | None = None,
         add_latency_info: bool = True,
-        latency_distribution_spec: LatencyDistributionSpec | dict[str, Any] | str | None = None,
+        latency_distribution_spec: LatencyDistributionSpec | None = None,
         max_pending_actions: int | None = None,
     ):
         super().__init__(env)
         self.fixed_latency_raw_frames = int(fixed_latency_raw_frames)
-        self.latency_distribution_spec = (
-            None if latency_distribution_spec is None else parse_latency_distribution(latency_distribution_spec)
-        )
+        self.latency_distribution_spec = latency_distribution_spec
         self.latency_distribution_label = (
             None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
         )

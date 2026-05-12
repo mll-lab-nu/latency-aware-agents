@@ -83,9 +83,11 @@ def test_batched_latency_reset_clears_pending_actions():
     ),
 )
 def test_batched_latency_sampled_distribution_matches_scalar_wrapper(latency_distribution_spec):
+    from latency_bench.core.latency_distribution import parse_latency_distribution
     from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
     from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
 
+    spec = parse_latency_distribution(latency_distribution_spec)
     scheduler = BatchedFlappyLatencyScheduler(
         batch_size=1,
         fixed_latency_raw_frames=0,
@@ -93,7 +95,7 @@ def test_batched_latency_sampled_distribution_matches_scalar_wrapper(latency_dis
         obs_fps=30,
         hold_policy="one_frame_then_noop",
         ordering_policy="latest_ready",
-        latency_distribution_spec=latency_distribution_spec,
+        latency_distribution_spec=spec,
         seeds=[17],
         env_reset_seed_bases=[101],
         add_latency_info=True,
@@ -105,7 +107,7 @@ def test_batched_latency_sampled_distribution_matches_scalar_wrapper(latency_dis
         obs_fps=30,
         hold_policy="one_frame_then_noop",
         ordering_policy="latest_ready",
-        latency_distribution_spec=latency_distribution_spec,
+        latency_distribution_spec=spec,
         seed=17,
         env_reset_seed_base=101,
         add_latency_info=True,

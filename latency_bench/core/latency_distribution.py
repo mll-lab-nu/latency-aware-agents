@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import json
-import math
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any, Mapping
 
 import numpy as np
@@ -38,16 +37,16 @@ class LatencyDistributionSpec:
 
 
 class LatencyDistributionSampler:
-    def __init__(self, spec: LatencyDistributionSpec | Mapping[str, Any] | str, *, seed: int | None = None):
-        self.spec = parse_latency_distribution(spec)
-        self.seed = None if seed is None else int(seed)
+    def __init__(self, spec: LatencyDistributionSpec, *, seed: int | None = None):
+        self.spec = spec
+        self.seed = seed
         self.rng = np.random.default_rng(self.seed)
 
     def sample_float(self) -> float:
         if self.spec.type == "normal":
-            return float(self.rng.normal(loc=float(self.spec.mean), scale=float(self.spec.std)))
+            return self.rng.normal(loc=self.spec.mean, scale=self.spec.std)
         if self.spec.type == "uniform":
-            return float(self.rng.uniform(float(self.spec.min), float(self.spec.max)))
+            return self.rng.uniform(self.spec.min, self.spec.max)
         raise ValueError(f"Unsupported latency distribution type: {self.spec.type}")
 
     def sample_frame(self) -> int:
@@ -56,79 +55,48 @@ class LatencyDistributionSampler:
         return frames_float_to_raw_frames(clamped)
 
 
-def parse_latency_distribution(raw: LatencyDistributionSpec | Mapping[str, Any] | str) -> LatencyDistributionSpec:
-    if isinstance(raw, LatencyDistributionSpec):
-        distribution_type = raw["type"].strip().lower()
-        if distribution_type == "normal":
-            return LatencyDistributionSpec(
-                type=distribution_type,
-                mean=raw.mean,
-                std=raw.std,
-                min=raw.min,
-                max=raw.max,
-            )
-        if distribution_type == "uniform":
-            return LatencyDistributionSpec(
-                type=distribution_type,
-                mean=None,
-                std=None,
-                min=raw.min,
-                max=raw.max,
-            )
-        raise ValueError(
-            "latency distribution type must be one of "
-            f"{sorted(SUPPORTED_LATENCY_DISTRIBUTIONS)}"
-        )
+def parse_latency_distribution(raw: Mapping[str, Any] | str) -> LatencyDistributionSpec:
     if isinstance(raw, str):
-        text = raw.strip()
-        if not text:
-            raise ValueError("latency distribution spec must not be empty")
-        try:
-            raw = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise ValueError("latency distribution string must be JSON") from exc
-    if not isinstance(raw, Mapping):
-        raise ValueError("latency distribution spec must be a mapping")
+        raw = json.loads(raw)
 
-    distribution_type = raw.type.strip().lower()
-    if distribution_type not in SUPPORTED_LATENCY_DISTRIBUTIONS:
-        raise ValueError(
-            "latency distribution type must be one of "
-            f"{sorted(SUPPORTED_LATENCY_DISTRIBUTIONS)}"
-        )
-
+    distribution_type = raw["type"].strip().lower()
     if distribution_type == "normal":
-        spec = LatencyDistributionSpec(
+        return LatencyDistributionSpec(
             type=distribution_type,
             mean=raw["mean"],
             std=raw["std"],
             min=raw["min"],
             max=raw["max"],
         )
-    else:
-        spec = LatencyDistributionSpec(
+    if distribution_type == "uniform":
+        return LatencyDistributionSpec(
             type=distribution_type,
             mean=None,
             std=None,
             min=raw["min"],
             max=raw["max"],
         )
-    return spec
+    raise ValueError(
+        "latency distribution type must be one of "
+        f"{sorted(SUPPORTED_LATENCY_DISTRIBUTIONS)}"
+    )
 
 
 def make_latency_distribution_sampler(
-    raw: LatencyDistributionSpec | Mapping[str, Any] | str,
+    spec: LatencyDistributionSpec,
     *,
     seed: int | None = None,
 ) -> LatencyDistributionSampler:
-    return LatencyDistributionSampler(raw, seed=seed)
+    return LatencyDistributionSampler(spec, seed=seed)
 
 
-def latency_distribution_label(raw: LatencyDistributionSpec | Mapping[str, Any] | str) -> str:
-    spec = parse_latency_distribution(raw)
+def sample_latency_frame(spec: LatencyDistributionSpec, sampled_value: float) -> int:
+    clamped = min(max(sampled_value, spec.min), spec.max)
+    return frames_float_to_raw_frames(clamped)
+
+
+def latency_distribution_label(spec: LatencyDistributionSpec) -> str:
     if spec.type == "normal":
-        assert spec.mean is not None
-        assert spec.std is not None
         return (
             f"normal_mean_{_label_number(spec.mean)}"
             f"_std_{_label_number(spec.std)}"
@@ -140,17 +108,16 @@ def latency_distribution_label(raw: LatencyDistributionSpec | Mapping[str, Any] 
     raise ValueError(f"Unsupported latency distribution type: {spec.type}")
 
 
-def distribution_max_frame_latency(raw: LatencyDistributionSpec | Mapping[str, Any] | str) -> int:
-    return frames_float_to_raw_frames(parse_latency_distribution(raw).max)
+def distribution_max_frame_latency(spec: LatencyDistributionSpec) -> int:
+    return frames_float_to_raw_frames(spec.max)
 
 
 def distribution_frames_to_ms_latency_config(
-    raw: LatencyDistributionSpec | Mapping[str, Any] | str,
+    spec: LatencyDistributionSpec,
     *,
     env_fps: float,
     seed: int | None = None,
 ) -> dict[str, Any]:
-    spec = parse_latency_distribution(raw)
     frame_ms = 1000.0 / env_fps
     if spec.type == "normal":
         config: dict[str, Any] = {
@@ -197,12 +164,7 @@ def derive_latency_seed(
 
 
 def _label_number(value: int | float) -> str:
-    try:
-        decimal_value = Decimal(str(value))
-    except InvalidOperation as exc:
-        raise ValueError(f"Invalid latency distribution label number: {value!r}") from exc
-    if not decimal_value.is_finite():
-        raise ValueError(f"Invalid latency distribution label number: {value!r}")
+    decimal_value = Decimal(str(value))
     if decimal_value == decimal_value.to_integral_value():
         text = str(int(decimal_value))
     else:

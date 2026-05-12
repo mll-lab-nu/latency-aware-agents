@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from latency_bench.core.clock import ms_to_raw_frames
-from latency_bench.core.latency_distribution import LatencyDistributionSpec, parse_latency_distribution
+from latency_bench.core.latency_distribution import LatencyDistributionSpec
 from latency_bench.core.types import LatencySourceType
 
 from training.sample_factory_common.common import env_instance_seed
@@ -65,21 +65,17 @@ def sample_factory_latency_params_from_flat_config(cfg: Any, *, env_fps: float) 
 def latency_distribution_spec_from_flat_config(cfg: Any, *, env_fps: float) -> LatencyDistributionSpec:
     latency_type = LatencySourceType(str(getattr(cfg, "latency_type")))
     if latency_type == LatencySourceType.NORMAL_DISTRIBUTION:
-        return parse_latency_distribution(
-            LatencyDistributionSpec(
-                type="normal",
-                mean=latency_ms_to_raw_frame_value(getattr(cfg, "mean_latency_ms"), env_fps=env_fps),
-                std=latency_ms_to_raw_frame_value(getattr(cfg, "std_latency_ms"), env_fps=env_fps),
-                min=latency_ms_to_raw_frame_value(getattr(cfg, "min_latency_ms"), env_fps=env_fps),
-                max=latency_ms_to_raw_frame_value(getattr(cfg, "max_latency_ms"), env_fps=env_fps),
-            )
-        )
-    return parse_latency_distribution(
-        LatencyDistributionSpec(
-            type="uniform",
-            mean=None,
-            std=None,
+        return LatencyDistributionSpec(
+            type="normal",
+            mean=latency_ms_to_raw_frame_value(getattr(cfg, "mean_latency_ms"), env_fps=env_fps),
+            std=latency_ms_to_raw_frame_value(getattr(cfg, "std_latency_ms"), env_fps=env_fps),
             min=latency_ms_to_raw_frame_value(getattr(cfg, "min_latency_ms"), env_fps=env_fps),
             max=latency_ms_to_raw_frame_value(getattr(cfg, "max_latency_ms"), env_fps=env_fps),
         )
+    return LatencyDistributionSpec(
+        type="uniform",
+        mean=None,
+        std=None,
+        min=latency_ms_to_raw_frame_value(getattr(cfg, "min_latency_ms"), env_fps=env_fps),
+        max=latency_ms_to_raw_frame_value(getattr(cfg, "max_latency_ms"), env_fps=env_fps),
     )

@@ -15,6 +15,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from latency_bench.core.config import load_config
 from latency_bench.core.latency_distribution import (
+    LatencyDistributionSpec,
     distribution_frames_to_ms_latency_config,
     latency_distribution_label,
     parse_latency_distribution,
@@ -147,7 +148,7 @@ def parse_int_csv(value: str) -> list[int]:
     return [int(item.strip()) for item in text.split(",") if item.strip()]
 
 
-def _latency_run_label(latency: int | None, latency_distribution: dict | None = None) -> str:
+def _latency_run_label(latency: int | None, latency_distribution: LatencyDistributionSpec | None = None) -> str:
     if latency_distribution is not None:
         return latency_distribution_label(latency_distribution)
     if latency is None:
@@ -155,14 +156,24 @@ def _latency_run_label(latency: int | None, latency_distribution: dict | None = 
     return str(int(latency))
 
 
-def _build_wandb_name(env_name: str, latency: int | None, seed: int, latency_distribution: dict | None = None) -> str:
+def _build_wandb_name(
+    env_name: str,
+    latency: int | None,
+    seed: int,
+    latency_distribution: LatencyDistributionSpec | None = None,
+) -> str:
     env_slug = WANDB_ENV_SLUGS.get(env_name, env_name.replace("_", "-"))
     if latency_distribution is None:
         return f"{env_slug}-l{int(latency)}-s{int(seed)}"
     return f"{env_slug}-{_latency_run_label(latency, latency_distribution)}-s{int(seed)}"
 
 
-def _build_run_name(env_name: str, latency: int | None, seed: int, latency_distribution: dict | None = None) -> str:
+def _build_run_name(
+    env_name: str,
+    latency: int | None,
+    seed: int,
+    latency_distribution: LatencyDistributionSpec | None = None,
+) -> str:
     if latency_distribution is None:
         return f"{env_name}_sf_same_latency_l{int(latency)}_seed{int(seed)}"
     return f"{env_name}_sf_latency_{_latency_run_label(latency, latency_distribution)}_seed{int(seed)}"
@@ -181,7 +192,11 @@ def _apply_logging_overrides(logging_cfg: dict, *, wandb_group: str | None = Non
         logging_cfg["wandb_group"] = normalized_group
 
 
-def _apply_training_latency_config(config: dict, latency: int | None, latency_distribution: dict | None) -> None:
+def _apply_training_latency_config(
+    config: dict,
+    latency: int | None,
+    latency_distribution: LatencyDistributionSpec | None,
+) -> None:
     latency_cfg = config.setdefault("latency", {})
     if latency_distribution is None:
         if latency is None:
@@ -196,11 +211,10 @@ def _apply_training_latency_config(config: dict, latency: int | None, latency_di
         latency_cfg["add_latency_info"] = False
         return
 
-    spec = parse_latency_distribution(latency_distribution)
     latency_cfg.pop("fixed_latency_ms", None)
     latency_cfg.update(
         distribution_frames_to_ms_latency_config(
-            spec,
+            latency_distribution,
             env_fps=float(config["env"]["env_fps"]),
             seed=int(config["experiment"]["seed"]),
         )
@@ -220,7 +234,7 @@ def _build_full_run_config(
     restart_behavior: str,
     train_for_env_steps: int | None,
     frame_stack_override: int | None = None,
-    latency_distribution: dict | None = None,
+    latency_distribution: LatencyDistributionSpec | None = None,
     wandb_group: str | None = None,
 ) -> dict:
     if env_name not in BASE_CONFIGS:
@@ -272,7 +286,7 @@ def _build_train_config(
     restart_behavior: str,
     train_for_env_steps: int | None,
     frame_stack_override: int | None = None,
-    latency_distribution: dict | None = None,
+    latency_distribution: LatencyDistributionSpec | None = None,
     wandb_group: str | None = None,
 ) -> dict:
     return _prune_sample_factory_config(
@@ -341,7 +355,7 @@ def _build_latency_bench_eval_config(
     output_root: str,
     eval_episodes: int,
     latency_bench_policy_device: str = "auto",
-    latency_distribution: dict | None = None,
+    latency_distribution: LatencyDistributionSpec | None = None,
 ) -> dict:
     config = deepcopy(full_config)
     _require_eval_max_steps(config)
@@ -358,12 +372,11 @@ def _build_latency_bench_eval_config(
     latency_cfg = config.setdefault("latency", {})
     latency_label = _latency_run_label(latency, latency_distribution)
     if latency_distribution is not None:
-        spec = parse_latency_distribution(latency_distribution)
         latency_cfg.pop("fixed_latency_ms", None)
         latency_cfg["add_latency_info"] = False
         latency_cfg.update(
             distribution_frames_to_ms_latency_config(
-                spec,
+                latency_distribution,
                 env_fps=float(config["env"]["env_fps"]),
                 seed=int(seed),
             )
@@ -409,7 +422,7 @@ def _build_eval_config(
     max_steps: int | None,
     output_root: str,
     eval_episodes: int,
-    latency_distribution: dict | None = None,
+    latency_distribution: LatencyDistributionSpec | None = None,
 ) -> dict:
     config = deepcopy(train_config)
     _require_eval_max_steps(config)
@@ -463,7 +476,7 @@ def _write_yaml(path: Path, data: dict) -> None:
         yaml.safe_dump(data, handle, sort_keys=False)
 
 
-def _latency_distribution_from_args(args: argparse.Namespace) -> dict | None:
+def _latency_distribution_from_args(args: argparse.Namespace) -> LatencyDistributionSpec | None:
     if args.latency_distribution is None:
         return None
     distribution_type = str(args.latency_distribution).strip().lower()
@@ -475,7 +488,7 @@ def _latency_distribution_from_args(args: argparse.Namespace) -> dict | None:
     if distribution_type == "normal":
         raw["mean"] = args.latency_mean_frames
         raw["std"] = args.latency_std_frames
-    return parse_latency_distribution(raw).to_dict()
+    return parse_latency_distribution(raw)
 
 
 def main(argv: Sequence[str] | None = None) -> None:

@@ -7,11 +7,11 @@ import numpy as np
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import (
+    LatencyDistributionSpec,
     derive_latency_seed,
     distribution_max_frame_latency,
     latency_distribution_label,
     make_latency_distribution_sampler,
-    parse_latency_distribution,
 )
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 
@@ -36,7 +36,7 @@ class BatchedFlappyLatencyScheduler:
         obs_fps: float,
         hold_policy: str | ActionHoldPolicy,
         ordering_policy: str | OrderingPolicy,
-        latency_distribution_spec: Any,
+        latency_distribution_spec: LatencyDistributionSpec | None,
         seeds: Sequence[int],
         env_reset_seed_bases: Sequence[int],
         add_latency_info: bool,
@@ -44,9 +44,7 @@ class BatchedFlappyLatencyScheduler:
     ) -> None:
         self.batch_size = int(batch_size)
         self.fixed_latency_raw_frames = int(fixed_latency_raw_frames)
-        self.latency_distribution_spec = (
-            None if latency_distribution_spec is None else parse_latency_distribution(latency_distribution_spec)
-        )
+        self.latency_distribution_spec = latency_distribution_spec
         self.latency_distribution_label = (
             None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
         )
