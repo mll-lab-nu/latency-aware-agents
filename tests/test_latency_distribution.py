@@ -9,7 +9,7 @@ from latency_bench.core.latency_distribution import (
     latency_distribution_label,
     make_latency_distribution_sampler,
     parse_latency_distribution,
-    round_half_up_frame,
+    sample_latency_frame,
 )
 
 
@@ -39,12 +39,24 @@ def test_parse_uniform_distribution_and_builds_stable_label():
     assert latency_distribution_label(spec) == "uniform_min_0_max_0"
 
 
-def test_round_half_up_clamps_before_integer_conversion():
-    assert round_half_up_frame(-10.0, min_frame=0, max_frame=15) == 0
-    assert round_half_up_frame(3.49, min_frame=0, max_frame=15) == 3
-    assert round_half_up_frame(3.5, min_frame=0, max_frame=15) == 4
-    assert round_half_up_frame(99.0, min_frame=0, max_frame=15) == 15
-    assert round_half_up_frame(1.2, min_frame=3, max_frame=15) == 3
+def test_sample_latency_frame_clamps_then_uses_ceil_conversion():
+    spec = {"type": "uniform", "min": 0, "max": 15}
+
+    assert sample_latency_frame(spec, -10.0) == 0
+    assert sample_latency_frame(spec, 0.01) == 1
+    assert sample_latency_frame(spec, 3.0) == 3
+    assert sample_latency_frame(spec, 3.01) == 4
+    assert sample_latency_frame(spec, 99.0) == 15
+
+
+def test_sample_latency_frame_supports_fractional_bounds():
+    spec = {"type": "uniform", "min": 1.2, "max": 3.2}
+
+    assert parse_latency_distribution(spec).to_dict() == {"type": "uniform", "min": 1.2, "max": 3.2}
+    assert latency_distribution_label(spec) == "uniform_min_1p2_max_3p2"
+    assert distribution_max_frame_latency(spec) == 4
+    assert sample_latency_frame(spec, -10.0) == 2
+    assert sample_latency_frame(spec, 99.0) == 4
 
 
 @pytest.mark.parametrize(
@@ -52,7 +64,7 @@ def test_round_half_up_clamps_before_integer_conversion():
     (
         ({"type": "normal", "mean": 5, "min": 0, "max": 15}, "std"),
         ({"type": "normal", "mean": 5, "std": -1, "min": 0, "max": 15}, "std"),
-        ({"type": "uniform", "min": 0.5, "max": 15}, "integer"),
+        ({"type": "uniform", "min": -0.5, "max": 15}, "non-negative"),
         ({"type": "uniform", "min": 2, "max": 1}, "min.*max"),
         ({"type": "unknown", "min": 0, "max": 1}, "type"),
     ),

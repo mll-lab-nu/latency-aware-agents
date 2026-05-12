@@ -5,6 +5,7 @@ import pytest
 from latency_bench.core.clock import (
     EnvClock,
     FrameAccumulator,
+    frames_float_to_raw_frames,
     ms_to_raw_frames,
     validate_clock_rates,
 )
@@ -55,6 +56,15 @@ def test_ms_to_raw_frames_uses_ceil_boundaries():
 
     with pytest.raises(ValueError, match="env_fps"):
         ms_to_raw_frames(1.0, env_fps=0)
+
+
+def test_frames_float_to_raw_frames_uses_ceil_boundaries():
+    assert frames_float_to_raw_frames(0.0) == 0
+    assert frames_float_to_raw_frames(1.0) == 1
+    assert frames_float_to_raw_frames(1.000000000000001) == 1
+    assert frames_float_to_raw_frames(1.001) == 2
+    assert frames_float_to_raw_frames(3.0) == 3
+    assert frames_float_to_raw_frames(3.01) == 4
 
 
 def test_env_clock_accepts_explicit_observation_fps():

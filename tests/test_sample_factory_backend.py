@@ -427,6 +427,41 @@ def test_common_sf_args_passes_latency_distribution_without_legacy_train_values(
     assert args[args.index("--max-latency-ms") + 1] == "250.0"
 
 
+def test_sample_factory_latency_params_use_bench_ceil_for_fixed_ms():
+    from training.sample_factory_common.latency_config import sample_factory_latency_params_from_flat_config
+
+    cfg = SimpleNamespace(
+        latency_type="fixed",
+        fixed_latency_ms=(1000.0 / 30.0) + 0.001,
+    )
+
+    params = sample_factory_latency_params_from_flat_config(cfg, env_fps=30)
+
+    assert params.fixed_latency_raw_frames == 2
+    assert params.latency_distribution_spec is None
+
+
+def test_sample_factory_latency_distribution_preserves_fractional_bounds():
+    from latency_bench.core.latency_distribution import sample_latency_frame
+    from training.sample_factory_common.latency_config import sample_factory_latency_params_from_flat_config
+
+    cfg = SimpleNamespace(
+        latency_type="uniform_distribution",
+        min_latency_ms=50.0,
+        max_latency_ms=(3.5 * 1000.0 / 30.0),
+    )
+
+    params = sample_factory_latency_params_from_flat_config(cfg, env_fps=30)
+    spec = params.latency_distribution_spec
+
+    assert params.fixed_latency_raw_frames == 0
+    assert spec is not None
+    assert spec.min == pytest.approx(1.5)
+    assert spec.max == pytest.approx(3.5)
+    assert sample_latency_frame(spec, 0.0) == 2
+    assert sample_latency_frame(spec, 99.0) == 4
+
+
 def test_action_latency_wrapper_exposes_fixed_non_zero_latency():
     import gymnasium as gym
     from training.sample_factory_common import latency_wrapper

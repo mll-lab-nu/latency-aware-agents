@@ -13,18 +13,14 @@ def validate_clock_rates(env_fps: float, obs_fps: float) -> None:
         )
 
 
-def ms_to_raw_frames(latency_ms: float, env_fps: float) -> int:
-    latency_ms_value = float(latency_ms)
-    if not math.isfinite(latency_ms_value):
-        raise ValueError("latency_ms must be finite")
-    if latency_ms_value < 0:
-        raise ValueError("latency_ms must be non-negative")
-    frames = latency_ms_value / 1000.0 * env_fps
-    rounded_frames = round(frames)
-    if math.isclose(frames, rounded_frames, rel_tol=1e-12, abs_tol=1e-12):
-        frames = float(rounded_frames)
-    return int(math.ceil(frames))
+_FRAME_EPS = 1e-10
 
+def frames_float_to_raw_frames(frames: float) -> int:
+    return int(math.ceil(float(frames) - _FRAME_EPS))
+
+
+def ms_to_raw_frames(latency_ms: float, env_fps: float) -> int:
+    return frames_float_to_raw_frames(latency_ms * env_fps / 1000.0)
 
 class EnvClock:
     def __init__(
