@@ -30,32 +30,14 @@ def test_clock_rate_helpers_validate_observation_stride():
         EnvClock(env_fps=60, obs_fps=17)
 
 
-@pytest.mark.parametrize(
-    ("env_fps", "obs_fps"),
-    [
-        (0, 10),
-        (-30, 10),
-        (30, 0),
-        (30, -10),
-    ],
-)
-def test_clock_rate_helpers_reject_nonpositive_rates(env_fps: float, obs_fps: float):
-    with pytest.raises(ValueError):
-        validate_clock_rates(env_fps=env_fps, obs_fps=obs_fps)
-
-
 def test_ms_to_raw_frames_uses_ceil_boundaries():
     assert ms_to_raw_frames(0.0, env_fps=30) == 0
     assert ms_to_raw_frames(1.0, env_fps=30) == 1
     assert ms_to_raw_frames(1000.0 / 30.0, env_fps=30) == 1
     assert ms_to_raw_frames((1000.0 / 30.0) + 0.001, env_fps=30) == 2
     assert ms_to_raw_frames(100.0, env_fps=30) == 3
-
-    with pytest.raises(ValueError, match="latency_ms"):
-        ms_to_raw_frames(-1.0, env_fps=30)
-
-    with pytest.raises(ValueError, match="env_fps"):
-        ms_to_raw_frames(1.0, env_fps=0)
+    assert ms_to_raw_frames(-1.0, env_fps=30) == 0
+    assert ms_to_raw_frames(1.0, env_fps=0) == 0
 
 
 def test_frames_float_to_raw_frames_uses_ceil_boundaries():
@@ -79,6 +61,14 @@ def test_env_clock_accepts_explicit_observation_fps():
         EnvClock(30, 30)
 
 
+def test_env_clock_conversions_do_not_validate_negative_contract_values():
+    clock = EnvClock(env_fps=30, obs_fps=30)
+
+    assert clock.step_to_time_ms(-1) == pytest.approx(-1000.0 / 30.0)
+    assert clock.time_ms_to_step_float(-100.0) == pytest.approx(-3.0)
+    assert clock.latency_ms_to_frames_float(-100.0) == pytest.approx(-3.0)
+
+
 def test_frame_accumulator_preserves_fractional_residuals():
     accumulator = FrameAccumulator()
 
@@ -88,3 +78,10 @@ def test_frame_accumulator_preserves_fractional_residuals():
     assert accumulator.residual_frames == pytest.approx(0.8)
     assert accumulator.consume(0.4) == 1
     assert accumulator.residual_frames == pytest.approx(0.2)
+
+
+def test_frame_accumulator_does_not_validate_negative_contract_values():
+    accumulator = FrameAccumulator()
+
+    assert accumulator.consume(-0.4) == -1
+    assert accumulator.residual_frames == pytest.approx(0.6)

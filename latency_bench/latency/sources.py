@@ -23,9 +23,7 @@ class ZeroLatencySource(LatencySource):
 
 class FixedLatencySource(LatencySource):
     def __init__(self, fixed_latency_ms: float):
-        if fixed_latency_ms < 0:
-            raise ValueError("fixed_latency_ms must be non-negative")
-        self.fixed_latency_ms = float(fixed_latency_ms)
+        self.fixed_latency_ms = fixed_latency_ms
 
     def next_latency_ms(self, context: dict[str, Any] | None = None) -> float:
         return self.fixed_latency_ms
@@ -40,16 +38,6 @@ class NormalDistributionLatencySource(LatencySource):
         min_latency_ms: float = 0.0,
         max_latency_ms: float | None = None,
     ):
-        mean_latency_ms = float(mean_latency_ms)
-        std_latency_ms = float(std_latency_ms)
-        min_latency_ms = float(min_latency_ms)
-        max_latency_ms = None if max_latency_ms is None else float(max_latency_ms)
-        if std_latency_ms < 0:
-            raise ValueError("std_latency_ms must be non-negative")
-        if min_latency_ms < 0:
-            raise ValueError("min_latency_ms must be non-negative")
-        if max_latency_ms is not None and max_latency_ms < min_latency_ms:
-            raise ValueError("max_latency_ms must be greater than or equal to min_latency_ms")
         self.mean_latency_ms = mean_latency_ms
         self.std_latency_ms = std_latency_ms
         self.min_latency_ms = min_latency_ms
@@ -64,7 +52,7 @@ class NormalDistributionLatencySource(LatencySource):
         value = max(value, self.min_latency_ms)
         if self.max_latency_ms is not None:
             value = min(value, self.max_latency_ms)
-        return float(value)
+        return value
 
 
 class UniformDistributionLatencySource(LatencySource):
@@ -74,26 +62,20 @@ class UniformDistributionLatencySource(LatencySource):
         max_latency_ms: float,
         seed: int | None = None,
     ):
-        min_latency_ms = float(min_latency_ms)
-        max_latency_ms = float(max_latency_ms)
-        if min_latency_ms < 0:
-            raise ValueError("min_latency_ms must be non-negative")
-        if max_latency_ms < min_latency_ms:
-            raise ValueError("max_latency_ms must be greater than or equal to min_latency_ms")
         self.min_latency_ms = min_latency_ms
         self.max_latency_ms = max_latency_ms
         self.rng = random.Random(seed)
 
     def next_latency_ms(self, context: dict[str, Any] | None = None) -> float:
         if self.min_latency_ms == self.max_latency_ms:
-            return float(self.min_latency_ms)
-        return float(self.rng.uniform(self.min_latency_ms, self.max_latency_ms))
+            return self.min_latency_ms
+        return self.rng.uniform(self.min_latency_ms, self.max_latency_ms)
 
 
 class TraceReplayLatencySource(LatencySource):
     def __init__(self, trace_path: str | Path, loop_trace: bool = False):
         self.trace_path = Path(trace_path)
-        self.loop_trace = bool(loop_trace)
+        self.loop_trace = loop_trace
         self.values_ms = load_latency_trace(self.trace_path)
         self.index = 0
 
@@ -109,7 +91,6 @@ class TraceReplayLatencySource(LatencySource):
 
 class EmpiricalSampleLatencySource(LatencySource):
     def __init__(self, profile_path: str | Path | None, seed: int | None = None):
-        seed = _coerce_seed(seed)
         self.profile_path, self.trace_path, self.profile, self.samples_ms = _load_profile_samples(profile_path)
         self.profile_id = self.profile["profile_id"]
         self.profile_type = self.profile["profile_type"]
@@ -126,7 +107,7 @@ class EmpiricalSampleLatencySource(LatencySource):
             self,
             sample_index=sample_index,
         )
-        return float(self.samples_ms[sample_index])
+        return self.samples_ms[sample_index]
 
 
 class EmpiricalTraceReplayLatencySource(LatencySource):
@@ -137,7 +118,6 @@ class EmpiricalTraceReplayLatencySource(LatencySource):
         loop_trace: bool = True,
         seed: int | None = None,
     ):
-        seed = _coerce_seed(seed)
         if trace_replay_order not in {"sequential", "random"}:
             raise ValueError("trace_replay_order must be one of ['random', 'sequential']")
         self.profile_path, self.trace_path, self.profile, self.samples_ms = _load_profile_samples(profile_path)
@@ -146,7 +126,7 @@ class EmpiricalTraceReplayLatencySource(LatencySource):
         self.latency_scope = self.profile["latency_scope"]
         self.target_device = self.profile["target_device"]
         self.trace_replay_order = trace_replay_order
-        self.loop_trace = bool(loop_trace)
+        self.loop_trace = loop_trace
         self.order = list(range(len(self.samples_ms)))
         if trace_replay_order == "random":
             random.Random(seed).shuffle(self.order)
@@ -166,7 +146,7 @@ class EmpiricalTraceReplayLatencySource(LatencySource):
             self,
             trace_index=trace_index,
         )
-        return float(self.samples_ms[trace_index])
+        return self.samples_ms[trace_index]
 
 
 class MeasuredLatencySource(LatencySource):
@@ -215,14 +195,6 @@ def _load_profile_samples(profile_path: str | Path | None) -> tuple[Path, Path, 
         raise FileNotFoundError(f"Latency profile trace file not found: {trace_path}")
     samples_ms = load_latency_samples(trace_path)
     return manifest_path, trace_path, profile, samples_ms
-
-
-def _coerce_seed(seed: int | None) -> int | None:
-    if seed is None:
-        return None
-    if isinstance(seed, bool) or not isinstance(seed, int):
-        raise ValueError("seed must be an int or None")
-    return seed
 
 
 def _profile_latency_metadata(source: Any, **extra: int) -> dict[str, Any]:

@@ -63,6 +63,13 @@ def test_fixed_latency_source_returns_constant():
     assert source.next_latency_ms() == 42.5
 
 
+def test_fixed_latency_source_preserves_contract_value_without_range_validation():
+    source = FixedLatencySource(-4.5)
+
+    assert source.fixed_latency_ms == -4.5
+    assert source.next_latency_ms() == -4.5
+
+
 def test_normal_distribution_samples_deterministically_with_seed():
     first = NormalDistributionLatencySource(mean_latency_ms=100.0, std_latency_ms=20.0, seed=0)
     second = NormalDistributionLatencySource(mean_latency_ms=100.0, std_latency_ms=20.0, seed=0)
@@ -84,9 +91,18 @@ def test_normal_distribution_respects_min_and_max_bounds():
     assert high.next_latency_ms() == 50.0
 
 
-def test_normal_distribution_rejects_negative_std():
-    with pytest.raises(ValueError, match="std_latency_ms must be non-negative"):
-        NormalDistributionLatencySource(mean_latency_ms=100.0, std_latency_ms=-1.0)
+def test_normal_distribution_preserves_contract_values_without_range_validation():
+    source = NormalDistributionLatencySource(
+        mean_latency_ms=100.0,
+        std_latency_ms=-1.0,
+        min_latency_ms=-5.0,
+        max_latency_ms=1.0,
+    )
+
+    assert source.mean_latency_ms == 100.0
+    assert source.std_latency_ms == -1.0
+    assert source.min_latency_ms == -5.0
+    assert source.max_latency_ms == 1.0
 
 
 def test_uniform_distribution_samples_deterministically_with_seed_and_bounds():
@@ -100,9 +116,11 @@ def test_uniform_distribution_samples_deterministically_with_seed_and_bounds():
     assert all(10.0 <= value <= 20.0 for value in first_values)
 
 
-def test_uniform_distribution_rejects_invalid_bounds():
-    with pytest.raises(ValueError, match="max_latency_ms"):
-        UniformDistributionLatencySource(min_latency_ms=20.0, max_latency_ms=10.0)
+def test_uniform_distribution_preserves_contract_values_without_range_validation():
+    source = UniformDistributionLatencySource(min_latency_ms=20.0, max_latency_ms=10.0)
+
+    assert source.min_latency_ms == 20.0
+    assert source.max_latency_ms == 10.0
 
 
 def test_trace_replay_returns_values_in_order(tmp_path: Path):
@@ -214,8 +232,8 @@ def test_empirical_trace_replay_rejects_invalid_order(tmp_path: Path):
         EmpiricalTraceReplayLatencySource(profile_dir / "profile.json", trace_replay_order="reverse")
 
 
-def test_empirical_latency_sources_reject_invalid_seed(tmp_path: Path):
+def test_empirical_latency_sources_pass_seed_through_to_rng(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
+    source = EmpiricalSampleLatencySource(profile_dir / "profile.json", seed=True)
 
-    with pytest.raises(ValueError, match="seed must be an int or None"):
-        EmpiricalSampleLatencySource(profile_dir / "profile.json", seed=True)
+    assert source.next_latency_ms() in {10.0, 20.0, 30.0}
