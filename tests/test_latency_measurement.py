@@ -4,7 +4,6 @@ import pytest
 
 from latency_bench.latency.measurement import LatencyProfiler as MeasurementLatencyProfiler
 from latency_bench.latency.measurement import RuntimeLatencyMeasurer
-from latency_bench.latency.profiler import LatencyProfiler as LegacyLatencyProfiler
 
 
 def test_runtime_latency_measurer_records_callable_duration():
@@ -20,8 +19,3 @@ def test_runtime_latency_measurer_records_callable_duration():
     assert record.inference_ms == pytest.approx(record.latency_ms)
     assert record.end_to_end_ms == pytest.approx(record.latency_ms)
     assert record.end_wall_time >= record.start_wall_time
-
-
-def test_old_latency_profiler_import_remains_compatible():
-    assert MeasurementLatencyProfiler is RuntimeLatencyMeasurer
-    assert LegacyLatencyProfiler is RuntimeLatencyMeasurer
