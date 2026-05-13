@@ -6,8 +6,6 @@ from latency_bench.core.types import Action
 from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.latency.sources import FixedLatencySource
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
-from latency_bench.observation.builder import ObservationBuilder
-from latency_bench.observation.history import HistoryBuffer
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
 from executor_mode_helpers import SequencePolicyRunner, make_dummy_parts
 
@@ -23,8 +21,6 @@ def _executor(
     return PausedLatencyExecutor(
         env=env,
         policy=SequencePolicyRunner(actions, sleep_s=sleep_s),
-        observation_builder=ObservationBuilder(),
-        history=HistoryBuffer(),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_source=FixedLatencySource(latency_ms),
         action_scheduler=action_scheduler,

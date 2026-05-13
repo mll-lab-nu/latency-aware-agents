@@ -75,8 +75,6 @@ class BatchedSimulatedLatencyExecutor:
         action_schedulers: Sequence[ActionScheduler],
         clock: EnvClock,
         logger: TrajectoryLogger | None = None,
-        observation_builder=None,
-        histories=None,
     ):
         slot_count = env_backend.num_slots
         self.env_backend = env_backend

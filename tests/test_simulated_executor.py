@@ -10,8 +10,6 @@ from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.latency.sources import FixedLatencySource, LatencySource, TraceReplayLatencySource, ZeroLatencySource
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
-from latency_bench.observation.builder import ObservationBuilder
-from latency_bench.observation.history import HistoryBuffer
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler, ObservationCadenceDecisionScheduler
@@ -201,8 +199,6 @@ def _executor(
     executor = SimulatedLatencyExecutor(
         env=env,
         policy=policy or ConstantPolicyRunner(Action("jump")),
-        observation_builder=ObservationBuilder(),
-        history=HistoryBuffer(),
         decision_scheduler=decision_scheduler or ObservationCadenceDecisionScheduler(clock),
         latency_source=latency_source,
         action_scheduler=action_scheduler,
@@ -226,8 +222,6 @@ def test_policy_input_comes_from_env_observe_not_step_history():
     executor = SimulatedLatencyExecutor(
         env=env,
         policy=policy,
-        observation_builder=ObservationBuilder(),
-        history=HistoryBuffer(),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_source=ZeroLatencySource(),
         action_scheduler=action_scheduler,
@@ -254,8 +248,6 @@ def test_observe_cadence_skips_raw_step_observations():
     executor = SimulatedLatencyExecutor(
         env=env,
         policy=policy,
-        observation_builder=ObservationBuilder(),
-        history=HistoryBuffer(),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_source=ZeroLatencySource(),
         action_scheduler=action_scheduler,
@@ -490,8 +482,6 @@ def test_soft_reset_continues_same_episode_and_clears_latency_state():
     executor = SimulatedLatencyExecutor(
         env=env,
         policy=policy,
-        observation_builder=ObservationBuilder(),
-        history=HistoryBuffer(),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_source=FixedLatencySource(clock.frame_ms * 2),
         action_scheduler=ActionScheduler(

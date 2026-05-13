@@ -11,8 +11,6 @@ from latency_bench.executors.realtime import (
 )
 from latency_bench.latency.sources import ZeroLatencySource
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
-from latency_bench.observation.builder import ObservationBuilder
-from latency_bench.observation.history import HistoryBuffer
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
 from executor_mode_helpers import SequencePolicyRunner, make_dummy_parts
 
@@ -121,8 +119,6 @@ def _executor(
     return RealtimeLatencyExecutor(
         env=env,
         policy=SequencePolicyRunner(actions),
-        observation_builder=ObservationBuilder(),
-        history=HistoryBuffer(),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_source=ZeroLatencySource(),
         action_scheduler=action_scheduler,
@@ -147,8 +143,6 @@ def _measured_executor(
     return RealtimeLatencyExecutor(
         env=env,
         policy=SequencePolicyRunner(actions),
-        observation_builder=ObservationBuilder(),
-        history=HistoryBuffer(),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_source=ZeroLatencySource(),
         action_scheduler=action_scheduler,

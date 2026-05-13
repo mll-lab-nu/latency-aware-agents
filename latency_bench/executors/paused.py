@@ -29,8 +29,6 @@ class PausedLatencyExecutor:
         action_scheduler: ActionScheduler,
         clock: EnvClock,
         logger: TrajectoryLogger | None = None,
-        observation_builder=None,
-        history=None,
     ):
         self.env = env
         self.policy = policy

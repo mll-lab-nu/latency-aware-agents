@@ -13,10 +13,9 @@ from latency_bench.core.types import Action, Observation, PolicyOutput, StepResu
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
+from latency_bench.executors.env_step_backend import SerialEnvStepBackend
 from latency_bench.latency.sources import FixedLatencySource, LatencySource, ZeroLatencySource
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
-from latency_bench.observation.builder import ObservationBuilder
-from latency_bench.observation.history import HistoryBuffer
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
@@ -268,11 +267,10 @@ def _executor(
         )
         for env in envs
     ]
+    backend = SerialEnvStepBackend(envs)
     executor = BatchedSimulatedLatencyExecutor(
-        envs=envs,
+        env_backend=backend,
         policy=policy or ConstantPolicyRunner(Action("jump", name="jump")),
-        observation_builder=ObservationBuilder(),
-        histories=[HistoryBuffer() for _ in envs],
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_sources=latency_sources or [ZeroLatencySource() for _ in envs],
         action_schedulers=action_schedulers,
@@ -372,8 +370,6 @@ def _subproc_executor(
     return BatchedSimulatedLatencyExecutor(
         env_backend=backend,
         policy=policy or ConstantPolicyRunner(Action(jump_value, name="jump")),
-        observation_builder=ObservationBuilder(),
-        histories=[HistoryBuffer() for _ in backend.slot_handles],
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_sources=[ZeroLatencySource() for _env in backend.slot_handles],
         action_schedulers=action_schedulers,
@@ -421,11 +417,10 @@ def _tuple_executor(
         )
         for env in envs
     ]
+    backend = SerialEnvStepBackend(envs)
     executor = BatchedSimulatedLatencyExecutor(
-        envs=envs,
+        env_backend=backend,
         policy=TupleActionPolicy(),
-        observation_builder=ObservationBuilder(),
-        histories=[HistoryBuffer() for _ in envs],
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_sources=[ZeroLatencySource() for _env in envs],
         action_schedulers=action_schedulers,
@@ -537,11 +532,10 @@ def test_batched_executor_soft_reset_continues_same_episode_and_clears_slot_late
     noop = Action("noop", name="noop", is_noop=True)
     env = SoftResetEnvAdapter(noop_action=noop)
     policy = ResetTrackingBatchPolicy(Action("jump", name="jump"))
+    backend = SerialEnvStepBackend([env])
     executor = BatchedSimulatedLatencyExecutor(
-        envs=[env],
+        env_backend=backend,
         policy=policy,
-        observation_builder=ObservationBuilder(),
-        histories=[HistoryBuffer()],
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_sources=[FixedLatencySource(clock.frame_ms * 2)],
         action_schedulers=[

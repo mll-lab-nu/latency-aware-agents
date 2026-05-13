@@ -171,8 +171,6 @@ class RealtimeLatencyExecutor:
         policy_worker: SerialPolicyWorker | None = None,
         latency_profiler: RuntimeLatencyMeasurer | None = None,
         max_catchup_steps_per_loop: int | None = None,
-        observation_builder=None,
-        history=None,
     ):
         if max_pending_observations <= 0:
             raise ValueError("max_pending_observations must be positive")
