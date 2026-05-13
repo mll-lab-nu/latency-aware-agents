@@ -78,23 +78,7 @@ class BatchedSimulatedLatencyExecutor:
         observation_builder=None,
         histories=None,
     ):
-        if env_backend is None:
-            if envs is None:
-                raise ValueError("BatchedSimulatedLatencyExecutor requires envs or env_backend")
-            env_backend = SerialEnvStepBackend(envs)
-        elif envs is not None:
-            raise ValueError("provide either envs or env_backend, not both")
-
-        slot_count = int(env_backend.num_slots)
-        if slot_count <= 0:
-            raise ValueError("BatchedSimulatedLatencyExecutor requires at least one env slot")
-        if histories is not None and len(histories) != slot_count:
-            raise ValueError("histories length must match envs length")
-        if len(latency_sources) != slot_count:
-            raise ValueError("latency_sources length must match envs length")
-        if len(action_schedulers) != slot_count:
-            raise ValueError("action_schedulers length must match envs length")
-
+        slot_count = env_backend.num_slots
         self.env_backend = env_backend
         self.envs = list(env_backend.slot_handles)
         self.env = _BatchedEnvCollection(self.envs, close_fn=self.env_backend.close)
