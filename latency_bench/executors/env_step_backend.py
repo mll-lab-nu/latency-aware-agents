@@ -437,6 +437,13 @@ def _env_worker(connection: Any, config: dict[str, Any], noop_action: Action, sl
             elif command == "step":
                 start = time.perf_counter()
                 result = env.step(payload["action"])
+                parent_result = StepResult(
+                    observation=None,
+                    reward=result.reward,
+                    done=result.done,
+                    truncated=result.truncated,
+                    info=result.info,
+                )
                 metadata = {
                     "backend": "subproc",
                     "slot_id": int(slot_id),
@@ -446,7 +453,7 @@ def _env_worker(connection: Any, config: dict[str, Any], noop_action: Action, sl
                 connection.send((
                     "step_result",
                     {
-                        "result": result,
+                        "result": parent_result,
                         "worker_pid": worker_pid,
                         "metadata": metadata,
                     },
@@ -496,14 +503,17 @@ def _worker_timeout_sec() -> float:
 
 
 def _resolve_start_method(start_method: str | None = None) -> str:
-    requested = start_method or os.environ.get(START_METHOD_ENV) or "spawn"
-    requested = str(requested).strip().lower()
     available = mp.get_all_start_methods()
-    if requested in available:
-        return requested
-    if start_method is not None or START_METHOD_ENV in os.environ:
-        raise ValueError(f"multiprocessing start method {requested!r} is not available; available={available}")
-    for fallback in ("forkserver", "spawn"):
+
+    requested = start_method or os.environ.get(START_METHOD_ENV)
+    if requested is not None:
+        requested = str(requested).strip().lower()
+        if requested in available:
+            return requested
+        if start_method is not None or START_METHOD_ENV in os.environ:
+            raise ValueError(f"multiprocessing start method {requested!r} is not available; available={available}")
+
+    for fallback in ("fork", "forkserver", "spawn"):
         if fallback in available:
             return fallback
     raise RuntimeError(f"no safe multiprocessing start method is available; available={available}")

@@ -287,6 +287,17 @@ def test_latency_bench_env_backend_auto_selects_subproc_for_cpu_bound_envs(tmp_p
     assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "subproc"
 
 
+def test_latency_bench_env_backend_defaults_to_auto_for_parallel_cpu_bound_envs(tmp_path):
+    from latency_bench.executors.factory import _resolve_latency_bench_env_backend
+
+    config = _config(output_dir=str(tmp_path))
+    config["evaluation"]["eval_parallel_envs"] = 2
+    config["evaluation"].pop("latency_bench_env_backend", None)
+    config["env"]["name"] = "deadly_corridor"
+
+    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "subproc"
+
+
 def test_latency_bench_env_backend_auto_selects_flappy_gpu_batched_backend(tmp_path):
     from latency_bench.executors.factory import _resolve_latency_bench_env_backend
 

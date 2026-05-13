@@ -392,7 +392,7 @@ def _eval_parallel_envs(config: dict[str, Any]) -> int:
 def _resolve_latency_bench_env_backend(config: dict[str, Any], *, eval_parallel_envs: int) -> str:
     configured = os.environ.get(_ENV_BACKEND_DEBUG_ENV)
     if configured is None:
-        configured = config.get("evaluation", {}).get("latency_bench_env_backend", "serial")
+        configured = config.get("evaluation", {}).get("latency_bench_env_backend", "auto")
     backend = str(configured).strip().lower()
     if backend not in _LATENCY_BENCH_ENV_BACKENDS:
         raise ValueError(

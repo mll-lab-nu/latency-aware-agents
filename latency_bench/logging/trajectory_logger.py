@@ -37,6 +37,9 @@ class TrajectoryLogger:
     def _write_jsonl(self, filename: str, records: list) -> None:
         path = self.output_dir / filename
         with path.open("w", encoding="utf-8") as f:
-            for record in records:
-                f.write(json.dumps(to_jsonable(record), sort_keys=True) + "\n")
-
+            dumps = json.dumps
+            convert = to_jsonable
+            f.writelines(
+                dumps(convert(record), sort_keys=True) + "\n"
+                for record in records
+            )
