@@ -4,7 +4,6 @@ import pytest
 
 from latency_bench.core.clock import (
     EnvClock,
-    FrameAccumulator,
     frames_float_to_raw_frames,
     ms_to_raw_frames,
     validate_clock_rates,
@@ -67,21 +66,3 @@ def test_env_clock_conversions_do_not_validate_negative_contract_values():
     assert clock.step_to_time_ms(-1) == pytest.approx(-1000.0 / 30.0)
     assert clock.time_ms_to_step_float(-100.0) == pytest.approx(-3.0)
     assert clock.latency_ms_to_frames_float(-100.0) == pytest.approx(-3.0)
-
-
-def test_frame_accumulator_preserves_fractional_residuals():
-    accumulator = FrameAccumulator()
-
-    assert accumulator.consume(0.4) == 0
-    assert accumulator.residual_frames == pytest.approx(0.4)
-    assert accumulator.consume(0.4) == 0
-    assert accumulator.residual_frames == pytest.approx(0.8)
-    assert accumulator.consume(0.4) == 1
-    assert accumulator.residual_frames == pytest.approx(0.2)
-
-
-def test_frame_accumulator_does_not_validate_negative_contract_values():
-    accumulator = FrameAccumulator()
-
-    assert accumulator.consume(-0.4) == -1
-    assert accumulator.residual_frames == pytest.approx(0.6)

@@ -49,18 +49,3 @@ class EnvClock:
 
     def latency_ms_to_raw_frames(self, latency_ms: float) -> int:
         return ms_to_raw_frames(latency_ms, self.env_fps)
-
-
-class FrameAccumulator:
-    def __init__(self):
-        self.residual_frames = 0.0
-
-    def consume(self, frames_float: float) -> int:
-        """
-        Add fractional frames and return the number of whole frames to advance.
-        Keep the remaining fractional frames internally.
-        """
-        total = self.residual_frames + frames_float
-        whole = int(math.floor(total))
-        self.residual_frames = total - whole
-        return whole
