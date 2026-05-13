@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, ActionEvent, Observation, OrderingPolicy
+from latency_bench.core.types import Action, ActionEvent, LatencyRecord, Observation, OrderingPolicy
 from latency_bench.executors.realtime import BoundedObservationQueue, RealtimeObservationTask
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy
@@ -13,13 +13,15 @@ def _event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> 
     ready_time_ms = clock.step_to_time_ms(ready_step)
     return ActionEvent(
         action_id=action_id,
-        obs_id=action_id,
         action=action,
         obs_env_step=0,
         obs_time_ms=0.0,
-        latency_ms=ready_time_ms,
         ready_time_ms=ready_time_ms,
         ready_step_float=float(ready_step),
+        latency=LatencyRecord(
+            obs_id=action_id,
+            latency_ms=ready_time_ms,
+        ),
     )
 
 

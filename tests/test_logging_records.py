@@ -35,11 +35,9 @@ def _representative_records() -> list[Any]:
     action = Action(value=np.int64(1), name="flap", is_noop=False, is_oneshot=True)
     event = ActionEvent(
         action_id=7,
-        obs_id=3,
         action=action,
         obs_env_step=5,
         obs_time_ms=166.666,
-        latency_ms=33.333,
         ready_time_ms=200.0,
         ready_step_float=6.0,
         latency_raw_frames=1,
@@ -48,6 +46,10 @@ def _representative_records() -> list[Any]:
         applied=True,
         applied_env_step=6,
         applied_time_ms=200.0,
+        latency=LatencyRecord(
+            obs_id=3,
+            latency_ms=33.333,
+        ),
         metadata={
             "np_scalar": np.float32(1.25),
             "np_array": np.asarray([1, 2, 3], dtype=np.int64),

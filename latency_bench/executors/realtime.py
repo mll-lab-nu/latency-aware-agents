@@ -124,8 +124,17 @@ class SerialPolicyWorker:
             try:
                 worker_start_time_ms = self._time_ms()
                 if self.latency_profiler is None:
+                    start_wall_time = self.time_fn()
                     policy_output = self.policy.predict(task.observation)
-                    latency_record = None
+                    end_wall_time = self.time_fn()
+                    elapsed_ms = (end_wall_time - start_wall_time) * 1000.0
+                    latency_record = LatencyRecord(
+                        obs_id=task.obs_id,
+                        latency_ms=elapsed_ms,
+                        start_wall_time=start_wall_time,
+                        end_wall_time=end_wall_time,
+                        inference_ms=elapsed_ms,
+                    )
                 else:
                     policy_output, latency_record = self.latency_profiler.run_and_measure(
                         self.policy.predict,
@@ -220,10 +229,7 @@ class RealtimeLatencyExecutor:
         dropped_catchup_frames = 0
         realtime_catchup_truncated = False
         last_submitted_observation_env_step: int | None = None
-        episode_latency_type = latency_type_from_source(
-            self.latency_source,
-            measured=self.latency_profiler is not None,
-        )
+        episode_latency_type = "measured"
         episode_metadata = episode_raw_fact_metadata(
             mode="realtime",
             episode_seed=seed,
@@ -231,7 +237,6 @@ class RealtimeLatencyExecutor:
             obs_fps=self.clock.obs_fps,
             frame_ms=self.clock.frame_ms,
             latency_type=episode_latency_type,
-            latency_source=self.latency_source,
         )
 
         self._episode_start_s = self.time_fn()
@@ -258,40 +263,35 @@ class RealtimeLatencyExecutor:
                 if completion.error is not None:
                     raise completion.error
                 if completion.latency_record is None:
-                    source_latency_ms = float(self.latency_source.next_latency_ms({
-                        "completion": completion,
-                        "observation": completion.task.observation,
-                        "obs_id": completion.task.obs_id,
-                        "env_step": env_step,
-                        "sim_time_ms": frame_time_ms,
-                    }))
-                    ready_time_ms = completion.completion_time_ms + source_latency_ms
+                    latency_ms = (
+                        0.0
+                        if completion.worker_start_time_ms is None
+                        else completion.completion_time_ms - completion.worker_start_time_ms
+                    )
                     latency_record = LatencyRecord(
                         obs_id=completion.task.obs_id,
-                        latency_ms=source_latency_ms,
+                        latency_ms=latency_ms,
+                        inference_ms=latency_ms,
                     )
-                    latency_type = latency_type_from_source(self.latency_source)
-                    profile_metadata = profile_metadata_from_source(self.latency_source)
                 else:
-                    ready_time_ms = completion.completion_time_ms
                     latency_record = completion.latency_record
-                    latency_type = "measured"
-                    profile_metadata = {key: None for key in profile_metadata_from_source(self.latency_source)}
+                ready_time_ms = completion.completion_time_ms
+                latency_type = "measured"
+                profile_metadata: dict[str, Any] = {}
 
                 effective_latency_ms = ready_time_ms - completion.task.submit_time_ms
-                if completion.latency_record is not None:
-                    queue_wait_ms = (
-                        None
-                        if completion.worker_start_time_ms is None
-                        else completion.worker_start_time_ms - completion.task.submit_time_ms
-                    )
-                    latency_record.metadata = {
-                        **latency_record.metadata,
-                        "queue_wait_ms": queue_wait_ms,
-                        "effective_latency_ms": effective_latency_ms,
-                        "submit_time_ms": completion.task.submit_time_ms,
-                        "ready_time_ms": ready_time_ms,
-                    }
+                queue_wait_ms = (
+                    None
+                    if completion.worker_start_time_ms is None
+                    else completion.worker_start_time_ms - completion.task.submit_time_ms
+                )
+                latency_record.metadata = {
+                    **latency_record.metadata,
+                    "queue_wait_ms": queue_wait_ms,
+                    "effective_latency_ms": effective_latency_ms,
+                    "submit_time_ms": completion.task.submit_time_ms,
+                    "ready_time_ms": ready_time_ms,
+                }
                 apply_latency_record_raw_fields(
                     record=latency_record,
                     latency_type=latency_type,
@@ -300,13 +300,12 @@ class RealtimeLatencyExecutor:
 
                 event = ActionEvent(
                     action_id=self._next_action_id,
-                    obs_id=completion.task.obs_id,
                     action=completion.policy_output.action,
                     obs_env_step=completion.task.observation.env_step,
                     obs_time_ms=completion.task.observation.sim_time_ms,
-                    latency_ms=effective_latency_ms,
                     ready_time_ms=ready_time_ms,
                     ready_step_float=self.clock.time_ms_to_step_float(ready_time_ms),
+                    latency=latency_record,
                     metadata=completion.policy_output.metadata,
                 )
                 apply_latency_raw_fields(
@@ -318,7 +317,7 @@ class RealtimeLatencyExecutor:
                 self._next_action_id += 1
                 self.action_scheduler.enqueue(event)
                 action_events.append(event)
-                latency_values_ms.append(effective_latency_ms)
+                latency_values_ms.append(latency_record.latency_ms)
                 if self.logger is not None:
                     self.logger.log_action_event(event)
                     self.logger.log_latency(latency_record)

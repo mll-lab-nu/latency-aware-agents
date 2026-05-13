@@ -892,11 +892,12 @@ def test_latency_bench_run_with_batched_sample_factory_discrete_policy_completes
         for line in (tmp_path / "latencies.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert len({record["action_id"] for record in action_records}) == len(action_records)
-    assert len({record["obs_id"] for record in action_records}) == len(action_records)
-    assert sorted(record["obs_id"] for record in action_records) == sorted(
+    assert len({record["latency"]["obs_id"] for record in action_records}) == len(action_records)
+    assert sorted(record["latency"]["obs_id"] for record in action_records) == sorted(
         record["obs_id"] for record in latency_records
     )
-    assert {"action_id", "obs_id", "action", "latency_ms", "ready_time_ms", "metadata"} <= set(action_records[0])
+    assert {"action_id", "action", "ready_time_ms", "latency", "metadata"} <= set(action_records[0])
+    assert {"obs_id", "latency_ms", "metadata"} <= set(action_records[0]["latency"])
 
 
 def test_latency_bench_run_with_batched_deadly_tuple_policy_completes_exact_episodes(
@@ -959,8 +960,8 @@ def test_latency_bench_run_with_batched_deadly_tuple_policy_completes_exact_epis
         for line in (tmp_path / "latencies.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert len({record["action_id"] for record in action_records}) == len(action_records)
-    assert len({record["obs_id"] for record in action_records}) == len(action_records)
-    assert sorted(record["obs_id"] for record in action_records) == sorted(
+    assert len({record["latency"]["obs_id"] for record in action_records}) == len(action_records)
+    assert sorted(record["latency"]["obs_id"] for record in action_records) == sorted(
         record["obs_id"] for record in latency_records
     )
     assert isinstance(action_records[0]["action"]["value"], list)

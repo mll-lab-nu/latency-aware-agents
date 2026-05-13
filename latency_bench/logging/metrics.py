@@ -96,9 +96,12 @@ def apply_latency_raw_fields(
 ) -> None:
     event.obs_step = event.obs_env_step
     event.action_emit_time_ms = event.obs_time_ms
-    event.latency_type = latency_type
-    event.effective_k = None if frame_ms <= 0 else float(event.latency_ms) / float(frame_ms)
-    _apply_profile_metadata(event, profile_metadata or {})
+    apply_latency_record_raw_fields(
+        record=event.latency,
+        latency_type=latency_type,
+        profile_metadata=profile_metadata,
+    )
+    event.effective_k = None if frame_ms <= 0 else float(event.latency.latency_ms) / float(frame_ms)
 
 
 def apply_latency_record_raw_fields(
@@ -119,7 +122,7 @@ def episode_raw_fact_metadata(
     obs_fps: float,
     frame_ms: float,
     latency_type: str,
-    latency_source: Any,
+    latency_source: Any | None = None,
 ) -> dict[str, Any]:
     return {
         "mode": mode,
@@ -128,7 +131,7 @@ def episode_raw_fact_metadata(
         "obs_fps": obs_fps,
         "frame_ms": frame_ms,
         "latency_type": latency_type,
-        **profile_metadata_from_source(latency_source),
+        **({} if latency_source is None else profile_metadata_from_source(latency_source)),
     }
 
 
@@ -205,12 +208,12 @@ def _finalize_action_events(action_events: list[ActionEvent], *, frame_ms: float
         if apply_frame is not None:
             event.action_age_frames = int(apply_frame) - int(obs_frame)
         if frame_ms is not None and event.effective_k is None and float(frame_ms) > 0:
-            event.effective_k = float(event.latency_ms) / float(frame_ms)
+            event.effective_k = float(event.latency.latency_ms) / float(frame_ms)
 
 
 def _backfill_action_event_raw_fields(event: ActionEvent, *, frame_ms: float | None) -> None:
     if event.latency_raw_frames is None:
-        latency_raw_frames = _latency_ms_to_raw_frames(event.latency_ms, frame_ms=frame_ms)
+        latency_raw_frames = _latency_ms_to_raw_frames(event.latency.latency_ms, frame_ms=frame_ms)
         if latency_raw_frames is not None:
             event.latency_raw_frames = latency_raw_frames
     if event.ready_raw_frame is None:

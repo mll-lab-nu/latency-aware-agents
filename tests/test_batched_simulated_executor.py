@@ -492,7 +492,7 @@ def test_batched_executor_global_obs_and_action_ids_are_unique(tmp_path: Path):
             eval_max_steps=3,
         )
         action_ids = [event.action_id for event in executor.logger.action_records]
-        action_obs_ids = [event.obs_id for event in executor.logger.action_records]
+        action_obs_ids = [event.latency.obs_id for event in executor.logger.action_records]
         latency_obs_ids = [record.obs_id for record in executor.logger.latency_records]
     finally:
         executor.close()
@@ -612,15 +612,15 @@ def test_batched_executor_output_records_remain_schema_compatible(tmp_path: Path
     assert {"episode_id", "env_step", "sim_time_ms", "active_action", "reward", "done", "info"} <= set(step)
     assert {
         "action_id",
-        "obs_id",
         "action",
-        "latency_ms",
         "ready_time_ms",
+        "latency",
         "latency_raw_frames",
         "ready_raw_frame",
         "apply_raw_frame",
         "metadata",
     } <= set(action)
+    assert {"obs_id", "latency_ms", "metadata"} <= set(action["latency"])
     assert action["obs_env_step"] == 0
     assert action["latency_raw_frames"] == 0
     assert action["ready_raw_frame"] == 0
@@ -646,7 +646,7 @@ def test_batched_executor_steps_tuple_actions_and_serializes_schema_compatibly(t
     assert [metric.episode_id for metric in metrics] == [0, 1]
     assert [env.applied_actions[0].value for env in envs] == [(0, 0), (1, 0)]
     action = json.loads((tmp_path / "actions.jsonl").read_text(encoding="utf-8").splitlines()[0])
-    assert {"action_id", "obs_id", "action", "latency_ms", "ready_time_ms", "metadata"} <= set(action)
+    assert {"action_id", "action", "ready_time_ms", "latency", "metadata"} <= set(action)
     assert isinstance(action["action"]["value"], list)
 
 
@@ -714,7 +714,8 @@ def test_subproc_backend_output_records_remain_schema_compatible(tmp_path: Path)
     metrics = json.loads((tmp_path / "episode_metrics.jsonl").read_text(encoding="utf-8").splitlines()[0])
 
     assert {"episode_id", "env_step", "sim_time_ms", "active_action", "reward", "done", "info"} <= set(step)
-    assert {"action_id", "obs_id", "action", "latency_ms", "ready_time_ms", "metadata"} <= set(action)
+    assert {"action_id", "action", "ready_time_ms", "latency", "metadata"} <= set(action)
+    assert {"obs_id", "latency_ms", "metadata"} <= set(action["latency"])
     assert {"obs_id", "latency_ms", "metadata"} <= set(latency)
     assert "source" not in latency
     assert {"episode_id", "episode_return", "survival_steps", "metadata"} <= set(metrics)

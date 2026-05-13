@@ -92,20 +92,28 @@ class SimulatedLatencyExecutor:
                 latency_ms = latency_sample.latency_ms
                 ready_raw_frame = raw_frame + latency_sample.latency_raw_frames
                 ready_time_ms = self.clock.step_to_time_ms(ready_raw_frame)
+                latency_record = LatencyRecord(
+                    obs_id=obs_id,
+                    latency_ms=latency_ms,
+                )
+                profile_metadata = profile_metadata_from_source(self.latency_source)
+                apply_latency_record_raw_fields(
+                    record=latency_record,
+                    latency_type=latency_type,
+                    profile_metadata=profile_metadata,
+                )
                 event = ActionEvent(
                     action_id=self._next_action_id,
-                    obs_id=obs_id,
                     action=policy_output.action,
                     obs_env_step=raw_frame,
                     obs_time_ms=current_time_ms,
-                    latency_ms=latency_ms,
                     ready_time_ms=ready_time_ms,
                     ready_step_float=float(ready_raw_frame),
+                    latency=latency_record,
                     latency_raw_frames=latency_sample.latency_raw_frames,
                     ready_raw_frame=ready_raw_frame,
                     metadata=policy_output.metadata,
                 )
-                profile_metadata = profile_metadata_from_source(self.latency_source)
                 apply_latency_raw_fields(
                     event=event,
                     latency_type=latency_type,
@@ -118,15 +126,6 @@ class SimulatedLatencyExecutor:
                 latency_values_ms.append(latency_ms)
                 if self.logger is not None:
                     self.logger.log_action_event(event)
-                    latency_record = LatencyRecord(
-                        obs_id=obs_id,
-                        latency_ms=latency_ms,
-                    )
-                    apply_latency_record_raw_fields(
-                        record=latency_record,
-                        latency_type=latency_type,
-                        profile_metadata=profile_metadata,
-                    )
                     self.logger.log_latency(latency_record)
 
             active_action = self.action_scheduler.update(raw_frame, current_time_ms)

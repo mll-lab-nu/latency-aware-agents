@@ -144,6 +144,12 @@ def _evaluation_raw_fact_metadata(config: dict[str, Any], episode_id: int) -> di
     env_fps = float(env_cfg["env_fps"]) if "env_fps" in env_cfg else None
     obs_fps = float(env_cfg["obs_fps"]) if "obs_fps" in env_cfg else None
     frame_ms = None if env_fps is None or env_fps <= 0 else 1000.0 / env_fps
+    executor_mode = str(executor_cfg.get("mode", "")).strip().lower()
+    latency_type = str(latency_cfg.get("type", "")).strip().lower()
+    if executor_mode == "paused":
+        latency_type = "zero"
+    elif executor_mode == "realtime":
+        latency_type = "measured"
     return {
         "mode": executor_cfg.get("mode"),
         "episode_seed": _episode_seed(config, episode_id),
@@ -156,7 +162,7 @@ def _evaluation_raw_fact_metadata(config: dict[str, Any], episode_id: int) -> di
         "env_fps": env_fps,
         "obs_fps": obs_fps,
         "frame_ms": frame_ms,
-        "latency_type": latency_cfg.get("type"),
+        "latency_type": latency_type,
     }
 
 
@@ -464,6 +470,9 @@ def _infer_latency_steps(config: dict[str, Any]) -> int | None:
 
 
 def _latency_steps_from_config(config: dict[str, Any]) -> int | None:
+    executor_mode = str(config.get("executor", {}).get("mode", "")).strip().lower()
+    if executor_mode == "realtime":
+        return None
     latency_cfg = config.get("latency", {})
     latency_type = str(latency_cfg.get("type", "")).strip().lower()
     if latency_type == "zero":
@@ -483,13 +492,15 @@ def _latency_steps_from_config(config: dict[str, Any]) -> int | None:
 
 
 def _summary_latency_label(config: dict[str, Any]) -> int | str | None:
+    executor_mode = str(config.get("executor", {}).get("mode", "")).strip().lower()
+    if executor_mode == "realtime":
+        return "measured"
     latency_steps = _infer_latency_steps(config)
     if latency_steps is not None:
         return latency_steps
 
-    executor_mode = str(config.get("executor", {}).get("mode", "")).strip().lower()
     latency_type = str(config.get("latency", {}).get("type", "")).strip().lower()
-    if executor_mode == "realtime" and latency_type:
+    if latency_type:
         return latency_type
     return None
 

@@ -55,7 +55,7 @@ class PausedLatencyExecutor:
         step_records: list[StepRecord] = []
         action_events: list[ActionEvent] = []
         latency_values_ms: list[float] = []
-        latency_type = latency_type_from_source(self.latency_source)
+        latency_type = "zero"
         episode_metadata = episode_raw_fact_metadata(
             mode="paused",
             episode_seed=seed,
@@ -63,7 +63,6 @@ class PausedLatencyExecutor:
             obs_fps=self.clock.obs_fps,
             frame_ms=self.clock.frame_ms,
             latency_type=latency_type,
-            latency_source=self.latency_source,
         )
 
         env_step = 0
@@ -75,50 +74,38 @@ class PausedLatencyExecutor:
                 obs_id = self._next_obs_id
                 self._next_obs_id += 1
 
-                configured_latency_ms = float(self.latency_source.next_latency_ms({
-                    "observation": observation,
-                    "obs_id": obs_id,
-                    "env_step": env_step,
-                    "sim_time_ms": current_time_ms,
-                }))
-                effective_latency_ms = 0.0
+                latency_record = LatencyRecord(
+                    obs_id=obs_id,
+                    latency_ms=0.0,
+                )
+                apply_latency_record_raw_fields(
+                    record=latency_record,
+                    latency_type=latency_type,
+                    profile_metadata={},
+                )
                 ready_time_ms = current_time_ms
                 event = ActionEvent(
                     action_id=self._next_action_id,
-                    obs_id=obs_id,
                     action=policy_output.action,
                     obs_env_step=observation.env_step,
                     obs_time_ms=observation.sim_time_ms,
-                    latency_ms=effective_latency_ms,
                     ready_time_ms=ready_time_ms,
                     ready_step_float=self.clock.time_ms_to_step_float(ready_time_ms),
-                    metadata={
-                        **policy_output.metadata,
-                        "paused_configured_latency_ms": configured_latency_ms,
-                    },
+                    latency=latency_record,
+                    metadata=policy_output.metadata,
                 )
-                profile_metadata = profile_metadata_from_source(self.latency_source)
                 apply_latency_raw_fields(
                     event=event,
                     latency_type=latency_type,
                     frame_ms=self.clock.frame_ms,
-                    profile_metadata=profile_metadata,
+                    profile_metadata={},
                 )
                 self._next_action_id += 1
                 self.action_scheduler.enqueue(event)
                 action_events.append(event)
-                latency_values_ms.append(configured_latency_ms)
+                latency_values_ms.append(latency_record.latency_ms)
                 if self.logger is not None:
                     self.logger.log_action_event(event)
-                    latency_record = LatencyRecord(
-                        obs_id=obs_id,
-                        latency_ms=configured_latency_ms,
-                    )
-                    apply_latency_record_raw_fields(
-                        record=latency_record,
-                        latency_type=latency_type,
-                        profile_metadata=profile_metadata,
-                    )
                     self.logger.log_latency(latency_record)
 
             active_action = self.action_scheduler.update(env_step, current_time_ms)
@@ -131,7 +118,7 @@ class PausedLatencyExecutor:
                     scheduled_time_ms=current_time_ms,
                     frame_ms=self.clock.frame_ms,
                     latency_type=latency_type,
-                    profile_metadata=profile_metadata_from_source(self.latency_source),
+                    profile_metadata={},
                 )
             )
             record = StepRecord(

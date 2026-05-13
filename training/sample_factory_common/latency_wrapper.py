@@ -17,7 +17,7 @@ from latency_bench.core.latency_distribution import (
     latency_distribution_label,
     make_latency_distribution_sampler,
 )
-from latency_bench.core.types import Action, ActionEvent, ActionHoldPolicy, OrderingPolicy
+from latency_bench.core.types import Action, ActionEvent, ActionHoldPolicy, LatencyRecord, OrderingPolicy
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 from training.atari_episode_stats import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
@@ -183,13 +183,15 @@ class ActionLatencyWrapper(gym.Wrapper):
         ready_raw_frame = obs_env_step + int(latency_raw_frames)
         event = ActionEvent(
             action_id=int(self._next_action_id),
-            obs_id=int(self.decision_step_idx),
             action=Action(value=clone_action(action), name=str(action), is_noop=False),
             obs_env_step=obs_env_step,
             obs_time_ms=self.clock.step_to_time_ms(obs_env_step),
-            latency_ms=float(latency_raw_frames) * self.clock.frame_ms,
             ready_time_ms=self.clock.step_to_time_ms(ready_raw_frame),
             ready_step_float=float(ready_raw_frame),
+            latency=LatencyRecord(
+                obs_id=int(self.decision_step_idx),
+                latency_ms=float(latency_raw_frames) * self.clock.frame_ms,
+            ),
             latency_raw_frames=int(latency_raw_frames),
             ready_raw_frame=ready_raw_frame,
         )

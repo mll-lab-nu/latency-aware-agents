@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, ActionEvent, OrderingPolicy
+from latency_bench.core.types import Action, ActionEvent, LatencyRecord, OrderingPolicy
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 
@@ -10,13 +10,15 @@ def _event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> 
     ready_time_ms = clock.step_to_time_ms(ready_step)
     return ActionEvent(
         action_id=action_id,
-        obs_id=action_id,
         action=action,
         obs_env_step=0,
         obs_time_ms=0.0,
-        latency_ms=ready_time_ms,
         ready_time_ms=ready_time_ms,
         ready_step_float=float(ready_step),
+        latency=LatencyRecord(
+            obs_id=action_id,
+            latency_ms=ready_time_ms,
+        ),
     )
 
 
@@ -53,13 +55,15 @@ def test_one_frame_latency_ready_on_float_boundary_applies_at_next_step():
     ready_time_ms = obs_time_ms + clock.frame_ms
     event = ActionEvent(
         action_id=0,
-        obs_id=0,
         action=action,
         obs_env_step=obs_step,
         obs_time_ms=obs_time_ms,
-        latency_ms=clock.frame_ms,
         ready_time_ms=ready_time_ms,
         ready_step_float=clock.time_ms_to_step_float(ready_time_ms),
+        latency=LatencyRecord(
+            obs_id=0,
+            latency_ms=clock.frame_ms,
+        ),
     )
     scheduler = ActionScheduler(clock, noop, HoldPolicy(duration_raw_frames=100))
     scheduler.enqueue(event)

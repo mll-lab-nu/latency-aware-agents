@@ -339,12 +339,20 @@ def test_factory_accepts_measured_latency_for_realtime(tmp_path):
         executor.env.close()
 
 
-def test_factory_rejects_measured_latency_for_paused(tmp_path):
+def test_factory_rejects_non_zero_latency_for_paused(tmp_path):
     mode = "paused"
     config = _config(mode=mode, output_dir=str(tmp_path))
-    config["latency"] = {"type": "measured"}
+    config["latency"] = {"type": "fixed", "fixed_latency_ms": 10.0}
 
-    with pytest.raises(ValueError, match="measured"):
+    with pytest.raises(ValueError, match="paused"):
+        build_executor(config)
+
+
+def test_factory_rejects_injected_latency_for_realtime(tmp_path):
+    config = _config(mode="realtime", output_dir=str(tmp_path))
+    config["latency"] = {"type": "fixed", "fixed_latency_ms": 10.0}
+
+    with pytest.raises(ValueError, match="realtime"):
         build_executor(config)
 
 

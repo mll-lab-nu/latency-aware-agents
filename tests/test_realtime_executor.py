@@ -398,7 +398,7 @@ def test_realtime_measured_latency_sets_effective_action_delay():
     executor.run_episode(episode_id=0, eval_max_steps=3)
 
     assert [action.value for action in executor.env.applied_actions] == ["noop", "noop", "jump"]
-    assert executor.action_scheduler.get_applied_events()[0].latency_ms == 50.0
+    assert executor.action_scheduler.get_applied_events()[0].latency.latency_ms == 50.0
 
 
 def test_realtime_measured_metadata_includes_queue_wait_and_effective_latency(tmp_path):

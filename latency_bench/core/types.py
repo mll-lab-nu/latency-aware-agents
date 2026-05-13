@@ -85,13 +85,12 @@ class LatencyRecord:
 @dataclass
 class ActionEvent:
     action_id: int
-    obs_id: int
     action: Action
     obs_env_step: int
     obs_time_ms: float
-    latency_ms: float
     ready_time_ms: float
     ready_step_float: float
+    latency: LatencyRecord
     latency_raw_frames: int | None = None
     ready_raw_frame: int | None = None
     apply_raw_frame: int | None = None
@@ -103,13 +102,6 @@ class ActionEvent:
     action_emit_time_ms: float | None = None
     effective_k: float | None = None
     action_age_frames: int | None = None
-    latency_type: str | None = None
-    profile_id: str | None = None
-    profile_type: str | None = None
-    target_device: str | None = None
-    profile_path: str | None = None
-    sample_index: int | None = None
-    trace_index: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

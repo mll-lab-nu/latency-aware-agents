@@ -193,6 +193,10 @@ def _build_batched_simulated_executor(
 @register_executor(ExecutorMode.PAUSED)
 def _build_paused_executor(config: dict[str, Any]) -> PausedLatencyExecutor:
     scheduler_cfg = config["scheduler"]
+    latency_cfg = config["latency"]
+    latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
+    if latency_type != LatencySourceType.ZERO.value:
+        raise ValueError("paused executor supports only latency.type=zero")
 
     action_resolver = ActionResolver(config["env"])
     env = build_env_adapter(config, action_resolver.noop_action)
@@ -200,7 +204,7 @@ def _build_paused_executor(config: dict[str, Any]) -> PausedLatencyExecutor:
     clock = _build_clock(config)
     policy = build_policy(config, action_resolver)
     decision_scheduler = _build_decision_scheduler(clock)
-    latency_source = _build_latency_source(config["latency"])
+    latency_source = ZeroLatencySource()
     persistence_policy = _build_persistence_policy(scheduler_cfg, clock=clock)
     action_scheduler = ActionScheduler(
         clock=clock,
@@ -225,6 +229,10 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
     scheduler_cfg = config["scheduler"]
     executor_cfg = config["executor"]
     realtime_cfg = config.get("realtime", {})
+    latency_cfg = config["latency"]
+    latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
+    if latency_type not in {LatencySourceType.ZERO.value, LatencySourceType.MEASURED.value}:
+        raise ValueError("realtime executor does not support injected latency; use latency.type=zero or measured")
 
     action_resolver = ActionResolver(config["env"])
     env = build_env_adapter(config, action_resolver.noop_action)
@@ -232,16 +240,11 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
     clock = _build_clock(config)
     policy = build_policy(config, action_resolver)
     decision_scheduler = _build_decision_scheduler(clock)
-    latency_cfg = config["latency"]
-    latency_profiler = None
-    if latency_cfg.get("type", LatencySourceType.ZERO.value) == LatencySourceType.MEASURED.value:
-        latency_source = ZeroLatencySource()
-        latency_profiler = RuntimeLatencyMeasurer(
-            device=latency_cfg.get("device"),
-            sync_cuda=bool(latency_cfg.get("sync_cuda", True)),
-        )
-    else:
-        latency_source = _build_latency_source(latency_cfg)
+    latency_source = ZeroLatencySource()
+    latency_profiler = RuntimeLatencyMeasurer(
+        device=latency_cfg.get("device"),
+        sync_cuda=bool(latency_cfg.get("sync_cuda", True)),
+    )
     persistence_policy = _build_persistence_policy(scheduler_cfg, clock=clock)
     action_scheduler = ActionScheduler(
         clock=clock,

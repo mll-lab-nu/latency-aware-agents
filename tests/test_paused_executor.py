@@ -61,7 +61,6 @@ def test_paused_logs_configured_latency_without_delaying_action(tmp_path: Path):
 
     metrics = executor.run_episode(episode_id=0, eval_max_steps=2)
 
-    assert logger.action_records[0].latency_ms == 0.0
-    assert logger.latency_records[0].latency_ms == fixed_latency_ms
-    assert logger.action_records[0].metadata["paused_configured_latency_ms"] == fixed_latency_ms
-    assert metrics.mean_latency_ms == fixed_latency_ms
+    assert logger.action_records[0].latency.latency_ms == 0.0
+    assert logger.latency_records[0].latency_ms == 0.0
+    assert metrics.mean_latency_ms == 0.0
