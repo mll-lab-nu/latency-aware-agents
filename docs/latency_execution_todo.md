@@ -39,7 +39,7 @@ Executor scheduling, scheduler ordering, realtime behavior, hold policies, and l
 
 Phase 3 is implemented for the simulated executors:
 
-- `ActionEvent` now carries `obs_raw_frame`, `latency_raw_frames`, `ready_raw_frame`, and `apply_raw_frame`.
+- `ActionEvent` now uses `obs_env_step` as the observation raw-frame index and carries `latency_raw_frames`, `ready_raw_frame`, and `apply_raw_frame`.
 - `ActionScheduler` uses `ready_raw_frame` when present and writes `apply_raw_frame` when an action is applied.
 - `SimulatedLatencyExecutor` and `BatchedSimulatedLatencyExecutor` schedule observation, readiness, and application on raw-frame indices. Existing millisecond latency sources remain compatible through executor-local conversion; sources may optionally expose `next_latency_raw_frames(context)`.
 - Metrics finalization backfills raw-frame fields from legacy aliases when older event producers do not set them.

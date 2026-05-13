@@ -176,7 +176,7 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 
 **Implemented scope:**
 
-- `ActionEvent` has Phase 3 raw fields: `obs_raw_frame`, `latency_raw_frames`, `ready_raw_frame`, and `apply_raw_frame`.
+- `ActionEvent` uses `obs_env_step` as the observation raw-frame index and carries `latency_raw_frames`, `ready_raw_frame`, and `apply_raw_frame`.
 - `ActionScheduler` uses `ready_raw_frame` when present, preserves FIFO/latest-ready ordering semantics, and records `apply_raw_frame`.
 - Single and batched simulated executors share an executor-local latency helper. The helper calls `next_latency_raw_frames(context)` when a source provides it; otherwise it converts `next_latency_ms(context)` with ceiling semantics.
 - Metrics finalization backfills missing raw fields from legacy aliases for compatibility.
@@ -246,7 +246,7 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 **Work:**
 
 - Standardize required action/job fields:
-  - `obs_raw_frame` (Phase 3 core field present)
+  - `obs_env_step` (observation raw-frame index)
   - `latency_raw_frames` (Phase 3 core field present)
   - `ready_raw_frame` (Phase 3 core field present)
   - `apply_raw_frame` (Phase 3 core field present)

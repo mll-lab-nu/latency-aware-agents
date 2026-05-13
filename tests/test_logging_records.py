@@ -42,7 +42,6 @@ def _representative_records() -> list[Any]:
         latency_ms=33.333,
         ready_time_ms=200.0,
         ready_step_float=6.0,
-        obs_raw_frame=5,
         latency_raw_frames=1,
         ready_raw_frame=6,
         apply_raw_frame=6,

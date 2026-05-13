@@ -630,7 +630,7 @@ def test_action_latency_wrapper_advances_obs_stride_with_one_frame_noop():
     assert info["raw_frames_advanced"] == 6
     applied_events = wrapped.action_scheduler.get_applied_events()
     assert len(applied_events) == 1
-    assert applied_events[0].obs_raw_frame == 0
+    assert applied_events[0].obs_env_step == 0
     assert applied_events[0].ready_raw_frame == 3
     assert applied_events[0].apply_raw_frame == 3
 

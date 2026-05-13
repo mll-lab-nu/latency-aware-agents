@@ -92,7 +92,6 @@ class ActionEvent:
     latency_ms: float
     ready_time_ms: float
     ready_step_float: float
-    obs_raw_frame: int | None = None
     latency_raw_frames: int | None = None
     ready_raw_frame: int | None = None
     apply_raw_frame: int | None = None

@@ -267,7 +267,7 @@ def test_zero_latency_action_can_affect_same_frame():
 
     assert env.applied_actions[0].value == "jump"
     applied = executor.action_scheduler.get_applied_events()
-    assert applied[0].obs_raw_frame == 0
+    assert applied[0].obs_env_step == 0
     assert applied[0].latency_raw_frames == 0
     assert applied[0].ready_raw_frame == 0
     assert applied[0].apply_raw_frame == 0
@@ -289,7 +289,7 @@ def test_raw_frame_latency_source_and_observation_stride_share_raw_timeline():
     executor.run_episode(episode_id=0, eval_max_steps=8)
 
     events = executor.action_scheduler.get_applied_events() + executor.action_scheduler.get_pending_events()
-    assert [event.obs_raw_frame for event in events] == [0, 6]
+    assert [event.obs_env_step for event in events] == [0, 6]
     assert events[0].latency_raw_frames == 3
     assert events[0].ready_raw_frame == 3
     assert events[0].apply_raw_frame == 3

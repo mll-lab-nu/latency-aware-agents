@@ -616,13 +616,12 @@ def test_batched_executor_output_records_remain_schema_compatible(tmp_path: Path
         "action",
         "latency_ms",
         "ready_time_ms",
-        "obs_raw_frame",
         "latency_raw_frames",
         "ready_raw_frame",
         "apply_raw_frame",
         "metadata",
     } <= set(action)
-    assert action["obs_raw_frame"] == 0
+    assert action["obs_env_step"] == 0
     assert action["latency_raw_frames"] == 0
     assert action["ready_raw_frame"] == 0
     assert action["apply_raw_frame"] == 0

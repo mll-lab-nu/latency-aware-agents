@@ -143,13 +143,7 @@ def active_action_step_info(
 ) -> dict[str, Any]:
     active_event = applied_events[-1] if applied_events else None
     profile_metadata = profile_metadata or {}
-    active_obs_frame = None
-    if active_event is not None:
-        active_obs_frame = (
-            active_event.obs_raw_frame
-            if active_event.obs_raw_frame is not None
-            else active_event.obs_env_step
-        )
+    active_obs_frame = None if active_event is None else active_event.obs_env_step
     return {
         "active_action_id": None if active_event is None else active_event.action_id,
         "active_action_obs_step": None if active_event is None else active_obs_frame,
@@ -206,7 +200,7 @@ def _finalize_action_events(action_events: list[ActionEvent], *, frame_ms: float
             event.apply_raw_frame = int(event.applied_env_step)
         if event.applied_time_ms is None and event.apply_raw_frame is not None and frame_ms is not None:
             event.applied_time_ms = int(event.apply_raw_frame) * float(frame_ms)
-        obs_frame = event.obs_raw_frame if event.obs_raw_frame is not None else event.obs_env_step
+        obs_frame = event.obs_env_step
         apply_frame = event.apply_raw_frame if event.apply_raw_frame is not None else event.applied_env_step
         if apply_frame is not None:
             event.action_age_frames = int(apply_frame) - int(obs_frame)
@@ -215,15 +209,13 @@ def _finalize_action_events(action_events: list[ActionEvent], *, frame_ms: float
 
 
 def _backfill_action_event_raw_fields(event: ActionEvent, *, frame_ms: float | None) -> None:
-    if event.obs_raw_frame is None:
-        event.obs_raw_frame = int(event.obs_env_step)
     if event.latency_raw_frames is None:
         latency_raw_frames = _latency_ms_to_raw_frames(event.latency_ms, frame_ms=frame_ms)
         if latency_raw_frames is not None:
             event.latency_raw_frames = latency_raw_frames
     if event.ready_raw_frame is None:
-        if event.obs_raw_frame is not None and event.latency_raw_frames is not None:
-            event.ready_raw_frame = int(event.obs_raw_frame) + int(event.latency_raw_frames)
+        if event.latency_raw_frames is not None:
+            event.ready_raw_frame = int(event.obs_env_step) + int(event.latency_raw_frames)
         elif event.ready_step_float is not None:
             event.ready_raw_frame = _ceil_step_float(event.ready_step_float)
     if event.apply_raw_frame is None and event.applied_env_step is not None:

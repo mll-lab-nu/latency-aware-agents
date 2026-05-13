@@ -288,9 +288,9 @@ Simulated mode 用可控 latency source 模拟从 observation 到 action ready �
 对于第 `k` 个 observation：
 
 ```text
-obs_raw_frame_k = k * obs_stride_raw_frames
+obs_env_step_k = k * obs_stride_raw_frames
 latency_raw_frames_k = LatencySource.sample(k)
-ready_raw_frame_k = obs_raw_frame_k + latency_raw_frames_k
+ready_raw_frame_k = obs_env_step_k + latency_raw_frames_k
 ```
 
 如果使用 issue-order FIFO：
@@ -613,7 +613,7 @@ Realtime mode 的目标是：环境 loop 不主动等待模型推理。
 ```text
 raw_frame_idx
 obs_idx
-obs_raw_frame
+obs_env_step
 issue_wall_time_ns
 ready_wall_time_ns
 apply_raw_frame
@@ -705,7 +705,7 @@ obs_stride_raw_frames
 1. `env_fps % obs_fps == 0`。
 2. `obs_stride_raw_frames = env_fps / obs_fps`。
 3. observation 只在 `k * obs_stride_raw_frames` 发出。
-4. action ready 不早于 `obs_raw_frame + latency_raw_frames`。
+4. action ready 不早于 `obs_env_step + latency_raw_frames`。
 5. action apply 发生在 raw environment timeline 上。
 
 ### 20.2 Simulated mode invariants

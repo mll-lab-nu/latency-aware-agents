@@ -101,7 +101,6 @@ class SimulatedLatencyExecutor:
                     latency_ms=latency_ms,
                     ready_time_ms=ready_time_ms,
                     ready_step_float=float(ready_raw_frame),
-                    obs_raw_frame=raw_frame,
                     latency_raw_frames=latency_sample.latency_raw_frames,
                     ready_raw_frame=ready_raw_frame,
                     metadata=policy_output.metadata,

@@ -290,9 +290,9 @@ Semantics:
 For the `k`-th observation:
 
 ```text
-obs_raw_frame_k = k * obs_stride_raw_frames
+obs_env_step_k = k * obs_stride_raw_frames
 latency_raw_frames_k = LatencySource.sample(k)
-ready_raw_frame_k = obs_raw_frame_k + latency_raw_frames_k
+ready_raw_frame_k = obs_env_step_k + latency_raw_frames_k
 ```
 
 If issue-order FIFO is used:
@@ -615,7 +615,7 @@ All executor modes should use a unified logging schema.
 ```text
 raw_frame_idx
 obs_idx
-obs_raw_frame
+obs_env_step
 issue_wall_time_ns
 ready_wall_time_ns
 apply_raw_frame
@@ -707,7 +707,7 @@ Any implementation that claims to follow this document must satisfy the followin
 1. `env_fps % obs_fps == 0`.
 2. `obs_stride_raw_frames = env_fps / obs_fps`.
 3. observations are emitted only at `k * obs_stride_raw_frames`.
-4. action readiness cannot occur before `obs_raw_frame + latency_raw_frames`.
+4. action readiness cannot occur before `obs_env_step + latency_raw_frames`.
 5. action application happens on the raw environment timeline.
 
 ### 20.2 Simulated mode invariants

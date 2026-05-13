@@ -103,18 +103,6 @@ def test_latest_ready_ablation_can_be_requested_explicitly():
     assert first_event.dropped
     assert second_event.applied
 
-
-def test_action_event_exposes_phase3_raw_frame_fields_contract():
-    required_fields = {
-        "obs_raw_frame",
-        "latency_raw_frames",
-        "ready_raw_frame",
-        "apply_raw_frame",
-    }
-
-    assert required_fields.issubset(ActionEvent.__dataclass_fields__)
-
-
 def test_one_frame_then_noop_hold_policy_contract():
     from latency_bench.scheduler.persistence import OneFrameThenNoopPolicy
 
