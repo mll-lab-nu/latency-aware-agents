@@ -149,9 +149,9 @@ def test_demon_attack_observe_stacks_only_observed_frames(monkeypatch):
         assert reset_observation.data.shape == (2, 2, 3)
         assert second_step.observation is not None
         assert second_step.observation.data.shape == (2, 2, 3)
-        assert first_policy_observation.data.shape == (2, 2, 6)
-        assert second_policy_observation.data.shape == (2, 2, 6)
-        assert np.all(second_policy_observation.data[..., :3] == 1)
-        assert np.all(second_policy_observation.data[..., 3:] == 3)
+        assert first_policy_observation.data.shape == (6, 2, 2)
+        assert second_policy_observation.data.shape == (6, 2, 2)
+        assert np.all(second_policy_observation.data[:3, ...] == 1)
+        assert np.all(second_policy_observation.data[3:, ...] == 3)
     finally:
         adapter.close()

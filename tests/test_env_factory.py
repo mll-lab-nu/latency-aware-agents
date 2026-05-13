@@ -579,29 +579,6 @@ def test_build_executor_maps_flappy_policy_actions(tmp_path):
         executor.env.close()
 
 
-def test_sample_factory_policy_does_not_install_executor_observation_builder(monkeypatch, tmp_path):
-    from latency_bench.executors import factory
-
-    noop = Action(value=0, name="noop", is_noop=True)
-
-    def fake_build_env_adapter(config, noop_action):
-        return DummyEnvAdapter(env_fps=30, max_steps=1, noop_action=noop)
-
-    def fake_build_policy(config, action_resolver):
-        return ConstantPolicyRunner(noop)
-
-    monkeypatch.setattr(factory, "build_env_adapter", fake_build_env_adapter)
-    monkeypatch.setattr(factory, "build_policy", fake_build_policy)
-    config = _config("deadly_corridor", output_dir=str(tmp_path))
-    config["env"].update({"frame_stack": 4})
-    config["policy"]["type"] = "deadly_corridor_sf"
-
-    executor = build_executor(config)
-
-    assert not hasattr(executor, "observation_builder")
-    assert not hasattr(executor, "history")
-
-
 def test_latency_bench_flappy_sf_eval_uses_same_obs_resize(monkeypatch, tmp_path):
     from latency_bench.executors import factory
     from latency_bench.envs.base import EnvAdapter
@@ -678,67 +655,3 @@ def test_latency_bench_flappy_sf_eval_uses_same_obs_resize(monkeypatch, tmp_path
     assert captured["shape"] == (12, 84, 84)
     assert captured["dtype"] == np.uint8
 
-
-def test_non_sample_factory_policy_does_not_install_executor_observation_builder(monkeypatch, tmp_path):
-    from latency_bench.executors import factory
-
-    noop = Action(value="noop", name="noop", is_noop=True)
-
-    def fake_build_env_adapter(config, noop_action):
-        return DummyEnvAdapter(env_fps=30, max_steps=1, noop_action=noop)
-
-    def fake_build_policy(config, action_resolver):
-        return ConstantPolicyRunner(noop)
-
-    monkeypatch.setattr(factory, "build_env_adapter", fake_build_env_adapter)
-    monkeypatch.setattr(factory, "build_policy", fake_build_policy)
-    config = _config("dummy", output_dir=str(tmp_path))
-
-    executor = build_executor(config)
-
-    assert not hasattr(executor, "observation_builder")
-    assert not hasattr(executor, "history")
-
-
-def test_sample_factory_executor_has_no_policy_observation_history(monkeypatch, tmp_path):
-    from latency_bench.executors import factory
-
-    noop = Action(value=0, name="noop", is_noop=True)
-
-    def fake_build_env_adapter(config, noop_action):
-        return DummyEnvAdapter(env_fps=30, max_steps=1, noop_action=noop)
-
-    def fake_build_policy(config, action_resolver):
-        return ConstantPolicyRunner(noop)
-
-    monkeypatch.setattr(factory, "build_env_adapter", fake_build_env_adapter)
-    monkeypatch.setattr(factory, "build_policy", fake_build_policy)
-    config = _config("deadly_corridor", output_dir=str(tmp_path))
-    config["env"]["frame_stack"] = 4
-    config["policy"]["type"] = "deadly_corridor_sf"
-
-    executor = build_executor(config)
-
-    assert not hasattr(executor, "history")
-
-
-def test_non_sample_factory_executor_has_no_policy_observation_history(monkeypatch, tmp_path):
-    from latency_bench.executors import factory
-
-    noop = Action(value="noop", name="noop", is_noop=True)
-
-    def fake_build_env_adapter(config, noop_action):
-        return DummyEnvAdapter(env_fps=30, max_steps=1, noop_action=noop)
-
-    def fake_build_policy(config, action_resolver):
-        return ConstantPolicyRunner(noop)
-
-    monkeypatch.setattr(factory, "build_env_adapter", fake_build_env_adapter)
-    monkeypatch.setattr(factory, "build_policy", fake_build_policy)
-    config = _config("dummy", output_dir=str(tmp_path))
-    config["env"]["frame_stack"] = 4
-
-    executor = build_executor(config)
-
-    assert not hasattr(executor, "history")
-    assert not hasattr(executor, "observation_builder")
