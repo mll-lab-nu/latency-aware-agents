@@ -78,6 +78,13 @@ def _number_label(value: int | float) -> str:
     return f"{number:g}".replace(".", "p")
 
 
+def _parse_int_csv(value: str) -> list[int]:
+    text = str(value).strip()
+    if not text:
+        return []
+    return [int(item.strip()) for item in text.split(",") if item.strip()]
+
+
 def _apply_latency_setting(config: dict[str, Any], setting: dict[str, Any], seed: int) -> None:
     latency_cfg = config.setdefault("latency", {})
     kind = str(setting["kind"])
@@ -284,14 +291,14 @@ def _build_latency_bench_eval_config(
     return config
 
 
-def _iter_runs(spec: dict[str, Any]):
-    seeds = [int(seed) for seed in spec["seeds"]]
+def _iter_runs(spec: dict[str, Any], *, seeds: Sequence[int] | None = None):
+    effective_seeds = [int(seed) for seed in (spec["seeds"] if seeds is None else seeds)]
     latency_settings = spec["latency_settings"]
     for sweep_name, sweep_cfg in spec["sweeps"].items():
         for latency_label, latency_setting in latency_settings.items():
             for frame_stack in sweep_cfg["frame_stack"]:
                 for obs_fps in sweep_cfg["obs_fps"]:
-                    for seed in seeds:
+                    for seed in effective_seeds:
                         yield (
                             sweep_name,
                             sweep_cfg,
@@ -306,6 +313,7 @@ def _iter_runs(spec: dict[str, Any]):
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Generate Flappy frame_stack and obs_fps factor sweep configs.")
     parser.add_argument("--spec", type=Path, default=DEFAULT_SPEC)
+    parser.add_argument("--seeds", type=str)
     parser.add_argument("--generated-root", type=Path)
     parser.add_argument("--output-root", type=Path)
     parser.add_argument("--train-dir", type=Path)
@@ -325,13 +333,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     train_dir = Path(args.train_dir or spec["train_dir"])
     device = str(args.device or spec.get("device", "gpu"))
     restart_behavior = str(args.restart_behavior or spec.get("restart_behavior", "resume"))
+    seeds = None if args.seeds is None else _parse_int_csv(args.seeds)
 
     manifest_rows = ["\t".join(MANIFEST_COLUMNS)]
     train_commands: list[str] = []
     eval_commands: list[str] = []
     latency_bench_eval_commands: list[str] = []
 
-    for sweep_name, sweep_cfg, latency_label, latency_setting, frame_stack, obs_fps, seed in _iter_runs(spec):
+    for sweep_name, sweep_cfg, latency_label, latency_setting, frame_stack, obs_fps, seed in _iter_runs(
+        spec,
+        seeds=seeds,
+    ):
         full_train_config = _build_full_train_config(
             base_config,
             sweep_name=sweep_name,
