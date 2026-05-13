@@ -102,7 +102,6 @@ class CompleteMeasuredTaskOnSecondDrainWorker(ManualPolicyWorker):
                 latency_record=LatencyRecord(
                     obs_id=task.obs_id,
                     latency_ms=self.inference_latency_ms,
-                    source="measured",
                 ),
                 worker_start_time_ms=self.worker_start_time_ms,
             )
@@ -379,12 +378,8 @@ def test_realtime_measured_latency_records_policy_duration(tmp_path):
 
     executor.run_episode(episode_id=0, eval_max_steps=2)
 
-    assert logger.latency_records[0].source == "measured"
+    assert logger.latency_records[0].latency_type == "measured"
     assert logger.latency_records[0].latency_ms > 0
-    assert logger.latency_records[0].latency_ms_measured == 40.0
-    assert logger.latency_records[0].latency_ms_sampled is None
-    assert logger.action_records[0].latency_ms_measured == 50.0
-    assert logger.action_records[0].latency_ms_sampled is None
 
 
 def test_realtime_measured_latency_sets_effective_action_delay():

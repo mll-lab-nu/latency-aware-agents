@@ -271,18 +271,13 @@ class RealtimeLatencyExecutor:
                     latency_record = LatencyRecord(
                         obs_id=completion.task.obs_id,
                         latency_ms=source_latency_ms,
-                        source=self.latency_source.__class__.__name__,
                     )
                     latency_type = latency_type_from_source(self.latency_source)
-                    latency_ms_sampled = source_latency_ms
-                    latency_ms_measured = None
                     profile_metadata = profile_metadata_from_source(self.latency_source)
                 else:
                     ready_time_ms = completion.completion_time_ms
                     latency_record = completion.latency_record
                     latency_type = "measured"
-                    latency_ms_sampled = None
-                    latency_ms_measured = completion.latency_record.latency_ms
                     profile_metadata = {key: None for key in profile_metadata_from_source(self.latency_source)}
 
                 effective_latency_ms = ready_time_ms - completion.task.submit_time_ms
@@ -302,8 +297,6 @@ class RealtimeLatencyExecutor:
                 apply_latency_record_raw_fields(
                     record=latency_record,
                     latency_type=latency_type,
-                    latency_ms_sampled=latency_ms_sampled,
-                    latency_ms_measured=latency_ms_measured,
                     profile_metadata=profile_metadata,
                 )
 
@@ -322,8 +315,6 @@ class RealtimeLatencyExecutor:
                     event=event,
                     latency_type=latency_type,
                     frame_ms=self.clock.frame_ms,
-                    latency_ms_sampled=latency_ms_sampled,
-                    latency_ms_measured=effective_latency_ms if latency_type == "measured" else None,
                     profile_metadata=profile_metadata,
                 )
                 self._next_action_id += 1

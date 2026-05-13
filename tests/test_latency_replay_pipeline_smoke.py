@@ -37,7 +37,6 @@ def _build_profile(
         output_dir=output_dir,
         profile_id=profile_id,
         profile_type="rollout_profile",
-        latency_scope="end_to_end_action_ready",
         policy_id="flappy_pi0",
         env_id="FlappyBird-v0",
         target_device=target_device,
@@ -116,9 +115,9 @@ def _write_synthetic_runs(base_dir: Path) -> tuple[Path, Path]:
     _write_jsonl(
         simulated_run / "latencies.jsonl",
         [
-            {"latency_ms_sampled": 30.0},
-            {"latency_ms_sampled": 40.0},
-            {"latency_ms_sampled": 50.0},
+            {"latency_ms": 30.0},
+            {"latency_ms": 40.0},
+            {"latency_ms": 50.0},
         ],
     )
     _write_jsonl(realtime_run / "actions.jsonl", [{"action_age_frames": age} for age in [1, 1, 2]])
@@ -144,7 +143,6 @@ def _write_table_spec(
                 "label": "L_3090_real_vs_sim",
                 "real_profile": str(l3090_profile / "profile.json"),
                 "sim_latency_records": str(simulated_run / "latencies.jsonl"),
-                "sim_latency_source": "sampled",
                 "real_action_records": str(realtime_run / "actions.jsonl"),
                 "sim_action_records": str(simulated_run / "actions.jsonl"),
             }
@@ -270,4 +268,4 @@ def test_latency_replay_example_spec_json_parses():
         "profiles/L_3090/profile.json",
         "profiles/L_H200/profile.json",
     ]
-    assert data["profile_matches"][0]["sim_latency_source"] == "sampled"
+    assert "sim_latency_source" not in data["profile_matches"][0]

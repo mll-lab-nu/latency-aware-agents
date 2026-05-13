@@ -42,7 +42,6 @@ def compute_episode_metrics(
 PROFILE_METADATA_KEYS = (
     "profile_id",
     "profile_type",
-    "latency_scope",
     "target_device",
     "profile_path",
     "sample_index",
@@ -93,16 +92,12 @@ def apply_latency_raw_fields(
     event: ActionEvent,
     latency_type: str,
     frame_ms: float,
-    latency_ms_sampled: float | None = None,
-    latency_ms_measured: float | None = None,
     profile_metadata: dict[str, Any] | None = None,
 ) -> None:
     event.obs_step = event.obs_env_step
     event.action_emit_time_ms = event.obs_time_ms
     event.action_ready_time_ms = event.ready_time_ms
     event.latency_type = latency_type
-    event.latency_ms_sampled = None if latency_ms_sampled is None else float(latency_ms_sampled)
-    event.latency_ms_measured = None if latency_ms_measured is None else float(latency_ms_measured)
     event.effective_k = None if frame_ms <= 0 else float(event.latency_ms) / float(frame_ms)
     _apply_profile_metadata(event, profile_metadata or {})
 
@@ -111,13 +106,9 @@ def apply_latency_record_raw_fields(
     *,
     record: Any,
     latency_type: str,
-    latency_ms_sampled: float | None = None,
-    latency_ms_measured: float | None = None,
     profile_metadata: dict[str, Any] | None = None,
 ) -> None:
     record.latency_type = latency_type
-    record.latency_ms_sampled = None if latency_ms_sampled is None else float(latency_ms_sampled)
-    record.latency_ms_measured = None if latency_ms_measured is None else float(latency_ms_measured)
     _apply_profile_metadata(record, profile_metadata or {})
 
 

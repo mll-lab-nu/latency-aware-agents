@@ -20,7 +20,6 @@ def _build_profile(tmp_path: Path, samples: list[float], **overrides):
         "output_dir": output_dir,
         "profile_id": "L_test",
         "profile_type": "rollout_profile",
-        "latency_scope": "end_to_end_action_ready",
         "policy_id": "pi_test",
         "env_id": "env_test",
         "target_device": "test_gpu",
@@ -77,7 +76,6 @@ def test_build_latency_profile_from_trace_rejects_warmup_that_drops_all_samples(
             output_dir=tmp_path / "profile",
             profile_id="L_test",
             profile_type="rollout_profile",
-            latency_scope="end_to_end_action_ready",
             policy_id="pi_test",
             env_id="env_test",
             target_device="test_gpu",
@@ -108,36 +106,8 @@ def test_build_latency_profile_from_trace_rejects_invalid_fps(tmp_path: Path):
             output_dir=tmp_path / "profile",
             profile_id="L_test",
             profile_type="rollout_profile",
-            latency_scope="end_to_end_action_ready",
             policy_id="pi_test",
             env_id="env_test",
             target_device="test_gpu",
             fps=0.0,
         )
-
-
-def test_build_latency_profile_from_trace_canonicalizes_legacy_latency_keys(tmp_path: Path):
-    input_trace = tmp_path / "legacy.jsonl"
-    input_trace.write_text(
-        '{"latency_ms_measured": 11.0}\n'
-        '{"latency_ms_sampled": 12.0}\n'
-        '{"latency_ms": 13.0}\n',
-        encoding="utf-8",
-    )
-
-    manifest, output_dir = build_profile_from_trace(
-        latencies=input_trace,
-        output_dir=tmp_path / "profile",
-        profile_id="L_test",
-        profile_type="rollout_profile",
-        latency_scope="end_to_end_action_ready",
-        policy_id="pi_test",
-        env_id="env_test",
-        target_device="test_gpu",
-        fps=25.0,
-    ), tmp_path / "profile"
-
-    assert manifest["n_samples"] == 3
-    assert load_latency_samples(output_dir / "latencies.jsonl") == [11.0, 12.0, 13.0]
-    lines = (output_dir / "latencies.jsonl").read_text(encoding="utf-8").splitlines()
-    assert all(set(json.loads(line)) == {"latency_ms"} for line in lines)

@@ -104,8 +104,6 @@ class PausedLatencyExecutor:
                     event=event,
                     latency_type=latency_type,
                     frame_ms=self.clock.frame_ms,
-                    latency_ms_sampled=configured_latency_ms,
-                    latency_ms_measured=None,
                     profile_metadata=profile_metadata,
                 )
                 self._next_action_id += 1
@@ -117,13 +115,10 @@ class PausedLatencyExecutor:
                     latency_record = LatencyRecord(
                         obs_id=obs_id,
                         latency_ms=configured_latency_ms,
-                        source=self.latency_source.__class__.__name__,
                     )
                     apply_latency_record_raw_fields(
                         record=latency_record,
                         latency_type=latency_type,
-                        latency_ms_sampled=configured_latency_ms,
-                        latency_ms_measured=None,
                         profile_metadata=profile_metadata,
                     )
                     self.logger.log_latency(latency_record)

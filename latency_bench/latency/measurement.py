@@ -27,12 +27,11 @@ class RuntimeLatencyMeasurer:
         return result, LatencyRecord(
             obs_id=obs_id,
             latency_ms=elapsed_ms,
-            source="measured",
             start_wall_time=start,
             end_wall_time=end,
             inference_ms=elapsed_ms,
-            end_to_end_ms=elapsed_ms,
             device=self.device,
+            latency_type="measured",
         )
 
     def synchronize_if_needed(self) -> None:

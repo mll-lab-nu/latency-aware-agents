@@ -72,7 +72,6 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
     spec = {
         "protocol_id": "cross_device_latency_v1",
         "output_root": str(path.parent / "results"),
-        "latency_scope": "policy_predict_only",
         "trace_replay_order": "sequential",
         "loop_trace": True,
         "checkpoint_kind": "best",
@@ -109,7 +108,6 @@ def _write_spec(path: Path, base_config: Path) -> None:
     spec = {
         "protocol_id": "cross_device_latency_v1",
         "output_root": str(path.parent / "results"),
-        "latency_scope": "policy_predict_only",
         "trace_replay_order": "sequential",
         "loop_trace": True,
         "checkpoint_kind": "best",
@@ -165,7 +163,6 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
     spec = {
         "protocol_id": "cross_device_latency_v1",
         "output_root": str(path.parent / "results"),
-        "latency_scope": "policy_predict_only",
         "trace_replay_order": "sequential",
         "loop_trace": True,
         "checkpoint_kind": "best",

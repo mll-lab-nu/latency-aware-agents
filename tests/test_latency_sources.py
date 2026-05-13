@@ -35,7 +35,6 @@ def _write_latency_profile(
             "schema_version": 1,
             "profile_id": "L_test",
             "profile_type": "rollout_profile",
-            "latency_scope": "end_to_end_action_ready",
             "policy_id": "pi_test",
             "env_id": "env_test",
             "target_device": "test_gpu",
@@ -153,7 +152,7 @@ def test_trace_replay_loops_when_enabled(tmp_path: Path):
 def test_latency_trace_load_and_save(tmp_path: Path):
     trace_path = tmp_path / "saved.jsonl"
     save_latency_trace(
-        [LatencyRecord(obs_id=0, latency_ms=12.0, source="test")],
+        [LatencyRecord(obs_id=0, latency_ms=12.0)],
         trace_path,
     )
 
@@ -168,7 +167,6 @@ def test_empirical_sample_samples_deterministically_with_seed(tmp_path: Path):
     assert [first.next_latency_ms() for _ in range(20)] == [second.next_latency_ms() for _ in range(20)]
     assert first.profile_id == "L_test"
     assert first.profile_type == "rollout_profile"
-    assert first.latency_scope == "end_to_end_action_ready"
     assert first.target_device == "test_gpu"
     assert first.last_sample_index is not None
 

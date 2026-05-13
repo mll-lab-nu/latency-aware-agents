@@ -266,7 +266,7 @@ Paused mode does not represent real-time performance.
 Paused mode should still log:
 
 ```text
-latency_ms_measured
+latency_ms
 policy_runtime_ms
 ```
 
@@ -619,8 +619,7 @@ obs_raw_frame
 issue_wall_time_ns
 ready_wall_time_ns
 apply_raw_frame
-latency_ms_sampled
-latency_ms_measured
+latency_ms
 latency_raw_frames_sampled
 latency_raw_frames_effective
 action_age_raw_frames

@@ -3,7 +3,6 @@ python -m latency_bench.experiments.build_latency_profile_from_trace \
     --output-dir outputs/profiles/flappy_sf_l1_seed0_best_a100_policy_predict_only \
     --profile-id flappy_sf_l1_seed0_best_a100_policy_predict_only \
     --profile-type rollout_profile \
-    --latency-scope policy_predict_only \
     --policy-id flappy_sf_l1_seed0_best \
     --env-id flappy \
     --target-device a100 \

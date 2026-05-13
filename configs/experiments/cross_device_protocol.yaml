@@ -1,6 +1,5 @@
 protocol_id: cross_device_latency_v1
 output_root: results/cross_device
-latency_scope: policy_predict_only
 trace_replay_order: sequential
 loop_trace: true
 checkpoint_kind: best

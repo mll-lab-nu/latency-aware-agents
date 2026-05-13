@@ -9,7 +9,6 @@ from typing import Any
 
 from latency_bench.analysis.profile_stats import compute_latency_profile_summary
 from latency_bench.latency.profile import (
-    SUPPORTED_LATENCY_SCOPES,
     SUPPORTED_PROFILE_TYPES,
     load_latency_samples,
     save_profile_manifest,
@@ -35,7 +34,6 @@ def build_profile_from_trace(
     output_dir: str | Path,
     profile_id: str,
     profile_type: str,
-    latency_scope: str,
     policy_id: str,
     env_id: str,
     target_device: str,
@@ -53,10 +51,6 @@ def build_profile_from_trace(
         raise ValueError("batch_size must be positive")
     if profile_type not in SUPPORTED_PROFILE_TYPES:
         raise ValueError(f"Unsupported profile_type {profile_type!r}; expected one of {sorted(SUPPORTED_PROFILE_TYPES)}")
-    if latency_scope not in SUPPORTED_LATENCY_SCOPES:
-        raise ValueError(
-            f"Unsupported latency_scope {latency_scope!r}; expected one of {sorted(SUPPORTED_LATENCY_SCOPES)}"
-        )
 
     samples_ms = load_latency_samples(latencies)
     if n_warmup >= len(samples_ms):
@@ -82,7 +76,6 @@ def build_profile_from_trace(
         "schema_version": 1,
         "profile_id": profile_id,
         "profile_type": profile_type,
-        "latency_scope": latency_scope,
         "policy_id": policy_id,
         "env_id": env_id,
         "target_device": target_device,
@@ -104,7 +97,6 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--output-dir", type=Path, required=True, help="Directory where profile artifacts are written.")
     parser.add_argument("--profile-id", required=True)
     parser.add_argument("--profile-type", choices=sorted(SUPPORTED_PROFILE_TYPES), required=True)
-    parser.add_argument("--latency-scope", choices=sorted(SUPPORTED_LATENCY_SCOPES), required=True)
     parser.add_argument("--policy-id", required=True)
     parser.add_argument("--env-id", required=True)
     parser.add_argument("--target-device", required=True)
@@ -119,7 +111,6 @@ def main(argv: list[str] | None = None) -> None:
         output_dir=args.output_dir,
         profile_id=args.profile_id,
         profile_type=args.profile_type,
-        latency_scope=args.latency_scope,
         policy_id=args.policy_id,
         env_id=args.env_id,
         target_device=args.target_device,

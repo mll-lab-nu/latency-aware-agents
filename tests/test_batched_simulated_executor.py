@@ -632,7 +632,8 @@ def test_batched_executor_output_records_remain_schema_compatible(tmp_path: Path
     assert action["latency_raw_frames"] == 0
     assert action["ready_raw_frame"] == 0
     assert action["apply_raw_frame"] == 0
-    assert {"obs_id", "latency_ms", "source", "metadata"} <= set(latency)
+    assert {"obs_id", "latency_ms", "metadata"} <= set(latency)
+    assert "source" not in latency
     assert {"episode_id", "episode_return", "survival_steps", "metadata"} <= set(metrics)
 
 
@@ -721,7 +722,8 @@ def test_subproc_backend_output_records_remain_schema_compatible(tmp_path: Path)
 
     assert {"episode_id", "env_step", "sim_time_ms", "active_action", "reward", "done", "info"} <= set(step)
     assert {"action_id", "obs_id", "action", "latency_ms", "ready_time_ms", "metadata"} <= set(action)
-    assert {"obs_id", "latency_ms", "source", "metadata"} <= set(latency)
+    assert {"obs_id", "latency_ms", "metadata"} <= set(latency)
+    assert "source" not in latency
     assert {"episode_id", "episode_return", "survival_steps", "metadata"} <= set(metrics)
 
 

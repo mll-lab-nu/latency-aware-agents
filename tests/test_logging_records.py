@@ -69,7 +69,6 @@ def _representative_records() -> list[Any]:
         LatencyRecord(
             obs_id=3,
             latency_ms=33.333,
-            source="FixedLatencySource",
             metadata={"episode_id": 2, "slot_id": np.int64(1)},
         ),
         EpisodeMetrics(

@@ -361,8 +361,6 @@ class BatchedSimulatedLatencyExecutor:
             event=event,
             latency_type=latency_type,
             frame_ms=self.clock.frame_ms,
-            latency_ms_sampled=latency_ms,
-            latency_ms_measured=None,
             profile_metadata=profile_metadata,
         )
         self._next_action_id += 1
@@ -372,7 +370,6 @@ class BatchedSimulatedLatencyExecutor:
         latency_record = LatencyRecord(
             obs_id=obs_id,
             latency_ms=latency_ms,
-            source=slot.latency_source.__class__.__name__,
             metadata={
                 "episode_id": int(slot.episode_id),
                 "slot_id": int(slot.slot_id),
@@ -381,8 +378,6 @@ class BatchedSimulatedLatencyExecutor:
         apply_latency_record_raw_fields(
             record=latency_record,
             latency_type=latency_type,
-            latency_ms_sampled=latency_ms,
-            latency_ms_measured=None,
             profile_metadata=profile_metadata,
         )
         slot.buffers.latency_records.append(latency_record)

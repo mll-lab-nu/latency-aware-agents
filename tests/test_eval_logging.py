@@ -96,7 +96,6 @@ def _write_profile(tmp_path: Path) -> Path:
             "schema_version": 1,
             "profile_id": "L_eval_logging",
             "profile_type": "rollout_profile",
-            "latency_scope": "end_to_end_action_ready",
             "policy_id": "pi_test",
             "env_id": "env_test",
             "target_device": "target_gpu",
@@ -164,13 +163,12 @@ def test_empirical_profile_metadata_is_logged(tmp_path: Path):
     for record in (metrics["metadata"], action, latency):
         assert record["profile_id"] == "L_eval_logging"
         assert record["profile_type"] == "rollout_profile"
-        assert record["latency_scope"] == "end_to_end_action_ready"
         assert record["target_device"] == "target_gpu"
     assert action["sample_index"] is not None
     assert latency["sample_index"] is not None
 
 
-def test_simulated_latency_records_distinguish_sampled_latency_and_action_age(tmp_path: Path):
+def test_simulated_latency_records_log_latency_and_action_age(tmp_path: Path):
     run_from_config(_config(tmp_path), write_summary=False)
 
     actions = _read_jsonl(tmp_path / "actions.jsonl")
@@ -178,10 +176,8 @@ def test_simulated_latency_records_distinguish_sampled_latency_and_action_age(tm
     steps = _read_jsonl(tmp_path / "steps.jsonl")
     applied = [action for action in actions if action["action_applied_step"] is not None]
 
-    assert latencies[0]["latency_ms_sampled"] == pytest.approx(80.0)
-    assert latencies[0]["latency_ms_measured"] is None
-    assert actions[0]["latency_ms_sampled"] == pytest.approx(80.0)
-    assert actions[0]["latency_ms_measured"] is None
+    assert latencies[0]["latency_ms"] == pytest.approx(80.0)
+    assert actions[0]["latency_ms"] == pytest.approx(80.0)
     assert actions[0]["effective_k"] == pytest.approx(2.0)
     assert actions[0]["obs_raw_frame"] == 0
     assert actions[0]["latency_raw_frames"] == 2

@@ -22,7 +22,6 @@ METADATA_KEYS = (
     "env_id",
     "profile_id",
     "profile_type",
-    "latency_scope",
     "target_device",
     "replay_host",
     "fps",
@@ -136,24 +135,13 @@ def summarize_eval_run(
     return summary
 
 
-def extract_latency_samples_from_records(records: Iterable[dict[str, Any]], source: str = "auto") -> list[float]:
-    fields = {
-        "auto": ("latency_ms", "latency_ms_measured", "latency_ms_sampled"),
-        "measured": ("latency_ms_measured",),
-        "sampled": ("latency_ms_sampled",),
-        "latency_ms": ("latency_ms",),
-    }.get(source)
-    if fields is None:
-        raise ValueError("source must be one of: auto, measured, sampled, latency_ms")
-
+def extract_latency_samples_from_records(records: Iterable[dict[str, Any]]) -> list[float]:
     samples: list[float] = []
     for record in records:
-        for field in fields:
-            if field in record and record[field] is not None:
-                samples.append(_finite_float(record[field], field))
-                break
+        if "latency_ms" in record and record["latency_ms"] is not None:
+            samples.append(_finite_float(record["latency_ms"], "latency_ms"))
     if not samples:
-        raise ValueError(f"No valid latency samples found for source {source!r}")
+        raise ValueError("No valid latency samples found")
     return samples
 
 

@@ -453,7 +453,7 @@ def _build_plan(
                     smoke=bool(getattr(args, "smoke", False)),
                     smoke_max_steps=getattr(args, "smoke_max_steps", None),
                 )
-                key = _dedup_key(task, spec)
+                key = _dedup_key(task)
                 skip_reason = _task_skip_reason(
                     task=task,
                     spec=spec,
@@ -535,11 +535,10 @@ def _make_task(
     )
 
 
-def _dedup_key(task: ProtocolTask, spec: dict[str, Any]) -> tuple[Any, ...]:
+def _dedup_key(task: ProtocolTask) -> tuple[Any, ...]:
     policy = slugify(task.row.get("policy"))
     env = slugify(task.row.get("env"))
     seed_set = tuple(task.seed_set)
-    latency_scope = spec.get("latency_scope", "policy_predict_only")
     profile_id = task.target_device.get("profile_id")
     replay_id = task.replay_device.get("id") if task.replay_device else None
     if task.stage == "measure":
@@ -551,7 +550,6 @@ def _dedup_key(task: ProtocolTask, spec: dict[str, Any]) -> tuple[Any, ...]:
             profile_id,
             task.checkpoint_kind,
             seed_set,
-            latency_scope,
             task.seed,
         )
     if task.stage == "realtime":
@@ -864,7 +862,7 @@ def _generated_config(task: ProtocolTask, spec: dict[str, Any]) -> dict[str, Any
         config["env"]["obs_fps"] = fps
 
     if task.stage in {"measure", "realtime"}:
-        _patch_realtime_measured_config(config, task, spec)
+        _patch_realtime_measured_config(config, task)
     elif task.stage in {"sim_same", "sim_cross"}:
         _patch_simulated_replay_config(config, task, spec)
     else:
@@ -896,7 +894,7 @@ def _policy_type(config: dict[str, Any]) -> str:
     return str(config.get("policy", {}).get("type", "")).strip().lower()
 
 
-def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask, spec: dict[str, Any]) -> None:
+def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask) -> None:
     config.setdefault("executor", {})["mode"] = "realtime"
     latency = config.setdefault("latency", {})
     latency["type"] = "measured"
@@ -904,7 +902,6 @@ def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask, 
     latency["sync_cuda"] = latency.get("sync_cuda", True)
     latency["profile_id"] = task.target_device["profile_id"]
     latency["profile_type"] = "rollout_profile"
-    latency["latency_scope"] = spec.get("latency_scope", "policy_predict_only")
     latency["target_device"] = task.target_device["id"]
     latency.pop("fixed_latency_ms", None)
     latency.pop("profile_path", None)
@@ -925,7 +922,6 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
     latency["seed"] = int(task.seed)
     latency["profile_id"] = task.target_device["profile_id"]
     latency["profile_type"] = "rollout_profile"
-    latency["latency_scope"] = spec.get("latency_scope", "policy_predict_only")
     latency["target_device"] = task.target_device["id"]
     if task.replay_device is not None:
         latency["replay_host"] = task.replay_device["id"]
@@ -959,22 +955,18 @@ def _eval_command(task: ProtocolTask) -> list[str]:
 def _profile_command(task: ProtocolTask, spec: dict[str, Any], overwrite: bool) -> list[str]:
     if task.profile_output_dir is None:
         raise ValueError("Measure task requires profile_output_dir")
-    latency_scope = str(spec.get("latency_scope", "policy_predict_only"))
-    trace_name = "latencies.jsonl" if latency_scope == "policy_predict_only" else "actions.jsonl"
     cmd = [
         sys.executable,
         "-m",
         "latency_bench.experiments.build_latency_profile_from_trace",
         "--latencies",
-        str(task.output_dir / trace_name),
+        str(task.output_dir / "latencies.jsonl"),
         "--output-dir",
         str(task.profile_output_dir),
         "--profile-id",
         str(task.target_device["profile_id"]),
         "--profile-type",
         "rollout_profile",
-        "--latency-scope",
-        latency_scope,
         "--policy-id",
         str(task.row.get("policy")),
         "--env-id",
@@ -1034,7 +1026,6 @@ def _base_manifest(
         "smoke_max_steps": task.smoke_max_steps,
         "seed_set": task.seed_set,
         "seed": task.seed,
-        "latency_scope": spec.get("latency_scope", "policy_predict_only"),
         "status": "running",
         "skip_reason": "",
         "error": "",

@@ -74,7 +74,6 @@ def _build_profile(root: Path) -> Path:
         output_dir=profile_dir,
         profile_id="L_A100",
         profile_type="rollout_profile",
-        latency_scope="policy_predict_only",
         policy_id="flappy-sf-l1",
         env_id="flappy",
         target_device="a100",

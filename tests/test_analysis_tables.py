@@ -43,7 +43,6 @@ def _write_profile(
             "schema_version": 1,
             "profile_id": profile_id,
             "profile_type": "rollout_profile",
-            "latency_scope": "end_to_end_action_ready",
             "policy_id": "pi_test",
             "env_id": "env_test",
             "target_device": target_device,
@@ -87,7 +86,6 @@ def test_build_latency_profile_summary_rows_from_profile_directory(tmp_path: Pat
     row = rows[0]
     assert row["profile_id"] == "L_summary"
     assert row["profile_type"] == "rollout_profile"
-    assert row["latency_scope"] == "end_to_end_action_ready"
     assert row["target_device"] == "test_gpu"
     assert row["fps"] == pytest.approx(25.0)
     assert row["frame_ms"] == pytest.approx(40.0)
@@ -113,7 +111,6 @@ def test_build_profile_match_rows_computes_distribution_and_optional_action_age(
                 "label": "match_test",
                 "real_profile": str(real_profile),
                 "sim_latency_records": str(sim_latencies),
-                "sim_latency_source": "latency_ms",
                 "real_action_records": str(real_actions),
                 "sim_action_records": str(sim_actions),
             }
@@ -123,7 +120,6 @@ def test_build_profile_match_rows_computes_distribution_and_optional_action_age(
     row = rows[0]
     assert row["label"] == "match_test"
     assert row["real_profile_id"] == "L_real"
-    assert row["sim_latency_source"] == "latency_ms"
     assert row["w1_ms"] == pytest.approx(10.0 / 3.0)
     assert row["w1_frames"] == pytest.approx((10.0 / 3.0) / 40.0)
     assert row["p50_error_ms"] == pytest.approx(0.0)
@@ -142,7 +138,6 @@ def test_build_profile_match_rows_sets_action_age_tv_none_when_action_records_mi
                 "label": "match_test",
                 "real_profile": str(real_profile / "profile.json"),
                 "sim_latency_records": str(sim_latencies),
-                "sim_latency_source": "latency_ms",
             }
         ]
     )[0]

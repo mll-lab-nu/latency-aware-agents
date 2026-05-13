@@ -75,7 +75,6 @@ def _write_latency_profile(tmp_path) -> str:
             "schema_version": 1,
             "profile_id": "L_test",
             "profile_type": "rollout_profile",
-            "latency_scope": "end_to_end_action_ready",
             "policy_id": "pi_test",
             "env_id": "env_test",
             "target_device": "test_gpu",

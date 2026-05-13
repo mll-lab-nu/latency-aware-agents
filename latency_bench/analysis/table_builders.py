@@ -26,7 +26,6 @@ from latency_bench.latency.profile import load_latency_samples, load_profile_man
 PROFILE_SUMMARY_COLUMNS = (
     "profile_id",
     "profile_type",
-    "latency_scope",
     "policy_id",
     "env_id",
     "target_device",
@@ -89,8 +88,7 @@ def build_profile_match_rows(match_specs: list[dict[str, Any]]) -> list[dict[str
         real_samples = load_latency_samples(_resolve_profile_trace_path(manifest_path, manifest))
         sim_latency_path = resolve_run_file(spec["sim_latency_records"], LATENCY_RECORD_CANDIDATES)
         sim_records = load_jsonl_records(sim_latency_path)
-        sim_source = spec.get("sim_latency_source", "auto")
-        sim_samples = extract_latency_samples_from_records(sim_records, source=sim_source)
+        sim_samples = extract_latency_samples_from_records(sim_records)
         fps = float(spec.get("fps") or manifest["fps"])
 
         row: dict[str, Any] = {
@@ -99,7 +97,6 @@ def build_profile_match_rows(match_specs: list[dict[str, Any]]) -> list[dict[str
             "real_profile_id": manifest.get("profile_id"),
             "real_target_device": manifest.get("target_device"),
             "sim_latency_records": str(sim_latency_path),
-            "sim_latency_source": sim_source,
             "fps": fps,
         }
         row.update(latency_distribution_match_metrics(real_samples, sim_samples, fps))

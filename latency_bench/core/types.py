@@ -68,20 +68,13 @@ class PolicyOutput:
 class LatencyRecord:
     obs_id: int
     latency_ms: float
-    source: str
     start_wall_time: float | None = None
     end_wall_time: float | None = None
-    preprocess_ms: float | None = None
     inference_ms: float | None = None
-    postprocess_ms: float | None = None
-    end_to_end_ms: float | None = None
     device: str | None = None
-    latency_ms_measured: float | None = None
-    latency_ms_sampled: float | None = None
     latency_type: str | None = None
     profile_id: str | None = None
     profile_type: str | None = None
-    latency_scope: str | None = None
     target_device: str | None = None
     profile_path: str | None = None
     sample_index: int | None = None
@@ -112,14 +105,11 @@ class ActionEvent:
     action_ready_time_ms: float | None = None
     action_apply_time_ms: float | None = None
     action_applied_step: int | None = None
-    latency_ms_measured: float | None = None
-    latency_ms_sampled: float | None = None
     effective_k: float | None = None
     action_age_frames: int | None = None
     latency_type: str | None = None
     profile_id: str | None = None
     profile_type: str | None = None
-    latency_scope: str | None = None
     target_device: str | None = None
     profile_path: str | None = None
     sample_index: int | None = None

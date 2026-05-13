@@ -124,23 +124,20 @@ def test_summarize_eval_run_computes_population_stats_and_metadata(tmp_path: Pat
     assert summary["fps"] == pytest.approx(25.0)
 
 
-def test_extract_latency_samples_from_records_supports_auto_measured_and_sampled():
+def test_extract_latency_samples_from_records_uses_latency_ms():
     records = [
-        {"latency_ms": 10.0, "latency_ms_measured": 99.0},
-        {"latency_ms_measured": 20.0},
-        {"latency_ms_sampled": 30.0},
+        {"latency_ms": 10.0},
+        {"latency_ms": 20.0},
+        {"latency_ms": 30.0},
         {"other": 1},
     ]
 
-    assert extract_latency_samples_from_records(records, source="auto") == [10.0, 20.0, 30.0]
-    assert extract_latency_samples_from_records(records, source="measured") == [99.0, 20.0]
-    assert extract_latency_samples_from_records(records, source="sampled") == [30.0]
-    assert extract_latency_samples_from_records(records, source="latency_ms") == [10.0]
+    assert extract_latency_samples_from_records(records) == [10.0, 20.0, 30.0]
 
 
 def test_extract_latency_samples_from_records_raises_when_no_valid_samples():
     with pytest.raises(ValueError, match="No valid latency samples"):
-        extract_latency_samples_from_records([{"other": 1}], source="sampled")
+        extract_latency_samples_from_records([{"other": 1}])
 
 
 def test_extract_action_age_frames_from_records_ignores_missing_values_by_default():

@@ -8,13 +8,11 @@ from typing import Any
 
 
 SUPPORTED_PROFILE_TYPES = {"micro_profile", "rollout_profile"}
-SUPPORTED_LATENCY_SCOPES = {"policy_predict_only", "end_to_end_action_ready"}
 
 REQUIRED_PROFILE_FIELDS = (
     "schema_version",
     "profile_id",
     "profile_type",
-    "latency_scope",
     "policy_id",
     "env_id",
     "target_device",
@@ -26,8 +24,6 @@ REQUIRED_PROFILE_FIELDS = (
     "trace_path",
     "summary",
 )
-
-LATENCY_FIELD_PRIORITY = ("latency_ms", "latency_ms_measured", "latency_ms_sampled")
 
 
 def save_profile_manifest(profile: Mapping[str, Any], path: str | Path) -> None:
@@ -68,13 +64,11 @@ def load_latency_samples(path: str | Path) -> list[float]:
             record = json.loads(stripped)
             if not isinstance(record, dict):
                 raise ValueError(f"Latency sample record must be a JSON object at {trace_path}:{line_number}")
-            field = next((key for key in LATENCY_FIELD_PRIORITY if key in record), None)
-            if field is None:
+            if "latency_ms" not in record:
                 raise ValueError(
-                    f"Missing latency field at {trace_path}:{line_number}; "
-                    f"expected one of {', '.join(LATENCY_FIELD_PRIORITY)}"
+                    f"Missing latency_ms at {trace_path}:{line_number}"
                 )
-            samples.append(_coerce_latency_ms(record[field], f"{trace_path}:{line_number}"))
+            samples.append(_coerce_latency_ms(record["latency_ms"], f"{trace_path}:{line_number}"))
     if not samples:
         raise ValueError(f"Latency sample trace is empty: {trace_path}")
     return samples
@@ -90,11 +84,6 @@ def _validate_profile_manifest(profile: dict[str, Any], profile_path: Path) -> N
         raise ValueError(
             f"Unsupported profile_type {profile['profile_type']!r} in {profile_path}; "
             f"expected one of {sorted(SUPPORTED_PROFILE_TYPES)}"
-        )
-    if profile["latency_scope"] not in SUPPORTED_LATENCY_SCOPES:
-        raise ValueError(
-            f"Unsupported latency_scope {profile['latency_scope']!r} in {profile_path}; "
-            f"expected one of {sorted(SUPPORTED_LATENCY_SCOPES)}"
         )
     fps = float(profile["fps"])
     frame_ms = float(profile["frame_ms"])

@@ -94,7 +94,6 @@ class EmpiricalSampleLatencySource(LatencySource):
         self.profile_path, self.trace_path, self.profile, self.samples_ms = _load_profile_samples(profile_path)
         self.profile_id = self.profile["profile_id"]
         self.profile_type = self.profile["profile_type"]
-        self.latency_scope = self.profile["latency_scope"]
         self.target_device = self.profile["target_device"]
         self.rng = random.Random(seed)
         self.last_sample_index: int | None = None
@@ -123,7 +122,6 @@ class EmpiricalTraceReplayLatencySource(LatencySource):
         self.profile_path, self.trace_path, self.profile, self.samples_ms = _load_profile_samples(profile_path)
         self.profile_id = self.profile["profile_id"]
         self.profile_type = self.profile["profile_type"]
-        self.latency_scope = self.profile["latency_scope"]
         self.target_device = self.profile["target_device"]
         self.trace_replay_order = trace_replay_order
         self.loop_trace = loop_trace
@@ -201,7 +199,6 @@ def _profile_latency_metadata(source: Any, **extra: int) -> dict[str, Any]:
     metadata = {
         "profile_id": source.profile_id,
         "profile_type": source.profile_type,
-        "latency_scope": source.latency_scope,
         "target_device": source.target_device,
         "profile_path": str(source.profile_path),
     }
