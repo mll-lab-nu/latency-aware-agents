@@ -1,0 +1,11 @@
+__base__: ../../base/demon_attack.yaml
+
+experiment:
+  name: demon_attack_sf_fixed_latency_4
+
+latency:
+  type: fixed
+  fixed_latency_ms: 66.66666666666667
+
+logging:
+  output_dir: outputs/demon_attack_sf_fixed_latency_4

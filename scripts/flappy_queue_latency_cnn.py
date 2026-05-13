@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from bisect import insort_right
 from collections import deque
@@ -15,7 +16,15 @@ from PIL import Image
 import torch
 import torch.nn as nn
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+FLAPPY_ROOT = os.path.join(ROOT, "flappy-bird-gymnasium")
+if FLAPPY_ROOT not in sys.path:
+    sys.path.insert(0, FLAPPY_ROOT)
+
 import flappy_bird_gymnasium  # noqa: F401
+from latency_bench.logging.wandb import build_sb3_logger, init_wandb
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
@@ -37,29 +46,10 @@ class QueueLatencyWrapper(gym.Wrapper):
         self,
         env: gym.Env,
         frame_skip_values: List[int],
-        latency_mode: str = "episode_fixed",
-        latency_sampling_mode: str = "uniform_all",
-        episodes_per_stage: int = 10,
-        randomize_within_stage: bool = False,
-        within_episode_change_interval: int = 1,
-        within_episode_change_prob: float = 1.0,
         seed: int = 0,
     ):
         super().__init__(env)
-        assert len(frame_skip_values) > 0, "frame_skip_values cannot be empty"
-
-        if latency_mode == "within_episode_change":
-            latency_mode = "within_episode_random"
-        assert latency_mode in {"episode_fixed", "within_episode_random", "within_episode_curriculum"}
-        assert latency_sampling_mode in {"uniform_all", "curriculum"}
-
-        self.frame_skip_values = [max(0, int(x)) for x in frame_skip_values]
-        self.latency_mode = str(latency_mode)
-        self.latency_sampling_mode = str(latency_sampling_mode)
-        self.episodes_per_stage = max(1, int(episodes_per_stage))
-        self.randomize_within_stage = bool(randomize_within_stage)
-        self.within_episode_change_interval = max(1, int(within_episode_change_interval))
-        self.within_episode_change_prob = float(within_episode_change_prob)
+        self.frame_skip_values = [int(x) for x in frame_skip_values]
 
         self.rng = np.random.RandomState(seed)
 
@@ -71,38 +61,8 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.pending_actions: List[tuple[int, int, int, int]] = []
         self._schedule_seq = 0
 
-    def _get_stage_index(self) -> int:
-        stage = self.episode_idx // self.episodes_per_stage
-        return min(stage, len(self.frame_skip_values) - 1)
-
     def _sample_frame_skip(self) -> int:
-        if self.latency_sampling_mode == "uniform_all":
-            return int(self.rng.choice(self.frame_skip_values))
-        stage = self._get_stage_index()
-        if self.randomize_within_stage:
-            candidates = self.frame_skip_values[: stage + 1]
-            return int(self.rng.choice(candidates))
-        return int(self.frame_skip_values[stage])
-
-    def _current_curriculum_frame_skip(self) -> int:
-        stage = self.decision_step_idx // self.within_episode_change_interval
-        stage = min(stage, len(self.frame_skip_values) - 1)
-        return int(self.frame_skip_values[stage])
-
-    def _maybe_update_frame_skip_for_this_decision(self) -> None:
-        if self.latency_mode == "episode_fixed":
-            return
-        if self.latency_mode == "within_episode_random":
-            if self.decision_step_idx == 0:
-                return
-            if self.decision_step_idx % self.within_episode_change_interval != 0:
-                return
-            if self.rng.rand() <= self.within_episode_change_prob:
-                self.current_frame_skip = self._sample_frame_skip()
-            return
-        if self.latency_mode == "within_episode_curriculum":
-            self.current_frame_skip = self._current_curriculum_frame_skip()
-            return
+        return int(self.rng.choice(self.frame_skip_values))
 
     def _schedule_action(self, action: int) -> int:
         latency_for_action = int(self.current_frame_skip)
@@ -123,24 +83,20 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.pending_actions.clear()
         self._schedule_seq = 0
 
-        if self.latency_mode == "within_episode_curriculum":
-            self.current_frame_skip = int(self.frame_skip_values[0])
-        else:
-            self.current_frame_skip = self._sample_frame_skip()
+        self.current_frame_skip = int(self.frame_skip_values[0])
 
         obs, info = self.env.reset(**kwargs)
         if not isinstance(info, dict):
             info = {}
         info["frame_skip"] = int(self.current_frame_skip)
         info["episode_idx"] = int(self.episode_idx)
-        info["latency_mode"] = self.latency_mode
         info["applied_action"] = int(self.current_applied_action)
         info["pending_queue_len"] = 0
         self.episode_idx += 1
         return obs, info
 
     def step(self, action):
-        self._maybe_update_frame_skip_for_this_decision()
+        self.current_frame_skip = self._sample_frame_skip()
         scheduled_delay = int(self.current_frame_skip)
         scheduled_apply_step = self._schedule_action(int(action))
         self._advance_pending_actions()
@@ -152,7 +108,6 @@ class QueueLatencyWrapper(gym.Wrapper):
         info["frame_skip"] = scheduled_delay
         info["decision_step_idx"] = int(self.decision_step_idx)
         info["env_step_idx"] = int(self.env_step_idx)
-        info["latency_mode"] = self.latency_mode
         info["applied_action"] = int(self.current_applied_action)
         info["queued_action"] = int(action)
         info["scheduled_apply_step"] = int(scheduled_apply_step)
@@ -357,6 +312,21 @@ def parse_int_list(s: str) -> List[int]:
         return []
     return [int(x.strip()) for x in s.split(",") if x.strip()]
 
+
+def warn_unsupported_initial_safe_config(args) -> None:
+    if (
+        int(args.initial_safe_steps) == 0
+        and float(args.initial_safe_reward) == 0.1
+        and not bool(args.disable_flap_during_initial_safe_steps)
+    ):
+        return
+
+    print(
+        "[warning] Current flappy-bird-gymnasium FlappyBird-v0 does not support "
+        "--initial-safe-* options; requested initial-safe configuration will be ignored "
+        f"(steps={args.initial_safe_steps}, reward={args.initial_safe_reward}, "
+        f"disable_flap={args.disable_flap_during_initial_safe_steps})."
+    )
 
 
 def linear_schedule(initial_value: float, final_value: Optional[float] = None):
@@ -675,12 +645,6 @@ def make_env(
     fps: int = 30,
     obs_mode: str = "latency_channel",
     frame_skip_values: Optional[List[int]] = None,
-    episodes_per_stage: int = 10,
-    randomize_within_stage: bool = False,
-    latency_mode: str = "episode_fixed",
-    latency_sampling_mode: str = "uniform_all",
-    within_episode_change_interval: int = 1,
-    within_episode_change_prob: float = 1.0,
     image_size: int = 84,
     grayscale: bool = False,
     stack_frames: int = 4,
@@ -694,28 +658,19 @@ def make_env(
     disable_flap_during_initial_safe_steps: bool = False,
 ):
     def _init():
+        # Current flappy-bird-gymnasium does not accept legacy fork kwargs such as
+        # fps, obs_mode, or initial_safe_*; keep them at the script layer only.
         env = gym.make(
             "FlappyBird-v0",
             use_lidar=use_lidar,
             normalize_obs=normalize_obs,
-            obs_mode="numeric",
             render_mode="rgb_array",
-            fps=fps,
-            initial_safe_steps=initial_safe_steps,
-            initial_safe_reward=initial_safe_reward,
-            disable_flap_during_initial_safe_steps=disable_flap_during_initial_safe_steps,
         )
 
         latency_values = [0] if frame_skip_values is None else frame_skip_values
         env = QueueLatencyWrapper(
             env,
             frame_skip_values=latency_values,
-            latency_mode=latency_mode,
-            latency_sampling_mode=latency_sampling_mode,
-            episodes_per_stage=episodes_per_stage,
-            randomize_within_stage=randomize_within_stage,
-            within_episode_change_interval=within_episode_change_interval,
-            within_episode_change_prob=within_episode_change_prob,
             seed=seed,
         )
 
@@ -746,12 +701,6 @@ def make_vec_flappy_image(
     fps: int = 30,
     obs_mode: str = "latency_channel",
     frame_skip_values: Optional[List[int]] = None,
-    episodes_per_stage: int = 10,
-    randomize_within_stage: bool = False,
-    latency_mode: str = "episode_fixed",
-    latency_sampling_mode: str = "uniform_all",
-    within_episode_change_interval: int = 1,
-    within_episode_change_prob: float = 1.0,
     image_size: int = 84,
     grayscale: bool = False,
     stack_frames: int = 4,
@@ -771,12 +720,6 @@ def make_vec_flappy_image(
             fps=fps,
             obs_mode=obs_mode,
             frame_skip_values=frame_skip_values,
-            episodes_per_stage=episodes_per_stage,
-            randomize_within_stage=randomize_within_stage,
-            latency_mode=latency_mode,
-            latency_sampling_mode=latency_sampling_mode,
-            within_episode_change_interval=within_episode_change_interval,
-            within_episode_change_prob=within_episode_change_prob,
             image_size=image_size,
             grayscale=grayscale,
             stack_frames=stack_frames,
@@ -847,7 +790,7 @@ def build_policy_config(args, sample_env: gym.Env):
 
 
 
-def train(args, use_wandb: bool, tb_log: Optional[str]):
+def train(args, wandb_module):
     set_random_seed(args.seed)
     frame_skip_values = parse_int_list(args.frame_skip_values)
     os.makedirs(os.path.dirname(args.save) or ".", exist_ok=True)
@@ -858,12 +801,6 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         fps=args.fps,
         obs_mode=args.obs_mode,
         frame_skip_values=frame_skip_values,
-        episodes_per_stage=args.episodes_per_stage,
-        randomize_within_stage=args.randomize_within_stage,
-        latency_mode=args.latency_mode,
-        latency_sampling_mode=args.latency_sampling_mode,
-        within_episode_change_interval=args.within_episode_change_interval,
-        within_episode_change_prob=args.within_episode_change_prob,
         image_size=args.image_size,
         grayscale=args.grayscale,
         stack_frames=args.stack_frames,
@@ -883,12 +820,6 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         fps=args.fps,
         obs_mode=args.obs_mode,
         frame_skip_values=frame_skip_values,
-        episodes_per_stage=args.episodes_per_stage,
-        randomize_within_stage=args.randomize_within_stage,
-        latency_mode=args.latency_mode,
-        latency_sampling_mode=args.latency_sampling_mode,
-        within_episode_change_interval=args.within_episode_change_interval,
-        within_episode_change_prob=args.within_episode_change_prob,
         image_size=args.image_size,
         grayscale=args.grayscale,
         stack_frames=args.stack_frames,
@@ -936,9 +867,10 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
             vf_coef=args.vf_coef,
             clip_range=clip_range,
             max_grad_norm=args.max_grad_norm,
-            tensorboard_log=(tb_log if (use_wandb and tb_log) else None),
             policy_kwargs=policy_kwargs,
         )
+
+    model.set_logger(build_sb3_logger(wandb_module))
 
     checkpoint_callback = CheckpointCallback(
         save_freq=max(1, args.checkpoint_freq),
@@ -952,7 +884,6 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         total_timesteps=int(args.train_steps),
         callback=checkpoint_callback,
         log_interval=1,
-        tb_log_name=(args.wandb_run_name or f"flappy_image_{resolved_obs_mode}"),
     )
 
     model.save(args.save)
@@ -969,12 +900,6 @@ def eval_model(args, model_path: str, frame_skip: int):
         fps=args.fps,
         obs_mode=args.obs_mode,
         frame_skip_values=[frame_skip],
-        episodes_per_stage=10**9,
-        randomize_within_stage=False,
-        latency_mode="episode_fixed",
-        latency_sampling_mode="uniform_all",
-        within_episode_change_interval=1,
-        within_episode_change_prob=1.0,
         image_size=args.image_size,
         grayscale=args.grayscale,
         stack_frames=args.stack_frames,
@@ -1022,12 +947,6 @@ def export_rollouts(args, model_path: str):
         fps=args.fps,
         obs_mode=args.obs_mode,
         frame_skip_values=[args.export_frame_skip],
-        episodes_per_stage=10**9,
-        randomize_within_stage=False,
-        latency_mode="episode_fixed",
-        latency_sampling_mode="uniform_all",
-        within_episode_change_interval=1,
-        within_episode_change_prob=1.0,
         image_size=args.image_size,
         grayscale=args.grayscale,
         stack_frames=args.stack_frames,
@@ -1104,7 +1023,12 @@ def main():
     ap.add_argument("--vf-coef", type=float, default=0.5)
     ap.add_argument("--max-grad-norm", type=float, default=0.5)
 
-    ap.add_argument("--fps", type=int, default=30)
+    ap.add_argument(
+        "--fps",
+        type=int,
+        default=30,
+        help="Legacy timing parameter retained for latency-frame configs; not passed to FlappyBird-v0.",
+    )
     ap.add_argument("--image-size", type=int, default=84)
     ap.add_argument("--grayscale", action="store_true")
     ap.add_argument("--stack-frames", type=int, default=4)
@@ -1140,81 +1064,67 @@ def main():
         default="0,1,2,3,4,5",
         help="Comma-separated action-delay values in frames. For delay K, action chosen at t is applied at t+K.",
     )
-    ap.add_argument("--episodes-per-stage", type=int, default=10)
-    ap.add_argument("--randomize-within-stage", action="store_true")
+
     ap.add_argument(
-        "--latency-mode",
-        type=str,
-        default="episode_fixed",
-        choices=["episode_fixed", "within_episode_random", "within_episode_curriculum", "within_episode_change"],
+        "--initial-safe-steps",
+        type=int,
+        default=0,
+        help="Legacy option; ignored by current FlappyBird-v0.",
     )
-    ap.add_argument("--latency-sampling-mode", type=str, default="uniform_all", choices=["uniform_all", "curriculum"])
-    ap.add_argument("--within-episode-change-interval", type=int, default=1)
-    ap.add_argument("--within-episode-change-prob", type=float, default=1.0)
+    ap.add_argument(
+        "--initial-safe-reward",
+        type=float,
+        default=0.1,
+        help="Legacy option; ignored by current FlappyBird-v0.",
+    )
+    ap.add_argument(
+        "--disable-flap-during-initial-safe-steps",
+        action="store_true",
+        help="Legacy option; ignored by current FlappyBird-v0.",
+    )
 
-    ap.add_argument("--initial-safe-steps", type=int, default=0)
-    ap.add_argument("--initial-safe-reward", type=float, default=0.1)
-    ap.add_argument("--disable-flap-during-initial-safe-steps", action="store_true")
-
-    ap.add_argument("--wandb", action="store_true")
+    ap.add_argument("--wandb", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--wandb-project", type=str, default="flappy_rl_image_queue_latency")
     ap.add_argument("--wandb-entity", type=str, default=None)
     ap.add_argument("--wandb-run-name", type=str, default="")
     ap.add_argument("--wandb-tags", type=str, default="")
 
     args = ap.parse_args()
+    warn_unsupported_initial_safe_config(args)
 
     if args.device == "auto":
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
 
     set_random_seed(args.seed)
 
-    use_wandb = bool(args.wandb)
-    tb_log = "./tb_logs" if use_wandb else None
-    if use_wandb:
-        try:
-            import wandb
-        except Exception as e:
-            print(f"[wandb] wandb not installed or failed to import ({e}). Disabling wandb.")
-            use_wandb = False
-            tb_log = None
-        else:
-            tags = [t.strip() for t in args.wandb_tags.split(",") if t.strip()]
-            wandb.init(
-                project=args.wandb_project,
-                entity=args.wandb_entity,
-                name=(args.wandb_run_name or f"flappy_image_queue_{int(time.time())}"),
-                tags=tags,
-                config=vars(args),
-                sync_tensorboard=True,
-                save_code=True,
-            )
-
-    model_path = args.load or args.save
-    if args.train_steps > 0:
-        print(
-            f"[train] steps={args.train_steps} n_envs={args.n_envs} save={args.save} "
-            f"obs_mode={args.obs_mode} latency_mode={args.latency_mode}"
-        )
-        model_path = train(args, use_wandb, tb_log)
-        print(f"[train] saved => {model_path}")
-
-    if args.eval_episodes > 0:
-        for fs in parse_int_list(args.eval_frame_skip_values):
-            returns, lengths = eval_model(args, model_path=model_path, frame_skip=fs)
+    wandb_module = init_wandb(
+        args,
+        default_run_name=f"flappy_image_queue_{int(time.time())}",
+    )
+    try:
+        model_path = args.load or args.save
+        if args.train_steps > 0:
             print(
-                f"[eval] frame_skip={fs} "
-                f"mean_return={float(np.mean(returns)):.3f} std_return={float(np.std(returns)):.3f} "
-                f"mean_len={float(np.mean(lengths)):.1f}"
+                f"[train] steps={args.train_steps} n_envs={args.n_envs} save={args.save} "
+                f"obs_mode={args.obs_mode} frame_skip_values={args.frame_skip_values}"
             )
+            model_path = train(args, wandb_module)
+            print(f"[train] saved => {model_path}")
 
-    if args.export_episodes > 0:
-        out = export_rollouts(args, model_path=model_path)
-        print(f"[export] wrote => {out}")
+        if args.eval_episodes > 0:
+            for fs in parse_int_list(args.eval_frame_skip_values):
+                returns, lengths = eval_model(args, model_path=model_path, frame_skip=fs)
+                print(
+                    f"[eval] frame_skip={fs} "
+                    f"mean_return={float(np.mean(returns)):.3f} std_return={float(np.std(returns)):.3f} "
+                    f"mean_len={float(np.mean(lengths)):.1f}"
+                )
 
-    if use_wandb:
-        import wandb
-        wandb.finish()
+        if args.export_episodes > 0:
+            out = export_rollouts(args, model_path=model_path)
+            print(f"[export] wrote => {out}")
+    finally:
+        wandb_module.finish()
 
 
 if __name__ == "__main__":

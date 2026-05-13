@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from bisect import insort_right
 from collections import deque
@@ -22,6 +23,12 @@ except Exception:
 
 import torch
 import torch.nn as nn
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from latency_bench.logging.wandb import build_sb3_logger, init_wandb
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
@@ -48,29 +55,10 @@ class QueueLatencyWrapper(gym.Wrapper):
         self,
         env: gym.Env,
         frame_skip_values: List[int],
-        latency_mode: str = "episode_fixed",
-        latency_sampling_mode: str = "uniform_all",
-        episodes_per_stage: int = 10,
-        randomize_within_stage: bool = False,
-        within_episode_change_interval: int = 1,
-        within_episode_change_prob: float = 1.0,
         seed: int = 0,
     ):
         super().__init__(env)
-        assert len(frame_skip_values) > 0, "frame_skip_values cannot be empty"
-
-        if latency_mode == "within_episode_change":
-            latency_mode = "within_episode_random"
-        assert latency_mode in {"episode_fixed", "within_episode_random", "within_episode_curriculum"}
-        assert latency_sampling_mode in {"uniform_all", "curriculum"}
-
-        self.frame_skip_values = [max(0, int(x)) for x in frame_skip_values]
-        self.latency_mode = str(latency_mode)
-        self.latency_sampling_mode = str(latency_sampling_mode)
-        self.episodes_per_stage = max(1, int(episodes_per_stage))
-        self.randomize_within_stage = bool(randomize_within_stage)
-        self.within_episode_change_interval = max(1, int(within_episode_change_interval))
-        self.within_episode_change_prob = float(within_episode_change_prob)
+        self.frame_skip_values = [int(x) for x in frame_skip_values]
 
         self.rng = np.random.RandomState(seed)
 
@@ -82,38 +70,8 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.pending_actions: List[tuple[int, int, int, int]] = []
         self._schedule_seq = 0
 
-    def _get_stage_index(self) -> int:
-        stage = self.episode_idx // self.episodes_per_stage
-        return min(stage, len(self.frame_skip_values) - 1)
-
     def _sample_frame_skip(self) -> int:
-        if self.latency_sampling_mode == "uniform_all":
-            return int(self.rng.choice(self.frame_skip_values))
-        stage = self._get_stage_index()
-        if self.randomize_within_stage:
-            candidates = self.frame_skip_values[: stage + 1]
-            return int(self.rng.choice(candidates))
-        return int(self.frame_skip_values[stage])
-
-    def _current_curriculum_frame_skip(self) -> int:
-        stage = self.decision_step_idx // self.within_episode_change_interval
-        stage = min(stage, len(self.frame_skip_values) - 1)
-        return int(self.frame_skip_values[stage])
-
-    def _maybe_update_frame_skip_for_this_decision(self) -> None:
-        if self.latency_mode == "episode_fixed":
-            return
-        if self.latency_mode == "within_episode_random":
-            if self.decision_step_idx == 0:
-                return
-            if self.decision_step_idx % self.within_episode_change_interval != 0:
-                return
-            if self.rng.rand() <= self.within_episode_change_prob:
-                self.current_frame_skip = self._sample_frame_skip()
-            return
-        if self.latency_mode == "within_episode_curriculum":
-            self.current_frame_skip = self._current_curriculum_frame_skip()
-            return
+        return int(self.rng.choice(self.frame_skip_values))
 
     def _schedule_action(self, action: int) -> int:
         latency_for_action = int(self.current_frame_skip)
@@ -134,17 +92,13 @@ class QueueLatencyWrapper(gym.Wrapper):
         self.pending_actions.clear()
         self._schedule_seq = 0
 
-        if self.latency_mode == "within_episode_curriculum":
-            self.current_frame_skip = int(self.frame_skip_values[0])
-        else:
-            self.current_frame_skip = self._sample_frame_skip()
+        self.current_frame_skip = int(self.frame_skip_values[0])
 
         obs, info = self.env.reset(**kwargs)
         if not isinstance(info, dict):
             info = {}
         info["frame_skip"] = int(self.current_frame_skip)
         info["episode_idx"] = int(self.episode_idx)
-        info["latency_mode"] = self.latency_mode
         info["applied_action"] = int(self.current_applied_action)
         info["pending_queue_len"] = 0
 
@@ -152,7 +106,7 @@ class QueueLatencyWrapper(gym.Wrapper):
         return obs, info
 
     def step(self, action):
-        self._maybe_update_frame_skip_for_this_decision()
+        self.current_frame_skip = self._sample_frame_skip()
         scheduled_delay = int(self.current_frame_skip)
         scheduled_apply_step = self._schedule_action(int(action))
         self._advance_pending_actions()
@@ -164,7 +118,6 @@ class QueueLatencyWrapper(gym.Wrapper):
         info["frame_skip"] = scheduled_delay
         info["decision_step_idx"] = int(self.decision_step_idx)
         info["env_step_idx"] = int(self.env_step_idx)
-        info["latency_mode"] = self.latency_mode
         info["applied_action"] = int(self.current_applied_action)
         info["queued_action"] = int(action)
         info["scheduled_apply_step"] = int(scheduled_apply_step)
@@ -780,12 +733,6 @@ def make_env(
     env_id: str = "VizdoomBasic-v1",
     obs_mode: str = "latency_channel",
     frame_skip_values: Optional[List[int]] = None,
-    episodes_per_stage: int = 10,
-    randomize_within_stage: bool = False,
-    latency_mode: str = "episode_fixed",
-    latency_sampling_mode: str = "uniform_all",
-    within_episode_change_interval: int = 1,
-    within_episode_change_prob: float = 1.0,
     vizdoom_frame_skip: int = 1,
     max_buttons_pressed: int = 1,
     use_multi_binary_action_space: bool = False,
@@ -821,12 +768,6 @@ def make_env(
         env = QueueLatencyWrapper(
             env,
             frame_skip_values=latency_values,
-            latency_mode=latency_mode,
-            latency_sampling_mode=latency_sampling_mode,
-            episodes_per_stage=episodes_per_stage,
-            randomize_within_stage=randomize_within_stage,
-            within_episode_change_interval=within_episode_change_interval,
-            within_episode_change_prob=within_episode_change_prob,
             seed=seed,
         )
 
@@ -866,12 +807,6 @@ def make_vec_vizdoom_basic(
     env_id: str = "VizdoomBasic-v1",
     obs_mode: str = "latency_channel",
     frame_skip_values: Optional[List[int]] = None,
-    episodes_per_stage: int = 10,
-    randomize_within_stage: bool = False,
-    latency_mode: str = "episode_fixed",
-    latency_sampling_mode: str = "uniform_all",
-    within_episode_change_interval: int = 1,
-    within_episode_change_prob: float = 1.0,
     vizdoom_frame_skip: int = 1,
     max_buttons_pressed: int = 1,
     use_multi_binary_action_space: bool = False,
@@ -893,12 +828,6 @@ def make_vec_vizdoom_basic(
             env_id=env_id,
             obs_mode=obs_mode,
             frame_skip_values=frame_skip_values,
-            episodes_per_stage=episodes_per_stage,
-            randomize_within_stage=randomize_within_stage,
-            latency_mode=latency_mode,
-            latency_sampling_mode=latency_sampling_mode,
-            within_episode_change_interval=within_episode_change_interval,
-            within_episode_change_prob=within_episode_change_prob,
             vizdoom_frame_skip=vizdoom_frame_skip,
             max_buttons_pressed=max_buttons_pressed,
             use_multi_binary_action_space=use_multi_binary_action_space,
@@ -976,7 +905,7 @@ def build_policy_config(args, sample_env: gym.Env):
     raise ValueError(f"Unsupported obs_mode: {obs_mode}")
 
 
-def train(args, use_wandb: bool, tb_log: Optional[str]):
+def train(args, wandb_module):
     set_random_seed(args.seed)
     frame_skip_values = parse_int_list(args.frame_skip_values)
     screen_size = parse_int_pair(args.screen_size)
@@ -996,12 +925,6 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         env_id=args.env_id,
         obs_mode=args.obs_mode,
         frame_skip_values=frame_skip_values,
-        episodes_per_stage=args.episodes_per_stage,
-        randomize_within_stage=args.randomize_within_stage,
-        latency_mode=args.latency_mode,
-        latency_sampling_mode=args.latency_sampling_mode,
-        within_episode_change_interval=args.within_episode_change_interval,
-        within_episode_change_prob=args.within_episode_change_prob,
         vizdoom_frame_skip=args.vizdoom_frame_skip,
         max_buttons_pressed=args.max_buttons_pressed,
         use_multi_binary_action_space=args.use_multi_binary_action_space,
@@ -1022,12 +945,6 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         env_id=args.env_id,
         obs_mode=args.obs_mode,
         frame_skip_values=frame_skip_values,
-        episodes_per_stage=args.episodes_per_stage,
-        randomize_within_stage=args.randomize_within_stage,
-        latency_mode=args.latency_mode,
-        latency_sampling_mode=args.latency_sampling_mode,
-        within_episode_change_interval=args.within_episode_change_interval,
-        within_episode_change_prob=args.within_episode_change_prob,
         vizdoom_frame_skip=args.vizdoom_frame_skip,
         max_buttons_pressed=args.max_buttons_pressed,
         use_multi_binary_action_space=args.use_multi_binary_action_space,
@@ -1076,9 +993,10 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
             vf_coef=args.vf_coef,
             clip_range=clip_range,
             max_grad_norm=args.max_grad_norm,
-            tensorboard_log=(tb_log if (use_wandb and tb_log) else None),
             policy_kwargs=policy_kwargs,
         )
+
+    model.set_logger(build_sb3_logger(wandb_module))
 
     checkpoint_callback = CheckpointCallback(
         save_freq=max(1, args.checkpoint_freq),
@@ -1092,7 +1010,6 @@ def train(args, use_wandb: bool, tb_log: Optional[str]):
         total_timesteps=int(args.train_steps),
         callback=checkpoint_callback,
         log_interval=1,
-        tb_log_name=(args.wandb_run_name or f"vizdoom_basic_{resolved_obs_mode}"),
     )
 
     model.save(args.save)
@@ -1129,12 +1046,6 @@ def eval_model(
         env_id=env_id,
         obs_mode=obs_mode,
         frame_skip_values=[eval_frame_skip],
-        episodes_per_stage=10**9,
-        randomize_within_stage=False,
-        latency_mode="episode_fixed",
-        latency_sampling_mode="uniform_all",
-        within_episode_change_interval=1,
-        within_episode_change_prob=1.0,
         vizdoom_frame_skip=vizdoom_frame_skip,
         max_buttons_pressed=max_buttons_pressed,
         use_multi_binary_action_space=use_multi_binary_action_space,
@@ -1203,12 +1114,6 @@ def export_rollouts(
         env_id=env_id,
         obs_mode=obs_mode,
         frame_skip_values=[export_frame_skip],
-        episodes_per_stage=10**9,
-        randomize_within_stage=False,
-        latency_mode="episode_fixed",
-        latency_sampling_mode="uniform_all",
-        within_episode_change_interval=1,
-        within_episode_change_prob=1.0,
         vizdoom_frame_skip=vizdoom_frame_skip,
         max_buttons_pressed=max_buttons_pressed,
         use_multi_binary_action_space=use_multi_binary_action_space,
@@ -1360,39 +1265,9 @@ def main():
         default="0,1,2,3,4,5",
         help="Comma-separated action-delay values in frames. For delay K, action chosen at t is applied at t+K.",
     )
-    ap.add_argument("--episodes-per-stage", type=int, default=10)
-    ap.add_argument("--randomize-within-stage", action="store_true")
-    ap.add_argument(
-        "--latency-mode",
-        type=str,
-        default="episode_fixed",
-        choices=["episode_fixed", "within_episode_random", "within_episode_curriculum", "within_episode_change"],
-        help=(
-            "episode_fixed: one latency per episode; "
-            "within_episode_random: resample latency inside episode; "
-            "within_episode_curriculum: increase latency step-by-step through provided range"
-        ),
-    )
-    ap.add_argument(
-        "--latency-sampling-mode",
-        type=str,
-        default="uniform_all",
-        choices=["uniform_all", "curriculum"],
-        help="For episode_fixed / within_episode_random sampling across the provided latency values",
-    )
-    ap.add_argument(
-        "--within-episode-change-interval",
-        type=int,
-        default=1,
-        help=(
-            "For within_episode_random: number of decision steps between possible resamples. "
-            "For within_episode_curriculum: number of decision steps spent at each latency before moving to the next one."
-        ),
-    )
-    ap.add_argument("--within-episode-change-prob", type=float, default=1.0)
 
     # Logging
-    ap.add_argument("--wandb", action="store_true")
+    ap.add_argument("--wandb", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--wandb-project", type=str, default="vizdoom_basic_rl_queue_latency")
     ap.add_argument("--wandb-entity", type=str, default=None)
     ap.add_argument("--wandb-run-name", type=str, default="")
@@ -1412,95 +1287,77 @@ def main():
 
     set_random_seed(args.seed)
 
-    use_wandb = bool(args.wandb)
-    tb_log = "./tb_logs" if use_wandb else None
-    if use_wandb:
-        try:
-            import wandb
-        except Exception as e:
-            print(f"[wandb] wandb not installed or failed to import ({e}). Disabling wandb.")
-            use_wandb = False
-            tb_log = None
-        else:
-            tags = [t.strip() for t in args.wandb_tags.split(",") if t.strip()]
-            wandb.init(
-                project=args.wandb_project,
-                entity=args.wandb_entity,
-                name=(args.wandb_run_name or f"vizdoom_basic_queue_{int(time.time())}"),
-                tags=tags,
-                config=vars(args),
-                sync_tensorboard=True,
-                save_code=True,
+    wandb_module = init_wandb(
+        args,
+        default_run_name=f"vizdoom_basic_queue_{int(time.time())}",
+    )
+    try:
+        model_path = args.load or args.save
+        if args.train_steps > 0:
+            print(
+                f"[train] steps={args.train_steps} n_envs={args.n_envs} save={args.save} "
+                f"obs_mode={args.obs_mode} frame_skip_values={args.frame_skip_values} env_id={args.env_id}"
             )
+            model_path = train(args, wandb_module)
+            print(f"[train] saved => {model_path}")
 
-    model_path = args.load or args.save
-    if args.train_steps > 0:
-        print(
-            f"[train] steps={args.train_steps} n_envs={args.n_envs} save={args.save} "
-            f"obs_mode={args.obs_mode} latency_mode={args.latency_mode} env_id={args.env_id}"
-        )
-        model_path = train(args, use_wandb, tb_log)
-        print(f"[train] saved => {model_path}")
+        if args.eval_episodes > 0:
+            eval_frame_skips = parse_int_list(args.eval_frame_skip_values)
+            screen_size = parse_int_pair(args.screen_size)
+            for fs in eval_frame_skips:
+                returns, lengths = eval_model(
+                    model_path=model_path,
+                    episodes=args.eval_episodes,
+                    seed=args.seed,
+                    env_id=args.env_id,
+                    eval_frame_skip=fs,
+                    obs_mode=args.obs_mode,
+                    vizdoom_frame_skip=args.vizdoom_frame_skip,
+                    max_buttons_pressed=args.max_buttons_pressed,
+                    use_multi_binary_action_space=args.use_multi_binary_action_space,
+                    treat_episode_timeout_as_truncation=args.treat_episode_timeout_as_truncation,
+                    screen_size=screen_size,
+                    grayscale=args.grayscale,
+                    clip_reward=args.clip_reward,
+                    history_len=args.history_len,
+                    memory_use_latency=args.memory_use_latency,
+                    memory_latency_repr=args.memory_latency_repr,
+                    stack_frames=args.stack_frames,
+                    max_steps_per_episode=args.eval_max_steps,
+                    render_mode=None,
+                )
+                print(
+                    f"[eval] frame_skip={fs} "
+                    f"mean_return={float(np.mean(returns)):.3f} std_return={float(np.std(returns)):.3f} "
+                    f"mean_len={float(np.mean(lengths)):.1f}"
+                )
 
-    if args.eval_episodes > 0:
-        eval_frame_skips = parse_int_list(args.eval_frame_skip_values)
-        screen_size = parse_int_pair(args.screen_size)
-        for fs in eval_frame_skips:
-            returns, lengths = eval_model(
+        if args.export_episodes > 0:
+            print(f"[export] episodes={args.export_episodes} outdir={args.outdir}")
+            out = export_rollouts(
                 model_path=model_path,
-                episodes=args.eval_episodes,
+                outdir=args.outdir,
+                episodes=int(args.export_episodes),
+                max_steps=int(args.export_max_steps),
                 seed=args.seed,
                 env_id=args.env_id,
-                eval_frame_skip=fs,
+                export_frame_skip=args.export_frame_skip,
                 obs_mode=args.obs_mode,
                 vizdoom_frame_skip=args.vizdoom_frame_skip,
                 max_buttons_pressed=args.max_buttons_pressed,
                 use_multi_binary_action_space=args.use_multi_binary_action_space,
                 treat_episode_timeout_as_truncation=args.treat_episode_timeout_as_truncation,
-                screen_size=screen_size,
+                screen_size=parse_int_pair(args.screen_size),
                 grayscale=args.grayscale,
                 clip_reward=args.clip_reward,
                 history_len=args.history_len,
                 memory_use_latency=args.memory_use_latency,
                 memory_latency_repr=args.memory_latency_repr,
                 stack_frames=args.stack_frames,
-                max_steps_per_episode=args.eval_max_steps,
-                render_mode=None,
             )
-            print(
-                f"[eval] frame_skip={fs} "
-                f"mean_return={float(np.mean(returns)):.3f} std_return={float(np.std(returns)):.3f} "
-                f"mean_len={float(np.mean(lengths)):.1f}"
-            )
-
-    if args.export_episodes > 0:
-        print(f"[export] episodes={args.export_episodes} outdir={args.outdir}")
-        out = export_rollouts(
-            model_path=model_path,
-            outdir=args.outdir,
-            episodes=int(args.export_episodes),
-            max_steps=int(args.export_max_steps),
-            seed=args.seed,
-            env_id=args.env_id,
-            export_frame_skip=args.export_frame_skip,
-            obs_mode=args.obs_mode,
-            vizdoom_frame_skip=args.vizdoom_frame_skip,
-            max_buttons_pressed=args.max_buttons_pressed,
-            use_multi_binary_action_space=args.use_multi_binary_action_space,
-            treat_episode_timeout_as_truncation=args.treat_episode_timeout_as_truncation,
-            screen_size=parse_int_pair(args.screen_size),
-            grayscale=args.grayscale,
-            clip_reward=args.clip_reward,
-            history_len=args.history_len,
-            memory_use_latency=args.memory_use_latency,
-            memory_latency_repr=args.memory_latency_repr,
-            stack_frames=args.stack_frames,
-        )
-        print(f"[export] wrote => {out}")
-
-    if use_wandb:
-        import wandb
-        wandb.finish()
+            print(f"[export] wrote => {out}")
+    finally:
+        wandb_module.finish()
 
 
 if __name__ == "__main__":

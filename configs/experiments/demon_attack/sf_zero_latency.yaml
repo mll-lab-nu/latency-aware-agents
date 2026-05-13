@@ -1,0 +1,10 @@
+__base__: ../../base/demon_attack.yaml
+
+experiment:
+  name: demon_attack_sf_zero_latency
+
+latency:
+  type: zero
+
+logging:
+  output_dir: outputs/demon_attack_sf_zero_latency

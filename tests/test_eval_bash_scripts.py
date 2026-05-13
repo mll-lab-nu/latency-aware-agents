@@ -1,0 +1,508 @@
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_eval_bash_scripts_are_batch_eval_wrappers():
+    scripts = {
+        "eval_flappy.sh": "flappy",
+        "eval_demon_attack.sh": "demon_attack",
+        "eval_deadly_corridor.sh": "deadly_corridor",
+    }
+
+    for script_name, env_name in scripts.items():
+        script_path = REPO_ROOT / "scripts" / "bash_scripts" / script_name
+
+        assert script_path.is_file()
+        assert os.access(script_path, os.X_OK)
+
+        syntax = subprocess.run(
+            ["bash", "-n", str(script_path)],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert syntax.returncode == 0, syntax.stderr
+
+        text = script_path.read_text(encoding="utf-8")
+        assert f'DEFAULT_CONFIG_ROOT="configs/train/{env_name}"' in text
+        assert 'CHECKPOINT_KINDS=(latest best)' in text
+        assert "--checkpoint-kind" in text
+        assert "--output-dir" in text
+        assert 'python -m training.train \\' in text
+        assert 'python -m latency_bench.run \\' in text
+        assert "${CONFIG_DIR}/train.yaml" not in text
+        assert "sort -V" in text
+        assert "/config.json" in text
+        assert "checkpoint_p0" in text
+        assert "outputs/eval/${checkpoint_kind}/" in text
+        assert "outputs/latency_bench/${checkpoint_kind}/" in text
+        assert "Skipping" in text
+
+
+def test_openvla_install_script_bootstraps_rlinf_oft_environment():
+    script_path = REPO_ROOT / "scripts" / "bash_scripts" / "install_openvla.sh"
+    requirements_path = REPO_ROOT / "requirements_openvla.txt"
+
+    assert script_path.is_file()
+    assert os.access(script_path, os.X_OK)
+    assert requirements_path.is_file()
+
+    syntax = subprocess.run(
+        ["bash", "-n", str(script_path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert syntax.returncode == 0, syntax.stderr
+
+    text = script_path.read_text(encoding="utf-8")
+    assert 'CONDA_ENV_NAME="${CONDA_ENV_NAME:-latency-openvla}"' in text
+    assert 'PYTHON_VERSION="${PYTHON_VERSION:-3.10}"' in text
+    assert 'REQUIREMENTS_FILE="${REPO_ROOT}/requirements_openvla.txt"' in text
+    assert 'conda create -n "${CONDA_ENV_NAME}" "python=${PYTHON_VERSION}" -y' in text
+    assert 'conda activate "${CONDA_ENV_NAME}"' in text
+    assert 'python -m pip install -r "${REQUIREMENTS_FILE}"' in text
+    assert (
+        'python -m pip install "git+https://github.com/moojink/openvla-oft.git" '
+        "--no-deps --no-build-isolation"
+    ) in text
+    assert 'find_spec("prismatic")' in text
+    assert '(".__init__.py", "vla/__init__.py")' not in text
+    assert '("__init__.py", "vla/__init__.py")' in text
+    assert "Minimal init patched for latency_bench OpenVLA eval" in text
+    assert 'PYTHONPATH="${REPO_ROOT}:${REPO_ROOT}/RL-inf' in text
+    assert "from rlinf.models.embodiment.openvla_oft.rlinf import get_model" in text
+    assert "import latency_bench.policy.flappy_openvla" in text
+    assert "OPENVLA_OFT_RUNTIME_DEPS" not in text
+    assert "activate_dir=" not in text
+
+    requirements = requirements_path.read_text(encoding="utf-8")
+    assert "-e ./RL-inf[embodied]" in requirements
+    assert "-e ./flappy-bird-gymnasium" in requirements
+    assert "torch==2.9.0+cu130" in requirements
+    assert "tensorflow" not in requirements
+    assert "tensorflow-datasets" not in requirements
+    assert "tensorflow-graphics" not in requirements
+    assert "dlimp" not in requirements
+    assert "torch==2.2.0" not in text
+    assert "torch==2.2.0" not in requirements
+    assert "OPENVLA_VENV_DIR" not in text
+    assert "--venv" not in text
+    assert ".venv-latency-openvla" not in text
+    assert "pip install -e \"${REPO_ROOT}/openvla\"" not in text
+
+
+def test_cross_device_openvla_script_forwards_filters_and_uses_openvla_runtime():
+    script_path = REPO_ROOT / "scripts" / "bash_scripts" / "run_cross_device_openvla.sh"
+    common_path = REPO_ROOT / "scripts" / "bash_scripts" / "cross_device_launcher_common.sh"
+
+    syntax = subprocess.run(
+        ["bash", "-n", str(script_path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert syntax.returncode == 0, syntax.stderr
+
+    common_syntax = subprocess.run(
+        ["bash", "-n", str(common_path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert common_syntax.returncode == 0, common_syntax.stderr
+
+    script = script_path.read_text(encoding="utf-8")
+    common = common_path.read_text(encoding="utf-8")
+    assert "RUNTIME_ENV=${RUNTIME_ENV:-openvla}" in script
+    assert '--runtime-env "${RUNTIME_ENV}"' in script
+    assert "cross_device_run_protocol_stage" in script
+    assert "cross_device_finish_protocol_runs" in script
+    assert "OPENVLA_CHECK_DEPS_ONLY" in script
+    assert "check-deps" in script
+    assert "cross_device_openvla_resolve_stages" in script
+    assert "sim-same" in script
+    for env_var, flag in (
+        ("ONLY_ENV", "--only-env"),
+        ("ONLY_POLICY", "--only-policy"),
+        ("ONLY_DEVICE", "--only-device"),
+        ("ONLY_EXPERIMENT", "--only-experiment"),
+        ("MAX_RUNS", "--max-runs"),
+    ):
+        assert env_var in common
+        assert flag in common
+    assert "CONTINUE_ON_ERROR" in common
+    assert "--continue-on-error" in common
+
+
+def test_cross_device_common_builds_openvla_smoke_execution_args():
+    common_path = REPO_ROOT / "scripts" / "bash_scripts" / "cross_device_launcher_common.sh"
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            f"""
+            set -euo pipefail
+            source {common_path}
+            DRY_RUN=1
+            OPENVLA_SMOKE=1
+            OPENVLA_SMOKE_EPISODES=1
+            OPENVLA_SMOKE_MAX_STEPS=7
+            cross_device_optional_args
+            for arg in "${{OPTIONAL_ARGS[@]}}"; do
+                printf 'doctor:%s\\n' "$arg"
+            done
+            for arg in "${{EXECUTION_OPTIONAL_ARGS[@]}}"; do
+                printf 'execution:%s\\n' "$arg"
+            done
+            """,
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    doctor_args = [line.removeprefix("doctor:") for line in result.stdout.splitlines() if line.startswith("doctor:")]
+    execution_args = [
+        line.removeprefix("execution:")
+        for line in result.stdout.splitlines()
+        if line.startswith("execution:")
+    ]
+    assert "--smoke" not in doctor_args
+    assert "--smoke" in execution_args
+    assert ["--smoke-episodes", "1"] == execution_args[
+        execution_args.index("--smoke-episodes") : execution_args.index("--smoke-episodes") + 2
+    ]
+    assert ["--smoke-max-steps", "7"] == execution_args[
+        execution_args.index("--smoke-max-steps") : execution_args.index("--smoke-max-steps") + 2
+    ]
+
+
+def test_cross_device_common_resolves_openvla_stage_selection():
+    common_path = REPO_ROOT / "scripts" / "bash_scripts" / "cross_device_launcher_common.sh"
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            f"""
+            set -euo pipefail
+            source {common_path}
+            unset OPENVLA_STAGES
+            OPENVLA_SMOKE=0
+            cross_device_openvla_resolve_stages
+            printf 'default:%s\\n' "${{OPENVLA_SELECTED_STAGES[*]}}"
+            OPENVLA_SMOKE=1
+            cross_device_openvla_resolve_stages
+            printf 'smoke:%s\\n' "${{OPENVLA_SELECTED_STAGES[*]}}"
+            OPENVLA_STAGES=measure,realtime,sim-same
+            cross_device_openvla_resolve_stages
+            printf 'explicit:%s\\n' "${{OPENVLA_SELECTED_STAGES[*]}}"
+            cross_device_openvla_stage_selected doctor && printf 'doctor=yes\\n' || printf 'doctor=no\\n'
+            cross_device_openvla_stage_selected measure && printf 'measure=yes\\n' || printf 'measure=no\\n'
+            cross_device_openvla_stage_selected sim-same && printf 'sim_same=yes\\n' || printf 'sim_same=no\\n'
+            """,
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "default:doctor measure realtime sim-same sim-cross" in result.stdout
+    assert "smoke:doctor measure realtime" in result.stdout
+    assert "explicit:measure realtime sim-same" in result.stdout
+    assert "doctor=no" in result.stdout
+    assert "measure=yes" in result.stdout
+    assert "sim_same=yes" in result.stdout
+
+
+def test_cross_device_common_keeps_continue_on_error_out_of_doctor_args():
+    common_path = REPO_ROOT / "scripts" / "bash_scripts" / "cross_device_launcher_common.sh"
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            f"""
+            set -euo pipefail
+            source {common_path}
+            CONTINUE_ON_ERROR=1
+            DRY_RUN=1
+            ONLY_POLICY=demon-attack-openvla
+            ONLY_ENV=demon_attack
+            MAX_RUNS=1
+            cross_device_optional_args
+            for arg in "${{OPTIONAL_ARGS[@]}}"; do
+                printf 'doctor:%s\\n' "$arg"
+            done
+            for arg in "${{EXECUTION_OPTIONAL_ARGS[@]}}"; do
+                printf 'execution:%s\\n' "$arg"
+            done
+            """,
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    doctor_args = [line.removeprefix("doctor:") for line in result.stdout.splitlines() if line.startswith("doctor:")]
+    execution_args = [
+        line.removeprefix("execution:")
+        for line in result.stdout.splitlines()
+        if line.startswith("execution:")
+    ]
+    assert "--continue-on-error" not in doctor_args
+    assert "--continue-on-error" in execution_args
+    assert "--dry-run" in doctor_args
+    assert "--dry-run" in execution_args
+    assert ["--only-policy", "demon-attack-openvla"] == doctor_args[
+        doctor_args.index("--only-policy") : doctor_args.index("--only-policy") + 2
+    ]
+    assert ["--only-env", "demon_attack"] == doctor_args[
+        doctor_args.index("--only-env") : doctor_args.index("--only-env") + 2
+    ]
+    assert ["--max-runs", "1"] == doctor_args[
+        doctor_args.index("--max-runs") : doctor_args.index("--max-runs") + 2
+    ]
+
+
+def test_cross_device_common_records_real_stage_exit_codes_and_continues():
+    common_path = REPO_ROOT / "scripts" / "bash_scripts" / "cross_device_launcher_common.sh"
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            f"""
+            set -u
+            source {common_path}
+            CONTINUE_ON_ERROR=1
+            cross_device_reset_failures
+            cross_device_run_protocol_stage measure bash -c 'exit 17'
+            printf 'after_measure\\n'
+            cross_device_run_protocol_stage realtime bash -c 'exit 23'
+            printf 'after_realtime\\n'
+            finish_rc=0
+            cross_device_finish_protocol_runs || finish_rc=$?
+            printf 'finish_rc=%s\\n' "$finish_rc"
+            """,
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, combined
+    assert "after_measure" in combined
+    assert "after_realtime" in combined
+    assert "stage=measure exit_code=17" in combined
+    assert "stage=realtime exit_code=23" in combined
+    assert "finish_rc=1" in combined
+
+
+def test_eval_bash_scripts_reject_manual_latency_argument():
+    for script_name in ("eval_flappy.sh", "eval_demon_attack.sh", "eval_deadly_corridor.sh"):
+        script_path = REPO_ROOT / "scripts" / "bash_scripts" / script_name
+        result = subprocess.run(
+            ["bash", str(script_path), "0"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 2
+        assert "does not take a latency argument" in result.stderr
+
+
+def test_eval_bash_script_skips_missing_checkpoint_config(tmp_path):
+    config_root = tmp_path / "demon_attack"
+    config_dir = config_root / "latency_8" / "seed_0"
+    config_dir.mkdir(parents=True)
+    eval_yaml = """
+experiment:
+  name: demon_attack_sf_same_latency_l8_seed0
+backend:
+  train_dir: results/checkpoints
+""".strip()
+    (config_dir / "eval.yaml").write_text(eval_yaml + "\n", encoding="utf-8")
+    (config_dir / "latency_bench_eval.yaml").write_text(eval_yaml + "\n", encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts" / "bash_scripts" / "eval_demon_attack.sh")],
+        cwd=REPO_ROOT,
+        env={**os.environ, "LATENCY_BENCH_EVAL_CONFIG_ROOT": str(config_root)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "Skipping" in result.stderr
+    assert "demon_attack_sf_same_latency_l8_seed0" in result.stderr
+    assert "no checkpoint-backed eval configs" in result.stderr
+
+
+def test_eval_bash_script_continues_after_latency_bench_failure(tmp_path):
+    config_root = tmp_path / "demon_attack"
+    train_dir = tmp_path / "checkpoints"
+    for latency in (8, 9):
+        config_dir = config_root / f"latency_{latency}" / "seed_0"
+        config_dir.mkdir(parents=True)
+        eval_yaml = f"""
+experiment:
+  name: demon_attack_sf_same_latency_l{latency}_seed0
+backend:
+  train_dir: {train_dir}
+logging:
+  output_dir: {tmp_path}/outputs/eval/demon_attack/latency_{latency}/seed_0
+""".strip()
+        latency_bench_yaml = f"""
+experiment:
+  name: demon_attack_sf_same_latency_l{latency}_seed0
+backend:
+  train_dir: {train_dir}
+logging:
+  output_dir: {tmp_path}/outputs/latency_bench/demon_attack/train_latency_{latency}/seed_0
+""".strip()
+        (config_dir / "eval.yaml").write_text(eval_yaml + "\n", encoding="utf-8")
+        (config_dir / "latency_bench_eval.yaml").write_text(latency_bench_yaml + "\n", encoding="utf-8")
+        checkpoint_dir = train_dir / f"demon_attack_sf_same_latency_l{latency}_seed0"
+        checkpoint_dir.mkdir(parents=True)
+        (checkpoint_dir / "config.json").write_text("{}\n", encoding="utf-8")
+        policy_checkpoint_dir = checkpoint_dir / "checkpoint_p0"
+        policy_checkpoint_dir.mkdir()
+        (policy_checkpoint_dir / "checkpoint_000000001_000000000001.pth").write_text("", encoding="utf-8")
+        (policy_checkpoint_dir / "best_000000001_000000000001.pth").write_text("", encoding="utf-8")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls_path = tmp_path / "python_calls.txt"
+    fake_python = bin_dir / "python"
+    fake_python.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "printf '%s\\n' \"$*\" >> \"$LATENCY_BENCH_FAKE_PYTHON_CALLS\"",
+                "if [[ \"$*\" == *'-m latency_bench.run'* && \"$*\" == *'latency_8'* ]]; then",
+                "  exit 17",
+                "fi",
+                "exit 0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts" / "bash_scripts" / "eval_demon_attack.sh")],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "LATENCY_BENCH_EVAL_CONFIG_ROOT": str(config_root),
+            "LATENCY_BENCH_FAKE_PYTHON_CALLS": str(calls_path),
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "-m latency_bench.run --config" in calls
+    assert "--checkpoint-kind latest" in calls
+    assert "--checkpoint-kind best" in calls
+    assert f"--output-dir {tmp_path}/outputs/eval/latest/demon_attack/latency_8/seed_0" in calls
+    assert f"--output-dir {tmp_path}/outputs/eval/best/demon_attack/latency_8/seed_0" in calls
+    assert f"--output-dir {tmp_path}/outputs/latency_bench/latest/demon_attack/train_latency_8/seed_0" in calls
+    assert f"--output-dir {tmp_path}/outputs/latency_bench/best/demon_attack/train_latency_8/seed_0" in calls
+    assert "latency_8/seed_0/latency_bench_eval.yaml" in calls
+    assert "latency_9/seed_0/eval.yaml" in calls
+    assert "latency_9/seed_0/latency_bench_eval.yaml" in calls
+    assert "latency_bench eval command failed" in result.stderr
+
+
+def test_eval_bash_script_reports_missing_best_checkpoint_but_runs_latest(tmp_path):
+    config_root = tmp_path / "demon_attack"
+    train_dir = tmp_path / "checkpoints"
+    config_dir = config_root / "latency_8" / "seed_0"
+    config_dir.mkdir(parents=True)
+    eval_yaml = f"""
+experiment:
+  name: demon_attack_sf_same_latency_l8_seed0
+backend:
+  train_dir: {train_dir}
+logging:
+  output_dir: {tmp_path}/outputs/eval/demon_attack/latency_8/seed_0
+""".strip()
+    latency_bench_yaml = f"""
+experiment:
+  name: demon_attack_sf_same_latency_l8_seed0
+backend:
+  train_dir: {train_dir}
+logging:
+  output_dir: {tmp_path}/outputs/latency_bench/demon_attack/train_latency_8/seed_0
+""".strip()
+    (config_dir / "eval.yaml").write_text(eval_yaml + "\n", encoding="utf-8")
+    (config_dir / "latency_bench_eval.yaml").write_text(latency_bench_yaml + "\n", encoding="utf-8")
+    checkpoint_dir = train_dir / "demon_attack_sf_same_latency_l8_seed0"
+    checkpoint_dir.mkdir(parents=True)
+    (checkpoint_dir / "config.json").write_text("{}\n", encoding="utf-8")
+    policy_checkpoint_dir = checkpoint_dir / "checkpoint_p0"
+    policy_checkpoint_dir.mkdir()
+    (policy_checkpoint_dir / "checkpoint_000000001_000000000001.pth").write_text("", encoding="utf-8")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls_path = tmp_path / "python_calls.txt"
+    fake_python = bin_dir / "python"
+    fake_python.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "printf '%s\\n' \"$*\" >> \"$LATENCY_BENCH_FAKE_PYTHON_CALLS\"",
+                "exit 0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts" / "bash_scripts" / "eval_demon_attack.sh")],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "LATENCY_BENCH_EVAL_CONFIG_ROOT": str(config_root),
+            "LATENCY_BENCH_FAKE_PYTHON_CALLS": str(calls_path),
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "--checkpoint-kind latest" in calls
+    assert "--checkpoint-kind best" not in calls
+    assert "missing checkpoint matching" in result.stderr
+    assert "best_*" in result.stderr

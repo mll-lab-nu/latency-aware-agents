@@ -2,14 +2,18 @@ unity_logs/
 outputs/
 vizdoom_basic_models/
 wandb/
-/models/
-eval/
-docs/
+models/
+results/
+logs/
+configs/train
 
-# Python cache files
+
+# temp files
+tmp/
+_vizdoom.ini
 __pycache__/
-*.py[cod]
-*$py.class
+.codex
 
-# uv
-uv.lock
+# onle reference for agents, not to upload
+reference/
+paper/

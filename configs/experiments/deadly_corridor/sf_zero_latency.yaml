@@ -1,0 +1,10 @@
+__base__: ../../base/deadly_corridor.yaml
+
+experiment:
+  name: deadly_corridor_sf_zero_latency
+
+latency:
+  type: zero
+
+logging:
+  output_dir: outputs/deadly_corridor_sf_zero_latency

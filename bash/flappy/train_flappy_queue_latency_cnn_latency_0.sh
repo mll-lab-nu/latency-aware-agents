@@ -36,29 +36,29 @@ python -c "import stable_baselines3; print('sb3 ok:', stable_baselines3.__versio
 python -c "import wandb; print('wandb ok:', wandb.__version__)"
 echo "=== END DEBUG ==="
 
-python "${PY_SCRIPT}" \
-  --train-steps 50000000 \
-  --n-envs 8 \
-  --n-steps 2048 \
-  --batch-size 128 \
-  --n-epochs 10 \
-  --ent-coef 0.01 \
-  --gamma 0.99 \
-  --gae-lambda 0.95 \
-  --fps 30 \
-  --image-size 84 \
-  --stack-frames 4 \
-  --obs-mode image_only \
-  --frame-skip-values 0 \
-  --eval-frame-skip-values 0,1,2,3,4,5,10 \
-  --eval-max-steps 5000 \
-  --latency-mode episode_fixed \
-  --latency-sampling-mode uniform_all \
-  --outdir "${ROLLOUT_DIR}" \
-  --save "${MODEL_SAVE}" \
-  --wandb \
-  --wandb-project flappy_rl_numeric_queue_latency \
-  --wandb-run-name ppo_cnn_queue_latency_0
+# python "${PY_SCRIPT}" \
+#   --train-steps 50000000 \
+#   --n-envs 8 \
+#   --n-steps 2048 \
+#   --batch-size 128 \
+#   --n-epochs 10 \
+#   --ent-coef 0.01 \
+#   --gamma 0.99 \
+#   --gae-lambda 0.95 \
+#   --fps 30 \
+#   --image-size 84 \
+#   --stack-frames 4 \
+#   --obs-mode image_only \
+#   --frame-skip-values 0 \
+#   --eval-frame-skip-values 0,1,2,3,4,5,10 \
+#   --eval-max-steps 5000 \
+#   --latency-mode episode_fixed \
+#   --latency-sampling-mode uniform_all \
+#   --outdir "${ROLLOUT_DIR}" \
+#   --save "${MODEL_SAVE}" \
+#   --wandb \
+#   --wandb-project flappy_rl_numeric_queue_latency \
+#   --wandb-run-name ppo_cnn_queue_latency_0
 
 python "${PY_SCRIPT}" \
   --train-steps 0 \

@@ -1,0 +1,18 @@
+__base__: ../../base/flappy.yaml
+
+experiment:
+  name: flappy_sf_zero_latency
+  seed: 0
+
+backend:
+  type: sample_factory
+  run_mode: train
+
+latency:
+  type: zero
+  add_latency_info: false
+
+logging:
+  output_dir: outputs/flappy_sf_zero_latency
+  wandb_group: flappy
+  wandb_job_type: sample_factory
