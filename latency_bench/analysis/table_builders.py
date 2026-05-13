@@ -5,15 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from latency_bench.analysis.error_metrics import (
-    action_age_tv_distance,
     latency_distribution_match_metrics,
     length_error_metrics,
     return_error_metrics,
 )
 from latency_bench.analysis.eval_stats import (
-    ACTION_RECORD_CANDIDATES,
     LATENCY_RECORD_CANDIDATES,
-    extract_action_age_frames_from_records,
     extract_latency_samples_from_records,
     load_jsonl_records,
     resolve_run_file,
@@ -100,10 +97,6 @@ def build_profile_match_rows(match_specs: list[dict[str, Any]]) -> list[dict[str
             "fps": fps,
         }
         row.update(latency_distribution_match_metrics(real_samples, sim_samples, fps))
-        row["action_age_tv"] = _optional_action_age_tv(
-            spec.get("real_action_records"),
-            spec.get("sim_action_records"),
-        )
         rows.append(row)
     return rows
 
@@ -242,18 +235,6 @@ def _performance_error_fields(
             fallback_to_realtime_denominator=allow_fallback,
         )
     raise ValueError(f"Unsupported performance error kind: {kind}")
-
-
-def _optional_action_age_tv(real_action_records: str | Path | None, sim_action_records: str | Path | None) -> float | None:
-    if not real_action_records or not sim_action_records:
-        return None
-    real_path = resolve_run_file(real_action_records, ACTION_RECORD_CANDIDATES)
-    sim_path = resolve_run_file(sim_action_records, ACTION_RECORD_CANDIDATES)
-    real_ages = extract_action_age_frames_from_records(load_jsonl_records(real_path), strict=True)
-    sim_ages = extract_action_age_frames_from_records(load_jsonl_records(sim_path), strict=True)
-    return action_age_tv_distance(real_ages, sim_ages)
-
-
 def _load_profile(profile_path: str | Path) -> tuple[Path, dict[str, Any]]:
     path = Path(profile_path)
     manifest_path = path / "profile.json" if path.is_dir() else path

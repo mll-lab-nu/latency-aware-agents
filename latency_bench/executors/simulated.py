@@ -106,7 +106,6 @@ class SimulatedLatencyExecutor:
                     action_id=self._next_action_id,
                     action=policy_output.action,
                     obs_env_step=raw_frame,
-                    obs_time_ms=current_time_ms,
                     ready_time_ms=ready_time_ms,
                     ready_step_float=float(ready_raw_frame),
                     latency=latency_record,

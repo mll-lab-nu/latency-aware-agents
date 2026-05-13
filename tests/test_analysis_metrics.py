@@ -4,7 +4,6 @@ import pytest
 
 from latency_bench.analysis.error_metrics import (
     absolute_error,
-    action_age_tv_distance,
     default_latency_equivalence_thresholds,
     latency_distribution_match_metrics,
     length_error_metrics,
@@ -94,20 +93,6 @@ def test_tail_crossing_probability_errors_use_strict_greater_than():
     assert errors["prob_b_gt_3_frames"] == pytest.approx(0.0)
     assert errors["tail_error_gt_3_frames"] == pytest.approx(0.0)
     assert errors["max_tail_error"] == pytest.approx(1.0 / 3.0)
-
-
-def test_action_age_tv_distance_examples():
-    assert action_age_tv_distance([0, 1, 1], [0, 1, 1]) == pytest.approx(0.0)
-    assert action_age_tv_distance([0, 0], [1, 1]) == pytest.approx(1.0)
-    assert action_age_tv_distance([0, 0, 1, 1], [0, 1, 1, 1]) == pytest.approx(0.25)
-
-
-def test_action_age_tv_distance_ignores_none_and_rejects_empty_valid_inputs():
-    assert action_age_tv_distance([None, 0, 0], [None, 1, 1]) == pytest.approx(1.0)
-    with pytest.raises(ValueError, match="action_age_a must contain at least one valid value"):
-        action_age_tv_distance([None], [0])
-
-
 def test_absolute_and_normalized_errors_with_task_scale():
     assert absolute_error(110.0, 100.0) == pytest.approx(10.0)
 
@@ -164,5 +149,4 @@ def test_default_latency_equivalence_thresholds():
     assert thresholds["p50_p90_p95_error_frames"] == pytest.approx(0.25)
     assert thresholds["p99_error_frames"] == pytest.approx(0.5)
     assert thresholds["max_tail_error"] == pytest.approx(0.05)
-    assert thresholds["action_age_tv"] == pytest.approx(0.05)
     assert thresholds["norm_return_error"] == pytest.approx(0.1)

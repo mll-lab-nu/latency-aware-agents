@@ -37,7 +37,6 @@ def _representative_records() -> list[Any]:
         action_id=7,
         action=action,
         obs_env_step=5,
-        obs_time_ms=166.666,
         ready_time_ms=200.0,
         ready_step_float=6.0,
         latency_raw_frames=1,

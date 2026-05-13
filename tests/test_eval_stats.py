@@ -7,7 +7,6 @@ import pytest
 
 from latency_bench.analysis.eval_stats import (
     EPISODE_METRICS_CANDIDATES,
-    extract_action_age_frames_from_records,
     extract_episode_length,
     extract_episode_return,
     extract_latency_samples_from_records,
@@ -138,17 +137,3 @@ def test_extract_latency_samples_from_records_uses_latency_ms():
 def test_extract_latency_samples_from_records_raises_when_no_valid_samples():
     with pytest.raises(ValueError, match="No valid latency samples"):
         extract_latency_samples_from_records([{"other": 1}])
-
-
-def test_extract_action_age_frames_from_records_ignores_missing_values_by_default():
-    records = [
-        {"action_age_frames": 0},
-        {"action_age_frames": None},
-        {},
-        {"action_age_frames": 2.0},
-    ]
-
-    assert extract_action_age_frames_from_records(records) == [0, 2]
-    assert extract_action_age_frames_from_records([{}]) == []
-    with pytest.raises(ValueError, match="No valid action_age_frames"):
-        extract_action_age_frames_from_records([{}], strict=True)

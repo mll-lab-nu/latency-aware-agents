@@ -168,7 +168,7 @@ def test_empirical_profile_metadata_is_logged(tmp_path: Path):
     assert latency["sample_index"] is not None
 
 
-def test_simulated_latency_records_log_latency_and_action_age(tmp_path: Path):
+def test_simulated_latency_records_log_latency_raw_fields(tmp_path: Path):
     run_from_config(_config(tmp_path), write_summary=False)
 
     actions = _read_jsonl(tmp_path / "actions.jsonl")
@@ -179,13 +179,11 @@ def test_simulated_latency_records_log_latency_and_action_age(tmp_path: Path):
     assert latencies[0]["latency_ms"] == pytest.approx(80.0)
     assert actions[0]["latency"]["latency_ms"] == pytest.approx(80.0)
     assert actions[0]["latency"]["obs_id"] == 0
-    assert actions[0]["effective_k"] == pytest.approx(2.0)
     assert actions[0]["obs_env_step"] == 0
     assert actions[0]["latency_raw_frames"] == 2
     assert actions[0]["ready_raw_frame"] == 2
     assert applied
     assert applied[0]["apply_raw_frame"] == 2
-    assert applied[0]["action_age_frames"] == applied[0]["apply_raw_frame"] - applied[0]["obs_env_step"]
     assert steps[0]["info"]["scheduled_time_ms"] == pytest.approx(0.0)
     assert steps[0]["info"]["frame_time_ms"] == pytest.approx(40.0)
     assert "active_action_id" in steps[0]["info"]

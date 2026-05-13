@@ -145,21 +145,6 @@ def extract_latency_samples_from_records(records: Iterable[dict[str, Any]]) -> l
     return samples
 
 
-def extract_action_age_frames_from_records(records: Iterable[dict[str, Any]], *, strict: bool = False) -> list[int]:
-    values: list[int] = []
-    for record in records:
-        value = record.get("action_age_frames")
-        if value is None:
-            continue
-        numeric = _finite_float(value, "action_age_frames")
-        if not numeric.is_integer():
-            raise ValueError("action_age_frames must contain integer-like values")
-        values.append(int(numeric))
-    if strict and not values:
-        raise ValueError("No valid action_age_frames found")
-    return values
-
-
 def _select_return_field(records: Sequence[dict[str, Any]], return_field: str) -> str:
     if return_field != "episode_return_env":
         return return_field

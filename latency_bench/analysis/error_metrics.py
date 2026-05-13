@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import math
-from collections import Counter
-from collections.abc import Iterable, Sequence
-from typing import Any
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -99,19 +97,6 @@ def tail_crossing_probability_errors(
 
     result["max_tail_error"] = float(max_tail_error)
     return result
-
-
-def action_age_tv_distance(action_age_a: Iterable[Any], action_age_b: Iterable[Any]) -> float:
-    a = _integer_like_values(action_age_a, "action_age_a")
-    b = _integer_like_values(action_age_b, "action_age_b")
-    counts_a = Counter(a)
-    counts_b = Counter(b)
-    keys = set(counts_a) | set(counts_b)
-
-    distance = 0.0
-    for key in keys:
-        distance += abs(counts_a[key] / len(a) - counts_b[key] / len(b))
-    return 0.5 * distance
 
 
 def latency_distribution_match_metrics(
@@ -217,7 +202,6 @@ def default_latency_equivalence_thresholds() -> dict[str, float]:
         "p50_p90_p95_error_frames": 0.25,
         "p99_error_frames": 0.5,
         "max_tail_error": 0.05,
-        "action_age_tv": 0.05,
         "norm_return_error": 0.1,
     }
 

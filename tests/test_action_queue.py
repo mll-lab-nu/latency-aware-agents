@@ -12,7 +12,6 @@ def _event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> 
         action_id=action_id,
         action=action,
         obs_env_step=0,
-        obs_time_ms=0.0,
         ready_time_ms=ready_time_ms,
         ready_step_float=float(ready_step),
         latency=LatencyRecord(
@@ -49,15 +48,13 @@ def test_one_frame_latency_ready_on_float_boundary_applies_at_next_step():
     clock = EnvClock(env_fps=35, obs_fps=35)
     noop = Action("noop", is_noop=True)
     action = Action("jump")
-    obs_step = 6
-    ready_step = obs_step + 1
-    obs_time_ms = clock.step_to_time_ms(obs_step)
-    ready_time_ms = obs_time_ms + clock.frame_ms
+    obs_env_step = 6
+    ready_step = obs_env_step + 1
+    ready_time_ms = clock.step_to_time_ms(obs_env_step) + clock.frame_ms
     event = ActionEvent(
         action_id=0,
         action=action,
-        obs_env_step=obs_step,
-        obs_time_ms=obs_time_ms,
+        obs_env_step=obs_env_step,
         ready_time_ms=ready_time_ms,
         ready_step_float=clock.time_ms_to_step_float(ready_time_ms),
         latency=LatencyRecord(

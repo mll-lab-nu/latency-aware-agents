@@ -94,14 +94,11 @@ def apply_latency_raw_fields(
     frame_ms: float,
     profile_metadata: dict[str, Any] | None = None,
 ) -> None:
-    event.obs_step = event.obs_env_step
-    event.action_emit_time_ms = event.obs_time_ms
     apply_latency_record_raw_fields(
         record=event.latency,
         latency_type=latency_type,
         profile_metadata=profile_metadata,
     )
-    event.effective_k = None if frame_ms <= 0 else float(event.latency.latency_ms) / float(frame_ms)
 
 
 def apply_latency_record_raw_fields(
@@ -149,10 +146,7 @@ def active_action_step_info(
     active_obs_frame = None if active_event is None else active_event.obs_env_step
     return {
         "active_action_id": None if active_event is None else active_event.action_id,
-        "active_action_obs_step": None if active_event is None else active_obs_frame,
-        "active_action_age_frames": (
-            None if active_event is None else int(env_step) - int(active_obs_frame)
-        ),
+        "active_action_obs_env_step": None if active_event is None else active_obs_frame,
         "scheduled_time_ms": float(scheduled_time_ms),
         "frame_time_ms": float(frame_ms),
         "latency_type": latency_type,
@@ -195,20 +189,12 @@ def _first_number(mapping: dict[str, Any], keys: tuple[str, ...]) -> float | Non
 def _finalize_action_events(action_events: list[ActionEvent], *, frame_ms: float | None) -> None:
     for event in action_events:
         _backfill_action_event_raw_fields(event, frame_ms=frame_ms)
-        event.obs_step = event.obs_env_step
-        event.action_emit_time_ms = event.obs_time_ms
         if event.applied_env_step is None and event.apply_raw_frame is not None:
             event.applied_env_step = int(event.apply_raw_frame)
         if event.apply_raw_frame is None and event.applied_env_step is not None:
             event.apply_raw_frame = int(event.applied_env_step)
         if event.applied_time_ms is None and event.apply_raw_frame is not None and frame_ms is not None:
             event.applied_time_ms = int(event.apply_raw_frame) * float(frame_ms)
-        obs_frame = event.obs_env_step
-        apply_frame = event.apply_raw_frame if event.apply_raw_frame is not None else event.applied_env_step
-        if apply_frame is not None:
-            event.action_age_frames = int(apply_frame) - int(obs_frame)
-        if frame_ms is not None and event.effective_k is None and float(frame_ms) > 0:
-            event.effective_k = float(event.latency.latency_ms) / float(frame_ms)
 
 
 def _backfill_action_event_raw_fields(event: ActionEvent, *, frame_ms: float | None) -> None:

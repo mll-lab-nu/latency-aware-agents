@@ -88,7 +88,6 @@ class PausedLatencyExecutor:
                     action_id=self._next_action_id,
                     action=policy_output.action,
                     obs_env_step=observation.env_step,
-                    obs_time_ms=observation.sim_time_ms,
                     ready_time_ms=ready_time_ms,
                     ready_step_float=self.clock.time_ms_to_step_float(ready_time_ms),
                     latency=latency_record,

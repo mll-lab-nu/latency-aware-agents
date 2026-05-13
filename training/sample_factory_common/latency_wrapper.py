@@ -185,7 +185,6 @@ class ActionLatencyWrapper(gym.Wrapper):
             action_id=int(self._next_action_id),
             action=Action(value=clone_action(action), name=str(action), is_noop=False),
             obs_env_step=obs_env_step,
-            obs_time_ms=self.clock.step_to_time_ms(obs_env_step),
             ready_time_ms=self.clock.step_to_time_ms(ready_raw_frame),
             ready_step_float=float(ready_raw_frame),
             latency=LatencyRecord(

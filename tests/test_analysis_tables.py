@@ -96,14 +96,10 @@ def test_build_latency_profile_summary_rows_from_profile_directory(tmp_path: Pat
     assert row["prob_latency_gt_1_frame"] == pytest.approx(0.0)
 
 
-def test_build_profile_match_rows_computes_distribution_and_optional_action_age(tmp_path: Path):
+def test_build_profile_match_rows_computes_distribution_metrics(tmp_path: Path):
     real_profile = _write_profile(tmp_path, samples=[10.0, 20.0, 30.0], profile_id="L_real")
     sim_latencies = tmp_path / "sim" / "latencies.jsonl"
     write_latency_samples([10.0, 20.0, 40.0], sim_latencies)
-    real_actions = tmp_path / "real" / "actions.jsonl"
-    sim_actions = tmp_path / "sim" / "actions.jsonl"
-    _write_jsonl(real_actions, [{"action_age_frames": 0}, {"action_age_frames": 1}])
-    _write_jsonl(sim_actions, [{"action_age_frames": 1}, {"action_age_frames": 1}])
 
     rows = build_profile_match_rows(
         [
@@ -111,8 +107,6 @@ def test_build_profile_match_rows_computes_distribution_and_optional_action_age(
                 "label": "match_test",
                 "real_profile": str(real_profile),
                 "sim_latency_records": str(sim_latencies),
-                "real_action_records": str(real_actions),
-                "sim_action_records": str(sim_actions),
             }
         ]
     )
@@ -124,25 +118,6 @@ def test_build_profile_match_rows_computes_distribution_and_optional_action_age(
     assert row["w1_frames"] == pytest.approx((10.0 / 3.0) / 40.0)
     assert row["p50_error_ms"] == pytest.approx(0.0)
     assert row["max_tail_error"] == pytest.approx(0.0)
-    assert row["action_age_tv"] == pytest.approx(0.5)
-
-
-def test_build_profile_match_rows_sets_action_age_tv_none_when_action_records_missing(tmp_path: Path):
-    real_profile = _write_profile(tmp_path, samples=[10.0, 20.0, 30.0], profile_id="L_real")
-    sim_latencies = tmp_path / "sim" / "latencies.jsonl"
-    write_latency_samples([10.0, 20.0, 40.0], sim_latencies)
-
-    row = build_profile_match_rows(
-        [
-            {
-                "label": "match_test",
-                "real_profile": str(real_profile / "profile.json"),
-                "sim_latency_records": str(sim_latencies),
-            }
-        ]
-    )[0]
-
-    assert row["action_age_tv"] is None
 
 
 def test_build_same_device_calibration_rows_computes_errors(tmp_path: Path):

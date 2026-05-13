@@ -65,7 +65,7 @@ def test_latency_sample_loader_rejects_empty_file(tmp_path: Path):
 
 def test_latency_sample_loader_rejects_missing_latency_key(tmp_path: Path):
     trace_path = tmp_path / "invalid.jsonl"
-    trace_path.write_text('{"obs_step": 1}\n', encoding="utf-8")
+    trace_path.write_text('{"unexpected": 1}\n', encoding="utf-8")
 
     with pytest.raises(ValueError, match="Missing latency_ms.*invalid.jsonl:1"):
         load_latency_samples(trace_path)

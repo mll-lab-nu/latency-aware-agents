@@ -682,7 +682,7 @@ delay
 raw_frame
 obs_frame
 env_step
-obs_step
+obs_env_step
 latency_raw_frames
 latency_ms
 ready_raw_frame

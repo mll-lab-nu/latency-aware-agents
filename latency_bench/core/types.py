@@ -87,7 +87,6 @@ class ActionEvent:
     action_id: int
     action: Action
     obs_env_step: int
-    obs_time_ms: float
     ready_time_ms: float
     ready_step_float: float
     latency: LatencyRecord
@@ -98,10 +97,6 @@ class ActionEvent:
     applied_env_step: int | None = None
     applied_time_ms: float | None = None
     dropped: bool = False
-    obs_step: int | None = None
-    action_emit_time_ms: float | None = None
-    effective_k: float | None = None
-    action_age_frames: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

@@ -120,8 +120,6 @@ def _write_synthetic_runs(base_dir: Path) -> tuple[Path, Path]:
             {"latency_ms": 50.0},
         ],
     )
-    _write_jsonl(realtime_run / "actions.jsonl", [{"action_age_frames": age} for age in [1, 1, 2]])
-    _write_jsonl(simulated_run / "actions.jsonl", [{"action_age_frames": age} for age in [1, 2, 2]])
     return realtime_run, simulated_run
 
 
@@ -143,8 +141,6 @@ def _write_table_spec(
                 "label": "L_3090_real_vs_sim",
                 "real_profile": str(l3090_profile / "profile.json"),
                 "sim_latency_records": str(simulated_run / "latencies.jsonl"),
-                "real_action_records": str(realtime_run / "actions.jsonl"),
-                "sim_action_records": str(simulated_run / "actions.jsonl"),
             }
         ],
         "same_device_calibration": [
@@ -245,7 +241,7 @@ def test_end_to_end_synthetic_latency_replay_pipeline(tmp_path: Path):
     assert float(cross_device["norm_return_error"]) == pytest.approx(0.025)
 
     profile_match = _read_csv(output_dir / "profile_match_metrics.csv")[0]
-    for key in ("w1_ms", "w1_frames", "max_tail_error", "action_age_tv"):
+    for key in ("w1_ms", "w1_frames", "max_tail_error"):
         assert key in profile_match
         float(profile_match[key])
 

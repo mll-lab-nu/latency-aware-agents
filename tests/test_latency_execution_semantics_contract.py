@@ -15,7 +15,6 @@ def _event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> 
         action_id=action_id,
         action=action,
         obs_env_step=0,
-        obs_time_ms=0.0,
         ready_time_ms=ready_time_ms,
         ready_step_float=float(ready_step),
         latency=LatencyRecord(
