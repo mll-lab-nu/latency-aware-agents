@@ -262,7 +262,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
             if arr.shape[0] != 1:
                 raise ValueError(f"Expected one Flappy GPU env observation, got batch shape {arr.shape!r}")
             arr = arr[0]
-        return cls._rgb_hwc_frame(arr)
+        return cls._rgb_hwc_frame(arr).copy()
 
     @staticmethod
     def _single_info(infos: Any) -> dict[str, Any]:

@@ -28,7 +28,7 @@ from latency_bench.run import (
 
 def _parse_backends(value: str) -> list[str]:
     backends = [item.strip().lower() for item in value.split(",") if item.strip()]
-    allowed = {"auto", "serial", "subproc"}
+    allowed = {"auto", "serial", "subproc", "flappy_gpu_batched"}
     invalid = sorted(set(backends) - allowed)
     if invalid:
         raise ValueError(f"--backends must contain only {sorted(allowed)}; got {invalid}")

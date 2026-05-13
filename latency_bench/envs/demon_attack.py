@@ -33,16 +33,17 @@ class DemonAttackEnvAdapter(EnvAdapter):
             raise ValueError("env_fps must be positive")
         if frame_stack <= 0:
             raise ValueError("frame_stack must be positive")
-        self.gym_env = make_demon_attack_benchmark_env(
-            env_id=env_id,
-            screen_size=screen_size,
-            noop_max=noop_max,
-            terminal_on_life_loss=terminal_on_life_loss,
-            clip_reward=clip_reward,
-            repeat_action_probability=repeat_action_probability,
-            full_action_space=full_action_space,
-        )
-        _validate_expected_action_meanings(self.gym_env, expected_action_meanings)
+        self._env_kwargs = {
+            "env_id": env_id,
+            "screen_size": screen_size,
+            "noop_max": noop_max,
+            "terminal_on_life_loss": terminal_on_life_loss,
+            "clip_reward": clip_reward,
+            "repeat_action_probability": repeat_action_probability,
+            "full_action_space": full_action_space,
+        }
+        self._expected_action_meanings = expected_action_meanings
+        self.gym_env = self._build_gym_env()
         self.env_id = env_id
         self.env_fps = float(env_fps)
         self.frame_stack = int(frame_stack)
@@ -60,6 +61,9 @@ class DemonAttackEnvAdapter(EnvAdapter):
     def reset(self, seed: int | None = None) -> Observation:
         self.env_step = 0
         self._observed_frames.clear()
+        if seed is not None and self._last_frame is not None:
+            self.gym_env.close()
+            self.gym_env = self._build_gym_env()
         frame, info = self.gym_env.reset(seed=seed)
         self._last_frame = frame
         self._last_info = dict(info or {})
@@ -159,6 +163,11 @@ class DemonAttackEnvAdapter(EnvAdapter):
 
     def close(self) -> None:
         self.gym_env.close()
+
+    def _build_gym_env(self) -> gym.Env:
+        env = make_demon_attack_benchmark_env(**self._env_kwargs)
+        _validate_expected_action_meanings(env, self._expected_action_meanings)
+        return env
 
     def _make_observation(self, info: dict[str, Any]) -> Observation:
         metadata = self._metadata(info)

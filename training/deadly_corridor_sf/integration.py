@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-from collections import deque
 import functools
 import json
 from typing import Any, Optional
@@ -90,8 +89,9 @@ class DoomFrameStackWrapper(gym.Wrapper):
             raise ValueError(f"Expected channel-first Doom observation, got shape {base_shape}")
 
         self.num_frames = int(num_frames)
-        self._frames: deque[np.ndarray] = deque(maxlen=self.num_frames)
+        self._base_channels = int(base_shape[0])
         stacked_shape = (base_shape[0] * self.num_frames, base_shape[1], base_shape[2])
+        self._stacked_obs = np.empty(stacked_shape, dtype=obs_space.dtype)
         stacked_obs_space = gym.spaces.Box(low=0, high=255, shape=stacked_shape, dtype=obs_space.dtype)
         if self._dict_observation:
             new_spaces = dict(env.observation_space.spaces)
@@ -101,10 +101,8 @@ class DoomFrameStackWrapper(gym.Wrapper):
             self.observation_space = stacked_obs_space
 
     def _stack_obs(self, observation):
-        stacked_frames = np.concatenate(tuple(self._frames), axis=0)
+        stacked_frames = self._stacked_obs.copy()
         if self._dict_observation:
-            if not isinstance(observation, dict):
-                raise TypeError(f"Expected dict observation, got {type(observation)!r}")
             stacked = dict(observation)
             stacked["obs"] = stacked_frames
             return stacked
@@ -112,22 +110,22 @@ class DoomFrameStackWrapper(gym.Wrapper):
 
     def _extract_frame(self, observation):
         if self._dict_observation:
-            if not isinstance(observation, dict):
-                raise TypeError(f"Expected dict observation, got {type(observation)!r}")
             return observation["obs"]
         return observation
 
     def reset(self, **kwargs):
         observation, info = self.env.reset(**kwargs)
-        frame = np.array(self._extract_frame(observation), copy=True)
-        self._frames.clear()
-        for _ in range(self.num_frames):
-            self._frames.append(frame.copy())
+        frame = self._extract_frame(observation)
+        for frame_idx in range(self.num_frames):
+            start = frame_idx * self._base_channels
+            self._stacked_obs[start : start + self._base_channels] = frame
         return self._stack_obs(observation), info
 
     def step(self, action):
         observation, reward, terminated, truncated, info = self.env.step(action)
-        self._frames.append(np.array(self._extract_frame(observation), copy=True))
+        frame = self._extract_frame(observation)
+        self._stacked_obs[:-self._base_channels] = self._stacked_obs[self._base_channels :]
+        self._stacked_obs[-self._base_channels :] = frame
         return self._stack_obs(observation), reward, terminated, truncated, info
 
 

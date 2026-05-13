@@ -315,14 +315,20 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         self.checkpoint_global_step = int(checkpoint.get("train_step", checkpoint.get("env_steps", 0)))
         self.rnn_size = int(get_rnn_size(cfg))
         self.rnn_states = torch.zeros([1, self.rnn_size], dtype=torch.float32, device=self.device)
+        self._rnn_states_by_slot: dict[int, torch.Tensor] = {}
         reference_env.close()
 
     def reset_state(self, slot_id: int | None = None) -> None:
-        self.rnn_states.zero_()
+        if slot_id is None:
+            self.rnn_states.zero_()
+            self._rnn_states_by_slot.clear()
+            return
+        self._rnn_states_by_slot[int(slot_id)] = self._zero_rnn_state()
 
     def predict(self, observation: Observation) -> PolicyOutput:
-        if int(observation.env_step) == 0:
+        if self.use_rnn and int(observation.env_step) == 0:
             self.rnn_states.zero_()
+        rnn_states = self.rnn_states if self.use_rnn else self._zero_rnn_state()
 
         obs_dict, _action_mask = _obs_to_sf_inputs(observation, self.device)
         validate_sample_factory_obs_shape(
@@ -332,7 +338,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         )
         normalized_obs = self._prepare_and_normalize_obs(self.actor_critic, obs_dict)
         with torch.no_grad():
-            policy_outputs = self.actor_critic(normalized_obs, self.rnn_states)
+            policy_outputs = self.actor_critic(normalized_obs, rnn_states)
             actions = policy_outputs["actions"]
             if self.deterministic:
                 actions = self._deterministic_actions(batch_size=1)
@@ -343,7 +349,8 @@ class SampleFactoryPolicyRunner(PolicyRunner):
                 device=self.device,
                 unsqueeze_tensor=self._unsqueeze_tensor,
             )
-            self.rnn_states = policy_outputs["new_rnn_states"]
+            if self.use_rnn:
+                self.rnn_states = policy_outputs["new_rnn_states"]
 
         processed_actions = self._preprocess_actions_for_space(actions)
         raw_value = _to_python_action(processed_actions)
@@ -371,7 +378,15 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         )
         normalized_obs = self._prepare_and_normalize_obs(self.actor_critic, obs_dict)
         batch_size = len(observations)
-        rnn_states = torch.zeros([batch_size, self.rnn_size], dtype=torch.float32, device=self.device)
+        slot_ids = None
+        if self.use_rnn:
+            slot_ids = self._slot_ids_for_observations(observations)
+            rnn_states = torch.cat(
+                [self._rnn_state_for_slot(slot_id) for slot_id in slot_ids],
+                dim=0,
+            )
+        else:
+            rnn_states = torch.zeros([batch_size, self.rnn_size], dtype=torch.float32, device=self.device)
         with torch.no_grad():
             policy_outputs = self.actor_critic(normalized_obs, rnn_states)
             actions = policy_outputs["actions"]
@@ -384,6 +399,8 @@ class SampleFactoryPolicyRunner(PolicyRunner):
                 device=self.device,
                 unsqueeze_tensor=self._unsqueeze_tensor,
             )
+            if slot_ids is not None:
+                self._store_batch_rnn_states(slot_ids, policy_outputs["new_rnn_states"])
 
         processed_actions = self._preprocess_actions_for_space(actions)
         raw_values = _split_batch_actions(processed_actions, batch_size, action_space=self.action_space)
@@ -400,11 +417,6 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         ]
 
     def _raise_if_batch_unsupported(self) -> None:
-        if self.use_rnn:
-            raise NotImplementedError(
-                "Phase 3C currently supports non-recurrent Sample Factory policies only; "
-                "recurrent per-slot rnn_state batching is deferred to a later phase"
-            )
         if _is_supported_batched_policy_action_space(self.action_space):
             return
         if isinstance(self.action_space, SpaceTuple):
@@ -421,6 +433,25 @@ class SampleFactoryPolicyRunner(PolicyRunner):
             "Sample Factory batched simulated eval supports Discrete, flat Tuple(Discrete, ...), "
             f"and one-dimensional MultiDiscrete action spaces; got action_space={self.action_space!r}"
         )
+
+    def _zero_rnn_state(self) -> torch.Tensor:
+        return torch.zeros([1, self.rnn_size], dtype=torch.float32, device=self.device)
+
+    def _slot_ids_for_observations(self, observations: Sequence[Observation]) -> list[int]:
+        slot_ids = []
+        for observation in observations:
+            slot_id = int(observation.metadata["slot_id"])
+            if int(observation.env_step) == 0:
+                self._rnn_states_by_slot[slot_id] = self._zero_rnn_state()
+            slot_ids.append(slot_id)
+        return slot_ids
+
+    def _rnn_state_for_slot(self, slot_id: int) -> torch.Tensor:
+        return self._rnn_states_by_slot[slot_id]
+
+    def _store_batch_rnn_states(self, slot_ids: Sequence[int], new_rnn_states: torch.Tensor) -> None:
+        for index, slot_id in enumerate(slot_ids):
+            self._rnn_states_by_slot[int(slot_id)] = new_rnn_states[index : index + 1]
 
     def _deterministic_actions(self, *, batch_size: int) -> torch.Tensor:
         action_distribution = self.actor_critic.action_distribution()

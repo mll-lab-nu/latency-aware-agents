@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# usage:
+# bash scripts/bash_scripts/generate_factor_sweeps.sh --seeds 0,42,114514
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
 ENVS="${ENVS:-flappy,demon_attack,deadly_corridor}"
+SEEDS="${SEEDS:-}"
 GENERATED_ROOT="${GENERATED_ROOT:-configs/train/factor_sweeps}"
 TRAIN_DIR="${TRAIN_DIR:-results/checkpoints_factor_sweeps}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/factor_sweeps}"
 DEVICE="${DEVICE:-gpu}"
 
 IFS=',' read -r -a ENVS_LIST <<< "${ENVS}"
+EXTRA_ARGS=("$@")
+if [[ -n "${SEEDS}" ]]; then
+  EXTRA_ARGS=(--seeds "${SEEDS}" "${EXTRA_ARGS[@]}")
+fi
 
 for env_name in "${ENVS_LIST[@]}"; do
   if [[ -z "${env_name}" ]]; then
@@ -24,5 +32,5 @@ for env_name in "${ENVS_LIST[@]}"; do
     --train-dir "${TRAIN_DIR}/${env_name}" \
     --output-root "${OUTPUT_ROOT}/${env_name}" \
     --device "${DEVICE}" \
-    "$@"
+    "${EXTRA_ARGS[@]}"
 done

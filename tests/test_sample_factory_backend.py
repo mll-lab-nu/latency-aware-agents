@@ -1511,6 +1511,88 @@ def test_doom_frame_stack_wrapper_supports_box_observations():
     assert np.all(obs[9:] == 2)
 
 
+def test_doom_frame_stack_wrapper_does_not_concatenate_on_reset_or_step(monkeypatch):
+    from gymnasium.spaces import Box, Discrete
+
+    from training.deadly_corridor_sf import integration
+
+    class ImageEnv(gym.Env):
+        observation_space = Box(low=0, high=255, shape=(3, 2, 2), dtype=np.uint8)
+        action_space = Discrete(2)
+
+        def __init__(self):
+            self.step_count = 0
+
+        def reset(self, *, seed=None, options=None):
+            self.step_count = 0
+            return np.ones((3, 2, 2), dtype=np.uint8), {}
+
+        def step(self, action):
+            self.step_count += 1
+            obs = np.full((3, 2, 2), self.step_count + 1, dtype=np.uint8)
+            return obs, 0.0, False, False, {}
+
+    def fail_concatenate(*args, **kwargs):
+        raise AssertionError("Doom frame stack should reuse a preallocated buffer")
+
+    monkeypatch.setattr(integration.np, "concatenate", fail_concatenate)
+    wrapped = integration.DoomFrameStackWrapper(ImageEnv(), num_frames=4)
+
+    obs, _ = wrapped.reset()
+    assert obs.shape == (12, 2, 2)
+    assert np.all(obs == 1)
+    obs, *_ = wrapped.step(0)
+    assert np.all(obs[:9] == 1)
+    assert np.all(obs[9:] == 2)
+
+
+def test_doom_frame_stack_wrapper_returns_stable_observation_snapshots():
+    from gymnasium.spaces import Box, Dict, Discrete
+
+    from training.deadly_corridor_sf.integration import DoomFrameStackWrapper
+
+    class DictImageEnv(gym.Env):
+        observation_space = Dict(
+            {
+                "obs": Box(low=0, high=255, shape=(1, 2, 2), dtype=np.uint8),
+                "state": Box(low=0, high=255, shape=(1,), dtype=np.uint8),
+            }
+        )
+        action_space = Discrete(2)
+
+        def __init__(self):
+            self.step_count = 0
+
+        def reset(self, *, seed=None, options=None):
+            self.step_count = 0
+            return {
+                "obs": np.ones((1, 2, 2), dtype=np.uint8),
+                "state": np.array([7], dtype=np.uint8),
+            }, {}
+
+        def step(self, action):
+            self.step_count += 1
+            return {
+                "obs": np.full((1, 2, 2), self.step_count + 1, dtype=np.uint8),
+                "state": np.array([self.step_count], dtype=np.uint8),
+            }, 0.0, False, False, {}
+
+    wrapped = DoomFrameStackWrapper(DictImageEnv(), num_frames=3)
+
+    reset_obs, _ = wrapped.reset()
+    first_step_obs, *_ = wrapped.step(0)
+    first_step_snapshot = first_step_obs["obs"].copy()
+    second_step_obs, *_ = wrapped.step(0)
+
+    assert wrapped.observation_space["obs"].shape == (3, 2, 2)
+    assert np.all(reset_obs["obs"] == 1)
+    assert np.array_equal(first_step_obs["obs"], first_step_snapshot)
+    assert np.all(second_step_obs["obs"][:1] == 1)
+    assert np.all(second_step_obs["obs"][1:2] == 2)
+    assert np.all(second_step_obs["obs"][2:] == 3)
+    assert np.array_equal(second_step_obs["state"], np.array([2], dtype=np.uint8))
+
+
 def test_deadly_corridor_prepare_eval_cfg_uses_synchronous_fps_when_base_is_async():
     from training.deadly_corridor_sf import integration
 

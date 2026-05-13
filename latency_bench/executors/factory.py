@@ -43,7 +43,7 @@ from latency_bench.scheduler.persistence import (
 ExecutorBuilder = Callable[[dict[str, Any]], Any]
 
 _EXECUTOR_BUILDERS: dict[ExecutorMode, ExecutorBuilder] = {}
-_LATENCY_BENCH_ENV_BACKENDS = {"serial", "subproc", "auto"}
+_LATENCY_BENCH_ENV_BACKENDS = {"serial", "subproc", "flappy_gpu_batched", "auto"}
 _ENV_BACKEND_DEBUG_ENV = "LATENCY_BENCH_ENV_BACKEND"
 _AUTO_SUBPROC_ENV_NAMES = {"demon_attack", "deadly_corridor"}
 _SCHEDULER_ALLOWED_KEYS = frozenset({"ordering_policy", "hold_policy"})
@@ -143,6 +143,14 @@ def _build_batched_simulated_executor(
         backend_name = _resolve_latency_bench_env_backend(config, eval_parallel_envs=max_parallel_envs)
         if backend_name == "subproc":
             env_backend = SubprocEnvStepBackend(
+                config=config,
+                noop_action=action_resolver.noop_action,
+                num_slots=int(max_parallel_envs),
+            )
+        elif backend_name == "flappy_gpu_batched":
+            from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
+
+            env_backend = FlappyGpuBatchedEnvStepBackend(
                 config=config,
                 noop_action=action_resolver.noop_action,
                 num_slots=int(max_parallel_envs),
@@ -384,7 +392,7 @@ def _eval_parallel_envs(config: dict[str, Any]) -> int:
 def _resolve_latency_bench_env_backend(config: dict[str, Any], *, eval_parallel_envs: int) -> str:
     configured = os.environ.get(_ENV_BACKEND_DEBUG_ENV)
     if configured is None:
-        configured = config.get("evaluation", {}).get("latency_bench_env_backend", "serial")
+        configured = config.get("evaluation", {}).get("latency_bench_env_backend", "auto")
     backend = str(configured).strip().lower()
     if backend not in _LATENCY_BENCH_ENV_BACKENDS:
         raise ValueError(
@@ -403,7 +411,7 @@ def _auto_latency_bench_env_backend(config: dict[str, Any]) -> str:
     env_name = str(env_cfg.get("name", "")).strip().lower()
     policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
     if env_name == "flappy" and policy_type == "flappy_sf" and bool(env_cfg.get("use_gpu_render", False)):
-        return "serial"
+        return "flappy_gpu_batched"
     if env_name in _AUTO_SUBPROC_ENV_NAMES:
         return "subproc"
     return "serial"

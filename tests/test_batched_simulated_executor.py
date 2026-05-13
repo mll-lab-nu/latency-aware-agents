@@ -82,6 +82,21 @@ class ResetTrackingBatchPolicy(PolicyRunner):
         self.reset_calls.append(slot_id)
 
 
+class MetadataCapturePolicy(PolicyRunner):
+    def __init__(self):
+        self.batches: list[list[dict]] = []
+
+    def predict(self, observation: Observation) -> PolicyOutput:
+        raise AssertionError("batched executor must call predict_batch")
+
+    def predict_batch(self, observations):
+        self.batches.append([dict(observation.metadata) for observation in observations])
+        return [
+            PolicyOutput(action=Action("jump", name="jump"))
+            for _observation in observations
+        ]
+
+
 class TupleActionEnvAdapter(EnvAdapter):
     def __init__(self, *, slot_id: int, max_steps: int, noop_action: Action):
         import gymnasium as gym
@@ -502,6 +517,25 @@ def test_batched_executor_global_obs_and_action_ids_are_unique(tmp_path: Path):
     assert sorted(action_obs_ids) == sorted(latency_obs_ids)
 
 
+def test_batched_executor_adds_slot_id_to_policy_observation_metadata(tmp_path: Path):
+    policy = MetadataCapturePolicy()
+    executor, _envs = _executor(tmp_path, num_slots=2, env_max_steps=1, policy=policy)
+
+    try:
+        executor.run_episodes(
+            episode_ids=range(2),
+            seeds=[1, 2],
+            eval_max_steps=1,
+        )
+    finally:
+        executor.close()
+
+    assert policy.batches[0] == [
+        {"env_step": 0, "sim_time_ms": 0.0, "slot_index": 0, "slot_id": 0},
+        {"env_step": 0, "sim_time_ms": 0.0, "slot_index": 1, "slot_id": 1},
+    ]
+
+
 def test_batched_executor_keeps_slot_action_queues_independent(tmp_path: Path):
     clock = EnvClock(env_fps=30.0, obs_fps=30.0)
     executor, envs = _executor(
@@ -648,6 +682,43 @@ def test_batched_executor_steps_tuple_actions_and_serializes_schema_compatibly(t
     action = json.loads((tmp_path / "actions.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert {"action_id", "action", "ready_time_ms", "latency", "metadata"} <= set(action)
     assert isinstance(action["action"]["value"], list)
+
+
+def test_subproc_backend_step_omits_observation_payload_and_observe_reads_worker_state(tmp_path: Path):
+    if "fork" not in mp.get_all_start_methods():
+        pytest.skip("fork start method is not available")
+
+    from latency_bench.executors.env_step_backend import SubprocEnvStepBackend
+
+    config = _subproc_config(tmp_path, num_episodes=1, eval_max_steps=3)
+    backend = SubprocEnvStepBackend(
+        config=config,
+        noop_action=Action("noop", name="noop", is_noop=True),
+        num_slots=1,
+        start_method="fork",
+    )
+
+    try:
+        backend.reset_slot(0, episode_id=0, seed=11)
+        response = backend.step_slots({0: Action("jump", name="jump")})[0]
+        observed = backend.observe_slots([0])[0]
+    finally:
+        backend.close()
+
+    assert response.result.observation is None
+    assert observed.data == {"state": 1}
+    assert observed.env_step == 1
+
+
+def test_subproc_backend_prefers_fork_start_method_by_default(monkeypatch):
+    if "fork" not in mp.get_all_start_methods():
+        pytest.skip("fork start method is not available")
+
+    from latency_bench.executors.env_step_backend import START_METHOD_ENV, _resolve_start_method
+
+    monkeypatch.delenv(START_METHOD_ENV, raising=False)
+
+    assert _resolve_start_method() == "fork"
 
 
 def test_subproc_backend_completes_exact_episode_ids_and_uses_child_pids(tmp_path: Path):

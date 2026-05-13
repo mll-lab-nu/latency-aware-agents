@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
+from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors._simulated_timeline import sample_simulated_latency
 from latency_bench.executors.env_step_backend import EnvStepBackend, SerialEnvStepBackend
@@ -162,7 +162,10 @@ class BatchedSimulatedLatencyExecutor:
 
             if observation_slots:
                 observations_by_slot = self.env_backend.observe_slots([slot.slot_id for slot in observation_slots])
-                observations = [observations_by_slot[slot.slot_id] for slot in observation_slots]
+                observations = [
+                    self._policy_observation(slot, observations_by_slot[slot.slot_id])
+                    for slot in observation_slots
+                ]
 
             if observations:
                 policy_outputs = self.policy.predict_batch(observations)
@@ -222,6 +225,16 @@ class BatchedSimulatedLatencyExecutor:
                         next_episode_index += 1
 
         return self._ordered_metrics(episode_ids)
+
+    def _policy_observation(self, slot: _SlotState, observation: Observation) -> Observation:
+        metadata = dict(observation.metadata)
+        metadata["slot_id"] = slot.slot_id
+        return Observation(
+            data=observation.data,
+            env_step=observation.env_step,
+            sim_time_ms=observation.sim_time_ms,
+            metadata=metadata,
+        )
 
     def _reset_run_state(self, episode_ids: Sequence[int]) -> None:
         self.started_episodes = 0

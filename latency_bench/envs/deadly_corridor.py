@@ -108,6 +108,16 @@ def _requires_sample_factory_checkpoint_config(config: dict[str, Any]) -> bool:
     return policy_type == "deadly_corridor_sf"
 
 
+def _seed_initialized_vizdoom_game(env: Any, seed: int) -> bool:
+    unwrapped = getattr(env, "unwrapped", env)
+    game = getattr(unwrapped, "game", None)
+    if game is None:
+        return False
+    unwrapped.seed(int(seed))
+    game.set_seed(int(unwrapped.curr_seed))
+    return True
+
+
 class DeadlyCorridorEnvAdapter(EnvAdapter):
     """Latency-bench adapter for ViZDoom Deadly Corridor using the SF Doom env stack."""
 
@@ -172,10 +182,13 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         self.env_step = 0
         self._observed_frames.clear()
         if seed is not None:
-            try:
-                obs, info = self.gym_env.reset(seed=seed)
-            except TypeError:
+            if _seed_initialized_vizdoom_game(self.gym_env, int(seed)):
                 obs, info = self.gym_env.reset()
+            else:
+                try:
+                    obs, info = self.gym_env.reset(seed=seed)
+                except TypeError:
+                    obs, info = self.gym_env.reset()
         else:
             obs, info = self.gym_env.reset()
         self._last_frame = obs

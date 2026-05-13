@@ -11,6 +11,7 @@ class ScriptedDemonGymEnv:
         self.steps = list(steps)
         self.reset_seeds: list[int | None] = []
         self.reset_count = 0
+        self.closed = False
 
     def reset(self, seed=None):
         self.reset_seeds.append(seed)
@@ -32,6 +33,7 @@ class ScriptedDemonGymEnv:
         )
 
     def close(self):
+        self.closed = True
         return None
 
 
@@ -126,6 +128,29 @@ def test_demon_attack_adapter_can_count_life_loss_as_terminal_when_compat_flag_d
     assert result.done is True
     assert "soft_reset" not in result.info
     assert scripted_env.reset_seeds == [123]
+
+
+def test_demon_attack_seeded_reset_rebuilds_gym_env_after_previous_episode(monkeypatch):
+    scripted_envs = [ScriptedDemonGymEnv([]), ScriptedDemonGymEnv([])]
+    created_envs: list[ScriptedDemonGymEnv] = []
+
+    def make_env(**_kwargs):
+        env = scripted_envs.pop(0)
+        created_envs.append(env)
+        return env
+
+    monkeypatch.setattr(demon_attack, "make_demon_attack_benchmark_env", make_env)
+    adapter = demon_attack.DemonAttackEnvAdapter()
+
+    try:
+        adapter.reset(seed=123)
+        adapter.reset(seed=124)
+    finally:
+        adapter.close()
+
+    assert created_envs[0].closed is True
+    assert created_envs[0].reset_seeds == [123]
+    assert created_envs[1].reset_seeds == [124]
 
 
 def test_demon_attack_observe_stacks_only_observed_frames(monkeypatch):

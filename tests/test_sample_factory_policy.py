@@ -219,6 +219,59 @@ class _BatchDiscreteActorCritic:
         return SimpleNamespace(argmax_actions=self.last_argmax_actions)
 
 
+class _BatchRnnActorCritic:
+    def __init__(self):
+        self.forward_batch_sizes: list[int] = []
+        self.seen_rnn_states: list[torch.Tensor] = []
+        self.last_argmax_actions = torch.empty(0, dtype=torch.long)
+
+    def eval(self):
+        pass
+
+    def model_to_device(self, device):
+        self.device = device
+
+    def __call__(self, normalized_obs, rnn_states):
+        obs = normalized_obs["obs"]
+        batch_size = int(obs.shape[0])
+        self.forward_batch_sizes.append(batch_size)
+        self.seen_rnn_states.append(rnn_states.detach().cpu().clone())
+        first_values = obs.reshape(batch_size, -1)[:, 0].to(torch.float32)
+        new_rnn_states = rnn_states + first_values.unsqueeze(1) + 1.0
+        self.last_argmax_actions = torch.remainder(new_rnn_states[:, 0].to(torch.long), 5)
+        return {
+            "actions": torch.full((batch_size,), 99, device=obs.device),
+            "new_rnn_states": new_rnn_states,
+        }
+
+    def action_distribution(self):
+        return SimpleNamespace(argmax_actions=self.last_argmax_actions)
+
+
+class _StateEchoActorCritic:
+    def __init__(self):
+        self.seen_rnn_states: list[torch.Tensor] = []
+        self.last_argmax_actions = torch.empty(0, dtype=torch.long)
+
+    def eval(self):
+        pass
+
+    def model_to_device(self, device):
+        self.device = device
+
+    def __call__(self, normalized_obs, rnn_states):
+        batch_size = int(normalized_obs["obs"].shape[0])
+        self.seen_rnn_states.append(rnn_states.detach().cpu().clone())
+        self.last_argmax_actions = torch.remainder(rnn_states[:, 0].to(torch.long) + 1, 5)
+        return {
+            "actions": torch.full((batch_size,), 99, device=normalized_obs["obs"].device),
+            "new_rnn_states": rnn_states + 1.0,
+        }
+
+    def action_distribution(self):
+        return SimpleNamespace(argmax_actions=self.last_argmax_actions)
+
+
 class _BatchTupleActionDistribution:
     def __init__(self, component_actions: torch.Tensor):
         self.argmax_actions = component_actions
@@ -291,6 +344,64 @@ def _build_discrete_runner(monkeypatch, *, action_space=None, use_rnn: bool = Fa
         action_resolver=ActionResolver(config["env"]),
         integration_module=_FakeIntegration(
             action_space=action_space,
+            observation_space=Box(low=0, high=255, shape=(3, 2, 2), dtype=np.uint8),
+            use_rnn=use_rnn,
+        ),
+        policy_type="flappy_sf",
+    )
+    return runner, actor
+
+
+def _build_rnn_discrete_runner(monkeypatch):
+    actor = _BatchRnnActorCritic()
+    _install_fake_sample_factory_modules(
+        monkeypatch,
+        load_from_checkpoint=lambda cfg: cfg,
+        actor_critic_factory=lambda cfg, observation_space, action_space: actor,
+        argmax_actions=lambda action_distribution: action_distribution.argmax_actions,
+        preprocess_actions=_discrete_preprocess_actions,
+        get_rnn_size=lambda cfg: 2,
+    )
+    monkeypatch.setattr(
+        sample_factory_common,
+        "_load_sf_policy_state_dict",
+        lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
+    )
+    config = _config("/tmp/model.pth")
+    runner = sample_factory_common.SampleFactoryPolicyRunner(
+        config=config,
+        action_resolver=ActionResolver(config["env"]),
+        integration_module=_FakeIntegration(
+            action_space=Discrete(5),
+            observation_space=Box(low=0, high=255, shape=(3, 2, 2), dtype=np.uint8),
+            use_rnn=True,
+        ),
+        policy_type="flappy_sf",
+    )
+    return runner, actor
+
+
+def _build_state_echo_discrete_runner(monkeypatch, *, use_rnn: bool):
+    actor = _StateEchoActorCritic()
+    _install_fake_sample_factory_modules(
+        monkeypatch,
+        load_from_checkpoint=lambda cfg: cfg,
+        actor_critic_factory=lambda cfg, observation_space, action_space: actor,
+        argmax_actions=lambda action_distribution: action_distribution.argmax_actions,
+        preprocess_actions=_discrete_preprocess_actions,
+        get_rnn_size=lambda cfg: 2,
+    )
+    monkeypatch.setattr(
+        sample_factory_common,
+        "_load_sf_policy_state_dict",
+        lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
+    )
+    config = _config("/tmp/model.pth")
+    runner = sample_factory_common.SampleFactoryPolicyRunner(
+        config=config,
+        action_resolver=ActionResolver(config["env"]),
+        integration_module=_FakeIntegration(
+            action_space=Discrete(5),
             observation_space=Box(low=0, high=255, shape=(3, 2, 2), dtype=np.uint8),
             use_rnn=use_rnn,
         ),
@@ -715,19 +826,55 @@ def test_obs_batch_to_sf_inputs_matches_old_tensor_semantics(observations):
     _assert_sf_input_batches_equal(actual, expected)
 
 
-def test_sample_factory_predict_batch_rejects_recurrent_policy_until_phase_3c_supports_rnn(
-    monkeypatch,
-):
-    runner, _actor = _build_discrete_runner(monkeypatch, use_rnn=True)
+def test_sample_factory_predict_batch_keeps_recurrent_state_per_slot(monkeypatch):
+    runner, actor = _build_rnn_discrete_runner(monkeypatch)
 
-    with pytest.raises(NotImplementedError, match="non-recurrent Sample Factory policies only"):
-        runner.predict_batch([
-            Observation(
-                data=np.zeros((3, 2, 2), dtype=np.uint8),
-                env_step=0,
-                sim_time_ms=0.0,
-            )
-        ])
+    def observation(value: int, *, slot_id: int, env_step: int) -> Observation:
+        return Observation(
+            data=np.full((3, 2, 2), value, dtype=np.uint8),
+            env_step=env_step,
+            sim_time_ms=float(env_step),
+            metadata={"slot_id": slot_id},
+        )
+
+    runner.predict_batch([
+        observation(1, slot_id=0, env_step=0),
+        observation(10, slot_id=1, env_step=0),
+    ])
+    runner.predict_batch([
+        observation(20, slot_id=1, env_step=1),
+        observation(2, slot_id=0, env_step=1),
+    ])
+    runner.reset_state(slot_id=1)
+    runner.predict_batch([
+        observation(5, slot_id=1, env_step=1),
+    ])
+    runner.predict_batch([
+        observation(7, slot_id=0, env_step=0),
+    ])
+
+    assert actor.forward_batch_sizes == [2, 2, 1, 1]
+    assert torch.equal(actor.seen_rnn_states[0], torch.zeros((2, 2)))
+    assert torch.equal(actor.seen_rnn_states[1], torch.tensor([[11.0, 11.0], [2.0, 2.0]]))
+    assert torch.equal(actor.seen_rnn_states[2], torch.zeros((1, 2)))
+    assert torch.equal(actor.seen_rnn_states[3], torch.zeros((1, 2)))
+
+
+def test_sample_factory_single_predict_does_not_carry_state_for_non_recurrent_policy(monkeypatch):
+    runner, actor = _build_state_echo_discrete_runner(monkeypatch, use_rnn=False)
+    observation = Observation(
+        data=np.zeros((3, 2, 2), dtype=np.uint8),
+        env_step=1,
+        sim_time_ms=0.0,
+    )
+
+    first = runner.predict(observation)
+    second = runner.predict(observation)
+
+    assert first.raw_output == 1
+    assert second.raw_output == 1
+    assert torch.equal(actor.seen_rnn_states[0], torch.zeros((1, 2)))
+    assert torch.equal(actor.seen_rnn_states[1], torch.zeros((1, 2)))
 
 
 def test_sample_factory_predict_batch_tuple_n1_matches_single_predict_format(monkeypatch):
