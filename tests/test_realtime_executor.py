@@ -277,7 +277,7 @@ def test_realtime_action_ready_midway_through_catchup_applies_only_after_ready_f
     executor.run_episode(episode_id=0, eval_max_steps=4)
 
     assert [action.value for action in executor.env.applied_actions] == ["noop", "noop", "noop", "jump"]
-    assert executor.action_scheduler.get_applied_events()[0].applied_env_step == 3
+    assert executor.action_scheduler.get_applied_events()[0].apply_raw_frame == 3
 
 
 def test_realtime_episode_done_stops_during_catchup():

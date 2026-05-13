@@ -428,9 +428,9 @@ def test_trace_replay_latency_applies_event_at_trace_ready_step(tmp_path: Path):
     applied = executor.action_scheduler.get_applied_events()
 
     assert applied[0].action.value == "a0"
-    assert applied[0].applied_env_step == 0
+    assert applied[0].apply_raw_frame == 0
     assert applied[1].action.value == "a1"
-    assert applied[1].applied_env_step == 3
+    assert applied[1].apply_raw_frame == 3
 
 
 def test_simulated_executor_does_not_sleep(monkeypatch):

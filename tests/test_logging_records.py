@@ -43,8 +43,6 @@ def _representative_records() -> list[Any]:
         ready_raw_frame=6,
         apply_raw_frame=6,
         applied=True,
-        applied_env_step=6,
-        applied_time_ms=200.0,
         latency=LatencyRecord(
             obs_id=3,
             latency_ms=33.333,

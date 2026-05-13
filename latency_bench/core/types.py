@@ -94,8 +94,6 @@ class ActionEvent:
     ready_raw_frame: int | None = None
     apply_raw_frame: int | None = None
     applied: bool = False
-    applied_env_step: int | None = None
-    applied_time_ms: float | None = None
     dropped: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
 

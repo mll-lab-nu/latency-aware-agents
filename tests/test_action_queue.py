@@ -31,7 +31,7 @@ def test_fixed_two_frame_latency_action_applies_at_correct_step():
     assert scheduler.update(0, clock.step_to_time_ms(0)) is noop
     assert scheduler.update(1, clock.step_to_time_ms(1)) is noop
     assert scheduler.update(2, clock.step_to_time_ms(2)) is action
-    assert scheduler.get_applied_events()[0].applied_env_step == 2
+    assert scheduler.get_applied_events()[0].apply_raw_frame == 2
 
 
 def test_default_mode_is_issue_order_fifo():

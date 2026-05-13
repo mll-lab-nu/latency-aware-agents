@@ -189,12 +189,6 @@ def _first_number(mapping: dict[str, Any], keys: tuple[str, ...]) -> float | Non
 def _finalize_action_events(action_events: list[ActionEvent], *, frame_ms: float | None) -> None:
     for event in action_events:
         _backfill_action_event_raw_fields(event, frame_ms=frame_ms)
-        if event.applied_env_step is None and event.apply_raw_frame is not None:
-            event.applied_env_step = int(event.apply_raw_frame)
-        if event.apply_raw_frame is None and event.applied_env_step is not None:
-            event.apply_raw_frame = int(event.applied_env_step)
-        if event.applied_time_ms is None and event.apply_raw_frame is not None and frame_ms is not None:
-            event.applied_time_ms = int(event.apply_raw_frame) * float(frame_ms)
 
 
 def _backfill_action_event_raw_fields(event: ActionEvent, *, frame_ms: float | None) -> None:
@@ -207,8 +201,6 @@ def _backfill_action_event_raw_fields(event: ActionEvent, *, frame_ms: float | N
             event.ready_raw_frame = int(event.obs_env_step) + int(event.latency_raw_frames)
         elif event.ready_step_float is not None:
             event.ready_raw_frame = _ceil_step_float(event.ready_step_float)
-    if event.apply_raw_frame is None and event.applied_env_step is not None:
-        event.apply_raw_frame = int(event.applied_env_step)
 
 
 def _latency_ms_to_raw_frames(latency_ms: float, *, frame_ms: float | None) -> int | None:

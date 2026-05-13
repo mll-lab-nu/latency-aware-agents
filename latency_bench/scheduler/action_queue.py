@@ -65,9 +65,7 @@ class ActionScheduler:
 
         if selected is not None:
             selected.applied = True
-            selected.applied_env_step = int(current_step)
             selected.apply_raw_frame = int(current_step)
-            selected.applied_time_ms = float(current_time_ms)
             self._current_action = selected.action
             self._applied_events.append(selected)
             self.persistence_policy.on_action_applied(selected.action)
