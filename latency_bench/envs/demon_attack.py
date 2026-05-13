@@ -196,9 +196,11 @@ class DemonAttackEnvAdapter(EnvAdapter):
 def _single_frame_data(frame: Any) -> np.ndarray:
     arr = np.asarray(frame, dtype=np.uint8)
     if arr.ndim == 2:
-        return arr[..., None]
+        return arr[None, ...]
     if arr.ndim != 3:
         raise ValueError(f"Expected Demon Attack image frame with 2 or 3 dims, got {arr.shape!r}")
+    if arr.shape[-1] in {1, 3} and arr.shape[0] not in {1, 3}:
+        return np.transpose(arr, (2, 0, 1))
     return arr
 
 
