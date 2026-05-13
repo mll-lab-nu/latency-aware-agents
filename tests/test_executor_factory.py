@@ -287,7 +287,7 @@ def test_latency_bench_env_backend_auto_selects_subproc_for_cpu_bound_envs(tmp_p
     assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "subproc"
 
 
-def test_latency_bench_env_backend_auto_keeps_flappy_gpu_render_serial(tmp_path):
+def test_latency_bench_env_backend_auto_selects_flappy_gpu_batched_backend(tmp_path):
     from latency_bench.executors.factory import _resolve_latency_bench_env_backend
 
     config = _config(output_dir=str(tmp_path))
@@ -297,7 +297,7 @@ def test_latency_bench_env_backend_auto_keeps_flappy_gpu_render_serial(tmp_path)
     config["env"]["use_gpu_render"] = True
     config["policy"]["type"] = "flappy_sf"
 
-    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "serial"
+    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "flappy_gpu_batched"
 
 
 @pytest.mark.parametrize("mode", ["paused", "realtime"])
