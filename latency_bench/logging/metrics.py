@@ -96,7 +96,6 @@ def apply_latency_raw_fields(
 ) -> None:
     event.obs_step = event.obs_env_step
     event.action_emit_time_ms = event.obs_time_ms
-    event.action_ready_time_ms = event.ready_time_ms
     event.latency_type = latency_type
     event.effective_k = None if frame_ms <= 0 else float(event.latency_ms) / float(frame_ms)
     _apply_profile_metadata(event, profile_metadata or {})
@@ -201,17 +200,12 @@ def _finalize_action_events(action_events: list[ActionEvent], *, frame_ms: float
         _backfill_action_event_raw_fields(event, frame_ms=frame_ms)
         event.obs_step = event.obs_env_step
         event.action_emit_time_ms = event.obs_time_ms
-        event.action_ready_time_ms = event.ready_time_ms
         if event.applied_env_step is None and event.apply_raw_frame is not None:
             event.applied_env_step = int(event.apply_raw_frame)
         if event.apply_raw_frame is None and event.applied_env_step is not None:
             event.apply_raw_frame = int(event.applied_env_step)
         if event.applied_time_ms is None and event.apply_raw_frame is not None and frame_ms is not None:
             event.applied_time_ms = int(event.apply_raw_frame) * float(frame_ms)
-        event.action_applied_step = (
-            event.applied_env_step if event.applied_env_step is not None else event.apply_raw_frame
-        )
-        event.action_apply_time_ms = event.applied_time_ms
         obs_frame = event.obs_raw_frame if event.obs_raw_frame is not None else event.obs_env_step
         apply_frame = event.apply_raw_frame if event.apply_raw_frame is not None else event.applied_env_step
         if apply_frame is not None:

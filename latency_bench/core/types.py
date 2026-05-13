@@ -102,9 +102,6 @@ class ActionEvent:
     dropped: bool = False
     obs_step: int | None = None
     action_emit_time_ms: float | None = None
-    action_ready_time_ms: float | None = None
-    action_apply_time_ms: float | None = None
-    action_applied_step: int | None = None
     effective_k: float | None = None
     action_age_frames: int | None = None
     latency_type: str | None = None

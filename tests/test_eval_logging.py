@@ -174,7 +174,7 @@ def test_simulated_latency_records_log_latency_and_action_age(tmp_path: Path):
     actions = _read_jsonl(tmp_path / "actions.jsonl")
     latencies = _read_jsonl(tmp_path / "latencies.jsonl")
     steps = _read_jsonl(tmp_path / "steps.jsonl")
-    applied = [action for action in actions if action["action_applied_step"] is not None]
+    applied = [action for action in actions if action["apply_raw_frame"] is not None]
 
     assert latencies[0]["latency_ms"] == pytest.approx(80.0)
     assert actions[0]["latency_ms"] == pytest.approx(80.0)
@@ -184,7 +184,7 @@ def test_simulated_latency_records_log_latency_and_action_age(tmp_path: Path):
     assert actions[0]["ready_raw_frame"] == 2
     assert applied
     assert applied[0]["apply_raw_frame"] == 2
-    assert applied[0]["action_age_frames"] == applied[0]["action_applied_step"] - applied[0]["obs_step"]
+    assert applied[0]["action_age_frames"] == applied[0]["apply_raw_frame"] - applied[0]["obs_raw_frame"]
     assert steps[0]["info"]["scheduled_time_ms"] == pytest.approx(0.0)
     assert steps[0]["info"]["frame_time_ms"] == pytest.approx(40.0)
     assert "active_action_id" in steps[0]["info"]
