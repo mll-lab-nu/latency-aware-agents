@@ -80,9 +80,8 @@ def patch_sample_factory_wandb() -> None:
     def init_wandb(cfg):
         """
         Sample Factory 2.1.1 forces an explicit run id and retries wandb.init().
-        With newer W&B versions this can surface as "run ID ... is in use" after
-        a half-successful init. Keep the built-in TensorBoard syncing, but let
-        W&B generate its own unique run id.
+        Use the configured unique id with W&B resume support so scheduler
+        recovery continues the same W&B run instead of creating same-name runs.
         """
 
         if not getattr(cfg, "with_wandb", False):
@@ -104,7 +103,9 @@ def patch_sample_factory_wandb() -> None:
             "project": getattr(cfg, "wandb_project", None),
             "entity": getattr(cfg, "wandb_user", None),
             "sync_tensorboard": True,
+            "id": run_name,
             "name": run_name,
+            "resume": "allow",
             "group": wandb_group,
             "job_type": getattr(cfg, "wandb_job_type", None),
             "tags": _normalize_tags(getattr(cfg, "wandb_tags", None)),
