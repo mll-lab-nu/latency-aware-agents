@@ -512,6 +512,12 @@ def _batch_observations(observations: Sequence[Any]) -> Any:
     return {"obs": np.stack([_to_numpy(obs) for obs in observations], axis=0)}
 
 
+def _single_env_info(info: Any) -> Mapping[str, Any]:
+    if isinstance(info, Mapping):
+        return info
+    return info[0]
+
+
 def _latency_from_info(info: Mapping[str, Any], *, fallback_raw_frames: int, env_fps: float) -> tuple[int, float]:
     raw_frames = info.get("latency_raw_frames", fallback_raw_frames)
     latency_ms = info.get("latency_ms")
@@ -573,6 +579,15 @@ def _empty_records() -> dict[str, list[Any]]:
     }
 
 
+def _write_dataset_parquet(dataset: Dataset, path: Path) -> None:
+    if len(dataset) == 0:
+        import pyarrow.parquet as pq
+
+        pq.write_table(dataset.data.table, path)
+        return
+    dataset.to_parquet(str(path))
+
+
 def _write_parquet_splits(output_dir: Path, train_rows: list[dict[str, Any]], val_rows: list[dict[str, Any]]):
     output_dir.mkdir(parents=True, exist_ok=True)
     features = Features(
@@ -600,8 +615,8 @@ def _write_parquet_splits(output_dir: Path, train_rows: list[dict[str, Any]], va
 
     train_ds = build_dataset(train_rows)
     val_ds = build_dataset(val_rows)
-    train_ds.to_parquet(str(output_dir / "train.parquet"))
-    val_ds.to_parquet(str(output_dir / "val.parquet"))
+    _write_dataset_parquet(train_ds, output_dir / "train.parquet")
+    _write_dataset_parquet(val_ds, output_dir / "val.parquet")
     return DatasetDict({"train": train_ds, "val": val_ds})
 
 
@@ -713,7 +728,7 @@ def collect_teacher_dataset(
                 raw_action = raw_actions[batch_idx]
                 action_id = _action_id(raw_action)
                 next_obs, reward, terminated, truncated, info = envs[slot].step(raw_action)
-                info_dict = dict(info)
+                info_dict = dict(_single_env_info(info))
                 latency_raw_frames, latency_ms = _latency_from_info(
                     info_dict,
                     fallback_raw_frames=fallback_latency,
