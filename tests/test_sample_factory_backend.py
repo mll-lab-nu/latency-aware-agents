@@ -145,6 +145,15 @@ def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
     assert "deadly_corridor_sf_fixed_latency_4" in args
 
 
+def test_build_common_sf_args_maps_cuda_to_sample_factory_gpu():
+    cfg = load_config("configs/experiments/deadly_corridor/sf_fixed_latency_4.yaml")
+    cfg["backend"]["device"] = "cuda"
+
+    args = build_common_sf_args(cfg, sf_env_name="doom_deadly_corridor")
+
+    assert args[args.index("--device") + 1] == "gpu"
+
+
 def test_flappy_sf_cli_maps_explicit_env_max_episode_steps():
     from training.flappy_sf.integration import build_cli_args_from_config
 

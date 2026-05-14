@@ -15,6 +15,11 @@ from latency_bench.envs.factory import register_env_adapter
 from latency_bench.policy import sample_factory_common
 
 
+def test_resolve_torch_device_maps_legacy_gpu_to_cuda():
+    assert sample_factory_common._resolve_device("gpu") == "cuda"
+    assert sample_factory_common._resolve_device("cpu") == "cpu"
+
+
 def _old_obs_batch_to_sf_inputs_reference(observations, device):
     if not observations:
         return {}, None

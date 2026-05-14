@@ -307,7 +307,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     generated_root = Path(args.generated_root or spec["generated_root"]).expanduser()
     output_root = Path(args.output_root or spec["output_root"])
     train_dir = Path(args.train_dir or spec["train_dir"])
-    device = str(args.device or spec.get("device", "gpu"))
+    device = str(args.device or spec.get("device", "cuda"))
     restart_behavior = str(args.restart_behavior or spec.get("restart_behavior", "resume"))
     seeds = None if args.seeds is None else _parse_int_csv(args.seeds)
 

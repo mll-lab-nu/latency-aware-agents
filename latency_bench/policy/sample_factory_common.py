@@ -15,9 +15,20 @@ from training.common.checkpoints import load_sample_factory_checkpoint_from_path
 
 
 def _resolve_device(device: Any) -> str:
-    device_name = str(device)
+    device_name = str(device).strip().lower()
     if device_name == "auto":
         return "cuda" if torch.cuda.is_available() else "cpu"
+    if device_name == "gpu":
+        return "cuda"
+    return device_name
+
+
+def resolve_sample_factory_device(device: Any) -> str:
+    device_name = str(device).strip().lower()
+    if device_name == "auto":
+        return "gpu" if torch.cuda.is_available() else "cpu"
+    if device_name == "cuda":
+        return "gpu"
     return device_name
 
 

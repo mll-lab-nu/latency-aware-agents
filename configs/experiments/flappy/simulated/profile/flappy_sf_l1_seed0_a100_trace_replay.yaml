@@ -8,7 +8,7 @@ experiment:
 backend:
   type: sample_factory
   algo: APPO
-  device: gpu
+  device: cuda
   train_dir: results/checkpoints
   restart_behavior: resume
   run_mode: eval

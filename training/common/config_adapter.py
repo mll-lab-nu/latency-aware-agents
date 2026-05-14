@@ -184,6 +184,8 @@ def apply_runtime_logging_config(sf_cfg: Any, logging_cfg: dict[str, Any]) -> No
 
 
 def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[str]:
+    from latency_bench.policy.sample_factory_common import resolve_sample_factory_device
+
     backend_cfg = config["backend"]
     experiment_cfg = config["experiment"]
     training_cfg = config["training"]
@@ -198,7 +200,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--experiment", experiment_cfg["name"])
     append_cli_arg(args, "--train_dir", backend_cfg.get("train_dir"))
     append_cli_arg(args, "--restart_behavior", backend_cfg.get("restart_behavior", "overwrite"))
-    append_cli_arg(args, "--device", backend_cfg.get("device", "cpu"))
+    append_cli_arg(args, "--device", resolve_sample_factory_device(backend_cfg.get("device", "cpu")))
     env_cfg = config.get("env", {})
     use_gpu_render = env_cfg.get("use_gpu_render", False)
     gpu_render_device = str(env_cfg.get("gpu_render_device", "auto") or "auto").strip().lower()

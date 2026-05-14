@@ -479,7 +479,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--train-dir", type=str, default="/workspace/sample_factory_runs")
     parser.add_argument("--output-root", type=str, default="/workspace/latency_sweeps")
     parser.add_argument("--generated-root", type=Path, default=GENERATED_ROOT)
-    parser.add_argument("--device", type=str, default="gpu")
+    parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--restart-behavior", type=str, default="resume")
     parser.add_argument("--train-for-env-steps", type=int)
     parser.add_argument("--eval-episodes", type=int, default=10)

@@ -223,6 +223,7 @@ def _structured_config_from_checkpoint_config(
     checkpoint_path: Path | None,
 ) -> dict[str, Any]:
     env_name = _infer_env_name_from_sf_env(str(flat_cfg.get("env", "")))
+    device = _resolve_device(flat_cfg.get("device", "cpu"))
     return {
         "experiment": {
             "name": experiment_dir.name,
@@ -231,7 +232,7 @@ def _structured_config_from_checkpoint_config(
         "backend": {
             "type": "sample_factory",
             "algo": flat_cfg.get("algo", "APPO"),
-            "device": flat_cfg.get("device", "cpu"),
+            "device": device,
             "train_dir": str(experiment_dir.parent),
             "restart_behavior": flat_cfg.get("restart_behavior", "resume"),
             "run_mode": "eval",
@@ -245,7 +246,7 @@ def _structured_config_from_checkpoint_config(
             "type": f"{env_name}_sf",
             "checkpoint_path": None if checkpoint_path is None else str(checkpoint_path),
             "deterministic": True,
-            "device": flat_cfg.get("device", "cpu"),
+            "device": device,
         },
         "training": _training_from_flat_checkpoint_config(flat_cfg),
         "evaluation": {
@@ -319,9 +320,10 @@ def load_rollout_training_config(
         latency_source = str(latency_override_path)
 
     if device_override:
-        config.setdefault("backend", {})["device"] = str(device_override)
-        config.setdefault("policy", {})["device"] = str(device_override)
-        if str(device_override).strip().lower() == "cpu" and config.get("env", {}).get("name") == "flappy":
+        normalized_device = _resolve_device(device_override)
+        config.setdefault("backend", {})["device"] = normalized_device
+        config.setdefault("policy", {})["device"] = normalized_device
+        if normalized_device == "cpu" and config.get("env", {}).get("name") == "flappy":
             config.setdefault("env", {})["gpu_render_device"] = "cpu"
     _force_rollout_latency_info(config)
     return config, {

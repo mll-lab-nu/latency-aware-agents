@@ -105,8 +105,10 @@ def test_rollout_config_defaults_to_checkpoint_training_latency(tmp_path):
     assert config["env"]["name"] == "demon_attack"
     assert config["experiment"]["name"] == "demon_fixed_l4_seed0"
     assert config["backend"]["run_mode"] == "eval"
+    assert config["backend"]["device"] == "cuda"
     assert config["backend"]["train_dir"] == str(tmp_path)
     assert config["policy"]["checkpoint_path"] is None
+    assert config["policy"]["device"] == "cuda"
     assert config["latency"]["type"] == "fixed"
     assert config["latency"]["fixed_latency_ms"] == pytest.approx(66.66666666666667)
     assert config["latency"]["add_latency_info"] is True
@@ -173,6 +175,18 @@ def test_device_override_cpu_routes_flappy_gpu_renderer_to_cpu(tmp_path):
 
     assert config["backend"]["device"] == "cpu"
     assert config["env"]["gpu_render_device"] == "cpu"
+
+
+def test_device_override_cuda_uses_cuda_public_device_name(tmp_path):
+    from scripts.export_sf_teacher_dataset import load_rollout_training_config
+
+    experiment_dir = tmp_path / "demon_fixed_l4_seed0"
+    _write_checkpoint_config(experiment_dir)
+
+    config, _ = load_rollout_training_config(experiment_dir, device_override="cuda")
+
+    assert config["backend"]["device"] == "cuda"
+    assert config["policy"]["device"] == "cuda"
 
 
 def test_observation_frame_uses_latest_stacked_policy_observation_without_render():

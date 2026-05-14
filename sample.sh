@@ -10,7 +10,7 @@ set -euo pipefail
 #   --generated-root configs/train/one_run \
 #   --train-dir results/checkpoints/sample_factory_runs \
 #   --output-root outputs/latency_sweeps \
-#   --device gpu \
+#   --device cuda \
 #   --restart-behavior resume \
 #   --eval-episodes 10
 

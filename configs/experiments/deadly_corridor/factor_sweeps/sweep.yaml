@@ -2,7 +2,7 @@ base_config: configs/base/deadly_corridor.yaml
 generated_root: configs/train/deadly_corridor_factor_sweeps
 train_dir: results/checkpoints_deadly_corridor_factor_sweeps
 output_root: outputs/deadly_corridor_factor_sweeps
-device: gpu
+device: cuda
 restart_behavior: resume
 seeds:
   - 0

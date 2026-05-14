@@ -2,7 +2,7 @@ base_config: configs/base/demon_attack.yaml
 generated_root: configs/train/demon_attack_factor_sweeps
 train_dir: results/checkpoints_demon_attack_factor_sweeps
 output_root: outputs/demon_attack_factor_sweeps
-device: gpu
+device: cuda
 restart_behavior: resume
 seeds:
   - 0
