@@ -37,14 +37,6 @@ _ENVS_REGISTERED = False
 _MODELS_REGISTERED = False
 
 
-def _clock_from_cfg(cfg) -> EnvClock:
-    env_fps = getattr(cfg, "env_fps", None)
-    obs_fps = getattr(cfg, "obs_fps", None)
-    if env_fps is None or obs_fps is None:
-        raise ValueError("DeadlyCorridor Sample Factory requires env_fps and obs_fps")
-    return EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
-
-
 def _force_doom_raw_frame_step_cfg(cfg) -> None:
     maybe_set_cli_override(cfg, "env_frameskip", 1)
     maybe_set_cli_override(cfg, "eval_env_frameskip", 1)
@@ -61,18 +53,12 @@ def _doom_raw_reward_from_scaled(env_reward: float, info: dict[str, Any], reward
 class DoomFrameStackWrapper(gym.Wrapper):
     def __init__(self, env: gym.Env, num_frames: int):
         super().__init__(env)
-        if num_frames < 1:
-            raise ValueError(f"num_frames must be >= 1, got {num_frames}")
         self._dict_observation = isinstance(env.observation_space, gym.spaces.Dict)
         if self._dict_observation:
             obs_space = env.observation_space.spaces.get("obs")
         else:
             obs_space = env.observation_space
-        if not isinstance(obs_space, gym.spaces.Box):
-            raise TypeError("DoomFrameStackWrapper expects a Box observation space")
         base_shape = tuple(int(dim) for dim in obs_space.shape)
-        if len(base_shape) != 3:
-            raise ValueError(f"Expected channel-first Doom observation, got shape {base_shape}")
 
         self.num_frames = int(num_frames)
         self._base_channels = int(base_shape[0])
@@ -129,7 +115,10 @@ def make_latency_doom_env_from_spec(
     if bool(getattr(cfg, "disable_reward_scaling", False)):
         spec_to_use.reward_scaling = 1.0
     _force_doom_raw_frame_step_cfg(cfg)
-    clock = _clock_from_cfg(cfg)
+    clock = EnvClock(
+        env_fps=cfg.env_fps,
+        obs_fps=cfg.obs_fps,
+    )
 
     env = sf_make_doom_env_from_spec(
         spec_to_use,
@@ -148,10 +137,10 @@ def make_latency_doom_env_from_spec(
             scale,
         ),
     )
-    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+    frame_stack = getattr(cfg, "frame_stack", 1)
     if frame_stack > 1:
         env = DoomFrameStackWrapper(env, num_frames=frame_stack)
-    max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
+    max_episode_steps = getattr(cfg, "max_episode_steps", 0) or 0
     if max_episode_steps > 0:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
 

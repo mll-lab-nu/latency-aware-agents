@@ -154,8 +154,6 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
         env_id: int = 0,
     ):
         super().__init__(env)
-        if obs_resize is None:
-            raise ValueError("use_gpu_render=true requires env.obs_resize to be set")
         height, width = (int(obs_resize[0]), int(obs_resize[1]))
         if height != width:
             raise ValueError("use_gpu_render=true currently requires square env.obs_resize")

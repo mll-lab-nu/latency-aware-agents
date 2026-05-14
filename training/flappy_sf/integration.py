@@ -55,16 +55,6 @@ def _force_sample_factory_raw_frame_step_cfg(cfg: Any) -> None:
     setattr(cfg, "eval_env_frameskip", 1)
 
 
-
-def _flappy_clock_from_cfg(cfg: Any) -> EnvClock:
-    env_fps = getattr(cfg, "env_fps", None)
-    obs_fps = getattr(cfg, "obs_fps", None)
-    if env_fps is None or obs_fps is None:
-        raise ValueError("Flappy Sample Factory requires env_fps and obs_fps")
-    return EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
-
-
-
 def parse_obs_resize(value: Any) -> tuple[int, int] | None:
     if value in (None, ""):
         return None
@@ -214,11 +204,7 @@ class FlappyImageObsWrapper(gym.Wrapper):
 
     def _render_frame(self) -> np.ndarray:
         frame = self.env.render()
-        if frame is None:
-            raise RuntimeError("FlappyBird-v0 render() returned None; use render_mode='rgb_array'")
         frame = np.asarray(frame, dtype=np.uint8)
-        if frame.ndim != 3 or frame.shape[-1] != 3:
-            raise RuntimeError(f"Expected Flappy RGB frame with shape (H, W, 3), got {frame.shape!r}")
         if self.obs_resize is not None:
             height, width = self.obs_resize
             if height == width:
@@ -255,13 +241,7 @@ class FlappyFrameStackWrapper(gym.Wrapper):
 
     def __init__(self, env: gym.Env, num_frames: int):
         super().__init__(env)
-        if num_frames < 1:
-            raise ValueError(f"num_frames must be >= 1, got {num_frames}")
-        if not isinstance(env.observation_space, Box):
-            raise TypeError("FlappyFrameStackWrapper expects a Box observation space")
         base_shape = tuple(int(dim) for dim in env.observation_space.shape)
-        if len(base_shape) != 3:
-            raise ValueError(f"Expected channel-first image observation, got shape {base_shape}")
         self.num_frames = int(num_frames)
         self._frames: deque[np.ndarray] = deque(maxlen=self.num_frames)
         stacked_shape = (base_shape[0] * self.num_frames, base_shape[1], base_shape[2])
@@ -296,7 +276,10 @@ def make_flappy_sf_env(
     use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))
     obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
-    clock = _flappy_clock_from_cfg(cfg)
+    clock = EnvClock(
+        env_fps=cfg.env_fps,
+        obs_fps=cfg.obs_fps,
+    )
 
     if use_gpu_render:
         from training.flappy_sf.batched_gpu_env import FlappyBatchedGpuRenderedEnv

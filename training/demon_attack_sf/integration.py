@@ -43,13 +43,6 @@ def _force_sample_factory_raw_frame_step_cfg(cfg) -> None:
     setattr(cfg, "eval_env_frameskip", 1)
 
 
-def _clock_from_cfg(cfg) -> EnvClock:
-    env_fps = getattr(cfg, "env_fps", None)
-    obs_fps = getattr(cfg, "obs_fps", None)
-    if env_fps is None or obs_fps is None:
-        raise ValueError("DemonAttack Sample Factory requires env_fps and obs_fps")
-    return EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
-
 
 class AtariObsFormatWrapper(gym.ObservationWrapper):
     """Ensure Atari observations are CHW uint8 images for Sample Factory."""
@@ -57,8 +50,6 @@ class AtariObsFormatWrapper(gym.ObservationWrapper):
     def __init__(self, env: gym.Env):
         super().__init__(env)
         space = self.observation_space
-        if not isinstance(space, Box):
-            raise TypeError("DemonAttack Sample Factory integration expects Box observations")
         shape = tuple(int(dim) for dim in space.shape)
         if len(shape) == 2:
             shape = (1,) + shape
@@ -80,14 +71,8 @@ class AtariFrameStackWrapper(gym.Wrapper):
 
     def __init__(self, env: gym.Env, num_frames: int):
         super().__init__(env)
-        if num_frames < 1:
-            raise ValueError(f"num_frames must be >= 1, got {num_frames}")
-        if not isinstance(env.observation_space, Box):
-            raise TypeError("AtariFrameStackWrapper expects a Box observation space")
-        base_shape = tuple(int(dim) for dim in env.observation_space.shape)
-        if len(base_shape) != 3:
-            raise ValueError(f"Expected channel-first image observation, got shape {base_shape}")
-        self.num_frames = int(num_frames)
+        base_shape = tuple(dim for dim in env.observation_space.shape)
+        self.num_frames = num_frames
         self._frames: deque[np.ndarray] = deque(maxlen=self.num_frames)
         stacked_shape = (base_shape[0] * self.num_frames, base_shape[1], base_shape[2])
         self.observation_space = Box(low=0, high=255, shape=stacked_shape, dtype=np.uint8)
@@ -118,7 +103,10 @@ def make_demon_attack_sf_env(
     ensure_sample_factory_raw_reward_console_stats_installed(env_name=SF_ENV_NAME)
     env_config = env_config or {}
     _force_sample_factory_raw_frame_step_cfg(cfg)
-    clock = _clock_from_cfg(cfg)
+    clock = EnvClock(
+        env_fps=cfg.env_fps,
+        obs_fps=cfg.obs_fps
+    )
     env = make_demon_attack_benchmark_env(
         env_id=getattr(cfg, "env_id", "ALE/DemonAttack-v5"),
         screen_size=int(getattr(cfg, "screen_size", 84)),
