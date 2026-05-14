@@ -11,7 +11,7 @@ from gymnasium.spaces import Box
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from latency_bench.envs.demon_attack import make_demon_attack_benchmark_env
-from training.sample_factory_common.common import env_instance_seed, parse_int_list, str2bool
+from training.sample_factory_common.common import env_instance_seed, str2bool
 from training.sample_factory_common.config_adapter import (
     append_cli_arg,
     apply_runtime_logging_config,
@@ -28,15 +28,6 @@ from training.sample_factory_common.latency_config import (
     sample_factory_latency_seed_from_flat_config,
 )
 from training.sample_factory_common.latency_bench_periodic_eval import run_sample_factory_training
-from training.sample_factory_common.queue_eval import (
-    evaluate_queue_latency,
-    evaluate_queue_latency_distribution,
-    finish_queue_eval_wandb,
-    has_queue_latency_distribution,
-    init_queue_eval_wandb,
-    log_queue_eval_result,
-    write_queue_eval_result,
-)
 from training.sample_factory_common.sf_raw_reward_stats_compat import (
     ensure_sample_factory_raw_reward_console_stats_installed,
 )
@@ -221,7 +212,7 @@ def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repeat_action_probability", type=float, default=0.0)
     parser.add_argument("--full_action_space", type=str2bool, default=False)
     parser.add_argument("--max_episode_steps", type=int, default=0)
-    parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "train_eval"])
+    parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"])
     parser.add_argument("--latency-type", dest="latency_type", type=str, default="zero")
     parser.add_argument("--fixed-latency-ms", dest="fixed_latency_ms", type=float)
     parser.add_argument("--mean-latency-ms", dest="mean_latency_ms", type=float)
@@ -273,10 +264,10 @@ def demon_attack_override_defaults(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def parse_cfg(argv=None, evaluation: bool = False):
+def parse_cfg(argv=None):
     from sample_factory.cfg.arguments import parse_full_cfg, parse_sf_args
 
-    parser, _ = parse_sf_args(argv=argv, evaluation=evaluation)
+    parser, _ = parse_sf_args(argv=argv, evaluation=False)
     add_demon_attack_env_args(parser)
     demon_attack_override_defaults(parser)
     cfg = parse_full_cfg(parser, argv)
@@ -312,8 +303,7 @@ def run_from_config(config: dict) -> int:
     from training.sample_factory_common.common import seed_everything
 
     register_demon_attack_envs()
-    requested_mode = str(config.get("backend", {}).get("run_mode", "train"))
-    cfg = parse_cfg(build_cli_args_from_config(config), evaluation=requested_mode in {"eval", "train_eval"})
+    cfg = parse_cfg(build_cli_args_from_config(config))
     logging_cfg = config.get("logging", {}) if isinstance(config.get("logging"), dict) else {}
     apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))
@@ -322,37 +312,13 @@ def run_from_config(config: dict) -> int:
 
     metrics_stop_event = None
     metrics_thread = None
-    if cfg.mode in {"train", "train_eval"}:
+    if cfg.mode == "train":
         metrics_stop_event, metrics_thread = start_episode_metrics_aggregator(cfg)
 
     status = ExperimentStatus.SUCCESS
     try:
-        if cfg.mode in {"train", "train_eval"}:
+        if cfg.mode == "train":
             status = run_sample_factory_training(cfg, config)
-        if cfg.mode in {"eval", "train_eval"}:
-            wandb_run, owned_wandb_run = init_queue_eval_wandb(cfg)
-            try:
-                if has_queue_latency_distribution(cfg):
-                    result = evaluate_queue_latency_distribution(cfg)
-                    write_queue_eval_result(cfg, result)
-                    log_queue_eval_result(wandb_run, result)
-                    print(
-                        f"[eval] distribution={result['latency_distribution_label']} "
-                        f"mean_return={result['mean_return']:.3f} "
-                        f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
-                    )
-                else:
-                    latencies = parse_int_list(cfg.eval_latency_raw_frame_values)
-                    for latency in latencies:
-                        result = evaluate_queue_latency(cfg, int(latency))
-                        write_queue_eval_result(cfg, result)
-                        log_queue_eval_result(wandb_run, result)
-                        print(
-                            f"[eval] latency={latency} mean_return={result['mean_return']:.3f} "
-                            f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
-                        )
-            finally:
-                finish_queue_eval_wandb(wandb_run, owned_wandb_run)
     finally:
         stop_episode_metrics_aggregator(metrics_stop_event, metrics_thread)
     return int(status) if isinstance(status, int) else 0

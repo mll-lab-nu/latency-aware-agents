@@ -3,23 +3,19 @@ from __future__ import annotations
 import argparse
 import copy
 import functools
-import json
 from typing import Any, Optional
 
 import gymnasium as gym
 import numpy as np
-import torch
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from training.sample_factory_common.common import (
     env_instance_seed,
     maybe_set_cli_override,
-    parse_int_list,
     seed_everything,
     str2bool,
 )
-from training.sample_factory_common.checkpoint_io import load_sample_factory_checkpoint_from_paths
 from training.sample_factory_common.config_adapter import (
     append_cli_arg,
     apply_runtime_logging_config,
@@ -27,21 +23,11 @@ from training.sample_factory_common.config_adapter import (
 )
 from training.sample_factory_common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
 from training.sample_factory_common.latency_config import (
-    raw_frames_to_latency_ms,
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
 from training.sample_factory_common.latency_bench_periodic_eval import run_sample_factory_training
 from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper, EpisodeMetricsWrapper, RewardTraceWrapper
-from training.sample_factory_common.queue_eval import (
-    evaluate_queue_latency_distribution,
-    finish_queue_eval_wandb,
-    has_queue_latency_distribution,
-    init_queue_eval_wandb,
-    log_queue_eval_result,
-    queue_eval_output_dir,
-    write_queue_eval_result,
-)
 from training.sample_factory_common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
 from training.sample_factory_common.wandb_compat import patch_sample_factory_wandb
 
@@ -247,7 +233,7 @@ def make_reference_env(cfg):
 
 
 def add_latency_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "train_eval"])
+    parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"])
     parser.add_argument("--env-fps", dest="env_fps", type=float, default=35)
     parser.add_argument("--obs-fps", dest="obs_fps", type=float, default=8.75)
     parser.add_argument("--latency-type", dest="latency_type", type=str, default="zero")
@@ -313,201 +299,13 @@ def parse_cfg(argv=None):
     return cfg
 
 
-def _load_policy_state_dict(cfg, actor_critic, device: torch.device) -> None:
-    from sample_factory.algo.learning.learner import Learner
-
-    policy_id = cfg.policy_index
-    name_prefix = dict(latest="checkpoint", best="best")[cfg.load_checkpoint_kind]
-    checkpoints = Learner.get_checkpoints(Learner.checkpoint_dir(cfg, policy_id), f"{name_prefix}_*")
-    checkpoint_dict = load_sample_factory_checkpoint_from_paths(checkpoints, device)
-    actor_critic.load_state_dict(checkpoint_dict["model"])
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, torch.Tensor):
-        return _jsonable(value.detach().cpu().numpy())
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, dict):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_jsonable(item) for item in value]
-    return value
-
-
-def _single_agent_action(value: Any) -> Any:
-    action = _jsonable(value)
-    if isinstance(action, list) and len(action) == 1 and isinstance(action[0], list):
-        return action[0]
-    return action
-
-
-def _synchronous_eval_fps(base_cfg, default: int = 35) -> int:
-    fallback = int(default)
-    if fallback <= 0:
-        fallback = 35
-    try:
-        fps = int(float(getattr(base_cfg, "fps", fallback)))
-    except (TypeError, ValueError):
-        fps = fallback
-    return fps if fps > 0 else fallback
-
-
-def _prepare_eval_cfg(base_cfg, latency_value: int):
-    cfg = copy.deepcopy(base_cfg)
-    maybe_set_cli_override(cfg, "latency_type", "zero" if int(latency_value) == 0 else "fixed")
-    maybe_set_cli_override(
-        cfg,
-        "fixed_latency_ms",
-        raw_frames_to_latency_ms(latency_value, env_fps=float(getattr(base_cfg, "env_fps"))),
-    )
-    _force_doom_raw_frame_step_cfg(cfg)
-    maybe_set_cli_override(cfg, "num_envs", 1)
-    maybe_set_cli_override(cfg, "no_render", True)
-    maybe_set_cli_override(cfg, "save_video", False)
-    maybe_set_cli_override(cfg, "fps", _synchronous_eval_fps(base_cfg))
-    maybe_set_cli_override(cfg, "eval_deterministic", bool(getattr(base_cfg, "eval_deterministic", True)))
-    maybe_set_cli_override(cfg, "disable_reward_scaling", bool(getattr(base_cfg, "eval_raw_reward", False)))
-    if int(getattr(cfg, "max_episode_steps", 0) or 0) <= 0:
-        eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 0) or 0)
-        if eval_max_steps > 0:
-            maybe_set_cli_override(cfg, "max_episode_steps", eval_max_steps)
-    return cfg
-
-
-@torch.no_grad()
-def evaluate_latency(base_cfg, latency_value: int) -> dict[str, Any]:
-    from sample_factory.algo.sampling.batched_sampling import preprocess_actions
-    from sample_factory.algo.utils.action_distributions import argmax_actions
-    from sample_factory.algo.utils.env_info import extract_env_info
-    from sample_factory.algo.utils.make_env import make_env_func_batched
-    from sample_factory.algo.utils.rl_utils import make_dones, prepare_and_normalize_obs
-    from sample_factory.algo.utils.tensor_utils import unsqueeze_tensor
-    from sample_factory.cfg.arguments import load_from_checkpoint
-    from sample_factory.model.actor_critic import create_actor_critic
-    from sample_factory.model.model_utils import get_rnn_size
-    from sample_factory.utils.attr_dict import AttrDict
-
-    cfg = _prepare_eval_cfg(base_cfg, latency_value)
-    cfg = load_from_checkpoint(cfg)
-    cfg.latency_type = "zero" if int(latency_value) == 0 else "fixed"
-    cfg.fixed_latency_ms = raw_frames_to_latency_ms(latency_value, env_fps=float(getattr(base_cfg, "env_fps")))
-    _force_doom_raw_frame_step_cfg(cfg)
-    if int(getattr(cfg, "max_episode_steps", 0) or 0) <= 0:
-        eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 0) or 0)
-        if eval_max_steps > 0:
-            maybe_set_cli_override(cfg, "max_episode_steps", eval_max_steps)
-
-    env = make_env_func_batched(
-        cfg,
-        env_config=AttrDict(worker_index=0, vector_index=0, env_id=0),
-        render_mode=None,
-    )
-    env_info = extract_env_info(env, cfg)
-    actor_critic = create_actor_critic(cfg, env.observation_space, env.action_space)
-    actor_critic.eval()
-
-    device = torch.device("cpu" if cfg.device == "cpu" else "cuda")
-    actor_critic.model_to_device(device)
-    _load_policy_state_dict(cfg, actor_critic, device)
-
-    returns: list[float] = []
-    lengths: list[int] = []
-    eval_episodes = int(getattr(base_cfg, "eval_episodes", 20))
-    eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 30000))
-    max_total_frames = int(1e9 if eval_max_steps <= 0 else eval_max_steps * max(1, eval_episodes))
-
-    obs, _ = env.reset()
-    rnn_states = torch.zeros([env.num_agents, get_rnn_size(cfg)], dtype=torch.float32, device=device)
-    episode_reward = torch.zeros([env.num_agents], dtype=torch.float32, device=device)
-    episode_length = np.zeros([env.num_agents], dtype=np.int64)
-    episode_indices = np.zeros([env.num_agents], dtype=np.int64)
-    total_frames = 0
-    trace_handle = None
-    output_dir = queue_eval_output_dir(base_cfg)
-    if output_dir is not None:
-        trace_handle = (output_dir / f"queue_eval_latency_{int(latency_value)}_actions.jsonl").open(
-            "w",
-            encoding="utf-8",
-        )
-
-    try:
-        while len(returns) < eval_episodes and total_frames < max_total_frames:
-            normalized_obs = prepare_and_normalize_obs(actor_critic, obs)
-            policy_outputs = actor_critic(normalized_obs, rnn_states)
-            actions = policy_outputs["actions"]
-            if bool(getattr(base_cfg, "eval_deterministic", True)):
-                actions = argmax_actions(actor_critic.action_distribution())
-            if actions.ndim == 1:
-                actions = unsqueeze_tensor(actions, dim=-1)
-            actions = preprocess_actions(env_info, actions)
-            action_for_trace = _single_agent_action(actions)
-            rnn_states = policy_outputs["new_rnn_states"]
-            obs, rew, terminated, truncated, _ = env.step(actions)
-            dones = make_dones(terminated, truncated)
-            reward_tensor = rew if isinstance(rew, torch.Tensor) else torch.as_tensor(rew, dtype=torch.float32, device=device)
-            reward_tensor = reward_tensor.to(device=device, dtype=torch.float32)
-            episode_reward += reward_tensor
-            if trace_handle is not None:
-                done_values = dones.detach().cpu().numpy()
-                reward_values = reward_tensor.detach().cpu().numpy()
-                for agent_i, done_flag in enumerate(done_values):
-                    trace_handle.write(
-                        json.dumps(
-                            {
-                                "latency": int(latency_value),
-                                "episode_id": int(episode_indices[agent_i]),
-                                "env_step": int(episode_length[agent_i]),
-                                "total_frame": int(total_frames),
-                                "action": action_for_trace,
-                                "reward": float(reward_values[agent_i]),
-                                "episode_return": float(episode_reward[agent_i].item()),
-                                "done": bool(done_flag),
-                            },
-                            sort_keys=True,
-                        )
-                        + "\n"
-                    )
-            episode_length += 1
-            total_frames += 1
-
-            for agent_i, done_flag in enumerate(dones.cpu().numpy()):
-                if done_flag and len(returns) < eval_episodes:
-                    returns.append(float(episode_reward[agent_i].item()))
-                    lengths.append(int(episode_length[agent_i]))
-                    episode_reward[agent_i] = 0.0
-                    episode_length[agent_i] = 0
-                    episode_indices[agent_i] += 1
-                    rnn_states[agent_i] = torch.zeros_like(rnn_states[agent_i])
-    finally:
-        if trace_handle is not None:
-            trace_handle.close()
-        env.close()
-    if not returns:
-        returns = [float("nan")]
-        lengths = [0]
-    return {
-        "latency": int(latency_value),
-        "mean_return": float(np.nanmean(returns)),
-        "std_return": float(np.nanstd(returns)),
-        "mean_length": float(np.mean(lengths)),
-        "returns": returns,
-        "lengths": lengths,
-    }
-
-
 def build_cli_args_from_config(config: dict) -> list[str]:
     env_cfg = config["env"]
-    backend_cfg = config.get("backend", {})
     evaluation_cfg = config.get("evaluation", {})
     scheduler_cfg = config.get("scheduler")
     if not isinstance(scheduler_cfg, dict):
         raise ValueError("scheduler must be a mapping for DeadlyCorridor Sample Factory")
     args = build_common_sf_args(config, sf_env_name=env_cfg.get("env_id", SF_ENV_NAME))
-    if str(backend_cfg.get("run_mode", "train")).strip().lower() in {"eval", "train_eval"}:
-        append_cli_arg(args, "--fps", env_cfg.get("env_fps", 35))
     append_cli_arg(args, "--env-fps", env_cfg["env_fps"])
     append_cli_arg(args, "--obs-fps", env_cfg["obs_fps"])
     append_cli_arg(args, "--res_w", env_cfg.get("res_w", 128))
@@ -537,37 +335,13 @@ def run_from_config(config: dict) -> int:
 
     metrics_stop_event = None
     metrics_thread = None
-    if cfg.mode in {"train", "train_eval"}:
+    if cfg.mode == "train":
         metrics_stop_event, metrics_thread = start_episode_metrics_aggregator(cfg)
 
     status = ExperimentStatus.SUCCESS
     try:
-        if cfg.mode in {"train", "train_eval"}:
+        if cfg.mode == "train":
             status = run_sample_factory_training(cfg, config)
-        if cfg.mode in {"eval", "train_eval"}:
-            wandb_run, owned_wandb_run = init_queue_eval_wandb(cfg)
-            try:
-                if has_queue_latency_distribution(cfg):
-                    result = evaluate_queue_latency_distribution(cfg)
-                    write_queue_eval_result(cfg, result)
-                    log_queue_eval_result(wandb_run, result)
-                    print(
-                        f"[eval] distribution={result['latency_distribution_label']} "
-                        f"mean_return={result['mean_return']:.3f} "
-                        f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
-                    )
-                else:
-                    latencies = parse_int_list(cfg.eval_latency_raw_frame_values)
-                    for latency in latencies:
-                        result = evaluate_latency(cfg, int(latency))
-                        write_queue_eval_result(cfg, result)
-                        log_queue_eval_result(wandb_run, result)
-                        print(
-                            f"[eval] latency={latency} mean_return={result['mean_return']:.3f} "
-                            f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
-                        )
-            finally:
-                finish_queue_eval_wandb(wandb_run, owned_wandb_run)
     finally:
         stop_episode_metrics_aggregator(metrics_stop_event, metrics_thread)
     return int(status) if isinstance(status, int) else 0

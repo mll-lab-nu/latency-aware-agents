@@ -15,13 +15,10 @@ set -euo pipefail
 #   --eval-episodes 10
 
 # python -m training.train --config configs/train/one_run/flappy/latency_0/seed_0/train.yaml
-# python -m training.train --config configs/train/one_run/flappy/latency_0/seed_0/eval.yaml
 # python -m latency_bench.run --config configs/train/one_run/flappy/latency_0/seed_0/latency_bench_eval.yaml
 
 python -m training.train --config configs/train/one_run/demon_attack/latency_0/seed_0/train.yaml
-# python -m training.train --config configs/train/one_run/demon_attack/latency_0/seed_0/eval.yaml
 # python -m latency_bench.run --config configs/train/one_run/demon_attack/latency_0/seed_0/latency_bench_eval.yaml
 
 # python -m training.train --config configs/train/one_run/deadly_corridor/latency_0/seed_0/train.yaml
-# python -m training.train --config configs/train/one_run/deadly_corridor/latency_0/seed_0/eval.yaml
 python -m latency_bench.run --config configs/train/one_run/deadly_corridor/latency_0/seed_0/latency_bench_eval.yaml

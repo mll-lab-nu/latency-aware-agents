@@ -1,9 +1,17 @@
 unity_logs/
+
 outputs/
+outputs
+outputs_old
+outputs_old/
+
 vizdoom_basic_models/
 wandb/
 models/
+
 results/
+results_old/
+
 logs/
 configs/train
 

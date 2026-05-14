@@ -167,7 +167,7 @@ Sample Factory checkpoints can be evaluated through the common latency bench ent
 python -m latency_bench.run --config configs/experiments/flappy/sf_eval_zero_latency.yaml
 ```
 
-Parallel eval is controlled by `evaluation.eval_parallel_envs`. It is supported for Flappy and DemonAttack Sample Factory queue eval, and for `latency_bench` simulated eval. See [Evaluation Parallelism](docs/eval_parallelism.md) for supported paths, recommended values, subprocess env stepping notes, and benchmark commands.
+Parallel eval is controlled by `evaluation.eval_parallel_envs` in `latency_bench` simulated eval. See [Evaluation Parallelism](docs/eval_parallelism.md) for supported paths, recommended values, subprocess env stepping notes, and benchmark commands.
 
 CleanRL-style Flappy PPO training entrypoint:
 

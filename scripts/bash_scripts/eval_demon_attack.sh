@@ -42,12 +42,8 @@ read_config_value() {
 checkpoint_output_dir() {
     local output_dir="$1"
     local checkpoint_kind="$2"
-    if [[ "${output_dir}" == outputs/eval/* ]]; then
-        printf "outputs/eval/${checkpoint_kind}/%s\n" "${output_dir#outputs/eval/}"
-    elif [[ "${output_dir}" == outputs/latency_bench/* ]]; then
+    if [[ "${output_dir}" == outputs/latency_bench/* ]]; then
         printf "outputs/latency_bench/${checkpoint_kind}/%s\n" "${output_dir#outputs/latency_bench/}"
-    elif [[ "${output_dir}" == */outputs/eval/* ]]; then
-        printf "%s/outputs/eval/${checkpoint_kind}/%s\n" "${output_dir%%/outputs/eval/*}" "${output_dir#*/outputs/eval/}"
     elif [[ "${output_dir}" == */outputs/latency_bench/* ]]; then
         printf "%s/outputs/latency_bench/${checkpoint_kind}/%s\n" "${output_dir%%/outputs/latency_bench/*}" "${output_dir#*/outputs/latency_bench/}"
     else
@@ -71,12 +67,12 @@ checkpoint_glob_exists() {
 }
 
 mapfile -t CONFIG_DIRS < <(
-    find "${CONFIG_ROOT}" -maxdepth 3 -mindepth 3 -type f -path "${CONFIG_ROOT}/latency_*/seed_0/eval.yaml" \
+    find "${CONFIG_ROOT}" -maxdepth 3 -mindepth 3 -type f -path "${CONFIG_ROOT}/latency_*/seed_0/latency_bench_eval.yaml" \
         -printf '%h\n' | sort -V
 )
 
 if [[ ${#CONFIG_DIRS[@]} -eq 0 ]]; then
-    echo "Error: no eval configs found under ${CONFIG_ROOT}/latency_*/seed_0." >&2
+    echo "Error: no latency_bench eval configs found under ${CONFIG_ROOT}/latency_*/seed_0." >&2
     exit 2
 fi
 
@@ -85,9 +81,8 @@ EVAL_RUNS=0
 EVAL_FAILURES=0
 
 for CONFIG_DIR in "${CONFIG_DIRS[@]}"; do
-    EXPERIMENT_NAME="$(read_config_value "${CONFIG_DIR}/eval.yaml" "experiment.name")"
-    TRAIN_DIR="$(read_config_value "${CONFIG_DIR}/eval.yaml" "backend.train_dir")"
-    EVAL_OUTPUT_BASE="$(read_config_value "${CONFIG_DIR}/eval.yaml" "logging.output_dir")"
+    EXPERIMENT_NAME="$(read_config_value "${CONFIG_DIR}/latency_bench_eval.yaml" "experiment.name")"
+    TRAIN_DIR="$(read_config_value "${CONFIG_DIR}/latency_bench_eval.yaml" "backend.train_dir")"
     LATENCY_BENCH_OUTPUT_BASE="$(read_config_value "${CONFIG_DIR}/latency_bench_eval.yaml" "logging.output_dir")"
     CHECKPOINT_CONFIG="${TRAIN_DIR}/${EXPERIMENT_NAME}/config.json"
     if [[ ! -f "${CHECKPOINT_CONFIG}" ]]; then
@@ -105,18 +100,9 @@ for CONFIG_DIR in "${CONFIG_DIRS[@]}"; do
             continue
         fi
 
-        EVAL_OUTPUT_DIR="$(checkpoint_output_dir "${EVAL_OUTPUT_BASE}" "${CHECKPOINT_KIND}")"
         LATENCY_BENCH_OUTPUT_DIR="$(checkpoint_output_dir "${LATENCY_BENCH_OUTPUT_BASE}" "${CHECKPOINT_KIND}")"
         echo "==> Evaluating ${CONFIG_DIR} (${CHECKPOINT_KIND})"
         EVAL_RUNS=$((EVAL_RUNS + 1))
-        if ! python -m training.train \
-            --config "${CONFIG_DIR}/eval.yaml" \
-            --checkpoint-kind "${CHECKPOINT_KIND}" \
-            --output-dir "${EVAL_OUTPUT_DIR}"; then
-            echo "Eval failed for ${CONFIG_DIR} (${CHECKPOINT_KIND}): training eval command failed" >&2
-            EVAL_FAILURES=$((EVAL_FAILURES + 1))
-            continue
-        fi
         if ! python -m latency_bench.run \
             --config "${CONFIG_DIR}/latency_bench_eval.yaml" \
             --checkpoint-kind "${CHECKPOINT_KIND}" \

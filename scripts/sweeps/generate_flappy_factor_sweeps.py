@@ -33,10 +33,8 @@ MANIFEST_COLUMNS = (
     "obs_fps",
     "seed",
     "train_config",
-    "eval_config",
     "latency_bench_eval_config",
     "train_command",
-    "eval_command",
     "latency_bench_eval_command",
 )
 
@@ -233,28 +231,6 @@ def _build_full_train_config(
     return config
 
 
-def _build_eval_config(
-    full_train_config: dict[str, Any],
-    *,
-    sweep_name: str,
-    latency_label: str,
-    frame_stack: int,
-    obs_fps: int | float,
-    seed: int,
-    output_root: Path,
-) -> dict[str, Any]:
-    config = deepcopy(full_train_config)
-    env_name = _env_name(config)
-    config["backend"]["run_mode"] = "eval"
-    config.setdefault("evaluation", {})["eval_episodes"] = int(config["evaluation"]["eval_episodes"])
-    _drop_eval_time_limit_fields(config)
-    _align_demon_attack_raw_eval_config(config, env_name)
-    config["logging"]["output_dir"] = str(
-        _output_dir(output_root, "eval", sweep_name, latency_label, frame_stack, obs_fps, seed)
-    )
-    return _prune_sample_factory_config(config)
-
-
 def _build_latency_bench_eval_config(
     base_config: dict[str, Any],
     full_train_config: dict[str, Any],
@@ -337,7 +313,6 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     manifest_rows = ["\t".join(MANIFEST_COLUMNS)]
     train_commands: list[str] = []
-    eval_commands: list[str] = []
     latency_bench_eval_commands: list[str] = []
 
     for sweep_name, sweep_cfg, latency_label, latency_setting, frame_stack, obs_fps, seed in _iter_runs(
@@ -359,15 +334,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             restart_behavior=restart_behavior,
         )
         train_config = _prune_sample_factory_config(full_train_config)
-        eval_config = _build_eval_config(
-            full_train_config,
-            sweep_name=sweep_name,
-            latency_label=latency_label,
-            frame_stack=frame_stack,
-            obs_fps=obs_fps,
-            seed=seed,
-            output_root=output_root,
-        )
         latency_bench_eval_config = _build_latency_bench_eval_config(
             base_config,
             full_train_config,
@@ -382,17 +348,13 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         run_dir = _run_dir(generated_root, sweep_name, latency_label, frame_stack, obs_fps, seed)
         train_path = run_dir / "train.yaml"
-        eval_path = run_dir / "eval.yaml"
         latency_bench_eval_path = run_dir / "latency_bench_eval.yaml"
         _write_yaml(train_path, train_config)
-        _write_yaml(eval_path, eval_config)
         _write_yaml(latency_bench_eval_path, latency_bench_eval_config)
 
         train_cmd = f"python -m training.train --config {shlex.quote(str(train_path))}"
-        eval_cmd = f"python -m training.train --config {shlex.quote(str(eval_path))}"
         latency_bench_eval_cmd = f"python -m latency_bench.run --config {shlex.quote(str(latency_bench_eval_path))}"
         train_commands.append(train_cmd)
-        eval_commands.append(eval_cmd)
         latency_bench_eval_commands.append(latency_bench_eval_cmd)
         manifest_rows.append(
             "\t".join(
@@ -403,10 +365,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                     str(obs_fps),
                     str(seed),
                     str(train_path),
-                    str(eval_path),
                     str(latency_bench_eval_path),
                     train_cmd,
-                    eval_cmd,
                     latency_bench_eval_cmd,
                 ]
             )
@@ -415,14 +375,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     generated_root.mkdir(parents=True, exist_ok=True)
     (generated_root / "manifest.tsv").write_text("\n".join(manifest_rows) + "\n", encoding="utf-8")
     (generated_root / "train_commands.txt").write_text("\n".join(train_commands) + "\n", encoding="utf-8")
-    (generated_root / "eval_commands.txt").write_text("\n".join(eval_commands) + "\n", encoding="utf-8")
     (generated_root / "latency_bench_eval_commands.txt").write_text(
         "\n".join(latency_bench_eval_commands) + "\n",
         encoding="utf-8",
     )
     print(f"Wrote sweep configs to {generated_root}")
     print(f"Train commands: {generated_root / 'train_commands.txt'}")
-    print(f"Eval commands: {generated_root / 'eval_commands.txt'}")
     print(f"Latency bench eval commands: {generated_root / 'latency_bench_eval_commands.txt'}")
     print(f"Manifest: {generated_root / 'manifest.tsv'}")
 
