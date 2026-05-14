@@ -21,7 +21,7 @@ from latency_bench.core.types import Action, ActionEvent, ActionHoldPolicy, Late
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 from training.atari_episode_stats import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
-from training.sample_factory_common.episode_metrics import append_episode_metrics_event
+from training.common.episode_metrics import append_episode_metrics_event
 
 
 def noop_action_from_space(space: gym.Space):

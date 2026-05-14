@@ -61,7 +61,7 @@ def _synchronous_eval_fps_from_config(config: dict[str, Any], default: int = 35)
 
 def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
     from training.deadly_corridor_sf import integration
-    from training.sample_factory_common.common import maybe_set_cli_override
+    from training.common.utils import maybe_set_cli_override
 
     integration.register_deadly_corridor_components()
     base_cfg = integration.parse_cfg(integration.build_cli_args_from_config(config))

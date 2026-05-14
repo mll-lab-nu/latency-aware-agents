@@ -53,7 +53,7 @@ def _install_fake_sample_factory_learner(monkeypatch):
 
 
 def _reset_patch_flags(monkeypatch):
-    from training.sample_factory_common import checkpoint_io
+    from training.common import checkpoints as checkpoint_io
 
     monkeypatch.setattr(checkpoint_io, "_SAMPLE_FACTORY_CHECKPOINT_LOADER_PATCHED", False, raising=False)
     monkeypatch.setattr(checkpoint_io, "_SAMPLE_FACTORY_CHECKPOINT_RETENTION_PATCHED", False, raising=False)
@@ -61,7 +61,7 @@ def _reset_patch_flags(monkeypatch):
 
 
 def test_patch_sample_factory_checkpoint_loader_uses_trusted_torch_load(monkeypatch):
-    from training.sample_factory_common import checkpoint_io
+    from training.common import checkpoints as checkpoint_io
 
     Learner, _learner_worker_module, _runner_parallel_module = _install_fake_sample_factory_learner(monkeypatch)
     _reset_patch_flags(monkeypatch)
@@ -81,7 +81,7 @@ def test_patch_sample_factory_checkpoint_loader_uses_trusted_torch_load(monkeypa
 
 
 def test_patch_sample_factory_checkpoint_loader_is_idempotent(monkeypatch):
-    from training.sample_factory_common import checkpoint_io
+    from training.common import checkpoints as checkpoint_io
 
     Learner, _learner_worker_module, runner_parallel_module = _install_fake_sample_factory_learner(monkeypatch)
     _reset_patch_flags(monkeypatch)
@@ -96,7 +96,7 @@ def test_patch_sample_factory_checkpoint_loader_is_idempotent(monkeypatch):
 
 
 def test_patch_sample_factory_checkpoint_loader_patches_parallel_learner_init(monkeypatch):
-    from training.sample_factory_common import checkpoint_io
+    from training.common import checkpoints as checkpoint_io
 
     _Learner, _learner_worker_module, runner_parallel_module = _install_fake_sample_factory_learner(monkeypatch)
     _reset_patch_flags(monkeypatch)
@@ -109,7 +109,7 @@ def test_patch_sample_factory_checkpoint_loader_patches_parallel_learner_init(mo
 
 
 def test_learner_child_init_wrapper_installs_checkpoint_io_before_original_init(monkeypatch):
-    from training.sample_factory_common import checkpoint_io
+    from training.common import checkpoints as checkpoint_io
 
     Learner, learner_worker_module, _runner_parallel_module = _install_fake_sample_factory_learner(monkeypatch)
     _reset_patch_flags(monkeypatch)

@@ -85,7 +85,7 @@ def test_batched_latency_reset_clears_pending_actions():
 def test_batched_latency_sampled_distribution_matches_scalar_wrapper(latency_distribution_spec):
     from latency_bench.core.latency_distribution import parse_latency_distribution
     from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
-    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
+    from training.common.latency_wrapper import ActionLatencyWrapper
 
     spec = parse_latency_distribution(latency_distribution_spec)
     scheduler = BatchedFlappyLatencyScheduler(

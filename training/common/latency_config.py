@@ -7,7 +7,7 @@ from latency_bench.core.clock import ms_to_raw_frames
 from latency_bench.core.latency_distribution import LatencyDistributionSpec
 from latency_bench.core.types import LatencySourceType
 
-from training.sample_factory_common.common import env_instance_seed
+from training.common.utils import env_instance_seed
 
 
 @dataclass(frozen=True)

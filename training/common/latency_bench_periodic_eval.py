@@ -11,10 +11,12 @@ from typing import Any
 
 from latency_bench.core.config import load_config, merge_dicts
 from latency_bench.run import run_eval_suites_from_config
-from training.common.checkpoints import checkpoint_dir
-from training.sample_factory_common.checkpoint_io import (
+from training.common.checkpoints import (
     CheckpointEvalLease,
     acquire_checkpoint_eval_lease,
+    checkpoint_dir,
+    checkpoint_mtimes,
+    checkpoint_paths,
     mark_checkpoint_for_eval_retention,
     patch_sample_factory_checkpoint_loader,
     release_checkpoint_eval_lease,
@@ -333,11 +335,11 @@ def _runner_env_steps(runner) -> int:
 
 
 def _checkpoint_paths(root: Path) -> list[Path]:
-    return sorted(root.glob("checkpoint_*.pth"))
+    return checkpoint_paths(root)
 
 
 def _checkpoint_mtimes(root: Path) -> dict[Path, int]:
-    return {path: path.stat().st_mtime_ns for path in _checkpoint_paths(root)}
+    return checkpoint_mtimes(root)
 
 
 def _log_eval_summaries(

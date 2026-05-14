@@ -107,7 +107,7 @@ def _episode_info(**extra):
 
 def test_forwards_numeric_episode_extra_stats_from_batched_list_infos(monkeypatch):
     _, BatchedVectorEnvRunner, misc = _install_fake_sample_factory(monkeypatch)
-    from training.sample_factory_common.sf_episode_extra_stats_compat import (
+    from training.common.sf_episode_extra_stats_compat import (
         ensure_sample_factory_episode_extra_stats_installed,
     )
 
@@ -129,7 +129,7 @@ def test_forwards_numeric_episode_extra_stats_from_batched_list_infos(monkeypatc
 
 def test_does_not_modify_original_reward_len_or_existing_metric_keys(monkeypatch):
     _, BatchedVectorEnvRunner, misc = _install_fake_sample_factory(monkeypatch)
-    from training.sample_factory_common.sf_episode_extra_stats_compat import (
+    from training.common.sf_episode_extra_stats_compat import (
         ensure_sample_factory_episode_extra_stats_installed,
     )
 
@@ -150,7 +150,7 @@ def test_does_not_modify_original_reward_len_or_existing_metric_keys(monkeypatch
 
 def test_disabled_env_name_does_not_forward_stats(monkeypatch):
     _, BatchedVectorEnvRunner, misc = _install_fake_sample_factory(monkeypatch)
-    from training.sample_factory_common.sf_episode_extra_stats_compat import (
+    from training.common.sf_episode_extra_stats_compat import (
         ensure_sample_factory_episode_extra_stats_installed,
     )
 
@@ -169,7 +169,7 @@ def test_disabled_env_name_does_not_forward_stats(monkeypatch):
 
 def test_synthesizes_report_when_original_runner_returns_empty_reports(monkeypatch):
     _, BatchedVectorEnvRunner, misc = _install_fake_sample_factory(monkeypatch, empty_reports=True)
-    from training.sample_factory_common.sf_episode_extra_stats_compat import (
+    from training.common.sf_episode_extra_stats_compat import (
         ensure_sample_factory_episode_extra_stats_installed,
     )
 
@@ -194,7 +194,7 @@ def test_synthesizes_report_when_original_runner_returns_empty_reports(monkeypat
 
 def test_repeated_install_is_idempotent_and_does_not_duplicate_stats(monkeypatch):
     _, BatchedVectorEnvRunner, misc = _install_fake_sample_factory(monkeypatch)
-    from training.sample_factory_common.sf_episode_extra_stats_compat import (
+    from training.common.sf_episode_extra_stats_compat import (
         ensure_sample_factory_episode_extra_stats_installed,
     )
 
@@ -217,10 +217,10 @@ def test_repeated_install_is_idempotent_and_does_not_duplicate_stats(monkeypatch
 
 def test_repeated_install_after_other_wrapper_reuses_existing_generic_patch(monkeypatch):
     _, BatchedVectorEnvRunner, misc = _install_fake_sample_factory(monkeypatch)
-    from training.sample_factory_common.sf_episode_extra_stats_compat import (
+    from training.common.sf_episode_extra_stats_compat import (
         ensure_sample_factory_episode_extra_stats_installed,
     )
-    from training.sample_factory_common.sf_raw_reward_stats_compat import (
+    from training.common.sf_raw_reward_stats_compat import (
         ensure_sample_factory_raw_reward_console_stats_installed,
     )
 
@@ -246,7 +246,7 @@ def test_repeated_install_after_other_wrapper_reuses_existing_generic_patch(monk
 
 def test_multiple_env_name_registrations_are_preserved(monkeypatch):
     _, BatchedVectorEnvRunner, misc = _install_fake_sample_factory(monkeypatch)
-    from training.sample_factory_common.sf_episode_extra_stats_compat import (
+    from training.common.sf_episode_extra_stats_compat import (
         ensure_sample_factory_episode_extra_stats_installed,
     )
 
@@ -267,10 +267,10 @@ def test_multiple_env_name_registrations_are_preserved(monkeypatch):
 @pytest.mark.parametrize("install_order", ["generic_first", "raw_first"])
 def test_generic_patch_and_demon_attack_raw_patch_can_coexist(monkeypatch, install_order):
     _, BatchedVectorEnvRunner, misc = _install_fake_sample_factory(monkeypatch)
-    from training.sample_factory_common.sf_episode_extra_stats_compat import (
+    from training.common.sf_episode_extra_stats_compat import (
         ensure_sample_factory_episode_extra_stats_installed,
     )
-    from training.sample_factory_common.sf_raw_reward_stats_compat import (
+    from training.common.sf_raw_reward_stats_compat import (
         ensure_sample_factory_raw_reward_console_stats_installed,
     )
 

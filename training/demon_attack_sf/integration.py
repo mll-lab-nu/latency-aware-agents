@@ -11,27 +11,27 @@ from gymnasium.spaces import Box
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from latency_bench.envs.demon_attack import make_demon_attack_benchmark_env
-from training.sample_factory_common.common import env_instance_seed, str2bool
-from training.sample_factory_common.config_adapter import (
+from training.common.utils import env_instance_seed, str2bool
+from training.common.config_adapter import (
     append_cli_arg,
     apply_runtime_logging_config,
     build_common_sf_args,
 )
-from training.sample_factory_common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
-from training.sample_factory_common.latency_wrapper import (
+from training.common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
+from training.common.latency_wrapper import (
     ActionLatencyWrapper,
     EpisodeMetricsWrapper,
     RewardTraceWrapper,
 )
-from training.sample_factory_common.latency_config import (
+from training.common.latency_config import (
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
-from training.sample_factory_common.latency_bench_periodic_eval import run_sample_factory_training
-from training.sample_factory_common.sf_raw_reward_stats_compat import (
+from training.common.latency_bench_periodic_eval import run_sample_factory_training
+from training.common.sf_raw_reward_stats_compat import (
     ensure_sample_factory_raw_reward_console_stats_installed,
 )
-from training.sample_factory_common.wandb_compat import patch_sample_factory_wandb
+from training.common.wandb_compat import patch_sample_factory_wandb
 
 
 SF_ENV_NAME = "latency_demon_attack"
@@ -288,7 +288,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
 def run_from_config(config: dict) -> int:
     from sample_factory.algo.utils.misc import ExperimentStatus
 
-    from training.sample_factory_common.common import seed_everything
+    from training.common.utils import seed_everything
 
     register_demon_attack_envs()
     cfg = parse_cfg(build_cli_args_from_config(config))

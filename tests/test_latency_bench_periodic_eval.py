@@ -57,7 +57,7 @@ def _training_config(tmp_path: Path) -> dict:
 
 
 def test_build_latency_bench_config_from_training_config_uses_base_env_config(tmp_path: Path):
-    from training.sample_factory_common.latency_bench_periodic_eval import (
+    from training.common.latency_bench_periodic_eval import (
         build_latency_bench_config_from_training_config,
     )
 
@@ -90,7 +90,7 @@ def test_build_latency_bench_config_from_training_config_uses_base_env_config(tm
 
 
 def test_periodic_observer_saves_checkpoint_and_defers_latency_bench_job(monkeypatch, tmp_path: Path):
-    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+    import training.common.latency_bench_periodic_eval as periodic_eval
 
     checkpoint_dir = tmp_path / "checkpoints" / "flappy_sf_l0_seed0" / "checkpoint_p0"
     checkpoint_dir.mkdir(parents=True)
@@ -158,7 +158,7 @@ def test_periodic_observer_saves_checkpoint_and_defers_latency_bench_job(monkeyp
 
 
 def test_periodic_observer_runs_deferred_eval_fifo_after_training(monkeypatch, tmp_path: Path):
-    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+    import training.common.latency_bench_periodic_eval as periodic_eval
 
     checkpoint_dir = tmp_path / "checkpoints" / "flappy_sf_l0_seed0" / "checkpoint_p0"
     checkpoint_dir.mkdir(parents=True)
@@ -234,7 +234,7 @@ def test_periodic_observer_runs_deferred_eval_fifo_after_training(monkeypatch, t
 
 
 def test_checkpoint_retention_skips_leased_checkpoint(tmp_path: Path):
-    from training.sample_factory_common.checkpoint_io import (
+    from training.common.checkpoints import (
         acquire_checkpoint_eval_lease,
         release_checkpoint_eval_lease,
         prune_unleased_sample_factory_checkpoints,
@@ -276,7 +276,7 @@ def test_checkpoint_retention_skips_leased_checkpoint(tmp_path: Path):
 
 
 def test_checkpoint_retention_keeps_deferred_eval_checkpoint_after_eval_finishes(tmp_path: Path):
-    from training.sample_factory_common.checkpoint_io import (
+    from training.common.checkpoints import (
         mark_checkpoint_for_eval_retention,
         prune_unleased_sample_factory_checkpoints,
     )
@@ -306,7 +306,7 @@ def test_checkpoint_retention_keeps_deferred_eval_checkpoint_after_eval_finishes
 
 
 def test_deferred_observer_releases_checkpoint_lease_after_eval_success(monkeypatch, tmp_path: Path):
-    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+    import training.common.latency_bench_periodic_eval as periodic_eval
 
     checkpoint_dir = tmp_path / "checkpoints" / "flappy_sf_l0_seed0" / "checkpoint_p0"
     checkpoint_dir.mkdir(parents=True)
@@ -379,7 +379,7 @@ def test_deferred_observer_releases_checkpoint_lease_after_eval_success(monkeypa
 
 
 def test_deferred_observer_reports_failure_without_stopping_training(monkeypatch, tmp_path: Path):
-    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+    import training.common.latency_bench_periodic_eval as periodic_eval
 
     checkpoint_dir = tmp_path / "checkpoints" / "flappy_sf_l0_seed0" / "checkpoint_p0"
     checkpoint_dir.mkdir(parents=True)
@@ -435,7 +435,7 @@ def test_deferred_observer_reports_failure_without_stopping_training(monkeypatch
 
 
 def test_log_eval_summaries_writes_plain_wandb_scalars(monkeypatch):
-    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+    import training.common.latency_bench_periodic_eval as periodic_eval
 
     log_calls = []
 
@@ -509,7 +509,7 @@ def test_log_eval_summaries_writes_plain_wandb_scalars(monkeypatch):
 
 
 def test_latency_bench_eval_process_main_writes_result_file(monkeypatch, tmp_path: Path):
-    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+    import training.common.latency_bench_periodic_eval as periodic_eval
 
     result_path = tmp_path / "job" / "eval_result.json"
 
@@ -548,7 +548,7 @@ def test_latency_bench_eval_process_main_writes_result_file(monkeypatch, tmp_pat
 
 
 def test_periodic_observer_uses_updated_checkpoint_when_sample_factory_overwrites_same_name(tmp_path: Path):
-    from training.sample_factory_common.latency_bench_periodic_eval import LatencyBenchPeriodicEvalObserver
+    from training.common.latency_bench_periodic_eval import LatencyBenchPeriodicEvalObserver
 
     checkpoint_dir = tmp_path / "checkpoints" / "flappy_sf_l0_seed0" / "checkpoint_p0"
     checkpoint_dir.mkdir(parents=True)
@@ -570,9 +570,9 @@ def test_periodic_observer_uses_updated_checkpoint_when_sample_factory_overwrite
 def test_run_sample_factory_training_registers_periodic_observer(monkeypatch, tmp_path: Path):
     import sample_factory.algo.utils.misc as sf_misc
     import sample_factory.train as sf_train
-    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+    import training.common.latency_bench_periodic_eval as periodic_eval
 
-    from training.sample_factory_common.latency_bench_periodic_eval import (
+    from training.common.latency_bench_periodic_eval import (
         LatencyBenchPeriodicEvalObserver,
         run_sample_factory_training,
     )
@@ -606,9 +606,9 @@ def test_run_sample_factory_training_registers_periodic_observer(monkeypatch, tm
 def test_run_sample_factory_training_runs_final_latency_bench_after_runner_finishes(monkeypatch, tmp_path: Path):
     import sample_factory.algo.utils.misc as sf_misc
     import sample_factory.train as sf_train
-    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+    import training.common.latency_bench_periodic_eval as periodic_eval
 
-    from training.sample_factory_common.latency_bench_periodic_eval import run_sample_factory_training
+    from training.common.latency_bench_periodic_eval import run_sample_factory_training
 
     checkpoint_dir = tmp_path / "checkpoints" / "flappy_sf_l0_seed0" / "checkpoint_p0"
     checkpoint_dir.mkdir(parents=True)
@@ -696,9 +696,9 @@ def test_run_sample_factory_training_runs_final_latency_bench_after_runner_finis
 def test_run_sample_factory_training_returns_failure_when_deferred_eval_fails(monkeypatch, tmp_path: Path):
     import sample_factory.algo.utils.misc as sf_misc
     import sample_factory.train as sf_train
-    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+    import training.common.latency_bench_periodic_eval as periodic_eval
 
-    from training.sample_factory_common.latency_bench_periodic_eval import run_sample_factory_training
+    from training.common.latency_bench_periodic_eval import run_sample_factory_training
 
     checkpoint_dir = tmp_path / "checkpoints" / "flappy_sf_l0_seed0" / "checkpoint_p0"
     checkpoint_dir.mkdir(parents=True)
@@ -749,9 +749,9 @@ def test_run_sample_factory_training_returns_failure_when_deferred_eval_fails(mo
 def test_run_sample_factory_training_skips_final_eval_after_runner_failure(monkeypatch, tmp_path: Path):
     import sample_factory.algo.utils.misc as sf_misc
     import sample_factory.train as sf_train
-    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+    import training.common.latency_bench_periodic_eval as periodic_eval
 
-    from training.sample_factory_common.latency_bench_periodic_eval import (
+    from training.common.latency_bench_periodic_eval import (
         LatencyBenchPeriodicEvalObserver,
         run_sample_factory_training,
     )
@@ -780,7 +780,7 @@ def test_run_sample_factory_training_skips_final_eval_after_runner_failure(monke
 
 
 def test_run_final_eval_runs_deferred_periodic_fifo_before_starting_final(monkeypatch, tmp_path: Path):
-    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+    import training.common.latency_bench_periodic_eval as periodic_eval
 
     checkpoint_dir = tmp_path / "checkpoints" / "flappy_sf_l0_seed0" / "checkpoint_p0"
     checkpoint_dir.mkdir(parents=True)
@@ -858,9 +858,9 @@ def test_run_final_eval_runs_deferred_periodic_fifo_before_starting_final(monkey
 
 def test_run_sample_factory_training_uses_native_run_rl_without_interval(monkeypatch, tmp_path: Path):
     import sample_factory.train as sf_train
-    import training.sample_factory_common.latency_bench_periodic_eval as periodic_eval
+    import training.common.latency_bench_periodic_eval as periodic_eval
 
-    from training.sample_factory_common.latency_bench_periodic_eval import run_sample_factory_training
+    from training.common.latency_bench_periodic_eval import run_sample_factory_training
 
     config = _training_config(tmp_path)
     config["evaluation"].pop("eval_interval_steps")
@@ -876,8 +876,8 @@ def test_run_sample_factory_training_uses_native_run_rl_without_interval(monkeyp
 
 def test_flappy_example_config_shows_periodic_latency_bench_eval_usage():
     from latency_bench.eval_suites import parse_eval_suites
-    from training.sample_factory_common import load_training_config
-    from training.sample_factory_common.latency_bench_periodic_eval import periodic_eval_enabled
+    from training.common import load_training_config
+    from training.common.latency_bench_periodic_eval import periodic_eval_enabled
 
     config = load_training_config(REPO_ROOT / "configs/examples/flappy_periodic_latency_bench_eval.yaml")
     suites = parse_eval_suites(config)
@@ -894,8 +894,8 @@ def test_flappy_example_config_shows_periodic_latency_bench_eval_usage():
 
 def test_base_configs_include_periodic_latency_bench_eval_defaults():
     from latency_bench.eval_suites import parse_eval_suites
-    from training.sample_factory_common import load_training_config
-    from training.sample_factory_common.latency_bench_periodic_eval import periodic_eval_enabled
+    from training.common import load_training_config
+    from training.common.latency_bench_periodic_eval import periodic_eval_enabled
 
     for env_name in ("flappy", "demon_attack", "deadly_corridor"):
         config = load_training_config(REPO_ROOT / f"configs/base/{env_name}.yaml")

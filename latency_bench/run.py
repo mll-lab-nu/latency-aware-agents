@@ -36,7 +36,7 @@ def apply_runtime_overrides(
     if output_dir is not None:
         config["logging"]["output_dir"] = str(output_dir)
     if checkpoint_kind is not None:
-        from training.sample_factory_common.config_adapter import (
+        from training.common.config_adapter import (
             apply_checkpoint_kind_override,
             normalize_checkpoint_kind,
         )
@@ -80,7 +80,7 @@ def run_from_config(
     num_episodes = int(experiment_cfg.get("num_episodes", 1))
     eval_max_steps = _eval_max_steps(config)
     if _is_sample_factory_policy(config):
-        from training.sample_factory_common.common import seed_everything
+        from training.common.utils import seed_everything
 
         seed_everything(seed)
 

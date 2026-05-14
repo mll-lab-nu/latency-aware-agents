@@ -79,11 +79,11 @@ class _ScalarGpuOracle:
         from latency_bench.core.clock import EnvClock
         from latency_bench.envs.flappy import FlappyObservationConfig, FlappyTorchObservationPipeline
         from training.flappy_sf.batched_gpu_env import FlappyBatchedGpuRenderedEnv
-        from training.sample_factory_common.latency_config import (
+        from training.common.latency_config import (
             sample_factory_latency_params_from_flat_config,
             sample_factory_latency_seed_from_flat_config,
         )
-        from training.sample_factory_common.latency_wrapper import (
+        from training.common.latency_wrapper import (
             ActionLatencyWrapper,
             EpisodeMetricsWrapper,
             RewardTraceWrapper,

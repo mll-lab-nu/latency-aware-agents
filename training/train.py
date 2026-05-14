@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from training.sample_factory_common import (
+from training.common import (
     apply_training_overrides,
     import_integration_module,
     load_training_config,

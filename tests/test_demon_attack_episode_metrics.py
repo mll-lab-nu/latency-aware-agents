@@ -27,7 +27,7 @@ class _ScriptedAtariInfoEnv(gym.Env):
 
 
 def test_learner_reward_stays_clipped_while_episode_return_is_raw(tmp_path):
-    from training.sample_factory_common.latency_wrapper import (
+    from training.common.latency_wrapper import (
         EpisodeMetricsWrapper,
         RewardTraceWrapper,
     )
@@ -53,7 +53,7 @@ def test_learner_reward_stays_clipped_while_episode_return_is_raw(tmp_path):
 
 
 def test_true_game_over_emits_raw_full_game_return_after_life_loss(tmp_path):
-    from training.sample_factory_common.latency_wrapper import (
+    from training.common.latency_wrapper import (
         EpisodeMetricsWrapper,
         RewardTraceWrapper,
     )
@@ -94,7 +94,7 @@ def test_true_game_over_emits_raw_full_game_return_after_life_loss(tmp_path):
 
 
 def test_episode_metrics_records_only_raw_return(tmp_path):
-    from training.sample_factory_common.latency_wrapper import (
+    from training.common.latency_wrapper import (
         EpisodeMetricsWrapper,
         RewardTraceWrapper,
     )

@@ -19,7 +19,7 @@ from scripts.generate_sample_factory_same_latency_sweep import (
     _latency_steps_to_ms,
     main as generate_same_latency_sweep,
 )
-from training.sample_factory_common.config_adapter import (
+from training.common.config_adapter import (
     apply_runtime_logging_config,
     apply_training_overrides,
     build_common_sf_args,
@@ -396,7 +396,7 @@ def test_flappy_sf_shape_mismatch_fails_fast():
 
 
 def test_flappy_sf_update_ratio_metadata():
-    from training.sample_factory_common.config_adapter import estimate_optimizer_steps_per_1m_env_steps
+    from training.common.config_adapter import estimate_optimizer_steps_per_1m_env_steps
 
     assert estimate_optimizer_steps_per_1m_env_steps(
         {"batch_size": 1024, "num_epochs": 4, "num_batches_per_epoch": 2}
@@ -428,7 +428,7 @@ def test_common_sf_args_passes_latency_distribution_without_legacy_train_values(
 
 
 def test_sample_factory_latency_params_use_bench_ceil_for_fixed_ms():
-    from training.sample_factory_common.latency_config import sample_factory_latency_params_from_flat_config
+    from training.common.latency_config import sample_factory_latency_params_from_flat_config
 
     cfg = SimpleNamespace(
         latency_type="fixed",
@@ -443,7 +443,7 @@ def test_sample_factory_latency_params_use_bench_ceil_for_fixed_ms():
 
 def test_sample_factory_latency_distribution_preserves_fractional_bounds():
     from latency_bench.core.latency_distribution import sample_latency_frame
-    from training.sample_factory_common.latency_config import sample_factory_latency_params_from_flat_config
+    from training.common.latency_config import sample_factory_latency_params_from_flat_config
 
     cfg = SimpleNamespace(
         latency_type="uniform_distribution",
@@ -464,8 +464,8 @@ def test_sample_factory_latency_distribution_preserves_fractional_bounds():
 
 def test_action_latency_wrapper_exposes_fixed_non_zero_latency():
     import gymnasium as gym
-    from training.sample_factory_common import latency_wrapper
-    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
+    from training.common import latency_wrapper
+    from training.common.latency_wrapper import ActionLatencyWrapper
 
     assert not hasattr(latency_wrapper, "QueueLatencyWrapper")
     assert not hasattr(latency_wrapper, "RawFrameActionLatencyWrapper")
@@ -488,7 +488,7 @@ def test_action_latency_wrapper_distribution_samples_deterministically():
     import numpy as np
     from gymnasium.spaces import Box, Discrete
 
-    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
+    from training.common.latency_wrapper import ActionLatencyWrapper
 
     class NeverDoneEnv(gym.Env):
         observation_space = Box(low=0, high=1, shape=(1,), dtype=np.float32)
@@ -548,7 +548,7 @@ def test_action_latency_wrapper_distribution_resets_episode_rng():
     import numpy as np
     from gymnasium.spaces import Box, Discrete
 
-    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
+    from training.common.latency_wrapper import ActionLatencyWrapper
 
     class NeverDoneEnv(gym.Env):
         observation_space = Box(low=0, high=1, shape=(1,), dtype=np.float32)
@@ -584,7 +584,7 @@ def test_action_latency_wrapper_distribution_rejects_too_small_pending_action_bo
     import gymnasium as gym
     import pytest
 
-    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
+    from training.common.latency_wrapper import ActionLatencyWrapper
 
     env = gym.make("CartPole-v1")
     with pytest.raises(ValueError, match="max_pending_actions"):
@@ -600,7 +600,7 @@ def test_action_latency_wrapper_distribution_rejects_too_small_pending_action_bo
 
 
 def test_action_latency_wrapper_advances_obs_stride_with_one_frame_noop():
-    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
+    from training.common.latency_wrapper import ActionLatencyWrapper
 
     base_env = _ActionTraceEnv()
     wrapped = ActionLatencyWrapper(
@@ -635,7 +635,7 @@ def test_action_latency_wrapper_advances_obs_stride_with_one_frame_noop():
 
 
 def test_action_latency_wrapper_hold_policy_holds_for_observation_stride():
-    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
+    from training.common.latency_wrapper import ActionLatencyWrapper
 
     base_env = _ActionTraceEnv()
     wrapped = ActionLatencyWrapper(
@@ -660,7 +660,7 @@ def test_action_latency_wrapper_hold_policy_holds_for_observation_stride():
 
 
 def test_action_latency_wrapper_sums_raw_reward_across_observation_stride():
-    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper, RewardTraceWrapper
+    from training.common.latency_wrapper import ActionLatencyWrapper, RewardTraceWrapper
 
     wrapped = ActionLatencyWrapper(
         RewardTraceWrapper(_RawRewardTraceEnv([1.0, 2.0, 3.0])),
@@ -687,7 +687,7 @@ def test_action_latency_wrapper_auto_seeds_underlying_env_resets():
     import numpy as np
     from gymnasium.spaces import Box, Discrete
 
-    from training.sample_factory_common.latency_wrapper import ActionLatencyWrapper
+    from training.common.latency_wrapper import ActionLatencyWrapper
 
     class SeedEchoEnv(gym.Env):
         observation_space = Box(low=0, high=1, shape=(1,), dtype=np.float32)
@@ -719,7 +719,7 @@ def test_action_latency_wrapper_auto_seeds_underlying_env_resets():
 
 
 def test_episode_metrics_wrapper_suppresses_life_loss_episode_event(tmp_path):
-    from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper
+    from training.common.latency_wrapper import EpisodeMetricsWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -742,7 +742,7 @@ def test_episode_metrics_wrapper_suppresses_life_loss_episode_event(tmp_path):
 def test_episode_metrics_wrapper_reports_game_over_full_game_return(tmp_path):
     import json
 
-    from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper
+    from training.common.latency_wrapper import EpisodeMetricsWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -776,7 +776,7 @@ def test_episode_metrics_wrapper_reports_game_over_full_game_return(tmp_path):
 def test_episode_metrics_wrapper_keeps_learner_reward_clipped_and_episode_return_raw(tmp_path):
     import json
 
-    from training.sample_factory_common.latency_wrapper import (
+    from training.common.latency_wrapper import (
         EpisodeMetricsWrapper,
         RewardTraceWrapper,
     )
@@ -809,7 +809,7 @@ def test_episode_metrics_wrapper_keeps_learner_reward_clipped_and_episode_return
 def test_episode_metrics_wrapper_accumulates_raw_return_across_steps(tmp_path):
     import json
 
-    from training.sample_factory_common.latency_wrapper import (
+    from training.common.latency_wrapper import (
         EpisodeMetricsWrapper,
         RewardTraceWrapper,
     )
@@ -844,7 +844,7 @@ def test_episode_metrics_wrapper_accumulates_raw_return_across_steps(tmp_path):
 
 
 def test_episode_metrics_wrapper_does_not_emit_raw_return_on_life_loss(tmp_path):
-    from training.sample_factory_common.latency_wrapper import (
+    from training.common.latency_wrapper import (
         EpisodeMetricsWrapper,
         RewardTraceWrapper,
     )
@@ -869,7 +869,7 @@ def test_episode_metrics_wrapper_does_not_emit_raw_return_on_life_loss(tmp_path)
 
 
 def test_episode_metrics_wrapper_emits_raw_full_game_return_on_game_over(tmp_path):
-    from training.sample_factory_common.latency_wrapper import (
+    from training.common.latency_wrapper import (
         EpisodeMetricsWrapper,
         RewardTraceWrapper,
     )
@@ -895,7 +895,7 @@ def test_episode_metrics_wrapper_emits_raw_full_game_return_on_game_over(tmp_pat
 def test_episode_metrics_wrapper_accumulates_return_across_life_losses(tmp_path):
     import json
 
-    from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper
+    from training.common.latency_wrapper import EpisodeMetricsWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -927,7 +927,7 @@ def test_episode_metrics_wrapper_accumulates_return_across_life_losses(tmp_path)
 
 
 def test_episode_metrics_wrapper_marks_truncation_as_true_episode_end(tmp_path):
-    from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper
+    from training.common.latency_wrapper import EpisodeMetricsWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -949,7 +949,7 @@ def test_episode_metrics_wrapper_marks_truncation_as_true_episode_end(tmp_path):
 def test_episode_metrics_wrapper_emits_flappy_timeout_and_issued_action_debug_metrics(tmp_path):
     import json
 
-    from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper
+    from training.common.latency_wrapper import EpisodeMetricsWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -999,7 +999,7 @@ def test_episode_metrics_wrapper_emits_flappy_timeout_and_issued_action_debug_me
 def test_flappy_reward_trace_records_raw_return(tmp_path):
     import json
 
-    from training.sample_factory_common.latency_wrapper import EpisodeMetricsWrapper, RewardTraceWrapper
+    from training.common.latency_wrapper import EpisodeMetricsWrapper, RewardTraceWrapper
 
     metrics_path = tmp_path / "flappy_rewards.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -1026,7 +1026,7 @@ def test_flappy_reward_trace_records_raw_return(tmp_path):
 
 
 def test_episode_metrics_aggregator_logs_raw_visible_metrics(tmp_path):
-    from training.sample_factory_common.episode_metrics import EpisodeMetricsAggregator
+    from training.common.episode_metrics import EpisodeMetricsAggregator
 
     aggregator = EpisodeMetricsAggregator(path=tmp_path / "episodes.jsonl", rolling_window=10)
 
@@ -1053,7 +1053,7 @@ def test_episode_metrics_aggregator_logs_raw_visible_metrics(tmp_path):
 
 
 def test_episode_metrics_aggregator_logs_numeric_debug_metrics_and_omits_done_reason(tmp_path):
-    from training.sample_factory_common.episode_metrics import EpisodeMetricsAggregator
+    from training.common.episode_metrics import EpisodeMetricsAggregator
 
     aggregator = EpisodeMetricsAggregator(path=tmp_path / "episodes.jsonl", rolling_window=10)
 

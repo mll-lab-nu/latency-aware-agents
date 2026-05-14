@@ -49,7 +49,7 @@ def _install_fake_sample_factory(monkeypatch):
 
 
 def test_sample_factory_wandb_patch_filters_noisy_tensorboard_tags(monkeypatch, tmp_path):
-    from training.sample_factory_common import wandb_compat
+    from training.common import wandb_compat
 
     wandb_utils, runner, base_writer_cls = _install_fake_sample_factory(monkeypatch)
     monkeypatch.setattr(wandb_compat, "_PATCHED", False)

@@ -41,7 +41,7 @@ class _FakeGame:
 
 
 def test_guard_retries_with_new_lock_after_first_lock_timeout(tmp_path, monkeypatch):
-    from training.sample_factory_common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
+    from training.common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
     from sf_examples.vizdoom.doom import doom_gym
 
     locked_path = tmp_path / "doom_000.lockfile"
@@ -70,7 +70,7 @@ def test_guard_retries_with_new_lock_after_first_lock_timeout(tmp_path, monkeypa
 
 def test_guard_fails_fast_when_all_locks_timeout(tmp_path, monkeypatch):
     from sample_factory.envs.env_utils import EnvCriticalError
-    from training.sample_factory_common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
+    from training.common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
     from sf_examples.vizdoom.doom import doom_gym
 
     locked_path = tmp_path / "doom_000.lockfile"
@@ -99,7 +99,7 @@ def test_guard_fails_fast_when_all_locks_timeout(tmp_path, monkeypatch):
 
 
 def test_guard_install_is_idempotent_and_updates_config():
-    from training.sample_factory_common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
+    from training.common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
 
     env = _new_vizdoom_env(_FakeGame())
 
@@ -123,7 +123,7 @@ def test_guard_install_is_idempotent_and_updates_config():
 
 
 def test_guard_fails_fast_when_upstream_game_init_signature_changes(monkeypatch):
-    from training.sample_factory_common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
+    from training.common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
     from sf_examples.vizdoom.doom.doom_gym import VizdoomEnv
 
     def incompatible_game_init(self, timeout):
@@ -211,7 +211,7 @@ def test_deadly_corridor_env_factory_installs_guard(monkeypatch):
 
 
 def test_guard_does_not_affect_non_deadly_corridor_envs():
-    from training.sample_factory_common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
+    from training.common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
 
     fake_env = SimpleNamespace()
 
@@ -228,7 +228,7 @@ def test_guard_does_not_affect_non_deadly_corridor_envs():
 
 def test_deadly_corridor_cli_args_emit_optional_vizdoom_guard_settings_only_when_configured():
     from training.deadly_corridor_sf import integration
-    from training.sample_factory_common.config_adapter import load_training_config
+    from training.common.config_adapter import load_training_config
 
     config = load_training_config("configs/train/deadly_corridor/latency_0/seed_0/train.yaml")
 

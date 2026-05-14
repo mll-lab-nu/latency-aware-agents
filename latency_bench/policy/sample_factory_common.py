@@ -11,7 +11,7 @@ from gymnasium.spaces import Box, Dict as SpaceDict, Discrete, MultiDiscrete, Tu
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.policy.base import PolicyRunner
-from training.sample_factory_common.checkpoint_io import load_sample_factory_checkpoint_from_paths, trusted_torch_load
+from training.common.checkpoints import load_sample_factory_checkpoint_from_paths, trusted_torch_load
 
 
 def _resolve_device(device: Any) -> str:

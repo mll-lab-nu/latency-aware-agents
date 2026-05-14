@@ -164,7 +164,7 @@ def _run_config(policy_type: str, tmp_path: Path, seed: int = 7, num_episodes: i
 
 
 def test_run_from_config_uses_sample_factory_eval_episode_seeds(monkeypatch, tmp_path: Path):
-    from training.sample_factory_common import common
+    from training.common import utils as common
 
     episode_seeds = []
     global_seed_calls = []

@@ -130,7 +130,7 @@ def _batched_runner(BatchedVectorEnvRunner, *, env_name: str = "latency_demon_at
 
 def test_non_batched_report_main_reward_is_raw(monkeypatch):
     ActorState, _, misc = _install_fake_sample_factory(monkeypatch)
-    from training.sample_factory_common.sf_raw_reward_stats_compat import (
+    from training.common.sf_raw_reward_stats_compat import (
         ensure_sample_factory_raw_reward_console_stats_installed,
     )
 
@@ -161,7 +161,7 @@ def test_non_batched_report_main_reward_is_raw(monkeypatch):
 
 def test_non_batched_life_loss_report_is_suppressed(monkeypatch):
     ActorState, _, _ = _install_fake_sample_factory(monkeypatch)
-    from training.sample_factory_common.sf_raw_reward_stats_compat import (
+    from training.common.sf_raw_reward_stats_compat import (
         ensure_sample_factory_raw_reward_console_stats_installed,
     )
 
@@ -184,7 +184,7 @@ def test_non_batched_life_loss_report_is_suppressed(monkeypatch):
 
 def test_batched_report_main_reward_is_raw_after_life_loss(monkeypatch):
     _, BatchedVectorEnvRunner, misc = _install_fake_sample_factory(monkeypatch)
-    from training.sample_factory_common.sf_raw_reward_stats_compat import (
+    from training.common.sf_raw_reward_stats_compat import (
         ensure_sample_factory_raw_reward_console_stats_installed,
     )
 
@@ -226,7 +226,7 @@ def test_batched_report_main_reward_is_raw_after_life_loss(monkeypatch):
 
 def test_patch_is_idempotent(monkeypatch):
     ActorState, BatchedVectorEnvRunner, _ = _install_fake_sample_factory(monkeypatch)
-    from training.sample_factory_common.sf_raw_reward_stats_compat import (
+    from training.common.sf_raw_reward_stats_compat import (
         ensure_sample_factory_raw_reward_console_stats_installed,
     )
 
@@ -242,7 +242,7 @@ def test_patch_is_idempotent(monkeypatch):
 
 def test_patch_does_not_affect_other_sample_factory_envs(monkeypatch):
     ActorState, _, misc = _install_fake_sample_factory(monkeypatch)
-    from training.sample_factory_common.sf_raw_reward_stats_compat import (
+    from training.common.sf_raw_reward_stats_compat import (
         ensure_sample_factory_raw_reward_console_stats_installed,
     )
 
@@ -262,7 +262,7 @@ def test_patch_does_not_affect_other_sample_factory_envs(monkeypatch):
 
 def test_signature_change_fails_fast(monkeypatch):
     _install_fake_sample_factory(monkeypatch, bad_non_batched_signature=True)
-    from training.sample_factory_common.sf_raw_reward_stats_compat import (
+    from training.common.sf_raw_reward_stats_compat import (
         ensure_sample_factory_raw_reward_console_stats_installed,
     )
 
@@ -272,7 +272,7 @@ def test_signature_change_fails_fast(monkeypatch):
 
 def test_unsupported_sample_factory_version_fails_fast(monkeypatch):
     _install_fake_sample_factory(monkeypatch)
-    from training.sample_factory_common import sf_raw_reward_stats_compat as compat
+    from training.common import sf_raw_reward_stats_compat as compat
 
     monkeypatch.setattr(compat.metadata, "version", lambda package_name: "9.9.9")
 
