@@ -11,6 +11,8 @@ models/
 
 results/
 results_old/
+teacher_datasets/
+checkpoints/
 
 logs/
 configs/train
