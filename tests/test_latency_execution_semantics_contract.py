@@ -3,8 +3,7 @@ from __future__ import annotations
 import pytest
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, ActionEvent, LatencyRecord, Observation, OrderingPolicy
-from latency_bench.executors.realtime import BoundedObservationQueue, RealtimeObservationTask
+from latency_bench.core.types import Action, ActionEvent, LatencyRecord, OrderingPolicy
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy
 
@@ -21,15 +20,6 @@ def _event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> 
             obs_id=action_id,
             latency_ms=ready_time_ms,
         ),
-    )
-
-
-def _task(obs_id: int) -> RealtimeObservationTask:
-    return RealtimeObservationTask(
-        obs_id=obs_id,
-        observation=Observation(data=f"obs-{obs_id}", env_step=obs_id, sim_time_ms=float(obs_id)),
-        submit_env_step=obs_id,
-        submit_time_ms=float(obs_id),
     )
 
 
@@ -139,51 +129,8 @@ def test_hold_policy_contract():
     assert scheduler.update(2, clock.step_to_time_ms(2)) is action
     assert scheduler.update(3, clock.step_to_time_ms(3)) is noop
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Current realtime queue exposes drop-oldest behavior; Phase 4 should make drop_new_observation the default.",
-)
-def test_realtime_queue_full_default_is_drop_new_observation_contract():
-    queue = BoundedObservationQueue(max_len=1)
-    first = _task(0)
-    second = _task(1)
+def test_action_event_contract_does_not_require_realtime_job_fields():
+    fields = ActionEvent.__dataclass_fields__
 
-    assert queue.push_drop_oldest(first) is None
-    assert queue.push_drop_oldest(second) is second
-    assert queue.pop() is first
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="Phase 4 has not introduced timeout/skipped job state or FIFO timeout unblocking.",
-)
-def test_timeout_marks_skipped_unblocks_fifo_and_ignores_late_results_contract():
-    clock = EnvClock(env_fps=30, obs_fps=30)
-    noop = Action("noop", is_noop=True)
-    scheduler = ActionScheduler(
-        clock,
-        noop,
-        HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
-        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
-    )
-    scheduler.enqueue(_event(0, Action("first"), ready_step=100, clock=clock))
-    scheduler.enqueue(_event(1, Action("second"), ready_step=1, clock=clock))
-
-    scheduler.mark_timed_out(action_id=0, timeout_raw_frame=2)
-    assert scheduler.update(2, clock.step_to_time_ms(2)).value == "second"
-
-    scheduler.ignore_late_result(action_id=0)
-    assert [event.action_id for event in scheduler.get_applied_events()] == [1]
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="Phase 5 has not added the required raw-frame and job-status logging fields.",
-)
-def test_required_action_event_logging_fields_contract():
-    required_fields = {
-        "action_age_raw_frames",
-        "job_status",
-    }
-
-    assert required_fields.issubset(ActionEvent.__dataclass_fields__)
+    assert "job_status" not in fields
+    assert "action_age_raw_frames" not in fields

@@ -14,7 +14,6 @@ from latency_bench.executors.env_step_backend import SerialEnvStepBackend, Subpr
 from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
-from latency_bench.latency.measurement import RuntimeLatencyMeasurer
 from latency_bench.latency.sources import (
     EmpiricalSampleLatencySource,
     EmpiricalTraceReplayLatencySource,
@@ -236,7 +235,6 @@ def _build_paused_executor(config: dict[str, Any]) -> PausedLatencyExecutor:
 def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
     scheduler_cfg = config["scheduler"]
     executor_cfg = config["executor"]
-    realtime_cfg = config.get("realtime", {})
     latency_cfg = config["latency"]
     latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
     if latency_type not in {LatencySourceType.ZERO.value, LatencySourceType.MEASURED.value}:
@@ -246,13 +244,8 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
     env = build_env_adapter(config, action_resolver.noop_action)
     noop_action = env.noop_action
     clock = _build_clock(config)
-    policy = build_policy(config, action_resolver)
     decision_scheduler = _build_decision_scheduler(clock)
     latency_source = ZeroLatencySource()
-    latency_profiler = RuntimeLatencyMeasurer(
-        device=latency_cfg.get("device"),
-        sync_cuda=bool(latency_cfg.get("sync_cuda", True)),
-    )
     persistence_policy = _build_persistence_policy(scheduler_cfg, clock=clock)
     action_scheduler = ActionScheduler(
         clock=clock,
@@ -263,15 +256,15 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
     logger = TrajectoryLogger(config["logging"]["output_dir"])
     return RealtimeLatencyExecutor(
         env=env,
-        policy=policy,
+        policy=None,
         decision_scheduler=decision_scheduler,
         latency_source=latency_source,
         action_scheduler=action_scheduler,
         clock=clock,
         logger=logger,
-        max_pending_observations=int(executor_cfg.get("max_pending_observations", 16)),
-        latency_profiler=latency_profiler,
-        max_catchup_steps_per_loop=realtime_cfg.get("max_catchup_steps_per_loop"),
+        config=config,
+        inference_devices=[str(device) for device in executor_cfg["inference_devices"]],
+        use_env_process=True,
     )
 
 

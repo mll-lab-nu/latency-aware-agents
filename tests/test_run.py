@@ -96,6 +96,8 @@ experiment:
   num_episodes: {num_episodes}
 executor:
   mode: realtime
+  inference_devices:
+    - cpu
 env:
   name: dummy
   env_fps: 30

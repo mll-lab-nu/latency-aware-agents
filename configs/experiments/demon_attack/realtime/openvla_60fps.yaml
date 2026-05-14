@@ -3,6 +3,8 @@ __base__:
 
 executor:
   mode: realtime
+  inference_devices:
+    - cuda:0
 
 experiment:
   name: demon_attack_openvla_sft_eval

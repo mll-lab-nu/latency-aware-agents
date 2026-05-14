@@ -445,13 +445,17 @@ Realtime mode 的核心原则：
 
 Realtime executor 使用 inference pool 管理异步推理。
 
-### 13.1 `max_in_flight`
+### 13.1 `executor.inference_devices`
 
-`max_in_flight` 表示最多同时运行的 inference jobs 数量。
+`executor.inference_devices` 显式列出 realtime executor 用于推理的设备。
 
-通常情况下，它等于可用模型副本数，例如 GPU 数量。
+每个 device 启动一个模型副本，因此当前实现中：
 
-已经排队但还没有开始运行的 jobs 不计入 `max_in_flight`。
+```text
+max_in_flight = len(executor.inference_devices)
+```
+
+没有 pending observation queue；如果所有 worker 都 busy，新 observation 按 queue-full policy 处理。
 
 注意：
 
@@ -549,35 +553,23 @@ drop_new_observation
 
 原因：正在运行的 GPU inference 通常不能被可靠地即时取消。即使杀掉 worker，也未必能立刻释放 GPU kernel 或 memory。
 
-可选策略：
-
-```text
-drop_oldest_pending
-```
-
-仅适用于还没有开始运行的 pending jobs。
-
-不推荐把 “kill oldest running job” 作为默认语义。它可以作为工程实验选项，但不能作为 benchmark 默认假设。
+当前 contract 不定义 pending observation queue，也不定义 “kill oldest running job”。正在运行的 GPU inference 通常不能被可靠地即时取消；即使杀掉 worker，也未必能立刻释放 GPU kernel 或 memory。
 
 ---
 
-## 16. Timeout policy
+## 16. Long-running inference jobs
 
-每个 inference job 可以配置 timeout：
+当前 realtime 语义不定义 outlier 或 timeout。
 
-```yaml
-realtime:
-  inference_timeout_ms: 500
-```
+如果某个 inference job 长时间未返回：
 
-当 job 超时：
+1. 该 worker 在物理上仍然 busy；
+2. 新 observation 只能分配给其他 idle worker；
+3. 如果没有 idle worker，新 observation 按 queue-full policy 被 dropped；
+4. `latest_ready` 可以使用后续已经 ready 的 action，并在旧 job 之后返回时 ignore 它；
+5. `issue_order_fifo` 会继续等待更早的 job，不通过 timeout 自动 unblock。
 
-1. 标记该 job 为 timeout；
-2. 如果使用 FIFO，则 unblock 后续 action；
-3. 如果该 job 之后返回结果，结果必须被 ignored；
-4. logging 中记录 timeout event。
-
-是否 kill worker process 是实现细节，不属于语义契约。
+Realtime executor 不假设正在运行的 GPU inference 可以被中途取消并立即复用模型。
 
 ---
 
@@ -639,13 +631,11 @@ catchup_step_count
 
 ```text
 in_flight_count
-pending_queue_size
 queue_full_count
 dropped_observation_count
 dropped_action_count
-inference_timeout_count
 fifo_blocked_count
-stale_action_count
+ignored_late_result_count
 ```
 
 ### 18.4 Action fields
@@ -737,8 +727,9 @@ obs_stride_raw_frames
 示例：
 
 ```yaml
-execution:
-  mode: simulated  # paused | simulated | realtime
+executor:
+  mode: realtime  # paused | simulated | realtime
+  inference_devices: [cuda:0, cuda:1, cuda:2, cuda:3]
 
 clock:
   env_fps: 60
@@ -755,11 +746,6 @@ action:
   default_action: noop
   ordering_policy: issue_order_fifo  # issue_order_fifo | latest_ready
 
-realtime:
-  max_in_flight: 4
-  inference_timeout_ms: 500
-  queue_full_policy: drop_new_observation
-  target_utilization_max: 0.8
 ```
 
 ---

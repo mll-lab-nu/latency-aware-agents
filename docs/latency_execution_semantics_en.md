@@ -447,13 +447,17 @@ However, the system cannot guarantee perfect `env_fps` under arbitrary CPU/GPU c
 
 The realtime executor uses an inference pool to manage asynchronous inference.
 
-### 13.1 `max_in_flight`
+### 13.1 `executor.inference_devices`
 
-`max_in_flight` is the maximum number of inference jobs that may run concurrently.
+`executor.inference_devices` explicitly lists the devices used by the realtime executor for inference.
 
-In many settings, it equals the number of model replicas, often one per GPU.
+Each device starts one model replica, so in the current implementation:
 
-Jobs that are queued but have not started running do not count toward `max_in_flight`.
+```text
+max_in_flight = len(executor.inference_devices)
+```
+
+There is no pending observation queue; if all workers are busy, the new observation is handled by the queue-full policy.
 
 Important:
 
@@ -551,33 +555,23 @@ drop_new_observation
 
 Reason: a running GPU inference job usually cannot be reliably canceled instantly. Even killing a worker may not immediately free GPU kernels or memory.
 
-Optional policy:
-
-```text
-drop_oldest_pending
-```
-
-This only applies to pending jobs that have not started running yet.
-
-`kill_oldest_running_job` should not be the default benchmark semantics. It may exist as an engineering experiment, but it should not be treated as a normal assumption.
+The current contract does not define a pending observation queue or `kill_oldest_running_job`. A running GPU inference job usually cannot be reliably canceled instantly; even killing a worker may not immediately free GPU kernels or memory.
 
 ---
 
-## 16. Timeout policy
+## 16. Long-running inference jobs
 
-Each inference job may have a timeout:
+The current realtime semantics do not define outlier or timeout behavior.
 
-```yaml
-realtime:
-  inference_timeout_ms: 500
-```
+If an inference job runs for a long time:
 
-When a job times out:
+1. that worker remains physically busy;
+2. new observations may only be assigned to other idle workers;
+3. if no worker is idle, the new observation is dropped according to the queue-full policy;
+4. `latest_ready` may use a later ready action and ignore the older job when it eventually returns;
+5. `issue_order_fifo` continues waiting for the earlier job and is not automatically unblocked by timeout.
 
-1. the job is marked as timed out;
-2. if FIFO ordering is used, later actions may be unblocked;
-3. if the timed-out job later returns a result, that result must be ignored;
-4. the timeout event must be logged.
+The realtime executor does not assume that running GPU inference can be canceled mid-flight while immediately reusing the loaded model.
 
 Whether the implementation kills the worker process is an implementation detail, not part of the semantic contract.
 
@@ -641,13 +635,11 @@ catchup_step_count
 
 ```text
 in_flight_count
-pending_queue_size
 queue_full_count
 dropped_observation_count
 dropped_action_count
-inference_timeout_count
 fifo_blocked_count
-stale_action_count
+ignored_late_result_count
 ```
 
 ### 18.4 Action fields
@@ -739,8 +731,9 @@ Any implementation that claims to follow this document must satisfy the followin
 Example:
 
 ```yaml
-execution:
-  mode: simulated  # paused | simulated | realtime
+executor:
+  mode: realtime  # paused | simulated | realtime
+  inference_devices: [cuda:0, cuda:1, cuda:2, cuda:3]
 
 clock:
   env_fps: 60
@@ -757,11 +750,6 @@ action:
   default_action: noop
   ordering_policy: issue_order_fifo  # issue_order_fifo | latest_ready
 
-realtime:
-  max_in_flight: 4
-  inference_timeout_ms: 500
-  queue_full_policy: drop_new_observation
-  target_utilization_max: 0.8
 ```
 
 ---

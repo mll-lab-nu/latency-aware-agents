@@ -11,7 +11,8 @@ backend:
   run_mode: eval
 executor:
   mode: realtime
-  max_pending_observations: 16
+  inference_devices:
+    - cuda:0
 env:
   name: flappy
   gym_id: FlappyBird-v0

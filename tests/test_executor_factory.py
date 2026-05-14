@@ -35,6 +35,7 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
         },
         "executor": {
             "mode": mode,
+            "inference_devices": ["cpu"],
         },
         "env": {
             "name": "normalized_noop_test",

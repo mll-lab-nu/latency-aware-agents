@@ -1,14 +1,26 @@
 from __future__ import annotations
 
-import math
-import threading
+import multiprocessing as mp
 import time
+import traceback
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
+from typing import Any
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, PolicyOutput, StepRecord
+from latency_bench.core.types import (
+    ActionEvent,
+    ActionHoldPolicy,
+    EpisodeMetrics,
+    LatencyRecord,
+    Observation,
+    OrderingPolicy,
+    PolicyOutput,
+    StepRecord,
+)
 from latency_bench.envs.base import EnvAdapter
+from latency_bench.executors.env_step_backend import _resolve_start_method, _set_thread_env_defaults
 from latency_bench.latency.measurement import RuntimeLatencyMeasurer
 from latency_bench.latency.sources import LatencySource
 from latency_bench.logging.metrics import (
@@ -23,10 +35,14 @@ from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
+from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 
 
 @dataclass
 class RealtimeObservationTask:
+    """
+    env -> worker
+    """
     obs_id: int
     observation: Observation
     submit_env_step: int
@@ -35,150 +51,211 @@ class RealtimeObservationTask:
 
 @dataclass
 class RealtimePolicyCompletion:
+    """
+    results returned by workers
+    """
     task: RealtimeObservationTask
     policy_output: PolicyOutput
     completion_time_ms: float
+    latency_record: LatencyRecord
+    worker_id: int
+    device: str
     error: BaseException | None = None
-    latency_record: LatencyRecord | None = None
-    worker_start_time_ms: float | None = None
 
 
-class BoundedObservationQueue:
-    def __init__(self, max_len: int):
-        if max_len <= 0:
-            raise ValueError("max_len must be positive")
-        self.max_len = int(max_len)
-        self._items: list[RealtimeObservationTask] = []
-
-    def push_drop_oldest(self, task: RealtimeObservationTask) -> RealtimeObservationTask | None:
-        dropped = None
-        if len(self._items) >= self.max_len:
-            dropped = self._items.pop(0)
-        self._items.append(task)
-        return dropped
-
-    def pop(self) -> RealtimeObservationTask | None:
-        if not self._items:
-            return None
-        return self._items.pop(0)
-
-
-class SerialPolicyWorker:
+class ProcessInferencePool:
     def __init__(
         self,
-        policy: PolicyRunner,
-        max_pending_observations: int,
-        time_fn: Callable[[], float],
-        latency_profiler: RuntimeLatencyMeasurer | None = None,
-        episode_start_s_getter: Callable[[], float] | None = None,
+        *,
+        config: dict[str, Any],
+        inference_devices: list[str],
+        start_method: str | None = None,
     ):
-        self.policy = policy
-        self.time_fn = time_fn
-        self.latency_profiler = latency_profiler
-        self.episode_start_s_getter = episode_start_s_getter
-        self.queue = BoundedObservationQueue(max_pending_observations)
-        self._condition = threading.Condition()
-        self._completed: list[RealtimePolicyCompletion] = []
-        self._failure: BaseException | None = None
-        self._closed = False
-        self._thread = threading.Thread(target=self._run, name="latency-bench-policy-worker", daemon=True)
-        self._thread.start()
+        _set_thread_env_defaults()
+        self.config = config
+        self.inference_devices = list(inference_devices)
+        self.start_method = _resolve_start_method(start_method)
+        self._ctx = mp.get_context(self.start_method)
+        self._connections: list[Any] = []
+        self._processes: list[mp.Process] = []
+        self._busy_worker_tasks: dict[int, RealtimeObservationTask] = {}
+        self.closed = False
+        self._start_workers()
 
-    def submit(self, task: RealtimeObservationTask) -> RealtimeObservationTask | None:
-        with self._condition:
-            if self._closed:
-                raise RuntimeError("policy worker is closed")
-            dropped = self.queue.push_drop_oldest(task)
-            self._condition.notify()
-            return dropped
+    @property
+    def in_flight_count(self) -> int:
+        return len(self._busy_worker_tasks)
 
-    def drain_completed(self) -> list[RealtimePolicyCompletion]:
-        with self._condition:
-            completed = list(self._completed)
-            self._completed.clear()
-            return completed
+    @property
+    def idle_worker_count(self) -> int:
+        return len(self.inference_devices) - len(self._busy_worker_tasks)
 
-    def raise_if_failed(self) -> None:
-        if self._failure is not None:
-            raise self._failure
+    def reset_episode(self) -> None:
+        self._drain_all_ready()
+
+    def submit(self, task: RealtimeObservationTask) -> bool:
+        self._raise_if_closed()
+        for worker_id in range(len(self.inference_devices)):
+            if worker_id not in self._busy_worker_tasks:
+                self._connections[worker_id].send(("predict", {"task": task}))
+                self._busy_worker_tasks[worker_id] = task
+                return True
+        return False
+
+    def drain_completed(self, now_ms: float) -> list[RealtimePolicyCompletion]:
+        del now_ms
+        self._raise_if_closed()
+        return self._drain_all_ready()
 
     def close(self) -> None:
-        with self._condition:
-            self._closed = True
-            self._condition.notify_all()
-        if self._thread is not threading.current_thread():
-            self._thread.join()
-
-    def _run(self) -> None:
-        while True:
-            with self._condition:
-                while not self._closed:
-                    task = self.queue.pop()
-                    if task is not None:
-                        break
-                    self._condition.wait()
-                else:
-                    return
-
+        if self.closed:
+            return
+        self.closed = True
+        terminate = False
+        for connection, process in zip(self._connections, self._processes):
+            if process.is_alive():
+                try:
+                    connection.send(("close", {}))
+                except (BrokenPipeError, EOFError, OSError):
+                    terminate = True
+        for connection in self._connections:
             try:
-                worker_start_time_ms = self._time_ms()
-                if self.latency_profiler is None:
-                    start_wall_time = self.time_fn()
-                    policy_output = self.policy.predict(task.observation)
-                    end_wall_time = self.time_fn()
-                    elapsed_ms = (end_wall_time - start_wall_time) * 1000.0
-                    latency_record = LatencyRecord(
-                        obs_id=task.obs_id,
-                        latency_ms=elapsed_ms,
-                        start_wall_time=start_wall_time,
-                        end_wall_time=end_wall_time,
-                        inference_ms=elapsed_ms,
-                    )
-                else:
-                    policy_output, latency_record = self.latency_profiler.run_and_measure(
-                        self.policy.predict,
-                        task.observation,
-                        obs_id=task.obs_id,
-                    )
-            except BaseException as exc:
-                with self._condition:
-                    self._failure = exc
-                    self._closed = True
-                    self._condition.notify_all()
-                return
+                connection.close()
+            except OSError:
+                pass
+        for process in self._processes:
+            process.join(timeout=0.2)
+        if terminate:
+            for process in self._processes:
+                if process.is_alive():
+                    process.terminate()
+            for process in self._processes:
+                process.join(timeout=1.0)
+        for process in self._processes:
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=1.0)
 
-            completion = RealtimePolicyCompletion(
-                task=task,
-                policy_output=policy_output,
-                completion_time_ms=self._time_ms(),
-                latency_record=latency_record,
-                worker_start_time_ms=worker_start_time_ms,
-            )
-            with self._condition:
-                self._completed.append(completion)
-                self._condition.notify_all()
+    def _start_workers(self) -> None:
+        try:
+            for worker_id, device in enumerate(self.inference_devices):
+                parent_conn, child_conn = self._ctx.Pipe()
+                process = self._ctx.Process(
+                    target=_inference_worker,
+                    args=(child_conn, self.config, worker_id, device),
+                    name=f"latency-bench-realtime-inference-{worker_id}",
+                )
+                process.start()
+                child_conn.close()
+                self._connections.append(parent_conn)
+                self._processes.append(process)
 
-    def _time_ms(self) -> float:
-        episode_start_s = self.episode_start_s_getter() if self.episode_start_s_getter is not None else 0.0
-        return (self.time_fn() - episode_start_s) * 1000.0
+            for worker_id, connection in enumerate(self._connections):
+                tag, payload = connection.recv()
+                if tag == "error":
+                    raise RuntimeError(payload.get("traceback", "<missing traceback>"))
+                if tag != "ready":
+                    raise RuntimeError(f"inference worker {worker_id} returned {tag!r} during startup")
+        except Exception:
+            self.close()
+            raise
+
+    def _drain_all_ready(self) -> list[RealtimePolicyCompletion]:
+        completed: list[RealtimePolicyCompletion] = []
+        for worker_id, connection in enumerate(self._connections):
+            while connection.poll():
+                tag, payload = connection.recv()
+                if tag == "result":
+                    self._busy_worker_tasks.pop(worker_id, None)
+                    completed.append(payload["completion"])
+                elif tag == "error":
+                    self._busy_worker_tasks.pop(worker_id, None)
+                    raise RuntimeError(payload.get("traceback", "<missing traceback>"))
+        return completed
+
+    def _raise_if_closed(self) -> None:
+        if self.closed:
+            raise RuntimeError("inference pool is closed")
+
+
+class _RealtimeResultCoordinator:
+    def __init__(self, *, ordering_policy: OrderingPolicy):
+        self.ordering_policy = OrderingPolicy(ordering_policy)
+        self.issue_order: list[int] = []
+        self.result_buffer: dict[int, RealtimePolicyCompletion] = {}
+        self.ignored_obs_ids: set[int] = set()
+        self.ignored_late_result_count = 0
+        self.discarded_ready_result_count = 0
+        self.fifo_blocked_count = 0
+
+    def reset(self) -> None:
+        self.issue_order.clear()
+        self.result_buffer.clear()
+        self.ignored_obs_ids.clear()
+        self.ignored_late_result_count = 0
+        self.discarded_ready_result_count = 0
+        self.fifo_blocked_count = 0
+
+    def mark_submitted(self, task: RealtimeObservationTask) -> None:
+        self.issue_order.append(int(task.obs_id))
+
+    def add_completion(self, completion: RealtimePolicyCompletion) -> list[RealtimePolicyCompletion]:
+        obs_id = int(completion.task.obs_id)
+        if obs_id in self.ignored_obs_ids:
+            self.ignored_obs_ids.remove(obs_id)
+            self.ignored_late_result_count += 1
+            return [completion]
+        if obs_id in self.issue_order:
+            self.result_buffer[obs_id] = completion
+        return []
+
+    def release_ready(self) -> tuple[list[RealtimePolicyCompletion], list[RealtimePolicyCompletion]]:
+        if self.ordering_policy == OrderingPolicy.LATEST_READY:
+            return self._release_latest_ready()
+        return self._release_fifo()
+
+    def _release_latest_ready(self) -> tuple[list[RealtimePolicyCompletion], list[RealtimePolicyCompletion]]:
+        if not self.result_buffer:
+            return [], []
+        selected_obs_id = max(self.result_buffer)
+        selected = self.result_buffer.pop(selected_obs_id)
+        discarded: list[RealtimePolicyCompletion] = []
+        for obs_id in sorted(list(self.result_buffer)):
+            if obs_id < selected_obs_id:
+                discarded.append(self.result_buffer.pop(obs_id))
+        for obs_id in list(self.issue_order):
+            if obs_id < selected_obs_id:
+                self.ignored_obs_ids.add(obs_id)
+        self.issue_order = [obs_id for obs_id in self.issue_order if obs_id > selected_obs_id]
+        self.discarded_ready_result_count += len(discarded)
+        return [selected], discarded
+
+    def _release_fifo(self) -> tuple[list[RealtimePolicyCompletion], list[RealtimePolicyCompletion]]:
+        released: list[RealtimePolicyCompletion] = []
+        while self.issue_order and self.issue_order[0] in self.result_buffer:
+            obs_id = self.issue_order.pop(0)
+            released.append(self.result_buffer.pop(obs_id))
+        if not released and self.issue_order and self.result_buffer:
+            self.fifo_blocked_count += 1
+        return released, []
 
 
 class RealtimeLatencyExecutor:
     def __init__(
         self,
         env: EnvAdapter,
-        policy: PolicyRunner,
+        policy: PolicyRunner | None,
         decision_scheduler: DecisionScheduler,
         latency_source: LatencySource,
         action_scheduler: ActionScheduler,
         clock: EnvClock,
         logger: TrajectoryLogger | None = None,
-        max_pending_observations: int = 16,
         time_fn: Callable[[], float] = time.perf_counter,
         sleep_fn: Callable[[float], None] = time.sleep,
-        policy_worker: SerialPolicyWorker | None = None,
-        latency_profiler: RuntimeLatencyMeasurer | None = None,
-        max_catchup_steps_per_loop: int | None = None,
+        inference_pool: Any | None = None,
+        config: dict[str, Any] | None = None,
+        inference_devices: list[str] | None = None,
+        use_env_process: bool = False,
     ):
         self.env = env
         self.policy = policy
@@ -187,14 +264,13 @@ class RealtimeLatencyExecutor:
         self.action_scheduler = action_scheduler
         self.clock = clock
         self.logger = logger
-        self.max_pending_observations = int(max_pending_observations)
         self.time_fn = time_fn
         self.sleep_fn = sleep_fn
-        self.policy_worker = policy_worker
-        self.latency_profiler = latency_profiler
-        self.max_catchup_steps_per_loop = (
-            None if max_catchup_steps_per_loop is None else int(max_catchup_steps_per_loop)
-        )
+        self.inference_pool = inference_pool
+        self.config = config
+        self.inference_devices = list(inference_devices or [])
+        self.use_env_process = bool(use_env_process)
+        self._owns_inference_pool = inference_pool is None
         self._episode_start_s = 0.0
         self._next_obs_id = 0
         self._next_action_id = 0
@@ -205,267 +281,593 @@ class RealtimeLatencyExecutor:
         seed: int | None = None,
         eval_max_steps: int = 10000,
     ) -> EpisodeMetrics:
+        pool = self._ensure_inference_pool()
+        if self.use_env_process:
+            return self._run_episode_with_env_process(
+                pool=pool,
+                episode_id=episode_id,
+                seed=seed,
+                eval_max_steps=eval_max_steps,
+            )
+        return self._run_episode_local_env(
+            pool=pool,
+            episode_id=episode_id,
+            seed=seed,
+            eval_max_steps=eval_max_steps,
+        )
+
+    def close(self) -> None:
+        if self._owns_inference_pool and self.inference_pool is not None:
+            self.inference_pool.close()
+        self.env.close()
+
+    def _ensure_inference_pool(self) -> Any:
+        if self.inference_pool is None:
+            self.inference_pool = ProcessInferencePool(
+                config=self.config or {},
+                inference_devices=self.inference_devices,
+            )
+        return self.inference_pool
+
+    def _run_episode_local_env(
+        self,
+        *,
+        pool: Any,
+        episode_id: int,
+        seed: int | None,
+        eval_max_steps: int,
+    ) -> EpisodeMetrics:
         self.action_scheduler.reset()
         self.env.reset(seed=seed)
+        coordinator = _RealtimeResultCoordinator(ordering_policy=self.action_scheduler.ordering_policy)
+        pool.reset_episode()
+        self._episode_start_s = self.time_fn()
 
         step_records: list[StepRecord] = []
         action_events: list[ActionEvent] = []
         latency_values_ms: list[float] = []
-        dropped_observation_count = 0
-        skipped_observation_frames = 0
         submitted_observation_frames = 0
-        total_catchup_steps = 0
-        total_missed_ticks = 0
+        dropped_observation_count = 0
+        env_deadline_miss_count = 0
         max_wall_clock_lag_ms = 0.0
-        catchup_capped = False
-        dropped_catchup_frames = 0
-        realtime_catchup_truncated = False
-        last_submitted_observation_env_step: int | None = None
-        episode_latency_type = "measured"
-        episode_metadata = episode_raw_fact_metadata(
-            mode="realtime",
-            episode_seed=seed,
-            env_fps=self.clock.env_fps,
-            obs_fps=self.clock.obs_fps,
-            frame_ms=self.clock.frame_ms,
-            latency_type=episode_latency_type,
-        )
 
-        self._episode_start_s = self.time_fn()
-        policy_worker = self.policy_worker
-        if policy_worker is None:
-            policy_worker = SerialPolicyWorker(
-                policy=self.policy,
-                max_pending_observations=self.max_pending_observations,
-                time_fn=self.time_fn,
-                latency_profiler=self.latency_profiler,
-                episode_start_s_getter=lambda: self._episode_start_s,
+        for env_step in range(int(eval_max_steps)):
+            scheduled_time_ms = self.clock.step_to_time_ms(env_step)
+            target_wall_s = self._episode_start_s + scheduled_time_ms / 1000.0
+            now_s = self.time_fn()
+            if now_s < target_wall_s:
+                self.sleep_fn(target_wall_s - now_s)
+            current_wall_elapsed_ms = self._wall_elapsed_ms()
+            wall_clock_lag_ms = max(0.0, current_wall_elapsed_ms - scheduled_time_ms)
+            if wall_clock_lag_ms > self.clock.frame_ms:
+                env_deadline_miss_count += 1
+            max_wall_clock_lag_ms = max(max_wall_clock_lag_ms, wall_clock_lag_ms)
+
+            self._drain_and_release_results(
+                pool=pool,
+                coordinator=coordinator,
+                now_ms=current_wall_elapsed_ms,
+                action_events=action_events,
+                latency_values_ms=latency_values_ms,
             )
 
-        def wall_elapsed_ms() -> float:
-            return (self.time_fn() - self._episode_start_s) * 1000.0
-
-        def due_step_for_wall_time(elapsed_ms: float) -> int:
-            epsilon_ms = max(1e-9, self.clock.frame_ms * 1e-9)
-            return int(math.floor((float(elapsed_ms) + epsilon_ms) / self.clock.frame_ms))
-
-        def drain_policy_completions(env_step: int, frame_time_ms: float) -> None:
-            completions = policy_worker.drain_completed()
-            for completion in completions:
-                if completion.error is not None:
-                    raise completion.error
-                if completion.latency_record is None:
-                    latency_ms = (
-                        0.0
-                        if completion.worker_start_time_ms is None
-                        else completion.completion_time_ms - completion.worker_start_time_ms
-                    )
-                    latency_record = LatencyRecord(
-                        obs_id=completion.task.obs_id,
-                        latency_ms=latency_ms,
-                        inference_ms=latency_ms,
-                    )
+            observation_submitted = False
+            observation_dropped = False
+            if self.decision_scheduler.should_observe(env_step, scheduled_time_ms):
+                task = self._make_observation_task(env_step=env_step, submit_time_ms=current_wall_elapsed_ms)
+                if pool.submit(task):
+                    coordinator.mark_submitted(task)
+                    submitted_observation_frames += 1
+                    observation_submitted = True
                 else:
-                    latency_record = completion.latency_record
-                ready_time_ms = completion.completion_time_ms
-                latency_type = "measured"
-                profile_metadata: dict[str, Any] = {}
+                    dropped_observation_count += 1
+                    observation_dropped = True
 
-                effective_latency_ms = ready_time_ms - completion.task.submit_time_ms
-                queue_wait_ms = (
-                    None
-                    if completion.worker_start_time_ms is None
-                    else completion.worker_start_time_ms - completion.task.submit_time_ms
-                )
-                latency_record.metadata = {
-                    **latency_record.metadata,
-                    "queue_wait_ms": queue_wait_ms,
-                    "effective_latency_ms": effective_latency_ms,
-                    "submit_time_ms": completion.task.submit_time_ms,
-                    "ready_time_ms": ready_time_ms,
+            active_action = self.action_scheduler.update(env_step, scheduled_time_ms)
+            result = self.env.step(active_action)
+            step_info = dict(result.info)
+            step_info.update(
+                {
+                    "scheduled_time_ms": scheduled_time_ms,
+                    "wall_elapsed_ms": current_wall_elapsed_ms,
+                    "frame_time_ms": self.clock.frame_ms,
+                    "wall_clock_lag_ms": wall_clock_lag_ms,
+                    "observation_submitted": observation_submitted,
+                    "observation_dropped": observation_dropped,
+                    "in_flight_count": pool.in_flight_count,
+                    "idle_worker_count": pool.idle_worker_count,
                 }
-                apply_latency_record_raw_fields(
-                    record=latency_record,
-                    latency_type=latency_type,
-                    profile_metadata=profile_metadata,
-                )
-
-                event = ActionEvent(
-                    action_id=self._next_action_id,
-                    action=completion.policy_output.action,
-                    obs_env_step=completion.task.observation.env_step,
-                    ready_time_ms=ready_time_ms,
-                    ready_step_float=self.clock.time_ms_to_step_float(ready_time_ms),
-                    latency=latency_record,
-                    metadata=completion.policy_output.metadata,
-                )
-                apply_latency_raw_fields(
-                    event=event,
-                    latency_type=latency_type,
-                    frame_ms=self.clock.frame_ms,
-                    profile_metadata=profile_metadata,
-                )
-                self._next_action_id += 1
-                self.action_scheduler.enqueue(event)
-                action_events.append(event)
-                latency_values_ms.append(latency_record.latency_ms)
-                if self.logger is not None:
-                    self.logger.log_action_event(event)
-                    self.logger.log_latency(latency_record)
-
-        def submit_observation(env_step: int, submit_time_ms: float) -> None:
-            nonlocal dropped_observation_count
-            nonlocal submitted_observation_frames
-            nonlocal last_submitted_observation_env_step
-            observation = self.env.observe()
-            obs_id = self._next_obs_id
-            self._next_obs_id += 1
-            task = RealtimeObservationTask(
-                obs_id=obs_id,
-                observation=observation,
-                submit_env_step=env_step,
-                submit_time_ms=submit_time_ms,
             )
-            dropped_task = policy_worker.submit(task)
-            if dropped_task is not None:
-                dropped_observation_count += 1
-            submitted_observation_frames += 1
-            last_submitted_observation_env_step = int(env_step)
+            step_info.update(
+                active_action_step_info(
+                    applied_events=self.action_scheduler.get_applied_events(),
+                    env_step=env_step,
+                    scheduled_time_ms=scheduled_time_ms,
+                    frame_ms=self.clock.frame_ms,
+                    latency_type="measured",
+                    profile_metadata=profile_metadata_from_source(self.latency_source),
+                )
+            )
+            record = StepRecord(
+                episode_id=episode_id,
+                env_step=env_step,
+                sim_time_ms=scheduled_time_ms,
+                active_action=active_action,
+                reward=float(result.reward),
+                done=bool(result.done or result.truncated),
+                info=step_info,
+            )
+            step_records.append(record)
+            if self.logger is not None:
+                self.logger.log_step(record)
+            if result.done or result.truncated:
+                break
+
+        self._drain_and_release_results(
+            pool=pool,
+            coordinator=coordinator,
+            now_ms=self._wall_elapsed_ms(),
+            action_events=action_events,
+            latency_values_ms=latency_values_ms,
+        )
+        metadata = self._episode_metadata(
+            seed=seed,
+            step_records=step_records,
+            submitted_observation_frames=submitted_observation_frames,
+            dropped_observation_count=dropped_observation_count,
+            env_deadline_miss_count=env_deadline_miss_count,
+            max_wall_clock_lag_ms=max_wall_clock_lag_ms,
+            coordinator=coordinator,
+            pool=pool,
+        )
+        metrics = compute_episode_metrics(
+            episode_id=episode_id,
+            step_records=step_records,
+            action_events=action_events,
+            latency_values_ms=latency_values_ms,
+            metadata=metadata,
+            frame_ms=self.clock.frame_ms,
+        )
+        if self.logger is not None:
+            self.logger.log_episode_metrics(metrics)
+        return metrics
+
+    def _run_episode_with_env_process(
+        self,
+        *,
+        pool: Any,
+        episode_id: int,
+        seed: int | None,
+        eval_max_steps: int,
+    ) -> EpisodeMetrics:
+        ctx = mp.get_context(_resolve_start_method())
+        parent_conn, child_conn = ctx.Pipe()
+        process = ctx.Process(
+            target=_env_loop_worker,
+            args=(child_conn, self.config, episode_id, seed, eval_max_steps),
+            name="latency-bench-realtime-env",
+        )
+        process.start()
+        child_conn.close()
+
+        coordinator = _RealtimeResultCoordinator(ordering_policy=self.action_scheduler.ordering_policy)
+        pool.reset_episode()
+        self._episode_start_s = self.time_fn()
+        step_records: list[StepRecord] = []
+        action_events: list[ActionEvent] = []
+        action_event_index: dict[int, int] = {}
+        latency_values_ms: list[float] = []
+        submitted_observation_frames = 0
+        dropped_observation_count = 0
+        env_deadline_miss_count = 0
+        max_wall_clock_lag_ms = 0.0
+        pending_step_info: dict[int, dict[str, Any]] = {}
+        done = False
 
         try:
-            env_step = 0
-            episode_done = False
-            while env_step < eval_max_steps:
-                scheduled_time_ms = self.clock.step_to_time_ms(env_step)
-                target_wall_s = self._episode_start_s + scheduled_time_ms / 1000.0
-                now_s = self.time_fn()
-                if now_s < target_wall_s:
-                    self.sleep_fn(target_wall_s - now_s)
+            while not done:
+                now_ms = self._wall_elapsed_ms()
+                released = self._drain_and_release_results(
+                    pool=pool,
+                    coordinator=coordinator,
+                    now_ms=now_ms,
+                    action_events=action_events,
+                    latency_values_ms=latency_values_ms,
+                )
+                for event in released:
+                    parent_conn.send(("action_event", {"event": event}))
+                    action_event_index[event.action_id] = action_events.index(event)
 
-                current_wall_elapsed_ms = max(wall_elapsed_ms(), scheduled_time_ms)
-                target_due_step = max(env_step, due_step_for_wall_time(current_wall_elapsed_ms))
-                due_steps = min(eval_max_steps - env_step, target_due_step - env_step + 1)
-                uncapped_due_steps = due_steps
-                loop_catchup_capped = False
-                loop_dropped_catchup_frames = 0
-                if (
-                    self.max_catchup_steps_per_loop is not None
-                    and due_steps > self.max_catchup_steps_per_loop
-                ):
-                    loop_catchup_capped = True
-                    loop_dropped_catchup_frames = due_steps - self.max_catchup_steps_per_loop
-                    due_steps = self.max_catchup_steps_per_loop
-                    catchup_capped = True
-                    dropped_catchup_frames += loop_dropped_catchup_frames
-                    realtime_catchup_truncated = True
+                if not parent_conn.poll(0.001):
+                    if not process.is_alive():
+                        done = True
+                    continue
 
-                is_catchup_batch = uncapped_due_steps > 1
-
-                skipped_this_batch = 0
-                executed_this_batch = 0
-                for _batch_index in range(due_steps):
-                    frame_time_ms = self.clock.step_to_time_ms(env_step)
-                    wall_clock_lag_ms = max(0.0, current_wall_elapsed_ms - frame_time_ms)
-                    max_wall_clock_lag_ms = max(max_wall_clock_lag_ms, wall_clock_lag_ms)
-
-                    drain_policy_completions(env_step, frame_time_ms)
-                    policy_worker.raise_if_failed()
-
-                    observation_due = self.decision_scheduler.should_observe(env_step, frame_time_ms)
-                    observation_submitted = False
-                    observation_skipped = False
-                    if observation_due:
-                        if is_catchup_batch:
-                            skipped_observation_frames += 1
-                            skipped_this_batch += 1
-                            observation_skipped = True
-                        else:
-                            if last_submitted_observation_env_step != env_step:
-                                submit_observation(env_step, current_wall_elapsed_ms)
-                                observation_submitted = True
-
-                    active_action = self.action_scheduler.update(env_step, frame_time_ms)
-                    result = self.env.step(active_action)
-                    executed_this_batch += 1
-                    step_info = dict(result.info)
-                    step_info.update(
-                        {
-                            "scheduled_time_ms": frame_time_ms,
-                            "wall_elapsed_ms_at_loop_start": current_wall_elapsed_ms,
-                            "frame_time_ms": self.clock.frame_ms,
-                            "wall_clock_lag_ms": wall_clock_lag_ms,
-                            "catchup_frame": is_catchup_batch,
-                            "catchup_batch_size": due_steps,
-                            "missed_ticks_before_frame": max(0, target_due_step - env_step),
-                            "observation_submitted": observation_submitted,
-                            "observation_skipped_due_to_catchup": observation_skipped,
-                            "observation_submission_mode": "latest_only",
-                            "catchup_capped": loop_catchup_capped,
-                            "dropped_catchup_frames": loop_dropped_catchup_frames,
-                            "uncapped_catchup_batch_size": uncapped_due_steps,
+                tag, payload = parent_conn.recv()
+                if tag == "observation":
+                    task = payload["task"]
+                    if pool.submit(task):
+                        coordinator.mark_submitted(task)
+                        submitted_observation_frames += 1
+                        pending_step_info[int(task.submit_env_step)] = {
+                            "observation_submitted": True,
+                            "observation_dropped": False,
+                            "in_flight_count": pool.in_flight_count,
+                            "idle_worker_count": pool.idle_worker_count,
                         }
-                    )
-                    step_info.update(
-                        active_action_step_info(
-                            applied_events=self.action_scheduler.get_applied_events(),
-                            env_step=env_step,
-                            scheduled_time_ms=frame_time_ms,
-                            frame_ms=self.clock.frame_ms,
-                            latency_type=episode_latency_type,
-                            profile_metadata=profile_metadata_from_source(self.latency_source),
-                        )
-                    )
-                    record = StepRecord(
-                        episode_id=episode_id,
-                        env_step=env_step,
-                        sim_time_ms=frame_time_ms,
-                        active_action=active_action,
-                        reward=float(result.reward),
-                        done=bool(result.done or result.truncated),
-                        info=step_info,
-                    )
+                    else:
+                        dropped_observation_count += 1
+                        pending_step_info[int(task.submit_env_step)] = {
+                            "observation_submitted": False,
+                            "observation_dropped": True,
+                            "in_flight_count": pool.in_flight_count,
+                            "idle_worker_count": pool.idle_worker_count,
+                        }
+                elif tag == "applied_action_event":
+                    event = payload["event"]
+                    index = action_event_index.get(event.action_id)
+                    if index is not None:
+                        target = action_events[index]
+                        target.applied = event.applied
+                        target.apply_raw_frame = event.apply_raw_frame
+                        target.ready_raw_frame = event.ready_raw_frame
+                        target.latency_raw_frames = event.latency_raw_frames
+                elif tag == "step":
+                    record = payload["record"]
+                    annotation = pending_step_info.pop(int(record.env_step), None)
+                    if annotation is not None:
+                        record.info.update(annotation)
+                    max_wall_clock_lag_ms = max(max_wall_clock_lag_ms, float(record.info.get("wall_clock_lag_ms", 0.0)))
+                    if float(record.info.get("wall_clock_lag_ms", 0.0)) > self.clock.frame_ms:
+                        env_deadline_miss_count += 1
                     step_records.append(record)
                     if self.logger is not None:
                         self.logger.log_step(record)
-                    env_step += 1
-                    if result.done or result.truncated:
-                        episode_done = True
-                        break
+                elif tag == "episode_done":
+                    done = True
+                elif tag == "error":
+                    raise RuntimeError(payload.get("traceback", "<missing traceback>"))
 
-                if is_catchup_batch:
-                    total_catchup_steps += executed_this_batch
-                    total_missed_ticks += max(0, executed_this_batch - 1)
-
-                if episode_done:
-                    break
-                if realtime_catchup_truncated:
-                    break
-
-                if is_catchup_batch and skipped_this_batch > 0 and env_step < eval_max_steps:
-                    submit_observation(env_step, current_wall_elapsed_ms)
-
+            self._drain_and_release_results(
+                pool=pool,
+                coordinator=coordinator,
+                now_ms=self._wall_elapsed_ms(),
+                action_events=action_events,
+                latency_values_ms=latency_values_ms,
+            )
+            metadata = self._episode_metadata(
+                seed=seed,
+                step_records=step_records,
+                submitted_observation_frames=submitted_observation_frames,
+                dropped_observation_count=dropped_observation_count,
+                env_deadline_miss_count=env_deadline_miss_count,
+                max_wall_clock_lag_ms=max_wall_clock_lag_ms,
+                coordinator=coordinator,
+                pool=pool,
+            )
             metrics = compute_episode_metrics(
                 episode_id=episode_id,
                 step_records=step_records,
                 action_events=action_events,
                 latency_values_ms=latency_values_ms,
-                metadata={
-                    "dropped_observation_count": dropped_observation_count,
-                    "skipped_observation_frames": skipped_observation_frames,
-                    "submitted_observation_frames": submitted_observation_frames,
-                    "observation_submission_mode": "latest_only",
-                    "total_missed_ticks": total_missed_ticks,
-                    "max_wall_clock_lag_ms": max_wall_clock_lag_ms,
-                    "total_catchup_steps": total_catchup_steps,
-                    "catchup_capped": catchup_capped,
-                    "dropped_catchup_frames": dropped_catchup_frames,
-                    "realtime_catchup_truncated": realtime_catchup_truncated,
-                    **episode_metadata,
-                },
+                metadata=metadata,
                 frame_ms=self.clock.frame_ms,
             )
             if self.logger is not None:
                 self.logger.log_episode_metrics(metrics)
             return metrics
         finally:
-            policy_worker.close()
+            try:
+                parent_conn.send(("close", {}))
+            except (BrokenPipeError, EOFError, OSError):
+                pass
+            parent_conn.close()
+            process.join(timeout=1.0)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=1.0)
+
+    def _drain_and_release_results(
+        self,
+        *,
+        pool: Any,
+        coordinator: _RealtimeResultCoordinator,
+        now_ms: float,
+        action_events: list[ActionEvent],
+        latency_values_ms: list[float],
+    ) -> list[ActionEvent]:
+        released_events: list[ActionEvent] = []
+        for completion in pool.drain_completed(now_ms):
+            ignored = coordinator.add_completion(completion)
+            for ignored_completion in ignored:
+                self._record_completion_event(
+                    completion=ignored_completion,
+                    action_events=action_events,
+                    latency_values_ms=latency_values_ms,
+                    dropped=True,
+                    discard_reason="ignored_late_result",
+                )
+
+        released, discarded = coordinator.release_ready()
+        for completion in discarded:
+            self._record_completion_event(
+                completion=completion,
+                action_events=action_events,
+                latency_values_ms=latency_values_ms,
+                dropped=True,
+                discard_reason="latest_ready_discarded",
+            )
+        for completion in released:
+            event = self._record_completion_event(
+                completion=completion,
+                action_events=action_events,
+                latency_values_ms=latency_values_ms,
+                dropped=False,
+                discard_reason=None,
+            )
+            self.action_scheduler.enqueue(event)
+            released_events.append(event)
+        return released_events
+
+    def _record_completion_event(
+        self,
+        *,
+        completion: RealtimePolicyCompletion,
+        action_events: list[ActionEvent],
+        latency_values_ms: list[float],
+        dropped: bool,
+        discard_reason: str | None,
+    ) -> ActionEvent:
+        latency_record = completion.latency_record
+        latency_record.device = completion.device if latency_record.device is None else latency_record.device
+        latency_record.metadata = {
+            **latency_record.metadata,
+            "worker_id": completion.worker_id,
+        }
+        apply_latency_record_raw_fields(
+            record=latency_record,
+            latency_type="measured",
+            profile_metadata=profile_metadata_from_source(self.latency_source),
+        )
+        event_metadata = dict(completion.policy_output.metadata)
+        if discard_reason is not None:
+            event_metadata["discard_reason"] = discard_reason
+        event = ActionEvent(
+            action_id=self._next_action_id,
+            action=completion.policy_output.action,
+            obs_env_step=completion.task.observation.env_step,
+            ready_time_ms=completion.completion_time_ms,
+            ready_step_float=self.clock.time_ms_to_step_float(completion.completion_time_ms),
+            latency=latency_record,
+            metadata=event_metadata,
+        )
+        apply_latency_raw_fields(
+            event=event,
+            latency_type="measured",
+            frame_ms=self.clock.frame_ms,
+            profile_metadata=profile_metadata_from_source(self.latency_source),
+        )
+        event.dropped = bool(dropped)
+        self._next_action_id += 1
+        action_events.append(event)
+        latency_values_ms.append(float(latency_record.latency_ms))
+        if self.logger is not None:
+            self.logger.log_action_event(event)
+            self.logger.log_latency(latency_record)
+        return event
+
+    def _make_observation_task(self, *, env_step: int, submit_time_ms: float) -> RealtimeObservationTask:
+        observation = self.env.observe()
+        obs_id = self._next_obs_id
+        self._next_obs_id += 1
+        return RealtimeObservationTask(
+            obs_id=obs_id,
+            observation=observation,
+            submit_env_step=env_step,
+            submit_time_ms=submit_time_ms,
+        )
+
+    def _episode_metadata(
+        self,
+        *,
+        seed: int | None,
+        step_records: list[StepRecord],
+        submitted_observation_frames: int,
+        dropped_observation_count: int,
+        env_deadline_miss_count: int,
+        max_wall_clock_lag_ms: float,
+        coordinator: _RealtimeResultCoordinator,
+        pool: Any,
+    ) -> dict[str, Any]:
+        elapsed_s = self.time_fn() - self._episode_start_s
+        actual_env_fps = None if elapsed_s <= 0 else len(step_records) / elapsed_s
+        return {
+            "submitted_observation_frames": submitted_observation_frames,
+            "dropped_observation_count": dropped_observation_count,
+            "ignored_late_result_count": coordinator.ignored_late_result_count,
+            "discarded_ready_result_count": coordinator.discarded_ready_result_count,
+            "fifo_blocked_count": coordinator.fifo_blocked_count,
+            "target_env_fps": self.clock.env_fps,
+            "actual_env_fps": actual_env_fps,
+            "env_deadline_miss_count": env_deadline_miss_count,
+            "max_wall_clock_lag_ms": max_wall_clock_lag_ms,
+            "in_flight_count": pool.in_flight_count,
+            "idle_worker_count": pool.idle_worker_count,
+            **episode_raw_fact_metadata(
+                mode="realtime",
+                episode_seed=seed,
+                env_fps=self.clock.env_fps,
+                obs_fps=self.clock.obs_fps,
+                frame_ms=self.clock.frame_ms,
+                latency_type="measured",
+            ),
+        }
+
+    def _wall_elapsed_ms(self) -> float:
+        return (self.time_fn() - self._episode_start_s) * 1000.0
+
+
+def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, device: str) -> None:
+    try:
+        from latency_bench.core.actions import ActionResolver
+        from latency_bench.policy.factory import build_policy
+
+        worker_config = deepcopy(config)
+        worker_config.setdefault("policy", {})["device"] = device
+        worker_config.setdefault("latency", {})["device"] = device
+        action_resolver = ActionResolver(worker_config["env"])
+        policy = build_policy(worker_config, action_resolver)
+        latency_cfg = worker_config.get("latency", {})
+        measurer = RuntimeLatencyMeasurer(
+            device=device,
+            sync_cuda=bool(latency_cfg.get("sync_cuda", True)),
+        )
+        connection.send(("ready", {"worker_id": int(worker_id), "device": device}))
+
+        while True:
+            command, payload = connection.recv()
+            payload = payload or {}
+            if command == "close":
+                return
+            if command == "predict":
+                task = payload["task"]
+                policy_output, latency_record = measurer.run_and_measure(
+                    policy.predict,
+                    task.observation,
+                    obs_id=task.obs_id,
+                )
+                latency_record.metadata = {
+                    **latency_record.metadata,
+                    "worker_id": int(worker_id),
+                }
+                completion = RealtimePolicyCompletion(
+                    task=task,
+                    policy_output=policy_output,
+                    completion_time_ms=task.submit_time_ms + latency_record.latency_ms,
+                    latency_record=latency_record,
+                    worker_id=int(worker_id),
+                    device=device,
+                )
+                connection.send(("result", {"completion": completion}))
+    except BaseException:
+        connection.send(("error", {"traceback": traceback.format_exc()}))
+
+
+def _env_loop_worker(
+    connection: Any,
+    config: dict[str, Any] | None,
+    episode_id: int,
+    seed: int | None,
+    eval_max_steps: int,
+) -> None:
+    try:
+        from latency_bench.core.actions import ActionResolver
+        from latency_bench.envs.factory import build_env_adapter
+        from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
+
+        runtime_config = config or {}
+        action_resolver = ActionResolver(runtime_config["env"])
+        env = build_env_adapter(runtime_config, action_resolver.noop_action)
+        clock = EnvClock(
+            env_fps=float(runtime_config["env"]["env_fps"]),
+            obs_fps=float(runtime_config["env"]["obs_fps"]),
+        )
+        action_scheduler = ActionScheduler(
+            clock=clock,
+            noop_action=env.noop_action,
+            persistence_policy=_build_realtime_persistence_policy(runtime_config.get("scheduler", {}), clock),
+            ordering_policy=OrderingPolicy(str(runtime_config.get("scheduler", {}).get("ordering_policy", "issue_order_fifo"))),
+        )
+        decision_scheduler = ObservationCadenceDecisionScheduler(clock)
+        env.reset(seed=seed)
+        episode_start_s = time.perf_counter()
+        next_obs_id = 0
+        applied_event_count = 0
+
+        for env_step in range(int(eval_max_steps)):
+            scheduled_time_ms = clock.step_to_time_ms(env_step)
+            target_wall_s = episode_start_s + scheduled_time_ms / 1000.0
+            now_s = time.perf_counter()
+            if now_s < target_wall_s:
+                time.sleep(target_wall_s - now_s)
+            wall_elapsed_ms = (time.perf_counter() - episode_start_s) * 1000.0
+            wall_clock_lag_ms = max(0.0, wall_elapsed_ms - scheduled_time_ms)
+
+            while connection.poll():
+                command, payload = connection.recv()
+                payload = payload or {}
+                if command == "close":
+                    env.close()
+                    return
+                if command == "action_event":
+                    action_scheduler.enqueue(payload["event"])
+
+            if decision_scheduler.should_observe(env_step, scheduled_time_ms):
+                observation = env.observe()
+                task = RealtimeObservationTask(
+                    obs_id=next_obs_id,
+                    observation=observation,
+                    submit_env_step=env_step,
+                    submit_time_ms=wall_elapsed_ms,
+                )
+                next_obs_id += 1
+                connection.send(("observation", {"task": task}))
+
+            active_action = action_scheduler.update(env_step, scheduled_time_ms)
+            applied_events = action_scheduler.get_applied_events()
+            for event in applied_events[applied_event_count:]:
+                connection.send(("applied_action_event", {"event": event}))
+            applied_event_count = len(applied_events)
+
+            result = env.step(active_action)
+            step_info = dict(result.info)
+            step_info.update(
+                {
+                    "scheduled_time_ms": scheduled_time_ms,
+                    "wall_elapsed_ms": wall_elapsed_ms,
+                    "frame_time_ms": clock.frame_ms,
+                    "wall_clock_lag_ms": wall_clock_lag_ms,
+                    "observation_submitted": False,
+                    "observation_dropped": False,
+                    "in_flight_count": None,
+                    "idle_worker_count": None,
+                }
+            )
+            step_info.update(
+                active_action_step_info(
+                    applied_events=applied_events,
+                    env_step=env_step,
+                    scheduled_time_ms=scheduled_time_ms,
+                    frame_ms=clock.frame_ms,
+                    latency_type="measured",
+                    profile_metadata={},
+                )
+            )
+            connection.send((
+                "step",
+                {
+                    "record": StepRecord(
+                        episode_id=episode_id,
+                        env_step=env_step,
+                        sim_time_ms=scheduled_time_ms,
+                        active_action=active_action,
+                        reward=float(result.reward),
+                        done=bool(result.done or result.truncated),
+                        info=step_info,
+                    )
+                },
+            ))
+            if result.done or result.truncated:
+                break
+
+        env.close()
+        connection.send(("episode_done", {}))
+    except BaseException:
+        connection.send(("error", {"traceback": traceback.format_exc()}))
+
+
+def _build_realtime_persistence_policy(scheduler_cfg: dict[str, Any], clock: EnvClock):
+    mode = ActionHoldPolicy(str(scheduler_cfg.get("hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value)))
+    if mode == ActionHoldPolicy.HOLD:
+        return HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames)
+    return OneFrameThenNoopPolicy()

@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
 
-from latency_bench.core.types import Action, LatencyRecord, PolicyOutput
+from latency_bench.core.clock import EnvClock
+from latency_bench.core.types import Action, LatencyRecord, OrderingPolicy, PolicyOutput
+from latency_bench.envs.base import DummyEnvAdapter
 from latency_bench.executors.realtime import (
-    BoundedObservationQueue,
     RealtimeLatencyExecutor,
     RealtimeObservationTask,
     RealtimePolicyCompletion,
 )
 from latency_bench.latency.sources import ZeroLatencySource
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
+from latency_bench.policy.base import ConstantPolicyRunner
+from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
-from executor_mode_helpers import SequencePolicyRunner, make_dummy_parts
+from latency_bench.scheduler.persistence import HoldPolicy
 
 
 class FakeClock:
@@ -28,402 +33,205 @@ class FakeClock:
         self.now += float(seconds)
 
 
-class ManualPolicyWorker:
-    def __init__(self):
+@dataclass
+class CompletionScript:
+    action: Action
+    ready_time_ms: float
+    worker_id: int
+    device: str
+
+
+class ScriptedInferencePool:
+    def __init__(self, scripts: list[CompletionScript], *, num_workers: int):
+        self.scripts = list(scripts)
+        self.num_workers = int(num_workers)
         self.submitted: list[RealtimeObservationTask] = []
-        self.drain_count = 0
         self.closed = False
+        self._busy_worker_ids: set[int] = set()
+        self._pending: list[tuple[RealtimeObservationTask, CompletionScript]] = []
 
-    def submit(self, task: RealtimeObservationTask):
+    @property
+    def in_flight_count(self) -> int:
+        return len(self._busy_worker_ids)
+
+    @property
+    def idle_worker_count(self) -> int:
+        return self.num_workers - len(self._busy_worker_ids)
+
+    def reset_episode(self) -> None:
+        self.submitted.clear()
+        self._busy_worker_ids.clear()
+        self._pending.clear()
+
+    def submit(self, task: RealtimeObservationTask) -> bool:
+        idle_worker_ids = [
+            worker_id
+            for worker_id in range(self.num_workers)
+            if worker_id not in self._busy_worker_ids
+        ]
+        if not idle_worker_ids:
+            return False
+        if len(self.submitted) >= len(self.scripts):
+            return False
+        script = self.scripts[len(self.submitted)]
         self.submitted.append(task)
-        return None
+        self._busy_worker_ids.add(script.worker_id)
+        self._pending.append((task, script))
+        return True
 
-    def drain_completed(self):
-        self.drain_count += 1
-        return []
-
-    def raise_if_failed(self) -> None:
-        return None
+    def drain_completed(self, now_ms: float) -> list[RealtimePolicyCompletion]:
+        ready: list[RealtimePolicyCompletion] = []
+        still_pending: list[tuple[RealtimeObservationTask, CompletionScript]] = []
+        for task, script in self._pending:
+            if script.ready_time_ms <= now_ms:
+                self._busy_worker_ids.remove(script.worker_id)
+                ready.append(
+                    RealtimePolicyCompletion(
+                        task=task,
+                        policy_output=PolicyOutput(action=script.action),
+                        completion_time_ms=script.ready_time_ms,
+                        latency_record=LatencyRecord(
+                            obs_id=task.obs_id,
+                            latency_ms=script.ready_time_ms - task.submit_time_ms,
+                            device=script.device,
+                            metadata={"worker_id": script.worker_id},
+                        ),
+                        worker_id=script.worker_id,
+                        device=script.device,
+                    )
+                )
+            else:
+                still_pending.append((task, script))
+        self._pending = still_pending
+        return ready
 
     def close(self) -> None:
         self.closed = True
 
 
-class CompleteFirstTaskOnSecondDrainWorker(ManualPolicyWorker):
-    def __init__(self, action: Action, completion_time_ms: float):
-        super().__init__()
-        self.action = action
-        self.completion_time_ms = completion_time_ms
-        self.completed = False
-
-    def drain_completed(self):
-        self.drain_count += 1
-        if self.completed or self.drain_count < 2 or not self.submitted:
-            return []
-        self.completed = True
-        task = self.submitted[0]
-        return [
-            RealtimePolicyCompletion(
-                task=task,
-                policy_output=SequencePolicyRunner([self.action]).predict(task.observation),
-                completion_time_ms=self.completion_time_ms,
-            )
-        ]
-
-
-class CompleteMeasuredTaskOnSecondDrainWorker(ManualPolicyWorker):
-    def __init__(
-        self,
-        action: Action,
-        completion_time_ms: float,
-        inference_latency_ms: float,
-        worker_start_time_ms: float,
-    ):
-        super().__init__()
-        self.action = action
-        self.completion_time_ms = completion_time_ms
-        self.inference_latency_ms = inference_latency_ms
-        self.worker_start_time_ms = worker_start_time_ms
-        self.completed = False
-
-    def drain_completed(self):
-        self.drain_count += 1
-        if self.completed or self.drain_count < 2 or not self.submitted:
-            return []
-        self.completed = True
-        task = self.submitted[0]
-        return [
-            RealtimePolicyCompletion(
-                task=task,
-                policy_output=PolicyOutput(action=self.action),
-                completion_time_ms=self.completion_time_ms,
-                latency_record=LatencyRecord(
-                    obs_id=task.obs_id,
-                    latency_ms=self.inference_latency_ms,
-                ),
-                worker_start_time_ms=self.worker_start_time_ms,
-            )
-        ]
-
-
 def _executor(
     *,
-    worker,
-    actions: list[Action],
-    time_fn,
-    sleep_fn,
+    pool: ScriptedInferencePool,
+    ordering_policy: OrderingPolicy = OrderingPolicy.LATEST_READY,
+    env_fps: float = 30.0,
+    obs_fps: float = 30.0,
     max_steps: int = 5,
-    max_catchup_steps_per_loop: int | None = None,
+    logger: TrajectoryLogger | None = None,
+    fake_clock: FakeClock | None = None,
 ) -> RealtimeLatencyExecutor:
-    env, clock, _, _, action_scheduler = make_dummy_parts(max_steps=max_steps, env_fps=30.0)
-    return RealtimeLatencyExecutor(
-        env=env,
-        policy=SequencePolicyRunner(actions),
-        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_source=ZeroLatencySource(),
-        action_scheduler=action_scheduler,
+    fake_clock = fake_clock or FakeClock()
+    noop = Action("noop", name="noop", is_noop=True)
+    env = DummyEnvAdapter(env_fps=env_fps, max_steps=max_steps, noop_action=noop)
+    clock = EnvClock(env_fps=env_fps, obs_fps=obs_fps)
+    action_scheduler = ActionScheduler(
         clock=clock,
-        time_fn=time_fn,
-        sleep_fn=sleep_fn,
-        policy_worker=worker,
-        max_catchup_steps_per_loop=max_catchup_steps_per_loop,
+        noop_action=noop,
+        persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+        ordering_policy=ordering_policy,
     )
-
-
-def _measured_executor(
-    *,
-    worker,
-    actions: list[Action],
-    time_fn,
-    sleep_fn,
-    max_steps: int = 5,
-    logger=None,
-) -> RealtimeLatencyExecutor:
-    env, clock, _, _, action_scheduler = make_dummy_parts(max_steps=max_steps, env_fps=30.0)
     return RealtimeLatencyExecutor(
         env=env,
-        policy=SequencePolicyRunner(actions),
+        policy=ConstantPolicyRunner(Action("unused")),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_source=ZeroLatencySource(),
         action_scheduler=action_scheduler,
         clock=clock,
         logger=logger,
-        time_fn=time_fn,
-        sleep_fn=sleep_fn,
-        policy_worker=worker,
-    )
-
-
-def test_realtime_sleeps_to_each_frame_target():
-    now = 10.0
-    sleeps: list[float] = []
-
-    def time_fn() -> float:
-        return now
-
-    def sleep_fn(seconds: float) -> None:
-        nonlocal now
-        sleeps.append(seconds)
-        now += seconds
-
-    worker = ManualPolicyWorker()
-    executor = _executor(
-        worker=worker,
-        actions=[Action("jump")],
-        time_fn=time_fn,
-        sleep_fn=sleep_fn,
-        max_steps=3,
-    )
-
-    executor.run_episode(episode_id=0, eval_max_steps=3)
-
-    assert sleeps == pytest.approx([executor.clock.frame_ms / 1000.0, executor.clock.frame_ms / 1000.0])
-    assert worker.closed
-
-
-def test_realtime_on_time_ticking_steps_once_per_frame():
-    fake_clock = FakeClock()
-    worker = ManualPolicyWorker()
-    executor = _executor(
-        worker=worker,
-        actions=[Action("jump")],
         time_fn=fake_clock.time,
         sleep_fn=fake_clock.sleep,
-        max_steps=4,
+        inference_pool=pool,
     )
+
+
+def test_realtime_observes_on_stride_without_catchup_metadata():
+    pool = ScriptedInferencePool(
+        [
+            CompletionScript(Action("a0"), ready_time_ms=1000.0, worker_id=0, device="cpu"),
+            CompletionScript(Action("a1"), ready_time_ms=1000.0, worker_id=1, device="cpu"),
+            CompletionScript(Action("a2"), ready_time_ms=1000.0, worker_id=2, device="cpu"),
+        ],
+        num_workers=3,
+    )
+    executor = _executor(pool=pool, env_fps=30.0, obs_fps=10.0, max_steps=7)
+
+    metrics = executor.run_episode(episode_id=0, eval_max_steps=7)
+
+    assert [task.submit_env_step for task in pool.submitted] == [0, 3, 6]
+    assert len(executor.env.applied_actions) == 7
+    assert metrics.metadata["submitted_observation_frames"] == 3
+    assert metrics.metadata["dropped_observation_count"] == 0
+    assert "total_catchup_steps" not in metrics.metadata
+
+
+def test_realtime_drops_observation_when_all_workers_are_busy():
+    pool = ScriptedInferencePool(
+        [CompletionScript(Action("slow"), ready_time_ms=1000.0, worker_id=0, device="cpu")],
+        num_workers=1,
+    )
+    executor = _executor(pool=pool, max_steps=3)
+
+    metrics = executor.run_episode(episode_id=0, eval_max_steps=3)
+
+    assert [task.submit_env_step for task in pool.submitted] == [0]
+    assert metrics.metadata["submitted_observation_frames"] == 1
+    assert metrics.metadata["dropped_observation_count"] == 2
+    assert executor.logger is None
+
+
+def test_latest_ready_ignores_older_late_result():
+    first = Action("first")
+    second = Action("second")
+    pool = ScriptedInferencePool(
+        [
+            CompletionScript(first, ready_time_ms=80.0, worker_id=0, device="cuda:0"),
+            CompletionScript(second, ready_time_ms=34.0, worker_id=1, device="cuda:1"),
+        ],
+        num_workers=2,
+    )
+    executor = _executor(pool=pool, ordering_policy=OrderingPolicy.LATEST_READY, max_steps=4)
 
     metrics = executor.run_episode(episode_id=0, eval_max_steps=4)
 
-    assert len(executor.env.applied_actions) == 4
-    assert metrics.metadata["total_catchup_steps"] == 0
-    assert metrics.metadata["total_missed_ticks"] == 0
+    applied_values = [event.action.value for event in executor.action_scheduler.get_applied_events()]
+    assert applied_values == ["second"]
+    assert metrics.metadata["ignored_late_result_count"] == 1
+    assert metrics.num_dropped_actions == 1
 
 
-def test_realtime_late_by_three_frames_catches_up_in_one_loop():
-    fake_clock = FakeClock()
-    worker = ManualPolicyWorker()
-    executor = _executor(
-        worker=worker,
-        actions=[Action("jump")],
-        time_fn=fake_clock.time,
-        sleep_fn=fake_clock.sleep,
-        max_steps=10,
+def test_issue_order_fifo_blocks_later_ready_result_until_head_completes():
+    first = Action("first")
+    second = Action("second")
+    pool = ScriptedInferencePool(
+        [
+            CompletionScript(first, ready_time_ms=80.0, worker_id=0, device="cuda:0"),
+            CompletionScript(second, ready_time_ms=34.0, worker_id=1, device="cuda:1"),
+        ],
+        num_workers=2,
     )
-    original_step = executor.env.step
-
-    def step_and_jump_wall_clock(action):
-        result = original_step(action)
-        if len(executor.env.applied_actions) == 1:
-            fake_clock.now = executor.clock.step_to_time_ms(3) / 1000.0
-        return result
-
-    executor.env.step = step_and_jump_wall_clock
+    executor = _executor(pool=pool, ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO, max_steps=5)
 
     metrics = executor.run_episode(episode_id=0, eval_max_steps=5)
 
-    assert len(executor.env.applied_actions) == 5
-    assert metrics.survival_steps == 5
-    assert metrics.metadata["total_catchup_steps"] == 3
-    assert metrics.metadata["total_missed_ticks"] == 2
-    assert metrics.metadata["skipped_observation_frames"] == 3
-    assert metrics.metadata["submitted_observation_frames"] == 2
+    applied_values = [event.action.value for event in executor.action_scheduler.get_applied_events()]
+    assert applied_values == ["first", "second"]
+    assert metrics.metadata["fifo_blocked_count"] >= 1
+    assert metrics.metadata["ignored_late_result_count"] == 0
 
 
-def test_realtime_completion_applies_on_next_frame_tick():
-    now = 0.0
-
-    def time_fn() -> float:
-        return now
-
-    def sleep_fn(seconds: float) -> None:
-        nonlocal now
-        now += seconds
-
-    jump = Action("jump")
-    worker = CompleteFirstTaskOnSecondDrainWorker(action=jump, completion_time_ms=1.0)
-    executor = _executor(worker=worker, actions=[jump], time_fn=time_fn, sleep_fn=sleep_fn, max_steps=2)
-
-    executor.run_episode(episode_id=0, eval_max_steps=2)
-
-    assert [action.value for action in executor.env.applied_actions] == ["noop", "jump"]
-
-
-def test_realtime_action_ready_midway_through_catchup_applies_only_after_ready_frame():
-    fake_clock = FakeClock()
-    jump = Action("jump")
-    worker = CompleteMeasuredTaskOnSecondDrainWorker(
-        action=jump,
-        completion_time_ms=80.0,
-        inference_latency_ms=80.0,
-        worker_start_time_ms=0.0,
-    )
-    executor = _measured_executor(
-        worker=worker,
-        actions=[jump],
-        time_fn=fake_clock.time,
-        sleep_fn=fake_clock.sleep,
-        max_steps=10,
-    )
-    original_step = executor.env.step
-
-    def step_and_jump_wall_clock(action):
-        result = original_step(action)
-        if len(executor.env.applied_actions) == 1:
-            fake_clock.now = executor.clock.step_to_time_ms(3) / 1000.0
-        return result
-
-    executor.env.step = step_and_jump_wall_clock
-
-    executor.run_episode(episode_id=0, eval_max_steps=4)
-
-    assert [action.value for action in executor.env.applied_actions] == ["noop", "noop", "noop", "jump"]
-    assert executor.action_scheduler.get_applied_events()[0].apply_raw_frame == 3
-
-
-def test_realtime_episode_done_stops_during_catchup():
-    fake_clock = FakeClock()
-    worker = ManualPolicyWorker()
-    executor = _executor(
-        worker=worker,
-        actions=[Action("jump")],
-        time_fn=fake_clock.time,
-        sleep_fn=fake_clock.sleep,
-        max_steps=2,
-    )
-    original_step = executor.env.step
-
-    def step_and_jump_wall_clock(action):
-        result = original_step(action)
-        if len(executor.env.applied_actions) == 1:
-            fake_clock.now = executor.clock.step_to_time_ms(3) / 1000.0
-        return result
-
-    executor.env.step = step_and_jump_wall_clock
-
-    metrics = executor.run_episode(episode_id=0, eval_max_steps=10)
-
-    assert len(executor.env.applied_actions) == 2
-    assert metrics.survival_steps == 2
-    assert metrics.metadata["total_catchup_steps"] == 1
-
-
-def test_realtime_catchup_cap_logs_dropped_frames_and_truncates_episode():
-    fake_clock = FakeClock()
-    worker = ManualPolicyWorker()
-    executor = _executor(
-        worker=worker,
-        actions=[Action("jump")],
-        time_fn=fake_clock.time,
-        sleep_fn=fake_clock.sleep,
-        max_steps=10,
-        max_catchup_steps_per_loop=2,
-    )
-    original_step = executor.env.step
-
-    def step_and_jump_wall_clock(action):
-        result = original_step(action)
-        if len(executor.env.applied_actions) == 1:
-            fake_clock.now = executor.clock.step_to_time_ms(5) / 1000.0
-        return result
-
-    executor.env.step = step_and_jump_wall_clock
-
-    metrics = executor.run_episode(episode_id=0, eval_max_steps=10)
-
-    assert len(executor.env.applied_actions) == 3
-    assert metrics.metadata["catchup_capped"] is True
-    assert metrics.metadata["realtime_catchup_truncated"] is True
-    assert metrics.metadata["dropped_catchup_frames"] == 3
-
-
-def test_bounded_observation_queue_drops_oldest_pending_task():
-    queue = BoundedObservationQueue(max_len=2)
-    tasks = [
-        RealtimeObservationTask(obs_id=i, observation=None, submit_env_step=i, submit_time_ms=float(i))
-        for i in range(3)
-    ]
-
-    assert queue.push_drop_oldest(tasks[0]) is None
-    assert queue.push_drop_oldest(tasks[1]) is None
-    assert queue.push_drop_oldest(tasks[2]) is tasks[0]
-    assert queue.pop() is tasks[1]
-    assert queue.pop() is tasks[2]
-    assert queue.pop() is None
-
-
-def test_realtime_measured_latency_records_policy_duration(tmp_path):
-    now = 0.0
-    jump = Action("jump")
-    worker = CompleteMeasuredTaskOnSecondDrainWorker(
-        action=jump,
-        completion_time_ms=50.0,
-        inference_latency_ms=40.0,
-        worker_start_time_ms=10.0,
+def test_realtime_records_worker_id_once_on_latency_metadata(tmp_path):
+    action = Action("jump")
+    pool = ScriptedInferencePool(
+        [CompletionScript(action, ready_time_ms=1.0, worker_id=1, device="cuda:1")],
+        num_workers=2,
     )
     logger = TrajectoryLogger(tmp_path)
-    executor = _measured_executor(
-        worker=worker,
-        actions=[jump],
-        time_fn=lambda: now,
-        sleep_fn=lambda seconds: None,
-        max_steps=2,
-        logger=logger,
-    )
+    executor = _executor(pool=pool, max_steps=2, logger=logger)
 
     executor.run_episode(episode_id=0, eval_max_steps=2)
 
-    assert logger.latency_records[0].latency_type == "measured"
-    assert logger.latency_records[0].latency_ms > 0
-
-
-def test_realtime_measured_latency_sets_effective_action_delay():
-    now = 0.0
-
-    def time_fn() -> float:
-        return now
-
-    def sleep_fn(seconds: float) -> None:
-        nonlocal now
-        now += seconds
-
-    jump = Action("jump")
-    worker = CompleteMeasuredTaskOnSecondDrainWorker(
-        action=jump,
-        completion_time_ms=50.0,
-        inference_latency_ms=50.0,
-        worker_start_time_ms=0.0,
-    )
-    executor = _measured_executor(worker=worker, actions=[jump], time_fn=time_fn, sleep_fn=sleep_fn, max_steps=3)
-
-    executor.run_episode(episode_id=0, eval_max_steps=3)
-
-    assert [action.value for action in executor.env.applied_actions] == ["noop", "noop", "jump"]
-    assert executor.action_scheduler.get_applied_events()[0].latency.latency_ms == 50.0
-
-
-def test_realtime_measured_metadata_includes_queue_wait_and_effective_latency(tmp_path):
-    now = 0.0
-    jump = Action("jump")
-    worker = CompleteMeasuredTaskOnSecondDrainWorker(
-        action=jump,
-        completion_time_ms=50.0,
-        inference_latency_ms=40.0,
-        worker_start_time_ms=10.0,
-    )
-    logger = TrajectoryLogger(tmp_path)
-    executor = _measured_executor(
-        worker=worker,
-        actions=[jump],
-        time_fn=lambda: now,
-        sleep_fn=lambda seconds: None,
-        max_steps=2,
-        logger=logger,
-    )
-
-    executor.run_episode(episode_id=0, eval_max_steps=2)
-
-    metadata = logger.latency_records[0].metadata
-    assert metadata["queue_wait_ms"] == 10.0
-    assert metadata["effective_latency_ms"] == 50.0
-    assert metadata["submit_time_ms"] == 0.0
-    assert metadata["ready_time_ms"] == 50.0
+    latency = logger.latency_records[0]
+    event = logger.action_records[0]
+    assert latency.device == "cuda:1"
+    assert latency.metadata["worker_id"] == 1
+    assert "worker_id" not in event.metadata
+    assert "device" not in event.metadata
