@@ -10,3 +10,7 @@ distill/
 # Python cache files
 __pycache__/
 _vizdoom.ini
+
+teacher_datasets
+checkpoints
+results

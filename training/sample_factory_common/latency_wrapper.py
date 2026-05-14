@@ -41,6 +41,13 @@ class QueueLatencyWrapper(gym.Wrapper):
         noop_action: Any | None = None,
         latency_mode: str = "episode_fixed",
         latency_sampling_mode: str = "uniform_all",
+        latency_distribution: str = "discrete",
+        latency_normal_mean: float = 0.0,
+        latency_normal_std: float = 0.0,
+        latency_normal_min: int = 0,
+        latency_normal_max: int = 0,
+        latency_uniform_min: int = 0,
+        latency_uniform_max: int = 0,
         episodes_per_stage: int = 10,
         randomize_within_stage: bool = False,
         within_episode_change_interval: int = 1,
@@ -59,10 +66,35 @@ class QueueLatencyWrapper(gym.Wrapper):
             raise ValueError(f"Unsupported latency mode: {latency_mode}")
         if latency_sampling_mode not in {"uniform_all", "curriculum"}:
             raise ValueError(f"Unsupported latency sampling mode: {latency_sampling_mode}")
+        if latency_distribution not in {"discrete", "normal", "uniform"}:
+            raise ValueError(f"Unsupported latency distribution: {latency_distribution}")
+        if float(latency_normal_std) < 0.0:
+            raise ValueError(f"latency_normal_std must be non-negative, got {latency_normal_std}")
+        if int(latency_normal_min) < 0:
+            raise ValueError(f"latency_normal_min must be non-negative, got {latency_normal_min}")
+        if int(latency_normal_max) < int(latency_normal_min):
+            raise ValueError(
+                "latency_normal_max must be greater than or equal to "
+                f"latency_normal_min, got min={latency_normal_min} max={latency_normal_max}"
+            )
+        if int(latency_uniform_min) < 0:
+            raise ValueError(f"latency_uniform_min must be non-negative, got {latency_uniform_min}")
+        if int(latency_uniform_max) < int(latency_uniform_min):
+            raise ValueError(
+                "latency_uniform_max must be greater than or equal to "
+                f"latency_uniform_min, got min={latency_uniform_min} max={latency_uniform_max}"
+            )
 
         self.queue_latency_values = [max(0, int(item)) for item in queue_latency_values]
         self.latency_mode = str(latency_mode)
         self.latency_sampling_mode = str(latency_sampling_mode)
+        self.latency_distribution = str(latency_distribution)
+        self.latency_normal_mean = float(latency_normal_mean)
+        self.latency_normal_std = float(latency_normal_std)
+        self.latency_normal_min = int(latency_normal_min)
+        self.latency_normal_max = int(latency_normal_max)
+        self.latency_uniform_min = int(latency_uniform_min)
+        self.latency_uniform_max = int(latency_uniform_max)
         self.episodes_per_stage = max(1, int(episodes_per_stage))
         self.randomize_within_stage = bool(randomize_within_stage)
         self.within_episode_change_interval = max(1, int(within_episode_change_interval))
@@ -86,6 +118,18 @@ class QueueLatencyWrapper(gym.Wrapper):
         return min(stage, len(self.queue_latency_values) - 1)
 
     def _sample_latency(self) -> int:
+        if self.latency_distribution == "normal":
+            if self.latency_normal_std == 0.0:
+                sampled = self.latency_normal_mean
+            else:
+                sampled = float(self.rng.normal(self.latency_normal_mean, self.latency_normal_std))
+            rounded = int(np.rint(sampled))
+            clamped = min(max(rounded, self.latency_normal_min), self.latency_normal_max)
+            return int(clamped)
+
+        if self.latency_distribution == "uniform":
+            return int(self.rng.randint(self.latency_uniform_min, self.latency_uniform_max + 1))
+
         if self.latency_sampling_mode == "uniform_all":
             return int(self.rng.choice(self.queue_latency_values))
 

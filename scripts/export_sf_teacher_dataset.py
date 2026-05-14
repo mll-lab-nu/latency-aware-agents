@@ -29,6 +29,14 @@ class EpisodeSpec(NamedTuple):
     seed: int
 
 
+class JitterLatencySpec(NamedTuple):
+    distribution: str
+    mean: float | None
+    std: float | None
+    min_latency: int
+    max_latency: int
+
+
 def _register_components(module, env_name: str) -> None:
     component_fn = getattr(module, f"register_{env_name}_components", None)
     if callable(component_fn):
@@ -134,12 +142,55 @@ def _minimal_export_cfg(module, *, experiment_dir: Path, device_override: str | 
     return _parse_module_cfg(module, cli_args)
 
 
-def _prepare_export_cfg(module, env_name: str, base_cfg, latency: int):
+def _latency_value_csv(min_latency: int, max_latency: int) -> str:
+    if int(max_latency) < int(min_latency):
+        raise ValueError(
+            f"max_latency must be greater than or equal to min_latency, got {max_latency} < {min_latency}"
+        )
+    return ",".join(str(value) for value in range(int(min_latency), int(max_latency) + 1))
+
+
+def _apply_jitter_latency_overrides(cfg, jitter_spec: JitterLatencySpec) -> None:
+    maybe_set_cli_override(
+        cfg,
+        "queue_latency_values",
+        _latency_value_csv(jitter_spec.min_latency, jitter_spec.max_latency),
+    )
+    maybe_set_cli_override(cfg, "latency_mode", "within_episode_random")
+    maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
+    maybe_set_cli_override(cfg, "latency_distribution", str(jitter_spec.distribution))
+    if jitter_spec.distribution == "normal":
+        if jitter_spec.mean is None or jitter_spec.std is None:
+            raise ValueError("Normal jitter latency requires mean and std")
+        maybe_set_cli_override(cfg, "latency_normal_mean", float(jitter_spec.mean))
+        maybe_set_cli_override(cfg, "latency_normal_std", float(jitter_spec.std))
+        maybe_set_cli_override(cfg, "latency_normal_min", int(jitter_spec.min_latency))
+        maybe_set_cli_override(cfg, "latency_normal_max", int(jitter_spec.max_latency))
+    elif jitter_spec.distribution == "uniform":
+        maybe_set_cli_override(cfg, "latency_uniform_min", int(jitter_spec.min_latency))
+        maybe_set_cli_override(cfg, "latency_uniform_max", int(jitter_spec.max_latency))
+    else:
+        raise ValueError(f"Unsupported jitter latency distribution: {jitter_spec.distribution}")
+    maybe_set_cli_override(cfg, "within_episode_change_interval", 1)
+    maybe_set_cli_override(cfg, "within_episode_change_prob", 1.0)
+    maybe_set_cli_override(cfg, "add_latency_info", True)
+
+
+def _prepare_export_cfg(
+    module,
+    env_name: str,
+    base_cfg,
+    latency: int,
+    jitter_spec: JitterLatencySpec | None,
+):
     from sample_factory.cfg.arguments import load_from_checkpoint
 
     if env_name == "deadly_corridor" and hasattr(module, "_prepare_eval_cfg"):
         cfg = module._prepare_eval_cfg(base_cfg, latency)
         cfg = load_from_checkpoint(cfg)
+        if jitter_spec is not None:
+            _apply_jitter_latency_overrides(cfg, jitter_spec)
+            return cfg
         cfg.queue_latency_values = str(int(latency))
         cfg.latency_mode = "episode_fixed"
         cfg.latency_sampling_mode = "uniform_all"
@@ -148,6 +199,13 @@ def _prepare_export_cfg(module, env_name: str, base_cfg, latency: int):
 
     cfg = prepare_queue_eval_cfg(base_cfg, latency)
     cfg = load_from_checkpoint(cfg)
+    if jitter_spec is not None:
+        _apply_jitter_latency_overrides(cfg, jitter_spec)
+        if env_name == "demon_attack" and bool(getattr(base_cfg, "eval_raw_reward", False)):
+            maybe_set_cli_override(cfg, "clip_reward", False)
+        if env_name == "demon_attack":
+            maybe_set_cli_override(cfg, "terminal_on_life_loss", False)
+        return cfg
     maybe_set_cli_override(cfg, "queue_latency_values", str(int(latency)))
     maybe_set_cli_override(cfg, "latency_mode", "episode_fixed")
     maybe_set_cli_override(cfg, "latency_sampling_mode", "uniform_all")
@@ -658,7 +716,7 @@ def _prompt_for_episode(
     latency: int,
     latency_ms: float,
 ) -> str:
-    if dataset_mode == "mixed_latency":
+    if dataset_mode in {"mixed_latency", "jitter_latency"}:
         return mixed_prompt_template.format(
             prompt=prompt,
             latency=int(latency),
@@ -788,6 +846,55 @@ def _find_experiment_dir(checkpoint_root: Path, env_name: str, latency: int, see
     return matches[0]
 
 
+def _format_latency_number_for_path(value: float) -> str:
+    numeric = float(value)
+    if numeric.is_integer():
+        return str(int(numeric))
+    return f"{numeric:g}".replace("-", "m").replace(".", "p")
+
+
+def _jitter_latency_label(jitter_spec: JitterLatencySpec) -> str:
+    if jitter_spec.distribution == "uniform":
+        return (
+            "uniform"
+            f"_min_{_format_latency_number_for_path(float(jitter_spec.min_latency))}"
+            f"_max_{_format_latency_number_for_path(float(jitter_spec.max_latency))}"
+        )
+    if jitter_spec.distribution != "normal":
+        raise ValueError(f"Unsupported jitter latency distribution: {jitter_spec.distribution}")
+    if jitter_spec.mean is None or jitter_spec.std is None:
+        raise ValueError("Normal jitter latency requires mean and std")
+    return (
+        "normal"
+        f"_mean_{_format_latency_number_for_path(float(jitter_spec.mean))}"
+        f"_std_{_format_latency_number_for_path(float(jitter_spec.std))}"
+        f"_min_{_format_latency_number_for_path(float(jitter_spec.min_latency))}"
+        f"_max_{_format_latency_number_for_path(float(jitter_spec.max_latency))}"
+    )
+
+
+def _find_jitter_experiment_dir(
+    *,
+    checkpoint_root: Path,
+    env_name: str,
+    jitter_spec: JitterLatencySpec,
+    seed: int,
+) -> Path:
+    label = _jitter_latency_label(jitter_spec)
+    expected_name = f"{env_name}_sf_latency_{label}_seed{int(seed)}"
+    direct = checkpoint_root / expected_name
+    if direct.exists():
+        return direct
+    if checkpoint_root.name == expected_name:
+        return checkpoint_root
+    matches = sorted(checkpoint_root.glob(f"{expected_name}*"))
+    if not matches:
+        raise FileNotFoundError(
+            f"Could not find jitter experiment directory {expected_name} under {checkpoint_root}"
+        )
+    return matches[0]
+
+
 def _find_best_checkpoint_name(experiment_dir: Path) -> str:
     checkpoints = sorted(experiment_dir.glob("checkpoint_p*/best_*.pth"))
     if not checkpoints:
@@ -876,6 +983,14 @@ def _reward_from_step(reward_value: Any, info: dict[str, Any], *, prefer_raw_rew
     return float(_to_python_scalar(reward_value))
 
 
+def _latency_from_step_info(info: dict[str, Any], fallback_latency: int) -> int:
+    for key in ("queue_latency", "frame_skip", "latency_frame_skip"):
+        value = info.get(key)
+        if value is not None:
+            return int(_to_python_scalar(value))
+    return int(fallback_latency)
+
+
 def _build_export_row(
     image_path: str,
     split: str,
@@ -942,11 +1057,12 @@ def _collect_latency_dataset_batched(
     image_writer_workers: int,
     row_buffer_size: int,
     image_source: str,
+    jitter_spec: JitterLatencySpec | None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     import torch
     from sample_factory.algo.utils.rl_utils import make_dones
 
-    cfg = _prepare_export_cfg(module, env_name, base_cfg, latency)
+    cfg = _prepare_export_cfg(module, env_name, base_cfg, latency, jitter_spec)
     runtime = _build_env_and_policy(module, cfg, env_name, int(num_envs))
     envs = list(runtime["envs"])
     env_info = runtime["env_info"]
@@ -961,7 +1077,6 @@ def _collect_latency_dataset_batched(
     prefer_raw_reward = bool(getattr(cfg, "eval_raw_reward", False))
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
     decision_period_ms = _decision_period_ms_from_cfg(env_name, cfg)
-    latency_ms = float(latency) * decision_period_ms
     base_seed = int(getattr(cfg, "seed", 0) or 0)
     specs = _build_episode_specs(
         episode_count=int(episode_count),
@@ -1050,20 +1165,21 @@ def _collect_latency_dataset_batched(
                 slot_policy_action = _select_batch_item(policy_actions, batch_idx)
                 action_id = _policy_action_id(env_name, slot_policy_action)
                 action_text = action_labels.get(action_id, str(action_id))
-                prompt_text = _prompt_for_episode(
-                    dataset_mode=dataset_mode,
-                    prompt=prompt,
-                    mixed_prompt_template=mixed_prompt_template,
-                    latency=latency,
-                    latency_ms=latency_ms,
-                )
-
                 next_obs, reward, terminated, truncated, info = envs[slot].step(
                     _select_batch_item(processed_actions, batch_idx)
                 )
                 dones = make_dones(terminated, truncated)
                 done = bool(_to_python_scalar(dones[0]))
                 info_single = _extract_single_info(info)
+                actual_latency = _latency_from_step_info(info_single, fallback_latency=int(latency))
+                actual_latency_ms = float(actual_latency) * decision_period_ms
+                prompt_text = _prompt_for_episode(
+                    dataset_mode=dataset_mode,
+                    prompt=prompt,
+                    mixed_prompt_template=mixed_prompt_template,
+                    latency=actual_latency,
+                    latency_ms=actual_latency_ms,
+                )
                 reward_value = _reward_from_step(
                     _batched_reward_item(reward, 0),
                     info_single,
@@ -1076,8 +1192,8 @@ def _collect_latency_dataset_batched(
                         prompt_text=prompt_text,
                         action_id=action_id,
                         action_text=action_text,
-                        latency=int(latency),
-                        latency_ms=float(latency_ms),
+                        latency=int(actual_latency),
+                        latency_ms=float(actual_latency_ms),
                         reward_value=float(reward_value),
                         done=bool(done),
                         episode_idx=int(spec.episode_idx),
@@ -1135,11 +1251,12 @@ def _collect_latency_dataset(
     global_episode_start: int,
     deterministic: bool,
     export_image_size: tuple[int, int] | None,
+    jitter_spec: JitterLatencySpec | None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     import torch
     from sample_factory.algo.utils.rl_utils import make_dones
 
-    cfg = _prepare_export_cfg(module, env_name, base_cfg, latency)
+    cfg = _prepare_export_cfg(module, env_name, base_cfg, latency, jitter_spec)
     runtime = _build_env_and_policy(module, cfg, env_name, 1)
     env = runtime["env"]
     env_info = runtime["env_info"]
@@ -1154,7 +1271,6 @@ def _collect_latency_dataset(
     prefer_raw_reward = bool(getattr(cfg, "eval_raw_reward", False))
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
     decision_period_ms = _decision_period_ms_from_cfg(env_name, cfg)
-    latency_ms = float(latency) * decision_period_ms
 
     train_rows: list[dict[str, Any]] = []
     val_rows: list[dict[str, Any]] = []
@@ -1191,19 +1307,24 @@ def _collect_latency_dataset(
 
             action_id = _policy_action_id(env_name, policy_actions[0])
             action_text = action_labels.get(action_id, str(action_id))
-            prompt_text = _prompt_for_episode(
-                dataset_mode=dataset_mode,
-                prompt=prompt,
-                mixed_prompt_template=mixed_prompt_template,
-                latency=latency,
-                latency_ms=latency_ms,
-            )
-
             next_obs, reward, terminated, truncated, info = env.step(actions)
             dones = make_dones(terminated, truncated)
             done = bool(_to_python_scalar(dones[0]))
             info_single = _extract_single_info(info)
-            reward_value = _reward_from_step(reward[0] if isinstance(reward, (list, tuple, np.ndarray)) else reward, info_single, prefer_raw_reward=prefer_raw_reward)
+            actual_latency = _latency_from_step_info(info_single, fallback_latency=int(latency))
+            actual_latency_ms = float(actual_latency) * decision_period_ms
+            prompt_text = _prompt_for_episode(
+                dataset_mode=dataset_mode,
+                prompt=prompt,
+                mixed_prompt_template=mixed_prompt_template,
+                latency=actual_latency,
+                latency_ms=actual_latency_ms,
+            )
+            reward_value = _reward_from_step(
+                reward[0] if isinstance(reward, (list, tuple, np.ndarray)) else reward,
+                info_single,
+                prefer_raw_reward=prefer_raw_reward,
+            )
 
             split_rows.append(
                 _build_export_row(
@@ -1212,8 +1333,8 @@ def _collect_latency_dataset(
                     prompt_text=prompt_text,
                     action_id=action_id,
                     action_text=action_text,
-                    latency=int(latency),
-                    latency_ms=float(latency_ms),
+                    latency=int(actual_latency),
+                    latency_ms=float(actual_latency_ms),
                     reward_value=float(reward_value),
                     done=bool(done),
                     episode_idx=int(episode_idx),
@@ -1232,10 +1353,10 @@ def _collect_latency_dataset(
 
 
 def _build_plan(args) -> list[tuple[int, int, int]]:
-    if args.dataset_mode in {"zero_latency", "fixed_latency"}:
+    if args.dataset_mode in {"zero_latency", "fixed_latency", "jitter_latency"}:
         val_count = int(round(args.max_episodes * args.val_fraction))
         val_count = max(0, min(int(args.max_episodes), val_count))
-        latency = 0 if args.dataset_mode == "zero_latency" else int(args.fixed_latency)
+        latency = int(args.fixed_latency) if args.dataset_mode == "fixed_latency" else 0
         return [(latency, int(args.max_episodes), val_count)]
 
     latencies = list(range(int(args.latency_start), int(args.latency_end) + 1))
@@ -1249,7 +1370,7 @@ def main() -> None:
     parser.add_argument("--checkpoint-root", required=True, help="Directory containing latency-specific experiment folders.")
     parser.add_argument("--output-dir", required=True, help="Directory where parquet files and images will be written.")
     parser.add_argument("--export-image-size", type=str, default="", help="Optional saved image size in 'W,H' format, e.g. '512,288'. This does not affect teacher inference.")
-    parser.add_argument("--dataset-mode", required=True, choices=["zero_latency", "fixed_latency", "mixed_latency"])
+    parser.add_argument("--dataset-mode", required=True, choices=["zero_latency", "fixed_latency", "mixed_latency", "jitter_latency"])
     parser.add_argument("--prompt", required=True, help="Base prompt used for the zero-latency dataset.")
     parser.add_argument(
         "--mixed-prompt-template",
@@ -1272,9 +1393,15 @@ def main() -> None:
     parser.add_argument("--hf-token", type=str, default="", help="Optional HF token. If omitted, the script will use HF_TOKEN or HUGGINGFACE_HUB_TOKEN from the environment.")
     parser.add_argument("--hf-max-shard-size", type=str, default="500MB", help="Shard size forwarded to datasets.push_to_hub.")
 
-    parser.add_argument("--max-episodes", type=int, default=0, help="Zero-latency mode only.")
-    parser.add_argument("--val-fraction", type=float, default=0.1, help="Zero-latency mode only.")
+    parser.add_argument("--max-episodes", type=int, default=0, help="Zero/fixed/jitter-latency modes only.")
+    parser.add_argument("--val-fraction", type=float, default=0.1, help="Zero/fixed/jitter-latency modes only.")
     parser.add_argument("--fixed-latency", type=int, default=0, help="Fixed-latency mode only.")
+
+    parser.add_argument("--jitter-latency-distribution", type=str, default="normal", choices=["normal", "uniform"], help="Jitter-latency mode only.")
+    parser.add_argument("--jitter-latency-mean", type=float, default=None, help="Normal jitter-latency mode only.")
+    parser.add_argument("--jitter-latency-std", type=float, default=None, help="Normal jitter-latency mode only.")
+    parser.add_argument("--jitter-latency-min", type=int, default=0, help="Jitter-latency mode only.")
+    parser.add_argument("--jitter-latency-max", type=int, default=None, help="Jitter-latency mode only.")
 
     parser.add_argument("--latency-start", type=int, default=0, help="Mixed-latency mode only.")
     parser.add_argument("--latency-end", type=int, default=0, help="Mixed-latency mode only.")
@@ -1302,10 +1429,24 @@ def main() -> None:
         default_seed = 0
     checkpoint_seed = int(args.checkpoint_seed if args.checkpoint_seed is not None else default_seed)
 
-    if args.dataset_mode in {"zero_latency", "fixed_latency"} and args.max_episodes <= 0:
-        raise ValueError("--max-episodes must be positive for fixed-latency export")
+    if args.dataset_mode in {"zero_latency", "fixed_latency", "jitter_latency"} and args.max_episodes <= 0:
+        raise ValueError("--max-episodes must be positive for fixed-latency or jitter-latency export")
     if args.dataset_mode == "fixed_latency" and args.fixed_latency < 0:
         raise ValueError("--fixed-latency must be non-negative")
+    if args.dataset_mode == "jitter_latency":
+        jitter_distribution = str(args.jitter_latency_distribution)
+        if jitter_distribution == "normal" and args.jitter_latency_mean is None:
+            raise ValueError("--jitter-latency-mean is required for normal jitter-latency export")
+        if jitter_distribution == "normal" and args.jitter_latency_std is None:
+            raise ValueError("--jitter-latency-std is required for normal jitter-latency export")
+        if args.jitter_latency_max is None:
+            raise ValueError("--jitter-latency-max is required for jitter-latency export")
+        if jitter_distribution == "normal" and float(args.jitter_latency_std) < 0.0:
+            raise ValueError("--jitter-latency-std must be non-negative")
+        if int(args.jitter_latency_min) < 0:
+            raise ValueError("--jitter-latency-min must be non-negative")
+        if int(args.jitter_latency_max) < int(args.jitter_latency_min):
+            raise ValueError("--jitter-latency-max must be >= --jitter-latency-min")
     if args.dataset_mode == "mixed_latency":
         if args.episodes_per_latency <= 0:
             raise ValueError("--episodes-per-latency must be positive for mixed-latency export")
@@ -1317,6 +1458,17 @@ def main() -> None:
         raise ValueError("--image-writer-workers must be non-negative")
     if args.row_buffer_size <= 0:
         raise ValueError("--row-buffer-size must be positive")
+
+    jitter_spec = None
+    if args.dataset_mode == "jitter_latency":
+        jitter_distribution = str(args.jitter_latency_distribution)
+        jitter_spec = JitterLatencySpec(
+            distribution=jitter_distribution,
+            mean=float(args.jitter_latency_mean) if jitter_distribution == "normal" else None,
+            std=float(args.jitter_latency_std) if jitter_distribution == "normal" else None,
+            min_latency=int(args.jitter_latency_min),
+            max_latency=int(args.jitter_latency_max),
+        )
 
     train_rows: list[dict[str, Any]] = []
     val_rows: list[dict[str, Any]] = []
@@ -1335,6 +1487,13 @@ def main() -> None:
         "row_buffer_size": int(args.row_buffer_size),
         "image_source": str(args.image_source),
         "decision_period_ms": None,
+        "jitter_latency": None if jitter_spec is None else {
+            "distribution": str(jitter_spec.distribution),
+            "mean": None if jitter_spec.mean is None else float(jitter_spec.mean),
+            "std": None if jitter_spec.std is None else float(jitter_spec.std),
+            "min": int(jitter_spec.min_latency),
+            "max": int(jitter_spec.max_latency),
+        },
         "latencies": [],
         "action_labels": {},
     }
@@ -1348,7 +1507,16 @@ def main() -> None:
             matches: list[tuple[str, Path]] = []
             for candidate in ("deadly_corridor", "demon_attack", "flappy"):
                 try:
-                    matches.append((candidate, _find_experiment_dir(checkpoint_root, candidate, latency, checkpoint_seed)))
+                    if jitter_spec is None:
+                        experiment_candidate = _find_experiment_dir(checkpoint_root, candidate, latency, checkpoint_seed)
+                    else:
+                        experiment_candidate = _find_jitter_experiment_dir(
+                            checkpoint_root=checkpoint_root,
+                            env_name=candidate,
+                            jitter_spec=jitter_spec,
+                            seed=checkpoint_seed,
+                        )
+                    matches.append((candidate, experiment_candidate))
                 except FileNotFoundError:
                     continue
             if len(matches) != 1:
@@ -1358,7 +1526,15 @@ def main() -> None:
                 )
             env_name, experiment_dir = matches[0]
         else:
-            experiment_dir = _find_experiment_dir(checkpoint_root, env_name, latency, checkpoint_seed)
+            if jitter_spec is None:
+                experiment_dir = _find_experiment_dir(checkpoint_root, env_name, latency, checkpoint_seed)
+            else:
+                experiment_dir = _find_jitter_experiment_dir(
+                    checkpoint_root=checkpoint_root,
+                    env_name=env_name,
+                    jitter_spec=jitter_spec,
+                    seed=checkpoint_seed,
+                )
 
         module = import_integration_module({"env": {"name": env_name}})
         _register_components(module, env_name)
@@ -1370,7 +1546,7 @@ def main() -> None:
         if metadata["env_name"] is None:
             metadata["env_name"] = env_name
         if metadata["decision_period_ms"] is None:
-            prepared_cfg = _prepare_export_cfg(module, env_name, base_cfg, latency)
+            prepared_cfg = _prepare_export_cfg(module, env_name, base_cfg, latency, jitter_spec)
             metadata["decision_period_ms"] = float(_decision_period_ms_from_cfg(env_name, prepared_cfg))
         if args.collector_mode == "batched":
             latency_train_rows, latency_val_rows, latency_meta = _collect_latency_dataset_batched(
@@ -1392,6 +1568,7 @@ def main() -> None:
                 image_writer_workers=int(args.image_writer_workers),
                 row_buffer_size=int(args.row_buffer_size),
                 image_source=str(args.image_source),
+                jitter_spec=jitter_spec,
             )
         else:
             latency_train_rows, latency_val_rows, latency_meta = _collect_latency_dataset(
@@ -1409,20 +1586,31 @@ def main() -> None:
                 global_episode_start=episode_offset,
                 deterministic=bool(args.deterministic),
                 export_image_size=export_image_size,
+                jitter_spec=jitter_spec,
             )
         train_rows.extend(latency_train_rows)
         val_rows.extend(latency_val_rows)
-        metadata["latencies"].append(
-            {
-                "latency": int(latency),
-                "latency_ms": float(latency) * float(metadata["decision_period_ms"]),
-                "episode_count": int(episode_count),
-                "val_episode_count": int(val_count),
-                "experiment_dir": str(experiment_dir),
-                "best_checkpoint": _find_best_checkpoint_name(experiment_dir),
-            }
-        )
-        metadata["action_labels"][str(latency)] = latency_meta["action_labels"]
+        latency_meta_key = str(latency)
+        latency_metadata: dict[str, Any] = {
+            "episode_count": int(episode_count),
+            "val_episode_count": int(val_count),
+            "experiment_dir": str(experiment_dir),
+            "best_checkpoint": _find_best_checkpoint_name(experiment_dir),
+        }
+        if jitter_spec is None:
+            latency_metadata["latency"] = int(latency)
+            latency_metadata["latency_ms"] = float(latency) * float(metadata["decision_period_ms"])
+        else:
+            latency_meta_key = _jitter_latency_label(jitter_spec)
+            latency_metadata["latency_distribution"] = str(jitter_spec.distribution)
+            if jitter_spec.mean is not None:
+                latency_metadata["latency_mean"] = float(jitter_spec.mean)
+            if jitter_spec.std is not None:
+                latency_metadata["latency_std"] = float(jitter_spec.std)
+            latency_metadata["latency_min"] = int(jitter_spec.min_latency)
+            latency_metadata["latency_max"] = int(jitter_spec.max_latency)
+        metadata["latencies"].append(latency_metadata)
+        metadata["action_labels"][latency_meta_key] = latency_meta["action_labels"]
         episode_offset += episode_count
 
     dataset_dict = _write_parquet_splits(output_dir, train_rows, val_rows)

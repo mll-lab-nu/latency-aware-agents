@@ -130,6 +130,13 @@ def make_demon_attack_sf_env(
         queue_latency_values=latency_values or [0],
         latency_mode=getattr(cfg, "latency_mode", "episode_fixed"),
         latency_sampling_mode=getattr(cfg, "latency_sampling_mode", "uniform_all"),
+        latency_distribution=getattr(cfg, "latency_distribution", "discrete"),
+        latency_normal_mean=float(getattr(cfg, "latency_normal_mean", 0.0)),
+        latency_normal_std=float(getattr(cfg, "latency_normal_std", 0.0)),
+        latency_normal_min=int(getattr(cfg, "latency_normal_min", 0)),
+        latency_normal_max=int(getattr(cfg, "latency_normal_max", 0)),
+        latency_uniform_min=int(getattr(cfg, "latency_uniform_min", 0)),
+        latency_uniform_max=int(getattr(cfg, "latency_uniform_max", 0)),
         episodes_per_stage=int(getattr(cfg, "episodes_per_stage", 10)),
         randomize_within_stage=bool(getattr(cfg, "randomize_within_stage", False)),
         within_episode_change_interval=int(getattr(cfg, "within_episode_change_interval", 1)),
@@ -186,6 +193,13 @@ def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--queue-latency-values", type=str, default="0")
     parser.add_argument("--latency-mode", type=str, default="episode_fixed")
     parser.add_argument("--latency-sampling-mode", type=str, default="uniform_all")
+    parser.add_argument("--latency-distribution", type=str, default="discrete", choices=["discrete", "normal", "uniform"])
+    parser.add_argument("--latency-normal-mean", type=float, default=0.0)
+    parser.add_argument("--latency-normal-std", type=float, default=0.0)
+    parser.add_argument("--latency-normal-min", type=int, default=0)
+    parser.add_argument("--latency-normal-max", type=int, default=0)
+    parser.add_argument("--latency-uniform-min", type=int, default=0)
+    parser.add_argument("--latency-uniform-max", type=int, default=0)
     parser.add_argument("--episodes-per-stage", type=int, default=10)
     parser.add_argument("--randomize-within-stage", type=str2bool, default=False)
     parser.add_argument("--within-episode-change-interval", type=int, default=1)
