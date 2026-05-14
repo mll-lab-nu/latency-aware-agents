@@ -14,7 +14,7 @@ from PIL import Image
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
-from modeling.flappy_ppo.preprocessing import resize_frame_pil
+from latency_bench.envs.flappy import resize_frame_pil
 from training.sample_factory_common.common import (
     env_instance_seed,
     str2bool,

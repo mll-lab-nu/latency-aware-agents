@@ -1113,11 +1113,3 @@ def test_latency_bench_run_with_batched_deadly_tuple_policy_completes_exact_epis
     )
     assert isinstance(action_records[0]["action"]["value"], list)
     assert len(action_records[0]["action"]["value"]) == 4
-
-
-def test_sample_factory_checkpoint_loader_rejects_flappy_ppo_checkpoint(tmp_path):
-    path = tmp_path / "checkpoint_000000001_000000000128.pth"
-    torch.save({"backend_type": "flappy_ppo", "format": "flappy_ppo", "agent": {}}, path)
-
-    with pytest.raises(ValueError, match="flappy_ppo"):
-        sample_factory_common._checkpoint_state_dict_from_path(path, torch.device("cpu"))

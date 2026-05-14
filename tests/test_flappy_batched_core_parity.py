@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from training.flappy_ppo.paths import ensure_flappy_gymnasium_on_path
+from latency_bench.envs.flappy import ensure_flappy_gymnasium_on_path
 
 ensure_flappy_gymnasium_on_path()
 
