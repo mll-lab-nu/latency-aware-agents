@@ -1,3 +1,51 @@
+"""Export Sample Factory teacher rollouts as parquet datasets.
+
+This exporter is for offline teacher data collection. It loads a Sample
+Factory checkpoint, reconstructs the training environment, rolls out the
+teacher policy, saves policy observations as images, and writes
+``train.parquet``, ``val.parquet``, and ``metadata.json``.
+
+Default latency behavior:
+    The rollout uses the latency configuration stored in the checkpoint
+    ``config.json``. To intentionally collect data under another latency
+    distribution, pass ``--latency-config`` with a YAML file containing a
+    training-compatible ``latency:`` section.
+
+Minimal local smoke test:
+    python scripts/export_sf_teacher_dataset.py \
+      --checkpoint-root results/checkpoints/flappy_sf_frame_stack_4_seed0 \
+      --output-dir /tmp/flappy_teacher_export_smoke \
+      --prompt "You are playing Flappy Bird. Choose the best next action." \
+      --max-episodes 1 \
+      --max-steps-per-episode 8 \
+      --val-fraction 0.0 \
+      --num-envs 1 \
+      --device cpu
+
+Direct export and upload:
+    export HF_TOKEN="your-token"
+    python scripts/export_sf_teacher_dataset.py \
+      --checkpoint-root results/checkpoints/flappy_sf_frame_stack_4_seed0 \
+      --output-dir /tmp/flappy_teacher_export_smoke \
+      --prompt "You are playing Flappy Bird. Choose the best next action." \
+      --max-episodes 1 \
+      --max-steps-per-episode 8 \
+      --val-fraction 0.0 \
+      --num-envs 1 \
+      --device cpu \
+      --push-to-hub \
+      --hf-repo-id your-hf-name/flappy_teacher_export_smoke \
+      --hf-token "$HF_TOKEN" \
+      --hf-private
+
+Upload an existing export:
+    python scripts/push_sf_teacher_dataset.py \
+      --dataset /tmp/flappy_teacher_export_smoke your-hf-name/flappy_teacher_export_smoke \
+      --upload-mode direct \
+      --hf-token "$HF_TOKEN" \
+      --hf-private
+"""
+
 from __future__ import annotations
 
 import torch
