@@ -17,7 +17,6 @@ from latency_bench.logging.metrics import (
     apply_latency_record_raw_fields,
     compute_episode_metrics,
     episode_raw_fact_metadata,
-    latency_type_from_source,
     profile_metadata_from_source,
 )
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
@@ -181,10 +180,6 @@ class RealtimeLatencyExecutor:
         latency_profiler: RuntimeLatencyMeasurer | None = None,
         max_catchup_steps_per_loop: int | None = None,
     ):
-        if max_pending_observations <= 0:
-            raise ValueError("max_pending_observations must be positive")
-        if max_catchup_steps_per_loop is not None and int(max_catchup_steps_per_loop) <= 0:
-            raise ValueError("max_catchup_steps_per_loop must be positive or None")
         self.env = env
         self.policy = policy
         self.decision_scheduler = decision_scheduler
@@ -210,9 +205,6 @@ class RealtimeLatencyExecutor:
         seed: int | None = None,
         eval_max_steps: int = 10000,
     ) -> EpisodeMetrics:
-        if eval_max_steps < 0:
-            raise ValueError("eval_max_steps must be non-negative")
-
         self.action_scheduler.reset()
         self.env.reset(seed=seed)
 
