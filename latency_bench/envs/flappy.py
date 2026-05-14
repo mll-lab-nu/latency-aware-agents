@@ -1,16 +1,246 @@
 from __future__ import annotations
 
 from collections import deque
+from contextlib import nullcontext
+from dataclasses import dataclass
+from pathlib import Path
+import sys
 from typing import Any
 
-import flappy_bird_gymnasium  # noqa: F401
 import gymnasium
 import numpy as np
 from PIL import Image
+import torch
+import torch.nn.functional as F
 
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
-from modeling.flappy_ppo.preprocessing import resize_frame_pil
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FLAPPY_GYMNASIUM_ROOT = REPO_ROOT / "flappy-bird-gymnasium"
+
+
+def ensure_flappy_gymnasium_on_path() -> None:
+    if FLAPPY_GYMNASIUM_ROOT.exists() and str(FLAPPY_GYMNASIUM_ROOT) not in sys.path:
+        sys.path.insert(0, str(FLAPPY_GYMNASIUM_ROOT))
+
+
+ensure_flappy_gymnasium_on_path()
+
+import flappy_bird_gymnasium  # noqa: E402,F401
+
+
+@dataclass(frozen=True)
+class FlappyObservationConfig:
+    image_size: int = 84
+    grayscale: bool = False
+    stack_frames: int = 4
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "image_size", int(self.image_size))
+        object.__setattr__(self, "grayscale", bool(self.grayscale))
+        object.__setattr__(self, "stack_frames", int(self.stack_frames))
+
+    @property
+    def base_channels(self) -> int:
+        return 1 if self.grayscale else 3
+
+    @property
+    def stacked_channels(self) -> int:
+        return self.base_channels * self.stack_frames
+
+    @property
+    def in_channels(self) -> int:
+        return self.stacked_channels
+
+
+def resize_frame_pil(
+    frame: np.ndarray,
+    image_size: int = 84,
+    grayscale: bool = False,
+) -> np.ndarray:
+    arr = np.asarray(frame)
+    if arr.dtype != np.uint8:
+        arr = np.clip(arr, 0, 255).astype(np.uint8)
+
+    image = Image.fromarray(arr)
+    image = image.convert("L" if grayscale else "RGB")
+    target_size = (int(image_size), int(image_size))
+    if image.size != target_size:
+        image = image.resize(target_size, Image.BILINEAR)
+
+    out = np.asarray(image, dtype=np.uint8)
+    if grayscale:
+        out = out[..., None]
+    return out
+
+
+def _resize_rgb_batch_torch_nchw(
+    raw_rgb_batch: torch.Tensor,
+    image_size: int,
+    grayscale: bool = False,
+) -> torch.Tensor:
+    nchw = raw_rgb_batch.permute(0, 3, 1, 2).to(torch.float32)
+    if grayscale:
+        r = nchw[:, 0:1]
+        g = nchw[:, 1:2]
+        b = nchw[:, 2:3]
+        nchw = torch.floor((r * 299.0 + g * 587.0 + b * 114.0 + 500.0) / 1000.0)
+
+    resized = F.interpolate(
+        nchw,
+        size=(int(image_size), int(image_size)),
+        mode="bilinear",
+        align_corners=False,
+        antialias=True,
+    )
+    return (
+        resized.round()
+        .clamp_(0, 255)
+        .to(torch.uint8)
+        .contiguous()
+    )
+
+
+class FlappyTorchObservationPipeline:
+    """Batch raw-RGB preprocessing pipeline for Flappy render observations."""
+
+    def __init__(
+        self,
+        observation_config: FlappyObservationConfig,
+        n_envs: int,
+        device: str | torch.device,
+    ) -> None:
+        self.observation_config = observation_config
+        self.n_envs = int(n_envs)
+        self.device = torch.device(device)
+        self.base_channels = observation_config.base_channels
+        self.stacked_channels = observation_config.stacked_channels
+        self._stack = torch.empty(
+            (
+                self.n_envs,
+                self.stacked_channels,
+                observation_config.image_size,
+                observation_config.image_size,
+            ),
+            dtype=torch.uint8,
+            device=self.device,
+        )
+        self._next_stack = torch.empty_like(self._stack)
+        self._last_observation: torch.Tensor | None = None
+
+    @property
+    def current_frame_stack(self) -> np.ndarray | None:
+        if self._last_observation is None:
+            return None
+        return self._stack.permute(0, 2, 3, 1).detach().cpu().numpy().copy()
+
+    @property
+    def current_observation(self) -> np.ndarray | None:
+        if self._last_observation is None:
+            return None
+        return self._last_observation.detach().cpu().numpy().copy()
+
+    def reset(
+        self,
+        raw_rgb_batch: torch.Tensor,
+        frame_skips: np.ndarray | torch.Tensor | None = None,
+        profiler: Any | None = None,
+    ) -> torch.Tensor:
+        frame_obs = self._resize(raw_rgb_batch, profiler=profiler)
+        timer = profiler.time("stack_update_s") if profiler is not None else nullcontext()
+        with timer:
+            for stack_idx in range(self.observation_config.stack_frames):
+                c0 = stack_idx * self.base_channels
+                c1 = c0 + self.base_channels
+                self._stack[:, c0:c1, :, :] = frame_obs
+        return self._final_obs(frame_skips, profiler=profiler)
+
+    def step(
+        self,
+        raw_rgb_batch: torch.Tensor,
+        dones: np.ndarray,
+        frame_skips: np.ndarray | torch.Tensor | None = None,
+        profiler: Any | None = None,
+        active_mask: np.ndarray | torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        frame_obs = self._resize(raw_rgb_batch, profiler=profiler)
+        active = self._active_mask(active_mask)
+        active_indices = np.flatnonzero(active)
+        inactive_indices = np.flatnonzero(~active)
+        done_indices = np.flatnonzero(np.asarray(dones, dtype=np.bool_) & active)
+        timer = profiler.time("stack_update_s") if profiler is not None else nullcontext()
+        with timer:
+            if self.observation_config.stack_frames <= 1:
+                if inactive_indices.size:
+                    self._next_stack[inactive_indices] = self._stack[inactive_indices]
+                self._next_stack[active_indices] = frame_obs[active_indices]
+            else:
+                if inactive_indices.size:
+                    self._next_stack[inactive_indices] = self._stack[inactive_indices]
+                self._next_stack[active_indices, : -self.base_channels, :, :] = self._stack[
+                    active_indices, self.base_channels :, :, :
+                ]
+                self._next_stack[active_indices, -self.base_channels :, :, :] = frame_obs[active_indices]
+            for idx in done_indices:
+                for stack_idx in range(self.observation_config.stack_frames):
+                    c0 = stack_idx * self.base_channels
+                    c1 = c0 + self.base_channels
+                    self._next_stack[idx, c0:c1, :, :] = frame_obs[idx]
+            self._stack, self._next_stack = self._next_stack, self._stack
+        return self._final_obs(frame_skips, profiler=profiler)
+
+    def reset_indices(
+        self,
+        raw_rgb_batch: torch.Tensor,
+        reset_mask: np.ndarray | torch.Tensor,
+        frame_skips: np.ndarray | torch.Tensor | None = None,
+        profiler: Any | None = None,
+    ) -> torch.Tensor:
+        if self._last_observation is None:
+            return self.reset(raw_rgb_batch, frame_skips=frame_skips, profiler=profiler)
+
+        frame_obs = self._resize(raw_rgb_batch, profiler=profiler)
+        mask = self._active_mask(reset_mask)
+        reset_indices = [int(item) for item in np.flatnonzero(mask)]
+        timer = profiler.time("stack_update_s") if profiler is not None else nullcontext()
+        with timer:
+            for idx in reset_indices:
+                for stack_idx in range(self.observation_config.stack_frames):
+                    c0 = stack_idx * self.base_channels
+                    c1 = c0 + self.base_channels
+                    self._stack[idx, c0:c1, :, :] = frame_obs[idx]
+        return self._final_obs(frame_skips, profiler=profiler)
+
+    def _active_mask(self, value: np.ndarray | torch.Tensor | None) -> np.ndarray:
+        if value is None:
+            return np.ones(self.n_envs, dtype=np.bool_)
+        if isinstance(value, torch.Tensor):
+            value = value.detach().cpu().numpy()
+        return np.asarray(value, dtype=np.bool_).reshape(-1)
+
+    def _resize(self, raw_rgb_batch: torch.Tensor, profiler: Any | None = None) -> torch.Tensor:
+        raw_rgb_batch = raw_rgb_batch.to(device=self.device, non_blocking=True)
+        timer = profiler.time("torch_resize_s") if profiler is not None else nullcontext()
+        with timer:
+            return _resize_rgb_batch_torch_nchw(
+                raw_rgb_batch,
+                image_size=self.observation_config.image_size,
+                grayscale=self.observation_config.grayscale,
+            )
+
+    def _final_obs(
+        self,
+        frame_skips: np.ndarray | torch.Tensor | None,
+        profiler: Any | None = None,
+    ) -> torch.Tensor:
+        del frame_skips
+        timer = profiler.time("final_obs_s") if profiler is not None else nullcontext()
+        with timer:
+            obs = self._stack
+            self._last_observation = obs
+            return obs
 
 
 class FlappyBirdEnvAdapter(EnvAdapter):

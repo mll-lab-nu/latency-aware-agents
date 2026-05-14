@@ -13,7 +13,6 @@ from latency_bench.core.config import load_config
 from latency_bench.core.latency_distribution import parse_latency_distribution
 import scripts.generate_sample_factory_same_latency_sweep as same_latency_sweep
 from scripts.generate_sample_factory_same_latency_sweep import (
-    _build_eval_config,
     _build_full_run_config,
     _build_latency_bench_eval_config,
     _build_train_config,
@@ -273,7 +272,7 @@ def test_flappy_sf_resize_does_not_change_env_screen_size():
     assert base_env.screen_size == (288, 512)
 
 
-def test_flappy_sf_native_eval_uses_same_obs_resize(tmp_path, monkeypatch):
+def test_flappy_sf_latency_bench_eval_uses_same_obs_resize(tmp_path, monkeypatch):
     _patch_flappy_base_config(tmp_path, monkeypatch, worker_num_splits=1)
 
     full_cfg = _build_full_run_config(
@@ -298,8 +297,8 @@ def test_flappy_sf_native_eval_uses_same_obs_resize(tmp_path, monkeypatch):
         restart_behavior="resume",
         train_for_env_steps=None,
     )
-    eval_cfg = _build_eval_config(
-        train_config=full_cfg,
+    eval_cfg = _build_latency_bench_eval_config(
+        full_config=full_cfg,
         env_name="flappy",
         seed=0,
         latency=0,
@@ -345,8 +344,8 @@ def test_flappy_sf_sweep_config_preserves_gpu_render_fields(tmp_path, monkeypatc
         restart_behavior="resume",
         train_for_env_steps=None,
     )
-    eval_cfg = _build_eval_config(
-        train_config=full_cfg,
+    eval_cfg = _build_latency_bench_eval_config(
+        full_config=full_cfg,
         env_name="flappy",
         seed=0,
         latency=0,
@@ -1593,40 +1592,6 @@ def test_doom_frame_stack_wrapper_returns_stable_observation_snapshots():
     assert np.array_equal(second_step_obs["state"], np.array([2], dtype=np.uint8))
 
 
-def test_deadly_corridor_prepare_eval_cfg_uses_synchronous_fps_when_base_is_async():
-    from training.deadly_corridor_sf import integration
-
-    base_cfg = SimpleNamespace(
-        fps=0,
-        env_fps=35,
-        eval_deterministic=True,
-        eval_raw_reward=False,
-    )
-
-    cfg = integration._prepare_eval_cfg(base_cfg, latency_value=3)
-
-    assert cfg.fps == 35
-    assert cfg.cli_args["fps"] == 35
-    assert (cfg.fps == 0) is False
-
-
-def test_deadly_corridor_prepare_eval_cfg_keeps_positive_base_fps_synchronous():
-    from training.deadly_corridor_sf import integration
-
-    base_cfg = SimpleNamespace(
-        fps=50,
-        env_fps=35,
-        eval_deterministic=True,
-        eval_raw_reward=False,
-    )
-
-    cfg = integration._prepare_eval_cfg(base_cfg, latency_value=0)
-
-    assert cfg.fps == 50
-    assert cfg.cli_args["fps"] == 50
-    assert (cfg.fps == 0) is False
-
-
 @pytest.mark.parametrize(
     ("env_name", "seed", "latency", "expected_wandb_name"),
     (
@@ -1691,7 +1656,7 @@ def test_same_latency_sweep_generator_cli_overrides_train_wandb_group(tmp_path):
     assert train_loaded["logging"]["wandb_project"] == "latency-sensitive-bench"
 
 
-def test_same_latency_sweep_generator_emits_sample_factory_queue_eval_configs():
+def test_same_latency_sweep_generator_emits_sample_factory_train_configs():
     full_cfg = _build_full_run_config(
         env_name="demon_attack",
         seed=0,
@@ -1714,32 +1679,12 @@ def test_same_latency_sweep_generator_emits_sample_factory_queue_eval_configs():
         restart_behavior="resume",
         train_for_env_steps=1234,
     )
-    eval_cfg = _build_eval_config(
-        train_config=full_cfg,
-        env_name="demon_attack",
-        seed=0,
-        latency=4,
-        max_steps=3600,
-        output_root="/workspace/latency_sweeps",
-        eval_episodes=10,
-    )
     expected_eval_suites = full_cfg["evaluation"]["eval_suites"]
     assert train_cfg["training"]["train_for_env_steps"] == 1234
     assert train_cfg["latency"]["type"] == "fixed"
     assert train_cfg["latency"]["fixed_latency_ms"] == pytest.approx(4 * 1000.0 / 60.0)
     assert train_cfg["evaluation"]["eval_suites"] == expected_eval_suites
     assert train_cfg["logging"]["wandb_name"] == "demon-attack-l4-s0"
-    assert eval_cfg["backend"]["run_mode"] == "eval"
-    assert eval_cfg["latency"] == train_cfg["latency"]
-    assert eval_cfg["evaluation"]["eval_episodes"] == 10
-    assert eval_cfg["evaluation"]["eval_suites"] == expected_eval_suites
-    assert eval_cfg["evaluation"]["eval_max_steps"] == 3600
-    assert "max_episode_steps" not in eval_cfg["env"]
-    assert eval_cfg["env"]["terminal_on_life_loss"] is True
-    assert eval_cfg["env"]["clip_reward"] is False
-    assert eval_cfg["logging"] == {
-        "output_dir": "/workspace/latency_sweeps/eval/demon_attack/latency_4/seed_0"
-    }
 
 
 @pytest.mark.parametrize(
@@ -1747,7 +1692,7 @@ def test_same_latency_sweep_generator_emits_sample_factory_queue_eval_configs():
     (
         ("flappy", 1800, "flappy_sf", 100.0, 3600),
         ("demon_attack", 25000, "demon_attack_sf", 50.0, 3600),
-        ("deadly_corridor", 2100, "deadly_corridor_sf", 85.7142857143, 30000),
+        ("deadly_corridor", 2100, "deadly_corridor_sf", 50.0, 30000),
     ),
 )
 def test_same_latency_sweep_generator_emits_latency_bench_eval_configs(
@@ -1803,7 +1748,7 @@ def test_same_latency_sweep_generator_emits_latency_bench_eval_configs(
         assert loaded["env"]["terminal_on_life_loss"] is True
         assert loaded["env"]["clip_reward"] is False
     if env_name == "deadly_corridor":
-        assert loaded["env"]["env_fps"] == 35
+        assert loaded["env"]["env_fps"] == 60
         assert loaded["env"]["noop_action"] == [0, 0, 0, 0]
 
 
@@ -1841,7 +1786,7 @@ def test_same_latency_sweep_generator_maps_zero_latency_to_zero_source(tmp_path,
     assert _latency_steps_to_ms(full_cfg, 3) == 100.0
 
 
-def test_same_latency_sweep_generator_preserves_deadly_corridor_eval_latencies_for_latency_zero(tmp_path):
+def test_same_latency_sweep_generator_preserves_deadly_corridor_latency_bench_eval_latencies_for_latency_zero(tmp_path):
     full_cfg = _build_full_run_config(
         env_name="deadly_corridor",
         seed=0,
@@ -1853,15 +1798,6 @@ def test_same_latency_sweep_generator_preserves_deadly_corridor_eval_latencies_f
         restart_behavior="resume",
         train_for_env_steps=None,
         frame_stack_override=None,
-    )
-    eval_cfg = _build_eval_config(
-        train_config=full_cfg,
-        env_name="deadly_corridor",
-        seed=0,
-        latency=0,
-        max_steps=2100,
-        output_root=str(tmp_path / "outputs"),
-        eval_episodes=100,
     )
     bench_cfg = _build_latency_bench_eval_config(
         full_config=full_cfg,
@@ -1875,18 +1811,14 @@ def test_same_latency_sweep_generator_preserves_deadly_corridor_eval_latencies_f
     expected_eval_suites = full_cfg["evaluation"]["eval_suites"]
 
     assert full_cfg["latency"]["type"] == "zero"
-    assert eval_cfg["latency"]["type"] == "zero"
     assert bench_cfg["latency"]["type"] == "zero"
-    assert eval_cfg["evaluation"]["eval_suites"] == expected_eval_suites
     assert bench_cfg["evaluation"]["eval_suites"] == expected_eval_suites
-    assert "max_episode_steps" not in eval_cfg["env"]
     assert "max_episode_steps" not in bench_cfg["env"]
-    assert eval_cfg["env"]["env_fps"] == 35
-    assert bench_cfg["env"]["env_fps"] == 35
+    assert bench_cfg["env"]["env_fps"] == 60
     assert bench_cfg["env"]["noop_action"] == [0, 0, 0, 0]
 
 
-def test_same_latency_sweep_generator_writes_three_configs_and_commands(tmp_path, monkeypatch):
+def test_same_latency_sweep_generator_writes_train_and_latency_bench_eval_configs_and_commands(tmp_path, monkeypatch):
     _patch_flappy_base_config(tmp_path, monkeypatch, worker_num_splits=1)
 
     generated_root = tmp_path / "generated"
@@ -1927,7 +1859,7 @@ def test_same_latency_sweep_generator_writes_three_configs_and_commands(tmp_path
     expected_fixed_ms = {
         "flappy": 100.0,
         "demon_attack": 50.0,
-        "deadly_corridor": 85.7142857143,
+        "deadly_corridor": 50.0,
     }
     expected_eval_suites = {
         env_name: load_config(same_latency_sweep.BASE_CONFIGS[env_name])["evaluation"]["eval_suites"]
@@ -1937,19 +1869,14 @@ def test_same_latency_sweep_generator_writes_three_configs_and_commands(tmp_path
         for latency in (0, 3):
             run_dir = generated_root / env_name / f"latency_{latency}" / "seed_0"
             train_path = run_dir / "train.yaml"
-            eval_path = run_dir / "eval.yaml"
             assert train_path.is_file()
-            assert eval_path.is_file()
             bench_path = run_dir / "latency_bench_eval.yaml"
             assert bench_path.is_file()
 
             train_loaded = yaml.safe_load(train_path.read_text(encoding="utf-8"))
-            eval_loaded = yaml.safe_load(eval_path.read_text(encoding="utf-8"))
             loaded = load_config(bench_path)
             assert train_loaded["evaluation"]["eval_suites"] == expected_eval_suites[env_name]
-            assert eval_loaded["evaluation"]["eval_suites"] == expected_eval_suites[env_name]
             assert train_loaded["latency"]["type"] == ("zero" if latency == 0 else "fixed")
-            assert eval_loaded["latency"] == train_loaded["latency"]
             assert loaded["experiment"]["name"] == f"{env_name}_sf_same_latency_l{latency}_seed0"
             assert loaded["backend"]["train_dir"] == "results/checkpoints/sample_factory_runs"
             assert loaded["policy"]["type"] == policy_type
@@ -1957,22 +1884,18 @@ def test_same_latency_sweep_generator_writes_three_configs_and_commands(tmp_path
             assert loaded["evaluation"]["eval_suites"] == expected_eval_suites[env_name]
             assert set(loaded["experiment"]) == {"name", "seed", "num_episodes"}
             assert "max_episode_steps" not in loaded["env"]
-            assert "max_episode_steps" not in eval_loaded["env"]
             if env_name == "flappy":
                 assert "max_episode_steps" not in train_loaded["env"]
             if env_name == "demon_attack":
                 assert train_loaded["env"]["max_episode_steps"] == 25000
-                assert eval_loaded["env"]["terminal_on_life_loss"] is True
-                assert eval_loaded["env"]["clip_reward"] is False
                 assert loaded["env"]["terminal_on_life_loss"] is True
                 assert loaded["env"]["clip_reward"] is False
             assert loaded["logging"]["output_dir"] == str(
                 output_root / "latency_bench" / env_name / f"train_latency_{latency}" / "seed_0"
             )
             if env_name == "deadly_corridor":
-                assert train_loaded["env"]["env_fps"] == 35
-                assert eval_loaded["env"]["env_fps"] == 35
-                assert loaded["env"]["env_fps"] == 35
+                assert train_loaded["env"]["env_fps"] == 60
+                assert loaded["env"]["env_fps"] == 60
                 assert loaded["env"]["noop_action"] == [0, 0, 0, 0]
             if latency == 0:
                 assert loaded["latency"]["type"] == "zero"
@@ -2028,7 +1951,6 @@ def test_same_latency_generator_writes_single_normal_distribution_run(tmp_path):
     label = "normal_mean_5_std_2_min_0_max_15"
     run_dir = generated_root / "demon_attack" / f"latency_{label}" / "seed_0"
     train_loaded = yaml.safe_load((run_dir / "train.yaml").read_text(encoding="utf-8"))
-    eval_loaded = yaml.safe_load((run_dir / "eval.yaml").read_text(encoding="utf-8"))
     bench_loaded = load_config(run_dir / "latency_bench_eval.yaml")
     manifest = (generated_root / "manifest.tsv").read_text(encoding="utf-8")
 
@@ -2039,8 +1961,6 @@ def test_same_latency_generator_writes_single_normal_distribution_run(tmp_path):
     assert train_loaded["latency"]["max_latency_ms"] == pytest.approx(15.0 * 1000.0 / 60.0)
     assert "train_values" not in train_loaded["latency"]
     assert "train_distribution" not in train_loaded["latency"]
-    assert eval_loaded["latency"] == train_loaded["latency"]
-    assert "eval_latency_values" not in eval_loaded["evaluation"]
     assert "train_mode" not in train_loaded["latency"]
     assert bench_loaded["latency"]["type"] == "normal_distribution"
     assert bench_loaded["latency"]["mean_latency_ms"] == pytest.approx(5.0 * 1000.0 / 60.0)

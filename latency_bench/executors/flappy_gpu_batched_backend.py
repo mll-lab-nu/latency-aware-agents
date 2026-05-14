@@ -12,9 +12,11 @@ import torch
 
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.executors.env_step_backend import EnvStepResponse, RemoteEnvSlotHandle
-from modeling.flappy_ppo.observation import FlappyPpoObservationConfig
-from modeling.flappy_ppo.preprocessing import FlappyPpoTorchObservationPipeline
-from training.flappy_ppo.paths import ensure_flappy_gymnasium_on_path
+from latency_bench.envs.flappy import (
+    FlappyObservationConfig,
+    FlappyTorchObservationPipeline,
+    ensure_flappy_gymnasium_on_path,
+)
 from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_render_device
 
 
@@ -62,8 +64,8 @@ class FlappyGpuBatchedEnvStepBackend:
         self.core = BatchedFlappyBirdCore(**core_kwargs)
 
         height = int(self.obs_resize[0])
-        self.pipeline = FlappyPpoTorchObservationPipeline(
-            FlappyPpoObservationConfig(
+        self.pipeline = FlappyTorchObservationPipeline(
+            FlappyObservationConfig(
                 image_size=height,
                 grayscale=False,
                 stack_frames=1,

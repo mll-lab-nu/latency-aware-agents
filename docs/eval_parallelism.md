@@ -1,6 +1,6 @@
 # Evaluation Parallelism
 
-This project uses `evaluation.eval_parallel_envs` to run multiple evaluation episode slots inside the same eval latency stage. It does not reduce the eval workload. For a full Sample Factory eval sweep, every available checkpoint kind still evaluates the configured eval runners, all eval latencies, and the configured number of episodes per latency.
+This project uses `evaluation.eval_parallel_envs` to run multiple evaluation episode slots inside the same `latency_bench` simulated eval latency stage. It does not reduce the eval workload. For a generated Sample Factory checkpoint sweep, every available checkpoint kind still evaluates the configured eval runners, all eval latencies, and the configured number of episodes per latency.
 
 ## Config
 
@@ -21,46 +21,20 @@ This is episode-slot parallelism, not a workload reduction.
 
 ## Supported Paths
 
-### Sample Factory Queue Eval: Flappy
-
-Normal command:
-
-```bash
-bash scripts/bash_scripts/eval_flappy.sh
-```
-
-For Flappy queue eval, `eval_parallel_envs > 1` uses the existing GPU-rendered batched Flappy env during eval. It maps the active eval slots to the env's agent/render batch count. Training behavior is unchanged. `env.use_gpu_render: false` remains the serial path and does not support Flappy queue eval batching.
-
-Recommended starting values:
-
-- `32` on smaller GPUs or when checking correctness;
-- `64` on A100-class machines;
-- `100` when `eval_episodes=100` and GPU memory is not the bottleneck.
-
-### Sample Factory Queue Eval: DemonAttack
-
-Normal command:
-
-```bash
-bash scripts/bash_scripts/eval_demon_attack.sh
-```
-
-For DemonAttack queue eval, `eval_parallel_envs <= 1` uses the serial backend. `eval_parallel_envs > 1` automatically uses subprocess env stepping. Each worker owns a normal DemonAttack env created through the existing env factory and wrapper stack; the main process keeps policy inference, episode accounting, and output writing.
-
-Recommended starting values:
-
-- `16` for correctness and moderate CPU machines;
-- `32` for most multi-core servers;
-- `64` only when the machine has enough CPU cores and memory bandwidth.
-
-Avoid setting this much higher than the available physical CPU cores. ALE stepping is CPU-bound, and too many workers can spend more time context switching and moving observations over IPC than stepping the env.
-
 ### latency_bench Simulated Eval
 
 Normal command:
 
 ```bash
 python -m latency_bench.run --config configs/train/demon_attack/latency_0/seed_0/latency_bench_eval.yaml
+```
+
+Generated Sample Factory sweep wrappers also call this entrypoint:
+
+```bash
+bash scripts/bash_scripts/eval_flappy.sh
+bash scripts/bash_scripts/eval_demon_attack.sh
+bash scripts/bash_scripts/eval_deadly_corridor.sh
 ```
 
 `latency_bench` batched eval is only for:

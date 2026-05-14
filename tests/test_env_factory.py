@@ -211,28 +211,6 @@ def test_deadly_corridor_adapter_builds_prepared_eval_cfg_from_full_config(monke
             max_episode_steps=2100,
         )
 
-    def fake_prepare_eval_cfg(base_cfg, latency_value):
-        captured["prepared_base_cfg"] = base_cfg
-        captured["prepared_latency"] = latency_value
-        return SimpleNamespace(
-            mode=base_cfg.mode,
-            fps=0,
-            env_frameskip=1,
-            eval_env_frameskip=1,
-            frame_stack=base_cfg.frame_stack,
-            eval_raw_reward=base_cfg.eval_raw_reward,
-            disable_reward_scaling=True,
-            max_episode_steps=base_cfg.max_episode_steps,
-            latency_type="zero",
-            fixed_latency_ms=None,
-            mean_latency_ms=None,
-            std_latency_ms=None,
-            min_latency_ms=None,
-            max_latency_ms=None,
-            latency_seed=None,
-            no_render=True,
-        )
-
     def fake_load_from_checkpoint(cfg):
         cfg.fps = 0
         cfg.frame_stack = 1
@@ -260,7 +238,6 @@ def test_deadly_corridor_adapter_builds_prepared_eval_cfg_from_full_config(monke
     monkeypatch.setattr(integration, "register_deadly_corridor_components", lambda: None)
     monkeypatch.setattr(integration, "build_cli_args_from_config", fake_build_cli_args_from_config)
     monkeypatch.setattr(integration, "parse_cfg", fake_parse_cfg)
-    monkeypatch.setattr(integration, "_prepare_eval_cfg", fake_prepare_eval_cfg)
     monkeypatch.setitem(
         sys.modules,
         "sample_factory.cfg.arguments",
@@ -301,8 +278,8 @@ def test_deadly_corridor_adapter_builds_prepared_eval_cfg_from_full_config(monke
     env = deadly_corridor.DeadlyCorridorEnvAdapter(config=config, noop_action=noop)
 
     assert captured["build_config"] is config
+    assert captured["build_config"]["backend"]["run_mode"] == "eval"
     assert captured["parse_argv"] == ["--from-full-config", "1"]
-    assert captured["prepared_latency"] == 0
     assert captured["doom_env_name"] == "doom_deadly_corridor"
     assert captured["doom_render_mode"] is None
     assert env.cfg.loaded_from_checkpoint is True
@@ -344,31 +321,6 @@ def test_deadly_corridor_openvla_env_does_not_require_sample_factory_checkpoint(
             max_episode_steps=30000,
         )
 
-    def fake_prepare_eval_cfg(base_cfg, latency_value):
-        captured["prepared_base_cfg"] = base_cfg
-        captured["prepared_latency"] = latency_value
-        return SimpleNamespace(
-            mode=base_cfg.mode,
-            fps=base_cfg.fps,
-            env_frameskip=1,
-            eval_env_frameskip=1,
-            frame_stack=base_cfg.frame_stack,
-            res_w=base_cfg.res_w,
-            res_h=base_cfg.res_h,
-            wide_aspect_ratio=base_cfg.wide_aspect_ratio,
-            eval_raw_reward=base_cfg.eval_raw_reward,
-            disable_reward_scaling=True,
-            max_episode_steps=base_cfg.max_episode_steps,
-            latency_type="zero",
-            fixed_latency_ms=None,
-            mean_latency_ms=None,
-            std_latency_ms=None,
-            min_latency_ms=None,
-            max_latency_ms=None,
-            latency_seed=None,
-            no_render=True,
-        )
-
     def fail_load_from_checkpoint(cfg):
         raise AssertionError("OpenVLA env creation must not load Sample Factory checkpoint config")
 
@@ -387,7 +339,6 @@ def test_deadly_corridor_openvla_env_does_not_require_sample_factory_checkpoint(
     monkeypatch.setattr(integration, "register_deadly_corridor_components", lambda: None)
     monkeypatch.setattr(integration, "build_cli_args_from_config", fake_build_cli_args_from_config)
     monkeypatch.setattr(integration, "parse_cfg", fake_parse_cfg)
-    monkeypatch.setattr(integration, "_prepare_eval_cfg", fake_prepare_eval_cfg)
     monkeypatch.setitem(
         sys.modules,
         "sample_factory.cfg.arguments",
@@ -425,7 +376,6 @@ def test_deadly_corridor_openvla_env_does_not_require_sample_factory_checkpoint(
 
     env = deadly_corridor.DeadlyCorridorEnvAdapter(config=config, noop_action=noop)
 
-    assert captured["prepared_latency"] == 0
     assert env.cfg.env_frameskip == 1
     assert env.cfg.eval_env_frameskip == 1
     assert env.frame_stack == 4
@@ -654,4 +604,3 @@ def test_latency_bench_flappy_sf_eval_uses_same_obs_resize(monkeypatch, tmp_path
 
     assert captured["shape"] == (12, 84, 84)
     assert captured["dtype"] == np.uint8
-

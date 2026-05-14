@@ -146,7 +146,7 @@ for example `eval_latency_values: [0, 1, 2, 3, 4, 5]`, while still keeping
 Main benchmark example:
 
 ```bash
-python -m latency_bench.run --config configs/experiments/flappy_ppo_zero_latency.yaml
+python -m latency_bench.run --config configs/experiments/flappy/sf_eval_zero_latency.yaml
 ```
 
 Unified Sample Factory training entrypoint:
@@ -167,15 +167,7 @@ Sample Factory checkpoints can be evaluated through the common latency bench ent
 python -m latency_bench.run --config configs/experiments/flappy/sf_eval_zero_latency.yaml
 ```
 
-Parallel eval is controlled by `evaluation.eval_parallel_envs`. It is supported for Flappy and DemonAttack Sample Factory queue eval, and for `latency_bench` simulated eval. See [Evaluation Parallelism](docs/eval_parallelism.md) for supported paths, recommended values, subprocess env stepping notes, and benchmark commands.
-
-CleanRL-style Flappy PPO training entrypoint:
-
-```bash
-python scripts/flappy_cleanrl_gpu_render_ppo.py --help
-```
-
-Historical SB3 scripts are still under `scripts/` and `bash/`. Activate the `latency` environment and initialize the submodule before running them.
+Parallel eval is controlled by `evaluation.eval_parallel_envs` in `latency_bench` simulated eval. See [Evaluation Parallelism](docs/eval_parallelism.md) for supported paths, recommended values, subprocess env stepping notes, and benchmark commands.
 
 ## Sample Factory Backend
 

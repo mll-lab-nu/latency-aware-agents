@@ -47,9 +47,6 @@ class SimulatedLatencyExecutor:
         seed: int | None = None,
         eval_max_steps: int = 10000,
     ) -> EpisodeMetrics:
-        if eval_max_steps < 0:
-            raise ValueError("eval_max_steps must be non-negative")
-
         self.action_scheduler.reset()
         self.policy.reset_state()
         self.env.reset(seed=seed)

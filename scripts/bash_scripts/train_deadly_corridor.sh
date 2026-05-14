@@ -28,5 +28,4 @@ fi
 CONFIG_DIR="configs/train/deadly_corridor/${LATENCY_DIR}/seed_0"
 
 python -m training.train --config "${CONFIG_DIR}/train.yaml"
-python -m training.train --config "${CONFIG_DIR}/eval.yaml"
 python -m latency_bench.run --config "${CONFIG_DIR}/latency_bench_eval.yaml"

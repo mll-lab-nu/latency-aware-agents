@@ -7,7 +7,7 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors._simulated_timeline import sample_simulated_latency
-from latency_bench.executors.env_step_backend import EnvStepBackend, SerialEnvStepBackend
+from latency_bench.executors.env_step_backend import EnvStepBackend
 from latency_bench.latency.sources import LatencySource
 from latency_bench.logging.metrics import (
     active_action_step_info,

@@ -201,13 +201,6 @@ def _extract_action_mask(observation: Observation, device: torch.device):
 
 def _checkpoint_state_dict_from_path(path: str | Path, device: torch.device) -> dict[str, Any]:
     checkpoint = trusted_torch_load(path, device)
-    checkpoint_format = str(checkpoint.get("format", "")).strip().lower()
-    backend_type = str(checkpoint.get("backend_type", "")).strip().lower()
-    if checkpoint_format == "flappy_ppo" or backend_type == "flappy_ppo":
-        raise ValueError(
-            "flappy_ppo checkpoint is not a Sample Factory checkpoint; "
-            "use policy.type=flappy_ppo or provide a Sample Factory checkpoint"
-        )
     return checkpoint
 
 

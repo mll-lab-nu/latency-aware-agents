@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from training.flappy_ppo.paths import ensure_flappy_gymnasium_on_path
+from latency_bench.envs.flappy import ensure_flappy_gymnasium_on_path
 
 ensure_flappy_gymnasium_on_path()
 
@@ -77,8 +77,7 @@ class _ScalarGpuOracle:
         import gymnasium as gym
 
         from latency_bench.core.clock import EnvClock
-        from modeling.flappy_ppo.observation import FlappyPpoObservationConfig
-        from modeling.flappy_ppo.preprocessing import FlappyPpoTorchObservationPipeline
+        from latency_bench.envs.flappy import FlappyObservationConfig, FlappyTorchObservationPipeline
         from training.flappy_sf.batched_gpu_env import FlappyBatchedGpuRenderedEnv
         from training.sample_factory_common.latency_config import (
             sample_factory_latency_params_from_flat_config,
@@ -145,8 +144,8 @@ class _ScalarGpuOracle:
             )
             self.envs.append(env)
 
-        self.pipeline = FlappyPpoTorchObservationPipeline(
-            FlappyPpoObservationConfig(image_size=84, grayscale=False, stack_frames=int(cfg.frame_stack)),
+        self.pipeline = FlappyTorchObservationPipeline(
+            FlappyObservationConfig(image_size=84, grayscale=False, stack_frames=int(cfg.frame_stack)),
             n_envs=self.batch_size,
             device="cpu",
         )
@@ -269,4 +268,3 @@ def test_gpu_render_batched_env_multi_agent_matches_independent_scalar_oracles()
     finally:
         scalar.close()
         env.close()
-

@@ -10,8 +10,6 @@ from latency_bench.logging.metrics import (
     apply_latency_record_raw_fields,
     compute_episode_metrics,
     episode_raw_fact_metadata,
-    latency_type_from_source,
-    profile_metadata_from_source,
 )
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import PolicyRunner

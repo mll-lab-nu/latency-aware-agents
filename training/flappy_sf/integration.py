@@ -14,10 +14,9 @@ from PIL import Image
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
-from modeling.flappy_ppo.preprocessing import resize_frame_pil
+from latency_bench.envs.flappy import resize_frame_pil
 from training.sample_factory_common.common import (
     env_instance_seed,
-    parse_int_list,
     str2bool,
     seed_everything,
 )
@@ -38,15 +37,6 @@ from training.sample_factory_common.latency_wrapper import (
     EpisodeMetricsWrapper,
     RewardTraceWrapper,
 )
-from training.sample_factory_common.queue_eval import (
-    evaluate_queue_latency,
-    evaluate_queue_latency_distribution,
-    finish_queue_eval_wandb,
-    has_queue_latency_distribution,
-    init_queue_eval_wandb,
-    log_queue_eval_result,
-    write_queue_eval_result,
-)
 from training.sample_factory_common.sf_episode_extra_stats_compat import (
     ensure_sample_factory_episode_extra_stats_installed,
 )
@@ -63,16 +53,6 @@ _TIMELIMIT_DIAGNOSTICS_PRINTED: set[tuple[int, int, int]] = set()
 def _force_sample_factory_raw_frame_step_cfg(cfg: Any) -> None:
     setattr(cfg, "env_frameskip", 1)
     setattr(cfg, "eval_env_frameskip", 1)
-
-
-
-def _flappy_clock_from_cfg(cfg: Any) -> EnvClock:
-    env_fps = getattr(cfg, "env_fps", None)
-    obs_fps = getattr(cfg, "obs_fps", None)
-    if env_fps is None or obs_fps is None:
-        raise ValueError("Flappy Sample Factory requires env_fps and obs_fps")
-    return EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
-
 
 
 def parse_obs_resize(value: Any) -> tuple[int, int] | None:
@@ -224,11 +204,7 @@ class FlappyImageObsWrapper(gym.Wrapper):
 
     def _render_frame(self) -> np.ndarray:
         frame = self.env.render()
-        if frame is None:
-            raise RuntimeError("FlappyBird-v0 render() returned None; use render_mode='rgb_array'")
         frame = np.asarray(frame, dtype=np.uint8)
-        if frame.ndim != 3 or frame.shape[-1] != 3:
-            raise RuntimeError(f"Expected Flappy RGB frame with shape (H, W, 3), got {frame.shape!r}")
         if self.obs_resize is not None:
             height, width = self.obs_resize
             if height == width:
@@ -265,13 +241,7 @@ class FlappyFrameStackWrapper(gym.Wrapper):
 
     def __init__(self, env: gym.Env, num_frames: int):
         super().__init__(env)
-        if num_frames < 1:
-            raise ValueError(f"num_frames must be >= 1, got {num_frames}")
-        if not isinstance(env.observation_space, Box):
-            raise TypeError("FlappyFrameStackWrapper expects a Box observation space")
         base_shape = tuple(int(dim) for dim in env.observation_space.shape)
-        if len(base_shape) != 3:
-            raise ValueError(f"Expected channel-first image observation, got shape {base_shape}")
         self.num_frames = int(num_frames)
         self._frames: deque[np.ndarray] = deque(maxlen=self.num_frames)
         stacked_shape = (base_shape[0] * self.num_frames, base_shape[1], base_shape[2])
@@ -306,7 +276,10 @@ def make_flappy_sf_env(
     use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))
     obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
-    clock = _flappy_clock_from_cfg(cfg)
+    clock = EnvClock(
+        env_fps=cfg.env_fps,
+        obs_fps=cfg.obs_fps,
+    )
 
     if use_gpu_render:
         from training.flappy_sf.batched_gpu_env import FlappyBatchedGpuRenderedEnv
@@ -456,7 +429,7 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--debug", type=str2bool, default=False)
     parser.add_argument("--debug-timelimit-diagnostics", dest="debug_timelimit_diagnostics", type=str2bool, default=False)
     parser.add_argument("--max_episode_steps", type=int, default=0)
-    parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "train_eval"])
+    parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"])
     parser.add_argument("--latency-type", dest="latency_type", type=str, default="zero")
     parser.add_argument("--fixed-latency-ms", dest="fixed_latency_ms", type=float)
     parser.add_argument("--mean-latency-ms", dest="mean_latency_ms", type=float)
@@ -508,10 +481,10 @@ def flappy_override_defaults(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def parse_cfg(argv=None, evaluation: bool = False):
+def parse_cfg(argv=None):
     from sample_factory.cfg.arguments import parse_full_cfg, parse_sf_args
 
-    parser, _ = parse_sf_args(argv=argv, evaluation=evaluation)
+    parser, _ = parse_sf_args(argv=argv, evaluation=False)
     add_flappy_env_args(parser)
     flappy_override_defaults(parser)
     cfg = parse_full_cfg(parser, argv)
@@ -558,8 +531,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
 
 def run_from_config(config: dict) -> int:
     register_flappy_envs()
-    requested_mode = str(config.get("backend", {}).get("run_mode", "train"))
-    cfg = parse_cfg(build_cli_args_from_config(config), evaluation=requested_mode in {"eval", "train_eval"})
+    cfg = parse_cfg(build_cli_args_from_config(config))
     logging_cfg = config.get("logging", {}) if isinstance(config.get("logging"), dict) else {}
     apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))
@@ -569,37 +541,13 @@ def run_from_config(config: dict) -> int:
 
     metrics_stop_event = None
     metrics_thread = None
-    if cfg.mode in {"train", "train_eval"}:
+    if cfg.mode == "train":
         metrics_stop_event, metrics_thread = start_episode_metrics_aggregator(cfg)
 
     status = ExperimentStatus.SUCCESS
     try:
-        if cfg.mode in {"train", "train_eval"}:
+        if cfg.mode == "train":
             status = run_sample_factory_training(cfg, config)
-        if cfg.mode in {"eval", "train_eval"}:
-            wandb_run, owned_wandb_run = init_queue_eval_wandb(cfg)
-            try:
-                if has_queue_latency_distribution(cfg):
-                    result = evaluate_queue_latency_distribution(cfg)
-                    write_queue_eval_result(cfg, result)
-                    log_queue_eval_result(wandb_run, result)
-                    print(
-                        f"[eval] distribution={result['latency_distribution_label']} "
-                        f"mean_return={result['mean_return']:.3f} "
-                        f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
-                    )
-                else:
-                    latencies = parse_int_list(cfg.eval_latency_raw_frame_values)
-                    for latency in latencies:
-                        result = evaluate_queue_latency(cfg, int(latency))
-                        write_queue_eval_result(cfg, result)
-                        log_queue_eval_result(wandb_run, result)
-                        print(
-                            f"[eval] latency={latency} mean_return={result['mean_return']:.3f} "
-                            f"std_return={result['std_return']:.3f} mean_len={result['mean_length']:.1f}"
-                        )
-            finally:
-                finish_queue_eval_wandb(wandb_run, owned_wandb_run)
     finally:
         stop_episode_metrics_aggregator(metrics_stop_event, metrics_thread)
     return int(status) if isinstance(status, int) else 0

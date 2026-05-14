@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from training.flappy_ppo.paths import ensure_flappy_gymnasium_on_path
+from latency_bench.envs.flappy import ensure_flappy_gymnasium_on_path
 
 
 ensure_flappy_gymnasium_on_path()
@@ -19,7 +19,6 @@ from flappy_bird_gymnasium.gpu_render import (  # noqa: E402
     FlappyRenderAssets,
     TorchFlappyRenderer,
 )
-from training.flappy_ppo.env_batch import SyncFlappyBatch  # noqa: E402
 
 
 def _make_rgb_env(seed: int):
@@ -199,25 +198,3 @@ def test_render_into_reuses_cached_blit_index_buffers():
     assert second_ptrs == first_ptrs
     assert torch.equal(out, renderer._render_scalar(batch))
 
-
-def test_sync_flappy_batch_raw_rgb_buffer_matches_fresh_render_after_reset_step():
-    envs = SyncFlappyBatch(
-        n_envs=3,
-        seed=7,
-        fixed_frame_skip=0,
-        device="cpu",
-    )
-    try:
-        reset_raw = envs.reset().clone()
-        reset_batch = BatchedFlappyRenderState.from_states(envs.render_states())
-        assert torch.equal(reset_raw, envs.renderer.render(reset_batch))
-
-        envs.envs[0].unwrapped._score_limit = 0
-        _, dones, _, step_raw = envs.step(np.asarray([0, 1, 0], dtype=np.int64))
-        step_raw = step_raw.clone()
-        step_batch = BatchedFlappyRenderState.from_states(envs.render_states())
-
-        assert bool(dones[0])
-        assert torch.equal(step_raw, envs.renderer.render(step_batch))
-    finally:
-        envs.close()

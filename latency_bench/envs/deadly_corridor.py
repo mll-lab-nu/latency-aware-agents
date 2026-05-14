@@ -66,7 +66,7 @@ def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
     integration.register_deadly_corridor_components()
     base_cfg = integration.parse_cfg(integration.build_cli_args_from_config(config))
     eval_fps = _synchronous_eval_fps_from_config(config)
-    cfg = integration._prepare_eval_cfg(base_cfg, latency_value=0)
+    cfg = copy.deepcopy(base_cfg)
     if _requires_sample_factory_checkpoint_config(config):
         from sample_factory.cfg.arguments import load_from_checkpoint
 

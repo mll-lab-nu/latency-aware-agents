@@ -10,9 +10,11 @@ import numpy as np
 import torch
 from gymnasium.spaces import Box, Dict as GymDict
 
-from modeling.flappy_ppo.observation import FlappyPpoObservationConfig
-from modeling.flappy_ppo.preprocessing import FlappyPpoTorchObservationPipeline
-from training.flappy_ppo.paths import ensure_flappy_gymnasium_on_path
+from latency_bench.envs.flappy import (
+    FlappyObservationConfig,
+    FlappyTorchObservationPipeline,
+    ensure_flappy_gymnasium_on_path,
+)
 
 
 ensure_flappy_gymnasium_on_path()
@@ -154,14 +156,12 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
         env_id: int = 0,
     ):
         super().__init__(env)
-        if obs_resize is None:
-            raise ValueError("use_gpu_render=true requires env.obs_resize to be set")
         height, width = (int(obs_resize[0]), int(obs_resize[1]))
         if height != width:
             raise ValueError("use_gpu_render=true currently requires square env.obs_resize")
 
         self.render_device = resolve_gpu_render_device(gpu_render_device)
-        self.observation_config = FlappyPpoObservationConfig(
+        self.observation_config = FlappyObservationConfig(
             image_size=height,
             grayscale=False,
             stack_frames=int(frame_stack),
@@ -180,7 +180,7 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
                 )
             }
         )
-        self.pipeline = FlappyPpoTorchObservationPipeline(
+        self.pipeline = FlappyTorchObservationPipeline(
             self.observation_config,
             n_envs=1,
             device=self.render_device,

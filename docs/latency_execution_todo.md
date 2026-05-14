@@ -53,11 +53,11 @@ Phase 4/5 work remains open for realtime queue-full behavior, timeout/skipped/la
 | Area | Files / classes / functions |
 |---|---|
 | Env adapters | `latency_bench/envs/base.py`, `latency_bench/envs/factory.py`, `latency_bench/envs/flappy.py`, `latency_bench/envs/demon_attack.py`, `latency_bench/envs/deadly_corridor.py` |
-| Observation pipelines | `latency_bench/envs/flappy.py`, `latency_bench/envs/demon_attack.py`, `latency_bench/envs/deadly_corridor.py`, `modeling/flappy_ppo/observation.py`, `modeling/demon_attack_ppo/observation.py` |
+| Observation pipelines | `latency_bench/envs/flappy.py`, `latency_bench/envs/demon_attack.py`, `latency_bench/envs/deadly_corridor.py` |
 | Executors | `latency_bench/executors/paused.py`, `latency_bench/executors/simulated.py`, `latency_bench/executors/realtime.py`, `latency_bench/executors/batched_simulated.py`, `latency_bench/executors/factory.py` |
 | Latency sources | `latency_bench/latency/sources.py`, `latency_bench/latency/measurement.py`, `latency_bench/latency/profile.py`, `latency_bench/latency/trace.py` |
 | Action queue / scheduler | `latency_bench/scheduler/action_queue.py`, `latency_bench/scheduler/persistence.py`, `latency_bench/scheduler/decision.py` |
-| Policy inference runners | `latency_bench/policy/base.py`, `latency_bench/policy/factory.py`, `latency_bench/policy/flappy_ppo.py`, `latency_bench/policy/sample_factory_common.py` |
+| Policy inference runners | `latency_bench/policy/base.py`, `latency_bench/policy/factory.py`, `latency_bench/policy/sample_factory_common.py` |
 | Logging and metrics | `latency_bench/logging/metrics.py`, `latency_bench/logging/trajectory_logger.py`, `latency_bench/logging/summary.py` |
 | Training latency wrappers | `training/sample_factory_common/latency_wrapper.py`, `training/flappy_sf/integration.py`, `training/demon_attack_sf/integration.py`, `training/deadly_corridor_sf/integration.py` |
 | Tests | `tests/test_action_queue.py`, `tests/test_decision_scheduler.py`, `tests/test_simulated_executor.py`, `tests/test_paused_executor.py`, `tests/test_realtime_executor.py`, `tests/test_latency_sources.py`, `tests/test_config.py`, `tests/test_logging_records.py` |

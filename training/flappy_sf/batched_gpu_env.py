@@ -9,9 +9,11 @@ from gymnasium.spaces import Box, Dict as GymDict, Discrete
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
-from modeling.flappy_ppo.observation import FlappyPpoObservationConfig
-from modeling.flappy_ppo.preprocessing import FlappyPpoTorchObservationPipeline
-from training.flappy_ppo.paths import ensure_flappy_gymnasium_on_path
+from latency_bench.envs.flappy import (
+    FlappyObservationConfig,
+    FlappyTorchObservationPipeline,
+    ensure_flappy_gymnasium_on_path,
+)
 from training.sample_factory_common.latency_config import (
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
@@ -70,7 +72,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         self.clock = EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
 
         self.render_device = resolve_gpu_render_device(gpu_render_device)
-        self.observation_config = FlappyPpoObservationConfig(
+        self.observation_config = FlappyObservationConfig(
             image_size=height,
             grayscale=False,
             stack_frames=int(frame_stack),
@@ -140,7 +142,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         )
         self._raw_episode_steps = np.zeros(self.num_agents, dtype=np.int64)
         self._batched_max_episode_steps = int(getattr(self.cfg, "max_episode_steps", 0) or 0)
-        self.pipeline = FlappyPpoTorchObservationPipeline(
+        self.pipeline = FlappyTorchObservationPipeline(
             self.observation_config,
             n_envs=self.num_agents,
             device=self.render_device,

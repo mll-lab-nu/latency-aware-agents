@@ -44,10 +44,7 @@ def test_experiment_and_checkpoint_dirs_match_sample_factory_contract(tmp_path):
 
 
 def test_read_checkpoint_backend_type_accepts_missing_type_for_legacy_sample_factory(tmp_path):
-    flappy_path = tmp_path / "flappy.pth"
     legacy_path = tmp_path / "legacy_sf.pth"
-    torch.save({"backend_type": "flappy_ppo"}, flappy_path)
     torch.save({"model": {}}, legacy_path)
 
-    assert read_checkpoint_backend_type(flappy_path) == "flappy_ppo"
     assert read_checkpoint_backend_type(legacy_path) is None
