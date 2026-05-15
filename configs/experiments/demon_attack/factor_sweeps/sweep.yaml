@@ -23,7 +23,7 @@ latency_settings:
     std: 1.0
     min: 0
     max: 15
-  uniform_u1_3:
+  uniform_u2_6:
     kind: uniform
     min: 2
     max: 6
@@ -35,7 +35,6 @@ sweeps:
       - 4
       - 6
       - 8
-      - 10
     obs_fps:
       - 15
   obs_fps:
@@ -46,4 +45,3 @@ sweeps:
       - 30
       - 15
       - 10
-      - 7.5

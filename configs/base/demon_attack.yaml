@@ -81,15 +81,15 @@ evaluation:
   eval_raw_reward: true
   eval_suites:
     fixed:
-      - [0, 2, 4, 6, 8]    # [start, end]
+      - [0, 2, 4, 6]    # [start, end]
     normal:
-      - [4.0, 0.5, 0, 15]   # low jitter
+      # - [4.0, 0.5, 0, 15]   # low jitter
       - [4.0, 1.0, 0, 15]   # medium jitter
-      - [4.0, 2.0, 0, 15]   # high jitter
+      # - [4.0, 2.0, 0, 15]   # high jitter
     uniform:
-      - [3, 5]  # low jitter
+      # - [3, 5]  # low jitter
       - [2, 6]  # medium jitter
-      - [0, 8]  # high jitter
+      # - [0, 8]  # high jitter
 logging:
   output_dir: outputs/demon_attack_base
   save_step_records: true

@@ -35,7 +35,6 @@ sweeps:
       - 4
       - 6
       - 8
-      - 10
     obs_fps:
       - 30
   obs_fps:
