@@ -178,20 +178,18 @@ def _wandb_tags(
     frame_stack: int,
     obs_fps: int | float,
     seed: int,
-) -> str:
+) -> list[str]:
     axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps)
     latency_kind = str(latency_setting["kind"])
-    return ",".join(
-        (
-            "factor_sweep",
-            _env_slug(env_name),
-            str(sweep_name),
-            latency_kind,
-            str(latency_label),
-            axis,
-            f"seed{int(seed)}",
-        )
-    )
+    return [
+        "factor_sweep",
+        _env_slug(env_name),
+        str(sweep_name),
+        latency_kind,
+        str(latency_label),
+        axis,
+        f"seed{int(seed)}",
+    ]
 
 
 def _run_dir(

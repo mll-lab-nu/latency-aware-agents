@@ -202,6 +202,26 @@ def test_build_common_sf_args_does_not_emit_unsupported_wandb_unique_id_arg():
     assert "--wandb_unique_id" not in args
 
 
+def test_build_common_sf_args_emits_wandb_tags_as_multiple_values():
+    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg["logging"]["wandb_tags"] = ["factor_sweep", "flappy", "frame_stack"]
+
+    args = build_common_sf_args(cfg, sf_env_name="flappy_bird")
+
+    idx = args.index("--wandb_tags")
+    assert args[idx : idx + 4] == ["--wandb_tags", "factor_sweep", "flappy", "frame_stack"]
+
+
+def test_build_common_sf_args_splits_legacy_comma_wandb_tags():
+    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg["logging"]["wandb_tags"] = "factor_sweep,flappy,frame_stack"
+
+    args = build_common_sf_args(cfg, sf_env_name="flappy_bird")
+
+    idx = args.index("--wandb_tags")
+    assert args[idx : idx + 4] == ["--wandb_tags", "factor_sweep", "flappy", "frame_stack"]
+
+
 def test_apply_runtime_logging_config_maps_wandb_name_to_sample_factory_unique_id():
     cfg = SimpleNamespace()
 

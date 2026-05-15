@@ -37,10 +37,12 @@ def _normalize_tags(value: Any) -> list[str] | None:
     if isinstance(value, str):
         tags = [item.strip() for item in value.split(",") if item.strip()]
         return tags or None
-    try:
-        tags = [str(item).strip() for item in value if str(item).strip()]
-    except TypeError:
-        return None
+    tags = [
+        tag
+        for item in value
+        for tag in (part.strip() for part in str(item).split(","))
+        if tag
+    ]
     return tags or None
 
 
@@ -97,6 +99,7 @@ def patch_sample_factory_wandb() -> None:
         os.environ["WANDB_RUN_ID"] = run_name
         os.environ["WANDB_NAME"] = run_name
         os.environ["WANDB_RESUME"] = "allow"
+        cfg.wandb_tags = _normalize_tags(getattr(cfg, "wandb_tags", None))
 
         wandb_group = cfg.env if getattr(cfg, "wandb_group", None) is None else cfg.wandb_group
         init_kwargs = {
@@ -108,7 +111,7 @@ def patch_sample_factory_wandb() -> None:
             "resume": "allow",
             "group": wandb_group,
             "job_type": getattr(cfg, "wandb_job_type", None),
-            "tags": _normalize_tags(getattr(cfg, "wandb_tags", None)),
+            "tags": cfg.wandb_tags,
         }
 
         train_dir = getattr(cfg, "train_dir", None)

@@ -20,6 +20,12 @@ def _list_to_csv(value: Any) -> str:
     return str(value)
 
 
+def _wandb_tags_to_cli_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
 def normalize_checkpoint_kind(checkpoint_kind: str) -> str:
     return str(checkpoint_kind).strip().lower()
 
@@ -296,7 +302,10 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         append_cli_arg(args, "--wandb_project", logging_cfg.get("wandb_project"))
         append_cli_arg(args, "--wandb_group", logging_cfg.get("wandb_group"))
         append_cli_arg(args, "--wandb_job_type", logging_cfg.get("wandb_job_type"))
-        append_cli_arg(args, "--wandb_tags", logging_cfg.get("wandb_tags"))
+        wandb_tags = logging_cfg.get("wandb_tags")
+        if wandb_tags:
+            args.append("--wandb_tags")
+            args.extend(_wandb_tags_to_cli_values(wandb_tags))
 
     extra_args = backend_cfg.get("extra_args", ())
     if extra_args:

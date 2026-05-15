@@ -164,6 +164,42 @@ def test_sample_factory_wandb_patch_uses_stable_resume_identity(monkeypatch, tmp
     assert os.environ["WANDB_RESUME"] == "allow"
 
 
+def test_sample_factory_wandb_patch_splits_legacy_comma_tag_list(monkeypatch, tmp_path):
+    from training.common import wandb_compat
+
+    wandb_utils, _, _ = _install_fake_sample_factory(monkeypatch)
+    monkeypatch.setattr(wandb_compat, "_PATCHED", False)
+
+    init_calls = []
+    fake_wandb = types.ModuleType("wandb")
+    fake_wandb.run = None
+    fake_wandb.init = lambda **kwargs: init_calls.append(kwargs)
+    fake_wandb.define_metric = lambda *args, **kwargs: None
+    fake_wandb.config = types.SimpleNamespace(update=lambda cfg, allow_val_change: None)
+    fake_wandb.login = lambda **kwargs: None
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+
+    wandb_compat.patch_sample_factory_wandb()
+
+    cfg = Namespace(
+        with_wandb=True,
+        train_dir=str(tmp_path),
+        experiment="experiment_name",
+        env="latency_flappy",
+        wandb_group="group",
+        wandb_project="project",
+        wandb_user=None,
+        wandb_job_type=None,
+        wandb_tags=["factor_sweep,flappy,frame_stack"],
+        wandb_unique_id="flappy-fs4-fixed_l1-s42",
+    )
+
+    wandb_utils.init_wandb(cfg)
+
+    assert init_calls[-1]["tags"] == ["factor_sweep", "flappy", "frame_stack"]
+    assert cfg.wandb_tags == ["factor_sweep", "flappy", "frame_stack"]
+
+
 def test_sample_factory_wandb_patch_falls_back_to_experiment_identity(monkeypatch, tmp_path):
     from training.common import wandb_compat
 
