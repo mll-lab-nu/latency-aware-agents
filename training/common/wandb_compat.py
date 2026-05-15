@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from netrc import netrc
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -93,10 +92,11 @@ def patch_sample_factory_wandb() -> None:
         if key:
             wandb.login(key=key, verify=True, relogin=True)
 
-        run_name = getattr(cfg, "wandb_unique_id", None)
-        if not run_name:
-            run_name = f'{cfg.experiment}_{datetime.now().strftime("%Y%m%d_%H%M%S_%f")}'
-            cfg.wandb_unique_id = run_name
+        run_name = str(getattr(cfg, "wandb_unique_id", None) or getattr(cfg, "experiment"))
+        cfg.wandb_unique_id = run_name
+        os.environ["WANDB_RUN_ID"] = run_name
+        os.environ["WANDB_NAME"] = run_name
+        os.environ["WANDB_RESUME"] = "allow"
 
         wandb_group = cfg.env if getattr(cfg, "wandb_group", None) is None else cfg.wandb_group
         init_kwargs = {

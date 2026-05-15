@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import types
 from argparse import Namespace
@@ -55,9 +56,10 @@ def test_sample_factory_wandb_patch_filters_noisy_tensorboard_tags(monkeypatch, 
     monkeypatch.setattr(wandb_compat, "_PATCHED", False)
 
     defined_metrics = []
+    init_calls = []
     fake_wandb = types.ModuleType("wandb")
     fake_wandb.run = None
-    fake_wandb.init = lambda **kwargs: None
+    fake_wandb.init = lambda **kwargs: init_calls.append(kwargs)
     fake_wandb.define_metric = lambda *args, **kwargs: defined_metrics.append((args, kwargs))
     fake_wandb.config = types.SimpleNamespace(update=lambda cfg, allow_val_change: None)
     fake_wandb.login = lambda **kwargs: None
@@ -78,6 +80,10 @@ def test_sample_factory_wandb_patch_filters_noisy_tensorboard_tags(monkeypatch, 
         wandb_unique_id="run",
     )
     wandb_utils.init_wandb(cfg)
+
+    assert init_calls[-1]["id"] == "run"
+    assert init_calls[-1]["name"] == "run"
+    assert init_calls[-1]["resume"] == "allow"
 
     assert [args[0] for args, _ in defined_metrics] == [
         "global_step",
@@ -111,3 +117,85 @@ def test_sample_factory_wandb_patch_filters_noisy_tensorboard_tags(monkeypatch, 
         "episode/return",
         "rollout/ep_rew_mean",
     ]
+
+
+def test_sample_factory_wandb_patch_uses_stable_resume_identity(monkeypatch, tmp_path):
+    from training.common import wandb_compat
+
+    wandb_utils, _, _ = _install_fake_sample_factory(monkeypatch)
+    monkeypatch.setattr(wandb_compat, "_PATCHED", False)
+    monkeypatch.delenv("WANDB_RUN_ID", raising=False)
+    monkeypatch.delenv("WANDB_NAME", raising=False)
+    monkeypatch.delenv("WANDB_RESUME", raising=False)
+
+    init_calls = []
+    fake_wandb = types.ModuleType("wandb")
+    fake_wandb.run = None
+    fake_wandb.init = lambda **kwargs: init_calls.append(kwargs)
+    fake_wandb.define_metric = lambda *args, **kwargs: None
+    fake_wandb.config = types.SimpleNamespace(update=lambda cfg, allow_val_change: None)
+    fake_wandb.login = lambda **kwargs: None
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+
+    wandb_compat.patch_sample_factory_wandb()
+
+    cfg = Namespace(
+        with_wandb=True,
+        train_dir=str(tmp_path),
+        experiment="experiment_name",
+        env="latency_flappy",
+        wandb_group="group",
+        wandb_project="project",
+        wandb_user=None,
+        wandb_job_type=None,
+        wandb_tags=None,
+        wandb_unique_id="flappy-fs4-fixed_l1-s42",
+    )
+
+    wandb_utils.init_wandb(cfg)
+
+    assert init_calls[-1]["id"] == "flappy-fs4-fixed_l1-s42"
+    assert init_calls[-1]["name"] == "flappy-fs4-fixed_l1-s42"
+    assert init_calls[-1]["resume"] == "allow"
+    assert init_calls[-1]["group"] == "group"
+    assert cfg.wandb_unique_id == "flappy-fs4-fixed_l1-s42"
+    assert os.environ["WANDB_RUN_ID"] == "flappy-fs4-fixed_l1-s42"
+    assert os.environ["WANDB_NAME"] == "flappy-fs4-fixed_l1-s42"
+    assert os.environ["WANDB_RESUME"] == "allow"
+
+
+def test_sample_factory_wandb_patch_falls_back_to_experiment_identity(monkeypatch, tmp_path):
+    from training.common import wandb_compat
+
+    wandb_utils, _, _ = _install_fake_sample_factory(monkeypatch)
+    monkeypatch.setattr(wandb_compat, "_PATCHED", False)
+
+    init_calls = []
+    fake_wandb = types.ModuleType("wandb")
+    fake_wandb.run = None
+    fake_wandb.init = lambda **kwargs: init_calls.append(kwargs)
+    fake_wandb.define_metric = lambda *args, **kwargs: None
+    fake_wandb.config = types.SimpleNamespace(update=lambda cfg, allow_val_change: None)
+    fake_wandb.login = lambda **kwargs: None
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+
+    wandb_compat.patch_sample_factory_wandb()
+
+    cfg = Namespace(
+        with_wandb=True,
+        train_dir=str(tmp_path),
+        experiment="experiment_name",
+        env="latency_flappy",
+        wandb_group=None,
+        wandb_project="project",
+        wandb_user=None,
+        wandb_job_type=None,
+        wandb_tags=None,
+        wandb_unique_id=None,
+    )
+
+    wandb_utils.init_wandb(cfg)
+
+    assert init_calls[-1]["id"] == "experiment_name"
+    assert init_calls[-1]["name"] == "experiment_name"
+    assert cfg.wandb_unique_id == "experiment_name"

@@ -159,6 +159,41 @@ def _wandb_name(
     return f"{_env_slug(env_name)}-{axis}-{latency_label}-s{int(seed)}"
 
 
+def _wandb_group(
+    env_name: str,
+    sweep_name: str,
+    latency_label: str,
+    frame_stack: int,
+    obs_fps: int | float,
+) -> str:
+    axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps)
+    return f"{_env_slug(env_name)}-{axis}-{latency_label}"
+
+
+def _wandb_tags(
+    env_name: str,
+    sweep_name: str,
+    latency_label: str,
+    latency_setting: dict[str, Any],
+    frame_stack: int,
+    obs_fps: int | float,
+    seed: int,
+) -> str:
+    axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps)
+    latency_kind = str(latency_setting["kind"])
+    return ",".join(
+        (
+            "factor_sweep",
+            _env_slug(env_name),
+            str(sweep_name),
+            latency_kind,
+            str(latency_label),
+            axis,
+            f"seed{int(seed)}",
+        )
+    )
+
+
 def _run_dir(
     generated_root: Path,
     sweep_name: str,
@@ -226,8 +261,17 @@ def _build_full_train_config(
     config.setdefault("logging", {})["output_dir"] = str(
         _output_dir(output_root, "train", sweep_name, latency_label, frame_stack, obs_fps, seed)
     )
-    config["logging"]["wandb_group"] = str(sweep_cfg["wandb_group"])
+    config["logging"]["wandb_group"] = _wandb_group(env_name, sweep_name, latency_label, frame_stack, obs_fps)
     config["logging"]["wandb_name"] = _wandb_name(env_name, sweep_name, latency_label, frame_stack, obs_fps, seed)
+    config["logging"]["wandb_tags"] = _wandb_tags(
+        env_name,
+        sweep_name,
+        latency_label,
+        latency_setting,
+        frame_stack,
+        obs_fps,
+        seed,
+    )
     return config
 
 

@@ -58,8 +58,9 @@ def test_flappy_factor_sweep_generator_emits_matrix_configs(tmp_path):
     assert fs_cfg["latency"]["mean_latency_ms"] == pytest.approx(2 * 1000.0 / 30.0)
     assert fs_cfg["latency"]["std_latency_ms"] == pytest.approx(1 * 1000.0 / 30.0)
     assert fs_cfg["latency"]["max_latency_ms"] == pytest.approx(15 * 1000.0 / 30.0)
-    assert fs_cfg["logging"]["wandb_group"] == "flappy-frame_stack"
+    assert fs_cfg["logging"]["wandb_group"] == "flappy-fs10-normal_n2_s1"
     assert fs_cfg["logging"]["wandb_name"] == "flappy-fs10-normal_n2_s1-s0"
+    assert fs_cfg["logging"]["wandb_tags"] == "factor_sweep,flappy,frame_stack,normal,normal_n2_s1,fs10,seed0"
     assert fs_cfg["logging"]["output_dir"] == str(
         output_root / "train" / "frame_stack" / "normal_n2_s1" / "fs10" / "seed_0"
     )
@@ -79,8 +80,9 @@ def test_flappy_factor_sweep_generator_emits_matrix_configs(tmp_path):
     assert obs_cfg["latency"]["type"] == "uniform_distribution"
     assert obs_cfg["latency"]["min_latency_ms"] == pytest.approx(1 * 1000.0 / 30.0)
     assert obs_cfg["latency"]["max_latency_ms"] == pytest.approx(3 * 1000.0 / 30.0)
-    assert obs_cfg["logging"]["wandb_group"] == "flappy-obs_fps"
+    assert obs_cfg["logging"]["wandb_group"] == "flappy-obs15-uniform_u1_3"
     assert obs_cfg["logging"]["wandb_name"] == "flappy-obs15-uniform_u1_3-s0"
+    assert obs_cfg["logging"]["wandb_tags"] == "factor_sweep,flappy,obs_fps,uniform,uniform_u1_3,obs15,seed0"
 
     fixed_cfg = yaml.safe_load(
         (
@@ -107,6 +109,9 @@ def test_flappy_factor_sweep_generator_emits_matrix_configs(tmp_path):
     )
     assert "eval_suites" in eval_cfg["evaluation"]
     assert eval_cfg["backend"]["run_mode"] == "eval"
+    assert eval_cfg["logging"]["wandb_group"] == "flappy-fs4-fixed_l1"
+    assert "wandb_name" not in eval_cfg["logging"]
+    assert eval_cfg["logging"]["wandb_tags"] == "factor_sweep,flappy,frame_stack,fixed,fixed_l1,fs4,seed0"
     loaded_eval_cfg = load_config(
         generated_root / "frame_stack" / "fixed_l1" / "fs4" / "seed_0" / "latency_bench_eval.yaml"
     )
@@ -192,7 +197,9 @@ def test_flappy_factor_sweep_generator_cli_seeds_override_spec(tmp_path):
     )
     assert seed_42_cfg["experiment"]["seed"] == 42
     assert seed_42_cfg["experiment"]["name"] == "flappy_frame_stack_fixed_l1_fs4_seed42"
+    assert seed_42_cfg["logging"]["wandb_group"] == "flappy-fs4-fixed_l1"
     assert seed_42_cfg["logging"]["wandb_name"] == "flappy-fs4-fixed_l1-s42"
+    assert seed_42_cfg["logging"]["wandb_tags"] == "factor_sweep,flappy,frame_stack,fixed,fixed_l1,fs4,seed42"
     assert seed_42_cfg["logging"]["output_dir"] == str(
         output_root / "train" / "frame_stack" / "fixed_l1" / "fs4" / "seed_42"
     )
@@ -209,7 +216,11 @@ def test_flappy_factor_sweep_generator_cli_seeds_override_spec(tmp_path):
     )
     assert seed_114514_cfg["experiment"]["seed"] == 114514
     assert seed_114514_cfg["experiment"]["name"] == "flappy_obs_fps_uniform_u1_3_obs10_seed114514"
+    assert seed_114514_cfg["logging"]["wandb_group"] == "flappy-obs10-uniform_u1_3"
     assert seed_114514_cfg["logging"]["wandb_name"] == "flappy-obs10-uniform_u1_3-s114514"
+    assert seed_114514_cfg["logging"]["wandb_tags"] == (
+        "factor_sweep,flappy,obs_fps,uniform,uniform_u1_3,obs10,seed114514"
+    )
 
 
 def test_flappy_factor_sweep_wrapper_forwards_seed_override(tmp_path):
@@ -413,6 +424,10 @@ def test_factor_sweep_generator_emits_non_flappy_configs(tmp_path, env_name, spe
     assert train_cfg["env"]["frame_stack"] == 4
     assert train_cfg["env"]["obs_fps"] == pytest.approx(7.5)
     assert train_cfg["logging"]["wandb_name"] == f"{env_name.replace('_', '-')}-obs7p5-fixed_l2-s0"
+    assert train_cfg["logging"]["wandb_group"] == f"{env_name.replace('_', '-')}-obs7p5-fixed_l2"
+    assert train_cfg["logging"]["wandb_tags"] == (
+        f"factor_sweep,{env_name.replace('_', '-')},obs_fps,fixed,fixed_l2,obs7p5,seed0"
+    )
     assert train_cfg["logging"]["output_dir"] == str(
         output_root / "train" / "obs_fps" / "fixed_l2" / "obs7p5" / "seed_0"
     )
