@@ -4,9 +4,12 @@ import argparse
 import json
 import shlex
 import shutil
+import sys
 import time
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from training.common.config_adapter import load_training_config
 
