@@ -347,7 +347,7 @@ def _log_eval_summaries(
     env_steps: int,
 ) -> None:
     del runner
-    _log_wandb(eval_scalar_payload(summaries, env_steps=env_steps, prefix="eval"))
+    _log_wandb(eval_scalar_payload(summaries, env_steps=env_steps, prefix="eval_corrected"))
 
 
 def _log_wandb(payload: dict[str, float | int]) -> None:

@@ -492,19 +492,19 @@ def test_log_eval_summaries_writes_plain_wandb_scalars(monkeypatch):
     payload = log_calls[-1][0]
     assert payload == {
         "global_step": 1_000,
-        "eval/global_steps": 1_000,
-        "eval/fixed/latency_0/mean_return": 10.0,
-        "eval/fixed/latency_0/std_return": 1.0,
-        "eval/fixed/latency_0/mean_length": 30.0,
-        "eval/fixed/latency_0/completed_episodes": 3.0,
-        "eval/fixed/latency_1/mean_return": 11.0,
-        "eval/fixed/latency_1/std_return": 1.1,
-        "eval/fixed/latency_1/mean_length": 31.0,
-        "eval/fixed/latency_1/completed_episodes": 2.0,
-        "eval/normal/normal_mean_2_std_1_min_0_max_15/mean_return": 12.0,
-        "eval/normal/normal_mean_2_std_1_min_0_max_15/std_return": 1.2,
-        "eval/normal/normal_mean_2_std_1_min_0_max_15/mean_length": 32.0,
-        "eval/normal/normal_mean_2_std_1_min_0_max_15/completed_episodes": 5.0,
+        "eval_corrected/global_steps": 1_000,
+        "eval_corrected/fixed/latency_0/mean_return": 10.0,
+        "eval_corrected/fixed/latency_0/std_return": 1.0,
+        "eval_corrected/fixed/latency_0/mean_length": 30.0,
+        "eval_corrected/fixed/latency_0/completed_episodes": 3.0,
+        "eval_corrected/fixed/latency_1/mean_return": 11.0,
+        "eval_corrected/fixed/latency_1/std_return": 1.1,
+        "eval_corrected/fixed/latency_1/mean_length": 31.0,
+        "eval_corrected/fixed/latency_1/completed_episodes": 2.0,
+        "eval_corrected/normal/normal_mean_2_std_1_min_0_max_15/mean_return": 12.0,
+        "eval_corrected/normal/normal_mean_2_std_1_min_0_max_15/std_return": 1.2,
+        "eval_corrected/normal/normal_mean_2_std_1_min_0_max_15/mean_length": 32.0,
+        "eval_corrected/normal/normal_mean_2_std_1_min_0_max_15/completed_episodes": 5.0,
     }
 
 
