@@ -1770,6 +1770,10 @@ def test_same_latency_sweep_generator_emits_latency_bench_eval_configs(
     assert loaded["logging"]["output_dir"] == str(
         tmp_path / "outputs" / "latency_bench" / env_name / "train_latency_3" / "seed_0"
     )
+    assert loaded["logging"]["wandb_name"] == full_cfg["logging"]["wandb_name"]
+    assert loaded["logging"]["wandb_project"] == full_cfg["logging"]["wandb_project"]
+    assert loaded["logging"]["wandb_group"] == full_cfg["logging"]["wandb_group"]
+    assert loaded["logging"]["wandb_tags"] == full_cfg["logging"]["wandb_tags"]
     assert loaded["evaluation"]["eval_suites"] == full_cfg["evaluation"]["eval_suites"]
     assert loaded["evaluation"]["eval_max_steps"] == expected_eval_max_steps
     assert "max_episode_steps" not in loaded["env"]

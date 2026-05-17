@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -321,6 +323,107 @@ def test_run_from_config_is_quiet_by_default(tmp_path: Path, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
+
+
+def test_main_logs_eval_suites_to_original_wandb_run_corrected_namespace(
+    monkeypatch,
+    tmp_path: Path,
+):
+    config_path = tmp_path / "latency_bench_eval.yaml"
+    config_path.write_text(
+        f"""
+experiment:
+  name: demon_attack_frame_stack_fixed_l2_fs8_seed42
+  seed: 42
+  num_episodes: 1
+executor:
+  mode: simulated
+env:
+  name: demon_attack
+  env_fps: 60
+  obs_fps: 15
+latency:
+  type: fixed
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+policy:
+  type: demon_attack_sf
+evaluation:
+  eval_max_steps: 3600
+  eval_suites:
+    fixed:
+      - [2]
+logging:
+  output_dir: {tmp_path / "eval_outputs"}
+  wandb_project: latency-sensitive-bench
+  wandb_group: demon-attack-fs8-fixed_l2
+  wandb_name: demon-attack-fs8-fixed_l2-s42
+  wandb_user: entity
+  wandb_tags:
+    - factor_sweep
+    - demon-attack
+""",
+        encoding="utf-8",
+    )
+
+    def fake_run_eval_suites_from_config(config, *, progress=False, extra_metadata=None):
+        return [
+            {
+                "suite_name": "fixed_2",
+                "latency_type": "fixed_sweep",
+                "latency": 2,
+                "mean_return": 21.0,
+                "std_return": 1.5,
+                "mean_length": 3600.0,
+                "completed_episodes": 1,
+                "returns": [21.0],
+                "lengths": [3600],
+                "checkpoint_global_step": 25_000_000,
+            }
+        ]
+
+    init_calls = []
+    log_calls = []
+    finished = []
+    defined_metrics = []
+    fake_run = SimpleNamespace(summary={}, finish=lambda: finished.append(True))
+    fake_wandb = SimpleNamespace(
+        run=None,
+        init=lambda **kwargs: init_calls.append(kwargs) or setattr(fake_wandb, "run", fake_run),
+        define_metric=lambda *args, **kwargs: defined_metrics.append((args, kwargs)),
+        log=lambda payload: log_calls.append(payload),
+    )
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+    monkeypatch.setattr(latency_run, "run_eval_suites_from_config", fake_run_eval_suites_from_config)
+
+    latency_run.main(["--config", str(config_path)])
+
+    assert init_calls == [
+        {
+            "project": "latency-sensitive-bench",
+            "entity": "entity",
+            "id": "demon-attack-fs8-fixed_l2-s42",
+            "name": "demon-attack-fs8-fixed_l2-s42",
+            "resume": "allow",
+            "group": "demon-attack-fs8-fixed_l2",
+            "job_type": None,
+            "tags": ["factor_sweep", "demon-attack"],
+        }
+    ]
+    assert ("eval_corrected/*",) in [args for args, _kwargs in defined_metrics]
+    assert log_calls == [
+        {
+            "global_step": 25_000_000,
+            "eval_corrected/global_steps": 25_000_000,
+            "eval_corrected/fixed/latency_2/mean_return": 21.0,
+            "eval_corrected/fixed/latency_2/std_return": 1.5,
+            "eval_corrected/fixed/latency_2/mean_length": 3600.0,
+            "eval_corrected/fixed/latency_2/completed_episodes": 1.0,
+        }
+    ]
+    assert fake_run.summary["eval_corrected/fixed/latency_2/mean_return"] == 21.0
+    assert finished == [True]
 
 
 def test_main_applies_runtime_overrides(tmp_path: Path):

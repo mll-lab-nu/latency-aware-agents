@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from latency_bench.core.config import load_config, merge_dicts
+from latency_bench.logging.wandb_eval import eval_scalar_payload
 from latency_bench.run import run_eval_suites_from_config
 from training.common.checkpoints import (
     CheckpointEvalLease,
@@ -97,9 +98,6 @@ def run_sample_factory_training(cfg, training_config: dict[str, Any]):
             if not observer.run_final_eval(runner):
                 status = ExperimentStatus.FAILURE
     return status
-
-
-EVAL_SCALAR_METRICS = ("mean_return", "std_return", "mean_length")
 
 
 @dataclass
@@ -349,53 +347,7 @@ def _log_eval_summaries(
     env_steps: int,
 ) -> None:
     del runner
-    _log_wandb(_eval_scalar_payload(summaries, env_steps=env_steps))
-
-
-def _summary_metric_group(summary: dict[str, Any]) -> str:
-    latency_type = str(summary.get("latency_type", ""))
-    if latency_type == "fixed_sweep":
-        return "fixed"
-    if latency_type == "normal_distribution":
-        return "normal"
-    if latency_type == "uniform_distribution":
-        return "uniform"
-    suite_name = str(summary["suite_name"])
-    if suite_name.startswith("fixed_"):
-        return "fixed"
-    if suite_name.startswith("normal_"):
-        return "normal"
-    if suite_name.startswith("uniform_"):
-        return "uniform"
-    return suite_name
-
-
-def _summary_series_name(summary: dict[str, Any]) -> str:
-    return _latency_fragment(summary["latency"])
-
-
-def _eval_scalar_payload(summaries: list[dict[str, Any]], *, env_steps: int) -> dict[str, float | int]:
-    payload: dict[str, float | int] = {
-        "global_step": int(env_steps),
-        "eval/global_steps": int(env_steps),
-    }
-    for summary in summaries:
-        prefix = f"eval/{_summary_metric_group(summary)}/{_summary_series_name(summary)}"
-        for metric in EVAL_SCALAR_METRICS:
-            payload[f"{prefix}/{metric}"] = float(summary[metric])
-        payload[f"{prefix}/completed_episodes"] = float(
-            summary.get("completed_episodes", len(summary.get("returns", [])))
-        )
-    return payload
-
-
-def _latency_fragment(latency: int | str) -> str:
-    if isinstance(latency, int) and not isinstance(latency, bool):
-        return f"latency_{int(latency)}"
-    return "".join(
-        char if char.isalnum() or char in {"-", "_", "."} else "_"
-        for char in str(latency)
-    ).strip("._-")
+    _log_wandb(eval_scalar_payload(summaries, env_steps=env_steps, prefix="eval"))
 
 
 def _log_wandb(payload: dict[str, float | int]) -> None:

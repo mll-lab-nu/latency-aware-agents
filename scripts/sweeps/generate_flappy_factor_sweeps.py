@@ -303,7 +303,6 @@ def _build_latency_bench_eval_config(
     config["logging"]["output_dir"] = str(
         _output_dir(output_root, "latency_bench", sweep_name, latency_label, frame_stack, obs_fps, seed)
     )
-    config["logging"].pop("wandb_name", None)
     if env_name == "deadly_corridor":
         config.setdefault("env", {})["noop_action"] = [0, 0, 0, 0]
     return config

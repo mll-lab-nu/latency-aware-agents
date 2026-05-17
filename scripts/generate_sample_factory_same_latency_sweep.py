@@ -404,11 +404,11 @@ def _build_latency_bench_eval_config(
         }
     )
     config["policy"] = policy_cfg
-    config["logging"] = {
-        "output_dir": str(
-            Path(output_root) / "latency_bench" / env_name / f"train_latency_{latency_label}" / f"seed_{int(seed)}"
-        )
-    }
+    logging_cfg = deepcopy(config.get("logging", {}))
+    logging_cfg["output_dir"] = str(
+        Path(output_root) / "latency_bench" / env_name / f"train_latency_{latency_label}" / f"seed_{int(seed)}"
+    )
+    config["logging"] = logging_cfg
     if env_name == "deadly_corridor":
         config.setdefault("env", {})["noop_action"] = [0, 0, 0, 0]
     return config

@@ -153,7 +153,7 @@ def test_demon_attack_seeded_reset_rebuilds_gym_env_after_previous_episode(monke
     assert created_envs[1].reset_seeds == [124]
 
 
-def test_demon_attack_observe_stacks_only_observed_frames(monkeypatch):
+def test_demon_attack_observe_stacks_raw_frames_between_policy_observations(monkeypatch):
     scripted_env = ScriptedDemonGymEnv([
         {"frame_value": 2},
         {"frame_value": 3},
@@ -176,7 +176,7 @@ def test_demon_attack_observe_stacks_only_observed_frames(monkeypatch):
         assert second_step.observation.data.shape == (2, 2, 3)
         assert first_policy_observation.data.shape == (6, 2, 2)
         assert second_policy_observation.data.shape == (6, 2, 2)
-        assert np.all(second_policy_observation.data[:3, ...] == 1)
+        assert np.all(second_policy_observation.data[:3, ...] == 2)
         assert np.all(second_policy_observation.data[3:, ...] == 3)
     finally:
         adapter.close()

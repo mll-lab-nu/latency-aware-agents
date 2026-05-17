@@ -67,6 +67,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
         frame, info = self.gym_env.reset(seed=seed)
         self._last_frame = frame
         self._last_info = dict(info or {})
+        self._reset_frame_stack(frame)
         return self._make_observation(info=self._last_info)
 
     def step(self, action: Action) -> StepResult:
@@ -86,9 +87,9 @@ class DemonAttackEnvAdapter(EnvAdapter):
             terminal_env_step = int(self.env_step)
             reset_frame, reset_info = self.gym_env.reset()
             self.env_step = 0
-            self._observed_frames.clear()
             self._last_frame = reset_frame
             self._last_info = dict(reset_info or {})
+            self._reset_frame_stack(reset_frame)
             observation = self._make_observation(info=self._last_info)
             step_info = dict(terminal_info)
             step_info.update(
@@ -114,6 +115,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
                 info=step_info,
             )
 
+        self._append_frame(frame)
         observation = self._make_observation(info=self._last_info)
         step_info = dict(self._last_info)
         step_info.update(
@@ -138,8 +140,6 @@ class DemonAttackEnvAdapter(EnvAdapter):
         if self._last_frame is None:
             raise RuntimeError("DemonAttackEnvAdapter has no current observation; call reset() first")
         metadata = self._metadata(self._last_info)
-        frame = np.asarray(self._last_frame, dtype=np.uint8)
-        self._observed_frames.append(frame)
         return Observation(
             data=self._policy_frame_stack(),
             env_step=self.env_step,
@@ -177,6 +177,13 @@ class DemonAttackEnvAdapter(EnvAdapter):
             sim_time_ms=self.env_step * self.frame_ms,
             metadata=metadata,
         )
+
+    def _reset_frame_stack(self, frame: Any) -> None:
+        self._observed_frames.clear()
+        self._append_frame(frame)
+
+    def _append_frame(self, frame: Any) -> None:
+        self._observed_frames.append(np.asarray(frame, dtype=np.uint8))
 
     def _metadata(self, info: dict[str, Any]) -> dict[str, Any]:
         metadata = dict(info)

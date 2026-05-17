@@ -13,7 +13,7 @@ from latency_bench.core.types import EpisodeMetrics
 from latency_bench.eval_suites import has_eval_suites, parse_eval_suites
 from latency_bench.executors.factory import build_executor
 from latency_bench.logging.summary import build_queue_eval_summary, write_queue_eval_summary
-
+from latency_bench.logging.wandb_eval import eval_scalar_payload, normalize_wandb_tags
 
 _SAMPLE_FACTORY_POLICY_TYPES = {
     "flappy_sf",
@@ -550,6 +550,53 @@ def _metric_eval_latency_steps(metric: EpisodeMetrics) -> int | None:
     return int(value)
 
 
+def _log_corrected_eval_summaries_to_wandb(config: dict[str, Any], summaries: list[dict[str, Any]]) -> None:
+    logging_cfg = config.get("logging", {})
+    run_id = logging_cfg.get("wandb_name")
+    project = logging_cfg.get("wandb_project")
+    if not run_id or not project or not summaries:
+        return
+    try:
+        import wandb
+    except ImportError:
+        return
+
+    init_kwargs = {
+        "project": project,
+        "entity": logging_cfg.get("wandb_user", logging_cfg.get("wandb_entity")),
+        "id": str(run_id),
+        "name": str(run_id),
+        "resume": "allow",
+        "group": logging_cfg.get("wandb_group"),
+        "job_type": logging_cfg.get("wandb_job_type"),
+        "tags": normalize_wandb_tags(logging_cfg.get("wandb_tags")),
+    }
+    wandb.init(**init_kwargs)
+    wandb.define_metric("global_step")
+    wandb.define_metric("eval_corrected/global_steps")
+    wandb.define_metric("eval_corrected/*", step_metric="global_step")
+    payload = eval_scalar_payload(
+        summaries,
+        env_steps=_corrected_eval_global_step(config, summaries),
+        prefix="eval_corrected",
+    )
+    wandb.log(payload)
+    if wandb.run is not None:
+        for key, value in payload.items():
+            if key.startswith("eval_corrected/") and key != "eval_corrected/global_steps":
+                wandb.run.summary[key] = value
+        wandb.run.finish()
+
+
+def _corrected_eval_global_step(config: dict[str, Any], summaries: list[dict[str, Any]]) -> int:
+    for key in ("train_env_steps", "checkpoint_global_step"):
+        for summary in summaries:
+            value = summary.get(key)
+            if value is not None:
+                return int(value)
+    return int(config.get("training", {}).get("train_for_env_steps", 0))
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run a latency-sensitive control benchmark.")
     parser.add_argument("--config", type=Path, required=True)
@@ -568,6 +615,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     if has_eval_suites(config):
         summaries = run_eval_suites_from_config(config, progress=True)
+        _log_corrected_eval_summaries_to_wandb(config, summaries)
         for summary in summaries:
             print(
                 f"summary suite={summary['suite_name']} "
@@ -589,7 +637,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"steps={episode_metrics.survival_steps} "
             f"mean_latency_ms={episode_metrics.mean_latency_ms}"
         )
-    for summary in _summary_payloads_for_printing(config, metrics):
+    summaries = _summary_payloads_for_printing(config, metrics)
+    _log_corrected_eval_summaries_to_wandb(config, summaries)
+    for summary in summaries:
         print(
             f"summary latency={summary['latency']} "
             f"episodes={len(summary['returns'])} "
