@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from collections.abc import Callable, Sequence
@@ -597,6 +598,43 @@ def _corrected_eval_global_step(config: dict[str, Any], summaries: list[dict[str
     return int(config.get("training", {}).get("train_for_env_steps", 0))
 
 
+def _retained_eval_checkpoint_markers(config: dict[str, Any]) -> list[dict[str, Any]]:
+    if not _is_sample_factory_policy(config):
+        return []
+    marker_dir = (
+        Path(str(config["backend"]["train_dir"])).expanduser()
+        / str(config["experiment"]["name"])
+        / "checkpoint_p0"
+        / ".latency_bench_eval_checkpoints"
+    )
+    markers = [json.loads(path.read_text(encoding="utf-8")) for path in marker_dir.glob("*.json")]
+    return sorted(markers, key=lambda item: int(item["train_env_steps"]))
+
+
+def _run_retained_eval_checkpoints_from_config(
+    config: dict[str, Any],
+    *,
+    progress: bool,
+) -> list[dict[str, Any]]:
+    base_output_dir = Path(str(config["logging"]["output_dir"]))
+    all_summaries: list[dict[str, Any]] = []
+    for marker in _retained_eval_checkpoint_markers(config):
+        train_env_steps = int(marker["train_env_steps"])
+        checkpoint_config = deepcopy(config)
+        checkpoint_config.setdefault("policy", {})["checkpoint_path"] = str(marker["checkpoint_path"])
+        checkpoint_config["logging"]["output_dir"] = str(
+            base_output_dir / "eval_corrected_replay" / f"step_{train_env_steps}"
+        )
+        summaries = run_eval_suites_from_config(
+            checkpoint_config,
+            progress=progress,
+            extra_metadata=marker,
+        )
+        _log_corrected_eval_summaries_to_wandb(checkpoint_config, summaries)
+        all_summaries.extend(summaries)
+    return all_summaries
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run a latency-sensitive control benchmark.")
     parser.add_argument("--config", type=Path, required=True)
@@ -614,8 +652,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         checkpoint_kind=args.checkpoint_kind,
     )
     if has_eval_suites(config):
-        summaries = run_eval_suites_from_config(config, progress=True)
-        _log_corrected_eval_summaries_to_wandb(config, summaries)
+        summaries = _run_retained_eval_checkpoints_from_config(config, progress=True)
+        if not summaries and not _is_sample_factory_policy(config):
+            summaries = run_eval_suites_from_config(config, progress=True)
+            _log_corrected_eval_summaries_to_wandb(config, summaries)
         for summary in summaries:
             print(
                 f"summary suite={summary['suite_name']} "

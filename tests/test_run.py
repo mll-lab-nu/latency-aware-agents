@@ -329,6 +329,38 @@ def test_main_logs_eval_suites_to_original_wandb_run_corrected_namespace(
     monkeypatch,
     tmp_path: Path,
 ):
+    checkpoint_root = (
+        tmp_path
+        / "checkpoints"
+        / "demon_attack_frame_stack_fixed_l2_fs8_seed42"
+        / "checkpoint_p0"
+    )
+    marker_root = checkpoint_root / ".latency_bench_eval_checkpoints"
+    marker_root.mkdir(parents=True)
+    checkpoint_100 = checkpoint_root / "checkpoint_000000100_000000010000.pth"
+    checkpoint_200 = checkpoint_root / "checkpoint_000000200_000000020000.pth"
+    checkpoint_100.write_text("", encoding="utf-8")
+    checkpoint_200.write_text("", encoding="utf-8")
+    (marker_root / f"{checkpoint_100.name}.json").write_text(
+        json.dumps(
+            {
+                "checkpoint_path": str(checkpoint_100),
+                "eval_phase": "train_periodic",
+                "train_env_steps": 100,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (marker_root / f"{checkpoint_200.name}.json").write_text(
+        json.dumps(
+            {
+                "checkpoint_path": str(checkpoint_200),
+                "eval_phase": "train_periodic",
+                "train_env_steps": 200,
+            }
+        ),
+        encoding="utf-8",
+    )
     config_path = tmp_path / "latency_bench_eval.yaml"
     config_path.write_text(
         f"""
@@ -336,6 +368,8 @@ experiment:
   name: demon_attack_frame_stack_fixed_l2_fs8_seed42
   seed: 42
   num_episodes: 1
+backend:
+  train_dir: {tmp_path / "checkpoints"}
 executor:
   mode: simulated
 env:
@@ -367,19 +401,23 @@ logging:
         encoding="utf-8",
     )
 
+    eval_calls = []
+
     def fake_run_eval_suites_from_config(config, *, progress=False, extra_metadata=None):
+        eval_calls.append((config, extra_metadata))
+        train_env_steps = int(extra_metadata["train_env_steps"])
         return [
             {
                 "suite_name": "fixed_2",
                 "latency_type": "fixed_sweep",
                 "latency": 2,
-                "mean_return": 21.0,
+                "mean_return": float(train_env_steps),
                 "std_return": 1.5,
                 "mean_length": 3600.0,
                 "completed_episodes": 1,
-                "returns": [21.0],
+                "returns": [float(train_env_steps)],
                 "lengths": [3600],
-                "checkpoint_global_step": 25_000_000,
+                "train_env_steps": train_env_steps,
             }
         ]
 
@@ -399,6 +437,15 @@ logging:
 
     latency_run.main(["--config", str(config_path)])
 
+    assert [call[0]["policy"]["checkpoint_path"] for call in eval_calls] == [
+        str(checkpoint_100),
+        str(checkpoint_200),
+    ]
+    assert [call[1]["train_env_steps"] for call in eval_calls] == [100, 200]
+    assert [call[0]["logging"]["output_dir"] for call in eval_calls] == [
+        str(tmp_path / "eval_outputs" / "eval_corrected_replay" / "step_100"),
+        str(tmp_path / "eval_outputs" / "eval_corrected_replay" / "step_200"),
+    ]
     assert init_calls == [
         {
             "project": "latency-sensitive-bench",
@@ -409,21 +456,39 @@ logging:
             "group": "demon-attack-fs8-fixed_l2",
             "job_type": None,
             "tags": ["factor_sweep", "demon-attack"],
-        }
+        },
+        {
+            "project": "latency-sensitive-bench",
+            "entity": "entity",
+            "id": "demon-attack-fs8-fixed_l2-s42",
+            "name": "demon-attack-fs8-fixed_l2-s42",
+            "resume": "allow",
+            "group": "demon-attack-fs8-fixed_l2",
+            "job_type": None,
+            "tags": ["factor_sweep", "demon-attack"],
+        },
     ]
     assert ("eval_corrected/*",) in [args for args, _kwargs in defined_metrics]
     assert log_calls == [
         {
-            "global_step": 25_000_000,
-            "eval_corrected/global_steps": 25_000_000,
-            "eval_corrected/fixed/latency_2/mean_return": 21.0,
+            "global_step": 100,
+            "eval_corrected/global_steps": 100,
+            "eval_corrected/fixed/latency_2/mean_return": 100.0,
+            "eval_corrected/fixed/latency_2/std_return": 1.5,
+            "eval_corrected/fixed/latency_2/mean_length": 3600.0,
+            "eval_corrected/fixed/latency_2/completed_episodes": 1.0,
+        },
+        {
+            "global_step": 200,
+            "eval_corrected/global_steps": 200,
+            "eval_corrected/fixed/latency_2/mean_return": 200.0,
             "eval_corrected/fixed/latency_2/std_return": 1.5,
             "eval_corrected/fixed/latency_2/mean_length": 3600.0,
             "eval_corrected/fixed/latency_2/completed_episodes": 1.0,
         }
     ]
-    assert fake_run.summary["eval_corrected/fixed/latency_2/mean_return"] == 21.0
-    assert finished == [True]
+    assert fake_run.summary["eval_corrected/fixed/latency_2/mean_return"] == 200.0
+    assert finished == [True, True]
 
 
 def test_main_applies_runtime_overrides(tmp_path: Path):
