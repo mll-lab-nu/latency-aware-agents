@@ -206,7 +206,7 @@ def test_flappy_chw_render_is_converted_to_hwc_rgb(monkeypatch):
         env.close()
 
 
-def test_flappy_observe_stacks_only_observed_frames():
+def test_flappy_cpu_observe_stacks_raw_frames_between_policy_observations():
     env = FlappyBirdEnvAdapter(
         gym_id="FlappyBird-v0",
         env_fps=30,
@@ -216,17 +216,78 @@ def test_flappy_observe_stacks_only_observed_frames():
     try:
         reset_observation = env.reset(seed=0)
         first_policy_observation = env.observe()
-        env.step(Action(value=0, name="noop", is_noop=True))
+        first_step = env.step(Action(value=0, name="noop", is_noop=True))
         second_step = env.step(Action(value=0, name="noop", is_noop=True))
         second_policy_observation = env.observe()
 
         assert reset_observation.data.shape[-1] == 3
+        assert first_step.observation is not None
         assert second_step.observation is not None
         assert second_step.observation.data.shape[-1] == 3
         assert first_policy_observation.data.shape[-1] == 6
         assert second_policy_observation.data.shape[-1] == 6
-        assert np.array_equal(second_policy_observation.data[..., :3], reset_observation.data)
+        assert np.array_equal(second_policy_observation.data[..., :3], first_step.observation.data)
         assert np.array_equal(second_policy_observation.data[..., 3:], second_step.observation.data)
+    finally:
+        env.close()
+
+
+def test_flappy_gpu_observe_stacks_only_policy_observed_frames(monkeypatch):
+    from latency_bench.envs import flappy as flappy_module
+
+    class FakeBaseEnv:
+        action_space = gymnasium.spaces.Discrete(2)
+        observation_space = gymnasium.spaces.Box(-1.0, 1.0, shape=(12,), dtype=np.float32)
+
+        def close(self):
+            pass
+
+    class FakeGpuRenderWrapper:
+        action_space = gymnasium.spaces.Discrete(2)
+        observation_space = gymnasium.spaces.Box(0, 255, shape=(3, 2, 2), dtype=np.uint8)
+
+        def __init__(self, *_args, **_kwargs):
+            self.frame_value = 1
+
+        def reset(self, seed=None):
+            self.frame_value = 1
+            return {"obs": np.full((1, 2, 2, 3), self.frame_value, dtype=np.uint8)}, [{"score": 0}]
+
+        def step(self, action):
+            self.frame_value += 1
+            return (
+                {"obs": np.full((1, 2, 2, 3), self.frame_value, dtype=np.uint8)},
+                np.asarray([0.0], dtype=np.float32),
+                np.asarray([False], dtype=np.bool_),
+                np.asarray([False], dtype=np.bool_),
+                [{"score": self.frame_value}],
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(flappy_module.gymnasium, "make", lambda *args, **kwargs: FakeBaseEnv())
+    monkeypatch.setattr("training.flappy_sf.gpu_rendering.FlappyGpuRenderedObsWrapper", FakeGpuRenderWrapper)
+
+    env = FlappyBirdEnvAdapter(
+        use_gpu_render=True,
+        gpu_render_device="cpu",
+        obs_resize=(2, 2),
+        frame_stack=2,
+        noop_action=Action(value=0, name="noop", is_noop=True),
+    )
+    try:
+        reset_observation = env.reset(seed=0)
+        env.observe()
+        env.step(Action(value=0, name="noop", is_noop=True))
+        second_step = env.step(Action(value=0, name="noop", is_noop=True))
+        second_policy_observation = env.observe()
+
+        assert second_step.observation is not None
+        assert np.all(reset_observation.data == 1)
+        assert np.all(second_step.observation.data == 3)
+        assert np.all(second_policy_observation.data[..., :3] == 1)
+        assert np.all(second_policy_observation.data[..., 3:] == 3)
     finally:
         env.close()
 

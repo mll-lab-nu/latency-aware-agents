@@ -193,6 +193,7 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
             obs, info = self.gym_env.reset()
         self._last_frame = obs
         self._last_info = dict(info or {})
+        self._reset_frame_stack(obs)
         return self._make_observation(info=self._last_info)
 
     def step(self, action: Action) -> StepResult:
@@ -201,6 +202,7 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         self.env_step += 1
         self._last_frame = obs
         self._last_info = dict(info or {})
+        self._append_frame(obs)
         observation = self._make_observation(info=self._last_info)
         step_info = dict(self._last_info)
         step_info.update(
@@ -224,7 +226,6 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         if self._last_frame is None:
             raise RuntimeError("DeadlyCorridorEnvAdapter has no current observation; call reset() first")
         metadata = self._metadata(self._last_info)
-        self._observed_frames.append(_single_frame_data(self._last_frame))
         return Observation(
             data=self._policy_frame_stack(),
             env_step=self.env_step,
@@ -257,6 +258,13 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
             sim_time_ms=self.env_step * self.frame_ms,
             metadata=metadata,
         )
+
+    def _reset_frame_stack(self, frame: Any) -> None:
+        self._observed_frames.clear()
+        self._append_frame(frame)
+
+    def _append_frame(self, frame: Any) -> None:
+        self._observed_frames.append(_single_frame_data(frame))
 
     def _metadata(self, info: dict[str, Any]) -> dict[str, Any]:
         metadata = dict(info)

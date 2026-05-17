@@ -342,6 +342,8 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         self._last_numeric_obs = numeric_obs
         self._last_info = info
         self._last_frame = frame
+        if not self.use_gpu_render:
+            self._reset_frame_stack(frame)
         return self._make_observation(numeric_obs=numeric_obs, info=info)
 
     def step(self, action: Action) -> StepResult:
@@ -361,6 +363,8 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         self._last_numeric_obs = numeric_obs
         self._last_info = info
         self._last_frame = frame
+        if not self.use_gpu_render:
+            self._append_observed_frame(frame)
 
         observation = self._make_observation(numeric_obs=numeric_obs, info=info)
         step_info = dict(info)
@@ -388,8 +392,8 @@ class FlappyBirdEnvAdapter(EnvAdapter):
             self._last_frame = self._render_rgb_frame()
 
         metadata = self._observation_metadata(numeric_obs=self._last_numeric_obs, info=self._last_info)
-        frame = np.asarray(self._last_frame, dtype=np.uint8)
-        self._observed_frames.append(frame)
+        if self.use_gpu_render:
+            self._append_observed_frame(self._last_frame)
         return Observation(
             data=self._policy_frame_stack(),
             env_step=self.env_step,
@@ -453,6 +457,13 @@ class FlappyBirdEnvAdapter(EnvAdapter):
             sim_time_ms=self.env_step * self.frame_ms,
             metadata=metadata,
         )
+
+    def _reset_frame_stack(self, frame: np.ndarray) -> None:
+        self._observed_frames.clear()
+        self._append_observed_frame(frame)
+
+    def _append_observed_frame(self, frame: np.ndarray) -> None:
+        self._observed_frames.append(np.asarray(frame, dtype=np.uint8))
 
     def _observation_metadata(self, *, numeric_obs: Any, info: dict[str, Any]) -> dict[str, Any]:
         metadata = dict(info)

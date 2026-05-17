@@ -4,6 +4,7 @@ from collections import deque
 
 import numpy as np
 
+from latency_bench.core.types import Action
 from latency_bench.envs.deadly_corridor import DeadlyCorridorEnvAdapter
 
 
@@ -16,11 +17,12 @@ class ScriptedVizdoomGame:
 
 
 class ScriptedVizdoomEnv:
-    def __init__(self):
+    def __init__(self, steps=None):
         self.curr_seed = 0
         self.game = ScriptedVizdoomGame()
         self.seed_calls: list[int] = []
         self.reset_seeds: list[int | None] = []
+        self.steps = list(steps or [])
 
     @property
     def unwrapped(self):
@@ -33,7 +35,11 @@ class ScriptedVizdoomEnv:
 
     def reset(self, seed=None):
         self.reset_seeds.append(seed)
-        return np.zeros((3, 4, 4), dtype=np.uint8), {"reset_seed": seed}
+        return np.ones((3, 4, 4), dtype=np.uint8), {"reset_seed": seed}
+
+    def step(self, action):
+        value = int(self.steps.pop(0))
+        return np.full((3, 4, 4), value, dtype=np.uint8), 0.0, False, False, {"value": value}
 
 
 def test_deadly_corridor_reset_reseeds_initialized_vizdoom_game_before_episode():
@@ -51,3 +57,27 @@ def test_deadly_corridor_reset_reseeds_initialized_vizdoom_game_before_episode()
     assert gym_env.seed_calls == [17]
     assert gym_env.game.seeds == [1017]
     assert gym_env.reset_seeds == [None]
+
+
+def test_deadly_corridor_observe_stacks_raw_frames_between_policy_observations():
+    gym_env = ScriptedVizdoomEnv(steps=[2, 3])
+    adapter = object.__new__(DeadlyCorridorEnvAdapter)
+    adapter.gym_env = gym_env
+    adapter.env_fps = 60.0
+    adapter.frame_stack = 2
+    adapter.env_step = 0
+    adapter._last_info = {}
+    adapter._last_frame = None
+    adapter._observed_frames = deque(maxlen=2)
+
+    adapter.reset(seed=None)
+    first_policy_observation = adapter.observe()
+    adapter.step(Action(value=0, name="noop", is_noop=True))
+    second_step = adapter.step(Action(value=0, name="noop", is_noop=True))
+    second_policy_observation = adapter.observe()
+
+    assert second_step.observation is not None
+    assert first_policy_observation.data.shape == (6, 4, 4)
+    assert second_policy_observation.data.shape == (6, 4, 4)
+    assert np.all(second_policy_observation.data[:3] == 2)
+    assert np.all(second_policy_observation.data[3:] == 3)
