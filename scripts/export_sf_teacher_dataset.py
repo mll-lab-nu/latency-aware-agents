@@ -62,7 +62,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 from PIL import Image
-from datasets import Dataset, DatasetDict, Features, Image as HFImage, Value
+from datasets import Dataset, DatasetDict, Features, Image as HFImage, Sequence as HFSequence, Value
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -468,22 +468,7 @@ def _to_numpy(value: Any) -> np.ndarray:
     return np.asarray(value)
 
 
-def frame_from_policy_observation(observation: Any, *, frame_stack: int) -> np.ndarray:
-    if isinstance(observation, Mapping):
-        observation = observation.get("obs")
-    frame = _to_numpy(observation)
-    if frame.ndim == 4 and int(frame.shape[0]) == 1:
-        frame = frame[0]
-    if frame.ndim == 3:
-        channels = int(frame.shape[0])
-        if channels in (1, 3):
-            frame = frame[-channels:]
-            frame = np.transpose(frame, (1, 2, 0))
-        elif int(frame_stack) > 1 and channels % int(frame_stack) == 0:
-            channels_per_frame = channels // int(frame_stack)
-            frame = frame[-channels_per_frame:]
-            if channels_per_frame in (1, 3):
-                frame = np.transpose(frame, (1, 2, 0))
+def _image_frame_array(frame: np.ndarray) -> np.ndarray:
     if frame.ndim == 3 and frame.shape[-1] == 1:
         frame = frame[..., 0]
     if frame.dtype != np.uint8:
@@ -491,47 +476,100 @@ def frame_from_policy_observation(observation: Any, *, frame_stack: int) -> np.n
     return frame
 
 
-def _save_observation_image(
-    observation: Any,
-    *,
-    image_path: Path,
-    frame_stack: int,
-    export_image_size: tuple[int, int] | None,
-) -> str:
+def _chw_frame_to_image(frame: np.ndarray) -> np.ndarray:
+    if frame.ndim == 3 and int(frame.shape[0]) in (1, 3):
+        frame = np.transpose(frame, (1, 2, 0))
+    return _image_frame_array(frame)
+
+
+def _hwc_frame_to_image(frame: np.ndarray) -> np.ndarray:
+    return _image_frame_array(frame)
+
+
+def frames_from_policy_observation(observation: Any, *, frame_stack: int) -> list[np.ndarray]:
+    if isinstance(observation, Mapping):
+        observation = observation.get("obs")
+    frame = _to_numpy(observation)
+    if frame.ndim == 4 and int(frame.shape[0]) == 1:
+        frame = frame[0]
+    if frame.ndim == 3:
+        channels = int(frame.shape[0])
+        if int(frame_stack) > 1 and channels % int(frame_stack) == 0:
+            channels_per_frame = channels // int(frame_stack)
+            if channels_per_frame in (1, 3):
+                return [
+                    _chw_frame_to_image(frame[index * channels_per_frame : (index + 1) * channels_per_frame])
+                    for index in range(int(frame_stack))
+                ]
+        if channels in (1, 3):
+            return [_chw_frame_to_image(frame[-channels:])]
+        channels = int(frame.shape[-1])
+        if int(frame_stack) > 1 and channels % int(frame_stack) == 0:
+            channels_per_frame = channels // int(frame_stack)
+            if channels_per_frame in (1, 3):
+                return [
+                    _hwc_frame_to_image(frame[..., index * channels_per_frame : (index + 1) * channels_per_frame])
+                    for index in range(int(frame_stack))
+                ]
+        if channels in (1, 3):
+            return [_hwc_frame_to_image(frame)]
+    return [_image_frame_array(frame)]
+
+
+def frame_from_policy_observation(observation: Any, *, frame_stack: int) -> np.ndarray:
+    return frames_from_policy_observation(observation, frame_stack=frame_stack)[-1]
+
+
+def _stack_image_paths(image_path: Path, frame_count: int) -> list[Path]:
+    stack_dir = image_path.parent / image_path.stem
+    return [stack_dir / f"stack_{index:02d}.png" for index in range(int(frame_count))]
+
+
+def _save_image_frame(frame: np.ndarray, image_path: Path, export_image_size: tuple[int, int] | None) -> None:
     image_path.parent.mkdir(parents=True, exist_ok=True)
-    frame = frame_from_policy_observation(observation, frame_stack=frame_stack)
     image = Image.fromarray(frame)
     if export_image_size is not None:
         image = image.resize(export_image_size, Image.Resampling.BILINEAR)
     image.save(image_path)
-    return str(image_path)
+
+
+def _save_frame_stack_images(
+    frames: Sequence[np.ndarray],
+    *,
+    image_path: Path,
+    image_stack_paths: Sequence[Path],
+    export_image_size: tuple[int, int] | None,
+) -> None:
+    for frame, stack_path in zip(frames, image_stack_paths):
+        _save_image_frame(frame, stack_path, export_image_size)
+    _save_image_frame(frames[-1], image_path, export_image_size)
 
 
 def _submit_image_write(
     executor: ThreadPoolExecutor | None,
-    pending_futures: set[Future[str]],
+    pending_futures: set[Future[None]],
     observation: Any,
     *,
     image_path: Path,
     frame_stack: int,
     export_image_size: tuple[int, int] | None,
     row_buffer_size: int,
-) -> tuple[str, set[Future[str]]]:
+) -> tuple[str, list[str], set[Future[None]]]:
+    frames = frames_from_policy_observation(observation, frame_stack=frame_stack)
+    image_stack_paths = _stack_image_paths(image_path, len(frames))
     if executor is None:
-        return (
-            _save_observation_image(
-                observation,
-                image_path=image_path,
-                frame_stack=frame_stack,
-                export_image_size=export_image_size,
-            ),
-            pending_futures,
+        _save_frame_stack_images(
+            frames,
+            image_path=image_path,
+            image_stack_paths=image_stack_paths,
+            export_image_size=export_image_size,
         )
+        return str(image_path), [str(path) for path in image_stack_paths], pending_futures
     future = executor.submit(
-        _save_observation_image,
-        observation,
+        _save_frame_stack_images,
+        frames,
         image_path=image_path,
-        frame_stack=frame_stack,
+        image_stack_paths=image_stack_paths,
         export_image_size=export_image_size,
     )
     pending_futures.add(future)
@@ -540,10 +578,10 @@ def _submit_image_write(
         for item in done:
             item.result()
         pending_futures = set(pending)
-    return str(image_path), pending_futures
+    return str(image_path), [str(path) for path in image_stack_paths], pending_futures
 
 
-def _wait_for_image_writes(pending_futures: set[Future[str]]) -> None:
+def _wait_for_image_writes(pending_futures: set[Future[None]]) -> None:
     for future in pending_futures:
         future.result()
 
@@ -614,6 +652,7 @@ def _action_id(raw_action: Any) -> int:
 def _empty_records() -> dict[str, list[Any]]:
     return {
         "image": [],
+        "image_stack": [],
         "split": [],
         "prompt": [],
         "action_id": [],
@@ -643,6 +682,7 @@ def _write_parquet_splits(output_dir: Path, train_rows: list[dict[str, Any]], va
     features = Features(
         {
             "image": HFImage(),
+            "image_stack": HFSequence(HFImage()),
             "split": Value("string"),
             "prompt": Value("string"),
             "action_id": Value("int64"),
@@ -719,7 +759,7 @@ def collect_teacher_dataset(
     active_obs: list[Any | None] = [None for _ in envs]
     active_t = [0 for _ in envs]
     rnn_states = torch.zeros([len(envs), rnn_size], dtype=torch.float32, device=device)
-    pending_futures: set[Future[str]] = set()
+    pending_futures: set[Future[None]] = set()
     executor = ThreadPoolExecutor(max_workers=int(image_writer_workers)) if int(image_writer_workers) > 0 else None
 
     def start_episode(slot: int, spec: dict[str, Any]) -> None:
@@ -766,7 +806,7 @@ def collect_teacher_dataset(
                 split = str(spec["split"])
                 t = int(active_t[slot])
                 image_path = output_dir / "images" / split / f"episode_{int(spec['episode_idx']):06d}" / f"t_{t:06d}.png"
-                saved_image, pending_futures = _submit_image_write(
+                saved_image, image_stack, pending_futures = _submit_image_write(
                     executor,
                     pending_futures,
                     obs,
@@ -787,6 +827,7 @@ def collect_teacher_dataset(
                 done = bool(_to_python_action(terminated)) or bool(_to_python_action(truncated))
                 row = {
                     "image": saved_image,
+                    "image_stack": image_stack,
                     "split": split,
                     "prompt": _prompt_text(
                         prompt_template,
@@ -837,6 +878,7 @@ def collect_teacher_dataset(
     return train_rows, val_rows, {
         "action_labels": action_labels,
         "checkpoint_train_step": int(runtime["checkpoint"].get("train_step", runtime["checkpoint"].get("env_steps", 0))),
+        "frame_stack": frame_stack,
     }
 
 
@@ -935,7 +977,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "split_seed": int(args.split_seed),
         "num_envs": int(args.num_envs),
         "deterministic": bool(args.deterministic),
-        "image_source": "observation",
+        "image_source": "policy_observation",
+        "image_stack_source": "policy_observation_frame_stack",
+        "image_stack_order": "oldest_to_newest",
         "train_rows": len(train_rows),
         "val_rows": len(val_rows),
     }

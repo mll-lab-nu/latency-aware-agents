@@ -228,6 +228,41 @@ def test_observation_frame_drops_single_batched_observation_axis():
     assert frame[0, 0].tolist() == [11, 21, 31]
 
 
+def test_observation_frame_stack_uses_all_stacked_policy_observation_without_render():
+    from scripts.export_sf_teacher_dataset import frames_from_policy_observation
+
+    observation = np.zeros((12, 2, 3), dtype=np.uint8)
+    for frame_idx, base_value in enumerate((10, 20, 30, 40)):
+        channel_offset = frame_idx * 3
+        observation[channel_offset + 0] = base_value + 1
+        observation[channel_offset + 1] = base_value + 2
+        observation[channel_offset + 2] = base_value + 3
+
+    frames = frames_from_policy_observation(observation, frame_stack=4)
+
+    assert len(frames) == 4
+    assert frames[0].shape == (2, 3, 3)
+    assert frames[0][0, 0].tolist() == [11, 12, 13]
+    assert frames[3][1, 2].tolist() == [41, 42, 43]
+
+
+def test_observation_frame_stack_drops_single_batched_observation_axis():
+    from scripts.export_sf_teacher_dataset import frames_from_policy_observation
+
+    observation = np.zeros((1, 12, 2, 3), dtype=np.uint8)
+    for frame_idx, base_value in enumerate((10, 20, 30, 40)):
+        channel_offset = frame_idx * 3
+        observation[0, channel_offset + 0] = base_value + 1
+        observation[0, channel_offset + 1] = base_value + 2
+        observation[0, channel_offset + 2] = base_value + 3
+
+    frames = frames_from_policy_observation({"obs": observation}, frame_stack=4)
+
+    assert len(frames) == 4
+    assert frames[0][0, 0].tolist() == [11, 12, 13]
+    assert frames[-1][1, 2].tolist() == [41, 42, 43]
+
+
 def test_batch_observations_keeps_already_batched_mapping_observation(monkeypatch, tmp_path):
     import torch
     from scripts import export_sf_teacher_dataset as exporter
@@ -316,6 +351,9 @@ def test_batch_observations_keeps_already_batched_mapping_observation(monkeypatc
     assert not val_rows
     assert fake_env.step_actions == [7]
     assert train_rows[0]["action_id"] == 7
+    assert len(train_rows[0]["image_stack"]) == 1
+    assert Path(train_rows[0]["image"]).exists()
+    assert Path(train_rows[0]["image_stack"][-1]).exists()
     assert train_rows[0]["reward"] == 1.5
     assert train_rows[0]["done"] is True
     assert metadata["checkpoint_train_step"] == 123
@@ -403,6 +441,9 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     assert not val_rows
     assert fake_env.step_actions == [7]
     assert train_rows[0]["action_id"] == 7
+    assert len(train_rows[0]["image_stack"]) == 4
+    assert Path(train_rows[0]["image"]).exists()
+    assert Path(train_rows[0]["image_stack"][-1]).exists()
     assert train_rows[0]["reward"] == 1.5
     assert train_rows[0]["done"] is True
     assert train_rows[0]["latency_raw_frames"] == 2
@@ -413,11 +454,15 @@ def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
     from PIL import Image
     from scripts.export_sf_teacher_dataset import _write_parquet_splits
 
-    image_path = tmp_path / "frame.png"
+    stack_paths = [tmp_path / f"stack_{idx:02d}.png" for idx in range(2)]
+    for idx, path in enumerate(stack_paths):
+        Image.fromarray(np.full((2, 2, 3), idx, dtype=np.uint8)).save(path)
+    image_path = stack_paths[-1]
     Image.fromarray(np.zeros((2, 2, 3), dtype=np.uint8)).save(image_path)
 
     row = {
         "image": str(image_path),
+        "image_stack": [str(path) for path in stack_paths],
         "split": "train",
         "prompt": "pick action",
         "action_id": 1,
@@ -439,6 +484,7 @@ def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
     assert (output_dir / "val.parquet").exists()
     assert len(dataset_dict["train"]) == 1
     assert len(dataset_dict["val"]) == 0
+    assert len(dataset_dict["train"][0]["image_stack"]) == 2
 
 
 def test_exporter_parser_has_no_render_image_source_switch():
