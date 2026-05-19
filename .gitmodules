@@ -7,3 +7,4 @@
 [submodule "starVLA"]
 	path = starVLA
 	url = git@github.com:talha1503/starVLA.git
+	branch = qwen3vl-lora-support
