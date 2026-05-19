@@ -4,3 +4,6 @@
 [submodule "RL-inf"]
 	path = RL-inf
 	url = git@github.com:talha1503/RL-inf.git
+[submodule "starVLA"]
+	path = starVLA
+	url = git@github.com:talha1503/starVLA.git
