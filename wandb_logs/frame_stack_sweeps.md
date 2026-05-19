@@ -22,7 +22,9 @@ This experiment studies whether frame stack affects learning performance under l
 
 ### Eval Setting
 - Each checkpoint is evaluated under all latency settings listed above. The main focus is the eval result under the matching training distribution, while other eval settings can also be used as references.
-- eval max steps = 3600 raw frames.
+- Eval max steps depends on the environment:
+    - Demon Attack: 3600 raw frames.
+    - Deadly Corridor: 30000 raw frames, although episodes usually finish within about 200 steps in practice.
 
 ### W&B Setting
 - Training curves are aggregated with std err and displayed with time-weighted EMA = 0.8.
@@ -58,7 +60,9 @@ This experiment studies whether frame stack affects learning performance under l
 
 ### 评估设置
 - 同一个 checkpoint 会在上述所有 latency setting 下各 eval 一遍。主要关注与训练分布对应的 eval 结果，其他 eval setting 也可作为参考。
-- eval max steps = 3600 raw frames。
+- Eval max steps 按环境设置：
+    - Demon Attack: 3600 raw frames。
+    - Deadly Corridor: 30000 raw frames；不过实际运行中通常在 200 步以内结束。
 
 ### W&B 设置
 - Training curve 使用 std err 聚合，并以 time-weighted EMA = 0.8 展示。
