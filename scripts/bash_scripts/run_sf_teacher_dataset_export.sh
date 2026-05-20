@@ -16,11 +16,10 @@ Example:
     /tmp/flappy_teacher_export_smoke
 
 Optional environment variables:
-  PROMPT              Prompt stored in each dataset row.
-  MAX_EPISODES        Number of episodes to collect. Default: 1.
-  MAX_STEPS           Max steps per episode. Default: 8.
-  VAL_FRACTION        Validation split fraction. Default: 0.0.
-  NUM_ENVS            Number of rollout envs. Default: 1.
+  MAX_EPISODES        Number of episodes to collect. Default: 1k.
+  MAX_STEPS           Max steps per episode. Default: 1k.
+  VAL_FRACTION        Validation split fraction. Default: 0.01.
+  NUM_ENVS            Number of rollout envs. Default: 12.
   DEVICE              Sample Factory device override. Default: cpu.
   LATENCY_CONFIG      YAML file with a training-compatible latency: section.
   EXPORT_IMAGE_SIZE   Optional saved image size, e.g. 512,288.
@@ -31,6 +30,7 @@ Optional environment variables:
 Notes:
   By default the exporter uses the latency config saved in the checkpoint config.json.
   The exported images are policy observations, not env.render() frames.
+  Dataset row prompts are fixed in scripts/rollout_data/prompts.py.
 EOF
 }
 
@@ -42,19 +42,17 @@ fi
 CHECKPOINT_ROOT="$1"
 OUTPUT_DIR="$2"
 
-PROMPT="${PROMPT:-You are playing the environment. Choose the best next action from the current visual observation.}"
-MAX_EPISODES="${MAX_EPISODES:-1}"
-MAX_STEPS="${MAX_STEPS:-8}"
-VAL_FRACTION="${VAL_FRACTION:-0.0}"
-NUM_ENVS="${NUM_ENVS:-1}"
+MAX_EPISODES="${MAX_EPISODES:-1000}"
+MAX_STEPS="${MAX_STEPS:-1000}"
+VAL_FRACTION="${VAL_FRACTION:-0.01}"
+NUM_ENVS="${NUM_ENVS:-12}"
 DEVICE="${DEVICE:-cpu}"
 HF_PRIVATE="${HF_PRIVATE:-1}"
 
 CMD=(
-    python scripts/export_sf_teacher_dataset.py
+    python scripts/rollout_data/export_sf_teacher_dataset.py
     --checkpoint-root "${CHECKPOINT_ROOT}"
     --output-dir "${OUTPUT_DIR}"
-    --prompt "${PROMPT}"
     --max-episodes "${MAX_EPISODES}"
     --max-steps-per-episode "${MAX_STEPS}"
     --val-fraction "${VAL_FRACTION}"

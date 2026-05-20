@@ -12,10 +12,9 @@ Default latency behavior:
     training-compatible ``latency:`` section.
 
 Minimal local smoke test:
-    python scripts/export_sf_teacher_dataset.py \
+    python scripts/rollout_data/export_sf_teacher_dataset.py \
       --checkpoint-root results/checkpoints/flappy_sf_frame_stack_4_seed0 \
       --output-dir /tmp/flappy_teacher_export_smoke \
-      --prompt "You are playing Flappy Bird. Choose the best next action." \
       --max-episodes 1 \
       --max-steps-per-episode 8 \
       --val-fraction 0.0 \
@@ -24,10 +23,9 @@ Minimal local smoke test:
 
 Direct export and upload:
     export HF_TOKEN="your-token"
-    python scripts/export_sf_teacher_dataset.py \
+    python scripts/rollout_data/export_sf_teacher_dataset.py \
       --checkpoint-root results/checkpoints/flappy_sf_frame_stack_4_seed0 \
       --output-dir /tmp/flappy_teacher_export_smoke \
-      --prompt "You are playing Flappy Bird. Choose the best next action." \
       --max-episodes 1 \
       --max-steps-per-episode 8 \
       --val-fraction 0.0 \
@@ -39,11 +37,13 @@ Direct export and upload:
       --hf-private
 
 Upload an existing export:
-    python scripts/push_sf_teacher_dataset.py \
+    python scripts/rollout_data/push_sf_teacher_dataset.py \
       --dataset /tmp/flappy_teacher_export_smoke your-hf-name/flappy_teacher_export_smoke \
       --upload-mode direct \
       --hf-token "$HF_TOKEN" \
       --hf-private
+
+Dataset row prompts are rendered from scripts/rollout_data/prompts.py.
 """
 
 from __future__ import annotations
@@ -64,10 +64,11 @@ import numpy as np
 from PIL import Image
 from datasets import Dataset, DatasetDict, Features, Image as HFImage, Sequence as HFSequence, Value
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.rollout_data.prompts import BASE_PROMPTS, TIMING_SUFFIX, render_teacher_prompt
 from latency_bench.policy.sample_factory_common import (
     _load_sf_policy_state_dict,
     _normalize_actions_for_space,
@@ -615,14 +616,6 @@ def _latency_from_info(info: Mapping[str, Any], *, fallback_raw_frames: int, env
     return raw_frames_int, float(_to_python_action(latency_ms))
 
 
-def _prompt_text(template: str, prompt: str, *, latency_raw_frames: int, latency_ms: float) -> str:
-    return str(template).format(
-        prompt=prompt,
-        latency_raw_frames=int(latency_raw_frames),
-        latency_ms=float(latency_ms),
-    )
-
-
 def _action_labels_for_env(env_name: str, env: Any) -> dict[int, str]:
     if env_name == "flappy":
         return {0: "noop", 1: "flap"}
@@ -714,8 +707,6 @@ def collect_teacher_dataset(
     config: dict[str, Any],
     *,
     output_dir: Path,
-    prompt: str,
-    prompt_template: str,
     max_episodes: int,
     max_steps_per_episode: int,
     val_fraction: float,
@@ -740,6 +731,8 @@ def collect_teacher_dataset(
     action_labels = _action_labels_for_env(env_name, envs[0])
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
     env_fps = float(getattr(cfg, "env_fps"))
+    obs_fps = float(getattr(cfg, "obs_fps"))
+    obs_stride_raw_frames = int(env_fps / obs_fps)
     latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=env_fps)
     fallback_latency = int(latency_params.fixed_latency_raw_frames)
     base_seed = int(getattr(cfg, "seed", 0) or 0)
@@ -829,11 +822,12 @@ def collect_teacher_dataset(
                     "image": saved_image,
                     "image_stack": image_stack,
                     "split": split,
-                    "prompt": _prompt_text(
-                        prompt_template,
-                        prompt,
+                    "prompt": render_teacher_prompt(
+                        env_name,
                         latency_raw_frames=latency_raw_frames,
                         latency_ms=latency_ms,
+                        env_fps=env_fps,
+                        obs_fps=obs_fps,
                     ),
                     "action_id": int(action_id),
                     "action_text": action_labels.get(int(action_id), str(action_id)),
@@ -879,6 +873,9 @@ def collect_teacher_dataset(
         "action_labels": action_labels,
         "checkpoint_train_step": int(runtime["checkpoint"].get("train_step", runtime["checkpoint"].get("env_steps", 0))),
         "frame_stack": frame_stack,
+        "env_fps": env_fps,
+        "obs_fps": obs_fps,
+        "obs_stride_raw_frames": obs_stride_raw_frames,
     }
 
 
@@ -914,11 +911,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default="", help="Optional current training YAML. Defaults to checkpoint config.json.")
     parser.add_argument("--latency-config", default="", help="Optional YAML containing a training-compatible latency: section.")
     parser.add_argument("--env-name", default="", choices=["", "deadly_corridor", "demon_attack", "flappy"])
-    parser.add_argument("--prompt", required=True)
-    parser.add_argument(
-        "--prompt-template",
-        default="{prompt} Current action latency is {latency_raw_frames} raw frames ({latency_ms:.2f} ms). Choose the best next action.",
-    )
     parser.add_argument("--max-episodes", type=int, required=True)
     parser.add_argument("--max-steps-per-episode", type=int, required=True)
     parser.add_argument("--val-fraction", type=float, default=0.1)
@@ -952,8 +944,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     train_rows, val_rows, rollout_metadata = collect_teacher_dataset(
         config,
         output_dir=output_dir,
-        prompt=str(args.prompt),
-        prompt_template=str(args.prompt_template),
         max_episodes=int(args.max_episodes),
         max_steps_per_episode=int(args.max_steps_per_episode),
         val_fraction=float(args.val_fraction),
@@ -969,8 +959,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         **config_metadata,
         **rollout_metadata,
         "env_name": config["env"]["name"],
-        "prompt": str(args.prompt),
-        "prompt_template": str(args.prompt_template),
+        "prompt_source": "scripts/rollout_data/prompts.py",
+        "base_prompt": BASE_PROMPTS[str(config["env"]["name"])],
+        "prompt_timing_suffix": TIMING_SUFFIX,
         "max_episodes": int(args.max_episodes),
         "max_steps_per_episode": int(args.max_steps_per_episode),
         "val_fraction": float(args.val_fraction),

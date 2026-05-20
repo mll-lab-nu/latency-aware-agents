@@ -95,7 +95,7 @@ def test_config_loader_generic_uses_current_public_loader(tmp_path):
 
 
 def test_rollout_config_defaults_to_checkpoint_training_latency(tmp_path):
-    from scripts.export_sf_teacher_dataset import load_rollout_training_config
+    from scripts.rollout_data.export_sf_teacher_dataset import load_rollout_training_config
 
     experiment_dir = tmp_path / "demon_fixed_l4_seed0"
     _write_checkpoint_config(experiment_dir)
@@ -116,7 +116,7 @@ def test_rollout_config_defaults_to_checkpoint_training_latency(tmp_path):
 
 
 def test_latency_config_override_replaces_only_latency_section(tmp_path):
-    from scripts.export_sf_teacher_dataset import load_rollout_training_config
+    from scripts.rollout_data.export_sf_teacher_dataset import load_rollout_training_config
 
     experiment_dir = tmp_path / "demon_fixed_l4_seed0"
     _write_checkpoint_config(experiment_dir)
@@ -149,7 +149,7 @@ def test_latency_config_override_replaces_only_latency_section(tmp_path):
 
 
 def test_device_override_cpu_routes_flappy_gpu_renderer_to_cpu(tmp_path):
-    from scripts.export_sf_teacher_dataset import load_rollout_training_config
+    from scripts.rollout_data.export_sf_teacher_dataset import load_rollout_training_config
 
     experiment_dir = tmp_path / "flappy_normal_seed0"
     _write_checkpoint_config(
@@ -178,7 +178,7 @@ def test_device_override_cpu_routes_flappy_gpu_renderer_to_cpu(tmp_path):
 
 
 def test_device_override_cuda_uses_cuda_public_device_name(tmp_path):
-    from scripts.export_sf_teacher_dataset import load_rollout_training_config
+    from scripts.rollout_data.export_sf_teacher_dataset import load_rollout_training_config
 
     experiment_dir = tmp_path / "demon_fixed_l4_seed0"
     _write_checkpoint_config(experiment_dir)
@@ -190,7 +190,7 @@ def test_device_override_cuda_uses_cuda_public_device_name(tmp_path):
 
 
 def test_observation_frame_uses_latest_stacked_policy_observation_without_render():
-    from scripts.export_sf_teacher_dataset import frame_from_policy_observation
+    from scripts.rollout_data.export_sf_teacher_dataset import frame_from_policy_observation
 
     observation = np.zeros((12, 2, 3), dtype=np.uint8)
     observation[9:12] = np.array(
@@ -210,7 +210,7 @@ def test_observation_frame_uses_latest_stacked_policy_observation_without_render
 
 
 def test_observation_frame_drops_single_batched_observation_axis():
-    from scripts.export_sf_teacher_dataset import frame_from_policy_observation
+    from scripts.rollout_data.export_sf_teacher_dataset import frame_from_policy_observation
 
     observation = np.zeros((1, 12, 2, 3), dtype=np.uint8)
     observation[0, 9:12] = np.array(
@@ -229,7 +229,7 @@ def test_observation_frame_drops_single_batched_observation_axis():
 
 
 def test_observation_frame_stack_uses_all_stacked_policy_observation_without_render():
-    from scripts.export_sf_teacher_dataset import frames_from_policy_observation
+    from scripts.rollout_data.export_sf_teacher_dataset import frames_from_policy_observation
 
     observation = np.zeros((12, 2, 3), dtype=np.uint8)
     for frame_idx, base_value in enumerate((10, 20, 30, 40)):
@@ -247,7 +247,7 @@ def test_observation_frame_stack_uses_all_stacked_policy_observation_without_ren
 
 
 def test_observation_frame_stack_drops_single_batched_observation_axis():
-    from scripts.export_sf_teacher_dataset import frames_from_policy_observation
+    from scripts.rollout_data.export_sf_teacher_dataset import frames_from_policy_observation
 
     observation = np.zeros((1, 12, 2, 3), dtype=np.uint8)
     for frame_idx, base_value in enumerate((10, 20, 30, 40)):
@@ -263,9 +263,33 @@ def test_observation_frame_stack_drops_single_batched_observation_axis():
     assert frames[-1][1, 2].tolist() == [41, 42, 43]
 
 
+def test_teacher_prompt_includes_env_prompt_latency_and_fps():
+    from scripts.rollout_data.prompts import render_teacher_prompt
+
+    prompt = render_teacher_prompt(
+        "flappy",
+        latency_raw_frames=2,
+        latency_ms=66.0,
+        env_fps=30.0,
+        obs_fps=15.0,
+    )
+
+    assert prompt == (
+        "You are playing Flappy Bird. Current action latency is 2 raw frames "
+        "(66.00 ms). The environment runs at 30 FPS and observations are emitted "
+        "at 15 FPS. Choose the best next action."
+    )
+
+
+def test_teacher_prompts_cover_rollout_envs():
+    from scripts.rollout_data.prompts import BASE_PROMPTS
+
+    assert set(BASE_PROMPTS) == {"flappy", "demon_attack", "deadly_corridor"}
+
+
 def test_batch_observations_keeps_already_batched_mapping_observation(monkeypatch, tmp_path):
     import torch
-    from scripts import export_sf_teacher_dataset as exporter
+    from scripts.rollout_data import export_sf_teacher_dataset as exporter
 
     observation = {"obs": np.zeros((1, 12, 84, 84), dtype=np.uint8)}
 
@@ -305,7 +329,7 @@ def test_batch_observations_keeps_already_batched_mapping_observation(monkeypatc
 
     fake_env = FakeEnv()
     fake_actor = FakeActorCritic()
-    fake_cfg = SimpleNamespace(frame_stack=1, env_fps=30.0, seed=11)
+    fake_cfg = SimpleNamespace(frame_stack=1, env_fps=30.0, obs_fps=15.0, seed=11)
 
     monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
     monkeypatch.setattr(
@@ -335,8 +359,6 @@ def test_batch_observations_keeps_already_batched_mapping_observation(monkeypatc
     train_rows, val_rows, metadata = exporter.collect_teacher_dataset(
         {"env": {"name": "flappy"}},
         output_dir=tmp_path / "export",
-        prompt="pick action",
-        prompt_template="{prompt}",
         max_episodes=1,
         max_steps_per_episode=8,
         val_fraction=0.0,
@@ -357,11 +379,19 @@ def test_batch_observations_keeps_already_batched_mapping_observation(monkeypatc
     assert train_rows[0]["reward"] == 1.5
     assert train_rows[0]["done"] is True
     assert metadata["checkpoint_train_step"] == 123
+    assert metadata["env_fps"] == 30.0
+    assert metadata["obs_fps"] == 15.0
+    assert metadata["obs_stride_raw_frames"] == 2
+    assert train_rows[0]["prompt"] == (
+        "You are playing Flappy Bird. Current action latency is 2 raw frames "
+        "(66.00 ms). The environment runs at 30 FPS and observations are emitted "
+        "at 15 FPS. Choose the best next action."
+    )
 
 
 def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monkeypatch, tmp_path):
     import torch
-    from scripts import export_sf_teacher_dataset as exporter
+    from scripts.rollout_data import export_sf_teacher_dataset as exporter
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
@@ -395,7 +425,7 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
 
     fake_env = FakeEnv()
     fake_actor = FakeActorCritic()
-    fake_cfg = SimpleNamespace(frame_stack=4, env_fps=30.0, seed=11)
+    fake_cfg = SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=11)
 
     monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
     monkeypatch.setattr(
@@ -425,8 +455,6 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     train_rows, val_rows, metadata = exporter.collect_teacher_dataset(
         {"env": {"name": "flappy"}},
         output_dir=tmp_path / "export",
-        prompt="pick action",
-        prompt_template="{prompt}",
         max_episodes=1,
         max_steps_per_episode=8,
         val_fraction=0.0,
@@ -448,11 +476,14 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     assert train_rows[0]["done"] is True
     assert train_rows[0]["latency_raw_frames"] == 2
     assert metadata["checkpoint_train_step"] == 123
+    assert metadata["env_fps"] == 30.0
+    assert metadata["obs_fps"] == 15.0
+    assert metadata["obs_stride_raw_frames"] == 2
 
 
 def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
     from PIL import Image
-    from scripts.export_sf_teacher_dataset import _write_parquet_splits
+    from scripts.rollout_data.export_sf_teacher_dataset import _write_parquet_splits
 
     stack_paths = [tmp_path / f"stack_{idx:02d}.png" for idx in range(2)]
     for idx, path in enumerate(stack_paths):
@@ -487,16 +518,74 @@ def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
     assert len(dataset_dict["train"][0]["image_stack"]) == 2
 
 
-def test_exporter_parser_has_no_render_image_source_switch():
-    from scripts.export_sf_teacher_dataset import build_parser
+def test_exporter_parser_has_no_prompt_or_render_image_source_switches():
+    from scripts.rollout_data.export_sf_teacher_dataset import build_parser
 
     option_dests = {action.dest for action in build_parser()._actions}
 
     assert "image_source" not in option_dests
+    assert "prompt" not in option_dests
+    assert "prompt_template" not in option_dests
+
+
+def test_main_writes_prompt_source_and_timing_metadata(monkeypatch, tmp_path):
+    from scripts.rollout_data import export_sf_teacher_dataset as exporter
+
+    def fake_write_parquet_splits(output_dir, train_rows, val_rows):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return {"train": train_rows, "val": val_rows}
+
+    monkeypatch.setattr(
+        exporter,
+        "load_rollout_training_config",
+        lambda *args, **kwargs: (
+            {"env": {"name": "flappy"}},
+            {"latency_source": "checkpoint", "latency_config": {"type": "zero"}},
+        ),
+    )
+    monkeypatch.setattr(
+        exporter,
+        "collect_teacher_dataset",
+        lambda *args, **kwargs: (
+            [],
+            [],
+            {
+                "action_labels": {0: "noop", 1: "flap"},
+                "checkpoint_train_step": 123,
+                "frame_stack": 4,
+                "env_fps": 30.0,
+                "obs_fps": 15.0,
+                "obs_stride_raw_frames": 2,
+            },
+        ),
+    )
+    monkeypatch.setattr(exporter, "_write_parquet_splits", fake_write_parquet_splits)
+
+    result = exporter.main(
+        [
+            "--checkpoint-root",
+            str(tmp_path / "checkpoint"),
+            "--output-dir",
+            str(tmp_path / "export"),
+            "--max-episodes",
+            "1",
+            "--max-steps-per-episode",
+            "8",
+        ]
+    )
+
+    metadata = json.loads((tmp_path / "export" / "metadata.json").read_text(encoding="utf-8"))
+    assert result == 0
+    assert metadata["prompt_source"] == "scripts/rollout_data/prompts.py"
+    assert metadata["base_prompt"] == "You are playing Flappy Bird."
+    assert "env_fps" in metadata["prompt_timing_suffix"]
+    assert metadata["env_fps"] == 30.0
+    assert metadata["obs_fps"] == 15.0
+    assert metadata["obs_stride_raw_frames"] == 2
 
 
 def test_push_token_prefers_explicit_then_environment(monkeypatch):
-    from scripts.push_sf_teacher_dataset import resolve_token
+    from scripts.rollout_data.push_sf_teacher_dataset import resolve_token
 
     monkeypatch.setenv("HF_TOKEN", "env-token")
     monkeypatch.setenv("HUGGINGFACE_HUB_TOKEN", "hub-token")
@@ -506,7 +595,7 @@ def test_push_token_prefers_explicit_then_environment(monkeypatch):
 
 
 def test_push_token_falls_back_to_huggingface_hub_token(monkeypatch):
-    from scripts.push_sf_teacher_dataset import resolve_token
+    from scripts.rollout_data.push_sf_teacher_dataset import resolve_token
 
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.setenv("HUGGINGFACE_HUB_TOKEN", "hub-token")
