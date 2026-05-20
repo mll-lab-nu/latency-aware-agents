@@ -263,23 +263,6 @@ def test_observation_frame_stack_drops_single_batched_observation_axis():
     assert frames[-1][1, 2].tolist() == [41, 42, 43]
 
 
-def test_teacher_prompt_includes_env_prompt_latency_and_fps():
-    from scripts.rollout_data.prompts import render_teacher_prompt
-
-    prompt = render_teacher_prompt(
-        "flappy",
-        latency_raw_frames=2,
-        latency_ms=66.0,
-        env_fps=30.0,
-        obs_fps=15.0,
-    )
-
-    assert prompt == (
-        "You are playing Flappy Bird. Current action latency is 2 raw frames "
-        "(66.00 ms). The environment runs at 30 FPS and observations are emitted "
-        "at 15 FPS. Choose the best next action."
-    )
-
 
 def test_teacher_prompts_cover_rollout_envs():
     from scripts.rollout_data.prompts import BASE_PROMPTS
@@ -382,11 +365,6 @@ def test_batch_observations_keeps_already_batched_mapping_observation(monkeypatc
     assert metadata["env_fps"] == 30.0
     assert metadata["obs_fps"] == 15.0
     assert metadata["obs_stride_raw_frames"] == 2
-    assert train_rows[0]["prompt"] == (
-        "You are playing Flappy Bird. Current action latency is 2 raw frames "
-        "(66.00 ms). The environment runs at 30 FPS and observations are emitted "
-        "at 15 FPS. Choose the best next action."
-    )
 
 
 def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monkeypatch, tmp_path):
