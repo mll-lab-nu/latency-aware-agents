@@ -285,7 +285,7 @@ def _structured_config_from_checkpoint_config(
             "train_dir": str(experiment_dir.parent),
             "restart_behavior": flat_cfg.get("restart_behavior", "resume"),
             "run_mode": "eval",
-            "extra_args": ["--load_checkpoint_kind", flat_cfg.get("load_checkpoint_kind", "latest")],
+            "extra_args": ["--load_checkpoint_kind", flat_cfg.get("load_checkpoint_kind", "best")],
         },
         "executor": {"mode": "simulated"},
         "env": _env_from_flat_checkpoint_config(env_name, flat_cfg),
