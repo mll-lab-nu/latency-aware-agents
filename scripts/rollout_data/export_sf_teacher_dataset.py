@@ -50,6 +50,8 @@ from __future__ import annotations
 
 import torch
 import argparse
+import contextlib
+import logging
 import yaml
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 import json
@@ -62,7 +64,9 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 from PIL import Image
+import datasets
 from datasets import Dataset, DatasetDict, Features, Image as HFImage, Sequence as HFSequence, Value
+from tqdm import tqdm
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -675,7 +679,12 @@ def _write_dataset_parquet(dataset: Dataset, path: Path) -> None:
     dataset.to_parquet(str(path))
 
 
+def _sort_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(rows, key=lambda row: (int(row["episode_idx"]), int(row["t"])))
+
+
 def _write_parquet_splits(output_dir: Path, train_rows: list[dict[str, Any]], val_rows: list[dict[str, Any]]):
+    datasets.disable_progress_bars()
     output_dir.mkdir(parents=True, exist_ok=True)
     features = Features(
         {
@@ -701,11 +710,86 @@ def _write_parquet_splits(output_dir: Path, train_rows: list[dict[str, Any]], va
             return Dataset.from_list(rows, features=features)
         return Dataset.from_dict(_empty_records(), features=features)
 
-    train_ds = build_dataset(train_rows)
-    val_ds = build_dataset(val_rows)
+    train_ds = build_dataset(_sort_rows(train_rows))
+    val_ds = build_dataset(_sort_rows(val_rows))
     _write_dataset_parquet(train_ds, output_dir / "train.parquet")
     _write_dataset_parquet(val_ds, output_dir / "val.parquet")
     return DatasetDict({"train": train_ds, "val": val_ds})
+
+
+def _episode_row_shard_path(output_dir: Path, split: str, episode_idx: int) -> Path:
+    return output_dir / "episode_rows" / str(split) / f"episode_{int(episode_idx):06d}.jsonl"
+
+
+def _write_episode_row_shard(output_dir: Path, rows: list[dict[str, Any]]) -> None:
+    split = str(rows[0]["split"])
+    episode_idx = int(rows[0]["episode_idx"])
+    shard_path = _episode_row_shard_path(output_dir, split, episode_idx)
+    shard_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = shard_path.with_name(f"{shard_path.name}.tmp")
+    with tmp_path.open("w", encoding="utf-8") as handle:
+        for row in _sort_rows(rows):
+            json.dump(row, handle, sort_keys=True)
+            handle.write("\n")
+    tmp_path.replace(shard_path)
+
+
+def _load_episode_row_shards(output_dir: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]], set[int]]:
+    train_rows: list[dict[str, Any]] = []
+    val_rows: list[dict[str, Any]] = []
+    completed_episode_indices: set[int] = set()
+    for split in ("train", "val"):
+        for shard_path in sorted((output_dir / "episode_rows" / split).glob("episode_*.jsonl")):
+            with shard_path.open("r", encoding="utf-8") as handle:
+                rows = [json.loads(line) for line in handle if line.strip()]
+            if rows:
+                completed_episode_indices.add(int(rows[0]["episode_idx"]))
+                if split == "train":
+                    train_rows.extend(rows)
+                else:
+                    val_rows.extend(rows)
+    return _sort_rows(train_rows), _sort_rows(val_rows), completed_episode_indices
+
+
+@contextlib.contextmanager
+def _sample_factory_init_log(output_dir: Path):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log_path = output_dir / "sample_factory_init.log"
+    with log_path.open("a", encoding="utf-8") as handle:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        stdout_fd = os.dup(1)
+        stderr_fd = os.dup(2)
+        os.dup2(handle.fileno(), 1)
+        os.dup2(handle.fileno(), 2)
+        sf_logger = logging.getLogger("rl")
+        previous_propagate = sf_logger.propagate
+        redirected_handlers = []
+        temporary_handler = None
+        for handler in sf_logger.handlers:
+            if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                redirected_handlers.append((handler, handler.stream))
+                handler.setStream(handle)
+        if not redirected_handlers:
+            temporary_handler = logging.StreamHandler(handle)
+            sf_logger.addHandler(temporary_handler)
+        sf_logger.propagate = False
+        try:
+            with contextlib.redirect_stdout(handle), contextlib.redirect_stderr(handle):
+                yield
+        finally:
+            sys.stdout.flush()
+            sys.stderr.flush()
+            handle.flush()
+            os.dup2(stdout_fd, 1)
+            os.dup2(stderr_fd, 2)
+            os.close(stdout_fd)
+            os.close(stderr_fd)
+            sf_logger.propagate = previous_propagate
+            if temporary_handler is not None:
+                sf_logger.removeHandler(temporary_handler)
+            for handler, stream in redirected_handlers:
+                handler.setStream(stream)
 
 
 def collect_teacher_dataset(
@@ -722,8 +806,9 @@ def collect_teacher_dataset(
     image_writer_workers: int,
     row_buffer_size: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    module, cfg = build_sample_factory_rollout_cfg(config)
-    runtime = _build_env_and_policy(module, cfg, config, num_envs)
+    with _sample_factory_init_log(output_dir):
+        module, cfg = build_sample_factory_rollout_cfg(config)
+        runtime = _build_env_and_policy(module, cfg, config, num_envs)
     envs = list(runtime["envs"])
     actor_critic = runtime["actor_critic"]
     device = runtime["device"]
@@ -751,10 +836,11 @@ def collect_teacher_dataset(
         }
         for idx in range(int(max_episodes))
     ]
-    train_rows: list[dict[str, Any]] = []
-    val_rows: list[dict[str, Any]] = []
+    train_rows, val_rows, completed_episode_indices = _load_episode_row_shards(output_dir)
+    episode_specs = [spec for spec in episode_specs if int(spec["episode_idx"]) not in completed_episode_indices]
     active_specs: list[dict[str, Any] | None] = [None for _ in envs]
     active_obs: list[Any | None] = [None for _ in envs]
+    active_episode_rows: list[list[dict[str, Any]]] = [[] for _ in envs]
     active_t = [0 for _ in envs]
     rnn_states = torch.zeros([len(envs), rnn_size], dtype=torch.float32, device=device)
     pending_futures: set[Future[None]] = set()
@@ -764,6 +850,7 @@ def collect_teacher_dataset(
         obs, _ = envs[slot].reset(seed=int(spec["seed"]))
         active_specs[slot] = spec
         active_obs[slot] = obs
+        active_episode_rows[slot] = []
         active_t[slot] = 0
         rnn_states[slot].zero_()
 
@@ -775,96 +862,103 @@ def collect_teacher_dataset(
             start_episode(slot, episode_specs[next_spec_idx])
             next_spec_idx += 1
 
-        completed = 0
-        while completed < int(max_episodes):
-            active_slots = [slot for slot, spec in enumerate(active_specs) if spec is not None]
-            if not active_slots:
-                break
-            obs_batch = _batch_observations([active_obs[slot] for slot in active_slots])
-            normalized_obs = prepare_and_normalize_obs(actor_critic, obs_batch)
-            with torch.no_grad():
-                policy_outputs = actor_critic(normalized_obs, rnn_states[active_slots])
-                actions = policy_outputs["actions"]
-                if deterministic:
-                    actions = argmax_actions(actor_critic.action_distribution())
-                actions = _normalize_actions_for_space(
-                    actions,
-                    batch_size=len(active_slots),
-                    action_space=envs[0].action_space,
-                    device=device,
-                    unsqueeze_tensor=unsqueeze_tensor,
-                )
-                processed_actions = preprocess_actions(runtime["env_info"], actions)
-                raw_actions = _split_batch_actions(processed_actions, len(active_slots), action_space=envs[0].action_space)
-                new_rnn_states = policy_outputs["new_rnn_states"]
+        completed = len(completed_episode_indices)
+        with tqdm(total=int(max_episodes), initial=completed, unit="episode") as progress:
+            while completed < int(max_episodes):
+                active_slots = [slot for slot, spec in enumerate(active_specs) if spec is not None]
+                if not active_slots:
+                    break
+                obs_batch = _batch_observations([active_obs[slot] for slot in active_slots])
+                normalized_obs = prepare_and_normalize_obs(actor_critic, obs_batch)
+                with torch.no_grad():
+                    policy_outputs = actor_critic(normalized_obs, rnn_states[active_slots])
+                    actions = policy_outputs["actions"]
+                    if deterministic:
+                        actions = argmax_actions(actor_critic.action_distribution())
+                    actions = _normalize_actions_for_space(
+                        actions,
+                        batch_size=len(active_slots),
+                        action_space=envs[0].action_space,
+                        device=device,
+                        unsqueeze_tensor=unsqueeze_tensor,
+                    )
+                    processed_actions = preprocess_actions(runtime["env_info"], actions)
+                    raw_actions = _split_batch_actions(processed_actions, len(active_slots), action_space=envs[0].action_space)
+                    new_rnn_states = policy_outputs["new_rnn_states"]
 
-            for batch_idx, slot in enumerate(active_slots):
-                spec = active_specs[slot]
-                obs = active_obs[slot]
-                split = str(spec["split"])
-                t = int(active_t[slot])
-                image_path = output_dir / "images" / split / f"episode_{int(spec['episode_idx']):06d}" / f"t_{t:06d}.png"
-                saved_image, image_stack, pending_futures = _submit_image_write(
-                    executor,
-                    pending_futures,
-                    obs,
-                    image_path=image_path,
-                    frame_stack=frame_stack,
-                    export_image_size=export_image_size,
-                    row_buffer_size=int(row_buffer_size),
-                )
-                raw_action = raw_actions[batch_idx]
-                action_id = _action_id(raw_action)
-                next_obs, reward, terminated, truncated, info = envs[slot].step([raw_action])
-                info_dict = dict(_single_env_info(info))
-                latency_raw_frames, latency_ms = _latency_from_info(
-                    info_dict,
-                    fallback_raw_frames=fallback_latency,
-                    env_fps=env_fps,
-                )
-                done = bool(_to_python_action(terminated)) or bool(_to_python_action(truncated))
-                row = {
-                    "image": saved_image,
-                    "image_stack": image_stack,
-                    "split": split,
-                    "prompt": render_teacher_prompt(
-                        env_name,
-                        latency_raw_frames=latency_raw_frames,
-                        latency_ms=latency_ms,
+                for batch_idx, slot in enumerate(active_slots):
+                    spec = active_specs[slot]
+                    obs = active_obs[slot]
+                    split = str(spec["split"])
+                    t = int(active_t[slot])
+                    image_path = output_dir / "images" / split / f"episode_{int(spec['episode_idx']):06d}" / f"t_{t:06d}.png"
+                    saved_image, image_stack, pending_futures = _submit_image_write(
+                        executor,
+                        pending_futures,
+                        obs,
+                        image_path=image_path,
+                        frame_stack=frame_stack,
+                        export_image_size=export_image_size,
+                        row_buffer_size=int(row_buffer_size),
+                    )
+                    raw_action = raw_actions[batch_idx]
+                    action_id = _action_id(raw_action)
+                    next_obs, reward, terminated, truncated, info = envs[slot].step([raw_action])
+                    info_dict = dict(_single_env_info(info))
+                    latency_raw_frames, latency_ms = _latency_from_info(
+                        info_dict,
+                        fallback_raw_frames=fallback_latency,
                         env_fps=env_fps,
-                        obs_fps=obs_fps,
-                    ),
-                    "action_id": int(action_id),
-                    "action_text": action_labels.get(int(action_id), str(action_id)),
-                    "latency_raw_frames": int(latency_raw_frames),
-                    "latency_ms": float(latency_ms),
-                    "reward": float(_to_python_action(reward)),
-                    "done": done,
-                    "episode_idx": int(spec["episode_idx"]),
-                    "t": t,
-                    "seed": int(spec["seed"]),
-                    "deterministic": bool(deterministic),
-                }
-                if split == "val":
-                    val_rows.append(row)
-                else:
-                    train_rows.append(row)
-
-                rnn_states[slot] = new_rnn_states[batch_idx]
-                next_t = t + 1
-                if bool(row["done"]) or next_t >= int(max_steps_per_episode):
-                    completed += 1
-                    if next_spec_idx < len(episode_specs):
-                        start_episode(slot, episode_specs[next_spec_idx])
-                        next_spec_idx += 1
+                    )
+                    done = bool(_to_python_action(terminated)) or bool(_to_python_action(truncated))
+                    row = {
+                        "image": saved_image,
+                        "image_stack": image_stack,
+                        "split": split,
+                        "prompt": render_teacher_prompt(
+                            env_name,
+                            latency_raw_frames=latency_raw_frames,
+                            latency_ms=latency_ms,
+                            env_fps=env_fps,
+                            obs_fps=obs_fps,
+                        ),
+                        "action_id": int(action_id),
+                        "action_text": action_labels.get(int(action_id), str(action_id)),
+                        "latency_raw_frames": int(latency_raw_frames),
+                        "latency_ms": float(latency_ms),
+                        "reward": float(_to_python_action(reward)),
+                        "done": done,
+                        "episode_idx": int(spec["episode_idx"]),
+                        "t": t,
+                        "seed": int(spec["seed"]),
+                        "deterministic": bool(deterministic),
+                    }
+                    active_episode_rows[slot].append(row)
+                    if split == "val":
+                        val_rows.append(row)
                     else:
-                        active_specs[slot] = None
-                        active_obs[slot] = None
-                        active_t[slot] = 0
-                        rnn_states[slot].zero_()
-                else:
-                    active_obs[slot] = next_obs
-                    active_t[slot] = next_t
+                        train_rows.append(row)
+
+                    rnn_states[slot] = new_rnn_states[batch_idx]
+                    next_t = t + 1
+                    if bool(row["done"]) or next_t >= int(max_steps_per_episode):
+                        _wait_for_image_writes(pending_futures)
+                        pending_futures = set()
+                        _write_episode_row_shard(output_dir, active_episode_rows[slot])
+                        progress.update(1)
+                        completed += 1
+                        if next_spec_idx < len(episode_specs):
+                            start_episode(slot, episode_specs[next_spec_idx])
+                            next_spec_idx += 1
+                        else:
+                            active_specs[slot] = None
+                            active_obs[slot] = None
+                            active_episode_rows[slot] = []
+                            active_t[slot] = 0
+                            rnn_states[slot].zero_()
+                    else:
+                        active_obs[slot] = next_obs
+                        active_t[slot] = next_t
     finally:
         try:
             _wait_for_image_writes(pending_futures)
@@ -874,7 +968,7 @@ def collect_teacher_dataset(
             for env in envs:
                 env.close()
 
-    return train_rows, val_rows, {
+    return _sort_rows(train_rows), _sort_rows(val_rows), {
         "action_labels": action_labels,
         "checkpoint_train_step": int(runtime["checkpoint"].get("train_step", runtime["checkpoint"].get("env_steps", 0))),
         "frame_stack": frame_stack,

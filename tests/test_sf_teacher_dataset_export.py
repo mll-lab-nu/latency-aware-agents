@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -485,6 +487,237 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     assert metadata["obs_stride_raw_frames"] == 2
 
 
+def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, tmp_path):
+    import torch
+    from scripts.rollout_data import export_sf_teacher_dataset as exporter
+
+    class FakeProgress:
+        calls: list[tuple[int, int]] = []
+        updates: list[int] = []
+
+        def __init__(self, *, total, initial, unit):
+            self.calls.append((total, initial))
+            self.unit = unit
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def update(self, value):
+            self.updates.append(value)
+
+    class FakeActorCritic:
+        def __call__(self, normalized_obs, rnn_states):
+            batch_size = int(normalized_obs["obs"].shape[0])
+            return {
+                "actions": torch.full((batch_size, 1), 99, dtype=torch.int64),
+                "new_rnn_states": torch.ones_like(rnn_states),
+            }
+
+    class FakeEnv:
+        reset_seeds: list[int] = []
+
+        def __init__(self):
+            self.action_space = object()
+
+        def reset(self, seed=None):
+            self.reset_seeds.append(int(seed))
+            return {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)}, [{"reset": True}]
+
+        def step(self, action):
+            del action
+            return (
+                {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)},
+                np.asarray([1.5], dtype=np.float32),
+                np.asarray([True], dtype=np.bool_),
+                np.asarray([False], dtype=np.bool_),
+                [{"latency_raw_frames": 2, "latency_ms": 66.0}],
+            )
+
+        def close(self):
+            return None
+
+    fake_cfg = SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=100)
+
+    def fake_runtime(module, cfg, config, num_envs):
+        return {
+            "envs": [FakeEnv()],
+            "env_info": object(),
+            "actor_critic": FakeActorCritic(),
+            "device": torch.device("cpu"),
+            "prepare_and_normalize_obs": lambda actor_critic, obs_batch: obs_batch,
+            "argmax_actions": lambda action_distribution: action_distribution,
+            "preprocess_actions": lambda env_info, actions: np.asarray([99], dtype=np.int64),
+            "unsqueeze_tensor": lambda value, dim: value.unsqueeze(dim),
+            "rnn_size": 1,
+            "checkpoint": {"train_step": 123},
+        }
+
+    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(exporter, "_build_env_and_policy", fake_runtime)
+    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [7] * batch_size)
+    monkeypatch.setattr(exporter, "tqdm", FakeProgress)
+    monkeypatch.setattr(
+        exporter,
+        "sample_factory_latency_params_from_flat_config",
+        lambda cfg, env_fps: SimpleNamespace(fixed_latency_raw_frames=0),
+    )
+
+    output_dir = tmp_path / "export"
+    train_rows, val_rows, _ = exporter.collect_teacher_dataset(
+        {"env": {"name": "flappy"}},
+        output_dir=output_dir,
+        max_episodes=2,
+        max_steps_per_episode=8,
+        val_fraction=0.0,
+        split_seed=0,
+        num_envs=1,
+        deterministic=False,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+    )
+
+    assert not val_rows
+    assert [row["episode_idx"] for row in train_rows] == [0, 1]
+    assert (output_dir / "episode_rows" / "train" / "episode_000000.jsonl").exists()
+    assert (output_dir / "episode_rows" / "train" / "episode_000001.jsonl").exists()
+    assert FakeProgress.calls[-1] == (2, 0)
+    assert FakeProgress.updates == [1, 1]
+    assert FakeEnv.reset_seeds == [100, 101]
+
+    FakeEnv.reset_seeds.clear()
+    FakeProgress.updates.clear()
+
+    resumed_train_rows, resumed_val_rows, _ = exporter.collect_teacher_dataset(
+        {"env": {"name": "flappy"}},
+        output_dir=output_dir,
+        max_episodes=3,
+        max_steps_per_episode=8,
+        val_fraction=0.0,
+        split_seed=0,
+        num_envs=1,
+        deterministic=False,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+    )
+
+    assert not resumed_val_rows
+    assert [row["episode_idx"] for row in resumed_train_rows] == [0, 1, 2]
+    assert FakeProgress.calls[-1] == (3, 2)
+    assert FakeProgress.updates == [1]
+    assert FakeEnv.reset_seeds == [102]
+
+
+def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatch, tmp_path, capfd):
+    import torch
+    from scripts.rollout_data import export_sf_teacher_dataset as exporter
+
+    class FakeProgress:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def update(self, value):
+            pass
+
+    class FakeActorCritic:
+        def __call__(self, normalized_obs, rnn_states):
+            batch_size = int(normalized_obs["obs"].shape[0])
+            return {
+                "actions": torch.full((batch_size, 1), 99, dtype=torch.int64),
+                "new_rnn_states": torch.ones_like(rnn_states),
+            }
+
+    class FakeEnv:
+        action_space = object()
+
+        def reset(self, seed=None):
+            del seed
+            return {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)}, [{"reset": True}]
+
+        def step(self, action):
+            del action
+            return (
+                {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)},
+                np.asarray([1.5], dtype=np.float32),
+                np.asarray([True], dtype=np.bool_),
+                np.asarray([False], dtype=np.bool_),
+                [{"latency_raw_frames": 2, "latency_ms": 66.0}],
+            )
+
+        def close(self):
+            return None
+
+    def fake_build_config(config):
+        print("sample factory stdout")
+        print("sample factory stderr", file=exporter.sys.stderr)
+        os.write(2, b"native init stderr\n")
+        logging.getLogger("rl").warning("sample factory logger")
+        return object(), SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=0)
+
+    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", fake_build_config)
+    monkeypatch.setattr(
+        exporter,
+        "_build_env_and_policy",
+        lambda module, cfg, config, num_envs: {
+            "envs": [FakeEnv()],
+            "env_info": object(),
+            "actor_critic": FakeActorCritic(),
+            "device": torch.device("cpu"),
+            "prepare_and_normalize_obs": lambda actor_critic, obs_batch: obs_batch,
+            "argmax_actions": lambda action_distribution: action_distribution,
+            "preprocess_actions": lambda env_info, actions: np.asarray([99], dtype=np.int64),
+            "unsqueeze_tensor": lambda value, dim: value.unsqueeze(dim),
+            "rnn_size": 1,
+            "checkpoint": {"train_step": 123},
+        },
+    )
+    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [7] * batch_size)
+    monkeypatch.setattr(exporter, "tqdm", FakeProgress)
+    monkeypatch.setattr(
+        exporter,
+        "sample_factory_latency_params_from_flat_config",
+        lambda cfg, env_fps: SimpleNamespace(fixed_latency_raw_frames=0),
+    )
+
+    output_dir = tmp_path / "export"
+    exporter.collect_teacher_dataset(
+        {"env": {"name": "flappy"}},
+        output_dir=output_dir,
+        max_episodes=1,
+        max_steps_per_episode=8,
+        val_fraction=0.0,
+        split_seed=0,
+        num_envs=1,
+        deterministic=False,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+    )
+
+    captured = capfd.readouterr()
+    init_log = (output_dir / "sample_factory_init.log").read_text(encoding="utf-8")
+    assert "sample factory stdout" not in captured.out
+    assert "sample factory stderr" not in captured.err
+    assert "native init stderr" not in captured.err
+    assert "sample factory logger" not in captured.err
+    assert "sample factory stdout" in init_log
+    assert "sample factory stderr" in init_log
+    assert "native init stderr" in init_log
+    assert "sample factory logger" in init_log
+
+
 def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
     from PIL import Image
     from scripts.rollout_data.export_sf_teacher_dataset import _write_parquet_splits
@@ -520,6 +753,19 @@ def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
     assert len(dataset_dict["train"]) == 1
     assert len(dataset_dict["val"]) == 0
     assert len(dataset_dict["train"][0]["image_stack"]) == 2
+
+
+def test_write_parquet_splits_disables_datasets_progress(monkeypatch, tmp_path):
+    from scripts.rollout_data import export_sf_teacher_dataset as exporter
+
+    calls: list[str] = []
+
+    monkeypatch.setattr(exporter.datasets, "disable_progress_bars", lambda: calls.append("disabled"))
+    monkeypatch.setattr(exporter, "_write_dataset_parquet", lambda dataset, path: path.write_text("ok", encoding="utf-8"))
+
+    exporter._write_parquet_splits(tmp_path / "export", [], [])
+
+    assert calls == ["disabled"]
 
 
 def test_exporter_parser_has_no_prompt_or_render_image_source_switches():
