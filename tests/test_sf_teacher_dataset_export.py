@@ -280,6 +280,26 @@ def test_batch_observations_keeps_already_batched_mapping_observation(monkeypatc
 
     assert batch["obs"].shape == (1, 12, 84, 84)
 
+
+def test_batch_observations_concatenates_single_agent_batched_mapping_observations():
+    from scripts.rollout_data import export_sf_teacher_dataset as exporter
+
+    observations = [
+        {"obs": np.full((1, 4, 2, 2), slot, dtype=np.uint8)}
+        for slot in range(2)
+    ]
+
+    batch = exporter._batch_observations(observations)
+
+    assert batch["obs"].shape == (2, 4, 2, 2)
+    assert batch["obs"][0].tolist() == observations[0]["obs"][0].tolist()
+    assert batch["obs"][1].tolist() == observations[1]["obs"][0].tolist()
+
+
+def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_path):
+    import torch
+    from scripts.rollout_data import export_sf_teacher_dataset as exporter
+
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
             batch_size = int(normalized_obs["obs"].shape[0])
@@ -332,7 +352,7 @@ def test_batch_observations_keeps_already_batched_mapping_observation(monkeypatc
         },
     )
     monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [7])
+    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [7] * batch_size)
     monkeypatch.setattr(
         exporter,
         "sample_factory_latency_params_from_flat_config",
@@ -354,7 +374,7 @@ def test_batch_observations_keeps_already_batched_mapping_observation(monkeypatc
     )
 
     assert not val_rows
-    assert fake_env.step_actions == [7]
+    assert fake_env.step_actions == [[7]]
     assert train_rows[0]["action_id"] == 7
     assert len(train_rows[0]["image_stack"]) == 1
     assert Path(train_rows[0]["image"]).exists()
@@ -372,7 +392,11 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     from scripts.rollout_data import export_sf_teacher_dataset as exporter
 
     class FakeActorCritic:
+        def __init__(self):
+            self.seen_obs_shapes: list[tuple[int, ...]] = []
+
         def __call__(self, normalized_obs, rnn_states):
+            self.seen_obs_shapes.append(tuple(normalized_obs["obs"].shape))
             batch_size = int(normalized_obs["obs"].shape[0])
             return {
                 "actions": torch.full((batch_size, 1), 99, dtype=torch.int64),
@@ -380,18 +404,19 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
             }
 
     class FakeEnv:
-        def __init__(self):
+        def __init__(self, slot: int):
+            self.slot = int(slot)
             self.action_space = object()
             self.step_actions: list[object] = []
 
         def reset(self, seed=None):
             del seed
-            return {"obs": np.zeros((1, 12, 84, 84), dtype=np.uint8)}, [{"reset": True}]
+            return {"obs": np.full((1, 12, 84, 84), self.slot, dtype=np.uint8)}, [{"reset": True}]
 
         def step(self, action):
             self.step_actions.append(action)
             return (
-                {"obs": np.zeros((1, 12, 84, 84), dtype=np.uint8)},
+                {"obs": np.full((1, 12, 84, 84), self.slot, dtype=np.uint8)},
                 np.asarray([1.5], dtype=np.float32),
                 np.asarray([True], dtype=np.bool_),
                 np.asarray([False], dtype=np.bool_),
@@ -401,7 +426,7 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
         def close(self):
             return None
 
-    fake_env = FakeEnv()
+    fake_envs = [FakeEnv(slot) for slot in range(2)]
     fake_actor = FakeActorCritic()
     fake_cfg = SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=11)
 
@@ -410,7 +435,7 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
         exporter,
         "_build_env_and_policy",
         lambda module, cfg, config, num_envs: {
-            "envs": [fake_env],
+            "envs": fake_envs,
             "env_info": object(),
             "actor_critic": fake_actor,
             "device": torch.device("cpu"),
@@ -423,7 +448,7 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
         },
     )
     monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [7])
+    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [7] * batch_size)
     monkeypatch.setattr(
         exporter,
         "sample_factory_latency_params_from_flat_config",
@@ -433,11 +458,11 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     train_rows, val_rows, metadata = exporter.collect_teacher_dataset(
         {"env": {"name": "flappy"}},
         output_dir=tmp_path / "export",
-        max_episodes=1,
+        max_episodes=2,
         max_steps_per_episode=8,
         val_fraction=0.0,
         split_seed=0,
-        num_envs=1,
+        num_envs=2,
         deterministic=False,
         export_image_size=None,
         image_writer_workers=0,
@@ -445,8 +470,9 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     )
 
     assert not val_rows
-    assert fake_env.step_actions == [7]
-    assert train_rows[0]["action_id"] == 7
+    assert fake_actor.seen_obs_shapes == [(2, 12, 84, 84)]
+    assert [env.step_actions for env in fake_envs] == [[[7]], [[7]]]
+    assert [row["action_id"] for row in train_rows] == [7, 7]
     assert len(train_rows[0]["image_stack"]) == 4
     assert Path(train_rows[0]["image"]).exists()
     assert Path(train_rows[0]["image_stack"][-1]).exists()

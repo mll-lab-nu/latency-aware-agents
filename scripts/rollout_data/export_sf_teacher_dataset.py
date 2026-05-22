@@ -594,10 +594,15 @@ def _batch_observations(observations: Sequence[Any]) -> Any:
             arrays = {key: _to_numpy(value) for key, value in first.items()}
             if any(array.ndim >= 4 for array in arrays.values()):
                 return arrays
-        return {
-            key: np.stack([_to_numpy(obs[key]) for obs in observations], axis=0)
-            for key in first
-        }
+        arrays = {}
+        for key in first:
+            values = [_to_numpy(obs[key]) for obs in observations]
+            arrays[key] = (
+                np.concatenate(values, axis=0)
+                if values[0].ndim >= 4 and int(values[0].shape[0]) == 1
+                else np.stack(values, axis=0)
+            )
+        return arrays
     return {"obs": np.stack([_to_numpy(obs) for obs in observations], axis=0)}
 
 
@@ -810,7 +815,7 @@ def collect_teacher_dataset(
                 )
                 raw_action = raw_actions[batch_idx]
                 action_id = _action_id(raw_action)
-                next_obs, reward, terminated, truncated, info = envs[slot].step(raw_action)
+                next_obs, reward, terminated, truncated, info = envs[slot].step([raw_action])
                 info_dict = dict(_single_env_info(info))
                 latency_raw_frames, latency_ms = _latency_from_info(
                     info_dict,
