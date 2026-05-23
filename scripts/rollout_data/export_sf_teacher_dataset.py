@@ -79,6 +79,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.rollout_data.prompts import BASE_PROMPTS, TIMING_SUFFIX, render_teacher_prompt
 from latency_bench.policy.sample_factory_common import (
+    _deterministic_actions_for_space,
     _load_sf_policy_state_dict,
     _normalize_actions_for_space,
     _resolve_device,
@@ -915,7 +916,12 @@ def collect_teacher_dataset(
                     policy_outputs = actor_critic(normalized_obs, rnn_states[active_slots])
                     actions = policy_outputs["actions"]
                     if deterministic:
-                        actions = argmax_actions(actor_critic.action_distribution())
+                        actions = _deterministic_actions_for_space(
+                            actor_critic.action_distribution(),
+                            action_space=envs[0].action_space,
+                            argmax_actions=argmax_actions,
+                            device=device,
+                        )
                     actions = _normalize_actions_for_space(
                         actions,
                         batch_size=len(active_slots),

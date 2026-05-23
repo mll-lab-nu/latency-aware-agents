@@ -31,7 +31,8 @@ class RawRgbFrameStackInfoWrapper(gym.Wrapper):
 
     def step(self, action):
         observation, reward, terminated, truncated, info = self.env.step(action)
-        self._raw_rgb_frames.append(self._current_raw_rgb_frame())
+        if not (terminated or truncated):
+            self._raw_rgb_frames.append(self._current_raw_rgb_frame())
         info = dict(info or {})
         info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
         return observation, reward, terminated, truncated, info

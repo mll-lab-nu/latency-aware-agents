@@ -454,6 +454,120 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     assert metadata["obs_stride_raw_frames"] == 2
 
 
+def test_collect_teacher_dataset_stacks_deadly_corridor_deterministic_tuple_actions(monkeypatch, tmp_path):
+    import torch
+    from gymnasium.spaces import Discrete, Tuple
+    from scripts.rollout_data import export_sf_teacher_dataset as exporter
+
+    component_actions = torch.tensor(
+        [
+            [0, 1, 2, 1],
+            [1, 2, 0, 0],
+        ],
+        dtype=torch.long,
+    )
+
+    class FakeActorCritic:
+        def __init__(self):
+            self.last_component_actions = torch.empty((0, 4), dtype=torch.long)
+
+        def __call__(self, normalized_obs, rnn_states):
+            batch_size = int(normalized_obs["obs"].shape[0])
+            self.last_component_actions = component_actions[:batch_size].to(rnn_states.device)
+            return {
+                "actions": torch.full((batch_size, 4), 99, dtype=torch.int64),
+                "new_rnn_states": torch.ones_like(rnn_states),
+            }
+
+        def action_distribution(self):
+            return SimpleNamespace(
+                argmax_actions=self.last_component_actions.reshape(1, -1),
+                distributions=[
+                    SimpleNamespace(argmax_actions=self.last_component_actions[:, component_index])
+                    for component_index in range(self.last_component_actions.shape[1])
+                ],
+            )
+
+    class FakeEnv:
+        action_space = Tuple((Discrete(3), Discrete(3), Discrete(3), Discrete(2)))
+
+        def __init__(self, slot: int):
+            self.slot = int(slot)
+            self.step_actions: list[object] = []
+
+        def reset(self, seed=None):
+            del seed
+            return {"obs": np.full((1, 12, 84, 84), self.slot, dtype=np.uint8)}, [
+                {"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(self.slot, frames=4)}
+            ]
+
+        def step(self, action):
+            self.step_actions.append(action)
+            return (
+                {"obs": np.full((1, 12, 84, 84), self.slot, dtype=np.uint8)},
+                np.asarray([1.0], dtype=np.float32),
+                np.asarray([True], dtype=np.bool_),
+                np.asarray([False], dtype=np.bool_),
+                [
+                    {
+                        "latency_raw_frames": 2,
+                        "latency_ms": 33.0,
+                        "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(self.slot + 10, frames=4),
+                    }
+                ],
+            )
+
+        def close(self):
+            return None
+
+    fake_envs = [FakeEnv(slot) for slot in range(2)]
+    fake_actor = FakeActorCritic()
+    fake_cfg = SimpleNamespace(frame_stack=4, env_fps=60.0, obs_fps=15.0, seed=1)
+    fake_env_info = SimpleNamespace(action_space=fake_envs[0].action_space)
+
+    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(
+        exporter,
+        "_build_env_and_policy",
+        lambda module, cfg, config, num_envs: {
+            "envs": fake_envs,
+            "env_info": fake_env_info,
+            "actor_critic": fake_actor,
+            "device": torch.device("cpu"),
+            "prepare_and_normalize_obs": lambda actor_critic, obs_batch: obs_batch,
+            "argmax_actions": lambda distribution: distribution.argmax_actions,
+            "preprocess_actions": lambda env_info, actions: actions.detach().cpu().numpy(),
+            "unsqueeze_tensor": lambda value, dim: value.unsqueeze(dim),
+            "rnn_size": 1,
+            "checkpoint": {"train_step": 123},
+        },
+    )
+    monkeypatch.setattr(
+        exporter,
+        "sample_factory_latency_params_from_flat_config",
+        lambda cfg, env_fps: SimpleNamespace(fixed_latency_raw_frames=0),
+    )
+
+    train_rows, val_rows, metadata = exporter.collect_teacher_dataset(
+        {"env": {"name": "deadly_corridor"}},
+        output_dir=tmp_path / "export",
+        max_episodes=2,
+        max_steps_per_episode=8,
+        val_fraction=0.0,
+        split_seed=0,
+        num_envs=2,
+        deterministic=True,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+    )
+
+    assert not val_rows
+    assert [env.step_actions for env in fake_envs] == [[[[0, 1, 2, 1]]], [[[1, 2, 0, 0]]]]
+    assert [row["action_id"] for row in train_rows] == [0, 1]
+    assert metadata["checkpoint_train_step"] == 123
+
+
 def test_collect_teacher_dataset_saves_demon_attack_raw_rgb_stack(monkeypatch, tmp_path):
     import torch
     from PIL import Image

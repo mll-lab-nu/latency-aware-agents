@@ -483,6 +483,47 @@ def _build_tuple_runner(
     return runner, actor
 
 
+def test_deterministic_actions_for_tuple_space_stacks_component_argmaxes():
+    action_space = Tuple((Discrete(3), Discrete(3), Discrete(3), Discrete(2)))
+    component_actions = torch.tensor(
+        [
+            [0, 1, 2, 1],
+            [1, 2, 0, 0],
+        ],
+        dtype=torch.long,
+    )
+    action_distribution = SimpleNamespace(
+        argmax_actions=component_actions.reshape(1, -1),
+        distributions=[
+            SimpleNamespace(argmax_actions=component_actions[:, component_index])
+            for component_index in range(component_actions.shape[1])
+        ],
+    )
+
+    actions = sample_factory_common._deterministic_actions_for_space(
+        action_distribution,
+        action_space=action_space,
+        argmax_actions=lambda distribution: distribution.argmax_actions,
+        device=torch.device("cpu"),
+    )
+
+    assert tuple(actions.shape) == (2, 4)
+    assert actions.tolist() == component_actions.tolist()
+
+
+def test_deterministic_actions_for_discrete_space_keeps_argmax_output():
+    action_distribution = SimpleNamespace(argmax_actions=torch.tensor([1, 0], dtype=torch.long))
+
+    actions = sample_factory_common._deterministic_actions_for_space(
+        action_distribution,
+        action_space=Discrete(2),
+        argmax_actions=lambda distribution: distribution.argmax_actions,
+        device=torch.device("cpu"),
+    )
+
+    assert actions.tolist() == [1, 0]
+
+
 class _SfDiscreteImageEnv(EnvAdapter):
     action_space = Discrete(5)
 

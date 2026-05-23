@@ -1731,6 +1731,58 @@ def test_doom_raw_rgb_frame_stack_wrapper_reports_screen_buffer_without_changing
     assert step_info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][:, 0, 0].tolist() == [[10, 11, 12], [11, 12, 13]]
 
 
+def test_raw_rgb_frame_stack_wrapper_keeps_last_stack_on_terminal_step():
+    from gymnasium.spaces import Box, Discrete
+
+    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackInfoWrapper
+
+    class FakeState:
+        def __init__(self):
+            self.screen_buffer = np.zeros((3, 6, 5), dtype=np.uint8)
+            self.screen_buffer[0] = 21
+            self.screen_buffer[1] = 22
+            self.screen_buffer[2] = 23
+
+    class FakeGame:
+        def __init__(self, env):
+            self.env = env
+
+        def get_state(self):
+            if self.env.terminal:
+                return None
+            return FakeState()
+
+    class TerminalEnv(gym.Env):
+        observation_space = Box(low=0, high=255, shape=(3, 2, 2), dtype=np.uint8)
+        action_space = Discrete(2)
+
+        def __init__(self):
+            self.terminal = False
+            self.game = FakeGame(self)
+
+        def reset(self, *, seed=None, options=None):
+            del seed, options
+            self.terminal = False
+            return np.ones((3, 2, 2), dtype=np.uint8), {}
+
+        def step(self, action):
+            del action
+            self.terminal = True
+            return np.full((3, 2, 2), 7, dtype=np.uint8), 0.0, True, False, {}
+
+    def raw_frame(env):
+        return np.transpose(env.unwrapped.game.get_state().screen_buffer, (1, 2, 0))
+
+    wrapped = RawRgbFrameStackInfoWrapper(TerminalEnv(), num_frames=2, raw_frame_fn=raw_frame)
+
+    _, reset_info = wrapped.reset()
+    _, _, terminated, truncated, step_info = wrapped.step(0)
+
+    assert terminated is True
+    assert truncated is False
+    assert step_info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY].tolist() == reset_info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY].tolist()
+
+
 @pytest.mark.parametrize(
     ("env_name", "seed", "latency", "expected_wandb_name"),
     (

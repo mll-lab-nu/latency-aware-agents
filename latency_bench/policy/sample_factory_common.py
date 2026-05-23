@@ -345,7 +345,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
             policy_outputs = self.actor_critic(normalized_obs, rnn_states)
             actions = policy_outputs["actions"]
             if self.deterministic:
-                actions = self._deterministic_actions(batch_size=1)
+                actions = self._deterministic_actions()
             actions = _normalize_actions_for_space(
                 actions,
                 batch_size=1,
@@ -395,7 +395,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
             policy_outputs = self.actor_critic(normalized_obs, rnn_states)
             actions = policy_outputs["actions"]
             if self.deterministic:
-                actions = self._deterministic_actions(batch_size=batch_size)
+                actions = self._deterministic_actions()
             actions = _normalize_actions_for_space(
                 actions,
                 batch_size=batch_size,
@@ -457,35 +457,13 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         for index, slot_id in enumerate(slot_ids):
             self._rnn_states_by_slot[int(slot_id)] = new_rnn_states[index : index + 1]
 
-    def _deterministic_actions(self, *, batch_size: int) -> torch.Tensor:
-        action_distribution = self.actor_critic.action_distribution()
-        if _is_flat_discrete_tuple_space(self.action_space):
-            distributions = getattr(action_distribution, "distributions", None)
-            if distributions is None or len(distributions) != len(self.action_space.spaces):
-                raise ValueError(
-                    "Sample Factory Tuple action distribution must expose one distribution per action component"
-                )
-            component_actions = []
-            for component_distribution in distributions:
-                component = _as_action_tensor(self._argmax_actions(component_distribution), self.device)
-                if component.ndim == 0:
-                    component = component.reshape(1)
-                if component.ndim == 2 and component.shape[-1] == 1:
-                    component = component.squeeze(-1)
-                if component.ndim != 1:
-                    raise ValueError(
-                        "Sample Factory Tuple argmax component must have shape [batch], "
-                        f"got {tuple(component.shape)}"
-                    )
-                component_actions.append(component)
-            actions = torch.stack(component_actions, dim=1)
-            if int(actions.shape[0]) != int(batch_size):
-                raise ValueError(
-                    "Sample Factory Tuple argmax returned the wrong batch size: "
-                    f"expected {batch_size}, got {actions.shape[0]}"
-                )
-            return actions
-        return _as_action_tensor(self._argmax_actions(action_distribution), self.device)
+    def _deterministic_actions(self) -> torch.Tensor:
+        return _deterministic_actions_for_space(
+            self.actor_critic.action_distribution(),
+            action_space=self.action_space,
+            argmax_actions=self._argmax_actions,
+            device=self.device,
+        )
 
     def _preprocess_actions_for_space(self, actions: torch.Tensor) -> Any:
         if isinstance(self.action_space, MultiDiscrete):
@@ -510,6 +488,26 @@ def _is_supported_batched_policy_action_space(action_space: Any) -> bool:
         or _is_flat_discrete_tuple_space(action_space)
         or _is_one_dimensional_multidiscrete_space(action_space)
     )
+
+
+def _deterministic_actions_for_space(
+    action_distribution: Any,
+    *,
+    action_space: Any,
+    argmax_actions,
+    device: torch.device,
+) -> torch.Tensor:
+    if _is_flat_discrete_tuple_space(action_space):
+        component_actions = []
+        for component_distribution in action_distribution.distributions:
+            component = _as_action_tensor(argmax_actions(component_distribution), device)
+            if component.ndim == 0:
+                component = component.reshape(1)
+            if component.ndim == 2 and component.shape[-1] == 1:
+                component = component.squeeze(-1)
+            component_actions.append(component)
+        return torch.stack(component_actions, dim=1)
+    return _as_action_tensor(argmax_actions(action_distribution), device)
 
 
 def _as_action_tensor(actions: Any, device: torch.device) -> torch.Tensor:
