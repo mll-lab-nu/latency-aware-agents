@@ -90,7 +90,7 @@ training:
   keep_checkpoints: 5
 
 evaluation:
-  eval_interval_steps: 500000
+  eval_interval_steps: 1000000
   eval_episodes: 15
   eval_parallel_envs: 100
   eval_max_steps: 3600

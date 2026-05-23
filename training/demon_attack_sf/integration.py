@@ -10,7 +10,7 @@ from gymnasium.spaces import Box
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
-from latency_bench.envs.demon_attack import make_demon_attack_benchmark_env
+from latency_bench.envs.demon_attack import AleRawRgbFrameStackInfoWrapper, make_demon_attack_benchmark_env
 from training.common.utils import env_instance_seed, str2bool
 from training.common.config_adapter import (
     append_cli_arg,
@@ -120,6 +120,8 @@ def make_demon_attack_sf_env(
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
     if frame_stack > 1:
         env = AtariFrameStackWrapper(env, num_frames=frame_stack)
+    if bool(getattr(cfg, "export_env_raw_rgb_frames", False)):
+        env = AleRawRgbFrameStackInfoWrapper(env, num_frames=frame_stack)
     max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
     if max_episode_steps > 0:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)

@@ -29,7 +29,7 @@ Optional environment variables:
 
 Notes:
   By default the exporter uses the latency config saved in the checkpoint config.json.
-  The exported images are policy observations, not env.render() frames.
+  The exported images are env raw RGB frames.
   Dataset row prompts are fixed in scripts/rollout_data/prompts.py.
 EOF
 }

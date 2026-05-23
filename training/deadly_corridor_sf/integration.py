@@ -33,6 +33,7 @@ from training.common.wandb_compat import patch_sample_factory_wandb
 
 
 SF_ENV_NAME = "doom_deadly_corridor"
+ENV_RAW_RGB_FRAME_STACK_INFO_KEY = "env_raw_rgb_frame_stack"
 _ENVS_REGISTERED = False
 _MODELS_REGISTERED = False
 
@@ -101,6 +102,36 @@ class DoomFrameStackWrapper(gym.Wrapper):
         return self._stack_obs(observation), reward, terminated, truncated, info
 
 
+class DoomRawRgbFrameStackInfoWrapper(gym.Wrapper):
+    def __init__(self, env: gym.Env, num_frames: int):
+        super().__init__(env)
+        self.num_frames = int(num_frames)
+        self._raw_rgb_frames: list[np.ndarray] = []
+
+    def reset(self, **kwargs):
+        observation, info = self.env.reset(**kwargs)
+        frame = self._current_raw_rgb_frame()
+        self._raw_rgb_frames = [frame.copy() for _ in range(self.num_frames)]
+        info = dict(info or {})
+        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
+        return observation, info
+
+    def step(self, action):
+        observation, reward, terminated, truncated, info = self.env.step(action)
+        self._raw_rgb_frames.append(self._current_raw_rgb_frame())
+        self._raw_rgb_frames = self._raw_rgb_frames[-self.num_frames :]
+        info = dict(info or {})
+        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
+        return observation, reward, terminated, truncated, info
+
+    def _current_raw_rgb_frame(self) -> np.ndarray:
+        frame = np.asarray(self.unwrapped.game.get_state().screen_buffer, dtype=np.uint8)
+        return np.transpose(frame, (1, 2, 0))
+
+    def _raw_rgb_frame_stack(self) -> np.ndarray:
+        return np.stack(tuple(self._raw_rgb_frames), axis=0)
+
+
 def make_latency_doom_env_from_spec(
     spec,
     env_name: str,
@@ -138,6 +169,8 @@ def make_latency_doom_env_from_spec(
         ),
     )
     frame_stack = getattr(cfg, "frame_stack", 1)
+    if bool(getattr(cfg, "export_env_raw_rgb_frames", False)):
+        env = DoomRawRgbFrameStackInfoWrapper(env, num_frames=frame_stack)
     if frame_stack > 1:
         env = DoomFrameStackWrapper(env, num_frames=frame_stack)
     max_episode_steps = getattr(cfg, "max_episode_steps", 0) or 0

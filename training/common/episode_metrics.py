@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from collections import deque
@@ -183,6 +184,8 @@ def episode_metrics_path_from_cfg(cfg: Any) -> str:
 
 
 def start_episode_metrics_aggregator(cfg: Any):
+    if os.environ.get("LATENCY_BENCH_DISABLE_EPISODE_METRICS_AGGREGATOR") == "1":
+        return None, None
     path = getattr(cfg, "episode_metrics_path", None) or episode_metrics_path_from_cfg(cfg)
     if not path:
         return None, None

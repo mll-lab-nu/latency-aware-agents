@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import numpy as np
+import gymnasium as gym
+from gymnasium.spaces import Box, Discrete
 
 from latency_bench.core.types import Action
 from latency_bench.envs import demon_attack
@@ -180,3 +182,49 @@ def test_demon_attack_observe_stacks_raw_frames_between_policy_observations(monk
         assert np.all(second_policy_observation.data[3:, ...] == 3)
     finally:
         adapter.close()
+
+
+class ScriptedAle:
+    def __init__(self, env):
+        self.env = env
+
+    def getScreenRGB(self):
+        return self.env.current_rgb.copy()
+
+
+class ScriptedAleRgbEnv(gym.Env):
+    action_space = Discrete(2)
+    observation_space = Box(low=0, high=255, shape=(2, 2, 1), dtype=np.uint8)
+
+    def __init__(self):
+        self.current_rgb = np.zeros((3, 2, 3), dtype=np.uint8)
+        self.ale = ScriptedAle(self)
+        self._next_value = 0
+
+    def reset(self, seed=None, options=None):
+        del seed, options
+        self._next_value = 1
+        self.current_rgb = np.full((3, 2, 3), self._next_value, dtype=np.uint8)
+        return np.zeros((2, 2, 1), dtype=np.uint8), {}
+
+    def step(self, action):
+        del action
+        self._next_value += 1
+        self.current_rgb = np.full((3, 2, 3), self._next_value, dtype=np.uint8)
+        return np.zeros((2, 2, 1), dtype=np.uint8), 0.0, False, False, {}
+
+
+def test_ale_raw_rgb_frame_stack_info_wrapper_reports_oldest_to_newest_stack():
+    from latency_bench.envs.demon_attack import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+
+    env = demon_attack.AleRawRgbFrameStackInfoWrapper(ScriptedAleRgbEnv(), num_frames=3)
+
+    _, reset_info = env.reset(seed=123)
+    _, _, _, _, step_info_1 = env.step(0)
+    _, _, _, _, step_info_2 = env.step(0)
+
+    assert reset_info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY].shape == (3, 3, 2, 3)
+    assert reset_info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][0, 0, 0].tolist() == [1, 1, 1]
+    assert reset_info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][-1, 0, 0].tolist() == [1, 1, 1]
+    assert step_info_1[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][:, 0, 0].tolist() == [[1, 1, 1], [1, 1, 1], [2, 2, 2]]
+    assert step_info_2[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][:, 0, 0].tolist() == [[1, 1, 1], [2, 2, 2], [3, 3, 3]]

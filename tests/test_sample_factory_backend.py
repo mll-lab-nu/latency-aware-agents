@@ -291,6 +291,18 @@ def test_flappy_sf_resize_preserves_uint8_rgb():
     assert obs.shape[0] == 3
 
 
+def test_flappy_image_obs_wrapper_reports_raw_rgb_before_resize():
+    from training.flappy_sf.integration import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, FlappyImageObsWrapper
+
+    wrapped = FlappyImageObsWrapper(_RenderedRgbEnv(shape=(6, 5, 3)), obs_resize=(2, 2))
+
+    obs, info = wrapped.reset()
+
+    assert obs.shape == (3, 2, 2)
+    assert info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY].shape == (1, 6, 5, 3)
+    assert info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][0, 0, 0].tolist() == [17, 91, 203]
+
+
 def test_flappy_sf_resize_does_not_change_env_screen_size():
     from training.flappy_sf.integration import FlappyImageObsWrapper
 
@@ -1619,6 +1631,53 @@ def test_doom_frame_stack_wrapper_returns_stable_observation_snapshots():
     assert np.all(second_step_obs["obs"][1:2] == 2)
     assert np.all(second_step_obs["obs"][2:] == 3)
     assert np.array_equal(second_step_obs["state"], np.array([2], dtype=np.uint8))
+
+
+def test_doom_raw_rgb_frame_stack_wrapper_reports_screen_buffer_without_changing_observation():
+    from gymnasium.spaces import Box, Discrete
+
+    from training.deadly_corridor_sf.integration import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, DoomRawRgbFrameStackInfoWrapper
+
+    class FakeState:
+        def __init__(self, value):
+            self.screen_buffer = np.zeros((3, 6, 5), dtype=np.uint8)
+            self.screen_buffer[0] = value
+            self.screen_buffer[1] = value + 1
+            self.screen_buffer[2] = value + 2
+
+    class FakeGame:
+        def __init__(self, env):
+            self.env = env
+
+        def get_state(self):
+            return FakeState(self.env.step_count + 10)
+
+    class ImageEnv(gym.Env):
+        observation_space = Box(low=0, high=255, shape=(3, 2, 2), dtype=np.uint8)
+        action_space = Discrete(2)
+
+        def __init__(self):
+            self.step_count = 0
+            self.game = FakeGame(self)
+
+        def reset(self, *, seed=None, options=None):
+            self.step_count = 0
+            return np.ones((3, 2, 2), dtype=np.uint8), {}
+
+        def step(self, action):
+            self.step_count += 1
+            return np.full((3, 2, 2), 7, dtype=np.uint8), 0.0, False, False, {}
+
+    wrapped = DoomRawRgbFrameStackInfoWrapper(ImageEnv(), num_frames=2)
+
+    obs, info = wrapped.reset()
+    step_obs, *_rest, step_info = wrapped.step(0)
+
+    assert obs.shape == (3, 2, 2)
+    assert step_obs.shape == (3, 2, 2)
+    assert info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY].shape == (2, 6, 5, 3)
+    assert info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][0, 0, 0].tolist() == [10, 11, 12]
+    assert step_info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][:, 0, 0].tolist() == [[10, 11, 12], [11, 12, 13]]
 
 
 @pytest.mark.parametrize(

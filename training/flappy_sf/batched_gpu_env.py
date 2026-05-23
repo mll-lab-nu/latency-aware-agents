@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from typing import Any, Mapping, Sequence
 
 import gymnasium as gym
@@ -34,6 +35,9 @@ from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState
 from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer
 from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
 from training.flappy_sf.batched_metrics import BatchedFlappyEpisodeMetrics
+
+
+ENV_RAW_RGB_FRAME_STACK_INFO_KEY = "env_raw_rgb_frame_stack"
 
 
 class FlappyBatchedGpuRenderedEnv(gym.Env):
@@ -77,6 +81,10 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             grayscale=False,
             stack_frames=int(frame_stack),
         )
+        self.export_env_raw_rgb_frames = bool(getattr(cfg, "export_env_raw_rgb_frames", False))
+        self._env_raw_rgb_frames: list[deque[np.ndarray]] = [
+            deque(maxlen=int(frame_stack)) for _ in range(self.num_agents)
+        ]
         self.observation_space = GymDict(
             {
                 "obs": Box(
@@ -266,9 +274,11 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
 
         with self.gpu_render_profiler.time("reset_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
+            self._reset_env_raw_rgb_frames(raw_rgb)
             with self.gpu_render_profiler.time("pipeline_s"):
                 obs = self.pipeline.reset(raw_rgb, frame_skips=self._last_frame_skips)
         self._has_reset = True
+        self._attach_env_raw_rgb_infos(infos)
         self._last_observation_infos = [dict(info) for info in infos]
         return self._obs(obs), infos
 
@@ -313,12 +323,14 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
 
         with self.gpu_render_profiler.time("reset_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
+            self._reset_env_raw_rgb_frames(raw_rgb, agent_indices=reset_indices)
             with self.gpu_render_profiler.time("pipeline_s"):
                 obs = self.pipeline.reset_indices(
                     raw_rgb,
                     reset_mask=reset_mask,
                     frame_skips=self._last_frame_skips,
                 )
+        self._attach_env_raw_rgb_infos(infos)
         return self._obs(obs), infos
 
     def step(self, action):
@@ -434,6 +446,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
 
         with self.gpu_render_profiler.time("step_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
+            self._append_env_raw_rgb_frames(raw_rgb)
             with self.gpu_render_profiler.time("pipeline_s"):
                 obs = self.pipeline.step(
                     raw_rgb,
@@ -442,7 +455,34 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                     active_mask=self._active_agents,
                 )
         self.gpu_render_profiler.observe_step()
+        self._attach_env_raw_rgb_infos(infos)
         return self._obs(obs), rewards, terminated, truncated, infos
+
+    def _reset_env_raw_rgb_frames(self, raw_rgb: torch.Tensor, agent_indices: Sequence[int] | None = None) -> None:
+        if not self.export_env_raw_rgb_frames:
+            return
+        frames = raw_rgb.detach().cpu().numpy()
+        indices = range(self.num_agents) if agent_indices is None else [int(item) for item in agent_indices]
+        for agent_idx in indices:
+            self._env_raw_rgb_frames[agent_idx].clear()
+            frame = np.array(frames[agent_idx], copy=True)
+            for _ in range(self.observation_config.stack_frames):
+                self._env_raw_rgb_frames[agent_idx].append(frame.copy())
+
+    def _append_env_raw_rgb_frames(self, raw_rgb: torch.Tensor) -> None:
+        if not self.export_env_raw_rgb_frames:
+            return
+        frames = raw_rgb.detach().cpu().numpy()
+        for agent_idx in range(self.num_agents):
+            self._env_raw_rgb_frames[agent_idx].append(np.array(frames[agent_idx], copy=True))
+
+    def _attach_env_raw_rgb_infos(self, infos: list[dict[str, Any]]) -> None:
+        if not self.export_env_raw_rgb_frames:
+            return
+        for agent_idx, info in enumerate(infos):
+            updated = dict(info)
+            updated[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = np.stack(tuple(self._env_raw_rgb_frames[agent_idx]), axis=0)
+            infos[agent_idx] = updated
 
     def _obs(self, obs: torch.Tensor) -> dict[str, torch.Tensor]:
         expected_batch = self.num_agents

@@ -105,7 +105,7 @@ def patch_sample_factory_wandb() -> None:
         init_kwargs = {
             "project": getattr(cfg, "wandb_project", None),
             "entity": getattr(cfg, "wandb_user", None),
-            "sync_tensorboard": True,
+            "sync_tensorboard": os.environ.get("LATENCY_BENCH_DISABLE_WANDB_TB_SYNC") != "1",
             "id": run_name,
             "name": run_name,
             "resume": "allow",

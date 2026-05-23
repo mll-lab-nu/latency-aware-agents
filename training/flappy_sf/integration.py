@@ -46,6 +46,7 @@ from sample_factory.algo.utils.misc import ExperimentStatus
 
 
 SF_ENV_NAME = "latency_flappy"
+ENV_RAW_RGB_FRAME_STACK_INFO_KEY = "env_raw_rgb_frame_stack"
 _ENVS_REGISTERED = False
 _TIMELIMIT_DIAGNOSTICS_PRINTED: set[tuple[int, int, int]] = set()
 
@@ -193,7 +194,7 @@ class FlappyImageObsWrapper(gym.Wrapper):
         super().__init__(env)
         self.obs_resize = obs_resize
         obs, _ = self.env.reset(seed=0)
-        frame = self._render_frame()
+        frame = self._observation_frame(self._render_raw_rgb_frame())
         self._last_numeric_obs = obs
         self.observation_space = Box(
             low=0,
@@ -202,9 +203,12 @@ class FlappyImageObsWrapper(gym.Wrapper):
             dtype=np.uint8,
         )
 
-    def _render_frame(self) -> np.ndarray:
+    def _render_raw_rgb_frame(self) -> np.ndarray:
         frame = self.env.render()
-        frame = np.asarray(frame, dtype=np.uint8)
+        return np.asarray(frame, dtype=np.uint8)
+
+    def _observation_frame(self, raw_frame: np.ndarray) -> np.ndarray:
+        frame = np.asarray(raw_frame, dtype=np.uint8)
         if self.obs_resize is not None:
             height, width = self.obs_resize
             if height == width:
@@ -224,16 +228,20 @@ class FlappyImageObsWrapper(gym.Wrapper):
     def reset(self, **kwargs):
         numeric_obs, info = self.env.reset(**kwargs)
         self._last_numeric_obs = numeric_obs
+        raw_frame = self._render_raw_rgb_frame()
         info = dict(info or {})
         info["numeric_obs"] = numeric_obs
-        return self._render_frame(), info
+        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = np.stack([raw_frame], axis=0)
+        return self._observation_frame(raw_frame), info
 
     def step(self, action):
         numeric_obs, reward, terminated, truncated, info = self.env.step(action)
         self._last_numeric_obs = numeric_obs
+        raw_frame = self._render_raw_rgb_frame()
         info = dict(info or {})
         info["numeric_obs"] = numeric_obs
-        return self._render_frame(), reward, terminated, truncated, info
+        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = np.stack([raw_frame], axis=0)
+        return self._observation_frame(raw_frame), reward, terminated, truncated, info
 
 
 class FlappyFrameStackWrapper(gym.Wrapper):
@@ -244,22 +252,35 @@ class FlappyFrameStackWrapper(gym.Wrapper):
         base_shape = tuple(int(dim) for dim in env.observation_space.shape)
         self.num_frames = int(num_frames)
         self._frames: deque[np.ndarray] = deque(maxlen=self.num_frames)
+        self._raw_rgb_frames: deque[np.ndarray] = deque(maxlen=self.num_frames)
         stacked_shape = (base_shape[0] * self.num_frames, base_shape[1], base_shape[2])
         self.observation_space = Box(low=0, high=255, shape=stacked_shape, dtype=np.uint8)
 
     def _stack_frames(self) -> np.ndarray:
         return np.concatenate(tuple(self._frames), axis=0)
 
+    def _stack_raw_rgb_frames(self) -> np.ndarray:
+        return np.stack(tuple(self._raw_rgb_frames), axis=0)
+
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         self._frames.clear()
+        self._raw_rgb_frames.clear()
+        raw_frame = np.asarray(info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][-1], dtype=np.uint8)
         for _ in range(self.num_frames):
             self._frames.append(np.array(obs, copy=True))
+            self._raw_rgb_frames.append(raw_frame.copy())
+        info = dict(info or {})
+        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._stack_raw_rgb_frames()
         return self._stack_frames(), info
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
+        raw_frame = np.asarray(info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][-1], dtype=np.uint8)
         self._frames.append(np.array(obs, copy=True))
+        self._raw_rgb_frames.append(raw_frame.copy())
+        info = dict(info or {})
+        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._stack_raw_rgb_frames()
         return self._stack_frames(), reward, terminated, truncated, info
 
 
