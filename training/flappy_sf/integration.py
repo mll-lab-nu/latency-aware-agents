@@ -37,6 +37,7 @@ from training.common.latency_wrapper import (
     EpisodeMetricsWrapper,
     RewardTraceWrapper,
 )
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from training.common.sf_episode_extra_stats_compat import (
     ensure_sample_factory_episode_extra_stats_installed,
 )
@@ -46,7 +47,6 @@ from sample_factory.algo.utils.misc import ExperimentStatus
 
 
 SF_ENV_NAME = "latency_flappy"
-ENV_RAW_RGB_FRAME_STACK_INFO_KEY = "env_raw_rgb_frame_stack"
 _ENVS_REGISTERED = False
 _TIMELIMIT_DIAGNOSTICS_PRINTED: set[tuple[int, int, int]] = set()
 
@@ -190,9 +190,16 @@ class FlappyImageObsWrapper(gym.Wrapper):
 
     observation_space: Box
 
-    def __init__(self, env: gym.Env, obs_resize: tuple[int, int] | None = None):
+    def __init__(
+        self,
+        env: gym.Env,
+        obs_resize: tuple[int, int] | None = None,
+        *,
+        export_raw_rgb_frames: bool = False,
+    ):
         super().__init__(env)
         self.obs_resize = obs_resize
+        self.export_raw_rgb_frames = export_raw_rgb_frames
         obs, _ = self.env.reset(seed=0)
         frame = self._observation_frame(self._render_raw_rgb_frame())
         self._last_numeric_obs = obs
@@ -205,7 +212,7 @@ class FlappyImageObsWrapper(gym.Wrapper):
 
     def _render_raw_rgb_frame(self) -> np.ndarray:
         frame = self.env.render()
-        return np.asarray(frame, dtype=np.uint8)
+        return np.asarray(frame)
 
     def _observation_frame(self, raw_frame: np.ndarray) -> np.ndarray:
         frame = np.asarray(raw_frame, dtype=np.uint8)
@@ -231,7 +238,8 @@ class FlappyImageObsWrapper(gym.Wrapper):
         raw_frame = self._render_raw_rgb_frame()
         info = dict(info or {})
         info["numeric_obs"] = numeric_obs
-        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = np.stack([raw_frame], axis=0)
+        if self.export_raw_rgb_frames:
+            info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = np.stack([raw_frame], axis=0)
         return self._observation_frame(raw_frame), info
 
     def step(self, action):
@@ -240,17 +248,25 @@ class FlappyImageObsWrapper(gym.Wrapper):
         raw_frame = self._render_raw_rgb_frame()
         info = dict(info or {})
         info["numeric_obs"] = numeric_obs
-        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = np.stack([raw_frame], axis=0)
+        if self.export_raw_rgb_frames:
+            info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = np.stack([raw_frame], axis=0)
         return self._observation_frame(raw_frame), reward, terminated, truncated, info
 
 
 class FlappyFrameStackWrapper(gym.Wrapper):
     observation_space: Box
 
-    def __init__(self, env: gym.Env, num_frames: int):
+    def __init__(
+        self,
+        env: gym.Env,
+        num_frames: int,
+        *,
+        export_raw_rgb_frames: bool = False
+    ):
         super().__init__(env)
         base_shape = tuple(int(dim) for dim in env.observation_space.shape)
         self.num_frames = int(num_frames)
+        self.export_raw_rgb_frames = export_raw_rgb_frames
         self._frames: deque[np.ndarray] = deque(maxlen=self.num_frames)
         self._raw_rgb_frames: deque[np.ndarray] = deque(maxlen=self.num_frames)
         stacked_shape = (base_shape[0] * self.num_frames, base_shape[1], base_shape[2])
@@ -266,21 +282,26 @@ class FlappyFrameStackWrapper(gym.Wrapper):
         obs, info = self.env.reset(**kwargs)
         self._frames.clear()
         self._raw_rgb_frames.clear()
-        raw_frame = np.asarray(info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][-1], dtype=np.uint8)
+        if self.export_raw_rgb_frames:
+            raw_frame = np.asarray(info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][-1])
         for _ in range(self.num_frames):
             self._frames.append(np.array(obs, copy=True))
-            self._raw_rgb_frames.append(raw_frame.copy())
-        info = dict(info or {})
-        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._stack_raw_rgb_frames()
+            if self.export_raw_rgb_frames:
+                self._raw_rgb_frames.append(raw_frame.copy())
+        if self.export_raw_rgb_frames:
+            info = dict(info or {})
+            info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._stack_raw_rgb_frames()
         return self._stack_frames(), info
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
-        raw_frame = np.asarray(info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][-1], dtype=np.uint8)
+        if self.export_raw_rgb_frames:
+            raw_frame = np.asarray(info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][-1])
         self._frames.append(np.array(obs, copy=True))
-        self._raw_rgb_frames.append(raw_frame.copy())
-        info = dict(info or {})
-        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._stack_raw_rgb_frames()
+        if self.export_raw_rgb_frames:
+            self._raw_rgb_frames.append(raw_frame.copy())
+            info = dict(info or {})
+            info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._stack_raw_rgb_frames()
         return self._stack_frames(), reward, terminated, truncated, info
 
 
@@ -349,9 +370,18 @@ def make_flappy_sf_env(
         kwargs["score_limit"] = int(score_limit)
     env = gym.make(getattr(cfg, "gym_id", "FlappyBird-v0"), **kwargs)
     if not use_gpu_render:
-        env = FlappyImageObsWrapper(env, obs_resize=obs_resize)
+        export_raw_rgb_frames = bool(getattr(cfg, "export_env_raw_rgb_frames", False))
+        env = FlappyImageObsWrapper(
+            env,
+            obs_resize=obs_resize,
+            export_raw_rgb_frames=export_raw_rgb_frames,
+        )
         if frame_stack > 1:
-            env = FlappyFrameStackWrapper(env, num_frames=frame_stack)
+            env = FlappyFrameStackWrapper(
+                env,
+                num_frames=frame_stack,
+                export_raw_rgb_frames=export_raw_rgb_frames,
+            )
     max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
     if max_episode_steps > 0:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)

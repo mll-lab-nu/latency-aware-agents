@@ -292,15 +292,63 @@ def test_flappy_sf_resize_preserves_uint8_rgb():
 
 
 def test_flappy_image_obs_wrapper_reports_raw_rgb_before_resize():
-    from training.flappy_sf.integration import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, FlappyImageObsWrapper
+    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from training.flappy_sf.integration import FlappyImageObsWrapper
 
-    wrapped = FlappyImageObsWrapper(_RenderedRgbEnv(shape=(6, 5, 3)), obs_resize=(2, 2))
+    wrapped = FlappyImageObsWrapper(
+        _RenderedRgbEnv(shape=(6, 5, 3)),
+        obs_resize=(2, 2),
+        export_raw_rgb_frames=True,
+    )
 
     obs, info = wrapped.reset()
 
     assert obs.shape == (3, 2, 2)
     assert info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY].shape == (1, 6, 5, 3)
     assert info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][0, 0, 0].tolist() == [17, 91, 203]
+
+
+def test_flappy_image_obs_wrapper_keeps_training_info_clean_by_default():
+    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from training.flappy_sf.integration import FlappyImageObsWrapper
+
+    wrapped = FlappyImageObsWrapper(_RenderedRgbEnv(shape=(6, 5, 3)), obs_resize=(2, 2))
+
+    _, info = wrapped.reset()
+
+    assert ENV_RAW_RGB_FRAME_STACK_INFO_KEY not in info
+
+
+def test_flappy_frame_stack_export_advances_raw_rgb_stack_oldest_to_newest():
+    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from training.flappy_sf.integration import FlappyFrameStackWrapper, FlappyImageObsWrapper
+
+    class StepRenderedEnv(_RenderedRgbEnv):
+        def render(self):
+            frame = super().render()
+            frame[..., 0] = 17 + self.step_count
+            return frame
+
+    image_env = FlappyImageObsWrapper(
+        StepRenderedEnv(shape=(6, 5, 3)),
+        obs_resize=(2, 2),
+        export_raw_rgb_frames=True,
+    )
+    wrapped = FlappyFrameStackWrapper(image_env, num_frames=3, export_raw_rgb_frames=True)
+
+    _, reset_info = wrapped.reset()
+    _, _, _, _, step_info = wrapped.step(0)
+
+    assert reset_info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][:, 0, 0].tolist() == [
+        [17, 91, 203],
+        [17, 91, 203],
+        [17, 91, 203],
+    ]
+    assert step_info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][:, 0, 0].tolist() == [
+        [17, 91, 203],
+        [17, 91, 203],
+        [18, 91, 203],
+    ]
 
 
 def test_flappy_sf_resize_does_not_change_env_screen_size():
@@ -1636,7 +1684,7 @@ def test_doom_frame_stack_wrapper_returns_stable_observation_snapshots():
 def test_doom_raw_rgb_frame_stack_wrapper_reports_screen_buffer_without_changing_observation():
     from gymnasium.spaces import Box, Discrete
 
-    from training.deadly_corridor_sf.integration import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, DoomRawRgbFrameStackInfoWrapper
+    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackInfoWrapper
 
     class FakeState:
         def __init__(self, value):
@@ -1668,7 +1716,10 @@ def test_doom_raw_rgb_frame_stack_wrapper_reports_screen_buffer_without_changing
             self.step_count += 1
             return np.full((3, 2, 2), 7, dtype=np.uint8), 0.0, False, False, {}
 
-    wrapped = DoomRawRgbFrameStackInfoWrapper(ImageEnv(), num_frames=2)
+    def raw_frame(env):
+        return np.transpose(env.unwrapped.game.get_state().screen_buffer, (1, 2, 0))
+
+    wrapped = RawRgbFrameStackInfoWrapper(ImageEnv(), num_frames=2, raw_frame_fn=raw_frame)
 
     obs, info = wrapped.reset()
     step_obs, *_rest, step_info = wrapped.step(0)

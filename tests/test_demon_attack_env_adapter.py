@@ -215,9 +215,13 @@ class ScriptedAleRgbEnv(gym.Env):
 
 
 def test_ale_raw_rgb_frame_stack_info_wrapper_reports_oldest_to_newest_stack():
-    from latency_bench.envs.demon_attack import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackInfoWrapper
 
-    env = demon_attack.AleRawRgbFrameStackInfoWrapper(ScriptedAleRgbEnv(), num_frames=3)
+    env = RawRgbFrameStackInfoWrapper(
+        ScriptedAleRgbEnv(),
+        num_frames=3,
+        raw_frame_fn=lambda wrapped_env: wrapped_env.unwrapped.ale.getScreenRGB(),
+    )
 
     _, reset_info = env.reset(seed=123)
     _, _, _, _, step_info_1 = env.step(0)

@@ -86,7 +86,7 @@ def test_flappy_sf_gpu_render_cpu_reset_contract_image_only():
 def test_flappy_sf_gpu_render_export_reports_raw_rgb_stack_before_resize():
     torch = pytest.importorskip("torch")
 
-    from training.flappy_sf.batched_gpu_env import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
     from training.flappy_sf.integration import make_flappy_sf_env
 
     env = make_flappy_sf_env(
@@ -101,6 +101,46 @@ def test_flappy_sf_gpu_render_export_reports_raw_rgb_stack_before_resize():
         assert obs["obs"].dtype == torch.uint8
         assert infos[0][ENV_RAW_RGB_FRAME_STACK_INFO_KEY].shape == (4, 512, 288, 3)
         assert infos[0][ENV_RAW_RGB_FRAME_STACK_INFO_KEY].dtype == np.uint8
+    finally:
+        env.close()
+
+
+def test_flappy_sf_gpu_render_export_advances_stack_oldest_to_newest():
+    pytest.importorskip("torch")
+
+    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(export_env_raw_rgb_frames=True),
+        env_config=_env_config(),
+    )
+    try:
+        _, reset_infos = env.reset(seed=123)
+        reset_stack = reset_infos[0][ENV_RAW_RGB_FRAME_STACK_INFO_KEY].copy()
+
+        _, _, _, _, step_infos = env.step([0])
+        step_stack = step_infos[0][ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
+
+        assert np.array_equal(step_stack[:-1], reset_stack[1:])
+    finally:
+        env.close()
+
+
+def test_flappy_sf_gpu_render_keeps_training_info_clean_by_default():
+    pytest.importorskip("torch")
+
+    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env("latency_flappy", cfg=_flappy_gpu_cfg(), env_config=_env_config())
+    try:
+        _, infos = env.reset(seed=123)
+        _, _, _, _, step_infos = env.step([0])
+
+        assert ENV_RAW_RGB_FRAME_STACK_INFO_KEY not in infos[0]
+        assert ENV_RAW_RGB_FRAME_STACK_INFO_KEY not in step_infos[0]
     finally:
         env.close()
 

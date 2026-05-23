@@ -999,6 +999,40 @@ def test_write_parquet_splits_embeds_image_stack_bytes(tmp_path):
     assert all(item["bytes"].startswith(b"\x89PNG\r\n\x1a\n") for item in image_stack)
 
 
+def test_write_parquet_splits_preserves_rows_across_large_exports(tmp_path):
+    from PIL import Image
+    from scripts.rollout_data.export_sf_teacher_dataset import _write_parquet_splits
+
+    stack_path = tmp_path / "stack_00.png"
+    Image.fromarray(np.full((1, 1, 3), 7, dtype=np.uint8)).save(stack_path)
+    rows = [
+        {
+            "image_stack": [str(stack_path)],
+            "split": "train",
+            "prompt": "pick action",
+            "action_id": 1,
+            "action_text": "flap",
+            "latency_raw_frames": 2,
+            "latency_ms": 66.0,
+            "reward": 1.5,
+            "done": True,
+            "episode_idx": episode_idx,
+            "t": 0,
+            "seed": 11 + episode_idx,
+            "deterministic": True,
+        }
+        for episode_idx in range(260)
+    ]
+
+    output_dir = tmp_path / "export"
+    dataset_dict = _write_parquet_splits(output_dir, rows, [])
+    table = pq.read_table(output_dir / "train.parquet")
+
+    assert len(dataset_dict["train"]) == 260
+    assert table.num_rows == 260
+    assert table.to_pylist()[259]["episode_idx"] == 259
+
+
 def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypatch, tmp_path):
     from PIL import Image
     from scripts.rollout_data import export_sf_teacher_dataset as exporter
@@ -1090,11 +1124,12 @@ def test_write_parquet_splits_disables_datasets_progress(monkeypatch, tmp_path):
     calls: list[str] = []
 
     monkeypatch.setattr(exporter.datasets, "disable_progress_bars", lambda: calls.append("disabled"))
-    monkeypatch.setattr(exporter, "_write_dataset_parquet", lambda dataset, path: path.write_text("ok", encoding="utf-8"))
 
     exporter._write_parquet_splits(tmp_path / "export", [], [])
 
     assert calls == ["disabled"]
+    assert (tmp_path / "export" / "train.parquet").exists()
+    assert (tmp_path / "export" / "val.parquet").exists()
 
 
 def test_exporter_parser_has_no_prompt_or_render_image_source_switches():
@@ -1110,7 +1145,8 @@ def test_exporter_parser_has_no_prompt_or_render_image_source_switches():
 def test_main_writes_prompt_source_and_timing_metadata(monkeypatch, tmp_path):
     from scripts.rollout_data import export_sf_teacher_dataset as exporter
 
-    def fake_write_parquet_splits(output_dir, train_rows, val_rows):
+    def fake_write_parquet_splits(output_dir, train_rows, val_rows, **kwargs):
+        del kwargs
         output_dir.mkdir(parents=True, exist_ok=True)
         return {"train": train_rows, "val": val_rows}
 

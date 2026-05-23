@@ -24,6 +24,7 @@ from training.common.latency_wrapper import (
     EpisodeMetricsWrapper,
     RewardTraceWrapper,
 )
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_render_device
 
@@ -35,9 +36,6 @@ from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState
 from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer
 from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
 from training.flappy_sf.batched_metrics import BatchedFlappyEpisodeMetrics
-
-
-ENV_RAW_RGB_FRAME_STACK_INFO_KEY = "env_raw_rgb_frame_stack"
 
 
 class FlappyBatchedGpuRenderedEnv(gym.Env):

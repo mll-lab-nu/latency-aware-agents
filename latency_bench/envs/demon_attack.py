@@ -11,9 +11,6 @@ from latency_bench.envs.base import EnvAdapter
 from training.atari_episode_stats import is_true_atari_episode_end
 
 
-ENV_RAW_RGB_FRAME_STACK_INFO_KEY = "env_raw_rgb_frame_stack"
-
-
 class DemonAttackEnvAdapter(EnvAdapter):
     """Benchmark adapter for Atari DemonAttack with training-matched preprocessing."""
 
@@ -210,38 +207,6 @@ class DemonAttackEnvAdapter(EnvAdapter):
             return frames[-1]
         axis = 0 if _looks_chw(frames[0]) else -1
         return np.concatenate(frames, axis=axis)
-
-
-class AleRawRgbFrameStackInfoWrapper(gym.Wrapper):
-    """Attach recent ALE RGB frames to info for dataset export."""
-
-    def __init__(self, env: gym.Env, num_frames: int):
-        super().__init__(env)
-        self.num_frames = int(num_frames)
-        self._raw_rgb_frames: deque[np.ndarray] = deque(maxlen=self.num_frames)
-
-    def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
-        frame = self._current_raw_rgb_frame()
-        self._raw_rgb_frames.clear()
-        for _ in range(self.num_frames):
-            self._raw_rgb_frames.append(frame.copy())
-        info = dict(info or {})
-        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
-        return obs, info
-
-    def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        self._raw_rgb_frames.append(self._current_raw_rgb_frame())
-        info = dict(info or {})
-        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
-        return obs, reward, terminated, truncated, info
-
-    def _current_raw_rgb_frame(self) -> np.ndarray:
-        return np.asarray(self.unwrapped.ale.getScreenRGB(), dtype=np.uint8)
-
-    def _raw_rgb_frame_stack(self) -> np.ndarray:
-        return np.stack(tuple(self._raw_rgb_frames), axis=0)
 
 
 def _single_frame_data(frame: Any) -> np.ndarray:

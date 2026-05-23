@@ -70,7 +70,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 from PIL import Image
 import datasets
-from datasets import Dataset, DatasetDict, Features, Image as HFImage, Sequence as HFSequence, Value
+from datasets import Dataset, DatasetDict, Features, Image as HFImage, Sequence as HFSequence, Value, concatenate_datasets
 from tqdm import tqdm
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -87,6 +87,7 @@ from latency_bench.policy.sample_factory_common import (
 )
 from training.common.config_adapter import import_integration_module, load_training_config
 from training.common.latency_config import raw_frames_to_latency_ms, sample_factory_latency_params_from_flat_config
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from training.common.utils import maybe_set_cli_override
 
 
@@ -95,7 +96,6 @@ SF_ENV_TO_BENCH_ENV = {
     "latency_flappy": "flappy",
     "latency_demon_attack": "demon_attack",
 }
-ENV_RAW_RGB_FRAME_STACK_INFO_KEY = "env_raw_rgb_frame_stack"
 
 
 @dataclass(frozen=True)
@@ -480,17 +480,9 @@ def _to_numpy(value: Any) -> np.ndarray:
     return np.asarray(value)
 
 
-def _image_frame_array(frame: np.ndarray) -> np.ndarray:
-    if frame.ndim == 3 and frame.shape[-1] == 1:
-        frame = frame[..., 0]
-    if frame.dtype != np.uint8:
-        frame = np.clip(frame, 0, 255).astype(np.uint8)
-    return frame
-
-
 def frames_from_env_raw_rgb_info(info: Mapping[str, Any]) -> list[np.ndarray]:
     raw_stack = _to_numpy(info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY])
-    return [_image_frame_array(frame) for frame in raw_stack]
+    return [frame for frame in raw_stack]
 
 
 def frames_for_dataset_image(info: Mapping[str, Any]) -> list[np.ndarray]:
@@ -634,23 +626,12 @@ def _empty_records() -> dict[str, list[Any]]:
     }
 
 
-def _write_dataset_parquet(dataset: Dataset, path: Path) -> None:
-    if len(dataset) == 0:
-        import pyarrow.parquet as pq
-
-        pq.write_table(dataset.data.table, path)
-        return
-    dataset.to_parquet(str(path))
-
-
 def _sort_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (int(row["episode_idx"]), int(row["t"])))
 
 
-def _write_parquet_splits(output_dir: Path, train_rows: list[dict[str, Any]], val_rows: list[dict[str, Any]]):
-    datasets.disable_progress_bars()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    features = Features(
+def _teacher_dataset_features() -> Features:
+    return Features(
         {
             "image_stack": HFSequence(HFImage()),
             "split": Value("string"),
@@ -668,37 +649,96 @@ def _write_parquet_splits(output_dir: Path, train_rows: list[dict[str, Any]], va
         }
     )
 
-    def embed_image_stack(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        embedded_rows = []
-        for row in rows:
-            embedded = dict(row)
-            embedded["image_stack"] = [
-                {"bytes": Path(path).read_bytes(), "path": None}
-                for path in row["image_stack"]
-            ]
-            embedded_rows.append(embedded)
-        return embedded_rows
 
-    def build_dataset(rows: list[dict[str, Any]]):
-        if rows:
-            return Dataset.from_list(embed_image_stack(rows), features=features)
-        return Dataset.from_dict(_empty_records(), features=features)
+def _embed_image_stack_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    embedded_rows = []
+    for row in rows:
+        embedded = dict(row)
+        embedded["image_stack"] = [
+            {"bytes": Path(path).read_bytes(), "path": None}
+            for path in row["image_stack"]
+        ]
+        embedded_rows.append(embedded)
+    return embedded_rows
 
-    train_ds = build_dataset(_sort_rows(train_rows))
-    val_ds = build_dataset(_sort_rows(val_rows))
-    _write_dataset_parquet(train_ds, output_dir / "train.parquet")
-    _write_dataset_parquet(val_ds, output_dir / "val.parquet")
+
+def _dataset_from_rows(rows: Sequence[Mapping[str, Any]], features: Features) -> Dataset:
+    if rows:
+        return Dataset.from_list(_embed_image_stack_rows(rows), features=features)
+    return Dataset.from_dict(_empty_records(), features=features)
+
+
+def _write_rows_parquet(
+    path: Path,
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    features: Features,
+    row_batch_size: int = 256,
+    keep_dataset: bool = True,
+) -> Dataset | None:
+    import pyarrow.parquet as pq
+
+    sorted_rows = _sort_rows([dict(row) for row in rows])
+    if not sorted_rows:
+        dataset = _dataset_from_rows([], features)
+        pq.write_table(dataset.data.table, path)
+        return dataset if keep_dataset else None
+
+    writer = None
+    datasets_to_return = []
+    try:
+        for start in range(0, len(sorted_rows), int(row_batch_size)):
+            dataset = _dataset_from_rows(sorted_rows[start : start + int(row_batch_size)], features)
+            if keep_dataset:
+                datasets_to_return.append(dataset)
+            table = dataset.data.table
+            if writer is None:
+                writer = pq.ParquetWriter(path, table.schema)
+            writer.write_table(table)
+    finally:
+        if writer is not None:
+            writer.close()
+    if not keep_dataset:
+        return None
+    if len(datasets_to_return) == 1:
+        return datasets_to_return[0]
+    return concatenate_datasets(datasets_to_return)
+
+
+def _write_parquet_splits(
+    output_dir: Path,
+    train_rows: list[dict[str, Any]],
+    val_rows: list[dict[str, Any]],
+    *,
+    keep_dataset: bool = True,
+):
+    datasets.disable_progress_bars()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    features = _teacher_dataset_features()
+
+    train_ds = _write_rows_parquet(
+        output_dir / "train.parquet",
+        train_rows,
+        features=features,
+        keep_dataset=keep_dataset,
+    )
+    val_ds = _write_rows_parquet(
+        output_dir / "val.parquet",
+        val_rows,
+        features=features,
+        keep_dataset=keep_dataset,
+    )
+    if not keep_dataset:
+        return None
     return DatasetDict({"train": train_ds, "val": val_ds})
 
 
 def _image_resolution_from_frame(frame: np.ndarray, export_image_size: tuple[int, int] | None) -> list[int]:
-    image = _image_frame_array(np.asarray(frame))
-    channels = 1 if image.ndim == 2 else int(image.shape[2])
+    image = np.asarray(frame)
+    channels = int(image.shape[2])
     if export_image_size is not None:
         width, height = export_image_size
         return [int(height), int(width), channels]
-    if image.ndim == 2:
-        return [int(image.shape[0]), int(image.shape[1]), channels]
     return [int(image.shape[0]), int(image.shape[1]), channels]
 
 
@@ -1065,7 +1105,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         image_writer_workers=int(args.image_writer_workers),
         row_buffer_size=int(args.row_buffer_size),
     )
-    dataset_dict = _write_parquet_splits(output_dir, train_rows, val_rows)
+    dataset_dict = _write_parquet_splits(
+        output_dir,
+        train_rows,
+        val_rows,
+        keep_dataset=bool(args.push_to_hub),
+    )
     metadata = {
         **config_metadata,
         **rollout_metadata,
