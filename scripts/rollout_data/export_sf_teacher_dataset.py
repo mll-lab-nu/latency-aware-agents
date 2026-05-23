@@ -734,6 +734,146 @@ def _write_parquet_splits(
     return DatasetDict({"train": train_ds, "val": val_ds})
 
 
+def _iter_episode_rows(output_dir: Path, split: str):
+    for shard_path in sorted((output_dir / "episode_rows" / str(split)).glob("episode_*.jsonl")):
+        with shard_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    yield json.loads(line)
+
+
+def _completed_episode_indices_from_shards(output_dir: Path) -> set[int]:
+    completed_episode_indices: set[int] = set()
+    for split in ("train", "val"):
+        for shard_path in sorted((output_dir / "episode_rows" / split).glob("episode_*.jsonl")):
+            with shard_path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.strip():
+                        completed_episode_indices.add(int(json.loads(line)["episode_idx"]))
+                        break
+    return completed_episode_indices
+
+
+def _episode_row_split_stats(output_dir: Path) -> dict[str, int]:
+    stats: dict[str, int] = {}
+    for split in ("train", "val"):
+        row_count = 0
+        episode_indices: set[int] = set()
+        for row in _iter_episode_rows(output_dir, split):
+            row_count += 1
+            episode_indices.add(int(row["episode_idx"]))
+        stats[f"{split}_rows"] = row_count
+        stats[f"{split}_episodes"] = len(episode_indices)
+    stats["total_rows"] = stats["train_rows"] + stats["val_rows"]
+    stats["total_episodes"] = stats["train_episodes"] + stats["val_episodes"]
+    return stats
+
+
+def _first_episode_row(output_dir: Path) -> dict[str, Any] | None:
+    for split in ("train", "val"):
+        for row in _iter_episode_rows(output_dir, split):
+            return row
+    return None
+
+
+def _image_metadata_from_shards(output_dir: Path) -> dict[str, Any] | None:
+    row = _first_episode_row(output_dir)
+    if row is None:
+        return None
+    with Image.open(row["image_stack"][0]) as first_image:
+        channels = len(first_image.getbands())
+        return {
+            "image_stack_size": len(row["image_stack"]),
+            "image_resolution": [int(first_image.height), int(first_image.width), int(channels)],
+        }
+
+
+def _write_parquet_row_batch(
+    writer: Any,
+    path: Path,
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    features: Features,
+) -> Any:
+    import pyarrow.parquet as pq
+
+    dataset = _dataset_from_rows(rows, features)
+    table = dataset.data.table
+    if writer is None:
+        writer = pq.ParquetWriter(path, table.schema)
+    writer.write_table(table)
+    return writer
+
+
+def _write_parquet_split_from_shards(
+    output_dir: Path,
+    split: str,
+    *,
+    features: Features,
+    row_count: int,
+    row_batch_size: int = 256,
+) -> None:
+    import pyarrow.parquet as pq
+
+    path = output_dir / f"{split}.parquet"
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    writer = None
+    batch: list[dict[str, Any]] = []
+    progress = tqdm(total=int(row_count), desc=f"write {path.name}", unit="row")
+    try:
+        for row in _iter_episode_rows(output_dir, split):
+            batch.append(row)
+            if len(batch) >= int(row_batch_size):
+                writer = _write_parquet_row_batch(writer, tmp_path, batch, features=features)
+                progress.update(len(batch))
+                batch = []
+        if batch:
+            writer = _write_parquet_row_batch(writer, tmp_path, batch, features=features)
+            progress.update(len(batch))
+        if writer is None:
+            dataset = _dataset_from_rows([], features)
+            pq.write_table(dataset.data.table, tmp_path)
+    finally:
+        if writer is not None:
+            writer.close()
+        progress.close()
+    tmp_path.replace(path)
+
+
+def _write_parquet_splits_from_shards(
+    output_dir: Path,
+    *,
+    keep_dataset: bool = True,
+):
+    datasets.disable_progress_bars()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    features = _teacher_dataset_features()
+    stats = _episode_row_split_stats(output_dir)
+
+    _write_parquet_split_from_shards(
+        output_dir,
+        "train",
+        features=features,
+        row_count=stats["train_rows"],
+    )
+    _write_parquet_split_from_shards(
+        output_dir,
+        "val",
+        features=features,
+        row_count=stats["val_rows"],
+    )
+    if not keep_dataset:
+        return None
+    import pyarrow.parquet as pq
+
+    return DatasetDict(
+        {
+            "train": Dataset(pq.read_table(output_dir / "train.parquet")),
+            "val": Dataset(pq.read_table(output_dir / "val.parquet")),
+        }
+    )
+
+
 def _image_resolution_from_frame(frame: np.ndarray, export_image_size: tuple[int, int] | None) -> list[int]:
     image = np.asarray(frame)
     channels = int(image.shape[2])
@@ -842,6 +982,7 @@ def collect_teacher_dataset(
     export_image_size: tuple[int, int] | None,
     image_writer_workers: int,
     row_buffer_size: int,
+    return_rows: bool = True,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     env_name = str(config["env"]["name"])
     with _sample_factory_init_log(output_dir):
@@ -874,7 +1015,12 @@ def collect_teacher_dataset(
         }
         for idx in range(int(max_episodes))
     ]
-    train_rows, val_rows, completed_episode_indices = _load_episode_row_shards(output_dir)
+    if return_rows:
+        train_rows, val_rows, completed_episode_indices = _load_episode_row_shards(output_dir)
+    else:
+        train_rows = []
+        val_rows = []
+        completed_episode_indices = _completed_episode_indices_from_shards(output_dir)
     episode_specs = [spec for spec in episode_specs if int(spec["episode_idx"]) not in completed_episode_indices]
     active_specs: list[dict[str, Any] | None] = [None for _ in envs]
     active_obs: list[Any | None] = [None for _ in envs]
@@ -984,10 +1130,11 @@ def collect_teacher_dataset(
                         "deterministic": bool(deterministic),
                     }
                     active_episode_rows[slot].append(row)
-                    if split == "val":
-                        val_rows.append(row)
-                    else:
-                        train_rows.append(row)
+                    if return_rows:
+                        if split == "val":
+                            val_rows.append(row)
+                        else:
+                            train_rows.append(row)
 
                     rnn_states[slot] = new_rnn_states[batch_idx]
                     next_t = t + 1
@@ -1098,7 +1245,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if args.env_name:
         config.setdefault("env", {})["name"] = str(args.env_name)
-    train_rows, val_rows, rollout_metadata = collect_teacher_dataset(
+    _train_rows, _val_rows, rollout_metadata = collect_teacher_dataset(
         config,
         output_dir=output_dir,
         max_episodes=int(args.max_episodes),
@@ -1110,11 +1257,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         export_image_size=_parse_image_size(str(args.export_image_size)),
         image_writer_workers=int(args.image_writer_workers),
         row_buffer_size=int(args.row_buffer_size),
+        return_rows=False,
     )
-    dataset_dict = _write_parquet_splits(
+    split_stats = _episode_row_split_stats(output_dir)
+    shard_image_metadata = _image_metadata_from_shards(output_dir) or {}
+    dataset_dict = _write_parquet_splits_from_shards(
         output_dir,
-        train_rows,
-        val_rows,
         keep_dataset=bool(args.push_to_hub),
     )
     metadata = {
@@ -1133,15 +1281,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         "image_source": rollout_metadata["image_source"],
         "image_stack_source": rollout_metadata["image_stack_source"],
         "image_stack_order": "oldest_to_newest",
-        "train_rows": len(train_rows),
-        "val_rows": len(val_rows),
-        "total_rows": len(train_rows) + len(val_rows),
+        "train_rows": split_stats["train_rows"],
+        "val_rows": split_stats["val_rows"],
+        "total_rows": split_stats["total_rows"],
         "rows_unit": "decision_step",
-        "train_episodes": rollout_metadata["train_episodes"],
-        "val_episodes": rollout_metadata["val_episodes"],
-        "total_episodes": rollout_metadata["train_episodes"] + rollout_metadata["val_episodes"],
-        "image_stack_size": rollout_metadata["image_stack_size"],
-        "image_resolution": rollout_metadata["image_resolution"],
+        "train_episodes": split_stats["train_episodes"],
+        "val_episodes": split_stats["val_episodes"],
+        "total_episodes": split_stats["total_episodes"],
+        "image_stack_size": shard_image_metadata.get("image_stack_size", rollout_metadata["image_stack_size"]),
+        "image_resolution": shard_image_metadata.get("image_resolution", rollout_metadata["image_resolution"]),
     }
     with (output_dir / "metadata.json").open("w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2, sort_keys=True)
@@ -1156,7 +1304,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             token=_resolve_token(str(args.hf_token)),
             max_shard_size=str(args.hf_max_shard_size),
         )
-    print(f"[export] wrote train={len(train_rows)} rows val={len(val_rows)} rows to {output_dir}")
+    print(f"[export] wrote train={split_stats['train_rows']} rows val={split_stats['val_rows']} rows to {output_dir}")
     return 0
 
 

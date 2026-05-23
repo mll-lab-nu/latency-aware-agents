@@ -1147,6 +1147,122 @@ def test_write_parquet_splits_preserves_rows_across_large_exports(tmp_path):
     assert table.to_pylist()[259]["episode_idx"] == 259
 
 
+def  test_write_parquet_splits_from_shards_writes_train_and_val_rows(tmp_path):
+    from PIL import Image
+    from scripts.rollout_data import export_sf_teacher_dataset as exporter
+
+    output_dir = tmp_path / "export"
+    rows_by_split = {
+        "train": [
+            (0, 0, 3),
+            (1, 0, 5),
+            (1, 1, 7),
+        ],
+        "val": [
+            (2, 0, 11),
+        ],
+    }
+    for split, specs in rows_by_split.items():
+        for episode_idx, t, pixel in specs:
+            stack_dir = output_dir / "images" / split / f"episode_{episode_idx:06d}" / f"t_{t:06d}"
+            stack_dir.mkdir(parents=True, exist_ok=True)
+            stack_paths = []
+            for frame_idx in range(2):
+                stack_path = stack_dir / f"stack_{frame_idx:02d}.png"
+                Image.fromarray(np.full((2, 2, 3), pixel + frame_idx, dtype=np.uint8)).save(stack_path)
+                stack_paths.append(str(stack_path))
+            row = {
+                "image_stack": stack_paths,
+                "split": split,
+                "prompt": "pick action",
+                "action_id": 1,
+                "action_text": "flap",
+                "latency_raw_frames": 2,
+                "latency_ms": 66.0,
+                "reward": 1.5,
+                "done": True,
+                "episode_idx": episode_idx,
+                "t": t,
+                "seed": 11 + episode_idx,
+                "deterministic": True,
+            }
+            shard_path = output_dir / "episode_rows" / split / f"episode_{episode_idx:06d}.jsonl"
+            shard_path.parent.mkdir(parents=True, exist_ok=True)
+            with shard_path.open("a", encoding="utf-8") as handle:
+                json.dump(row, handle, sort_keys=True)
+                handle.write("\n")
+
+    dataset_dict = exporter._write_parquet_splits_from_shards(output_dir)
+    train_table = pq.read_table(output_dir / "train.parquet")
+    val_table = pq.read_table(output_dir / "val.parquet")
+
+    assert len(dataset_dict["train"]) == 3
+    assert len(dataset_dict["val"]) == 1
+    assert train_table.num_rows == 3
+    assert val_table.num_rows == 1
+    assert [row["episode_idx"] for row in train_table.to_pylist()] == [0, 1, 1]
+    assert [row["t"] for row in train_table.to_pylist()] == [0, 0, 1]
+    assert all(item["bytes"].startswith(b"\x89PNG\r\n\x1a\n") for item in train_table.to_pylist()[0]["image_stack"])
+
+
+def test_write_parquet_splits_from_shards_replaces_stale_partial_file(tmp_path):
+    from PIL import Image
+    from scripts.rollout_data import export_sf_teacher_dataset as exporter
+
+    output_dir = tmp_path / "export"
+    stale_stack_path = tmp_path / "stale_stack.png"
+    Image.fromarray(np.full((1, 1, 3), 1, dtype=np.uint8)).save(stale_stack_path)
+    stale_row = {
+        "image_stack": [str(stale_stack_path)],
+        "split": "train",
+        "prompt": "stale",
+        "action_id": 0,
+        "action_text": "noop",
+        "latency_raw_frames": 0,
+        "latency_ms": 0.0,
+        "reward": 0.0,
+        "done": True,
+        "episode_idx": 99,
+        "t": 0,
+        "seed": 99,
+        "deterministic": True,
+    }
+    exporter._write_parquet_splits(output_dir, [stale_row], [])
+
+    stack_dir = output_dir / "images" / "train" / "episode_000000" / "t_000000"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    stack_path = stack_dir / "stack_00.png"
+    Image.fromarray(np.full((2, 2, 3), 9, dtype=np.uint8)).save(stack_path)
+    row = {
+        "image_stack": [str(stack_path)],
+        "split": "train",
+        "prompt": "fresh",
+        "action_id": 1,
+        "action_text": "flap",
+        "latency_raw_frames": 2,
+        "latency_ms": 66.0,
+        "reward": 1.5,
+        "done": True,
+        "episode_idx": 0,
+        "t": 0,
+        "seed": 11,
+        "deterministic": True,
+    }
+    shard_path = output_dir / "episode_rows" / "train" / "episode_000000.jsonl"
+    shard_path.parent.mkdir(parents=True, exist_ok=True)
+    with shard_path.open("w", encoding="utf-8") as handle:
+        json.dump(row, handle, sort_keys=True)
+        handle.write("\n")
+
+    exporter._write_parquet_splits_from_shards(output_dir)
+    table = pq.read_table(output_dir / "train.parquet")
+
+    assert table.num_rows == 1
+    assert table.to_pylist()[0]["prompt"] == "fresh"
+    assert table.to_pylist()[0]["episode_idx"] == 0
+    assert not (output_dir / "train.parquet.tmp").exists()
+
+
 def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypatch, tmp_path):
     from PIL import Image
     from scripts.rollout_data import export_sf_teacher_dataset as exporter
@@ -1159,25 +1275,24 @@ def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypa
         Image.fromarray(np.full((2, 2, 3), 5, dtype=np.uint8)).save(stack_path)
         shard_dir = output_dir / "episode_rows" / "train"
         shard_dir.mkdir(parents=True, exist_ok=True)
-        (shard_dir / "episode_000000.jsonl").write_text("{}", encoding="utf-8")
+        row = {
+            "image_stack": [str(stack_path)],
+            "split": "train",
+            "prompt": "pick action",
+            "action_id": 1,
+            "action_text": "flap",
+            "latency_raw_frames": 2,
+            "latency_ms": 66.0,
+            "reward": 1.5,
+            "done": True,
+            "episode_idx": 0,
+            "t": 0,
+            "seed": 11,
+            "deterministic": True,
+        }
+        (shard_dir / "episode_000000.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
         return (
-            [
-                {
-                    "image_stack": [str(stack_path)],
-                    "split": "train",
-                    "prompt": "pick action",
-                    "action_id": 1,
-                    "action_text": "flap",
-                    "latency_raw_frames": 2,
-                    "latency_ms": 66.0,
-                    "reward": 1.5,
-                    "done": True,
-                    "episode_idx": 0,
-                    "t": 0,
-                    "seed": 11,
-                    "deterministic": True,
-                }
-            ],
+            [],
             [],
             {
                 "action_labels": {0: "noop", 1: "flap"},
@@ -1259,10 +1374,10 @@ def test_exporter_parser_has_no_prompt_or_render_image_source_switches():
 def test_main_writes_prompt_source_and_timing_metadata(monkeypatch, tmp_path):
     from scripts.rollout_data import export_sf_teacher_dataset as exporter
 
-    def fake_write_parquet_splits(output_dir, train_rows, val_rows, **kwargs):
+    def fake_write_parquet_splits_from_shards(output_dir, **kwargs):
         del kwargs
         output_dir.mkdir(parents=True, exist_ok=True)
-        return {"train": train_rows, "val": val_rows}
+        return {"train": [], "val": []}
 
     monkeypatch.setattr(
         exporter,
@@ -1294,7 +1409,7 @@ def test_main_writes_prompt_source_and_timing_metadata(monkeypatch, tmp_path):
             },
         ),
     )
-    monkeypatch.setattr(exporter, "_write_parquet_splits", fake_write_parquet_splits)
+    monkeypatch.setattr(exporter, "_write_parquet_splits_from_shards", fake_write_parquet_splits_from_shards)
 
     result = exporter.main(
         [
