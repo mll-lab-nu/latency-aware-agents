@@ -10,7 +10,9 @@ wandb/
 models/
 
 results/
+results
 results_old/
+results_old
 teacher_datasets/
 checkpoints/
 
