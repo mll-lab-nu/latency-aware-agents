@@ -61,6 +61,8 @@ def _lazy_import_policy(policy_type: str) -> None:
         from latency_bench.policy import demon_attack_sf  # noqa: F401
     if policy_type == "deadly_corridor_sf":
         from latency_bench.policy import deadly_corridor_sf  # noqa: F401
+    if policy_type == "starvla":
+        from latency_bench.policy import starvla  # noqa: F401
 
 
 @register_policy("random")

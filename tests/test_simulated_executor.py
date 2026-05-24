@@ -299,6 +299,25 @@ def test_raw_frame_latency_source_and_observation_stride_share_raw_timeline():
     assert [call["raw_frame"] for call in latency_source.calls] == [0, 6]
 
 
+def test_policy_observation_receives_sampled_latency_metadata_before_predict():
+    policy = CapturingPolicyRunner(Action("jump"))
+    executor, _, clock, _ = _executor(
+        RawFrameLatencySource([3]),
+        policy=policy,
+        max_steps=4,
+        decision_scheduler=SelectedRawFrameDecisionScheduler({0}),
+    )
+
+    executor.run_episode(episode_id=0, eval_max_steps=4)
+
+    assert policy.observations[0].metadata["obs_id"] == 0
+    assert policy.observations[0].metadata["latency_raw_frames"] == 3
+    assert policy.observations[0].metadata["latency_ms"] == 3 * clock.frame_ms
+    event = executor.action_scheduler.get_applied_events()[0]
+    assert event.latency.obs_id == policy.observations[0].metadata["obs_id"]
+    assert event.latency_raw_frames == policy.observations[0].metadata["latency_raw_frames"]
+
+
 def test_fixed_ms_latency_is_ceil_converted_to_raw_frames():
     executor, _, _, _ = _executor(FixedLatencySource(50.0), max_steps=4, env_fps=60)
 

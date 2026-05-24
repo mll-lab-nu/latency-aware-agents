@@ -531,9 +531,31 @@ def test_batched_executor_adds_slot_id_to_policy_observation_metadata(tmp_path: 
         executor.close()
 
     assert policy.batches[0] == [
-        {"env_step": 0, "sim_time_ms": 0.0, "slot_index": 0, "slot_id": 0},
-        {"env_step": 0, "sim_time_ms": 0.0, "slot_index": 1, "slot_id": 1},
+        {
+            "env_step": 0,
+            "sim_time_ms": 0.0,
+            "slot_index": 0,
+            "slot_id": 0,
+            "episode_id": 0,
+            "obs_id": 0,
+            "latency_ms": 0.0,
+            "latency_raw_frames": 0,
+        },
+        {
+            "env_step": 0,
+            "sim_time_ms": 0.0,
+            "slot_index": 1,
+            "slot_id": 1,
+            "episode_id": 1,
+            "obs_id": 1,
+            "latency_ms": 0.0,
+            "latency_raw_frames": 0,
+        },
     ]
+    assert [
+        (record.obs_id, record.latency_ms)
+        for record in executor.logger.latency_records
+    ] == [(0, 0.0), (1, 0.0)]
 
 
 def test_batched_executor_keeps_slot_action_queues_independent(tmp_path: Path):

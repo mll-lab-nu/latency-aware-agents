@@ -1,0 +1,24 @@
+# Extra env-side dependencies for running latency_bench evals inside
+# the starvla_rl_games_openvla environment.
+#
+# Install from repo root:
+#   python -m pip install -r requirements_starvla_eval_extra.txt
+
+-e ./flappy-bird-gymnasium
+
+gymnasium==0.29.1
+sample-factory==2.1.1
+stable-baselines3==2.8.0
+
+vizdoom==1.3.0
+ale-py==0.10.2
+AutoROM==0.6.1
+AutoROM.accept-rom-license==0.6.1
+
+pygame-ce==2.5.7
+opencv-python==4.10.0.84
+
+tensorboardX==2.6.5
+threadpoolctl==3.6.0
+colorlog==6.10.1
+signal-slot-mp==1.0.5

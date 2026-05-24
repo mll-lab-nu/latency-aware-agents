@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
+from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors._simulated_timeline import sample_simulated_latency
 from latency_bench.latency.sources import LatencySource
@@ -70,7 +70,6 @@ class SimulatedLatencyExecutor:
             current_time_ms = self.clock.step_to_time_ms(raw_frame)
             if self.decision_scheduler.should_observe(raw_frame, current_time_ms):
                 observation = self.env.observe()
-                policy_output = self.policy.predict(observation)
                 obs_id = self._next_obs_id
                 self._next_obs_id += 1
 
@@ -87,6 +86,21 @@ class SimulatedLatencyExecutor:
                     context=latency_context,
                 )
                 latency_ms = latency_sample.latency_ms
+                policy_metadata = dict(observation.metadata)
+                policy_metadata.update(
+                    {
+                        "obs_id": obs_id,
+                        "latency_ms": latency_ms,
+                        "latency_raw_frames": latency_sample.latency_raw_frames,
+                    }
+                )
+                policy_observation = Observation(
+                    data=observation.data,
+                    env_step=observation.env_step,
+                    sim_time_ms=observation.sim_time_ms,
+                    metadata=policy_metadata,
+                )
+                policy_output = self.policy.predict(policy_observation)
                 ready_raw_frame = raw_frame + latency_sample.latency_raw_frames
                 ready_time_ms = self.clock.step_to_time_ms(ready_raw_frame)
                 latency_record = LatencyRecord(

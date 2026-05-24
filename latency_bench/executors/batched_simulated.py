@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
-from latency_bench.executors._simulated_timeline import sample_simulated_latency
+from latency_bench.executors._simulated_timeline import SimulatedLatencySample, sample_simulated_latency
 from latency_bench.executors.env_step_backend import EnvStepBackend
 from latency_bench.latency.sources import LatencySource
 from latency_bench.logging.metrics import (
@@ -43,6 +43,14 @@ class _SlotState:
     episode_seed: int | None = None
     env_step: int = 0
     buffers: _EpisodeBuffers = field(default_factory=_EpisodeBuffers)
+
+
+@dataclass
+class _PendingPolicyObservation:
+    slot: _SlotState
+    observation: Observation
+    obs_id: int
+    latency_sample: SimulatedLatencySample
 
 
 class _BatchedEnvCollection:
@@ -162,17 +170,27 @@ class BatchedSimulatedLatencyExecutor:
 
             if observation_slots:
                 observations_by_slot = self.env_backend.observe_slots([slot.slot_id for slot in observation_slots])
-                observations = [
-                    self._policy_observation(slot, observations_by_slot[slot.slot_id])
+                pending_observations = [
+                    self._sample_policy_observation(
+                        slot,
+                        self._policy_observation(slot, observations_by_slot[slot.slot_id]),
+                    )
                     for slot in observation_slots
                 ]
+                observations = [pending.observation for pending in pending_observations]
 
             if observations:
                 policy_outputs = self.policy.predict_batch(observations)
                 if len(policy_outputs) != len(observations):
                     raise RuntimeError("policy.predict_batch returned the wrong number of outputs")
-                for slot, observation, policy_output in zip(observation_slots, observations, policy_outputs):
-                    self._enqueue_policy_output(slot, observation, policy_output)
+                for pending, policy_output in zip(pending_observations, policy_outputs):
+                    self._enqueue_policy_output(
+                        pending.slot,
+                        pending.observation,
+                        policy_output,
+                        obs_id=pending.obs_id,
+                        latency_sample=pending.latency_sample,
+                    )
 
             actions_by_slot = {}
             for slot in active_slots:
@@ -229,11 +247,55 @@ class BatchedSimulatedLatencyExecutor:
     def _policy_observation(self, slot: _SlotState, observation: Observation) -> Observation:
         metadata = dict(observation.metadata)
         metadata["slot_id"] = slot.slot_id
+        metadata["episode_id"] = int(slot.episode_id)
         return Observation(
             data=observation.data,
             env_step=observation.env_step,
             sim_time_ms=observation.sim_time_ms,
             metadata=metadata,
+        )
+
+    def _sample_policy_observation(
+        self,
+        slot: _SlotState,
+        observation: Observation,
+    ) -> _PendingPolicyObservation:
+        obs_id = self._next_obs_id
+        self._next_obs_id += 1
+        raw_frame = int(slot.env_step)
+        current_time_ms = self.clock.step_to_time_ms(raw_frame)
+        latency_context = {
+            "observation": observation,
+            "obs_id": obs_id,
+            "env_step": raw_frame,
+            "raw_frame": raw_frame,
+            "sim_time_ms": current_time_ms,
+            "episode_id": slot.episode_id,
+            "slot_id": slot.slot_id,
+        }
+        latency_sample = sample_simulated_latency(
+            latency_source=slot.latency_source,
+            clock=self.clock,
+            context=latency_context,
+        )
+        metadata = dict(observation.metadata)
+        metadata.update(
+            {
+                "obs_id": obs_id,
+                "latency_ms": latency_sample.latency_ms,
+                "latency_raw_frames": latency_sample.latency_raw_frames,
+            }
+        )
+        return _PendingPolicyObservation(
+            slot=slot,
+            observation=Observation(
+                data=observation.data,
+                env_step=observation.env_step,
+                sim_time_ms=observation.sim_time_ms,
+                metadata=metadata,
+            ),
+            obs_id=obs_id,
+            latency_sample=latency_sample,
         )
 
     def _reset_run_state(self, episode_ids: Sequence[int]) -> None:
@@ -309,25 +371,16 @@ class BatchedSimulatedLatencyExecutor:
         if on_episode_complete is not None:
             on_episode_complete(metrics)
 
-    def _enqueue_policy_output(self, slot: _SlotState, observation, policy_output) -> None:
-        obs_id = self._next_obs_id
-        self._next_obs_id += 1
+    def _enqueue_policy_output(
+        self,
+        slot: _SlotState,
+        observation,
+        policy_output,
+        *,
+        obs_id: int,
+        latency_sample: SimulatedLatencySample,
+    ) -> None:
         raw_frame = int(slot.env_step)
-        current_time_ms = self.clock.step_to_time_ms(raw_frame)
-        latency_context = {
-            "observation": observation,
-            "obs_id": obs_id,
-            "env_step": raw_frame,
-            "raw_frame": raw_frame,
-            "sim_time_ms": current_time_ms,
-            "episode_id": slot.episode_id,
-            "slot_id": slot.slot_id,
-        }
-        latency_sample = sample_simulated_latency(
-            latency_source=slot.latency_source,
-            clock=self.clock,
-            context=latency_context,
-        )
         latency_ms = latency_sample.latency_ms
         ready_raw_frame = raw_frame + latency_sample.latency_raw_frames
         ready_time_ms = self.clock.step_to_time_ms(ready_raw_frame)
