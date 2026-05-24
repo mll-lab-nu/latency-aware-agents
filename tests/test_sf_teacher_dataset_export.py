@@ -1458,3 +1458,90 @@ def test_push_token_falls_back_to_huggingface_hub_token(monkeypatch):
     monkeypatch.setenv("HUGGINGFACE_HUB_TOKEN", "hub-token")
 
     assert resolve_token("") == "hub-token"
+
+
+def test_prepare_starvla_lerobot_dataset_converts_from_raw_export(monkeypatch, tmp_path):
+    from scripts.rollout_data import prepare_starvla_lerobot_dataset as prepare
+
+    raw_export = tmp_path / "raw"
+    raw_export.mkdir()
+    (raw_export / "metadata.json").write_text(json.dumps({"env_name": "demon_attack"}), encoding="utf-8")
+    (raw_export / "train.parquet").write_bytes(b"train")
+    (raw_export / "val.parquet").write_bytes(b"val")
+
+    calls = []
+
+    def fake_convert(dataset_name, output_dir, **kwargs):
+        calls.append((dataset_name, output_dir, kwargs))
+        (output_dir / "meta").mkdir(parents=True)
+        (output_dir / "meta" / "info.json").write_text("{}", encoding="utf-8")
+        (output_dir.with_name(f"{output_dir.name}__val") / "meta").mkdir(parents=True)
+        return {"dataset_name": output_dir.name}
+
+    monkeypatch.setitem(prepare.CONVERTERS, "demon_attack", fake_convert)
+
+    result = prepare.main([
+        str(raw_export),
+        str(tmp_path / "lerobot"),
+        "demon_attack_train",
+    ])
+
+    assert result == 0
+    assert calls == [
+        (
+            str(raw_export),
+            tmp_path / "lerobot" / "demon_attack_train",
+            {"force": True, "require_latency_prompt_map": False},
+        )
+    ]
+
+
+def test_prepare_starvla_lerobot_dataset_uploads_converted_root(monkeypatch, tmp_path):
+    from scripts.rollout_data import prepare_starvla_lerobot_dataset as prepare
+
+    lerobot_root = tmp_path / "lerobot"
+    (lerobot_root / "demon_attack_train").mkdir(parents=True)
+    (lerobot_root / "demon_attack_train__val").mkdir()
+
+    calls = []
+
+    class FakeApi:
+        def create_repo(self, **kwargs):
+            calls.append(("create_repo", kwargs))
+
+        def upload_folder(self, **kwargs):
+            calls.append(("upload_folder", kwargs))
+
+    monkeypatch.setattr(prepare, "HfApi", lambda: FakeApi())
+    monkeypatch.setenv("HF_TOKEN", "env-token")
+
+    prepare.push_lerobot_dataset(
+        lerobot_root=lerobot_root,
+        data_mix="demon_attack_train",
+        repo_id="user/demon_attack_train_lerobot",
+        private=True,
+    )
+
+    assert calls == [
+        (
+            "create_repo",
+            {
+                "repo_id": "user/demon_attack_train_lerobot",
+                "repo_type": "dataset",
+                "private": True,
+                "exist_ok": True,
+                "token": "env-token",
+            },
+        ),
+        (
+            "upload_folder",
+            {
+                "folder_path": str(lerobot_root),
+                "repo_id": "user/demon_attack_train_lerobot",
+                "repo_type": "dataset",
+                "allow_patterns": ["demon_attack_train/**", "demon_attack_train__val/**"],
+                "commit_message": "Upload StarVLA LeRobot dataset",
+                "token": "env-token",
+            },
+        ),
+    ]

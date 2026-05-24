@@ -101,6 +101,26 @@ def test_openvla_install_script_bootstraps_rlinf_oft_environment():
     assert "pip install -e \"${REPO_ROOT}/openvla\"" not in text
 
 
+def test_starvla_rl_games_openvla_installer_pins_flash_attn_wheel():
+    script_path = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "model" / "openvla.sh"
+
+    assert script_path.is_file()
+
+    syntax = subprocess.run(
+        ["bash", "-n", str(script_path)],
+        cwd=REPO_ROOT / "starVLA",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert syntax.returncode == 0, syntax.stderr
+
+    text = script_path.read_text(encoding="utf-8")
+    assert "flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl" in text
+    assert '"$PYTHON_BIN" -m pip install --no-deps "$FLASH_ATTN_WHEEL_URL"' in text
+    assert "import flash_attn, flash_attn_2_cuda" in text
+
+
 def test_cross_device_openvla_script_forwards_filters_and_uses_openvla_runtime():
     script_path = REPO_ROOT / "scripts" / "bash_scripts" / "run_cross_device_openvla.sh"
     common_path = REPO_ROOT / "scripts" / "bash_scripts" / "cross_device_launcher_common.sh"
