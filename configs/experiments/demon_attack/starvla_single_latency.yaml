@@ -4,7 +4,7 @@ __base__:
 experiment:
   name: starvla_openvla_demon_attack_single_raw2
   seed: 42
-  num_episodes: 5
+  num_episodes: 20
 
 executor:
   mode: simulated
@@ -20,7 +20,6 @@ policy:
   checkpoint_path: results/Checkpoints/openvla_demon_attack_single/final_model
   device: cuda
   unnorm_key: new_embodiment
-  profile: single_latency
   latency_prompt_map_path: /mnt/data/latency_data/playground/Datasets/rl_games/demon_attack_train/latency_prompt_map.json
   actions:
     - NOOP
@@ -35,7 +34,7 @@ latency:
   fixed_latency_ms: 33.333333333333336
 
 evaluation:
-  eval_parallel_envs: 1
+  eval_parallel_envs: 4
   eval_max_steps: 2000
   eval_suites:
     fixed:
