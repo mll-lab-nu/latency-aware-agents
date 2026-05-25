@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import torch
 from typing import Any
 
 import numpy as np
@@ -52,13 +53,8 @@ def env_instance_seed(
 
 
 def seed_everything(seed: int) -> int:
-    normalized_seed = int(seed)
-    random.seed(normalized_seed)
-    np.random.seed(normalized_seed)
-    try:
-        import torch
-
-        torch.manual_seed(normalized_seed)
-    except ImportError:
-        pass
-    return normalized_seed
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    return seed

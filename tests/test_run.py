@@ -166,8 +166,6 @@ def _run_config(policy_type: str, tmp_path: Path, seed: int = 7, num_episodes: i
 
 
 def test_run_from_config_uses_sample_factory_eval_episode_seeds(monkeypatch, tmp_path: Path):
-    from training.common import utils as common
-
     episode_seeds = []
     global_seed_calls = []
 
@@ -189,7 +187,7 @@ def test_run_from_config_uses_sample_factory_eval_episode_seeds(monkeypatch, tmp
             )
 
     monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
-    monkeypatch.setattr(common, "seed_everything", lambda seed: global_seed_calls.append(seed) or seed)
+    monkeypatch.setattr(latency_run, "seed_everything", lambda seed: global_seed_calls.append(seed) or seed)
     config = _run_config("deadly_corridor_sf", tmp_path, seed=11, num_episodes=3)
 
     latency_run.run_from_config(config)
@@ -203,6 +201,7 @@ def test_run_from_config_keeps_existing_episode_seeds_for_non_sample_factory_pol
     tmp_path: Path,
 ):
     episode_seeds = []
+    global_seed_calls = []
 
     class FakeEnv:
         def close(self):
@@ -222,10 +221,12 @@ def test_run_from_config_keeps_existing_episode_seeds_for_non_sample_factory_pol
             )
 
     monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    monkeypatch.setattr(latency_run, "seed_everything", lambda seed: global_seed_calls.append(seed) or seed)
     config = _run_config("constant", tmp_path, seed=11, num_episodes=3)
 
     latency_run.run_from_config(config)
 
+    assert global_seed_calls == [11]
     assert episode_seeds == [11, 12, 13]
 
 

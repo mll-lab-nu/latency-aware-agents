@@ -9,6 +9,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from training.common.utils import seed_everything
 from latency_bench.core.config import load_config
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.eval_suites import has_eval_suites, parse_eval_suites
@@ -80,10 +81,7 @@ def run_from_config(
     seed = int(experiment_cfg.get("seed", 0))
     num_episodes = int(experiment_cfg.get("num_episodes", 1))
     eval_max_steps = _eval_max_steps(config)
-    if _is_sample_factory_policy(config):
-        from training.common.utils import seed_everything
-
-        seed_everything(seed)
+    seed_everything(seed)
 
     executor = build_executor(config)
     metrics = []
