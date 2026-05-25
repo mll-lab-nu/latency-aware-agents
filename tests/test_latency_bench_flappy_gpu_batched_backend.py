@@ -10,6 +10,7 @@ from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.flappy import FlappyBirdEnvAdapter
 from latency_bench.executors.env_step_backend import SerialEnvStepBackend
 from latency_bench.executors.factory import build_executor
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 def _noop() -> Action:
@@ -218,6 +219,27 @@ def test_flappy_gpu_batched_backend_matches_serial_done_auto_reset_contract(tmp_
     finally:
         batched.close()
         serial.close()
+
+
+def test_flappy_gpu_batched_backend_exports_raw_rgb_stack_for_starvla(tmp_path):
+    pytest.importorskip("torch")
+    from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
+
+    config = _config(str(tmp_path), num_episodes=1)
+    config["policy"]["type"] = "starvla"
+    batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=1)
+    try:
+        batched.reset_slot(0, episode_id=0, seed=123)
+        observation = batched.observe_slots([0])[0]
+        raw_stack = observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
+
+        assert observation.data.shape == (84, 84, 12)
+        assert raw_stack.shape[0] == 4
+        assert raw_stack.shape[-1] == 3
+        assert raw_stack.shape[:3] != (4, 84, 84)
+        assert raw_stack.dtype == np.uint8
+    finally:
+        batched.close()
 
 
 def _metrics_contract(metrics: list[Any]) -> list[tuple[Any, ...]]:

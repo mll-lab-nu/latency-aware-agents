@@ -137,6 +137,7 @@ def test_deadly_corridor_eval_raw_reward_disables_reward_scaling(monkeypatch):
 
     assert isinstance(env, FakeDeadlyCorridorEnvAdapter)
     assert captured["config"] is config
+    assert captured["export_env_raw_rgb_frames"] is False
 
 
 def test_deadly_corridor_default_keeps_reward_scaling(monkeypatch):
@@ -158,6 +159,29 @@ def test_deadly_corridor_default_keeps_reward_scaling(monkeypatch):
 
     assert isinstance(env, FakeDeadlyCorridorEnvAdapter)
     assert captured["config"] is config
+    assert captured["export_env_raw_rgb_frames"] is False
+
+
+def test_deadly_corridor_starvla_env_exports_raw_rgb_frames(monkeypatch):
+    captured = {}
+
+    class FakeDeadlyCorridorEnvAdapter:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        deadly_corridor,
+        "DeadlyCorridorEnvAdapter",
+        FakeDeadlyCorridorEnvAdapter,
+    )
+    config = _config("deadly_corridor")
+    config["policy"] = {"type": "starvla"}
+    noop = Action(value=(0, 0, 0, 0), name="noop", is_noop=True)
+
+    env = build_env_adapter(config, noop)
+
+    assert isinstance(env, FakeDeadlyCorridorEnvAdapter)
+    assert captured["export_env_raw_rgb_frames"] is True
 
 
 def test_deadly_corridor_spec_copy_disables_reward_scaling_without_mutating_original():
@@ -418,6 +442,55 @@ def test_build_env_adapter_does_not_pass_demon_attack_action_repeat(monkeypatch)
 
     assert isinstance(env, FakeDemonAttackEnvAdapter)
     assert "action_repeat" not in captured["kwargs"]
+    assert captured["kwargs"]["export_env_raw_rgb_frames"] is False
+
+
+def test_demon_attack_starvla_env_exports_raw_rgb_frames(monkeypatch):
+    from latency_bench.envs import demon_attack
+
+    captured = {}
+
+    class FakeDemonAttackEnvAdapter:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(
+        demon_attack,
+        "DemonAttackEnvAdapter",
+        FakeDemonAttackEnvAdapter,
+    )
+    config = _config("demon_attack")
+    config["policy"] = {"type": "starvla"}
+    noop = Action(value=0, name="noop", is_noop=True)
+
+    env = build_env_adapter(config, noop)
+
+    assert isinstance(env, FakeDemonAttackEnvAdapter)
+    assert captured["kwargs"]["export_env_raw_rgb_frames"] is True
+
+
+def test_demon_attack_openvla_env_exports_raw_rgb_frames(monkeypatch):
+    from latency_bench.envs import demon_attack
+
+    captured = {}
+
+    class FakeDemonAttackEnvAdapter:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(
+        demon_attack,
+        "DemonAttackEnvAdapter",
+        FakeDemonAttackEnvAdapter,
+    )
+    config = _config("demon_attack")
+    config["policy"] = {"type": "demon_attack_openvla"}
+    noop = Action(value=0, name="noop", is_noop=True)
+
+    env = build_env_adapter(config, noop)
+
+    assert isinstance(env, FakeDemonAttackEnvAdapter)
+    assert captured["kwargs"]["export_env_raw_rgb_frames"] is True
 
 
 def test_demon_attack_latency_bench_eval_raw_reward_disables_clipping_and_keeps_life_loss_terminal(monkeypatch):
@@ -514,6 +587,53 @@ def test_build_env_adapter_passes_explicit_gpu_render_args_when_enabled(monkeypa
     assert captured["obs_resize"] == (84, 84)
     assert captured["frame_stack"] == 4
     assert captured["policy_observation_layout"] == "chw"
+    assert captured["export_env_raw_rgb_frames"] is False
+
+
+def test_flappy_starvla_env_exports_raw_rgb_frames(monkeypatch):
+    from latency_bench.envs import factory as factory_module
+
+    captured = {}
+
+    class FakeFlappyAdapter:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(factory_module, "FlappyBirdEnvAdapter", FakeFlappyAdapter)
+    config = _flappy_config()
+    config["policy"] = {"type": "starvla"}
+    noop = Action(value=0, name="noop", is_noop=True)
+
+    env = factory_module.build_env_adapter(config, noop)
+
+    assert isinstance(env, FakeFlappyAdapter)
+    assert captured["export_env_raw_rgb_frames"] is True
+
+
+def test_flappy_openvla_env_exports_raw_rgb_frames(monkeypatch):
+    from latency_bench.envs import factory as factory_module
+
+    captured = {}
+
+    class FakeFlappyAdapter:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(factory_module, "FlappyBirdEnvAdapter", FakeFlappyAdapter)
+    config = _flappy_config()
+    config["policy"] = {"type": "flappy_openvla"}
+    noop = Action(value=0, name="noop", is_noop=True)
+
+    env = factory_module.build_env_adapter(config, noop)
+
+    assert isinstance(env, FakeFlappyAdapter)
+    assert captured["export_env_raw_rgb_frames"] is True
 
 
 def test_build_executor_maps_flappy_policy_actions(tmp_path):

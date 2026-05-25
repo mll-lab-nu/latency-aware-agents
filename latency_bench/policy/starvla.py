@@ -15,6 +15,7 @@ from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.factory import register_policy
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -93,7 +94,8 @@ class StarVlaPolicyRunner(PolicyRunner):
         ]
 
     def _build_example(self, observation: Observation) -> dict[str, Any]:
-        frames = observation_data_to_hwc_uint8_frames(observation.data)
+        frame_source = observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
+        frames = observation_data_to_hwc_uint8_frames(frame_source)
         selected_frames = {
             "single_latency": lambda: [frames[-1]],
             "frame_stack": lambda: frames,

@@ -15,6 +15,7 @@ import torch.nn.functional as F
 
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -264,6 +265,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         gpu_render_profile: bool = False,
         gpu_render_profile_interval: int = 1000,
         policy_observation_layout: str = "hwc",
+        export_env_raw_rgb_frames: bool = False,
     ):
         self.frame_stack = int(frame_stack)
         if self.frame_stack <= 0:
@@ -278,11 +280,13 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         self.noop_action = noop_action or Action(value=0, name="noop", is_noop=True)
         self.obs_resize = tuple(obs_resize) if obs_resize is not None else None
         self.policy_observation_layout = str(policy_observation_layout).lower()
+        self.export_env_raw_rgb_frames = bool(export_env_raw_rgb_frames)
         self.env_step = 0
         self._last_info: dict[str, Any] = {}
         self._last_numeric_obs: Any = None
         self._last_frame: np.ndarray | None = None
         self._observed_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
+        self._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=self.frame_stack)
 
         kwargs: dict[str, Any] = {
             "audio_on": False,
@@ -310,6 +314,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
                 gpu_render_device=gpu_render_device,
                 gpu_render_profile=bool(gpu_render_profile),
                 gpu_render_profile_interval=int(gpu_render_profile_interval),
+                export_env_raw_rgb_frames=self.export_env_raw_rgb_frames,
             )
         else:
             self.gym_env = base_env
@@ -334,16 +339,20 @@ class FlappyBirdEnvAdapter(EnvAdapter):
             info = self._single_info(infos)
             numeric_obs = info.get("numeric_obs")
             frame = self._single_observation_hwc(obs)
+            raw_frame = self._raw_rgb_frame_from_info(info) if self.export_env_raw_rgb_frames else frame
         else:
             numeric_obs, info = self.gym_env.reset(seed=seed)
             info = dict(info or {})
-            frame = self._render_rgb_frame()
+            raw_frame = self._render_raw_rgb_frame()
+            frame = self._observation_frame(raw_frame)
 
         self._last_numeric_obs = numeric_obs
         self._last_info = info
         self._last_frame = frame
         if not self.use_gpu_render:
             self._reset_frame_stack(frame)
+        if self.export_env_raw_rgb_frames:
+            self._raw_rgb_frames.reset(raw_frame)
         return self._make_observation(numeric_obs=numeric_obs, info=info)
 
     def step(self, action: Action) -> StepResult:
@@ -354,17 +363,23 @@ class FlappyBirdEnvAdapter(EnvAdapter):
             info = self._single_info(infos)
             numeric_obs = info.get("numeric_obs")
             frame = self._single_observation_hwc(obs)
+            raw_frame = self._raw_rgb_frame_from_info(info) if self.export_env_raw_rgb_frames else frame
         else:
             numeric_obs, reward, terminated, truncated, info = self.gym_env.step(gym_action)
             info = dict(info or {})
-            frame = self._render_rgb_frame()
+            raw_frame = self._render_raw_rgb_frame()
+            frame = self._observation_frame(raw_frame)
 
         self.env_step += 1
+        terminated_bool = bool(self._single_scalar(terminated))
+        truncated_bool = bool(self._single_scalar(truncated))
         self._last_numeric_obs = numeric_obs
         self._last_info = info
         self._last_frame = frame
         if not self.use_gpu_render:
             self._append_observed_frame(frame)
+        if self.export_env_raw_rgb_frames and not bool(terminated_bool or truncated_bool):
+            self._raw_rgb_frames.append(raw_frame)
 
         observation = self._make_observation(numeric_obs=numeric_obs, info=info)
         step_info = dict(info)
@@ -380,8 +395,8 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         return StepResult(
             observation=observation,
             reward=float(self._single_scalar(reward)),
-            done=bool(self._single_scalar(terminated)),
-            truncated=bool(self._single_scalar(truncated)),
+            done=terminated_bool,
+            truncated=truncated_bool,
             info=step_info,
         )
 
@@ -422,9 +437,12 @@ class FlappyBirdEnvAdapter(EnvAdapter):
     def close(self) -> None:
         self.gym_env.close()
 
-    def _render_rgb_frame(self) -> np.ndarray:
+    def _render_raw_rgb_frame(self) -> np.ndarray:
         frame = self.gym_env.render()
-        arr = self._rgb_hwc_frame(frame)
+        return self._rgb_hwc_frame(frame)
+
+    def _observation_frame(self, raw_frame: Any) -> np.ndarray:
+        arr = self._rgb_hwc_frame(raw_frame)
         if self.obs_resize is None:
             return arr
         height, width = self.obs_resize
@@ -437,6 +455,9 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         if arr.shape[:2] != (height, width):
             raise RuntimeError(f"obs_resize expected HWC frame {(height, width, 3)}, got {arr.shape!r}")
         return self._rgb_hwc_frame(arr)
+
+    def _render_rgb_frame(self) -> np.ndarray:
+        return self._observation_frame(self._render_raw_rgb_frame())
 
     @staticmethod
     def _rgb_hwc_frame(frame: Any) -> np.ndarray:
@@ -474,6 +495,8 @@ class FlappyBirdEnvAdapter(EnvAdapter):
                 "numeric_obs": numeric_obs,
             }
         )
+        if self.export_env_raw_rgb_frames:
+            metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frames.stack()
         return metadata
 
     def _policy_frame_stack(self) -> np.ndarray:
@@ -504,6 +527,10 @@ class FlappyBirdEnvAdapter(EnvAdapter):
                 raise ValueError(f"Expected one Flappy GPU env observation, got batch shape {arr.shape!r}")
             arr = arr[0]
         return cls._rgb_hwc_frame(arr).copy()
+
+    @staticmethod
+    def _raw_rgb_frame_from_info(info: dict[str, Any]) -> np.ndarray:
+        return np.asarray(info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY])[-1]
 
     @staticmethod
     def _single_info(infos: Any) -> dict[str, Any]:

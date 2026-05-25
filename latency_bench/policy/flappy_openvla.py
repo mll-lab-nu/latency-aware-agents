@@ -19,6 +19,7 @@ from latency_bench.policy.openvla_statistics import (
     openvla_dataset_statistics_filename,
     openvla_dataset_statistics_path,
 )
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 OpenVlaActionOutput = npt.NDArray[np.floating[Any]] | torch.Tensor
@@ -100,7 +101,8 @@ class FlappyOpenVlaPolicyRunner(PolicyRunner):
         self._action_by_raw_id = dict(action_by_raw_id)
 
     def predict(self, observation: Observation) -> PolicyOutput:
-        frame_hwc = observation_data_to_hwc_uint8(observation.data, self._config.image_size)
+        frame_source = observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
+        frame_hwc = observation_data_to_hwc_uint8(frame_source, self._config.image_size)
         env_obs = build_openvla_env_obs(frame_hwc, self._config.prompt, self._device)
         model = cast(OpenVlaPredictProtocol, self._model)
         prediction = model.predict_action_batch(
@@ -304,6 +306,10 @@ def observation_data_to_hwc_uint8(data: Any, image_size: int) -> npt.NDArray[np.
     from PIL import Image as _PILImage
 
     frame = np.asarray(data)
+    if frame.ndim == 4 and frame.shape[-1] == 3:
+        frame = frame[-1]
+    elif frame.ndim == 4 and frame.shape[1] == 3:
+        frame = np.transpose(frame[-1], (1, 2, 0))
     if frame.ndim != 3:
         raise ValueError(f"Expected RGB image with rank 3, got shape {frame.shape}")
     if frame.shape[-1] > 3 and frame.shape[-1] % 3 == 0:
@@ -328,7 +334,7 @@ def observation_data_to_hwc_uint8(data: Any, image_size: int) -> npt.NDArray[np.
         _PILImage.fromarray(uint8_frame).resize((image_size, image_size), _PILImage.BILINEAR),
         dtype=np.uint8,
     )
-    return resized
+    return np.array(resized, copy=True)
 
 
 def _as_uint8_image(frame: npt.NDArray[Any]) -> npt.NDArray[np.uint8]:

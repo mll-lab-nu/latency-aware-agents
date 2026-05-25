@@ -6,6 +6,7 @@ import os
 import time
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from latency_bench.core.clock import EnvClock
@@ -20,6 +21,7 @@ from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 class SlotIdPolicy(PolicyRunner):
@@ -95,6 +97,29 @@ class MetadataCapturePolicy(PolicyRunner):
             PolicyOutput(action=Action("jump", name="jump"))
             for _observation in observations
         ]
+
+
+class RawRgbShapeCapturePolicy(PolicyRunner):
+    def __init__(self):
+        self.raw_stack_shapes: list[tuple[int, ...]] = []
+
+    def predict(self, observation: Observation) -> PolicyOutput:
+        raise AssertionError("batched executor must call predict_batch")
+
+    def predict_batch(self, observations):
+        outputs = []
+        for observation in observations:
+            raw_stack = np.asarray(observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY])
+            self.raw_stack_shapes.append(tuple(raw_stack.shape))
+            outputs.append(
+                PolicyOutput(
+                    action=Action("jump", name="jump"),
+                    metadata={
+                        "input_frame_shape": [list(raw_stack[-1].shape)],
+                    },
+                )
+            )
+        return outputs
 
 
 class TupleActionEnvAdapter(EnvAdapter):
@@ -223,6 +248,41 @@ class DiscreteSubprocEnvAdapter(DummyEnvAdapter):
         self.gym_env = self
 
 
+class RawRgbMetadataSubprocEnvAdapter(EnvAdapter):
+    def __init__(self, *, env_fps: float, max_steps: int, noop_action: Action):
+        self.env_fps = float(env_fps)
+        self.max_steps = int(max_steps)
+        self.noop_action = noop_action
+        self.env_step = 0
+
+    @property
+    def frame_ms(self) -> float:
+        return 1000.0 / self.env_fps
+
+    def reset(self, seed: int | None = None) -> Observation:
+        self.env_step = 0
+        return self.observe()
+
+    def step(self, action: Action) -> StepResult:
+        self.env_step += 1
+        return StepResult(
+            observation=self.observe(),
+            reward=1.0,
+            done=self.env_step >= self.max_steps,
+            truncated=False,
+            info={"applied_action": action.value},
+        )
+
+    def observe(self) -> Observation:
+        raw_stack = np.full((4, 5, 6, 3), self.env_step + 11, dtype=np.uint8)
+        return Observation(
+            data=np.zeros((4, 84, 84), dtype=np.uint8),
+            env_step=self.env_step,
+            sim_time_ms=self.env_step * self.frame_ms,
+            metadata={ENV_RAW_RGB_FRAME_STACK_INFO_KEY: raw_stack},
+        )
+
+
 @register_env_adapter("subproc_failure_test")
 def _build_subproc_failure_test_env(config: dict, noop_action: Action) -> EnvAdapter:
     return FailingStepEnvAdapter(
@@ -244,6 +304,15 @@ def _build_discrete_subproc_test_env(config: dict, noop_action: Action) -> EnvAd
 @register_env_adapter("multidiscrete_subproc_test")
 def _build_multidiscrete_subproc_test_env(config: dict, noop_action: Action) -> EnvAdapter:
     return MultiDiscreteSubprocEnvAdapter(
+        env_fps=float(config["env"]["env_fps"]),
+        max_steps=int(config["evaluation"]["eval_max_steps"]),
+        noop_action=noop_action,
+    )
+
+
+@register_env_adapter("raw_rgb_metadata_subproc_test")
+def _build_raw_rgb_metadata_subproc_test_env(config: dict, noop_action: Action) -> EnvAdapter:
+    return RawRgbMetadataSubprocEnvAdapter(
         env_fps=float(config["env"]["env_fps"]),
         max_steps=int(config["evaluation"]["eval_max_steps"]),
         noop_action=noop_action,
@@ -730,6 +799,36 @@ def test_subproc_backend_step_omits_observation_payload_and_observe_reads_worker
     assert response.result.observation is None
     assert observed.data == {"state": 1}
     assert observed.env_step == 1
+
+
+def test_subproc_batched_policy_receives_env_raw_rgb_metadata(tmp_path: Path):
+    if "fork" not in mp.get_all_start_methods():
+        pytest.skip("fork start method is not available")
+
+    policy = RawRgbShapeCapturePolicy()
+    executor = _subproc_executor(
+        tmp_path,
+        num_slots=1,
+        env_name="raw_rgb_metadata_subproc_test",
+        num_episodes=1,
+        eval_max_steps=1,
+        start_method="fork",
+        policy=policy,
+    )
+
+    try:
+        executor.run_episodes(
+            episode_ids=[0],
+            seeds=[123],
+            eval_max_steps=1,
+        )
+        executor.logger.flush()
+    finally:
+        executor.close()
+
+    action = json.loads((tmp_path / "actions.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert policy.raw_stack_shapes == [(4, 5, 6, 3)]
+    assert action["metadata"]["input_frame_shape"] == [[5, 6, 3]]
 
 
 def test_subproc_backend_prefers_fork_start_method_by_default(monkeypatch):

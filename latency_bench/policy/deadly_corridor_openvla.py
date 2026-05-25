@@ -23,6 +23,7 @@ from latency_bench.policy.flappy_openvla import (
     sha256_array,
     sha256_text,
 )
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 DeadlyCorridorOpenVlaPolicyConfig = OpenVlaPolicyConfig
@@ -75,8 +76,9 @@ class DeadlyCorridorOpenVlaPolicyRunner(PolicyRunner):
         self._device = device
 
     def predict(self, observation: Observation) -> PolicyOutput:
+        frame_source = observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
         frame_hwc = observation_data_to_single_hwc_rgb_uint8(
-            observation.data,
+            frame_source,
             image_size=self._config.image_size,
         )
         env_obs = build_openvla_env_obs(frame_hwc, self._config.prompt, self._device)
@@ -161,6 +163,10 @@ def observation_data_to_single_hwc_rgb_uint8(
     from PIL import Image as _PILImage
 
     frame = _extract_observation_array(data)
+    if frame.ndim == 4 and frame.shape[-1] == 3:
+        frame = frame[-1]
+    elif frame.ndim == 4 and frame.shape[1] == 3:
+        frame = np.transpose(frame[-1], (1, 2, 0))
     if frame.ndim != 3:
         raise ValueError(f"Expected Deadly Corridor image rank 3, got shape {frame.shape}")
 

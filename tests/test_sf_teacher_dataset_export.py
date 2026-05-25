@@ -564,8 +564,24 @@ def test_collect_teacher_dataset_stacks_deadly_corridor_deterministic_tuple_acti
 
     assert not val_rows
     assert [env.step_actions for env in fake_envs] == [[[[0, 1, 2, 1]]], [[[1, 2, 0, 0]]]]
-    assert [row["action_id"] for row in train_rows] == [0, 1]
+    assert [row["action"] for row in train_rows] == [
+        [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0],
+        [0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0],
+    ]
+    assert [row["action_text"] for row in train_rows] == [
+        "TURN_NOOP+MOVE_FORWARD+MOVE_RIGHT+ATTACK",
+        "TURN_LEFT+MOVE_BACKWARD+STRAFE_NOOP+ATTACK_NOOP",
+    ]
     assert metadata["checkpoint_train_step"] == 123
+
+
+def test_deadly_corridor_action_vector_encodes_factorized_tuple():
+    from scripts.rollout_data import export_sf_teacher_dataset as exporter
+
+    vector, label = exporter.action_vector_and_text_for_env("deadly_corridor", [2, 0, 1, 0], {})
+
+    assert vector == [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+    assert label == "TURN_RIGHT+MOVE_NOOP+MOVE_LEFT+ATTACK_NOOP"
 
 
 def test_collect_teacher_dataset_saves_demon_attack_raw_rgb_stack(monkeypatch, tmp_path):
@@ -1054,6 +1070,7 @@ def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
         "image_stack": [str(path) for path in stack_paths],
         "split": "train",
         "prompt": "pick action",
+        "action": [0.0, 1.0],
         "action_id": 1,
         "action_text": "flap",
         "latency_raw_frames": 2,
@@ -1089,6 +1106,7 @@ def test_write_parquet_splits_embeds_image_stack_bytes(tmp_path):
         "image_stack": [str(path) for path in stack_paths],
         "split": "train",
         "prompt": "pick action",
+        "action": [0.0, 1.0],
         "action_id": 1,
         "action_text": "flap",
         "latency_raw_frames": 2,
@@ -1124,6 +1142,7 @@ def test_write_parquet_splits_preserves_rows_across_large_exports(tmp_path):
             "image_stack": [str(stack_path)],
             "split": "train",
             "prompt": "pick action",
+            "action": [0.0, 1.0],
             "action_id": 1,
             "action_text": "flap",
             "latency_raw_frames": 2,
@@ -1175,6 +1194,7 @@ def  test_write_parquet_splits_from_shards_writes_train_and_val_rows(tmp_path):
                 "image_stack": stack_paths,
                 "split": split,
                 "prompt": "pick action",
+                "action": [0.0, 1.0],
                 "action_id": 1,
                 "action_text": "flap",
                 "latency_raw_frames": 2,
@@ -1216,6 +1236,7 @@ def test_write_parquet_splits_from_shards_replaces_stale_partial_file(tmp_path):
         "image_stack": [str(stale_stack_path)],
         "split": "train",
         "prompt": "stale",
+        "action": [1.0, 0.0],
         "action_id": 0,
         "action_text": "noop",
         "latency_raw_frames": 0,
@@ -1237,6 +1258,7 @@ def test_write_parquet_splits_from_shards_replaces_stale_partial_file(tmp_path):
         "image_stack": [str(stack_path)],
         "split": "train",
         "prompt": "fresh",
+        "action": [0.0, 1.0],
         "action_id": 1,
         "action_text": "flap",
         "latency_raw_frames": 2,
@@ -1279,6 +1301,7 @@ def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypa
             "image_stack": [str(stack_path)],
             "split": "train",
             "prompt": "pick action",
+            "action": [0.0, 1.0],
             "action_id": 1,
             "action_text": "flap",
             "latency_raw_frames": 2,

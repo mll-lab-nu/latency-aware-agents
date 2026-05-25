@@ -11,9 +11,13 @@ from latency_bench.envs.deadly_corridor import DeadlyCorridorEnvAdapter
 class ScriptedVizdoomGame:
     def __init__(self):
         self.seeds: list[int] = []
+        self.screen_buffer = np.zeros((3, 4, 4), dtype=np.uint8)
 
     def set_seed(self, seed: int) -> None:
         self.seeds.append(int(seed))
+
+    def get_state(self):
+        return self
 
 
 class ScriptedVizdoomEnv:
@@ -35,11 +39,13 @@ class ScriptedVizdoomEnv:
 
     def reset(self, seed=None):
         self.reset_seeds.append(seed)
-        return np.ones((3, 4, 4), dtype=np.uint8), {"reset_seed": seed}
+        self.game.screen_buffer = np.ones((3, 4, 4), dtype=np.uint8)
+        return self.game.screen_buffer.copy(), {"reset_seed": seed}
 
     def step(self, action):
         value = int(self.steps.pop(0))
-        return np.full((3, 4, 4), value, dtype=np.uint8), 0.0, False, False, {"value": value}
+        self.game.screen_buffer = np.full((3, 4, 4), value, dtype=np.uint8)
+        return self.game.screen_buffer.copy(), 0.0, False, False, {"value": value}
 
 
 def test_deadly_corridor_reset_reseeds_initialized_vizdoom_game_before_episode():
@@ -47,10 +53,13 @@ def test_deadly_corridor_reset_reseeds_initialized_vizdoom_game_before_episode()
     adapter = object.__new__(DeadlyCorridorEnvAdapter)
     adapter.gym_env = gym_env
     adapter.env_fps = 60.0
+    adapter.frame_stack = 4
     adapter.env_step = 3
+    adapter.export_env_raw_rgb_frames = False
     adapter._last_info = {}
     adapter._last_frame = None
     adapter._observed_frames = deque(maxlen=4)
+    adapter._raw_rgb_frames = deque(maxlen=4)
 
     adapter.reset(seed=17)
 
@@ -66,9 +75,11 @@ def test_deadly_corridor_observe_stacks_raw_frames_between_policy_observations()
     adapter.env_fps = 60.0
     adapter.frame_stack = 2
     adapter.env_step = 0
+    adapter.export_env_raw_rgb_frames = True
     adapter._last_info = {}
     adapter._last_frame = None
     adapter._observed_frames = deque(maxlen=2)
+    adapter._raw_rgb_frames = deque(maxlen=2)
 
     adapter.reset(seed=None)
     first_policy_observation = adapter.observe()
@@ -81,3 +92,7 @@ def test_deadly_corridor_observe_stacks_raw_frames_between_policy_observations()
     assert second_policy_observation.data.shape == (6, 4, 4)
     assert np.all(second_policy_observation.data[:3] == 2)
     assert np.all(second_policy_observation.data[3:] == 3)
+    raw_stack = second_policy_observation.metadata["env_raw_rgb_frame_stack"]
+    assert raw_stack.shape == (2, 4, 4, 3)
+    assert np.all(raw_stack[0] == 2)
+    assert np.all(raw_stack[1] == 3)

@@ -126,6 +126,7 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         *,
         config: dict[str, Any],
         noop_action: Action | None = None,
+        export_env_raw_rgb_frames: bool = False,
     ):
         env_cfg = config["env"]
         env_id = str(env_cfg.get("env_id", "doom_deadly_corridor"))
@@ -170,9 +171,11 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
                 is_oneshot=noop_action.is_oneshot,
             )
         self.env_step = 0
+        self.export_env_raw_rgb_frames = bool(export_env_raw_rgb_frames)
         self._last_info: dict[str, Any] = {}
         self._last_frame: Any = None
         self._observed_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
+        self._raw_rgb_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
 
     @property
     def frame_ms(self) -> float:
@@ -194,6 +197,8 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         self._last_frame = obs
         self._last_info = dict(info or {})
         self._reset_frame_stack(obs)
+        if self.export_env_raw_rgb_frames:
+            self._reset_raw_rgb_frame_stack()
         return self._make_observation(info=self._last_info)
 
     def step(self, action: Action) -> StepResult:
@@ -203,6 +208,8 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         self._last_frame = obs
         self._last_info = dict(info or {})
         self._append_frame(obs)
+        if self.export_env_raw_rgb_frames and not bool(terminated or truncated):
+            self._append_raw_rgb_frame()
         observation = self._make_observation(info=self._last_info)
         step_info = dict(self._last_info)
         step_info.update(
@@ -266,6 +273,21 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
     def _append_frame(self, frame: Any) -> None:
         self._observed_frames.append(_single_frame_data(frame))
 
+    def _reset_raw_rgb_frame_stack(self) -> None:
+        frame = self._current_raw_rgb_frame()
+        self._raw_rgb_frames.clear()
+        for _index in range(self.frame_stack):
+            self._raw_rgb_frames.append(frame.copy())
+
+    def _append_raw_rgb_frame(self) -> None:
+        self._raw_rgb_frames.append(self._current_raw_rgb_frame())
+
+    def _current_raw_rgb_frame(self) -> np.ndarray:
+        return np.transpose(self.gym_env.unwrapped.game.get_state().screen_buffer, (1, 2, 0))
+
+    def _raw_rgb_frame_stack(self) -> np.ndarray:
+        return np.stack(tuple(self._raw_rgb_frames), axis=0)
+
     def _metadata(self, info: dict[str, Any]) -> dict[str, Any]:
         metadata = dict(info)
         metadata.update(
@@ -275,6 +297,8 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
                 "observation": "vizdoom_frame_v1",
             }
         )
+        if self.export_env_raw_rgb_frames:
+            metadata["env_raw_rgb_frame_stack"] = self._raw_rgb_frame_stack()
         return metadata
 
     def _policy_frame_stack(self) -> np.ndarray:

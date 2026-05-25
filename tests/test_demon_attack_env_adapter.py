@@ -6,6 +6,7 @@ from gymnasium.spaces import Box, Discrete
 
 from latency_bench.core.types import Action
 from latency_bench.envs import demon_attack
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 class ScriptedDemonGymEnv:
@@ -14,11 +15,18 @@ class ScriptedDemonGymEnv:
         self.reset_seeds: list[int | None] = []
         self.reset_count = 0
         self.closed = False
+        self.ale = SimpleDemonAle(self)
+        self.current_rgb = np.zeros((2, 2, 3), dtype=np.uint8)
+
+    @property
+    def unwrapped(self):
+        return self
 
     def reset(self, seed=None):
         self.reset_seeds.append(seed)
         self.reset_count += 1
         frame = np.full((2, 2, 3), self.reset_count, dtype=np.uint8)
+        self.current_rgb = frame.copy()
         return frame, {"reset_count": self.reset_count, "seed": seed}
 
     def step(self, action):
@@ -26,6 +34,7 @@ class ScriptedDemonGymEnv:
         if "was_real_done" in step:
             self.was_real_done = bool(step["was_real_done"])
         frame = np.full((2, 2, 3), int(step.get("frame_value", 9)), dtype=np.uint8)
+        self.current_rgb = frame.copy()
         return (
             frame,
             float(step.get("reward", 1.0)),
@@ -37,6 +46,41 @@ class ScriptedDemonGymEnv:
     def close(self):
         self.closed = True
         return None
+
+
+class SimpleDemonAle:
+    def __init__(self, env):
+        self.env = env
+
+    def getScreenRGB(self):
+        return self.env.current_rgb.copy()
+
+
+class ProcessedObservationRawRgbDemonGymEnv:
+    def __init__(self):
+        self.closed = False
+        self.ale = SimpleDemonAle(self)
+        self.current_rgb = np.zeros((210, 160, 3), dtype=np.uint8)
+        self.next_value = 0
+
+    @property
+    def unwrapped(self):
+        return self
+
+    def reset(self, seed=None):
+        del seed
+        self.next_value = 1
+        self.current_rgb = np.full((210, 160, 3), 11, dtype=np.uint8)
+        return np.full((84, 84, 1), self.next_value, dtype=np.uint8), {}
+
+    def step(self, action):
+        del action
+        self.next_value = 2
+        self.current_rgb = np.full((210, 160, 3), 22, dtype=np.uint8)
+        return np.full((84, 84, 1), self.next_value, dtype=np.uint8), 0.0, False, False, {}
+
+    def close(self):
+        self.closed = True
 
 
 def _adapter(monkeypatch, scripted_env: ScriptedDemonGymEnv, *, continue_life_loss_terminal: bool):
@@ -165,7 +209,10 @@ def test_demon_attack_observe_stacks_raw_frames_between_policy_observations(monk
         "make_demon_attack_benchmark_env",
         lambda **_kwargs: scripted_env,
     )
-    adapter = demon_attack.DemonAttackEnvAdapter(frame_stack=2)
+    adapter = demon_attack.DemonAttackEnvAdapter(
+        frame_stack=2,
+        export_env_raw_rgb_frames=True,
+    )
     try:
         reset_observation = adapter.reset(seed=123)
         first_policy_observation = adapter.observe()
@@ -180,6 +227,35 @@ def test_demon_attack_observe_stacks_raw_frames_between_policy_observations(monk
         assert second_policy_observation.data.shape == (6, 2, 2)
         assert np.all(second_policy_observation.data[:3, ...] == 2)
         assert np.all(second_policy_observation.data[3:, ...] == 3)
+        raw_stack = second_policy_observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
+        assert raw_stack.shape == (2, 2, 2, 3)
+        assert np.all(raw_stack[0] == 2)
+        assert np.all(raw_stack[1] == 3)
+    finally:
+        adapter.close()
+
+
+def test_demon_attack_raw_rgb_export_preserves_unprocessed_atari_render(monkeypatch):
+    scripted_env = ProcessedObservationRawRgbDemonGymEnv()
+    monkeypatch.setattr(
+        demon_attack,
+        "make_demon_attack_benchmark_env",
+        lambda **_kwargs: scripted_env,
+    )
+    adapter = demon_attack.DemonAttackEnvAdapter(
+        frame_stack=2,
+        export_env_raw_rgb_frames=True,
+    )
+    try:
+        adapter.reset(seed=123)
+        adapter.step(Action(value=0, name="noop"))
+        policy_observation = adapter.observe()
+
+        raw_stack = policy_observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
+        assert policy_observation.data.shape == (2, 84, 84)
+        assert raw_stack.shape == (2, 210, 160, 3)
+        assert np.all(raw_stack[0] == 11)
+        assert np.all(raw_stack[1] == 22)
     finally:
         adapter.close()
 

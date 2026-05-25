@@ -15,6 +15,7 @@ from latency_bench.envs.flappy import (
     FlappyTorchObservationPipeline,
     ensure_flappy_gymnasium_on_path,
 )
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 
 
 ensure_flappy_gymnasium_on_path()
@@ -151,6 +152,7 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
         gpu_render_device: str | torch.device,
         gpu_render_profile: bool = False,
         gpu_render_profile_interval: int = 1000,
+        export_env_raw_rgb_frames: bool = False,
         worker_index: int = 0,
         vector_index: int = 0,
         env_id: int = 0,
@@ -161,6 +163,7 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
             raise ValueError("use_gpu_render=true currently requires square env.obs_resize")
 
         self.render_device = resolve_gpu_render_device(gpu_render_device)
+        self.export_env_raw_rgb_frames = bool(export_env_raw_rgb_frames)
         self.observation_config = FlappyObservationConfig(
             image_size=height,
             grayscale=False,
@@ -187,6 +190,7 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
         )
         self.renderer: TorchFlappyRenderer | None = None
         self._raw_rgb_buffer: torch.Tensor | None = None
+        self._env_raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=int(frame_stack))
         self.gpu_render_profiler = _GpuRenderProfiler(
             enabled=bool(gpu_render_profile),
             interval=int(gpu_render_profile_interval),
@@ -201,6 +205,7 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
         info = self._with_numeric_obs(info, numeric_obs)
         with self.gpu_render_profiler.time("reset_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
+            self._reset_env_raw_rgb_info(info, raw_rgb)
             with self.gpu_render_profiler.time("pipeline_s"):
                 obs = self.pipeline.reset(raw_rgb, frame_skips=self._latency_raw_frames(info))
         return self._obs(obs), [info]
@@ -218,10 +223,12 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
                 reset_info = self._with_numeric_obs(reset_info, reset_numeric_obs)
                 info["reset_info"] = reset_info
                 raw_rgb = self._render_raw_rgb()
+                self._reset_env_raw_rgb_info(info, raw_rgb)
                 with self.gpu_render_profiler.time("pipeline_s"):
                     obs = self.pipeline.reset(raw_rgb, frame_skips=self._latency_raw_frames(reset_info))
             else:
                 raw_rgb = self._render_raw_rgb()
+                self._append_env_raw_rgb_info(info, raw_rgb)
                 with self.gpu_render_profiler.time("pipeline_s"):
                     obs = self.pipeline.step(
                         raw_rgb,
@@ -265,6 +272,20 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
             self._raw_rgb_buffer = torch.empty(expected_shape, dtype=torch.uint8, device=expected_device)
         return self._raw_rgb_buffer
 
+    def _reset_env_raw_rgb_info(self, info: dict[str, Any], raw_rgb: torch.Tensor) -> None:
+        if self.export_env_raw_rgb_frames:
+            self._env_raw_rgb_frames.reset(self._raw_rgb_frame(raw_rgb))
+            info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._env_raw_rgb_frames.stack()
+
+    def _append_env_raw_rgb_info(self, info: dict[str, Any], raw_rgb: torch.Tensor) -> None:
+        if self.export_env_raw_rgb_frames:
+            self._env_raw_rgb_frames.append(self._raw_rgb_frame(raw_rgb))
+            info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._env_raw_rgb_frames.stack()
+
+    @staticmethod
+    def _raw_rgb_frame(raw_rgb: torch.Tensor) -> np.ndarray:
+        return raw_rgb.detach().cpu().numpy()[0]
+
     @staticmethod
     def _with_numeric_obs(info: dict[str, Any] | None, numeric_obs: Any) -> dict[str, Any]:
         out = dict(info or {})
@@ -273,7 +294,7 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
 
     @staticmethod
     def _latency_raw_frames(info: dict[str, Any]) -> np.ndarray:
-        return np.asarray([int(info.get("latency_raw_frames", 0))], dtype=np.int64)
+        return np.asarray([info.get("latency_raw_frames", 0)], dtype=np.int64)
 
     @staticmethod
     def _scalar_action(action: Any) -> Any:

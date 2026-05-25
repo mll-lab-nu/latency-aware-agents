@@ -15,6 +15,7 @@ from latency_bench.policy.deadly_corridor_openvla import (
     deadly_corridor_action_from_factorized_vector,
     observation_data_to_single_hwc_rgb_uint8,
 )
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 class _MockOpenVlaModel:
@@ -65,6 +66,7 @@ def test_deadly_openvla_factorized_vector_maps_to_runtime_action(
         data=np.zeros((3, 84, 84), dtype=np.uint8),
         env_step=0,
         sim_time_ms=0.0,
+        metadata={ENV_RAW_RGB_FRAME_STACK_INFO_KEY: np.zeros((1, 84, 84, 3), dtype=np.uint8)},
     )
 
     output = policy.predict(observation)
@@ -128,6 +130,16 @@ def test_deadly_openvla_stacked_chw_uses_last_three_channels_as_latest_frame():
     assert np.all(rgb[..., 2] == 23)
 
 
+def test_deadly_openvla_raw_rgb_frame_stack_uses_latest_frame():
+    raw_stack = np.zeros((2, 72, 128, 3), dtype=np.uint8)
+    raw_stack[-1, ..., 0] = 44
+
+    rgb = observation_data_to_single_hwc_rgb_uint8(raw_stack)
+
+    assert rgb.shape == (72, 128, 3)
+    assert np.all(rgb[..., 0] == 44)
+
+
 def test_deadly_openvla_extracts_dict_observation():
     frame = np.zeros((3, 72, 128), dtype=np.uint8)
     frame[1, :, :] = 33
@@ -170,9 +182,25 @@ def test_deadly_openvla_factory_can_build_with_mock_loader(monkeypatch):
     policy = build_policy(config, ActionResolver(config["env"]))
 
     output = policy.predict(
-        Observation(data=np.zeros((12, 84, 84), dtype=np.uint8), env_step=0, sim_time_ms=0.0)
+        Observation(
+            data=np.zeros((12, 84, 84), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={ENV_RAW_RGB_FRAME_STACK_INFO_KEY: np.zeros((1, 84, 84, 3), dtype=np.uint8)},
+        )
     )
     assert output.action.value == [1, 1, 1, 1]
+
+
+def test_deadly_corridor_openvla_requires_raw_rgb_frame_stack_metadata():
+    policy = DeadlyCorridorOpenVlaPolicyRunner(
+        model=_MockOpenVlaModel([1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]),
+        config=_policy_config(),
+        device=torch.device("cpu"),
+    )
+
+    with pytest.raises(KeyError, match=ENV_RAW_RGB_FRAME_STACK_INFO_KEY):
+        policy.predict(Observation(data=np.zeros((3, 84, 84), dtype=np.uint8), env_step=0, sim_time_ms=0.0))
 
 
 def test_deadly_openvla_missing_unnorm_key_fails_before_model_load(tmp_path):

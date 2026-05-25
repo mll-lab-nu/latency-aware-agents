@@ -24,6 +24,7 @@ from latency_bench.policy.flappy_openvla import (
     sha256_array,
     sha256_text,
 )
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 DemonAttackOpenVlaPolicyConfig = OpenVlaPolicyConfig
@@ -51,7 +52,8 @@ class DemonAttackOpenVlaPolicyRunner(PolicyRunner):
         self._device = device
 
     def predict(self, observation: Observation) -> PolicyOutput:
-        frame_hwc = observation_data_to_hwc_rgb_uint8(observation.data, self._config.image_size)
+        frame_source = observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
+        frame_hwc = observation_data_to_hwc_rgb_uint8(frame_source, self._config.image_size)
         env_obs = build_openvla_env_obs(frame_hwc, self._config.prompt, self._device)
         model = cast(OpenVlaPredictProtocol, self._model)
         prediction = model.predict_action_batch(
@@ -109,6 +111,10 @@ def observation_data_to_hwc_rgb_uint8(
     from PIL import Image as _PILImage
 
     frame = np.asarray(data)
+    if frame.ndim == 4 and frame.shape[-1] == 3:
+        frame = frame[-1]
+    elif frame.ndim == 4 and frame.shape[1] == 3:
+        frame = np.transpose(frame[-1], (1, 2, 0))
     if frame.ndim == 2:
         frame = np.expand_dims(frame, axis=-1)
     if frame.ndim != 3:
@@ -134,10 +140,11 @@ def observation_data_to_hwc_rgb_uint8(
 
     uint8_frame = _as_uint8_image(frame)
     if image_size is not None and uint8_frame.shape[:2] != (image_size, image_size):
-        uint8_frame = np.asarray(
+        resized = np.asarray(
             _PILImage.fromarray(uint8_frame).resize((image_size, image_size), _PILImage.BILINEAR),
             dtype=np.uint8,
         )
+        uint8_frame = np.array(resized, copy=True)
     return np.ascontiguousarray(uint8_frame)
 
 

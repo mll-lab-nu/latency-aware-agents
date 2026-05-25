@@ -17,6 +17,7 @@ from latency_bench.envs.flappy import (
     FlappyTorchObservationPipeline,
     ensure_flappy_gymnasium_on_path,
 )
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_render_device
 
 
@@ -46,6 +47,7 @@ class FlappyGpuBatchedEnvStepBackend:
         self._frame_ms = 1000.0 / self._env_fps
         self.frame_stack = int(env_cfg.get("frame_stack", 1) or 1)
         self.policy_observation_layout = self._policy_observation_layout(config)
+        self.export_env_raw_rgb_frames = self._uses_raw_rgb_vla_policy(config)
         self.obs_resize = tuple(int(value) for value in env_cfg["obs_resize"])
         self.render_device = resolve_gpu_render_device(str(env_cfg.get("gpu_render_device", "auto")))
 
@@ -79,6 +81,10 @@ class FlappyGpuBatchedEnvStepBackend:
         self._last_frames: list[np.ndarray | None] = [None for _slot in range(self._num_slots)]
         self._observed_frames: list[deque[np.ndarray]] = [
             deque(maxlen=self.frame_stack) for _slot in range(self._num_slots)
+        ]
+        self._env_raw_rgb_frames = [
+            RawRgbFrameStackBuffer(num_frames=self.frame_stack)
+            for _slot in range(self._num_slots)
         ]
         self._last_numeric_obs: list[Any] = [None for _slot in range(self._num_slots)]
         self._last_infos: list[dict[str, Any]] = [{} for _slot in range(self._num_slots)]
@@ -221,6 +227,7 @@ class FlappyGpuBatchedEnvStepBackend:
     def _render_observation_frames_for_reset(self, slot_ids: Sequence[int]) -> list[np.ndarray]:
         with self.gpu_render_profiler.time("reset_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
+            self._reset_env_raw_rgb_frames(raw_rgb, slot_ids)
             reset_mask = np.zeros(self._num_slots, dtype=np.bool_)
             for slot_id in slot_ids:
                 reset_mask[int(slot_id)] = True
@@ -244,6 +251,7 @@ class FlappyGpuBatchedEnvStepBackend:
     ) -> list[np.ndarray]:
         with self.gpu_render_profiler.time("step_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
+            self._update_env_raw_rgb_frames(raw_rgb, done_mask=done_mask, active_mask=active_mask)
             with self.gpu_render_profiler.time("pipeline_s"):
                 obs = self.pipeline.step(
                     raw_rgb,
@@ -345,6 +353,8 @@ class FlappyGpuBatchedEnvStepBackend:
                 "numeric_obs": numeric_obs,
             }
         )
+        if self.export_env_raw_rgb_frames:
+            metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._env_raw_rgb_frames[int(slot_id)].stack()
         return metadata
 
     def _policy_frame_stack(self, slot_id: int) -> np.ndarray:
@@ -364,11 +374,39 @@ class FlappyGpuBatchedEnvStepBackend:
         return "chw" if policy_type == "flappy_sf" else "hwc"
 
     @staticmethod
+    def _uses_raw_rgb_vla_policy(config: dict[str, Any]) -> bool:
+        policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
+        return policy_type in {"starvla", "flappy_openvla"}
+
+    @staticmethod
     def _nchw_to_hwc_frames(obs: torch.Tensor) -> list[np.ndarray]:
         return [
             np.transpose(frame, (1, 2, 0)).copy()
             for frame in obs.detach().cpu().numpy()
         ]
+
+    def _reset_env_raw_rgb_frames(self, raw_rgb: torch.Tensor, slot_ids: Sequence[int]) -> None:
+        if self.export_env_raw_rgb_frames:
+            frames = raw_rgb.detach().cpu().numpy()
+            for slot_id in slot_ids:
+                slot_id = int(slot_id)
+                self._env_raw_rgb_frames[slot_id].reset(frames[slot_id])
+
+    def _update_env_raw_rgb_frames(
+        self,
+        raw_rgb: torch.Tensor,
+        *,
+        done_mask: np.ndarray,
+        active_mask: np.ndarray,
+    ) -> None:
+        if self.export_env_raw_rgb_frames:
+            frames = raw_rgb.detach().cpu().numpy()
+            for slot_id in np.flatnonzero(active_mask):
+                slot_id = int(slot_id)
+                if bool(done_mask[slot_id]):
+                    self._env_raw_rgb_frames[slot_id].reset(frames[slot_id])
+                else:
+                    self._env_raw_rgb_frames[slot_id].append(frames[slot_id])
 
     @staticmethod
     def _with_numeric_obs(info: dict[str, Any] | None, numeric_obs: Any) -> dict[str, Any]:

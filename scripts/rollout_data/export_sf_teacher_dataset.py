@@ -92,6 +92,11 @@ from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from training.common.utils import maybe_set_cli_override
 
 
+DEADLY_CORRIDOR_TURN_LABELS = ("TURN_NOOP", "TURN_LEFT", "TURN_RIGHT")
+DEADLY_CORRIDOR_MOVE_LABELS = ("MOVE_NOOP", "MOVE_FORWARD", "MOVE_BACKWARD")
+DEADLY_CORRIDOR_STRAFE_LABELS = ("STRAFE_NOOP", "MOVE_LEFT", "MOVE_RIGHT")
+DEADLY_CORRIDOR_ATTACK_LABELS = ("ATTACK_NOOP", "ATTACK")
+
 SF_ENV_TO_BENCH_ENV = {
     "doom_deadly_corridor": "deadly_corridor",
     "latency_flappy": "flappy",
@@ -609,11 +614,46 @@ def _action_id(raw_action: Any) -> int:
     return int(action)
 
 
+def _one_hot(index: int, size: int) -> list[float]:
+    return [1.0 if item == int(index) else 0.0 for item in range(int(size))]
+
+
+def _deadly_corridor_factorized_action(raw_action: Any) -> tuple[list[float], str]:
+    turn, move, strafe, attack = [int(item) for item in _to_python_action(raw_action)]
+    labels = (
+        DEADLY_CORRIDOR_TURN_LABELS[turn],
+        DEADLY_CORRIDOR_MOVE_LABELS[move],
+        DEADLY_CORRIDOR_STRAFE_LABELS[strafe],
+        DEADLY_CORRIDOR_ATTACK_LABELS[attack],
+    )
+    return (
+        [
+            *_one_hot(turn, len(DEADLY_CORRIDOR_TURN_LABELS)),
+            *_one_hot(move, len(DEADLY_CORRIDOR_MOVE_LABELS)),
+            *_one_hot(strafe, len(DEADLY_CORRIDOR_STRAFE_LABELS)),
+            *_one_hot(attack, len(DEADLY_CORRIDOR_ATTACK_LABELS)),
+        ],
+        "+".join(labels),
+    )
+
+
+def action_vector_and_text_for_env(
+    env_name: str,
+    raw_action: Any,
+    action_labels: Mapping[int, str],
+) -> tuple[list[float], str]:
+    if str(env_name) == "deadly_corridor":
+        return _deadly_corridor_factorized_action(raw_action)
+    action_id = _action_id(raw_action)
+    return _one_hot(action_id, len(action_labels)), action_labels.get(int(action_id), str(action_id))
+
+
 def _empty_records() -> dict[str, list[Any]]:
     return {
         "image_stack": [],
         "split": [],
         "prompt": [],
+        "action": [],
         "action_id": [],
         "action_text": [],
         "latency_raw_frames": [],
@@ -637,6 +677,7 @@ def _teacher_dataset_features() -> Features:
             "image_stack": HFSequence(HFImage()),
             "split": Value("string"),
             "prompt": Value("string"),
+            "action": HFSequence(Value("float32")),
             "action_id": Value("int64"),
             "action_text": Value("string"),
             "latency_raw_frames": Value("int64"),
@@ -1100,6 +1141,7 @@ def collect_teacher_dataset(
                     )
                     raw_action = raw_actions[batch_idx]
                     action_id = _action_id(raw_action)
+                    action_vector, action_text = action_vector_and_text_for_env(env_name, raw_action, action_labels)
                     next_obs, reward, terminated, truncated, info = envs[slot].step([raw_action])
                     info_dict = dict(_single_env_info(info))
                     latency_raw_frames, latency_ms = _latency_from_info(
@@ -1118,8 +1160,9 @@ def collect_teacher_dataset(
                             env_fps=env_fps,
                             obs_fps=obs_fps,
                         ),
+                        "action": action_vector,
                         "action_id": int(action_id),
-                        "action_text": action_labels.get(int(action_id), str(action_id)),
+                        "action_text": action_text,
                         "latency_raw_frames": int(latency_raw_frames),
                         "latency_ms": float(latency_ms),
                         "reward": float(_to_python_action(reward)),

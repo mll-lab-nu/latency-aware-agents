@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import Observation
@@ -80,7 +81,14 @@ def test_frame_stack_profile_passes_all_frames_and_base_prompt(monkeypatch, tmp_
     frame_stack[:, :, :3] = 11
     frame_stack[:, :, 3:] = 22
 
-    output = policy.predict(Observation(data=frame_stack, env_step=0, sim_time_ms=0.0))
+    output = policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": frame_stack},
+        )
+    )
 
     wrapper = FakePolicyServerWrapper.instances[0]
     assert wrapper.use_bf16 is True
@@ -114,10 +122,13 @@ def test_single_latency_profile_uses_latest_frame_and_latency_prompt(monkeypatch
 
     output = policy.predict(
         Observation(
-            data=frame_stack,
+            data=np.zeros((1,), dtype=np.uint8),
             env_step=0,
             sim_time_ms=0.0,
-            metadata={"latency_raw_frames": 3},
+            metadata={
+                "latency_raw_frames": 3,
+                "env_raw_rgb_frame_stack": frame_stack,
+            },
         )
     )
 
@@ -130,6 +141,68 @@ def test_single_latency_profile_uses_latest_frame_and_latency_prompt(monkeypatch
     assert output.metadata["unnorm_key"] == "flappy"
 
 
+def test_single_latency_profile_prefers_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    prompt_map_path = tmp_path / "latency_prompt_map.json"
+    prompt_map_path.write_text(
+        json.dumps({"2": {"latency_raw_frames": 2, "latency_ms": 33.0, "prompt": "latency prompt 2"}}),
+        encoding="utf-8",
+    )
+    config = _config(tmp_path, profile="single_latency", latency_prompt_map_path=str(prompt_map_path))
+    policy = build_policy(config, ActionResolver(config["env"]))
+    policy_observation_stack = np.zeros((4, 8, 8), dtype=np.uint8)
+    raw_rgb_stack = np.zeros((4, 12, 16, 3), dtype=np.uint8)
+    raw_rgb_stack[-1] = 77
+
+    policy.predict(
+        Observation(
+            data=policy_observation_stack,
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={
+                "latency_raw_frames": 2,
+                "env_raw_rgb_frame_stack": raw_rgb_stack,
+            },
+        )
+    )
+
+    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
+    assert len(example["image"]) == 1
+    assert np.asarray(example["image"][0]).shape == (12, 16, 3)
+    assert np.asarray(example["image"][0]).mean() == 77
+
+
+def test_starvla_requires_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    config = _config(tmp_path, profile="frame_stack")
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    with pytest.raises(KeyError, match="env_raw_rgb_frame_stack"):
+        policy.predict(Observation(data=np.zeros((2, 3, 3), dtype=np.uint8), env_step=0, sim_time_ms=0.0))
+
+
+def test_deadly_corridor_factorized_starvla_vector_decodes_to_tuple_action():
+    from latency_bench.policy.starvla import decode_starvla_action
+
+    vector = np.asarray([0.0, 0.2, 0.9, 0.8, 0.1, 0.2, 0.1, 0.7, 0.0, 0.3, 0.9])
+
+    action, metadata = decode_starvla_action(
+        vector=vector,
+        env_name="deadly_corridor",
+        action_by_raw_id={},
+    )
+
+    assert action.value == [2, 0, 1, 1]
+    assert action.name == "TURN_RIGHT+MOVE_LEFT+ATTACK"
+    assert metadata["action_layout"] == "deadly_corridor_factorized_11"
+
+
 def test_predict_batch_calls_starvla_once(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
@@ -138,8 +211,18 @@ def test_predict_batch_calls_starvla_once(monkeypatch, tmp_path: Path):
     config = _config(tmp_path, profile="frame_stack")
     policy = build_policy(config, ActionResolver(config["env"]))
     observations = [
-        Observation(data=np.zeros((2, 3, 3), dtype=np.uint8), env_step=0, sim_time_ms=0.0),
-        Observation(data=np.zeros((2, 3, 3), dtype=np.uint8), env_step=1, sim_time_ms=33.3),
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
+        ),
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=1,
+            sim_time_ms=33.3,
+            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
+        ),
     ]
 
     outputs = policy.predict_batch(observations)

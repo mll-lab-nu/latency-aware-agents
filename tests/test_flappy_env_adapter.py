@@ -6,6 +6,7 @@ import pytest
 
 from latency_bench.core.types import Action
 from latency_bench.envs.flappy import FlappyBirdEnvAdapter
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 def _make_adapter() -> FlappyBirdEnvAdapter:
@@ -51,6 +52,55 @@ def test_flappy_step_advances_one_frame_and_records_action_info():
         env.close()
 
 
+def test_flappy_raw_rgb_export_preserves_unresized_render_stack(monkeypatch):
+    class FakeBaseEnv:
+        action_space = gymnasium.spaces.Discrete(2)
+        observation_space = gymnasium.spaces.Box(-1.0, 1.0, shape=(12,), dtype=np.float32)
+
+        def __init__(self):
+            self.render_value = 10
+
+        def reset(self, seed=None):
+            del seed
+            self.render_value = 10
+            return np.zeros((12,), dtype=np.float32), {"score": 0}
+
+        def step(self, action):
+            del action
+            self.render_value = 20
+            return np.ones((12,), dtype=np.float32), 0.0, False, False, {"score": 1}
+
+        def render(self):
+            return np.full((4, 5, 3), self.render_value, dtype=np.uint8)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("latency_bench.envs.flappy.gymnasium.make", lambda *args, **kwargs: FakeBaseEnv())
+
+    env = FlappyBirdEnvAdapter(
+        obs_resize=(2, 2),
+        frame_stack=2,
+        export_env_raw_rgb_frames=True,
+        noop_action=Action(value=0, name="noop", is_noop=True),
+    )
+    try:
+        reset_observation = env.reset(seed=0)
+        reset_stack = reset_observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
+        env.step(Action(value=0, name="noop", is_noop=True))
+        policy_observation = env.observe()
+        policy_stack = policy_observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
+
+        assert reset_observation.data.shape == (2, 2, 3)
+        assert reset_stack.shape == (2, 4, 5, 3)
+        assert reset_stack[:, 0, 0, 0].tolist() == [10, 10]
+        assert policy_observation.data.shape == (2, 2, 6)
+        assert policy_stack.shape == (2, 4, 5, 3)
+        assert policy_stack[:, 0, 0, 0].tolist() == [10, 20]
+    finally:
+        env.close()
+
+
 def test_flappy_gpu_backend_uses_explicit_renderer_args(monkeypatch):
     captured = {}
 
@@ -74,6 +124,7 @@ def test_flappy_gpu_backend_uses_explicit_renderer_args(monkeypatch):
             gpu_render_device,
             gpu_render_profile=False,
             gpu_render_profile_interval=1000,
+            export_env_raw_rgb_frames=False,
             worker_index=0,
             vector_index=0,
             env_id=0,
@@ -84,6 +135,7 @@ def test_flappy_gpu_backend_uses_explicit_renderer_args(monkeypatch):
             captured["gpu_render_device"] = gpu_render_device
             captured["gpu_render_profile"] = gpu_render_profile
             captured["gpu_render_profile_interval"] = gpu_render_profile_interval
+            captured["export_env_raw_rgb_frames"] = export_env_raw_rgb_frames
             captured["worker_index"] = worker_index
             captured["vector_index"] = vector_index
             captured["env_id"] = env_id
@@ -147,6 +199,7 @@ def test_flappy_gpu_backend_uses_explicit_renderer_args(monkeypatch):
         assert captured["gpu_render_device"] == "cpu"
         assert captured["gpu_render_profile"] is True
         assert captured["gpu_render_profile_interval"] == 17
+        assert captured["export_env_raw_rgb_frames"] is False
     finally:
         env.close()
 
@@ -288,6 +341,69 @@ def test_flappy_gpu_observe_stacks_only_policy_observed_frames(monkeypatch):
         assert np.all(second_step.observation.data == 3)
         assert np.all(second_policy_observation.data[..., :3] == 1)
         assert np.all(second_policy_observation.data[..., 3:] == 3)
+    finally:
+        env.close()
+
+
+def test_flappy_gpu_raw_rgb_export_reads_wrapper_info(monkeypatch):
+    from latency_bench.envs import flappy as flappy_module
+
+    class FakeBaseEnv:
+        action_space = gymnasium.spaces.Discrete(2)
+        observation_space = gymnasium.spaces.Box(-1.0, 1.0, shape=(12,), dtype=np.float32)
+
+        def close(self):
+            pass
+
+    class FakeGpuRenderWrapper:
+        action_space = gymnasium.spaces.Discrete(2)
+        observation_space = gymnasium.spaces.Box(0, 255, shape=(3, 2, 2), dtype=np.uint8)
+
+        def __init__(self, *_args, **_kwargs):
+            self.frame_value = 1
+
+        def reset(self, seed=None):
+            del seed
+            self.frame_value = 1
+            return (
+                {"obs": np.full((1, 2, 2, 3), self.frame_value, dtype=np.uint8)},
+                [{ENV_RAW_RGB_FRAME_STACK_INFO_KEY: np.full((1, 5, 6, 3), 11, dtype=np.uint8)}],
+            )
+
+        def step(self, action):
+            del action
+            self.frame_value = 2
+            return (
+                {"obs": np.full((1, 2, 2, 3), self.frame_value, dtype=np.uint8)},
+                np.asarray([0.0], dtype=np.float32),
+                np.asarray([False], dtype=np.bool_),
+                np.asarray([False], dtype=np.bool_),
+                [{ENV_RAW_RGB_FRAME_STACK_INFO_KEY: np.full((1, 5, 6, 3), 22, dtype=np.uint8)}],
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(flappy_module.gymnasium, "make", lambda *args, **kwargs: FakeBaseEnv())
+    monkeypatch.setattr("training.flappy_sf.gpu_rendering.FlappyGpuRenderedObsWrapper", FakeGpuRenderWrapper)
+
+    env = FlappyBirdEnvAdapter(
+        use_gpu_render=True,
+        gpu_render_device="cpu",
+        obs_resize=(2, 2),
+        frame_stack=2,
+        export_env_raw_rgb_frames=True,
+        noop_action=Action(value=0, name="noop", is_noop=True),
+    )
+    try:
+        reset_observation = env.reset(seed=0)
+        env.step(Action(value=0, name="noop", is_noop=True))
+        policy_observation = env.observe()
+
+        assert reset_observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY].shape == (2, 5, 6, 3)
+        assert reset_observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][:, 0, 0, 0].tolist() == [11, 11]
+        assert policy_observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][:, 0, 0, 0].tolist() == [11, 22]
+        assert policy_observation.data.shape == (2, 2, 6)
     finally:
         env.close()
 

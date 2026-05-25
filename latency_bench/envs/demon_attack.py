@@ -9,6 +9,7 @@ import numpy as np
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
 from training.atari_episode_stats import is_true_atari_episode_end
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 
 
 class DemonAttackEnvAdapter(EnvAdapter):
@@ -28,6 +29,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
         full_action_space: bool = False,
         expected_action_meanings: list[str] | tuple[str, ...] | None = None,
         frame_stack: int = 1,
+        export_env_raw_rgb_frames: bool = False,
     ):
         if env_fps <= 0:
             raise ValueError("env_fps must be positive")
@@ -47,12 +49,14 @@ class DemonAttackEnvAdapter(EnvAdapter):
         self.env_id = env_id
         self.env_fps = float(env_fps)
         self.frame_stack = int(frame_stack)
+        self.export_env_raw_rgb_frames = bool(export_env_raw_rgb_frames)
         self.noop_action = noop_action or Action(value=0, name="0", is_noop=True)
         self.continue_life_loss_terminal = bool(continue_life_loss_terminal)
         self.env_step = 0
         self._last_info: dict[str, Any] = {}
         self._last_frame: Any = None
         self._observed_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
+        self._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=self.frame_stack)
 
     @property
     def frame_ms(self) -> float:
@@ -68,6 +72,8 @@ class DemonAttackEnvAdapter(EnvAdapter):
         self._last_frame = frame
         self._last_info = dict(info or {})
         self._reset_frame_stack(frame)
+        if self.export_env_raw_rgb_frames:
+            self._reset_raw_rgb_frame_stack()
         return self._make_observation(info=self._last_info)
 
     def step(self, action: Action) -> StepResult:
@@ -90,6 +96,8 @@ class DemonAttackEnvAdapter(EnvAdapter):
             self._last_frame = reset_frame
             self._last_info = dict(reset_info or {})
             self._reset_frame_stack(reset_frame)
+            if self.export_env_raw_rgb_frames:
+                self._reset_raw_rgb_frame_stack()
             observation = self._make_observation(info=self._last_info)
             step_info = dict(terminal_info)
             step_info.update(
@@ -116,6 +124,8 @@ class DemonAttackEnvAdapter(EnvAdapter):
             )
 
         self._append_frame(frame)
+        if self.export_env_raw_rgb_frames and not bool(terminated or truncated):
+            self._append_raw_rgb_frame()
         observation = self._make_observation(info=self._last_info)
         step_info = dict(self._last_info)
         step_info.update(
@@ -185,6 +195,18 @@ class DemonAttackEnvAdapter(EnvAdapter):
     def _append_frame(self, frame: Any) -> None:
         self._observed_frames.append(np.asarray(frame, dtype=np.uint8))
 
+    def _reset_raw_rgb_frame_stack(self) -> None:
+        self._raw_rgb_frames.reset(self._current_raw_rgb_frame())
+
+    def _append_raw_rgb_frame(self) -> None:
+        self._raw_rgb_frames.append(self._current_raw_rgb_frame())
+
+    def _current_raw_rgb_frame(self) -> np.ndarray:
+        return self.gym_env.unwrapped.ale.getScreenRGB()
+
+    def _raw_rgb_frame_stack(self) -> np.ndarray:
+        return self._raw_rgb_frames.stack()
+
     def _metadata(self, info: dict[str, Any]) -> dict[str, Any]:
         metadata = dict(info)
         metadata.update(
@@ -194,6 +216,8 @@ class DemonAttackEnvAdapter(EnvAdapter):
                 "observation": "atari_frame_v1",
             }
         )
+        if self.export_env_raw_rgb_frames:
+            metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
         return metadata
 
     def _policy_frame_stack(self) -> np.ndarray:
