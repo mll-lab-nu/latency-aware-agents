@@ -5,12 +5,12 @@ BASE_PROMPTS = {
 
     "demon_attack": "You are playing Demon Attack. Your goal is to survive, avoid enemy fire, and shoot enemies to maximize score. Choose exactly one action from: NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE.",
 
-    "deadly_corridor": "You are playing Deadly Corridor.  Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. Choose exactly one action from: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, ATTACK.",
+    "deadly_corridor": "You are playing Deadly Corridor. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. Choose one option from each action group: turn (TURN_NOOP, TURN_LEFT, TURN_RIGHT), move (MOVE_NOOP, MOVE_FORWARD, MOVE_BACKWARD), strafe (STRAFE_NOOP, MOVE_LEFT, MOVE_RIGHT), and attack (ATTACK_NOOP, ATTACK). The four choices are combined into the next action.",
 }
 
 TIMING_SUFFIX = (
     # " Current action latency is {latency_raw_frames} raw frames ({latency_ms:.2f} ms). "
-    "The environment runs at {env_fps:g} FPS and observations are emitted at {obs_fps:g} FPS. "
+    " The environment runs at {env_fps:g} FPS and observations are emitted at {obs_fps:g} FPS. "
     "Choose the best next action."
 )
 
