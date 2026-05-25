@@ -58,7 +58,7 @@ def _episode_record(
         "episode_return_env": episode_return,
         "episode_return": episode_return,
         "return_raw": None,
-        "episode_length": episode_length,
+        "survival_steps": episode_length,
         "mode": mode,
         "policy_id": "flappy_pi0",
         "env_id": "FlappyBird-v0",
@@ -153,6 +153,7 @@ def _write_table_spec(
                 "realtime_run": str(realtime_run),
                 "simulated_run": str(simulated_run),
                 "return_field": "episode_return_env",
+                "length_field": "survival_steps",
                 "return_scale": 200.0,
                 "length_scale": 2000.0,
             }
@@ -168,6 +169,7 @@ def _write_table_spec(
                 "simulated_run": str(simulated_run),
                 "replay_host": "H200",
                 "return_field": "episode_return_env",
+                "length_field": "survival_steps",
                 "return_scale": 200.0,
                 "length_scale": 2000.0,
             }

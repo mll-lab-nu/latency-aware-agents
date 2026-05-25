@@ -65,18 +65,18 @@ def _spec() -> dict:
     }
 
 
-def _build_profile(root: Path) -> Path:
+def _build_profile(root: Path, *, device_id: str = "a100", profile_id: str = "L_A100") -> Path:
     raw = root / "raw_latencies.jsonl"
     write_latency_samples([10.0, 20.0, 30.0], raw)
-    profile_dir = root / "profiles" / "flappy-sf-l1" / "flappy" / "L_A100"
+    profile_dir = root / "profiles" / "flappy-sf-l1" / "flappy" / profile_id
     build_profile_from_trace(
         latencies=raw,
         output_dir=profile_dir,
-        profile_id="L_A100",
+        profile_id=profile_id,
         profile_type="rollout_profile",
         policy_id="flappy-sf-l1",
         env_id="flappy",
-        target_device="a100",
+        target_device=device_id,
         fps=30.0,
     )
     return profile_dir / "profile.json"
@@ -84,8 +84,8 @@ def _build_profile(root: Path) -> Path:
 
 def _episode_records(mean_return: float, mean_length: float) -> list[dict]:
     return [
-        {"episode_return_env": mean_return - 5.0, "episode_length": mean_length - 50.0},
-        {"episode_return_env": mean_return + 5.0, "episode_length": mean_length + 50.0},
+        {"episode_return_env": mean_return - 5.0, "survival_steps": mean_length - 50.0},
+        {"episode_return_env": mean_return + 5.0, "survival_steps": mean_length + 50.0},
     ]
 
 
@@ -120,6 +120,7 @@ def _manifest(
 
 def _write_fixture(root: Path) -> None:
     profile_path = _build_profile(root)
+    h200_profile_path = _build_profile(root, device_id="h200", profile_id="L_H200")
     realtime = root / "runs" / "realtime" / "flappy-sf-l1" / "flappy" / "a100" / "seed_0"
     sim_same = root / "runs" / "sim_same" / "flappy-sf-l1" / "flappy" / "a100" / "seed_0"
     sim_cross = (
@@ -137,6 +138,7 @@ def _write_fixture(root: Path) -> None:
     _write_jsonl(sim_cross / "episode_metrics.jsonl", _episode_records(90.0, 950.0))
     manifests = [
         _manifest(stage="measure", experiment_id="exp1_latency_profile_summary", target_device_id="a100", output_dir=root / "runs" / "measure", profile_path=profile_path),
+        _manifest(stage="measure", experiment_id="exp1_latency_profile_summary", target_device_id="h200", output_dir=root / "runs" / "measure", profile_path=h200_profile_path),
         _manifest(stage="realtime", experiment_id="exp2_same_device_calibration", target_device_id="a100", output_dir=realtime),
         _manifest(stage="sim_same", experiment_id="exp2_same_device_calibration", target_device_id="a100", output_dir=sim_same),
         _manifest(stage="realtime", experiment_id="exp3_cross_device_prediction", target_device_id="a100", output_dir=realtime),
@@ -147,6 +149,7 @@ def _write_fixture(root: Path) -> None:
 
 def _write_raw_download_fixture(protocol_root: Path, *, include_skipped_duplicates: bool = False) -> None:
     profile_path = _build_profile(protocol_root)
+    h200_profile_path = _build_profile(protocol_root, device_id="h200", profile_id="L_H200")
     realtime = protocol_root / "runs" / "realtime" / "flappy-sf-l1" / "flappy" / "a100" / "seed_0"
     sim_same = protocol_root / "runs" / "sim_same" / "flappy-sf-l1" / "flappy" / "a100" / "seed_0"
     old_root = Path("results/cross_device")
@@ -159,6 +162,13 @@ def _write_raw_download_fixture(protocol_root: Path, *, include_skipped_duplicat
             target_device_id="a100",
             output_dir=old_root / "runs" / "measure",
             profile_path=old_root / profile_path.relative_to(protocol_root),
+        ),
+        _manifest(
+            stage="measure",
+            experiment_id="exp1_latency_profile_summary",
+            target_device_id="h200",
+            output_dir=old_root / "runs" / "measure",
+            profile_path=old_root / h200_profile_path.relative_to(protocol_root),
         ),
         _manifest(
             stage="realtime",
@@ -238,6 +248,11 @@ def test_manifest_matching_and_main_claim_rule(tmp_path: Path):
     assert "missing true realtime run" in h200_on_a100["notes"]
     assert "missing sim-cross run" in h200_on_a100["notes"]
 
+    malformed = _spec()
+    del malformed["devices"][1]["speed_rank"]
+    with pytest.raises(KeyError, match="speed_rank"):
+        build_experiment3_rows(malformed, tmp_path)
+
 
 def test_write_protocol_tables_uses_requested_schemas(tmp_path: Path):
     spec = _spec()
@@ -257,6 +272,11 @@ def test_write_protocol_tables_uses_requested_schemas(tmp_path: Path):
     with pytest.raises(FileExistsError, match="Refusing to overwrite"):
         write_protocol_tables(spec=spec, root=tmp_path, out=output_dir)
     write_protocol_tables(spec=spec, root=tmp_path, out=output_dir, overwrite=True)
+
+    malformed = _spec()
+    del malformed["experiments"]
+    with pytest.raises(KeyError, match="experiments"):
+        write_protocol_tables(spec=malformed, root=tmp_path, out=tmp_path / "bad_tables")
 
 
 def test_write_protocol_tables_reads_hf_raw_download_layout(tmp_path: Path):

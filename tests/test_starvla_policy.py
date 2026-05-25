@@ -202,6 +202,13 @@ def test_deadly_corridor_factorized_starvla_vector_decodes_to_tuple_action():
     assert action.name == "TURN_RIGHT+MOVE_LEFT+ATTACK"
     assert metadata["action_layout"] == "deadly_corridor_factorized_11"
 
+    with pytest.raises(ValueError, match="expected 7 or 11"):
+        decode_starvla_action(
+            vector=np.zeros(8, dtype=np.float32),
+            env_name="deadly_corridor",
+            action_by_raw_id={},
+        )
+
 
 def test_predict_batch_calls_starvla_once(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla

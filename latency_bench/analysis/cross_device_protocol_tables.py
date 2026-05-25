@@ -78,7 +78,7 @@ EXPERIMENT3_COLUMNS = (
 def load_protocol_spec(path: str | Path) -> dict[str, Any]:
     spec_path = Path(path)
     with spec_path.open("r", encoding="utf-8") as f:
-        spec = yaml.safe_load(f) or {}
+        spec = yaml.safe_load(f)
     if not isinstance(spec, dict):
         raise ValueError(f"Protocol spec must be a mapping: {spec_path}")
     return spec
@@ -442,31 +442,24 @@ def _iter_rows(
     spec: dict[str, Any],
     experiment_id_filter: str,
 ) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
-    experiments = spec.get("experiments", {})
-    if not isinstance(experiments, dict):
-        return []
-    experiment = experiments.get(experiment_id_filter)
-    if not isinstance(experiment, dict):
-        return []
-    rows = experiment.get("rows", [])
+    experiment = spec["experiments"][experiment_id_filter]
+    rows = experiment["rows"]
     return [
         (experiment_id_filter, experiment, row)
         for row in rows
-        if isinstance(row, dict)
     ]
 
 
 def _devices(spec: dict[str, Any]) -> list[dict[str, Any]]:
-    devices = spec.get("devices", [])
-    return [device for device in devices if isinstance(device, dict)]
+    return list(spec["devices"])
 
 
 def _devices_by_id(spec: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {str(device["id"]): device for device in _devices(spec) if "id" in device}
+    return {str(device["id"]): device for device in _devices(spec)}
 
 
 def _profile_path_for_row(root: Path, row: dict[str, Any], device: dict[str, Any]) -> Path:
-    return root / "profiles" / slugify(row.get("policy")) / slugify(row.get("env")) / str(device["profile_id"]) / "profile.json"
+    return root / "profiles" / slugify(row["policy"]) / slugify(row["env"]) / str(device["profile_id"]) / "profile.json"
 
 
 def slugify(value: Any) -> str:
@@ -477,13 +470,10 @@ def slugify(value: Any) -> str:
 
 def _load_profile_summary(path: Path) -> tuple[dict[str, Any], str]:
     if not path.exists():
-        return {}, f"missing profile: {path}"
-    try:
-        manifest = load_profile_manifest(path)
-    except Exception as exc:  # noqa: BLE001 - aggregation should keep row and annotate the issue.
-        return {}, f"failed to load profile {path}: {exc}"
-    summary = dict(manifest.get("summary", {}))
-    summary["n_samples"] = manifest.get("n_samples", summary.get("n_samples"))
+        raise FileNotFoundError(f"missing profile: {path}")
+    manifest = load_profile_manifest(path)
+    summary = dict(manifest["summary"])
+    summary["n_samples"] = manifest["n_samples"]
     return summary, ""
 
 
@@ -598,10 +588,7 @@ def _summarize_manifest_runs(manifests: list[dict[str, Any]]) -> dict[str, Any]:
         if not output_dir:
             notes.append("manifest missing output_dir")
             continue
-        try:
-            summaries.append(summarize_eval_run(output_dir))
-        except Exception as exc:  # noqa: BLE001 - aggregation should keep row and annotate the issue.
-            notes.append(f"failed to summarize {output_dir}: {exc}")
+        summaries.append(summarize_eval_run(output_dir))
     if not summaries:
         return {"notes": "; ".join(notes)}
     total_n = sum(int(summary["n_episodes"]) for summary in summaries)
@@ -664,7 +651,7 @@ def _seed_set_label(seed_set: Any) -> str:
 
 
 def _main_claim_value(target: dict[str, Any], replay: dict[str, Any]) -> str:
-    return "TRUE" if int(replay.get("speed_rank", -1)) > int(target.get("speed_rank", -1)) else "FALSE"
+    return "TRUE" if replay["speed_rank"] > target["speed_rank"] else "FALSE"
 
 
 def _missing_note(label: str, manifests: list[dict[str, Any]], summary: dict[str, Any]) -> str:

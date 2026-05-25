@@ -55,7 +55,7 @@ def test_resolve_run_file_supports_direct_file_and_run_directory(tmp_path: Path)
     assert resolve_run_file(run_dir, EPISODE_METRICS_CANDIDATES) == metrics_path
 
 
-def test_extract_episode_return_defaults_to_env_return_before_legacy_or_raw():
+def test_extract_episode_return_uses_the_requested_field():
     record = {
         "episode_return_env": 3.0,
         "episode_return": 4.0,
@@ -64,15 +64,19 @@ def test_extract_episode_return_defaults_to_env_return_before_legacy_or_raw():
 
     assert extract_episode_return(record) == pytest.approx(3.0)
     assert extract_episode_return(record, return_field="return_raw") == pytest.approx(30.0)
-    assert extract_episode_return({"return_raw": 30.0}) == pytest.approx(30.0)
-    assert extract_episode_return(record, return_field="missing") is None
+    with pytest.raises(KeyError, match="episode_return_env"):
+        extract_episode_return({"return_raw": 30.0})
+    with pytest.raises(KeyError, match="missing"):
+        extract_episode_return(record, return_field="missing")
 
 
-def test_extract_episode_length_supports_existing_survival_steps_key():
+def test_extract_episode_length_uses_survival_steps_by_default():
     assert extract_episode_length({"survival_steps": 12}) == 12
-    assert extract_episode_length({"episode_length": 10, "survival_steps": 12}) == 10
     assert extract_episode_length({"steps": 7}, length_field="steps") == 7
-    assert extract_episode_length({"survival_steps": 12}, length_field="missing") is None
+    with pytest.raises(KeyError, match="survival_steps"):
+        extract_episode_length({"episode_length": 10})
+    with pytest.raises(KeyError, match="missing"):
+        extract_episode_length({"survival_steps": 12}, length_field="missing")
 
 
 def test_summarize_eval_run_computes_population_stats_and_metadata(tmp_path: Path):

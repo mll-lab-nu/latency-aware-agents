@@ -14,8 +14,7 @@ EPISODE_METRICS_CANDIDATES = ("episode_metrics.jsonl", "metrics.jsonl", "episode
 LATENCY_RECORD_CANDIDATES = ("latencies.jsonl", "latency_records.jsonl")
 ACTION_RECORD_CANDIDATES = ("actions.jsonl", "action_records.jsonl")
 
-RETURN_FIELD_PRIORITY = ("episode_return_env", "episode_return", "return_raw")
-LENGTH_FIELD_PRIORITY = ("episode_length", "survival_steps", "length", "steps", "num_steps")
+DEFAULT_LENGTH_FIELD = "survival_steps"
 METADATA_KEYS = (
     "mode",
     "policy_id",
@@ -66,26 +65,13 @@ def resolve_run_file(run_path: str | Path, candidates: Sequence[str]) -> Path:
     raise FileNotFoundError(f"Run path does not exist: {path}")
 
 
-def extract_episode_return(record: dict[str, Any], return_field: str = "episode_return_env") -> float | None:
-    if return_field != "episode_return_env":
-        return _optional_float(record.get(return_field), return_field)
-
-    for field in RETURN_FIELD_PRIORITY:
-        value = _optional_float(record.get(field), field)
-        if value is not None:
-            return value
-    return None
+def extract_episode_return(record: dict[str, Any], return_field: str = "episode_return_env") -> float:
+    return record[return_field]
 
 
-def extract_episode_length(record: dict[str, Any], length_field: str | None = None) -> int | float | None:
-    if length_field is not None:
-        return _optional_float(record.get(length_field), length_field)
-
-    for field in LENGTH_FIELD_PRIORITY:
-        value = _optional_float(record.get(field), field)
-        if value is not None:
-            return value
-    return None
+def extract_episode_length(record: dict[str, Any], length_field: str | None = None) -> float:
+    selected_field = DEFAULT_LENGTH_FIELD if length_field is None else length_field
+    return record[selected_field]
 
 
 def summarize_eval_run(
@@ -99,22 +85,10 @@ def summarize_eval_run(
     if not records:
         raise ValueError(f"Episode metrics file is empty: {metrics_path}")
 
-    selected_return_field = _select_return_field(records, return_field)
-    selected_length_field = _select_length_field(records, length_field)
-    returns = [
-        value
-        for record in records
-        if (value := extract_episode_return(record, selected_return_field)) is not None
-    ]
-    lengths = [
-        value
-        for record in records
-        if (value := extract_episode_length(record, selected_length_field)) is not None
-    ]
-    if not returns:
-        raise ValueError(f"No valid episode returns found in {metrics_path} for field {selected_return_field!r}")
-    if not lengths:
-        raise ValueError(f"No valid episode lengths found in {metrics_path} for field {selected_length_field!r}")
+    selected_return_field = return_field
+    selected_length_field = DEFAULT_LENGTH_FIELD if length_field is None else length_field
+    returns = [extract_episode_return(record, selected_return_field) for record in records]
+    lengths = [extract_episode_length(record, selected_length_field) for record in records]
 
     return_values = np.asarray(returns, dtype=np.float64)
     length_values = np.asarray(lengths, dtype=np.float64)
@@ -139,28 +113,10 @@ def extract_latency_samples_from_records(records: Iterable[dict[str, Any]]) -> l
     samples: list[float] = []
     for record in records:
         if "latency_ms" in record and record["latency_ms"] is not None:
-            samples.append(_finite_float(record["latency_ms"], "latency_ms"))
+            samples.append(record["latency_ms"])
     if not samples:
         raise ValueError("No valid latency samples found")
     return samples
-
-
-def _select_return_field(records: Sequence[dict[str, Any]], return_field: str) -> str:
-    if return_field != "episode_return_env":
-        return return_field
-    for field in RETURN_FIELD_PRIORITY:
-        if any(_optional_float(record.get(field), field) is not None for record in records):
-            return field
-    return return_field
-
-
-def _select_length_field(records: Sequence[dict[str, Any]], length_field: str | None) -> str | None:
-    if length_field is not None:
-        return length_field
-    for field in LENGTH_FIELD_PRIORITY:
-        if any(_optional_float(record.get(field), field) is not None for record in records):
-            return field
-    return None
 
 
 def _summarize_metadata(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
@@ -185,19 +141,6 @@ def _collapse_unique_values(values: Sequence[Any]) -> Any:
     if len(unique_by_key) == 1:
         return next(iter(unique_by_key.values()))
     return ";".join(str(unique_by_key[key]) for key in sorted(unique_by_key))
-
-
-def _optional_float(value: Any, name: str) -> float | None:
-    if value is None:
-        return None
-    return _finite_float(value, name)
-
-
-def _finite_float(value: Any, name: str) -> float:
-    numeric = float(value)
-    if not math.isfinite(numeric):
-        raise ValueError(f"{name} must contain finite values")
-    return numeric
 
 
 def _stable_value_key(value: Any) -> str:

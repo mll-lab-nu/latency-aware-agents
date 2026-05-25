@@ -50,6 +50,20 @@ PROFILE_SUMMARY_COLUMNS = (
     "prob_latency_gt_3_frames",
 )
 
+PROFILE_MANIFEST_COLUMNS = (
+    "profile_id",
+    "profile_type",
+    "policy_id",
+    "env_id",
+    "target_device",
+    "fps",
+    "frame_ms",
+    "n_warmup",
+    "n_samples",
+    "batch_size",
+    "trace_path",
+)
+
 
 def write_rows_csv(rows: list[dict[str, Any]], path: str | Path) -> None:
     if not rows:
@@ -71,10 +85,9 @@ def build_latency_profile_summary_rows(profile_paths: list[str | Path]) -> list[
         trace_path = _resolve_profile_trace_path(manifest_path, manifest)
         samples = load_latency_samples(trace_path)
         summary = compute_latency_profile_summary(samples, float(manifest["fps"]))
-        row = {key: manifest.get(key) for key in PROFILE_SUMMARY_COLUMNS}
+        row = {key: manifest[key] for key in PROFILE_MANIFEST_COLUMNS}
         row.update(summary)
-        row["trace_path"] = manifest.get("trace_path")
-        rows.append({key: row.get(key) for key in PROFILE_SUMMARY_COLUMNS})
+        rows.append({key: row[key] for key in PROFILE_SUMMARY_COLUMNS})
     return rows
 
 
@@ -86,13 +99,13 @@ def build_profile_match_rows(match_specs: list[dict[str, Any]]) -> list[dict[str
         sim_latency_path = resolve_run_file(spec["sim_latency_records"], LATENCY_RECORD_CANDIDATES)
         sim_records = load_jsonl_records(sim_latency_path)
         sim_samples = extract_latency_samples_from_records(sim_records)
-        fps = float(spec.get("fps") or manifest["fps"])
+        fps = float(spec["fps"] if "fps" in spec else manifest["fps"])
 
         row: dict[str, Any] = {
             "label": spec.get("label"),
             "real_profile": str(manifest_path),
-            "real_profile_id": manifest.get("profile_id"),
-            "real_target_device": manifest.get("target_device"),
+            "real_profile_id": manifest["profile_id"],
+            "real_target_device": manifest["target_device"],
             "sim_latency_records": str(sim_latency_path),
             "fps": fps,
         }
@@ -104,25 +117,28 @@ def build_profile_match_rows(match_specs: list[dict[str, Any]]) -> list[dict[str
 def build_same_device_calibration_rows(calibration_specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for spec in calibration_specs:
+        return_field = spec["return_field"]
+        length_field = spec["length_field"]
+        allow_fallback = spec["allow_realtime_denominator_fallback"] if "allow_realtime_denominator_fallback" in spec else False
         real_summary = summarize_eval_run(
             spec["realtime_run"],
-            return_field=spec.get("return_field", "episode_return_env"),
-            length_field=spec.get("length_field"),
+            return_field=return_field,
+            length_field=length_field,
         )
         sim_summary = summarize_eval_run(
             spec["simulated_run"],
-            return_field=spec.get("return_field", "episode_return_env"),
-            length_field=spec.get("length_field"),
+            return_field=return_field,
+            length_field=length_field,
         )
 
         row: dict[str, Any] = {
             "label": spec.get("label"),
-            "policy_id": spec.get("policy_id"),
-            "env_id": spec.get("env_id"),
-            "profile_id": spec.get("profile_id"),
-            "hardware": spec.get("hardware"),
-            "realtime_run": spec.get("realtime_run"),
-            "simulated_run": spec.get("simulated_run"),
+            "policy_id": spec["policy_id"],
+            "env_id": spec["env_id"],
+            "profile_id": spec["profile_id"],
+            "hardware": spec["hardware"],
+            "realtime_run": spec["realtime_run"],
+            "simulated_run": spec["simulated_run"],
             "realtime_n_episodes": real_summary["n_episodes"],
             "simulated_n_episodes": sim_summary["n_episodes"],
             "realtime_mean_return": real_summary["mean_return"],
@@ -135,7 +151,7 @@ def build_same_device_calibration_rows(calibration_specs: list[dict[str, Any]]) 
                 sim_value=sim_summary["mean_return"],
                 real_value=real_summary["mean_return"],
                 scale=spec.get("return_scale"),
-                allow_fallback=bool(spec.get("allow_realtime_denominator_fallback", False)),
+                allow_fallback=allow_fallback,
                 kind="return",
             )
         )
@@ -144,7 +160,7 @@ def build_same_device_calibration_rows(calibration_specs: list[dict[str, Any]]) 
                 sim_value=sim_summary["mean_length"],
                 real_value=real_summary["mean_length"],
                 scale=spec.get("length_scale"),
-                allow_fallback=bool(spec.get("allow_realtime_denominator_fallback", False)),
+                allow_fallback=allow_fallback,
                 kind="length",
             )
         )
@@ -155,25 +171,28 @@ def build_same_device_calibration_rows(calibration_specs: list[dict[str, Any]]) 
 def build_cross_device_prediction_rows(prediction_specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for spec in prediction_specs:
+        return_field = spec["return_field"]
+        length_field = spec["length_field"]
+        allow_fallback = spec["allow_realtime_denominator_fallback"] if "allow_realtime_denominator_fallback" in spec else False
         real_summary = summarize_eval_run(
             spec["true_realtime_run"],
-            return_field=spec.get("return_field", "episode_return_env"),
-            length_field=spec.get("length_field"),
+            return_field=return_field,
+            length_field=length_field,
         )
         sim_summary = summarize_eval_run(
             spec["simulated_run"],
-            return_field=spec.get("return_field", "episode_return_env"),
-            length_field=spec.get("length_field"),
+            return_field=return_field,
+            length_field=length_field,
         )
         row: dict[str, Any] = {
             "label": spec.get("label"),
-            "policy_id": spec.get("policy_id"),
-            "env_id": spec.get("env_id"),
-            "target_device": spec.get("target_device"),
-            "target_profile": spec.get("target_profile"),
-            "replay_host": spec.get("replay_host"),
-            "true_realtime_run": spec.get("true_realtime_run"),
-            "simulated_run": spec.get("simulated_run"),
+            "policy_id": spec["policy_id"],
+            "env_id": spec["env_id"],
+            "target_device": spec["target_device"],
+            "target_profile": spec["target_profile"],
+            "replay_host": spec["replay_host"],
+            "true_realtime_run": spec["true_realtime_run"],
+            "simulated_run": spec["simulated_run"],
             "true_realtime_n_episodes": real_summary["n_episodes"],
             "simulated_n_episodes": sim_summary["n_episodes"],
             "true_realtime_mean_return": real_summary["mean_return"],
@@ -186,7 +205,7 @@ def build_cross_device_prediction_rows(prediction_specs: list[dict[str, Any]]) -
                 sim_value=sim_summary["mean_return"],
                 real_value=real_summary["mean_return"],
                 scale=spec.get("return_scale"),
-                allow_fallback=bool(spec.get("allow_realtime_denominator_fallback", False)),
+                allow_fallback=allow_fallback,
                 kind="return",
             )
         )
@@ -195,7 +214,7 @@ def build_cross_device_prediction_rows(prediction_specs: list[dict[str, Any]]) -
                 sim_value=sim_summary["mean_length"],
                 real_value=real_summary["mean_length"],
                 scale=spec.get("length_scale"),
-                allow_fallback=bool(spec.get("allow_realtime_denominator_fallback", False)),
+                allow_fallback=allow_fallback,
                 kind="length",
             )
         )

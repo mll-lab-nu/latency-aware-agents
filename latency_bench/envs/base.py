@@ -21,11 +21,10 @@ class EnvAdapter(ABC):
     def observe(self) -> Observation:
         info = self.get_state_info()
         frame = self.render_frame()
-        data = frame if frame is not None else info
         return Observation(
-            data=data,
-            env_step=int(info.get("env_step", 0)),
-            sim_time_ms=float(info.get("sim_time_ms", 0.0)),
+            data=frame,
+            env_step=info["env_step"],
+            sim_time_ms=info["sim_time_ms"],
             metadata=info,
         )
 
@@ -49,8 +48,8 @@ class DummyEnvAdapter(EnvAdapter):
         max_steps: int = 5,
         noop_action: Action | None = None,
     ):
-        self.env_fps = float(env_fps)
-        self.max_steps = int(max_steps)
+        self.env_fps = env_fps
+        self.max_steps = max_steps
         self.noop_action = noop_action or Action(value="noop", name="noop", is_noop=True)
         self.env_step = 0
         self.applied_actions: list[Action] = []

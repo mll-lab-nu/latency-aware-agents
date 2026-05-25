@@ -126,22 +126,21 @@ def test_build_same_device_calibration_rows_computes_errors(tmp_path: Path):
     _write_episode_metrics(realtime_run / "episode_metrics.jsonl", [100.0, 110.0], [1000, 1100])
     _write_episode_metrics(simulated_run / "episode_metrics.jsonl", [105.0, 115.0], [990, 1090])
 
-    rows = build_same_device_calibration_rows(
-        [
-            {
-                "label": "flappy_3090",
-                "policy_id": "flappy_pi0",
-                "env_id": "FlappyBird-v0",
-                "profile_id": "L_3090",
-                "hardware": "RTX_3090",
-                "realtime_run": str(realtime_run),
-                "simulated_run": str(simulated_run),
-                "return_field": "episode_return_env",
-                "return_scale": 200.0,
-                "length_scale": 2000.0,
-            }
-        ]
-    )
+    spec = {
+        "label": "flappy_3090",
+        "policy_id": "flappy_pi0",
+        "env_id": "FlappyBird-v0",
+        "profile_id": "L_3090",
+        "hardware": "RTX_3090",
+        "realtime_run": str(realtime_run),
+        "simulated_run": str(simulated_run),
+        "return_field": "episode_return_env",
+        "length_field": "survival_steps",
+        "return_scale": 200.0,
+        "length_scale": 2000.0,
+    }
+
+    rows = build_same_device_calibration_rows([spec])
 
     row = rows[0]
     assert row["realtime_n_episodes"] == 2
@@ -157,6 +156,11 @@ def test_build_same_device_calibration_rows_computes_errors(tmp_path: Path):
     assert row["abs_length_error"] == pytest.approx(10.0)
     assert row["norm_length_error"] == pytest.approx(0.005)
     assert row["length_denominator_mode"] == "task_scale"
+
+    malformed = dict(spec)
+    del malformed["return_field"]
+    with pytest.raises(KeyError, match="return_field"):
+        build_same_device_calibration_rows([malformed])
 
 
 def test_build_cross_device_prediction_rows_outputs_long_format(tmp_path: Path):
@@ -177,6 +181,7 @@ def test_build_cross_device_prediction_rows_outputs_long_format(tmp_path: Path):
                 "simulated_run": str(simulated_run),
                 "replay_host": "H200",
                 "return_field": "episode_return_env",
+                "length_field": "survival_steps",
                 "return_scale": 200.0,
                 "length_scale": 2000.0,
             }
@@ -209,6 +214,8 @@ def test_calibration_missing_scale_behavior(tmp_path: Path):
                 "hardware": "GPU",
                 "realtime_run": str(realtime_run),
                 "simulated_run": str(simulated_run),
+                "return_field": "episode_return_env",
+                "length_field": "survival_steps",
             }
         ]
     )[0]
@@ -222,6 +229,8 @@ def test_calibration_missing_scale_behavior(tmp_path: Path):
                 "hardware": "GPU",
                 "realtime_run": str(realtime_run),
                 "simulated_run": str(simulated_run),
+                "return_field": "episode_return_env",
+                "length_field": "survival_steps",
                 "allow_realtime_denominator_fallback": True,
             }
         ]
@@ -266,6 +275,8 @@ def test_build_latency_replay_tables_cli_smoke_and_overwrite(tmp_path: Path):
                         "hardware": "test_gpu",
                         "realtime_run": str(realtime_run),
                         "simulated_run": str(simulated_run),
+                        "return_field": "episode_return_env",
+                        "length_field": "survival_steps",
                         "return_scale": 200.0,
                         "length_scale": 2000.0,
                     }
