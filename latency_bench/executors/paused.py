@@ -117,7 +117,8 @@ class PausedLatencyExecutor:
 
             active_action = self.action_scheduler.update(env_step, current_time_ms)
             result = self.env.step(active_action)
-            if self.video_recorder is not None:
+            episode_done = result.done or result.truncated
+            if self.video_recorder is not None and not episode_done:
                 self.video_recorder.record_frame(self.env.render_game_frame())
             step_info = dict(result.info)
             step_info.update(
@@ -136,14 +137,14 @@ class PausedLatencyExecutor:
                 sim_time_ms=current_time_ms,
                 active_action=active_action,
                 reward=float(result.reward),
-                done=bool(result.done or result.truncated),
+                done=episode_done,
                 info=step_info,
             )
             step_records.append(record)
             if self.logger is not None:
                 self.logger.log_step(record)
             env_step += 1
-            if result.done or result.truncated:
+            if episode_done:
                 break
 
         metrics = compute_episode_metrics(

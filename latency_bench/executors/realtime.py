@@ -374,7 +374,8 @@ class RealtimeLatencyExecutor:
 
             active_action = self.action_scheduler.update(env_step, scheduled_time_ms)
             result = self.env.step(active_action)
-            if self.video_recorder is not None:
+            episode_done = result.done or result.truncated
+            if self.video_recorder is not None and not episode_done:
                 self.video_recorder.record_frame(self.env.render_game_frame())
             step_info = dict(result.info)
             step_info.update(
@@ -405,13 +406,13 @@ class RealtimeLatencyExecutor:
                 sim_time_ms=scheduled_time_ms,
                 active_action=active_action,
                 reward=float(result.reward),
-                done=bool(result.done or result.truncated),
+                done=episode_done,
                 info=step_info,
             )
             step_records.append(record)
             if self.logger is not None:
                 self.logger.log_step(record)
-            if result.done or result.truncated:
+            if episode_done:
                 break
 
         self._drain_and_release_results(
@@ -849,7 +850,8 @@ def _env_loop_worker(
             applied_event_count = len(applied_events)
 
             result = env.step(active_action)
-            if video_recorder is not None:
+            episode_done = bool(result.done or result.truncated)
+            if video_recorder is not None and not episode_done:
                 video_recorder.record_frame(env.render_game_frame())
             step_info = dict(result.info)
             step_info.update(
@@ -883,12 +885,12 @@ def _env_loop_worker(
                         sim_time_ms=scheduled_time_ms,
                         active_action=active_action,
                         reward=float(result.reward),
-                        done=bool(result.done or result.truncated),
+                        done=episode_done,
                         info=step_info,
                     )
                 },
             ))
-            if result.done or result.truncated:
+            if episode_done:
                 break
 
         if video_recorder is not None:

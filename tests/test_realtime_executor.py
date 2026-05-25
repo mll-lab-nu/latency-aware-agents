@@ -259,5 +259,5 @@ def test_realtime_records_current_episode_video(tmp_path):
     assert len(manifest) == 1
     assert manifest[0]["episode_id"] == 5
     assert manifest[0]["episode_return"] == 2.0
-    assert manifest[0]["frame_count"] == 3
+    assert manifest[0]["frame_count"] == 2
     assert (tmp_path / "videos" / manifest[0]["video_path"]).is_file()
