@@ -27,6 +27,8 @@ class PausedLatencyExecutor:
         action_scheduler: ActionScheduler,
         clock: EnvClock,
         logger: TrajectoryLogger | None = None,
+        video_recorder=None,
+        video_episode_metadata: dict[int, dict] | None = None,
     ):
         self.env = env
         self.policy = policy
@@ -35,6 +37,8 @@ class PausedLatencyExecutor:
         self.action_scheduler = action_scheduler
         self.clock = clock
         self.logger = logger
+        self.video_recorder = video_recorder
+        self.video_episode_metadata = video_episode_metadata
         self._next_obs_id = 0
         self._next_action_id = 0
 
@@ -49,6 +53,12 @@ class PausedLatencyExecutor:
 
         self.action_scheduler.reset()
         self.env.reset(seed=seed)
+        if self.video_recorder is not None:
+            self.video_recorder.start_episode(
+                episode_id=episode_id,
+                metadata=self.video_episode_metadata[episode_id],
+            )
+            self.video_recorder.record_frame(self.env.render_game_frame())
 
         step_records: list[StepRecord] = []
         action_events: list[ActionEvent] = []
@@ -107,6 +117,8 @@ class PausedLatencyExecutor:
 
             active_action = self.action_scheduler.update(env_step, current_time_ms)
             result = self.env.step(active_action)
+            if self.video_recorder is not None:
+                self.video_recorder.record_frame(self.env.render_game_frame())
             step_info = dict(result.info)
             step_info.update(
                 active_action_step_info(
@@ -144,4 +156,6 @@ class PausedLatencyExecutor:
         )
         if self.logger is not None:
             self.logger.log_episode_metrics(metrics)
+        if self.video_recorder is not None:
+            self.video_recorder.close_episode({"episode_return": metrics.episode_return})
         return metrics

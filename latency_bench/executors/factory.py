@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.clock import EnvClock
@@ -25,6 +25,7 @@ from latency_bench.latency.sources import (
     ZeroLatencySource,
 )
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
+from latency_bench.logging.video import EpisodeVideoRecorder
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.factory import build_policy
 from latency_bench.scheduler.action_queue import ActionScheduler
@@ -39,7 +40,15 @@ from latency_bench.scheduler.persistence import (
 )
 
 
-ExecutorBuilder = Callable[[dict[str, Any]], Any]
+class ExecutorBuilder(Protocol):
+    def __call__(
+        self,
+        config: dict[str, Any],
+        *,
+        video_recorder: EpisodeVideoRecorder | None = None,
+        video_episode_metadata: dict[int, dict] | None = None,
+    ) -> Any:
+        ...
 
 _EXECUTOR_BUILDERS: dict[ExecutorMode, ExecutorBuilder] = {}
 _LATENCY_BENCH_ENV_BACKENDS = {"serial", "subproc", "flappy_gpu_batched", "auto"}
@@ -60,7 +69,12 @@ def register_executor(mode: ExecutorMode | str) -> Callable[[ExecutorBuilder], E
     return decorator
 
 
-def build_executor(config: dict[str, Any]) -> Any:
+def build_executor(
+    config: dict[str, Any],
+    *,
+    video_recorder: EpisodeVideoRecorder | None = None,
+    video_episode_metadata: dict[int, dict] | None = None,
+) -> Any:
     executor_cfg = config["executor"]
     mode = ExecutorMode(executor_cfg["mode"])
     eval_parallel_envs = _eval_parallel_envs(config)
@@ -76,7 +90,7 @@ def build_executor(config: dict[str, Any]) -> Any:
             f"executor.mode '{mode.value}' is recognized but not implemented. "
             f"Registered executor modes: {registered}"
         )
-    return builder(config)
+    return builder(config, video_recorder=video_recorder, video_episode_metadata=video_episode_metadata)
 
 
 def get_registered_executor_modes() -> list[str]:
@@ -84,7 +98,12 @@ def get_registered_executor_modes() -> list[str]:
 
 
 @register_executor(ExecutorMode.SIMULATED)
-def _build_simulated_executor(config: dict[str, Any]) -> SimulatedLatencyExecutor | BatchedSimulatedLatencyExecutor:
+def _build_simulated_executor(
+    config: dict[str, Any],
+    *,
+    video_recorder: EpisodeVideoRecorder | None = None,
+    video_episode_metadata: dict[int, dict] | None = None,
+) -> SimulatedLatencyExecutor | BatchedSimulatedLatencyExecutor:
     eval_parallel_envs = _eval_parallel_envs(config)
     num_episodes = int(config.get("experiment", {}).get("num_episodes", 1))
     if (
@@ -94,10 +113,19 @@ def _build_simulated_executor(config: dict[str, Any]) -> SimulatedLatencyExecuto
     ):
         return _build_batched_simulated_executor(config, max_parallel_envs=min(eval_parallel_envs, num_episodes))
 
-    return _build_single_simulated_executor(config)
+    return _build_single_simulated_executor(
+        config,
+        video_recorder=video_recorder,
+        video_episode_metadata=video_episode_metadata,
+    )
 
 
-def _build_single_simulated_executor(config: dict[str, Any]) -> SimulatedLatencyExecutor:
+def _build_single_simulated_executor(
+    config: dict[str, Any],
+    *,
+    video_recorder: EpisodeVideoRecorder | None = None,
+    video_episode_metadata: dict[int, dict] | None = None,
+) -> SimulatedLatencyExecutor:
     scheduler_cfg = config["scheduler"]
 
     action_resolver = ActionResolver(config["env"])
@@ -123,6 +151,8 @@ def _build_single_simulated_executor(config: dict[str, Any]) -> SimulatedLatency
         action_scheduler=action_scheduler,
         clock=clock,
         logger=logger,
+        video_recorder=video_recorder,
+        video_episode_metadata=video_episode_metadata,
     )
 
 
@@ -198,7 +228,12 @@ def _build_batched_simulated_executor(
 
 
 @register_executor(ExecutorMode.PAUSED)
-def _build_paused_executor(config: dict[str, Any]) -> PausedLatencyExecutor:
+def _build_paused_executor(
+    config: dict[str, Any],
+    *,
+    video_recorder: EpisodeVideoRecorder | None = None,
+    video_episode_metadata: dict[int, dict] | None = None,
+) -> PausedLatencyExecutor:
     scheduler_cfg = config["scheduler"]
     latency_cfg = config["latency"]
     latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
@@ -228,11 +263,18 @@ def _build_paused_executor(config: dict[str, Any]) -> PausedLatencyExecutor:
         action_scheduler=action_scheduler,
         clock=clock,
         logger=logger,
+        video_recorder=video_recorder,
+        video_episode_metadata=video_episode_metadata,
     )
 
 
 @register_executor(ExecutorMode.REALTIME)
-def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
+def _build_realtime_executor(
+    config: dict[str, Any],
+    *,
+    video_recorder: EpisodeVideoRecorder | None = None,
+    video_episode_metadata: dict[int, dict] | None = None,
+) -> RealtimeLatencyExecutor:
     scheduler_cfg = config["scheduler"]
     executor_cfg = config["executor"]
     latency_cfg = config["latency"]
@@ -254,6 +296,7 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
         ordering_policy=_build_ordering_policy(scheduler_cfg),
     )
     logger = TrajectoryLogger(config["logging"]["output_dir"])
+    video_output_dir = _video_output_dir(config) if _video_enabled(config) else None
     return RealtimeLatencyExecutor(
         env=env,
         policy=None,
@@ -265,6 +308,9 @@ def _build_realtime_executor(config: dict[str, Any]) -> RealtimeLatencyExecutor:
         config=config,
         inference_devices=[str(device) for device in executor_cfg["inference_devices"]],
         use_env_process=True,
+        video_recorder=video_recorder,
+        video_output_dir=video_output_dir,
+        video_fps=clock.env_fps,
     )
 
 
@@ -274,6 +320,14 @@ def _build_clock(config: dict[str, Any]) -> EnvClock:
         env_fps=float(env_cfg["env_fps"]),
         obs_fps=float(env_cfg["obs_fps"]),
     )
+
+
+def _video_enabled(config: dict[str, Any]) -> bool:
+    return "video" in config["logging"] and config["logging"]["video"]["enabled"]
+
+
+def _video_output_dir(config: dict[str, Any]) -> str:
+    return str(os.path.join(str(config["logging"]["output_dir"]), "videos"))
 
 
 def _build_decision_scheduler(clock: EnvClock) -> DecisionScheduler:

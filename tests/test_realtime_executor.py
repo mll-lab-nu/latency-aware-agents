@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 import pytest
@@ -118,6 +119,7 @@ def _executor(
     max_steps: int = 5,
     logger: TrajectoryLogger | None = None,
     fake_clock: FakeClock | None = None,
+    video_recorder=None,
 ) -> RealtimeLatencyExecutor:
     fake_clock = fake_clock or FakeClock()
     noop = Action("noop", name="noop", is_noop=True)
@@ -140,6 +142,7 @@ def _executor(
         time_fn=fake_clock.time,
         sleep_fn=fake_clock.sleep,
         inference_pool=pool,
+        video_recorder=video_recorder,
     )
 
 
@@ -235,3 +238,26 @@ def test_realtime_records_worker_id_once_on_latency_metadata(tmp_path):
     assert latency.metadata["worker_id"] == 1
     assert "worker_id" not in event.metadata
     assert "device" not in event.metadata
+
+
+def test_realtime_records_current_episode_video(tmp_path):
+    from latency_bench.logging.video import EpisodeVideoRecorder
+
+    pool = ScriptedInferencePool(
+        [CompletionScript(Action("jump"), ready_time_ms=1.0, worker_id=0, device="cpu")],
+        num_workers=1,
+    )
+    recorder = EpisodeVideoRecorder(tmp_path / "videos", fps=30.0)
+    executor = _executor(pool=pool, max_steps=2, video_recorder=recorder)
+
+    executor.run_episode(episode_id=5, eval_max_steps=2)
+
+    manifest = [
+        json.loads(line)
+        for line in (tmp_path / "videos" / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(manifest) == 1
+    assert manifest[0]["episode_id"] == 5
+    assert manifest[0]["episode_return"] == 2.0
+    assert manifest[0]["frame_count"] == 3
+    assert (tmp_path / "videos" / manifest[0]["video_path"]).is_file()

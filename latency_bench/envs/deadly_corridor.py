@@ -243,6 +243,9 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
     def render_frame(self) -> Any:
         return self._last_frame
 
+    def render_game_frame(self) -> np.ndarray:
+        return np.transpose(self.gym_env.unwrapped.game.get_state().screen_buffer, (1, 2, 0))
+
     def get_state_info(self) -> dict[str, Any]:
         info = dict(self._last_info)
         info.update(
@@ -274,16 +277,13 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         self._observed_frames.append(_single_frame_data(frame))
 
     def _reset_raw_rgb_frame_stack(self) -> None:
-        frame = self._current_raw_rgb_frame()
+        frame = self.render_game_frame()
         self._raw_rgb_frames.clear()
         for _index in range(self.frame_stack):
             self._raw_rgb_frames.append(frame.copy())
 
     def _append_raw_rgb_frame(self) -> None:
-        self._raw_rgb_frames.append(self._current_raw_rgb_frame())
-
-    def _current_raw_rgb_frame(self) -> np.ndarray:
-        return np.transpose(self.gym_env.unwrapped.game.get_state().screen_buffer, (1, 2, 0))
+        self._raw_rgb_frames.append(self.render_game_frame())
 
     def _raw_rgb_frame_stack(self) -> np.ndarray:
         return np.stack(tuple(self._raw_rgb_frames), axis=0)

@@ -92,6 +92,9 @@ evaluation:
       # - [0, 8]  # high jitter
 logging:
   output_dir: outputs/demon_attack_base
+  video:
+    enabled: true
+    num_bins: 10
   save_step_records: true
   save_action_records: true
   save_latency_records: true

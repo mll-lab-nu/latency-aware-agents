@@ -11,10 +11,11 @@ from typing import Any
 
 from training.common.utils import seed_everything
 from latency_bench.core.config import load_config
-from latency_bench.core.types import EpisodeMetrics
+from latency_bench.core.types import EpisodeMetrics, ExecutorMode
 from latency_bench.eval_suites import has_eval_suites, parse_eval_suites
 from latency_bench.executors.factory import build_executor
 from latency_bench.logging.summary import build_queue_eval_summary, write_queue_eval_summary
+from latency_bench.logging.video import EpisodeVideoRecorder, select_episode_return_stratified
 from latency_bench.logging.wandb_eval import eval_scalar_payload, normalize_wandb_tags
 
 _SAMPLE_FACTORY_POLICY_TYPES = {
@@ -125,6 +126,7 @@ def run_from_config(
             executor.logger.flush()
         if write_summary:
             _write_non_sweep_summary(config, metrics)
+        _record_stratified_replay_videos(config, metrics, eval_max_steps=eval_max_steps, seed=seed)
     finally:
         close = getattr(executor, "close", None)
         if callable(close):
@@ -132,6 +134,59 @@ def run_from_config(
         else:
             executor.env.close()
     return metrics
+
+
+def _record_stratified_replay_videos(
+    config: dict[str, Any],
+    metrics: list[EpisodeMetrics],
+    *,
+    eval_max_steps: int,
+    seed: int,
+) -> None:
+    if "video" not in config["logging"]:
+        return
+    video_cfg = config["logging"]["video"]
+    if not video_cfg["enabled"]:
+        return
+    if ExecutorMode(config["executor"]["mode"]) == ExecutorMode.REALTIME:
+        return
+    selections = select_episode_return_stratified(
+        metrics,
+        num_bins=video_cfg["num_bins"],
+        seed=seed,
+    )
+    selection_by_episode = {
+        selection.episode_id: {
+            "bin_index": selection.bin_index,
+            "episode_return": selection.episode_return,
+        }
+        for selection in selections
+    }
+    replay_config = deepcopy(config)
+    replay_config["evaluation"]["eval_parallel_envs"] = 1
+    video_recorder = EpisodeVideoRecorder(
+        Path(replay_config["logging"]["output_dir"]) / "videos",
+        fps=replay_config["env"]["env_fps"],
+    )
+    replay_executor = build_executor(
+        replay_config,
+        video_recorder=video_recorder,
+        video_episode_metadata=selection_by_episode,
+    )
+    try:
+        for selection in selections:
+            episode_id = selection.episode_id
+            replay_executor.run_episode(
+                episode_id=episode_id,
+                seed=_episode_seed(replay_config, episode_id),
+                eval_max_steps=eval_max_steps,
+            )
+    finally:
+        close = getattr(replay_executor, "close", None)
+        if callable(close):
+            close()
+        else:
+            replay_executor.env.close()
 
 
 def _evaluation_raw_fact_metadata(config: dict[str, Any], episode_id: int) -> dict[str, Any]:

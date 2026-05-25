@@ -201,7 +201,7 @@ class FlappyImageObsWrapper(gym.Wrapper):
         self.obs_resize = obs_resize
         self.export_raw_rgb_frames = export_raw_rgb_frames
         obs, _ = self.env.reset(seed=0)
-        frame = self._observation_frame(self._render_raw_rgb_frame())
+        frame = self._observation_frame(self.render_game_frame())
         self._last_numeric_obs = obs
         self.observation_space = Box(
             low=0,
@@ -210,7 +210,7 @@ class FlappyImageObsWrapper(gym.Wrapper):
             dtype=np.uint8,
         )
 
-    def _render_raw_rgb_frame(self) -> np.ndarray:
+    def render_game_frame(self) -> np.ndarray:
         frame = self.env.render()
         return np.asarray(frame)
 
@@ -235,7 +235,7 @@ class FlappyImageObsWrapper(gym.Wrapper):
     def reset(self, **kwargs):
         numeric_obs, info = self.env.reset(**kwargs)
         self._last_numeric_obs = numeric_obs
-        raw_frame = self._render_raw_rgb_frame()
+        raw_frame = self.render_game_frame()
         info = dict(info or {})
         info["numeric_obs"] = numeric_obs
         if self.export_raw_rgb_frames:
@@ -245,7 +245,7 @@ class FlappyImageObsWrapper(gym.Wrapper):
     def step(self, action):
         numeric_obs, reward, terminated, truncated, info = self.env.step(action)
         self._last_numeric_obs = numeric_obs
-        raw_frame = self._render_raw_rgb_frame()
+        raw_frame = self.render_game_frame()
         info = dict(info or {})
         info["numeric_obs"] = numeric_obs
         if self.export_raw_rgb_frames:

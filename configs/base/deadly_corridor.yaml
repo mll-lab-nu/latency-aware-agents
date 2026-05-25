@@ -17,8 +17,8 @@ executor:
 env:
   name: deadly_corridor
   env_id: doom_deadly_corridor
-  env_fps: 60
-  obs_fps: 15
+  env_fps: 35
+  obs_fps: 8.75
   noop_action: 0
   frame_stack: 4
   res_w: 128
@@ -91,6 +91,9 @@ evaluation:
 
 logging:
   output_dir: outputs/deadly_corridor_base
+  video:
+    enabled: true
+    num_bins: 10
   save_step_records: true
   save_action_records: true
   save_latency_records: true

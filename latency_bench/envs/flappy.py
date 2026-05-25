@@ -343,7 +343,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         else:
             numeric_obs, info = self.gym_env.reset(seed=seed)
             info = dict(info or {})
-            raw_frame = self._render_raw_rgb_frame()
+            raw_frame = self.render_game_frame()
             frame = self._observation_frame(raw_frame)
 
         self._last_numeric_obs = numeric_obs
@@ -367,7 +367,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         else:
             numeric_obs, reward, terminated, truncated, info = self.gym_env.step(gym_action)
             info = dict(info or {})
-            raw_frame = self._render_raw_rgb_frame()
+            raw_frame = self.render_game_frame()
             frame = self._observation_frame(raw_frame)
 
         self.env_step += 1
@@ -423,6 +423,12 @@ class FlappyBirdEnvAdapter(EnvAdapter):
             self._last_frame = self._render_rgb_frame()
         return self._last_frame
 
+    def render_game_frame(self) -> np.ndarray:
+        """Return the unprocessed Flappy game RGB frame for video recording."""
+        if self.use_gpu_render:
+            return self.gym_env.render_game_frame()
+        return self._rgb_hwc_frame(self.gym_env.render())
+
     def get_state_info(self) -> dict[str, Any]:
         info = dict(self._last_info)
         info.update(
@@ -436,10 +442,6 @@ class FlappyBirdEnvAdapter(EnvAdapter):
 
     def close(self) -> None:
         self.gym_env.close()
-
-    def _render_raw_rgb_frame(self) -> np.ndarray:
-        frame = self.gym_env.render()
-        return self._rgb_hwc_frame(frame)
 
     def _observation_frame(self, raw_frame: Any) -> np.ndarray:
         arr = self._rgb_hwc_frame(raw_frame)
@@ -457,7 +459,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         return self._rgb_hwc_frame(arr)
 
     def _render_rgb_frame(self) -> np.ndarray:
-        return self._observation_frame(self._render_raw_rgb_frame())
+        return self._observation_frame(self.render_game_frame())
 
     @staticmethod
     def _rgb_hwc_frame(frame: Any) -> np.ndarray:

@@ -218,6 +218,43 @@ def test_flappy_render_frame_returns_latest_rgb_frame():
         env.close()
 
 
+def test_flappy_render_game_frame_returns_unprocessed_game_rgb(monkeypatch):
+    class FakeBaseEnv:
+        action_space = gymnasium.spaces.Discrete(2)
+        observation_space = gymnasium.spaces.Box(-1.0, 1.0, shape=(12,), dtype=np.float32)
+
+        def reset(self, seed=None):
+            del seed
+            return np.zeros((12,), dtype=np.float32), {"score": 0}
+
+        def step(self, action):
+            del action
+            return np.ones((12,), dtype=np.float32), 0.0, False, False, {"score": 1}
+
+        def render(self):
+            return np.full((10, 20, 3), 17, dtype=np.uint8)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("latency_bench.envs.flappy.gymnasium.make", lambda *args, **kwargs: FakeBaseEnv())
+
+    env = FlappyBirdEnvAdapter(
+        obs_resize=(4, 4),
+        noop_action=Action(value=0, name="noop", is_noop=True),
+    )
+    try:
+        observation = env.reset(seed=0)
+        game_frame = env.render_game_frame()
+
+        assert observation.data.shape == (4, 4, 3)
+        assert game_frame.shape == (10, 20, 3)
+        assert game_frame.dtype == np.uint8
+        assert int(game_frame[0, 0, 0]) == 17
+    finally:
+        env.close()
+
+
 def test_flappy_resize_keeps_hwc_rgb_layout():
     env = FlappyBirdEnvAdapter(
         gym_id="FlappyBird-v0",

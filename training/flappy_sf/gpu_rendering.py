@@ -286,6 +286,10 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
     def _raw_rgb_frame(raw_rgb: torch.Tensor) -> np.ndarray:
         return raw_rgb.detach().cpu().numpy()[0]
 
+    def render_game_frame(self) -> np.ndarray:
+        """Return the unprocessed Flappy game RGB frame for video recording."""
+        return self._raw_rgb_frame(self._render_raw_rgb())
+
     @staticmethod
     def _with_numeric_obs(info: dict[str, Any] | None, numeric_obs: Any) -> dict[str, Any]:
         out = dict(info or {})

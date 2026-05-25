@@ -256,6 +256,9 @@ class RealtimeLatencyExecutor:
         config: dict[str, Any] | None = None,
         inference_devices: list[str] | None = None,
         use_env_process: bool = False,
+        video_recorder: Any | None = None,
+        video_output_dir: str | None = None,
+        video_fps: float | None = None,
     ):
         self.env = env
         self.policy = policy
@@ -270,6 +273,9 @@ class RealtimeLatencyExecutor:
         self.config = config
         self.inference_devices = list(inference_devices or [])
         self.use_env_process = bool(use_env_process)
+        self.video_recorder = video_recorder
+        self.video_output_dir = video_output_dir
+        self.video_fps = video_fps
         self._owns_inference_pool = inference_pool is None
         self._episode_start_s = 0.0
         self._next_obs_id = 0
@@ -319,6 +325,9 @@ class RealtimeLatencyExecutor:
     ) -> EpisodeMetrics:
         self.action_scheduler.reset()
         self.env.reset(seed=seed)
+        if self.video_recorder is not None:
+            self.video_recorder.start_episode(episode_id=episode_id, metadata={})
+            self.video_recorder.record_frame(self.env.render_game_frame())
         coordinator = _RealtimeResultCoordinator(ordering_policy=self.action_scheduler.ordering_policy)
         pool.reset_episode()
         self._episode_start_s = self.time_fn()
@@ -365,6 +374,8 @@ class RealtimeLatencyExecutor:
 
             active_action = self.action_scheduler.update(env_step, scheduled_time_ms)
             result = self.env.step(active_action)
+            if self.video_recorder is not None:
+                self.video_recorder.record_frame(self.env.render_game_frame())
             step_info = dict(result.info)
             step_info.update(
                 {
@@ -430,6 +441,8 @@ class RealtimeLatencyExecutor:
         )
         if self.logger is not None:
             self.logger.log_episode_metrics(metrics)
+        if self.video_recorder is not None:
+            self.video_recorder.close_episode({"episode_return": metrics.episode_return})
         return metrics
 
     def _run_episode_with_env_process(
@@ -444,7 +457,15 @@ class RealtimeLatencyExecutor:
         parent_conn, child_conn = ctx.Pipe()
         process = ctx.Process(
             target=_env_loop_worker,
-            args=(child_conn, self.config, episode_id, seed, eval_max_steps),
+            args=(
+                child_conn,
+                self.config,
+                episode_id,
+                seed,
+                eval_max_steps,
+                self.video_output_dir,
+                self.video_fps,
+            ),
             name="latency-bench-realtime-env",
         )
         process.start()
@@ -759,10 +780,13 @@ def _env_loop_worker(
     episode_id: int,
     seed: int | None,
     eval_max_steps: int,
+    video_output_dir: str | None,
+    video_fps: float | None,
 ) -> None:
     try:
         from latency_bench.core.actions import ActionResolver
         from latency_bench.envs.factory import build_env_adapter
+        from latency_bench.logging.video import EpisodeVideoRecorder
         from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
 
         runtime_config = config or {}
@@ -780,6 +804,11 @@ def _env_loop_worker(
         )
         decision_scheduler = ObservationCadenceDecisionScheduler(clock)
         env.reset(seed=seed)
+        video_recorder = None
+        if video_output_dir is not None:
+            video_recorder = EpisodeVideoRecorder(video_output_dir, fps=video_fps)
+            video_recorder.start_episode(episode_id=episode_id, metadata={})
+            video_recorder.record_frame(env.render_game_frame())
         episode_start_s = time.perf_counter()
         next_obs_id = 0
         applied_event_count = 0
@@ -820,6 +849,8 @@ def _env_loop_worker(
             applied_event_count = len(applied_events)
 
             result = env.step(active_action)
+            if video_recorder is not None:
+                video_recorder.record_frame(env.render_game_frame())
             step_info = dict(result.info)
             step_info.update(
                 {
@@ -860,6 +891,8 @@ def _env_loop_worker(
             if result.done or result.truncated:
                 break
 
+        if video_recorder is not None:
+            video_recorder.close_episode({})
         env.close()
         connection.send(("episode_done", {}))
     except BaseException:

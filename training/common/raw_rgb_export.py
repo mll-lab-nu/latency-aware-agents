@@ -41,7 +41,7 @@ class RawRgbFrameStackInfoWrapper(gym.Wrapper):
 
     def reset(self, **kwargs):
         observation, info = self.env.reset(**kwargs)
-        frame = self._current_raw_rgb_frame()
+        frame = self.render_game_frame()
         self._raw_rgb_frames.reset(frame)
         info = dict(info or {})
         info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
@@ -50,12 +50,12 @@ class RawRgbFrameStackInfoWrapper(gym.Wrapper):
     def step(self, action):
         observation, reward, terminated, truncated, info = self.env.step(action)
         if not (terminated or truncated):
-            self._raw_rgb_frames.append(self._current_raw_rgb_frame())
+            self._raw_rgb_frames.append(self.render_game_frame())
         info = dict(info or {})
         info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
         return observation, reward, terminated, truncated, info
 
-    def _current_raw_rgb_frame(self) -> np.ndarray:
+    def render_game_frame(self) -> np.ndarray:
         return np.asarray(self.raw_frame_fn(self.env))
 
     def _raw_rgb_frame_stack(self) -> np.ndarray:

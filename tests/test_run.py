@@ -299,6 +299,35 @@ def test_run_from_config_uses_batched_executor_run_episodes_when_available(
     assert [metric.metadata["run_name"] for metric in metrics] == ["seed_test"] * 3
 
 
+def test_run_from_config_records_stratified_replay_videos(tmp_path: Path):
+    config = _run_config("constant", tmp_path, seed=7, num_episodes=4)
+    config["logging"]["video"] = {
+        "enabled": True,
+        "num_bins": 2,
+    }
+
+    latency_run.run_from_config(config, write_summary=False)
+
+    video_dir = tmp_path / "videos"
+    manifest = [
+        json.loads(line)
+        for line in (video_dir / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(manifest) == 2
+    assert [row["bin_index"] for row in manifest] == [0, 1]
+    assert [row["episode_return"] for row in manifest] == [1.0, 1.0]
+    assert [row["fps"] for row in manifest] == [30.0, 30.0]
+    assert all((video_dir / row["video_path"]).is_file() for row in manifest)
+
+
+def test_run_from_config_requires_video_num_bins_when_enabled(tmp_path: Path):
+    config = _run_config("constant", tmp_path, seed=7, num_episodes=1)
+    config["logging"]["video"] = {"enabled": True}
+
+    with pytest.raises(KeyError, match="num_bins"):
+        latency_run.run_from_config(config, write_summary=False)
+
+
 def test_run_from_config_requires_evaluation_eval_max_steps(monkeypatch, tmp_path: Path):
     class FakeEnv:
         def close(self):

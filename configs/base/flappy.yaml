@@ -113,6 +113,9 @@ evaluation:
 
 logging:
   output_dir: outputs/flappy_base
+  video:
+    enabled: true
+    num_bins: 10
   save_step_records: true
   save_action_records: true
   save_latency_records: true

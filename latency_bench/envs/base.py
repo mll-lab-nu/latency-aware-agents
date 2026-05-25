@@ -3,6 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+import numpy as np
+
 from latency_bench.core.types import Action, Observation, StepResult
 
 
@@ -30,6 +32,15 @@ class EnvAdapter(ABC):
 
     def render_frame(self) -> Any:
         return None
+
+    def render_game_frame(self) -> Any:
+        """Return the raw RGB game image used for human video visualization.
+
+        This is the game frame before model-facing preprocessing such as resize,
+        stacking, grayscale conversion, or layout conversion. Video recording
+        uses this method instead of policy observations.
+        """
+        raise NotImplementedError
 
     def get_state_info(self) -> dict[str, Any]:
         return {}
@@ -81,6 +92,9 @@ class DummyEnvAdapter(EnvAdapter):
 
     def render_frame(self) -> Any:
         return {"state": self.env_step}
+
+    def render_game_frame(self) -> Any:
+        return np.full((8, 8, 3), self.env_step, dtype=np.uint8)
 
     def get_state_info(self) -> dict[str, Any]:
         return {
