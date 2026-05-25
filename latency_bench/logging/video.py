@@ -3,12 +3,11 @@ from __future__ import annotations
 import json
 import queue
 import random
+import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-import cv2
 
 from latency_bench.core.types import EpisodeMetrics
 
@@ -61,6 +60,7 @@ class AsyncVideoWriter:
         self.fps = fps
         self.frame_count = 0
         self._queue: queue.SimpleQueue[Any] = queue.SimpleQueue()
+        self._error: Exception | None = None
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -71,24 +71,66 @@ class AsyncVideoWriter:
     def close(self) -> None:
         self._queue.put(None)
         self._thread.join()
+        if self._error is not None:
+            raise self._error
 
     def _run(self) -> None:
-        writer = None
-        while True:
-            frame = self._queue.get()
-            if frame is None:
-                break
-            if writer is None:
-                height, width = frame.shape[:2]
-                writer = cv2.VideoWriter(
-                    str(self.path),
-                    cv2.VideoWriter_fourcc(*"mp4v"),
-                    self.fps,
-                    (width, height),
-                )
-            writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-        if writer is not None:
-            writer.release()
+        process = None
+        command = None
+        try:
+            while True:
+                frame = self._queue.get()
+                if frame is None:
+                    break
+                if process is None:
+                    height, width = frame.shape[:2]
+                    command = [
+                        "ffmpeg",
+                        "-y",
+                        "-v",
+                        "error",
+                        "-f",
+                        "rawvideo",
+                        "-vcodec",
+                        "rawvideo",
+                        "-pix_fmt",
+                        "rgb24",
+                        "-s",
+                        f"{width}x{height}",
+                        "-r",
+                        str(self.fps),
+                        "-i",
+                        "-",
+                        "-an",
+                        "-c:v",
+                        "libx264",
+                        "-preset",
+                        "veryfast",
+                        "-crf",
+                        "18",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-movflags",
+                        "+faststart",
+                        str(self.path),
+                    ]
+                    process = subprocess.Popen(
+                        command,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.PIPE,
+                    )
+                process.stdin.write(frame.tobytes())
+            if process is not None:
+                process.stdin.close()
+                return_code = process.wait()
+                if return_code != 0:
+                    raise subprocess.CalledProcessError(return_code, command, stderr=process.stderr.read())
+        except Exception as exc:
+            self._error = exc
+            if process is not None:
+                process.kill()
+                process.wait()
 
 
 class EpisodeVideoRecorder:

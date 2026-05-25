@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -58,7 +59,24 @@ def test_episode_video_recorder_writes_mp4_and_manifest(tmp_path: Path):
     assert manifest[0]["episode_return"] == 12.5
     assert manifest[0]["fps"] == 30.0
     assert manifest[0]["frame_count"] == 3
-    assert (tmp_path / manifest[0]["video_path"]).is_file()
+    video_path = tmp_path / manifest[0]["video_path"]
+    assert video_path.is_file()
+    probe_output = subprocess.check_output(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name,pix_fmt,nb_frames",
+            "-of",
+            "compact=p=0:nk=1",
+            str(video_path),
+        ],
+        text=True,
+    ).strip()
+    assert probe_output == "h264|yuv420p|3"
 
 
 def test_episode_video_recorder_requires_explicit_episode_metadata(tmp_path: Path):
