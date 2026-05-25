@@ -75,7 +75,8 @@ class StarVlaPolicyRunner(PolicyRunner):
             for raw_action_id, action_ref in enumerate(action_refs)
         }
         self._latency_prompt_map = latency_prompt_map
-        self._state_dim = _state_dim_from_wrapper(wrapper)
+        self._include_state = _include_state_from_wrapper(wrapper)
+        self._state_dim = _state_dim_from_wrapper(wrapper) if self._include_state else None
 
     def predict(self, observation: Observation) -> PolicyOutput:
         return self.predict_batch([observation])[0]
@@ -106,11 +107,13 @@ class StarVlaPolicyRunner(PolicyRunner):
             observation_metadata=observation.metadata,
             latency_prompt_map=self._latency_prompt_map,
         )
-        return {
+        example = {
             "image": [Image.fromarray(frame) for frame in selected_frames],
             "lang": prompt,
-            "state": np.zeros((1, self._state_dim), dtype=np.float32),
         }
+        if self._include_state:
+            example["state"] = np.zeros((1, self._state_dim), dtype=np.float32)
+        return example
 
     def _policy_output(
         self,
@@ -216,10 +219,11 @@ def demon_attack_action_from_vector(vector: npt.NDArray[Any]) -> tuple[Action, d
 
 
 def deadly_corridor_action_from_vector(vector: npt.NDArray[Any]) -> tuple[Action, dict[str, Any]]:
-    return {
-        True: lambda: deadly_corridor_action_from_factorized_vector(vector),
-        False: lambda: deadly_corridor_action_from_semantic_vector(vector),
-    }[vector.shape[0] >= 11]()
+    if vector.shape[0] == 11:
+        return deadly_corridor_action_from_factorized_vector(vector)
+    if vector.shape[0] == 7:
+        return deadly_corridor_action_from_semantic_vector(vector)
+    raise ValueError(f"Deadly Corridor StarVLA action vector expected 7 or 11 values, got {vector.shape[0]}")
 
 
 def deadly_corridor_action_from_factorized_vector(vector: npt.NDArray[Any]) -> tuple[Action, dict[str, Any]]:
@@ -281,10 +285,7 @@ def deadly_corridor_action_from_semantic_vector(vector: npt.NDArray[Any]) -> tup
 
 def _extract_observation_array(data: Any) -> npt.NDArray[Any]:
     if isinstance(data, Mapping):
-        for key in ("obs", "image", "rgb", "screen", "frame", "observation"):
-            if key in data:
-                return np.asarray(data[key])
-        return np.asarray(next(iter(data.values())))
+        return np.asarray(data["observation"])
     return np.asarray(data)
 
 
@@ -293,7 +294,11 @@ def _as_uint8_image(frame: npt.NDArray[Any]) -> npt.NDArray[np.uint8]:
 
 
 def _state_dim_from_wrapper(wrapper: Any) -> int:
-    return int(wrapper._model_cfg["framework"]["action_model"].get("state_dim", 7))
+    return wrapper._model_cfg["framework"]["action_model"]["state_dim"]
+
+
+def _include_state_from_wrapper(wrapper: Any) -> bool:
+    return wrapper._model_cfg["datasets"]["vla_data"]["include_state"]
 
 
 def _load_policy_wrapper_class() -> Any:

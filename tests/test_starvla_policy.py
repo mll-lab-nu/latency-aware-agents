@@ -22,6 +22,11 @@ class FakePolicyServerWrapper:
         self.unnorm_key = unnorm_key
         self.calls = []
         self._model_cfg = {
+            "datasets": {
+                "vla_data": {
+                    "include_state": True,
+                },
+            },
             "framework": {
                 "action_model": {
                     "state_dim": 7,
@@ -102,6 +107,65 @@ def test_frame_stack_profile_passes_all_frames_and_base_prompt(monkeypatch, tmp_
     assert example["state"].shape == (1, 7)
     assert output.action.name == "flap"
     assert output.action.value == 1
+
+
+def test_frame_stack_profile_omits_state_when_checkpoint_excludes_state(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    class NoStatePolicyServerWrapper(FakePolicyServerWrapper):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._model_cfg = {
+                "datasets": {
+                    "vla_data": {
+                        "include_state": False,
+                    },
+                },
+                "framework": {
+                    "action_model": {},
+                },
+            }
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: NoStatePolicyServerWrapper)
+    config = _config(tmp_path, profile="frame_stack")
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 6), dtype=np.uint8)},
+        )
+    )
+
+    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
+    assert "state" not in example
+
+
+def test_frame_stack_profile_requires_state_dim_when_checkpoint_includes_state(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    class MissingStateDimWrapper(FakePolicyServerWrapper):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._model_cfg = {
+                "datasets": {
+                    "vla_data": {
+                        "include_state": True,
+                    },
+                },
+                "framework": {
+                    "action_model": {},
+                },
+            }
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: MissingStateDimWrapper)
+    config = _config(tmp_path, profile="frame_stack")
+    with pytest.raises(KeyError, match="state_dim"):
+        build_policy(config, ActionResolver(config["env"]))
 
 
 def test_single_latency_profile_uses_latest_frame_and_latency_prompt(monkeypatch, tmp_path: Path):
