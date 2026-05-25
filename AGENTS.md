@@ -22,3 +22,19 @@ Allowed only when clearly required:
 - external/user-facing API input validation already established by the codebase
 - checks explicitly requested by the user
 - checks required to satisfy an existing test or documented contract
+
+# Engineering Preference: No Hidden Fallbacks or Over-Engineering
+
+Bad code patterns to avoid and remove in this repository:
+
+- Do not use `mapping.get(key, default)` when `key` is required by the local contract. Use `mapping[key]` so missing required state fails immediately.
+- Do not silently substitute another field when one exact field is expected. If semantics require `observation`, do not fall back to `obs`, `image`, first dict value, empty list, `unknown`, or `-1`.
+- Do not coerce already-contracted internal values with `int()`, `float()`, `bool()`, `str()`, `list()`, or `dict()` just to be safe.
+- Do not swallow broad exceptions to keep execution going. Let the original failure surface unless the boundary explicitly requires aggregation or cleanup.
+- Do not normalize invalid state into a runnable value. Missing config, model metadata, action ids, latency metadata, or table spec fields should fail at the point of use.
+
+Testing guidance:
+
+- Do not add tests that assert implementation style, such as "the code does not call `.get()`".
+- Tests should assert semantic behavior: required fields fail when missing, wrong actions are rejected, malformed specs fail, and no hidden substitute changes meaning.
+- Prefer updating existing tests for the touched behavior instead of adding new tests.
