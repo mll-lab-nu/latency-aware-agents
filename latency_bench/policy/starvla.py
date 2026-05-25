@@ -58,7 +58,6 @@ class StarVlaPolicyRunner(PolicyRunner):
         checkpoint_path: str,
         device: str,
         unnorm_key: str,
-        profile: str,
         env_name: str,
         action_resolver: ActionResolver,
         action_refs: Sequence[Any],
@@ -68,7 +67,6 @@ class StarVlaPolicyRunner(PolicyRunner):
         self._checkpoint_path = checkpoint_path
         self._device = device
         self._unnorm_key = unnorm_key
-        self._profile = profile
         self._env_name = env_name
         self._action_by_raw_id = {
             raw_action_id: action_resolver.resolve(action_ref)
@@ -97,18 +95,13 @@ class StarVlaPolicyRunner(PolicyRunner):
     def _build_example(self, observation: Observation) -> dict[str, Any]:
         frame_source = observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
         frames = observation_data_to_hwc_uint8_frames(frame_source)
-        selected_frames = {
-            "single_latency": lambda: [frames[-1]],
-            "frame_stack": lambda: frames,
-        }[self._profile]()
         prompt = resolve_starvla_prompt(
             env_name=self._env_name,
-            profile=self._profile,
             observation_metadata=observation.metadata,
             latency_prompt_map=self._latency_prompt_map,
         )
         example = {
-            "image": [Image.fromarray(frame) for frame in selected_frames],
+            "image": [Image.fromarray(frame) for frame in frames],
             "lang": prompt,
         }
         if self._include_state:
@@ -131,7 +124,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         input_frames = [np.asarray(image) for image in example["image"]]
         metadata = {
             "policy_type": "starvla",
-            "profile": self._profile,
+            "prompt_source": "latency_prompt_map" if self._latency_prompt_map is not None else "base",
             "checkpoint_path": self._checkpoint_path,
             "unnorm_key": self._unnorm_key,
             "device": self._device,
@@ -331,16 +324,16 @@ def _build_starvla_policy(
         use_bf16=True,
         unnorm_key=policy_cfg["unnorm_key"],
     )
-    latency_prompt_map = {
-        "single_latency": lambda: load_latency_prompt_map(policy_cfg["latency_prompt_map_path"]),
-        "frame_stack": lambda: None,
-    }[policy_cfg["profile"]]()
+    latency_prompt_map = (
+        load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
+        if "latency_prompt_map_path" in policy_cfg
+        else None
+    )
     return StarVlaPolicyRunner(
         wrapper=wrapper,
         checkpoint_path=policy_cfg["checkpoint_path"],
         device=policy_cfg["device"],
         unnorm_key=policy_cfg["unnorm_key"],
-        profile=policy_cfg["profile"],
         env_name=config["env"]["name"],
         action_resolver=action_resolver,
         action_refs=policy_cfg.get("actions", action_resolver.default_action_refs()),

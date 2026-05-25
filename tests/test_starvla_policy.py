@@ -54,13 +54,12 @@ class FakePolicyServerWrapper:
         }
 
 
-def _config(tmp_path: Path, *, profile: str, latency_prompt_map_path: str | None = None) -> dict:
+def _config(tmp_path: Path, *, latency_prompt_map_path: str | None = None) -> dict:
     policy = {
         "type": "starvla",
         "checkpoint_path": str(tmp_path / "checkpoint"),
         "device": "cuda:0",
         "unnorm_key": "flappy",
-        "profile": profile,
         "actions": ["noop", "flap"],
     }
     if latency_prompt_map_path is not None:
@@ -76,12 +75,13 @@ def _config(tmp_path: Path, *, profile: str, latency_prompt_map_path: str | None
     }
 
 
-def test_frame_stack_profile_passes_all_frames_and_base_prompt(monkeypatch, tmp_path: Path):
+def test_starvla_passes_all_raw_frames_and_base_prompt(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
     monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
-    policy = build_policy(_config(tmp_path, profile="frame_stack"), ActionResolver(_config(tmp_path, profile="frame_stack")["env"]))
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
     frame_stack = np.zeros((2, 3, 6), dtype=np.uint8)
     frame_stack[:, :, :3] = 11
     frame_stack[:, :, 3:] = 22
@@ -105,11 +105,36 @@ def test_frame_stack_profile_passes_all_frames_and_base_prompt(monkeypatch, tmp_
     assert np.asarray(example["image"][0]).mean() == 11
     assert np.asarray(example["image"][1]).mean() == 22
     assert example["state"].shape == (1, 7)
+    assert output.metadata["prompt_source"] == "base"
     assert output.action.name == "flap"
     assert output.action.value == 1
 
 
-def test_frame_stack_profile_omits_state_when_checkpoint_excludes_state(monkeypatch, tmp_path: Path):
+def test_starvla_passes_single_raw_frame_and_base_prompt(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": np.full((1, 12, 16, 3), 77, dtype=np.uint8)},
+        )
+    )
+
+    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
+    assert example["lang"] == BASE_PROMPTS["flappy"]
+    assert len(example["image"]) == 1
+    assert np.asarray(example["image"][0]).shape == (12, 16, 3)
+    assert np.asarray(example["image"][0]).mean() == 77
+
+
+def test_starvla_omits_state_when_checkpoint_excludes_state(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
     class NoStatePolicyServerWrapper(FakePolicyServerWrapper):
@@ -128,7 +153,7 @@ def test_frame_stack_profile_omits_state_when_checkpoint_excludes_state(monkeypa
 
     FakePolicyServerWrapper.instances.clear()
     monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: NoStatePolicyServerWrapper)
-    config = _config(tmp_path, profile="frame_stack")
+    config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
     policy.predict(
@@ -144,7 +169,7 @@ def test_frame_stack_profile_omits_state_when_checkpoint_excludes_state(monkeypa
     assert "state" not in example
 
 
-def test_frame_stack_profile_requires_state_dim_when_checkpoint_includes_state(monkeypatch, tmp_path: Path):
+def test_starvla_requires_state_dim_when_checkpoint_includes_state(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
     class MissingStateDimWrapper(FakePolicyServerWrapper):
@@ -163,12 +188,12 @@ def test_frame_stack_profile_requires_state_dim_when_checkpoint_includes_state(m
 
     FakePolicyServerWrapper.instances.clear()
     monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: MissingStateDimWrapper)
-    config = _config(tmp_path, profile="frame_stack")
+    config = _config(tmp_path)
     with pytest.raises(KeyError, match="state_dim"):
         build_policy(config, ActionResolver(config["env"]))
 
 
-def test_single_latency_profile_uses_latest_frame_and_latency_prompt(monkeypatch, tmp_path: Path):
+def test_starvla_latency_prompt_map_does_not_change_image_count(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
@@ -178,7 +203,7 @@ def test_single_latency_profile_uses_latest_frame_and_latency_prompt(monkeypatch
         json.dumps({"3": {"latency_raw_frames": 3, "latency_ms": 100.0, "prompt": "latency prompt 3"}}),
         encoding="utf-8",
     )
-    config = _config(tmp_path, profile="single_latency", latency_prompt_map_path=str(prompt_map_path))
+    config = _config(tmp_path, latency_prompt_map_path=str(prompt_map_path))
     policy = build_policy(config, ActionResolver(config["env"]))
     frame_stack = np.zeros((6, 8, 9), dtype=np.uint8)
     frame_stack[:3, :, :] = 33
@@ -199,13 +224,14 @@ def test_single_latency_profile_uses_latest_frame_and_latency_prompt(monkeypatch
     wrapper = FakePolicyServerWrapper.instances[0]
     example = wrapper.calls[0]["examples"][0]
     assert example["lang"] == "latency prompt 3"
-    assert len(example["image"]) == 1
-    assert np.asarray(example["image"][0]).mean() == 44
-    assert output.metadata["profile"] == "single_latency"
+    assert len(example["image"]) == 2
+    assert np.asarray(example["image"][0]).mean() == 33
+    assert np.asarray(example["image"][1]).mean() == 44
+    assert output.metadata["prompt_source"] == "latency_prompt_map"
     assert output.metadata["unnorm_key"] == "flappy"
 
 
-def test_single_latency_profile_prefers_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Path):
+def test_starvla_latency_prompt_map_uses_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
@@ -215,7 +241,7 @@ def test_single_latency_profile_prefers_raw_rgb_frame_stack_metadata(monkeypatch
         json.dumps({"2": {"latency_raw_frames": 2, "latency_ms": 33.0, "prompt": "latency prompt 2"}}),
         encoding="utf-8",
     )
-    config = _config(tmp_path, profile="single_latency", latency_prompt_map_path=str(prompt_map_path))
+    config = _config(tmp_path, latency_prompt_map_path=str(prompt_map_path))
     policy = build_policy(config, ActionResolver(config["env"]))
     policy_observation_stack = np.zeros((4, 8, 8), dtype=np.uint8)
     raw_rgb_stack = np.zeros((4, 12, 16, 3), dtype=np.uint8)
@@ -234,9 +260,9 @@ def test_single_latency_profile_prefers_raw_rgb_frame_stack_metadata(monkeypatch
     )
 
     example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
-    assert len(example["image"]) == 1
-    assert np.asarray(example["image"][0]).shape == (12, 16, 3)
-    assert np.asarray(example["image"][0]).mean() == 77
+    assert len(example["image"]) == 4
+    assert np.asarray(example["image"][-1]).shape == (12, 16, 3)
+    assert np.asarray(example["image"][-1]).mean() == 77
 
 
 def test_starvla_requires_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Path):
@@ -244,7 +270,7 @@ def test_starvla_requires_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Pa
 
     FakePolicyServerWrapper.instances.clear()
     monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
-    config = _config(tmp_path, profile="frame_stack")
+    config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
     with pytest.raises(KeyError, match="env_raw_rgb_frame_stack"):
@@ -279,7 +305,7 @@ def test_predict_batch_calls_starvla_once(monkeypatch, tmp_path: Path):
 
     FakePolicyServerWrapper.instances.clear()
     monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
-    config = _config(tmp_path, profile="frame_stack")
+    config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
     observations = [
         Observation(

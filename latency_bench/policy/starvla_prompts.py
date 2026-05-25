@@ -14,11 +14,9 @@ def load_latency_prompt_map(path: str | Path) -> dict[str, Any]:
 def resolve_starvla_prompt(
     *,
     env_name: str,
-    profile: str,
     observation_metadata: dict[str, Any],
     latency_prompt_map: dict[str, Any] | None,
 ) -> str:
-    return {
-        "frame_stack": lambda: BASE_PROMPTS[str(env_name)],
-        "single_latency": lambda: latency_prompt_map[str(observation_metadata["latency_raw_frames"])]["prompt"],
-    }[profile]()
+    if latency_prompt_map is not None:
+        return latency_prompt_map[str(observation_metadata["latency_raw_frames"])]["prompt"]
+    return BASE_PROMPTS[str(env_name)]
