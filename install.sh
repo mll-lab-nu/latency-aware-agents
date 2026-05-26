@@ -14,9 +14,6 @@ set -euo pipefail
 # Do not copy private SSH keys onto rented machines. If agent forwarding is not
 # acceptable, use a GitHub deploy key or a short-lived token instead.
 #
-git clone git@github.com:ZihanWang314/latency-sensitive-bench.git latency-sensitive-bench
-cd latency-sensitive-bench
-
 git submodule update --init --recursive
 
 conda create -n latency python=3.10 -y
