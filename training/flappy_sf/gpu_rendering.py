@@ -190,6 +190,7 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
         )
         self.renderer: TorchFlappyRenderer | None = None
         self._raw_rgb_buffer: torch.Tensor | None = None
+        self._last_raw_rgb: torch.Tensor | None = None
         self._env_raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=int(frame_stack))
         self.gpu_render_profiler = _GpuRenderProfiler(
             enabled=bool(gpu_render_profile),
@@ -205,6 +206,7 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
         info = self._with_numeric_obs(info, numeric_obs)
         with self.gpu_render_profiler.time("reset_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
+            self._last_raw_rgb = raw_rgb
             self._reset_env_raw_rgb_info(info, raw_rgb)
             with self.gpu_render_profiler.time("pipeline_s"):
                 obs = self.pipeline.reset(raw_rgb, frame_skips=self._latency_raw_frames(info))
@@ -223,11 +225,13 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
                 reset_info = self._with_numeric_obs(reset_info, reset_numeric_obs)
                 info["reset_info"] = reset_info
                 raw_rgb = self._render_raw_rgb()
+                self._last_raw_rgb = raw_rgb
                 self._reset_env_raw_rgb_info(info, raw_rgb)
                 with self.gpu_render_profiler.time("pipeline_s"):
                     obs = self.pipeline.reset(raw_rgb, frame_skips=self._latency_raw_frames(reset_info))
             else:
                 raw_rgb = self._render_raw_rgb()
+                self._last_raw_rgb = raw_rgb
                 self._append_env_raw_rgb_info(info, raw_rgb)
                 with self.gpu_render_profiler.time("pipeline_s"):
                     obs = self.pipeline.step(
@@ -288,7 +292,7 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
 
     def render_game_frame(self) -> np.ndarray:
         """Return the unprocessed Flappy game RGB frame for video recording."""
-        return self._raw_rgb_frame(self._render_raw_rgb())
+        return self._raw_rgb_frame(self._last_raw_rgb)
 
     @staticmethod
     def _with_numeric_obs(info: dict[str, Any] | None, numeric_obs: Any) -> dict[str, Any]:

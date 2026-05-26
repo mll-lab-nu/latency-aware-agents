@@ -285,6 +285,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         self._last_info: dict[str, Any] = {}
         self._last_numeric_obs: Any = None
         self._last_frame: np.ndarray | None = None
+        self._last_raw_frame: np.ndarray | None = None
         self._observed_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
         self._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=self.frame_stack)
 
@@ -343,12 +344,14 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         else:
             numeric_obs, info = self.gym_env.reset(seed=seed)
             info = dict(info or {})
-            raw_frame = self.render_game_frame()
+            raw_frame = self._rgb_hwc_frame(self.gym_env.render())
             frame = self._observation_frame(raw_frame)
 
         self._last_numeric_obs = numeric_obs
         self._last_info = info
         self._last_frame = frame
+        if not self.use_gpu_render:
+            self._last_raw_frame = self._rgb_hwc_frame(raw_frame)
         if not self.use_gpu_render:
             self._reset_frame_stack(frame)
         if self.export_env_raw_rgb_frames:
@@ -367,7 +370,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         else:
             numeric_obs, reward, terminated, truncated, info = self.gym_env.step(gym_action)
             info = dict(info or {})
-            raw_frame = self.render_game_frame()
+            raw_frame = self._rgb_hwc_frame(self.gym_env.render())
             frame = self._observation_frame(raw_frame)
 
         self.env_step += 1
@@ -376,6 +379,8 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         self._last_numeric_obs = numeric_obs
         self._last_info = info
         self._last_frame = frame
+        if not self.use_gpu_render:
+            self._last_raw_frame = self._rgb_hwc_frame(raw_frame)
         if not self.use_gpu_render:
             self._append_observed_frame(frame)
         if self.export_env_raw_rgb_frames and not bool(terminated_bool or truncated_bool):
@@ -427,7 +432,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         """Return the unprocessed Flappy game RGB frame for video recording."""
         if self.use_gpu_render:
             return self.gym_env.render_game_frame()
-        return self._rgb_hwc_frame(self.gym_env.render())
+        return self._rgb_hwc_frame(self._last_raw_frame)
 
     def get_state_info(self) -> dict[str, Any]:
         info = dict(self._last_info)

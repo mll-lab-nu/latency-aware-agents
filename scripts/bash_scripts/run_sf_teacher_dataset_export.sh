@@ -50,7 +50,7 @@ VAL_FRACTION="${VAL_FRACTION:-0.01}"
 NUM_ENVS="${NUM_ENVS:-12}"
 DEVICE="${DEVICE:-cpu}"
 HF_PRIVATE="${HF_PRIVATE:-1}"
-IMAGE_WRITER_WORKERS="${IMAGE_WRITER_WORKERS:-}"
+IMAGE_WRITER_WORKERS="${IMAGE_WRITER_WORKERS:-16}"
 
 CMD=(
     python scripts/rollout_data/export_sf_teacher_dataset.py

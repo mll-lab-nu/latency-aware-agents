@@ -170,3 +170,11 @@ class EpisodeVideoRecorder:
         self._writer = None
         self._episode_id = None
         self._metadata = {}
+
+    def abort_episode(self) -> None:
+        writer = self._writer
+        writer.close()
+        writer.path.unlink(missing_ok=True)
+        self._writer = None
+        self._episode_id = None
+        self._metadata = {}
