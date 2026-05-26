@@ -8,6 +8,8 @@ teacher policy, embeds frame-stack images in parquet, and writes
 Each dataset row contains an ``image_stack`` ordered oldest-to-newest and one
 teacher action for that decision step. Environments export raw RGB frames so
 the dataset keeps full-color game frames instead of simplified model inputs.
+Pass ``--image-stack-size`` to choose how many raw RGB history frames are
+written per row; by default this matches the teacher checkpoint frame stack.
 
 Default latency behavior:
     The rollout uses the latency configuration stored in the checkpoint
@@ -491,8 +493,13 @@ def frames_from_env_raw_rgb_info(info: Mapping[str, Any]) -> list[np.ndarray]:
     return [frame for frame in raw_stack]
 
 
-def frames_for_dataset_image(info: Mapping[str, Any]) -> list[np.ndarray]:
-    return frames_from_env_raw_rgb_info(info)
+def frames_for_dataset_image(info: Mapping[str, Any], *, image_stack_size: int | None = None) -> list[np.ndarray]:
+    frames = frames_from_env_raw_rgb_info(info)
+    if image_stack_size is None:
+        return frames
+    if len(frames) >= image_stack_size:
+        return frames[len(frames) - image_stack_size:]
+    return [frames[0]] * (image_stack_size - len(frames)) + frames
 
 
 def _stack_image_paths(stack_dir: Path, frame_count: int) -> list[Path]:
@@ -1023,11 +1030,14 @@ def collect_teacher_dataset(
     export_image_size: tuple[int, int] | None,
     image_writer_workers: int,
     row_buffer_size: int,
+    image_stack_size: int | None = None,
     return_rows: bool = True,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     env_name = str(config["env"]["name"])
     with _sample_factory_init_log(output_dir):
         module, cfg = build_sample_factory_rollout_cfg(config)
+        frame_stack = cfg.frame_stack
+        resolved_image_stack_size = frame_stack if image_stack_size is None else image_stack_size
         setattr(cfg, "export_env_raw_rgb_frames", True)
         runtime = _build_env_and_policy(module, cfg, config, num_envs)
     envs = list(runtime["envs"])
@@ -1039,7 +1049,6 @@ def collect_teacher_dataset(
     unsqueeze_tensor = runtime["unsqueeze_tensor"]
     rnn_size = runtime["rnn_size"]
     action_labels = _action_labels_for_env(env_name, envs[0])
-    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
     env_fps = float(getattr(cfg, "env_fps"))
     obs_fps = float(getattr(cfg, "obs_fps"))
     obs_stride_raw_frames = int(env_fps / obs_fps)
@@ -1065,20 +1074,22 @@ def collect_teacher_dataset(
     episode_specs = [spec for spec in episode_specs if int(spec["episode_idx"]) not in completed_episode_indices]
     active_specs: list[dict[str, Any] | None] = [None for _ in envs]
     active_obs: list[Any | None] = [None for _ in envs]
-    active_image_info: list[Mapping[str, Any]] = [{} for _ in envs]
+    active_image_frames: list[list[np.ndarray]] = [[] for _ in envs]
     active_episode_rows: list[list[dict[str, Any]]] = [[] for _ in envs]
     active_t = [0 for _ in envs]
     rnn_states = torch.zeros([len(envs), rnn_size], dtype=torch.float32, device=device)
     pending_futures: set[Future[None]] = set()
     executor = ThreadPoolExecutor(max_workers=int(image_writer_workers)) if int(image_writer_workers) > 0 else None
-    image_stack_size: int | None = None
     image_resolution: list[int] | None = None
 
     def start_episode(slot: int, spec: dict[str, Any]) -> None:
         obs, reset_info = envs[slot].reset(seed=int(spec["seed"]))
         active_specs[slot] = spec
         active_obs[slot] = obs
-        active_image_info[slot] = dict(_single_env_info(reset_info))
+        active_image_frames[slot] = frames_for_dataset_image(
+            dict(_single_env_info(reset_info)),
+            image_stack_size=resolved_image_stack_size,
+        )
         active_episode_rows[slot] = []
         active_t[slot] = 0
         rnn_states[slot].zero_()
@@ -1126,9 +1137,7 @@ def collect_teacher_dataset(
                     split = str(spec["split"])
                     t = int(active_t[slot])
                     stack_dir = output_dir / "images" / split / f"episode_{int(spec['episode_idx']):06d}" / f"t_{t:06d}"
-                    image_frames = frames_for_dataset_image(active_image_info[slot])
-                    if image_stack_size is None:
-                        image_stack_size = len(image_frames)
+                    image_frames = active_image_frames[slot]
                     if image_resolution is None:
                         image_resolution = _image_resolution_from_frame(image_frames[-1], export_image_size)
                     image_stack, pending_futures = _submit_image_write(
@@ -1193,13 +1202,19 @@ def collect_teacher_dataset(
                         else:
                             active_specs[slot] = None
                             active_obs[slot] = None
-                            active_image_info[slot] = {}
+                            active_image_frames[slot] = []
                             active_episode_rows[slot] = []
                             active_t[slot] = 0
                             rnn_states[slot].zero_()
                     else:
                         active_obs[slot] = next_obs
-                        active_image_info[slot] = info_dict
+                        next_image_frames = [
+                            *active_image_frames[slot],
+                            frames_from_env_raw_rgb_info(info_dict)[-1],
+                        ]
+                        active_image_frames[slot] = next_image_frames[
+                            len(next_image_frames) - resolved_image_stack_size:
+                        ]
                         active_t[slot] = next_t
     finally:
         try:
@@ -1219,7 +1234,7 @@ def collect_teacher_dataset(
         "obs_stride_raw_frames": obs_stride_raw_frames,
         "image_source": "env_raw_rgb",
         "image_stack_source": ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
-        "image_stack_size": image_stack_size,
+        "image_stack_size": resolved_image_stack_size,
         "image_resolution": image_resolution,
         "train_episodes": _episode_count(train_rows),
         "val_episodes": _episode_count(val_rows),
@@ -1266,6 +1281,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", type=str, default="")
     parser.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--export-image-size", type=str, default="")
+    parser.add_argument("--image-stack-size", type=int, default=None)
     parser.add_argument("--image-writer-workers", type=int, default=0)
     parser.add_argument("--row-buffer-size", type=int, default=8192)
     parser.add_argument("--push-to-hub", action="store_true")
@@ -1300,6 +1316,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         export_image_size=_parse_image_size(str(args.export_image_size)),
         image_writer_workers=int(args.image_writer_workers),
         row_buffer_size=int(args.row_buffer_size),
+        image_stack_size=args.image_stack_size,
         return_rows=False,
     )
     split_stats = _episode_row_split_stats(output_dir)

@@ -23,6 +23,7 @@ Optional environment variables:
   DEVICE              Sample Factory device override. Default: cpu.
   LATENCY_CONFIG      YAML file with a training-compatible latency: section.
   EXPORT_IMAGE_SIZE   Optional saved image size, e.g. 512,288.
+  IMAGE_STACK_SIZE    Optional number of raw RGB history frames to write per row.
   HF_REPO_ID          If set, upload the export to this Hugging Face dataset repo.
   HF_PRIVATE          Set to 1 to upload as private. Default: 1.
   HF_TOKEN            Hugging Face token used when HF_REPO_ID is set.
@@ -68,6 +69,10 @@ if [[ -n "${EXPORT_IMAGE_SIZE:-}" ]]; then
     CMD+=(--export-image-size "${EXPORT_IMAGE_SIZE}")
 fi
 
+if [[ -n "${IMAGE_STACK_SIZE:-}" ]]; then
+    CMD+=(--image-stack-size "${IMAGE_STACK_SIZE}")
+fi
+
 if [[ -n "${HF_REPO_ID:-}" ]]; then
     CMD+=(--push-to-hub --hf-repo-id "${HF_REPO_ID}" --hf-token "${HF_TOKEN:-}")
     if [[ "${HF_PRIVATE}" == "1" || "${HF_PRIVATE}" == "true" ]]; then
@@ -85,6 +90,9 @@ else
 fi
 if [[ -n "${HF_REPO_ID:-}" ]]; then
     printf '    upload:     %s\n' "${HF_REPO_ID}"
+fi
+if [[ -n "${IMAGE_STACK_SIZE:-}" ]]; then
+    printf '    image stack: %s\n' "${IMAGE_STACK_SIZE}"
 fi
 
 "${CMD[@]}"
