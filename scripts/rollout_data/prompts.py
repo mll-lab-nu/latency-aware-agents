@@ -9,7 +9,7 @@ BASE_PROMPTS = {
 }
 
 TIMING_SUFFIX = (
-    # " Current action latency is {latency_raw_frames} raw frames ({latency_ms:.2f} ms). "
+    " Current action latency is {latency_raw_frames} raw frames ({latency_ms:.2f} ms). "
     " The environment runs at {env_fps:g} FPS and observations are emitted at {obs_fps:g} FPS. "
     "Choose the best next action."
 )
