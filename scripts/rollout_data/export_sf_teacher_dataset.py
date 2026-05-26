@@ -586,6 +586,24 @@ def _single_env_info(info: Any) -> Mapping[str, Any]:
     return info[0]
 
 
+def _batched_observation_at(observation: Any, index: int) -> Any:
+    if isinstance(observation, Mapping):
+        return {key: _batched_observation_at(value, index) for key, value in observation.items()}
+    if torch is not None and isinstance(observation, torch.Tensor):
+        return observation[index : index + 1]
+    return np.asarray(observation)[index : index + 1]
+
+
+def _batched_info_at(info: Sequence[Mapping[str, Any]], index: int) -> Mapping[str, Any]:
+    return info[index]
+
+
+def _batched_value_at(value: Any, index: int) -> Any:
+    if torch is not None and isinstance(value, torch.Tensor):
+        value = value.detach().cpu().numpy()
+    return _to_python_action(value[int(index)])
+
+
 def _latency_from_info(info: Mapping[str, Any], *, fallback_raw_frames: int, env_fps: float) -> tuple[int, float]:
     raw_frames = info.get("latency_raw_frames", fallback_raw_frames)
     latency_ms = info.get("latency_ms")
@@ -1017,6 +1035,443 @@ def _sample_factory_init_log(output_dir: Path):
                 handler.setStream(stream)
 
 
+@dataclass
+class _RolloutStepResult:
+    next_obs: Any
+    reward: Any
+    terminated: Any
+    truncated: Any
+    info: Mapping[str, Any]
+
+
+class _SerialTeacherRolloutDriver:
+    def __init__(self, envs: Sequence[Any]):
+        self.envs = list(envs)
+
+    @property
+    def slot_count(self) -> int:
+        return len(self.envs)
+
+    @property
+    def action_space(self) -> Any:
+        return self.envs[0].action_space
+
+    @property
+    def action_label_env(self) -> Any:
+        return self.envs[0]
+
+    def reset_slots(
+        self,
+        reset_plan: Mapping[int, int],
+        active_mask: Sequence[bool],
+    ) -> dict[int, tuple[Any, Mapping[str, Any]]]:
+        del active_mask
+        observations = {}
+        for slot, seed in reset_plan.items():
+            obs, reset_info = self.envs[int(slot)].reset(seed=int(seed))
+            observations[int(slot)] = (obs, dict(_single_env_info(reset_info)))
+        return observations
+
+    def step(self, active_slots: Sequence[int], raw_actions: Sequence[Any]) -> dict[int, _RolloutStepResult]:
+        step_results = {}
+        for batch_idx, slot in enumerate(active_slots):
+            next_obs, reward, terminated, truncated, info = self.envs[int(slot)].step([raw_actions[batch_idx]])
+            step_results[int(slot)] = _RolloutStepResult(
+                next_obs=next_obs,
+                reward=_to_python_action(reward),
+                terminated=_to_python_action(terminated),
+                truncated=_to_python_action(truncated),
+                info=dict(_single_env_info(info)),
+            )
+        return step_results
+
+    def sync_active(self, active_mask: Sequence[bool]) -> None:
+        del active_mask
+
+    def close(self) -> None:
+        for env in self.envs:
+            env.close()
+
+
+class _FlappyBatchedTeacherRolloutDriver:
+    def __init__(self, env: Any, slot_count: int):
+        self.env = env
+        self.control_env = env.unwrapped
+        self._slot_count = int(slot_count)
+        self._reset_started = False
+
+    @property
+    def slot_count(self) -> int:
+        return self._slot_count
+
+    @property
+    def action_space(self) -> Any:
+        return self.env.action_space
+
+    @property
+    def action_label_env(self) -> Any:
+        return self.env
+
+    def reset_slots(
+        self,
+        reset_plan: Mapping[int, int],
+        active_mask: Sequence[bool],
+    ) -> dict[int, tuple[Any, Mapping[str, Any]]]:
+        if not self._reset_started:
+            first_seed = reset_plan[0]
+            obs_batch, info_batch = self.env.reset(seed=first_seed)
+            self._reset_started = True
+            non_sequential_plan = {
+                slot: seed
+                for slot, seed in reset_plan.items()
+                if seed != first_seed + slot
+            }
+            if non_sequential_plan:
+                obs_batch, info_batch = self.control_env.reset_agents(
+                    non_sequential_plan,
+                    active_mask=list(active_mask),
+                )
+            elif list(active_mask) != [True for _ in range(self._slot_count)]:
+                self.control_env.set_active_agents(list(active_mask))
+            return {
+                slot: (
+                    _batched_observation_at(obs_batch, slot),
+                    dict(_batched_info_at(info_batch, slot)),
+                )
+                for slot in reset_plan
+            }
+
+        obs_batch, info_batch = self.control_env.reset_agents(
+            reset_plan,
+            active_mask=list(active_mask),
+        )
+        return {
+            slot: (
+                _batched_observation_at(obs_batch, slot),
+                dict(_batched_info_at(info_batch, slot)),
+            )
+            for slot in reset_plan
+        }
+
+    def step(self, active_slots: Sequence[int], raw_actions: Sequence[Any]) -> dict[int, _RolloutStepResult]:
+        full_actions = [0 for _ in range(self._slot_count)]
+        for batch_idx, slot in enumerate(active_slots):
+            full_actions[slot] = raw_actions[batch_idx]
+        next_obs_batch, rewards, terminated, truncated, infos = self.env.step(full_actions)
+        return {
+            slot: _RolloutStepResult(
+                next_obs=_batched_observation_at(next_obs_batch, slot),
+                reward=_batched_value_at(rewards, slot),
+                terminated=_batched_value_at(terminated, slot),
+                truncated=_batched_value_at(truncated, slot),
+                info=dict(_batched_info_at(infos, slot)),
+            )
+            for slot in active_slots
+        }
+
+    def sync_active(self, active_mask: Sequence[bool]) -> None:
+        self.control_env.set_active_agents(list(active_mask))
+
+    def close(self) -> None:
+        self.env.close()
+
+
+def _use_single_flappy_batched_rollout(env_name: str, cfg: Any, num_envs: int) -> bool:
+    return str(env_name) == "flappy" and int(num_envs) > 1 and bool(cfg.use_gpu_render)
+
+
+def _episode_specs(
+    *,
+    max_episodes: int,
+    val_fraction: float,
+    split_seed: int,
+    base_seed: int,
+) -> list[dict[str, Any]]:
+    val_count = int(round(int(max_episodes) * float(val_fraction)))
+    val_indices = set(np.random.default_rng(int(split_seed)).choice(int(max_episodes), size=val_count, replace=False).tolist())
+    return [
+        {
+            "episode_idx": idx,
+            "split": "val" if idx in val_indices else "train",
+            "seed": int(base_seed) + idx,
+        }
+        for idx in range(int(max_episodes))
+    ]
+
+
+def _teacher_dataset_row(
+    *,
+    env_name: str,
+    spec: Mapping[str, Any],
+    t: int,
+    image_stack: Sequence[str],
+    raw_action: Any,
+    action_labels: Mapping[int, str],
+    info: Mapping[str, Any],
+    reward: Any,
+    done: bool,
+    deterministic: bool,
+    fallback_latency: int,
+    env_fps: float,
+    obs_fps: float,
+) -> dict[str, Any]:
+    latency_raw_frames, latency_ms = _latency_from_info(
+        info,
+        fallback_raw_frames=fallback_latency,
+        env_fps=env_fps,
+    )
+    action_id = _action_id(raw_action)
+    action_vector, action_text = action_vector_and_text_for_env(env_name, raw_action, action_labels)
+    return {
+        "image_stack": image_stack,
+        "split": str(spec["split"]),
+        "prompt": render_teacher_prompt(
+            env_name,
+            latency_raw_frames=latency_raw_frames,
+            latency_ms=latency_ms,
+            env_fps=env_fps,
+            obs_fps=obs_fps,
+        ),
+        "action": action_vector,
+        "action_id": int(action_id),
+        "action_text": action_text,
+        "latency_raw_frames": int(latency_raw_frames),
+        "latency_ms": float(latency_ms),
+        "reward": float(reward),
+        "done": bool(done),
+        "episode_idx": int(spec["episode_idx"]),
+        "t": int(t),
+        "seed": int(spec["seed"]),
+        "deterministic": bool(deterministic),
+    }
+
+
+def _collect_teacher_dataset_with_driver(
+    runtime: Mapping[str, Any],
+    cfg: Any,
+    driver: _SerialTeacherRolloutDriver | _FlappyBatchedTeacherRolloutDriver,
+    *,
+    env_name: str,
+    output_dir: Path,
+    max_episodes: int,
+    max_steps_per_episode: int,
+    val_fraction: float,
+    split_seed: int,
+    deterministic: bool,
+    export_image_size: tuple[int, int] | None,
+    image_writer_workers: int,
+    row_buffer_size: int,
+    resolved_image_stack_size: int,
+    frame_stack: int,
+    return_rows: bool,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    actor_critic = runtime["actor_critic"]
+    device = runtime["device"]
+    prepare_and_normalize_obs = runtime["prepare_and_normalize_obs"]
+    argmax_actions = runtime["argmax_actions"]
+    preprocess_actions = runtime["preprocess_actions"]
+    unsqueeze_tensor = runtime["unsqueeze_tensor"]
+    rnn_size = runtime["rnn_size"]
+    action_labels = _action_labels_for_env(env_name, driver.action_label_env)
+    env_fps = float(cfg.env_fps)
+    obs_fps = float(cfg.obs_fps)
+    obs_stride_raw_frames = int(env_fps / obs_fps)
+    latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=env_fps)
+    fallback_latency = int(latency_params.fixed_latency_raw_frames)
+    episode_specs = _episode_specs(
+        max_episodes=int(max_episodes),
+        val_fraction=float(val_fraction),
+        split_seed=int(split_seed),
+        base_seed=int(cfg.seed),
+    )
+    if return_rows:
+        train_rows, val_rows, completed_episode_indices = _load_episode_row_shards(output_dir)
+    else:
+        train_rows = []
+        val_rows = []
+        completed_episode_indices = _completed_episode_indices_from_shards(output_dir)
+    episode_specs = [spec for spec in episode_specs if int(spec["episode_idx"]) not in completed_episode_indices]
+
+    active_specs: list[dict[str, Any] | None] = [None for _ in range(driver.slot_count)]
+    active_obs: list[Any | None] = [None for _ in range(driver.slot_count)]
+    active_image_frames: list[list[np.ndarray]] = [[] for _ in range(driver.slot_count)]
+    active_episode_rows: list[list[dict[str, Any]]] = [[] for _ in range(driver.slot_count)]
+    active_t = [0 for _ in range(driver.slot_count)]
+    rnn_states = torch.zeros([driver.slot_count, rnn_size], dtype=torch.float32, device=device)
+    pending_futures: set[Future[None]] = set()
+    executor = ThreadPoolExecutor(max_workers=int(image_writer_workers)) if int(image_writer_workers) > 0 else None
+    image_resolution: list[int] | None = None
+
+    def active_mask() -> list[bool]:
+        return [spec is not None for spec in active_specs]
+
+    def assign_episode(slot: int, spec: Mapping[str, Any], obs: Any, reset_info: Mapping[str, Any]) -> None:
+        active_specs[slot] = spec
+        active_obs[slot] = obs
+        active_image_frames[slot] = frames_for_dataset_image(
+            reset_info,
+            image_stack_size=resolved_image_stack_size,
+        )
+        active_episode_rows[slot] = []
+        active_t[slot] = 0
+        rnn_states[slot].zero_()
+
+    def clear_slot(slot: int) -> None:
+        active_specs[slot] = None
+        active_obs[slot] = None
+        active_image_frames[slot] = []
+        active_episode_rows[slot] = []
+        active_t[slot] = 0
+        rnn_states[slot].zero_()
+
+    try:
+        next_spec_idx = 0
+        initial_reset_plan: dict[int, int] = {}
+        for slot in range(driver.slot_count):
+            if next_spec_idx >= len(episode_specs):
+                break
+            spec = episode_specs[next_spec_idx]
+            active_specs[slot] = spec
+            initial_reset_plan[slot] = int(spec["seed"])
+            next_spec_idx += 1
+        if initial_reset_plan:
+            reset_results = driver.reset_slots(initial_reset_plan, active_mask())
+            for slot, (obs, reset_info) in reset_results.items():
+                assign_episode(slot, active_specs[slot], obs, reset_info)
+
+        completed = len(completed_episode_indices)
+        with tqdm(total=int(max_episodes), initial=completed, unit="episode") as progress:
+            while completed < int(max_episodes):
+                active_slots = [slot for slot, spec in enumerate(active_specs) if spec is not None]
+                if not active_slots:
+                    break
+                obs_batch = _batch_observations([active_obs[slot] for slot in active_slots])
+                normalized_obs = prepare_and_normalize_obs(actor_critic, obs_batch)
+                with torch.no_grad():
+                    policy_outputs = actor_critic(normalized_obs, rnn_states[active_slots])
+                    actions = policy_outputs["actions"]
+                    if deterministic:
+                        actions = _deterministic_actions_for_space(
+                            actor_critic.action_distribution(),
+                            action_space=driver.action_space,
+                            argmax_actions=argmax_actions,
+                            device=device,
+                        )
+                    actions = _normalize_actions_for_space(
+                        actions,
+                        batch_size=len(active_slots),
+                        action_space=driver.action_space,
+                        device=device,
+                        unsqueeze_tensor=unsqueeze_tensor,
+                    )
+                    processed_actions = preprocess_actions(runtime["env_info"], actions)
+                    raw_actions = _split_batch_actions(
+                        processed_actions,
+                        len(active_slots),
+                        action_space=driver.action_space,
+                    )
+                    new_rnn_states = policy_outputs["new_rnn_states"]
+
+                step_results = driver.step(active_slots, raw_actions)
+                reset_plan: dict[int, int] = {}
+
+                for batch_idx, slot in enumerate(active_slots):
+                    spec = active_specs[slot]
+                    split = str(spec["split"])
+                    t = int(active_t[slot])
+                    stack_dir = output_dir / "images" / split / f"episode_{int(spec['episode_idx']):06d}" / f"t_{t:06d}"
+                    image_frames = active_image_frames[slot]
+                    if image_resolution is None:
+                        image_resolution = _image_resolution_from_frame(image_frames[-1], export_image_size)
+                    image_stack, pending_futures = _submit_image_write(
+                        executor,
+                        pending_futures,
+                        image_frames,
+                        stack_dir=stack_dir,
+                        export_image_size=export_image_size,
+                        row_buffer_size=int(row_buffer_size),
+                    )
+                    raw_action = raw_actions[batch_idx]
+                    step_result = step_results[slot]
+                    done = bool(step_result.terminated) or bool(step_result.truncated)
+                    row = _teacher_dataset_row(
+                        env_name=env_name,
+                        spec=spec,
+                        t=t,
+                        image_stack=image_stack,
+                        raw_action=raw_action,
+                        action_labels=action_labels,
+                        info=step_result.info,
+                        reward=step_result.reward,
+                        done=done,
+                        deterministic=bool(deterministic),
+                        fallback_latency=fallback_latency,
+                        env_fps=env_fps,
+                        obs_fps=obs_fps,
+                    )
+                    active_episode_rows[slot].append(row)
+                    if return_rows:
+                        if split == "val":
+                            val_rows.append(row)
+                        else:
+                            train_rows.append(row)
+
+                    rnn_states[slot] = new_rnn_states[batch_idx]
+                    next_t = t + 1
+                    if bool(row["done"]) or next_t >= int(max_steps_per_episode):
+                        _wait_for_image_writes(pending_futures)
+                        pending_futures = set()
+                        _write_episode_row_shard(output_dir, active_episode_rows[slot])
+                        progress.update(1)
+                        completed += 1
+                        if next_spec_idx < len(episode_specs):
+                            next_spec = episode_specs[next_spec_idx]
+                            active_specs[slot] = next_spec
+                            reset_plan[slot] = int(next_spec["seed"])
+                            next_spec_idx += 1
+                        else:
+                            clear_slot(slot)
+                    else:
+                        active_obs[slot] = step_result.next_obs
+                        next_image_frames = [
+                            *active_image_frames[slot],
+                            frames_from_env_raw_rgb_info(step_result.info)[-1],
+                        ]
+                        active_image_frames[slot] = next_image_frames[
+                            len(next_image_frames) - resolved_image_stack_size:
+                        ]
+                        active_t[slot] = next_t
+
+                if reset_plan:
+                    reset_results = driver.reset_slots(reset_plan, active_mask())
+                    for slot, (obs, reset_info) in reset_results.items():
+                        assign_episode(slot, active_specs[slot], obs, reset_info)
+                else:
+                    driver.sync_active(active_mask())
+    finally:
+        try:
+            _wait_for_image_writes(pending_futures)
+        finally:
+            if executor is not None:
+                executor.shutdown(wait=True)
+            driver.close()
+
+    return _sort_rows(train_rows), _sort_rows(val_rows), {
+        "action_labels": action_labels,
+        "checkpoint_train_step": int(runtime["checkpoint"]["train_step"]),
+        "frame_stack": frame_stack,
+        "env_fps": env_fps,
+        "obs_fps": obs_fps,
+        "obs_stride_raw_frames": obs_stride_raw_frames,
+        "image_source": "env_raw_rgb",
+        "image_stack_source": ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
+        "image_stack_size": resolved_image_stack_size,
+        "image_resolution": image_resolution,
+        "train_episodes": _episode_count(train_rows),
+        "val_episodes": _episode_count(val_rows),
+    }
+
+
 def collect_teacher_dataset(
     config: dict[str, Any],
     *,
@@ -1039,206 +1494,35 @@ def collect_teacher_dataset(
         frame_stack = cfg.frame_stack
         resolved_image_stack_size = frame_stack if image_stack_size is None else image_stack_size
         setattr(cfg, "export_env_raw_rgb_frames", True)
-        runtime = _build_env_and_policy(module, cfg, config, num_envs)
-    envs = list(runtime["envs"])
-    actor_critic = runtime["actor_critic"]
-    device = runtime["device"]
-    prepare_and_normalize_obs = runtime["prepare_and_normalize_obs"]
-    argmax_actions = runtime["argmax_actions"]
-    preprocess_actions = runtime["preprocess_actions"]
-    unsqueeze_tensor = runtime["unsqueeze_tensor"]
-    rnn_size = runtime["rnn_size"]
-    action_labels = _action_labels_for_env(env_name, envs[0])
-    env_fps = float(getattr(cfg, "env_fps"))
-    obs_fps = float(getattr(cfg, "obs_fps"))
-    obs_stride_raw_frames = int(env_fps / obs_fps)
-    latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=env_fps)
-    fallback_latency = int(latency_params.fixed_latency_raw_frames)
-    base_seed = int(getattr(cfg, "seed", 0) or 0)
-    val_count = int(round(int(max_episodes) * float(val_fraction)))
-    val_indices = set(np.random.default_rng(int(split_seed)).choice(int(max_episodes), size=val_count, replace=False).tolist())
-    episode_specs = [
-        {
-            "episode_idx": idx,
-            "split": "val" if idx in val_indices else "train",
-            "seed": base_seed + idx,
-        }
-        for idx in range(int(max_episodes))
-    ]
-    if return_rows:
-        train_rows, val_rows, completed_episode_indices = _load_episode_row_shards(output_dir)
+        use_flappy_batched_driver = _use_single_flappy_batched_rollout(env_name, cfg, num_envs)
+        if use_flappy_batched_driver:
+            maybe_set_cli_override(cfg, "gpu_render_batch_size", int(num_envs))
+            runtime = _build_env_and_policy(module, cfg, config, 1)
+        else:
+            runtime = _build_env_and_policy(module, cfg, config, num_envs)
+
+    if use_flappy_batched_driver:
+        driver = _FlappyBatchedTeacherRolloutDriver(runtime["envs"][0], int(num_envs))
     else:
-        train_rows = []
-        val_rows = []
-        completed_episode_indices = _completed_episode_indices_from_shards(output_dir)
-    episode_specs = [spec for spec in episode_specs if int(spec["episode_idx"]) not in completed_episode_indices]
-    active_specs: list[dict[str, Any] | None] = [None for _ in envs]
-    active_obs: list[Any | None] = [None for _ in envs]
-    active_image_frames: list[list[np.ndarray]] = [[] for _ in envs]
-    active_episode_rows: list[list[dict[str, Any]]] = [[] for _ in envs]
-    active_t = [0 for _ in envs]
-    rnn_states = torch.zeros([len(envs), rnn_size], dtype=torch.float32, device=device)
-    pending_futures: set[Future[None]] = set()
-    executor = ThreadPoolExecutor(max_workers=int(image_writer_workers)) if int(image_writer_workers) > 0 else None
-    image_resolution: list[int] | None = None
-
-    def start_episode(slot: int, spec: dict[str, Any]) -> None:
-        obs, reset_info = envs[slot].reset(seed=int(spec["seed"]))
-        active_specs[slot] = spec
-        active_obs[slot] = obs
-        active_image_frames[slot] = frames_for_dataset_image(
-            dict(_single_env_info(reset_info)),
-            image_stack_size=resolved_image_stack_size,
-        )
-        active_episode_rows[slot] = []
-        active_t[slot] = 0
-        rnn_states[slot].zero_()
-
-    try:
-        next_spec_idx = 0
-        for slot in range(len(envs)):
-            if next_spec_idx >= len(episode_specs):
-                break
-            start_episode(slot, episode_specs[next_spec_idx])
-            next_spec_idx += 1
-
-        completed = len(completed_episode_indices)
-        with tqdm(total=int(max_episodes), initial=completed, unit="episode") as progress:
-            while completed < int(max_episodes):
-                active_slots = [slot for slot, spec in enumerate(active_specs) if spec is not None]
-                if not active_slots:
-                    break
-                obs_batch = _batch_observations([active_obs[slot] for slot in active_slots])
-                normalized_obs = prepare_and_normalize_obs(actor_critic, obs_batch)
-                with torch.no_grad():
-                    policy_outputs = actor_critic(normalized_obs, rnn_states[active_slots])
-                    actions = policy_outputs["actions"]
-                    if deterministic:
-                        actions = _deterministic_actions_for_space(
-                            actor_critic.action_distribution(),
-                            action_space=envs[0].action_space,
-                            argmax_actions=argmax_actions,
-                            device=device,
-                        )
-                    actions = _normalize_actions_for_space(
-                        actions,
-                        batch_size=len(active_slots),
-                        action_space=envs[0].action_space,
-                        device=device,
-                        unsqueeze_tensor=unsqueeze_tensor,
-                    )
-                    processed_actions = preprocess_actions(runtime["env_info"], actions)
-                    raw_actions = _split_batch_actions(processed_actions, len(active_slots), action_space=envs[0].action_space)
-                    new_rnn_states = policy_outputs["new_rnn_states"]
-
-                for batch_idx, slot in enumerate(active_slots):
-                    spec = active_specs[slot]
-                    obs = active_obs[slot]
-                    split = str(spec["split"])
-                    t = int(active_t[slot])
-                    stack_dir = output_dir / "images" / split / f"episode_{int(spec['episode_idx']):06d}" / f"t_{t:06d}"
-                    image_frames = active_image_frames[slot]
-                    if image_resolution is None:
-                        image_resolution = _image_resolution_from_frame(image_frames[-1], export_image_size)
-                    image_stack, pending_futures = _submit_image_write(
-                        executor,
-                        pending_futures,
-                        image_frames,
-                        stack_dir=stack_dir,
-                        export_image_size=export_image_size,
-                        row_buffer_size=int(row_buffer_size),
-                    )
-                    raw_action = raw_actions[batch_idx]
-                    action_id = _action_id(raw_action)
-                    action_vector, action_text = action_vector_and_text_for_env(env_name, raw_action, action_labels)
-                    next_obs, reward, terminated, truncated, info = envs[slot].step([raw_action])
-                    info_dict = dict(_single_env_info(info))
-                    latency_raw_frames, latency_ms = _latency_from_info(
-                        info_dict,
-                        fallback_raw_frames=fallback_latency,
-                        env_fps=env_fps,
-                    )
-                    done = bool(_to_python_action(terminated)) or bool(_to_python_action(truncated))
-                    row = {
-                        "image_stack": image_stack,
-                        "split": split,
-                        "prompt": render_teacher_prompt(
-                            env_name,
-                            latency_raw_frames=latency_raw_frames,
-                            latency_ms=latency_ms,
-                            env_fps=env_fps,
-                            obs_fps=obs_fps,
-                        ),
-                        "action": action_vector,
-                        "action_id": int(action_id),
-                        "action_text": action_text,
-                        "latency_raw_frames": int(latency_raw_frames),
-                        "latency_ms": float(latency_ms),
-                        "reward": float(_to_python_action(reward)),
-                        "done": done,
-                        "episode_idx": int(spec["episode_idx"]),
-                        "t": t,
-                        "seed": int(spec["seed"]),
-                        "deterministic": bool(deterministic),
-                    }
-                    active_episode_rows[slot].append(row)
-                    if return_rows:
-                        if split == "val":
-                            val_rows.append(row)
-                        else:
-                            train_rows.append(row)
-
-                    rnn_states[slot] = new_rnn_states[batch_idx]
-                    next_t = t + 1
-                    if bool(row["done"]) or next_t >= int(max_steps_per_episode):
-                        _wait_for_image_writes(pending_futures)
-                        pending_futures = set()
-                        _write_episode_row_shard(output_dir, active_episode_rows[slot])
-                        progress.update(1)
-                        completed += 1
-                        if next_spec_idx < len(episode_specs):
-                            start_episode(slot, episode_specs[next_spec_idx])
-                            next_spec_idx += 1
-                        else:
-                            active_specs[slot] = None
-                            active_obs[slot] = None
-                            active_image_frames[slot] = []
-                            active_episode_rows[slot] = []
-                            active_t[slot] = 0
-                            rnn_states[slot].zero_()
-                    else:
-                        active_obs[slot] = next_obs
-                        next_image_frames = [
-                            *active_image_frames[slot],
-                            frames_from_env_raw_rgb_info(info_dict)[-1],
-                        ]
-                        active_image_frames[slot] = next_image_frames[
-                            len(next_image_frames) - resolved_image_stack_size:
-                        ]
-                        active_t[slot] = next_t
-    finally:
-        try:
-            _wait_for_image_writes(pending_futures)
-        finally:
-            if executor is not None:
-                executor.shutdown(wait=True)
-            for env in envs:
-                env.close()
-
-    return _sort_rows(train_rows), _sort_rows(val_rows), {
-        "action_labels": action_labels,
-        "checkpoint_train_step": int(runtime["checkpoint"].get("train_step", runtime["checkpoint"].get("env_steps", 0))),
-        "frame_stack": frame_stack,
-        "env_fps": env_fps,
-        "obs_fps": obs_fps,
-        "obs_stride_raw_frames": obs_stride_raw_frames,
-        "image_source": "env_raw_rgb",
-        "image_stack_source": ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
-        "image_stack_size": resolved_image_stack_size,
-        "image_resolution": image_resolution,
-        "train_episodes": _episode_count(train_rows),
-        "val_episodes": _episode_count(val_rows),
-    }
+        driver = _SerialTeacherRolloutDriver(runtime["envs"])
+    return _collect_teacher_dataset_with_driver(
+        runtime,
+        cfg,
+        driver,
+        env_name=env_name,
+        output_dir=output_dir,
+        max_episodes=int(max_episodes),
+        max_steps_per_episode=int(max_steps_per_episode),
+        val_fraction=float(val_fraction),
+        split_seed=int(split_seed),
+        deterministic=bool(deterministic),
+        export_image_size=export_image_size,
+        image_writer_workers=int(image_writer_workers),
+        row_buffer_size=int(row_buffer_size),
+        resolved_image_stack_size=int(resolved_image_stack_size),
+        frame_stack=int(frame_stack),
+        return_rows=bool(return_rows),
+    )
 
 
 def _parse_image_size(value: str) -> tuple[int, int] | None:

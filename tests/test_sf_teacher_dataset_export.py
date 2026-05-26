@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -397,7 +398,7 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
 
     fake_envs = [FakeEnv(slot) for slot in range(2)]
     fake_actor = FakeActorCritic()
-    fake_cfg = SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=11)
+    fake_cfg = SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=11, use_gpu_render=False)
 
     monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
     monkeypatch.setattr(
