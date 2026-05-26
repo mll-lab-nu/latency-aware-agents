@@ -14,6 +14,10 @@ set -euo pipefail
 # Do not copy private SSH keys onto rented machines. If agent forwarding is not
 # acceptable, use a GitHub deploy key or a short-lived token instead.
 #
+
+CONDA_BASE="$(conda info --base)"
+source "$CONDA_BASE/etc/profile.d/conda.sh"
+
 git submodule update --init --recursive
 
 conda create -n latency python=3.10 -y
