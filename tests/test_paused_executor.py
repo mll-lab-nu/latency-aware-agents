@@ -56,7 +56,12 @@ def test_paused_slow_policy_does_not_change_trajectory():
 def test_paused_logs_configured_latency_without_delaying_action(tmp_path: Path):
     _, clock, _, jump_action, _ = make_dummy_parts()
     fixed_latency_ms = clock.frame_ms * 2
-    logger = TrajectoryLogger(tmp_path)
+    logger = TrajectoryLogger(
+        tmp_path,
+        save_step_records=True,
+        save_action_records=True,
+        save_latency_records=True,
+    )
     executor = _executor(fixed_latency_ms, [jump_action], max_steps=2, logger=logger)
 
     metrics = executor.run_episode(episode_id=0, eval_max_steps=2)

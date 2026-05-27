@@ -79,6 +79,9 @@ def _config(tmp_path: Path, *, latency: dict | None = None, env_name: str = "dum
         },
         "logging": {
             "output_dir": str(tmp_path),
+            "save_step_records": True,
+            "save_action_records": True,
+            "save_latency_records": True,
         },
     }
 

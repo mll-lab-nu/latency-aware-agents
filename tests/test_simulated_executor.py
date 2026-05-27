@@ -465,7 +465,12 @@ def test_simulated_executor_does_not_sleep(monkeypatch):
 
 
 def test_simulated_executor_logs_records_and_metrics(tmp_path: Path):
-    logger = TrajectoryLogger(tmp_path)
+    logger = TrajectoryLogger(
+        tmp_path,
+        save_step_records=True,
+        save_action_records=True,
+        save_latency_records=True,
+    )
     executor, _, _, _ = _executor(ZeroLatencySource(), max_steps=3, logger=logger)
 
     metrics = executor.run_episode(episode_id=7, eval_max_steps=3)

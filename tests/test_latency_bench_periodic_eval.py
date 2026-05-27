@@ -52,6 +52,9 @@ def _training_config(tmp_path: Path) -> dict:
         },
         "logging": {
             "output_dir": str(tmp_path / "train_outputs"),
+            "save_step_records": True,
+            "save_action_records": True,
+            "save_latency_records": True,
         },
     }
 

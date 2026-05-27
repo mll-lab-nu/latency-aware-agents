@@ -63,6 +63,9 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
         },
         "logging": {
             "output_dir": output_dir,
+            "save_step_records": True,
+            "save_action_records": True,
+            "save_latency_records": True,
         },
     }
 

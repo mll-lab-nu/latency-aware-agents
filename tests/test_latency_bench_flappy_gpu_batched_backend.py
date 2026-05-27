@@ -74,6 +74,9 @@ def _config(output_dir: str, *, num_episodes: int = 3, score_limit: int | None =
         },
         "logging": {
             "output_dir": output_dir,
+            "save_step_records": True,
+            "save_action_records": True,
+            "save_latency_records": True,
         },
     }
 

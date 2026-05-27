@@ -53,6 +53,9 @@ def _config(env_name: str = "dummy", output_dir: str = "outputs/factory_test") -
         },
         "logging": {
             "output_dir": output_dir,
+            "save_step_records": True,
+            "save_action_records": True,
+            "save_latency_records": True,
         },
     }
 

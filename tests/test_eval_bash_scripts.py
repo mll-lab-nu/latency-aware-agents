@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -101,10 +102,136 @@ def test_openvla_install_script_bootstraps_rlinf_oft_environment():
     assert "pip install -e \"${REPO_ROOT}/openvla\"" not in text
 
 
-def test_starvla_rl_games_openvla_installer_pins_flash_attn_wheel():
-    script_path = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "model" / "openvla.sh"
+def test_starvla_rl_games_installers_match_flash_attn_wheel_to_runtime(tmp_path):
+    install_dir = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install"
+    helper_path = install_dir / "flash_attn.sh"
+    model_scripts = [
+        install_dir / "model" / "openvla.sh",
+        install_dir / "model" / "pi0.sh",
+        install_dir / "model" / "gr00t.sh",
+    ]
 
-    assert script_path.is_file()
+    fake_python = tmp_path / "python"
+    fake_log = tmp_path / "python.log"
+    fake_python.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "-" ]]; then
+  cat >/dev/null
+  printf 'cp310\\n2.7\\ncu12\\nFALSE\\n'
+  exit 0
+fi
+printf '%s\\n' "$*" >> "${PYTHON_FAKE_LOG}"
+exit 0
+""",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    for script_path in [helper_path, *model_scripts]:
+        syntax = subprocess.run(
+            ["bash", "-n", str(script_path)],
+            cwd=REPO_ROOT / "starVLA",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert syntax.returncode == 0, syntax.stderr
+
+    expected_wheel = (
+        "flash_attn-2.8.3+cu12torch2.7cxx11abiFALSE-"
+        "cp310-cp310-linux_x86_64.whl"
+    )
+
+    for script_path in model_scripts:
+        fake_log.write_text("", encoding="utf-8")
+        result = subprocess.run(
+            ["bash", str(script_path)],
+            cwd=REPO_ROOT / "starVLA",
+            env={
+                **os.environ,
+                "PYTHON_BIN": str(fake_python),
+                "PYTHON_FAKE_LOG": str(fake_log),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert expected_wheel in fake_log.read_text(encoding="utf-8")
+
+
+def test_starvla_flash_attn_helper_uses_python_abi_tag(tmp_path):
+    helper_path = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "flash_attn.sh"
+    (tmp_path / "torch.py").write_text(
+        """__version__ = "2.7.1+cu128"
+
+class _Version:
+    cuda = "12.8"
+
+class _CType:
+    _GLIBCXX_USE_CXX11_ABI = True
+
+version = _Version()
+_C = _CType()
+""",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", str(helper_path), "--print-url"],
+        cwd=REPO_ROOT / "starVLA",
+        env={
+            **os.environ,
+            "PYTHON_BIN": sys.executable,
+            "PYTHONPATH": str(tmp_path),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    py_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
+    assert result.returncode == 0, result.stderr
+    assert f"{py_tag}-{py_tag}-linux_x86_64.whl" in result.stdout
+    assert "cpython-" not in result.stdout
+
+
+def test_starvla_flash_attn_helper_rejects_unsupported_runtime(tmp_path):
+    helper_path = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "flash_attn.sh"
+    fake_python = tmp_path / "python"
+    fake_python.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+cat >/dev/null
+printf 'cp310\\n2.5\\ncu11\\nFALSE\\n'
+""",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", str(helper_path), "--print-url"],
+        cwd=REPO_ROOT / "starVLA",
+        env={**os.environ, "PYTHON_BIN": str(fake_python)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "unsupported torch/CUDA runtime" in result.stderr
+
+
+def test_starvla_rl_games_hfd_raw_download_convert_dry_run_single_dataset():
+    script_path = (
+        REPO_ROOT
+        / "starVLA"
+        / "examples"
+        / "rl_games"
+        / "scripts"
+        / "download_convert_rl_games_raw.sh"
+    )
 
     syntax = subprocess.run(
         ["bash", "-n", str(script_path)],
@@ -115,10 +242,69 @@ def test_starvla_rl_games_openvla_installer_pins_flash_attn_wheel():
     )
     assert syntax.returncode == 0, syntax.stderr
 
-    text = script_path.read_text(encoding="utf-8")
-    assert "flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl" in text
-    assert '"$PYTHON_BIN" -m pip install --no-deps "$FLASH_ATTN_WHEEL_URL"' in text
-    assert "import flash_attn, flash_attn_2_cuda" in text
+    result = subprocess.run(
+        [
+            "bash",
+            str(script_path),
+            "--hfd",
+            "/opt/hfd.sh",
+            "--workspace-dir",
+            "/tmp/ws",
+            "--env",
+            "demon_attack",
+            "--frame-stacks",
+            "2",
+            "--dry-run",
+        ],
+        cwd=REPO_ROOT / "starVLA",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        "/opt/hfd.sh latency-sensitive-bench/demon_attack_fixed_l2_fs2 --dataset "
+        "--local-dir /tmp/ws/outputs/rl_games_raw/demon_attack_fixed_l2_fs2"
+    ) in result.stdout
+    assert (
+        "python examples/rl_games/data_conversion/convert_demon_attack_to_starvla_lerobot.py "
+        "--dataset-name /tmp/ws/outputs/rl_games_raw/demon_attack_fixed_l2_fs2 "
+        "--output-dir /tmp/ws/playground/Datasets/rl_games/demon_attack_fixed_l2_fs2 --force"
+    ) in result.stdout
+
+
+def test_starvla_rl_games_hfd_raw_download_convert_dry_run_defaults_to_all_datasets():
+    script_path = (
+        REPO_ROOT
+        / "starVLA"
+        / "examples"
+        / "rl_games"
+        / "scripts"
+        / "download_convert_rl_games_raw.sh"
+    )
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script_path),
+            "--hfd",
+            "/opt/hfd.sh",
+            "--workspace-dir",
+            "/tmp/ws",
+            "--dry-run",
+        ],
+        cwd=REPO_ROOT / "starVLA",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.count("/opt/hfd.sh latency-sensitive-bench/") == 12
+    assert result.stdout.count("python examples/rl_games/data_conversion/convert_") == 12
+    assert "latency-sensitive-bench/flappy_fixed_l2_fs1" in result.stdout
+    assert "latency-sensitive-bench/deadly_corridor_fixed_l2_fs6" in result.stdout
 
 
 def test_cross_device_openvla_script_forwards_filters_and_uses_openvla_runtime():

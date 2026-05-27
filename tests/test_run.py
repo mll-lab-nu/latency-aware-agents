@@ -42,6 +42,9 @@ evaluation:
   eval_max_steps: 1
 logging:
   output_dir: {output_dir}
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
 """,
         encoding="utf-8",
     )
@@ -75,6 +78,9 @@ policy:
   checkpoint_path: config_checkpoint.pt
 logging:
   output_dir: {output_dir}
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
 evaluation:
   eval_max_steps: 1
   eval_latency_values:
@@ -120,6 +126,9 @@ evaluation:
   eval_max_steps: 1
 logging:
   output_dir: {output_dir}
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
 """,
         encoding="utf-8",
     )
@@ -158,6 +167,9 @@ def _run_config(policy_type: str, tmp_path: Path, seed: int = 7, num_episodes: i
         },
         "logging": {
             "output_dir": str(tmp_path),
+            "save_step_records": True,
+            "save_action_records": True,
+            "save_latency_records": True,
         },
         "evaluation": {
             "eval_max_steps": 1,
@@ -420,6 +432,9 @@ evaluation:
       - [2]
 logging:
   output_dir: {tmp_path / "eval_outputs"}
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
   wandb_project: latency-sensitive-bench
   wandb_group: demon-attack-fs8-fixed_l2
   wandb_name: demon-attack-fs8-fixed_l2-s42

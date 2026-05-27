@@ -32,6 +32,9 @@ def _base_config(output_root: Path) -> dict:
         "evaluation": {},
         "logging": {
             "output_dir": str(output_root),
+            "save_step_records": True,
+            "save_action_records": True,
+            "save_latency_records": True,
         },
     }
 

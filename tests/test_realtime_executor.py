@@ -227,7 +227,12 @@ def test_realtime_records_worker_id_once_on_latency_metadata(tmp_path):
         [CompletionScript(action, ready_time_ms=1.0, worker_id=1, device="cuda:1")],
         num_workers=2,
     )
-    logger = TrajectoryLogger(tmp_path)
+    logger = TrajectoryLogger(
+        tmp_path,
+        save_step_records=True,
+        save_action_records=True,
+        save_latency_records=True,
+    )
     executor = _executor(pool=pool, max_steps=2, logger=logger)
 
     executor.run_episode(episode_id=0, eval_max_steps=2)

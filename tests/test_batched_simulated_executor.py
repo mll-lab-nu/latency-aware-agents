@@ -359,7 +359,12 @@ def _executor(
         latency_sources=latency_sources or [ZeroLatencySource() for _ in envs],
         action_schedulers=action_schedulers,
         clock=clock,
-        logger=TrajectoryLogger(tmp_path),
+        logger=TrajectoryLogger(
+            tmp_path,
+            save_step_records=True,
+            save_action_records=True,
+            save_latency_records=True,
+        ),
     )
     return executor, envs
 
@@ -409,6 +414,9 @@ def _subproc_config(
         },
         "logging": {
             "output_dir": str(tmp_path),
+            "save_step_records": True,
+            "save_action_records": True,
+            "save_latency_records": True,
         },
     }
 
@@ -458,7 +466,12 @@ def _subproc_executor(
         latency_sources=[ZeroLatencySource() for _env in backend.slot_handles],
         action_schedulers=action_schedulers,
         clock=clock,
-        logger=TrajectoryLogger(tmp_path),
+        logger=TrajectoryLogger(
+            tmp_path,
+            save_step_records=True,
+            save_action_records=True,
+            save_latency_records=True,
+        ),
     )
 
 
@@ -509,7 +522,12 @@ def _tuple_executor(
         latency_sources=[ZeroLatencySource() for _env in envs],
         action_schedulers=action_schedulers,
         clock=clock,
-        logger=TrajectoryLogger(tmp_path),
+        logger=TrajectoryLogger(
+            tmp_path,
+            save_step_records=True,
+            save_action_records=True,
+            save_latency_records=True,
+        ),
     )
     return executor, envs
 
@@ -671,7 +689,12 @@ def test_batched_executor_soft_reset_continues_same_episode_and_clears_slot_late
             )
         ],
         clock=clock,
-        logger=TrajectoryLogger(tmp_path),
+        logger=TrajectoryLogger(
+            tmp_path,
+            save_step_records=True,
+            save_action_records=True,
+            save_latency_records=True,
+        ),
     )
 
     try:

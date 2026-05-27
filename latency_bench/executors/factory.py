@@ -97,6 +97,16 @@ def get_registered_executor_modes() -> list[str]:
     return sorted(mode.value for mode in _EXECUTOR_BUILDERS)
 
 
+def _build_trajectory_logger(config: dict[str, Any]) -> TrajectoryLogger:
+    logging_cfg = config["logging"]
+    return TrajectoryLogger(
+        logging_cfg["output_dir"],
+        save_step_records=logging_cfg["save_step_records"],
+        save_action_records=logging_cfg["save_action_records"],
+        save_latency_records=logging_cfg["save_latency_records"],
+    )
+
+
 @register_executor(ExecutorMode.SIMULATED)
 def _build_simulated_executor(
     config: dict[str, Any],
@@ -142,7 +152,7 @@ def _build_single_simulated_executor(
         persistence_policy=persistence_policy,
         ordering_policy=_build_ordering_policy(scheduler_cfg),
     )
-    logger = TrajectoryLogger(config["logging"]["output_dir"])
+    logger = _build_trajectory_logger(config)
     return SimulatedLatencyExecutor(
         env=env,
         policy=policy,
@@ -208,7 +218,7 @@ def _build_batched_simulated_executor(
             )
             for env in env_backend.slot_handles
         ]
-        logger = TrajectoryLogger(config["logging"]["output_dir"])
+        logger = _build_trajectory_logger(config)
         return BatchedSimulatedLatencyExecutor(
             env_backend=env_backend,
             policy=policy,
@@ -254,7 +264,7 @@ def _build_paused_executor(
         persistence_policy=persistence_policy,
         ordering_policy=_build_ordering_policy(scheduler_cfg),
     )
-    logger = TrajectoryLogger(config["logging"]["output_dir"])
+    logger = _build_trajectory_logger(config)
     return PausedLatencyExecutor(
         env=env,
         policy=policy,
@@ -295,7 +305,7 @@ def _build_realtime_executor(
         persistence_policy=persistence_policy,
         ordering_policy=_build_ordering_policy(scheduler_cfg),
     )
-    logger = TrajectoryLogger(config["logging"]["output_dir"])
+    logger = _build_trajectory_logger(config)
     video_output_dir = _video_output_dir(config) if _video_enabled(config) else None
     return RealtimeLatencyExecutor(
         env=env,

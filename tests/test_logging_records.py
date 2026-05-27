@@ -13,6 +13,21 @@ from latency_bench.logging.records import to_jsonable
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 
 
+def _trajectory_logger(
+    output_dir: Path,
+    *,
+    save_step_records: bool = True,
+    save_action_records: bool = True,
+    save_latency_records: bool = True,
+) -> TrajectoryLogger:
+    return TrajectoryLogger(
+        output_dir,
+        save_step_records=save_step_records,
+        save_action_records=save_action_records,
+        save_latency_records=save_latency_records,
+    )
+
+
 def _old_to_jsonable_reference(value: Any) -> Any:
     if is_dataclass(value):
         return _old_to_jsonable_reference(asdict(value))
@@ -98,7 +113,7 @@ def test_to_jsonable_converts_numpy_arrays_and_scalars():
 
 
 def test_trajectory_logger_flushes_step_info_with_numpy_values(tmp_path):
-    logger = TrajectoryLogger(tmp_path)
+    logger = _trajectory_logger(tmp_path)
     logger.log_step(
         StepRecord(
             episode_id=0,
@@ -147,7 +162,7 @@ def test_to_jsonable_dataclass_path_does_not_call_asdict(monkeypatch):
 
 def _write_representative_logger_output(output_dir: Path) -> dict[str, list[str]]:
     step_record, action_event, latency_record, episode_metrics = _representative_records()
-    logger = TrajectoryLogger(output_dir)
+    logger = _trajectory_logger(output_dir)
     logger.log_step(step_record)
     logger.log_action_event(action_event)
     logger.log_latency(latency_record)
@@ -188,3 +203,28 @@ def test_trajectory_logger_fast_jsonl_matches_old_generic_conversion(tmp_path, m
         filename: [json.loads(line) for line in lines]
         for filename, lines in old_lines.items()
     }
+
+
+def test_trajectory_logger_does_not_collect_or_write_disabled_records(tmp_path):
+    step_record, action_event, latency_record, episode_metrics = _representative_records()
+    logger = _trajectory_logger(
+        tmp_path,
+        save_step_records=False,
+        save_action_records=False,
+        save_latency_records=False,
+    )
+
+    logger.log_step(step_record)
+    logger.log_action_event(action_event)
+    logger.log_latency(latency_record)
+    logger.log_episode_metrics(episode_metrics)
+    logger.flush()
+
+    assert logger.step_records == []
+    assert logger.action_records == []
+    assert logger.latency_records == []
+    assert logger.episode_metrics == [episode_metrics]
+    assert not (tmp_path / "steps.jsonl").exists()
+    assert not (tmp_path / "actions.jsonl").exists()
+    assert not (tmp_path / "latencies.jsonl").exists()
+    assert (tmp_path / "episode_metrics.jsonl").exists()
