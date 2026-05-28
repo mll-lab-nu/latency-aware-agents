@@ -26,3 +26,17 @@ def test_deadly_corridor_converter_uses_factorized_eleven_dim_actions():
         1.0,
         0.0,
     ]
+
+
+def test_deadly_corridor_converter_encodes_joint_fifty_four_actions():
+    from examples.rl_games.data_conversion import convert_deadly_corridor_to_starvla_lerobot as converter
+
+    action = converter._action_vector(
+        {"action": [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1]},
+        action_layout="joint_54",
+    )
+
+    assert len(action) == 54
+    assert sum(action) == 1.0
+    assert action[11] == 1.0
+    assert converter.joint_id_to_deadly_corridor_tuple(11) == [0, 1, 2, 1]

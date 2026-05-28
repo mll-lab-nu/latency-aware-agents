@@ -4,6 +4,8 @@ import json
 import time
 from pathlib import Path
 
+import numpy as np
+
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
@@ -166,6 +168,53 @@ class ObserveOnlyPolicyInputEnv(EnvAdapter):
         )
 
 
+class RawRgbStepInfoEnv(EnvAdapter):
+    def __init__(self, *, noop_action: Action):
+        self.env_fps = 30.0
+        self.noop_action = noop_action
+        self.env_step = 0
+
+    @property
+    def frame_ms(self) -> float:
+        return 1000.0 / self.env_fps
+
+    def reset(self, seed: int | None = None) -> Observation:
+        self.env_step = 0
+        return self._observation()
+
+    def observe(self) -> Observation:
+        return self._observation()
+
+    def step(self, action: Action) -> StepResult:
+        self.env_step += 1
+        return StepResult(
+            observation=self._observation(),
+            reward=1.0,
+            done=True,
+            truncated=False,
+            info={
+                "env_raw_rgb_frame_stack": np.full((1, 2, 3, 3), 7, dtype=np.uint8),
+                "score": 5,
+            },
+        )
+
+    def render_frame(self):
+        return {"env_step": self.env_step}
+
+    def get_state_info(self):
+        return {"env_step": self.env_step, "sim_time_ms": self.env_step * self.frame_ms}
+
+    def _observation(self) -> Observation:
+        return Observation(
+            data={"env_step": self.env_step},
+            env_step=self.env_step,
+            sim_time_ms=self.env_step * self.frame_ms,
+            metadata={
+                "env_raw_rgb_frame_stack": np.full((1, 2, 3, 3), 9, dtype=np.uint8),
+            },
+        )
+
+
 class CapturingPolicyRunner(PolicyRunner):
     def __init__(self, action: Action):
         self.action = action
@@ -316,6 +365,42 @@ def test_policy_observation_receives_sampled_latency_metadata_before_predict():
     event = executor.action_scheduler.get_applied_events()[0]
     assert event.latency.obs_id == policy.observations[0].metadata["obs_id"]
     assert event.latency_raw_frames == policy.observations[0].metadata["latency_raw_frames"]
+
+
+def test_simulated_executor_omits_raw_rgb_frame_stack_from_logged_step_info(tmp_path: Path):
+    noop = Action("noop", is_noop=True)
+    env = RawRgbStepInfoEnv(noop_action=noop)
+    policy = CapturingPolicyRunner(Action("jump"))
+    clock = EnvClock(env_fps=30, obs_fps=30)
+    logger = TrajectoryLogger(
+        tmp_path,
+        save_step_records=True,
+        save_action_records=True,
+        save_latency_records=True,
+    )
+    executor = SimulatedLatencyExecutor(
+        env=env,
+        policy=policy,
+        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
+        latency_source=ZeroLatencySource(),
+        action_scheduler=ActionScheduler(
+            clock=clock,
+            noop_action=noop,
+            persistence_policy=OneFrameThenNoopPolicy(),
+            ordering_policy=OrderingPolicy.LATEST_READY,
+        ),
+        clock=clock,
+        logger=logger,
+    )
+
+    executor.run_episode(episode_id=0, eval_max_steps=1)
+    logger.flush()
+
+    assert "env_raw_rgb_frame_stack" in policy.observations[0].metadata
+    assert "env_raw_rgb_frame_stack" not in logger.step_records[0].info
+    row = json.loads((tmp_path / "steps.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert row["info"]["score"] == 5
+    assert "env_raw_rgb_frame_stack" not in row["info"]
 
 
 def test_fixed_ms_latency_is_ceil_converted_to_raw_frames():

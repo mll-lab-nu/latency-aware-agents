@@ -31,6 +31,7 @@ from latency_bench.logging.metrics import (
     episode_raw_fact_metadata,
     profile_metadata_from_source,
 )
+from latency_bench.logging.records import step_record_info
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
@@ -377,7 +378,7 @@ class RealtimeLatencyExecutor:
             episode_done = result.done or result.truncated
             if self.video_recorder is not None and not episode_done:
                 self.video_recorder.record_frame(self.env.render_game_frame())
-            step_info = dict(result.info)
+            step_info = step_record_info(result.info)
             step_info.update(
                 {
                     "scheduled_time_ms": scheduled_time_ms,
@@ -853,7 +854,7 @@ def _env_loop_worker(
             episode_done = bool(result.done or result.truncated)
             if video_recorder is not None and not episode_done:
                 video_recorder.record_frame(env.render_game_frame())
-            step_info = dict(result.info)
+            step_info = step_record_info(result.info)
             step_info.update(
                 {
                     "scheduled_time_ms": scheduled_time_ms,

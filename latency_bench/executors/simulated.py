@@ -14,6 +14,7 @@ from latency_bench.logging.metrics import (
     latency_type_from_source,
     profile_metadata_from_source,
 )
+from latency_bench.logging.records import step_record_info
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
@@ -154,7 +155,7 @@ class SimulatedLatencyExecutor:
             episode_done = result.done or result.truncated and not soft_reset
             if self.video_recorder is not None and not episode_done:
                 self.video_recorder.record_frame(self.env.render_game_frame())
-            step_info = dict(result.info)
+            step_info = step_record_info(result.info)
             step_info.update(
                 active_action_step_info(
                     applied_events=self.action_scheduler.get_applied_events(),

@@ -166,6 +166,31 @@ class TupleActionEnvAdapter(EnvAdapter):
         )
 
 
+class RawRgbStepInfoSlotEnvAdapter(TupleActionEnvAdapter):
+    def step(self, action: Action) -> StepResult:
+        self.applied_actions.append(action)
+        self.env_step += 1
+        return StepResult(
+            observation=self._observation(),
+            reward=1.0,
+            done=self.env_step >= self.max_steps,
+            truncated=False,
+            info={
+                "applied_action": action.value,
+                ENV_RAW_RGB_FRAME_STACK_INFO_KEY: np.full((1, 2, 3, 3), self.slot_id, dtype=np.uint8),
+            },
+        )
+
+    def _observation(self, seed: int | None = None) -> Observation:
+        observation = super()._observation(seed=seed)
+        observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = np.full(
+            (1, 2, 3, 3),
+            self.slot_id + 7,
+            dtype=np.uint8,
+        )
+        return observation
+
+
 class SoftResetEnvAdapter(EnvAdapter):
     def __init__(self, *, noop_action: Action):
         self.env_fps = 30.0
@@ -499,10 +524,12 @@ def _tuple_executor(
     *,
     num_slots: int = 2,
     env_max_steps: int = 2,
+    env_cls=TupleActionEnvAdapter,
+    policy: PolicyRunner | None = None,
 ) -> tuple[BatchedSimulatedLatencyExecutor, list[TupleActionEnvAdapter]]:
     noop = Action((0, 0), name="noop", is_noop=True)
     envs = [
-        TupleActionEnvAdapter(slot_id=slot, max_steps=env_max_steps, noop_action=noop)
+        env_cls(slot_id=slot, max_steps=env_max_steps, noop_action=noop)
         for slot in range(num_slots)
     ]
     clock = EnvClock(env_fps=30.0, obs_fps=30.0)
@@ -517,7 +544,7 @@ def _tuple_executor(
     backend = SerialEnvStepBackend(envs)
     executor = BatchedSimulatedLatencyExecutor(
         env_backend=backend,
-        policy=TupleActionPolicy(),
+        policy=policy or TupleActionPolicy(),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_sources=[ZeroLatencySource() for _env in envs],
         action_schedulers=action_schedulers,
@@ -776,6 +803,33 @@ def test_batched_executor_output_records_remain_schema_compatible(tmp_path: Path
     assert {"obs_id", "latency_ms", "metadata"} <= set(latency)
     assert "source" not in latency
     assert {"episode_id", "episode_return", "survival_steps", "metadata"} <= set(metrics)
+
+
+def test_batched_executor_omits_raw_rgb_frame_stack_from_logged_step_info(tmp_path: Path):
+    policy = RawRgbShapeCapturePolicy()
+    executor, _envs = _tuple_executor(
+        tmp_path,
+        num_slots=2,
+        env_max_steps=1,
+        env_cls=RawRgbStepInfoSlotEnvAdapter,
+        policy=policy,
+    )
+
+    try:
+        executor.run_episodes(
+            episode_ids=range(2),
+            seeds=[1, 2],
+            eval_max_steps=1,
+        )
+        executor.logger.flush()
+    finally:
+        executor.close()
+
+    assert policy.raw_stack_shapes == [(1, 2, 3, 3), (1, 2, 3, 3)]
+    assert executor.logger.action_records[0].metadata["input_frame_shape"] == [[2, 3, 3]]
+    assert "env_raw_rgb_frame_stack" not in executor.logger.step_records[0].info
+    step = json.loads((tmp_path / "steps.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert "env_raw_rgb_frame_stack" not in step["info"]
 
 
 def test_batched_executor_steps_tuple_actions_and_serializes_schema_compatibly(tmp_path: Path):

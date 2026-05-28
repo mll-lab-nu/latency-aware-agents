@@ -212,11 +212,13 @@ def demon_attack_action_from_vector(vector: npt.NDArray[Any]) -> tuple[Action, d
 
 
 def deadly_corridor_action_from_vector(vector: npt.NDArray[Any]) -> tuple[Action, dict[str, Any]]:
+    if vector.shape[0] == 54:
+        return deadly_corridor_action_from_joint_vector(vector)
     if vector.shape[0] == 11:
         return deadly_corridor_action_from_factorized_vector(vector)
     if vector.shape[0] == 7:
         return deadly_corridor_action_from_semantic_vector(vector)
-    raise ValueError(f"Deadly Corridor StarVLA action vector expected 7 or 11 values, got {vector.shape[0]}")
+    raise ValueError(f"Deadly Corridor StarVLA action vector expected 7, 11, or 54 values, got {vector.shape[0]}")
 
 
 def deadly_corridor_action_from_factorized_vector(vector: npt.NDArray[Any]) -> tuple[Action, dict[str, Any]]:
@@ -224,6 +226,33 @@ def deadly_corridor_action_from_factorized_vector(vector: npt.NDArray[Any]) -> t
     move = int(np.argmax(vector[3:6]))
     strafe = int(np.argmax(vector[6:9]))
     attack = int(np.argmax(vector[9:11]))
+    return deadly_corridor_action_from_tuple(
+        action_value=[turn, move, strafe, attack],
+        metadata={"action_layout": "deadly_corridor_factorized_11"},
+    )
+
+
+def deadly_corridor_action_from_joint_vector(vector: npt.NDArray[Any]) -> tuple[Action, dict[str, Any]]:
+    joint_id = int(np.argmax(vector))
+    attack = joint_id % 2
+    strafe = (joint_id // 2) % 3
+    move = (joint_id // 6) % 3
+    turn = (joint_id // 18) % 3
+    return deadly_corridor_action_from_tuple(
+        action_value=[turn, move, strafe, attack],
+        metadata={
+            "raw_action_id": joint_id,
+            "action_layout": "deadly_corridor_joint_54",
+        },
+    )
+
+
+def deadly_corridor_action_from_tuple(
+    *,
+    action_value: list[int],
+    metadata: dict[str, Any],
+) -> tuple[Action, dict[str, Any]]:
+    turn, move, strafe, attack = action_value
     action_value = [turn, move, strafe, attack]
     turn_label = DEADLY_CORRIDOR_TURN_LABELS[turn]
     move_label = DEADLY_CORRIDOR_MOVE_LABELS[move]
@@ -247,7 +276,7 @@ def deadly_corridor_action_from_factorized_vector(vector: npt.NDArray[Any]) -> t
         "strafe_label": strafe_label,
         "attack_label": attack_label,
         "action_label": action_name,
-        "action_layout": "deadly_corridor_factorized_11",
+        **metadata,
     }
 
 

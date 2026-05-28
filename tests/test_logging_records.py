@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from latency_bench.core.types import Action, ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
-from latency_bench.logging.records import to_jsonable
+from latency_bench.logging.records import step_record_info, to_jsonable
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 
 
@@ -138,6 +138,19 @@ def test_trajectory_logger_flushes_step_info_with_numpy_values(tmp_path):
     assert rows[0]["active_action"]["value"] == 1
     assert rows[0]["info"]["numeric_obs"] == [0.0, 1.0]
     assert rows[0]["info"]["score"] == 2
+
+
+def test_step_record_info_omits_raw_rgb_frame_stack():
+    info = {
+        "env_raw_rgb_frame_stack": np.zeros((4, 84, 84, 3), dtype=np.uint8),
+        "score": 2,
+        "active_action_id": 3,
+    }
+
+    compact_info = step_record_info(info)
+
+    assert "env_raw_rgb_frame_stack" not in compact_info
+    assert compact_info == {"active_action_id": 3, "score": 2}
 
 
 def test_to_jsonable_matches_old_generic_dataclass_conversion():
