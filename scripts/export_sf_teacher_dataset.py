@@ -7,8 +7,6 @@ from pathlib import Path
 import sys
 from typing import Any, Mapping, NamedTuple, Sequence
 
-import gymnasium as gym
-
 import numpy as np
 from PIL import Image
 
@@ -113,6 +111,7 @@ def _minimal_export_cfg(module, *, experiment_dir: Path, device_override: str | 
     # reconstructed with the correct observation shape before loading weights.
     saved_cli_fields = (
         "device",
+        "gym_id",
         "env_frameskip",
         "eval_env_frameskip",
         "frame_stack",
@@ -122,6 +121,7 @@ def _minimal_export_cfg(module, *, experiment_dir: Path, device_override: str | 
         "wide_aspect_ratio",
         "fps",
         "screen_size",
+        "policy_screen_size",
         "action_repeat",
         "full_action_space",
         "terminal_on_life_loss",
@@ -130,6 +130,13 @@ def _minimal_export_cfg(module, *, experiment_dir: Path, device_override: str | 
         "noop_max",
         "use_lidar",
         "normalize_obs",
+        "audio_on",
+        "pipe_gap",
+        "bird_color",
+        "pipe_color",
+        "background",
+        "score_limit",
+        "debug",
     )
     for field in saved_cli_fields:
         value = checkpoint_cfg.get(field)
@@ -639,6 +646,8 @@ def _unwrap_env_attr(env, attr_name: str):
 
 
 def _deadly_action_labels(env) -> dict[int, str]:
+    import gymnasium as gym
+
     action_space = getattr(env, "action_space", None)
     wrapper_labels = _unwrap_env_attr(env, "action_labels")
     if isinstance(wrapper_labels, dict) and wrapper_labels:
@@ -1037,6 +1046,16 @@ def _batched_reward_item(reward: Any, index: int) -> Any:
     return reward
 
 
+def _make_dones(terminated: Any, truncated: Any) -> Any:
+    try:
+        import torch
+    except ImportError:
+        torch = None
+    if torch is not None and isinstance(terminated, torch.Tensor):
+        return torch.logical_or(terminated, truncated)
+    return np.logical_or(np.asarray(terminated), np.asarray(truncated))
+
+
 def _collect_latency_dataset_batched(
     *,
     env_name: str,
@@ -1060,7 +1079,6 @@ def _collect_latency_dataset_batched(
     jitter_spec: JitterLatencySpec | None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     import torch
-    from sample_factory.algo.utils.rl_utils import make_dones
 
     cfg = _prepare_export_cfg(module, env_name, base_cfg, latency, jitter_spec)
     runtime = _build_env_and_policy(module, cfg, env_name, int(num_envs))
@@ -1168,7 +1186,7 @@ def _collect_latency_dataset_batched(
                 next_obs, reward, terminated, truncated, info = envs[slot].step(
                     _select_batch_item(processed_actions, batch_idx)
                 )
-                dones = make_dones(terminated, truncated)
+                dones = _make_dones(terminated, truncated)
                 done = bool(_to_python_scalar(dones[0]))
                 info_single = _extract_single_info(info)
                 actual_latency = _latency_from_step_info(info_single, fallback_latency=int(latency))
@@ -1254,7 +1272,6 @@ def _collect_latency_dataset(
     jitter_spec: JitterLatencySpec | None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     import torch
-    from sample_factory.algo.utils.rl_utils import make_dones
 
     cfg = _prepare_export_cfg(module, env_name, base_cfg, latency, jitter_spec)
     runtime = _build_env_and_policy(module, cfg, env_name, 1)
@@ -1308,7 +1325,7 @@ def _collect_latency_dataset(
             action_id = _policy_action_id(env_name, policy_actions[0])
             action_text = action_labels.get(action_id, str(action_id))
             next_obs, reward, terminated, truncated, info = env.step(actions)
-            dones = make_dones(terminated, truncated)
+            dones = _make_dones(terminated, truncated)
             done = bool(_to_python_scalar(dones[0]))
             info_single = _extract_single_info(info)
             actual_latency = _latency_from_step_info(info_single, fallback_latency=int(latency))
