@@ -122,6 +122,11 @@ def _minimal_export_cfg(module, *, experiment_dir: Path, device_override: str | 
         "fps",
         "screen_size",
         "policy_screen_size",
+        "use_gpu_render",
+        "gpu_render_device",
+        "gpu_render_batch_size",
+        "gpu_render_profile",
+        "gpu_render_profile_interval",
         "action_repeat",
         "full_action_space",
         "terminal_on_life_loss",
@@ -500,6 +505,7 @@ def _frame_for_image_source(
     env_name: str,
     frame_stack: int,
     image_source: str,
+    agent_idx: int = 0,
 ) -> np.ndarray:
     source = str(image_source)
     if source == "observation":
@@ -511,7 +517,10 @@ def _frame_for_image_source(
     render_fn = getattr(env, "render", None)
     if not callable(render_fn):
         raise RuntimeError(f"Environment {env_name} does not expose render() for image export")
-    rendered = render_fn()
+    try:
+        rendered = render_fn(agent_idx=int(agent_idx))
+    except TypeError:
+        rendered = render_fn()
     if rendered is None:
         raise RuntimeError(f"Environment {env_name} returned None from render()")
     return np.asarray(rendered, dtype=np.uint8)
@@ -1081,6 +1090,26 @@ def _collect_latency_dataset_batched(
     import torch
 
     cfg = _prepare_export_cfg(module, env_name, base_cfg, latency, jitter_spec)
+    if env_name == "flappy" and bool(getattr(cfg, "use_gpu_render", False)):
+        return _collect_flappy_gpu_latency_dataset_batched(
+            module=module,
+            cfg=cfg,
+            latency=latency,
+            episode_count=episode_count,
+            val_indices=val_indices,
+            max_steps_per_episode=max_steps_per_episode,
+            prompt=prompt,
+            mixed_prompt_template=mixed_prompt_template,
+            dataset_mode=dataset_mode,
+            output_dir=output_dir,
+            global_episode_start=global_episode_start,
+            deterministic=deterministic,
+            export_image_size=export_image_size,
+            num_envs=num_envs,
+            image_writer_workers=image_writer_workers,
+            row_buffer_size=row_buffer_size,
+            image_source=image_source,
+        )
     runtime = _build_env_and_policy(module, cfg, env_name, int(num_envs))
     envs = list(runtime["envs"])
     env_info = runtime["env_info"]
@@ -1249,6 +1278,207 @@ def _collect_latency_dataset_batched(
                 executor.shutdown(wait=True)
             for env in envs:
                 env.close()
+
+    return train_rows, val_rows, {"latency": int(latency), "action_labels": action_labels}
+
+
+def _collect_flappy_gpu_latency_dataset_batched(
+    *,
+    module,
+    cfg,
+    latency: int,
+    episode_count: int,
+    val_indices: set[int],
+    max_steps_per_episode: int,
+    prompt: str,
+    mixed_prompt_template: str,
+    dataset_mode: str,
+    output_dir: Path,
+    global_episode_start: int,
+    deterministic: bool,
+    export_image_size: tuple[int, int] | None,
+    num_envs: int,
+    image_writer_workers: int,
+    row_buffer_size: int,
+    image_source: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    import torch
+
+    maybe_set_cli_override(cfg, "gpu_render_batch_size", int(num_envs))
+    runtime = _build_env_and_policy(module, cfg, "flappy", 1)
+    env = runtime["envs"][0]
+    env_info = runtime["env_info"]
+    actor_critic = runtime["actor_critic"]
+    device = runtime["device"]
+    preprocess_actions = runtime["preprocess_actions"]
+    argmax_actions = runtime["argmax_actions"]
+    prepare_and_normalize_obs = runtime["prepare_and_normalize_obs"]
+    unsqueeze_tensor = runtime["unsqueeze_tensor"]
+    rnn_size = runtime["rnn_size"]
+    action_labels = _flappy_action_labels()
+    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+    decision_period_ms = _decision_period_ms_from_cfg("flappy", cfg)
+    base_seed = int(getattr(cfg, "seed", 0) or 0)
+    specs = _build_episode_specs(
+        episode_count=int(episode_count),
+        val_indices=val_indices,
+        global_episode_start=int(global_episode_start),
+        base_seed=base_seed,
+        latency=int(latency),
+    )
+    slot_count = int(getattr(env, "num_agents", int(num_envs)))
+    train_rows: list[dict[str, Any]] = []
+    val_rows: list[dict[str, Any]] = []
+    active_specs: list[EpisodeSpec | None] = [None for _slot in range(slot_count)]
+    active_obs: list[Any | None] = [None for _slot in range(slot_count)]
+    active_t: list[int] = [0 for _slot in range(slot_count)]
+    rnn_states = torch.zeros([slot_count, rnn_size], dtype=torch.float32, device=device)
+    pending_futures: set[Future[str]] = set()
+    executor = (
+        ThreadPoolExecutor(max_workers=int(image_writer_workers))
+        if int(image_writer_workers) > 0
+        else None
+    )
+
+    def assign_specs(start_index: int, slots: Sequence[int]) -> int:
+        nonlocal active_obs
+        next_specs, next_index = _take_next_episode_specs(
+            specs=specs,
+            start_index=start_index,
+            slot_count=len(slots),
+        )
+        for slot in slots:
+            active_specs[int(slot)] = None
+            active_obs[int(slot)] = None
+            active_t[int(slot)] = 0
+            rnn_states[int(slot)] = torch.zeros_like(rnn_states[int(slot)])
+        reset_plan = {
+            int(slot): int(spec.seed)
+            for slot, spec in zip(slots, next_specs)
+        }
+        if reset_plan:
+            active_mask = [spec is not None for spec in active_specs]
+            for slot in reset_plan:
+                active_mask[int(slot)] = True
+            obs_batch, _infos = env.reset_agents(reset_plan, active_mask=active_mask)
+            for slot, spec in zip(slots, next_specs):
+                active_specs[int(slot)] = spec
+                active_obs[int(slot)] = _select_batch_item(obs_batch, int(slot))
+                active_t[int(slot)] = 0
+                rnn_states[int(slot)] = torch.zeros_like(rnn_states[int(slot)])
+        return next_index
+
+    try:
+        if hasattr(env, "set_auto_reset_done"):
+            env.set_auto_reset_done(False)
+        env.reset(seed=base_seed)
+        next_spec_index = assign_specs(0, list(range(slot_count)))
+        completed_episodes = 0
+        while completed_episodes < int(episode_count):
+            active_slots = [idx for idx, spec in enumerate(active_specs) if spec is not None]
+            if not active_slots:
+                break
+            if hasattr(env, "set_active_agents"):
+                env.set_active_agents([idx in set(active_slots) for idx in range(slot_count)])
+
+            obs_batch = _batch_observations([active_obs[idx] for idx in active_slots])
+            rnn_batch = rnn_states[active_slots]
+            normalized_obs = prepare_and_normalize_obs(actor_critic, obs_batch)
+            with torch.no_grad():
+                policy_outputs = actor_critic(normalized_obs, rnn_batch)
+                actions = policy_outputs["actions"]
+                if deterministic:
+                    actions = argmax_actions(actor_critic.action_distribution())
+                if actions.ndim == 1:
+                    actions = unsqueeze_tensor(actions, dim=-1)
+                policy_actions = actions
+                processed_actions = preprocess_actions(env_info, actions)
+                new_rnn_states = policy_outputs["new_rnn_states"]
+
+            env_actions = np.zeros(slot_count, dtype=np.int64)
+            for batch_idx, slot in enumerate(active_slots):
+                env_actions[int(slot)] = _extract_action_id(_select_batch_item(processed_actions, batch_idx))
+
+            next_obs, reward, terminated, truncated, info = env.step(env_actions)
+            dones = _make_dones(terminated, truncated)
+            replacement_slots: list[int] = []
+            for batch_idx, slot in enumerate(active_slots):
+                spec = active_specs[slot]
+                obs = active_obs[slot]
+                if spec is None or obs is None:
+                    raise RuntimeError(f"Active Flappy slot {slot} has no episode state")
+                split_rows = val_rows if spec.split == "val" else train_rows
+                t = int(active_t[slot])
+                image_path = output_dir / "images" / spec.split / f"episode_{spec.episode_idx:06d}" / f"t_{t:06d}.png"
+                frame = _frame_for_image_source(
+                    obs=obs,
+                    env=env,
+                    env_name="flappy",
+                    frame_stack=frame_stack,
+                    image_source=image_source,
+                    agent_idx=int(slot),
+                )
+                saved_image, pending_futures = _submit_image_write(
+                    executor,
+                    pending_futures,
+                    frame,
+                    image_path,
+                    export_image_size,
+                    False,
+                    int(row_buffer_size),
+                )
+                slot_policy_action = _select_batch_item(policy_actions, batch_idx)
+                action_id = _policy_action_id("flappy", slot_policy_action)
+                info_single = dict(info[int(slot)] or {}) if isinstance(info, list) else _extract_single_info(_select_batch_item(info, int(slot)))
+                actual_latency = _latency_from_step_info(info_single, fallback_latency=int(latency))
+                actual_latency_ms = float(actual_latency) * decision_period_ms
+                reward_value = _reward_from_step(
+                    _batched_reward_item(reward, int(slot)),
+                    info_single,
+                    prefer_raw_reward=False,
+                )
+                split_rows.append(
+                    _build_export_row(
+                        image_path=saved_image,
+                        split=spec.split,
+                        prompt_text=_prompt_for_episode(
+                            dataset_mode=dataset_mode,
+                            prompt=prompt,
+                            mixed_prompt_template=mixed_prompt_template,
+                            latency=actual_latency,
+                            latency_ms=actual_latency_ms,
+                        ),
+                        action_id=action_id,
+                        action_text=action_labels.get(action_id, str(action_id)),
+                        latency=int(actual_latency),
+                        latency_ms=float(actual_latency_ms),
+                        reward_value=float(reward_value),
+                        done=bool(_to_python_scalar(_select_batch_item(dones, int(slot)))),
+                        episode_idx=int(spec.episode_idx),
+                        t=t,
+                        seed=int(spec.seed),
+                        deterministic=bool(deterministic),
+                    )
+                )
+                rnn_states[slot] = new_rnn_states[batch_idx]
+                next_t = t + 1
+                episode_finished = bool(_to_python_scalar(_select_batch_item(dones, int(slot)))) or next_t >= int(max_steps_per_episode)
+                if episode_finished:
+                    completed_episodes += 1
+                    replacement_slots.append(int(slot))
+                else:
+                    active_obs[slot] = _select_batch_item(next_obs, int(slot))
+                    active_t[slot] = next_t
+
+            if replacement_slots:
+                next_spec_index = assign_specs(next_spec_index, replacement_slots)
+    finally:
+        try:
+            _wait_for_image_writes(pending_futures)
+        finally:
+            if executor is not None:
+                executor.shutdown(wait=True)
+            env.close()
 
     return train_rows, val_rows, {"latency": int(latency), "action_labels": action_labels}
 

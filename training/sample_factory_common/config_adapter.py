@@ -144,6 +144,20 @@ def append_cli_arg(args: list[str], flag: str, value: Any) -> None:
     args.extend([flag, str(value)])
 
 
+def append_cli_multi_value_arg(args: list[str], flag: str, value: Any) -> None:
+    if value is None:
+        return
+    if isinstance(value, str) and not value.strip():
+        return
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return
+        args.append(flag)
+        args.extend(str(item) for item in value)
+        return
+    args.extend([flag, str(value)])
+
+
 def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[str]:
     backend_cfg = config["backend"]
     experiment_cfg = config["experiment"]
@@ -160,6 +174,17 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--train_dir", backend_cfg.get("train_dir"))
     append_cli_arg(args, "--restart_behavior", backend_cfg.get("restart_behavior", "overwrite"))
     append_cli_arg(args, "--device", backend_cfg.get("device", "cpu"))
+    env_cfg = config.get("env", {})
+    use_gpu_render = bool(env_cfg.get("use_gpu_render", False))
+    gpu_render_device = str(env_cfg.get("gpu_render_device", "auto") or "auto").strip().lower()
+    actor_worker_gpus = backend_cfg.get("actor_worker_gpus")
+    if use_gpu_render and gpu_render_device != "cpu" and actor_worker_gpus is None:
+        actor_worker_gpus = [0]
+    append_cli_multi_value_arg(args, "--actor_worker_gpus", actor_worker_gpus)
+    if use_gpu_render:
+        append_cli_arg(args, "--env_gpu_observations", gpu_render_device != "cpu")
+        append_cli_arg(args, "--env_gpu_actions", False)
+        append_cli_arg(args, "--gpu-render-batch-size", int(training_cfg["num_envs_per_worker"]))
     append_cli_arg(args, "--seed", experiment_cfg.get("seed", 0))
     if backend_cfg.get("train_dir") and experiment_cfg.get("name"):
         metrics_path = Path(str(backend_cfg["train_dir"])).expanduser() / str(experiment_cfg["name"]) / "episode_metrics.jsonl"
@@ -206,8 +231,17 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     )
 
     for field in scalar_fields:
-        append_cli_arg(args, f"--{field}", training_cfg.get(field))
+        value = training_cfg.get(field)
+        if use_gpu_render and field == "num_envs_per_worker":
+            value = 1
+        elif use_gpu_render and field == "worker_num_splits" and value is None:
+            value = 1
+        append_cli_arg(args, f"--{field}", value)
+    if use_gpu_render:
+        append_cli_arg(args, "--batched_sampling", True)
     for field in bool_fields:
+        if use_gpu_render and field == "batched_sampling":
+            continue
         if field in training_cfg:
             append_cli_arg(args, f"--{field}", training_cfg.get(field))
 

@@ -46,6 +46,16 @@ def _import_flappy_gymnasium():
         return gymnasium
 
 
+def _parse_policy_screen_size(value: Any) -> tuple[int, int]:
+    if value in (None, ""):
+        return (84, 84)
+    if isinstance(value, str):
+        parts = [int(item.strip()) for item in value.split(",") if item.strip()]
+    else:
+        parts = [int(item) for item in value]
+    return (parts[0], parts[1]) if len(parts) == 2 else (84, 84)
+
+
 class FlappyImageObsWrapper(gym.Wrapper):
     """Expose rendered RGB frames as resized policy observations."""
 
@@ -135,6 +145,25 @@ def make_flappy_sf_env(
     del render_mode
     env_config = env_config or {}
     gymnasium = _import_flappy_gymnasium()
+    use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))
+    policy_screen_size = getattr(cfg, "policy_screen_size", None)
+    if policy_screen_size in (None, ""):
+        policy_screen_size = getattr(cfg, "screen_size", None)
+    resize_size = _parse_policy_screen_size(policy_screen_size)
+    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+    if use_gpu_render:
+        from training.flappy_sf.batched_gpu_env import FlappyBatchedGpuRenderedEnv
+
+        return FlappyBatchedGpuRenderedEnv(
+            cfg=cfg,
+            env_config=env_config,
+            image_size=resize_size,
+            frame_stack=frame_stack,
+            gpu_render_device=getattr(cfg, "gpu_render_device", "auto"),
+            gpu_render_batch_size=int(getattr(cfg, "gpu_render_batch_size", 1) or 1),
+            gpu_render_profile=bool(getattr(cfg, "gpu_render_profile", False)),
+            gpu_render_profile_interval=int(getattr(cfg, "gpu_render_profile_interval", 1000) or 1000),
+        )
     kwargs: dict[str, Any] = {
         "use_lidar": bool(getattr(cfg, "use_lidar", False)),
         "normalize_obs": bool(getattr(cfg, "normalize_obs", True)),
@@ -150,19 +179,7 @@ def make_flappy_sf_env(
     if score_limit not in (None, "", 0, -1):
         kwargs["score_limit"] = int(score_limit)
     env = gymnasium.make(getattr(cfg, "gym_id", "FlappyBird-v0"), **kwargs)
-    policy_screen_size = getattr(cfg, "policy_screen_size", None)
-    if policy_screen_size in (None, ""):
-        policy_screen_size = getattr(cfg, "screen_size", None)
-    if policy_screen_size in (None, ""):
-        resize_size = (84, 84)
-    elif isinstance(policy_screen_size, str):
-        parts = [int(item.strip()) for item in policy_screen_size.split(",") if item.strip()]
-        resize_size = (parts[0], parts[1]) if len(parts) == 2 else (84, 84)
-    else:
-        size = tuple(int(item) for item in policy_screen_size)
-        resize_size = (size[0], size[1]) if len(size) == 2 else (84, 84)
     env = FlappyImageObsWrapper(env, image_size=resize_size)
-    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
     if frame_stack > 1:
         env = FlappyFrameStackWrapper(env, num_frames=frame_stack)
     max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
@@ -229,6 +246,11 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--audio_on", type=str2bool, default=False)
     parser.add_argument("--screen_size", type=str, default="")
     parser.add_argument("--policy_screen_size", type=str, default="")
+    parser.add_argument("--use-gpu-render", "--use_gpu_render", dest="use_gpu_render", type=str2bool, default=False)
+    parser.add_argument("--gpu-render-device", "--gpu_render_device", dest="gpu_render_device", type=str, default="auto")
+    parser.add_argument("--gpu-render-batch-size", "--gpu_render_batch_size", dest="gpu_render_batch_size", type=int, default=1)
+    parser.add_argument("--gpu-render-profile", "--gpu_render_profile", dest="gpu_render_profile", type=str2bool, default=False)
+    parser.add_argument("--gpu-render-profile-interval", "--gpu_render_profile_interval", dest="gpu_render_profile_interval", type=int, default=1000)
     parser.add_argument("--pipe_gap", type=int, default=100)
     parser.add_argument("--bird_color", type=str, default="yellow")
     parser.add_argument("--pipe_color", type=str, default="green")
@@ -241,6 +263,13 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--queue-latency-values", type=str, default="0")
     parser.add_argument("--latency-mode", type=str, default="episode_fixed")
     parser.add_argument("--latency-sampling-mode", type=str, default="uniform_all")
+    parser.add_argument("--latency-distribution", type=str, default="discrete")
+    parser.add_argument("--latency-normal-mean", type=float, default=0.0)
+    parser.add_argument("--latency-normal-std", type=float, default=0.0)
+    parser.add_argument("--latency-normal-min", type=int, default=0)
+    parser.add_argument("--latency-normal-max", type=int, default=0)
+    parser.add_argument("--latency-uniform-min", type=int, default=0)
+    parser.add_argument("--latency-uniform-max", type=int, default=0)
     parser.add_argument("--episodes-per-stage", type=int, default=10)
     parser.add_argument("--randomize-within-stage", type=str2bool, default=False)
     parser.add_argument("--within-episode-change-interval", type=int, default=1)
@@ -286,6 +315,10 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--audio_on", env_cfg.get("audio_on", False))
     append_cli_arg(args, "--screen_size", env_cfg.get("screen_size"))
     append_cli_arg(args, "--policy_screen_size", env_cfg.get("policy_screen_size"))
+    append_cli_arg(args, "--use-gpu-render", env_cfg.get("use_gpu_render", False))
+    append_cli_arg(args, "--gpu-render-device", env_cfg.get("gpu_render_device", "auto"))
+    append_cli_arg(args, "--gpu-render-profile", env_cfg.get("gpu_render_profile", False))
+    append_cli_arg(args, "--gpu-render-profile-interval", env_cfg.get("gpu_render_profile_interval", 1000))
     append_cli_arg(args, "--pipe_gap", env_cfg.get("pipe_gap", 100))
     append_cli_arg(args, "--bird_color", env_cfg.get("bird_color", "yellow"))
     append_cli_arg(args, "--pipe_color", env_cfg.get("pipe_color", "green"))

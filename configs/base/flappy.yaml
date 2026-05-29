@@ -24,6 +24,10 @@ env:
   use_lidar: false
   normalize_obs: true
   audio_on: false
+  use_gpu_render: false
+  gpu_render_device: auto
+  gpu_render_profile: false
+  gpu_render_profile_interval: 1000
   frame_stack: 4
   max_episode_steps: 10000
   noop_action: noop
