@@ -292,12 +292,35 @@ def test_deadly_corridor_factorized_starvla_vector_decodes_to_tuple_action():
     assert action.name == "TURN_RIGHT+MOVE_LEFT+ATTACK"
     assert metadata["action_layout"] == "deadly_corridor_factorized_11"
 
-    with pytest.raises(ValueError, match="expected 7 or 11"):
+    with pytest.raises(ValueError, match="expected 7, 11, or 54"):
         decode_starvla_action(
             vector=np.zeros(8, dtype=np.float32),
             env_name="deadly_corridor",
             action_by_raw_id={},
         )
+
+
+def test_deadly_corridor_joint_fifty_four_starvla_vector_decodes_to_tuple_action():
+    from latency_bench.policy.starvla import decode_starvla_action
+
+    vector = np.zeros(54, dtype=np.float32)
+    vector[11] = 1.0
+
+    action, metadata = decode_starvla_action(
+        vector=vector,
+        env_name="deadly_corridor",
+        action_by_raw_id={},
+    )
+
+    assert action.value == [0, 1, 2, 1]
+    assert action.name == "MOVE_FORWARD+MOVE_RIGHT+ATTACK"
+    assert metadata["raw_action_id"] == 11
+    assert metadata["decoded_action_tuple"] == [0, 1, 2, 1]
+    assert metadata["turn_label"] == "TURN_NOOP"
+    assert metadata["move_label"] == "MOVE_FORWARD"
+    assert metadata["strafe_label"] == "MOVE_RIGHT"
+    assert metadata["attack_label"] == "ATTACK"
+    assert metadata["action_layout"] == "deadly_corridor_joint_54"
 
 
 def test_predict_batch_calls_starvla_once(monkeypatch, tmp_path: Path):

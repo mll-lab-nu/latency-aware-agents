@@ -18,6 +18,7 @@ from latency_bench.logging.metrics import (
     latency_type_from_source,
     profile_metadata_from_source,
 )
+from latency_bench.logging.records import step_record_info
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
@@ -206,7 +207,7 @@ class BatchedSimulatedLatencyExecutor:
                 soft_reset = bool(result.info.get("soft_reset")) if isinstance(result.info, dict) else False
                 episode_done = bool(result.done or result.truncated) and not soft_reset
                 latency_type = latency_type_from_source(slot.latency_source)
-                step_info = dict(result.info)
+                step_info = step_record_info(result.info)
                 step_info.update(
                     active_action_step_info(
                         applied_events=slot.action_scheduler.get_applied_events(),

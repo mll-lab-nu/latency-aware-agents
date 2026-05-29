@@ -255,6 +255,34 @@ def test_simulated_parallel_builds_batched_executor_for_supported_zero_latency(t
         executor.close()
 
 
+def test_simulated_parallel_builds_batched_executor_for_distribution_latency(tmp_path):
+    from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
+
+    config = _config(output_dir=str(tmp_path))
+    config["experiment"]["num_episodes"] = 3
+    config["evaluation"]["eval_parallel_envs"] = 4
+    config["latency"] = {
+        "type": "normal_distribution",
+        "mean_latency_ms": 10.0,
+        "std_latency_ms": 1.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 20.0,
+        "seed": 0,
+    }
+
+    executor = build_executor(config)
+
+    try:
+        assert isinstance(executor, BatchedSimulatedLatencyExecutor)
+        assert executor.num_slots == 3
+    finally:
+        close = getattr(executor, "close", None)
+        if close is not None:
+            close()
+        else:
+            executor.env.close()
+
+
 def test_simulated_parallel_explicit_subproc_builds_subproc_backend(tmp_path):
     from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
     from latency_bench.executors.env_step_backend import SubprocEnvStepBackend

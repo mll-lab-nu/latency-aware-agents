@@ -476,7 +476,12 @@ def _auto_latency_bench_env_backend(config: dict[str, Any]) -> str:
 
 def _supports_phase_3b_batched_latency(latency_cfg: dict[str, Any]) -> bool:
     latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
-    return latency_type in {LatencySourceType.ZERO.value, LatencySourceType.FIXED.value}
+    return latency_type in {
+        LatencySourceType.ZERO.value,
+        LatencySourceType.FIXED.value,
+        LatencySourceType.NORMAL_DISTRIBUTION.value,
+        LatencySourceType.UNIFORM_DISTRIBUTION.value,
+    }
 
 
 def _raise_if_unsupported_batched_action_space(envs: list[EnvAdapter]) -> None:

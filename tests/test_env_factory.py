@@ -187,6 +187,29 @@ def test_deadly_corridor_starvla_env_exports_raw_rgb_frames(monkeypatch):
     assert captured["export_env_raw_rgb_frames"] is True
 
 
+def test_deadly_corridor_explicit_raw_rgb_export_flag_exports_frames(monkeypatch):
+    captured = {}
+
+    class FakeDeadlyCorridorEnvAdapter:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        deadly_corridor,
+        "DeadlyCorridorEnvAdapter",
+        FakeDeadlyCorridorEnvAdapter,
+    )
+    config = _config("deadly_corridor")
+    config["env"]["export_env_raw_rgb_frames"] = True
+    config["policy"] = {"type": "handoff"}
+    noop = Action(value=(0, 0, 0, 0), name="noop", is_noop=True)
+
+    env = build_env_adapter(config, noop)
+
+    assert isinstance(env, FakeDeadlyCorridorEnvAdapter)
+    assert captured["export_env_raw_rgb_frames"] is True
+
+
 def test_deadly_corridor_spec_copy_disables_reward_scaling_without_mutating_original():
     from types import SimpleNamespace
 

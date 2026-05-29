@@ -73,6 +73,10 @@ def _uses_raw_rgb_vla_policy(config: dict[str, Any]) -> bool:
     }
 
 
+def _exports_raw_rgb_frames(config: dict[str, Any]) -> bool:
+    return bool(config["env"].get("export_env_raw_rgb_frames", False)) or _uses_raw_rgb_vla_policy(config)
+
+
 @register_env_adapter("dummy")
 def _build_dummy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
     env_cfg = config["env"]
@@ -119,7 +123,7 @@ def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
         gpu_render_profile=bool(env_cfg.get("gpu_render_profile", False)),
         gpu_render_profile_interval=int(env_cfg.get("gpu_render_profile_interval", 1000) or 1000),
         policy_observation_layout="chw" if policy_type == "flappy_sf" else "hwc",
-        export_env_raw_rgb_frames=_uses_raw_rgb_vla_policy(config),
+        export_env_raw_rgb_frames=_exports_raw_rgb_frames(config),
     )
 
 
@@ -149,7 +153,7 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
         full_action_space=bool(env_cfg.get("full_action_space", False)),
         expected_action_meanings=env_cfg.get("expected_action_meanings"),
         frame_stack=int(env_cfg.get("frame_stack", 1) or 1),
-        export_env_raw_rgb_frames=_uses_raw_rgb_vla_policy(config),
+        export_env_raw_rgb_frames=_exports_raw_rgb_frames(config),
     )
 
 
@@ -160,5 +164,5 @@ def _build_deadly_corridor_env(config: dict[str, Any], noop_action: Action) -> E
     return DeadlyCorridorEnvAdapter(
         config=config,
         noop_action=noop_action,
-        export_env_raw_rgb_frames=_uses_raw_rgb_vla_policy(config),
+        export_env_raw_rgb_frames=_exports_raw_rgb_frames(config),
     )
