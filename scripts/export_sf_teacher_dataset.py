@@ -816,6 +816,15 @@ def _batch_observations(observations: Sequence[Any]) -> Any:
             for key in keys
         }
 
+    try:
+        import torch
+    except ImportError:
+        torch = None
+    if torch is not None and isinstance(first, torch.Tensor):
+        if first.ndim >= 1 and int(first.shape[0]) == 1:
+            return torch.cat(list(observations), dim=0)
+        return torch.stack(list(observations), dim=0)
+
     arrays = [np.asarray(obs) for obs in observations]
     if arrays[0].ndim >= 1 and arrays[0].shape[0] == 1:
         return np.concatenate(arrays, axis=0)

@@ -121,6 +121,23 @@ def test_flappy_teacher_export_observation_source_does_not_render():
     assert np.all(frame == 7)
 
 
+def test_flappy_teacher_export_batches_torch_observations_without_numpy_conversion():
+    import torch
+
+    from scripts.export_sf_teacher_dataset import _batch_observations
+
+    observations = [
+        {"obs": torch.full((1, 3, 2, 2), slot, dtype=torch.uint8)}
+        for slot in range(3)
+    ]
+
+    batched = _batch_observations(observations)
+
+    assert isinstance(batched["obs"], torch.Tensor)
+    assert batched["obs"].shape == (3, 3, 2, 2)
+    assert batched["obs"].tolist()[2][0][0][0] == 2
+
+
 def test_flappy_teacher_export_collects_replacement_episodes(monkeypatch, tmp_path):
     import torch
 
