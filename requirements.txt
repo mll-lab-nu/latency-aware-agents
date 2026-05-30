@@ -2,7 +2,7 @@
 -e ./flappy-bird-gymnasium
 
 # Core runtime.
-# Install PyTorch 2.10.0 separately before this file; see install.sh.
+# install.sh installs PyTorch 2.10.0 before this file using the selected CUDA profile.
 numpy==1.26.4
 gymnasium==0.29.1
 PyYAML==6.0.3
