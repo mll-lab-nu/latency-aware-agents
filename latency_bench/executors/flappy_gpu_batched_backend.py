@@ -10,22 +10,19 @@ import gymnasium as gym
 import numpy as np
 import torch
 
+from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore
+from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState
+from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.executors.env_step_backend import EnvStepResponse, RemoteEnvSlotHandle
 from latency_bench.envs.flappy import (
     FlappyObservationConfig,
     FlappyTorchObservationPipeline,
-    ensure_flappy_gymnasium_on_path,
 )
 from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_render_device
-
-
-ensure_flappy_gymnasium_on_path()
-
-from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore  # noqa: E402
-from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState  # noqa: E402
-from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer  # noqa: E402
+from training.flappy_sf.flappy_cuda_extension import CudaFlappyRenderer
+from training.flappy_sf.gpu_core import CudaFlappyBirdCore
 
 
 class FlappyGpuBatchedEnvStepBackend:
@@ -63,7 +60,14 @@ class FlappyGpuBatchedEnvStepBackend:
         }
         if screen_size is not None:
             core_kwargs["screen_size"] = tuple(int(value) for value in screen_size)
-        self.core = BatchedFlappyBirdCore(**core_kwargs)
+        simulator = env_cfg["simulator"]
+        core_cls = {
+            "cpu": BatchedFlappyBirdCore,
+            "gpu": CudaFlappyBirdCore,
+        }[simulator]
+        if core_cls is CudaFlappyBirdCore:
+            core_kwargs["device"] = self.render_device
+        self.core = core_cls(**core_kwargs)
 
         height = int(self.obs_resize[0])
         self.pipeline = FlappyTorchObservationPipeline(
@@ -262,6 +266,24 @@ class FlappyGpuBatchedEnvStepBackend:
         return self._nchw_to_hwc_frames(obs)
 
     def _render_raw_rgb(self) -> torch.Tensor:
+        if isinstance(self.core, CudaFlappyBirdCore):
+            if self.renderer is None:
+                assets = FlappyRenderAssets.load(
+                    bird_color=self.core.bird_color,
+                    pipe_color=self.core.pipe_color,
+                    background=self.core.background,
+                )
+                self.renderer = CudaFlappyRenderer(assets, device=self.render_device)
+            with self.gpu_render_profiler.time("render_into_s"):
+                return self.renderer.render_core_into(
+                    self.core,
+                    self._raw_rgb_output_buffer_for_shape(
+                        batch_size=int(self.core.batch_size),
+                        screen_height=int(self.core.screen_height),
+                        screen_width=int(self.core.screen_width),
+                    ),
+                )
+
         with self.gpu_render_profiler.time("get_render_state_s"):
             batch = self.core.render_state_batch()
         if self.renderer is None:
@@ -275,6 +297,23 @@ class FlappyGpuBatchedEnvStepBackend:
             pass
         with self.gpu_render_profiler.time("render_into_s"):
             return self.renderer.render_into(batch, self._raw_rgb_output_buffer(batch))
+
+    def _raw_rgb_output_buffer_for_shape(
+        self,
+        *,
+        batch_size: int,
+        screen_height: int,
+        screen_width: int,
+    ) -> torch.Tensor:
+        expected_shape = (int(batch_size), int(screen_height), int(screen_width), 3)
+        expected_device = self.render_device if self.renderer is None else self.renderer.device
+        if (
+            self._raw_rgb_buffer is None
+            or tuple(self._raw_rgb_buffer.shape) != expected_shape
+            or self._raw_rgb_buffer.device != expected_device
+        ):
+            self._raw_rgb_buffer = torch.empty(expected_shape, dtype=torch.uint8, device=expected_device)
+        return self._raw_rgb_buffer
 
     def _raw_rgb_output_buffer(self, batch: BatchedFlappyRenderState) -> torch.Tensor:
         expected_shape = (int(batch.batch_size), int(batch.screen_height), int(batch.screen_width), 3)
@@ -316,7 +355,11 @@ class FlappyGpuBatchedEnvStepBackend:
         seeds: Sequence[int | None],
     ) -> tuple[np.ndarray, list[dict[str, Any]]]:
         indices = [int(slot_id) for slot_id in slot_ids]
-        previous_ground_x = self.core.ground_x[indices].copy()
+        previous_ground_x = self.core.ground_x[indices]
+        if isinstance(previous_ground_x, torch.Tensor):
+            previous_ground_x = previous_ground_x.clone()
+        else:
+            previous_ground_x = previous_ground_x.copy()
         numeric_obs, infos = self.core.reset_batch(seeds=seeds, indices=indices)
         self.core.ground_x[indices] = previous_ground_x
         return numeric_obs, infos

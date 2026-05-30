@@ -84,6 +84,7 @@ ENV_KEYS_BY_NAME = {
         "frame_stack",
         "obs_resize",
         "use_gpu_render",
+        "simulator",
         "gpu_render_device",
         "gpu_render_profile",
         "gpu_render_profile_interval",

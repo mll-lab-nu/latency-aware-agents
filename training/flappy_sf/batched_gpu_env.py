@@ -8,12 +8,15 @@ import numpy as np
 import torch
 from gymnasium.spaces import Box, Dict as GymDict, Discrete
 
+import flappy_bird_gymnasium  # noqa: F401
+from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore
+from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState
+from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from latency_bench.envs.flappy import (
     FlappyObservationConfig,
     FlappyTorchObservationPipeline,
-    ensure_flappy_gymnasium_on_path,
 )
 from training.common.latency_config import (
     sample_factory_latency_params_from_flat_config,
@@ -28,14 +31,11 @@ from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_render_device
 
-ensure_flappy_gymnasium_on_path()
-
-import flappy_bird_gymnasium  # noqa: F401,E402
-from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore
-from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState
-from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer
 from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
 from training.flappy_sf.batched_metrics import BatchedFlappyEpisodeMetrics
+from training.flappy_sf.flappy_cuda_extension import CudaFlappyRenderer
+from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+from training.flappy_sf.gpu_core import CudaFlappyBirdCore
 
 
 class FlappyBatchedGpuRenderedEnv(gym.Env):
@@ -103,7 +103,15 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         self.action_space = Discrete(2)
         score_limit = getattr(self.cfg, "score_limit", None)
         resolved_score_limit = None if score_limit in (None, "", 0, -1) else int(score_limit)
-        self.core = BatchedFlappyBirdCore(
+        simulator = self.cfg.simulator
+        core_cls = {
+            "cpu": BatchedFlappyBirdCore,
+            "gpu": CudaFlappyBirdCore,
+        }[simulator]
+        core_kwargs = {}
+        if core_cls is CudaFlappyBirdCore:
+            core_kwargs["device"] = self.render_device
+        self.core = core_cls(
             batch_size=self.num_agents,
             normalize_obs=bool(getattr(self.cfg, "normalize_obs", True)),
             pipe_gap=int(getattr(self.cfg, "pipe_gap", 100)),
@@ -111,6 +119,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             pipe_color=getattr(self.cfg, "pipe_color", "green"),
             background=getattr(self.cfg, "background", "day"),
             score_limit=resolved_score_limit,
+            **core_kwargs,
         )
         sub_seeds = [self._sub_seed(agent_idx) for agent_idx in range(self.num_agents)]
         latency_seeds = [
@@ -124,19 +133,32 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             for agent_idx in range(self.num_agents)
         ]
         latency_params = sample_factory_latency_params_from_flat_config(self.cfg, env_fps=self.clock.env_fps)
-        self.latency = BatchedFlappyLatencyScheduler(
-            batch_size=self.num_agents,
-            fixed_latency_raw_frames=latency_params.fixed_latency_raw_frames,
-            env_fps=self.clock.env_fps,
-            obs_fps=self.clock.obs_fps,
-            hold_policy=getattr(self.cfg, "hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value),
-            ordering_policy=getattr(self.cfg, "ordering_policy", OrderingPolicy.LATEST_READY.value),
-            latency_distribution_spec=latency_params.latency_distribution_spec,
-            seeds=latency_seeds,
-            env_reset_seed_bases=[seed + 104729 for seed in sub_seeds],
-            add_latency_info=bool(getattr(self.cfg, "add_latency_info", False)),
-            max_pending_actions=getattr(self.cfg, "max_pending_actions", None),
-        )
+        max_pending_actions = getattr(self.cfg, "max_pending_actions", None)
+        latency_kwargs = {
+            "batch_size": self.num_agents,
+            "fixed_latency_raw_frames": latency_params.fixed_latency_raw_frames,
+            "env_fps": self.clock.env_fps,
+            "obs_fps": self.clock.obs_fps,
+            "hold_policy": getattr(self.cfg, "hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value),
+            "ordering_policy": getattr(self.cfg, "ordering_policy", OrderingPolicy.LATEST_READY.value),
+            "seeds": latency_seeds,
+            "env_reset_seed_bases": [seed + 104729 for seed in sub_seeds],
+            "add_latency_info": bool(getattr(self.cfg, "add_latency_info", False)),
+        }
+        if isinstance(self.core, CudaFlappyBirdCore):
+            self.latency = CudaFlappyLatencyScheduler(
+                **latency_kwargs,
+                latency_distribution_spec=latency_params.latency_distribution_spec,
+                max_pending_actions=max_pending_actions,
+                device=self.render_device,
+            )
+        else:
+            self.latency = BatchedFlappyLatencyScheduler(
+                **latency_kwargs,
+                latency_distribution_spec=latency_params.latency_distribution_spec,
+                max_pending_actions=max_pending_actions,
+            )
+        self._uses_cuda_latency = isinstance(self.latency, CudaFlappyLatencyScheduler)
         self.metrics = BatchedFlappyEpisodeMetrics(
             batch_size=self.num_agents,
             frames_per_decision=self.clock.obs_stride_raw_frames,
@@ -147,6 +169,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             issued_action_labels={0: "noop", 1: "flap"},
         )
         self._raw_episode_steps = np.zeros(self.num_agents, dtype=np.int64)
+        self._raw_episode_steps_gpu = torch.zeros(self.num_agents, dtype=torch.int64, device=self.render_device)
         self._batched_max_episode_steps = int(getattr(self.cfg, "max_episode_steps", 0) or 0)
         self.pipeline = FlappyTorchObservationPipeline(
             self.observation_config,
@@ -161,6 +184,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         self._last_observation_infos: list[dict[str, Any]] = [{} for _ in range(self.num_agents)]
         self._empty_info: dict[str, Any] = {}
         self._last_frame_skips = np.zeros(self.num_agents, dtype=np.int64)
+        self.sample_factory_step_cpu_tensors: dict[str, torch.Tensor] = {}
 
         self.gpu_render_profiler = _GpuRenderProfiler(
             enabled=bool(gpu_render_profile),
@@ -263,6 +287,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             )
         self.metrics.reset()
         self._raw_episode_steps[:] = 0
+        self._raw_episode_steps_gpu.zero_()
         numeric_obs, core_infos = self.core.reset_batch(seeds=reset_seeds)
         infos = [
             self._with_numeric_obs({**core_infos[agent_idx], **latency_infos[agent_idx]}, numeric_obs[agent_idx])
@@ -315,9 +340,10 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 )
                 infos[agent_idx] = info
                 self._last_observation_infos[agent_idx] = dict(info)
-                self._last_frame_skips[agent_idx] = int(info.get("latency_raw_frames", 0))
+                self._last_frame_skips[agent_idx] = int(info["latency_raw_frames"])
                 reset_mask[agent_idx] = True
                 self._raw_episode_steps[agent_idx] = 0
+                self._raw_episode_steps_gpu[agent_idx] = 0
 
         with self.gpu_render_profiler.time("reset_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
@@ -335,112 +361,187 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         if not self._has_reset:
             self.reset()
 
-        actions = np.asarray(self._normalize_actions(action), dtype=np.int64)
+        with self.gpu_render_profiler.time("normalize_actions_s"):
+            if self._uses_cuda_latency:
+                actions = self._normalize_cuda_actions(action)
+                issued_actions = actions.detach().cpu().numpy().astype(np.int64, copy=False)
+            else:
+                actions = np.asarray(self._normalize_actions(action), dtype=np.int64)
+                issued_actions = actions
         rewards = np.zeros(self.num_agents, dtype=np.float32)
         terminated = np.zeros(self.num_agents, dtype=np.bool_)
         truncated = np.zeros(self.num_agents, dtype=np.bool_)
+        rewards_out: np.ndarray | torch.Tensor = rewards
+        terminated_out: np.ndarray | torch.Tensor = terminated
+        truncated_out: np.ndarray | torch.Tensor = truncated
         infos: list[dict[str, Any]] = [self._empty_info] * self.num_agents
 
         with self.gpu_render_profiler.time("env_step_s"):
             active = self._active_agents.copy()
+            use_cuda_latency = self._uses_cuda_latency
             for agent_idx in np.flatnonzero(~active):
                 observation_info = dict(self._last_observation_infos[agent_idx])
                 observation_info["inactive"] = True
                 infos[agent_idx] = observation_info
 
-            self.latency.begin_decision(actions, active_mask=active)
-            raw_frames_advanced = np.zeros(self.num_agents, dtype=np.int64)
-            timeout_mask = np.zeros(self.num_agents, dtype=np.bool_)
-            still_active = active.copy()
-            latest_numeric_obs = self.core.observations()
-            latest_scores = self.core.score.copy()
-            for _ in range(self.clock.obs_stride_raw_frames):
-                raw_actions = self.latency.raw_actions(still_active)
-                step_result = self.core.step_batch(raw_actions, active_mask=still_active)
-                advanced = still_active.copy()
-                raw_frames_advanced[advanced] += 1
-                self._raw_episode_steps[advanced] += 1
-                rewards[advanced] += step_result.rewards[advanced].astype(np.float32)
-                terminated |= step_result.terminated
-                truncated |= step_result.truncated
-                if self._batched_max_episode_steps > 0:
-                    timeout = advanced & (self._raw_episode_steps >= self._batched_max_episode_steps)
-                    truncated[timeout] = True
-                    timeout_mask |= timeout
-                latest_numeric_obs = step_result.observations
-                latest_scores = step_result.scores
-                self.latency.record_raw_step(advanced)
-                still_active &= ~np.logical_or(terminated, truncated)
-                if not np.any(still_active):
-                    break
-
-            latency_result = self.latency.finish_decision(active, raw_frames_advanced)
-            self._last_frame_skips[active] = latency_result.latency_raw_frames[active]
-            done_infos = self.metrics.update(
-                issued_actions=actions,
-                rewards=rewards,
-                terminated=terminated,
-                truncated=truncated,
-                scores=latest_scores,
-                active_mask=active,
-                latency_raw_frames=latency_result.latency_raw_frames,
-                timeout_mask=timeout_mask,
-            )
-
-            done_mask = active & np.logical_or(terminated, truncated)
-            if self.latency.add_latency_info:
-                for agent_idx in np.flatnonzero(active):
-                    done = bool(done_mask[agent_idx])
-                    latency_info = self.latency.decision_info_for_agent(int(agent_idx), latency_result)
-                    info = {
-                        "score": int(latest_scores[agent_idx]),
-                        **latency_info,
-                        "raw_reward": float(rewards[agent_idx]),
-                    }
-                    if bool(timeout_mask[agent_idx]):
-                        info["TimeLimit.truncated"] = True
-                    if int(agent_idx) in done_infos:
-                        info.update(done_infos[int(agent_idx)])
-                    info = self._with_numeric_obs(info, latest_numeric_obs[agent_idx])
-                    if done and self._auto_reset_done:
-                        reset_seeds, reset_latency_infos = self.latency.reset(indices=[int(agent_idx)])
-                        self.metrics.reset(indices=[int(agent_idx)])
-                        reset_numeric_obs, reset_core_infos = self.core.reset_batch(
-                            seeds=reset_seeds,
-                            indices=[int(agent_idx)],
-                        )
-                        self._raw_episode_steps[agent_idx] = 0
-                        reset_info = self._with_numeric_obs(
-                            {**reset_core_infos[agent_idx], **reset_latency_infos[0]},
-                            reset_numeric_obs[agent_idx],
-                        )
-                        info["reset_info"] = reset_info
-                        self._last_observation_infos[agent_idx] = dict(reset_info)
-                        self._last_frame_skips[agent_idx] = int(reset_info.get("latency_raw_frames", 0))
-                    else:
-                        self._last_observation_infos[agent_idx] = dict(info)
-                    infos[agent_idx] = info
-            else:
-                for agent_idx in np.flatnonzero(done_mask):
-                    info = dict(done_infos.get(int(agent_idx), {}))
+            if use_cuda_latency:
+                active_for_latency = torch.as_tensor(active, dtype=torch.bool, device=self.render_device)
+                with self.gpu_render_profiler.time("fused_decision_s"):
+                    fused_result = self.latency.step_core_decision_numpy(
+                        self.core,
+                        actions,
+                        active_mask=active_for_latency,
+                        episode_step_idx=self._raw_episode_steps_gpu,
+                        max_episode_steps=self._batched_max_episode_steps,
+                    )
+                rewards = fused_result.rewards.astype(np.float32, copy=False)
+                terminated = fused_result.terminated
+                truncated = fused_result.truncated
+                rewards_out = fused_result.rewards_gpu
+                terminated_out = fused_result.terminated_gpu
+                truncated_out = fused_result.truncated_gpu
+                raw_frames_advanced = fused_result.raw_frames_advanced
+                self._raw_episode_steps[active] += raw_frames_advanced[active]
+                timeout_mask = fused_result.timeout_mask
+                latest_scores = fused_result.scores
+                latency_raw_frames = fused_result.latency_raw_frames
+                self._last_frame_skips[active] = latency_raw_frames[active]
+                with self.gpu_render_profiler.time("metrics_update_s"):
+                    done_infos = self.metrics.update(
+                        issued_actions=issued_actions,
+                        rewards=rewards,
+                        terminated=terminated,
+                        truncated=truncated,
+                        scores=latest_scores,
+                        active_mask=active,
+                        latency_raw_frames=latency_raw_frames,
+                        timeout_mask=timeout_mask,
+                    )
+                done_mask = active & np.logical_or(terminated, truncated)
+                if self.latency.add_latency_info:
+                    latest_numeric_obs = self.core.observations()
+                    for agent_idx in np.flatnonzero(active):
+                        done = bool(done_mask[agent_idx])
+                        latency_info = self.latency.core_decision_info_for_agent(int(agent_idx), fused_result)
+                        info = {
+                            "score": int(latest_scores[agent_idx]),
+                            **latency_info,
+                            "raw_reward": float(rewards[agent_idx]),
+                        }
+                        if bool(timeout_mask[agent_idx]):
+                            info["TimeLimit.truncated"] = True
+                        if int(agent_idx) in done_infos:
+                            info.update(done_infos[int(agent_idx)])
+                        info = self._with_numeric_obs(info, latest_numeric_obs[agent_idx])
+                        if not (done and self._auto_reset_done):
+                            self._last_observation_infos[agent_idx] = dict(info)
+                        infos[agent_idx] = info
                     if self._auto_reset_done:
-                        reset_seeds, reset_latency_infos = self.latency.reset(indices=[int(agent_idx)])
-                        self.metrics.reset(indices=[int(agent_idx)])
-                        reset_numeric_obs, reset_core_infos = self.core.reset_batch(
-                            seeds=reset_seeds,
-                            indices=[int(agent_idx)],
+                        with self.gpu_render_profiler.time("auto_reset_s"):
+                            reset_infos = self._auto_reset_done_agents(np.flatnonzero(done_mask))
+                        for agent_idx, reset_info in reset_infos.items():
+                            infos[agent_idx]["reset_info"] = reset_info
+                else:
+                    with self.gpu_render_profiler.time("auto_reset_s"):
+                        reset_infos = (
+                            self._auto_reset_done_agents(np.flatnonzero(done_mask))
+                            if self._auto_reset_done
+                            else {}
                         )
-                        self._raw_episode_steps[agent_idx] = 0
-                        reset_info = self._with_numeric_obs(
-                            {**reset_core_infos[agent_idx], **reset_latency_infos[0]},
-                            reset_numeric_obs[agent_idx],
+                    for agent_idx in np.flatnonzero(done_mask):
+                        info = dict(done_infos[int(agent_idx)])
+                        if self._auto_reset_done:
+                            info["reset_info"] = reset_infos[int(agent_idx)]
+                        else:
+                            self._last_observation_infos[agent_idx] = dict(info)
+                        infos[agent_idx] = info
+            else:
+                with self.gpu_render_profiler.time("latency_begin_s"):
+                    self.latency.begin_decision(actions, active_mask=active)
+                raw_frames_advanced = np.zeros(self.num_agents, dtype=np.int64)
+                timeout_mask = np.zeros(self.num_agents, dtype=np.bool_)
+                still_active = active.copy()
+                latest_numeric_obs = self.core.observations()
+                latest_scores = self._core_scores_numpy()
+                for _ in range(self.clock.obs_stride_raw_frames):
+                    with self.gpu_render_profiler.time("latency_raw_actions_s"):
+                        raw_actions = self.latency.raw_actions(still_active)
+                    with self.gpu_render_profiler.time("core_step_s"):
+                        step_result = self.core.step_batch(raw_actions, active_mask=still_active)
+                        step_rewards = step_result.rewards
+                        step_terminated = step_result.terminated
+                        step_truncated = step_result.truncated
+                        latest_numeric_obs = step_result.observations
+                        latest_scores = step_result.scores
+                    advanced = still_active.copy()
+                    raw_frames_advanced[advanced] += 1
+                    self._raw_episode_steps[advanced] += 1
+                    rewards[advanced] += step_rewards[advanced].astype(np.float32)
+                    terminated |= step_terminated
+                    truncated |= step_truncated
+                    if self._batched_max_episode_steps > 0:
+                        timeout = advanced & (self._raw_episode_steps >= self._batched_max_episode_steps)
+                        truncated[timeout] = True
+                        timeout_mask |= timeout
+                    with self.gpu_render_profiler.time("latency_record_s"):
+                        self.latency.record_raw_step(advanced)
+                    still_active &= ~np.logical_or(terminated, truncated)
+                    if not np.any(still_active):
+                        break
+
+                with self.gpu_render_profiler.time("latency_finish_s"):
+                    latency_result = self.latency.finish_decision(active, raw_frames_advanced)
+                    latency_raw_frames = latency_result.latency_raw_frames
+                self._last_frame_skips[active] = latency_raw_frames[active]
+                with self.gpu_render_profiler.time("metrics_update_s"):
+                    done_infos = self.metrics.update(
+                        issued_actions=issued_actions,
+                        rewards=rewards,
+                        terminated=terminated,
+                        truncated=truncated,
+                        scores=latest_scores,
+                        active_mask=active,
+                        latency_raw_frames=latency_raw_frames,
+                        timeout_mask=timeout_mask,
+                    )
+
+                done_mask = active & np.logical_or(terminated, truncated)
+                if self.latency.add_latency_info:
+                    for agent_idx in np.flatnonzero(active):
+                        done = bool(done_mask[agent_idx])
+                        latency_info = self.latency.decision_info_for_agent(int(agent_idx), latency_result)
+                        info = {
+                            "score": int(latest_scores[agent_idx]),
+                            **latency_info,
+                            "raw_reward": float(rewards[agent_idx]),
+                        }
+                        if bool(timeout_mask[agent_idx]):
+                            info["TimeLimit.truncated"] = True
+                        if int(agent_idx) in done_infos:
+                            info.update(done_infos[int(agent_idx)])
+                        info = self._with_numeric_obs(info, latest_numeric_obs[agent_idx])
+                        if not (done and self._auto_reset_done):
+                            self._last_observation_infos[agent_idx] = dict(info)
+                        infos[agent_idx] = info
+                    if self._auto_reset_done:
+                        with self.gpu_render_profiler.time("auto_reset_s"):
+                            reset_infos = self._auto_reset_done_agents(np.flatnonzero(done_mask))
+                        for agent_idx, reset_info in reset_infos.items():
+                            infos[agent_idx]["reset_info"] = reset_info
+                else:
+                    with self.gpu_render_profiler.time("auto_reset_s"):
+                        reset_infos = (
+                            self._auto_reset_done_agents(np.flatnonzero(done_mask))
+                            if self._auto_reset_done
+                            else {}
                         )
-                        info["reset_info"] = reset_info
-                        self._last_observation_infos[agent_idx] = dict(reset_info)
-                        self._last_frame_skips[agent_idx] = int(reset_info.get("latency_raw_frames", 0))
-                    else:
-                        self._last_observation_infos[agent_idx] = dict(info)
-                    infos[agent_idx] = info
+                    for agent_idx in np.flatnonzero(done_mask):
+                        info = dict(done_infos[int(agent_idx)])
+                        if self._auto_reset_done:
+                            info["reset_info"] = reset_infos[int(agent_idx)]
+                        else:
+                            self._last_observation_infos[agent_idx] = dict(info)
+                        infos[agent_idx] = info
 
         with self.gpu_render_profiler.time("step_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
@@ -454,7 +555,13 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 )
         self.gpu_render_profiler.observe_step()
         self._attach_env_raw_rgb_infos(infos)
-        return self._obs(obs), rewards, terminated, truncated, infos
+        self.sample_factory_step_cpu_tensors = {
+            "rewards": torch.from_numpy(rewards),
+            "terminated": torch.from_numpy(terminated),
+            "truncated": torch.from_numpy(truncated),
+            "dones": torch.from_numpy(np.logical_or(terminated, truncated)),
+        }
+        return self._obs(obs), rewards_out, terminated_out, truncated_out, infos
 
     def _reset_env_raw_rgb_frames(self, raw_rgb: torch.Tensor, agent_indices: Sequence[int] | None = None) -> None:
         if not self.export_env_raw_rgb_frames:
@@ -482,6 +589,29 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             updated[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = np.stack(tuple(self._env_raw_rgb_frames[agent_idx]), axis=0)
             infos[agent_idx] = updated
 
+    def _auto_reset_done_agents(self, done_indices: Sequence[int]) -> dict[int, dict[str, Any]]:
+        reset_indices = [int(agent_idx) for agent_idx in done_indices]
+        if not reset_indices:
+            return {}
+        reset_seeds, reset_latency_infos = self.latency.reset(indices=reset_indices)
+        self.metrics.reset(indices=reset_indices)
+        reset_numeric_obs, reset_core_infos = self.core.reset_batch(
+            seeds=reset_seeds,
+            indices=reset_indices,
+        )
+        reset_infos: dict[int, dict[str, Any]] = {}
+        for offset, agent_idx in enumerate(reset_indices):
+            self._raw_episode_steps[agent_idx] = 0
+            self._raw_episode_steps_gpu[agent_idx] = 0
+            reset_info = self._with_numeric_obs(
+                {**reset_core_infos[agent_idx], **reset_latency_infos[offset]},
+                reset_numeric_obs[agent_idx],
+            )
+            reset_infos[agent_idx] = reset_info
+            self._last_observation_infos[agent_idx] = dict(reset_info)
+            self._last_frame_skips[agent_idx] = int(reset_info["latency_raw_frames"])
+        return reset_infos
+
     def _obs(self, obs: torch.Tensor) -> dict[str, torch.Tensor]:
         expected_batch = self.num_agents
         if obs.ndim != 4 or int(obs.shape[0]) != expected_batch:
@@ -491,6 +621,24 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         return {"obs": obs}
 
     def _render_raw_rgb(self) -> torch.Tensor:
+        if isinstance(self.core, CudaFlappyBirdCore):
+            if self.renderer is None:
+                assets = FlappyRenderAssets.load(
+                    bird_color=self.core.bird_color,
+                    pipe_color=self.core.pipe_color,
+                    background=self.core.background,
+                )
+                self.renderer = CudaFlappyRenderer(assets, device=self.render_device)
+            with self.gpu_render_profiler.time("render_into_s"):
+                return self.renderer.render_core_into(
+                    self.core,
+                    self._raw_rgb_output_buffer_for_shape(
+                        batch_size=int(self.core.batch_size),
+                        screen_height=int(self.core.screen_height),
+                        screen_width=int(self.core.screen_width),
+                    ),
+                )
+
         with self.gpu_render_profiler.time("get_render_state_s"):
             batch = self.core.render_state_batch()
         if self.renderer is None:
@@ -504,6 +652,23 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             pass
         with self.gpu_render_profiler.time("render_into_s"):
             return self.renderer.render_into(batch, self._raw_rgb_output_buffer(batch))
+
+    def _raw_rgb_output_buffer_for_shape(
+        self,
+        *,
+        batch_size: int,
+        screen_height: int,
+        screen_width: int,
+    ) -> torch.Tensor:
+        expected_shape = (int(batch_size), int(screen_height), int(screen_width), 3)
+        expected_device = self.render_device if self.renderer is None else self.renderer.device
+        if (
+            self._raw_rgb_buffer is None
+            or tuple(self._raw_rgb_buffer.shape) != expected_shape
+            or self._raw_rgb_buffer.device != expected_device
+        ):
+            self._raw_rgb_buffer = torch.empty(expected_shape, dtype=torch.uint8, device=expected_device)
+        return self._raw_rgb_buffer
 
     def _raw_rgb_output_buffer(self, batch: BatchedFlappyRenderState) -> torch.Tensor:
         expected_shape = (int(batch.batch_size), int(batch.screen_height), int(batch.screen_width), 3)
@@ -536,6 +701,17 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             return [self._scalar_action(action)]
         raise ValueError(f"Expected batched action for {self.num_agents} agents, got {type(action).__name__}")
 
+    def _normalize_cuda_actions(self, action: Any) -> torch.Tensor:
+        if isinstance(action, torch.Tensor):
+            actions = action.to(device=self.render_device, dtype=torch.int64)
+        else:
+            actions = torch.as_tensor(action, dtype=torch.int64, device=self.render_device)
+        if actions.ndim == 0:
+            actions = actions.reshape(1)
+        if actions.ndim == 2 and int(actions.shape[1]) == 1:
+            actions = actions[:, 0]
+        return actions.reshape(-1)
+
     @staticmethod
     def _scalar_action(action: Any) -> Any:
         if isinstance(action, torch.Tensor):
@@ -558,8 +734,14 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
     def _latency_raw_frames(infos: Sequence[dict[str, Any]]) -> np.ndarray:
         values = []
         for info in infos:
-            values.append(int(info.get("latency_raw_frames", 0)))
+            values.append(int(info["latency_raw_frames"]))
         return np.asarray(values, dtype=np.int64)
+
+    def _core_scores_numpy(self) -> np.ndarray:
+        score = self.core.score
+        if isinstance(score, torch.Tensor):
+            return score.detach().cpu().numpy().copy()
+        return score.copy()
 
     def close(self):
         for env in self.sub_envs:

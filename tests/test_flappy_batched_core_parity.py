@@ -2,13 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from latency_bench.envs.flappy import ensure_flappy_gymnasium_on_path
+import gymnasium as gym
 
-ensure_flappy_gymnasium_on_path()
-
-import gymnasium as gym  # noqa: E402
-
-from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState  # noqa: E402
+from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState
 
 
 def _make_scalar_env(**overrides):

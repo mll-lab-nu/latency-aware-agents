@@ -216,7 +216,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_multi_value_arg(args, "--actor_worker_gpus", actor_worker_gpus)
     if use_gpu_render:
         append_cli_arg(args, "--env_gpu_observations", gpu_render_device != "cpu")
-        append_cli_arg(args, "--env_gpu_actions", False)
+        append_cli_arg(args, "--env_gpu_actions", env_cfg["simulator"] == "gpu" and gpu_render_device != "cpu")
         original_num_envs_per_worker = int(training_cfg["num_envs_per_worker"])
         append_cli_arg(args, "--gpu-render-batch-size", original_num_envs_per_worker)
     append_cli_arg(args, "--seed", experiment_cfg.get("seed", 0))
