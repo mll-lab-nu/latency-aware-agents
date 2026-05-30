@@ -461,6 +461,23 @@ def test_factor_sweep_generator_emits_non_flappy_configs(tmp_path, env_name, spe
     assert train_cfg["env"]["name"] == env_name
     assert train_cfg["env"]["frame_stack"] == 4
     assert train_cfg["env"]["obs_fps"] == pytest.approx(10)
+
+    # GPU-env keys present in the base config must survive pruning into train.yaml;
+    # the Sample Factory integrations read env.simulator/gpu_env_* via direct subscript.
+    expected_gpu_env = {
+        "demon_attack": {
+            "simulator": "gpu",
+            "gpu_env_device": "auto",
+            "gpu_env_batch_size": 1,
+        },
+        "deadly_corridor": {
+            "simulator": "cpu",
+            "gpu_env_device": "auto",
+            "gpu_env_batch_size": 1,
+        },
+    }[env_name]
+    for key, value in expected_gpu_env.items():
+        assert train_cfg["env"][key] == value
     assert train_cfg["logging"]["wandb_name"] == f"{env_name.replace('_', '-')}-obs10-fixed_l2-s0"
     assert train_cfg["logging"]["wandb_group"] == f"{env_name.replace('_', '-')}-obs10-fixed_l2"
     assert train_cfg["logging"]["wandb_tags"] == [
