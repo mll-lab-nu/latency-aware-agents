@@ -5,10 +5,6 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from latency_bench.envs.flappy import ensure_flappy_gymnasium_on_path
-
-ensure_flappy_gymnasium_on_path()
-
 
 def _cfg(**overrides):
     values = {
@@ -40,6 +36,7 @@ def _cfg(**overrides):
         "obs_fps": 30,
         "episode_metrics_path": "",
         "use_gpu_render": True,
+        "simulator": "cpu",
         "gpu_render_device": "cpu",
         "gpu_render_batch_size": 1,
         "gpu_render_profile": False,

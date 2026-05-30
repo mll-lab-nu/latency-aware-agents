@@ -40,6 +40,7 @@ def _config(output_dir: str, *, num_episodes: int = 3, score_limit: int | None =
         "obs_resize": [84, 84],
         "frame_stack": 4,
         "use_gpu_render": True,
+        "simulator": "cpu",
         "gpu_render_device": "cpu",
         "gpu_render_profile": False,
         "gpu_render_profile_interval": 1000,
@@ -189,6 +190,49 @@ def test_flappy_gpu_batched_backend_matches_serial_gpu_backend_step_for_step(tmp
             _assert_backend_observations_equal(
                 batched.observe_slots([0, 1, 2]),
                 serial.observe_slots([0, 1, 2]),
+            )
+    finally:
+        batched.close()
+        serial.close()
+
+
+def test_flappy_gpu_simulator_batched_backend_matches_serial_gpu_backend_step_for_step(tmp_path):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
+
+    config = _config(str(tmp_path), num_episodes=2)
+    config["env"]["simulator"] = "gpu"
+    config["env"]["gpu_render_device"] = "cuda"
+    config["policy"]["type"] = "flappy_sf"
+    serial = _serial_backend(2)
+    batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=2)
+    try:
+        for slot_id, seed in enumerate([404, 505]):
+            _assert_observation_equal(
+                batched.reset_slot(slot_id, episode_id=slot_id, seed=seed),
+                serial.reset_slot(slot_id, episode_id=slot_id, seed=seed),
+            )
+
+        action_plan = [
+            {0: _noop(), 1: _flap()},
+            {0: _flap(), 1: _noop()},
+            {0: _flap()},
+            {1: _flap()},
+        ]
+        for actions_by_slot in action_plan:
+            serial_responses = serial.step_slots(actions_by_slot)
+            batched_responses = batched.step_slots(actions_by_slot)
+            assert set(batched_responses) == set(serial_responses)
+            for slot_id in serial_responses:
+                _assert_step_equal(
+                    batched_responses[slot_id].result,
+                    serial_responses[slot_id].result,
+                )
+            _assert_backend_observations_equal(
+                batched.observe_slots([0, 1]),
+                serial.observe_slots([0, 1]),
             )
     finally:
         batched.close()

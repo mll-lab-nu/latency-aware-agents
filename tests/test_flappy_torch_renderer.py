@@ -4,18 +4,13 @@ import numpy as np
 import pytest
 import torch
 
-from latency_bench.envs.flappy import ensure_flappy_gymnasium_on_path
-
-
-ensure_flappy_gymnasium_on_path()
-
-import flappy_bird_gymnasium  # noqa: E402,F401
-import gymnasium as gym  # noqa: E402
-from flappy_bird_gymnasium.envs.render_state import (  # noqa: E402
+import flappy_bird_gymnasium  # noqa: F401
+import gymnasium as gym
+from flappy_bird_gymnasium.envs.render_state import (
     BatchedFlappyRenderState,
     FlappyRenderState,
 )
-from flappy_bird_gymnasium.gpu_render import (  # noqa: E402
+from flappy_bird_gymnasium.gpu_render import (
     FlappyRenderAssets,
     TorchFlappyRenderer,
 )
@@ -197,4 +192,3 @@ def test_render_into_reuses_cached_blit_index_buffers():
 
     assert second_ptrs == first_ptrs
     assert torch.equal(out, renderer._render_scalar(batch))
-

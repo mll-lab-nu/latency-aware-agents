@@ -39,6 +39,7 @@ def _flappy_gpu_cfg(**overrides):
         "obs_fps": 30,
         "episode_metrics_path": "",
         "use_gpu_render": True,
+        "simulator": "cpu",
         "gpu_render_device": "cpu",
         "gpu_render_batch_size": 1,
         "gpu_render_profile": False,
@@ -523,7 +524,7 @@ def test_flappy_gpu_render_config_emits_cuda_actor_worker_args():
     assert args[args.index("--gpu-render-device") + 1] == "cuda"
     assert args[args.index("--actor_worker_gpus") + 1] == "0"
     assert args[args.index("--env_gpu_observations") + 1] == "True"
-    assert args[args.index("--env_gpu_actions") + 1] == "False"
+    assert args[args.index("--env_gpu_actions") + 1] == "True"
     assert args[args.index("--batched_sampling") + 1] == "True"
     assert args[args.index("--gpu-render-batch-size") + 1] == str(cfg["training"]["num_envs_per_worker"])
     assert args[args.index("--num_envs_per_worker") + 1] == "1"
@@ -548,6 +549,22 @@ def test_flappy_gpu_render_config_cpu_does_not_force_actor_worker_gpu():
     assert args[args.index("--batched_sampling") + 1] == "True"
     assert args[args.index("--gpu-render-batch-size") + 1] == str(cfg["training"]["num_envs_per_worker"])
     assert args[args.index("--num_envs_per_worker") + 1] == "1"
+
+
+def test_flappy_cpu_simulator_keeps_cpu_actions_with_gpu_render():
+    from training.flappy_sf.integration import build_cli_args_from_config
+
+    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg["env"]["use_gpu_render"] = True
+    cfg["env"]["simulator"] = "cpu"
+    cfg["env"]["gpu_render_device"] = "cuda"
+    cfg["training"]["worker_num_splits"] = 1
+    cfg["backend"].pop("actor_worker_gpus", None)
+
+    args = build_cli_args_from_config(cfg)
+
+    assert args[args.index("--env_gpu_observations") + 1] == "True"
+    assert args[args.index("--env_gpu_actions") + 1] == "False"
 
 
 def test_flappy_gpu_render_config_does_not_remap_cpu_render_path():
@@ -580,6 +597,220 @@ def test_flappy_gpu_render_config_maps_profile_args():
 
     assert args[args.index("--gpu-render-profile") + 1] == "True"
     assert args[args.index("--gpu-render-profile-interval") + 1] == "7"
+
+
+def test_flappy_gpu_simulator_config_is_passed_to_training_adapter():
+    from training.flappy_sf.integration import build_cli_args_from_config
+
+    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg["env"]["use_gpu_render"] = True
+    cfg["env"]["simulator"] = "gpu"
+    cfg["env"]["gpu_render_device"] = "cpu"
+    cfg["training"]["worker_num_splits"] = 1
+
+    args = build_cli_args_from_config(cfg)
+
+    assert args[args.index("--simulator") + 1] == "gpu"
+
+
+def test_flappy_gpu_simulator_step_contract():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(simulator="gpu", gpu_render_device="cuda", gpu_render_batch_size=2),
+        env_config=_env_config(),
+    )
+    try:
+        obs, infos = env.reset(seed=123)
+        assert obs["obs"].shape == (2, 12, 84, 84)
+        assert isinstance(obs["obs"], torch.Tensor)
+        assert obs["obs"].device.type == "cuda"
+        assert len(infos) == 2
+
+        obs, rewards, terminated, truncated, infos = env.step(np.asarray([0, 1], dtype=np.int64))
+
+        assert obs["obs"].shape == (2, 12, 84, 84)
+        assert isinstance(rewards, torch.Tensor)
+        assert rewards.device.type == "cuda"
+        assert isinstance(terminated, torch.Tensor)
+        assert terminated.device.type == "cuda"
+        assert isinstance(truncated, torch.Tensor)
+        assert truncated.device.type == "cuda"
+        assert env.sample_factory_step_cpu_tensors["rewards"].device.type == "cpu"
+        assert env.sample_factory_step_cpu_tensors["dones"].device.type == "cpu"
+        assert rewards.shape == (2,)
+        assert terminated.shape == (2,)
+        assert truncated.shape == (2,)
+        assert len(infos) == 2
+    finally:
+        env.close()
+
+
+def test_flappy_gpu_distribution_uses_cuda_latency_scheduler():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(
+            simulator="gpu",
+            gpu_render_device="cuda",
+            gpu_render_batch_size=2,
+            latency_type="uniform_distribution",
+            min_latency_ms=40.0,
+            max_latency_ms=80.0,
+        ),
+        env_config=_env_config(),
+    )
+    try:
+        assert isinstance(env.latency, CudaFlappyLatencyScheduler)
+        assert env._uses_cuda_latency is True
+
+        env.reset(seed=123)
+        _obs, rewards, terminated, truncated, _infos = env.step(
+            torch.tensor([0, 1], dtype=torch.int64, device="cuda")
+        )
+
+        assert isinstance(rewards, torch.Tensor)
+        assert rewards.device.type == "cuda"
+        assert isinstance(terminated, torch.Tensor)
+        assert isinstance(truncated, torch.Tensor)
+        latency_raw_frames = env.latency.fixed_latency_raw_frames_numpy()
+        assert np.all(latency_raw_frames >= 2)
+        assert np.all(latency_raw_frames <= 3)
+    finally:
+        env.close()
+
+
+def test_flappy_gpu_latency_info_uses_fused_decision_path(monkeypatch):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    fused_calls = 0
+    original = CudaFlappyLatencyScheduler.step_core_decision_numpy
+
+    def wrapped(self, *args, **kwargs):
+        nonlocal fused_calls
+        fused_calls += 1
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(CudaFlappyLatencyScheduler, "step_core_decision_numpy", wrapped)
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(
+            simulator="gpu",
+            gpu_render_device="cuda",
+            gpu_render_batch_size=2,
+            add_latency_info=True,
+        ),
+        env_config=_env_config(),
+    )
+    try:
+        env.reset(seed=123)
+        _obs, _rewards, _terminated, _truncated, infos = env.step(
+            torch.tensor([0, 1], dtype=torch.int64, device="cuda")
+        )
+
+        assert fused_calls == 1
+        for info in infos:
+            for key in (
+                "queued_action",
+                "ready_raw_frame",
+                "raw_frames_advanced",
+                "pending_action_count",
+                "latency_raw_frames",
+                "latency_ms",
+                "decision_step_idx",
+                "env_step_idx",
+                "raw_frame",
+                "applied_action",
+                "obs_stride_raw_frames",
+            ):
+                assert key in info
+    finally:
+        env.close()
+
+
+def test_flappy_gpu_max_episode_steps_uses_fused_decision_path(monkeypatch):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    fused_calls = 0
+    original = CudaFlappyLatencyScheduler.step_core_decision_numpy
+
+    def wrapped(self, *args, **kwargs):
+        nonlocal fused_calls
+        fused_calls += 1
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(CudaFlappyLatencyScheduler, "step_core_decision_numpy", wrapped)
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(
+            simulator="gpu",
+            gpu_render_device="cuda",
+            gpu_render_batch_size=2,
+            max_episode_steps=1,
+        ),
+        env_config=_env_config(),
+    )
+    try:
+        env.reset(seed=123)
+        _obs, _rewards, _terminated, truncated, infos = env.step(
+            torch.tensor([0, 1], dtype=torch.int64, device="cuda")
+        )
+
+        assert fused_calls == 1
+        assert torch.equal(truncated, torch.ones(2, dtype=torch.bool, device="cuda"))
+        assert torch.equal(env.sample_factory_step_cpu_tensors["truncated"], torch.ones(2, dtype=torch.bool))
+        assert all("reset_info" in info for info in infos)
+    finally:
+        env.close()
+
+
+def test_flappy_gpu_simulator_accepts_cuda_action_tensor(monkeypatch):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(simulator="gpu", gpu_render_device="cuda", gpu_render_batch_size=2),
+        env_config=_env_config(),
+    )
+    try:
+        env.reset(seed=123)
+
+        def fail_cpu_action_path(action):
+            del action
+            raise AssertionError("gpu action path should not normalize actions through CPU")
+
+        monkeypatch.setattr(env.unwrapped, "_normalize_actions", fail_cpu_action_path)
+        obs, rewards, terminated, truncated, infos = env.step(torch.tensor([0, 1], dtype=torch.int64, device="cuda"))
+
+        assert obs["obs"].shape == (2, 12, 84, 84)
+        assert rewards.shape == (2,)
+        assert terminated.shape == (2,)
+        assert truncated.shape == (2,)
+        assert len(infos) == 2
+    finally:
+        env.close()
 
 
 def test_flappy_gpu_render_config_maps_timelimit_diagnostics_arg():

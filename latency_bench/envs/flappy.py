@@ -3,10 +3,9 @@ from __future__ import annotations
 from collections import deque
 from contextlib import nullcontext
 from dataclasses import dataclass
-from pathlib import Path
-import sys
 from typing import Any
 
+import flappy_bird_gymnasium  # noqa: F401
 import gymnasium
 import numpy as np
 from PIL import Image
@@ -16,20 +15,6 @@ import torch.nn.functional as F
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
 from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
-
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-FLAPPY_GYMNASIUM_ROOT = REPO_ROOT / "flappy-bird-gymnasium"
-
-
-def ensure_flappy_gymnasium_on_path() -> None:
-    if FLAPPY_GYMNASIUM_ROOT.exists() and str(FLAPPY_GYMNASIUM_ROOT) not in sys.path:
-        sys.path.insert(0, str(FLAPPY_GYMNASIUM_ROOT))
-
-
-ensure_flappy_gymnasium_on_path()
-
-import flappy_bird_gymnasium  # noqa: E402,F401
 
 
 @dataclass(frozen=True)
@@ -152,10 +137,7 @@ class FlappyTorchObservationPipeline:
         frame_obs = self._resize(raw_rgb_batch, profiler=profiler)
         timer = profiler.time("stack_update_s") if profiler is not None else nullcontext()
         with timer:
-            for stack_idx in range(self.observation_config.stack_frames):
-                c0 = stack_idx * self.base_channels
-                c1 = c0 + self.base_channels
-                self._stack[:, c0:c1, :, :] = frame_obs
+            self._stack.copy_(frame_obs.repeat(1, self.observation_config.stack_frames, 1, 1))
         return self._final_obs(frame_skips, profiler=profiler)
 
     def step(
@@ -176,19 +158,26 @@ class FlappyTorchObservationPipeline:
             if self.observation_config.stack_frames <= 1:
                 if inactive_indices.size:
                     self._next_stack[inactive_indices] = self._stack[inactive_indices]
-                self._next_stack[active_indices] = frame_obs[active_indices]
+                    self._next_stack[active_indices] = frame_obs[active_indices]
+                else:
+                    self._next_stack.copy_(frame_obs)
             else:
                 if inactive_indices.size:
                     self._next_stack[inactive_indices] = self._stack[inactive_indices]
-                self._next_stack[active_indices, : -self.base_channels, :, :] = self._stack[
-                    active_indices, self.base_channels :, :, :
-                ]
-                self._next_stack[active_indices, -self.base_channels :, :, :] = frame_obs[active_indices]
-            for idx in done_indices:
-                for stack_idx in range(self.observation_config.stack_frames):
-                    c0 = stack_idx * self.base_channels
-                    c1 = c0 + self.base_channels
-                    self._next_stack[idx, c0:c1, :, :] = frame_obs[idx]
+                    self._next_stack[active_indices, : -self.base_channels, :, :] = self._stack[
+                        active_indices, self.base_channels :, :, :
+                    ]
+                    self._next_stack[active_indices, -self.base_channels :, :, :] = frame_obs[active_indices]
+                else:
+                    self._next_stack[:, : -self.base_channels, :, :] = self._stack[:, self.base_channels :, :, :]
+                    self._next_stack[:, -self.base_channels :, :, :] = frame_obs
+            if done_indices.size:
+                self._next_stack[done_indices] = frame_obs[done_indices].repeat(
+                    1,
+                    self.observation_config.stack_frames,
+                    1,
+                    1,
+                )
             self._stack, self._next_stack = self._next_stack, self._stack
         return self._final_obs(frame_skips, profiler=profiler)
 
@@ -207,11 +196,12 @@ class FlappyTorchObservationPipeline:
         reset_indices = [int(item) for item in np.flatnonzero(mask)]
         timer = profiler.time("stack_update_s") if profiler is not None else nullcontext()
         with timer:
-            for idx in reset_indices:
-                for stack_idx in range(self.observation_config.stack_frames):
-                    c0 = stack_idx * self.base_channels
-                    c1 = c0 + self.base_channels
-                    self._stack[idx, c0:c1, :, :] = frame_obs[idx]
+            self._stack[reset_indices] = frame_obs[reset_indices].repeat(
+                1,
+                self.observation_config.stack_frames,
+                1,
+                1,
+            )
         return self._final_obs(frame_skips, profiler=profiler)
 
     def _active_mask(self, value: np.ndarray | torch.Tensor | None) -> np.ndarray:

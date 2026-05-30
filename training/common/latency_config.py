@@ -72,10 +72,12 @@ def latency_distribution_spec_from_flat_config(cfg: Any, *, env_fps: float) -> L
             min=latency_ms_to_raw_frame_value(getattr(cfg, "min_latency_ms"), env_fps=env_fps),
             max=latency_ms_to_raw_frame_value(getattr(cfg, "max_latency_ms"), env_fps=env_fps),
         )
-    return LatencyDistributionSpec(
-        type="uniform",
-        mean=None,
-        std=None,
-        min=latency_ms_to_raw_frame_value(getattr(cfg, "min_latency_ms"), env_fps=env_fps),
-        max=latency_ms_to_raw_frame_value(getattr(cfg, "max_latency_ms"), env_fps=env_fps),
-    )
+    if latency_type == LatencySourceType.UNIFORM_DISTRIBUTION:
+        return LatencyDistributionSpec(
+            type="uniform",
+            mean=None,
+            std=None,
+            min=latency_ms_to_raw_frame_value(getattr(cfg, "min_latency_ms"), env_fps=env_fps),
+            max=latency_ms_to_raw_frame_value(getattr(cfg, "max_latency_ms"), env_fps=env_fps),
+        )
+    raise ValueError(f"Sample Factory latency_distribution_spec does not support latency_type={latency_type.value}")

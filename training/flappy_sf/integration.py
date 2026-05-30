@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from collections import deque
 from pathlib import Path
 from typing import Any, Optional
 
-import flappy_bird_gymnasium
+import flappy_bird_gymnasium  # noqa: F401
 import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box, Dict as GymDict
@@ -40,6 +39,9 @@ from training.common.latency_wrapper import (
 from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from training.common.sf_episode_extra_stats_compat import (
     ensure_sample_factory_episode_extra_stats_installed,
+)
+from training.common.sf_flappy_gpu_sampling_compat import (
+    ensure_sample_factory_flappy_gpu_sampling_compat_installed,
 )
 from training.common.wandb_compat import patch_sample_factory_wandb
 
@@ -313,6 +315,7 @@ def make_flappy_sf_env(
 ):
     del render_mode
     ensure_sample_factory_episode_extra_stats_installed(env_name=SF_ENV_NAME)
+    ensure_sample_factory_flappy_gpu_sampling_compat_installed(env_name=SF_ENV_NAME)
     env_config = env_config or {}
     _force_sample_factory_raw_frame_step_cfg(cfg)
     use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))
@@ -467,6 +470,12 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--screen_size", type=str, default="")
     parser.add_argument("--obs_resize", type=str, default="")
     parser.add_argument("--use-gpu-render", dest="use_gpu_render", type=str2bool, default=False)
+    parser.add_argument(
+        "--simulator",
+        type=str,
+        default="cpu",
+        choices=["cpu", "gpu"],
+    )
     parser.add_argument("--gpu-render-device", dest="gpu_render_device", type=str, default="auto")
     parser.add_argument("--gpu-render-batch-size", dest="gpu_render_batch_size", type=int, default=1)
     parser.add_argument("--gpu-render-profile", dest="gpu_render_profile", type=str2bool, default=False)
@@ -562,6 +571,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
         )
     append_cli_arg(args, "--obs_resize", env_cfg.get("obs_resize"))
     append_cli_arg(args, "--use-gpu-render", env_cfg.get("use_gpu_render", False))
+    append_cli_arg(args, "--simulator", env_cfg["simulator"])
     append_cli_arg(args, "--gpu-render-device", env_cfg.get("gpu_render_device", "auto"))
     append_cli_arg(args, "--gpu-render-profile", env_cfg.get("gpu_render_profile", False))
     append_cli_arg(args, "--gpu-render-profile-interval", env_cfg.get("gpu_render_profile_interval", 1000))

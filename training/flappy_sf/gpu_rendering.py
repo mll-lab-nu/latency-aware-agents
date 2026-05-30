@@ -10,22 +10,26 @@ import numpy as np
 import torch
 from gymnasium.spaces import Box, Dict as GymDict
 
+from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState
+from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer
 from latency_bench.envs.flappy import (
     FlappyObservationConfig,
     FlappyTorchObservationPipeline,
-    ensure_flappy_gymnasium_on_path,
 )
 from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 
 
-ensure_flappy_gymnasium_on_path()
-
-from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState  # noqa: E402
-from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer  # noqa: E402
-
-
 _PROFILE_FIELDS = (
+    "normalize_actions_s",
     "env_step_s",
+    "fused_decision_s",
+    "latency_begin_s",
+    "latency_raw_actions_s",
+    "core_step_s",
+    "latency_record_s",
+    "latency_finish_s",
+    "metrics_update_s",
+    "auto_reset_s",
     "get_render_state_s",
     "state_batch_from_states_s",
     "render_into_s",
