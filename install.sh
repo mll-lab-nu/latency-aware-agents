@@ -95,5 +95,5 @@ import torch
 print(f"[install] torch={torch.__version__} cuda={torch.version.cuda}")
 PY
 python -m pip install -r requirements.txt
-bash scripts/bash_scripts/build_flappy_cuda_extension.sh
+bash scripts/bash_scripts/build_cuda_extensions.sh
 wandb login

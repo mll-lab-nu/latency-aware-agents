@@ -192,8 +192,8 @@ def test_openvla_install_script_bootstraps_rlinf_oft_environment():
     assert "pip install -e \"${REPO_ROOT}/openvla\"" not in text
 
 
-def test_flappy_cuda_extension_build_script_is_executable_bash():
-    script_path = REPO_ROOT / "scripts" / "bash_scripts" / "build_flappy_cuda_extension.sh"
+def test_cuda_extensions_build_script_is_executable_bash():
+    script_path = REPO_ROOT / "scripts" / "bash_scripts" / "build_cuda_extensions.sh"
 
     assert script_path.is_file()
     assert os.access(script_path, os.X_OK)
@@ -209,6 +209,9 @@ def test_flappy_cuda_extension_build_script_is_executable_bash():
 
     text = script_path.read_text(encoding="utf-8")
     assert "load_flappy_cuda_extension" in text
+    assert "load_demon_attack_cuda_extension" in text
+    assert "load_cule_atari_extension" in text
+    assert "load_deadly_corridor_cuda_extension" in text
     assert "torch.cuda.synchronize" in text
     assert "cuda-toolkit[nvcc,cccl]==13.0.*" in text
     assert "nvcc --list-gpu-code" in text
@@ -274,27 +277,6 @@ def test_install_script_rejects_unknown_torch_profile(tmp_path):
     assert result.returncode != 0
     assert "Unknown LATENCY_BENCH_TORCH_PROFILE='bogus'" in result.stderr
     assert not calls_path.exists()
-
-
-def test_gpu_env_extension_build_script_is_executable_bash():
-    script_path = REPO_ROOT / "scripts" / "bash_scripts" / "build_gpu_env_extensions.sh"
-
-    assert script_path.is_file()
-    assert os.access(script_path, os.X_OK)
-
-    syntax = subprocess.run(
-        ["bash", "-n", str(script_path)],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert syntax.returncode == 0, syntax.stderr
-
-    text = script_path.read_text(encoding="utf-8")
-    assert "load_demon_attack_cuda_extension" in text
-    assert "load_cule_atari_extension" in text
-    assert "load_deadly_corridor_cuda_extension" in text
 
 
 def test_starvla_rl_games_installers_match_flash_attn_wheel_to_runtime(tmp_path):
