@@ -35,3 +35,7 @@ Local patches:
   gives `concrete_allocator` an explicit `__AGENCY_ANNOTATION` destructor to
   match the abstract base allocator under CUDA 13's stricter host/device
   override checks.
+- `third_party/agency/agency/detail/unique_function.hpp` gives
+  `unique_function`'s `callable` type an explicit `__AGENCY_ANNOTATION`
+  destructor to match its abstract base under CUDA 13's stricter host/device
+  override checks.

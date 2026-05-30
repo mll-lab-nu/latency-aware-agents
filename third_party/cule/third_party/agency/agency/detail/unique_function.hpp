@@ -147,7 +147,8 @@ class unique_function<Result(Args...)>
       mutable Function f_;
 
       __agency_exec_check_disable__
-      ~callable() = default;
+      __AGENCY_ANNOTATION
+      ~callable() {}
 
       __agency_exec_check_disable__
       template<class OtherFunction,
@@ -246,4 +247,3 @@ class unique_function<Result(Args...)>
 
 } // end detail
 } // end agency
-
