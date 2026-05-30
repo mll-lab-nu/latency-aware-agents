@@ -313,3 +313,77 @@ def test_demon_attack_gpu_max_episode_steps_uses_fused_decision_path(monkeypatch
         assert all("reset_info" in info for info in infos)
     finally:
         env.close()
+
+
+def _clip_parity_cfg(**overrides):
+    cfg = dict(
+        seed=0,
+        env_fps=60,
+        obs_fps=15,
+        noop_max=30,
+        frame_stack=4,
+        terminal_on_life_loss=False,
+        clip_reward=True,
+        max_episode_steps=0,
+        latency_type="fixed",
+        fixed_latency_ms=0.0,
+        add_latency_info=False,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        max_pending_actions=None,
+        episode_metrics_path="",
+        latency_seed=123,
+    )
+    cfg.update(overrides)
+    return SimpleNamespace(**cfg)
+
+
+def test_demon_attack_gpu_clip_reward_is_sum_of_per_frame_signs():
+    """clip_reward must clip per raw frame then sum (matching the CPU path),
+    not sign the accumulated decision reward (which would saturate to {-1,0,1}
+    and starve the learner relative to the CPU baseline)."""
+    torch = pytest.importorskip("torch")
+    import numpy as np
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.demon_attack_sf.batched_gpu_env import DemonAttackBatchedGpuEnv
+
+    batch_size = 8
+    # A wide decision window (obs_fps=2 -> 30 raw frames per decision) makes it likely
+    # that more than one raw frame scores within a single window, which is exactly the
+    # case where sum-of-signs (correct) and sign-of-sum (the bug) diverge.
+    env = DemonAttackBatchedGpuEnv(
+        cfg=_clip_parity_cfg(obs_fps=2),
+        env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
+        gpu_env_device="cuda",
+        gpu_env_batch_size=batch_size,
+    )
+    obs_stride = env.clock.obs_stride_raw_frames
+    assert obs_stride == 30
+
+    try:
+        env.reset()
+        # FIRE every decision to provoke scoring; let the env auto-reset on game over
+        # so we accumulate many decision windows.
+        fire = torch.ones(batch_size, dtype=torch.int64, device="cuda")
+        observed_multi_score = False
+        for _ in range(300):
+            _obs, rewards, _terminated, _truncated, infos = env.step(fire)
+            learner = rewards.detach().cpu().numpy()
+            raw = np.asarray([info["raw_reward"] for info in infos], dtype=np.float64)
+            # Learner reward is a sum of per-frame signs: integer-valued and bounded
+            # by the number of raw frames advanced in the decision window.
+            np.testing.assert_array_equal(learner, np.round(learner))
+            assert np.all(np.abs(learner) <= obs_stride)
+            # Demon Attack rewards are non-negative; clipped reward is positive iff scored.
+            assert np.all((learner > 0) == (raw > 0))
+            assert np.all(learner >= 0)
+            if np.any(learner >= 2):
+                observed_multi_score = True
+
+        # The discriminating property vs the old sign(sum) behavior: the clipped
+        # learner reward can exceed 1 when more than one raw frame scores in a window.
+        assert observed_multi_score, "expected at least one decision window with 2+ scoring frames"
+    finally:
+        env.close()

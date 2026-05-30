@@ -155,8 +155,13 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         latency_raw_frames = result.latency_raw_frames
         self._last_frame_skips[:] = latency_raw_frames
         if self.cfg.clip_reward:
-            rewards = np.sign(rewards_raw).astype(np.float32)
-            rewards_out = torch.sign(result.rewards_gpu)
+            # Clip per raw frame, then sum across the decision window (sum-of-signs),
+            # matching the CPU path (RewardTraceWrapper inside ActionLatencyWrapper).
+            # The CUDA kernel computes this in result.rewards_clipped{,_gpu}; signing
+            # the accumulated reward here (sign-of-sum) would saturate the learner
+            # signal to {-1,0,1} and slow learning relative to CPU.
+            rewards = result.rewards_clipped.astype(np.float32, copy=False)
+            rewards_out = result.rewards_clipped_gpu
         else:
             rewards = rewards_raw.astype(np.float32, copy=False)
             rewards_out = result.rewards_gpu

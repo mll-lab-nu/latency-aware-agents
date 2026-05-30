@@ -86,6 +86,7 @@ class AtariEnv : public cule::atari::wrapper
                          bool* decision_timeout,
                          double* packed_decision,
                          float* decision_rewards,
+                         float* decision_rewards_clipped,
                          bool* decision_terminated,
                          bool* decision_truncated,
                          int64_t* decision_raw_frames_advanced,

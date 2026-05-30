@@ -48,7 +48,8 @@ enum DemonDecisionPackedColumn : int
     DEMON_DECISION_READY_RAW_FRAME = 11,
     DEMON_DECISION_QUEUED_ACTION = 12,
     DEMON_DECISION_TIMEOUT = 13,
-    DEMON_DECISION_COLUMN_COUNT = 14,
+    DEMON_DECISION_REWARD_CLIPPED = 14,
+    DEMON_DECISION_COLUMN_COUNT = 15,
 };
 
 __device__ __forceinline__ int64_t frames_float_to_raw_frames_cuda(double frames)
@@ -123,6 +124,7 @@ __global__ void demon_decision_begin_kernel(
     int64_t* __restrict__ decision_ready_raw_frames,
     bool* __restrict__ decision_timeout,
     float* __restrict__ decision_rewards,
+    float* __restrict__ decision_rewards_clipped,
     bool* __restrict__ decision_terminated,
     bool* __restrict__ decision_truncated,
     int64_t* __restrict__ decision_raw_frames_advanced,
@@ -145,6 +147,7 @@ __global__ void demon_decision_begin_kernel(
 
     decision_timeout[env] = false;
     decision_rewards[env] = 0.0f;
+    decision_rewards_clipped[env] = 0.0f;
     decision_terminated[env] = false;
     decision_truncated[env] = false;
     decision_raw_frames_advanced[env] = 0;
@@ -297,6 +300,7 @@ __global__ void demon_decision_accumulate_kernel(
     int32_t* __restrict__ scoresBuffer,
     bool* __restrict__ decision_timeout,
     float* __restrict__ decision_rewards,
+    float* __restrict__ decision_rewards_clipped,
     bool* __restrict__ decision_terminated,
     bool* __restrict__ decision_truncated,
     int64_t* __restrict__ decision_raw_frames_advanced,
@@ -311,6 +315,9 @@ __global__ void demon_decision_accumulate_kernel(
 
     const float reward = step_rewards[env];
     decision_rewards[env] += reward;
+    // Match the CPU path: clip per raw frame, then sum across the decision window
+    // (sum-of-signs), rather than signing the accumulated reward (sign-of-sum).
+    decision_rewards_clipped[env] += static_cast<float>((reward > 0.0f) - (reward < 0.0f));
     scoresBuffer[env] += static_cast<int32_t>(reward);
     decision_raw_frames_advanced[env] += 1;
     env_step_idx[env] += 1;
@@ -339,6 +346,7 @@ __global__ void demon_decision_finish_kernel(
     const int64_t* __restrict__ decision_ready_raw_frames,
     const bool* __restrict__ decision_timeout,
     const float* __restrict__ decision_rewards,
+    const float* __restrict__ decision_rewards_clipped,
     const bool* __restrict__ decision_terminated,
     const bool* __restrict__ decision_truncated,
     const int64_t* __restrict__ decision_raw_frames_advanced,
@@ -360,6 +368,8 @@ __global__ void demon_decision_finish_kernel(
 
     const int packed_idx = env * DEMON_DECISION_COLUMN_COUNT;
     packed_decision[packed_idx + DEMON_DECISION_REWARD] = static_cast<double>(decision_rewards[env]);
+    packed_decision[packed_idx + DEMON_DECISION_REWARD_CLIPPED] =
+        static_cast<double>(decision_rewards_clipped[env]);
     packed_decision[packed_idx + DEMON_DECISION_TERMINATED] = decision_terminated[env] ? 1.0 : 0.0;
     packed_decision[packed_idx + DEMON_DECISION_TRUNCATED] = decision_truncated[env] ? 1.0 : 0.0;
     packed_decision[packed_idx + DEMON_DECISION_SCORE] = static_cast<double>(scoresBuffer[env]);
@@ -597,6 +607,7 @@ step_decision(const bool episodic_life,
               bool* decision_timeout,
               double* packed_decision,
               float* decision_rewards,
+              float* decision_rewards_clipped,
               bool* decision_terminated,
               bool* decision_truncated,
               int64_t* decision_raw_frames_advanced,
@@ -633,6 +644,7 @@ step_decision(const bool episodic_life,
         decision_ready_raw_frames,
         decision_timeout,
         decision_rewards,
+        decision_rewards_clipped,
         decision_terminated,
         decision_truncated,
         decision_raw_frames_advanced,
@@ -682,6 +694,7 @@ step_decision(const bool episodic_life,
             scoresBuffer,
             decision_timeout,
             decision_rewards,
+            decision_rewards_clipped,
             decision_terminated,
             decision_truncated,
             decision_raw_frames_advanced,
@@ -702,6 +715,7 @@ step_decision(const bool episodic_life,
         decision_ready_raw_frames,
         decision_timeout,
         decision_rewards,
+        decision_rewards_clipped,
         decision_terminated,
         decision_truncated,
         decision_raw_frames_advanced,

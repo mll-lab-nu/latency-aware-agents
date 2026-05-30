@@ -26,7 +26,8 @@ _DECISION_PENDING_COUNT = 10
 _DECISION_READY_RAW_FRAME = 11
 _DECISION_QUEUED_ACTION = 12
 _DECISION_TIMEOUT = 13
-_DECISION_COLUMN_COUNT = 14
+_DECISION_REWARD_CLIPPED = 14
+_DECISION_COLUMN_COUNT = 15
 
 
 def load_demon_attack_rom_bytes() -> bytes:
@@ -51,6 +52,7 @@ class CudaDemonAttackStepResult:
 class CudaDemonAttackDecisionResult:
     observations: torch.Tensor
     rewards: np.ndarray
+    rewards_clipped: np.ndarray
     terminated: np.ndarray
     truncated: np.ndarray
     scores: np.ndarray
@@ -65,6 +67,7 @@ class CudaDemonAttackDecisionResult:
     decision_step_indices: np.ndarray
     timeout_mask: np.ndarray
     rewards_gpu: torch.Tensor
+    rewards_clipped_gpu: torch.Tensor
     terminated_gpu: torch.Tensor
     truncated_gpu: torch.Tensor
 
@@ -163,6 +166,7 @@ class CudaDemonAttackCore:
         self._scores = torch.zeros(self.batch_size, dtype=torch.int32, device=self.device)
         self._lives = torch.zeros(self.batch_size, dtype=torch.int32, device=self.device)
         self._decision_rewards = torch.zeros(self.batch_size, dtype=torch.float32, device=self.device)
+        self._decision_rewards_clipped = torch.zeros(self.batch_size, dtype=torch.float32, device=self.device)
         self._decision_terminated = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
         self._decision_truncated = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
         self._decision_timeout = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
@@ -317,6 +321,7 @@ class CudaDemonAttackCore:
             self._decision_timeout.data_ptr(),
             self._packed_decision.data_ptr(),
             self._decision_rewards.data_ptr(),
+            self._decision_rewards_clipped.data_ptr(),
             self._decision_terminated.data_ptr(),
             self._decision_truncated.data_ptr(),
             self._decision_raw_frames_advanced.data_ptr(),
@@ -336,6 +341,7 @@ class CudaDemonAttackCore:
         return CudaDemonAttackDecisionResult(
             observations=self.observations(),
             rewards=packed[:, _DECISION_REWARD].astype(np.float32).copy(),
+            rewards_clipped=packed[:, _DECISION_REWARD_CLIPPED].astype(np.float32).copy(),
             terminated=packed[:, _DECISION_TERMINATED].astype(np.bool_),
             truncated=packed[:, _DECISION_TRUNCATED].astype(np.bool_),
             scores=packed[:, _DECISION_SCORE].astype(np.int64),
@@ -350,6 +356,7 @@ class CudaDemonAttackCore:
             decision_step_indices=packed[:, _DECISION_DECISION_STEP_IDX].astype(np.int64),
             timeout_mask=packed[:, _DECISION_TIMEOUT].astype(np.bool_),
             rewards_gpu=self._decision_rewards,
+            rewards_clipped_gpu=self._decision_rewards_clipped,
             terminated_gpu=self._decision_terminated,
             truncated_gpu=self._decision_truncated,
         )
