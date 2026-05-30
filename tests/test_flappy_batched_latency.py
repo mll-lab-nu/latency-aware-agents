@@ -58,7 +58,7 @@ def test_batched_latency_fixed_one_frame_then_noop_matches_scalar_action_timing(
 @pytest.mark.parametrize("hold_policy", ("one_frame_then_noop", "hold"))
 def test_cuda_batched_latency_fixed_path_matches_cpu_scheduler(ordering_policy, hold_policy):
     from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
-    from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+    from training.common.gpu_latency import CudaLatencyScheduler
 
     batch_size = 4
     seeds = [7, 8, 9, 10]
@@ -75,7 +75,7 @@ def test_cuda_batched_latency_fixed_path_matches_cpu_scheduler(ordering_policy, 
         env_reset_seed_bases=[1001, 1002, 1003, 1004],
         add_latency_info=False,
     )
-    cuda = CudaFlappyLatencyScheduler(
+    cuda = CudaLatencyScheduler(
         batch_size=batch_size,
         fixed_latency_raw_frames=1,
         env_fps=30,
@@ -153,9 +153,9 @@ def test_cuda_batched_latency_distribution_samples_on_gpu(
     expected_max,
 ):
     from latency_bench.core.latency_distribution import parse_latency_distribution
-    from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+    from training.common.gpu_latency import CudaLatencyScheduler
 
-    scheduler = CudaFlappyLatencyScheduler(
+    scheduler = CudaLatencyScheduler(
         batch_size=4,
         fixed_latency_raw_frames=0,
         env_fps=30,
@@ -184,7 +184,7 @@ def test_cuda_batched_latency_distribution_samples_on_gpu(
 def test_cuda_latency_core_decision_fused_path_matches_cpu_for_stride_gt_one():
     from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore
     from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
-    from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+    from training.common.gpu_latency import CudaLatencyScheduler
     from training.flappy_sf.gpu_core import CudaFlappyBirdCore
 
     batch_size = 4
@@ -226,7 +226,7 @@ def test_cuda_latency_core_decision_fused_path_matches_cpu_for_stride_gt_one():
         env_reset_seed_bases=[1001, 1002, 1003, 1004],
         add_latency_info=False,
     )
-    cuda_latency = CudaFlappyLatencyScheduler(
+    cuda_latency = CudaLatencyScheduler(
         batch_size=batch_size,
         fixed_latency_raw_frames=1,
         env_fps=60,
@@ -291,7 +291,7 @@ def test_cuda_latency_core_decision_fused_path_supports_distribution_latency():
 
     from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore
     from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
-    from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+    from training.common.gpu_latency import CudaLatencyScheduler
     from training.flappy_sf.gpu_core import CudaFlappyBirdCore
 
     batch_size = 2
@@ -314,7 +314,7 @@ def test_cuda_latency_core_decision_fused_path_supports_distribution_latency():
         env_reset_seed_bases=[1001, 1002],
         add_latency_info=False,
     )
-    cuda_latency = CudaFlappyLatencyScheduler(
+    cuda_latency = CudaLatencyScheduler(
         batch_size=batch_size,
         fixed_latency_raw_frames=0,
         env_fps=60,
@@ -376,7 +376,7 @@ def test_cuda_latency_core_decision_resets_offscreen_pipe_during_stride():
     from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore
     from flappy_bird_gymnasium.envs.constants import PIPE_VEL_X, PIPE_WIDTH
     from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
-    from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+    from training.common.gpu_latency import CudaLatencyScheduler
     from training.flappy_sf.gpu_core import CudaFlappyBirdCore
 
     cpu_core = BatchedFlappyBirdCore(batch_size=1)
@@ -393,7 +393,7 @@ def test_cuda_latency_core_decision_resets_offscreen_pipe_during_stride():
         env_reset_seed_bases=[1001],
         add_latency_info=False,
     )
-    cuda_latency = CudaFlappyLatencyScheduler(
+    cuda_latency = CudaLatencyScheduler(
         batch_size=1,
         fixed_latency_raw_frames=0,
         env_fps=60,
@@ -463,7 +463,7 @@ def test_cuda_latency_core_decision_resets_same_pipe_twice_during_large_stride()
     from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore
     from flappy_bird_gymnasium.envs.constants import PIPE_VEL_X, PIPE_WIDTH
     from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
-    from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+    from training.common.gpu_latency import CudaLatencyScheduler
     from training.flappy_sf.gpu_core import CudaFlappyBirdCore
 
     raw_steps = 130
@@ -481,7 +481,7 @@ def test_cuda_latency_core_decision_resets_same_pipe_twice_during_large_stride()
         env_reset_seed_bases=[1001],
         add_latency_info=False,
     )
-    cuda_latency = CudaFlappyLatencyScheduler(
+    cuda_latency = CudaLatencyScheduler(
         batch_size=1,
         fixed_latency_raw_frames=0,
         env_fps=3900,

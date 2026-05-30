@@ -32,9 +32,9 @@ from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_render_device
 
 from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
-from training.flappy_sf.batched_metrics import BatchedFlappyEpisodeMetrics
+from training.common.batched_metrics import BatchedEpisodeMetrics
 from training.flappy_sf.flappy_cuda_extension import CudaFlappyRenderer
-from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+from training.common.gpu_latency import CudaLatencyScheduler
 from training.flappy_sf.gpu_core import CudaFlappyBirdCore
 
 
@@ -146,7 +146,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             "add_latency_info": bool(getattr(self.cfg, "add_latency_info", False)),
         }
         if isinstance(self.core, CudaFlappyBirdCore):
-            self.latency = CudaFlappyLatencyScheduler(
+            self.latency = CudaLatencyScheduler(
                 **latency_kwargs,
                 latency_distribution_spec=latency_params.latency_distribution_spec,
                 max_pending_actions=max_pending_actions,
@@ -158,8 +158,8 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 latency_distribution_spec=latency_params.latency_distribution_spec,
                 max_pending_actions=max_pending_actions,
             )
-        self._uses_cuda_latency = isinstance(self.latency, CudaFlappyLatencyScheduler)
-        self.metrics = BatchedFlappyEpisodeMetrics(
+        self._uses_cuda_latency = isinstance(self.latency, CudaLatencyScheduler)
+        self.metrics = BatchedEpisodeMetrics(
             batch_size=self.num_agents,
             frames_per_decision=self.clock.obs_stride_raw_frames,
             metrics_path=str(getattr(self.cfg, "episode_metrics_path", "") or ""),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
+from types import SimpleNamespace
 from typing import Optional
 
 import gymnasium as gym
@@ -32,11 +33,13 @@ from training.common.latency_bench_periodic_eval import run_sample_factory_train
 from training.common.sf_raw_reward_stats_compat import (
     ensure_sample_factory_raw_reward_console_stats_installed,
 )
+from training.common.sf_gpu_sampling_compat import ensure_sample_factory_gpu_sampling_compat_installed
 from training.common.wandb_compat import patch_sample_factory_wandb
 
 
 SF_ENV_NAME = "latency_demon_attack"
 _ENVS_REGISTERED = False
+_SAMPLE_FACTORY_PROBE_ENV_CONFIG = SimpleNamespace(worker_index=0, vector_index=0, env_id=0)
 
 
 def _force_sample_factory_raw_frame_step_cfg(cfg) -> None:
@@ -103,48 +106,59 @@ def make_demon_attack_sf_env(
     env_config=None,
     render_mode: Optional[str] = None,
 ):
-    del render_mode
+    env_config = _sample_factory_env_config(env_config)
     ensure_sample_factory_raw_reward_console_stats_installed(env_name=SF_ENV_NAME)
-    env_config = env_config or {}
+    if cfg.simulator == "gpu":
+        ensure_sample_factory_gpu_sampling_compat_installed(env_name=SF_ENV_NAME)
     _force_sample_factory_raw_frame_step_cfg(cfg)
     clock = EnvClock(
         env_fps=cfg.env_fps,
         obs_fps=cfg.obs_fps
     )
+    if cfg.simulator == "gpu":
+        from training.demon_attack_sf.batched_gpu_env import DemonAttackBatchedGpuEnv
+
+        _validate_demon_attack_gpu_training_cfg(cfg)
+        return DemonAttackBatchedGpuEnv(
+            cfg=cfg,
+            env_config=env_config,
+            gpu_env_device=cfg.gpu_env_device,
+            gpu_env_batch_size=cfg.gpu_env_batch_size,
+        )
     env = make_demon_attack_benchmark_env(
-        env_id=getattr(cfg, "env_id", "ALE/DemonAttack-v5"),
-        screen_size=int(getattr(cfg, "screen_size", 84)),
-        noop_max=int(getattr(cfg, "noop_max", 30)),
-        terminal_on_life_loss=bool(getattr(cfg, "terminal_on_life_loss", False)),
+        env_id=cfg.env_id,
+        screen_size=cfg.screen_size,
+        noop_max=cfg.noop_max,
+        terminal_on_life_loss=cfg.terminal_on_life_loss,
         clip_reward=False,
-        repeat_action_probability=float(getattr(cfg, "repeat_action_probability", 0.0)),
-        full_action_space=bool(getattr(cfg, "full_action_space", False)),
+        repeat_action_probability=cfg.repeat_action_probability,
+        full_action_space=cfg.full_action_space,
     )
     env = AtariObsFormatWrapper(env)
-    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+    frame_stack = cfg.frame_stack
     if frame_stack > 1:
         env = AtariFrameStackWrapper(env, num_frames=frame_stack)
-    if bool(getattr(cfg, "export_env_raw_rgb_frames", False)):
+    if cfg.export_env_raw_rgb_frames:
         env = RawRgbFrameStackInfoWrapper(env, num_frames=frame_stack, raw_frame_fn=_ale_raw_rgb_frame)
-    max_episode_steps = int(getattr(cfg, "max_episode_steps", 0) or 0)
+    max_episode_steps = cfg.max_episode_steps
     if max_episode_steps > 0:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
-    if bool(getattr(cfg, "clip_reward", True)):
+    if cfg.clip_reward:
         env = RewardTraceWrapper(env, learner_reward_fn=lambda raw_reward, info: float(np.sign(raw_reward)))
     else:
         env = RewardTraceWrapper(env)
     wrapper_seed = env_instance_seed(
-        base_seed=int(getattr(cfg, "seed", 0) or 0),
-        worker_index=int(getattr(env_config, "worker_index", 0) or 0),
-        vector_index=int(getattr(env_config, "vector_index", 0) or 0),
-        env_id=int(getattr(env_config, "env_id", 0) or 0),
+        base_seed=cfg.seed,
+        worker_index=env_config.worker_index,
+        vector_index=env_config.vector_index,
+        env_id=env_config.env_id,
     )
     latency_seed = sample_factory_latency_seed_from_flat_config(
         cfg,
         fallback_seed=wrapper_seed,
-        worker_index=int(getattr(env_config, "worker_index", 0) or 0),
-        vector_index=int(getattr(env_config, "vector_index", 0) or 0),
-        env_id=int(getattr(env_config, "env_id", 0) or 0),
+        worker_index=env_config.worker_index,
+        vector_index=env_config.vector_index,
+        env_id=env_config.env_id,
     )
     latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=clock.env_fps)
     env = ActionLatencyWrapper(
@@ -152,23 +166,41 @@ def make_demon_attack_sf_env(
         fixed_latency_raw_frames=latency_params.fixed_latency_raw_frames,
         env_fps=clock.env_fps,
         obs_fps=clock.obs_fps,
-        hold_policy=getattr(cfg, "hold_policy", ActionHoldPolicy.HOLD.value),
-        ordering_policy=getattr(cfg, "ordering_policy", OrderingPolicy.LATEST_READY.value),
+        hold_policy=cfg.hold_policy,
+        ordering_policy=cfg.ordering_policy,
         latency_distribution_spec=latency_params.latency_distribution_spec,
         seed=latency_seed,
         env_reset_seed_base=wrapper_seed + 104729,
-        add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
-        max_pending_actions=getattr(cfg, "max_pending_actions", None),
+        add_latency_info=cfg.add_latency_info,
+        max_pending_actions=cfg.max_pending_actions,
     )
     env = EpisodeMetricsWrapper(
         env,
         frames_per_decision=clock.obs_stride_raw_frames,
-        metrics_path=str(getattr(cfg, "episode_metrics_path", "") or ""),
-        worker_index=int(getattr(env_config, "worker_index", 0) or 0),
-        vector_index=int(getattr(env_config, "vector_index", 0) or 0),
-        env_id=int(getattr(env_config, "env_id", 0) or 0),
+        metrics_path=cfg.episode_metrics_path,
+        worker_index=env_config.worker_index,
+        vector_index=env_config.vector_index,
+        env_id=env_config.env_id,
     )
     return env
+
+
+def _validate_demon_attack_gpu_training_cfg(cfg) -> None:
+    if cfg.env_id != "ALE/DemonAttack-v5":
+        raise ValueError("Demon Attack simulator=gpu supports env_id=ALE/DemonAttack-v5")
+    if cfg.screen_size != 84:
+        raise ValueError("Demon Attack simulator=gpu supports screen_size=84")
+    if cfg.repeat_action_probability != 0.0:
+        raise ValueError("Demon Attack simulator=gpu supports repeat_action_probability=0.0")
+    if cfg.full_action_space:
+        raise ValueError("Demon Attack simulator=gpu supports full_action_space=False")
+
+
+def _sample_factory_env_config(env_config):
+    # Sample Factory probes env_info before worker/vector ids exist.
+    if env_config is None:
+        return _SAMPLE_FACTORY_PROBE_ENV_CONFIG
+    return env_config
 
 
 def make_reference_env(cfg):
@@ -206,6 +238,10 @@ def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repeat_action_probability", type=float, default=0.0)
     parser.add_argument("--full_action_space", type=str2bool, default=False)
     parser.add_argument("--max_episode_steps", type=int, default=0)
+    parser.add_argument("--simulator", type=str, default="cpu", choices=["cpu", "gpu"])
+    parser.add_argument("--gpu-env-device", dest="gpu_env_device", type=str, default="auto")
+    parser.add_argument("--gpu-env-batch-size", dest="gpu_env_batch_size", type=int, default=1)
+    parser.add_argument("--export-env-raw-rgb-frames", dest="export_env_raw_rgb_frames", type=str2bool, default=False)
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"])
     parser.add_argument("--latency-type", dest="latency_type", type=str, default="zero")
     parser.add_argument("--fixed-latency-ms", dest="fixed_latency_ms", type=float)
@@ -275,17 +311,20 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     if not isinstance(scheduler_cfg, dict):
         raise ValueError("scheduler must be a mapping for DemonAttack Sample Factory")
     args = build_common_sf_args(config, sf_env_name=SF_ENV_NAME)
-    append_cli_arg(args, "--env_id", env_cfg.get("env_id", "ALE/DemonAttack-v5"))
+    append_cli_arg(args, "--env_id", env_cfg["env_id"])
     append_cli_arg(args, "--env-fps", env_cfg["env_fps"])
     append_cli_arg(args, "--obs-fps", env_cfg["obs_fps"])
-    append_cli_arg(args, "--screen_size", env_cfg.get("screen_size", 84))
-    append_cli_arg(args, "--noop_max", env_cfg.get("noop_max", 30))
-    append_cli_arg(args, "--frame_stack", env_cfg.get("frame_stack", 1))
-    append_cli_arg(args, "--terminal_on_life_loss", env_cfg.get("terminal_on_life_loss", False))
-    append_cli_arg(args, "--clip_reward", env_cfg.get("clip_reward", True))
-    append_cli_arg(args, "--repeat_action_probability", env_cfg.get("repeat_action_probability", 0.0))
-    append_cli_arg(args, "--full_action_space", env_cfg.get("full_action_space", False))
-    append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
+    append_cli_arg(args, "--screen_size", env_cfg["screen_size"])
+    append_cli_arg(args, "--noop_max", env_cfg["noop_max"])
+    append_cli_arg(args, "--frame_stack", env_cfg["frame_stack"])
+    append_cli_arg(args, "--terminal_on_life_loss", env_cfg["terminal_on_life_loss"])
+    append_cli_arg(args, "--clip_reward", env_cfg["clip_reward"])
+    append_cli_arg(args, "--repeat_action_probability", env_cfg["repeat_action_probability"])
+    append_cli_arg(args, "--full_action_space", env_cfg["full_action_space"])
+    append_cli_arg(args, "--max_episode_steps", env_cfg["max_episode_steps"])
+    append_cli_arg(args, "--simulator", env_cfg["simulator"])
+    append_cli_arg(args, "--gpu-env-device", env_cfg["gpu_env_device"])
+    append_cli_arg(args, "--gpu-env-batch-size", env_cfg["gpu_env_batch_size"])
     append_cli_arg(args, "--hold-policy", scheduler_cfg["hold_policy"])
     append_cli_arg(args, "--ordering-policy", scheduler_cfg["ordering_policy"])
     return args

@@ -40,8 +40,8 @@ from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from training.common.sf_episode_extra_stats_compat import (
     ensure_sample_factory_episode_extra_stats_installed,
 )
-from training.common.sf_flappy_gpu_sampling_compat import (
-    ensure_sample_factory_flappy_gpu_sampling_compat_installed,
+from training.common.sf_gpu_sampling_compat import (
+    ensure_sample_factory_gpu_sampling_compat_installed,
 )
 from training.common.wandb_compat import patch_sample_factory_wandb
 
@@ -315,7 +315,7 @@ def make_flappy_sf_env(
 ):
     del render_mode
     ensure_sample_factory_episode_extra_stats_installed(env_name=SF_ENV_NAME)
-    ensure_sample_factory_flappy_gpu_sampling_compat_installed(env_name=SF_ENV_NAME)
+    ensure_sample_factory_gpu_sampling_compat_installed(env_name=SF_ENV_NAME)
     env_config = env_config or {}
     _force_sample_factory_raw_frame_step_cfg(cfg)
     use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))

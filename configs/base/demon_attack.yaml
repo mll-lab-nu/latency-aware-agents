@@ -29,6 +29,9 @@ env:
   full_action_space: false
   max_episode_steps: 25000
   noop_action: 0
+  simulator: cpu
+  gpu_env_device: auto
+  gpu_env_batch_size: 1
 
 
 latency:
