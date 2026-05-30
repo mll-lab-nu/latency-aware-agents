@@ -9,6 +9,96 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _write_executable(path: Path, text: str) -> None:
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def _prepare_install_sh_env(tmp_path: Path, *, compute_caps: str) -> tuple[dict[str, str], Path]:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_conda_base = tmp_path / "conda_base"
+    (fake_conda_base / "etc" / "profile.d").mkdir(parents=True)
+    calls_path = tmp_path / "install_calls.log"
+
+    fake_conda_bin = fake_bin / "conda"
+    _write_executable(
+        fake_conda_bin,
+        """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "info" && "${2:-}" == "--base" ]]; then
+  printf '%s\\n' "$FAKE_CONDA_BASE"
+  exit 0
+fi
+printf 'conda %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+exit 0
+""",
+    )
+
+    (fake_conda_base / "etc" / "profile.d" / "conda.sh").write_text(
+        """conda() {
+  if [[ "${1:-}" == "activate" ]]; then
+    printf 'conda activate %s\\n' "${2:-}" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+    return 0
+  fi
+  "$FAKE_CONDA_BIN" "$@"
+}
+""",
+        encoding="utf-8",
+    )
+
+    _write_executable(
+        fake_bin / "git",
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'git %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+exit 0
+""",
+    )
+    _write_executable(
+        fake_bin / "wandb",
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'wandb %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+exit 0
+""",
+    )
+    _write_executable(
+        fake_bin / "nvidia-smi",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${{1:-}}" == "--query-gpu=compute_cap" && "${{2:-}}" == "--format=csv,noheader" ]]; then
+  cat <<'EOF'
+{compute_caps}EOF
+  exit 0
+fi
+exit 1
+""",
+    )
+    _write_executable(
+        fake_bin / "python",
+        """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "-" ]]; then
+  cat >/dev/null
+  printf '[install] torch=2.10.0 cuda=13.0\\n'
+  exit 0
+fi
+printf 'python %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+exit 0
+""",
+    )
+
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "FAKE_CONDA_BASE": str(fake_conda_base),
+        "FAKE_CONDA_BIN": str(fake_conda_bin),
+        "LATENCY_BENCH_FAKE_INSTALL_CALLS": str(calls_path),
+    }
+    return env, calls_path
+
+
 def test_eval_bash_scripts_are_batch_eval_wrappers():
     scripts = {
         "eval_flappy.sh": "flappy",
@@ -120,11 +210,73 @@ def test_flappy_cuda_extension_build_script_is_executable_bash():
     text = script_path.read_text(encoding="utf-8")
     assert "load_flappy_cuda_extension" in text
     assert "torch.cuda.synchronize" in text
+    assert "cuda-toolkit[nvcc]==13.0.*" in text
+    assert "nvcc --list-gpu-code" in text
+
+
+def test_install_script_selects_cu130_for_compute_cap_10_gpu(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "selecting cu130" in result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu130" in calls
+    assert "python -m pip install -r requirements.txt" in calls
+
+
+def test_install_script_allows_torch_profile_override(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="9.0\n")
+    env["LATENCY_BENCH_TORCH_PROFILE"] = "cu128"
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "torch_profile=cu128" in result.stdout
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu128" in calls
+
+
+def test_install_script_rejects_unknown_torch_profile(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
+    env["LATENCY_BENCH_TORCH_PROFILE"] = "bogus"
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Unknown LATENCY_BENCH_TORCH_PROFILE='bogus'" in result.stderr
+    assert not calls_path.exists()
 
 
 def test_starvla_rl_games_installers_match_flash_attn_wheel_to_runtime(tmp_path):
     install_dir = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install"
     helper_path = install_dir / "flash_attn.sh"
+    eval_extra_path = install_dir / "eval_extra.sh"
     model_scripts = [
         install_dir / "model" / "openvla.sh",
         install_dir / "model" / "pi0.sh",
@@ -148,7 +300,7 @@ exit 0
     )
     fake_python.chmod(0o755)
 
-    for script_path in [helper_path, *model_scripts]:
+    for script_path in [helper_path, eval_extra_path, *model_scripts]:
         syntax = subprocess.run(
             ["bash", "-n", str(script_path)],
             cwd=REPO_ROOT / "starVLA",
@@ -179,6 +331,145 @@ exit 0
         )
         assert result.returncode == 0, result.stderr
         assert expected_wheel in fake_log.read_text(encoding="utf-8")
+
+
+def test_starvla_install_stack_installs_eval_extra_requirements_after_env_deps(tmp_path):
+    script_path = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "install_stack.sh"
+    fake_python = tmp_path / "python"
+    fake_log = tmp_path / "python.log"
+    fake_python.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "-" ]]; then
+  cat >/dev/null
+  printf 'cp310\\n2.7\\ncu12\\nFALSE\\n'
+  exit 0
+fi
+printf '%s | %s\\n' "$PWD" "$*" >> "${PYTHON_FAKE_LOG}"
+exit 0
+""",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", str(script_path), "--no-conda", "openvla", "flappy"],
+        cwd=REPO_ROOT / "starVLA",
+        env={
+            **os.environ,
+            "PYTHON_BIN": str(fake_python),
+            "PYTHON_FAKE_LOG": str(fake_log),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    log = fake_log.read_text(encoding="utf-8")
+    env_install_index = log.index("-m pip install flappy-bird-gymnasium")
+    eval_extra_index = log.index(
+        f"{REPO_ROOT} | -m pip install -r requirements_starvla_eval_extra.txt"
+    )
+    validation_index = log.index("-m compileall")
+    assert env_install_index < eval_extra_index < validation_index
+
+
+def test_starvla_bootstrap_split_envs_installs_eval_extra_requirements_per_model(tmp_path):
+    script_path = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "bootstrap.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_conda_base = tmp_path / "conda"
+    fake_profile_dir = fake_conda_base / "etc" / "profile.d"
+    fake_profile_dir.mkdir(parents=True)
+    fake_log = tmp_path / "python.log"
+
+    fake_python = fake_bin / "python"
+    fake_python.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "-" ]]; then
+  cat >/dev/null
+  printf 'cp310\\n2.7\\ncu12\\nFALSE\\n'
+  exit 0
+fi
+if [[ "${1:-}" == "-c" ]]; then
+  if [[ "${2:-}" == *"sys.version_info.major"* ]]; then
+    printf '3.10\\n'
+  fi
+fi
+printf '%s | %s\\n' "$CONDA_DEFAULT_ENV" "$*" >> "${PYTHON_FAKE_LOG}"
+exit 0
+""",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    fake_conda = fake_bin / "conda"
+    fake_conda.write_text(
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${{1:-}}" == "info" && "${{2:-}}" == "--base" ]]; then
+  printf '%s\\n' "{fake_conda_base}"
+  exit 0
+fi
+printf 'fake conda: %s\\n' "$*" >&2
+exit 1
+""",
+        encoding="utf-8",
+    )
+    fake_conda.chmod(0o755)
+
+    (fake_profile_dir / "conda.sh").write_text(
+        """conda() {
+  case "$1 ${2:-}" in
+    "env list")
+      printf '# conda environments:\\n'
+      ;;
+    "create -n")
+      return 0
+      ;;
+    "activate "*)
+      export CONDA_DEFAULT_ENV="$2"
+      ;;
+    *)
+      printf 'fake conda function: %s\\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+""",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script_path),
+            "--split-envs",
+            "--env",
+            "flappy",
+            "--skip-validate",
+        ],
+        cwd=REPO_ROOT / "starVLA",
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "PYTHON_FAKE_LOG": str(fake_log),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    log = fake_log.read_text(encoding="utf-8")
+    assert log.count("-m pip install -r requirements_starvla_eval_extra.txt") == 3
+    for model in ("openvla", "pi0", "gr00t"):
+        assert (
+            f"starvla_rl_games_{model} | -m pip install -r "
+            "requirements_starvla_eval_extra.txt"
+        ) in log
 
 
 def test_starvla_flash_attn_helper_uses_python_abi_tag(tmp_path):
