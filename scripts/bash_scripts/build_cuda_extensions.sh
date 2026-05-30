@@ -72,6 +72,34 @@ activate_cuda_toolkit() {
     "${nvcc_path}" --version
 }
 
+activate_env_runtime_libs() {
+    local env_prefix=""
+    if [[ -n "${CONDA_PREFIX:-}" ]]; then
+        env_prefix="${CONDA_PREFIX}"
+    elif [[ -n "${VIRTUAL_ENV:-}" ]]; then
+        env_prefix="${VIRTUAL_ENV}"
+    fi
+
+    if [[ -z "${env_prefix}" ]]; then
+        return 0
+    fi
+
+    local env_lib_dirs=()
+    local env_lib_dir
+    for env_lib_dir in "${env_prefix}/lib64" "${env_prefix}/lib"; do
+        if [[ -d "${env_lib_dir}" ]]; then
+            env_lib_dirs+=("${env_lib_dir}")
+        fi
+    done
+
+    if ((${#env_lib_dirs[@]} > 0)); then
+        local joined_env_lib_dirs
+        joined_env_lib_dirs="$(IFS=:; echo "${env_lib_dirs[*]}")"
+        export LD_LIBRARY_PATH="${joined_env_lib_dirs}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+        export LIBRARY_PATH="${joined_env_lib_dirs}${LIBRARY_PATH:+:${LIBRARY_PATH}}"
+    fi
+}
+
 ensure_cudart_link_compat() {
     local cuda_lib_dir
     for cuda_lib_dir in "${CUDA_HOME}/lib64" "${CUDA_HOME}/lib"; do
@@ -146,6 +174,7 @@ ensure_compatible_nvcc() {
 }
 
 ensure_compatible_nvcc
+activate_env_runtime_libs
 
 python - <<'PY'
 import sys
