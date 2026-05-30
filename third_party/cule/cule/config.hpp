@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <sstream>
 #include <stdexcept>
 
@@ -59,4 +60,3 @@ if(not (A))                                                         \
 #else
 #define CULE_ARRAY_ACCESSOR(name) cule::atari::name
 #endif
-

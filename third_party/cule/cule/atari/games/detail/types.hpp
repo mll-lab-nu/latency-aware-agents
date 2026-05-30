@@ -4,6 +4,7 @@
 
 #include <cule/atari/games/detail/types.hpp>
 
+#include <array>
 #include <map>
 #include <string>
 
@@ -216,4 +217,3 @@ static std::map<GAME_TYPE, std::array<std::string,_ROM_ATTR_MAX>> rom_attr_data 
 } // end namespace games
 } // end namespace atari
 } // end namespace cule
-

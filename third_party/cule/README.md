@@ -21,6 +21,17 @@ Local patches:
 - `training/demon_attack_sf/cule_atari_extension.py` appends
   `CUDA_HOME/include/cccl` so the CUDA 13 pip toolkit exposes `thrust` under
   the include layout used by `nvidia-cuda-cccl`.
+- `training/demon_attack_sf/cule_atari_extension.py` builds `torchcule`
+  with `-std=c++17` and appends the active environment's `include` directory
+  so CUDA 13 CCCL headers and `zlib.h` resolve in the conda-installed toolkit.
 - `third_party/agency/agency/detail/shape.hpp` uses `std::numeric_limits`
   instead of the removed private header `thrust/detail/integer_traits.h`, so
   the vendored agency subset still builds against the CUDA 13 pip toolkit.
+- `cule/config.hpp` explicitly includes `cstdint`, and
+  `cule/atari/games/detail/types.hpp` explicitly includes `array`, so the
+  vendored Atari headers no longer rely on transitive standard-library
+  includes from older toolchains.
+- `third_party/agency/agency/memory/allocator/detail/any_allocator.hpp`
+  gives `concrete_allocator` an explicit `__AGENCY_ANNOTATION` destructor to
+  match the abstract base allocator under CUDA 13's stricter host/device
+  override checks.

@@ -7,6 +7,8 @@ def test_load_cule_atari_extension_uses_torch_pybind11_and_cccl(monkeypatch, tmp
     cuda_home = tmp_path / "cuda"
     cccl_include = cuda_home / "include" / "cccl"
     cccl_include.mkdir(parents=True)
+    env_include = tmp_path / "env" / "include"
+    env_include.mkdir(parents=True)
 
     captured: dict[str, object] = {}
 
@@ -15,6 +17,7 @@ def test_load_cule_atari_extension_uses_torch_pybind11_and_cccl(monkeypatch, tmp
         return "demon_attack_cule_atari"
 
     monkeypatch.setattr(cule_atari_extension, "CUDA_HOME", str(cuda_home))
+    monkeypatch.setattr(cule_atari_extension.sys, "prefix", str(tmp_path / "env"))
     monkeypatch.setattr(cule_atari_extension, "load", fake_load)
 
     cule_atari_extension.load_cule_atari_extension.cache_clear()
@@ -28,10 +31,10 @@ def test_load_cule_atari_extension_uses_torch_pybind11_and_cccl(monkeypatch, tmp
     include_paths = captured["extra_include_paths"]
 
     assert result == "demon_attack_cule_atari"
-    assert include_paths == [
-        str(cule_root),
-        str(cule_root / "third_party" / "agency"),
-        str(cccl_include),
-    ]
+    assert str(cule_root) in include_paths
+    assert str(cule_root / "third_party" / "agency") in include_paths
+    assert str(env_include) in include_paths
+    assert str(cccl_include) in include_paths
     assert str(cule_root / "third_party" / "pybind11" / "include") not in include_paths
-    assert captured["extra_cuda_cflags"] == ["-O3", "-DCULE_ONLY_4K_COMPILE", "-std=c++14"]
+    assert captured["extra_cflags"] == ["-O3", "-std=c++17"]
+    assert captured["extra_cuda_cflags"] == ["-O3", "-DCULE_ONLY_4K_COMPILE", "-std=c++17"]
