@@ -8,13 +8,7 @@
 #include <agency/detail/utility.hpp>
 #include <agency/container/array.hpp>
 
-// we can't use std::numeric_limits<T>::max() in a __device__
-// function, so we need to use an alternative in Thrust
-#ifdef __NVCC__
-#include <thrust/detail/integer_traits.h>
-#else
 #include <limits>
-#endif
 
 #include <tuple>
 
@@ -32,12 +26,7 @@ typename std::enable_if<
 >::type
   max_shape_dimensions()
 {
-#ifdef __NVCC__
-  // XXX should avoid using thrust
-  return thrust::detail::integer_traits<Integral>::const_max;
-#else
   return std::numeric_limits<Integral>::max();
-#endif
 } // end max_shape_dimensions()
 
 
@@ -349,4 +338,3 @@ shape_take_t<n,Shape> shape_take(const Shape& s)
 
 } // end detail
 } // agency
-

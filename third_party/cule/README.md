@@ -21,3 +21,6 @@ Local patches:
 - `training/demon_attack_sf/cule_atari_extension.py` appends
   `CUDA_HOME/include/cccl` so the CUDA 13 pip toolkit exposes `thrust` under
   the include layout used by `nvidia-cuda-cccl`.
+- `third_party/agency/agency/detail/shape.hpp` uses `std::numeric_limits`
+  instead of the removed private header `thrust/detail/integer_traits.h`, so
+  the vendored agency subset still builds against the CUDA 13 pip toolkit.
