@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
-CUDA_TOOLKIT_SPEC="${LATENCY_BENCH_CUDA_TOOLKIT_SPEC:-cuda-toolkit[nvcc]==13.0.*}"
+CUDA_TOOLKIT_SPEC="${LATENCY_BENCH_CUDA_TOOLKIT_SPEC:-cuda-toolkit[nvcc,cccl]==13.0.*}"
 
 detect_gpu_compute_cap() {
     nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n1 | tr -d '[:space:]'

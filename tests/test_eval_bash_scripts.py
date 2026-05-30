@@ -210,7 +210,7 @@ def test_flappy_cuda_extension_build_script_is_executable_bash():
     text = script_path.read_text(encoding="utf-8")
     assert "load_flappy_cuda_extension" in text
     assert "torch.cuda.synchronize" in text
-    assert "cuda-toolkit[nvcc]==13.0.*" in text
+    assert "cuda-toolkit[nvcc,cccl]==13.0.*" in text
     assert "nvcc --list-gpu-code" in text
 
 
