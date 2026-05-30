@@ -122,6 +122,27 @@ def test_flappy_cuda_extension_build_script_is_executable_bash():
     assert "torch.cuda.synchronize" in text
 
 
+def test_gpu_env_extension_build_script_is_executable_bash():
+    script_path = REPO_ROOT / "scripts" / "bash_scripts" / "build_gpu_env_extensions.sh"
+
+    assert script_path.is_file()
+    assert os.access(script_path, os.X_OK)
+
+    syntax = subprocess.run(
+        ["bash", "-n", str(script_path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert syntax.returncode == 0, syntax.stderr
+
+    text = script_path.read_text(encoding="utf-8")
+    assert "load_demon_attack_cuda_extension" in text
+    assert "load_cule_atari_extension" in text
+    assert "load_deadly_corridor_cuda_extension" in text
+
+
 def test_starvla_rl_games_installers_match_flash_attn_wheel_to_runtime(tmp_path):
     install_dir = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install"
     helper_path = install_dir / "flash_attn.sh"

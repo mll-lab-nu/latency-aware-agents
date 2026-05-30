@@ -54,9 +54,9 @@ def test_core_step_hot_path_returns_scores_array_without_infos():
 
 
 def test_metrics_no_done_hot_path_emits_no_dicts():
-    from training.flappy_sf.batched_metrics import BatchedFlappyEpisodeMetrics
+    from training.common.batched_metrics import BatchedEpisodeMetrics
 
-    metrics = BatchedFlappyEpisodeMetrics(
+    metrics = BatchedEpisodeMetrics(
         batch_size=4,
         frames_per_decision=1,
         metrics_path="",

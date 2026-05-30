@@ -210,8 +210,12 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     env_cfg = config.get("env", {})
     use_gpu_render = env_cfg.get("use_gpu_render", False)
     gpu_render_device = str(env_cfg.get("gpu_render_device", "auto") or "auto").strip().lower()
+    use_gpu_env = env_cfg.get("simulator") == "gpu"
+    gpu_env_device = str(env_cfg.get("gpu_env_device", "auto") or "auto").strip().lower()
     actor_worker_gpus = backend_cfg.get("actor_worker_gpus")
     if use_gpu_render and gpu_render_device != "cpu" and actor_worker_gpus is None:
+        actor_worker_gpus = [0]
+    if use_gpu_env and gpu_env_device != "cpu" and actor_worker_gpus is None:
         actor_worker_gpus = [0]
     append_cli_multi_value_arg(args, "--actor_worker_gpus", actor_worker_gpus)
     if use_gpu_render:
@@ -219,6 +223,9 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         append_cli_arg(args, "--env_gpu_actions", env_cfg["simulator"] == "gpu" and gpu_render_device != "cpu")
         original_num_envs_per_worker = int(training_cfg["num_envs_per_worker"])
         append_cli_arg(args, "--gpu-render-batch-size", original_num_envs_per_worker)
+    if use_gpu_env and not use_gpu_render:
+        append_cli_arg(args, "--env_gpu_observations", gpu_env_device != "cpu")
+        append_cli_arg(args, "--env_gpu_actions", gpu_env_device != "cpu")
     append_cli_arg(args, "--seed", experiment_cfg.get("seed", 0))
     if backend_cfg.get("train_dir") and experiment_cfg.get("name"):
         metrics_path = Path(str(backend_cfg["train_dir"])).expanduser() / str(experiment_cfg["name"]) / "episode_metrics.jsonl"
@@ -266,12 +273,12 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
 
     for field in scalar_fields:
         value = training_cfg.get(field)
-        if use_gpu_render and field == "num_envs_per_worker":
+        if (use_gpu_render or use_gpu_env) and field == "num_envs_per_worker":
             value = 1
-        elif use_gpu_render and field == "worker_num_splits" and value is None:
+        elif (use_gpu_render or use_gpu_env) and field == "worker_num_splits" and value is None:
             value = 1
         append_cli_arg(args, f"--{field}", value)
-    if use_gpu_render:
+    if use_gpu_render or use_gpu_env:
         append_cli_arg(args, "--batched_sampling", True)
     for field in bool_fields:
         if use_gpu_render and field == "batched_sampling":

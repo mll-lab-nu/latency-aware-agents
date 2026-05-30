@@ -654,7 +654,7 @@ def test_flappy_gpu_distribution_uses_cuda_latency_scheduler():
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
-    from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+    from training.common.gpu_latency import CudaLatencyScheduler
     from training.flappy_sf.integration import make_flappy_sf_env
 
     env = make_flappy_sf_env(
@@ -670,7 +670,7 @@ def test_flappy_gpu_distribution_uses_cuda_latency_scheduler():
         env_config=_env_config(),
     )
     try:
-        assert isinstance(env.latency, CudaFlappyLatencyScheduler)
+        assert isinstance(env.latency, CudaLatencyScheduler)
         assert env._uses_cuda_latency is True
 
         env.reset(seed=123)
@@ -693,18 +693,18 @@ def test_flappy_gpu_latency_info_uses_fused_decision_path(monkeypatch):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
-    from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+    from training.common.gpu_latency import CudaLatencyScheduler
     from training.flappy_sf.integration import make_flappy_sf_env
 
     fused_calls = 0
-    original = CudaFlappyLatencyScheduler.step_core_decision_numpy
+    original = CudaLatencyScheduler.step_core_decision_numpy
 
     def wrapped(self, *args, **kwargs):
         nonlocal fused_calls
         fused_calls += 1
         return original(self, *args, **kwargs)
 
-    monkeypatch.setattr(CudaFlappyLatencyScheduler, "step_core_decision_numpy", wrapped)
+    monkeypatch.setattr(CudaLatencyScheduler, "step_core_decision_numpy", wrapped)
 
     env = make_flappy_sf_env(
         "latency_flappy",
@@ -746,18 +746,18 @@ def test_flappy_gpu_max_episode_steps_uses_fused_decision_path(monkeypatch):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
-    from training.flappy_sf.gpu_latency import CudaFlappyLatencyScheduler
+    from training.common.gpu_latency import CudaLatencyScheduler
     from training.flappy_sf.integration import make_flappy_sf_env
 
     fused_calls = 0
-    original = CudaFlappyLatencyScheduler.step_core_decision_numpy
+    original = CudaLatencyScheduler.step_core_decision_numpy
 
     def wrapped(self, *args, **kwargs):
         nonlocal fused_calls
         fused_calls += 1
         return original(self, *args, **kwargs)
 
-    monkeypatch.setattr(CudaFlappyLatencyScheduler, "step_core_decision_numpy", wrapped)
+    monkeypatch.setattr(CudaLatencyScheduler, "step_core_decision_numpy", wrapped)
 
     env = make_flappy_sf_env(
         "latency_flappy",
