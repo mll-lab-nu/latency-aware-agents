@@ -15,3 +15,9 @@ Local patches:
   4K mapper used by Demon Attack without the full mapper matrix.
 - `third_party/agency/agency/coordinate/point.hpp` avoids instantiating an old
   agency scalar-multiply trait path that fails under CUDA 12.
+- `training/demon_attack_sf/cule_atari_extension.py` builds `torchcule`
+  against PyTorch's bundled `pybind11` headers instead of the vendored
+  `third_party/pybind11` snapshot.
+- `training/demon_attack_sf/cule_atari_extension.py` appends
+  `CUDA_HOME/include/cccl` so the CUDA 13 pip toolkit exposes `thrust` under
+  the include layout used by `nvidia-cuda-cccl`.
