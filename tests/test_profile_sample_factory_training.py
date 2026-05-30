@@ -33,7 +33,6 @@ def _base_config(tmp_path: Path) -> dict:
             "obs_fps": 15,
             "simulator": "cpu",
             "gpu_env_device": "auto",
-            "gpu_env_batch_size": 1,
         },
         "latency": {"type": "zero", "add_latency_info": False},
         "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
@@ -102,7 +101,7 @@ def test_stage_config_sets_profile_dimensions_and_disables_wandb(tmp_path: Path)
     assert cfg["backend"]["restart_behavior"] == "overwrite"
     assert cfg["backend"]["device"] == "cuda"
     assert cfg["env"]["simulator"] == "gpu"
-    assert cfg["env"]["gpu_env_batch_size"] == 1024
+    assert "gpu_env_batch_size" not in cfg["env"]
     assert cfg["latency"]["type"] == "normal_distribution"
     assert cfg["training"]["async_rl"] is False
     assert cfg["training"]["train_for_env_steps"] == 65536
@@ -164,13 +163,13 @@ def test_profile_dimensions_keep_cpu_original_and_gpu_collapsed_workers():
     assert profile._run_dimensions(args, "gpu") == [
         {
             "num_workers": 1,
-            "sf_num_envs_per_worker": 1,
+            "sf_num_envs_per_worker": 512,
             "worker_num_splits": 1,
             "gpu_env_batch_size": 512,
         },
         {
             "num_workers": 1,
-            "sf_num_envs_per_worker": 1,
+            "sf_num_envs_per_worker": 1024,
             "worker_num_splits": 1,
             "gpu_env_batch_size": 1024,
         },

@@ -226,6 +226,8 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     if use_gpu_env and not use_gpu_render:
         append_cli_arg(args, "--env_gpu_observations", gpu_env_device != "cpu")
         append_cli_arg(args, "--env_gpu_actions", gpu_env_device != "cpu")
+        # GPU batched-env parallelism is driven by num_envs_per_worker (mirrors gpu-render-batch-size).
+        append_cli_arg(args, "--gpu-env-batch-size", int(training_cfg["num_envs_per_worker"]))
     append_cli_arg(args, "--seed", experiment_cfg.get("seed", 0))
     if backend_cfg.get("train_dir") and experiment_cfg.get("name"):
         metrics_path = Path(str(backend_cfg["train_dir"])).expanduser() / str(experiment_cfg["name"]) / "episode_metrics.jsonl"

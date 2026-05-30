@@ -324,7 +324,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--max_episode_steps", env_cfg["max_episode_steps"])
     append_cli_arg(args, "--simulator", env_cfg["simulator"])
     append_cli_arg(args, "--gpu-env-device", env_cfg["gpu_env_device"])
-    append_cli_arg(args, "--gpu-env-batch-size", env_cfg["gpu_env_batch_size"])
+    # --gpu-env-batch-size is emitted centrally in build_common_sf_args from num_envs_per_worker.
     append_cli_arg(args, "--hold-policy", scheduler_cfg["hold_policy"])
     append_cli_arg(args, "--ordering-policy", scheduler_cfg["ordering_policy"])
     return args

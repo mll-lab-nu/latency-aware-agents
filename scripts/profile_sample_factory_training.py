@@ -85,7 +85,6 @@ def _stage_config(
     cfg["env"]["simulator"] = simulator
     if simulator == "gpu":
         cfg["backend"]["device"] = "cuda"
-        cfg["env"]["gpu_env_batch_size"] = int(gpu_env_batch_size)
     cfg["latency"] = _latency_config_for_case(latency_case, env_fps=float(cfg["env"]["env_fps"]))
     cfg["training"]["async_rl"] = async_rl
     cfg["training"]["train_for_env_steps"] = int(train_for_env_steps)
@@ -107,10 +106,11 @@ def _stage_config(
 
 def _run_dimensions(args: argparse.Namespace, simulator: str) -> list[dict[str, int]]:
     if simulator == "gpu":
+        # GPU batched-env parallelism is driven by num_envs_per_worker, so sweep it directly.
         return [
             {
                 "num_workers": int(args.gpu_num_workers),
-                "sf_num_envs_per_worker": int(args.gpu_sf_num_envs_per_worker),
+                "sf_num_envs_per_worker": int(batch_size),
                 "worker_num_splits": int(args.gpu_worker_num_splits),
                 "gpu_env_batch_size": int(batch_size),
             }

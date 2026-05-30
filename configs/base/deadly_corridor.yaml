@@ -26,7 +26,6 @@ env:
   wide_aspect_ratio: false
   simulator: cpu
   gpu_env_device: auto
-  gpu_env_batch_size: 1
   gpu_env_profile: false
   gpu_env_profile_interval: 1000
 

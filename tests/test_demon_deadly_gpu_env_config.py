@@ -13,12 +13,13 @@ def test_demon_attack_gpu_simulator_config_is_passed_to_training_adapter():
     cfg = load_config("configs/base/demon_attack.yaml")
     cfg["env"]["simulator"] = "gpu"
     cfg["env"]["gpu_env_device"] = "cuda"
-    cfg["env"]["gpu_env_batch_size"] = 64
+    cfg["training"]["num_envs_per_worker"] = 64
 
     args = build_cli_args_from_config(cfg)
 
     assert args[args.index("--simulator") + 1] == "gpu"
     assert args[args.index("--gpu-env-device") + 1] == "cuda"
+    # GPU batched-env parallelism is driven by num_envs_per_worker.
     assert args[args.index("--gpu-env-batch-size") + 1] == "64"
     assert "--gpu-env-profile" not in args
     assert "--gpu-env-profile-interval" not in args
@@ -32,7 +33,7 @@ def test_deadly_corridor_gpu_simulator_config_is_passed_to_training_adapter():
     cfg = load_config("configs/base/deadly_corridor.yaml")
     cfg["env"]["simulator"] = "gpu"
     cfg["env"]["gpu_env_device"] = "cuda"
-    cfg["env"]["gpu_env_batch_size"] = 32
+    cfg["training"]["num_envs_per_worker"] = 32
     cfg["env"]["gpu_env_profile"] = True
     cfg["env"]["gpu_env_profile_interval"] = 17
 
@@ -40,15 +41,18 @@ def test_deadly_corridor_gpu_simulator_config_is_passed_to_training_adapter():
 
     assert args[args.index("--simulator") + 1] == "gpu"
     assert args[args.index("--gpu-env-device") + 1] == "cuda"
+    # GPU batched-env parallelism is driven by num_envs_per_worker.
     assert args[args.index("--gpu-env-batch-size") + 1] == "32"
     assert args[args.index("--gpu-env-profile") + 1] == "True"
     assert args[args.index("--gpu-env-profile-interval") + 1] == "17"
 
 
-def test_demon_attack_base_config_defaults_to_cpu_simulator():
+def test_demon_attack_base_config_uses_gpu_simulator():
     cfg = load_config("configs/base/demon_attack.yaml")
 
-    assert cfg["env"]["simulator"] == "cpu"
+    assert cfg["env"]["simulator"] == "gpu"
+    # gpu_env_batch_size is deprecated; parallelism comes from training.num_envs_per_worker.
+    assert "gpu_env_batch_size" not in cfg["env"]
     assert "gpu_env_profile" not in cfg["env"]
     assert "gpu_env_profile_interval" not in cfg["env"]
 

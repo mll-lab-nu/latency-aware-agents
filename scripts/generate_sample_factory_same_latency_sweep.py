@@ -112,7 +112,6 @@ ENV_KEYS_BY_NAME = {
         "max_episode_steps",
         "simulator",
         "gpu_env_device",
-        "gpu_env_batch_size",
     ),
     "deadly_corridor": (
         "name",
@@ -126,7 +125,6 @@ ENV_KEYS_BY_NAME = {
         "max_episode_steps",
         "simulator",
         "gpu_env_device",
-        "gpu_env_batch_size",
         "gpu_env_profile",
         "gpu_env_profile_interval",
     ),

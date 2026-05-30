@@ -323,7 +323,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
     append_cli_arg(args, "--simulator", env_cfg["simulator"])
     append_cli_arg(args, "--gpu-env-device", env_cfg.get("gpu_env_device", "auto"))
-    append_cli_arg(args, "--gpu-env-batch-size", env_cfg.get("gpu_env_batch_size", 1))
+    # --gpu-env-batch-size is emitted centrally in build_common_sf_args from num_envs_per_worker.
     append_cli_arg(args, "--gpu-env-profile", env_cfg.get("gpu_env_profile", False))
     append_cli_arg(args, "--gpu-env-profile-interval", env_cfg.get("gpu_env_profile_interval", 1000))
     append_cli_arg(args, "--vizdoom_init_max_parallel", env_cfg.get("vizdoom_init_max_parallel"))
