@@ -212,6 +212,9 @@ def test_flappy_cuda_extension_build_script_is_executable_bash():
     assert "torch.cuda.synchronize" in text
     assert "cuda-toolkit[nvcc,cccl]==13.0.*" in text
     assert "nvcc --list-gpu-code" in text
+    assert 'for cuda_lib_dir in "${CUDA_HOME}/lib64" "${CUDA_HOME}/lib"' in text
+    assert "libcudart.so" in text
+    assert "LIBRARY_PATH" in text
 
 
 def test_install_script_selects_cu130_for_compute_cap_10_gpu(tmp_path):
