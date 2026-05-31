@@ -98,9 +98,32 @@ def _nvcc_supports_sm(nvcc_path: Path, target_sm: str) -> bool:
 def _activate_cuda_home(cuda_home: Path) -> None:
     os.environ["CUDA_HOME"] = str(cuda_home)
     _prepend_paths("PATH", [cuda_home / "bin"])
-    _prepend_paths("LD_LIBRARY_PATH", [cuda_home / "lib64", cuda_home / "lib"])
-    _prepend_paths("LIBRARY_PATH", [cuda_home / "lib64", cuda_home / "lib"])
+    library_paths = _cuda_runtime_library_paths(cuda_home)
+    _prepend_paths("LD_LIBRARY_PATH", library_paths)
+    _prepend_paths("LIBRARY_PATH", library_paths)
     cpp_extension.CUDA_HOME = str(cuda_home)
+
+
+def _cuda_runtime_library_paths(cuda_home: Path) -> list[Path]:
+    cuda_lib_dirs = [path for path in (cuda_home / "lib64", cuda_home / "lib") if path.is_dir()]
+    if any((path / "libcudart.so").is_file() for path in cuda_lib_dirs):
+        return cuda_lib_dirs
+
+    versioned_cudarts = sorted(
+        cudart
+        for cuda_lib_dir in cuda_lib_dirs
+        for cudart in cuda_lib_dir.glob("libcudart.so.*")
+        if cudart.is_file()
+    )
+    if versioned_cudarts:
+        compat_dir = Path(__file__).resolve().parents[2] / ".cache" / "cuda_link_compat"
+        compat_dir.mkdir(parents=True, exist_ok=True)
+        compat_link = compat_dir / "libcudart.so"
+        compat_link.unlink(missing_ok=True)
+        compat_link.symlink_to(versioned_cudarts[-1])
+        return [compat_dir, *cuda_lib_dirs]
+
+    return cuda_lib_dirs
 
 
 def _prepend_paths(name: str, paths: Iterable[Path]) -> None:

@@ -100,28 +100,6 @@ activate_env_runtime_libs() {
     fi
 }
 
-ensure_cudart_link_compat() {
-    local cuda_lib_dir
-    for cuda_lib_dir in "${CUDA_HOME}/lib64" "${CUDA_HOME}/lib"; do
-        [[ -d "${cuda_lib_dir}" ]] || continue
-        if [[ -f "${cuda_lib_dir}/libcudart.so" ]]; then
-            return 0
-        fi
-        local versioned_cudart
-        versioned_cudart="$(find "${cuda_lib_dir}" -maxdepth 1 -type f -name 'libcudart.so.*' | sort -V | tail -n1)"
-        if [[ -n "${versioned_cudart}" ]]; then
-            local compat_dir="${REPO_ROOT}/.cache/flappy_cuda_link_compat"
-            mkdir -p "${compat_dir}"
-            ln -sfn "${versioned_cudart}" "${compat_dir}/libcudart.so"
-            export LD_LIBRARY_PATH="${compat_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-            export LIBRARY_PATH="${compat_dir}${LIBRARY_PATH:+:${LIBRARY_PATH}}"
-            echo "Created temporary libcudart.so link in ${compat_dir}"
-            return 0
-        fi
-    done
-    return 0
-}
-
 ensure_compatible_nvcc() {
     local compute_cap
     compute_cap="$(detect_gpu_compute_cap)"
@@ -138,7 +116,6 @@ ensure_compatible_nvcc() {
     if [[ -n "${selected_nvcc}" ]]; then
         echo "Using system nvcc that supports ${target_sm}"
         activate_cuda_toolkit "${selected_nvcc}"
-        ensure_cudart_link_compat
         return 0
     fi
 
@@ -161,7 +138,6 @@ ensure_compatible_nvcc() {
     if [[ -n "${selected_nvcc}" ]]; then
         echo "Using environment nvcc that supports ${target_sm}"
         activate_cuda_toolkit "${selected_nvcc}"
-        ensure_cudart_link_compat
         return 0
     fi
 
