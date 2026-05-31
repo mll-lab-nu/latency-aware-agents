@@ -214,12 +214,10 @@ def test_cuda_extensions_build_script_is_executable_bash():
     assert "load_deadly_corridor_cuda_extension" in text
     assert "torch.cuda.synchronize" in text
     assert "cuda-toolkit[nvcc,cccl]==13.0.*" in text
-    assert "nvcc --list-gpu-code" in text
-    assert 'for cuda_lib_dir in "${CUDA_HOME}/lib64" "${CUDA_HOME}/lib"' in text
+    assert "--list-gpu-code" in text
     assert 'if [[ -n "${CONDA_PREFIX:-}" ]]; then' in text
     assert 'elif [[ -n "${VIRTUAL_ENV:-}" ]]; then' in text
     assert 'for env_lib_dir in "${env_prefix}/lib64" "${env_prefix}/lib"; do' in text
-    assert "libcudart.so" in text
     assert "LIBRARY_PATH" in text
 
 

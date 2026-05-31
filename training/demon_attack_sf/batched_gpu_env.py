@@ -177,6 +177,7 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         )
         done_mask = np.logical_or(terminated, truncated)
         core_reset_mask = truncated | (terminated & (result.lives <= 0))
+        life_loss_reset_mask = terminated & (result.lives > 0) & ~truncated
         step_frame_numbers = self._frame_numbers.copy()
         infos = self._infos(
             rewards_raw=rewards_raw,
@@ -190,12 +191,11 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         reset_obs, reset_infos = self._reset_episode_bookkeeping(
             np.flatnonzero(done_mask),
             core_reset_indices=np.flatnonzero(core_reset_mask),
+            life_loss_reset_indices=np.flatnonzero(life_loss_reset_mask),
         )
         self._append_stack(result.observations, done_mask)
-        if reset_obs is not None:
-            reset_indices = np.flatnonzero(core_reset_mask)
-            index_t = torch.as_tensor(reset_indices, dtype=torch.int64, device=self.device)
-            self._stack[index_t] = reset_obs[index_t].repeat(1, self.frame_stack, 1, 1)
+        for agent_idx, agent_reset_obs in reset_obs.items():
+            self._stack[int(agent_idx)] = agent_reset_obs.repeat(self.frame_stack, 1, 1)
         for agent_idx, reset_info in reset_infos.items():
             infos[int(agent_idx)]["reset_info"] = reset_info
         self.sample_factory_step_cpu_tensors = {
@@ -254,9 +254,10 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         done_indices: Sequence[int],
         *,
         core_reset_indices: Sequence[int],
-    ) -> tuple[torch.Tensor | None, dict[int, dict[str, Any]]]:
+        life_loss_reset_indices: Sequence[int],
+    ) -> tuple[dict[int, torch.Tensor], dict[int, dict[str, Any]]]:
         if len(done_indices) == 0:
-            return None, {}
+            return {}, {}
         reset_indices = [int(agent_idx) for agent_idx in done_indices]
         reset_seeds, reset_latency_infos = self.latency.reset(indices=reset_indices)
         self.metrics.reset(indices=reset_indices)
@@ -266,14 +267,22 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             agent_idx: self._reset_info_for_latency_info(reset_latency_infos[offset])
             for offset, agent_idx in enumerate(reset_indices)
         }
+        reset_obs_by_agent: dict[int, torch.Tensor] = {}
         core_indices = [int(agent_idx) for agent_idx in core_reset_indices]
-        if len(core_indices) == 0:
-            return None, reset_infos
-        seed_by_agent = {agent_idx: int(reset_seeds[offset]) for offset, agent_idx in enumerate(reset_indices)}
-        core_seeds = [seed_by_agent[agent_idx] for agent_idx in core_indices]
-        reset_obs, _ = self.core.reset_batch(seeds=core_seeds, indices=core_indices)
-        self._reset_frame_numbers(indices=core_indices)
-        return reset_obs, reset_infos
+        if len(core_indices) > 0:
+            seed_by_agent = {agent_idx: int(reset_seeds[offset]) for offset, agent_idx in enumerate(reset_indices)}
+            core_seeds = [seed_by_agent[agent_idx] for agent_idx in core_indices]
+            core_reset_obs, _ = self.core.reset_batch(seeds=core_seeds, indices=core_indices)
+            self._reset_frame_numbers(indices=core_indices)
+            for agent_idx in core_indices:
+                reset_obs_by_agent[int(agent_idx)] = core_reset_obs[int(agent_idx)].clone()
+        life_loss_indices = [int(agent_idx) for agent_idx in life_loss_reset_indices]
+        if len(life_loss_indices) > 0:
+            life_loss_reset_obs = self.core.soft_reset_life_loss_batch(indices=life_loss_indices)
+            self._frame_numbers[life_loss_indices] += 3
+            for agent_idx in life_loss_indices:
+                reset_obs_by_agent[int(agent_idx)] = life_loss_reset_obs[int(agent_idx)].clone()
+        return reset_obs_by_agent, reset_infos
 
     def _obs(self) -> dict[str, torch.Tensor]:
         return {"obs": self._stack}

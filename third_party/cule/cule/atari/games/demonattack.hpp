@@ -46,8 +46,9 @@ void step(State& s)
     // update terminal status
     int lives_displayed = ram::read(s, 0xF2);
     int display_flag = ram::read(s, 0xF1);
-    s.tiaFlags.template change<FLAG_ALE_TERMINAL>((lives_displayed == 0) && (display_flag == 0xBD));
-    s.m_lives = lives_displayed + 1; // Once we reach terminal, lives() will correctly return 0
+    const bool is_terminal = (lives_displayed == 0) && (display_flag == 0xBD);
+    s.tiaFlags.template change<FLAG_ALE_TERMINAL>(is_terminal);
+    s.m_lives = is_terminal ? 0 : lives_displayed + 1;
 }
 
 CULE_ANNOTATION
@@ -71,7 +72,9 @@ template<typename State>
 CULE_ANNOTATION
 int32_t lives(State& s)
 {
-    return cule::atari::ram::read(s.ram, 0xF2) + 1; // Once we reach terminal, lives() will correctly return 0
+    const int32_t lives_displayed = cule::atari::ram::read(s.ram, 0xF2);
+    const int32_t display_flag = cule::atari::ram::read(s.ram, 0xF1);
+    return ((lives_displayed == 0) && (display_flag == 0xBD)) ? 0 : lives_displayed + 1;
 }
 
 template<typename State>
@@ -79,7 +82,7 @@ CULE_ANNOTATION
 void setTerminal(State& s)
 {
     // update terminal status
-    int lives_displayed = lives(s) - 1;
+    int lives_displayed = cule::atari::ram::read(s.ram, 0xF2);
     int display_flag = cule::atari::ram::read(s.ram, 0xF1);
     s.tiaFlags.template change<FLAG_ALE_TERMINAL>((lives_displayed == 0) && (display_flag == 0xBD));
 }

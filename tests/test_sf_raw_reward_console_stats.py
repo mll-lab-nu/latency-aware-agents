@@ -224,6 +224,36 @@ def test_batched_report_main_reward_is_raw_after_life_loss(monkeypatch):
     assert "episode/clipped_return" not in stats
 
 
+def test_batched_life_loss_report_is_suppressed_even_when_episode_metrics_present(monkeypatch):
+    _, BatchedVectorEnvRunner, _ = _install_fake_sample_factory(monkeypatch)
+    from training.common.sf_raw_reward_stats_compat import (
+        ensure_sample_factory_raw_reward_console_stats_installed,
+    )
+
+    ensure_sample_factory_raw_reward_console_stats_installed(env_name="latency_demon_attack")
+    runner = _batched_runner(BatchedVectorEnvRunner)
+
+    reports = runner._process_env_step(
+        rewards=np.asarray([1.0]),
+        dones_orig=np.asarray([True]),
+        infos=[
+            {
+                "lives": 2,
+                "is_true_episode_end": False,
+                "episodic_return": 10.0,
+                "episode_extra_stats": {
+                    "episode/raw_return": 10.0,
+                    "episode/return": 10.0,
+                },
+            }
+        ],
+    )
+
+    assert reports == []
+    assert runner.curr_episode_reward.tolist() == [1.0]
+    assert runner.curr_episode_len.tolist() == [1]
+
+
 def test_patch_is_idempotent(monkeypatch):
     ActorState, BatchedVectorEnvRunner, _ = _install_fake_sample_factory(monkeypatch)
     from training.common.sf_raw_reward_stats_compat import (

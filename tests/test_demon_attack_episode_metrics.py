@@ -161,15 +161,22 @@ def test_batched_episode_metrics_uses_lives_to_accumulate_across_life_loss(tmp_p
 
     assert life_loss_info[0]["lives"] == 2
     assert life_loss_info[0]["is_true_episode_end"] is False
+    assert "episodic_return" not in life_loss_info[0]
+    assert "episodic_raw_return" not in life_loss_info[0]
+    assert "episodic_length" not in life_loss_info[0]
     assert "episode_extra_stats" not in life_loss_info[0]
     assert game_over_info[0]["lives"] == 0
     assert game_over_info[0]["is_true_episode_end"] is True
     assert game_over_info[0]["episodic_return"] == 30.0
     assert game_over_info[0]["episodic_raw_return"] == 30.0
     assert game_over_info[0]["episodic_length"] == 2
+    assert game_over_info[0]["episode_extra_stats"]["episode/return"] == 30.0
+    assert game_over_info[0]["episode_extra_stats"]["episode/raw_return"] == 30.0
     assert game_over_info[0]["episode_extra_stats"]["episode/raw_frames"] == 8
+    assert game_over_info[0]["episode_extra_stats"]["episode/index"] == 0
 
-    event = json.loads(metrics_path.read_text(encoding="utf-8"))
-    assert event["return"] == 30.0
-    assert event["raw_return"] == 30.0
-    assert event["raw_frames"] == 8
+    events = [json.loads(line) for line in metrics_path.read_text(encoding="utf-8").splitlines()]
+    assert len(events) == 1
+    assert events[0]["return"] == 30.0
+    assert events[0]["raw_return"] == 30.0
+    assert events[0]["raw_frames"] == 8
