@@ -1,0 +1,2 @@
+third_party/cule/** -linguist-vendored
+third_party/cule/** linguist-detectable
