@@ -9,12 +9,14 @@ import torch
 from torch.utils.cpp_extension import load
 
 from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets
+from training.common.cuda_extension_build import ensure_compatible_cuda_extension_toolchain
 
 
 @lru_cache(maxsize=1)
 def load_flappy_cuda_extension() -> Any:
     if not torch.cuda.is_available():
         raise RuntimeError("simulator=gpu requires CUDA, but torch.cuda.is_available() is false")
+    ensure_compatible_cuda_extension_toolchain()
     root = Path(__file__).resolve().parent / "cuda_kernels"
     return load(
         name="flappy_cuda_kernels",

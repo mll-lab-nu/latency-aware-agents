@@ -16,7 +16,8 @@ def test_load_cule_atari_extension_uses_torch_pybind11_and_cccl(monkeypatch, tmp
         captured.update(kwargs)
         return "demon_attack_cule_atari"
 
-    monkeypatch.setattr(cule_atari_extension, "CUDA_HOME", str(cuda_home))
+    monkeypatch.setattr(cule_atari_extension, "ensure_compatible_cuda_extension_toolchain", lambda: None)
+    monkeypatch.setattr(cule_atari_extension.cpp_extension, "CUDA_HOME", str(cuda_home))
     monkeypatch.setattr(cule_atari_extension.sys, "prefix", str(tmp_path / "env"))
     monkeypatch.setattr(cule_atari_extension, "load", fake_load)
 

@@ -5,11 +5,15 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from torch.utils.cpp_extension import CUDA_HOME, load
+import torch.utils.cpp_extension as cpp_extension
+from torch.utils.cpp_extension import load
+
+from training.common.cuda_extension_build import ensure_compatible_cuda_extension_toolchain
 
 
 @lru_cache(maxsize=1)
 def load_cule_atari_extension() -> Any:
+    ensure_compatible_cuda_extension_toolchain()
     repo_root = Path(__file__).resolve().parents[2]
     cule_root = repo_root / "third_party" / "cule"
     extra_include_paths = [
@@ -17,8 +21,8 @@ def load_cule_atari_extension() -> Any:
         str(cule_root / "third_party" / "agency"),
         str(Path(sys.prefix) / "include"),
     ]
-    if CUDA_HOME is not None:
-        cccl_include = Path(CUDA_HOME) / "include" / "cccl"
+    if cpp_extension.CUDA_HOME is not None:
+        cccl_include = Path(cpp_extension.CUDA_HOME) / "include" / "cccl"
         if cccl_include.exists():
             extra_include_paths.append(str(cccl_include))
     return load(
