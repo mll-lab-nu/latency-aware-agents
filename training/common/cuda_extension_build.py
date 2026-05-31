@@ -4,6 +4,7 @@ import os
 import site
 import subprocess
 import sys
+import uuid
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
@@ -119,8 +120,9 @@ def _cuda_runtime_library_paths(cuda_home: Path) -> list[Path]:
         compat_dir = Path(__file__).resolve().parents[2] / ".cache" / "cuda_link_compat"
         compat_dir.mkdir(parents=True, exist_ok=True)
         compat_link = compat_dir / "libcudart.so"
-        compat_link.unlink(missing_ok=True)
-        compat_link.symlink_to(versioned_cudarts[-1])
+        tmp_link = compat_link.with_name(f".{compat_link.name}.{os.getpid()}.{uuid.uuid4().hex}")
+        tmp_link.symlink_to(versioned_cudarts[-1])
+        os.replace(tmp_link, compat_link)
         return [compat_dir, *cuda_lib_dirs]
 
     return cuda_lib_dirs

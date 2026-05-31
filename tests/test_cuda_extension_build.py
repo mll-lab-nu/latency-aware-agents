@@ -36,6 +36,8 @@ def test_selects_env_cuda_when_system_nvcc_lacks_gpu_arch(monkeypatch, tmp_path)
     monkeypatch.setattr(cuda_extension_build.sys, "prefix", str(tmp_path / "env"))
     monkeypatch.setenv("CUDA_HOME", str(system_cuda))
     monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.delenv("CONDA_PREFIX", raising=False)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
     monkeypatch.delenv("LD_LIBRARY_PATH", raising=False)
     monkeypatch.delenv("LIBRARY_PATH", raising=False)
 
@@ -71,6 +73,8 @@ def test_leaves_environment_unchanged_when_no_nvcc_supports_gpu_arch(monkeypatch
     monkeypatch.setattr(cuda_extension_build.sys, "prefix", str(tmp_path / "env"))
     monkeypatch.setenv("CUDA_HOME", str(system_cuda))
     monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.delenv("CONDA_PREFIX", raising=False)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
     monkeypatch.setenv("LD_LIBRARY_PATH", "/existing/lib")
     monkeypatch.setenv("LIBRARY_PATH", "/existing/link")
     monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
@@ -109,6 +113,47 @@ def test_creates_cuda_runtime_compat_link_for_versioned_cudart(monkeypatch, tmp_
 
     compat_dir = repo_root / ".cache" / "cuda_link_compat"
     compat_link = compat_dir / "libcudart.so"
+    assert selected == cuda_home
+    assert compat_link.resolve() == versioned_cudart
+    assert os.environ["LD_LIBRARY_PATH"].split(os.pathsep)[:2] == [str(compat_dir), str(cuda_lib)]
+    assert os.environ["LIBRARY_PATH"].split(os.pathsep)[:2] == [str(compat_dir), str(cuda_lib)]
+
+
+def test_cuda_runtime_compat_link_survives_competing_recreate(monkeypatch, tmp_path):
+    from training.common import cuda_extension_build
+
+    cuda_home = tmp_path / "env" / "lib" / "python3.10" / "site-packages" / "nvidia" / "cu13"
+    cuda_lib = cuda_home / "lib"
+    cuda_lib.mkdir(parents=True)
+    versioned_cudart = cuda_lib / "libcudart.so.13"
+    versioned_cudart.write_text("", encoding="utf-8")
+    _write_nvcc(cuda_home / "bin" / "nvcc", "sm_103")
+    repo_root = tmp_path / "repo"
+    compat_dir = repo_root / ".cache" / "cuda_link_compat"
+    compat_dir.mkdir(parents=True)
+    compat_link = compat_dir / "libcudart.so"
+    compat_link.symlink_to(versioned_cudart)
+
+    original_unlink = Path.unlink
+    original_symlink_to = Path.symlink_to
+
+    def unlink_with_competing_recreate(self, missing_ok=False):
+        result = original_unlink(self, missing_ok=missing_ok)
+        if self == compat_link:
+            original_symlink_to(self, versioned_cudart)
+        return result
+
+    monkeypatch.setattr(Path, "unlink", unlink_with_competing_recreate)
+    monkeypatch.setattr(cuda_extension_build.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(cuda_extension_build.torch.cuda, "get_device_capability", lambda: (10, 3))
+    monkeypatch.setattr(cuda_extension_build, "_raw_candidate_nvcc_paths", lambda: iter([cuda_home / "bin" / "nvcc"]))
+    monkeypatch.setattr(cuda_extension_build, "__file__", str(repo_root / "training" / "common" / "cuda_extension_build.py"))
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.delenv("LD_LIBRARY_PATH", raising=False)
+    monkeypatch.delenv("LIBRARY_PATH", raising=False)
+
+    selected = cuda_extension_build.ensure_compatible_cuda_extension_toolchain()
+
     assert selected == cuda_home
     assert compat_link.resolve() == versioned_cudart
     assert os.environ["LD_LIBRARY_PATH"].split(os.pathsep)[:2] == [str(compat_dir), str(cuda_lib)]
