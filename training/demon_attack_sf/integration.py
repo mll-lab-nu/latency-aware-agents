@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
 
@@ -19,7 +20,11 @@ from training.common.config_adapter import (
     apply_runtime_logging_config,
     build_common_sf_args,
 )
-from training.common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
+from training.common.episode_metrics import (
+    episode_metrics_path_from_cfg,
+    start_episode_metrics_aggregator,
+    stop_episode_metrics_aggregator,
+)
 from training.common.latency_wrapper import (
     ActionLatencyWrapper,
     EpisodeMetricsWrapper,
@@ -226,6 +231,23 @@ def register_demon_attack_envs() -> None:
     _ENVS_REGISTERED = True
 
 
+def _prepare_gpu_episode_metrics_file(cfg) -> None:
+    path = cfg.episode_metrics_path or episode_metrics_path_from_cfg(cfg)
+    if not path:
+        return
+    path_obj = Path(path).expanduser()
+    restart_behavior = cfg.restart_behavior.lower()
+    if restart_behavior != "resume" and path_obj.exists():
+        path_obj.unlink()
+
+
+def _start_episode_metrics_for_training(cfg):
+    if cfg.simulator == "gpu":
+        _prepare_gpu_episode_metrics_file(cfg)
+        return None, None
+    return start_episode_metrics_aggregator(cfg)
+
+
 def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--env_id", type=str, default="ALE/DemonAttack-v5")
     parser.add_argument("--env-fps", dest="env_fps", type=float, default=60)
@@ -346,7 +368,7 @@ def run_from_config(config: dict) -> int:
     metrics_stop_event = None
     metrics_thread = None
     if cfg.mode == "train":
-        metrics_stop_event, metrics_thread = start_episode_metrics_aggregator(cfg)
+        metrics_stop_event, metrics_thread = _start_episode_metrics_for_training(cfg)
 
     status = ExperimentStatus.SUCCESS
     try:
