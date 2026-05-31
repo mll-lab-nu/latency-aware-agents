@@ -2,7 +2,6 @@ __base__: ../base/dummy.yaml
 
 experiment:
   name: trace_replay
-  num_episodes: 20
 
 executor:
   mode: simulated
@@ -11,6 +10,9 @@ latency:
   type: trace_replay
   trace_path: traces/small_device_latency.jsonl
   loop_trace: true
+
+evaluation:
+  eval_episodes: 20
 
 logging:
   output_dir: outputs/trace_replay

@@ -4,7 +4,6 @@ __base__:
 experiment:
   name: starvla_openvla_demon_attack_single_raw2
   seed: 42
-  num_episodes: 20
 
 executor:
   mode: simulated

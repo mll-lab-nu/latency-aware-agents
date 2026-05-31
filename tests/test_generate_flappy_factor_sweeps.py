@@ -124,6 +124,7 @@ def test_flappy_factor_sweep_generator_emits_matrix_configs(tmp_path):
         ).read_text(encoding="utf-8")
     )
     assert "eval_suites" in eval_cfg["evaluation"]
+    assert eval_cfg["evaluation"]["eval_episodes"] == fixed_cfg["evaluation"]["eval_episodes"]
     assert eval_cfg["backend"]["run_mode"] == "eval"
     assert eval_cfg["logging"]["wandb_group"] == "flappy-fs4-fixed_l1"
     assert eval_cfg["logging"]["wandb_name"] == fixed_cfg["logging"]["wandb_name"]

@@ -115,7 +115,7 @@ def _build_simulated_executor(
     video_episode_metadata: dict[int, dict] | None = None,
 ) -> SimulatedLatencyExecutor | BatchedSimulatedLatencyExecutor:
     eval_parallel_envs = _eval_parallel_envs(config)
-    num_episodes = int(config.get("experiment", {}).get("num_episodes", 1))
+    num_episodes = int(config["evaluation"]["eval_episodes"])
     if (
         eval_parallel_envs > 1
         and num_episodes > 0

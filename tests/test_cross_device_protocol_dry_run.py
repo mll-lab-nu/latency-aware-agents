@@ -24,7 +24,7 @@ RUNTIME_SPEC = {
 
 def _write_base_config(path: Path) -> None:
     config = {
-        "experiment": {"name": "dry_run_policy_seed0", "seed": 0, "num_episodes": 2},
+        "experiment": {"name": "dry_run_policy_seed0", "seed": 0},
         "executor": {"mode": "simulated"},
         "env": {"name": "flappy", "env_fps": 30, "obs_fps": 30, "noop_action": "noop"},
         "latency": {"type": "fixed", "fixed_latency_ms": 33.333333333333336},
@@ -38,7 +38,7 @@ def _write_base_config(path: Path) -> None:
 
 def _write_base_config_with_policy(path: Path, policy_type: str) -> None:
     config = {
-        "experiment": {"name": f"{policy_type}_seed0", "seed": 0, "num_episodes": 1},
+        "experiment": {"name": f"{policy_type}_seed0", "seed": 0},
         "executor": {"mode": "simulated"},
         "env": {"name": "dummy", "env_fps": 30, "obs_fps": 30, "noop_action": "noop"},
         "latency": {"type": "zero"},
@@ -613,7 +613,6 @@ def test_openvla_smoke_dry_run_uses_isolated_run_id_and_step_cap(tmp_path: Path)
     assert "profiles_smoke/demon-attack-openvla/demon_attack" in result.stdout
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
-    assert config["experiment"]["num_episodes"] == 1
     assert config["evaluation"]["eval_episodes"] == 1
     assert config["evaluation"]["eval_max_steps"] == 7
     assert "smoke_seed_0_n1" in config["logging"]["output_dir"]
@@ -1095,7 +1094,6 @@ def test_stage_overrides_can_raise_deadly_corridor_measure_episodes_only(tmp_pat
         "1",
     )
     measure_config = yaml.safe_load(next((measure_out / "generated_configs" / "measure").rglob("*.yaml")).read_text())
-    assert measure_config["experiment"]["num_episodes"] == 1000
     assert measure_config["evaluation"]["eval_episodes"] == 1000
     assert "best_seed_0_n1000" in measure_config["logging"]["output_dir"]
 
@@ -1116,7 +1114,6 @@ def test_stage_overrides_can_raise_deadly_corridor_measure_episodes_only(tmp_pat
         "1",
     )
     realtime_config = yaml.safe_load(next((realtime_out / "generated_configs" / "realtime").rglob("*.yaml")).read_text())
-    assert realtime_config["experiment"]["num_episodes"] == 10
     assert realtime_config["evaluation"]["eval_episodes"] == 10
     assert "best_seed_0_n10" in realtime_config["logging"]["output_dir"]
 
@@ -1152,7 +1149,6 @@ def test_cli_n_episodes_overrides_stage_overrides(tmp_path: Path):
     )
 
     config = yaml.safe_load(next((out / "generated_configs" / "measure").rglob("*.yaml")).read_text())
-    assert config["experiment"]["num_episodes"] == 20
     assert config["evaluation"]["eval_episodes"] == 20
     assert "best_seed_0_n20" in config["logging"]["output_dir"]
 

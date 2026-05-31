@@ -847,9 +847,8 @@ def _generated_config(task: ProtocolTask, spec: dict[str, Any]) -> dict[str, Any
         raise FileNotFoundError(f"Base config does not exist for {task.row.get('policy')} / {task.row.get('env')}: {base_config}")
     config = load_config(base_config)
     config = deepcopy(config)
-    config.setdefault("experiment", {})["seed"] = int(task.seed)
-    config["experiment"]["num_episodes"] = int(task.n_episodes)
-    config.setdefault("evaluation", {})["eval_episodes"] = int(task.n_episodes)
+    config["experiment"]["seed"] = task.seed
+    config["evaluation"]["eval_episodes"] = task.n_episodes
     if task.smoke_max_steps is not None:
         config["evaluation"]["eval_max_steps"] = int(task.smoke_max_steps)
     config.setdefault("logging", {})["output_dir"] = str(task.output_dir)

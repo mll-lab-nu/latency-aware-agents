@@ -1034,7 +1034,6 @@ def test_latency_bench_run_with_batched_sample_factory_discrete_policy_completes
         "experiment": {
             "name": "sf_discrete_batched_run",
             "seed": 0,
-            "num_episodes": 5,
         },
         "executor": {
             "mode": "simulated",
@@ -1071,6 +1070,7 @@ def test_latency_bench_run_with_batched_sample_factory_discrete_policy_completes
             "save_latency_records": True,
         },
         "evaluation": {
+            "eval_episodes": 5,
             "eval_max_steps": 1,
             "eval_parallel_envs": 4,
         },
@@ -1111,7 +1111,6 @@ def test_latency_bench_run_with_batched_deadly_tuple_policy_completes_exact_epis
         "experiment": {
             "name": "sf_tuple_batched_run",
             "seed": 0,
-            "num_episodes": 5,
         },
         "executor": {
             "mode": "simulated",
@@ -1142,6 +1141,7 @@ def test_latency_bench_run_with_batched_deadly_tuple_policy_completes_exact_epis
             "save_latency_records": True,
         },
         "evaluation": {
+            "eval_episodes": 5,
             "eval_max_steps": 1,
             "eval_parallel_envs": 4,
         },

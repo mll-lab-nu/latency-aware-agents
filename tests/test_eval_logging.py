@@ -46,7 +46,6 @@ def _config(tmp_path: Path, *, latency: dict | None = None, env_name: str = "dum
         "experiment": {
             "name": "eval_logging_test",
             "seed": 7,
-            "num_episodes": 1,
         },
         "executor": {
             "mode": "simulated",
@@ -74,6 +73,7 @@ def _config(tmp_path: Path, *, latency: dict | None = None, env_name: str = "dum
             "action": "jump",
         },
         "evaluation": {
+            "eval_episodes": 1,
             "eval_max_steps": 3,
             "replay_host": "test_replay_host",
         },

@@ -14,7 +14,6 @@ def _suite_config(tmp_path: Path) -> dict:
         "experiment": {
             "name": "suite_config",
             "seed": 0,
-            "num_episodes": 1,
         },
         "executor": {
             "mode": "simulated",
@@ -47,6 +46,7 @@ def _suite_config(tmp_path: Path) -> dict:
             "save_latency_records": True,
         },
         "evaluation": {
+            "eval_episodes": 1,
             "eval_max_steps": 1,
             "eval_suites": {
                 "fixed": [

@@ -72,7 +72,7 @@ def _stage_configs(
     requested_parallel_envs: Sequence[int],
 ) -> list[tuple[int | None, float | None, dict[str, Any], dict[str, Any]]]:
     eval_latency_values = _eval_latency_values(config)
-    expected_episodes = int(config.get("experiment", {}).get("num_episodes", 1))
+    expected_episodes = config["evaluation"]["eval_episodes"]
     base_metadata = {
         "expected_episodes": expected_episodes,
     }
@@ -128,7 +128,7 @@ def _run_stage(
     extra_metadata: dict[str, Any] | None,
     write_summary: bool,
 ) -> tuple[int, int, bool, float, float]:
-    expected_episodes = int(stage_config.get("experiment", {}).get("num_episodes", 1))
+    expected_episodes = stage_config["evaluation"]["eval_episodes"]
     cpu_before = _cpu_seconds()
     wall_before = time.perf_counter()
     with contextlib.redirect_stdout(sys.stderr):

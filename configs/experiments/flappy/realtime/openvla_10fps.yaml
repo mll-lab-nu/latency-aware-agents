@@ -9,7 +9,6 @@ executor:
 experiment:
   name: flappy_openvla_sft_eval
   seed: 0
-  num_episodes: 10
 
 env:
   obs_resize: [84, 84]
@@ -41,6 +40,7 @@ latency:
   sync_cuda: true
 
 evaluation:
+  eval_episodes: 10
   eval_parallel_envs: 1
   eval_latency_values: null
   eval_max_steps: 3600

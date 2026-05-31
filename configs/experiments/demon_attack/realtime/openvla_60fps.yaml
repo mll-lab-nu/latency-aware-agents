@@ -9,7 +9,6 @@ executor:
 experiment:
   name: demon_attack_openvla_sft_eval
   seed: 0
-  num_episodes: 100
 
 backend:
   run_mode: eval
@@ -65,6 +64,7 @@ latency:
   sync_cuda: true
 
 evaluation:
+  eval_episodes: 100
   eval_parallel_envs: 1
   eval_latency_values: null
   eval_max_steps: 3600

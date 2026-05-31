@@ -70,6 +70,10 @@ def _eval_max_steps(config: dict[str, Any]) -> int:
     raise ValueError("evaluation.eval_max_steps is required for latency_bench episode limits")
 
 
+def _eval_episodes(config: dict[str, Any]) -> int:
+    return int(config["evaluation"]["eval_episodes"])
+
+
 def run_from_config(
     config: dict[str, Any],
     extra_metadata: dict[str, Any] | None = None,
@@ -81,8 +85,8 @@ def run_from_config(
     policy_cfg = config["policy"]
     logging_cfg = config["logging"]
     seed = int(experiment_cfg.get("seed", 0))
-    num_episodes = int(experiment_cfg.get("num_episodes", 1))
     eval_max_steps = _eval_max_steps(config)
+    num_episodes = _eval_episodes(config)
     seed_everything(seed)
 
     executor = build_executor(config)
@@ -215,7 +219,7 @@ def run_eval_sweep_from_config(
         latency_label = _progress_latency_label(_summary_latency_label(config))
         print(f"[bench] sweep 1/1: eval_latency={latency_label}", file=sys.stderr, flush=True)
         completed = 0
-        num_episodes = int(config["experiment"].get("num_episodes", 1))
+        num_episodes = _eval_episodes(config)
 
         def on_episode_complete(_episode_metrics: EpisodeMetrics) -> None:
             nonlocal completed
@@ -235,7 +239,7 @@ def run_eval_sweep_from_config(
     train_latency_steps = _train_latency_steps(config)
     all_metrics: list[EpisodeMetrics] = []
     num_sweeps = len(eval_latency_values)
-    num_episodes = int(config["experiment"].get("num_episodes", 1))
+    num_episodes = _eval_episodes(config)
     if progress:
         _print_progress_start(config, num_sweeps=num_sweeps)
     for sweep_index, eval_latency_steps in enumerate(eval_latency_values, start=1):
@@ -301,7 +305,7 @@ def run_eval_suites_from_config(
     suites = parse_eval_suites(config)
     base_output_dir = Path(config["logging"]["output_dir"])
     train_latency_steps = _train_latency_steps(config)
-    num_episodes = int(config["experiment"].get("num_episodes", 1))
+    num_episodes = _eval_episodes(config)
     num_sweeps = sum(len(suite.fixed_latency_values or [suite.latency_label]) for suite in suites)
     if progress:
         _print_progress_start(config, num_sweeps=num_sweeps)
@@ -420,7 +424,7 @@ def run_eval_suites_from_config(
 
 
 def _print_progress_start(config: dict[str, Any], *, num_sweeps: int) -> None:
-    num_episodes = int(config["experiment"].get("num_episodes", 1))
+    num_episodes = _eval_episodes(config)
     print(
         f"[bench] run={config['experiment'].get('name', 'latency_bench')} "
         f"sweeps={num_sweeps} "

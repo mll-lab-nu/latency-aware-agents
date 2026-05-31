@@ -18,7 +18,6 @@ def _write_dummy_config(path: Path, output_dir: Path, num_episodes: int = 1) -> 
 experiment:
   name: config_default
   seed: 0
-  num_episodes: {num_episodes}
 executor:
   mode: simulated
 env:
@@ -39,6 +38,7 @@ policy:
   action: jump
   checkpoint_path: config_checkpoint.pt
 evaluation:
+  eval_episodes: {num_episodes}
   eval_max_steps: 1
 logging:
   output_dir: {output_dir}
@@ -56,7 +56,6 @@ def _write_dummy_sweep_config(path: Path, output_dir: Path) -> None:
 experiment:
   name: sweep_config
   seed: 0
-  num_episodes: 1
 executor:
   mode: simulated
 env:
@@ -82,6 +81,7 @@ logging:
   save_action_records: true
   save_latency_records: true
 evaluation:
+  eval_episodes: 1
   eval_max_steps: 1
   eval_latency_values:
     - 0
@@ -101,7 +101,6 @@ def _write_dummy_realtime_measured_config(
 experiment:
   name: realtime_default
   seed: 0
-  num_episodes: {num_episodes}
 executor:
   mode: realtime
   inference_devices:
@@ -123,6 +122,7 @@ policy:
   type: constant
   action: jump
 evaluation:
+  eval_episodes: {num_episodes}
   eval_max_steps: 1
 logging:
   output_dir: {output_dir}
@@ -139,7 +139,6 @@ def _run_config(policy_type: str, tmp_path: Path, seed: int = 7, num_episodes: i
         "experiment": {
             "name": "seed_test",
             "seed": seed,
-            "num_episodes": num_episodes,
         },
         "executor": {
             "mode": "simulated",
@@ -172,6 +171,7 @@ def _run_config(policy_type: str, tmp_path: Path, seed: int = 7, num_episodes: i
             "save_latency_records": True,
         },
         "evaluation": {
+            "eval_episodes": num_episodes,
             "eval_max_steps": 1,
         },
     }
@@ -267,7 +267,7 @@ def test_run_from_config_uses_evaluation_eval_max_steps(
 
     monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
-    config["evaluation"] = {"eval_max_steps": 7}
+    config["evaluation"] = {"eval_episodes": 1, "eval_max_steps": 7}
 
     latency_run.run_from_config(config)
 
@@ -409,7 +409,6 @@ def test_main_logs_eval_suites_to_original_wandb_run_corrected_namespace(
 experiment:
   name: demon_attack_frame_stack_fixed_l2_fs8_seed42
   seed: 42
-  num_episodes: 1
 backend:
   train_dir: {tmp_path / "checkpoints"}
 executor:
@@ -426,6 +425,7 @@ scheduler:
 policy:
   type: demon_attack_sf
 evaluation:
+  eval_episodes: 1
   eval_max_steps: 3600
   eval_suites:
     fixed:

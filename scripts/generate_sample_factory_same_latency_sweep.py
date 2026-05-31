@@ -252,7 +252,7 @@ def _build_full_run_config(
 
     config = deepcopy(load_config(BASE_CONFIGS[env_name]))
     run_name = _build_run_name(env_name, latency, seed, latency_distribution)
-    experiment_cfg = config.setdefault("experiment", {})
+    experiment_cfg = config["experiment"]
     backend_cfg = config.setdefault("backend", {})
     env_cfg = config.setdefault("env", {})
     latency_cfg = config.setdefault("latency", {})
@@ -369,10 +369,10 @@ def _build_latency_bench_eval_config(
     _drop_eval_time_limit_fields(config)
     _align_demon_attack_raw_eval_config(config, env_name)
 
-    experiment_cfg = config.setdefault("experiment", {})
+    experiment_cfg = config["experiment"]
     experiment_cfg["name"] = _build_run_name(env_name, latency, seed, latency_distribution)
     experiment_cfg["seed"] = int(seed)
-    experiment_cfg["num_episodes"] = int(eval_episodes)
+    config["evaluation"]["eval_episodes"] = eval_episodes
 
     config.setdefault("backend", {})["run_mode"] = "eval"
 

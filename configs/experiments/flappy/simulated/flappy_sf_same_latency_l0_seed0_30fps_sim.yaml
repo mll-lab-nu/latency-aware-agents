@@ -1,7 +1,6 @@
 experiment:
   name: flappy_sf_same_latency_l0_seed0
   seed: 0
-  num_episodes: 10
 backend:
   type: sample_factory
   algo: APPO

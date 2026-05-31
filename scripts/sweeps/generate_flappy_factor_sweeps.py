@@ -290,7 +290,6 @@ def _build_latency_bench_eval_config(
     config.setdefault("backend", {})["run_mode"] = "eval"
     _drop_eval_time_limit_fields(config)
     _align_demon_attack_raw_eval_config(config, env_name)
-    config["experiment"]["num_episodes"] = int(config["evaluation"]["eval_episodes"])
     config["policy"] = merge_dicts(
         base_config.get("policy", {}),
         {

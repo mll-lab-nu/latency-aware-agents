@@ -67,7 +67,6 @@ def build_latency_bench_config_from_training_config(
     }
     config = merge_dicts(base_config, override)
     config["backend"]["run_mode"] = "eval"
-    config["experiment"]["num_episodes"] = int(config["evaluation"]["eval_episodes"])
     config["policy"] = merge_dicts(
         base_config.get("policy", {}),
         {
@@ -77,6 +76,11 @@ def build_latency_bench_config_from_training_config(
         },
     )
     config["logging"]["output_dir"] = str(Path(output_dir).expanduser())
+    # Eval after training does not need visualization
+    config["logging"]["video"]["enabled"] = False
+    config["logging"]["save_step_records"] = False
+    config["logging"]["save_action_records"] = False
+    config["logging"]["save_latency_records"] = False
     return config
 
 

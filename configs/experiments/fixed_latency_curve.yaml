@@ -2,7 +2,6 @@ __base__: ../base/dummy.yaml
 
 experiment:
   name: fixed_latency_curve
-  num_episodes: 20
 
 executor:
   mode: simulated
@@ -10,6 +9,9 @@ executor:
 latency:
   type: fixed
   fixed_latency_ms: 100
+
+evaluation:
+  eval_episodes: 20
 
 logging:
   output_dir: outputs/fixed_latency_curve

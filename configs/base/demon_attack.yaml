@@ -1,7 +1,6 @@
 experiment:
   name: demon_attack_base
   seed: 0
-  num_episodes: 10
 
 backend:
   type: sample_factory

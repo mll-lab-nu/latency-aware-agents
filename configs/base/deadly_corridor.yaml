@@ -1,7 +1,6 @@
 experiment:
   name: deadly_corridor_base
   seed: 42
-  num_episodes: 10
 
 backend:
   type: sample_factory

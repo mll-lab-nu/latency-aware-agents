@@ -51,7 +51,6 @@ def _config(output_dir: str, *, num_episodes: int = 3, score_limit: int | None =
         "experiment": {
             "name": "flappy_gpu_batched_backend_test",
             "seed": 0,
-            "num_episodes": int(num_episodes),
         },
         "executor": {
             "mode": "simulated",
@@ -70,6 +69,7 @@ def _config(output_dir: str, *, num_episodes: int = 3, score_limit: int | None =
             "actions": ["noop", "flap"],
         },
         "evaluation": {
+            "eval_episodes": int(num_episodes),
             "eval_max_steps": 6,
             "eval_parallel_envs": 3,
         },

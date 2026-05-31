@@ -31,7 +31,6 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
         "experiment": {
             "name": "executor_factory_test",
             "seed": 0,
-            "num_episodes": 1,
         },
         "executor": {
             "mode": mode,
@@ -59,6 +58,7 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
             "action": "jump",
         },
         "evaluation": {
+            "eval_episodes": 1,
             "eval_max_steps": 5,
         },
         "logging": {
@@ -242,7 +242,7 @@ def test_simulated_parallel_builds_batched_executor_for_supported_zero_latency(t
     from latency_bench.executors.env_step_backend import SerialEnvStepBackend
 
     config = _config(output_dir=str(tmp_path))
-    config["experiment"]["num_episodes"] = 3
+    config["evaluation"]["eval_episodes"] = 3
     config["evaluation"]["eval_parallel_envs"] = 4
 
     executor = build_executor(config)
@@ -259,7 +259,7 @@ def test_simulated_parallel_builds_batched_executor_for_distribution_latency(tmp
     from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
 
     config = _config(output_dir=str(tmp_path))
-    config["experiment"]["num_episodes"] = 3
+    config["evaluation"]["eval_episodes"] = 3
     config["evaluation"]["eval_parallel_envs"] = 4
     config["latency"] = {
         "type": "normal_distribution",
@@ -288,7 +288,7 @@ def test_simulated_parallel_explicit_subproc_builds_subproc_backend(tmp_path):
     from latency_bench.executors.env_step_backend import SubprocEnvStepBackend
 
     config = _config(output_dir=str(tmp_path))
-    config["experiment"]["num_episodes"] = 3
+    config["evaluation"]["eval_episodes"] = 3
     config["evaluation"]["eval_parallel_envs"] = 4
     config["evaluation"]["latency_bench_env_backend"] = "subproc"
     config["env"]["name"] = "dummy"
@@ -460,7 +460,7 @@ def test_parallel_simulated_tuple_action_space_builds_batched_executor_after_pha
     from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
 
     config = _config(output_dir=str(tmp_path))
-    config["experiment"]["num_episodes"] = 2
+    config["evaluation"]["eval_episodes"] = 2
     config["evaluation"]["eval_parallel_envs"] = 2
     config["env"]["name"] = "tuple_action_parallel_test"
     config["env"]["noop_action"] = (0, 0)
@@ -477,7 +477,7 @@ def test_parallel_simulated_tuple_action_space_builds_batched_executor_after_pha
 
 def test_parallel_simulated_nested_tuple_action_space_still_fails_fast(tmp_path):
     config = _config(output_dir=str(tmp_path))
-    config["experiment"]["num_episodes"] = 2
+    config["evaluation"]["eval_episodes"] = 2
     config["evaluation"]["eval_parallel_envs"] = 2
     config["env"]["name"] = "nested_tuple_action_parallel_test"
     config["env"]["noop_action"] = ((0, 0), 0)
@@ -490,7 +490,7 @@ def test_parallel_simulated_nested_tuple_action_space_still_fails_fast(tmp_path)
 
 def test_parallel_simulated_stateful_policy_without_predict_batch_fails_fast(tmp_path):
     config = _config(output_dir=str(tmp_path))
-    config["experiment"]["num_episodes"] = 2
+    config["evaluation"]["eval_episodes"] = 2
     config["evaluation"]["eval_parallel_envs"] = 2
     config["policy"] = {
         "type": "random",

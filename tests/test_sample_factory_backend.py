@@ -1948,8 +1948,8 @@ def test_same_latency_sweep_generator_emits_latency_bench_eval_configs(
     loaded = load_config(cfg_path)
 
     assert loaded["experiment"]["name"] == f"{env_name}_sf_same_latency_l3_seed0"
-    assert loaded["experiment"]["num_episodes"] == 10
-    assert set(loaded["experiment"]) == {"name", "seed", "num_episodes"}
+    assert loaded["evaluation"]["eval_episodes"] == 10
+    assert set(loaded["experiment"]) == {"name", "seed"}
     assert loaded["backend"]["train_dir"] == "results/checkpoints/sample_factory_runs"
     assert loaded["backend"]["run_mode"] == "eval"
     assert loaded["policy"]["type"] == expected_policy
@@ -2106,7 +2106,8 @@ def test_same_latency_sweep_generator_writes_train_and_latency_bench_eval_config
             assert loaded["policy"]["type"] == policy_type
             assert loaded["policy"]["checkpoint_path"] == ""
             assert loaded["evaluation"]["eval_suites"] == expected_eval_suites[env_name]
-            assert set(loaded["experiment"]) == {"name", "seed", "num_episodes"}
+            assert set(loaded["experiment"]) == {"name", "seed"}
+            assert loaded["evaluation"]["eval_episodes"] == 10
             assert "max_episode_steps" not in loaded["env"]
             if env_name == "flappy":
                 assert "max_episode_steps" not in train_loaded["env"]

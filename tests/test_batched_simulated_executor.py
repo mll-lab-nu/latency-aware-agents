@@ -407,7 +407,6 @@ def _subproc_config(
         "experiment": {
             "name": "subproc_batched_test",
             "seed": 0,
-            "num_episodes": num_episodes,
         },
         "executor": {
             "mode": "simulated",
@@ -434,6 +433,7 @@ def _subproc_config(
             "action": "jump",
         },
         "evaluation": {
+            "eval_episodes": num_episodes,
             "eval_max_steps": eval_max_steps,
             "latency_bench_env_backend": "subproc",
         },

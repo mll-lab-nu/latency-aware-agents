@@ -86,7 +86,7 @@ def test_build_latency_bench_config_from_training_config_uses_base_env_config(tm
     assert config["policy"]["deterministic"] is True
     assert config["experiment"]["name"] == "flappy_sf_l0_seed0"
     assert config["experiment"]["seed"] == 0
-    assert config["experiment"]["num_episodes"] == 3
+    assert config["evaluation"]["eval_episodes"] == 3
     assert config["env"]["action_map"] == {"noop": 0, "flap": 1}
     assert config["evaluation"]["eval_raw_reward"] is False
     assert config["logging"]["output_dir"] == str(tmp_path / "eval_outputs")
@@ -688,6 +688,7 @@ def test_run_sample_factory_training_runs_final_latency_bench_after_runner_finis
     assert config["logging"]["output_dir"] == str(
         tmp_path / "train_outputs" / "latency_bench_train_eval" / "step_1234_final"
     )
+    _assert_train_eval_artifacts_disabled(config)
     assert result_path == tmp_path / "train_outputs" / "latency_bench_train_eval" / "step_1234_final" / "eval_result.json"
     assert metadata == {
         "eval_phase": "train_final",

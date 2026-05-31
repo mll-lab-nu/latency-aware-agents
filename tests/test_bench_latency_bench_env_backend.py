@@ -18,7 +18,6 @@ def _base_config(output_root: Path) -> dict:
     return {
         "experiment": {
             "name": "bench_test",
-            "num_episodes": 3,
         },
         "env": {
             "name": "demon_attack",
@@ -29,7 +28,9 @@ def _base_config(output_root: Path) -> dict:
         "latency": {
             "type": "zero",
         },
-        "evaluation": {},
+        "evaluation": {
+            "eval_episodes": 3,
+        },
         "logging": {
             "output_dir": str(output_root),
             "save_step_records": True,

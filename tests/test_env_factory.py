@@ -22,7 +22,6 @@ def _config(env_name: str = "dummy", output_dir: str = "outputs/factory_test") -
         "experiment": {
             "name": "factory_test",
             "seed": 0,
-            "num_episodes": 1,
         },
         "executor": {
             "mode": "simulated",
@@ -49,6 +48,7 @@ def _config(env_name: str = "dummy", output_dir: str = "outputs/factory_test") -
             "action": "noop",
         },
         "evaluation": {
+            "eval_episodes": 1,
             "eval_max_steps": 5,
         },
         "logging": {

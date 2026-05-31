@@ -2,9 +2,9 @@ __base__: ../../base/deadly_corridor.yaml
 
 experiment:
   name: deadly_corridor_sf_zero_latency
-  num_episodes: 10
 
 evaluation:
+  eval_episodes: 10
   eval_max_steps: 30000
 
 latency:
