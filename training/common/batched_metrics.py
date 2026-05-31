@@ -65,6 +65,7 @@ class BatchedEpisodeMetrics:
         scores: Sequence[int] | np.ndarray,
         active_mask: Sequence[bool] | np.ndarray,
         latency_raw_frames: Sequence[int] | np.ndarray,
+        lives: Sequence[int] | np.ndarray | None = None,
         timeout_mask: Sequence[bool] | np.ndarray | None = None,
     ) -> dict[int, dict[str, Any]]:
         actions = np.asarray(issued_actions, dtype=np.int64).reshape(-1)
@@ -74,6 +75,7 @@ class BatchedEpisodeMetrics:
         score_arr = np.asarray(scores, dtype=np.int64).reshape(-1)
         active = np.asarray(active_mask, dtype=np.bool_).reshape(-1)
         latency_arr = np.asarray(latency_raw_frames, dtype=np.int64).reshape(-1)
+        lives_arr = None if lives is None else np.asarray(lives, dtype=np.int64).reshape(-1)
         timeout_arr = (
             np.zeros(self.batch_size, dtype=np.bool_)
             if timeout_mask is None
@@ -93,6 +95,8 @@ class BatchedEpisodeMetrics:
             info: dict[str, Any] = {"raw_reward": float(reward_arr[agent_idx])}
             if self.include_score:
                 info["score"] = int(score_arr[agent_idx])
+            if lives_arr is not None:
+                info["lives"] = int(lives_arr[agent_idx])
             if bool(timeout_arr[agent_idx]):
                 info["TimeLimit.truncated"] = True
             done = True

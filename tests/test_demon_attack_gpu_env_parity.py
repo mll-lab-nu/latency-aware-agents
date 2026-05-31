@@ -269,6 +269,36 @@ def test_demon_attack_gpu_sampled_latency_trace_matches_sample_factory_cpu_refer
         gpu_env.close()
 
 
+def test_demon_attack_gpu_life_loss_done_is_not_true_episode_end():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+
+    gpu_cfg = _cfg(
+        simulator="gpu",
+        add_latency_info=True,
+        fixed_latency_ms=4 * 1000.0 / 60.0,
+    )
+    gpu_env = _make_gpu_env(gpu_cfg)
+    actions = np.random.default_rng(2026).integers(0, 6, size=700, dtype=np.int64)
+
+    try:
+        gpu_env.reset()
+        for action in actions:
+            _, _, terminated, truncated, infos = gpu_env.step(
+                torch.tensor([action], dtype=torch.int64, device="cuda")
+            )
+            if bool(terminated.item()) or bool(truncated.item()):
+                info = infos[0]
+                if info["lives"] > 0:
+                    assert info["is_true_episode_end"] is False
+                    assert "episode_extra_stats" not in info
+                    return
+        raise AssertionError("expected a life-loss terminal before true game over")
+    finally:
+        gpu_env.close()
+
+
 def test_demon_attack_latency_bench_eval_factory_keeps_cpu_adapter_for_gpu_training_config(monkeypatch, tmp_path):
     from latency_bench.core.types import Action
     from latency_bench.envs.factory import build_env_adapter

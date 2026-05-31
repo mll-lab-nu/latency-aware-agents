@@ -173,6 +173,7 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             scores=result.scores,
             active_mask=np.ones(self.num_agents, dtype=np.bool_),
             latency_raw_frames=latency_raw_frames,
+            lives=result.lives,
         )
         done_mask = np.logical_or(terminated, truncated)
         core_reset_mask = truncated | (terminated & (result.lives <= 0))

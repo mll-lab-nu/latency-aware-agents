@@ -121,3 +121,55 @@ def test_episode_metrics_records_only_raw_return(tmp_path):
     assert event["return"] == 10.0
     assert event["raw_return"] == 10.0
     assert "clipped_return" not in event
+
+
+def test_batched_episode_metrics_uses_lives_to_accumulate_across_life_loss(tmp_path):
+    from training.common.batched_metrics import BatchedEpisodeMetrics
+
+    metrics_path = tmp_path / "batched_episodes.jsonl"
+    metrics = BatchedEpisodeMetrics(
+        batch_size=1,
+        frames_per_decision=4,
+        metrics_path=str(metrics_path),
+        worker_index=1,
+        vector_index=2,
+        env_ids=[3],
+        include_score=False,
+    )
+
+    life_loss_info = metrics.update(
+        issued_actions=[1],
+        rewards=[10.0],
+        terminated=[True],
+        truncated=[False],
+        scores=[0],
+        active_mask=[True],
+        latency_raw_frames=[4],
+        lives=[2],
+    )
+    metrics.reset(indices=[0])
+    game_over_info = metrics.update(
+        issued_actions=[1],
+        rewards=[20.0],
+        terminated=[True],
+        truncated=[False],
+        scores=[0],
+        active_mask=[True],
+        latency_raw_frames=[4],
+        lives=[0],
+    )
+
+    assert life_loss_info[0]["lives"] == 2
+    assert life_loss_info[0]["is_true_episode_end"] is False
+    assert "episode_extra_stats" not in life_loss_info[0]
+    assert game_over_info[0]["lives"] == 0
+    assert game_over_info[0]["is_true_episode_end"] is True
+    assert game_over_info[0]["episodic_return"] == 30.0
+    assert game_over_info[0]["episodic_raw_return"] == 30.0
+    assert game_over_info[0]["episodic_length"] == 2
+    assert game_over_info[0]["episode_extra_stats"]["episode/raw_frames"] == 8
+
+    event = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert event["return"] == 30.0
+    assert event["raw_return"] == 30.0
+    assert event["raw_frames"] == 8
