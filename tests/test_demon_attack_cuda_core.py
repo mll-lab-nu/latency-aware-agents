@@ -15,45 +15,96 @@ def test_demon_attack_rom_resource_matches_supported_md5():
     assert hashlib.md5(rom).hexdigest() == "f0e0addc07971561ab80d9abe1b8d333"
 
 
-def test_demon_attack_cuda_decodes_ram_reward_lives_and_terminal():
+def test_demon_attack_cule_decodes_ram_reward_lives_and_terminal():
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
-    from training.demon_attack_sf.demon_attack_cuda_extension import load_demon_attack_cuda_extension
+    from pathlib import Path
 
-    ext = load_demon_attack_cuda_extension()
-    ram = torch.zeros((3, 128), dtype=torch.uint8, device="cuda")
-    previous_score = torch.tensor([0, 1200, 0], dtype=torch.int32, device="cuda")
-    reward = torch.empty((3,), dtype=torch.int32, device="cuda")
-    score = torch.empty((3,), dtype=torch.int32, device="cuda")
-    lives = torch.empty((3,), dtype=torch.int32, device="cuda")
-    terminal = torch.empty((3,), dtype=torch.bool, device="cuda")
+    from torch.utils.cpp_extension import load_inline
 
-    ram[0, 0x05] = 0x12
-    ram[0, 0x03] = 0x34
-    ram[0, 0x01] = 0x56
-    ram[0, 0x72] = 3
-    ram[0, 0x71] = 0
+    repo_root = Path(__file__).resolve().parents[1]
+    cule_root = repo_root / "third_party" / "cule"
+    ext = load_inline(
+        name="demon_attack_cule_decode_test",
+        cpp_sources=r"""
+            #include <pybind11/pybind11.h>
+            #include <array>
+            #include <cstdint>
 
-    ram[1, 0x05] = 0x00
-    ram[1, 0x03] = 0x13
-    ram[1, 0x01] = 0x00
-    ram[1, 0x72] = 0
-    ram[1, 0x71] = 0xBD
+            #include <cule/atari/games.hpp>
+            #include <cule/atari/state.hpp>
 
-    ram[2, 0x05] = 0xEA
-    ram[2, 0x03] = 0xCD
-    ram[2, 0x01] = 0xAB
-    ram[2, 0x72] = 2
-    ram[2, 0x71] = 0
+            namespace py = pybind11;
 
-    ext.demon_attack_decode_ram(ram, previous_score, reward, score, lives, terminal)
-    torch.cuda.synchronize()
+            py::tuple decode_demon_attack_cases()
+            {
+                using cule::atari::games::demonattack::lives;
+                using cule::atari::games::demonattack::reward;
+                using cule::atari::games::demonattack::score;
+                using cule::atari::games::demonattack::setTerminal;
+                using cule::atari::ram::write;
 
-    assert score.cpu().tolist() == [123456, 1300, 0]
-    assert reward.cpu().tolist() == [123456, 100, 0]
-    assert lives.cpu().tolist() == [4, 0, 3]
-    assert terminal.cpu().tolist() == [False, True, False]
+                std::array<std::array<uint32_t, 32>, 3> ram{};
+                std::array<cule::atari::state, 3> states{};
+
+                states[0].score = 0;
+                states[1].score = 1200;
+                states[2].score = 0;
+                for(size_t i = 0; i < states.size(); ++i)
+                {
+                    states[i].ram = ram[i].data();
+                }
+
+                write(states[0].ram, 0x05, 0x56);
+                write(states[0].ram, 0x03, 0x34);
+                write(states[0].ram, 0x01, 0x12);
+                write(states[0].ram, 0x72, 3);
+                write(states[0].ram, 0x71, 0);
+
+                write(states[1].ram, 0x05, 0x00);
+                write(states[1].ram, 0x03, 0x13);
+                write(states[1].ram, 0x01, 0x00);
+                write(states[1].ram, 0x72, 0);
+                write(states[1].ram, 0x71, 0xBD);
+
+                write(states[2].ram, 0x05, 0xEA);
+                write(states[2].ram, 0x03, 0xCD);
+                write(states[2].ram, 0x01, 0xAB);
+                write(states[2].ram, 0x72, 2);
+                write(states[2].ram, 0x71, 0);
+
+                py::list decoded_scores;
+                py::list decoded_rewards;
+                py::list decoded_lives;
+                py::list decoded_terminal;
+                for(size_t i = 0; i < states.size(); ++i)
+                {
+                    setTerminal(states[i]);
+                    decoded_scores.append(score(states[i]));
+                    decoded_rewards.append(reward(states[i]));
+                    decoded_lives.append(lives(states[i]));
+                    decoded_terminal.append(bool(states[i].tiaFlags[cule::atari::FLAG_ALE_TERMINAL]));
+                }
+                return py::make_tuple(decoded_scores, decoded_rewards, decoded_lives, decoded_terminal);
+            }
+
+            PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+            {
+                m.def("decode_demon_attack_cases", &decode_demon_attack_cases);
+            }
+        """,
+        extra_include_paths=[str(cule_root)],
+        extra_cflags=["-O3", "-std=c++17"],
+        verbose=False,
+    )
+
+    score, reward, lives, terminal = ext.decode_demon_attack_cases()
+
+    assert score == [123456, 1300, 0]
+    assert reward == [123456, 100, 0]
+    assert lives == [4, 0, 3]
+    assert terminal == [False, True, False]
 
 
 def test_demon_attack_cuda_core_runs_real_atari_step():

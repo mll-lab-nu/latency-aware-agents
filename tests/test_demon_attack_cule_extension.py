@@ -1,4 +1,5 @@
 from pathlib import Path
+import importlib.util
 
 from training.demon_attack_sf import cule_atari_extension
 
@@ -38,4 +39,4 @@ def test_load_cule_atari_extension_uses_torch_pybind11_and_cccl(monkeypatch, tmp
     assert str(cccl_include) in include_paths
     assert str(cule_root / "third_party" / "pybind11" / "include") not in include_paths
     assert captured["extra_cflags"] == ["-O3", "-std=c++17"]
-    assert captured["extra_cuda_cflags"] == ["-O3", "-DCULE_ONLY_4K_COMPILE", "-std=c++17"]
+    assert captured["extra_cuda_cflags"] == ["-O3", "-std=c++17"]

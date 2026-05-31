@@ -54,22 +54,6 @@ public:
     void reset_states(ExecutionPolicy&& policy);
 
     template<typename ExecutionPolicy>
-    void get_states(ExecutionPolicy&& policy,
-                    const size_t num_states,
-                    const int32_t* indices,
-                    State_t* output_states,
-                    frame_state* output_frame_states,
-                    uint8_t* output_states_ram);
-
-    template<typename ExecutionPolicy>
-    void set_states(ExecutionPolicy&& policy,
-                    const size_t num_states,
-                    const int32_t* indices,
-                    const State_t* input_states,
-                    const frame_state* input_frame_states,
-                    const uint8_t* input_states_ram);
-
-    template<typename ExecutionPolicy>
     void step(ExecutionPolicy&& policy,
               const bool fire_reset,
               const Action* player_a_buffer,
@@ -95,18 +79,6 @@ public:
                          const bool last_frame,
                          const size_t num_channels,
                          uint8_t* imageBuffer);
-
-    template<typename ExecutionPolicy>
-    void generate_random_actions(ExecutionPolicy&& policy,
-                                 Action* actionsBuffer,
-                                 const size_t N = 0);
-
-    template<typename ExecutionPolicy>
-    void save_images(ExecutionPolicy&& policy,
-                     const bool rescale,
-                     const size_t num_channels,
-                     const size_t frame_index,
-                     const uint8_t* imageBuffer);
 
     rom cart;
 
@@ -173,4 +145,3 @@ protected:
 
 } // end namespace atari
 } // end namespace cule
-

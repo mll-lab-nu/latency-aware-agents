@@ -14,26 +14,10 @@ case NAME:                                                             \
     break;                                                             \
 }
 
-#ifdef CULE_ONLY_4K_COMPILE
-    #define OTHER_ROM_CASES(FUNC, ...)                                 \
-    ROM_CASE(ROM_4K, FUNC, __VA_ARGS__)
-#elif !defined(CULE_FAST_COMPILE)
-    #define OTHER_ROM_CASES(FUNC, ...)                                 \
-    ROM_CASE(ROM_4K, FUNC, __VA_ARGS__)                                \
-    ROM_CASE(ROM_F8SC, FUNC, __VA_ARGS__)                              \
-    ROM_CASE(ROM_F8, FUNC, __VA_ARGS__)                                \
-    ROM_CASE(ROM_FE, FUNC, __VA_ARGS__)                                \
-    ROM_CASE(ROM_F6, FUNC, __VA_ARGS__)                                \
-    ROM_CASE(ROM_E0, FUNC, __VA_ARGS__)
-#else
-    #define OTHER_ROM_CASES(FUNC, ...)
-#endif
-
 #define ROM_SWITCH(FUNC, ...)                                          \
 switch(cart.type())                                                    \
 {                                                                      \
-    ROM_CASE(ROM_2K, FUNC, __VA_ARGS__)                                \
-    OTHER_ROM_CASES(FUNC, __VA_ARGS__)                                 \
+    ROM_CASE(ROM_4K, FUNC, __VA_ARGS__)                                \
     default:                                                           \
         CULE_ASSERT(false, "Invalid rom type " << cart.type_name()); \
 }
@@ -161,54 +145,6 @@ generate_frames(ExecutionPolicy&& policy,
     dispatch::generate_frames(policy, *this, rescale, num_channels, imageBuffer);
 }
 
-template<typename ExecutionPolicy>
-void
-wrapper::
-generate_random_actions(ExecutionPolicy&& policy,
-                        Action* actionsBuffer,
-                        const size_t N)
-{
-    dispatch::generate_random_actions(policy, *this, actionsBuffer, N);
-}
-
-template<typename ExecutionPolicy>
-void
-wrapper::
-save_images(ExecutionPolicy&& policy,
-            const bool rescale,
-            const size_t num_channels,
-            const size_t frame_index,
-            const uint8_t* imageBuffer)
-{
-    dispatch::save_images(policy, *this, rescale, num_channels, frame_index, imageBuffer);
-}
-
-template<typename ExecutionPolicy>
-void
-wrapper::
-get_states(ExecutionPolicy&& policy,
-           const size_t num_states,
-           const int32_t* indices,
-           State_t* output_states,
-           frame_state* output_frame_states,
-           uint8_t* output_states_ram)
-{
-    dispatch::get_states(policy, *this, num_states, indices, output_states, output_frame_states, output_states_ram);
-}
-
-template<typename ExecutionPolicy>
-void
-wrapper::
-set_states(ExecutionPolicy&& policy,
-           const size_t num_states,
-           const int32_t* indices,
-           const State_t* input_states,
-           const frame_state* input_frame_states,
-           const uint8_t* input_states_ram)
-{
-    dispatch::set_states(policy, *this, num_states, indices, input_states, input_frame_states, input_states_ram);
-}
-
 size_t
 wrapper::
 image_buffer_size(const size_t num_channels, const bool rescale) const
@@ -262,4 +198,3 @@ wrapped_environment(const rom& cart,
 
 } // end namespace atari
 } // end namespace cule
-

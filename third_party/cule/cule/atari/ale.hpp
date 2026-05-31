@@ -14,69 +14,7 @@ case GAME_##ID_NAME:                            \
 #define GAME_SWITCH(FUNC)                                      \
 switch(game_id)                                                \
 {                                                              \
-    ALE_CASE(ADVENTURE, adventure, FUNC)                \
-    ALE_CASE(AIR_RAID, airraid, FUNC)                   \
-    ALE_CASE(ALIEN, alien, FUNC)                        \
-    ALE_CASE(AMIDAR, amidar, FUNC)                      \
-    ALE_CASE(ASSAULT, assault, FUNC)                    \
-    ALE_CASE(ASTERIX, asterix, FUNC)                    \
-    ALE_CASE(ASTEROIDS, asteroids, FUNC)                \
-    ALE_CASE(ATLANTIS, atlantis, FUNC)                  \
-    ALE_CASE(BANK_HEIST, bankheist, FUNC)               \
-    ALE_CASE(BATTLE_ZONE, battlezone, FUNC)             \
-    ALE_CASE(BEAM_RIDER, beamrider, FUNC)               \
-    ALE_CASE(BERZERK, berzerk, FUNC)                    \
-    ALE_CASE(BOWLING, bowling, FUNC)                    \
-    ALE_CASE(BOXING, boxing, FUNC)                      \
-    ALE_CASE(BREAKOUT, breakout, FUNC)                  \
-    ALE_CASE(CARNIVAL, carnival, FUNC)                  \
-    ALE_CASE(CENTIPEDE, centipede, FUNC)                \
-    ALE_CASE(CHOPPER, chopper, FUNC)                    \
-    ALE_CASE(CRAZY_CLIMBER, crazyclimber, FUNC)         \
-    ALE_CASE(DEFENDER, defender, FUNC)                  \
-    ALE_CASE(DEMON_ATTACK, demonattack, FUNC)           \
-    ALE_CASE(DOUBLE_DUNK, doubledunk, FUNC)             \
-    ALE_CASE(ELEVATOR_ACTION, elevatoraction, FUNC)     \
-    ALE_CASE(ENDURO, enduro, FUNC)                      \
-    ALE_CASE(FISHING_DERBY, fishingderby, FUNC)         \
-    ALE_CASE(FREEWAY, freeway, FUNC)                    \
-    ALE_CASE(FROSTBITE, frostbite, FUNC)                \
-    ALE_CASE(GOPHER, gopher, FUNC)                      \
-    ALE_CASE(GRAVITAR, gravitar, FUNC)                  \
-    ALE_CASE(HERO, hero, FUNC)                          \
-    ALE_CASE(ICE_HOCKEY, icehockey, FUNC)               \
-    ALE_CASE(JAMESBOND, jamesbond, FUNC)                \
-    ALE_CASE(JOURNEY_ESCAPE, journeyescape, FUNC)       \
-    ALE_CASE(KABOOM, kaboom, FUNC)                      \
-    ALE_CASE(KANGAROO, kangaroo, FUNC)                  \
-    ALE_CASE(KRULL, krull, FUNC)                        \
-    ALE_CASE(KUNG_FU_MASTER, kungfumaster, FUNC)        \
-    ALE_CASE(MONTEZUMA_REVENGE, montezumarevenge, FUNC) \
-    ALE_CASE(MS_PACMAN, mspacman, FUNC)                 \
-    ALE_CASE(NAME_THIS_GAME, namethisgame, FUNC)        \
-    ALE_CASE(PHOENIX, phoenix, FUNC)                    \
-    ALE_CASE(PINBALL, pinball, FUNC)                    \
-    ALE_CASE(PITFALL, pitfall, FUNC)                    \
-    ALE_CASE(PONG, pong, FUNC)                          \
-    ALE_CASE(POOYAN, pooyan, FUNC)                      \
-    ALE_CASE(PRIVATE_EYE, privateeye, FUNC)             \
-    ALE_CASE(QBERT, qbert, FUNC)                        \
-    ALE_CASE(RIVERRAID, riverraid, FUNC)                \
-    ALE_CASE(ROAD_RUNNER, roadrunner, FUNC)             \
-    ALE_CASE(ROBOTANK, robotank, FUNC)                  \
-    ALE_CASE(SEAQUEST, seaquest, FUNC)                  \
-    ALE_CASE(SKIING, skiing, FUNC)                      \
-    ALE_CASE(SOLARIS, solaris, FUNC)                    \
-    ALE_CASE(SPACE_INVADERS, spaceinvaders, FUNC)       \
-    ALE_CASE(STAR_GUNNER, stargunner, FUNC)             \
-    ALE_CASE(TENNIS, tennis, FUNC)                      \
-    ALE_CASE(TIME_PILOT, timepilot, FUNC)               \
-    ALE_CASE(TUTANKHAM, tutankham, FUNC)                \
-    ALE_CASE(UP_N_DOWN, upndown, FUNC)                  \
-    ALE_CASE(VENTURE, venture, FUNC)                    \
-    ALE_CASE(WIZARD, wizard, FUNC)                      \
-    ALE_CASE(YARS_REVENGE, yarsrevenge, FUNC)           \
-    ALE_CASE(ZAXXON, zaxxon, FUNC)                      \
+    ALE_CASE(DEMON_ATTACK, demonattack, FUNC)                  \
 }
 
 #define SET_TERMINAL(NAME) NAME::setTerminal(s);
@@ -234,4 +172,3 @@ std::vector<Action> getMinimalActionSet(const games::GAME_TYPE& game_id)
 
 } // end namespace atari
 } // end namespace cule
-

@@ -209,7 +209,6 @@ def test_cuda_extensions_build_script_is_executable_bash():
 
     text = script_path.read_text(encoding="utf-8")
     assert "load_flappy_cuda_extension" in text
-    assert "load_demon_attack_cuda_extension" in text
     assert "load_cule_atari_extension" in text
     assert "load_deadly_corridor_cuda_extension" in text
     assert "torch.cuda.synchronize" in text

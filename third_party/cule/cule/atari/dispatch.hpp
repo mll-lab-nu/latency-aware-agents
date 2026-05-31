@@ -12,7 +12,6 @@
 #include <cule/atari/m6502.hpp>
 #include <cule/atari/paddles.hpp>
 #include <cule/atari/palettes.hpp>
-#include <cule/atari/png.hpp>
 #include <cule/atari/preprocess.hpp>
 #include <cule/atari/rom.hpp>
 
@@ -139,46 +138,6 @@ reset_states(ExecutionPolicy&& policy,
                         wrap.rand_states_ptr);
 }
 
-template<typename ExecutionPolicy,
-         typename Wrapper>
-void
-get_states(ExecutionPolicy&& policy,
-           Wrapper& wrap,
-           const size_t num_states,
-           const int32_t* indices,
-           typename Wrapper::State_t* output_states,
-           frame_state* output_frame_states,
-           uint8_t*)
-{
-    agency::bulk_invoke(policy(num_states),
-                        get_states_functor{},
-                        indices,
-                        wrap.states_ptr,
-                        wrap.frame_states_ptr,
-                        output_states,
-                        output_frame_states);
-}
-
-template<typename ExecutionPolicy,
-         typename Wrapper>
-void
-set_states(ExecutionPolicy&& policy,
-           Wrapper& wrap,
-           const size_t num_states,
-           const int32_t* indices,
-           const typename Wrapper::State_t* input_states,
-           const frame_state* input_frame_states,
-           const uint8_t*)
-{
-    agency::bulk_invoke(policy(num_states),
-                        set_states_functor{},
-                        indices,
-                        wrap.states_ptr,
-                        wrap.frame_states_ptr,
-                        input_states,
-                        input_frame_states);
-}
-
 template<typename Environment,
          typename ExecutionPolicy,
          typename Wrapper>
@@ -256,44 +215,6 @@ generate_frames(ExecutionPolicy&& policy,
                         wrap.cart.screen_height(),
                         rescale,
                         wrap.frame_ptr,
-                        imageBuffer);
-}
-
-template<typename ExecutionPolicy,
-         typename Wrapper>
-void
-generate_random_actions(ExecutionPolicy&& policy,
-                        Wrapper& wrap,
-                        Action* actionsBuffer,
-                        const size_t N)
-{
-    const size_t num_entries = N == 0 ? wrap.size() : N;
-
-    agency::bulk_invoke(policy(wrap.size()),
-                        random_actions_functor{},
-                        wrap.cart.minimal_actions().size(),
-                        num_entries,
-                        wrap.minimal_actions_ptr,
-                        wrap.rand_states_ptr,
-                        actionsBuffer);
-}
-
-template<typename ExecutionPolicy,
-         typename Wrapper>
-void
-save_images(ExecutionPolicy&& policy,
-            Wrapper& wrap,
-            const bool rescale,
-            const size_t num_channels,
-            const size_t frame_index,
-            const uint8_t* imageBuffer)
-{
-    agency::bulk_invoke(policy(wrap.size()),
-                        png_functor{},
-                        frame_index,
-                        num_channels,
-                        wrap.cart.screen_height(),
-                        rescale,
                         imageBuffer);
 }
 

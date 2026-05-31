@@ -11,17 +11,7 @@ namespace atari
 
 enum ROM_FORMAT : uint8_t
 {
-    ROM_2K,
     ROM_4K,
-    ROM_CV,
-    ROM_F8SC,
-    ROM_E0,
-    ROM_3E,
-    ROM_3F,
-    ROM_UA,
-    ROM_FE,
-    ROM_F8,
-    ROM_F6,
     ROM_NOT_SUPPORTED,
     _ROM_MAX
 };
@@ -423,4 +413,3 @@ enum : uint32_t
 
 } // end namespace atari
 } // end namespace cule
-

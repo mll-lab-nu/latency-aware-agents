@@ -10,7 +10,6 @@ from gymnasium.utils import seeding
 
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from training.demon_attack_sf.cule_atari_extension import load_cule_atari_extension
-from training.demon_attack_sf.demon_attack_cuda_extension import load_demon_attack_cuda_extension
 
 
 _DECISION_REWARD = 0
@@ -156,7 +155,6 @@ class CudaDemonAttackCore:
         self.noop_max = int(noop_max)
         self.terminal_on_life_loss = bool(terminal_on_life_loss)
         self.ext = load_cule_atari_extension()
-        self.kernels = load_demon_attack_cuda_extension()
         self.rom = self.ext.AtariRom(demon_attack_rom_path())
         self.env = self.ext.AtariEnv(self.rom, self.batch_size, self.noop_max)
         self.screen_height = 84

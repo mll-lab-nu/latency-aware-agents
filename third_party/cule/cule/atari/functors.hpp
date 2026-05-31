@@ -10,7 +10,6 @@
 #include <cule/atari/m6502.hpp>
 #include <cule/atari/paddles.hpp>
 #include <cule/atari/palettes.hpp>
-#include <cule/atari/png.hpp>
 #include <cule/atari/prng.hpp>
 #include <cule/atari/preprocess.hpp>
 #include <cule/atari/rom.hpp>
@@ -56,7 +55,6 @@ struct initialize_functor
         const bool is_ntsc = cart->is_ntsc();
         const bool hmove_blanks = cart->allow_hmove_blanks();
         const games::GAME_TYPE game_id = cart->game_id();
-        const bool y_shift = game_id != games::GAME_UP_N_DOWN;
         const uint8_t * rom_buffer = cart->data();
 
         prng gen(rand_states_buffer[self.index()]);
@@ -80,7 +78,7 @@ struct initialize_functor
 
         s.tiaFlags.template change<FLAG_TIA_IS_NTSC>(is_ntsc);
         s.tiaFlags.template change<FLAG_TIA_HMOVE_ALLOW>(hmove_blanks);
-        s.tiaFlags.template change<FLAG_TIA_Y_SHIFT>(y_shift);
+        s.tiaFlags.template change<FLAG_TIA_Y_SHIFT>(true);
 
         s.tiaFlags.set(FLAG_ALE_TERMINAL);
         s.tiaFlags.set(FLAG_ALE_STARTED);
@@ -95,7 +93,7 @@ struct initialize_functor
         frame_state& fs = frame_states_buffer[self.index()];
         fs.tiaFlags.template change<FLAG_TIA_IS_NTSC>(is_ntsc);
         fs.tiaFlags.template change<FLAG_TIA_HMOVE_ALLOW>(hmove_blanks);
-        fs.tiaFlags.template change<FLAG_TIA_Y_SHIFT>(y_shift);
+        fs.tiaFlags.template change<FLAG_TIA_Y_SHIFT>(true);
     }
 };
 
@@ -283,127 +281,5 @@ struct generate_frame_functor
     }
 };
 
-struct get_states_functor
-{
-    template<class Agent, class State_t>
-    void operator()(Agent& self,
-                    const int32_t* indices,
-                    const State_t* states_buffer,
-                    const frame_state* frame_states_buffer,
-                    State_t* input_states_buffer,
-                    frame_state* input_frame_states_buffer) const
-    {
-        const size_t index = indices[self.index()];
-        input_states_buffer[self.index()] = states_buffer[index];
-        input_frame_states_buffer[self.index()] = frame_states_buffer[index];
-    }
-};
-
-struct set_states_functor
-{
-    template<class Agent, class State_t>
-    void operator()(Agent& self,
-                    const int32_t* indices,
-                    State_t* states_buffer,
-                    frame_state*,
-                    const State_t* input_states_buffer,
-                    const frame_state*) const
-    {
-        const State_t& s = input_states_buffer[self.index()];
-
-        const size_t index = indices[self.index()];
-        State_t& t = states_buffer[index];
-
-        t.A = s.A;
-        t.X = s.X;
-        t.Y = s.Y;
-        t.SP = s.SP;
-        t.PC = s.PC;
-
-        t.cpuCycles = s.cpuCycles;
-        t.bank = s.bank;
-
-        t.resistance = s.resistance;
-
-        t.GRP = s.GRP;
-        t.HM = s.HM;
-        t.PF = s.PF;
-        t.POS = s.POS;
-        t.CurrentGRP0 = s.CurrentGRP0;
-        t.CurrentGRP1 = s.CurrentGRP1;
-
-        t.collision = s.collision;
-        t.clockWhenFrameStarted = s.clockWhenFrameStarted;
-        t.clockAtLastUpdate = s.clockAtLastUpdate;
-        t.dumpDisabledCycle = s.dumpDisabledCycle;
-        t.VSYNCFinishClock = s.VSYNCFinishClock;
-        t.lastHMOVEClock = s.lastHMOVEClock;
-
-        t.riotData = s.riotData;
-        t.cyclesWhenTimerSet = s.cyclesWhenTimerSet;
-        t.cyclesWhenInterruptReset = s.cyclesWhenInterruptReset;
-
-        t.sysFlags = s.sysFlags;
-        t.tiaFlags = s.tiaFlags;
-
-        t.frameData = s.frameData;
-        t.score = s.score;
-        t.M0CosmicArkCounter = s.M0CosmicArkCounter;
-
-        t.CurrentPFMask = &playfield_accessor(0, 0);
-        t.CurrentP0Mask = &player_mask_accessor(0, 0, 0, 0);
-        t.CurrentP1Mask = &player_mask_accessor(0, 0, 0, 0);
-        t.CurrentM0Mask = &missle_accessor(0, 0, 0, 0);
-        t.CurrentM1Mask = &missle_accessor(0, 0, 0, 0);
-        t.CurrentBLMask = &ball_accessor(0, 0, 0);
-
-        for(size_t i = 0; i < (128 / sizeof(uint32_t)); i++)
-        {
-            t.ram[i] = s.ram[i];
-        }
-    }
-};
-
-struct random_actions_functor
-{
-    template<class Agent>
-    void operator()(Agent& self,
-                    const size_t minimal_actions_size,
-                    const size_t num_entries,
-                    const Action* minimal_actions_ptr,
-                    uint32_t* rand_states_ptr,
-                    Action* actionsBuffer) const
-    {
-        assert(minimal_actions_ptr != nullptr);
-        assert(rand_states_ptr != nullptr);
-        assert(actionsBuffer != nullptr);
-
-        prng gen(rand_states_ptr[self.index()]);
-
-        for(size_t i = self.index(); i < num_entries; i += self.group_size())
-        {
-            actionsBuffer[i] = minimal_actions_ptr[gen.sample() % minimal_actions_size];
-        }
-    }
-};
-
-struct png_functor
-{
-    template<class Agent>
-    void operator()(Agent& self,
-                    const size_t frame_index,
-                    const size_t num_channels,
-                    const size_t screen_height,
-                    const bool rescale,
-                    const uint8_t* image_buffer) const
-    {
-        const uint8_t * buffer = &image_buffer[self.index() * num_channels * screen_height];
-        const std::string filename = get_frame_name(self.index(), frame_index);
-
-        generate_png(buffer, filename, num_channels, rescale, !rescale);
-    }
-};
-
 } // end namespace atari
 } // end namespace cule
-

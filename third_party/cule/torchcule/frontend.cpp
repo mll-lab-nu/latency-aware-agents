@@ -1,6 +1,5 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <pybind11/stl_bind.h>
 
 #include <cuda_runtime.h>
 
@@ -12,7 +11,6 @@ namespace py = pybind11;
 
 using AtariAction = cule::atari::Action;
 using AtariRom = cule::atari::rom;
-using AtariRomFormat = cule::atari::ROM_FORMAT;
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     py::enum_<AtariAction>(m, "AtariAction", py::arithmetic())
@@ -38,143 +36,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     .export_values()
     ;
 
-    py::enum_<AtariRomFormat>(m, "AtariRomFormat", py::arithmetic())
-    .value("ROM_2K", AtariRomFormat::ROM_2K)
-    .value("ROM_4K", AtariRomFormat::ROM_4K)
-    .value("ROM_CV", AtariRomFormat::ROM_CV)
-    .value("ROM_F8SC", AtariRomFormat::ROM_F8SC)
-    .value("ROM_E0", AtariRomFormat::ROM_E0)
-    .value("ROM_3E", AtariRomFormat::ROM_3E)
-    .value("ROM_3F", AtariRomFormat::ROM_3F)
-    .value("ROM_UA", AtariRomFormat::ROM_UA)
-    .value("ROM_FE", AtariRomFormat::ROM_FE)
-    .value("ROM_F8", AtariRomFormat::ROM_F8)
-    .value("ROM_F6", AtariRomFormat::ROM_F6)
-    .value("ROM_NOT_SUPPORTED", AtariRomFormat::ROM_NOT_SUPPORTED)
-    .export_values()
-    ;
-
     py::class_<AtariRom>(m, "AtariRom")
     .def(py::init<const std::string&>())
-    .def("reset", &AtariRom::reset)
     .def("minimal_actions", &AtariRom::minimal_actions)
-    .def("file_name", &AtariRom::file_name)
-    .def("game_name", &AtariRom::game_name)
-    .def("type_name", &AtariRom::type_name)
-    .def("md5", &AtariRom::md5)
-    .def("swap_ports", &AtariRom::swap_ports)
-    .def("use_paddles", &AtariRom::use_paddles)
-    .def("swap_paddles", &AtariRom::swap_paddles)
-    .def("allow_hmove_blanks", &AtariRom::allow_hmove_blanks)
-    .def("player_left_difficulty_B", &AtariRom::player_left_difficulty_B)
-    .def("player_right_difficulty_B", &AtariRom::player_right_difficulty_B)
-    .def("is_supported", &AtariRom::is_supported)
-    .def("is_ntsc", &AtariRom::is_ntsc)
     .def("ram_size", &AtariRom::ram_size)
-    .def("rom_size", &AtariRom::rom_size)
-    .def("screen_height", &AtariRom::screen_height)
     .def("screen_width", &AtariRom::screen_width)
-    .def("screen_size", &AtariRom::screen_size)
-    .def("type", &AtariRom::type)
-    .def("has_banks", &AtariRom::has_banks)
-    .def("game_id", &AtariRom::game_id)
-    .def("data", &AtariRom::data)
-    ;
-
-    py::class_<AtariState>(m, "AtariState")
-    .def(py::init())
-    .def_readwrite("left_paddle", &AtariState::left_paddle)
-    .def_readwrite("right_paddle", &AtariState::right_paddle)
-    .def_readwrite("frame_number", &AtariState::frame_number)
-    .def_readwrite("episode_frame_number", &AtariState::episode_frame_number)
-    .def_readwrite("string_length", &AtariState::string_length)
-    .def_readwrite("save_system", &AtariState::save_system)
-    .def_readwrite("md5", &AtariState::md5)
-    .def_readwrite("cycles", &AtariState::cycles)
-    .def_readwrite("A", &AtariState::A)
-    .def_readwrite("X", &AtariState::X)
-    .def_readwrite("Y", &AtariState::Y)
-    .def_readwrite("SP", &AtariState::SP)
-    .def_readwrite("PC", &AtariState::PC)
-    .def_readwrite("IR", &AtariState::IR)
-    .def_readwrite("N", &AtariState::N)
-    .def_readwrite("V", &AtariState::V)
-    .def_readwrite("B", &AtariState::B)
-    .def_readwrite("D", &AtariState::D)
-    .def_readwrite("I", &AtariState::I)
-    .def_readwrite("notZ", &AtariState::notZ)
-    .def_readwrite("C", &AtariState::C)
-    .def_readwrite("executionStatus", &AtariState::executionStatus)
-    .def_readwrite("ram", &AtariState::ram)
-    .def_readwrite("timer", &AtariState::timer)
-    .def_readwrite("intervalShift", &AtariState::intervalShift)
-    .def_readwrite("cyclesWhenTimerSet", &AtariState::cyclesWhenTimerSet)
-    .def_readwrite("cyclesWhenInterruptReset", &AtariState::cyclesWhenInterruptReset)
-    .def_readwrite("timerReadAfterInterrupt", &AtariState::timerReadAfterInterrupt)
-    .def_readwrite("DDRA", &AtariState::DDRA)
-    .def_readwrite("DDRB", &AtariState::DDRB)
-    .def_readwrite("clockWhenFrameStarted", &AtariState::clockWhenFrameStarted)
-    .def_readwrite("clockStartDisplay", &AtariState::clockStartDisplay)
-    .def_readwrite("clockStopDisplay", &AtariState::clockStopDisplay)
-    .def_readwrite("clockAtLastUpdate", &AtariState::clockAtLastUpdate)
-    .def_readwrite("clocksToEndOfScanLine", &AtariState::clocksToEndOfScanLine)
-    .def_readwrite("scanlineCountForLastFrame", &AtariState::scanlineCountForLastFrame)
-    .def_readwrite("currentScanline", &AtariState::currentScanline)
-    .def_readwrite("VSYNCFinishClock", &AtariState::VSYNCFinishClock)
-    .def_readwrite("enabledObjects", &AtariState::enabledObjects)
-    .def_readwrite("VSYNC", &AtariState::VSYNC)
-    .def_readwrite("VBLANK", &AtariState::VBLANK)
-    .def_readwrite("NUSIZ0", &AtariState::NUSIZ0)
-    .def_readwrite("NUSIZ1", &AtariState::NUSIZ1)
-    .def_readwrite("COLUP0", &AtariState::COLUP0)
-    .def_readwrite("COLUP1", &AtariState::COLUP1)
-    .def_readwrite("COLUPF", &AtariState::COLUPF)
-    .def_readwrite("COLUBK", &AtariState::COLUBK)
-    .def_readwrite("CTRLPF", &AtariState::CTRLPF)
-    .def_readwrite("playfieldPriorityAndScore", &AtariState::playfieldPriorityAndScore)
-    .def_readwrite("REFP0", &AtariState::REFP0)
-    .def_readwrite("REFP1", &AtariState::REFP1)
-    .def_readwrite("PF", &AtariState::PF)
-    .def_readwrite("GRP0", &AtariState::GRP0)
-    .def_readwrite("GRP1", &AtariState::GRP1)
-    .def_readwrite("DGRP0", &AtariState::DGRP0)
-    .def_readwrite("DGRP1", &AtariState::DGRP1)
-    .def_readwrite("ENAM0", &AtariState::ENAM0)
-    .def_readwrite("ENAM1", &AtariState::ENAM1)
-    .def_readwrite("ENABL", &AtariState::ENABL)
-    .def_readwrite("DENABL", &AtariState::DENABL)
-    .def_readwrite("HMP0", &AtariState::HMP0)
-    .def_readwrite("HMP1", &AtariState::HMP1)
-    .def_readwrite("HMM0", &AtariState::HMM0)
-    .def_readwrite("HMM1", &AtariState::HMM1)
-    .def_readwrite("HMBL", &AtariState::HMBL)
-    .def_readwrite("VDELP0", &AtariState::VDELP0)
-    .def_readwrite("VDELP1", &AtariState::VDELP1)
-    .def_readwrite("VDELBL", &AtariState::VDELBL)
-    .def_readwrite("RESMP0", &AtariState::RESMP0)
-    .def_readwrite("RESMP1", &AtariState::RESMP1)
-    .def_readwrite("collision", &AtariState::collision)
-    .def_readwrite("POSP0", &AtariState::POSP0)
-    .def_readwrite("POSP1", &AtariState::POSP1)
-    .def_readwrite("POSM0", &AtariState::POSM0)
-    .def_readwrite("POSM1", &AtariState::POSM1)
-    .def_readwrite("POSBL", &AtariState::POSBL)
-    .def_readwrite("currentGRP0", &AtariState::currentGRP0)
-    .def_readwrite("currentGRP1", &AtariState::currentGRP1)
-    .def_readwrite("HMOVEBlankEnabled", &AtariState::HMOVEBlankEnabled)
-    .def_readwrite("lastHMOVEClock", &AtariState::lastHMOVEClock)
-    .def_readwrite("M0CosmicArkMotionEnabled", &AtariState::M0CosmicArkMotionEnabled)
-    .def_readwrite("M0CosmicArkCounter", &AtariState::M0CosmicArkCounter)
-    .def_readwrite("dumpEnabled", &AtariState::dumpEnabled)
-    .def_readwrite("dumpDisabledCycle", &AtariState::dumpDisabledCycle)
-    .def_readwrite("bank", &AtariState::bank)
-    .def_readwrite("reward", &AtariState::reward)
-    .def_readwrite("score", &AtariState::score)
-    .def_readwrite("terminal", &AtariState::terminal)
-    .def_readwrite("started", &AtariState::started)
-    .def_readwrite("lives", &AtariState::lives)
-    .def_readwrite("points", &AtariState::points)
-    .def_readwrite("last_lives", &AtariState::last_lives)
     ;
 
     py::class_<AtariEnv>(m, "AtariEnv")
@@ -348,38 +214,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
                 reinterpret_cast<uint8_t*>(imageBuffer));
         }
     )
-    .def("generate_random_actions", [](AtariEnv& env, uint64_t actionBuffer)
-        {
-            env.generate_random_actions((AtariAction*) actionBuffer);
-        }
-    )
-    .def("sync_other_stream", [](AtariEnv& env)
-        {
-            // cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-            // env.sync_other_stream(stream);
-        }
-    )
-    .def("sync_this_stream", [](AtariEnv& env)
-        {
-            // cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-            // env.sync_this_stream(stream);
-        }
-    )
-    .def("get_states", [](AtariEnv& env, const std::vector<int32_t>& indices)
-        {
-            std::vector<AtariState> atari_states(indices.size());
-            env.get_states(indices.size(), indices.data(), atari_states.data());
-            return atari_states;
-        }
-    )
-    .def("set_states", [](AtariEnv& env, const std::vector<int32_t>& indices, const std::vector<AtariState>& atari_states)
-        {
-            env.set_states(indices.size(), indices.data(), atari_states.data());
-        }
-    )
     .def("set_cuda", &AtariEnv::set_cuda)
-    .def("size", &AtariEnv::size)
-    .def("image_buffer_size", &AtariEnv::image_buffer_size)
     .def("state_size", &AtariEnv::state_size)
     .def("frame_state_size", &AtariEnv::frame_state_size)
     .def("tia_update_size", &AtariEnv::tia_update_size)

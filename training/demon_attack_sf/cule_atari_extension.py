@@ -33,7 +33,7 @@ def load_cule_atari_extension() -> Any:
         ],
         extra_include_paths=extra_include_paths,
         extra_cflags=["-O3", "-std=c++17"],
-        extra_cuda_cflags=["-O3", "-DCULE_ONLY_4K_COMPILE", "-std=c++17"],
+        extra_cuda_cflags=["-O3", "-std=c++17"],
         extra_ldflags=["-lgomp", "-lz"],
         verbose=False,
     )
