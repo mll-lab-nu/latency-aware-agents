@@ -108,10 +108,12 @@ def test_paper_grade_dry_run_stages_real_baseline_and_accelerated_backends(tmp_p
 
     demon_baseline = by_run["infra_accel_demon_attack_baseline_r0"]
     demon_accelerated = by_run["infra_accel_demon_attack_accelerated_r0"]
-    assert demon_baseline["backend"]["device"] == "cpu"
+    assert demon_baseline["backend"]["device"] == "gpu"
     assert demon_baseline["env"]["simulator"] == "cpu"
-    assert demon_accelerated["backend"]["device"] == "cpu"
+    assert bench.backend_label(demon_baseline, phase="train") == "gpu_policy_cpu_env"
+    assert demon_accelerated["backend"]["device"] == "gpu"
     assert demon_accelerated["env"]["simulator"] == "gpu"
+    assert bench.backend_label(demon_accelerated, phase="train") == "cule_cuda"
 
     deadly_baseline = by_run["infra_accel_deadly_corridor_baseline_r0"]
     deadly_accelerated = by_run["infra_accel_deadly_corridor_accelerated_r0"]

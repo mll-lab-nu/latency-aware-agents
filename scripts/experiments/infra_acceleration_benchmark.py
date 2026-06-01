@@ -216,6 +216,7 @@ def _apply_backend_variant(config: dict[str, Any], *, env_name: str, variant: st
         env_cfg["simulator"] = "gpu"
         return
     if env_name == "demon_attack":
+        config["backend"]["device"] = "gpu"
         env_cfg["simulator"] = "cpu" if variant == "baseline" else "gpu"
         return
     if env_name == "deadly_corridor":
@@ -238,6 +239,8 @@ def backend_label(config: dict[str, Any], *, phase: str) -> str:
             return "cuda_core_render"
         if env_name == "demon_attack" and simulator == "gpu":
             return "cule_cuda"
+        if env_name == "demon_attack" and str(config["backend"]["device"]) == "gpu" and simulator == "cpu":
+            return "gpu_policy_cpu_env"
         if env_name == "deadly_corridor" and simulator == "envpool":
             return "envpool"
         return f"{simulator}_reference"
