@@ -171,6 +171,32 @@ def test_sample_factory_collected_env_steps_are_read_from_latest_checkpoint(tmp_
     assert bench.read_sample_factory_collected_env_steps(config) == 131_072
 
 
+def test_training_runs_in_fresh_python_subprocess(monkeypatch, tmp_path: Path):
+    bench = _load_module()
+    config = _base_config("flappy", tmp_path)
+    config["experiment"]["name"] = "infra_accel_flappy_baseline_r0"
+    config["logging"]["output_dir"] = str(tmp_path / "runs" / "flappy" / "baseline" / "repeat_0")
+    checkpoint_dir = tmp_path / "checkpoints" / "infra_accel_flappy_baseline_r0" / "checkpoint_p0"
+    checkpoint_dir.mkdir(parents=True)
+    (checkpoint_dir / "checkpoint_000000112_131072.pth").write_bytes(b"")
+
+    def fake_run(command, *, cwd):
+        assert command[:2] == [sys.executable, str(MODULE_PATH)]
+        assert command[2] == "--run-training-config"
+        written_config = json.loads(Path(command[3]).read_text(encoding="utf-8"))
+        assert written_config["experiment"]["name"] == "infra_accel_flappy_baseline_r0"
+        assert cwd == REPO_ROOT
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(bench.subprocess, "run", fake_run)
+
+    result = bench.run_training(config)
+
+    assert result["status"] == 0
+    assert result["env_steps"] == 131_072
+    assert (Path(config["logging"]["output_dir"]) / "train_config.json").exists()
+
+
 def test_calibration_training_failure_stops_without_resolved_budget(monkeypatch, tmp_path: Path):
     bench = _load_module()
 

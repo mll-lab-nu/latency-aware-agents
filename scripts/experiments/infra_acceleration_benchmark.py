@@ -247,13 +247,16 @@ def backend_label(config: dict[str, Any], *, phase: str) -> str:
 
 
 def run_training(config: dict[str, Any]) -> dict[str, Any]:
-    module = import_integration_module(config)
+    config_path = Path(config["logging"]["output_dir"]) / "train_config.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(config, sort_keys=True) + "\n", encoding="utf-8")
+    command = [sys.executable, str(Path(__file__).resolve()), "--run-training-config", str(config_path)]
     before_cpu = _cpu_seconds()
     before_wall = time.perf_counter()
-    with contextlib.redirect_stdout(sys.stderr):
-        status = int(module.run_from_config(config))
+    result = subprocess.run(command, cwd=REPO_ROOT)
     wall_sec = time.perf_counter() - before_wall
     cpu_sec = _cpu_seconds() - before_cpu
+    status = int(result.returncode)
     env_steps = int(config["training"]["train_for_env_steps"])
     if status == 0:
         env_steps = read_sample_factory_collected_env_steps(config)
@@ -263,6 +266,12 @@ def run_training(config: dict[str, Any]) -> dict[str, Any]:
         "cpu_sec": cpu_sec,
         "env_steps": env_steps,
     }
+
+
+def run_training_config_once(config: dict[str, Any]) -> int:
+    module = import_integration_module(config)
+    with contextlib.redirect_stdout(sys.stderr):
+        return int(module.run_from_config(config))
 
 
 def read_sample_factory_collected_env_steps(config: dict[str, Any]) -> int:
@@ -497,6 +506,7 @@ def write_jsonl(path: Path, rows: Sequence[dict[str, Any]]) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Benchmark infrastructure acceleration for small-model paper figures.")
+    parser.add_argument("--run-training-config", type=Path)
     parser.add_argument("--budget", choices=sorted(BUDGETS), default="paper-grade")
     parser.add_argument("--envs", default="flappy,demon_attack,deadly_corridor")
     parser.add_argument("--repeats", type=int)
@@ -513,6 +523,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--parity-timeout-sec", type=float, default=600.0)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    if args.run_training_config is not None:
+        return run_training_config_once(json.loads(args.run_training_config.read_text(encoding="utf-8")))
 
     base_budget = BUDGETS[args.budget]
     budget = Budget(
