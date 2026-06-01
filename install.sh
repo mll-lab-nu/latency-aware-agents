@@ -114,7 +114,7 @@ python -m pip install -r requirements.txt
 
 # install envpool for deadly corridor acceleration
 rm -f envpool/dist/envpool-*.whl
-make -C envpool bazel-build
+make -C envpool bazel-release
 python -m pip install --force-reinstall --no-deps envpool/dist/envpool-*.whl
 bash scripts/bash_scripts/build_cuda_extensions.sh
 wandb login

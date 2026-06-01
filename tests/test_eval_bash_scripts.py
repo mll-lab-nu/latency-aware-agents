@@ -71,11 +71,15 @@ exit 0
         fake_bin / "make",
         """#!/usr/bin/env bash
 set -euo pipefail
-if [[ "$*" == "-C envpool bazel-build" && "${CGO_ENABLED:-}" != "0" ]]; then
+if [[ "$*" == "-C envpool bazel-build" ]]; then
+  printf "error: command 'swig' failed: No such file or directory\\n" >&2
+  exit 1
+fi
+if [[ "$*" == "-C envpool bazel-release" && "${CGO_ENABLED:-}" != "0" ]]; then
   printf 'cgo: C compiler "x86_64-conda-linux-gnu-cc" not found: exec: "x86_64-conda-linux-gnu-cc": executable file not found in $PATH\\n' >&2
   exit 1
 fi
-if [[ "$*" == "-C envpool bazel-build" && "${USE_BAZEL_VERSION:-}" != "6.5.0" ]]; then
+if [[ "$*" == "-C envpool bazel-release" && "${USE_BAZEL_VERSION:-}" != "6.5.0" ]]; then
   printf "ERROR: /workspace/latency-sensitive-bench/envpool/BUILD:8:1: name 'py_binary' is not defined\\n" >&2
   exit 1
 fi
@@ -278,7 +282,7 @@ def test_install_script_selects_cu130_for_compute_cap_10_gpu(tmp_path):
     assert "python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu130" in calls
     assert "python -m pip install -r requirements.txt" in calls
     assert "rm -f envpool/dist/envpool-" in calls
-    assert "make -C envpool bazel-build" in calls
+    assert "make -C envpool bazel-release" in calls
     assert "bash scripts/bash_scripts/build_cuda_extensions.sh" in calls
 
 
