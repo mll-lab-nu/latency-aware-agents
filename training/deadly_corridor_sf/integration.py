@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import copy
 import functools
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import gymnasium as gym
@@ -36,6 +37,7 @@ from training.common.wandb_compat import patch_sample_factory_wandb
 SF_ENV_NAME = "doom_deadly_corridor"
 _ENVS_REGISTERED = False
 _MODELS_REGISTERED = False
+_SAMPLE_FACTORY_PROBE_ENV_CONFIG = SimpleNamespace(worker_index=0, vector_index=0, env_id=0)
 
 
 def _force_doom_raw_frame_step_cfg(cfg) -> None:
@@ -49,6 +51,13 @@ def _doom_raw_reward_from_scaled(env_reward: float, info: dict[str, Any], reward
     if reward_scale == 0.0:
         return float(env_reward)
     return float(env_reward) / float(reward_scale)
+
+
+def _sample_factory_env_config(env_config):
+    # Sample Factory probes env_info before worker/vector ids exist.
+    if env_config is None:
+        return _SAMPLE_FACTORY_PROBE_ENV_CONFIG
+    return env_config
 
 
 class DoomFrameStackWrapper(gym.Wrapper):
@@ -116,6 +125,7 @@ def make_latency_doom_env_from_spec(
 ):
     from sf_examples.vizdoom.doom.doom_utils import make_doom_env_from_spec as sf_make_doom_env_from_spec
 
+    env_config = _sample_factory_env_config(env_config)
     spec_to_use = copy.copy(spec)
     if bool(getattr(cfg, "disable_reward_scaling", False)):
         spec_to_use.reward_scaling = 1.0

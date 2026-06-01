@@ -15,6 +15,7 @@ sample-factory==2.1.1
 
 # Environment backends used by scripts.
 vizdoom==1.3.0
+dm-env==1.6
 ale-py==0.10.2
 AutoROM==0.6.1
 AutoROM.accept-rom-license==0.6.1

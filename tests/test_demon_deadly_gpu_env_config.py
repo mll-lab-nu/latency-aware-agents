@@ -125,6 +125,36 @@ def test_demon_attack_sample_factory_probe_env_config_is_explicit(monkeypatch):
     assert env.kwargs["env_config"].env_id == 0
 
 
+def test_deadly_corridor_envpool_sample_factory_probe_env_config_is_explicit(monkeypatch):
+    from training.deadly_corridor_sf import integration
+
+    class FakeEnvPoolEnv:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(
+        "training.deadly_corridor_sf.envpool_env.DeadlyCorridorEnvPoolEnv",
+        FakeEnvPoolEnv,
+    )
+
+    env = integration.make_latency_doom_env_from_spec(
+        SimpleNamespace(reward_scaling=1.0),
+        "doom_deadly_corridor",
+        cfg=SimpleNamespace(
+            simulator="envpool",
+            disable_reward_scaling=False,
+            env_fps=35,
+            obs_fps=8.75,
+            envpool_batch_size=4,
+        ),
+        env_config=None,
+    )
+
+    assert env.kwargs["env_config"].worker_index == 0
+    assert env.kwargs["env_config"].vector_index == 0
+    assert env.kwargs["env_config"].env_id == 0
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
