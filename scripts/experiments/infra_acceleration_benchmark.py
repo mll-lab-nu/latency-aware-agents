@@ -207,15 +207,13 @@ def _stage_config(
 def _apply_backend_variant(config: dict[str, Any], *, env_name: str, variant: str) -> None:
     env_cfg = config["env"]
     if env_name == "flappy":
-        if variant == "baseline":
-            env_cfg["use_gpu_render"] = False
-            env_cfg["simulator"] = "cpu"
-            config["backend"]["device"] = "cpu"
-            return
         env_cfg["use_gpu_render"] = True
-        env_cfg["simulator"] = "gpu"
         env_cfg["gpu_render_device"] = "cuda"
         config["backend"]["device"] = "cuda"
+        if variant == "baseline":
+            env_cfg["simulator"] = "cpu"
+            return
+        env_cfg["simulator"] = "gpu"
         return
     if env_name == "demon_attack":
         env_cfg["simulator"] = "cpu" if variant == "baseline" else "gpu"
@@ -234,6 +232,8 @@ def backend_label(config: dict[str, Any], *, phase: str) -> str:
     env_name = config["env"]["name"]
     simulator = config["env"]["simulator"]
     if phase == "train":
+        if env_name == "flappy" and bool(config["env"]["use_gpu_render"]) and simulator == "cpu":
+            return "torch_gpu_render_cpu_core"
         if env_name == "flappy" and bool(config["env"]["use_gpu_render"]) and simulator == "gpu":
             return "cuda_core_render"
         if env_name == "demon_attack" and simulator == "gpu":

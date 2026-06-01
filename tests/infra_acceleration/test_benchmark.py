@@ -96,16 +96,29 @@ def test_paper_grade_dry_run_stages_real_baseline_and_accelerated_backends(tmp_p
     flappy_baseline = by_run["infra_accel_flappy_baseline_r0"]
     flappy_accelerated = by_run["infra_accel_flappy_accelerated_r0"]
     assert flappy_baseline["env"]["simulator"] == "cpu"
-    assert flappy_baseline["env"]["use_gpu_render"] is False
-    assert flappy_baseline["backend"]["device"] == "cpu"
+    assert flappy_baseline["env"]["use_gpu_render"] is True
+    assert flappy_baseline["env"]["gpu_render_device"] == "cuda"
+    assert flappy_baseline["backend"]["device"] == "cuda"
+    assert bench.backend_label(flappy_baseline, phase="train") == "torch_gpu_render_cpu_core"
     assert flappy_accelerated["env"]["simulator"] == "gpu"
     assert flappy_accelerated["env"]["use_gpu_render"] is True
+    assert flappy_accelerated["env"]["gpu_render_device"] == "cuda"
     assert flappy_accelerated["backend"]["device"] == "cuda"
+    assert bench.backend_label(flappy_accelerated, phase="train") == "cuda_core_render"
 
-    assert by_run["infra_accel_demon_attack_baseline_r0"]["env"]["simulator"] == "cpu"
-    assert by_run["infra_accel_demon_attack_accelerated_r0"]["env"]["simulator"] == "gpu"
-    assert by_run["infra_accel_deadly_corridor_baseline_r0"]["env"]["simulator"] == "cpu"
-    assert by_run["infra_accel_deadly_corridor_accelerated_r0"]["env"]["simulator"] == "envpool"
+    demon_baseline = by_run["infra_accel_demon_attack_baseline_r0"]
+    demon_accelerated = by_run["infra_accel_demon_attack_accelerated_r0"]
+    assert demon_baseline["backend"]["device"] == "cpu"
+    assert demon_baseline["env"]["simulator"] == "cpu"
+    assert demon_accelerated["backend"]["device"] == "cpu"
+    assert demon_accelerated["env"]["simulator"] == "gpu"
+
+    deadly_baseline = by_run["infra_accel_deadly_corridor_baseline_r0"]
+    deadly_accelerated = by_run["infra_accel_deadly_corridor_accelerated_r0"]
+    assert deadly_baseline["backend"]["device"] == "cpu"
+    assert deadly_baseline["env"]["simulator"] == "cpu"
+    assert deadly_accelerated["backend"]["device"] == "cpu"
+    assert deadly_accelerated["env"]["simulator"] == "envpool"
     for config in configs:
         extra_args = config["backend"]["extra_args"]
         assert extra_args[-4:] == [
