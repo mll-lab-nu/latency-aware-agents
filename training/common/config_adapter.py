@@ -210,7 +210,9 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     env_cfg = config.get("env", {})
     use_gpu_render = env_cfg.get("use_gpu_render", False)
     gpu_render_device = str(env_cfg.get("gpu_render_device", "auto") or "auto").strip().lower()
-    use_gpu_env = env_cfg.get("simulator") == "gpu"
+    simulator = env_cfg.get("simulator")
+    use_gpu_env = simulator == "gpu"
+    use_envpool = simulator == "envpool"
     gpu_env_device = str(env_cfg.get("gpu_env_device", "auto") or "auto").strip().lower()
     actor_worker_gpus = backend_cfg.get("actor_worker_gpus")
     if use_gpu_render and gpu_render_device != "cpu" and actor_worker_gpus is None:
@@ -276,12 +278,14 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
 
     for field in scalar_fields:
         value = training_cfg.get(field)
-        if (use_gpu_render or use_gpu_env) and field == "num_envs_per_worker":
+        if (use_gpu_render or use_gpu_env or use_envpool) and field == "num_envs_per_worker":
+            value = 1
+        elif use_envpool and field == "worker_num_splits":
             value = 1
         elif (use_gpu_render or use_gpu_env) and field == "worker_num_splits" and value is None:
             value = 1
         append_cli_arg(args, f"--{field}", value)
-    if use_gpu_render or use_gpu_env:
+    if use_gpu_render or use_gpu_env or use_envpool:
         append_cli_arg(args, "--batched_sampling", True)
     for field in bool_fields:
         if use_gpu_render and field == "batched_sampling":

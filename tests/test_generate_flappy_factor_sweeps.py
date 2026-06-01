@@ -463,20 +463,17 @@ def test_factor_sweep_generator_emits_non_flappy_configs(tmp_path, env_name, spe
     assert train_cfg["env"]["frame_stack"] == 4
     assert train_cfg["env"]["obs_fps"] == pytest.approx(10)
 
-    # GPU-env keys present in the base config must survive pruning into train.yaml;
-    # the Sample Factory integrations read env.simulator/gpu_env_device via direct subscript.
-    # gpu_env_batch_size is deprecated: GPU parallelism is driven by training.num_envs_per_worker.
-    expected_gpu_env = {
+    # Batched simulator keys present in the base config must survive pruning into train.yaml.
+    expected_batched_env = {
         "demon_attack": {
             "simulator": "gpu",
             "gpu_env_device": "auto",
         },
         "deadly_corridor": {
-            "simulator": "cpu",
-            "gpu_env_device": "auto",
+            "simulator": "envpool",
         },
     }[env_name]
-    for key, value in expected_gpu_env.items():
+    for key, value in expected_batched_env.items():
         assert train_cfg["env"][key] == value
     assert "gpu_env_batch_size" not in train_cfg["env"]
     assert train_cfg["logging"]["wandb_name"] == f"{env_name.replace('_', '-')}-obs10-fixed_l2-s0"

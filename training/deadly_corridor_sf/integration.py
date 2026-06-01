@@ -120,18 +120,19 @@ def make_latency_doom_env_from_spec(
     if bool(getattr(cfg, "disable_reward_scaling", False)):
         spec_to_use.reward_scaling = 1.0
     _force_doom_raw_frame_step_cfg(cfg)
+    if cfg.simulator == "envpool":
+        from training.deadly_corridor_sf.envpool_env import DeadlyCorridorEnvPoolEnv
+
+        return DeadlyCorridorEnvPoolEnv(
+            cfg=cfg,
+            env_config=env_config,
+            spec=spec_to_use,
+            envpool_batch_size=int(getattr(cfg, "envpool_batch_size")),
+        )
     clock = EnvClock(
         env_fps=cfg.env_fps,
         obs_fps=cfg.obs_fps,
     )
-    if cfg.simulator == "gpu":
-        from training.deadly_corridor_sf.deadly_corridor_cuda_extension import load_deadly_corridor_cuda_extension
-
-        load_deadly_corridor_cuda_extension()
-        raise NotImplementedError(
-            "Deadly Corridor CUDA simulator is not implemented yet; simulator=gpu does not fall back to VizDoom CPU env"
-        )
-
     env = sf_make_doom_env_from_spec(
         spec_to_use,
         env_name,
@@ -276,11 +277,8 @@ def add_latency_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--disable-reward-scaling", type=str2bool, default=False)
     parser.add_argument("--frame_stack", type=int, default=1)
     parser.add_argument("--max_episode_steps", type=int, default=0)
-    parser.add_argument("--simulator", type=str, default="cpu", choices=["cpu", "gpu"])
-    parser.add_argument("--gpu-env-device", dest="gpu_env_device", type=str, default="auto")
-    parser.add_argument("--gpu-env-batch-size", dest="gpu_env_batch_size", type=int, default=1)
-    parser.add_argument("--gpu-env-profile", dest="gpu_env_profile", type=str2bool, default=False)
-    parser.add_argument("--gpu-env-profile-interval", dest="gpu_env_profile_interval", type=int, default=1000)
+    parser.add_argument("--simulator", type=str, default="cpu", choices=["cpu", "envpool"])
+    parser.add_argument("--envpool-batch-size", dest="envpool_batch_size", type=int, default=1)
     parser.add_argument("--episode_metrics_path", type=str, default="")
     parser.add_argument("--vizdoom_init_max_parallel", type=int, default=10)
     parser.add_argument("--vizdoom_init_lock_timeout_sec", type=float, default=5.0)
@@ -322,10 +320,8 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--frame_stack", env_cfg.get("frame_stack", 1))
     append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
     append_cli_arg(args, "--simulator", env_cfg["simulator"])
-    append_cli_arg(args, "--gpu-env-device", env_cfg.get("gpu_env_device", "auto"))
-    # --gpu-env-batch-size is emitted centrally in build_common_sf_args from num_envs_per_worker.
-    append_cli_arg(args, "--gpu-env-profile", env_cfg.get("gpu_env_profile", False))
-    append_cli_arg(args, "--gpu-env-profile-interval", env_cfg.get("gpu_env_profile_interval", 1000))
+    envpool_batch_size = config["training"]["num_envs_per_worker"] if env_cfg["simulator"] == "envpool" else None
+    append_cli_arg(args, "--envpool-batch-size", envpool_batch_size)
     append_cli_arg(args, "--vizdoom_init_max_parallel", env_cfg.get("vizdoom_init_max_parallel"))
     append_cli_arg(args, "--vizdoom_init_lock_timeout_sec", env_cfg.get("vizdoom_init_lock_timeout_sec"))
     append_cli_arg(args, "--vizdoom_init_lock_max_wait_sec", env_cfg.get("vizdoom_init_lock_max_wait_sec"))

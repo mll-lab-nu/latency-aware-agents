@@ -191,7 +191,6 @@ def test_uses_cuda_lib_dir_when_unversioned_cudart_exists(monkeypatch, tmp_path)
     [
         ("training.flappy_sf.flappy_cuda_extension", "load_flappy_cuda_extension"),
         ("training.demon_attack_sf.cule_atari_extension", "load_cule_atari_extension"),
-        ("training.deadly_corridor_sf.deadly_corridor_cuda_extension", "load_deadly_corridor_cuda_extension"),
     ],
 )
 def test_cuda_extension_loaders_select_toolchain_before_jit_load(monkeypatch, module_path, function_name):
