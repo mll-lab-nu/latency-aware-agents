@@ -75,6 +75,10 @@ if [[ "$*" == "-C envpool bazel-build" && "${CGO_ENABLED:-}" != "0" ]]; then
   printf 'cgo: C compiler "x86_64-conda-linux-gnu-cc" not found: exec: "x86_64-conda-linux-gnu-cc": executable file not found in $PATH\\n' >&2
   exit 1
 fi
+if [[ "$*" == "-C envpool bazel-build" && "${USE_BAZEL_VERSION:-}" != "6.5.0" ]]; then
+  printf "ERROR: /workspace/latency-sensitive-bench/envpool/BUILD:8:1: name 'py_binary' is not defined\\n" >&2
+  exit 1
+fi
 printf 'make %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
 exit 0
 """,

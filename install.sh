@@ -61,6 +61,7 @@ torch_index_url() {
 ensure_envpool_build_tools() {
     export PATH="${HOME}/go/bin:${PATH}"
     export CGO_ENABLED=0
+    export USE_BAZEL_VERSION=6.5.0
     if command -v go >/dev/null 2>&1; then
         echo "[install] using existing $(go version)"
         return
