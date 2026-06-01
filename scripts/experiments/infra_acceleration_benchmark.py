@@ -521,6 +521,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--skip-eval", action="store_true")
     parser.add_argument("--skip-parity", action="store_true")
     parser.add_argument("--parity-timeout-sec", type=float, default=600.0)
+    parser.add_argument("--train-cooldown-sec", type=float, default=0.0)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if args.run_training_config is not None:
@@ -583,6 +584,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if int(train_result["status"]) != 0:
                         raise_training_failed(config, train_result)
                     raw_rows.append(raw_train_row(config, variant=variant, repeat_index=repeat_index, result=train_result))
+                    if args.train_cooldown_sec:
+                        time.sleep(float(args.train_cooldown_sec))
                 if not args.skip_eval:
                     eval_output = output_root / "runs" / env_name / variant / f"repeat_{repeat_index}" / "eval"
                     eval_result = run_eval(config, output_dir=eval_output)
@@ -607,6 +610,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "eval_episodes": budget.eval_episodes,
         "repeats": budget.repeats,
         "parity_timeout_sec": args.parity_timeout_sec,
+        "train_cooldown_sec": float(args.train_cooldown_sec),
         "envs": envs,
     }
     (output_root / "metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
