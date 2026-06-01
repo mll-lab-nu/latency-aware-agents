@@ -262,6 +262,17 @@ def test_cuda_extensions_build_script_is_executable_bash():
     assert "LIBRARY_PATH" in text
 
 
+def test_envpool_fork_top_level_package_builds_vizdoom_only():
+    build_text = (REPO_ROOT / "envpool" / "envpool" / "BUILD").read_text(encoding="utf-8")
+    entry_text = (REPO_ROOT / "envpool" / "envpool" / "entry.py").read_text(encoding="utf-8")
+
+    assert "//envpool/vizdoom" in build_text
+    assert "envpool.vizdoom.registration" in entry_text
+    for unsupported_env in ["atari", "box2d", "classic_control", "mujoco", "procgen", "toy_text"]:
+        assert f"//envpool/{unsupported_env}" not in build_text
+        assert f"envpool.{unsupported_env}" not in entry_text
+
+
 def test_install_script_selects_cu130_for_compute_cap_10_gpu(tmp_path):
     script_path = REPO_ROOT / "install.sh"
     env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
