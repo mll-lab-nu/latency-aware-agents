@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import csv
 import json
+import re
 import resource
 import subprocess
 import sys
@@ -254,12 +256,24 @@ def run_training(config: dict[str, Any]) -> dict[str, Any]:
         status = int(module.run_from_config(config))
     wall_sec = time.perf_counter() - before_wall
     cpu_sec = _cpu_seconds() - before_cpu
+    env_steps = int(config["training"]["train_for_env_steps"])
+    if status == 0:
+        env_steps = read_sample_factory_collected_env_steps(config)
     return {
         "status": status,
         "wall_sec": wall_sec,
         "cpu_sec": cpu_sec,
-        "env_steps": int(config["training"]["train_for_env_steps"]),
+        "env_steps": env_steps,
     }
+
+
+def read_sample_factory_collected_env_steps(config: dict[str, Any]) -> int:
+    log_path = Path(config["backend"]["train_dir"]) / config["experiment"]["name"] / "sf_log.txt"
+    matches = re.findall(r"Collected (\{[^}]+\}), FPS:", log_path.read_text(encoding="utf-8"))
+    if not matches:
+        raise RuntimeError(f"missing Sample Factory collected frame count: {log_path}")
+    collected_by_policy = ast.literal_eval(matches[-1])
+    return sum(int(value) for value in collected_by_policy.values())
 
 
 def raise_training_failed(config: dict[str, Any], result: dict[str, Any]) -> None:
