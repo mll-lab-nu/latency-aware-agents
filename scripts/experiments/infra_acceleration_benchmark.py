@@ -143,6 +143,8 @@ def calibrate_train_budget(
     )
     _apply_backend_variant(calibration_config, env_name=env_name, variant="baseline")
     result = run_training(calibration_config)
+    if int(result["status"]) != 0:
+        raise_training_failed(calibration_config, result)
     calibration_fps = float(result["env_steps"]) / float(result["wall_sec"])
     resolved_steps = int(round(calibration_fps * float(budget.target_train_seconds)))
     resolved_budget = Budget(
@@ -196,6 +198,9 @@ def _stage_config(
     config["logging"]["save_step_records"] = False
     config["logging"]["save_action_records"] = False
     config["logging"]["save_latency_records"] = False
+    extra_args = list(config["backend"]["extra_args"]) if "extra_args" in config["backend"] else []
+    extra_args.extend(["--decorrelate_envs_on_one_worker", "False"])
+    config["backend"]["extra_args"] = extra_args
     return config
 
 
@@ -255,6 +260,16 @@ def run_training(config: dict[str, Any]) -> dict[str, Any]:
         "cpu_sec": cpu_sec,
         "env_steps": int(config["training"]["train_for_env_steps"]),
     }
+
+
+def raise_training_failed(config: dict[str, Any], result: dict[str, Any]) -> None:
+    raise RuntimeError(
+        "training failed: "
+        f"env={config['env']['name']} "
+        f"experiment={config['experiment']['name']} "
+        f"status={int(result['status'])} "
+        f"output_dir={config['logging']['output_dir']}"
+    )
 
 
 def run_eval(config: dict[str, Any], *, output_dir: Path) -> dict[str, Any]:
@@ -541,6 +556,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     continue
                 if not args.skip_train:
                     train_result = run_training(config)
+                    if int(train_result["status"]) != 0:
+                        raise_training_failed(config, train_result)
                     raw_rows.append(raw_train_row(config, variant=variant, repeat_index=repeat_index, result=train_result))
                 if not args.skip_eval:
                     eval_output = output_root / "runs" / env_name / variant / f"repeat_{repeat_index}" / "eval"

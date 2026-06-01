@@ -106,6 +106,9 @@ def test_paper_grade_dry_run_stages_real_baseline_and_accelerated_backends(tmp_p
     assert by_run["infra_accel_demon_attack_accelerated_r0"]["env"]["simulator"] == "gpu"
     assert by_run["infra_accel_deadly_corridor_baseline_r0"]["env"]["simulator"] == "cpu"
     assert by_run["infra_accel_deadly_corridor_accelerated_r0"]["env"]["simulator"] == "envpool"
+    for config in configs:
+        extra_args = config["backend"]["extra_args"]
+        assert extra_args[-2:] == ["--decorrelate_envs_on_one_worker", "False"]
 
 
 def test_paper_grade_train_steps_are_calibrated_from_baseline_runtime(monkeypatch, tmp_path: Path):
@@ -135,6 +138,66 @@ def test_paper_grade_train_steps_are_calibrated_from_baseline_runtime(monkeypatc
     assert calibration_row["calibration_env_steps"] == 16_384
     assert calibration_row["calibration_fps"] == pytest.approx(546.1333333333333)
     assert calibration_row["target_train_seconds"] == pytest.approx(180.0)
+
+
+def test_calibration_training_failure_stops_without_resolved_budget(monkeypatch, tmp_path: Path):
+    bench = _load_module()
+
+    def fake_run_training(config):
+        return {
+            "status": 1,
+            "wall_sec": 30.0,
+            "cpu_sec": 12.0,
+            "env_steps": config["training"]["train_for_env_steps"],
+        }
+
+    monkeypatch.setattr(bench, "run_training", fake_run_training)
+
+    with pytest.raises(RuntimeError, match="training failed.*infra_accel_flappy_baseline_calibration_r0.*status=1"):
+        bench.calibrate_train_budget(
+            _base_config("flappy", tmp_path),
+            env_name="flappy",
+            output_root=tmp_path / "bench",
+            budget=bench.BUDGETS["paper-grade"],
+        )
+
+
+def test_train_failure_stops_before_eval_and_summary(monkeypatch, tmp_path: Path):
+    bench = _load_module()
+
+    monkeypatch.setitem(bench.BASE_CONFIGS, "flappy", tmp_path / "flappy.yaml")
+
+    def fake_load_config(path):
+        return _base_config("flappy", tmp_path)
+
+    def fake_run_training(config):
+        return {
+            "status": 1,
+            "wall_sec": 3.0,
+            "cpu_sec": 2.0,
+            "env_steps": config["training"]["train_for_env_steps"],
+        }
+
+    def fake_run_eval(config, *, output_dir):
+        raise AssertionError("eval should not run after failed training")
+
+    monkeypatch.setattr(bench, "load_config", fake_load_config)
+    monkeypatch.setattr(bench, "run_training", fake_run_training)
+    monkeypatch.setattr(bench, "run_eval", fake_run_eval)
+
+    with pytest.raises(RuntimeError, match="training failed.*infra_accel_flappy_baseline_r0.*status=1"):
+        bench.main(
+            [
+                "--envs",
+                "flappy",
+                "--train-for-env-steps",
+                "4096",
+                "--output-root",
+                str(tmp_path / "bench"),
+            ]
+        )
+
+    assert not (tmp_path / "bench" / "summary.csv").exists()
 
 
 def test_summary_reports_train_fps_wall_time_reduction_and_eval_stage_speed():
