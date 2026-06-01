@@ -21,6 +21,7 @@ from training.common.config_adapter import (
     append_cli_arg,
     apply_runtime_logging_config,
     build_common_sf_args,
+    envpool_sample_factory_layout,
 )
 from training.common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
 from training.common.latency_config import (
@@ -330,7 +331,11 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--frame_stack", env_cfg.get("frame_stack", 1))
     append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
     append_cli_arg(args, "--simulator", env_cfg["simulator"])
-    envpool_batch_size = config["training"]["num_envs_per_worker"] if env_cfg["simulator"] == "envpool" else None
+    envpool_batch_size = (
+        envpool_sample_factory_layout(config["training"])["envpool_batch_size"]
+        if env_cfg["simulator"] == "envpool"
+        else None
+    )
     append_cli_arg(args, "--envpool-batch-size", envpool_batch_size)
     append_cli_arg(args, "--vizdoom_init_max_parallel", env_cfg.get("vizdoom_init_max_parallel"))
     append_cli_arg(args, "--vizdoom_init_lock_timeout_sec", env_cfg.get("vizdoom_init_lock_timeout_sec"))
