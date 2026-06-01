@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 from typing import Any, Sequence
@@ -201,7 +202,22 @@ class DeadlyCorridorEnvPoolEnv(gym.Env):
         out_dir = Path(tempfile.gettempdir()) / "latency_bench_envpool"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{source_path.stem}_{target_resolution.lower()}.cfg"
-        out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        tmp_file = tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=out_dir,
+            prefix=f".{out_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        )
+        tmp_path = Path(tmp_file.name)
+        try:
+            with tmp_file as handle:
+                handle.write("\n".join(lines) + "\n")
+            os.replace(tmp_path, out_path)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
         return out_path
 
     def _make_scheduler(self) -> ActionScheduler:
