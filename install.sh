@@ -66,7 +66,9 @@ ensure_envpool_build_tools() {
     fi
 
     echo "[install] installing go from conda-forge for envpool build"
+    set +u
     conda install -y -c conda-forge go
+    set -u
 }
 
 SELECTED_TORCH_PROFILE="$(resolve_torch_profile "${LATENCY_BENCH_TORCH_PROFILE}")"

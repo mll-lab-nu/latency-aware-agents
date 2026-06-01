@@ -41,6 +41,10 @@ exit 0
     printf 'conda activate %s\\n' "${2:-}" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
     return 0
   fi
+  if [[ "${1:-}" == "install" && "$-" == *u* ]]; then
+    printf '/venv/latency/etc/conda/deactivate.d/deactivate_z60-go.sh: line 1: CONDA_BACKUP_GOROOT: unbound variable\\n' >&2
+    return 1
+  fi
   "$FAKE_CONDA_BIN" "$@"
 }
 """,
