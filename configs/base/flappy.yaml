@@ -46,7 +46,7 @@ latency:
   mean_latency_ms: 66.7
   std_latency_ms: 33.3
   min_latency_ms: 0
-  max_latency_ms: null
+  max_latency_ms: 500.0
 
 
 scheduler:
@@ -64,15 +64,16 @@ policy:
 
 training:
   train_for_env_steps: 25000000
-  num_workers: 1
+  num_workers: 2
   num_envs_per_worker: 128
   worker_num_splits: 1
   num_policies: 1
   batch_size: 4096
-  rollout: 256
+  rollout: 128
   recurrence: 1
   num_epochs: 8
   num_batches_per_epoch: 8
+  max_policy_lag: 400
   learning_rate: 0.00025
   gamma: 0.99
   gae_lambda: 0.95

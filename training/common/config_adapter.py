@@ -244,6 +244,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         "num_epochs",
         "num_batches_per_epoch",
         "worker_num_splits",
+        "max_policy_lag",
         "num_batches_to_accumulate",
         "learning_rate",
         "gamma",
