@@ -64,6 +64,33 @@ exit 0
 """,
     )
     _write_executable(
+        fake_bin / "make",
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'make %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+exit 0
+""",
+    )
+    _write_executable(
+        fake_bin / "rm",
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'rm %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+exit 0
+""",
+    )
+    _write_executable(
+        fake_bin / "bash",
+        """#!/bin/bash
+set -euo pipefail
+if [[ "${1:-}" == "scripts/bash_scripts/build_cuda_extensions.sh" ]]; then
+  printf 'bash %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+  exit 0
+fi
+/bin/bash "$@"
+""",
+    )
+    _write_executable(
         fake_bin / "nvidia-smi",
         f"""#!/usr/bin/env bash
 set -euo pipefail
@@ -235,8 +262,12 @@ def test_install_script_selects_cu130_for_compute_cap_10_gpu(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "selecting cu130" in result.stderr
     calls = calls_path.read_text(encoding="utf-8")
+    assert "conda install -y -c conda-forge go" in calls
     assert "python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu130" in calls
     assert "python -m pip install -r requirements.txt" in calls
+    assert "rm -f envpool/dist/envpool-" in calls
+    assert "make -C envpool bazel-build" in calls
+    assert "bash scripts/bash_scripts/build_cuda_extensions.sh" in calls
 
 
 def test_install_script_allows_torch_profile_override(tmp_path):

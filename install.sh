@@ -58,6 +58,17 @@ torch_index_url() {
     esac
 }
 
+ensure_envpool_build_tools() {
+    export PATH="${HOME}/go/bin:${PATH}"
+    if command -v go >/dev/null 2>&1; then
+        echo "[install] using existing $(go version)"
+        return
+    fi
+
+    echo "[install] installing go from conda-forge for envpool build"
+    conda install -y -c conda-forge go
+}
+
 SELECTED_TORCH_PROFILE="$(resolve_torch_profile "${LATENCY_BENCH_TORCH_PROFILE}")"
 TORCH_INDEX_URL="$(torch_index_url "${SELECTED_TORCH_PROFILE}")"
 echo "[install] torch_profile=${SELECTED_TORCH_PROFILE} index_url=${TORCH_INDEX_URL}"
@@ -87,6 +98,7 @@ conda create -n latency python=3.10 -y
 source "$(conda info --base)/etc/profile.d/conda.sh"
 
 conda activate latency
+ensure_envpool_build_tools
 python -m pip install --upgrade pip
 python -m pip install "torch==${TORCH_VERSION}" --index-url "${TORCH_INDEX_URL}"
 python - <<'PY'
