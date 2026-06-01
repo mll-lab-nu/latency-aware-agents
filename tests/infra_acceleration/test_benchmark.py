@@ -145,24 +145,17 @@ def test_paper_grade_train_steps_are_calibrated_from_baseline_runtime(monkeypatc
     assert calibration_row["target_train_seconds"] == pytest.approx(180.0)
 
 
-def test_sample_factory_collected_env_steps_are_read_from_training_log(tmp_path: Path):
+def test_sample_factory_collected_env_steps_are_read_from_latest_checkpoint(tmp_path: Path):
     bench = _load_module()
     config = _base_config("flappy", tmp_path)
     config["experiment"]["name"] = "infra_accel_flappy_baseline_r0"
     config["backend"]["train_dir"] = str(tmp_path / "checkpoints")
-    log_dir = tmp_path / "checkpoints" / "infra_accel_flappy_baseline_r0"
-    log_dir.mkdir(parents=True)
-    (log_dir / "sf_log.txt").write_text(
-        "\n".join(
-            [
-                "[2026-06-01] Collected {0: 32768}, FPS: 100.0",
-                "[2026-06-01] Collected {0: 65536}, FPS: 120.0",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    checkpoint_dir = tmp_path / "checkpoints" / "infra_accel_flappy_baseline_r0" / "checkpoint_p0"
+    checkpoint_dir.mkdir(parents=True)
+    (checkpoint_dir / "checkpoint_000000056_065536.pth").write_bytes(b"")
+    (checkpoint_dir / "checkpoint_000000112_131072.pth").write_bytes(b"")
 
-    assert bench.read_sample_factory_collected_env_steps(config) == 65_536
+    assert bench.read_sample_factory_collected_env_steps(config) == 131_072
 
 
 def test_calibration_training_failure_stops_without_resolved_budget(monkeypatch, tmp_path: Path):

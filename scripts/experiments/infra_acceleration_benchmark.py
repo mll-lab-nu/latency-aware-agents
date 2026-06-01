@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import contextlib
 import csv
 import json
-import re
 import resource
 import subprocess
 import sys
@@ -268,12 +266,12 @@ def run_training(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def read_sample_factory_collected_env_steps(config: dict[str, Any]) -> int:
-    log_path = Path(config["backend"]["train_dir"]) / config["experiment"]["name"] / "sf_log.txt"
-    matches = re.findall(r"Collected (\{[^}]+\}), FPS:", log_path.read_text(encoding="utf-8"))
-    if not matches:
-        raise RuntimeError(f"missing Sample Factory collected frame count: {log_path}")
-    collected_by_policy = ast.literal_eval(matches[-1])
-    return sum(int(value) for value in collected_by_policy.values())
+    checkpoint_path = find_checkpoint(
+        config["backend"]["train_dir"],
+        config["experiment"]["name"],
+        kind="latest",
+    )
+    return int(checkpoint_path.stem.rsplit("_", 1)[1])
 
 
 def raise_training_failed(config: dict[str, Any], result: dict[str, Any]) -> None:
