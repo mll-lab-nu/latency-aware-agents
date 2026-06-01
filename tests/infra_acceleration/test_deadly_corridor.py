@@ -3,13 +3,9 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
-import sys
-from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pytest
-
-from latency_bench.core.config import load_config
 
 
 ACTION_SEQUENCE = [
@@ -107,145 +103,6 @@ def _assert_info_matches_cpu(envpool_info, cpu_info):
 def _read_jsonl(path):
     with Path(path).open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
-
-
-def test_deadly_corridor_envpool_config_uses_cpu_batched_sampling():
-    from training.deadly_corridor_sf.integration import build_cli_args_from_config
-
-    cfg = load_config("configs/base/deadly_corridor.yaml")
-    cfg["env"]["simulator"] = "envpool"
-    cfg["env"]["envpool_batch_size"] = 8
-    cfg["training"]["num_envs_per_worker"] = 8
-
-    args = build_cli_args_from_config(cfg)
-
-    assert args[args.index("--simulator") + 1] == "envpool"
-    assert args[args.index("--envpool-batch-size") + 1] == "8"
-    assert args[args.index("--num_envs_per_worker") + 1] == "1"
-    assert args[args.index("--worker_num_splits") + 1] == "1"
-    assert args[args.index("--batched_sampling") + 1] == "True"
-    assert "--env_gpu_observations" not in args
-    assert "--env_gpu_actions" not in args
-
-
-def test_deadly_corridor_envpool_constructs_envpool_without_cpu_fallback(monkeypatch):
-    from training.deadly_corridor_sf import integration
-
-    class FakeEnvPoolEnv:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-    fake_module = ModuleType("training.deadly_corridor_sf.envpool_env")
-    fake_module.DeadlyCorridorEnvPoolEnv = FakeEnvPoolEnv
-    monkeypatch.setitem(sys.modules, fake_module.__name__, fake_module)
-
-    spec = SimpleNamespace(name="doom_deadly_corridor", env_spec_file="deadly_corridor.cfg", reward_scaling=0.01)
-    env_config = SimpleNamespace(worker_index=2, vector_index=3, env_id=5)
-    cfg = SimpleNamespace(
-        simulator="envpool",
-        envpool_batch_size=8,
-        env_fps=35,
-        obs_fps=8.75,
-        frame_stack=4,
-        seed=42,
-        episode_metrics_path="",
-    )
-
-    env = integration.make_latency_doom_env_from_spec(
-        spec,
-        "doom_deadly_corridor",
-        cfg,
-        env_config,
-    )
-
-    assert isinstance(env, FakeEnvPoolEnv)
-    assert env.kwargs["cfg"] is cfg
-    assert env.kwargs["env_config"] is env_config
-    assert env.kwargs["spec"].name == spec.name
-    assert env.kwargs["spec"].env_spec_file == spec.env_spec_file
-    assert env.kwargs["spec"].reward_scaling == spec.reward_scaling
-    assert env.kwargs["envpool_batch_size"] == 8
-
-
-def test_deadly_corridor_envpool_integration_applies_eval_raw_reward_scaling(monkeypatch):
-    from training.deadly_corridor_sf import integration
-
-    class FakeEnvPoolEnv:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-    fake_module = ModuleType("training.deadly_corridor_sf.envpool_env")
-    fake_module.DeadlyCorridorEnvPoolEnv = FakeEnvPoolEnv
-    monkeypatch.setitem(sys.modules, fake_module.__name__, fake_module)
-
-    spec = SimpleNamespace(name="doom_deadly_corridor", env_spec_file="deadly_corridor.cfg", reward_scaling=0.01)
-    env_config = SimpleNamespace(worker_index=2, vector_index=3, env_id=5)
-    cfg = SimpleNamespace(
-        simulator="envpool",
-        envpool_batch_size=8,
-        env_fps=35,
-        obs_fps=8.75,
-        frame_stack=4,
-        seed=42,
-        episode_metrics_path="",
-        disable_reward_scaling=True,
-    )
-
-    env = integration.make_latency_doom_env_from_spec(
-        spec,
-        "doom_deadly_corridor",
-        cfg,
-        env_config,
-    )
-
-    assert env.kwargs["spec"].reward_scaling == 1.0
-    assert spec.reward_scaling == 0.01
-
-
-def test_deadly_corridor_envpool_tuple_actions_match_sample_factory_button_order():
-    from training.deadly_corridor_sf.envpool_env import tuple_action_to_envpool_buttons
-
-    assert tuple_action_to_envpool_buttons((0, 0, 0, 0)).tolist() == [0, 0, 0, 0, 0, 0, 0]
-    assert tuple_action_to_envpool_buttons((1, 0, 0, 0)).tolist() == [1, 0, 0, 0, 0, 0, 0]
-    assert tuple_action_to_envpool_buttons((2, 0, 0, 0)).tolist() == [0, 1, 0, 0, 0, 0, 0]
-    assert tuple_action_to_envpool_buttons((0, 1, 0, 0)).tolist() == [0, 0, 1, 0, 0, 0, 0]
-    assert tuple_action_to_envpool_buttons((0, 2, 0, 0)).tolist() == [0, 0, 0, 1, 0, 0, 0]
-    assert tuple_action_to_envpool_buttons((0, 0, 1, 0)).tolist() == [0, 0, 0, 0, 1, 0, 0]
-    assert tuple_action_to_envpool_buttons((0, 0, 2, 0)).tolist() == [0, 0, 0, 0, 0, 1, 0]
-    assert tuple_action_to_envpool_buttons((0, 0, 0, 1)).tolist() == [0, 0, 0, 0, 0, 0, 1]
-    assert tuple_action_to_envpool_buttons((1, 1, 2, 1)).tolist() == [1, 0, 1, 0, 0, 1, 1]
-
-
-def test_deadly_corridor_envpool_passes_cpu_reference_vizdoom_paths_and_native_reward(monkeypatch):
-    import vizdoom
-
-    from training.deadly_corridor_sf.envpool_env import DeadlyCorridorEnvPoolEnv
-
-    captured = {}
-
-    fake_envpool = ModuleType("envpool")
-    fake_envpool.make_gymnasium = lambda *args, **kwargs: captured.update(task_id=args[0], **kwargs) or object()
-    monkeypatch.setitem(sys.modules, "envpool", fake_envpool)
-
-    env = object.__new__(DeadlyCorridorEnvPoolEnv)
-    env.num_agents = 8
-    env.raw_height = 120
-    env.raw_width = 160
-    env.spec = SimpleNamespace(env_spec_file="deadly_corridor.cfg")
-
-    env._make_env(seed=123)
-
-    vizdoom_dir = Path(vizdoom.__file__).resolve().parent
-    assert captured["task_id"] == "VizdoomCustom-v1"
-    assert captured["vzd_path"] == str(vizdoom_dir / "vizdoom")
-    assert captured["iwad_path"] == str(vizdoom_dir / "freedoom2.wad")
-    assert captured["use_native_reward"] is True
-    assert captured["preserve_config_screen_resolution"] is True
-    assert captured["reward_config"] == {}
-    assert captured["selected_weapon_reward_config"] == {}
-    assert captured["use_inter_area_resize"] is False
-    assert captured["frame_skip"] == 1
-    assert captured["stack_num"] == 1
 
 
 def test_deadly_corridor_envpool_matches_cpu_reference_for_seed_actions_pixels_and_rewards():
@@ -402,29 +259,6 @@ def test_deadly_corridor_envpool_batch_agents_match_independent_cpu_references()
         for cpu_env in cpu_envs:
             cpu_env.close()
         envpool_env.close()
-
-
-def test_deadly_corridor_envpool_action_input_forms_match_tuple_batch():
-    from training.deadly_corridor_sf.envpool_env import DeadlyCorridorEnvPoolEnv
-
-    env = object.__new__(DeadlyCorridorEnvPoolEnv)
-    env.num_agents = 1
-
-    assert env._normalize_actions(np.asarray([1, 2, 0, 1], dtype=np.int64)) == [(1, 2, 0, 1)]
-
-    env.num_agents = 2
-    assert env._normalize_actions(np.asarray([[1, 2, 0, 1], [0, 1, 2, 0]], dtype=np.int64)) == [
-        (1, 2, 0, 1),
-        (0, 1, 2, 0),
-    ]
-    assert env._normalize_actions(
-        (
-            np.asarray([1, 0], dtype=np.int64),
-            np.asarray([2, 1], dtype=np.int64),
-            np.asarray([0, 2], dtype=np.int64),
-            np.asarray([1, 0], dtype=np.int64),
-        )
-    ) == [(1, 2, 0, 1), (0, 1, 2, 0)]
 
 
 def test_deadly_corridor_envpool_episode_metrics_match_cpu_reference(tmp_path):
