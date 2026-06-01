@@ -108,7 +108,12 @@ def test_paper_grade_dry_run_stages_real_baseline_and_accelerated_backends(tmp_p
     assert by_run["infra_accel_deadly_corridor_accelerated_r0"]["env"]["simulator"] == "envpool"
     for config in configs:
         extra_args = config["backend"]["extra_args"]
-        assert extra_args[-2:] == ["--decorrelate_envs_on_one_worker", "False"]
+        assert extra_args[-4:] == [
+            "--decorrelate_envs_on_one_worker",
+            "False",
+            "--heartbeat_reporting_interval",
+            "900",
+        ]
 
 
 def test_paper_grade_train_steps_are_calibrated_from_baseline_runtime(monkeypatch, tmp_path: Path):

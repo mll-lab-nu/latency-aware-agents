@@ -201,7 +201,7 @@ def _stage_config(
     config["logging"]["save_action_records"] = False
     config["logging"]["save_latency_records"] = False
     extra_args = list(config["backend"]["extra_args"]) if "extra_args" in config["backend"] else []
-    extra_args.extend(["--decorrelate_envs_on_one_worker", "False"])
+    extra_args.extend(["--decorrelate_envs_on_one_worker", "False", "--heartbeat_reporting_interval", "900"])
     config["backend"]["extra_args"] = extra_args
     return config
 
