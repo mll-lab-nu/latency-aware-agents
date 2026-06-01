@@ -71,6 +71,10 @@ exit 0
         fake_bin / "make",
         """#!/usr/bin/env bash
 set -euo pipefail
+if [[ "$*" == "-C envpool bazel-build" && "${CGO_ENABLED:-}" != "0" ]]; then
+  printf 'cgo: C compiler "x86_64-conda-linux-gnu-cc" not found: exec: "x86_64-conda-linux-gnu-cc": executable file not found in $PATH\\n' >&2
+  exit 1
+fi
 printf 'make %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
 exit 0
 """,
