@@ -1,11 +1,20 @@
 base_config: configs/experiments/flappy/frame_stack/base.yaml
-generated_root: configs/train/flappy_factor_sweeps
-train_dir: results/checkpoints_flappy_factor_sweeps
-output_root: outputs/flappy_factor_sweeps
+generated_root: configs/train/factor_sweeps/flappy/context_window
+train_dir: results/checkpoints_factor_sweeps/flappy/context_window
+output_root: outputs/factor_sweeps/flappy/context_window
 device: cuda
 restart_behavior: resume
 seeds:
-  - 0
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  - 19
 
 latency_settings:
   fixed_l1:
@@ -30,18 +39,11 @@ latency_settings:
 
 sweeps:
   frame_stack:
-    wandb_group: flappy-frame_stack
     frame_stack:
       - 4
+      - 5
       - 6
+      - 7
       - 8
     obs_fps:
       - 30
-  obs_fps:
-    wandb_group: flappy-obs_fps
-    frame_stack:
-      - 4
-    obs_fps:
-      - 30
-      - 15
-      - 10

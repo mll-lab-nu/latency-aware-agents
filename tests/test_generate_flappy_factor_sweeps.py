@@ -12,6 +12,7 @@ from scripts.sweeps.generate_flappy_factor_sweeps import main as generate_flappy
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+OFFICIAL_SEEDS = tuple(range(10, 20))
 
 
 def _read_manifest(path: Path) -> list[dict[str, str]]:
@@ -20,7 +21,7 @@ def _read_manifest(path: Path) -> list[dict[str, str]]:
     return [dict(zip(header, line.split("\t"))) for line in lines[1:]]
 
 
-def test_flappy_factor_sweep_generator_emits_matrix_configs(tmp_path):
+def test_context_window_spec_emits_official_seed_matrix(tmp_path):
     generated_root = tmp_path / "configs"
     output_root = tmp_path / "outputs"
     train_dir = tmp_path / "checkpoints"
@@ -28,7 +29,7 @@ def test_flappy_factor_sweep_generator_emits_matrix_configs(tmp_path):
     generate_flappy_factor_sweeps(
         [
             "--spec",
-            "configs/experiments/flappy/factor_sweeps/sweep.yaml",
+            "configs/experiments/flappy/factor_sweeps/context_window/sweep.yaml",
             "--generated-root",
             str(generated_root),
             "--output-root",
@@ -39,153 +40,51 @@ def test_flappy_factor_sweep_generator_emits_matrix_configs(tmp_path):
     )
 
     rows = _read_manifest(generated_root / "manifest.tsv")
-    assert len(rows) == 30
-    assert len({row["train_config"] for row in rows}) == 30
+    assert len(rows) == 250
+    assert len({row["train_config"] for row in rows}) == 250
+    assert {row["seed"] for row in rows} == {str(seed) for seed in OFFICIAL_SEEDS}
+    assert {row["sweep"] for row in rows} == {"frame_stack"}
+    assert {row["frame_stack"] for row in rows} == {"4", "5", "6", "7", "8"}
+    assert {row["observation_stride"] for row in rows} == {"1"}
 
-    fs_normal = (
-        generated_root
-        / "frame_stack"
-        / "normal_n2_s1"
-        / "fs8"
-        / "seed_0"
-        / "train.yaml"
+    train_cfg = yaml.safe_load(
+        (
+            generated_root
+            / "frame_stack"
+            / "normal_n2_s1"
+            / "fs8"
+            / "seed_10"
+            / "train.yaml"
+        ).read_text(encoding="utf-8")
     )
-    fs_cfg = yaml.safe_load(fs_normal.read_text(encoding="utf-8"))
-    assert fs_cfg["experiment"]["name"] == "flappy_frame_stack_normal_n2_s1_fs8_seed0"
-    assert fs_cfg["env"]["frame_stack"] == 8
-    assert fs_cfg["env"]["obs_fps"] == 30
-    assert fs_cfg["latency"]["type"] == "normal_distribution"
-    assert fs_cfg["latency"]["mean_latency_ms"] == pytest.approx(2 * 1000.0 / 30.0)
-    assert fs_cfg["latency"]["std_latency_ms"] == pytest.approx(1 * 1000.0 / 30.0)
-    assert fs_cfg["latency"]["max_latency_ms"] == pytest.approx(15 * 1000.0 / 30.0)
-    assert fs_cfg["logging"]["wandb_group"] == "flappy-fs8-normal_n2_s1"
-    assert fs_cfg["logging"]["wandb_name"] == "flappy-fs8-normal_n2_s1-s0"
-    assert fs_cfg["logging"]["wandb_tags"] == [
+    assert train_cfg["experiment"]["name"] == "flappy_frame_stack_normal_n2_s1_fs8_seed10"
+    assert train_cfg["experiment"]["seed"] == 10
+    assert train_cfg["env"]["frame_stack"] == 8
+    assert train_cfg["env"]["obs_fps"] == pytest.approx(30)
+    assert train_cfg["latency"]["mean_latency_ms"] == pytest.approx(2 * 1000.0 / 30.0)
+    assert train_cfg["logging"]["wandb_group"] == "flappy-fs8-normal_n2_s1"
+    assert train_cfg["logging"]["wandb_name"] == "flappy-fs8-normal_n2_s1-s10"
+    assert train_cfg["logging"]["wandb_tags"] == [
         "factor_sweep",
         "flappy",
         "frame_stack",
         "normal",
         "normal_n2_s1",
         "fs8",
-        "seed0",
+        "seed10",
     ]
-    assert fs_cfg["logging"]["output_dir"] == str(
-        output_root / "train" / "frame_stack" / "normal_n2_s1" / "fs8" / "seed_0"
+    assert train_cfg["logging"]["output_dir"] == str(
+        output_root / "train" / "frame_stack" / "normal_n2_s1" / "fs8" / "seed_10"
     )
 
-    obs_uniform = (
-        generated_root
-        / "obs_fps"
-        / "uniform_u1_3"
-        / "obs15"
-        / "seed_0"
-        / "train.yaml"
+    eval_cfg = load_config(
+        generated_root / "frame_stack" / "fixed_l1" / "fs4" / "seed_10" / "latency_bench_eval.yaml"
     )
-    obs_cfg = yaml.safe_load(obs_uniform.read_text(encoding="utf-8"))
-    assert obs_cfg["experiment"]["name"] == "flappy_obs_fps_uniform_u1_3_obs15_seed0"
-    assert obs_cfg["env"]["frame_stack"] == 4
-    assert obs_cfg["env"]["obs_fps"] == 15
-    assert obs_cfg["latency"]["type"] == "uniform_distribution"
-    assert obs_cfg["latency"]["min_latency_ms"] == pytest.approx(1 * 1000.0 / 30.0)
-    assert obs_cfg["latency"]["max_latency_ms"] == pytest.approx(3 * 1000.0 / 30.0)
-    assert obs_cfg["logging"]["wandb_group"] == "flappy-obs15-uniform_u1_3"
-    assert obs_cfg["logging"]["wandb_name"] == "flappy-obs15-uniform_u1_3-s0"
-    assert obs_cfg["logging"]["wandb_tags"] == [
-        "factor_sweep",
-        "flappy",
-        "obs_fps",
-        "uniform",
-        "uniform_u1_3",
-        "obs15",
-        "seed0",
-    ]
-
-    fixed_cfg = yaml.safe_load(
-        (
-            generated_root
-            / "frame_stack"
-            / "fixed_l1"
-            / "fs4"
-            / "seed_0"
-            / "train.yaml"
-        ).read_text(encoding="utf-8")
-    )
-    assert fixed_cfg["latency"]["type"] == "fixed"
-    assert fixed_cfg["latency"]["fixed_latency_ms"] == pytest.approx(1 * 1000.0 / 30.0)
-
-    eval_cfg = yaml.safe_load(
-        (
-            generated_root
-            / "frame_stack"
-            / "fixed_l1"
-            / "fs4"
-            / "seed_0"
-            / "latency_bench_eval.yaml"
-        ).read_text(encoding="utf-8")
-    )
-    assert "eval_suites" in eval_cfg["evaluation"]
-    assert eval_cfg["evaluation"]["eval_episodes"] == fixed_cfg["evaluation"]["eval_episodes"]
     assert eval_cfg["backend"]["run_mode"] == "eval"
-    assert eval_cfg["logging"]["wandb_group"] == "flappy-fs4-fixed_l1"
-    assert eval_cfg["logging"]["wandb_name"] == fixed_cfg["logging"]["wandb_name"]
-    assert eval_cfg["logging"]["wandb_tags"] == [
-        "factor_sweep",
-        "flappy",
-        "frame_stack",
-        "fixed",
-        "fixed_l1",
-        "fs4",
-        "seed0",
-    ]
-    loaded_eval_cfg = load_config(
-        generated_root / "frame_stack" / "fixed_l1" / "fs4" / "seed_0" / "latency_bench_eval.yaml"
-    )
-    assert loaded_eval_cfg["policy"]["type"] == "flappy_sf"
+    assert eval_cfg["policy"]["type"] == "flappy_sf"
 
 
-def test_flappy_factor_sweep_wrapper_uses_env_overrides(tmp_path):
-    generated_root = tmp_path / "generated"
-    output_root = tmp_path / "outputs"
-    train_dir = tmp_path / "checkpoints"
-
-    env = os.environ.copy()
-    env.update(
-        {
-            "GENERATED_ROOT": str(generated_root),
-            "OUTPUT_ROOT": str(output_root),
-            "TRAIN_DIR": str(train_dir),
-            "DEVICE": "cpu",
-        }
-    )
-
-    result = subprocess.run(
-        ["bash", "scripts/bash_scripts/generate_flappy_factor_sweeps.sh"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode == 0, result.stderr
-    train_cfg = yaml.safe_load(
-        (
-            generated_root
-            / "obs_fps"
-            / "fixed_l2"
-            / "obs10"
-            / "seed_0"
-            / "train.yaml"
-        ).read_text(encoding="utf-8")
-    )
-    assert train_cfg["backend"]["device"] == "cpu"
-    assert train_cfg["backend"]["train_dir"] == str(train_dir)
-    assert train_cfg["logging"]["output_dir"] == str(
-        output_root / "train" / "obs_fps" / "fixed_l2" / "obs10" / "seed_0"
-    )
-
-
-def test_flappy_factor_sweep_generator_cli_seeds_override_spec(tmp_path):
+def test_observation_stride_spec_names_axis_by_stride_and_writes_obs_fps(tmp_path):
     generated_root = tmp_path / "configs"
     output_root = tmp_path / "outputs"
     train_dir = tmp_path / "checkpoints"
@@ -193,248 +92,7 @@ def test_flappy_factor_sweep_generator_cli_seeds_override_spec(tmp_path):
     generate_flappy_factor_sweeps(
         [
             "--spec",
-            "configs/experiments/flappy/factor_sweeps/sweep.yaml",
-            "--generated-root",
-            str(generated_root),
-            "--output-root",
-            str(output_root),
-            "--train-dir",
-            str(train_dir),
-            "--seeds",
-            "42,114514",
-        ]
-    )
-
-    rows = _read_manifest(generated_root / "manifest.tsv")
-    assert len(rows) == 60
-    assert {row["seed"] for row in rows} == {"42", "114514"}
-    assert not (generated_root / "frame_stack" / "fixed_l1" / "fs4" / "seed_0").exists()
-
-    seed_42_cfg = yaml.safe_load(
-        (
-            generated_root
-            / "frame_stack"
-            / "fixed_l1"
-            / "fs4"
-            / "seed_42"
-            / "train.yaml"
-        ).read_text(encoding="utf-8")
-    )
-    assert seed_42_cfg["experiment"]["seed"] == 42
-    assert seed_42_cfg["experiment"]["name"] == "flappy_frame_stack_fixed_l1_fs4_seed42"
-    assert seed_42_cfg["logging"]["wandb_group"] == "flappy-fs4-fixed_l1"
-    assert seed_42_cfg["logging"]["wandb_name"] == "flappy-fs4-fixed_l1-s42"
-    assert seed_42_cfg["logging"]["wandb_tags"] == [
-        "factor_sweep",
-        "flappy",
-        "frame_stack",
-        "fixed",
-        "fixed_l1",
-        "fs4",
-        "seed42",
-    ]
-    assert seed_42_cfg["logging"]["output_dir"] == str(
-        output_root / "train" / "frame_stack" / "fixed_l1" / "fs4" / "seed_42"
-    )
-
-    seed_114514_cfg = yaml.safe_load(
-        (
-            generated_root
-            / "obs_fps"
-            / "uniform_u1_3"
-            / "obs10"
-            / "seed_114514"
-            / "train.yaml"
-        ).read_text(encoding="utf-8")
-    )
-    assert seed_114514_cfg["experiment"]["seed"] == 114514
-    assert seed_114514_cfg["experiment"]["name"] == "flappy_obs_fps_uniform_u1_3_obs10_seed114514"
-    assert seed_114514_cfg["logging"]["wandb_group"] == "flappy-obs10-uniform_u1_3"
-    assert seed_114514_cfg["logging"]["wandb_name"] == "flappy-obs10-uniform_u1_3-s114514"
-    assert seed_114514_cfg["logging"]["wandb_tags"] == [
-        "factor_sweep",
-        "flappy",
-        "obs_fps",
-        "uniform",
-        "uniform_u1_3",
-        "obs10",
-        "seed114514",
-    ]
-
-
-def test_flappy_factor_sweep_wrapper_forwards_seed_override(tmp_path):
-    generated_root = tmp_path / "generated"
-    output_root = tmp_path / "outputs"
-    train_dir = tmp_path / "checkpoints"
-
-    env = os.environ.copy()
-    env.update(
-        {
-            "GENERATED_ROOT": str(generated_root),
-            "OUTPUT_ROOT": str(output_root),
-            "TRAIN_DIR": str(train_dir),
-            "DEVICE": "cpu",
-            "SEEDS": "0,42",
-        }
-    )
-
-    result = subprocess.run(
-        ["bash", "scripts/bash_scripts/generate_flappy_factor_sweeps.sh"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode == 0, result.stderr
-    rows = _read_manifest(generated_root / "manifest.tsv")
-    assert len(rows) == 60
-    assert {row["seed"] for row in rows} == {"0", "42"}
-
-    seed_42_cfg = yaml.safe_load(
-        (
-            generated_root
-            / "obs_fps"
-            / "fixed_l2"
-            / "obs10"
-            / "seed_42"
-            / "train.yaml"
-        ).read_text(encoding="utf-8")
-    )
-    assert seed_42_cfg["experiment"]["seed"] == 42
-    assert seed_42_cfg["backend"]["device"] == "cpu"
-    assert seed_42_cfg["backend"]["train_dir"] == str(train_dir)
-    assert seed_42_cfg["logging"]["output_dir"] == str(
-        output_root / "train" / "obs_fps" / "fixed_l2" / "obs10" / "seed_42"
-    )
-
-
-def test_factor_sweep_wrapper_generates_selected_envs(tmp_path):
-    generated_root = tmp_path / "generated"
-    output_root = tmp_path / "outputs"
-    train_dir = tmp_path / "checkpoints"
-
-    env = os.environ.copy()
-    env.update(
-        {
-            "ENVS": "demon_attack,deadly_corridor",
-            "GENERATED_ROOT": str(generated_root),
-            "OUTPUT_ROOT": str(output_root),
-            "TRAIN_DIR": str(train_dir),
-            "DEVICE": "cpu",
-        }
-    )
-
-    result = subprocess.run(
-        ["bash", "scripts/bash_scripts/generate_factor_sweeps.sh"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert (generated_root / "demon_attack" / "manifest.tsv").is_file()
-    assert (generated_root / "deadly_corridor" / "manifest.tsv").is_file()
-    train_cfg = yaml.safe_load(
-        (
-            generated_root
-            / "deadly_corridor"
-            / "obs_fps"
-            / "fixed_l2"
-            / "obs10"
-            / "seed_0"
-            / "train.yaml"
-        ).read_text(encoding="utf-8")
-    )
-    assert train_cfg["backend"]["device"] == "cpu"
-    assert train_cfg["backend"]["train_dir"] == str(train_dir / "deadly_corridor")
-    assert train_cfg["env"]["obs_fps"] == pytest.approx(10)
-    assert train_cfg["logging"]["output_dir"] == str(
-        output_root / "deadly_corridor" / "train" / "obs_fps" / "fixed_l2" / "obs10" / "seed_0"
-    )
-
-
-def test_factor_sweep_wrapper_forwards_seed_override(tmp_path):
-    generated_root = tmp_path / "generated"
-    output_root = tmp_path / "outputs"
-    train_dir = tmp_path / "checkpoints"
-
-    env = os.environ.copy()
-    env.update(
-        {
-            "ENVS": "demon_attack",
-            "GENERATED_ROOT": str(generated_root),
-            "OUTPUT_ROOT": str(output_root),
-            "TRAIN_DIR": str(train_dir),
-            "DEVICE": "cpu",
-            "SEEDS": "0,42,114514",
-        }
-    )
-
-    result = subprocess.run(
-        ["bash", "scripts/bash_scripts/generate_factor_sweeps.sh"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode == 0, result.stderr
-    rows = _read_manifest(generated_root / "demon_attack" / "manifest.tsv")
-    assert len(rows) == 90
-    assert {row["seed"] for row in rows} == {"0", "42", "114514"}
-
-    seed_42_cfg = yaml.safe_load(
-        (
-            generated_root
-            / "demon_attack"
-            / "obs_fps"
-            / "fixed_l2"
-            / "obs10"
-            / "seed_42"
-            / "train.yaml"
-        ).read_text(encoding="utf-8")
-    )
-    assert seed_42_cfg["experiment"]["seed"] == 42
-    assert seed_42_cfg["backend"]["train_dir"] == str(train_dir / "demon_attack")
-    assert seed_42_cfg["logging"]["output_dir"] == str(
-        output_root / "demon_attack" / "train" / "obs_fps" / "fixed_l2" / "obs10" / "seed_42"
-    )
-
-    seed_114514_cfg = yaml.safe_load(
-        (
-            generated_root
-            / "demon_attack"
-            / "frame_stack"
-            / "fixed_l2"
-            / "fs4"
-            / "seed_114514"
-            / "train.yaml"
-        ).read_text(encoding="utf-8")
-    )
-    assert seed_114514_cfg["experiment"]["seed"] == 114514
-
-
-@pytest.mark.parametrize(
-    ("env_name", "spec_path", "expected_policy"),
-    [
-        ("demon_attack", "configs/experiments/demon_attack/factor_sweeps/sweep.yaml", "demon_attack_sf"),
-        ("deadly_corridor", "configs/experiments/deadly_corridor/factor_sweeps/sweep.yaml", "deadly_corridor_sf"),
-    ],
-)
-def test_factor_sweep_generator_emits_non_flappy_configs(tmp_path, env_name, spec_path, expected_policy):
-    generated_root = tmp_path / "configs"
-    output_root = tmp_path / "outputs"
-    train_dir = tmp_path / "checkpoints"
-
-    generate_flappy_factor_sweeps(
-        [
-            "--spec",
-            spec_path,
+            "configs/experiments/demon_attack/factor_sweeps/observation_stride/sweep.yaml",
             "--generated-root",
             str(generated_root),
             "--output-root",
@@ -445,59 +103,202 @@ def test_factor_sweep_generator_emits_non_flappy_configs(tmp_path, env_name, spe
     )
 
     rows = _read_manifest(generated_root / "manifest.tsv")
-    assert len(rows) == 30
-    assert len({row["train_config"] for row in rows}) == 30
+    assert len(rows) == 250
+    assert {row["seed"] for row in rows} == {str(seed) for seed in OFFICIAL_SEEDS}
+    assert {row["sweep"] for row in rows} == {"observation_stride"}
+    assert {row["observation_stride"] for row in rows} == {"2", "3", "4", "5", "6"}
 
     train_cfg = yaml.safe_load(
         (
             generated_root
-            / "obs_fps"
+            / "observation_stride"
             / "fixed_l2"
-            / "obs10"
-            / "seed_0"
+            / "stride5"
+            / "seed_10"
             / "train.yaml"
         ).read_text(encoding="utf-8")
     )
-    assert train_cfg["experiment"]["name"] == f"{env_name}_obs_fps_fixed_l2_obs10_seed0"
-    assert train_cfg["env"]["name"] == env_name
+    assert train_cfg["experiment"]["name"] == "demon_attack_observation_stride_fixed_l2_stride5_seed10"
     assert train_cfg["env"]["frame_stack"] == 4
-    assert train_cfg["env"]["obs_fps"] == pytest.approx(10)
-
-    # Batched simulator keys present in the base config must survive pruning into train.yaml.
-    expected_batched_env = {
-        "demon_attack": {
-            "simulator": "gpu",
-            "gpu_env_device": "auto",
-        },
-        "deadly_corridor": {
-            "simulator": "envpool",
-        },
-    }[env_name]
-    for key, value in expected_batched_env.items():
-        assert train_cfg["env"][key] == value
-    assert "gpu_env_batch_size" not in train_cfg["env"]
-    assert train_cfg["logging"]["wandb_name"] == f"{env_name.replace('_', '-')}-obs10-fixed_l2-s0"
-    assert train_cfg["logging"]["wandb_group"] == f"{env_name.replace('_', '-')}-obs10-fixed_l2"
+    assert train_cfg["env"]["obs_fps"] == pytest.approx(12)
+    assert train_cfg["logging"]["wandb_group"] == "demon-attack-stride5-fixed_l2"
+    assert train_cfg["logging"]["wandb_name"] == "demon-attack-stride5-fixed_l2-s10"
     assert train_cfg["logging"]["wandb_tags"] == [
         "factor_sweep",
-        env_name.replace("_", "-"),
-        "obs_fps",
+        "demon-attack",
+        "observation_stride",
         "fixed",
         "fixed_l2",
-        "obs10",
-        "seed0",
+        "stride5",
+        "seed10",
     ]
     assert train_cfg["logging"]["output_dir"] == str(
-        output_root / "train" / "obs_fps" / "fixed_l2" / "obs10" / "seed_0"
+        output_root / "train" / "observation_stride" / "fixed_l2" / "stride5" / "seed_10"
     )
 
-    bench_cfg = load_config(
-        generated_root / "obs_fps" / "fixed_l2" / "obs10" / "seed_0" / "latency_bench_eval.yaml"
+
+def test_observation_stride_spec_supports_fractional_deadly_corridor_obs_fps(tmp_path):
+    generated_root = tmp_path / "configs"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    generate_flappy_factor_sweeps(
+        [
+            "--spec",
+            "configs/experiments/deadly_corridor/factor_sweeps/observation_stride/sweep.yaml",
+            "--generated-root",
+            str(generated_root),
+            "--output-root",
+            str(output_root),
+            "--train-dir",
+            str(train_dir),
+        ]
     )
-    assert bench_cfg["policy"]["type"] == expected_policy
-    assert bench_cfg["env"]["obs_fps"] == pytest.approx(10)
-    if env_name == "demon_attack":
-        assert bench_cfg["env"]["terminal_on_life_loss"] is True
-        assert bench_cfg["env"]["clip_reward"] is False
-    if env_name == "deadly_corridor":
-        assert bench_cfg["env"]["noop_action"] == [0, 0, 0, 0]
+
+    train_cfg = yaml.safe_load(
+        (
+            generated_root
+            / "observation_stride"
+            / "fixed_l2"
+            / "stride5"
+            / "seed_10"
+            / "train.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    assert train_cfg["env"]["obs_fps"] == pytest.approx(7)
+    bench_cfg = load_config(
+        generated_root / "observation_stride" / "fixed_l2" / "stride5" / "seed_10" / "latency_bench_eval.yaml"
+    )
+    assert bench_cfg["policy"]["type"] == "deadly_corridor_sf"
+    assert bench_cfg["env"]["noop_action"] == [0, 0, 0, 0]
+
+
+def test_factor_sweep_wrapper_generates_split_sweep_folders(tmp_path):
+    generated_root = tmp_path / "generated"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "ENVS": "deadly_corridor",
+            "SEEDS": "10",
+            "GENERATED_ROOT": str(generated_root),
+            "OUTPUT_ROOT": str(output_root),
+            "TRAIN_DIR": str(train_dir),
+            "DEVICE": "cpu",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/bash_scripts/generate_factor_sweeps.sh"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    context_rows = _read_manifest(generated_root / "deadly_corridor" / "context_window" / "manifest.tsv")
+    stride_rows = _read_manifest(generated_root / "deadly_corridor" / "observation_stride" / "manifest.tsv")
+    assert len(context_rows) == 20
+    assert len(stride_rows) == 25
+
+    train_cfg = yaml.safe_load(Path(stride_rows[0]["train_config"]).read_text(encoding="utf-8"))
+    assert train_cfg["backend"]["device"] == "cpu"
+    assert train_cfg["backend"]["train_dir"] == str(train_dir / "deadly_corridor" / "observation_stride")
+
+
+def test_factor_sweep_wrapper_can_generate_only_selected_sweep(tmp_path):
+    generated_root = tmp_path / "generated"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "ENVS": "flappy",
+            "SWEEPS": "observation_stride",
+            "SEEDS": "10,11",
+            "GENERATED_ROOT": str(generated_root),
+            "OUTPUT_ROOT": str(output_root),
+            "TRAIN_DIR": str(train_dir),
+            "DEVICE": "cpu",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/bash_scripts/generate_factor_sweeps.sh"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not (generated_root / "flappy" / "context_window" / "manifest.tsv").exists()
+    rows = _read_manifest(generated_root / "flappy" / "observation_stride" / "manifest.tsv")
+    assert len(rows) == 50
+    assert {row["seed"] for row in rows} == {"10", "11"}
+
+
+def test_flappy_factor_sweep_wrapper_uses_split_defaults(tmp_path):
+    generated_root = tmp_path / "generated"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "SEEDS": "10",
+            "GENERATED_ROOT": str(generated_root),
+            "OUTPUT_ROOT": str(output_root),
+            "TRAIN_DIR": str(train_dir),
+            "DEVICE": "cpu",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/bash_scripts/generate_flappy_factor_sweeps.sh"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (generated_root / "context_window" / "manifest.tsv").is_file()
+    assert (generated_root / "observation_stride" / "manifest.tsv").is_file()
+
+
+def test_jitter_sweeps_keep_legacy_obs_fps_axis(tmp_path):
+    generated_root = tmp_path / "configs"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    generate_flappy_factor_sweeps(
+        [
+            "--spec",
+            "configs/experiments/flappy/jitter/sweep.yaml",
+            "--generated-root",
+            str(generated_root),
+            "--output-root",
+            str(output_root),
+            "--train-dir",
+            str(train_dir),
+        ]
+    )
+
+    rows = _read_manifest(generated_root / "manifest.tsv")
+    assert rows[0]["sweep"] == "jitter"
+    assert rows[0]["observation_stride"] == "2"
+    train_cfg = yaml.safe_load(
+        (generated_root / "jitter" / "fixed_l2" / "obs15" / "seed_0" / "train.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert train_cfg["experiment"]["name"] == "flappy_jitter_fixed_l2_obs15_seed0"
+    assert train_cfg["logging"]["wandb_group"] == "flappy-obs15-fixed_l2"

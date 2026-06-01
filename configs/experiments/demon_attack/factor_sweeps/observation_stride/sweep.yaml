@@ -1,0 +1,49 @@
+base_config: configs/base/demon_attack.yaml
+generated_root: configs/train/factor_sweeps/demon_attack/observation_stride
+train_dir: results/checkpoints_factor_sweeps/demon_attack/observation_stride
+output_root: outputs/factor_sweeps/demon_attack/observation_stride
+device: cuda
+restart_behavior: resume
+seeds:
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  - 19
+
+latency_settings:
+  fixed_l2:
+    kind: fixed
+    frames: 2
+  fixed_l4:
+    kind: fixed
+    frames: 4
+  fixed_l6:
+    kind: fixed
+    frames: 6
+  normal_n2_s1:
+    kind: normal
+    mean: 4.0
+    std: 1.0
+    min: 0
+    max: 15
+  uniform_u2_6:
+    kind: uniform
+    min: 2
+    max: 6
+
+sweeps:
+  observation_stride:
+    frame_stack:
+      - 4
+    observation_stride:
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6

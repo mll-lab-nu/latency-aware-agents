@@ -1,11 +1,20 @@
 base_config: configs/base/deadly_corridor_envpool.yaml
-generated_root: configs/train/deadly_corridor_factor_sweeps
-train_dir: results/checkpoints_deadly_corridor_factor_sweeps
-output_root: outputs/deadly_corridor_factor_sweeps
+generated_root: configs/train/factor_sweeps/deadly_corridor/observation_stride
+train_dir: results/checkpoints_factor_sweeps/deadly_corridor/observation_stride
+output_root: outputs/factor_sweeps/deadly_corridor/observation_stride
 device: cuda
 restart_behavior: resume
 seeds:
-  - 0
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  - 19
 
 latency_settings:
   fixed_l2:
@@ -29,19 +38,12 @@ latency_settings:
     max: 6
 
 sweeps:
-  frame_stack:
-    wandb_group: deadly-corridor-frame_stack
+  observation_stride:
     frame_stack:
       - 4
+    observation_stride:
+      - 2
+      - 3
+      - 4
+      - 5
       - 6
-      - 8
-    obs_fps:
-      - 15
-  obs_fps:
-    wandb_group: deadly-corridor-obs_fps
-    frame_stack:
-      - 4
-    obs_fps:
-      - 30
-      - 15
-      - 10

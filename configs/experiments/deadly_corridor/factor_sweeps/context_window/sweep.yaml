@@ -1,11 +1,20 @@
-base_config: configs/base/demon_attack.yaml
-generated_root: configs/train/demon_attack_factor_sweeps
-train_dir: results/checkpoints_demon_attack_factor_sweeps
-output_root: outputs/demon_attack_factor_sweeps
+base_config: configs/base/deadly_corridor_envpool.yaml
+generated_root: configs/train/factor_sweeps/deadly_corridor/context_window
+train_dir: results/checkpoints_factor_sweeps/deadly_corridor/context_window
+output_root: outputs/factor_sweeps/deadly_corridor/context_window
 device: cuda
 restart_behavior: resume
 seeds:
-  - 0
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  - 19
 
 latency_settings:
   fixed_l2:
@@ -30,18 +39,10 @@ latency_settings:
 
 sweeps:
   frame_stack:
-    wandb_group: demon-attack-frame_stack
     frame_stack:
       - 4
       - 6
       - 8
-    obs_fps:
-      - 15
-  obs_fps:
-    wandb_group: demon-attack-obs_fps
-    frame_stack:
-      - 4
-    obs_fps:
-      - 30
-      - 15
       - 10
+    obs_fps:
+      - 8.75

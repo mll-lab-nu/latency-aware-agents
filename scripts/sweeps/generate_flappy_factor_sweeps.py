@@ -25,12 +25,21 @@ from scripts.generate_sample_factory_same_latency_sweep import _drop_eval_time_l
 from scripts.generate_sample_factory_same_latency_sweep import LATENCY_BENCH_POLICY_TYPES
 
 
-DEFAULT_SPEC = REPO_ROOT / "configs" / "experiments" / "flappy" / "factor_sweeps" / "sweep.yaml"
+DEFAULT_SPEC = (
+    REPO_ROOT
+    / "configs"
+    / "experiments"
+    / "flappy"
+    / "factor_sweeps"
+    / "context_window"
+    / "sweep.yaml"
+)
 MANIFEST_COLUMNS = (
     "sweep",
     "latency_label",
     "frame_stack",
     "obs_fps",
+    "observation_stride",
     "seed",
     "train_config",
     "latency_bench_eval_config",
@@ -129,9 +138,16 @@ def _latency_distribution_spec(kind: str, setting: dict[str, Any]) -> LatencyDis
     )
 
 
-def _run_axis_fragment(sweep_name: str, frame_stack: int, obs_fps: int | float) -> str:
+def _run_axis_fragment(
+    sweep_name: str,
+    frame_stack: int,
+    obs_fps: int | float,
+    observation_stride: int | float,
+) -> str:
     if sweep_name == "frame_stack":
         return f"fs{int(frame_stack)}"
+    if sweep_name == "observation_stride":
+        return f"stride{_number_label(observation_stride)}"
     return f"obs{_number_label(obs_fps)}"
 
 
@@ -141,9 +157,10 @@ def _run_name(
     latency_label: str,
     frame_stack: int,
     obs_fps: int | float,
+    observation_stride: int | float,
     seed: int,
 ) -> str:
-    axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps)
+    axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps, observation_stride)
     return f"{env_name}_{sweep_name}_{latency_label}_{axis}_seed{int(seed)}"
 
 
@@ -153,9 +170,10 @@ def _wandb_name(
     latency_label: str,
     frame_stack: int,
     obs_fps: int | float,
+    observation_stride: int | float,
     seed: int,
 ) -> str:
-    axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps)
+    axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps, observation_stride)
     return f"{_env_slug(env_name)}-{axis}-{latency_label}-s{int(seed)}"
 
 
@@ -165,8 +183,9 @@ def _wandb_group(
     latency_label: str,
     frame_stack: int,
     obs_fps: int | float,
+    observation_stride: int | float,
 ) -> str:
-    axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps)
+    axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps, observation_stride)
     return f"{_env_slug(env_name)}-{axis}-{latency_label}"
 
 
@@ -177,9 +196,10 @@ def _wandb_tags(
     latency_setting: dict[str, Any],
     frame_stack: int,
     obs_fps: int | float,
+    observation_stride: int | float,
     seed: int,
 ) -> list[str]:
-    axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps)
+    axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps, observation_stride)
     latency_kind = str(latency_setting["kind"])
     return [
         "factor_sweep",
@@ -198,9 +218,16 @@ def _run_dir(
     latency_label: str,
     frame_stack: int,
     obs_fps: int | float,
+    observation_stride: int | float,
     seed: int,
 ) -> Path:
-    return generated_root / sweep_name / latency_label / _run_axis_fragment(sweep_name, frame_stack, obs_fps) / f"seed_{int(seed)}"
+    return (
+        generated_root
+        / sweep_name
+        / latency_label
+        / _run_axis_fragment(sweep_name, frame_stack, obs_fps, observation_stride)
+        / f"seed_{int(seed)}"
+    )
 
 
 def _output_dir(
@@ -210,6 +237,7 @@ def _output_dir(
     latency_label: str,
     frame_stack: int,
     obs_fps: int | float,
+    observation_stride: int | float,
     seed: int,
 ) -> Path:
     return (
@@ -217,7 +245,7 @@ def _output_dir(
         / stage
         / sweep_name
         / latency_label
-        / _run_axis_fragment(sweep_name, frame_stack, obs_fps)
+        / _run_axis_fragment(sweep_name, frame_stack, obs_fps, observation_stride)
         / f"seed_{int(seed)}"
     )
 
@@ -231,6 +259,7 @@ def _build_full_train_config(
     latency_setting: dict[str, Any],
     frame_stack: int,
     obs_fps: int | float,
+    observation_stride: int | float,
     seed: int,
     train_dir: Path,
     output_root: Path,
@@ -245,6 +274,7 @@ def _build_full_train_config(
         latency_label,
         frame_stack,
         obs_fps,
+        observation_stride,
         seed,
     )
     config["experiment"]["seed"] = int(seed)
@@ -257,10 +287,25 @@ def _build_full_train_config(
     config["env"]["obs_fps"] = obs_fps
     _apply_latency_setting(config, latency_setting, int(seed))
     config.setdefault("logging", {})["output_dir"] = str(
-        _output_dir(output_root, "train", sweep_name, latency_label, frame_stack, obs_fps, seed)
+        _output_dir(output_root, "train", sweep_name, latency_label, frame_stack, obs_fps, observation_stride, seed)
     )
-    config["logging"]["wandb_group"] = _wandb_group(env_name, sweep_name, latency_label, frame_stack, obs_fps)
-    config["logging"]["wandb_name"] = _wandb_name(env_name, sweep_name, latency_label, frame_stack, obs_fps, seed)
+    config["logging"]["wandb_group"] = _wandb_group(
+        env_name,
+        sweep_name,
+        latency_label,
+        frame_stack,
+        obs_fps,
+        observation_stride,
+    )
+    config["logging"]["wandb_name"] = _wandb_name(
+        env_name,
+        sweep_name,
+        latency_label,
+        frame_stack,
+        obs_fps,
+        observation_stride,
+        seed,
+    )
     config["logging"]["wandb_tags"] = _wandb_tags(
         env_name,
         sweep_name,
@@ -268,6 +313,7 @@ def _build_full_train_config(
         latency_setting,
         frame_stack,
         obs_fps,
+        observation_stride,
         seed,
     )
     return config
@@ -281,6 +327,7 @@ def _build_latency_bench_eval_config(
     latency_label: str,
     frame_stack: int,
     obs_fps: int | float,
+    observation_stride: int | float,
     seed: int,
     output_root: Path,
     latency_bench_policy_device: str,
@@ -300,20 +347,40 @@ def _build_latency_bench_eval_config(
         },
     )
     config["logging"]["output_dir"] = str(
-        _output_dir(output_root, "latency_bench", sweep_name, latency_label, frame_stack, obs_fps, seed)
+        _output_dir(
+            output_root,
+            "latency_bench",
+            sweep_name,
+            latency_label,
+            frame_stack,
+            obs_fps,
+            observation_stride,
+            seed,
+        )
     )
     if env_name == "deadly_corridor":
         config.setdefault("env", {})["noop_action"] = [0, 0, 0, 0]
     return config
 
 
-def _iter_runs(spec: dict[str, Any], *, seeds: Sequence[int] | None = None):
+def _iter_runs(base_config: dict[str, Any], spec: dict[str, Any], *, seeds: Sequence[int] | None = None):
     effective_seeds = [int(seed) for seed in (spec["seeds"] if seeds is None else seeds)]
     latency_settings = spec["latency_settings"]
+    env_fps = float(base_config["env"]["env_fps"])
     for sweep_name, sweep_cfg in spec["sweeps"].items():
         for latency_label, latency_setting in latency_settings.items():
             for frame_stack in sweep_cfg["frame_stack"]:
-                for obs_fps in sweep_cfg["obs_fps"]:
+                if "observation_stride" in sweep_cfg:
+                    obs_settings = [
+                        (env_fps / float(observation_stride), float(observation_stride))
+                        for observation_stride in sweep_cfg["observation_stride"]
+                    ]
+                else:
+                    obs_settings = [
+                        (float(obs_fps), env_fps / float(obs_fps))
+                        for obs_fps in sweep_cfg["obs_fps"]
+                    ]
+                for obs_fps, observation_stride in obs_settings:
                     for seed in effective_seeds:
                         yield (
                             sweep_name,
@@ -322,12 +389,13 @@ def _iter_runs(spec: dict[str, Any], *, seeds: Sequence[int] | None = None):
                             latency_setting,
                             int(frame_stack),
                             float(obs_fps),
+                            float(observation_stride),
                             int(seed),
                         )
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Generate Flappy frame_stack and obs_fps factor sweep configs.")
+    parser = argparse.ArgumentParser(description="Generate frame_stack and observation-cadence factor sweep configs.")
     parser.add_argument("--spec", type=Path, default=DEFAULT_SPEC)
     parser.add_argument("--seeds", type=str)
     parser.add_argument("--generated-root", type=Path)
@@ -355,7 +423,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     train_commands: list[str] = []
     latency_bench_eval_commands: list[str] = []
 
-    for sweep_name, sweep_cfg, latency_label, latency_setting, frame_stack, obs_fps, seed in _iter_runs(
+    for (
+        sweep_name,
+        sweep_cfg,
+        latency_label,
+        latency_setting,
+        frame_stack,
+        obs_fps,
+        observation_stride,
+        seed,
+    ) in _iter_runs(
+        base_config,
         spec,
         seeds=seeds,
     ):
@@ -367,6 +445,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             latency_setting=latency_setting,
             frame_stack=frame_stack,
             obs_fps=obs_fps,
+            observation_stride=observation_stride,
             seed=seed,
             train_dir=train_dir,
             output_root=output_root,
@@ -381,12 +460,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             latency_label=latency_label,
             frame_stack=frame_stack,
             obs_fps=obs_fps,
+            observation_stride=observation_stride,
             seed=seed,
             output_root=output_root,
             latency_bench_policy_device=args.latency_bench_policy_device,
         )
 
-        run_dir = _run_dir(generated_root, sweep_name, latency_label, frame_stack, obs_fps, seed)
+        run_dir = _run_dir(generated_root, sweep_name, latency_label, frame_stack, obs_fps, observation_stride, seed)
         train_path = run_dir / "train.yaml"
         latency_bench_eval_path = run_dir / "latency_bench_eval.yaml"
         _write_yaml(train_path, train_config)
@@ -403,6 +483,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     latency_label,
                     str(frame_stack),
                     str(obs_fps),
+                    _number_label(observation_stride),
                     str(seed),
                     str(train_path),
                     str(latency_bench_eval_path),
