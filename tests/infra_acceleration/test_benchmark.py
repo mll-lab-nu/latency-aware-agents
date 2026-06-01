@@ -197,6 +197,91 @@ def test_training_runs_in_fresh_python_subprocess(monkeypatch, tmp_path: Path):
     assert (Path(config["logging"]["output_dir"]) / "train_config.json").exists()
 
 
+def test_eval_runs_in_fresh_python_subprocess(monkeypatch, tmp_path: Path):
+    bench = _load_module()
+    config = _base_config("flappy", tmp_path)
+    config["experiment"]["name"] = "infra_accel_flappy_baseline_r0"
+    config["logging"]["output_dir"] = str(tmp_path / "runs" / "flappy" / "baseline" / "repeat_0")
+    checkpoint_path = tmp_path / "checkpoints" / "infra_accel_flappy_baseline_r0" / "checkpoint_p0" / "checkpoint_000000112_131072.pth"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_bytes(b"")
+
+    def fake_build_eval_config(training_config, *, checkpoint_path, output_dir):
+        return {
+            "experiment": {"name": training_config["experiment"]["name"]},
+            "policy": {"checkpoint_path": str(checkpoint_path)},
+            "logging": {"output_dir": str(output_dir)},
+            "evaluation": {"eval_episodes": 4},
+        }
+
+    def fake_run(command, *, cwd):
+        assert command[:2] == [sys.executable, str(MODULE_PATH)]
+        assert command[2] == "--run-eval-config"
+        assert command[4] == "--eval-result-path"
+        written_config = json.loads(Path(command[3]).read_text(encoding="utf-8"))
+        assert written_config["experiment"]["name"] == "infra_accel_flappy_baseline_r0"
+        assert written_config["policy"]["checkpoint_path"] == str(checkpoint_path)
+        result_path = Path(command[5])
+        result_path.write_text(
+            json.dumps(
+                {
+                    "episodes": 4,
+                    "episode_steps": 40,
+                    "mean_return": 1.5,
+                    "mean_length": 10.0,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        assert cwd == REPO_ROOT
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(bench, "build_latency_bench_config_from_training_config", fake_build_eval_config)
+    monkeypatch.setattr(bench.subprocess, "run", fake_run)
+
+    result = bench.run_eval(config, output_dir=tmp_path / "runs" / "flappy" / "baseline" / "repeat_0" / "eval")
+
+    assert result["status"] == 0
+    assert result["episodes"] == 4
+    assert result["episode_steps"] == 40
+    assert result["mean_return"] == pytest.approx(1.5)
+    assert result["mean_length"] == pytest.approx(10.0)
+    assert (tmp_path / "runs" / "flappy" / "baseline" / "repeat_0" / "eval" / "eval_config.json").exists()
+    assert (tmp_path / "runs" / "flappy" / "baseline" / "repeat_0" / "eval" / "eval_result.json").exists()
+
+
+def test_eval_subprocess_entry_writes_result_summary(monkeypatch, tmp_path: Path):
+    bench = _load_module()
+    eval_config = {
+        "experiment": {"name": "infra_accel_flappy_baseline_r0"},
+        "logging": {"output_dir": str(tmp_path / "eval")},
+        "evaluation": {"eval_episodes": 2},
+    }
+
+    class Metric:
+        def __init__(self, episode_return, survival_steps):
+            self.episode_return = episode_return
+            self.survival_steps = survival_steps
+
+    monkeypatch.setattr(bench, "has_eval_suites", lambda config: False)
+    monkeypatch.setattr(
+        bench,
+        "run_eval_sweep_from_config",
+        lambda config, *, progress: [Metric(2.0, 10), Metric(4.0, 20)],
+    )
+
+    status = bench.run_eval_config_once(eval_config, result_path=tmp_path / "eval_result.json")
+
+    result = json.loads((tmp_path / "eval_result.json").read_text(encoding="utf-8"))
+    assert status == 0
+    assert result["episodes"] == 2
+    assert result["episode_steps"] == 30
+    assert result["mean_return"] == pytest.approx(3.0)
+    assert result["mean_length"] == pytest.approx(15.0)
+
+
 def test_calibration_training_failure_stops_without_resolved_budget(monkeypatch, tmp_path: Path):
     bench = _load_module()
 

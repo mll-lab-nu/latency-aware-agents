@@ -293,6 +293,16 @@ def raise_training_failed(config: dict[str, Any], result: dict[str, Any]) -> Non
     )
 
 
+def raise_eval_failed(config: dict[str, Any], result: dict[str, Any], *, output_dir: Path) -> None:
+    raise RuntimeError(
+        "eval failed: "
+        f"env={config['env']['name']} "
+        f"experiment={config['experiment']['name']} "
+        f"status={int(result['status'])} "
+        f"output_dir={output_dir}"
+    )
+
+
 def run_eval(config: dict[str, Any], *, output_dir: Path) -> dict[str, Any]:
     checkpoint_path = find_checkpoint(
         config["backend"]["train_dir"],
@@ -304,8 +314,38 @@ def run_eval(config: dict[str, Any], *, output_dir: Path) -> dict[str, Any]:
         checkpoint_path=checkpoint_path,
         output_dir=output_dir,
     )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    config_path = output_dir / "eval_config.json"
+    result_path = output_dir / "eval_result.json"
+    config_path.write_text(json.dumps(eval_config, sort_keys=True) + "\n", encoding="utf-8")
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--run-eval-config",
+        str(config_path),
+        "--eval-result-path",
+        str(result_path),
+    ]
     before_cpu = _cpu_seconds()
     before_wall = time.perf_counter()
+    result = subprocess.run(command, cwd=REPO_ROOT)
+    wall_sec = time.perf_counter() - before_wall
+    cpu_sec = _cpu_seconds() - before_cpu
+    status = int(result.returncode)
+    if status != 0:
+        return {
+            "status": status,
+            "wall_sec": wall_sec,
+            "cpu_sec": cpu_sec,
+        }
+    eval_result = json.loads(result_path.read_text(encoding="utf-8"))
+    eval_result["status"] = status
+    eval_result["wall_sec"] = wall_sec
+    eval_result["cpu_sec"] = cpu_sec
+    return eval_result
+
+
+def run_eval_config_once(eval_config: dict[str, Any], *, result_path: Path) -> int:
     with contextlib.redirect_stdout(sys.stderr):
         if has_eval_suites(eval_config):
             summaries = run_eval_suites_from_config(eval_config, progress=True)
@@ -319,21 +359,25 @@ def run_eval(config: dict[str, Any], *, output_dir: Path) -> dict[str, Any]:
                     "mean_length": sum(int(metric.survival_steps) for metric in metrics) / len(metrics),
                 }
             ]
-    wall_sec = time.perf_counter() - before_wall
-    cpu_sec = _cpu_seconds() - before_cpu
     episodes = sum(len(summary["returns"]) for summary in summaries)
     episode_steps = sum(sum(int(length) for length in summary["lengths"]) for summary in summaries)
     mean_return = _weighted_mean(summaries, "mean_return", "returns")
     mean_length = _weighted_mean(summaries, "mean_length", "lengths")
-    return {
-        "status": 0,
-        "wall_sec": wall_sec,
-        "cpu_sec": cpu_sec,
-        "episodes": episodes,
-        "episode_steps": episode_steps,
-        "mean_return": mean_return,
-        "mean_length": mean_length,
-    }
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(
+        json.dumps(
+            {
+                "episodes": episodes,
+                "episode_steps": episode_steps,
+                "mean_return": mean_return,
+                "mean_length": mean_length,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return 0
 
 
 def _weighted_mean(summaries: Sequence[dict[str, Any]], value_key: str, count_key: str) -> float:
@@ -507,6 +551,8 @@ def write_jsonl(path: Path, rows: Sequence[dict[str, Any]]) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Benchmark infrastructure acceleration for small-model paper figures.")
     parser.add_argument("--run-training-config", type=Path)
+    parser.add_argument("--run-eval-config", type=Path)
+    parser.add_argument("--eval-result-path", type=Path)
     parser.add_argument("--budget", choices=sorted(BUDGETS), default="paper-grade")
     parser.add_argument("--envs", default="flappy,demon_attack,deadly_corridor")
     parser.add_argument("--repeats", type=int)
@@ -526,6 +572,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.run_training_config is not None:
         return run_training_config_once(json.loads(args.run_training_config.read_text(encoding="utf-8")))
+    if args.run_eval_config is not None:
+        return run_eval_config_once(
+            json.loads(args.run_eval_config.read_text(encoding="utf-8")),
+            result_path=args.eval_result_path,
+        )
 
     base_budget = BUDGETS[args.budget]
     budget = Budget(
@@ -589,6 +640,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if not args.skip_eval:
                     eval_output = output_root / "runs" / env_name / variant / f"repeat_{repeat_index}" / "eval"
                     eval_result = run_eval(config, output_dir=eval_output)
+                    if int(eval_result["status"]) != 0:
+                        raise_eval_failed(config, eval_result, output_dir=eval_output)
                     raw_rows.append(raw_eval_row(config, variant=variant, repeat_index=repeat_index, result=eval_result))
 
     if args.dry_run:
