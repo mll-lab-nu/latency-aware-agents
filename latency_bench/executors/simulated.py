@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
@@ -33,6 +35,7 @@ class SimulatedLatencyExecutor:
         logger: TrajectoryLogger | None = None,
         video_recorder=None,
         video_episode_metadata: dict[int, dict] | None = None,
+        episode_latency_source_factory: Callable[[int], LatencySource] | None = None,
     ):
         self.env = env
         self.policy = policy
@@ -43,6 +46,7 @@ class SimulatedLatencyExecutor:
         self.logger = logger
         self.video_recorder = video_recorder
         self.video_episode_metadata = video_episode_metadata
+        self.episode_latency_source_factory = episode_latency_source_factory
         self._next_obs_id = 0
         self._next_action_id = 0
 
@@ -52,6 +56,8 @@ class SimulatedLatencyExecutor:
         seed: int | None = None,
         eval_max_steps: int = 10000,
     ) -> EpisodeMetrics:
+        if self.episode_latency_source_factory is not None:
+            self.latency_source = self.episode_latency_source_factory(episode_id)
         self.action_scheduler.reset()
         self.policy.reset_state()
         self.env.reset(seed=seed)

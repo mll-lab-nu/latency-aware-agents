@@ -84,6 +84,7 @@ class BatchedSimulatedLatencyExecutor:
         action_schedulers: Sequence[ActionScheduler],
         clock: EnvClock,
         logger: TrajectoryLogger | None = None,
+        episode_latency_source_factory: Callable[[int], LatencySource] | None = None,
     ):
         slot_count = env_backend.num_slots
         self.env_backend = env_backend
@@ -93,6 +94,7 @@ class BatchedSimulatedLatencyExecutor:
         self.decision_scheduler = decision_scheduler
         self.clock = clock
         self.logger = logger
+        self.episode_latency_source_factory = episode_latency_source_factory
         self.slots = [
             _SlotState(
                 slot_id=slot_id,
@@ -320,6 +322,8 @@ class BatchedSimulatedLatencyExecutor:
         return [slot for slot in self.slots if slot.active]
 
     def _start_slot(self, slot: _SlotState, *, episode_id: int, seed: int | None) -> None:
+        if self.episode_latency_source_factory is not None:
+            slot.latency_source = self.episode_latency_source_factory(episode_id)
         slot.active = True
         slot.episode_id = int(episode_id)
         slot.episode_seed = None if seed is None else int(seed)

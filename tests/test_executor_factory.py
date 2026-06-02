@@ -10,6 +10,7 @@ from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.experiments.run_simulated_latency import build_executor as build_legacy_executor
+from latency_bench.run import run_from_config
 from latency_bench.latency.profile import save_profile_manifest, write_latency_samples
 from latency_bench.latency.sources import EmpiricalSampleLatencySource, EmpiricalTraceReplayLatencySource
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
@@ -281,6 +282,59 @@ def test_simulated_parallel_builds_batched_executor_for_distribution_latency(tmp
             close()
         else:
             executor.env.close()
+
+
+def test_seeded_stochastic_latency_source_factory_derives_episode_streams():
+    from latency_bench.executors.factory import _build_episode_latency_source_factory
+
+    factory = _build_episode_latency_source_factory(
+        {
+            "type": "normal_distribution",
+            "mean_latency_ms": 10.0,
+            "std_latency_ms": 1.0,
+            "min_latency_ms": 0.0,
+            "max_latency_ms": 20.0,
+            "seed": 7,
+        }
+    )
+
+    episode_0_first_source = factory(0)
+    episode_0_second_source = factory(0)
+    episode_1_source = factory(1)
+    episode_0_first = [episode_0_first_source.next_latency_ms({"episode_id": 0}) for _ in range(3)]
+    episode_0_second = [episode_0_second_source.next_latency_ms({"episode_id": 0}) for _ in range(3)]
+    episode_1 = [episode_1_source.next_latency_ms({"episode_id": 1}) for _ in range(3)]
+
+    assert episode_0_first == episode_0_second
+    assert episode_0_first != episode_1
+
+
+def test_seeded_stochastic_latency_eval_is_parallel_invariant(tmp_path):
+    serial_config = _config(output_dir=str(tmp_path / "serial"))
+    serial_config["evaluation"]["eval_episodes"] = 3
+    serial_config["evaluation"]["eval_parallel_envs"] = 1
+    serial_config["evaluation"]["eval_max_steps"] = 4
+    serial_config["latency"] = {
+        "type": "normal_distribution",
+        "mean_latency_ms": 10.0,
+        "std_latency_ms": 1.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 20.0,
+        "seed": 7,
+    }
+
+    parallel_config = _config(output_dir=str(tmp_path / "parallel"))
+    parallel_config["evaluation"]["eval_episodes"] = 3
+    parallel_config["evaluation"]["eval_parallel_envs"] = 3
+    parallel_config["evaluation"]["eval_max_steps"] = 4
+    parallel_config["latency"] = dict(serial_config["latency"])
+
+    serial_metrics = run_from_config(serial_config)
+    parallel_metrics = run_from_config(parallel_config)
+
+    assert [(metric.episode_id, metric.mean_latency_ms) for metric in serial_metrics] == [
+        (metric.episode_id, metric.mean_latency_ms) for metric in parallel_metrics
+    ]
 
 
 def test_simulated_parallel_explicit_subproc_builds_subproc_backend(tmp_path):
