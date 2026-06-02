@@ -240,6 +240,8 @@ def _apply_backend_variant(config: dict[str, Any], *, env_name: str, variant: st
             env_cfg["simulator"] = "cpu"
             return
         env_cfg["simulator"] = "envpool"
+        training_cfg["num_workers"] = 4
+        training_cfg["num_envs_per_worker"] = 16
         return
     raise KeyError(env_name)
 
