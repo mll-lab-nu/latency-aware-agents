@@ -661,6 +661,15 @@ def _run_retained_eval_checkpoints_from_config(
     return all_summaries
 
 
+def _has_explicit_sample_factory_checkpoint_selection(config: dict[str, Any]) -> bool:
+    if not _is_sample_factory_policy(config):
+        return False
+    policy_cfg = config["policy"]
+    if "checkpoint_kind" in policy_cfg:
+        return True
+    return "checkpoint_path" in policy_cfg and bool(policy_cfg["checkpoint_path"])
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run a latency-sensitive control benchmark.")
     parser.add_argument("--config", type=Path, required=True)
@@ -678,10 +687,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         checkpoint_kind=args.checkpoint_kind,
     )
     if has_eval_suites(config):
-        summaries = _run_retained_eval_checkpoints_from_config(config, progress=True)
-        if not summaries and not _is_sample_factory_policy(config):
+        if _has_explicit_sample_factory_checkpoint_selection(config):
             summaries = run_eval_suites_from_config(config, progress=True)
             _log_corrected_eval_summaries_to_wandb(config, summaries)
+        else:
+            summaries = _run_retained_eval_checkpoints_from_config(config, progress=True)
+            if not summaries and not _is_sample_factory_policy(config):
+                summaries = run_eval_suites_from_config(config, progress=True)
+                _log_corrected_eval_summaries_to_wandb(config, summaries)
         for summary in summaries:
             print(
                 f"summary suite={summary['suite_name']} "

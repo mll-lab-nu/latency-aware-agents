@@ -536,6 +536,127 @@ logging:
     assert finished == [True, True]
 
 
+def test_main_runs_explicit_sample_factory_checkpoint_eval_once(
+    monkeypatch,
+    tmp_path: Path,
+):
+    checkpoint_root = (
+        tmp_path
+        / "checkpoints"
+        / "demon_attack_frame_stack_fixed_l2_fs8_seed42"
+        / "checkpoint_p0"
+    )
+    marker_root = checkpoint_root / ".latency_bench_eval_checkpoints"
+    marker_root.mkdir(parents=True)
+    checkpoint_100 = checkpoint_root / "checkpoint_000000100_000000010000.pth"
+    checkpoint_100.write_text("", encoding="utf-8")
+    (marker_root / f"{checkpoint_100.name}.json").write_text(
+        json.dumps(
+            {
+                "checkpoint_path": str(checkpoint_100),
+                "eval_phase": "train_periodic",
+                "train_env_steps": 100,
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "latency_bench_eval.yaml"
+    config_path.write_text(
+        f"""
+experiment:
+  name: demon_attack_frame_stack_fixed_l2_fs8_seed42
+  seed: 42
+backend:
+  train_dir: {tmp_path / "checkpoints"}
+  extra_args:
+    - --load_checkpoint_kind
+    - latest
+executor:
+  mode: simulated
+env:
+  name: demon_attack
+  env_fps: 60
+  obs_fps: 15
+latency:
+  type: fixed
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+policy:
+  type: demon_attack_sf
+  checkpoint_kind: latest
+training:
+  train_for_env_steps: 250
+evaluation:
+  eval_episodes: 1
+  eval_max_steps: 3600
+  eval_suites:
+    fixed:
+      - [2]
+logging:
+  output_dir: {tmp_path / "eval_outputs"}
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  wandb_project: latency-sensitive-bench
+  wandb_group: demon-attack-fs8-fixed_l2
+  wandb_name: demon-attack-fs8-fixed_l2-s42
+  wandb_user: entity
+  wandb_tags:
+    - factor_sweep
+    - demon-attack
+""",
+        encoding="utf-8",
+    )
+
+    eval_calls = []
+
+    def fake_run_eval_suites_from_config(config, *, progress=False, extra_metadata=None):
+        eval_calls.append((config, progress, extra_metadata))
+        return [
+            {
+                "suite_name": "fixed_2",
+                "latency_type": "fixed_sweep",
+                "latency": 2,
+                "mean_return": 250.0,
+                "std_return": 1.5,
+                "mean_length": 3600.0,
+                "completed_episodes": 1,
+                "returns": [250.0],
+                "lengths": [3600],
+            }
+        ]
+
+    log_calls = []
+    fake_run = SimpleNamespace(summary={}, finish=lambda: None)
+    fake_wandb = SimpleNamespace(
+        run=None,
+        init=lambda **kwargs: setattr(fake_wandb, "run", fake_run),
+        define_metric=lambda *args, **kwargs: None,
+        log=lambda payload: log_calls.append(payload),
+    )
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+    monkeypatch.setattr(latency_run, "run_eval_suites_from_config", fake_run_eval_suites_from_config)
+
+    latency_run.main(["--config", str(config_path)])
+
+    assert len(eval_calls) == 1
+    assert eval_calls[0][0]["policy"]["checkpoint_kind"] == "latest"
+    assert eval_calls[0][0]["logging"]["output_dir"] == str(tmp_path / "eval_outputs")
+    assert eval_calls[0][2] is None
+    assert log_calls == [
+        {
+            "global_step": 250,
+            "eval_corrected/global_steps": 250,
+            "eval_corrected/fixed/latency_2/mean_return": 250.0,
+            "eval_corrected/fixed/latency_2/std_return": 1.5,
+            "eval_corrected/fixed/latency_2/mean_length": 3600.0,
+            "eval_corrected/fixed/latency_2/completed_episodes": 1.0,
+        }
+    ]
+    assert fake_run.summary["eval_corrected/fixed/latency_2/mean_return"] == 250.0
+
+
 def test_main_applies_runtime_overrides(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_output_dir = tmp_path / "config_output"

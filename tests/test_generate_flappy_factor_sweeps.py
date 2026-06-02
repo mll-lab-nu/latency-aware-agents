@@ -76,12 +76,16 @@ def test_context_window_spec_emits_official_seed_matrix(tmp_path):
     assert train_cfg["logging"]["output_dir"] == str(
         output_root / "train" / "frame_stack" / "normal_n2_s1" / "fs8" / "seed_10"
     )
+    assert "eval_interval_steps" not in train_cfg["evaluation"]
 
     eval_cfg = load_config(
         generated_root / "frame_stack" / "fixed_l1" / "fs4" / "seed_10" / "latency_bench_eval.yaml"
     )
     assert eval_cfg["backend"]["run_mode"] == "eval"
+    assert eval_cfg["backend"]["extra_args"] == ["--load_checkpoint_kind", "latest"]
     assert eval_cfg["policy"]["type"] == "flappy_sf"
+    assert eval_cfg["policy"]["checkpoint_kind"] == "latest"
+    assert "eval_interval_steps" not in eval_cfg["evaluation"]
 
 
 def test_observation_stride_spec_names_axis_by_stride_and_writes_obs_fps(tmp_path):
@@ -135,6 +139,7 @@ def test_observation_stride_spec_names_axis_by_stride_and_writes_obs_fps(tmp_pat
     assert train_cfg["logging"]["output_dir"] == str(
         output_root / "train" / "observation_stride" / "fixed_l2" / "stride5" / "seed_10"
     )
+    assert "eval_interval_steps" not in train_cfg["evaluation"]
 
 
 def test_observation_stride_spec_supports_fractional_deadly_corridor_obs_fps(tmp_path):

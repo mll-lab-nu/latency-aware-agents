@@ -23,6 +23,7 @@ from scripts.generate_sample_factory_same_latency_sweep import _prune_sample_fac
 from scripts.generate_sample_factory_same_latency_sweep import _align_demon_attack_raw_eval_config
 from scripts.generate_sample_factory_same_latency_sweep import _drop_eval_time_limit_fields
 from scripts.generate_sample_factory_same_latency_sweep import LATENCY_BENCH_POLICY_TYPES
+from training.common.config_adapter import apply_checkpoint_kind_override
 
 
 DEFAULT_SPEC = (
@@ -346,6 +347,8 @@ def _build_latency_bench_eval_config(
             "deterministic": True,
         },
     )
+    config["policy"]["checkpoint_kind"] = "latest"
+    apply_checkpoint_kind_override(config["backend"], "latest")
     config["logging"]["output_dir"] = str(
         _output_dir(
             output_root,
@@ -360,7 +363,12 @@ def _build_latency_bench_eval_config(
     )
     if env_name == "deadly_corridor":
         config.setdefault("env", {})["noop_action"] = [0, 0, 0, 0]
+    _disable_periodic_eval(config)
     return config
+
+
+def _disable_periodic_eval(config: dict[str, Any]) -> None:
+    del config["evaluation"]["eval_interval_steps"]
 
 
 def _iter_runs(base_config: dict[str, Any], spec: dict[str, Any], *, seeds: Sequence[int] | None = None):
@@ -453,6 +461,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             restart_behavior=restart_behavior,
         )
         train_config = _prune_sample_factory_config(full_train_config)
+        _disable_periodic_eval(train_config)
         latency_bench_eval_config = _build_latency_bench_eval_config(
             base_config,
             full_train_config,
