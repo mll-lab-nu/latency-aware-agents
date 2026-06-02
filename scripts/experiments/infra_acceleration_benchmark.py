@@ -229,11 +229,17 @@ def _apply_backend_variant(config: dict[str, Any], *, env_name: str, variant: st
         env_cfg["simulator"] = "gpu"
         return
     if env_name == "deadly_corridor":
+        config["backend"]["device"] = "cuda"
+        training_cfg = config["training"]
+        training_cfg["num_workers"] = 16
+        training_cfg["num_envs_per_worker"] = 4
+        training_cfg["worker_num_splits"] = 2
+        training_cfg["rollout"] = 128
+        training_cfg["num_batches_per_epoch"] = 2
         if variant == "baseline":
             env_cfg["simulator"] = "cpu"
             return
         env_cfg["simulator"] = "envpool"
-        env_cfg["envpool_batch_size"] = int(config["training"]["num_envs_per_worker"])
         return
     raise KeyError(env_name)
 
