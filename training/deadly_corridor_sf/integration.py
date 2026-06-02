@@ -31,6 +31,9 @@ from training.common.latency_config import (
 from training.common.latency_bench_periodic_eval import run_sample_factory_training
 from training.common.latency_wrapper import ActionLatencyWrapper, EpisodeMetricsWrapper, RewardTraceWrapper
 from training.common.raw_rgb_export import RawRgbFrameStackInfoWrapper
+from training.common.sf_component_healthcheck_compat import (
+    ensure_sample_factory_component_healthcheck_installed,
+)
 from training.common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
 from training.common.wandb_compat import patch_sample_factory_wandb
 
@@ -356,6 +359,8 @@ def run_from_config(config: dict) -> int:
     apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))
     patch_sample_factory_wandb()
+    if cfg.simulator == "envpool":
+        ensure_sample_factory_component_healthcheck_installed(env_name=SF_ENV_NAME)
 
     metrics_stop_event = None
     metrics_thread = None

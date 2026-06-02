@@ -329,6 +329,7 @@ class DeadlyCorridorEnvPoolEnv(gym.Env):
         )
         done_mask = np.logical_or(terminated, truncated)
 
+        done_indices = np.flatnonzero(done_mask)
         infos = self._step_infos(
             latest_info=latest_info,
             raw_rewards=raw_rewards,
@@ -341,19 +342,29 @@ class DeadlyCorridorEnvPoolEnv(gym.Env):
         )
         obs = self._obs()
         self._decision_step_idx += 1
-        reset_infos = self._auto_reset_done_agents(np.flatnonzero(done_mask))
+        reset_infos = self._auto_reset_done_agents(done_indices, latest_info=latest_info)
         for agent_idx, reset_info in reset_infos.items():
             infos[int(agent_idx)]["reset_info"] = reset_info
         self._last_info = [dict(item) for item in infos]
         self.sample_factory_step_cpu_tensors = {}
         return obs, rewards, terminated, truncated, infos
 
-    def _auto_reset_done_agents(self, done_indices: Sequence[int]) -> dict[int, dict[str, Any]]:
+    def _auto_reset_done_agents(
+        self,
+        done_indices: Sequence[int],
+        *,
+        latest_info: Sequence[dict[str, Any]],
+    ) -> dict[int, dict[str, Any]]:
         reset_indices = [int(agent_idx) for agent_idx in done_indices]
         if not reset_indices:
             return {}
-        env_ids = np.asarray(reset_indices, dtype=np.int32)
-        raw_obs, _info = self._env.reset(env_id=env_ids)
+        raw_obs = np.stack(
+            [
+                np.asarray(latest_info[agent_idx]["terminal_reset_obs"], dtype=np.uint8)
+                for agent_idx in reset_indices
+            ],
+            axis=0,
+        )
         processed = self._process_raw_obs(raw_obs)
         self.metrics.reset(indices=reset_indices)
         self._reset_latency_state(reset_indices)
