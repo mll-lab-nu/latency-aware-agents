@@ -217,7 +217,16 @@ def _apply_backend_variant(config: dict[str, Any], *, env_name: str, variant: st
         return
     if env_name == "demon_attack":
         config["backend"]["device"] = "gpu"
-        env_cfg["simulator"] = "cpu" if variant == "baseline" else "gpu"
+        if variant == "baseline":
+            env_cfg["simulator"] = "cpu"
+            training_cfg = config["training"]
+            training_cfg["num_workers"] = 16
+            training_cfg["num_envs_per_worker"] = 4
+            training_cfg["worker_num_splits"] = 2
+            training_cfg["rollout"] = 128
+            training_cfg["num_batches_per_epoch"] = 2
+            return
+        env_cfg["simulator"] = "gpu"
         return
     if env_name == "deadly_corridor":
         if variant == "baseline":
