@@ -29,3 +29,6 @@ __pycache__/
 # onle reference for agents, not to upload
 reference/
 paper/
+
+# private keys
+.env
