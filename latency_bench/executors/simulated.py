@@ -90,6 +90,7 @@ class SimulatedLatencyExecutor:
                     "env_step": raw_frame,
                     "raw_frame": raw_frame,
                     "sim_time_ms": current_time_ms,
+                    "episode_id": episode_id,
                 }
                 latency_sample = sample_simulated_latency(
                     latency_source=self.latency_source,

@@ -37,6 +37,7 @@ class BatchedFlappyLatencyScheduler:
         hold_policy: str | ActionHoldPolicy,
         ordering_policy: str | OrderingPolicy,
         latency_distribution_spec: LatencyDistributionSpec | None,
+        sample_distribution_per_episode: bool = False,
         seeds: Sequence[int],
         env_reset_seed_bases: Sequence[int],
         add_latency_info: bool,
@@ -45,6 +46,7 @@ class BatchedFlappyLatencyScheduler:
         self.batch_size = int(batch_size)
         self.fixed_latency_raw_frames = int(fixed_latency_raw_frames)
         self.latency_distribution_spec = latency_distribution_spec
+        self.sample_distribution_per_episode = bool(sample_distribution_per_episode)
         self.latency_distribution_label = (
             None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
         )
@@ -106,9 +108,12 @@ class BatchedFlappyLatencyScheduler:
             self.next_action_id[agent_idx] = 0
             self.persistence_remaining[agent_idx] = 0
             self._reset_latency_distribution_sampler(agent_idx)
-            self.current_latency_raw_frames[agent_idx] = (
-                0 if self.latency_distribution_spec is not None else int(self.fixed_latency_raw_frames)
-            )
+            if self.latency_distribution_spec is None:
+                self.current_latency_raw_frames[agent_idx] = self.fixed_latency_raw_frames
+            elif self.sample_distribution_per_episode:
+                self.current_latency_raw_frames[agent_idx] = self.latency_distribution_samplers[agent_idx].sample_frame()
+            else:
+                self.current_latency_raw_frames[agent_idx] = 0
             seed = seed_values[offset]
             if seed is None:
                 seed = int(self.env_reset_seed_bases[agent_idx] + self.episode_idx[agent_idx])
@@ -283,6 +288,8 @@ class BatchedFlappyLatencyScheduler:
 
     def _next_latency_raw_frames(self, agent_idx: int) -> int:
         if self.latency_distribution_spec is not None:
+            if self.sample_distribution_per_episode:
+                return self.current_latency_raw_frames[agent_idx]
             if self.latency_distribution_samplers[agent_idx] is None:
                 self._reset_latency_distribution_sampler(agent_idx)
             return int(self.latency_distribution_samplers[agent_idx].sample_frame())

@@ -14,6 +14,7 @@ from training.common.utils import env_instance_seed
 class SampleFactoryLatencyParams:
     fixed_latency_raw_frames: int
     latency_distribution_spec: LatencyDistributionSpec | None
+    sample_distribution_per_episode: bool = False
 
 
 def sample_factory_latency_seed_from_flat_config(
@@ -56,15 +57,20 @@ def sample_factory_latency_params_from_flat_config(cfg: Any, *, env_fps: float) 
             fixed_latency_raw_frames=latency_ms_to_raw_frames(getattr(cfg, "fixed_latency_ms"), env_fps=env_fps),
             latency_distribution_spec=None,
         )
+    sample_per_episode = latency_type in {
+        LatencySourceType.MIXED_NORMAL_DISTRIBUTION,
+        LatencySourceType.MIXED_UNIFORM_DISTRIBUTION,
+    }
     return SampleFactoryLatencyParams(
         fixed_latency_raw_frames=0,
         latency_distribution_spec=latency_distribution_spec_from_flat_config(cfg, env_fps=env_fps),
+        sample_distribution_per_episode=sample_per_episode,
     )
 
 
 def latency_distribution_spec_from_flat_config(cfg: Any, *, env_fps: float) -> LatencyDistributionSpec:
     latency_type = LatencySourceType(str(getattr(cfg, "latency_type")))
-    if latency_type == LatencySourceType.NORMAL_DISTRIBUTION:
+    if latency_type in {LatencySourceType.NORMAL_DISTRIBUTION, LatencySourceType.MIXED_NORMAL_DISTRIBUTION}:
         return LatencyDistributionSpec(
             type="normal",
             mean=latency_ms_to_raw_frame_value(getattr(cfg, "mean_latency_ms"), env_fps=env_fps),
@@ -72,7 +78,7 @@ def latency_distribution_spec_from_flat_config(cfg: Any, *, env_fps: float) -> L
             min=latency_ms_to_raw_frame_value(getattr(cfg, "min_latency_ms"), env_fps=env_fps),
             max=latency_ms_to_raw_frame_value(getattr(cfg, "max_latency_ms"), env_fps=env_fps),
         )
-    if latency_type == LatencySourceType.UNIFORM_DISTRIBUTION:
+    if latency_type in {LatencySourceType.UNIFORM_DISTRIBUTION, LatencySourceType.MIXED_UNIFORM_DISTRIBUTION}:
         return LatencyDistributionSpec(
             type="uniform",
             mean=None,

@@ -174,6 +174,7 @@ def make_demon_attack_sf_env(
         hold_policy=cfg.hold_policy,
         ordering_policy=cfg.ordering_policy,
         latency_distribution_spec=latency_params.latency_distribution_spec,
+        sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
         seed=latency_seed,
         env_reset_seed_base=wrapper_seed + 104729,
         add_latency_info=cfg.add_latency_info,

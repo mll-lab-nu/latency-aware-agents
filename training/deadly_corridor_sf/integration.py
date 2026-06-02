@@ -195,6 +195,7 @@ def make_latency_doom_env_from_spec(
         hold_policy=getattr(cfg, "hold_policy", ActionHoldPolicy.HOLD.value),
         ordering_policy=getattr(cfg, "ordering_policy", OrderingPolicy.LATEST_READY.value),
         latency_distribution_spec=latency_params.latency_distribution_spec,
+        sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
         seed=latency_seed,
         env_reset_seed_base=wrapper_seed + 104729,
         add_latency_info=bool(getattr(cfg, "add_latency_info", False)),

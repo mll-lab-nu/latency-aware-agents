@@ -9,6 +9,8 @@ from latency_bench.latency.sources import (
     EmpiricalSampleLatencySource,
     EmpiricalTraceReplayLatencySource,
     FixedLatencySource,
+    MixedNormalDistributionLatencySource,
+    MixedUniformDistributionLatencySource,
     NormalDistributionLatencySource,
     TraceReplayLatencySource,
     UniformDistributionLatencySource,
@@ -120,6 +122,33 @@ def test_uniform_distribution_preserves_contract_values_without_range_validation
 
     assert source.min_latency_ms == 20.0
     assert source.max_latency_ms == 10.0
+
+
+def test_mixed_distribution_sources_sample_once_per_episode():
+    normal = MixedNormalDistributionLatencySource(
+        mean_latency_ms=100.0,
+        std_latency_ms=20.0,
+        seed=0,
+        min_latency_ms=0.0,
+        max_latency_ms=200.0,
+    )
+    uniform = MixedUniformDistributionLatencySource(
+        min_latency_ms=10.0,
+        max_latency_ms=20.0,
+        seed=0,
+    )
+
+    normal_ep0 = [normal.next_latency_ms({"episode_id": 0}) for _ in range(5)]
+    normal_ep1 = [normal.next_latency_ms({"episode_id": 1}) for _ in range(5)]
+    uniform_ep0 = [uniform.next_latency_ms({"episode_id": 0}) for _ in range(5)]
+    uniform_ep1 = [uniform.next_latency_ms({"episode_id": 1}) for _ in range(5)]
+
+    assert len(set(normal_ep0)) == 1
+    assert len(set(normal_ep1)) == 1
+    assert normal_ep0[0] != normal_ep1[0]
+    assert len(set(uniform_ep0)) == 1
+    assert len(set(uniform_ep1)) == 1
+    assert uniform_ep0[0] != uniform_ep1[0]
 
 
 def test_trace_replay_returns_values_in_order(tmp_path: Path):

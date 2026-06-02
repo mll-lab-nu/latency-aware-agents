@@ -58,11 +58,13 @@ class ActionLatencyWrapper(gym.Wrapper):
         env_reset_seed_base: int | None = None,
         add_latency_info: bool = True,
         latency_distribution_spec: LatencyDistributionSpec | None = None,
+        sample_distribution_per_episode: bool = False,
         max_pending_actions: int | None = None,
     ):
         super().__init__(env)
         self.fixed_latency_raw_frames = int(fixed_latency_raw_frames)
         self.latency_distribution_spec = latency_distribution_spec
+        self.sample_distribution_per_episode = bool(sample_distribution_per_episode)
         self.latency_distribution_label = (
             None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
         )
@@ -116,6 +118,8 @@ class ActionLatencyWrapper(gym.Wrapper):
 
     def _next_latency_raw_frames(self) -> int:
         if self.latency_distribution_spec is not None:
+            if self.sample_distribution_per_episode:
+                return int(self.current_latency_raw_frames)
             if self.latency_distribution_sampler is None:
                 self._reset_latency_distribution_sampler()
             return int(self.latency_distribution_sampler.sample_frame())
@@ -160,7 +164,12 @@ class ActionLatencyWrapper(gym.Wrapper):
         self.decision_step_idx = 0
         self._next_action_id = 0
         self._reset_latency_distribution_sampler()
-        self.current_latency_raw_frames = 0 if self.latency_distribution_spec is not None else int(self.fixed_latency_raw_frames)
+        if self.latency_distribution_spec is None:
+            self.current_latency_raw_frames = int(self.fixed_latency_raw_frames)
+        elif self.sample_distribution_per_episode:
+            self.current_latency_raw_frames = int(self.latency_distribution_sampler.sample_frame())
+        else:
+            self.current_latency_raw_frames = 0
         reset_kwargs = dict(kwargs)
         inserted_seed = False
         if reset_kwargs.get("seed") is None and self.env_reset_seed_base is not None:

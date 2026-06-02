@@ -149,6 +149,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             self.latency = CudaLatencyScheduler(
                 **latency_kwargs,
                 latency_distribution_spec=latency_params.latency_distribution_spec,
+                sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
                 max_pending_actions=max_pending_actions,
                 device=self.render_device,
             )
@@ -156,6 +157,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             self.latency = BatchedFlappyLatencyScheduler(
                 **latency_kwargs,
                 latency_distribution_spec=latency_params.latency_distribution_spec,
+                sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
                 max_pending_actions=max_pending_actions,
             )
         self._uses_cuda_latency = isinstance(self.latency, CudaLatencyScheduler)
@@ -260,6 +262,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             hold_policy=getattr(self.cfg, "hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value),
             ordering_policy=getattr(self.cfg, "ordering_policy", OrderingPolicy.LATEST_READY.value),
             latency_distribution_spec=latency_params.latency_distribution_spec,
+            sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
             seed=latency_seed,
             env_reset_seed_base=sub_seed + 104729,
             add_latency_info=bool(getattr(self.cfg, "add_latency_info", False)),

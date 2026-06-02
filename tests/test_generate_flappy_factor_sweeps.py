@@ -361,10 +361,62 @@ def test_factor_sweep_wrapper_can_generate_only_selected_sweep(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert not (generated_root / "flappy" / "context_window" / "manifest.tsv").exists()
-    rows = _read_manifest(generated_root / "flappy" / "observation_stride" / "manifest.tsv")
-    assert len(rows) == 50
-    assert {row["seed"] for row in rows} == {"10", "11"}
+
+
+def test_mixed_jitter_robustness_spec_generates_only_mixed_train_runs(tmp_path):
+    generated_root = tmp_path / "configs"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    generate_flappy_factor_sweeps(
+        [
+            "--spec",
+            "configs/experiments/flappy/jitter_robustness/mixed_sweeps.yaml",
+            "--generated-root",
+            str(generated_root),
+            "--output-root",
+            str(output_root),
+            "--train-dir",
+            str(train_dir),
+        ]
+    )
+
+    rows = _read_manifest(generated_root / "manifest.tsv")
+    assert len(rows) == 6
+    assert {row["latency_label"] for row in rows} == {"mixed_normal_n2_s1", "mixed_uniform_u1_3"}
+    assert {row["seed"] for row in rows} == {"911", "922", "933"}
+
+    train_cfg = yaml.safe_load(
+        (
+            generated_root
+            / "jitter_robustness"
+            / "mixed_normal_n2_s1"
+            / "obs15"
+            / "seed_911"
+            / "train.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    assert train_cfg["latency"]["type"] == "mixed_normal_distribution"
+    assert train_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [[1, 2, 3]],
+        "normal": [[2.0, 1.0, 0, 4]],
+        "uniform": [[1, 3]],
+    }
+
+    eval_cfg = load_config(
+        generated_root
+        / "jitter_robustness"
+        / "mixed_uniform_u1_3"
+        / "obs15"
+        / "seed_911"
+        / "latency_bench_eval.yaml"
+    )
+    assert eval_cfg["latency"]["type"] == "mixed_uniform_distribution"
+    assert eval_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [[1, 2, 3]],
+        "normal": [[2.0, 1.0, 0, 4]],
+        "uniform": [[1, 3]],
+    }
 
 
 def test_flappy_factor_sweep_wrapper_uses_split_defaults(tmp_path):

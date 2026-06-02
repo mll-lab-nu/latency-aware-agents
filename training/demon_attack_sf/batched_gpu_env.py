@@ -72,6 +72,7 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             hold_policy=self.cfg.hold_policy,
             ordering_policy=self.cfg.ordering_policy,
             latency_distribution_spec=latency_params.latency_distribution_spec,
+            sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
             seeds=latency_seeds,
             env_reset_seed_bases=[seed + 104729 for seed in sub_seeds],
             add_latency_info=self.cfg.add_latency_info,

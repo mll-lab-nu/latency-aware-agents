@@ -434,15 +434,17 @@ __global__ void flappy_latency_begin_kernel(
         return;
     }
 
-    const int64_t latency = sample_latency_raw_frames(
-        fixed_latency_raw_frames,
-        latency_distribution_type,
-        latency_distribution_mean,
-        latency_distribution_std,
-        latency_distribution_min,
-        latency_distribution_max,
-        latency_rng_state,
-        env);
+    const int64_t latency = latency_distribution_type == 3
+        ? current_latency_raw_frames[env]
+        : sample_latency_raw_frames(
+            fixed_latency_raw_frames,
+            latency_distribution_type,
+            latency_distribution_mean,
+            latency_distribution_std,
+            latency_distribution_min,
+            latency_distribution_max,
+            latency_rng_state,
+            env);
     const int64_t ready_raw_frame = env_step_idx[env] + latency;
     current_latency_raw_frames[env] = latency;
     decision_latency_raw_frames[env] = latency;
@@ -638,15 +640,17 @@ __global__ void flappy_latency_core_decision_kernel(
     int64_t raw_frames_advanced = 0;
 
     if (active[env]) {
-        const int64_t latency = sample_latency_raw_frames(
-            fixed_latency_raw_frames,
-            latency_distribution_type,
-            latency_distribution_mean,
-            latency_distribution_std,
-            latency_distribution_min,
-            latency_distribution_max,
-            latency_rng_state,
-            env);
+        const int64_t latency = latency_distribution_type == 3
+            ? current_latency_raw_frames[env]
+            : sample_latency_raw_frames(
+                fixed_latency_raw_frames,
+                latency_distribution_type,
+                latency_distribution_mean,
+                latency_distribution_std,
+                latency_distribution_min,
+                latency_distribution_max,
+                latency_rng_state,
+                env);
         const int64_t ready_raw_frame = env_step_idx[env] + latency;
         current_latency_raw_frames[env] = latency;
         decision_latency_raw_frames[env] = latency;

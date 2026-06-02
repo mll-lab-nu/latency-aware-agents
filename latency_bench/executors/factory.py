@@ -20,6 +20,8 @@ from latency_bench.latency.sources import (
     FixedLatencySource,
     LatencySource,
     NormalDistributionLatencySource,
+    MixedNormalDistributionLatencySource,
+    MixedUniformDistributionLatencySource,
     TraceReplayLatencySource,
     UniformDistributionLatencySource,
     ZeroLatencySource,
@@ -364,6 +366,20 @@ def _build_latency_source(latency_cfg: dict[str, Any]) -> LatencySource:
             max_latency_ms=float(latency_cfg["max_latency_ms"]),
             seed=latency_cfg.get("seed"),
         )
+    if latency_type == LatencySourceType.MIXED_NORMAL_DISTRIBUTION.value:
+        return MixedNormalDistributionLatencySource(
+            mean_latency_ms=float(latency_cfg["mean_latency_ms"]),
+            std_latency_ms=float(latency_cfg["std_latency_ms"]),
+            seed=latency_cfg.get("seed"),
+            min_latency_ms=float(latency_cfg["min_latency_ms"]),
+            max_latency_ms=float(latency_cfg["max_latency_ms"]),
+        )
+    if latency_type == LatencySourceType.MIXED_UNIFORM_DISTRIBUTION.value:
+        return MixedUniformDistributionLatencySource(
+            min_latency_ms=float(latency_cfg["min_latency_ms"]),
+            max_latency_ms=float(latency_cfg["max_latency_ms"]),
+            seed=latency_cfg.get("seed"),
+        )
     if latency_type == LatencySourceType.TRACE_REPLAY.value:
         return TraceReplayLatencySource(
             trace_path=latency_cfg["trace_path"],
@@ -481,6 +497,8 @@ def _supports_phase_3b_batched_latency(latency_cfg: dict[str, Any]) -> bool:
         LatencySourceType.FIXED.value,
         LatencySourceType.NORMAL_DISTRIBUTION.value,
         LatencySourceType.UNIFORM_DISTRIBUTION.value,
+        LatencySourceType.MIXED_NORMAL_DISTRIBUTION.value,
+        LatencySourceType.MIXED_UNIFORM_DISTRIBUTION.value,
     }
 
 

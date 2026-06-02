@@ -72,6 +72,56 @@ class UniformDistributionLatencySource(LatencySource):
         return self.rng.uniform(self.min_latency_ms, self.max_latency_ms)
 
 
+class MixedNormalDistributionLatencySource(NormalDistributionLatencySource):
+    def __init__(
+        self,
+        mean_latency_ms: float,
+        std_latency_ms: float,
+        seed: int | None = None,
+        min_latency_ms: float = 0.0,
+        max_latency_ms: float | None = None,
+    ):
+        super().__init__(
+            mean_latency_ms=mean_latency_ms,
+            std_latency_ms=std_latency_ms,
+            seed=seed,
+            min_latency_ms=min_latency_ms,
+            max_latency_ms=max_latency_ms,
+        )
+        self._episode_id: int | None = None
+        self._episode_latency_ms: float | None = None
+
+    def next_latency_ms(self, context: dict[str, Any] | None = None) -> float:
+        episode_id = int(context["episode_id"])
+        if self._episode_id != episode_id:
+            self._episode_id = episode_id
+            self._episode_latency_ms = super().next_latency_ms(context)
+        return self._episode_latency_ms
+
+
+class MixedUniformDistributionLatencySource(UniformDistributionLatencySource):
+    def __init__(
+        self,
+        min_latency_ms: float,
+        max_latency_ms: float,
+        seed: int | None = None,
+    ):
+        super().__init__(
+            min_latency_ms=min_latency_ms,
+            max_latency_ms=max_latency_ms,
+            seed=seed,
+        )
+        self._episode_id: int | None = None
+        self._episode_latency_ms: float | None = None
+
+    def next_latency_ms(self, context: dict[str, Any] | None = None) -> float:
+        episode_id = int(context["episode_id"])
+        if self._episode_id != episode_id:
+            self._episode_id = episode_id
+            self._episode_latency_ms = super().next_latency_ms(context)
+        return self._episode_latency_ms
+
+
 class TraceReplayLatencySource(LatencySource):
     def __init__(self, trace_path: str | Path, loop_trace: bool = False):
         self.trace_path = Path(trace_path)

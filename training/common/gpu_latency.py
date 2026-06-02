@@ -12,6 +12,7 @@ from latency_bench.core.latency_distribution import (
     derive_latency_seed,
     distribution_max_frame_latency,
     latency_distribution_label,
+    make_latency_distribution_sampler,
 )
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from training.flappy_sf.flappy_cuda_extension import load_flappy_cuda_extension
@@ -62,11 +63,13 @@ class CudaLatencyScheduler:
         add_latency_info: bool,
         device: str | torch.device,
         latency_distribution_spec: LatencyDistributionSpec | None = None,
+        sample_distribution_per_episode: bool = False,
         max_pending_actions: int | None = None,
     ) -> None:
         self.batch_size = int(batch_size)
         self.fixed_latency_raw_frames = int(fixed_latency_raw_frames)
         self.latency_distribution_spec = latency_distribution_spec
+        self.sample_distribution_per_episode = bool(sample_distribution_per_episode)
         self.latency_distribution_label = (
             None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
         )
@@ -92,11 +95,7 @@ class CudaLatencyScheduler:
         self.add_latency_info = bool(add_latency_info)
         self.device = torch.device(device)
         self.ext = load_flappy_cuda_extension()
-        self.latency_distribution_type = (
-            0
-            if self.latency_distribution_spec is None
-            else {"uniform": 1, "normal": 2}[self.latency_distribution_spec.type]
-        )
+        self.latency_distribution_type = self._latency_distribution_type()
         self.latency_distribution_mean = (
             0.0 if self.latency_distribution_spec is None or self.latency_distribution_spec.mean is None
             else float(self.latency_distribution_spec.mean)
@@ -158,8 +157,9 @@ class CudaLatencyScheduler:
         if not self.add_latency_info:
             reset_seeds: list[int] = []
             infos: list[dict[str, Any]] = []
-            reset_latency = 0 if self.latency_distribution_spec is not None else int(self.fixed_latency_raw_frames)
+            reset_latencies = self._reset_latencies_for_indices(target_indices)
             for offset, agent_idx in enumerate(target_indices):
+                reset_latency = reset_latencies[offset]
                 seed = seed_values[offset]
                 if seed is None:
                     seed = int(self.env_reset_seed_bases[agent_idx] + int(self.episode_idx_cpu[agent_idx]))
@@ -201,7 +201,12 @@ class CudaLatencyScheduler:
                 int(len(target_indices)),
             )
             self.episode_idx_cpu[np.asarray(target_indices, dtype=np.int64)] += 1
-            self._latency_raw_frames_cpu[np.asarray(target_indices, dtype=np.int64)] = reset_latency
+            self.current_latency_raw_frames[index_t] = torch.as_tensor(
+                reset_latencies,
+                dtype=torch.int64,
+                device=self.device,
+            )
+            self._latency_raw_frames_cpu[np.asarray(target_indices, dtype=np.int64)] = reset_latencies
             return reset_seeds, infos
         reset_seeds: list[int] = []
         infos: list[dict[str, Any]] = []
@@ -213,7 +218,7 @@ class CudaLatencyScheduler:
             self.decision_step_idx[agent_idx] = 0
             self.next_action_id[agent_idx] = 0
             self.persistence_remaining[agent_idx] = 0
-            self.current_latency_raw_frames[agent_idx] = 0 if self.latency_distribution_spec is not None else int(self.fixed_latency_raw_frames)
+            self.current_latency_raw_frames[agent_idx] = self._reset_latency_for_agent(agent_idx)
             seed = seed_values[offset]
             if seed is None:
                 seed = int(self.env_reset_seed_bases[agent_idx] + int(self.episode_idx[agent_idx].item()))
@@ -223,7 +228,12 @@ class CudaLatencyScheduler:
             self.episode_idx_cpu[agent_idx] += 1
         self._reset_latency_rng_states(target_indices, episode_offset=-1)
         self._latency_raw_frames_cpu[np.asarray(target_indices, dtype=np.int64)] = (
-            0 if self.latency_distribution_spec is not None else int(self.fixed_latency_raw_frames)
+            self.current_latency_raw_frames[
+                torch.as_tensor(target_indices, dtype=torch.int64, device=self.device)
+            ]
+            .detach()
+            .cpu()
+            .numpy()
         )
         return reset_seeds, infos
 
@@ -539,6 +549,30 @@ class CudaLatencyScheduler:
             dtype=torch.int64,
             device=self.device,
         )
+
+    def _latency_distribution_type(self) -> int:
+        if self.latency_distribution_spec is None:
+            return 0
+        if self.sample_distribution_per_episode:
+            return 3
+        return {"uniform": 1, "normal": 2}[self.latency_distribution_spec.type]
+
+    def _reset_latencies_for_indices(self, target_indices: Sequence[int]) -> np.ndarray:
+        return np.asarray(
+            [self._reset_latency_for_agent(int(agent_idx)) for agent_idx in target_indices],
+            dtype=np.int64,
+        )
+
+    def _reset_latency_for_agent(self, agent_idx: int) -> int:
+        if self.latency_distribution_spec is None:
+            return int(self.fixed_latency_raw_frames)
+        if self.sample_distribution_per_episode:
+            seed = derive_latency_seed(
+                int(self.base_latency_seeds[int(agent_idx)]),
+                episode_idx=int(self.episode_idx_cpu[int(agent_idx)]),
+            )
+            return int(make_latency_distribution_sampler(self.latency_distribution_spec, seed=seed).sample_frame())
+        return 0
 
     def _indices(self, indices: Sequence[int] | np.ndarray | torch.Tensor | None) -> list[int]:
         if indices is None:

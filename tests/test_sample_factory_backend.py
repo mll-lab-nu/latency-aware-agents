@@ -680,6 +680,63 @@ def test_action_latency_wrapper_distribution_resets_episode_rng():
     assert first_episode != second_episode
 
 
+def test_action_latency_wrapper_mixed_distribution_samples_once_per_episode():
+    import gymnasium as gym
+    import numpy as np
+    from gymnasium.spaces import Box, Discrete
+
+    from training.common.latency_wrapper import ActionLatencyWrapper
+
+    class NeverDoneEnv(gym.Env):
+        observation_space = Box(low=0, high=1, shape=(1,), dtype=np.float32)
+        action_space = Discrete(2)
+
+        def reset(self, *, seed=None, options=None):
+            return np.zeros((1,), dtype=np.float32), {}
+
+        def step(self, action):
+            return np.zeros((1,), dtype=np.float32), 0.0, False, False, {}
+
+    wrapped = ActionLatencyWrapper(
+        NeverDoneEnv(),
+        fixed_latency_raw_frames=0,
+        env_fps=30,
+        obs_fps=30,
+        latency_distribution_spec=parse_latency_distribution({"type": "uniform", "min": 0, "max": 15}),
+        sample_distribution_per_episode=True,
+        seed=99,
+    )
+
+    try:
+        wrapped.reset()
+        first_episode = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(20)]
+        wrapped.reset()
+        second_episode = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(20)]
+    finally:
+        wrapped.close()
+
+    assert len(set(first_episode)) == 1
+    assert len(set(second_episode)) == 1
+    assert first_episode[0] != second_episode[0]
+
+
+def test_sample_factory_latency_params_support_mixed_distribution():
+    from training.common.latency_config import sample_factory_latency_params_from_flat_config
+
+    cfg = SimpleNamespace(
+        latency_type="mixed_uniform_distribution",
+        min_latency_ms=50.0,
+        max_latency_ms=(3.5 * 1000.0 / 30.0),
+    )
+
+    params = sample_factory_latency_params_from_flat_config(cfg, env_fps=30)
+
+    assert params.fixed_latency_raw_frames == 0
+    assert params.latency_distribution_spec is not None
+    assert params.latency_distribution_spec.type == "uniform"
+    assert params.sample_distribution_per_episode is True
+
+
 def test_action_latency_wrapper_distribution_rejects_too_small_pending_action_bound():
     import gymnasium as gym
     import pytest

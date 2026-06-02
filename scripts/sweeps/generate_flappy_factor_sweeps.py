@@ -127,6 +127,10 @@ def _apply_latency_setting(config: dict[str, Any], setting: dict[str, Any], seed
                 seed=int(seed),
             )
         )
+        if kind == "mixed_normal":
+            latency_cfg["type"] = "mixed_normal_distribution"
+        elif kind == "mixed_uniform":
+            latency_cfg["type"] = "mixed_uniform_distribution"
     latency_cfg["add_latency_info"] = False
 
 
@@ -142,7 +146,7 @@ def _latency_manifest_fields(setting: dict[str, Any]) -> dict[str, str]:
     if row["latency_kind"] == "fixed":
         row["latency_fixed_frames"] = _number_label(setting["frames"])
         return row
-    if row["latency_kind"] == "normal":
+    if row["latency_kind"] in {"normal", "mixed_normal"}:
         row["latency_mean_frames"] = _number_label(setting["mean"])
         row["latency_std_frames"] = _number_label(setting["std"])
     row["latency_min_frames"] = _number_label(setting["min"])
@@ -151,7 +155,7 @@ def _latency_manifest_fields(setting: dict[str, Any]) -> dict[str, str]:
 
 
 def _latency_distribution_spec(kind: str, setting: dict[str, Any]) -> LatencyDistributionSpec:
-    if kind == "normal":
+    if kind in {"normal", "mixed_normal"}:
         return LatencyDistributionSpec(
             type="normal",
             mean=float(setting["mean"]),
@@ -169,6 +173,9 @@ def _latency_distribution_spec(kind: str, setting: dict[str, Any]) -> LatencyDis
 
 
 def _matched_eval_suites(setting: dict[str, Any]) -> dict[str, list[list[Any]]]:
+    if "eval_suites" in setting:
+        return deepcopy(setting["eval_suites"])
+
     def fixed_suite() -> dict[str, list[list[Any]]]:
         return {
             "fixed": [[setting["frames"]]],
@@ -250,6 +257,7 @@ def _wandb_group(
 
 
 def _wandb_tags(
+    experiment_family: str,
     env_name: str,
     sweep_name: str,
     latency_label: str,
@@ -262,7 +270,7 @@ def _wandb_tags(
     axis = _run_axis_fragment(sweep_name, frame_stack, obs_fps, observation_stride)
     latency_kind = str(latency_setting["kind"])
     return [
-        "factor_sweep",
+        str(experiment_family),
         _env_slug(env_name),
         str(sweep_name),
         latency_kind,
@@ -399,6 +407,7 @@ def _build_full_train_config(
     output_root: Path,
     device: str,
     restart_behavior: str,
+    experiment_family: str,
 ) -> dict[str, Any]:
     config = deepcopy(base_config)
     env_name = _env_name(config)
@@ -442,6 +451,7 @@ def _build_full_train_config(
         seed,
     )
     config["logging"]["wandb_tags"] = _wandb_tags(
+        experiment_family,
         env_name,
         sweep_name,
         latency_label,
@@ -614,6 +624,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             output_root=output_root,
             device=device,
             restart_behavior=restart_behavior,
+            experiment_family=experiment_family,
         )
         train_config = _prune_sample_factory_config(full_train_config)
         _disable_periodic_eval(train_config)

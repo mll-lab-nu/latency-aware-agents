@@ -156,15 +156,17 @@ __global__ void demon_decision_begin_kernel(
         return;
     }
 
-    const int64_t latency = sample_latency_raw_frames(
-        fixed_latency_raw_frames,
-        latency_distribution_type,
-        latency_distribution_mean,
-        latency_distribution_std,
-        latency_distribution_min,
-        latency_distribution_max,
-        latency_rng_state,
-        env);
+    const int64_t latency = latency_distribution_type == 3
+        ? current_latency_raw_frames[env]
+        : sample_latency_raw_frames(
+            fixed_latency_raw_frames,
+            latency_distribution_type,
+            latency_distribution_mean,
+            latency_distribution_std,
+            latency_distribution_min,
+            latency_distribution_max,
+            latency_rng_state,
+            env);
     const int64_t ready_raw_frame = env_step_idx[env] + latency;
     current_latency_raw_frames[env] = latency;
     decision_latency_raw_frames[env] = latency;

@@ -1,0 +1,47 @@
+__base__: ../../../base/demon_attack.yaml
+experiment_family: jitter_robustness
+generated_root: configs/train/jitter_robustness/demon_attack/mixed
+train_dir: results/checkpoints_jitter_robustness/demon_attack/mixed
+output_root: outputs/jitter_robustness/demon_attack/mixed
+device: cuda
+restart_behavior: resume
+seeds:
+  - 0
+  - 42
+  - 114514
+
+evaluation:
+  eval_episodes: 20
+
+latency_settings:
+  mixed_normal_n2_s1:
+    kind: mixed_normal
+    mean: 4.0
+    std: 1.0
+    min: 0
+    max: 15
+    eval_suites:
+      fixed:
+        - [2, 4, 6]
+      normal:
+        - [4.0, 1.0, 0, 15]
+      uniform:
+        - [2, 6]
+  mixed_uniform_u2_6:
+    kind: mixed_uniform
+    min: 2
+    max: 6
+    eval_suites:
+      fixed:
+        - [2, 4, 6]
+      normal:
+        - [4.0, 1.0, 0, 15]
+      uniform:
+        - [2, 6]
+
+sweeps:
+  jitter_robustness:
+    frame_stack:
+      - 4
+    obs_fps:
+      - 15

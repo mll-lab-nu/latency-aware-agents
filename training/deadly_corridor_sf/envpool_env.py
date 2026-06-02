@@ -378,12 +378,8 @@ class DeadlyCorridorEnvPoolEnv(gym.Env):
             self._schedulers[idx].reset()
             self._current_applied_actions[idx] = clone_action(self.noop_action)
             self._next_action_id[idx] = 0
-            self._current_latency_raw_frames[idx] = (
-                0
-                if self._latency_params.latency_distribution_spec is not None
-                else int(self._latency_params.fixed_latency_raw_frames)
-            )
             self._reset_latency_sampler(idx)
+            self._current_latency_raw_frames[idx] = self._reset_latency_raw_frames(idx)
             self._episode_idx[idx] += 1
 
     def _reset_latency_sampler(self, agent_idx: int) -> None:
@@ -399,7 +395,16 @@ class DeadlyCorridorEnvPoolEnv(gym.Env):
     def _next_latency_raw_frames(self, agent_idx: int) -> int:
         if self._latency_params.latency_distribution_spec is None:
             return int(self._latency_params.fixed_latency_raw_frames)
+        if self._latency_params.sample_distribution_per_episode:
+            return self._current_latency_raw_frames[agent_idx]
         return int(self._latency_samplers[agent_idx].sample_frame())
+
+    def _reset_latency_raw_frames(self, agent_idx: int) -> int:
+        if self._latency_params.latency_distribution_spec is None:
+            return self._latency_params.fixed_latency_raw_frames
+        if self._latency_params.sample_distribution_per_episode:
+            return self._latency_samplers[agent_idx].sample_frame()
+        return 0
 
     def _enqueue_action(self, agent_idx: int, action: Any, latency_raw_frames: int) -> int:
         obs_env_step = int(self._env_step_idx[agent_idx])
