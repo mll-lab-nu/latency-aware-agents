@@ -25,6 +25,10 @@ if [[ "${{1:-}}" == "info" && "${{2:-}}" == "--base" ]]; then
   printf '%s\\n' "{prefix}"
   exit 0
 fi
+if [[ "${{1:-}}" == "tos" && "${{2:-}}" == "accept" ]]; then
+  printf 'conda %s\\n' "$*" >> "{calls_path}"
+  exit 0
+fi
 printf 'conda %s\\n' "$*" >> "{calls_path}"
 exit 0
 """,
@@ -33,6 +37,10 @@ exit 0
         f"""conda() {{
   if [[ "${{1:-}}" == "activate" ]]; then
     printf 'conda activate %s\\n' "${{2:-}}" >> "{calls_path}"
+    return 0
+  fi
+  if [[ "${{1:-}}" == "tos" && "${{2:-}}" == "accept" ]]; then
+    printf 'conda %s\\n' "$*" >> "{calls_path}"
     return 0
   fi
   "{conda_bin}" "$@"
@@ -150,6 +158,10 @@ if [[ "${{1:-}}" == "info" && "${{2:-}}" == "--base" ]]; then
   printf '%s\\n' "__PREFIX__"
   exit 0
 fi
+if [[ "${{1:-}}" == "tos" && "${{2:-}}" == "accept" ]]; then
+  printf 'conda %s\\n' "$*" >> "__CALLS__"
+  exit 0
+fi
 printf 'conda %s\\n' "$*" >> "__CALLS__"
 exit 0
 EOC
@@ -159,6 +171,10 @@ cat > "$prefix/etc/profile.d/conda.sh" <<'EOC'
 conda() {{
   if [[ "${{1:-}}" == "activate" ]]; then
     printf 'conda activate %s\\n' "${{2:-}}" >> "__CALLS__"
+    return 0
+  fi
+  if [[ "${{1:-}}" == "tos" && "${{2:-}}" == "accept" ]]; then
+    printf 'conda %s\\n' "$*" >> "__CALLS__"
     return 0
   fi
   "__PREFIX__/bin/conda" "$@"
@@ -432,6 +448,8 @@ def test_install_script_uses_conda_exe_when_path_is_missing(tmp_path):
 
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
+    assert "conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main" in calls
+    assert "conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r" in calls
     assert "conda create -n latency python=3.10 -y" in calls
     assert "conda activate latency" in calls
     assert "conda install -y -c conda-forge go" in calls
@@ -453,9 +471,31 @@ def test_install_script_bootstraps_miniconda_when_conda_is_missing(tmp_path):
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
     assert "curl " in calls
+    assert "conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main" in calls
+    assert "conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r" in calls
     assert "conda create -n latency python=3.10 -y" in calls
     assert "conda activate latency" in calls
     assert "conda install -y -c conda-forge go" in calls
+
+
+def test_install_script_persists_conda_shell_init(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, _ = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n", conda_mode="exe")
+    bashrc_path = tmp_path / ".bashrc"
+    bashrc_path.write_text("# existing bashrc\n", encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    bashrc = bashrc_path.read_text(encoding="utf-8")
+    assert f"source {tmp_path / 'miniconda3' / 'etc' / 'profile.d' / 'conda.sh'}" in bashrc
 
 
 def test_starvla_rl_games_installers_match_flash_attn_wheel_to_runtime(tmp_path):

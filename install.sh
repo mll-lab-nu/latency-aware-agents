@@ -5,6 +5,7 @@ TORCH_VERSION="2.10.0"
 LATENCY_BENCH_TORCH_PROFILE="${LATENCY_BENCH_TORCH_PROFILE:-auto}"
 MINICONDA_HOME="${HOME}/miniconda3"
 MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+CONDA_SH_PATH=""
 
 detect_torch_profile() {
     if ! command -v nvidia-smi >/dev/null 2>&1; then
@@ -101,19 +102,29 @@ install_miniconda() {
 ensure_conda() {
     local conda_sh
     if conda_sh="$(find_conda_sh)"; then
+        CONDA_SH_PATH="${conda_sh}"
         # shellcheck source=/dev/null
         source "${conda_sh}"
         return 0
     fi
 
     install_miniconda
+    CONDA_SH_PATH="${MINICONDA_HOME}/etc/profile.d/conda.sh"
     # shellcheck source=/dev/null
-    source "${MINICONDA_HOME}/etc/profile.d/conda.sh"
+    source "${CONDA_SH_PATH}"
 }
 
 accept_conda_tos() {
     conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
     conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+}
+
+persist_conda_shell_init() {
+    local bashrc="${HOME}/.bashrc"
+    local init_line="source ${CONDA_SH_PATH}"
+    if [[ ! -f "${bashrc}" ]] || ! grep -qxF "${init_line}" "${bashrc}"; then
+        printf '%s\n' "${init_line}" >> "${bashrc}"
+    fi
 }
 
 ensure_envpool_build_tools() {
@@ -150,6 +161,7 @@ echo "[install] torch_profile=${SELECTED_TORCH_PROFILE} index_url=${TORCH_INDEX_
 #
 
 ensure_conda
+persist_conda_shell_init
 
 git submodule update --init --recursive
 
