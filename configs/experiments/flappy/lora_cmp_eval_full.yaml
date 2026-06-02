@@ -19,7 +19,9 @@ env:
 
 policy:
   type: starvla
-  checkpoint_path: results/Checkpoints/openvla_flappy_l2_full/final_model
+  # Full checkpoint: point at the .pt file (from_pretrained torch.loads it directly;
+  # the LoRA eval instead points at the adapter dir, which is auto-detected).
+  checkpoint_path: results/Checkpoints/openvla_flappy_l2_full/final_model/pytorch_model.pt
   device: cuda
   unnorm_key: new_embodiment
   latency_prompt_map_path: playground/Datasets/rl_games/flappy_fixed_l2_fs4/latency_prompt_map.json
