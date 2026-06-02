@@ -1,0 +1,45 @@
+# latency_bench eval — full fine-tuned model, flappy fixed_l2 (latency 2), 50 eps.
+# Part of the LoRA-vs-full ablation. Run from repo root on the B200:
+#   python -m latency_bench.run --config configs/experiments/flappy/lora_cmp_eval_full.yaml
+__base__:
+  - ../../base/flappy.yaml
+
+experiment:
+  name: lora_cmp_flappy_l2_full
+  seed: 42
+
+executor:
+  mode: simulated
+
+env:
+  env_fps: 30
+  obs_fps: 30
+  frame_stack: 4
+  obs_resize: [84, 84]
+
+policy:
+  type: starvla
+  checkpoint_path: results/Checkpoints/openvla_flappy_l2_full/final_model
+  device: cuda
+  unnorm_key: new_embodiment
+  latency_prompt_map_path: playground/Datasets/rl_games/flappy_fixed_l2_fs4/latency_prompt_map.json
+  actions:
+    - noop
+    - flap
+
+latency:
+  type: fixed
+  fixed_latency_ms: 66.66666666666667
+
+evaluation:
+  eval_episodes: 50
+  eval_parallel_envs: 1
+  eval_max_steps: 2000
+  eval_suites:
+    fixed:
+      - [2]
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/lora_cmp_flappy_l2_full
