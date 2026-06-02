@@ -149,6 +149,36 @@ def _latency_distribution_spec(kind: str, setting: dict[str, Any]) -> LatencyDis
     )
 
 
+def _matched_eval_suites(setting: dict[str, Any]) -> dict[str, list[list[Any]]]:
+    def fixed_suite() -> dict[str, list[list[Any]]]:
+        return {
+            "fixed": [[setting["frames"]]],
+            "normal": [],
+            "uniform": [],
+        }
+
+    def normal_suite() -> dict[str, list[list[Any]]]:
+        return {
+            "fixed": [],
+            "normal": [[setting["mean"], setting["std"], setting["min"], setting["max"]]],
+            "uniform": [],
+        }
+
+    def uniform_suite() -> dict[str, list[list[Any]]]:
+        return {
+            "fixed": [],
+            "normal": [],
+            "uniform": [[setting["min"], setting["max"]]],
+        }
+
+    builders = {
+        "fixed": fixed_suite,
+        "normal": normal_suite,
+        "uniform": uniform_suite,
+    }
+    return builders[setting["kind"]]()
+
+
 def _run_axis_fragment(
     sweep_name: str,
     frame_stack: int,
@@ -297,6 +327,7 @@ def _build_full_train_config(
     config.setdefault("env", {})["frame_stack"] = int(frame_stack)
     config["env"]["obs_fps"] = obs_fps
     _apply_latency_setting(config, latency_setting, int(seed))
+    config.setdefault("evaluation", {})["eval_suites"] = _matched_eval_suites(latency_setting)
     config.setdefault("logging", {})["output_dir"] = str(
         _output_dir(output_root, "train", sweep_name, latency_label, frame_stack, obs_fps, observation_stride, seed)
     )

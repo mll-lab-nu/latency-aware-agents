@@ -1,4 +1,4 @@
-base_config: configs/base/demon_attack.yaml
+__base__: ../../../../base/demon_attack.yaml
 generated_root: configs/train/factor_sweeps/demon_attack/context_window
 train_dir: results/checkpoints_factor_sweeps/demon_attack/context_window
 output_root: outputs/factor_sweeps/demon_attack/context_window

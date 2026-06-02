@@ -86,6 +86,51 @@ def test_context_window_spec_emits_official_seed_matrix(tmp_path):
     assert eval_cfg["policy"]["type"] == "flappy_sf"
     assert eval_cfg["policy"]["checkpoint_kind"] == "latest"
     assert "eval_interval_steps" not in eval_cfg["evaluation"]
+    assert eval_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [[1]],
+        "normal": [],
+        "uniform": [],
+    }
+
+    normal_eval_cfg = load_config(
+        generated_root / "frame_stack" / "normal_n2_s1" / "fs4" / "seed_10" / "latency_bench_eval.yaml"
+    )
+    assert normal_eval_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [],
+        "normal": [[2.0, 1.0, 0, 15]],
+        "uniform": [],
+    }
+
+    uniform_eval_cfg = load_config(
+        generated_root / "frame_stack" / "uniform_u1_3" / "fs4" / "seed_10" / "latency_bench_eval.yaml"
+    )
+    assert uniform_eval_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [],
+        "normal": [],
+        "uniform": [[1, 3]],
+    }
+
+    assert train_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [],
+        "normal": [[2.0, 1.0, 0, 15]],
+        "uniform": [],
+    }
+
+
+def test_factor_sweep_specs_use_base_inheritance():
+    spec_paths = [
+        REPO_ROOT / "configs/experiments/flappy/factor_sweeps/context_window/sweep.yaml",
+        REPO_ROOT / "configs/experiments/flappy/factor_sweeps/observation_stride/sweep.yaml",
+        REPO_ROOT / "configs/experiments/demon_attack/factor_sweeps/context_window/sweep.yaml",
+        REPO_ROOT / "configs/experiments/demon_attack/factor_sweeps/observation_stride/sweep.yaml",
+        REPO_ROOT / "configs/experiments/deadly_corridor/factor_sweeps/context_window/sweep.yaml",
+        REPO_ROOT / "configs/experiments/deadly_corridor/factor_sweeps/observation_stride/sweep.yaml",
+    ]
+
+    for spec_path in spec_paths:
+        spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+        assert "__base__" in spec
+        assert "base_config" not in spec
 
 
 def test_observation_stride_spec_names_axis_by_stride_and_writes_obs_fps(tmp_path):
