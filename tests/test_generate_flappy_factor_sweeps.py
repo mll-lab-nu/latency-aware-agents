@@ -43,7 +43,10 @@ def test_context_window_spec_emits_official_seed_matrix(tmp_path):
     assert len(rows) == 250
     assert len({row["train_config"] for row in rows}) == 250
     assert {row["seed"] for row in rows} == {str(seed) for seed in OFFICIAL_SEEDS}
-    assert {row["sweep"] for row in rows} == {"frame_stack"}
+    assert {row["schema_version"] for row in rows} == {"v2"}
+    assert {row["experiment_family"] for row in rows} == {"factor_sweep"}
+    assert {row["sweep_name"] for row in rows} == {"frame_stack"}
+    assert {row["env"] for row in rows} == {"flappy"}
     assert {row["frame_stack"] for row in rows} == {"4", "5", "6", "7", "8"}
     assert {row["observation_stride"] for row in rows} == {"1"}
 
@@ -131,6 +134,7 @@ def test_factor_sweep_specs_use_base_inheritance():
         spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
         assert "__base__" in spec
         assert "base_config" not in spec
+        assert spec["experiment_family"] == "factor_sweep"
 
 
 def test_observation_stride_spec_names_axis_by_stride_and_writes_obs_fps(tmp_path):
@@ -154,7 +158,7 @@ def test_observation_stride_spec_names_axis_by_stride_and_writes_obs_fps(tmp_pat
     rows = _read_manifest(generated_root / "manifest.tsv")
     assert len(rows) == 250
     assert {row["seed"] for row in rows} == {str(seed) for seed in OFFICIAL_SEEDS}
-    assert {row["sweep"] for row in rows} == {"observation_stride"}
+    assert {row["sweep_name"] for row in rows} == {"observation_stride"}
     assert {row["observation_stride"] for row in rows} == {"2", "3", "4", "5", "6"}
 
     train_cfg = yaml.safe_load(
@@ -343,7 +347,8 @@ def test_jitter_sweeps_keep_legacy_obs_fps_axis(tmp_path):
     )
 
     rows = _read_manifest(generated_root / "manifest.tsv")
-    assert rows[0]["sweep"] == "jitter"
+    assert rows[0]["sweep_name"] == "jitter"
+    assert rows[0]["experiment_family"] == "jitter"
     assert rows[0]["observation_stride"] == "2"
     train_cfg = yaml.safe_load(
         (generated_root / "jitter" / "fixed_l2" / "obs15" / "seed_0" / "train.yaml").read_text(

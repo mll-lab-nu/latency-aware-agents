@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shlex
 import shutil
 import sys
 import time
@@ -11,6 +10,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts.experiment_runner.job_manifest import load_manifest, train_config_from_command
 from training.common.config_adapter import load_training_config
 
 
@@ -49,19 +49,17 @@ def collect_status_rows(
 
 
 def _iter_train_commands(generated_root: Path):
+    manifest_files = sorted(generated_root.expanduser().rglob("manifest.tsv"))
+    if manifest_files:
+        for manifest_file in manifest_files:
+            for row in load_manifest(manifest_file):
+                yield row["train_command"], Path(row["train_config"]).expanduser()
+        return
     for command_file in sorted(generated_root.expanduser().rglob("train_commands.txt")):
         for line in command_file.read_text(encoding="utf-8").splitlines():
             command = line.strip()
             if command:
-                yield command, _train_config_from_command(command)
-
-
-def _train_config_from_command(command: str) -> Path:
-    parts = shlex.split(command)
-    config_path = Path(parts[parts.index("--config") + 1]).expanduser()
-    if config_path.is_absolute():
-        return config_path
-    return Path.cwd() / config_path
+                yield command, train_config_from_command(command, cwd=Path.cwd())
 
 
 def _status_row(

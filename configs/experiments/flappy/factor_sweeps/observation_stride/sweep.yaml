@@ -1,4 +1,5 @@
 __base__: ../../frame_stack/base.yaml
+experiment_family: factor_sweep
 generated_root: configs/train/factor_sweeps/flappy/observation_stride
 train_dir: results/checkpoints_factor_sweeps/flappy/observation_stride
 output_root: outputs/factor_sweeps/flappy/observation_stride

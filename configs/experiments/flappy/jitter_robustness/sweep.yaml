@@ -1,4 +1,5 @@
 __base__: ../../../base/flappy.yaml
+experiment_family: jitter_robustness
 generated_root: configs/train/jitter_robustness/flappy
 train_dir: results/checkpoints_jitter_robustness/flappy
 output_root: outputs/jitter_robustness/flappy

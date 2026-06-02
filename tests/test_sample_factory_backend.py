@@ -2134,8 +2134,11 @@ def test_same_latency_sweep_generator_writes_train_and_latency_bench_eval_config
                 )
 
     manifest = (generated_root / "manifest.tsv").read_text(encoding="utf-8")
-    assert "latency_bench_eval_config" in manifest.splitlines()[0]
-    assert "latency_bench_eval_command" in manifest.splitlines()[0]
+    header = manifest.splitlines()[0]
+    assert "schema_version" in header
+    assert "eval_config" in header
+    assert "eval_command" in header
+    assert "experiment_family" in header
     latency_bench_commands = (generated_root / "latency_bench_eval_commands.txt").read_text(
         encoding="utf-8"
     )
@@ -2192,7 +2195,7 @@ def test_same_latency_generator_writes_single_normal_distribution_run(tmp_path):
     assert bench_loaded["latency"]["std_latency_ms"] == pytest.approx(2.0 * 1000.0 / 60.0)
     assert bench_loaded["latency"]["min_latency_ms"] == pytest.approx(0.0)
     assert bench_loaded["latency"]["max_latency_ms"] == pytest.approx(15.0 * 1000.0 / 60.0)
-    assert f"demon_attack\t{label}\t0" in manifest
+    assert f"\tsame_latency\tsame_latency\t{label}\t0\t" in manifest
 
 
 def test_same_latency_generator_writes_single_uniform_distribution_bench_config(tmp_path):

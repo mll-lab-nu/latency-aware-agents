@@ -1,4 +1,5 @@
 base_config: configs/base/flappy.yaml
+experiment_family: jitter
 generated_root: configs/train/flappy_jitter_sweeps
 train_dir: results/checkpoints_flappy_jitter_sweeps
 output_root: outputs/flappy_jitter_sweeps
