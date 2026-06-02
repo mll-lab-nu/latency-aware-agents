@@ -47,6 +47,16 @@ MANIFEST_COLUMNS = (
     "train_command",
     "latency_bench_eval_command",
 )
+SPEC_ONLY_KEYS = {
+    "generated_root",
+    "train_dir",
+    "output_root",
+    "device",
+    "restart_behavior",
+    "seeds",
+    "latency_settings",
+    "sweeps",
+}
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -418,8 +428,16 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not spec_path.is_absolute():
         spec_path = (REPO_ROOT / spec_path).resolve()
     spec = _load_yaml(spec_path)
-    base_config_path = _resolve_path(spec["base_config"], base_dir=REPO_ROOT)
-    base_config = load_config(base_config_path)
+    if "__base__" in spec:
+        spec = load_config(spec_path)
+        base_config = {
+            key: value
+            for key, value in spec.items()
+            if key not in SPEC_ONLY_KEYS
+        }
+    else:
+        base_config_path = _resolve_path(spec["base_config"], base_dir=REPO_ROOT)
+        base_config = load_config(base_config_path)
     generated_root = Path(args.generated_root or spec["generated_root"]).expanduser()
     output_root = Path(args.output_root or spec["output_root"])
     train_dir = Path(args.train_dir or spec["train_dir"])

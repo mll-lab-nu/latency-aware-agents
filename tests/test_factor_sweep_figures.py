@@ -8,6 +8,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 OFFICIAL_SEEDS = tuple(range(10, 20))
 FIG_ROOT = REPO_ROOT / "paper" / "latency-sensitive-vla" / "figures" / "3_4_factor_sweeps"
+JITTER_GRID_ROOT = (
+    REPO_ROOT
+    / "paper"
+    / "latency-sensitive-vla"
+    / "figures"
+    / "3_3_jitter_destructive"
+    / "fig_train_eval_latency_grid"
+)
 
 
 def _load_module(name: str, path: Path):
@@ -51,3 +59,37 @@ def test_observation_stride_fetch_specs_use_official_seed_grid_and_stride_groups
     assert "demon-attack-stride2-fixed_l2" in group_names
     assert "deadly-corridor-stride6-uniform_u2_6" in group_names
     assert all("-obs" not in group_name for group_name in group_names)
+
+
+class _FakeRun:
+    def __init__(self, run_id: str, seed: int, created_at: int, summary: dict[str, float]):
+        self.id = run_id
+        self.tags = [f"seed{seed}"]
+        self.created_at = created_at
+        self.summary = summary
+
+
+def test_jitter_grid_fetch_uses_new_flappy_seeds_and_existing_vizdoom_seeds():
+    fetch = _load_module("jitter_grid_fetch", JITTER_GRID_ROOT / "fetch_wandb.py")
+
+    flappy = [spec for spec in fetch.ENV_SPECS if spec.env_id == "flappy"][0]
+    demon = [spec for spec in fetch.ENV_SPECS if spec.env_id == "demon-attack"][0]
+    metric_key = flappy.eval_settings[0].metric_key
+
+    assert flappy.expected_seeds == (911, 922, 933)
+    assert demon.expected_seeds == (0, 42, 114514)
+
+    runs = fetch.latest_run_per_seed(
+        [
+            _FakeRun("old-seed0", 0, 9, {metric_key: 10.0}),
+            _FakeRun("old-seed1", 1, 10, {metric_key: 20.0}),
+            _FakeRun("new-seed911-old", 911, 11, {metric_key: 30.0}),
+            _FakeRun("new-seed911", 911, 12, {metric_key: 40.0}),
+            _FakeRun("new-seed922", 922, 13, {metric_key: 50.0}),
+            _FakeRun("new-seed933", 933, 14, {metric_key: 60.0}),
+        ],
+        [metric_key],
+        flappy.expected_seeds,
+    )
+
+    assert [run.id for run in runs] == ["new-seed911", "new-seed922", "new-seed933"]
