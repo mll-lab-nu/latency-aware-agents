@@ -111,6 +111,11 @@ ensure_conda() {
     source "${MINICONDA_HOME}/etc/profile.d/conda.sh"
 }
 
+accept_conda_tos() {
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+}
+
 ensure_envpool_build_tools() {
     export PATH="${HOME}/go/bin:${PATH}"
     export CGO_ENABLED=0
@@ -147,6 +152,8 @@ echo "[install] torch_profile=${SELECTED_TORCH_PROFILE} index_url=${TORCH_INDEX_
 ensure_conda
 
 git submodule update --init --recursive
+
+accept_conda_tos
 
 conda create -n latency python=3.10 -y
 
