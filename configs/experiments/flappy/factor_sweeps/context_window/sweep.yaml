@@ -17,31 +17,14 @@ seeds:
   - 12
   - 13
   - 14
-  - 15
-  - 16
-  - 17
-  - 18
-  - 19
 
 evaluation:
   eval_episodes: 100
 
 latency_settings:
-  fixed_l1:
-    kind: fixed
-    frames: 1
   fixed_l2:
     kind: fixed
     frames: 2
-  fixed_l3:
-    kind: fixed
-    frames: 3
-  normal_n2_s1:
-    kind: normal
-    mean: 2.0
-    std: 1.0
-    min: 0
-    max: 4
   uniform_u1_3:
     kind: uniform
     min: 1

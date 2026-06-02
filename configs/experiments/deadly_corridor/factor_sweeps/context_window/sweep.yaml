@@ -17,32 +17,15 @@ seeds:
   - 12
   - 13
   - 14
-  - 15
-  - 16
-  - 17
-  - 18
-  - 19
 
 evaluation:
   eval_episodes: 100
   eval_parallel_envs: 32
 
 latency_settings:
-  fixed_l2:
-    kind: fixed
-    frames: 2
   fixed_l4:
     kind: fixed
     frames: 4
-  fixed_l6:
-    kind: fixed
-    frames: 6
-  normal_n2_s1:
-    kind: normal
-    mean: 4.0
-    std: 1.0
-    min: 0
-    max: 15
   uniform_u2_6:
     kind: uniform
     min: 2
