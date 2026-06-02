@@ -71,9 +71,12 @@ def _migrate_row(
     row: dict[str, str],
     manifest_path: Path,
     repo_root: Path,
-    upload_repo_id: str,
-    upload_repo_type: str,
-    upload_prefix: str,
+    train_upload_repo_id: str,
+    train_upload_repo_type: str,
+    train_upload_prefix: str,
+    eval_upload_repo_id: str,
+    eval_upload_repo_type: str,
+    eval_upload_prefix: str,
 ) -> dict[str, str]:
     train_config_path = (repo_root / row["train_config"]).resolve()
     eval_config_key = "eval_config" if "eval_config" in row else "latency_bench_eval_config"
@@ -125,10 +128,12 @@ def _migrate_row(
         "eval_output_dir": str(eval_cfg["logging"]["output_dir"]),
         "train_artifact_dir": str(train_dir / run_name),
         "eval_artifact_dir": str(eval_cfg["logging"]["output_dir"]),
-        "upload_repo_id": upload_repo_id,
-        "upload_repo_type": upload_repo_type,
-        "train_artifact_repo_path": build_upload_repo_path(upload_prefix=upload_prefix, stage="train", job_id=job_id),
-        "eval_artifact_repo_path": build_upload_repo_path(upload_prefix=upload_prefix, stage="eval", job_id=job_id),
+        "train_upload_repo_id": train_upload_repo_id,
+        "train_upload_repo_type": train_upload_repo_type,
+        "eval_upload_repo_id": eval_upload_repo_id,
+        "eval_upload_repo_type": eval_upload_repo_type,
+        "train_artifact_repo_path": build_upload_repo_path(upload_prefix=train_upload_prefix, stage="train", job_id=job_id),
+        "eval_artifact_repo_path": build_upload_repo_path(upload_prefix=eval_upload_prefix, stage="eval", job_id=job_id),
     }
     migrated.update(_latency_fields(train_cfg))
     return migrated
@@ -138,9 +143,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Migrate legacy manifest.tsv files to manifest V2.")
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--upload-repo-id", type=str, default="")
-    parser.add_argument("--upload-repo-type", type=str, default="model")
-    parser.add_argument("--upload-path-prefix", type=str, default="")
+    parser.add_argument("--train-upload-repo-id", type=str, default="")
+    parser.add_argument("--train-upload-repo-type", type=str, default="model")
+    parser.add_argument("--train-upload-path-prefix", type=str, default="")
+    parser.add_argument("--eval-upload-repo-id", type=str, default="")
+    parser.add_argument("--eval-upload-repo-type", type=str, default="dataset")
+    parser.add_argument("--eval-upload-path-prefix", type=str, default="")
     args = parser.parse_args(argv)
     input_path = args.input.expanduser().resolve()
     output_path = (args.output or input_path).expanduser().resolve()
@@ -151,9 +159,12 @@ def main(argv: list[str] | None = None) -> int:
             row=row,
             manifest_path=input_path,
             repo_root=repo_root,
-            upload_repo_id=str(args.upload_repo_id),
-            upload_repo_type=str(args.upload_repo_type),
-            upload_prefix=str(args.upload_path_prefix),
+            train_upload_repo_id=str(args.train_upload_repo_id),
+            train_upload_repo_type=str(args.train_upload_repo_type),
+            train_upload_prefix=str(args.train_upload_path_prefix),
+            eval_upload_repo_id=str(args.eval_upload_repo_id),
+            eval_upload_repo_type=str(args.eval_upload_repo_type),
+            eval_upload_prefix=str(args.eval_upload_path_prefix),
         )
         for row in rows
     ]

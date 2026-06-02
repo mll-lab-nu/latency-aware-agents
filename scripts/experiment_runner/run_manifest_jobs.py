@@ -17,6 +17,17 @@ from scripts.experiment_runner.job_manifest import (
     load_manifest,
 )
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+HF_TOKEN_ENV_VARS = ("HF_TOKEN", "HUGGINGFACE_HUB_TOKEN", "HUGGINGFACE_TOKEN")
+UPLOAD_IGNORE_PATTERNS = [
+    "wandb/**",
+    "wandb_logs/**",
+    "**/wandb/**",
+    "**/wandb_logs/**",
+    "**/events.out.tfevents.*",
+    "**/__pycache__/**",
+]
+
 
 @dataclass(frozen=True)
 class UploadTask:
@@ -50,30 +61,70 @@ def _run_command(command: str, *, gpu: str) -> None:
     subprocess.run(command, shell=True, check=True, env=env)
 
 
+def _load_dotenv(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip("\"'")
+    return values
+
+
+def _resolve_hf_token() -> str | None:
+    for env_var in HF_TOKEN_ENV_VARS:
+        value = os.environ.get(env_var)
+        if value:
+            return value
+    dotenv_values = _load_dotenv(REPO_ROOT / ".env")
+    for env_var in HF_TOKEN_ENV_VARS:
+        value = dotenv_values.get(env_var)
+        if value:
+            return value
+    return None
+
+
 def _default_uploader(job: dict[str, str]) -> None:
-    repo_id = str(job["upload_repo_id"])
-    if not repo_id:
+    train_repo_id = str(job["train_upload_repo_id"])
+    eval_repo_id = str(job["eval_upload_repo_id"])
+    if not train_repo_id and not eval_repo_id:
         return
     from huggingface_hub import HfApi
 
-    api = HfApi()
-    api.create_repo(
-        repo_id=repo_id,
-        repo_type=str(job["upload_repo_type"]),
-        exist_ok=True,
-    )
-    api.upload_folder(
-        repo_id=repo_id,
-        repo_type=str(job["upload_repo_type"]),
-        folder_path=str(job["train_artifact_dir"]),
-        path_in_repo=str(job["train_artifact_repo_path"]),
-    )
-    api.upload_folder(
-        repo_id=repo_id,
-        repo_type=str(job["upload_repo_type"]),
-        folder_path=str(job["eval_artifact_dir"]),
-        path_in_repo=str(job["eval_artifact_repo_path"]),
-    )
+    api = HfApi(token=_resolve_hf_token())
+    if train_repo_id:
+        api.create_repo(
+            repo_id=train_repo_id,
+            repo_type=str(job["train_upload_repo_type"]),
+            exist_ok=True,
+        )
+        api.upload_folder(
+            repo_id=train_repo_id,
+            repo_type=str(job["train_upload_repo_type"]),
+            folder_path=str(job["train_artifact_dir"]),
+            path_in_repo=str(job["train_artifact_repo_path"]),
+            ignore_patterns=UPLOAD_IGNORE_PATTERNS,
+        )
+    if eval_repo_id:
+        api.create_repo(
+            repo_id=eval_repo_id,
+            repo_type=str(job["eval_upload_repo_type"]),
+            exist_ok=True,
+        )
+        api.upload_folder(
+            repo_id=eval_repo_id,
+            repo_type=str(job["eval_upload_repo_type"]),
+            folder_path=str(job["eval_artifact_dir"]),
+            path_in_repo=str(job["eval_artifact_repo_path"]),
+            ignore_patterns=UPLOAD_IGNORE_PATTERNS,
+        )
 
 
 def _resume_stage(job: dict[str, str], states: dict[str, str]) -> str:
@@ -158,8 +209,9 @@ def run_jobs(
                 break
             job = task.job
             job_id = str(job["job_id"])
-            repo_id = str(job["upload_repo_id"])
-            if not repo_id:
+            train_repo_id = str(job["train_upload_repo_id"])
+            eval_repo_id = str(job["eval_upload_repo_id"])
+            if not train_repo_id and not eval_repo_id:
                 write_event({"job_id": job_id, "stage": "upload_skipped", "ts": _now()})
                 write_event({"job_id": job_id, "stage": "job_complete", "ts": _now()})
                 upload_queue.task_done()

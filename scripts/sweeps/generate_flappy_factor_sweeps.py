@@ -48,6 +48,12 @@ SPEC_ONLY_KEYS = {
     "output_root",
     "device",
     "restart_behavior",
+    "train_upload_repo_id",
+    "train_upload_repo_type",
+    "train_upload_path_prefix",
+    "eval_upload_repo_id",
+    "eval_upload_repo_type",
+    "eval_upload_path_prefix",
     "experiment_family",
     "seeds",
     "latency_settings",
@@ -321,9 +327,12 @@ def _build_manifest_row(
     eval_path: Path,
     train_command: str,
     eval_command: str,
-    upload_repo_id: str,
-    upload_repo_type: str,
-    upload_prefix: str,
+    train_upload_repo_id: str,
+    train_upload_repo_type: str,
+    train_upload_prefix: str,
+    eval_upload_repo_id: str,
+    eval_upload_repo_type: str,
+    eval_upload_prefix: str,
 ) -> dict[str, str]:
     run_name = str(train_config["experiment"]["name"])
     train_dir = Path(str(train_config["backend"]["train_dir"]))
@@ -364,10 +373,12 @@ def _build_manifest_row(
         "eval_output_dir": str(eval_output_dir),
         "train_artifact_dir": str(train_dir / run_name),
         "eval_artifact_dir": str(eval_output_dir),
-        "upload_repo_id": upload_repo_id,
-        "upload_repo_type": upload_repo_type,
-        "train_artifact_repo_path": build_upload_repo_path(upload_prefix=upload_prefix, stage="train", job_id=job_id),
-        "eval_artifact_repo_path": build_upload_repo_path(upload_prefix=upload_prefix, stage="eval", job_id=job_id),
+        "train_upload_repo_id": train_upload_repo_id,
+        "train_upload_repo_type": train_upload_repo_type,
+        "eval_upload_repo_id": eval_upload_repo_id,
+        "eval_upload_repo_type": eval_upload_repo_type,
+        "train_artifact_repo_path": build_upload_repo_path(upload_prefix=train_upload_prefix, stage="train", job_id=job_id),
+        "eval_artifact_repo_path": build_upload_repo_path(upload_prefix=eval_upload_prefix, stage="eval", job_id=job_id),
     }
     row.update(_latency_manifest_fields(latency_setting))
     return row
@@ -535,9 +546,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--device", type=str)
     parser.add_argument("--restart-behavior", type=str)
     parser.add_argument("--latency-bench-policy-device", type=str, default="auto")
-    parser.add_argument("--upload-repo-id", type=str, default="")
-    parser.add_argument("--upload-repo-type", type=str, default="model")
-    parser.add_argument("--upload-path-prefix", type=str, default="")
+    parser.add_argument("--train-upload-repo-id", type=str, default="")
+    parser.add_argument("--train-upload-repo-type", type=str, default="model")
+    parser.add_argument("--train-upload-path-prefix", type=str, default="")
+    parser.add_argument("--eval-upload-repo-id", type=str, default="")
+    parser.add_argument("--eval-upload-repo-type", type=str, default="dataset")
+    parser.add_argument("--eval-upload-path-prefix", type=str, default="")
     args = parser.parse_args(argv)
 
     spec_path = args.spec.expanduser()
@@ -559,6 +573,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     train_dir = Path(args.train_dir or spec["train_dir"])
     device = str(args.device or spec.get("device", "cuda"))
     restart_behavior = str(args.restart_behavior or spec.get("restart_behavior", "resume"))
+    train_upload_repo_id = str(args.train_upload_repo_id or spec.get("train_upload_repo_id", ""))
+    train_upload_repo_type = str(args.train_upload_repo_type or spec.get("train_upload_repo_type", "model"))
+    train_upload_path_prefix = str(args.train_upload_path_prefix or spec.get("train_upload_path_prefix", ""))
+    eval_upload_repo_id = str(args.eval_upload_repo_id or spec.get("eval_upload_repo_id", ""))
+    eval_upload_repo_type = str(args.eval_upload_repo_type or spec.get("eval_upload_repo_type", "dataset"))
+    eval_upload_path_prefix = str(args.eval_upload_path_prefix or spec.get("eval_upload_path_prefix", ""))
     experiment_family = str(spec["experiment_family"])
     seeds = None if args.seeds is None else _parse_int_csv(args.seeds)
 
@@ -637,9 +657,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                 eval_path=latency_bench_eval_path,
                 train_command=train_cmd,
                 eval_command=eval_cmd,
-                upload_repo_id=str(args.upload_repo_id),
-                upload_repo_type=str(args.upload_repo_type),
-                upload_prefix=str(args.upload_path_prefix),
+                train_upload_repo_id=train_upload_repo_id,
+                train_upload_repo_type=train_upload_repo_type,
+                train_upload_prefix=train_upload_path_prefix,
+                eval_upload_repo_id=eval_upload_repo_id,
+                eval_upload_repo_type=eval_upload_repo_type,
+                eval_upload_prefix=eval_upload_path_prefix,
             )
         )
 

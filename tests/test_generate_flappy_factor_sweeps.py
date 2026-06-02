@@ -49,6 +49,16 @@ def test_context_window_spec_emits_official_seed_matrix(tmp_path):
     assert {row["env"] for row in rows} == {"flappy"}
     assert {row["frame_stack"] for row in rows} == {"4", "5", "6", "7", "8"}
     assert {row["observation_stride"] for row in rows} == {"1"}
+    assert {row["train_upload_repo_id"] for row in rows} == {"latency-sensitive-bench/factor-sweeps-models"}
+    assert {row["train_upload_repo_type"] for row in rows} == {"model"}
+    assert {row["eval_upload_repo_id"] for row in rows} == {"latency-sensitive-bench/factor-sweeps-evals"}
+    assert {row["eval_upload_repo_type"] for row in rows} == {"dataset"}
+    assert {row["train_artifact_repo_path"] for row in rows if row["job_id"] == "factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"} == {
+        "factor_sweeps/flappy/context_window/train/factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"
+    }
+    assert {row["eval_artifact_repo_path"] for row in rows if row["job_id"] == "factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"} == {
+        "factor_sweeps/flappy/context_window/eval/factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"
+    }
 
     train_cfg = yaml.safe_load(
         (
@@ -64,6 +74,7 @@ def test_context_window_spec_emits_official_seed_matrix(tmp_path):
     assert train_cfg["experiment"]["seed"] == 10
     assert train_cfg["env"]["frame_stack"] == 8
     assert train_cfg["env"]["obs_fps"] == pytest.approx(30)
+    assert train_cfg["evaluation"]["eval_episodes"] == 100
     assert train_cfg["latency"]["mean_latency_ms"] == pytest.approx(2 * 1000.0 / 30.0)
     assert train_cfg["logging"]["wandb_group"] == "flappy-fs8-normal_n2_s1"
     assert train_cfg["logging"]["wandb_name"] == "flappy-fs8-normal_n2_s1-s10"
@@ -88,6 +99,7 @@ def test_context_window_spec_emits_official_seed_matrix(tmp_path):
     assert eval_cfg["backend"]["extra_args"] == ["--load_checkpoint_kind", "latest"]
     assert eval_cfg["policy"]["type"] == "flappy_sf"
     assert eval_cfg["policy"]["checkpoint_kind"] == "latest"
+    assert eval_cfg["evaluation"]["eval_episodes"] == 100
     assert "eval_interval_steps" not in eval_cfg["evaluation"]
     assert eval_cfg["evaluation"]["eval_suites"] == {
         "fixed": [[1]],
@@ -100,7 +112,7 @@ def test_context_window_spec_emits_official_seed_matrix(tmp_path):
     )
     assert normal_eval_cfg["evaluation"]["eval_suites"] == {
         "fixed": [],
-        "normal": [[2.0, 1.0, 0, 15]],
+        "normal": [[2.0, 1.0, 0, 4]],
         "uniform": [],
     }
 
@@ -115,9 +127,15 @@ def test_context_window_spec_emits_official_seed_matrix(tmp_path):
 
     assert train_cfg["evaluation"]["eval_suites"] == {
         "fixed": [],
-        "normal": [[2.0, 1.0, 0, 15]],
+        "normal": [[2.0, 1.0, 0, 4]],
         "uniform": [],
     }
+    assert "train_upload_repo_id" not in train_cfg
+    assert "train_upload_repo_type" not in train_cfg
+    assert "train_upload_path_prefix" not in train_cfg
+    assert "eval_upload_repo_id" not in train_cfg
+    assert "eval_upload_repo_type" not in train_cfg
+    assert "eval_upload_path_prefix" not in train_cfg
 
 
 def test_factor_sweep_specs_use_base_inheritance():
@@ -262,6 +280,57 @@ def test_factor_sweep_wrapper_generates_split_sweep_folders(tmp_path):
     train_cfg = yaml.safe_load(Path(stride_rows[0]["train_config"]).read_text(encoding="utf-8"))
     assert train_cfg["backend"]["device"] == "cpu"
     assert train_cfg["backend"]["train_dir"] == str(train_dir / "deadly_corridor" / "observation_stride")
+
+
+def test_factor_sweep_wrapper_env_upload_overrides_spec_defaults(tmp_path):
+    generated_root = tmp_path / "generated"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "ENVS": "flappy",
+            "SWEEPS": "context_window",
+            "SEEDS": "10",
+            "GENERATED_ROOT": str(generated_root),
+            "OUTPUT_ROOT": str(output_root),
+            "TRAIN_DIR": str(train_dir),
+            "DEVICE": "cpu",
+            "TRAIN_UPLOAD_REPO_ID": "latency-sensitive-bench/override-models",
+            "TRAIN_UPLOAD_REPO_TYPE": "model",
+            "TRAIN_UPLOAD_PATH_PREFIX": "override/train",
+            "EVAL_UPLOAD_REPO_ID": "latency-sensitive-bench/override-evals",
+            "EVAL_UPLOAD_REPO_TYPE": "dataset",
+            "EVAL_UPLOAD_PATH_PREFIX": "override/eval",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/bash_scripts/generate_factor_sweeps.sh"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    rows = _read_manifest(generated_root / "flappy" / "context_window" / "manifest.tsv")
+    assert {row["train_upload_repo_id"] for row in rows} == {"latency-sensitive-bench/override-models"}
+    assert {row["train_upload_repo_type"] for row in rows} == {"model"}
+    assert {row["eval_upload_repo_id"] for row in rows} == {"latency-sensitive-bench/override-evals"}
+    assert {row["eval_upload_repo_type"] for row in rows} == {"dataset"}
+    assert {
+        row["train_artifact_repo_path"]
+        for row in rows
+        if row["job_id"] == "factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"
+    } == {"override/train/train/factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"}
+    assert {
+        row["eval_artifact_repo_path"]
+        for row in rows
+        if row["job_id"] == "factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"
+    } == {"override/eval/eval/factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"}
 
 
 def test_factor_sweep_wrapper_can_generate_only_selected_sweep(tmp_path):

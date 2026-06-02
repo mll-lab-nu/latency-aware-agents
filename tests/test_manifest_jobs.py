@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import sys
 import time
+import types
 from pathlib import Path
 
 import yaml
 
+import scripts.experiment_runner.run_manifest_jobs as run_manifest_jobs
 from scripts.experiment_runner.job_manifest import load_manifest, write_manifest
 from scripts.experiment_runner.migrate_manifest_v2 import main as migrate_manifest_v2
-from scripts.experiment_runner.run_manifest_jobs import run_jobs
+from scripts.experiment_runner.run_manifest_jobs import _default_uploader, run_jobs
 
 
 def _write_config(path: Path, *, experiment_name: str, train_dir: Path, output_dir: Path, eval_output_dir: Path) -> None:
@@ -108,8 +110,10 @@ def test_runner_uploads_in_background(tmp_path):
             "eval_output_dir": str(tmp_path / "eval1"),
             "train_artifact_dir": str(tmp_path / "art1"),
             "eval_artifact_dir": str(tmp_path / "eval_art1"),
-            "upload_repo_id": "repo",
-            "upload_repo_type": "model",
+            "train_upload_repo_id": "repo-model",
+            "train_upload_repo_type": "model",
+            "eval_upload_repo_id": "repo-dataset",
+            "eval_upload_repo_type": "dataset",
             "train_artifact_repo_path": "train/job1",
             "eval_artifact_repo_path": "eval/job1",
             "latency_kind": "fixed",
@@ -144,8 +148,10 @@ def test_runner_uploads_in_background(tmp_path):
             "eval_output_dir": str(tmp_path / "eval2"),
             "train_artifact_dir": str(tmp_path / "art2"),
             "eval_artifact_dir": str(tmp_path / "eval_art2"),
-            "upload_repo_id": "repo",
-            "upload_repo_type": "model",
+            "train_upload_repo_id": "repo-model",
+            "train_upload_repo_type": "model",
+            "eval_upload_repo_id": "repo-dataset",
+            "eval_upload_repo_type": "dataset",
             "train_artifact_repo_path": "train/job2",
             "eval_artifact_repo_path": "eval/job2",
             "latency_kind": "fixed",
@@ -178,3 +184,180 @@ def test_runner_uploads_in_background(tmp_path):
     assert upload_started.is_file()
     assert upload_finished.is_file()
     assert (marks / "job2_train").stat().st_mtime < upload_finished.stat().st_mtime
+
+
+def test_default_uploader_prefers_env_token_over_dotenv(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("HF_TOKEN=dotenv-token\n", encoding="utf-8")
+    monkeypatch.setattr(run_manifest_jobs, "REPO_ROOT", tmp_path)
+    monkeypatch.setenv("HF_TOKEN", "env-token")
+
+    calls: list[tuple[str, object]] = []
+
+    class FakeApi:
+        def __init__(self, *, token=None):
+            calls.append(("init", token))
+
+        def create_repo(self, **kwargs):
+            calls.append(("create_repo", kwargs["repo_id"]))
+
+        def upload_folder(self, **kwargs):
+            calls.append(("upload_folder", kwargs["path_in_repo"]))
+
+    fake_hub = types.ModuleType("huggingface_hub")
+    fake_hub.HfApi = FakeApi
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
+
+    _default_uploader(
+        {
+            "train_upload_repo_id": "latency-sensitive-bench/factor-sweeps-models",
+            "train_upload_repo_type": "model",
+            "eval_upload_repo_id": "latency-sensitive-bench/factor-sweeps-evals",
+            "eval_upload_repo_type": "dataset",
+            "train_artifact_dir": str(tmp_path / "train_artifacts"),
+            "eval_artifact_dir": str(tmp_path / "eval_artifacts"),
+            "train_artifact_repo_path": "train/job1",
+            "eval_artifact_repo_path": "eval/job1",
+        }
+    )
+
+    assert calls[0] == ("init", "env-token")
+    assert calls[1] == ("create_repo", "latency-sensitive-bench/factor-sweeps-models")
+    assert calls[2] == ("upload_folder", "train/job1")
+    assert calls[3] == ("create_repo", "latency-sensitive-bench/factor-sweeps-evals")
+    assert calls[4] == ("upload_folder", "eval/job1")
+
+
+def test_default_uploader_falls_back_to_dotenv_token(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("HUGGINGFACE_HUB_TOKEN=dotenv-token\n", encoding="utf-8")
+    monkeypatch.setattr(run_manifest_jobs, "REPO_ROOT", tmp_path)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGINGFACE_HUB_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGINGFACE_TOKEN", raising=False)
+
+    init_tokens: list[object] = []
+
+    class FakeApi:
+        def __init__(self, *, token=None):
+            init_tokens.append(token)
+
+        def create_repo(self, **kwargs):
+            return None
+
+        def upload_folder(self, **kwargs):
+            return None
+
+    fake_hub = types.ModuleType("huggingface_hub")
+    fake_hub.HfApi = FakeApi
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
+
+    _default_uploader(
+        {
+            "train_upload_repo_id": "latency-sensitive-bench/factor-sweeps-models",
+            "train_upload_repo_type": "model",
+            "eval_upload_repo_id": "latency-sensitive-bench/factor-sweeps-evals",
+            "eval_upload_repo_type": "dataset",
+            "train_artifact_dir": str(tmp_path / "train_artifacts"),
+            "eval_artifact_dir": str(tmp_path / "eval_artifacts"),
+            "train_artifact_repo_path": "train/job1",
+            "eval_artifact_repo_path": "eval/job1",
+        }
+    )
+
+    assert init_tokens == ["dotenv-token"]
+
+
+def test_default_uploader_uses_cached_login_when_no_token_available(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(run_manifest_jobs, "REPO_ROOT", tmp_path)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGINGFACE_HUB_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGINGFACE_TOKEN", raising=False)
+
+    init_tokens: list[object] = []
+
+    class FakeApi:
+        def __init__(self, *, token=None):
+            init_tokens.append(token)
+
+        def create_repo(self, **kwargs):
+            return None
+
+        def upload_folder(self, **kwargs):
+            return None
+
+    fake_hub = types.ModuleType("huggingface_hub")
+    fake_hub.HfApi = FakeApi
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
+
+    _default_uploader(
+        {
+            "train_upload_repo_id": "latency-sensitive-bench/factor-sweeps-models",
+            "train_upload_repo_type": "model",
+            "eval_upload_repo_id": "latency-sensitive-bench/factor-sweeps-evals",
+            "eval_upload_repo_type": "dataset",
+            "train_artifact_dir": str(tmp_path / "train_artifacts"),
+            "eval_artifact_dir": str(tmp_path / "eval_artifacts"),
+            "train_artifact_repo_path": "train/job1",
+            "eval_artifact_repo_path": "eval/job1",
+        }
+    )
+
+    assert init_tokens == [None]
+
+
+def test_default_uploader_splits_model_and_dataset_repos_and_filters_noise(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(run_manifest_jobs, "REPO_ROOT", tmp_path)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGINGFACE_HUB_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGINGFACE_TOKEN", raising=False)
+
+    uploads: list[dict[str, object]] = []
+
+    class FakeApi:
+        def __init__(self, *, token=None):
+            return None
+
+        def create_repo(self, **kwargs):
+            uploads.append({"kind": "create_repo", "repo_id": kwargs["repo_id"], "repo_type": kwargs["repo_type"]})
+
+        def upload_folder(self, **kwargs):
+            uploads.append(kwargs)
+
+    fake_hub = types.ModuleType("huggingface_hub")
+    fake_hub.HfApi = FakeApi
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
+
+    _default_uploader(
+        {
+            "train_upload_repo_id": "latency-sensitive-bench/factor-sweeps-models",
+            "train_upload_repo_type": "model",
+            "eval_upload_repo_id": "latency-sensitive-bench/factor-sweeps-evals",
+            "eval_upload_repo_type": "dataset",
+            "train_artifact_dir": str(tmp_path / "train_artifacts"),
+            "eval_artifact_dir": str(tmp_path / "eval_artifacts"),
+            "train_artifact_repo_path": "train/job1",
+            "eval_artifact_repo_path": "eval/job1",
+        }
+    )
+
+    assert uploads[0] == {
+        "kind": "create_repo",
+        "repo_id": "latency-sensitive-bench/factor-sweeps-models",
+        "repo_type": "model",
+    }
+    assert uploads[1]["repo_id"] == "latency-sensitive-bench/factor-sweeps-models"
+    assert uploads[1]["repo_type"] == "model"
+    assert uploads[1]["path_in_repo"] == "train/job1"
+    assert uploads[1]["ignore_patterns"] == run_manifest_jobs.UPLOAD_IGNORE_PATTERNS
+    assert uploads[2] == {
+        "kind": "create_repo",
+        "repo_id": "latency-sensitive-bench/factor-sweeps-evals",
+        "repo_type": "dataset",
+    }
+    assert uploads[3]["repo_id"] == "latency-sensitive-bench/factor-sweeps-evals"
+    assert uploads[3]["repo_type"] == "dataset"
+    assert uploads[3]["path_in_repo"] == "eval/job1"
+    assert uploads[3]["ignore_patterns"] == run_manifest_jobs.UPLOAD_IGNORE_PATTERNS
