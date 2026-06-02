@@ -70,10 +70,11 @@ def make_demo_env(
         env = gym.make(
             "FlappyBird-v0",
             use_lidar=False,
-            normalize_obs=False,
+            normalize_obs=True,
             render_mode="rgb_array",
         )
-        env = QueueLatencyWrapper(env, frame_skip_values=[latency], seed=seed)
+        if int(latency) > 0:
+            env = QueueLatencyWrapper(env, frame_skip_values=[latency], seed=seed)
         env = RenderToImageWrapper(env, image_size=image_size, grayscale=False)
         if stack_frames > 1:
             env = EnvFrameStack(env, n_stack=stack_frames)

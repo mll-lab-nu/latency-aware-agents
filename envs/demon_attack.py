@@ -7,14 +7,7 @@ try:
 except ImportError:
     pass
 
-try:
-    from cleanrl_utils.atari_wrappers import (
-        ClipRewardEnv, EpisodicLifeEnv, FireResetEnv, MaxAndSkipEnv, NoopResetEnv,
-    )
-except ImportError:
-    from stable_baselines3.common.atari_wrappers import (
-        ClipRewardEnv, EpisodicLifeEnv, FireResetEnv, MaxAndSkipEnv, NoopResetEnv,
-    )
+from stable_baselines3.common.atari_wrappers import AtariWrapper
 
 from envs.base_wrappers import NCHWFrameStack, QueueLatencyWrapper
 
@@ -27,6 +20,8 @@ def make_demo_env(
     screen_size: int = 84,
     stack_frames: int = 4,
     seed: int = 0,
+    terminal_on_life_loss: bool = True,
+    clip_reward: bool = False,
 ) -> gym.Env:
     """
     Builds a single Demon Attack env matching the CleanRL training setup.
@@ -35,6 +30,7 @@ def make_demo_env(
     Obs shape: (4, 84, 84)  — NCHW, 4 grayscale stacked frames.
     The CleanRL Agent.get_deterministic_action() expects a (1, 4, 84, 84) uint8 tensor.
     """
+    del native_frame_skip
     env = gym.make(
         env_id,
         frameskip=1,
@@ -42,16 +38,17 @@ def make_demo_env(
         full_action_space=False,
         render_mode="rgb_array",
     )
-    env = gym.wrappers.RecordEpisodeStatistics(env)
-    env = NoopResetEnv(env, noop_max=noop_max)
-    env = MaxAndSkipEnv(env, skip=native_frame_skip)
-
-    if "FIRE" in env.unwrapped.get_action_meanings():
-        env = FireResetEnv(env)
-
-    env = gym.wrappers.ResizeObservation(env, (screen_size, screen_size))
-    env = gym.wrappers.GrayscaleObservation(env)
-    env = QueueLatencyWrapper(env, frame_skip_values=[latency], seed=seed)
+    env = AtariWrapper(
+        env,
+        noop_max=int(noop_max),
+        frame_skip=1,
+        screen_size=int(screen_size),
+        terminal_on_life_loss=bool(terminal_on_life_loss),
+        clip_reward=bool(clip_reward),
+        action_repeat_probability=0.0,
+    )
+    if int(latency) > 0:
+        env = QueueLatencyWrapper(env, frame_skip_values=[latency], seed=seed)
 
     if stack_frames > 1:
         env = NCHWFrameStack(env, n_stack=stack_frames)

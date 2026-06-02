@@ -2,3 +2,6 @@ _vizdoom.ini
 checkpoints/
 __pycache__/
 *.pyc
+*.venv/
+.git 
+outputs/

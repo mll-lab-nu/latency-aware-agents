@@ -12,7 +12,7 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 try:
-    from vizdoom import gymnasium_wrapper  # noqa: F401  registers VizdoomBasic-v1 etc.
+    from vizdoom import gymnasium_wrapper  # noqa: F401  registers VizDoom envs.
 except ImportError:
     gymnasium_wrapper = None  # type: ignore
 
@@ -33,7 +33,7 @@ class VizdoomScreenObsWrapper(ObservationWrapper):
 
 def make_demo_env(
     latency: int = 0,
-    env_id: str = "VizdoomBasic-v1",
+    env_id: str | None = None,
     vizdoom_frame_skip: int = 1,
     max_buttons_pressed: int = 1,
     screen_size: tuple = (84, 84),
@@ -41,7 +41,7 @@ def make_demo_env(
     seed: int = 0,
 ) -> DummyVecEnv:
     """
-    Builds a single VizDoom Basic env matching the SB3 training setup (image_only, grayscale).
+    Builds a single VizDoom Deadly Corridor env for the realtime demo.
     Returns a DummyVecEnv (n_envs=1).
 
     Obs shape: (1, 84, 84, 4)  — 4 stacked grayscale frames (HWC with 4 channels).
@@ -50,6 +50,7 @@ def make_demo_env(
         raise ImportError("vizdoom not installed. Run: pip install vizdoom")
 
     _tmp_root = tempfile.mkdtemp(prefix="vizdoom_demo_")
+    resolved_env_id = _resolve_deadly_corridor_env_id(env_id)
 
     def _init():
         worker_dir = os.path.join(_tmp_root, f"seed_{seed}")
@@ -58,7 +59,7 @@ def make_demo_env(
         os.chdir(worker_dir)
 
         env = gym.make(
-            env_id,
+            resolved_env_id,
             frame_skip=int(vizdoom_frame_skip),
             max_buttons_pressed=int(max_buttons_pressed),
             render_mode="rgb_array",
@@ -68,7 +69,8 @@ def make_demo_env(
 
         os.chdir(old_cwd)
 
-        env = QueueLatencyWrapper(env, frame_skip_values=[latency], seed=seed)
+        if int(latency) > 0:
+            env = QueueLatencyWrapper(env, frame_skip_values=[latency], seed=seed)
         env = VizdoomScreenObsWrapper(env)
         env = ResizeObservation(env, shape=screen_size)
         env = GrayscaleObservation(env, keep_dim=True)
@@ -81,3 +83,19 @@ def make_demo_env(
         return env
 
     return DummyVecEnv([_init])
+
+
+def _resolve_deadly_corridor_env_id(env_id: str | None) -> str:
+    if env_id:
+        return str(env_id)
+    candidates = (
+        "VizdoomDeadlyCorridor-v1",
+        "VizdoomDeadlyCorridor-v0",
+        "VizdoomCorridor-v1",
+        "VizdoomCorridor-v0",
+    )
+    registry = set(str(key) for key in gym.envs.registry.keys())
+    for candidate in candidates:
+        if candidate in registry:
+            return candidate
+    return candidates[0]

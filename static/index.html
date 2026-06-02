@@ -3,25 +3,30 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Realtime Inference Engine</title>
+<title>Human Game Interface</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #111; color: #eee; font-family: monospace; display: flex;
-         flex-direction: column; align-items: center; min-height: 100vh; padding: 20px; }
+         flex-direction: column; align-items: center; min-height: 100vh; padding: 18px; }
   h1 { font-size: 1.1rem; letter-spacing: 2px; color: #7df; margin-bottom: 18px;
        text-transform: uppercase; }
+  .topbar { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+  .topbar h1 { margin-bottom: 0; }
+  .link-button { background: transparent; color: #7df; border: 1px solid #355;
+                 flex: 0 0 auto; padding: 6px 9px; text-transform: none;
+                 letter-spacing: 0; font-size: 0.75rem; }
 
-  .layout { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;
-             justify-content: center; width: 100%; max-width: 900px; }
+  .layout { display: grid; grid-template-columns: 300px minmax(520px, 680px) 300px;
+             gap: 20px; align-items: flex-start; width: 100%; max-width: 1320px; }
 
   /* --- Control panel --- */
   .controls { background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
-               padding: 16px; min-width: 240px; }
+               padding: 16px; min-width: 280px; }
   .controls h2 { font-size: 0.75rem; color: #888; letter-spacing: 1px;
                   text-transform: uppercase; margin-bottom: 12px; }
   .field { margin-bottom: 14px; }
   .field label { display: block; font-size: 0.7rem; color: #aaa; margin-bottom: 4px; }
-  .field select, .field input[type=text] {
+  .field select, .field input[type=text], .field input[type=number] {
     width: 100%; background: #222; border: 1px solid #444; border-radius: 4px;
     color: #eee; padding: 6px 8px; font-family: monospace; font-size: 0.8rem; }
   .field input[type=range] { width: 100%; accent-color: #7df; }
@@ -35,38 +40,134 @@
   button:hover { opacity: 0.85; }
   #btn-start { background: #2d7a4f; color: #fff; }
   #btn-stop  { background: #7a2d2d; color: #fff; }
-  #btn-reset { background: #444;   color: #eee; }
+  #btn-reset-session { background: #444; color: #eee; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
 
   /* --- Game view --- */
   .game-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
   #canvas { background: #000; border: 2px solid #333; border-radius: 6px;
-             image-rendering: pixelated; }
+             image-rendering: pixelated; width: 100%; max-width: 680px; height: auto;
+             object-fit: contain; display: block; }
   #status-badge { font-size: 0.7rem; color: #666; }
   #status-badge.running { color: #4f4; }
   #status-badge.stopped { color: #f44; }
+  #status-badge.done { color: #7df; }
+  #status-badge.finished { color: #fd7; }
+
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.72);
+                    display: none; align-items: center; justify-content: center;
+                    z-index: 20; padding: 20px; }
+  .modal-backdrop.show { display: flex; }
+  .modal { width: min(560px, 100%); background: #181818; border: 1px solid #3a3a3a;
+           border-radius: 8px; padding: 18px; box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+           --modal-start-x: 0px; --modal-start-y: 0px; }
+  .modal-backdrop.show .modal { animation: modal-from-origin 180ms ease-out; }
+  @keyframes modal-from-origin {
+    from {
+      opacity: 0;
+      transform: translate(var(--modal-start-x), var(--modal-start-y)) scale(0.08);
+    }
+    to {
+      opacity: 1;
+      transform: translate(0, 0) scale(1);
+    }
+  }
+  .modal h2 { color: #7df; font-size: 0.95rem; margin-bottom: 12px; }
+  .modal p, .modal li { color: #ccc; font-size: 0.78rem; line-height: 1.55; }
+  .modal ol { padding-left: 20px; margin: 10px 0 14px; }
+  .modal .btn-row { justify-content: flex-end; }
+  .modal button { flex: 0 0 auto; min-width: 90px; }
+  .modal #btn-session-restart { background: #2d7a4f; color: #fff; }
+  .modal #btn-session-change-user { background: #444; color: #eee; }
+  .modal #btn-controls-start { background: #2d7a4f; color: #fff; }
+  .modal #btn-controls-cancel { background: #444; color: #eee; }
+  .modal #btn-next-env-start { background: #2d7a4f; color: #fff; }
+  .modal #btn-next-env-cancel { background: #444; color: #eee; }
 
   /* --- Stats panel --- */
   .stats { background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
-            padding: 16px; min-width: 180px; }
+            padding: 16px; min-width: 280px; overflow-wrap: anywhere; }
   .stats h2 { font-size: 0.75rem; color: #888; letter-spacing: 1px;
                text-transform: uppercase; margin-bottom: 12px; }
   .stat-row { display: flex; justify-content: space-between; align-items: center;
                margin-bottom: 8px; }
   .stat-key { font-size: 0.7rem; color: #888; }
-  .stat-val { font-size: 0.85rem; color: #eee; }
+  .stat-val { font-size: 0.85rem; color: #eee; text-align: right; max-width: 160px; }
   .stat-val.highlight { color: #7df; }
   .stat-val.warn { color: #fd7; }
+  .note { color: #888; font-size: 0.68rem; line-height: 1.45; margin-top: 10px; }
+  @media (max-width: 1180px) {
+    .layout { grid-template-columns: 300px minmax(480px, 1fr); }
+    .stats { grid-column: 1 / -1; width: 100%; }
+    .stat-val { max-width: 70%; }
+  }
+  @media (max-width: 820px) {
+    .layout { grid-template-columns: 1fr; }
+    .controls, .stats { width: 100%; }
+  }
 
-  /* --- Latency bar --- */
-  .lat-bar-wrap { margin-top: 10px; }
-  .lat-bar-label { font-size: 0.65rem; color: #888; margin-bottom: 4px; }
-  .lat-bar-bg { background: #333; border-radius: 3px; height: 6px; }
-  .lat-bar-fill { height: 6px; border-radius: 3px; background: #7df;
-                   transition: width 0.2s, background 0.2s; }
 </style>
 </head>
 <body>
-<h1>Realtime Inference Engine</h1>
+<div class="topbar">
+  <h1>Human Game Interface</h1>
+  <button class="link-button" id="btn-instructions">Instructions</button>
+</div>
+
+<div class="modal-backdrop" id="instructions-modal">
+  <div class="modal">
+    <h2>Human Evaluation Instructions</h2>
+    <p>Use eval mode for formal data collection. Finish one environment before switching to the next.</p>
+    <ol>
+      <li>Enter the participant name.</li>
+      <li>Select one environment.</li>
+      <li>Set episodes per latency, max steps, and the latency range.</li>
+      <li>Press Start Eval and play until the session finishes.</li>
+      <li>After the finished status appears, select the next environment and start a new eval session.</li>
+    </ol>
+    <p>Controls: Flappy uses Space, Up, or W. Demon Attack uses Left/Right plus Space. Deadly Corridor uses WASD, arrows, and Space.</p>
+    <div class="btn-row">
+      <button id="btn-close-instructions">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="session-complete-modal">
+  <div class="modal">
+    <h2>Participant Session Complete</h2>
+    <p>All three environments are complete for this participant session. Results and summaries have been written to the output directory.</p>
+    <div class="btn-row">
+      <button id="btn-session-restart">Restart Session</button>
+      <button id="btn-session-change-user">Change User</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="controls-modal">
+  <div class="modal">
+    <h2 id="controls-title">Controls</h2>
+    <p id="controls-body"></p>
+    <div class="btn-row">
+      <button id="btn-controls-cancel">Cancel</button>
+      <button id="btn-controls-start">Start</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="next-env-modal">
+  <div class="modal">
+    <h2>Environment Complete</h2>
+    <p>Select the next environment for this participant session.</p>
+    <div class="field">
+      <label>Next environment</label>
+      <select id="sel-next-env"></select>
+    </div>
+    <div class="btn-row">
+      <button id="btn-next-env-cancel">Choose Later</button>
+      <button id="btn-next-env-start">Continue</button>
+    </div>
+  </div>
+</div>
 
 <div class="layout">
 
@@ -75,15 +176,48 @@
     <h2>Configuration</h2>
 
     <div class="field">
+      <label>Participant name</label>
+      <input type="text" id="txt-participant" placeholder="name">
+    </div>
+
+    <div class="field">
       <label>Environment</label>
       <select id="sel-env">
         <option value="flappy">Flappy Bird</option>
         <option value="demon_attack">Demon Attack (Atari)</option>
-        <option value="vizdoom">VizDoom Basic</option>
+        <option value="deadly_corridor">Deadly Corridor</option>
       </select>
     </div>
 
     <div class="field">
+      <label>Mode</label>
+      <select id="sel-run-mode">
+        <option value="eval" selected>Eval latency sweep</option>
+        <option value="freeplay">Free play</option>
+      </select>
+    </div>
+
+    <div class="field eval-only">
+      <label>Episodes per latency</label>
+      <input type="number" id="num-episodes" min="1" max="200" step="1" value="20">
+    </div>
+
+    <div class="field">
+      <label>Max steps per episode</label>
+      <input type="number" id="num-max-steps" min="1" max="100000" step="1" value="3600">
+    </div>
+
+    <div class="field eval-only">
+      <label>Start latency (raw frames)</label>
+      <input type="number" id="num-latency-start" min="0" max="100" step="1" value="0">
+    </div>
+
+    <div class="field eval-only">
+      <label>End latency (raw frames)</label>
+      <input type="number" id="num-latency-end" min="0" max="100" step="1" value="8">
+    </div>
+
+    <div class="field speed-field">
       <label>
         Game speed
         <span class="speed-val" id="lbl-speed">1.0×</span>
@@ -91,28 +225,32 @@
       <input type="range" id="rng-speed" min="0.25" max="4" step="0.25" value="1.0">
     </div>
 
-    <div class="field">
-      <label>Mode</label>
-      <select id="sel-mode">
-        <option value="paused">Paused (env waits for model)</option>
-        <option value="simulated" selected>Simulated (fixed FPS + K delay)</option>
-        <option value="realtime">Real-time (async inference)</option>
-      </select>
+    <div class="field" id="field-human">
+      <label>Human controls</label>
+      <div style="font-size:0.7rem;color:#aaa;line-height:1.5">
+        Flappy: Space / ↑ / W<br>
+        Demon: ← / → + Space<br>
+        Deadly: WASD / arrows / Space
+      </div>
     </div>
 
-    <div class="field" id="field-latency">
+    <div class="field freeplay-only" id="field-latency">
       <label>
-        Simulated latency (frames)
+        Action latency (raw frames)
         <span class="latency-val" id="lbl-latency">0</span>
       </label>
-      <input type="range" id="rng-latency" min="0" max="10" step="1" value="0">
+      <input type="range" id="rng-latency" min="0" max="15" step="1" value="0">
+      <div class="note">Free play uses one fixed latency until stopped.</div>
     </div>
 
     <div class="btn-row">
-      <button id="btn-start">▶ Start</button>
+      <button id="btn-start">▶ Start Block</button>
       <button id="btn-stop">■ Stop</button>
-      <button id="btn-reset">↺ Reset</button>
     </div>
+    <div class="btn-row">
+      <button id="btn-reset-session">↺ Reset Session</button>
+    </div>
+    <div class="note">Eval mode automatically advances latency after X completed episodes. Stopped partial episodes are stored separately.</div>
   </div>
 
   <!-- Game canvas -->
@@ -124,6 +262,18 @@
   <!-- Stats -->
   <div class="stats">
     <h2>Live Stats</h2>
+    <div class="stat-row">
+      <span class="stat-key">Participant</span>
+      <span class="stat-val highlight" id="s-participant">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Session</span>
+      <span class="stat-val" id="s-session">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Mode</span>
+      <span class="stat-val" id="s-run-mode">—</span>
+    </div>
     <div class="stat-row">
       <span class="stat-key">Episode</span>
       <span class="stat-val highlight" id="s-episode">—</span>
@@ -145,25 +295,28 @@
       <span class="stat-val" id="s-speed">—</span>
     </div>
     <div class="stat-row">
-      <span class="stat-key">Latency (frames)</span>
+      <span class="stat-key">Action</span>
+      <span class="stat-val highlight" id="s-action">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Latency</span>
       <span class="stat-val warn" id="s-latency">—</span>
     </div>
     <div class="stat-row">
-      <span class="stat-key">Effective K</span>
-      <span class="stat-val warn" id="s-effk">—</span>
+      <span class="stat-key">Env FPS</span>
+      <span class="stat-val" id="s-envfps">—</span>
     </div>
     <div class="stat-row">
-      <span class="stat-key">Mode</span>
-      <span class="stat-val" id="s-mode">—</span>
+      <span class="stat-key">Obs FPS</span>
+      <span class="stat-val" id="s-obsfps">—</span>
     </div>
-
-    <div class="lat-bar-wrap">
-      <div class="lat-bar-label">
-        Inference time: <span id="s-inf">— ms</span>
-      </div>
-      <div class="lat-bar-bg">
-        <div class="lat-bar-fill" id="lat-bar" style="width:0%"></div>
-      </div>
+    <div class="stat-row">
+      <span class="stat-key">Lag</span>
+      <span class="stat-val warn" id="s-lag">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Input age</span>
+      <span class="stat-val warn" id="s-input-age">—</span>
     </div>
   </div>
 
@@ -176,6 +329,89 @@ const badge   = document.getElementById('status-badge');
 
 let ws = null;
 let running = false;
+let currentSession = null;
+let completedEnvs = new Set();
+let sessionCompletePromptShown = false;
+const allEvalEnvs = new Set(['flappy', 'demon_attack', 'deadly']);
+const envLabels = {
+  flappy: 'Flappy Bird',
+  demon_attack: 'Demon Attack',
+  deadly: 'Deadly Corridor'
+};
+const envValuesBySlug = {
+  flappy: 'flappy',
+  demon_attack: 'demon_attack',
+  deadly: 'deadly_corridor'
+};
+const pressedKeys = new Set();
+const controlKeys = new Set([
+  'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+  'KeyW', 'KeyA', 'KeyS', 'KeyD'
+]);
+
+function openModal(modalId, originEl = null) {
+  const backdrop = document.getElementById(modalId);
+  const modal = backdrop.querySelector('.modal');
+  let dx = 0;
+  let dy = 0;
+  if (originEl && modal) {
+    const origin = originEl.getBoundingClientRect();
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
+    dx = origin.left + origin.width / 2 - centerX;
+    dy = origin.top + origin.height / 2 - centerY;
+  }
+  modal.style.setProperty('--modal-start-x', `${dx}px`);
+  modal.style.setProperty('--modal-start-y', `${dy}px`);
+  backdrop.classList.remove('show');
+  void backdrop.offsetWidth;
+  backdrop.classList.add('show');
+}
+
+function closeModal(modalId) {
+  document.getElementById(modalId).classList.remove('show');
+}
+
+function shouldSendHumanInput() {
+  return running;
+}
+
+async function sendHumanInput() {
+  if (!shouldSendHumanInput()) return;
+  await fetch('/input', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ keys: Array.from(pressedKeys) })
+  });
+}
+
+async function clearHumanInput() {
+  pressedKeys.clear();
+  await fetch('/input', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ keys: [] })
+  });
+}
+
+window.addEventListener('keydown', (evt) => {
+  if (!controlKeys.has(evt.code)) return;
+  if (shouldSendHumanInput()) evt.preventDefault();
+  const before = pressedKeys.size;
+  pressedKeys.add(evt.code);
+  if (pressedKeys.size !== before) sendHumanInput();
+});
+
+window.addEventListener('keyup', (evt) => {
+  if (!controlKeys.has(evt.code)) return;
+  if (shouldSendHumanInput()) evt.preventDefault();
+  const removed = pressedKeys.delete(evt.code);
+  if (removed) sendHumanInput();
+});
+
+window.addEventListener('blur', () => {
+  if (pressedKeys.size) clearHumanInput();
+});
 
 // --- Speed slider (live update, no restart needed) ---
 const rngSpeed = document.getElementById('rng-speed');
@@ -191,70 +427,189 @@ rngSpeed.addEventListener('input', () => {
   }
 });
 
-// --- Latency slider (display only — restart required to apply) ---
 const rngLatency = document.getElementById('rng-latency');
 const lblLatency = document.getElementById('lbl-latency');
 rngLatency.addEventListener('input', () => {
   lblLatency.textContent = rngLatency.value;
 });
 
-// --- Mode selector: show latency slider only for simulated mode ---
-const selMode = document.getElementById('sel-mode');
-const fieldLatency = document.getElementById('field-latency');
-function syncLatencyVisibility() {
-  fieldLatency.style.display = selMode.value === 'simulated' ? '' : 'none';
-}
-selMode.addEventListener('change', syncLatencyVisibility);
-syncLatencyVisibility();
+const defaultMaxSteps = {
+  flappy: 3600,
+  demon_attack: 3600,
+  deadly_corridor: 30000
+};
 
-// --- Start ---
-document.getElementById('btn-start').addEventListener('click', async () => {
+const envControlText = {
+  flappy: {
+    title: 'Flappy Bird Controls',
+    body: 'Press Space, Up Arrow, or W to flap. Release to do nothing.'
+  },
+  demon_attack: {
+    title: 'Demon Attack Controls',
+    body: 'Use Left/Right Arrow or A/D to move. Hold Space, W, or Up Arrow to fire. Movement plus fire will send combined fire actions.'
+  },
+  deadly_corridor: {
+    title: 'Deadly Corridor Controls',
+    body: 'Use W/S or Up/Down Arrow to move forward/back. Use A/D to strafe left/right. Use Left/Right Arrow to turn. Press Space to attack.'
+  }
+};
+
+document.getElementById('sel-env').addEventListener('change', (evt) => {
+  const value = defaultMaxSteps[evt.target.value] || 3600;
+  document.getElementById('num-max-steps').value = value;
+});
+
+const selRunMode = document.getElementById('sel-run-mode');
+function syncModeFields() {
+  const evalMode = selRunMode.value === 'eval';
+  document.querySelectorAll('.eval-only').forEach(el => { el.style.display = evalMode ? '' : 'none'; });
+  document.querySelectorAll('.freeplay-only').forEach(el => { el.style.display = evalMode ? 'none' : ''; });
+  document.querySelectorAll('.speed-field').forEach(el => { el.style.display = evalMode ? 'none' : ''; });
+  if (evalMode) {
+    rngSpeed.value = '1.0';
+    lblSpeed.textContent = '1.00×';
+  }
+  document.getElementById('btn-start').textContent = evalMode ? '▶ Start Eval' : '▶ Start Free';
+}
+selRunMode.addEventListener('change', syncModeFields);
+syncModeFields();
+
+async function loadSettings() {
+  try {
+    const resp = await fetch('/settings');
+    await resp.json();
+  } catch (_) {}
+}
+
+function ensureParticipantName() {
+  const input = document.getElementById('txt-participant');
+  let name = input.value.trim();
+  if (!name) {
+    name = window.prompt('Participant name') || '';
+    input.value = name.trim();
+  }
+  return input.value.trim();
+}
+
+function setRunningState(isRunning) {
+  running = isRunning;
+  document.getElementById('btn-start').disabled = isRunning;
+  document.getElementById('sel-env').disabled = isRunning;
+  document.getElementById('sel-run-mode').disabled = isRunning;
+  document.getElementById('rng-latency').disabled = isRunning;
+  document.getElementById('num-episodes').disabled = isRunning;
+  document.getElementById('num-max-steps').disabled = isRunning;
+  document.getElementById('num-latency-start').disabled = isRunning;
+  document.getElementById('num-latency-end').disabled = isRunning;
+}
+
+function currentStartPayload() {
   const env     = document.getElementById('sel-env').value;
   const speed   = parseFloat(rngSpeed.value);
-  const latency = parseInt(rngLatency.value, 10);
-  const mode    = selMode.value;
+  const run_mode = document.getElementById('sel-run-mode').value;
+  const latency_frames = parseInt(rngLatency.value, 10);
+  const parsedLatencyStart = parseInt(document.getElementById('num-latency-start').value, 10);
+  const parsedLatencyEnd = parseInt(document.getElementById('num-latency-end').value, 10);
+  const latency_start = Number.isNaN(parsedLatencyStart) ? 0 : parsedLatencyStart;
+  const latency_end = Number.isNaN(parsedLatencyEnd) ? latency_start : parsedLatencyEnd;
+  const participant_name = ensureParticipantName();
+  const episodes_per_latency = parseInt(document.getElementById('num-episodes').value, 10) || 20;
+  const max_steps_per_episode = parseInt(document.getElementById('num-max-steps').value, 10) || 3600;
 
-  await fetch('/start', {
+  if (!participant_name) {
+    alert('Participant name is required.');
+    return null;
+  }
+
+  if (run_mode === 'eval' && latency_end < latency_start) {
+    alert('End latency must be greater than or equal to start latency.');
+    return null;
+  }
+
+  const payload = {
+    env,
+    speed,
+    run_mode,
+    latency_frames,
+    latency_start,
+    latency_end,
+    participant_name,
+    episodes_per_latency,
+    max_steps_per_episode
+  };
+  if (currentSession) {
+    payload.session_id = currentSession;
+  }
+  return payload;
+}
+
+async function startSession() {
+  const payload = currentStartPayload();
+  if (!payload) return;
+  const startingNewSession = !currentSession;
+
+  const resp = await fetch('/start', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ env, speed, latency, mode })
+    body: JSON.stringify(payload)
   });
+  const result = await resp.json();
+  if (!result.ok) {
+    alert(result.error || 'Failed to start eval block.');
+    return;
+  }
 
-  running = true;
+  currentSession = result.session_id;
+  if (startingNewSession) {
+    completedEnvs = new Set();
+    sessionCompletePromptShown = false;
+  }
+  document.getElementById('s-participant').textContent = result.participant_name || payload.participant_name;
+  document.getElementById('s-session').textContent = result.session_id || '—';
+  document.getElementById('s-run-mode').textContent = result.run_mode || payload.run_mode;
+  setRunningState(true);
+  clearHumanInput();
   badge.textContent = '● Running';
   badge.className = 'running';
   connectWS();
+}
+
+function showControlsBeforeStart() {
+  const payload = currentStartPayload();
+  if (!payload) return;
+  const details = envControlText[payload.env] || { title: 'Controls', body: 'Use the keyboard controls for the selected environment.' };
+  document.getElementById('controls-title').textContent = details.title;
+  document.getElementById('controls-body').textContent = details.body;
+  openModal('controls-modal', document.getElementById('btn-start'));
+}
+
+// --- Start ---
+document.getElementById('btn-start').addEventListener('click', async () => {
+  showControlsBeforeStart();
 });
 
 // --- Stop ---
 document.getElementById('btn-stop').addEventListener('click', async () => {
   await fetch('/stop', { method: 'POST' });
-  running = false;
+  setRunningState(false);
+  clearHumanInput();
   badge.textContent = '● Stopped';
   badge.className = 'stopped';
   if (ws) { ws.close(); ws = null; }
 });
 
-// --- Reset: stop then immediately re-start with current settings ---
-document.getElementById('btn-reset').addEventListener('click', async () => {
+// --- Reset Session ---
+document.getElementById('btn-reset-session').addEventListener('click', async () => {
   if (ws) { ws.close(); ws = null; }
   await fetch('/stop', { method: 'POST' });
-
-  const env     = document.getElementById('sel-env').value;
-  const speed   = parseFloat(rngSpeed.value);
-  const latency = parseInt(rngLatency.value, 10);
-  const mode    = selMode.value;
-
-  await fetch('/start', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ env, speed, latency, mode })
-  });
-
-  running = true;
-  badge.textContent = '● Running';
-  badge.className = 'running';
-  connectWS();
+  await clearHumanInput();
+  currentSession = null;
+  completedEnvs = new Set();
+  sessionCompletePromptShown = false;
+  setRunningState(false);
+  document.getElementById('s-session').textContent = '—';
+  badge.textContent = '● Session Reset';
+  badge.className = 'stopped';
 });
 
 // --- WebSocket ---
@@ -279,29 +634,167 @@ function drawFrame(b64) {
   img.onload = () => {
     canvas.width  = img.width;
     canvas.height = img.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0);
   };
   img.src = 'data:image/jpeg;base64,' + b64;
 }
 
 function updateStats(s) {
-  document.getElementById('s-episode').textContent = s.episode;
+  if (s.run_complete) {
+    setRunningState(false);
+    clearHumanInput();
+    if (Array.isArray(s.completed_envs)) {
+      completedEnvs = new Set(s.completed_envs);
+    } else if (s.run_mode === 'eval') {
+      completedEnvs.add(envSlug(s.env));
+    }
+    badge.textContent = '● Session Finished';
+    badge.className = 'finished';
+    if (ws) { ws.close(); ws = null; }
+    if (Boolean(s.session_all_envs_complete)) {
+      maybeShowSessionCompleteModal(true);
+    } else if (s.run_mode === 'eval') {
+      maybeShowNextEnvModal();
+    }
+  }
+  document.getElementById('s-participant').textContent = s.participant || document.getElementById('txt-participant').value || '—';
+  document.getElementById('s-session').textContent = s.session_id || currentSession || '—';
+  document.getElementById('s-run-mode').textContent = s.run_mode || '—';
+  document.getElementById('s-episode').textContent = s.episode_target ? `${s.episode + 1} / ${s.episode_target}` : s.episode;
   document.getElementById('s-step').textContent    = s.step;
   document.getElementById('s-reward').textContent  = s.reward;
   document.getElementById('s-total').textContent   = s.total_reward;
   document.getElementById('s-speed').textContent   = s.speed + '×';
-  document.getElementById('s-latency').textContent = s.latency_frames + ' fr';
-  document.getElementById('s-effk').textContent    = s.effective_k.toFixed(2) + ' fr';
-  document.getElementById('s-mode').textContent    = s.mode;
-  document.getElementById('s-inf').textContent     = s.inference_ms.toFixed(1) + ' ms';
-
-  // Bar: 0ms = green, 33ms (one frame) = yellow, 100ms+ = red, max bar = 100ms
-  const ms  = s.inference_ms;
-  const pct = Math.min(ms / 100, 1) * 100;
-  const bar = document.getElementById('lat-bar');
-  bar.style.width = pct + '%';
-  bar.style.background = ms < 16 ? '#4f4' : ms < 33 ? '#fd7' : '#f44';
+  document.getElementById('s-action').textContent   = s.action || '—';
+  document.getElementById('s-latency').textContent  =
+    s.latency_target ? `${s.latency_frames} fr (${s.latency_index + 1} / ${s.latency_target})` : s.latency_frames + ' fr / ' + s.latency_ms + ' ms';
+  document.getElementById('s-envfps').textContent   = s.target_env_fps;
+  document.getElementById('s-obsfps').textContent   = s.obs_fps;
+  document.getElementById('s-lag').textContent      = s.wall_clock_lag_ms + ' ms';
+  document.getElementById('s-input-age').textContent =
+    s.input_age_ms === null || s.input_age_ms === undefined ? '—' : s.input_age_ms + ' ms';
 }
+
+loadSettings().then(() => {
+  const stored = window.localStorage.getItem('human_eval_participant') || '';
+  if (stored) document.getElementById('txt-participant').value = stored;
+  window.setTimeout(() => {
+    openModal('instructions-modal', document.getElementById('btn-instructions'));
+  }, 250);
+});
+
+document.getElementById('txt-participant').addEventListener('change', (evt) => {
+  window.localStorage.setItem('human_eval_participant', evt.target.value.trim());
+});
+
+document.getElementById('btn-instructions').addEventListener('click', () => {
+  openModal('instructions-modal', document.getElementById('btn-instructions'));
+});
+
+document.getElementById('btn-close-instructions').addEventListener('click', () => {
+  closeModal('instructions-modal');
+});
+
+document.getElementById('instructions-modal').addEventListener('click', (evt) => {
+  if (evt.target.id === 'instructions-modal') {
+    closeModal('instructions-modal');
+  }
+});
+
+function envSlug(envName) {
+  if (envName === 'deadly_corridor') return 'deadly';
+  return String(envName || '').trim().toLowerCase();
+}
+
+function maybeShowSessionCompleteModal(forceShow = false) {
+  if (sessionCompletePromptShown) return;
+  if (!forceShow && completedEnvs.size !== allEvalEnvs.size) return;
+  sessionCompletePromptShown = true;
+  openModal('session-complete-modal');
+}
+
+function remainingEnvSlugs() {
+  return Array.from(allEvalEnvs).filter(env => !completedEnvs.has(env));
+}
+
+function maybeShowNextEnvModal() {
+  const remaining = remainingEnvSlugs();
+  if (!remaining.length) return;
+  const select = document.getElementById('sel-next-env');
+  select.innerHTML = '';
+  for (const env of remaining) {
+    const option = document.createElement('option');
+    option.value = envValuesBySlug[env];
+    option.textContent = envLabels[env] || env;
+    select.appendChild(option);
+  }
+  openModal('next-env-modal');
+}
+
+function resetSessionStateForSameUser() {
+  currentSession = null;
+  completedEnvs = new Set();
+  sessionCompletePromptShown = false;
+  document.getElementById('s-session').textContent = '—';
+  badge.textContent = '● New Session Ready';
+  badge.className = 'stopped';
+}
+
+document.getElementById('btn-session-restart').addEventListener('click', () => {
+  closeModal('session-complete-modal');
+  resetSessionStateForSameUser();
+});
+
+document.getElementById('btn-session-change-user').addEventListener('click', () => {
+  const name = window.prompt('Participant name') || '';
+  if (!name.trim()) return;
+  document.getElementById('txt-participant').value = name.trim();
+  window.localStorage.setItem('human_eval_participant', name.trim());
+  closeModal('session-complete-modal');
+  resetSessionStateForSameUser();
+  document.getElementById('s-participant').textContent = name.trim();
+});
+
+document.getElementById('session-complete-modal').addEventListener('click', (evt) => {
+  if (evt.target.id === 'session-complete-modal') {
+    closeModal('session-complete-modal');
+  }
+});
+
+document.getElementById('btn-next-env-cancel').addEventListener('click', () => {
+  closeModal('next-env-modal');
+});
+
+document.getElementById('btn-next-env-start').addEventListener('click', () => {
+  const nextEnv = document.getElementById('sel-next-env').value;
+  document.getElementById('sel-env').value = nextEnv;
+  const value = defaultMaxSteps[nextEnv] || 3600;
+  document.getElementById('num-max-steps').value = value;
+  closeModal('next-env-modal');
+  showControlsBeforeStart();
+});
+
+document.getElementById('next-env-modal').addEventListener('click', (evt) => {
+  if (evt.target.id === 'next-env-modal') {
+    closeModal('next-env-modal');
+  }
+});
+
+document.getElementById('btn-controls-cancel').addEventListener('click', () => {
+  closeModal('controls-modal');
+});
+
+document.getElementById('btn-controls-start').addEventListener('click', async () => {
+  closeModal('controls-modal');
+  await startSession();
+});
+
+document.getElementById('controls-modal').addEventListener('click', (evt) => {
+  if (evt.target.id === 'controls-modal') {
+    closeModal('controls-modal');
+  }
+});
 </script>
 </body>
 </html>
