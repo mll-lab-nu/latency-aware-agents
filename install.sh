@@ -3,6 +3,8 @@ set -euo pipefail
 
 TORCH_VERSION="2.10.0"
 LATENCY_BENCH_TORCH_PROFILE="${LATENCY_BENCH_TORCH_PROFILE:-auto}"
+MINICONDA_HOME="${HOME}/miniconda3"
+MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
 
 detect_torch_profile() {
     if ! command -v nvidia-smi >/dev/null 2>&1; then
@@ -58,6 +60,57 @@ torch_index_url() {
     esac
 }
 
+find_conda_sh() {
+    local candidates=()
+    if [[ -n "${CONDA_EXE:-}" ]]; then
+        candidates+=("$(dirname "$(dirname "${CONDA_EXE}")")/etc/profile.d/conda.sh")
+    fi
+    if [[ -n "${CONDA_PREFIX:-}" ]]; then
+        candidates+=("${CONDA_PREFIX}/etc/profile.d/conda.sh")
+    fi
+    if command -v conda >/dev/null 2>&1; then
+        candidates+=("$(conda info --base)/etc/profile.d/conda.sh")
+    fi
+    candidates+=(
+        "${HOME}/miniconda3/etc/profile.d/conda.sh"
+        "${HOME}/anaconda3/etc/profile.d/conda.sh"
+        "/opt/conda/etc/profile.d/conda.sh"
+    )
+
+    local candidate
+    for candidate in "${candidates[@]}"; do
+        if [[ -f "${candidate}" ]]; then
+            printf '%s\n' "${candidate}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+install_miniconda() {
+    local installer="/tmp/miniconda.sh"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "${MINICONDA_URL}" -o "${installer}"
+    else
+        wget -q "${MINICONDA_URL}" -O "${installer}"
+    fi
+
+    bash "${installer}" -b -p "${MINICONDA_HOME}"
+}
+
+ensure_conda() {
+    local conda_sh
+    if conda_sh="$(find_conda_sh)"; then
+        # shellcheck source=/dev/null
+        source "${conda_sh}"
+        return 0
+    fi
+
+    install_miniconda
+    # shellcheck source=/dev/null
+    source "${MINICONDA_HOME}/etc/profile.d/conda.sh"
+}
+
 ensure_envpool_build_tools() {
     export PATH="${HOME}/go/bin:${PATH}"
     export CGO_ENABLED=0
@@ -91,15 +144,11 @@ echo "[install] torch_profile=${SELECTED_TORCH_PROFILE} index_url=${TORCH_INDEX_
 # acceptable, use a GitHub deploy key or a short-lived token instead.
 #
 
-CONDA_BASE="$(conda info --base)"
-source "$CONDA_BASE/etc/profile.d/conda.sh"
+ensure_conda
 
 git submodule update --init --recursive
 
 conda create -n latency python=3.10 -y
-
-# shellcheck source=/dev/null
-source "$(conda info --base)/etc/profile.d/conda.sh"
 
 conda activate latency
 ensure_envpool_build_tools

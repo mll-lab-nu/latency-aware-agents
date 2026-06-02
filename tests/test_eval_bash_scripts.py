@@ -14,42 +14,56 @@ def _write_executable(path: Path, text: str) -> None:
     path.chmod(0o755)
 
 
-def _prepare_install_sh_env(tmp_path: Path, *, compute_caps: str) -> tuple[dict[str, str], Path]:
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    fake_conda_base = tmp_path / "conda_base"
-    (fake_conda_base / "etc" / "profile.d").mkdir(parents=True)
-    calls_path = tmp_path / "install_calls.log"
-
-    fake_conda_bin = fake_bin / "conda"
+def _write_fake_conda_installation(prefix: Path, conda_bin: Path, calls_path: Path) -> None:
+    conda_bin.parent.mkdir(parents=True, exist_ok=True)
+    (prefix / "etc" / "profile.d").mkdir(parents=True, exist_ok=True)
     _write_executable(
-        fake_conda_bin,
-        """#!/usr/bin/env bash
+        conda_bin,
+        f"""#!/usr/bin/env bash
 set -euo pipefail
-if [[ "${1:-}" == "info" && "${2:-}" == "--base" ]]; then
-  printf '%s\\n' "$FAKE_CONDA_BASE"
+if [[ "${{1:-}}" == "info" && "${{2:-}}" == "--base" ]]; then
+  printf '%s\\n' "{prefix}"
   exit 0
 fi
-printf 'conda %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+printf 'conda %s\\n' "$*" >> "{calls_path}"
 exit 0
 """,
     )
-
-    (fake_conda_base / "etc" / "profile.d" / "conda.sh").write_text(
-        """conda() {
-  if [[ "${1:-}" == "activate" ]]; then
-    printf 'conda activate %s\\n' "${2:-}" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+    (prefix / "etc" / "profile.d" / "conda.sh").write_text(
+        f"""conda() {{
+  if [[ "${{1:-}}" == "activate" ]]; then
+    printf 'conda activate %s\\n' "${{2:-}}" >> "{calls_path}"
     return 0
   fi
-  if [[ "${1:-}" == "install" && "$-" == *u* ]]; then
-    printf '/venv/latency/etc/conda/deactivate.d/deactivate_z60-go.sh: line 1: CONDA_BACKUP_GOROOT: unbound variable\\n' >&2
-    return 1
-  fi
-  "$FAKE_CONDA_BIN" "$@"
-}
+  "{conda_bin}" "$@"
+}}
 """,
         encoding="utf-8",
     )
+
+
+def _prepare_install_sh_env(
+    tmp_path: Path,
+    *,
+    compute_caps: str,
+    conda_mode: str = "path",
+) -> tuple[dict[str, str], Path]:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls_path = tmp_path / "install_calls.log"
+    home_dir = tmp_path
+    fake_conda_prefix = home_dir / "miniconda3"
+
+    if conda_mode == "path":
+        fake_conda_bin = fake_bin / "conda"
+        _write_fake_conda_installation(fake_conda_prefix, fake_conda_bin, calls_path)
+    elif conda_mode == "exe":
+        fake_conda_bin = fake_conda_prefix / "bin" / "conda"
+        _write_fake_conda_installation(fake_conda_prefix, fake_conda_bin, calls_path)
+    elif conda_mode == "missing":
+        fake_conda_bin = fake_conda_prefix / "bin" / "conda"
+    else:
+        raise ValueError(conda_mode)
 
     _write_executable(
         fake_bin / "git",
@@ -95,12 +109,74 @@ printf 'rm %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
 exit 0
 """,
     )
+    if conda_mode == "missing":
+        downloader_script = f"""#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -O|-o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+cat > "$output" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+prefix=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -b)
+      shift
+      ;;
+    -p)
+      prefix="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+mkdir -p "$prefix/bin" "$prefix/etc/profile.d"
+cat > "$prefix/bin/conda" <<'EOC'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${{1:-}}" == "info" && "${{2:-}}" == "--base" ]]; then
+  printf '%s\\n' "__PREFIX__"
+  exit 0
+fi
+printf 'conda %s\\n' "$*" >> "__CALLS__"
+exit 0
+EOC
+sed -i "s#__PREFIX__#$prefix#g; s#__CALLS__#{calls_path}#g" "$prefix/bin/conda"
+chmod +x "$prefix/bin/conda"
+cat > "$prefix/etc/profile.d/conda.sh" <<'EOC'
+conda() {{
+  if [[ "${{1:-}}" == "activate" ]]; then
+    printf 'conda activate %s\\n' "${{2:-}}" >> "__CALLS__"
+    return 0
+  fi
+  "__PREFIX__/bin/conda" "$@"
+}}
+EOC
+sed -i "s#__PREFIX__#$prefix#g; s#__CALLS__#{calls_path}#g" "$prefix/etc/profile.d/conda.sh"
+printf 'wget %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+EOF
+chmod +x "$output"
+"""
+        _write_executable(fake_bin / "curl", downloader_script.replace("wget", "curl"))
+        _write_executable(fake_bin / "wget", downloader_script)
     _write_executable(
         fake_bin / "bash",
         """#!/bin/bash
 set -euo pipefail
 if [[ "${1:-}" == "scripts/bash_scripts/build_cuda_extensions.sh" ]]; then
-  printf 'bash %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+  printf 'bash %s\\n' "$*" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
   exit 0
 fi
 /bin/bash "$@"
@@ -134,11 +210,16 @@ exit 0
 
     env = {
         **os.environ,
-        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
-        "FAKE_CONDA_BASE": str(fake_conda_base),
-        "FAKE_CONDA_BIN": str(fake_conda_bin),
+        "PATH": f"{fake_bin}{os.pathsep}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "HOME": str(home_dir),
         "LATENCY_BENCH_FAKE_INSTALL_CALLS": str(calls_path),
     }
+    for key in ("CONDA_EXE", "CONDA_PREFIX", "CONDA_SHLVL", "CONDA_DEFAULT_ENV"):
+        env.pop(key, None)
+    if conda_mode == "path":
+        env["FAKE_CONDA_BIN"] = str(fake_bin / "conda")
+    elif conda_mode == "exe":
+        env["CONDA_EXE"] = str(fake_conda_bin)
     return env, calls_path
 
 
@@ -334,6 +415,47 @@ def test_install_script_rejects_unknown_torch_profile(tmp_path):
     assert result.returncode != 0
     assert "Unknown LATENCY_BENCH_TORCH_PROFILE='bogus'" in result.stderr
     assert not calls_path.exists()
+
+
+def test_install_script_uses_conda_exe_when_path_is_missing(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n", conda_mode="exe")
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "conda create -n latency python=3.10 -y" in calls
+    assert "conda activate latency" in calls
+    assert "conda install -y -c conda-forge go" in calls
+
+
+def test_install_script_bootstraps_miniconda_when_conda_is_missing(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n", conda_mode="missing")
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "curl " in calls
+    assert "conda create -n latency python=3.10 -y" in calls
+    assert "conda activate latency" in calls
+    assert "conda install -y -c conda-forge go" in calls
 
 
 def test_starvla_rl_games_installers_match_flash_attn_wheel_to_runtime(tmp_path):
