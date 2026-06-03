@@ -51,6 +51,7 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             device=self.device,
             noop_max=cfg.noop_max,
             terminal_on_life_loss=cfg.terminal_on_life_loss,
+            obs_stride=int(self.clock.obs_stride_raw_frames),
         )
         sub_seeds = [self._sub_seed(agent_idx) for agent_idx in range(self.num_agents)]
         latency_seeds = [
@@ -207,17 +208,23 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         }
         return self._obs(), rewards_out, result.terminated_gpu, result.truncated_gpu, infos
 
-    def _append_stack(self, obs: torch.Tensor, dones: np.ndarray) -> None:
-        if self.frame_stack == 1:
-            self._stack.copy_(obs)
+    def _append_stack(self, obs_frames: torch.Tensor, dones: np.ndarray) -> None:
+        # obs_frames: (B, k, 84, 84) — the k=obs_stride raw frames of this decision window,
+        # oldest..newest. The policy stack is the LAST frame_stack RAW frames (matches ALE).
+        k = obs_frames.shape[1]
+        if self.frame_stack <= k:
+            self._stack.copy_(obs_frames[:, -self.frame_stack:, :, :])
         else:
-            self._next_stack[:, : -1, :, :].copy_(self._stack[:, 1:, :, :])
-            self._next_stack[:, -1:, :, :].copy_(obs)
+            # frame_stack spans multiple decisions: roll old frames left, append the k new ones.
+            self._next_stack[:, : -k, :, :].copy_(self._stack[:, k:, :, :])
+            self._next_stack[:, -k:, :, :].copy_(obs_frames)
             self._stack.copy_(self._next_stack)
         done_indices = np.flatnonzero(dones)
         if done_indices.size:
+            # On episode end, fill the stack with the newest (terminal) frame; the subsequent
+            # reset_obs overwrite in step() replaces it with the post-reset frame.
             index_t = torch.as_tensor(done_indices, dtype=torch.int64, device=self.device)
-            self._stack[index_t] = obs[index_t].repeat(1, self.frame_stack, 1, 1)
+            self._stack[index_t] = obs_frames[index_t, -1:, :, :].repeat(1, self.frame_stack, 1, 1)
 
     def _infos(
         self,

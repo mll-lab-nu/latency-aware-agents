@@ -624,10 +624,16 @@ step_decision(const bool episodic_life,
             decision_raw_frames_advanced,
             max_episode_steps,
             static_cast<int>(batch_size));
+        // Render the NATIVE RGB frame of every raw step (before reset_states, i.e. the
+        // post-step frame, matching ALE's getScreenRGB) into a per-raw-step slot. This lets
+        // the Python side build a "last N raw frames" stack with ALE-matching cv2 preprocessing.
+        // num_channels here is the NATIVE channel count (3 for RGB).
+        super_t::generate_frames(get_policy<cule_policy>(), /*rescale=*/false, /*last_frame=*/true,
+                                 num_channels,
+                                 imageBuffer + raw_step * batch_size * num_channels * cart.screen_size());
         super_t::reset_states(get_policy<cule_policy>());
     }
 
-    super_t::generate_frames(get_policy<cule_policy>(), true, true, num_channels, imageBuffer);
     demon_decision_finish_kernel<<<blocks, threads, 0, stream>>>(
         active,
         decision_step_idx,
