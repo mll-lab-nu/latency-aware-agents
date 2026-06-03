@@ -9,7 +9,6 @@ import torch
 from gymnasium.utils import seeding
 
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
-from training.common.atari_cv2_obs import native_rgb_to_obs84
 from training.demon_attack_sf.cule_atari_extension import load_cule_atari_extension
 
 
@@ -151,23 +150,21 @@ class CudaDemonAttackCore:
         noop_max: int = 30,
         terminal_on_life_loss: bool = False,
         obs_stride: int = 1,
+        frame_stack: int = 1,
     ) -> None:
         self.batch_size = int(batch_size)
         self.device = torch.device(device)
         self.noop_max = int(noop_max)
         self.terminal_on_life_loss = bool(terminal_on_life_loss)
         self.obs_stride = int(obs_stride)
+        self.frame_stack = frame_stack
+        self.obs_frame_count = min(self.frame_stack, self.obs_stride)
         self.ext = load_cule_atari_extension()
         self.rom = self.ext.AtariRom(demon_attack_rom_path())
         self.env = self.ext.AtariEnv(self.rom, self.batch_size, self.noop_max)
         self.screen_height = 84
         self.screen_width = 84
         self.num_channels = 1
-        # Native (pre-resize) RGB frame the policy obs is derived from, matching ALE.
-        # CULE renders native NTSC frames; demon native size is 210x160 RGB.
-        self.native_h = 210
-        self.native_w = int(self.rom.screen_width())  # 160
-        self.native_channels = 3
         self.minimal_action_values = [int(action) for action in self.rom.minimal_actions()]
         self.action_set = torch.tensor(self.minimal_action_values, dtype=torch.uint8, device=self.device)
         self._reset_ram_addresses = torch.tensor(_RESET_RAM_ADDRESSES, dtype=torch.int64, device=self.device)
@@ -235,17 +232,13 @@ class CudaDemonAttackCore:
             self.cache_index.data_ptr(),
         )
 
-        # Native RGB render buffers (matching ALE pre-resize frames).
-        # Single-frame path (reset / step_batch): (B, native_h, native_w, 3).
-        self._native_single = torch.empty(
-            (self.batch_size, self.native_h, self.native_w, self.native_channels),
+        self._obs84_single = torch.empty(
+            (self.batch_size, self.screen_height, self.screen_width),
             dtype=torch.uint8,
             device=self.device,
         )
-        # Multi-frame path (step_decision): the kernel renders one native frame per raw step,
-        # laid out raw_step-major -> (obs_stride, B, native_h, native_w, 3).
-        self._native_multi = torch.empty(
-            (max(self.obs_stride, 1), self.batch_size, self.native_h, self.native_w, self.native_channels),
+        self._obs84_multi = torch.empty(
+            (self.obs_frame_count, self.batch_size, self.screen_height, self.screen_width),
             dtype=torch.uint8,
             device=self.device,
         )
@@ -279,8 +272,7 @@ class CudaDemonAttackCore:
         return self._lives
 
     def observations(self) -> torch.Tensor:
-        # Native RGB (B, native_h, native_w, 3) -> ALE-matching cv2 obs (B, 84, 84) -> (B, 1, 84, 84)
-        return native_rgb_to_obs84(self._native_single).unsqueeze(1).contiguous()
+        return self._obs84_single.unsqueeze(1).contiguous()
 
     def reset_batch(
         self,
@@ -310,7 +302,7 @@ class CudaDemonAttackCore:
         self._terminated[index_t] = self._kernel_done[index_t]
         self._run_reset_action_sequence(target_indices, _FIRE_RESET_ACTIONS)
         self._patch_reset_ram(target_indices)
-        self.env.generate_frames(False, True, self.native_channels, self._native_single.data_ptr())
+        self.env.generate_obs84(True, self._obs84_single.data_ptr())
         reset_obs = self.observations()
         self._rewards.zero_()
         self._terminated[index_t] = False
@@ -359,15 +351,11 @@ class CudaDemonAttackCore:
         action_t = torch.as_tensor(actions, dtype=torch.int64, device=self.device).reshape(-1).contiguous()
         active_t = torch.as_tensor(active_mask, dtype=torch.bool, device=self.device).reshape(-1).contiguous()
         episode_steps = episode_step_idx.view(-1)
-        ostr = int(latency.clock.obs_stride_raw_frames)
-        assert ostr <= self.obs_stride, (
-            f"obs_stride at step ({ostr}) exceeds buffer ({self.obs_stride}); "
-            "pass obs_stride=env_fps/obs_fps to CudaDemonAttackCore"
-        )
         self.env.step_decision(
             bool(self.terminal_on_life_loss),
             int(latency.clock.obs_stride_raw_frames),
-            int(self.native_channels),
+            int(self.obs_frame_count),
+            int(self.num_channels),
             int(latency.clock.obs_stride_raw_frames if latency.hold_policy == ActionHoldPolicy.HOLD else 1),
             int(0 if latency.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO else 1),
             int(max_episode_steps),
@@ -414,19 +402,11 @@ class CudaDemonAttackCore:
             self._rewards.data_ptr(),
             self._lives.data_ptr(),
             self._scores.data_ptr(),
-            self._native_multi.data_ptr(),
+            self._obs84_multi.data_ptr(),
         )
         packed = self._packed_decision.detach().cpu().numpy()
         latency._latency_raw_frames_cpu[:] = packed[:, _DECISION_LATENCY_RAW_FRAMES].astype(np.int64)
-        # The kernel wrote `ostr` native RGB frames (one per raw step, raw_step-major).
-        # Build the "last N raw frames" stack with ALE-matching cv2 preprocessing.
-        native = self._native_multi[:ostr]  # (ostr, B, native_h, native_w, 3)
-        decision_obs = (
-            native_rgb_to_obs84(native.reshape(-1, self.native_h, self.native_w, self.native_channels))
-            .reshape(ostr, self.batch_size, 84, 84)
-            .permute(1, 0, 2, 3)
-            .contiguous()
-        )  # (B, ostr, 84, 84) in raw-frame temporal order (oldest..newest)
+        decision_obs = self._obs84_multi.permute(1, 0, 2, 3).contiguous()
         return CudaDemonAttackDecisionResult(
             observations=decision_obs,
             rewards=packed[:, _DECISION_REWARD].astype(np.float32).copy(),
@@ -525,6 +505,6 @@ class CudaDemonAttackCore:
         self._terminated.copy_(self._kernel_done & active)
         self._scores += self._rewards.to(torch.int32)
         self.env.reset_states()
-        self.env.generate_frames(False, True, self.native_channels, self._native_single.data_ptr())
+        self.env.generate_obs84(True, self._obs84_single.data_ptr())
         self._truncated.zero_()
         return self.observations()

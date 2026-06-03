@@ -14,6 +14,12 @@ namespace
 constexpr double FRAME_EPS = 1e-10;
 constexpr double TWO_PI = 6.283185307179586476925286766559;
 constexpr uint64_t SPLITMIX64_INCREMENT = 0x9E3779B97F4A7C15ULL;
+constexpr int OBS84_SIZE = 84;
+constexpr int TIA_FRAME_HEIGHT = 300;
+constexpr int RGB_TO_GRAY_R = 9798;
+constexpr int RGB_TO_GRAY_G = 19235;
+constexpr int RGB_TO_GRAY_B = 3735;
+constexpr int RGB_TO_GRAY_SHIFT = 15;
 
 __device__ __forceinline__ uint64_t splitmix64_next(int64_t* __restrict__ rng_state, int env)
 {
@@ -28,6 +34,68 @@ __device__ __forceinline__ uint64_t splitmix64_next(int64_t* __restrict__ rng_st
 __device__ __forceinline__ double rng_uniform01(int64_t* __restrict__ rng_state, int env)
 {
     return static_cast<double>(splitmix64_next(rng_state, env) >> 11) * (1.0 / 9007199254740992.0);
+}
+
+__device__ __forceinline__ float demon_cv2_gray_from_palette(uint8_t color)
+{
+    const uint32_t rgb = cule::atari::cuda::gpu_NTSCPalette[color];
+    const int r = static_cast<int>((rgb >> 16) & 0xFF);
+    const int g = static_cast<int>((rgb >> 8) & 0xFF);
+    const int b = static_cast<int>(rgb & 0xFF);
+    const int y = (
+        r * RGB_TO_GRAY_R +
+        g * RGB_TO_GRAY_G +
+        b * RGB_TO_GRAY_B +
+        (1 << (RGB_TO_GRAY_SHIFT - 1))) >> RGB_TO_GRAY_SHIFT;
+    return static_cast<float>(y);
+}
+
+__global__ void demon_generate_obs84_kernel(
+    int batch_size,
+    int screen_height,
+    int screen_width,
+    const uint8_t* __restrict__ frame_buffer,
+    uint8_t* __restrict__ obs_buffer)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const int total = batch_size * OBS84_SIZE * OBS84_SIZE;
+    if (idx >= total)
+    {
+        return;
+    }
+
+    const int pixel = idx % (OBS84_SIZE * OBS84_SIZE);
+    const int env = idx / (OBS84_SIZE * OBS84_SIZE);
+    const int out_y = pixel / OBS84_SIZE;
+    const int out_x = pixel % OBS84_SIZE;
+
+    const double y_scale = static_cast<double>(screen_height) / static_cast<double>(OBS84_SIZE);
+    const double x_scale = static_cast<double>(screen_width) / static_cast<double>(OBS84_SIZE);
+    const double y0 = static_cast<double>(out_y) * y_scale;
+    const double y1 = static_cast<double>(out_y + 1) * y_scale;
+    const double x0 = static_cast<double>(out_x) * x_scale;
+    const double x1 = static_cast<double>(out_x + 1) * x_scale;
+    const int in_y0 = static_cast<int>(floor(y0));
+    const int in_y1 = min(static_cast<int>(ceil(y1)), screen_height);
+    const int in_x0 = static_cast<int>(floor(x0));
+    const int in_x1 = min(static_cast<int>(ceil(x1)), screen_width);
+
+    const uint8_t* env_frame = frame_buffer + env * TIA_FRAME_HEIGHT * screen_width;
+    float value = 0.0f;
+    for (int y = in_y0; y < in_y1; ++y)
+    {
+        const float wy = static_cast<float>(
+            (fmin(y1, static_cast<double>(y + 1)) - fmax(y0, static_cast<double>(y))) / y_scale);
+        for (int x = in_x0; x < in_x1; ++x)
+        {
+            const float wx = static_cast<float>(
+                (fmin(x1, static_cast<double>(x + 1)) - fmax(x0, static_cast<double>(x))) / x_scale);
+            value += demon_cv2_gray_from_palette(env_frame[y * screen_width + x]) * wy * wx;
+        }
+    }
+    const float rounded = nearbyintf(value);
+    const float clamped = fminf(255.0f, fmaxf(0.0f, rounded));
+    obs_buffer[idx] = static_cast<uint8_t>(clamped);
 }
 
 enum DemonDecisionPackedColumn : int
@@ -495,8 +563,34 @@ generate_frames(const bool rescale,
 
 void
 AtariEnv::
+generate_obs84(const bool last_frame,
+               uint8_t* imageBuffer)
+{
+    if(use_cuda)
+    {
+        auto& policy = get_policy<cule_policy>();
+        super_t::preprocess(policy, last_frame, tia_update_ptr, frame_ptr);
+        const int threads = 256;
+        const int total = static_cast<int>(num_envs * OBS84_SIZE * OBS84_SIZE);
+        const int blocks = (total + threads - 1) / threads;
+        demon_generate_obs84_kernel<<<blocks, threads, 0, policy.getStream()>>>(
+            static_cast<int>(num_envs),
+            static_cast<int>(cart.screen_height()),
+            static_cast<int>(cart.screen_width()),
+            frame_ptr,
+            imageBuffer);
+    }
+    else
+    {
+        super_t::generate_frames(get_policy<agency::parallel_execution_policy>(), true, last_frame, 1, imageBuffer);
+    }
+}
+
+void
+AtariEnv::
 step_decision(const bool episodic_life,
               const size_t obs_stride_raw_frames,
+              const size_t obs_frame_count,
               const size_t num_channels,
               const int64_t hold_duration,
               const int64_t ordering_policy,
@@ -583,6 +677,8 @@ step_decision(const bool episodic_life,
         static_cast<int>(batch_size),
         static_cast<int>(queue_capacity));
 
+    const size_t first_obs_raw_step = obs_stride_raw_frames - obs_frame_count;
+
     for (size_t raw_step = 0; raw_step < obs_stride_raw_frames; ++raw_step)
     {
         demon_decision_select_actions_kernel<<<blocks, threads, 0, stream>>>(
@@ -624,13 +720,20 @@ step_decision(const bool episodic_life,
             decision_raw_frames_advanced,
             max_episode_steps,
             static_cast<int>(batch_size));
-        // Render the NATIVE RGB frame of every raw step (before reset_states, i.e. the
-        // post-step frame, matching ALE's getScreenRGB) into a per-raw-step slot. This lets
-        // the Python side build a "last N raw frames" stack with ALE-matching cv2 preprocessing.
-        // num_channels here is the NATIVE channel count (3 for RGB).
-        super_t::generate_frames(get_policy<cule_policy>(), /*rescale=*/false, /*last_frame=*/true,
-                                 num_channels,
-                                 imageBuffer + raw_step * batch_size * num_channels * cart.screen_size());
+        super_t::preprocess(get_policy<cule_policy>(), /*last_frame=*/true, tia_update_ptr, frame_ptr);
+        if (raw_step >= first_obs_raw_step)
+        {
+            const int obs_slot = static_cast<int>(raw_step - first_obs_raw_step);
+            const int threads_obs = 256;
+            const int total_obs = static_cast<int>(batch_size * OBS84_SIZE * OBS84_SIZE);
+            const int blocks_obs = (total_obs + threads_obs - 1) / threads_obs;
+            demon_generate_obs84_kernel<<<blocks_obs, threads_obs, 0, stream>>>(
+                static_cast<int>(batch_size),
+                static_cast<int>(cart.screen_height()),
+                static_cast<int>(cart.screen_width()),
+                frame_ptr,
+                imageBuffer + obs_slot * batch_size * OBS84_SIZE * OBS84_SIZE);
+        }
         super_t::reset_states(get_policy<cule_policy>());
     }
 
