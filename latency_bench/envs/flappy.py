@@ -41,6 +41,25 @@ class FlappyObservationConfig:
         return self.stacked_channels
 
 
+def resize_frame_method(frame: np.ndarray, size: int, method: str) -> np.ndarray:
+    """Ablation helper: resize a native HWC uint8 frame to (size,size) with the
+    chosen method. method in {bilinear_pil, inter_area_cv2, inter_linear_cv2, native}.
+    'native' returns the frame unchanged. No silent fallback: cv2 methods raise if cv2 missing."""
+    arr = np.asarray(frame, dtype=np.uint8)
+    if method == "native":
+        return arr
+    side = int(size)
+    if method == "bilinear_pil":
+        img = Image.fromarray(arr).convert("RGB").resize((side, side), Image.BILINEAR)
+        return np.asarray(img, dtype=np.uint8)
+    import cv2  # raises if unavailable — intentional, no fallback
+
+    interp = {"inter_area_cv2": cv2.INTER_AREA, "inter_linear_cv2": cv2.INTER_LINEAR}
+    if method not in interp:
+        raise ValueError(f"unknown obs_resize_interp={method!r}")
+    return cv2.resize(arr, (side, side), interpolation=interp[method]).astype(np.uint8)
+
+
 def resize_frame_pil(
     frame: np.ndarray,
     image_size: int = 84,
@@ -249,6 +268,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         background: str | None = "day",
         score_limit: int | None = None,
         obs_resize: tuple[int, int] | None = None,
+        obs_resize_interp: str = "bilinear_pil",
         frame_stack: int = 1,
         use_gpu_render: bool = False,
         gpu_render_device: str = "auto",
@@ -269,6 +289,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         self.env_fps = float(env_fps)
         self.noop_action = noop_action or Action(value=0, name="noop", is_noop=True)
         self.obs_resize = tuple(obs_resize) if obs_resize is not None else None
+        self.obs_resize_interp = str(obs_resize_interp)
         self.policy_observation_layout = str(policy_observation_layout).lower()
         self.export_env_raw_rgb_frames = bool(export_env_raw_rgb_frames)
         self.env_step = 0
@@ -440,9 +461,11 @@ class FlappyBirdEnvAdapter(EnvAdapter):
 
     def _observation_frame(self, raw_frame: Any) -> np.ndarray:
         arr = self._rgb_hwc_frame(raw_frame)
-        if self.obs_resize is None:
+        if self.obs_resize is None or self.obs_resize_interp == "native":
             return arr
         height, width = self.obs_resize
+        if height == width and self.obs_resize_interp != "bilinear_pil":
+            return self._rgb_hwc_frame(resize_frame_method(arr, height, self.obs_resize_interp))
         if height == width:
             arr = resize_frame_pil(arr, image_size=height, grayscale=False)
         else:

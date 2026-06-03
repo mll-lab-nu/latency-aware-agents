@@ -62,8 +62,10 @@ class StarVlaPolicyRunner(PolicyRunner):
         action_resolver: ActionResolver,
         action_refs: Sequence[Any],
         latency_prompt_map: dict[str, Any] | None = None,
+        obs_resize: tuple[int, int] | None = None,
     ) -> None:
         self._wrapper = wrapper
+        self._obs_resize = tuple(obs_resize) if obs_resize else None
         self._checkpoint_path = checkpoint_path
         self._device = device
         self._unnorm_key = unnorm_key
@@ -95,6 +97,14 @@ class StarVlaPolicyRunner(PolicyRunner):
     def _build_example(self, observation: Observation) -> dict[str, Any]:
         frame_source = observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
         frames = observation_data_to_hwc_uint8_frames(frame_source)
+        if self._obs_resize is not None:
+            height, width = self._obs_resize
+            # match training preprocessing exactly: gr00t LeRobotSingleDataset._pack_sample
+            # does `Image.fromarray(image).resize((224, 224))` (PIL default resample = BICUBIC).
+            frames = [
+                np.asarray(Image.fromarray(frame).resize((width, height)), dtype=np.uint8)
+                for frame in frames
+            ]
         prompt = resolve_starvla_prompt(
             env_name=self._env_name,
             observation_metadata=observation.metadata,
@@ -196,7 +206,10 @@ def indexed_action_from_vector(
     vector: npt.NDArray[Any],
     action_by_raw_id: Mapping[int, Action],
 ) -> tuple[Action, dict[str, Any]]:
-    raw_action_id = int(np.argmax(vector))
+    # argmax over the first n_actions dims only — the head may be a wider
+    # (bridge-padded) vector; matches starVLA eval_core decode_discrete_argmax(raw, n).
+    n_actions = len(action_by_raw_id)
+    raw_action_id = int(np.argmax(np.asarray(vector)[:n_actions]))
     return action_by_raw_id[raw_action_id], {"raw_action_id": raw_action_id}
 
 
@@ -367,6 +380,7 @@ def _build_starvla_policy(
         action_resolver=action_resolver,
         action_refs=policy_cfg.get("actions", action_resolver.default_action_refs()),
         latency_prompt_map=latency_prompt_map,
+        obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
     )
 
 
