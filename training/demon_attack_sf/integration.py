@@ -344,7 +344,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--clip_reward", env_cfg["clip_reward"])
     append_cli_arg(args, "--repeat_action_probability", env_cfg["repeat_action_probability"])
     append_cli_arg(args, "--full_action_space", env_cfg["full_action_space"])
-    append_cli_arg(args, "--max_episode_steps", env_cfg["max_episode_steps"])
+    append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
     append_cli_arg(args, "--simulator", env_cfg["simulator"])
     append_cli_arg(args, "--gpu-env-device", env_cfg["gpu_env_device"])
     # --gpu-env-batch-size is emitted centrally in build_common_sf_args from num_envs_per_worker.
