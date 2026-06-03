@@ -1,0 +1,42 @@
+__base__:
+  - ../../base/flappy.yaml
+
+experiment:
+  name: starvla_openvla_flappy_fix_latency_2_exp
+  seed: 42
+
+executor:
+  mode: simulated
+
+env:
+  env_fps: 30
+  obs_fps: 30
+  frame_stack: 1
+  obs_resize: [224, 224]
+
+policy:
+  type: starvla
+  checkpoint_path: /inspire/hdd/project/spatialintelligence/public/lzj/starVLA/results/Checkpoints/openvla_flappy_fix_latency_2_exp/checkpoints/steps_1000_pytorch_model.pt
+  device: cuda
+  latency_prompt_map_path: /inspire/hdd/global_user/liumingyu-253208120284/lzj/starvla/data/flappy_fix_latency_0_parquet/flappy_train__bridge/latency_prompt_map.json
+  actions:
+    - noop
+    - flap
+
+latency:
+  type: zero
+
+evaluation:
+  eval_episodes: 20
+  eval_parallel_envs: 1
+  eval_max_steps: 3600
+  eval_suites:
+    fixed:
+      - [0, 8]
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/starvla_openvla_flappy_fix_latency_2_exp
+  video:
+    enabled: false
