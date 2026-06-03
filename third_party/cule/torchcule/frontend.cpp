@@ -109,9 +109,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
                                 reinterpret_cast<uint8_t*>(imageBuffer));
         }
     )
+    .def("generate_obs84", [](AtariEnv& env, const bool last_frame, uint64_t imageBuffer)
+        {
+            env.generate_obs84(last_frame,
+                               reinterpret_cast<uint8_t*>(imageBuffer));
+        }
+    )
     .def("step_decision", [](AtariEnv& env,
                              const bool episodic_life,
                              const size_t obs_stride_raw_frames,
+                             const size_t obs_frame_count,
                              const size_t num_channels,
                              const int64_t hold_duration,
                              const int64_t ordering_policy,
@@ -164,6 +171,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             env.step_decision(
                 episodic_life,
                 obs_stride_raw_frames,
+                obs_frame_count,
                 num_channels,
                 hold_duration,
                 ordering_policy,

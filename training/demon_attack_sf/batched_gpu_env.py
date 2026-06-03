@@ -51,7 +51,8 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             device=self.device,
             noop_max=cfg.noop_max,
             terminal_on_life_loss=cfg.terminal_on_life_loss,
-            obs_stride=int(self.clock.obs_stride_raw_frames),
+            obs_stride=self.clock.obs_stride_raw_frames,
+            frame_stack=self.frame_stack,
         )
         sub_seeds = [self._sub_seed(agent_idx) for agent_idx in range(self.num_agents)]
         latency_seeds = [
