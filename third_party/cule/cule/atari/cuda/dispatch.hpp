@@ -154,6 +154,37 @@ step(cule::cuda::parallel_execution_policy& policy,
 template<typename Environment,
          typename Wrapper>
 void
+step_render(cule::cuda::parallel_execution_policy& policy,
+            Wrapper& wrap,
+            const bool fire_reset,
+            const Action* playerABuffer,
+            const Action* playerBBuffer,
+            bool* doneBuffer,
+            uint8_t* frameBuffer)
+{
+    using State_t = typename Wrapper::State_t;
+
+    const size_t BLOCK_SIZE = 1UL;
+    const size_t NUM_BLOCKS = std::ceil(float(wrap.size()) / BLOCK_SIZE);
+
+    cule::atari::cuda::step_render_kernel<State_t, Environment, BLOCK_SIZE>
+    <<<NUM_BLOCKS, BLOCK_SIZE, 0, policy.getStream()>>>(
+        wrap.size(),
+        fire_reset,
+        wrap.states_ptr,
+        wrap.ram_ptr,
+        wrap.tia_update_ptr,
+        wrap.frame_states_ptr,
+        frameBuffer,
+        playerABuffer,
+        playerBBuffer,
+        doneBuffer);
+    // CULE_CUDA_PEEK_AND_SYNC;
+}
+
+template<typename Environment,
+         typename Wrapper>
+void
 get_data(cule::cuda::parallel_execution_policy& policy,
          Wrapper& wrap,
          const bool episodic_life,
@@ -198,6 +229,31 @@ preprocess(cule::cuda::parallel_execution_policy& policy,
         wrap.size(),
         last_frame,
         tiaBuffer,
+        wrap.cached_tia_update_ptr,
+        wrap.cache_index_ptr,
+        wrap.states_ptr,
+        wrap.frame_states_ptr,
+        frameBuffer);
+    // CULE_CUDA_PEEK_AND_SYNC;
+}
+
+template<typename Environment,
+         typename Wrapper>
+void
+preprocess_terminal(cule::cuda::parallel_execution_policy& policy,
+                    Wrapper& wrap,
+                    const bool last_frame,
+                    uint8_t* frameBuffer)
+{
+    using State_t = typename Wrapper::State_t;
+
+    const size_t BLOCK_SIZE = 1UL;
+    const size_t NUM_BLOCKS = std::ceil(float(wrap.size()) / BLOCK_SIZE);
+
+    cule::atari::cuda::process_terminal_kernel<State_t, BLOCK_SIZE>
+    <<<NUM_BLOCKS, BLOCK_SIZE, 0, policy.getStream()>>>(
+        wrap.size(),
+        last_frame,
         wrap.cached_tia_update_ptr,
         wrap.cache_index_ptr,
         wrap.states_ptr,

@@ -141,6 +141,26 @@ class CudaDemonAttackDecisionResult:
     truncated_gpu: torch.Tensor
 
 
+@dataclass
+class CudaDemonAttackDecisionGpuResult:
+    observations: torch.Tensor
+    rewards_gpu: torch.Tensor
+    rewards_clipped_gpu: torch.Tensor
+    terminated_gpu: torch.Tensor
+    truncated_gpu: torch.Tensor
+    raw_frames_advanced_gpu: torch.Tensor
+    latency_raw_frames_gpu: torch.Tensor
+    queued_actions_gpu: torch.Tensor
+    applied_actions_gpu: torch.Tensor
+    ready_raw_frames_gpu: torch.Tensor
+    pending_counts_gpu: torch.Tensor
+    env_step_indices_gpu: torch.Tensor
+    decision_step_indices_gpu: torch.Tensor
+    timeout_mask_gpu: torch.Tensor
+    scores_gpu: torch.Tensor
+    lives_gpu: torch.Tensor
+
+
 class CudaDemonAttackCore:
     def __init__(
         self,
@@ -348,6 +368,47 @@ class CudaDemonAttackCore:
         episode_step_idx: torch.Tensor,
         max_episode_steps: int,
     ) -> CudaDemonAttackDecisionResult:
+        gpu_result = self.step_decision_gpu(
+            latency,
+            actions,
+            active_mask=active_mask,
+            episode_step_idx=episode_step_idx,
+            max_episode_steps=max_episode_steps,
+        )
+        packed = self._packed_decision.detach().cpu().numpy()
+        latency._latency_raw_frames_cpu[:] = packed[:, _DECISION_LATENCY_RAW_FRAMES].astype(np.int64)
+        return CudaDemonAttackDecisionResult(
+            observations=gpu_result.observations,
+            rewards=packed[:, _DECISION_REWARD].astype(np.float32).copy(),
+            rewards_clipped=packed[:, _DECISION_REWARD_CLIPPED].astype(np.float32).copy(),
+            terminated=packed[:, _DECISION_TERMINATED].astype(np.bool_),
+            truncated=packed[:, _DECISION_TRUNCATED].astype(np.bool_),
+            scores=packed[:, _DECISION_SCORE].astype(np.int64),
+            lives=packed[:, _DECISION_LIVES].astype(np.int64),
+            raw_frames_advanced=packed[:, _DECISION_RAW_FRAMES_ADVANCED].astype(np.int64),
+            latency_raw_frames=latency._latency_raw_frames_cpu.copy(),
+            queued_actions=packed[:, _DECISION_QUEUED_ACTION].astype(np.int64),
+            applied_actions=packed[:, _DECISION_APPLIED_ACTION].astype(np.int64),
+            ready_raw_frames=packed[:, _DECISION_READY_RAW_FRAME].astype(np.int64),
+            pending_counts=packed[:, _DECISION_PENDING_COUNT].astype(np.int64),
+            env_step_indices=packed[:, _DECISION_ENV_STEP_IDX].astype(np.int64),
+            decision_step_indices=packed[:, _DECISION_DECISION_STEP_IDX].astype(np.int64),
+            timeout_mask=packed[:, _DECISION_TIMEOUT].astype(np.bool_),
+            rewards_gpu=gpu_result.rewards_gpu,
+            rewards_clipped_gpu=gpu_result.rewards_clipped_gpu,
+            terminated_gpu=gpu_result.terminated_gpu,
+            truncated_gpu=gpu_result.truncated_gpu,
+        )
+
+    def step_decision_gpu(
+        self,
+        latency: Any,
+        actions: Sequence[int] | np.ndarray | torch.Tensor,
+        *,
+        active_mask: Sequence[bool] | np.ndarray | torch.Tensor,
+        episode_step_idx: torch.Tensor,
+        max_episode_steps: int,
+    ) -> CudaDemonAttackDecisionGpuResult:
         action_t = torch.as_tensor(actions, dtype=torch.int64, device=self.device).reshape(-1).contiguous()
         active_t = torch.as_tensor(active_mask, dtype=torch.bool, device=self.device).reshape(-1).contiguous()
         episode_steps = episode_step_idx.view(-1)
@@ -404,30 +465,24 @@ class CudaDemonAttackCore:
             self._scores.data_ptr(),
             self._obs84_multi.data_ptr(),
         )
-        packed = self._packed_decision.detach().cpu().numpy()
-        latency._latency_raw_frames_cpu[:] = packed[:, _DECISION_LATENCY_RAW_FRAMES].astype(np.int64)
         decision_obs = self._obs84_multi.permute(1, 0, 2, 3).contiguous()
-        return CudaDemonAttackDecisionResult(
+        return CudaDemonAttackDecisionGpuResult(
             observations=decision_obs,
-            rewards=packed[:, _DECISION_REWARD].astype(np.float32).copy(),
-            rewards_clipped=packed[:, _DECISION_REWARD_CLIPPED].astype(np.float32).copy(),
-            terminated=packed[:, _DECISION_TERMINATED].astype(np.bool_),
-            truncated=packed[:, _DECISION_TRUNCATED].astype(np.bool_),
-            scores=packed[:, _DECISION_SCORE].astype(np.int64),
-            lives=packed[:, _DECISION_LIVES].astype(np.int64),
-            raw_frames_advanced=packed[:, _DECISION_RAW_FRAMES_ADVANCED].astype(np.int64),
-            latency_raw_frames=latency._latency_raw_frames_cpu.copy(),
-            queued_actions=packed[:, _DECISION_QUEUED_ACTION].astype(np.int64),
-            applied_actions=packed[:, _DECISION_APPLIED_ACTION].astype(np.int64),
-            ready_raw_frames=packed[:, _DECISION_READY_RAW_FRAME].astype(np.int64),
-            pending_counts=packed[:, _DECISION_PENDING_COUNT].astype(np.int64),
-            env_step_indices=packed[:, _DECISION_ENV_STEP_IDX].astype(np.int64),
-            decision_step_indices=packed[:, _DECISION_DECISION_STEP_IDX].astype(np.int64),
-            timeout_mask=packed[:, _DECISION_TIMEOUT].astype(np.bool_),
             rewards_gpu=self._decision_rewards,
             rewards_clipped_gpu=self._decision_rewards_clipped,
             terminated_gpu=self._decision_terminated,
             truncated_gpu=self._decision_truncated,
+            raw_frames_advanced_gpu=self._decision_raw_frames_advanced,
+            latency_raw_frames_gpu=latency._decision_latency_raw_frames,
+            queued_actions_gpu=latency._decision_queued_actions,
+            applied_actions_gpu=latency.current_applied_action,
+            ready_raw_frames_gpu=latency._decision_ready_raw_frames,
+            pending_counts_gpu=latency.pending_count,
+            env_step_indices_gpu=latency.env_step_idx,
+            decision_step_indices_gpu=latency.decision_step_idx,
+            timeout_mask_gpu=self._decision_timeout,
+            scores_gpu=self._scores,
+            lives_gpu=self._lives,
         )
 
     def _indices(self, indices: Sequence[int] | np.ndarray | torch.Tensor | None) -> list[int]:

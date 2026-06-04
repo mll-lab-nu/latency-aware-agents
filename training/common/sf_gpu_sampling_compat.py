@@ -79,7 +79,11 @@ def _patch_batched_advance_rollouts(BatchedVectorEnvRunner: Any, env_name: str) 
         complete_rollouts, episodic_stats = [], []
 
         with timing.add_time("env_step"):
-            self.last_obs, rewards, terminated, truncated, infos = self.vec_env.step(actions)
+            fast_step = _sample_factory_gpu_step(self.vec_env)
+            if fast_step is None:
+                self.last_obs, rewards, terminated, truncated, infos = self.vec_env.step(actions)
+            else:
+                self.last_obs, rewards, terminated, truncated, infos = fast_step(actions)
             dones = terminated | truncated
 
         with timing.add_time("post_env_step"):
@@ -138,6 +142,18 @@ def _sample_factory_step_cpu_tensors(vec_env: Any) -> dict[str, torch.Tensor]:
                 return tensors
         current = getattr(current, "env", None)
     return {}
+
+
+def _sample_factory_gpu_step(vec_env: Any) -> Any:
+    current = vec_env
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        current_vars = vars(current)
+        if "sample_factory_gpu_step" in current_vars or hasattr(type(current), "sample_factory_gpu_step"):
+            return current.sample_factory_gpu_step
+        current = getattr(current, "env", None)
+    return None
 
 
 def _is_enabled_for_sample_factory_env(obj: Any, enabled_env_names: set[str]) -> bool:

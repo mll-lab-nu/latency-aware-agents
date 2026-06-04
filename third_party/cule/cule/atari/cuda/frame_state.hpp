@@ -25,6 +25,7 @@ void state_store_load_helper(frame_state& t, const frame_state& s)
     t.lastHMOVEClock = s.lastHMOVEClock;
 
     t.playfieldPriorityAndScore = s.playfieldPriorityAndScore;
+    t.M0CosmicArkCounter = s.M0CosmicArkCounter;
 
     t.tiaFlags = s.tiaFlags;
 
@@ -38,4 +39,3 @@ void state_store_load_helper(frame_state& t, const frame_state& s)
 
 } // end namespace atari
 } // end namespace cule
-

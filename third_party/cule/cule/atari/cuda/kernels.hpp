@@ -238,6 +238,114 @@ void step_kernel(const uint32_t num_envs,
     }
 }
 
+template<typename State_t, typename Environment_t, size_t NT>
+__launch_bounds__(NT) __global__
+void step_render_kernel(const uint32_t num_envs,
+                        const bool fire_reset,
+                        State_t* states_buffer,
+                        uint8_t* ram_buffer,
+                        uint32_t* tia_update_buffer,
+                        frame_state* frame_states_buffer,
+                        uint8_t* frame_buffer,
+                        const Action* player_a_buffer,
+                        const Action* player_b_buffer,
+                        bool* done_buffer)
+{
+    enum
+    {
+        NUM_INT_REGS = 128 / sizeof(uint32_t),
+    };
+
+    const uint32_t global_index = (NT * blockIdx.x) + threadIdx.x;
+
+    if((global_index >= num_envs) || done_buffer[global_index])
+    {
+        return;
+    }
+
+    states_buffer += global_index;
+    frame_states_buffer += global_index;
+
+    uint32_t ram[NUM_INT_REGS];
+
+    State_t s;
+    frame_state fs;
+
+    {
+        state_store_load_helper(s, *states_buffer);
+        state_store_load_helper(fs, *frame_states_buffer);
+
+        s.Color = fs.Color;
+        s.playfieldPriorityAndScore = fs.playfieldPriorityAndScore;
+
+        uint32_t * ram_int = ((uint32_t*) ram_buffer) + (NUM_INT_REGS * NT * blockIdx.x) + threadIdx.x;
+
+        #pragma loop unroll
+        for(int32_t i = 0; i < NUM_INT_REGS; i++)
+        {
+            ram[i] = ram_int[i * NT];
+        }
+    }
+
+    Action player_a_action = ACTION_NOOP;
+    Action player_b_action = ACTION_NOOP;
+
+    if(player_a_buffer != nullptr)
+    {
+        player_a_action = player_a_buffer[global_index];
+    }
+    if(player_b_buffer != nullptr)
+    {
+        player_b_action = player_b_buffer[global_index];
+    }
+
+    if(fire_reset && s.tiaFlags[FLAG_ALE_LOST_LIFE])
+    {
+        player_a_action = ACTION_FIRE;
+        s.tiaFlags.clear(FLAG_ALE_LOST_LIFE);
+    }
+
+    s.ram = ram;
+    s.rom = gpu_rom;
+    s.tia_update_buffer = tia_update_buffer + (ENV_UPDATE_SIZE * global_index);
+    s.framePointer = frame_buffer + (global_index * 300 * SCREEN_WIDTH);
+
+    Environment_t::act(s, player_a_action, player_b_action);
+
+    {
+        state_store_load_helper(*states_buffer, s);
+
+        fs.Color = s.Color;
+        fs.GRP = s.GRP;
+        fs.HM = s.HM;
+        fs.PF = s.PF;
+        fs.POS = s.POS;
+        fs.CurrentGRP0 = s.CurrentGRP0;
+        fs.CurrentGRP1 = s.CurrentGRP1;
+        fs.clockWhenFrameStarted = s.clockWhenFrameStarted;
+        fs.clockAtLastUpdate = s.clockAtLastUpdate;
+        fs.lastHMOVEClock = s.lastHMOVEClock;
+        fs.playfieldPriorityAndScore = s.playfieldPriorityAndScore;
+        fs.tiaFlags = s.tiaFlags;
+        fs.M0CosmicArkCounter = s.M0CosmicArkCounter;
+        fs.CurrentPFMask = s.CurrentPFMask;
+        fs.CurrentP0Mask = s.CurrentP0Mask;
+        fs.CurrentP1Mask = s.CurrentP1Mask;
+        fs.CurrentM0Mask = s.CurrentM0Mask;
+        fs.CurrentM1Mask = s.CurrentM1Mask;
+        fs.CurrentBLMask = s.CurrentBLMask;
+        state_store_load_helper(*frame_states_buffer, fs);
+
+        uint32_t * ram_int = ((uint32_t*) ram_buffer) + (NUM_INT_REGS * NT * blockIdx.x) + threadIdx.x;
+
+        #pragma loop unroll
+        for(int32_t i = 0; i < NUM_INT_REGS; i++)
+        {
+            ram_int[i * NT] = ram[i];
+        }
+    }
+}
+
 template<typename State_t, typename ALE_t, size_t NT>
 __launch_bounds__(NT) __global__
 void get_data_kernel(const int32_t num_envs,
@@ -306,6 +414,45 @@ void process_kernel(const uint32_t num_envs,
         fs.srcBuffer = cached_tia_update_buffer + (cache_index_buffer[global_index] * ENV_UPDATE_SIZE);
     }
     fs.framePointer = frame_buffer == nullptr ? nullptr : &frame_buffer[global_index * 300 * SCREEN_WIDTH];
+
+    preprocess::state_to_buffer(fs);
+
+    state_store_load_helper(*frame_states_buffer, fs);
+}
+
+template<typename State_t, size_t NT>
+__launch_bounds__(NT) __global__
+void process_terminal_kernel(const uint32_t num_envs,
+                             const bool last_frame,
+                             const uint32_t* cached_tia_update_buffer,
+                             const uint32_t* cache_index_buffer,
+                             State_t* states_buffer,
+                             frame_state* frame_states_buffer,
+                             uint8_t* frame_buffer)
+{
+    const uint32_t global_index = (NT * blockIdx.x) + threadIdx.x;
+
+    if(global_index >= num_envs)
+    {
+        return;
+    }
+
+    const State_t& s = states_buffer[global_index];
+    const bool is_terminal = s.tiaFlags[FLAG_ALE_TERMINAL];
+    const bool is_started  = s.tiaFlags[FLAG_ALE_STARTED];
+
+    if(!(last_frame && is_started && is_terminal))
+    {
+        return;
+    }
+
+    frame_states_buffer += global_index;
+
+    frame_state fs;
+    state_store_load_helper(fs, *frame_states_buffer);
+    states_buffer[global_index].tiaFlags.clear(FLAG_ALE_TERMINAL);
+    fs.srcBuffer = cached_tia_update_buffer + (cache_index_buffer[global_index] * ENV_UPDATE_SIZE);
+    fs.framePointer = &frame_buffer[global_index * 300 * SCREEN_WIDTH];
 
     preprocess::state_to_buffer(fs);
 

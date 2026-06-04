@@ -30,6 +30,7 @@ void state_store_load_helper(State& t, const State& s)
     t.HM = s.HM;
     t.PF = s.PF;
     t.POS = s.POS;
+    t.Color = s.Color;
     t.CurrentGRP0 = s.CurrentGRP0;
     t.CurrentGRP1 = s.CurrentGRP1;
 
@@ -50,6 +51,7 @@ void state_store_load_helper(State& t, const State& s)
     t.frameData = s.frameData;
     // t.rand = s.rand;
     t.score = s.score;
+    t.playfieldPriorityAndScore = s.playfieldPriorityAndScore;
 
     t.CurrentPFMask = s.CurrentPFMask;
     t.CurrentP0Mask = s.CurrentP0Mask;
@@ -61,4 +63,3 @@ void state_store_load_helper(State& t, const State& s)
 
 } // end namespace atari
 } // end namespace cule
-

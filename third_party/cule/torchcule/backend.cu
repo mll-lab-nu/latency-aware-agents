@@ -588,6 +588,26 @@ generate_obs84(const bool last_frame,
 
 void
 AtariEnv::
+insert_other_stream(uint64_t stream)
+{
+    if(use_cuda)
+    {
+        get_policy<cule_policy>().insert_other_stream(reinterpret_cast<cudaStream_t>(stream));
+    }
+}
+
+void
+AtariEnv::
+insert_this_stream(uint64_t stream)
+{
+    if(use_cuda)
+    {
+        get_policy<cule_policy>().insert_this_stream(reinterpret_cast<cudaStream_t>(stream));
+    }
+}
+
+void
+AtariEnv::
 step_decision(const bool episodic_life,
               const size_t obs_stride_raw_frames,
               const size_t obs_frame_count,
@@ -702,7 +722,13 @@ step_decision(const bool episodic_life,
             ordering_policy,
             static_cast<int>(batch_size),
             static_cast<int>(queue_capacity));
-        super_t::step(get_policy<cule_policy>(), false, raw_action_values, nullptr, doneBuffer);
+        super_t::step_render(
+            get_policy<cule_policy>(),
+            false,
+            raw_action_values,
+            nullptr,
+            doneBuffer,
+            frame_ptr);
         super_t::get_data(get_policy<cule_policy>(), episodic_life, doneBuffer, step_rewards, livesBuffer);
         demon_decision_accumulate_kernel<<<blocks, threads, 0, stream>>>(
             active,
@@ -720,7 +746,7 @@ step_decision(const bool episodic_life,
             decision_raw_frames_advanced,
             max_episode_steps,
             static_cast<int>(batch_size));
-        super_t::preprocess(get_policy<cule_policy>(), /*last_frame=*/true, tia_update_ptr, frame_ptr);
+        super_t::preprocess_terminal(get_policy<cule_policy>(), /*last_frame=*/true, frame_ptr);
         if (raw_step >= first_obs_raw_step)
         {
             const int obs_slot = static_cast<int>(raw_step - first_obs_raw_step);

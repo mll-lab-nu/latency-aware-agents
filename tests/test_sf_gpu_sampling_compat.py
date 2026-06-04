@@ -35,3 +35,23 @@ def test_gpu_sampling_patch_supports_multiple_gpu_env_names():
 
     assert _is_enabled_for_sample_factory_env(demon_runner, enabled_env_names) is True
     assert _is_enabled_for_sample_factory_env(unknown_runner, enabled_env_names) is False
+
+
+def test_gpu_sampling_patch_prefers_fast_step_through_wrapper_chain():
+    from training.common.sf_gpu_sampling_compat import _sample_factory_gpu_step
+
+    calls = []
+
+    class FastEnv:
+        sample_factory_step_cpu_tensors = {}
+
+        def sample_factory_gpu_step(self, actions):
+            calls.append(actions)
+            return "obs", "rewards", "terminated", "truncated", "infos"
+
+    wrapped = SimpleNamespace(env=FastEnv())
+
+    step = _sample_factory_gpu_step(wrapped)
+
+    assert step("actions") == ("obs", "rewards", "terminated", "truncated", "infos")
+    assert calls == ["actions"]

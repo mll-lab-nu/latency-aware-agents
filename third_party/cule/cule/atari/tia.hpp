@@ -12,6 +12,8 @@
 
 #include <cule/atari/types/types.hpp>
 
+#include <string.h>
+
 namespace cule
 {
 namespace atari
@@ -37,10 +39,13 @@ void reset(State_t& s)
     s.HM = 0;
     s.PF = 0;
     s.POS = 0;
+    s.Color = 0;
     s.collision = 0;
 
     s.lastHMOVEClock = 0;
+    s.playfieldPriorityAndScore = 0;
     s.M0CosmicArkCounter = 0;
+    s.framePointer = nullptr;
 
     s.CurrentGRP0 = 0;
     s.CurrentGRP1 = 0;
@@ -175,8 +180,17 @@ void updateFrameScanline(State_t& s,
                          const uint32_t& begin_pos,
                          const uint32_t& PF)
 {
+    uint8_t* ending = s.framePointer ? s.framePointer + clocksToUpdate : nullptr;
+
     // See if we're in the vertical blank region
-    if(!s.tiaFlags[FLAG_TIA_VBLANK2])
+    if(s.tiaFlags[FLAG_TIA_VBLANK2])
+    {
+        if(s.framePointer)
+        {
+            memset(s.framePointer, 0, clocksToUpdate);
+        }
+    }
+    else
     {
         // Calculate the ending frame pointer value
         const uint32_t end_pos = begin_pos + clocksToUpdate;
@@ -230,10 +244,38 @@ void updateFrameScanline(State_t& s,
                         enabled |= M0Bit;
 
                     s.collision |= collision_accessor(enabled);
+
+                    if(s.framePointer)
+                    {
+                        int32_t shift = 8 * int(priority_accessor(
+                            hpos < 80 ? 0 : 1,
+                            enabled | s.playfieldPriorityAndScore));
+                        *s.framePointer++ = SELECT_FIELD(s.Color, 0xFF << shift);
+                    }
                 }
             }
         }
+
+        if(s.framePointer && (fields == 0x00 || fields == PFBit || fields == P0Bit ||
+            fields == P1Bit || fields == M0Bit || fields == M1Bit || fields == BLBit))
+        {
+            for(uint32_t hpos = begin_pos; hpos < end_pos; ++hpos)
+            {
+                uint8_t enabled = ((PF & s.CurrentPFMask[hpos]) > 0) * PFBit;
+                enabled |= (s.tiaFlags[FLAG_TIA_BLBit] && s.CurrentBLMask[hpos]) * BLBit;
+                enabled |= (s.CurrentGRP1 && (s.CurrentGRP1 & s.CurrentP1Mask[hpos])) * P1Bit;
+                enabled |= (s.tiaFlags[FLAG_TIA_M1Bit] && s.CurrentM1Mask[hpos]) * M1Bit;
+                enabled |= (s.CurrentGRP0 && (s.CurrentGRP0 & s.CurrentP0Mask[hpos])) * P0Bit;
+                enabled |= (s.tiaFlags[FLAG_TIA_M0Bit] && s.CurrentM0Mask[hpos]) * M0Bit;
+
+                int32_t shift = 8 * int(priority_accessor(
+                    hpos < 80 ? 0 : 1,
+                    enabled | s.playfieldPriorityAndScore));
+                *s.framePointer++ = SELECT_FIELD(s.Color, 0xFF << shift);
+            }
+        }
     }
+    s.framePointer = ending;
 }
 
 template<typename State_t>
@@ -250,8 +292,7 @@ void updateFrame(State_t& s, const int32_t& clock)
         return;
     }
 
-    // Truncate the number of cycles to full line update
-    int32_t temp_clock = min(s.clockAtLastUpdate + 228, clock);
+    int32_t temp_clock = s.framePointer ? clock : min(s.clockAtLastUpdate + 228, clock);
 
     // Truncate the number of cycles to update to the stop display point
     temp_clock = min(temp_clock, clockStopDisplay(s));
@@ -291,6 +332,8 @@ void updateFrame(State_t& s, const int32_t& clock)
             clocksToUpdate -= tmp;
         }
 
+        uint8_t* oldFramePointer = s.framePointer;
+
         // Update as much of the scanline as we can
         if(clocksToUpdate != 0)
         {
@@ -300,6 +343,12 @@ void updateFrame(State_t& s, const int32_t& clock)
         // Handle HMOVE blanks if they are enabled
         if(s.tiaFlags[FLAG_TIA_HMOVE_ENABLE] && (clocksFromStartOfScanLine < (HBLANK + 8)))
         {
+            if(s.framePointer)
+            {
+                const int32_t blanks = (HBLANK + 8) - clocksFromStartOfScanLine;
+                memset(oldFramePointer, 0, blanks);
+            }
+
             if((clocksToUpdate + clocksFromStartOfScanLine) >= (HBLANK + 8))
             {
                 s.tiaFlags.clear(FLAG_TIA_HMOVE_ENABLE);
@@ -348,7 +397,10 @@ void updateFrame(State_t& s, const int32_t& clock)
     }
     while(s.clockAtLastUpdate < temp_clock);
 
-    s.clockAtLastUpdate = min(clock, clockStopDisplay(s));
+    if(!s.framePointer)
+    {
+        s.clockAtLastUpdate = min(clock, clockStopDisplay(s));
+    }
 }
 
 template<typename State_t>
@@ -561,6 +613,30 @@ void write(State_t& s, const maddr_t& addr, const uint8_t& value)
 
             break;
         }
+        case ADR_COLUP0:    // Color-Luminance Player 0
+        {
+            UPDATE_FIELD(s.Color, FIELD_COLUP0, value & 0xFE);
+
+            break;
+        }
+        case ADR_COLUP1:    // Color-Luminance Player 1
+        {
+            UPDATE_FIELD(s.Color, FIELD_COLUP1, value & 0xFE);
+
+            break;
+        }
+        case ADR_COLUPF:    // Color-Luminance Playfield
+        {
+            UPDATE_FIELD(s.Color, FIELD_COLUPF, value & 0xFE);
+
+            break;
+        }
+        case ADR_COLUBK:    // Color-Luminance Background
+        {
+            UPDATE_FIELD(s.Color, FIELD_COLUBK, value & 0xFE);
+
+            break;
+        }
         case ADR_CTRLPF:    // Control Playfield, Ball size, Collisions
         {
             const uint8_t CTRLPF = (value & 0x30) >> 4;
@@ -574,6 +650,7 @@ void write(State_t& s, const maddr_t& addr, const uint8_t& value)
             }
 
             s.CurrentBLMask = &ball_accessor(POSBL & 0x03, CTRLPF, 160 - (POSBL & 0xFC));
+            s.playfieldPriorityAndScore = ((value & 0x06) << 5);
 
             break;
         }
@@ -1031,4 +1108,3 @@ void write(State_t& s, const maddr_t& addr, const uint8_t& value)
 
 } // end namespace atari
 } // end namespace cule
-
