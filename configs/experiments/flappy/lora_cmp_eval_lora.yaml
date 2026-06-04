@@ -17,7 +17,9 @@ env:
   env_fps: 30
   obs_fps: 30
   frame_stack: 4
-  obs_resize: [84, 84]
+  # Qwen3-VL-4B is trained on 224x224 (gr00t loader resizes every frame to 224);
+  # feeding native 512x288 collapses reward. starvla policy resizes raw frames to this.
+  obs_resize: [224, 224]
 
 policy:
   type: starvla
@@ -34,8 +36,8 @@ latency:
   fixed_latency_ms: 66.66666666666667
 
 evaluation:
-  eval_episodes: 50
-  eval_parallel_envs: 1
+  eval_episodes: 100
+  eval_parallel_envs: 25
   eval_max_steps: 2000
   eval_suites:
     fixed:
