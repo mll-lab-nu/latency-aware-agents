@@ -11,3 +11,6 @@
 [submodule "envpool"]
 	path = envpool
 	url = git@github.com:mindorigin150/envpool.git
+[submodule "sample-factory"]
+	path = sample-factory
+	url = git@github.com:mindorigin150/sample-factory.git
