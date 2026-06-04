@@ -59,8 +59,8 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             sample_factory_latency_seed_from_flat_config(
                 self.cfg,
                 fallback_seed=sub_seeds[agent_idx],
-                worker_index=self._worker_index,
-                vector_index=self._vector_index,
+                worker_index=0,
+                vector_index=0,
                 env_id=self._sub_env_id(agent_idx),
             )
             for agent_idx in range(self.num_agents)
@@ -98,6 +98,8 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         self._max_episode_steps = self.cfg.max_episode_steps
         self._last_frame_skips = np.zeros(self.num_agents, dtype=np.int64)
         self._active_mask_gpu = torch.ones(self.num_agents, dtype=torch.bool, device=self.device)
+        self._active_mask_cpu = np.ones(self.num_agents, dtype=np.bool_)
+        self._issued_actions_cpu = np.zeros(self.num_agents, dtype=np.int64)
         self.sample_factory_step_cpu_tensors: dict[str, torch.Tensor] = {}
         self._has_reset = False
 
@@ -114,10 +116,13 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         return self.env_config.env_id
 
     def _sub_seed(self, agent_idx: int) -> int:
-        return self.cfg.seed + 100000 * self._worker_index + 1000 * self._vector_index + int(agent_idx)
+        return self.cfg.seed + 100000 * self._worker_index + self._worker_local_agent_id(agent_idx)
 
     def _sub_env_id(self, agent_idx: int) -> int:
         return self._env_id * self.num_agents + int(agent_idx)
+
+    def _worker_local_agent_id(self, agent_idx: int) -> int:
+        return self._vector_index * self.num_agents + int(agent_idx)
 
     def reset(self, *, seed=None, options=None):
         if seed is None:
@@ -141,7 +146,6 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         if not self._has_reset:
             self.reset()
         actions = self._normalize_cuda_actions(action)
-        issued_actions = actions.detach().cpu().numpy().astype(np.int64, copy=False)
         result = self.core.step_decision(
             self.latency,
             actions,
@@ -149,13 +153,70 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             episode_step_idx=self._raw_episode_steps_gpu,
             max_episode_steps=self._max_episode_steps,
         )
-        rewards_raw = result.rewards
-        terminated = result.terminated
-        truncated = result.truncated
-        raw_frames_advanced = result.raw_frames_advanced
+        return self._finish_decision_step(
+            actions=actions,
+            result=result,
+            rewards_raw=result.rewards,
+            rewards_clipped=result.rewards_clipped,
+            terminated=result.terminated,
+            truncated=result.truncated,
+            scores=result.scores,
+            lives=result.lives,
+            raw_frames_advanced=result.raw_frames_advanced,
+            latency_raw_frames=result.latency_raw_frames,
+            full_infos=True,
+        )
+
+    def sample_factory_gpu_step(self, action):
+        if not self._has_reset:
+            self.reset()
+        actions = self._normalize_cuda_actions(action)
+        result = self.core.step_decision_gpu(
+            self.latency,
+            actions,
+            active_mask=self._active_mask_gpu,
+            episode_step_idx=self._raw_episode_steps_gpu,
+            max_episode_steps=self._max_episode_steps,
+        )
+        rewards_raw = result.rewards_gpu.detach().cpu().numpy().astype(np.float32, copy=False)
+        rewards_clipped = result.rewards_clipped_gpu.detach().cpu().numpy().astype(np.float32, copy=False)
+        terminated = result.terminated_gpu.detach().cpu().numpy().astype(np.bool_, copy=False)
+        truncated = result.truncated_gpu.detach().cpu().numpy().astype(np.bool_, copy=False)
+        scores = result.scores_gpu.detach().cpu().numpy().astype(np.int64, copy=False)
+        lives = result.lives_gpu.detach().cpu().numpy().astype(np.int64, copy=False)
+        raw_frames_advanced = result.raw_frames_advanced_gpu.detach().cpu().numpy().astype(np.int64, copy=False)
+        latency_raw_frames = result.latency_raw_frames_gpu.detach().cpu().numpy().astype(np.int64, copy=False)
+        return self._finish_decision_step(
+            actions=actions,
+            result=result,
+            rewards_raw=rewards_raw,
+            rewards_clipped=rewards_clipped,
+            terminated=terminated,
+            truncated=truncated,
+            scores=scores,
+            lives=lives,
+            raw_frames_advanced=raw_frames_advanced,
+            latency_raw_frames=latency_raw_frames,
+            full_infos=False,
+        )
+
+    def _finish_decision_step(
+        self,
+        *,
+        actions: torch.Tensor,
+        result: Any,
+        rewards_raw: np.ndarray,
+        rewards_clipped: np.ndarray,
+        terminated: np.ndarray,
+        truncated: np.ndarray,
+        scores: np.ndarray,
+        lives: np.ndarray,
+        raw_frames_advanced: np.ndarray,
+        latency_raw_frames: np.ndarray,
+        full_infos: bool,
+    ):
         self._raw_episode_steps += raw_frames_advanced
         self._frame_numbers += raw_frames_advanced
-        latency_raw_frames = result.latency_raw_frames
         self._last_frame_skips[:] = latency_raw_frames
         if self.cfg.clip_reward:
             # Clip per raw frame, then sum across the decision window (sum-of-signs),
@@ -163,34 +224,43 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             # The CUDA kernel computes this in result.rewards_clipped{,_gpu}; signing
             # the accumulated reward here (sign-of-sum) would saturate the learner
             # signal to {-1,0,1} and slow learning relative to CPU.
-            rewards = result.rewards_clipped.astype(np.float32, copy=False)
+            rewards = rewards_clipped.astype(np.float32, copy=False)
             rewards_out = result.rewards_clipped_gpu
         else:
             rewards = rewards_raw.astype(np.float32, copy=False)
             rewards_out = result.rewards_gpu
         done_infos = self.metrics.update(
-            issued_actions=issued_actions,
+            issued_actions=self._issued_actions_for_metrics(actions),
             rewards=rewards_raw,
             terminated=terminated,
             truncated=truncated,
-            scores=result.scores,
-            active_mask=np.ones(self.num_agents, dtype=np.bool_),
+            scores=scores,
+            active_mask=self._active_mask_cpu,
             latency_raw_frames=latency_raw_frames,
-            lives=result.lives,
+            lives=lives,
         )
         done_mask = np.logical_or(terminated, truncated)
-        core_reset_mask = truncated | (terminated & (result.lives <= 0))
-        life_loss_reset_mask = terminated & (result.lives > 0) & ~truncated
+        core_reset_mask = truncated | (terminated & (lives <= 0))
+        life_loss_reset_mask = terminated & (lives > 0) & ~truncated
         step_frame_numbers = self._frame_numbers.copy()
-        infos = self._infos(
-            rewards_raw=rewards_raw,
-            terminated=terminated,
-            truncated=truncated,
-            lives=result.lives,
-            frame_numbers=step_frame_numbers,
-            done_infos=done_infos,
-            latency_result=result,
-        )
+        if full_infos:
+            infos = self._infos(
+                rewards_raw=rewards_raw,
+                terminated=terminated,
+                truncated=truncated,
+                lives=lives,
+                frame_numbers=step_frame_numbers,
+                done_infos=done_infos,
+                latency_result=result,
+            )
+        else:
+            infos = self._sparse_infos(
+                rewards_raw=rewards_raw,
+                lives=lives,
+                frame_numbers=step_frame_numbers,
+                done_infos=done_infos,
+                latency_result=result,
+            )
         reset_obs, reset_infos = self._reset_episode_bookkeeping(
             np.flatnonzero(done_mask),
             core_reset_indices=np.flatnonzero(core_reset_mask),
@@ -208,6 +278,11 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             "dones": torch.from_numpy(done_mask),
         }
         return self._obs(), rewards_out, result.terminated_gpu, result.truncated_gpu, infos
+
+    def _issued_actions_for_metrics(self, actions: torch.Tensor) -> np.ndarray:
+        if self.metrics._action_labels:
+            return actions.detach().cpu().numpy().astype(np.int64, copy=False)
+        return self._issued_actions_cpu
 
     def _append_stack(self, obs_frames: torch.Tensor, dones: np.ndarray) -> None:
         # obs_frames: (B, k, 84, 84) — the k=obs_stride raw frames of this decision window,
@@ -257,6 +332,59 @@ class DemonAttackBatchedGpuEnv(gym.Env):
                 info.update(done_info)
             infos.append(info)
         return infos
+
+    def _sparse_infos(
+        self,
+        *,
+        rewards_raw: np.ndarray,
+        lives: np.ndarray,
+        frame_numbers: np.ndarray,
+        done_infos: dict[int, dict[str, Any]],
+        latency_result: Any,
+    ) -> list[dict[str, Any]]:
+        infos: list[dict[str, Any]] = [{} for _ in range(self.num_agents)]
+        for agent_idx, done_info_src in done_infos.items():
+            info = {
+                "lives": int(lives[agent_idx]),
+                "episode_frame_number": int(frame_numbers[agent_idx]),
+                "frame_number": int(frame_numbers[agent_idx]),
+                "raw_reward": float(rewards_raw[agent_idx]),
+            }
+            if self.latency.add_latency_info:
+                info.update(self._gpu_decision_info_for_agent(agent_idx, latency_result))
+            done_info = dict(done_info_src)
+            if "raw_reward" in done_info:
+                del done_info["raw_reward"]
+            if "score" in done_info:
+                del done_info["score"]
+            info.update(done_info)
+            infos[int(agent_idx)] = info
+        return infos
+
+    def _gpu_decision_info_for_agent(self, agent_idx: int, decision: Any) -> dict[str, Any]:
+        latency_raw_frames = int(decision.latency_raw_frames_gpu[agent_idx].item())
+        info = {
+            "episode_idx": int(self.latency.episode_idx_cpu[agent_idx]),
+            "decision_step_idx": int(decision.decision_step_indices_gpu[agent_idx].item() - 1),
+            "env_step_idx": int(decision.env_step_indices_gpu[agent_idx].item()),
+            "raw_frame": int(decision.env_step_indices_gpu[agent_idx].item()),
+            "applied_action": int(decision.applied_actions_gpu[agent_idx].item()),
+            "pending_action_count": int(decision.pending_counts_gpu[agent_idx].item()),
+            "latency_raw_frames": latency_raw_frames,
+            "latency_ms": float(latency_raw_frames) * self.latency.clock.frame_ms,
+            "env_fps": float(self.latency.clock.env_fps),
+            "obs_fps": float(self.latency.clock.obs_fps),
+            "obs_stride_raw_frames": int(self.latency.clock.obs_stride_raw_frames),
+            "hold_policy": self.latency.hold_policy.value,
+            "ordering_policy": self.latency.ordering_policy.value,
+            "queued_action": int(decision.queued_actions_gpu[agent_idx].item()),
+            "ready_raw_frame": int(decision.ready_raw_frames_gpu[agent_idx].item()),
+            "raw_frames_advanced": int(decision.raw_frames_advanced_gpu[agent_idx].item()),
+        }
+        if self.latency.latency_distribution_spec is not None:
+            info["latency_distribution"] = self.latency.latency_distribution_spec.to_dict()
+            info["latency_distribution_label"] = str(self.latency.latency_distribution_label)
+        return info
 
     def _reset_episode_bookkeeping(
         self,

@@ -61,6 +61,14 @@ public:
               bool* doneBuffer);
 
     template<typename ExecutionPolicy>
+    void step_render(ExecutionPolicy&& policy,
+                     const bool fire_reset,
+                     const Action* player_a_buffer,
+                     const Action* player_b_buffer,
+                     bool* doneBuffer,
+                     uint8_t* frameBuffer);
+
+    template<typename ExecutionPolicy>
     void get_data(ExecutionPolicy&& policy,
                   const bool episodic_life,
                   bool* doneBuffer,
@@ -72,6 +80,11 @@ public:
                     const bool last_frame,
                     const uint32_t* tiaBuffer,
                     uint8_t* frameBuffer);
+
+    template<typename ExecutionPolicy>
+    void preprocess_terminal(ExecutionPolicy&& policy,
+                             const bool last_frame,
+                             uint8_t* frameBuffer);
 
     template<typename ExecutionPolicy>
     void generate_frames(ExecutionPolicy&& policy,

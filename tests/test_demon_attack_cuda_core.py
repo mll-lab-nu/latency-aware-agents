@@ -366,6 +366,197 @@ def test_demon_attack_gpu_max_episode_steps_uses_fused_decision_path(monkeypatch
         env.close()
 
 
+def test_demon_attack_cuda_core_gpu_decision_matches_cpu_projection():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.common.gpu_latency import CudaLatencyScheduler
+    from training.demon_attack_sf.gpu_core import CudaDemonAttackCore
+
+    batch_size = 3
+    core_cpu = CudaDemonAttackCore(
+        batch_size=batch_size,
+        device="cuda",
+        noop_max=30,
+        terminal_on_life_loss=True,
+        obs_stride=4,
+        frame_stack=4,
+    )
+    core_gpu = CudaDemonAttackCore(
+        batch_size=batch_size,
+        device="cuda",
+        noop_max=30,
+        terminal_on_life_loss=True,
+        obs_stride=4,
+        frame_stack=4,
+    )
+    seeds = [11, 22, 33]
+    core_cpu.reset_batch(seeds=seeds)
+    core_gpu.reset_batch(seeds=seeds)
+    latency_cpu = CudaLatencyScheduler(
+        batch_size=batch_size,
+        fixed_latency_raw_frames=1,
+        env_fps=60,
+        obs_fps=15,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        latency_distribution_spec=None,
+        sample_distribution_per_episode=False,
+        seeds=[101, 102, 103],
+        env_reset_seed_bases=[1001, 1002, 1003],
+        add_latency_info=False,
+        max_pending_actions=None,
+        device="cuda",
+    )
+    latency_gpu = CudaLatencyScheduler(
+        batch_size=batch_size,
+        fixed_latency_raw_frames=1,
+        env_fps=60,
+        obs_fps=15,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        latency_distribution_spec=None,
+        sample_distribution_per_episode=False,
+        seeds=[101, 102, 103],
+        env_reset_seed_bases=[1001, 1002, 1003],
+        add_latency_info=False,
+        max_pending_actions=None,
+        device="cuda",
+    )
+    latency_cpu.reset()
+    latency_gpu.reset()
+    actions = torch.tensor([1, 2, 3], dtype=torch.int64, device="cuda")
+    active = torch.ones(batch_size, dtype=torch.bool, device="cuda")
+    episode_cpu = torch.zeros(batch_size, dtype=torch.int64, device="cuda")
+    episode_gpu = torch.zeros(batch_size, dtype=torch.int64, device="cuda")
+
+    cpu_result = core_cpu.step_decision(
+        latency_cpu,
+        actions,
+        active_mask=active,
+        episode_step_idx=episode_cpu,
+        max_episode_steps=25000,
+    )
+    gpu_result = core_gpu.step_decision_gpu(
+        latency_gpu,
+        actions,
+        active_mask=active,
+        episode_step_idx=episode_gpu,
+        max_episode_steps=25000,
+    )
+    torch.cuda.synchronize()
+
+    assert torch.equal(gpu_result.observations, cpu_result.observations)
+    assert torch.equal(gpu_result.rewards_gpu.cpu(), torch.from_numpy(cpu_result.rewards))
+    assert torch.equal(gpu_result.rewards_clipped_gpu.cpu(), torch.from_numpy(cpu_result.rewards_clipped))
+    assert torch.equal(gpu_result.terminated_gpu.cpu(), torch.from_numpy(cpu_result.terminated))
+    assert torch.equal(gpu_result.truncated_gpu.cpu(), torch.from_numpy(cpu_result.truncated))
+    assert torch.equal(gpu_result.raw_frames_advanced_gpu.cpu(), torch.from_numpy(cpu_result.raw_frames_advanced))
+    assert torch.equal(gpu_result.latency_raw_frames_gpu.cpu(), torch.from_numpy(cpu_result.latency_raw_frames))
+
+
+def test_demon_attack_batched_gpu_env_fast_step_matches_regular_step_without_full_infos():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.demon_attack_sf.batched_gpu_env import DemonAttackBatchedGpuEnv
+
+    cfg = SimpleNamespace(
+        seed=0,
+        env_fps=60,
+        obs_fps=15,
+        noop_max=30,
+        frame_stack=4,
+        terminal_on_life_loss=True,
+        clip_reward=True,
+        max_episode_steps=25000,
+        latency_type="fixed",
+        fixed_latency_ms=1000.0 / 60.0,
+        add_latency_info=True,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        max_pending_actions=None,
+        episode_metrics_path="",
+        latency_seed=123,
+    )
+    regular = DemonAttackBatchedGpuEnv(
+        cfg=cfg,
+        env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
+        gpu_env_device="cuda",
+        gpu_env_batch_size=2,
+    )
+    fast = DemonAttackBatchedGpuEnv(
+        cfg=cfg,
+        env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
+        gpu_env_device="cuda",
+        gpu_env_batch_size=2,
+    )
+
+    try:
+        regular.reset()
+        fast.reset()
+        actions = torch.zeros(2, dtype=torch.int64, device="cuda")
+        obs_regular, rewards_regular, terminated_regular, truncated_regular, _infos_regular = regular.step(actions)
+        obs_fast, rewards_fast, terminated_fast, truncated_fast, infos_fast = fast.sample_factory_gpu_step(actions)
+        torch.cuda.synchronize()
+
+        assert torch.equal(obs_fast["obs"], obs_regular["obs"])
+        assert torch.equal(rewards_fast, rewards_regular)
+        assert torch.equal(terminated_fast, terminated_regular)
+        assert torch.equal(truncated_fast, truncated_regular)
+        assert infos_fast == [{}, {}]
+        assert torch.equal(fast.sample_factory_step_cpu_tensors["rewards"], regular.sample_factory_step_cpu_tensors["rewards"])
+        assert torch.equal(fast.sample_factory_step_cpu_tensors["dones"], regular.sample_factory_step_cpu_tensors["dones"])
+    finally:
+        regular.close()
+        fast.close()
+
+
+def test_demon_attack_batched_gpu_env_fast_step_preserves_done_reset_info():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.demon_attack_sf.batched_gpu_env import DemonAttackBatchedGpuEnv
+
+    env = DemonAttackBatchedGpuEnv(
+        cfg=SimpleNamespace(
+            seed=0,
+            env_fps=60,
+            obs_fps=15,
+            noop_max=30,
+            frame_stack=4,
+            terminal_on_life_loss=True,
+            clip_reward=True,
+            max_episode_steps=1,
+            latency_type="fixed",
+            fixed_latency_ms=1000.0 / 60.0,
+            add_latency_info=False,
+            hold_policy="hold",
+            ordering_policy="latest_ready",
+            max_pending_actions=None,
+            episode_metrics_path="",
+            latency_seed=123,
+        ),
+        env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
+        gpu_env_device="cuda",
+        gpu_env_batch_size=2,
+    )
+
+    try:
+        env.reset()
+        _obs, _rewards, _terminated, truncated, infos = env.sample_factory_gpu_step(
+            torch.zeros(2, dtype=torch.int64, device="cuda")
+        )
+        torch.cuda.synchronize()
+
+        assert torch.equal(truncated, torch.ones(2, dtype=torch.bool, device="cuda"))
+        assert env._raw_episode_steps.tolist() == [0, 0]
+        assert all("reset_info" in info for info in infos)
+        assert all("episode_extra_stats" in info for info in infos)
+    finally:
+        env.close()
+
+
 def _clip_parity_cfg(**overrides):
     cfg = dict(
         seed=0,

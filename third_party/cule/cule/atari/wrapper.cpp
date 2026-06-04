@@ -112,6 +112,19 @@ step(ExecutionPolicy&& policy,
 template<typename ExecutionPolicy>
 void
 wrapper::
+step_render(ExecutionPolicy&& policy,
+            const bool fire_reset,
+            const Action* playerABuffer,
+            const Action* playerBBuffer,
+            bool* doneBuffer,
+            uint8_t* frameBuffer)
+{
+    ROM_SWITCH(dispatch::step_render, policy, *this, fire_reset, playerABuffer, playerBBuffer, doneBuffer, frameBuffer)
+}
+
+template<typename ExecutionPolicy>
+void
+wrapper::
 get_data(ExecutionPolicy&& policy,
          const bool episodic_life,
          bool* doneBuffer,
@@ -130,6 +143,16 @@ preprocess(ExecutionPolicy&& policy,
            uint8_t* frameBuffer)
 {
     ROM_SWITCH(dispatch::preprocess, policy, *this, last_frame, tiaBuffer, frameBuffer);
+}
+
+template<typename ExecutionPolicy>
+void
+wrapper::
+preprocess_terminal(ExecutionPolicy&& policy,
+                    const bool last_frame,
+                    uint8_t* frameBuffer)
+{
+    ROM_SWITCH(dispatch::preprocess_terminal, policy, *this, last_frame, frameBuffer);
 }
 
 template<typename ExecutionPolicy>

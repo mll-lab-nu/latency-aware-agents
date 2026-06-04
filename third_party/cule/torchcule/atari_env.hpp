@@ -43,6 +43,10 @@ class AtariEnv : public cule::atari::wrapper
       void generate_obs84(const bool last_frame,
                           uint8_t* imageBuffer);
 
+      void insert_other_stream(uint64_t stream);
+
+      void insert_this_stream(uint64_t stream);
+
       void step_decision(const bool episodic_life,
                          const size_t obs_stride_raw_frames,
                          const size_t obs_frame_count,

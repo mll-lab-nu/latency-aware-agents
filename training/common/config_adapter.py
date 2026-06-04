@@ -163,6 +163,22 @@ def envpool_sample_factory_layout(training_cfg: dict[str, Any]) -> dict[str, int
     }
 
 
+def gpu_env_sample_factory_layout(training_cfg: dict[str, Any]) -> dict[str, int]:
+    effective_envs_per_worker = int(training_cfg["num_envs_per_worker"])
+    worker_num_splits = int(training_cfg["worker_num_splits"])
+    if effective_envs_per_worker % worker_num_splits != 0:
+        raise ValueError(
+            "GPU env Sample Factory layout requires "
+            f"num_envs_per_worker={effective_envs_per_worker} to be divisible by "
+            f"worker_num_splits={worker_num_splits}"
+        )
+    return {
+        "sf_num_envs_per_worker": worker_num_splits,
+        "worker_num_splits": worker_num_splits,
+        "gpu_env_batch_size": effective_envs_per_worker // worker_num_splits,
+    }
+
+
 def import_integration_module(config: dict[str, Any]):
     env_name = str(config["env"]["name"]).strip().lower()
     module_name = ENV_INTEGRATIONS[env_name]
@@ -241,11 +257,12 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         append_cli_arg(args, "--env_gpu_actions", env_cfg["simulator"] == "gpu" and gpu_render_device != "cpu")
         original_num_envs_per_worker = int(training_cfg["num_envs_per_worker"])
         append_cli_arg(args, "--gpu-render-batch-size", original_num_envs_per_worker)
+    gpu_env_layout = gpu_env_sample_factory_layout(training_cfg) if use_gpu_env and not use_gpu_render else None
     if use_gpu_env and not use_gpu_render:
         append_cli_arg(args, "--env_gpu_observations", gpu_env_device != "cpu")
         append_cli_arg(args, "--env_gpu_actions", gpu_env_device != "cpu")
         # GPU batched-env parallelism is driven by num_envs_per_worker (mirrors gpu-render-batch-size).
-        append_cli_arg(args, "--gpu-env-batch-size", int(training_cfg["num_envs_per_worker"]))
+        append_cli_arg(args, "--gpu-env-batch-size", gpu_env_layout["gpu_env_batch_size"])
     envpool_layout = envpool_sample_factory_layout(training_cfg) if use_envpool else None
     if use_envpool:
         append_cli_arg(args, "--env_gpu_observations", False)
@@ -301,9 +318,13 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
             value = envpool_layout["sf_num_envs_per_worker"]
         elif use_envpool and field == "worker_num_splits":
             value = envpool_layout["worker_num_splits"]
-        elif (use_gpu_render or use_gpu_env) and field == "num_envs_per_worker":
+        elif use_gpu_env and not use_gpu_render and field == "num_envs_per_worker":
+            value = gpu_env_layout["sf_num_envs_per_worker"]
+        elif use_gpu_env and not use_gpu_render and field == "worker_num_splits":
+            value = gpu_env_layout["worker_num_splits"]
+        elif use_gpu_render and field == "num_envs_per_worker":
             value = 1
-        elif (use_gpu_render or use_gpu_env) and field == "worker_num_splits" and value is None:
+        elif use_gpu_render and field == "worker_num_splits" and value is None:
             value = 1
         append_cli_arg(args, f"--{field}", value)
     if use_gpu_render or use_gpu_env or use_envpool:

@@ -37,6 +37,7 @@ struct state
     uint32_t HM;
     uint32_t PF;
     uint32_t POS;
+    uint32_t Color;
     uint8_t CurrentGRP0;
     uint8_t CurrentGRP1;
 
@@ -61,11 +62,13 @@ struct state
     uint32_t rand;
     int32_t score;
     uint8_t M0CosmicArkCounter;
+    uint8_t playfieldPriorityAndScore;
 
     // pointers
     uint32_t * ram;
     const uint8_t * rom;
     uint32_t * tia_update_buffer;
+    uint8_t* framePointer;
 
     uint32_t* CurrentPFMask;
     uint8_t * CurrentP0Mask;
@@ -77,4 +80,3 @@ struct state
 
 } // end namespace atari
 } // end namespace cule
-

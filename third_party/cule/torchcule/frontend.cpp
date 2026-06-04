@@ -1,6 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <ATen/cuda/CUDAContext.h>
 #include <cuda_runtime.h>
 
 #include <string>
@@ -168,6 +169,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
                              uint64_t scoresBuffer,
                              uint64_t imageBuffer)
         {
+            cudaStream_t torch_stream = at::cuda::getCurrentCUDAStream().stream();
+            env.insert_other_stream(reinterpret_cast<uint64_t>(torch_stream));
             env.step_decision(
                 episodic_life,
                 obs_stride_raw_frames,
@@ -220,6 +223,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
                 reinterpret_cast<int32_t*>(livesBuffer),
                 reinterpret_cast<int32_t*>(scoresBuffer),
                 reinterpret_cast<uint8_t*>(imageBuffer));
+            env.insert_this_stream(reinterpret_cast<uint64_t>(torch_stream));
         }
     )
     .def("set_cuda", &AtariEnv::set_cuda)
