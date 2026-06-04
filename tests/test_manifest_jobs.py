@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import signal
 import sys
+import threading
 import time
 import types
 from pathlib import Path
 
 import yaml
+import pytest
 
 import scripts.experiment_runner.run_manifest_jobs as run_manifest_jobs
 from scripts.experiment_runner.job_manifest import load_manifest, write_manifest
@@ -184,6 +189,46 @@ def test_runner_uploads_in_background(tmp_path):
     assert upload_started.is_file()
     assert upload_finished.is_file()
     assert (marks / "job2_train").stat().st_mtime < upload_finished.stat().st_mtime
+
+
+def test_run_command_cleanup_terminates_child_process_group(tmp_path):
+    pid_file = tmp_path / "pids.txt"
+    command = (
+        f"{sys.executable} -c "
+        "\"import subprocess, sys, time; "
+        f"child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+        f"open(r'{pid_file}', 'w').write(str(child.pid)); "
+        "time.sleep(60)\""
+    )
+    errors: list[BaseException] = []
+
+    def run_command() -> None:
+        try:
+            run_manifest_jobs._run_command(command, gpu="0")
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=run_command)
+    thread.start()
+    deadline = time.time() + 5.0
+    while not pid_file.is_file() and time.time() < deadline:
+        time.sleep(0.05)
+
+    child_pid = int(pid_file.read_text(encoding="utf-8"))
+    run_manifest_jobs._terminate_active_processes(signal.SIGTERM)
+    thread.join(timeout=5.0)
+
+    assert not thread.is_alive()
+    assert errors and isinstance(errors[0], subprocess.CalledProcessError)
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        try:
+            os.kill(child_pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
 
 
 def test_default_uploader_prefers_env_token_over_dotenv(monkeypatch, tmp_path):
