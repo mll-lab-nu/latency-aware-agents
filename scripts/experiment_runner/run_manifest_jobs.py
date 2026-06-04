@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import queue
+import signal
 import subprocess
 import threading
 import time
@@ -27,6 +28,10 @@ UPLOAD_IGNORE_PATTERNS = [
     "**/events.out.tfevents.*",
     "**/__pycache__/**",
 ]
+PROCESS_GROUP_TERM_TIMEOUT_SEC = 2.0
+PROCESS_GROUP_KILL_TIMEOUT_SEC = 1.0
+_ACTIVE_PROCESSES: set[subprocess.Popen] = set()
+_ACTIVE_PROCESSES_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -55,10 +60,62 @@ def _event_writer(event_log: Path) -> Callable[[dict[str, Any]], None]:
     return write
 
 
+def _register_process(process: subprocess.Popen) -> None:
+    with _ACTIVE_PROCESSES_LOCK:
+        _ACTIVE_PROCESSES.add(process)
+
+
+def _forget_process(process: subprocess.Popen) -> None:
+    with _ACTIVE_PROCESSES_LOCK:
+        _ACTIVE_PROCESSES.discard(process)
+
+
+def _active_processes() -> list[subprocess.Popen]:
+    with _ACTIVE_PROCESSES_LOCK:
+        return list(_ACTIVE_PROCESSES)
+
+
+def _signal_process_group(process: subprocess.Popen, sig: int) -> None:
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            pass
+
+
+def _terminate_active_processes(sig: int = signal.SIGTERM) -> None:
+    processes = _active_processes()
+    for process in processes:
+        _signal_process_group(process, sig)
+    deadline = time.time() + PROCESS_GROUP_TERM_TIMEOUT_SEC
+    for process in processes:
+        remaining = max(0.0, deadline - time.time())
+        try:
+            process.wait(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            pass
+    for process in processes:
+        _signal_process_group(process, signal.SIGKILL)
+    kill_deadline = time.time() + PROCESS_GROUP_KILL_TIMEOUT_SEC
+    for process in processes:
+        remaining = max(0.0, kill_deadline - time.time())
+        try:
+            process.wait(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            pass
+
+
 def _run_command(command: str, *, gpu: str) -> None:
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(gpu)
-    subprocess.run(command, shell=True, check=True, env=env)
+    process = subprocess.Popen(command, shell=True, env=env, start_new_session=True)
+    _register_process(process)
+    try:
+        returncode = process.wait()
+        if returncode != 0:
+            raise subprocess.CalledProcessError(returncode, command)
+    finally:
+        _forget_process(process)
 
 
 def _load_dotenv(path: Path) -> dict[str, str]:
@@ -148,6 +205,16 @@ def run_jobs(
     dry_run: bool = False,
     uploader: Callable[[dict[str, str]], None] | None = None,
 ) -> int:
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def stop_active_processes(signum, frame):
+        del frame
+        _terminate_active_processes(signal.SIGTERM)
+        raise KeyboardInterrupt(signum)
+
+    signal.signal(signal.SIGINT, stop_active_processes)
+    signal.signal(signal.SIGTERM, stop_active_processes)
     manifest_file = Path(manifest_path).expanduser().resolve()
     event_log = event_log_path_for_manifest(manifest_file)
     write_event = _event_writer(event_log)
@@ -241,15 +308,20 @@ def run_jobs(
         threading.Thread(target=train_worker, args=(gpu,), name=f"train-{gpu}", daemon=True)
         for gpu in gpus
     ]
-    for thread in upload_threads + train_threads:
-        thread.start()
-    job_queue.join()
-    for _ in upload_threads:
-        upload_queue.put(None)
-    upload_queue.join()
-    for thread in train_threads + upload_threads:
-        thread.join()
-    return 1 if failures else 0
+    try:
+        for thread in upload_threads + train_threads:
+            thread.start()
+        job_queue.join()
+        for _ in upload_threads:
+            upload_queue.put(None)
+        upload_queue.join()
+        for thread in train_threads + upload_threads:
+            thread.join()
+        return 1 if failures else 0
+    finally:
+        _terminate_active_processes(signal.SIGTERM)
+        signal.signal(signal.SIGINT, previous_sigint)
+        signal.signal(signal.SIGTERM, previous_sigterm)
 
 
 def build_parser() -> argparse.ArgumentParser:
