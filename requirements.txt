@@ -1,6 +1,9 @@
 # Local Flappy Bird Gymnasium fork/submodule.
 -e ./flappy-bird-gymnasium
 
+# Local Sample Factory fork
+-e ./sample-factory
+
 # Core runtime.
 # install.sh installs PyTorch 2.10.0 before this file using the selected CUDA profile.
 numpy==1.26.4
