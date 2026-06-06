@@ -118,11 +118,19 @@ def _plain_obs_batch_to_sf_inputs_stacked(
     device: torch.device,
 ) -> tuple[dict[str, torch.Tensor], None] | None:
     values = []
+    tensors = []
     for observation in observations:
         data = observation.data
-        if isinstance(data, Mapping) or isinstance(data, torch.Tensor):
+        if isinstance(data, Mapping):
             return None
+        if isinstance(data, torch.Tensor):
+            tensors.append(data)
+            continue
         values.append(data)
+    if tensors:
+        if values:
+            return None
+        return {"obs": torch.stack(tensors, dim=0).to(device=device)}, None
     stacked = _stack_numpy_values(values)
     if stacked is None:
         return None

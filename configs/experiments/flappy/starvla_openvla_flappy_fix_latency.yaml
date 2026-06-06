@@ -38,5 +38,8 @@ evaluation:
 
 logging:
   output_dir: outputs/starvla_openvla_flappy_fix_latency_2_exp
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false
   video:
     enabled: false

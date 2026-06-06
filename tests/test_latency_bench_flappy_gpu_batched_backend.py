@@ -9,7 +9,7 @@ import pytest
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.flappy import FlappyBirdEnvAdapter
 from latency_bench.executors.env_step_backend import SerialEnvStepBackend
-from latency_bench.executors.factory import build_executor
+from latency_bench.executors.factory import build_executor, _auto_latency_bench_env_backend
 from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
@@ -107,6 +107,31 @@ def _serial_backend(num_slots: int, *, score_limit: int | None = None) -> Serial
     )
 
 
+def _serial_starvla_backend(num_slots: int) -> SerialEnvStepBackend:
+    return SerialEnvStepBackend(
+        [
+            FlappyBirdEnvAdapter(
+                gym_id="FlappyBird-v0",
+                env_fps=30,
+                noop_action=_noop(),
+                pipe_gap=100,
+                bird_color="yellow",
+                pipe_color="green",
+                background="day",
+                obs_resize=(84, 84),
+                frame_stack=4,
+                use_gpu_render=True,
+                gpu_render_device="cpu",
+                gpu_render_profile=False,
+                gpu_render_profile_interval=1000,
+                policy_observation_layout="hwc",
+                export_env_raw_rgb_frames=True,
+            )
+            for _slot in range(num_slots)
+        ]
+    )
+
+
 def _array(value: Any) -> np.ndarray:
     if hasattr(value, "detach") and callable(value.detach):
         value = value.detach().cpu().numpy()
@@ -135,13 +160,13 @@ def _assert_observation_equal(actual: Observation, expected: Observation) -> Non
 
 
 def _assert_step_equal(actual: StepResult, expected: StepResult) -> None:
-    assert actual.observation is not None
     assert expected.observation is not None
     assert actual.reward == expected.reward
     assert actual.done is expected.done
     assert actual.truncated is expected.truncated
     _assert_info_equal(actual.info, expected.info)
-    _assert_observation_equal(actual.observation, expected.observation)
+    if actual.observation is not None:
+        _assert_observation_equal(actual.observation, expected.observation)
 
 
 def _assert_backend_observations_equal(
@@ -214,6 +239,10 @@ def test_flappy_gpu_simulator_batched_backend_matches_serial_gpu_backend_step_fo
                 batched.reset_slot(slot_id, episode_id=slot_id, seed=seed),
                 serial.reset_slot(slot_id, episode_id=slot_id, seed=seed),
             )
+        _assert_backend_observations_equal(
+            batched.observe_slots([0, 1]),
+            serial.observe_slots([0, 1]),
+        )
 
         action_plan = [
             {0: _noop(), 1: _flap()},
@@ -285,6 +314,56 @@ def test_flappy_gpu_batched_backend_exports_raw_rgb_stack_for_starvla(tmp_path):
         assert raw_stack.shape[-1] == 3
         assert raw_stack.shape[:3] != (4, 84, 84)
         assert raw_stack.dtype == np.uint8
+    finally:
+        batched.close()
+
+
+def test_flappy_gpu_batched_backend_preserves_starvla_raw_rgb_stack_between_observations(tmp_path):
+    pytest.importorskip("torch")
+    from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
+
+    config = _config(str(tmp_path), num_episodes=1)
+    config["policy"]["type"] = "starvla"
+    config["env"]["obs_fps"] = 10
+    serial = _serial_starvla_backend(1)
+    batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=1)
+    try:
+        serial.reset_slot(0, episode_id=0, seed=123)
+        batched.reset_slot(0, episode_id=0, seed=123)
+        serial.observe_slots([0])
+        batched.observe_slots([0])
+
+        for action in [_noop(), _flap(), _noop()]:
+            serial.step_slots({0: action})
+            batched.step_slots({0: action})
+
+        serial_observation = serial.observe_slots([0])[0]
+        batched_observation = batched.observe_slots([0])[0]
+
+        np.testing.assert_array_equal(
+            batched_observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY],
+            serial_observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY],
+        )
+    finally:
+        batched.close()
+        serial.close()
+
+
+def test_flappy_gpu_batched_backend_does_not_materialize_policy_observation_during_step(tmp_path):
+    pytest.importorskip("torch")
+    from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
+
+    config = _config(str(tmp_path), num_episodes=1)
+    config["policy"]["type"] = "flappy_sf"
+    batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=1)
+    try:
+        batched.reset_slot(0, episode_id=0, seed=123)
+        reset_observation = batched.slot_handles[0].observe()
+
+        response = batched.step_slots({0: _noop()})[0]
+
+        assert response.result.observation is None
+        assert batched.slot_handles[0].observe() is reset_observation
     finally:
         batched.close()
 

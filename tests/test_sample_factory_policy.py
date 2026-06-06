@@ -813,6 +813,29 @@ def test_obs_batch_to_sf_inputs_stacks_homogeneous_numpy_chw_before_tensor_conve
     assert converted_shapes == [(4, 3, 2, 2)]
 
 
+def test_obs_batch_to_sf_inputs_batches_homogeneous_torch_chw_without_numpy_conversion(monkeypatch):
+    observations = [
+        Observation(
+            data=torch.full((3, 2, 2), value, dtype=torch.uint8),
+            env_step=value,
+            sim_time_ms=float(value),
+        )
+        for value in range(4)
+    ]
+    expected = _old_obs_batch_to_sf_inputs_reference(observations, torch.device("cpu"))
+
+    def fail_asarray(value, *args, **kwargs):
+        if isinstance(value, torch.Tensor):
+            raise AssertionError("torch tensor observations must not be converted through numpy")
+        return np.asarray(value, *args, **kwargs)
+
+    monkeypatch.setattr(sample_factory_common.np, "asarray", fail_asarray)
+
+    actual = sample_factory_common._obs_batch_to_sf_inputs(observations, torch.device("cpu"))
+
+    _assert_sf_input_batches_equal(actual, expected)
+
+
 @pytest.mark.parametrize(
     "observations",
     [

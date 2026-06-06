@@ -351,3 +351,25 @@ def test_predict_batch_calls_starvla_once(monkeypatch, tmp_path: Path):
     assert len(wrapper.calls) == 1
     assert len(wrapper.calls[0]["examples"]) == 2
     assert [output.action.name for output in outputs] == ["flap", "noop"]
+
+
+def test_starvla_default_policy_metadata_omits_input_frame_hashes(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    output = policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
+        )
+    )
+
+    assert "input_frame_sha256" not in output.metadata
+    assert "input_frame_shape" not in output.metadata
+    assert output.metadata["input_frame_count"] == 1
