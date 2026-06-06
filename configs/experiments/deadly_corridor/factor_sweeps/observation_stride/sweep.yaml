@@ -37,6 +37,7 @@ sweeps:
     frame_stack:
       - 4
     observation_stride:
+      - 1
       - 2
       - 3
       - 4
