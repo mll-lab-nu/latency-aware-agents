@@ -114,11 +114,6 @@ ensure_conda() {
     source "${CONDA_SH_PATH}"
 }
 
-accept_conda_tos() {
-    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
-    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
-}
-
 persist_conda_shell_init() {
     local bashrc="${HOME}/.bashrc"
     local init_line="source ${CONDA_SH_PATH}"
@@ -138,7 +133,7 @@ ensure_envpool_build_tools() {
 
     echo "[install] installing go from conda-forge for envpool build"
     set +u
-    conda install -y -c conda-forge go
+    conda install -y -c conda-forge --override-channels go
     set -u
 }
 
@@ -165,9 +160,7 @@ persist_conda_shell_init
 
 git submodule update --init --recursive
 
-accept_conda_tos
-
-conda create -n latency python=3.10 -y
+conda create -n latency -c conda-forge --override-channels python=3.10 -y
 
 conda activate latency
 ensure_envpool_build_tools
