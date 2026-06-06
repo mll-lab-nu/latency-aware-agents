@@ -1,4 +1,4 @@
-__base__: ../../../../base/deadly_corridor_envpool.yaml
+__base__: ../../../../base/deadly_corridor.yaml
 experiment_family: factor_sweep
 generated_root: configs/train/factor_sweeps/deadly_corridor/observation_stride
 train_dir: results/checkpoints_factor_sweeps/deadly_corridor/observation_stride
