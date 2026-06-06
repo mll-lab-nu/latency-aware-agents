@@ -34,9 +34,14 @@ latency_settings:
 sweeps:
   frame_stack:
     frame_stack:
+      - 1
+      - 2
       - 4
       - 6
       - 8
       - 10
+      - 12
+      - 14
+      - 16
     obs_fps:
       - 8.75
