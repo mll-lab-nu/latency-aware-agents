@@ -94,20 +94,20 @@
 #   --hf-max-shard-size 500MB \
 #   --hf-repo-id talha1503/deadly_corridor_mixed_latency_parquet
 
-python scripts/export_sf_teacher_dataset.py \
-  --env-name deadly_corridor \
-  --checkpoint-root checkpoints \
-  --output-dir teacher_datasets/deadly_corridor_fix_latency_0 \
-  --dataset-mode fixed_latency \
-  --fixed-latency 0 \
-  --prompt "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation." \
-  --max-steps-per-episode 30000 \
-  --max-episodes 100 \
-  --val-fraction 0.1 \
-  --num-envs 64 \
-  --image-writer-workers 32 \
-  --row-buffer-size 8192 \
-  --image-source render
+# python scripts/export_sf_teacher_dataset.py \
+#   --env-name deadly_corridor \
+#   --checkpoint-root checkpoints \
+#   --output-dir teacher_datasets/deadly_corridor_fix_latency_0 \
+#   --dataset-mode fixed_latency \
+#   --fixed-latency 0 \
+#   --prompt "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation." \
+#   --max-steps-per-episode 30000 \
+#   --max-episodes 100 \
+#   --val-fraction 0.1 \
+#   --num-envs 64 \
+#   --image-writer-workers 32 \
+#   --row-buffer-size 8192 \
+#   --image-source render
 
 # Demon attack fix latency
 # python scripts/export_sf_teacher_dataset.py \
@@ -186,3 +186,19 @@ python scripts/export_sf_teacher_dataset.py \
 #   --hf-token "$HF_TOKEN" \
 #   --hf-max-shard-size 500MB \
 #   --hf-repo-id talha1503/demon_attack_mixed_latency_parquet
+
+# flappy fix latency
+python scripts/export_sf_teacher_dataset.py \
+  --env-name flappy \
+  --checkpoint-root checkpoints \
+  --output-dir teacher_datasets/flappy_fix_latency_1 \
+  --dataset-mode fixed_latency \
+  --fixed-latency 1 \
+  --prompt "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP." \
+  --max-steps-per-episode 3600 \
+  --max-episodes 100 \
+  --val-fraction 0.1 \
+  --num-envs 64 \
+  --image-writer-workers 32 \
+  --row-buffer-size 8192 \
+  --image-source render
