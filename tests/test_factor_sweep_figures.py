@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-OFFICIAL_SEEDS = tuple(range(10, 20))
+OFFICIAL_SEEDS = tuple(range(10, 15))
 FIG_ROOT = REPO_ROOT / "paper" / "latency-sensitive-vla" / "figures" / "3_4_factor_sweeps"
 JITTER_GRID_ROOT = (
     REPO_ROOT
@@ -31,13 +31,13 @@ def test_context_window_fetch_specs_use_official_seed_grid():
 
     specs = fetch.build_query_specs()
 
-    assert len(specs) == 70
+    assert len(specs) == 28
     assert {spec.expected_seeds for spec in specs} == {OFFICIAL_SEEDS}
     assert {spec.x_label for spec in specs if spec.env_id == "flappy"} == {"4", "5", "6", "7", "8"}
     assert {spec.x_label for spec in specs if spec.env_id == "demon-attack"} == {"4", "5", "6", "7", "8"}
     assert {spec.x_label for spec in specs if spec.env_id == "deadly-corridor"} == {"4", "6", "8", "10"}
-    assert "flappy-fs5-fixed_l1" in {spec.group_name for spec in specs}
-    assert "deadly-corridor-fs10-fixed_l2" in {spec.group_name for spec in specs}
+    assert "flappy-fs5-fixed_l2" in {spec.group_name for spec in specs}
+    assert "deadly-corridor-fs10-fixed_l4" in {spec.group_name for spec in specs}
     assert "flappy-frame_stack" not in {spec.group_name for spec in specs}
 
 
@@ -49,14 +49,14 @@ def test_observation_stride_fetch_specs_use_official_seed_grid_and_stride_groups
 
     specs = fetch.build_query_specs()
 
-    assert len(specs) == 75
+    assert len(specs) == 30
     assert {spec.expected_seeds for spec in specs} == {OFFICIAL_SEEDS}
     assert {spec.x_label for spec in specs if spec.env_id == "flappy"} == {"1", "2", "3", "4", "5"}
     assert {spec.x_label for spec in specs if spec.env_id == "demon-attack"} == {"2", "3", "4", "5", "6"}
     assert {spec.x_label for spec in specs if spec.env_id == "deadly-corridor"} == {"2", "3", "4", "5", "6"}
     group_names = {spec.group_name for spec in specs}
     assert "flappy-stride5-fixed_l2" in group_names
-    assert "demon-attack-stride2-fixed_l2" in group_names
+    assert "demon-attack-stride2-fixed_l4" in group_names
     assert "deadly-corridor-stride6-uniform_u2_6" in group_names
     assert all("-obs" not in group_name for group_name in group_names)
 

@@ -14,6 +14,7 @@ from latency_bench.logging.metrics import (
     apply_latency_raw_fields,
     apply_latency_record_raw_fields,
     compute_episode_metrics,
+    compute_episode_metrics_from_aggregates,
     episode_raw_fact_metadata,
     latency_type_from_source,
     profile_metadata_from_source,
@@ -27,10 +28,35 @@ from latency_bench.scheduler.decision import DecisionScheduler
 
 @dataclass
 class _EpisodeBuffers:
-    step_records: list[StepRecord] = field(default_factory=list)
-    action_events: list[ActionEvent] = field(default_factory=list)
-    latency_records: list[LatencyRecord] = field(default_factory=list)
+    step_records: list[StepRecord] | None = None
+    action_events: list[ActionEvent] | None = None
+    latency_records: list[LatencyRecord] | None = None
     latency_values_ms: list[float] = field(default_factory=list)
+    episode_return_env: float = 0.0
+    survival_steps: int = 0
+    game_score: float | None = None
+    return_raw: float | None = None
+    num_actions: int = 0
+    num_dropped_actions: int = 0
+    num_invalid_actions: int = 0
+
+    def record_step(self, *, reward: float, info: dict) -> None:
+        self.episode_return_env += float(reward)
+        self.survival_steps += 1
+        if "invalid_action" in info and info["invalid_action"]:
+            self.num_invalid_actions += 1
+        if "game_score" in info:
+            self.game_score = float(info["game_score"])
+        if "score" in info:
+            self.game_score = float(info["score"])
+        for key in ("return_raw", "raw_return", "episodic_raw_return", "episode/raw_return"):
+            if key in info and info[key] is not None:
+                self.return_raw = float(info[key])
+        extra_stats = info["episode_extra_stats"] if "episode_extra_stats" in info else None
+        if isinstance(extra_stats, dict):
+            for key in ("return_raw", "raw_return", "episodic_raw_return", "episode/raw_return"):
+                if key in extra_stats and extra_stats[key] is not None:
+                    self.return_raw = float(extra_stats[key])
 
 
 @dataclass
@@ -94,6 +120,9 @@ class BatchedSimulatedLatencyExecutor:
         self.decision_scheduler = decision_scheduler
         self.clock = clock
         self.logger = logger
+        self._collect_step_records = bool(logger is not None and logger.save_step_records)
+        self._collect_action_records = bool(logger is not None and logger.save_action_records)
+        self._collect_latency_records = bool(logger is not None and logger.save_latency_records)
         self.episode_latency_source_factory = episode_latency_source_factory
         self.slots = [
             _SlotState(
@@ -101,6 +130,7 @@ class BatchedSimulatedLatencyExecutor:
                 env=self.envs[slot_id],
                 latency_source=latency_sources[slot_id],
                 action_scheduler=action_schedulers[slot_id],
+                buffers=self._new_episode_buffers(),
             )
             for slot_id in range(slot_count)
         ]
@@ -208,29 +238,34 @@ class BatchedSimulatedLatencyExecutor:
                 result = step_responses[slot.slot_id].result
                 soft_reset = bool(result.info.get("soft_reset")) if isinstance(result.info, dict) else False
                 episode_done = bool(result.done or result.truncated) and not soft_reset
-                latency_type = latency_type_from_source(slot.latency_source)
-                step_info = step_record_info(result.info)
-                step_info.update(
-                    active_action_step_info(
-                        applied_events=slot.action_scheduler.get_applied_events(),
-                        env_step=slot.env_step,
-                        scheduled_time_ms=current_time_ms,
-                        frame_ms=self.clock.frame_ms,
-                        latency_type=latency_type,
-                        profile_metadata=profile_metadata_from_source(slot.latency_source),
+                if slot.buffers.step_records is not None:
+                    latency_type = latency_type_from_source(slot.latency_source)
+                    step_info = step_record_info(result.info)
+                    step_info.update(
+                        active_action_step_info(
+                            applied_events=slot.action_scheduler.get_applied_events(),
+                            env_step=slot.env_step,
+                            scheduled_time_ms=current_time_ms,
+                            frame_ms=self.clock.frame_ms,
+                            latency_type=latency_type,
+                            profile_metadata=profile_metadata_from_source(slot.latency_source),
+                        )
                     )
-                )
-                record = StepRecord(
-                    episode_id=int(slot.episode_id),
-                    env_step=slot.env_step,
-                    sim_time_ms=current_time_ms,
-                    active_action=active_action,
-                    reward=float(result.reward),
-                    done=episode_done,
-                    info=step_info,
-                )
-                slot.buffers.step_records.append(record)
+                    record = StepRecord(
+                        episode_id=int(slot.episode_id),
+                        env_step=slot.env_step,
+                        sim_time_ms=current_time_ms,
+                        active_action=active_action,
+                        reward=float(result.reward),
+                        done=episode_done,
+                        info=step_info,
+                    )
+                    slot.buffers.step_records.append(record)
+                    slot.buffers.record_step(reward=float(result.reward), info=step_info)
+                else:
+                    slot.buffers.record_step(reward=float(result.reward), info=result.info)
                 if soft_reset:
+                    slot.buffers.num_dropped_actions += slot.action_scheduler.dropped_events_count
                     slot.action_scheduler.reset()
                     self.policy.reset_state(slot_id=slot.slot_id)
 
@@ -315,7 +350,7 @@ class BatchedSimulatedLatencyExecutor:
             slot.episode_id = None
             slot.episode_seed = None
             slot.env_step = 0
-            slot.buffers = _EpisodeBuffers()
+            slot.buffers = self._new_episode_buffers()
             slot.action_scheduler.reset()
 
     def _active_slots(self) -> list[_SlotState]:
@@ -328,7 +363,7 @@ class BatchedSimulatedLatencyExecutor:
         slot.episode_id = int(episode_id)
         slot.episode_seed = None if seed is None else int(seed)
         slot.env_step = 0
-        slot.buffers = _EpisodeBuffers()
+        slot.buffers = self._new_episode_buffers()
         slot.action_scheduler.reset()
         self.policy.reset_state(slot_id=slot.slot_id)
         self.env_backend.reset_slot(slot.slot_id, episode_id=episode_id, seed=seed)
@@ -345,11 +380,10 @@ class BatchedSimulatedLatencyExecutor:
         if not slot.active or slot.episode_id is None:
             return
         episode_id = int(slot.episode_id)
-        metrics = compute_episode_metrics(
+        slot.buffers.num_dropped_actions += slot.action_scheduler.dropped_events_count
+        metrics = self._compute_episode_metrics(
             episode_id=episode_id,
-            step_records=slot.buffers.step_records,
-            action_events=slot.buffers.action_events,
-            latency_values_ms=slot.buffers.latency_values_ms,
+            buffers=slot.buffers,
             metadata=episode_raw_fact_metadata(
                 mode="simulated",
                 episode_seed=slot.episode_seed,
@@ -359,7 +393,6 @@ class BatchedSimulatedLatencyExecutor:
                 latency_type=latency_type_from_source(slot.latency_source),
                 latency_source=slot.latency_source,
             ),
-            frame_ms=self.clock.frame_ms,
         )
         self._completed_metrics[episode_id] = metrics
         self._completed_buffers[episode_id] = slot.buffers
@@ -368,7 +401,7 @@ class BatchedSimulatedLatencyExecutor:
         slot.episode_id = None
         slot.episode_seed = None
         slot.env_step = 0
-        slot.buffers = _EpisodeBuffers()
+        slot.buffers = self._new_episode_buffers()
         slot.action_scheduler.reset()
         self.slot_episode_id[slot.slot_id] = None
         self.active_slots = sum(1 for item in self.slots if item.active)
@@ -428,9 +461,12 @@ class BatchedSimulatedLatencyExecutor:
         )
         self._next_action_id += 1
         slot.action_scheduler.enqueue(event)
-        slot.buffers.action_events.append(event)
+        slot.buffers.num_actions += 1
+        if slot.buffers.action_events is not None:
+            slot.buffers.action_events.append(event)
         slot.buffers.latency_values_ms.append(latency_ms)
-        slot.buffers.latency_records.append(latency_record)
+        if slot.buffers.latency_records is not None:
+            slot.buffers.latency_records.append(latency_record)
 
     def _flush_completed_in_episode_order(self) -> None:
         if self.logger is None:
@@ -441,14 +477,53 @@ class BatchedSimulatedLatencyExecutor:
                 break
             buffers = self._completed_buffers[episode_id]
             metrics = self._completed_metrics[episode_id]
-            for record in buffers.step_records:
-                self.logger.log_step(record)
-            for event in buffers.action_events:
-                self.logger.log_action_event(event)
-            for latency_record in buffers.latency_records:
-                self.logger.log_latency(latency_record)
+            if buffers.step_records is not None:
+                for record in buffers.step_records:
+                    self.logger.log_step(record)
+            if buffers.action_events is not None:
+                for event in buffers.action_events:
+                    self.logger.log_action_event(event)
+            if buffers.latency_records is not None:
+                for latency_record in buffers.latency_records:
+                    self.logger.log_latency(latency_record)
             self.logger.log_episode_metrics(metrics)
             self._next_episode_log_index += 1
 
     def _ordered_metrics(self, episode_ids: Sequence[int]) -> list[EpisodeMetrics]:
         return [self._completed_metrics[int(episode_id)] for episode_id in episode_ids]
+
+    def _new_episode_buffers(self) -> _EpisodeBuffers:
+        return _EpisodeBuffers(
+            step_records=[] if self._collect_step_records else None,
+            action_events=[] if self._collect_action_records else None,
+            latency_records=[] if self._collect_latency_records else None,
+        )
+
+    def _compute_episode_metrics(
+        self,
+        *,
+        episode_id: int,
+        buffers: _EpisodeBuffers,
+        metadata: dict,
+    ) -> EpisodeMetrics:
+        if buffers.step_records is not None and buffers.action_events is not None:
+            return compute_episode_metrics(
+                episode_id=episode_id,
+                step_records=buffers.step_records,
+                action_events=buffers.action_events,
+                latency_values_ms=buffers.latency_values_ms,
+                metadata=metadata,
+                frame_ms=self.clock.frame_ms,
+            )
+        return compute_episode_metrics_from_aggregates(
+            episode_id=episode_id,
+            episode_return_env=buffers.episode_return_env,
+            survival_steps=buffers.survival_steps,
+            return_raw=buffers.return_raw,
+            game_score=buffers.game_score,
+            latency_values_ms=buffers.latency_values_ms,
+            num_actions=buffers.num_actions,
+            num_dropped_actions=buffers.num_dropped_actions,
+            num_invalid_actions=buffers.num_invalid_actions,
+            metadata=metadata,
+        )

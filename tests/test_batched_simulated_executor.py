@@ -805,6 +805,60 @@ def test_batched_executor_output_records_remain_schema_compatible(tmp_path: Path
     assert {"episode_id", "episode_return", "survival_steps", "metadata"} <= set(metrics)
 
 
+def test_batched_executor_no_trace_does_not_retain_hot_path_records(tmp_path: Path):
+    noop = Action("noop", name="noop", is_noop=True)
+    envs = [
+        DummyEnvAdapter(env_fps=30.0, max_steps=3, noop_action=noop)
+        for _slot in range(2)
+    ]
+    clock = EnvClock(env_fps=30.0, obs_fps=30.0)
+    executor = BatchedSimulatedLatencyExecutor(
+        env_backend=SerialEnvStepBackend(envs),
+        policy=ConstantPolicyRunner(Action("jump", name="jump")),
+        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
+        latency_sources=[ZeroLatencySource() for _env in envs],
+        action_schedulers=[
+            ActionScheduler(
+                clock=clock,
+                noop_action=env.noop_action,
+                persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+            )
+            for env in envs
+        ],
+        clock=clock,
+        logger=TrajectoryLogger(
+            tmp_path,
+            save_step_records=False,
+            save_action_records=False,
+            save_latency_records=False,
+        ),
+    )
+
+    try:
+        metrics = executor.run_episodes(
+            episode_ids=range(2),
+            seeds=[1, 2],
+            eval_max_steps=3,
+        )
+        executor.logger.flush()
+    finally:
+        executor.close()
+
+    assert [metric.episode_return for metric in metrics] == [3.0, 3.0]
+    assert [metric.survival_steps for metric in metrics] == [3, 3]
+    assert [metric.num_actions for metric in metrics] == [3, 3]
+    assert [metric.mean_latency_ms for metric in metrics] == [0.0, 0.0]
+    assert executor.logger.step_records == []
+    assert executor.logger.action_records == []
+    assert executor.logger.latency_records == []
+    assert not (tmp_path / "steps.jsonl").exists()
+    assert not (tmp_path / "actions.jsonl").exists()
+    assert not (tmp_path / "latencies.jsonl").exists()
+    assert executor._completed_buffers[0].step_records is None
+    assert executor._completed_buffers[0].action_events is None
+    assert executor._completed_buffers[0].latency_records is None
+
+
 def test_batched_executor_omits_raw_rgb_frame_stack_from_logged_step_info(tmp_path: Path):
     policy = RawRgbShapeCapturePolicy()
     executor, _envs = _tuple_executor(
@@ -876,6 +930,20 @@ def test_subproc_backend_step_omits_observation_payload_and_observe_reads_worker
     assert response.result.observation is None
     assert observed.data == {"state": 1}
     assert observed.env_step == 1
+
+
+def test_subproc_step_action_payload_round_trips_without_dataclass():
+    from latency_bench.executors.env_step_backend import (
+        _action_from_step_payload,
+        _step_payload_from_action,
+    )
+
+    action = Action((1, 2), name="jump", is_noop=False, is_oneshot=True)
+    payload = _step_payload_from_action(action)
+    restored = _action_from_step_payload(payload)
+
+    assert payload == ((1, 2), "jump", False, True)
+    assert restored == action
 
 
 def test_subproc_batched_policy_receives_env_raw_rgb_metadata(tmp_path: Path):

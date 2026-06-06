@@ -25,9 +25,9 @@ if [[ "${{1:-}}" == "info" && "${{2:-}}" == "--base" ]]; then
   printf '%s\\n' "{prefix}"
   exit 0
 fi
-if [[ "${{1:-}}" == "tos" && "${{2:-}}" == "accept" ]]; then
-  printf 'conda %s\\n' "$*" >> "{calls_path}"
-  exit 0
+if [[ "${{1:-}}" == "tos" ]]; then
+  printf "conda: error: argument COMMAND: invalid choice: 'tos'\\n" >&2
+  exit 2
 fi
 printf 'conda %s\\n' "$*" >> "{calls_path}"
 exit 0
@@ -39,9 +39,9 @@ exit 0
     printf 'conda activate %s\\n' "${{2:-}}" >> "{calls_path}"
     return 0
   fi
-  if [[ "${{1:-}}" == "tos" && "${{2:-}}" == "accept" ]]; then
-    printf 'conda %s\\n' "$*" >> "{calls_path}"
-    return 0
+  if [[ "${{1:-}}" == "tos" ]]; then
+    printf "conda: error: argument COMMAND: invalid choice: 'tos'\\n" >&2
+    return 2
   fi
   "{conda_bin}" "$@"
 }}
@@ -158,9 +158,9 @@ if [[ "${{1:-}}" == "info" && "${{2:-}}" == "--base" ]]; then
   printf '%s\\n' "__PREFIX__"
   exit 0
 fi
-if [[ "${{1:-}}" == "tos" && "${{2:-}}" == "accept" ]]; then
-  printf 'conda %s\\n' "$*" >> "__CALLS__"
-  exit 0
+if [[ "${{1:-}}" == "tos" ]]; then
+  printf "conda: error: argument COMMAND: invalid choice: 'tos'\\n" >&2
+  exit 2
 fi
 printf 'conda %s\\n' "$*" >> "__CALLS__"
 exit 0
@@ -173,9 +173,9 @@ conda() {{
     printf 'conda activate %s\\n' "${{2:-}}" >> "__CALLS__"
     return 0
   fi
-  if [[ "${{1:-}}" == "tos" && "${{2:-}}" == "accept" ]]; then
-    printf 'conda %s\\n' "$*" >> "__CALLS__"
-    return 0
+  if [[ "${{1:-}}" == "tos" ]]; then
+    printf "conda: error: argument COMMAND: invalid choice: 'tos'\\n" >&2
+    return 2
   fi
   "__PREFIX__/bin/conda" "$@"
 }}
@@ -386,7 +386,8 @@ def test_install_script_selects_cu130_for_compute_cap_10_gpu(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "selecting cu130" in result.stderr
     calls = calls_path.read_text(encoding="utf-8")
-    assert "conda install -y -c conda-forge go" in calls
+    assert "conda create -n latency -c conda-forge --override-channels python=3.10 -y" in calls
+    assert "conda install -y -c conda-forge --override-channels go" in calls
     assert "python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu130" in calls
     assert "python -m pip install -r requirements.txt" in calls
     assert "rm -f envpool/dist/envpool-" in calls
@@ -448,11 +449,10 @@ def test_install_script_uses_conda_exe_when_path_is_missing(tmp_path):
 
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
-    assert "conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main" in calls
-    assert "conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r" in calls
-    assert "conda create -n latency python=3.10 -y" in calls
+    assert "conda tos" not in calls
+    assert "conda create -n latency -c conda-forge --override-channels python=3.10 -y" in calls
     assert "conda activate latency" in calls
-    assert "conda install -y -c conda-forge go" in calls
+    assert "conda install -y -c conda-forge --override-channels go" in calls
 
 
 def test_install_script_bootstraps_miniconda_when_conda_is_missing(tmp_path):
@@ -471,11 +471,10 @@ def test_install_script_bootstraps_miniconda_when_conda_is_missing(tmp_path):
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
     assert "curl " in calls
-    assert "conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main" in calls
-    assert "conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r" in calls
-    assert "conda create -n latency python=3.10 -y" in calls
+    assert "conda tos" not in calls
+    assert "conda create -n latency -c conda-forge --override-channels python=3.10 -y" in calls
     assert "conda activate latency" in calls
-    assert "conda install -y -c conda-forge go" in calls
+    assert "conda install -y -c conda-forge --override-channels go" in calls
 
 
 def test_install_script_persists_conda_shell_init(tmp_path):
