@@ -44,7 +44,9 @@ class FlappyGpuBatchedEnvStepBackend:
         self._frame_ms = 1000.0 / self._env_fps
         self.frame_stack = int(env_cfg.get("frame_stack", 1) or 1)
         self.policy_observation_layout = self._policy_observation_layout(config)
+        self._returns_torch_chw_observations = self.policy_observation_layout == "chw"
         self.export_env_raw_rgb_frames = self._uses_raw_rgb_vla_policy(config)
+        self._updates_raw_rgb_on_step = self.export_env_raw_rgb_frames
         self.obs_resize = tuple(int(value) for value in env_cfg["obs_resize"])
         self.render_device = resolve_gpu_render_device(str(env_cfg.get("gpu_render_device", "auto")))
 
@@ -74,7 +76,7 @@ class FlappyGpuBatchedEnvStepBackend:
             FlappyObservationConfig(
                 image_size=height,
                 grayscale=False,
-                stack_frames=1,
+                stack_frames=self.frame_stack if self._returns_torch_chw_observations else 1,
             ),
             n_envs=self._num_slots,
             device=self.render_device,
@@ -82,7 +84,7 @@ class FlappyGpuBatchedEnvStepBackend:
         self.renderer: TorchFlappyRenderer | None = None
         self._raw_rgb_buffer: torch.Tensor | None = None
         self._pipeline_has_reset = False
-        self._last_frames: list[np.ndarray | None] = [None for _slot in range(self._num_slots)]
+        self._last_frames: list[Any] = [None for _slot in range(self._num_slots)]
         self._observed_frames: list[deque[np.ndarray]] = [
             deque(maxlen=self.frame_stack) for _slot in range(self._num_slots)
         ]
@@ -153,9 +155,11 @@ class FlappyGpuBatchedEnvStepBackend:
 
     def observe_slots(self, slot_ids: Sequence[int]) -> dict[int, Observation]:
         self._raise_if_closed()
+        slot_ids = [int(slot_id) for slot_id in slot_ids]
+        frames = self._render_observation_frames_for_observe(slot_ids)
         observations: dict[int, Observation] = {}
         for slot_id in slot_ids:
-            slot_id = int(slot_id)
+            self._last_frames[slot_id] = frames[slot_id]
             observation = self._observe_slot(slot_id)
             self.slot_handles[slot_id].update_observation(observation, None)
             observations[slot_id] = observation
@@ -180,7 +184,8 @@ class FlappyGpuBatchedEnvStepBackend:
         terminal_infos = self._terminal_infos(step_result, slot_ids)
         done_mask = active_mask & np.logical_or(step_result.terminated, step_result.truncated)
         self._auto_reset_done_slots(done_mask, terminal_infos)
-        frames = self._render_observation_frames_for_step(done_mask=done_mask, active_mask=active_mask)
+        if self._updates_raw_rgb_on_step:
+            self._render_raw_rgb_for_step_metadata(done_mask=done_mask, active_mask=active_mask)
         self.gpu_render_profiler.observe_step()
 
         responses: dict[int, EnvStepResponse] = {}
@@ -188,10 +193,8 @@ class FlappyGpuBatchedEnvStepBackend:
             self._env_steps[slot_id] += 1
             info = terminal_infos[slot_id]
             numeric_obs = step_result.observations[slot_id]
-            self._last_frames[slot_id] = frames[slot_id]
             self._last_numeric_obs[slot_id] = numeric_obs
             self._last_infos[slot_id] = info
-            observation = self._make_observation(slot_id, numeric_obs=numeric_obs, info=info)
 
             step_info = dict(info)
             step_info.pop("numeric_obs", None)
@@ -204,7 +207,7 @@ class FlappyGpuBatchedEnvStepBackend:
                 }
             )
             result = StepResult(
-                observation=observation,
+                observation=None,
                 reward=float(np.float32(step_result.rewards[slot_id])),
                 done=bool(step_result.terminated[slot_id]),
                 truncated=bool(step_result.truncated[slot_id]),
@@ -217,7 +220,6 @@ class FlappyGpuBatchedEnvStepBackend:
                 "worker_step_wall_sec": time.perf_counter() - start,
             }
             self.last_step_metadata_by_slot[slot_id] = metadata
-            self.slot_handles[slot_id].update_observation(observation, step_info)
             responses[slot_id] = EnvStepResponse(
                 result=result,
                 worker_pid=os.getpid(),
@@ -245,25 +247,42 @@ class FlappyGpuBatchedEnvStepBackend:
                 else:
                     obs = self.pipeline.reset(raw_rgb, frame_skips=self._last_frame_skips)
                     self._pipeline_has_reset = True
-        return self._nchw_to_hwc_frames(obs)
+        return self._policy_observation_frames(obs)
 
-    def _render_observation_frames_for_step(
+    def _render_observation_frames_for_observe(self, slot_ids: Sequence[int]) -> list[np.ndarray]:
+        with self.gpu_render_profiler.time("observe_obs_total_s"):
+            raw_rgb = self._render_raw_rgb_for_observe(slot_ids)
+            active_mask = np.zeros(self._num_slots, dtype=np.bool_)
+            for slot_id in slot_ids:
+                active_mask[int(slot_id)] = True
+            if not self._updates_raw_rgb_on_step:
+                self._update_env_raw_rgb_frames(
+                    raw_rgb,
+                    done_mask=np.zeros(self._num_slots, dtype=np.bool_),
+                    active_mask=active_mask,
+                )
+            with self.gpu_render_profiler.time("pipeline_s"):
+                obs = self.pipeline.step(
+                    raw_rgb,
+                    dones=np.zeros(self._num_slots, dtype=np.bool_),
+                    frame_skips=self._last_frame_skips,
+                    active_mask=active_mask,
+                )
+        return self._policy_observation_frames(obs)
+
+    def _render_raw_rgb_for_step_metadata(
         self,
         *,
         done_mask: np.ndarray,
         active_mask: np.ndarray,
-    ) -> list[np.ndarray]:
-        with self.gpu_render_profiler.time("step_obs_total_s"):
+    ) -> None:
+        with self.gpu_render_profiler.time("step_raw_rgb_total_s"):
             raw_rgb = self._render_raw_rgb()
             self._update_env_raw_rgb_frames(raw_rgb, done_mask=done_mask, active_mask=active_mask)
-            with self.gpu_render_profiler.time("pipeline_s"):
-                obs = self.pipeline.step(
-                    raw_rgb,
-                    dones=done_mask,
-                    frame_skips=self._last_frame_skips,
-                    active_mask=active_mask,
-                )
-        return self._nchw_to_hwc_frames(obs)
+
+    def _render_raw_rgb_for_observe(self, slot_ids: Sequence[int]) -> torch.Tensor:
+        del slot_ids
+        return self._render_raw_rgb()
 
     def _render_raw_rgb(self) -> torch.Tensor:
         if isinstance(self.core, CudaFlappyBirdCore):
@@ -370,6 +389,13 @@ class FlappyGpuBatchedEnvStepBackend:
             numeric_obs=self._last_numeric_obs[slot_id],
             info=self._last_infos[slot_id],
         )
+        if self._returns_torch_chw_observations:
+            return Observation(
+                data=self._last_frames[slot_id],
+                env_step=int(self._env_steps[slot_id]),
+                sim_time_ms=int(self._env_steps[slot_id]) * self._frame_ms,
+                metadata=metadata,
+            )
         frame = np.asarray(self._last_frames[slot_id], dtype=np.uint8)
         self._observed_frames[slot_id].append(frame)
         return Observation(
@@ -381,11 +407,17 @@ class FlappyGpuBatchedEnvStepBackend:
 
     def _make_observation(self, slot_id: int, *, numeric_obs: Any, info: dict[str, Any]) -> Observation:
         return Observation(
-            data=self._last_frames[slot_id],
+            data=self._reset_observation_data(slot_id),
             env_step=int(self._env_steps[slot_id]),
             sim_time_ms=int(self._env_steps[slot_id]) * self._frame_ms,
             metadata=self._observation_metadata(slot_id, numeric_obs=numeric_obs, info=info),
         )
+
+    def _reset_observation_data(self, slot_id: int) -> Any:
+        data = self._last_frames[slot_id]
+        if self._returns_torch_chw_observations:
+            return np.transpose(data[:3].detach().cpu().numpy(), (1, 2, 0)).copy()
+        return data
 
     def _observation_metadata(self, slot_id: int, *, numeric_obs: Any, info: dict[str, Any]) -> dict[str, Any]:
         metadata = dict(info)
@@ -427,6 +459,11 @@ class FlappyGpuBatchedEnvStepBackend:
             np.transpose(frame, (1, 2, 0)).copy()
             for frame in obs.detach().cpu().numpy()
         ]
+
+    def _policy_observation_frames(self, obs: torch.Tensor) -> list[Any]:
+        if self._returns_torch_chw_observations:
+            return [obs[slot_id].detach() for slot_id in range(int(obs.shape[0]))]
+        return self._nchw_to_hwc_frames(obs)
 
     def _reset_env_raw_rgb_frames(self, raw_rgb: torch.Tensor, slot_ids: Sequence[int]) -> None:
         if self.export_env_raw_rgb_frames:

@@ -47,6 +47,9 @@ evaluation:
 
 logging:
   output_dir: outputs/lora_cmp_flappy_l2_full
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false
   # No ffmpeg on the B200; skip replay-video rendering (not needed for the ablation).
   video:
     enabled: false

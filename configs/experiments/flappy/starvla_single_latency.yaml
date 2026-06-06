@@ -40,3 +40,6 @@ evaluation:
 
 logging:
   output_dir: outputs/starvla_openvla_flappy_single_raw2
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false

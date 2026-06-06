@@ -505,6 +505,9 @@ def _build_latency_bench_eval_config(
             seed,
         )
     )
+    config["logging"]["save_step_records"] = False
+    config["logging"]["save_action_records"] = False
+    config["logging"]["save_latency_records"] = False
     if env_name == "deadly_corridor":
         config.setdefault("env", {})["noop_action"] = [0, 0, 0, 0]
     _disable_periodic_eval(config)

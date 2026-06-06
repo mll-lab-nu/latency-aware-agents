@@ -62,6 +62,7 @@ _LATENCY_BENCH_ENV_BACKENDS = {
 }
 _ENV_BACKEND_DEBUG_ENV = "LATENCY_BENCH_ENV_BACKEND"
 _AUTO_SUBPROC_ENV_NAMES = {"deadly_corridor"}
+_AUTO_FLAPPY_GPU_BATCHED_POLICY_TYPES = {"flappy_sf", "starvla"}
 _SCHEDULER_ALLOWED_KEYS = frozenset({"ordering_policy", "hold_policy"})
 
 
@@ -518,7 +519,11 @@ def _auto_latency_bench_env_backend(config: dict[str, Any]) -> str:
     env_cfg = config.get("env", {})
     env_name = str(env_cfg.get("name", "")).strip().lower()
     policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
-    if env_name == "flappy" and policy_type == "flappy_sf" and bool(env_cfg.get("use_gpu_render", False)):
+    if (
+        env_name == "flappy"
+        and policy_type in _AUTO_FLAPPY_GPU_BATCHED_POLICY_TYPES
+        and bool(env_cfg.get("use_gpu_render", False))
+    ):
         return "flappy_gpu_batched"
     if env_name in _AUTO_SUBPROC_ENV_NAMES:
         return "subproc"

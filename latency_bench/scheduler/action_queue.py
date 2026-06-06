@@ -20,11 +20,13 @@ class ActionScheduler:
         self.ready_time_epsilon_ms = max(1e-9, self.clock.frame_ms * 1e-9)
         self._pending_events: list[ActionEvent] = []
         self._applied_events: list[ActionEvent] = []
+        self._dropped_events_count = 0
         self._current_action = noop_action
 
     def reset(self) -> None:
         self._pending_events.clear()
         self._applied_events.clear()
+        self._dropped_events_count = 0
         self._current_action = self.noop_action
         reset = getattr(self.persistence_policy, "reset", None)
         if reset is not None:
@@ -78,6 +80,10 @@ class ActionScheduler:
     def get_applied_events(self) -> list[ActionEvent]:
         return list(self._applied_events)
 
+    @property
+    def dropped_events_count(self) -> int:
+        return self._dropped_events_count
+
     def _is_ready(self, event: ActionEvent, current_step: int, current_time_ms: float) -> bool:
         if event.ready_raw_frame is not None:
             return int(event.ready_raw_frame) <= int(current_step)
@@ -85,3 +91,4 @@ class ActionScheduler:
 
     def _mark_dropped(self, event: ActionEvent) -> None:
         event.dropped = True
+        self._dropped_events_count += 1

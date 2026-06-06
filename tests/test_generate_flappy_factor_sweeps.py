@@ -8,7 +8,10 @@ import pytest
 import yaml
 
 from latency_bench.core.config import load_config
-from scripts.sweeps.generate_flappy_factor_sweeps import main as generate_flappy_factor_sweeps
+from scripts.sweeps.generate_flappy_factor_sweeps import (
+    _build_latency_bench_eval_config,
+    main as generate_flappy_factor_sweeps,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +22,73 @@ def _read_manifest(path: Path) -> list[dict[str, str]]:
     lines = path.read_text(encoding="utf-8").strip().splitlines()
     header = lines[0].split("\t")
     return [dict(zip(header, line.split("\t"))) for line in lines[1:]]
+
+
+def test_latency_bench_eval_config_disables_full_trace_records(tmp_path):
+    base_config = {
+        "backend": {
+            "train_dir": str(tmp_path / "checkpoints"),
+            "extra_args": [],
+        },
+        "env": {
+            "name": "flappy",
+            "env_fps": 30,
+            "obs_fps": 30,
+            "frame_stack": 4,
+        },
+        "evaluation": {
+            "eval_interval_steps": 1000,
+            "eval_episodes": 3,
+            "eval_suites": {"fixed": [[1]], "normal": [], "uniform": []},
+        },
+        "logging": {
+            "output_dir": str(tmp_path / "train_output"),
+            "save_step_records": True,
+            "save_action_records": True,
+            "save_latency_records": True,
+        },
+        "policy": {},
+    }
+    full_train_config = {
+        "backend": {
+            "train_dir": str(tmp_path / "checkpoints"),
+            "extra_args": [],
+        },
+        "env": {
+            "name": "flappy",
+            "env_fps": 30,
+            "obs_fps": 30,
+            "frame_stack": 4,
+        },
+        "evaluation": {
+            "eval_interval_steps": 1000,
+            "eval_episodes": 3,
+            "eval_suites": {"fixed": [[1]], "normal": [], "uniform": []},
+        },
+        "logging": {
+            "output_dir": str(tmp_path / "train_output"),
+            "save_step_records": True,
+            "save_action_records": True,
+            "save_latency_records": True,
+        },
+    }
+
+    config = _build_latency_bench_eval_config(
+        base_config,
+        full_train_config,
+        sweep_name="frame_stack",
+        latency_label="fixed_l1",
+        frame_stack=4,
+        obs_fps=30,
+        observation_stride=1,
+        seed=10,
+        output_root=tmp_path / "outputs",
+        latency_bench_policy_device="auto",
+    )
+
+    assert config["logging"]["save_step_records"] is False
+    assert config["logging"]["save_action_records"] is False
+    assert config["logging"]["save_latency_records"] is False
 
 
 def test_context_window_spec_emits_official_seed_matrix(tmp_path):
@@ -106,6 +176,9 @@ def test_context_window_spec_emits_official_seed_matrix(tmp_path):
         "normal": [],
         "uniform": [],
     }
+    assert eval_cfg["logging"]["save_step_records"] is False
+    assert eval_cfg["logging"]["save_action_records"] is False
+    assert eval_cfg["logging"]["save_latency_records"] is False
 
     normal_eval_cfg = load_config(
         generated_root / "frame_stack" / "normal_n2_s1" / "fs4" / "seed_10" / "latency_bench_eval.yaml"

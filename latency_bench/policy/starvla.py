@@ -131,7 +131,6 @@ class StarVlaPolicyRunner(PolicyRunner):
             env_name=self._env_name,
             action_by_raw_id=self._action_by_raw_id,
         )
-        input_frames = [np.asarray(image) for image in example["image"]]
         metadata = {
             "policy_type": "starvla",
             "prompt_source": "latency_prompt_map" if self._latency_prompt_map is not None else "base",
@@ -139,9 +138,7 @@ class StarVlaPolicyRunner(PolicyRunner):
             "unnorm_key": self._unnorm_key,
             "device": self._device,
             "prompt_sha256": sha256_text(example["lang"]),
-            "input_frame_count": len(input_frames),
-            "input_frame_sha256": [sha256_array(frame) for frame in input_frames],
-            "input_frame_shape": [list(frame.shape) for frame in input_frames],
+            "input_frame_count": len(example["image"]),
             "raw_action_head": [float(item) for item in vector.tolist()],
             **action_metadata,
         }
