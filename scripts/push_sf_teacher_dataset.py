@@ -3,9 +3,13 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import os
+import time
 from dataclasses import dataclass
+from http.client import RemoteDisconnected
 from pathlib import Path
-from typing import Any, Literal, Sequence
+from typing import Any, Callable, Literal, Sequence
+
+from urllib3.exceptions import ProtocolError
 
 
 @dataclass(frozen=True)
@@ -15,6 +19,10 @@ class DatasetPushSpec:
 
 
 UploadMode = Literal["direct", "datasets"]
+HF_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+HF_RETRY_ATTEMPTS = 5
+HF_RETRY_INITIAL_DELAY_SECONDS = 10.0
+HF_RETRY_MAX_DELAY_SECONDS = 120.0
 
 
 def validate_export_dir(spec: DatasetPushSpec) -> None:
@@ -67,6 +75,57 @@ def _disable_progress_bars() -> None:
             disable_fn()
 
 
+def _hf_http_status_code(exc: Exception) -> int | None:
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if status_code is None:
+        return None
+    return int(status_code)
+
+
+def _is_retryable_protocol_error(exc: ProtocolError) -> bool:
+    return any(isinstance(arg, RemoteDisconnected) for arg in exc.args)
+
+
+def _is_retryable_hf_error(exc: Exception) -> bool:
+    status_code = _hf_http_status_code(exc)
+    if status_code in HF_RETRYABLE_STATUS_CODES:
+        return True
+    if isinstance(exc, ProtocolError):
+        return _is_retryable_protocol_error(exc)
+    return False
+
+
+def _run_with_hf_retry(
+    *,
+    operation_name: str,
+    context: str,
+    operation: Callable[[], Any],
+    attempts: int,
+    initial_delay_seconds: float,
+    max_delay_seconds: float,
+) -> None:
+    delay_seconds = float(initial_delay_seconds)
+    attempt = 1
+    while True:
+        try:
+            operation()
+            return
+        except Exception as exc:
+            if not _is_retryable_hf_error(exc) or attempt >= attempts:
+                raise
+            status_code = _hf_http_status_code(exc)
+            print(
+                "[retry] "
+                f"operation={operation_name} context={context} "
+                f"status_code={status_code} attempt={attempt}/{attempts} "
+                f"delay_seconds={delay_seconds:.1f}"
+            )
+            time.sleep(delay_seconds)
+            delay_seconds = min(delay_seconds * 2.0, float(max_delay_seconds))
+            attempt += 1
+
+
 def _upload_metadata(
     *,
     export_dir: Path,
@@ -89,7 +148,14 @@ def _upload_metadata(
     }
     if token:
         upload_kwargs["token"] = token
-    HfApi().upload_file(**upload_kwargs)
+    _run_with_hf_retry(
+        operation_name="upload_file",
+        context=f"{repo_id}/metadata.json",
+        operation=lambda: HfApi().upload_file(**upload_kwargs),
+        attempts=HF_RETRY_ATTEMPTS,
+        initial_delay_seconds=HF_RETRY_INITIAL_DELAY_SECONDS,
+        max_delay_seconds=HF_RETRY_MAX_DELAY_SECONDS,
+    )
 
 
 def _build_hf_api():
@@ -116,20 +182,34 @@ def push_existing_export_direct(
 ) -> None:
     validate_export_dir(spec)
     api = _build_hf_api()
-    api.create_repo(
-        repo_id=spec.repo_id,
-        repo_type="dataset",
-        private=bool(private),
-        exist_ok=True,
-        **_token_kwargs(token),
+    _run_with_hf_retry(
+        operation_name="create_repo",
+        context=spec.repo_id,
+        operation=lambda: api.create_repo(
+            repo_id=spec.repo_id,
+            repo_type="dataset",
+            private=bool(private),
+            exist_ok=True,
+            **_token_kwargs(token),
+        ),
+        attempts=HF_RETRY_ATTEMPTS,
+        initial_delay_seconds=HF_RETRY_INITIAL_DELAY_SECONDS,
+        max_delay_seconds=HF_RETRY_MAX_DELAY_SECONDS,
     )
-    api.upload_folder(
-        folder_path=str(spec.export_dir),
-        repo_id=spec.repo_id,
-        repo_type="dataset",
-        allow_patterns=["train.parquet", "val.parquet", "metadata.json"],
-        commit_message="Upload teacher dataset export",
-        **_token_kwargs(token),
+    _run_with_hf_retry(
+        operation_name="upload_folder",
+        context=spec.repo_id,
+        operation=lambda: api.upload_folder(
+            folder_path=str(spec.export_dir),
+            repo_id=spec.repo_id,
+            repo_type="dataset",
+            allow_patterns=["train.parquet", "val.parquet", "metadata.json"],
+            commit_message="Upload teacher dataset export",
+            **_token_kwargs(token),
+        ),
+        attempts=HF_RETRY_ATTEMPTS,
+        initial_delay_seconds=HF_RETRY_INITIAL_DELAY_SECONDS,
+        max_delay_seconds=HF_RETRY_MAX_DELAY_SECONDS,
     )
 
 
@@ -150,7 +230,14 @@ def push_existing_export(
     }
     if token:
         push_kwargs["token"] = token
-    dataset_dict.push_to_hub(**push_kwargs)
+    _run_with_hf_retry(
+        operation_name="push_to_hub",
+        context=spec.repo_id,
+        operation=lambda: dataset_dict.push_to_hub(**push_kwargs),
+        attempts=HF_RETRY_ATTEMPTS,
+        initial_delay_seconds=HF_RETRY_INITIAL_DELAY_SECONDS,
+        max_delay_seconds=HF_RETRY_MAX_DELAY_SECONDS,
+    )
     _upload_metadata(export_dir=spec.export_dir, repo_id=spec.repo_id, token=token)
 
 
