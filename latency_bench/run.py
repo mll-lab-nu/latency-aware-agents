@@ -152,6 +152,10 @@ def _record_stratified_replay_videos(
     video_cfg = config["logging"]["video"]
     if not video_cfg["enabled"]:
         return
+    if not config["logging"].get("save_step_records", False):
+        # Replay reads steps.jsonl, which is only written when save_step_records is on.
+        # Without it (e.g. factor-sweep evals) skip video instead of crashing on a missing file.
+        return
     if ExecutorMode(config["executor"]["mode"]) == ExecutorMode.REALTIME:
         return
     selections = select_episode_return_stratified(
