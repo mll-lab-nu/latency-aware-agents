@@ -20,6 +20,7 @@ seeds:
 
 evaluation:
   eval_episodes: 100
+  eval_max_steps: 36000
 
 latency_settings:
   fixed_l4:
