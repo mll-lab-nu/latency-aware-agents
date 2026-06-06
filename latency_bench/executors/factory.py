@@ -54,9 +54,14 @@ class ExecutorBuilder(Protocol):
         ...
 
 _EXECUTOR_BUILDERS: dict[ExecutorMode, ExecutorBuilder] = {}
-_LATENCY_BENCH_ENV_BACKENDS = {"serial", "subproc", "flappy_gpu_batched", "auto"}
+_LATENCY_BENCH_ENV_BACKENDS = {
+    "serial",
+    "subproc",
+    "flappy_gpu_batched",
+    "auto",
+}
 _ENV_BACKEND_DEBUG_ENV = "LATENCY_BENCH_ENV_BACKEND"
-_AUTO_SUBPROC_ENV_NAMES = {"demon_attack", "deadly_corridor"}
+_AUTO_SUBPROC_ENV_NAMES = {"deadly_corridor"}
 _SCHEDULER_ALLOWED_KEYS = frozenset({"ordering_policy", "hold_policy"})
 
 

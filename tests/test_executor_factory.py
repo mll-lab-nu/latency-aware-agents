@@ -362,15 +362,19 @@ def test_simulated_parallel_explicit_subproc_builds_subproc_backend(tmp_path):
     assert [metric.episode_id for metric in metrics] == [0, 1, 2]
 
 
-def test_latency_bench_env_backend_auto_selects_subproc_for_cpu_bound_envs(tmp_path):
+def test_latency_bench_env_backend_auto_selects_serial_for_demon_attack_timing_eval(tmp_path):
     from latency_bench.executors.factory import _resolve_latency_bench_env_backend
 
     config = _config(output_dir=str(tmp_path))
     config["evaluation"]["eval_parallel_envs"] = 2
     config["evaluation"]["latency_bench_env_backend"] = "auto"
     config["env"]["name"] = "demon_attack"
+    config["policy"]["type"] = "demon_attack_sf"
+    config["logging"]["save_step_records"] = False
+    config["logging"]["save_action_records"] = False
+    config["logging"]["save_latency_records"] = False
 
-    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "subproc"
+    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "serial"
 
 
 def test_latency_bench_env_backend_defaults_to_auto_for_parallel_cpu_bound_envs(tmp_path):

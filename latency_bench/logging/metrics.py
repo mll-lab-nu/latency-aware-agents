@@ -21,6 +21,33 @@ def compute_episode_metrics(
     survival_steps = len(step_records)
     game_score = _extract_game_score(step_records)
     return_raw = _extract_explicit_return(step_records, _RAW_RETURN_KEYS)
+    return compute_episode_metrics_from_aggregates(
+        episode_id=episode_id,
+        episode_return_env=episode_return_env,
+        survival_steps=survival_steps,
+        return_raw=return_raw,
+        game_score=game_score,
+        latency_values_ms=latency_values_ms,
+        num_actions=len(action_events),
+        num_dropped_actions=sum(1 for event in action_events if event.dropped),
+        num_invalid_actions=sum(1 for record in step_records if record.info.get("invalid_action")),
+        metadata=metadata,
+    )
+
+
+def compute_episode_metrics_from_aggregates(
+    *,
+    episode_id: int,
+    episode_return_env: float,
+    survival_steps: int,
+    return_raw: float | None,
+    game_score: float | None,
+    latency_values_ms: list[float],
+    num_actions: int,
+    num_dropped_actions: int,
+    num_invalid_actions: int,
+    metadata: dict[str, Any] | None = None,
+) -> EpisodeMetrics:
     latencies = [float(value) for value in latency_values_ms]
     return EpisodeMetrics(
         episode_id=episode_id,
@@ -32,9 +59,9 @@ def compute_episode_metrics(
         mean_latency_ms=mean(latencies) if latencies else None,
         p90_latency_ms=_percentile(latencies, 90.0) if latencies else None,
         p99_latency_ms=_percentile(latencies, 99.0) if latencies else None,
-        num_actions=len(action_events),
-        num_dropped_actions=sum(1 for event in action_events if event.dropped),
-        num_invalid_actions=sum(1 for record in step_records if record.info.get("invalid_action")),
+        num_actions=num_actions,
+        num_dropped_actions=num_dropped_actions,
+        num_invalid_actions=num_invalid_actions,
         metadata=metadata or {},
     )
 

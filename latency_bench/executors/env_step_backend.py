@@ -251,7 +251,7 @@ class SubprocEnvStepBackend:
         self._raise_if_closed()
         items = [(int(slot_id), action) for slot_id, action in actions_by_slot.items()]
         for slot_id, action in items:
-            self._send(slot_id, "step", {"action": action})
+            self._send(slot_id, "step", {"action": _step_payload_from_action(action)})
 
         responses: dict[int, EnvStepResponse] = {}
         for slot_id, _action in items:
@@ -436,7 +436,7 @@ def _env_worker(connection: Any, config: dict[str, Any], noop_action: Action, sl
                 ))
             elif command == "step":
                 start = time.perf_counter()
-                result = env.step(payload["action"])
+                result = env.step(_action_from_step_payload(payload["action"]))
                 parent_result = StepResult(
                     observation=None,
                     reward=result.reward,
@@ -527,3 +527,12 @@ def _env_action_space(env: EnvAdapter) -> Any:
         if action_space is not None:
             return action_space
     return None
+
+
+def _step_payload_from_action(action: Action) -> tuple[Any, str | None, bool, bool]:
+    return (action.value, action.name, action.is_noop, action.is_oneshot)
+
+
+def _action_from_step_payload(payload: tuple[Any, str | None, bool, bool]) -> Action:
+    value, name, is_noop, is_oneshot = payload
+    return Action(value=value, name=name, is_noop=is_noop, is_oneshot=is_oneshot)
