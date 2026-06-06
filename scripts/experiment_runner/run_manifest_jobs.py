@@ -192,6 +192,10 @@ def _resume_stage(job: dict[str, str], states: dict[str, str]) -> str:
         return "upload"
     if stage == "train_succeeded":
         return "eval"
+    if stage == "eval_failed":
+        # Training already succeeded before eval ran; re-eval from the checkpoint
+        # instead of retraining from scratch.
+        return "eval"
     return "train"
 
 
