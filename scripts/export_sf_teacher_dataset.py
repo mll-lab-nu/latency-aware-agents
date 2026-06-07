@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+import inspect
 import json
 from pathlib import Path
 import sys
@@ -499,6 +500,70 @@ def _frame_from_observation(obs: Any, env_name: str, frame_stack: int) -> np.nda
     return _latest_frame_from_observation(single_obs, env_name=env_name, frame_stack=frame_stack)
 
 
+def _iter_env_render_candidates(env: Any) -> list[Any]:
+    candidates: list[Any] = []
+    visited: set[int] = set()
+    queue: list[Any] = [env]
+    while queue:
+        current = queue.pop(0)
+        if current is None or id(current) in visited:
+            continue
+        visited.add(id(current))
+        candidates.append(current)
+
+        child = getattr(current, "env", None)
+        if child is not None:
+            queue.append(child)
+        unwrapped = getattr(current, "unwrapped", None)
+        if unwrapped is not None and unwrapped is not current:
+            queue.append(unwrapped)
+        envs = getattr(current, "envs", None)
+        if isinstance(envs, list):
+            queue.extend(envs)
+        sub_envs = getattr(current, "sub_envs", None)
+        if isinstance(sub_envs, list):
+            queue.extend(sub_envs)
+    return candidates
+
+
+def _render_accepts_agent_idx(render_fn: Any) -> bool:
+    try:
+        signature = inspect.signature(render_fn)
+    except (TypeError, ValueError):
+        return False
+    for parameter in signature.parameters.values():
+        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+        if parameter.name == "agent_idx":
+            return True
+    return False
+
+
+def _render_frame_from_env(env: Any, env_name: str, agent_idx: int) -> np.ndarray:
+    if env_name == "flappy":
+        for candidate in _iter_env_render_candidates(env):
+            render_fn = getattr(candidate, "render", None)
+            if callable(render_fn) and _render_accepts_agent_idx(render_fn):
+                rendered = render_fn(agent_idx=int(agent_idx))
+                if rendered is None:
+                    raise RuntimeError(
+                        f"Environment {env_name} returned None from render(agent_idx={agent_idx})"
+                    )
+                return np.asarray(rendered, dtype=np.uint8)
+        if int(agent_idx) != 0:
+            raise RuntimeError(
+                f"Environment {env_name} does not expose render(agent_idx=...) for agent_idx={agent_idx}"
+            )
+
+    render_fn = getattr(env, "render", None)
+    if not callable(render_fn):
+        raise RuntimeError(f"Environment {env_name} does not expose render() for image export")
+    rendered = render_fn()
+    if rendered is None:
+        raise RuntimeError(f"Environment {env_name} returned None from render()")
+    return np.asarray(rendered, dtype=np.uint8)
+
+
 def _frame_for_image_source(
     obs: Any,
     env: Any,
@@ -514,16 +579,7 @@ def _frame_for_image_source(
         raise ValueError(f"Unsupported image source: {image_source}")
     if env_name not in {"flappy", "demon_attack"}:
         return _frame_from_observation(obs, env_name=env_name, frame_stack=frame_stack)
-    render_fn = getattr(env, "render", None)
-    if not callable(render_fn):
-        raise RuntimeError(f"Environment {env_name} does not expose render() for image export")
-    try:
-        rendered = render_fn(agent_idx=int(agent_idx))
-    except TypeError:
-        rendered = render_fn()
-    if rendered is None:
-        raise RuntimeError(f"Environment {env_name} returned None from render()")
-    return np.asarray(rendered, dtype=np.uint8)
+    return _render_frame_from_env(env, env_name, int(agent_idx))
 
 
 def _save_frame_image(

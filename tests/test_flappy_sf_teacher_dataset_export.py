@@ -101,6 +101,34 @@ def test_flappy_teacher_export_render_source_uses_rendered_rgb_frame():
     assert np.all(frame == 9)
 
 
+def test_flappy_teacher_export_render_source_preserves_batched_agent_idx():
+    from scripts.export_sf_teacher_dataset import _frame_for_image_source
+
+    class InnerBatchedEnv:
+        def render(self, agent_idx):
+            return np.full((2, 3, 3), int(agent_idx), dtype=np.uint8)
+
+    class RenderWrapper:
+        def __init__(self):
+            self.env = InnerBatchedEnv()
+
+        def render(self):
+            return self.env.render(agent_idx=0)
+
+    obs = np.zeros((3, 2, 3), dtype=np.uint8)
+
+    frame = _frame_for_image_source(
+        obs=obs,
+        env=RenderWrapper(),
+        env_name="flappy",
+        frame_stack=1,
+        image_source="render",
+        agent_idx=2,
+    )
+
+    assert np.all(frame == 2)
+
+
 def test_flappy_teacher_export_observation_source_does_not_render():
     from scripts.export_sf_teacher_dataset import _frame_for_image_source
 
