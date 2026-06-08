@@ -363,3 +363,116 @@ def test_flappy_gpu_teacher_export_collects_inner_batched_agents(monkeypatch, tm
     assert metadata["action_labels"] == {0: "NOOP", 1: "FLAP"}
     assert len(train_rows) == 4
     assert len(val_rows) == 1
+
+
+def test_flappy_gpu_teacher_export_saves_render_before_step(monkeypatch, tmp_path):
+    import torch
+    from PIL import Image
+
+    import scripts.export_sf_teacher_dataset as exporter
+
+    class FakeGpuEnv:
+        num_agents = 1
+
+        def __init__(self):
+            self.active_mask = [False]
+            self.step_count = 0
+
+        def reset(self, **kwargs):
+            del kwargs
+            return {"obs": np.zeros((1, 3, 2, 2), dtype=np.uint8)}, [{}]
+
+        def reset_agents(self, reset_plan, *, active_mask):
+            del reset_plan
+            self.active_mask = list(active_mask)
+            self.step_count = 0
+            return {"obs": np.zeros((1, 3, 2, 2), dtype=np.uint8)}, [{}]
+
+        def set_auto_reset_done(self, enabled):
+            self.auto_reset_done = bool(enabled)
+
+        def set_active_agents(self, active_mask):
+            self.active_mask = list(active_mask)
+
+        def step(self, actions):
+            del actions
+            self.step_count += 1
+            return (
+                {"obs": np.ones((1, 3, 2, 2), dtype=np.uint8)},
+                np.ones(1, dtype=np.float32),
+                np.ones(1, dtype=np.bool_),
+                np.zeros(1, dtype=np.bool_),
+                [{"queue_latency": 0}],
+            )
+
+        def render(self, agent_idx):
+            return np.full((2, 2, 3), int(self.step_count + int(agent_idx)), dtype=np.uint8)
+
+        def close(self):
+            return None
+
+    class FakeActor:
+        def __call__(self, normalized_obs, rnn_states):
+            batch_size = int(rnn_states.shape[0])
+            return {
+                "actions": torch.zeros((batch_size, 1), dtype=torch.int64),
+                "new_rnn_states": torch.zeros_like(rnn_states),
+            }
+
+        def action_distribution(self):
+            return None
+
+    fake_env = FakeGpuEnv()
+
+    def fake_runtime(module, cfg, env_name, num_envs):
+        del module, env_name
+        assert int(num_envs) == 1
+        assert int(cfg.gpu_render_batch_size) == 1
+        return {
+            "actor_critic": FakeActor(),
+            "argmax_actions": lambda distribution: torch.zeros((1, 1), dtype=torch.int64),
+            "device": torch.device("cpu"),
+            "env_info": SimpleNamespace(
+                action_space=None,
+                all_discrete=True,
+                gpu_actions=False,
+            ),
+            "envs": [fake_env],
+            "preprocess_actions": lambda env_info, actions: actions.cpu().numpy(),
+            "prepare_and_normalize_obs": lambda actor_critic, obs_batch: obs_batch,
+            "unsqueeze_tensor": lambda actions, dim: torch.unsqueeze(actions, dim),
+            "rnn_size": 1,
+        }
+
+    monkeypatch.setattr(exporter, "_build_env_and_policy", fake_runtime)
+
+    train_rows, val_rows, _metadata = exporter._collect_flappy_gpu_latency_dataset_batched(
+        module=SimpleNamespace(),
+        cfg=SimpleNamespace(
+            eval_raw_reward=False,
+            frame_stack=1,
+            seed=0,
+            use_gpu_render=True,
+            gpu_render_batch_size=1,
+        ),
+        latency=0,
+        episode_count=1,
+        val_indices=set(),
+        max_steps_per_episode=1,
+        prompt="play flappy",
+        mixed_prompt_template="{prompt}",
+        dataset_mode="fixed_latency",
+        output_dir=tmp_path,
+        global_episode_start=0,
+        deterministic=False,
+        export_image_size=None,
+        image_source="render",
+        num_envs=1,
+        image_writer_workers=0,
+        row_buffer_size=8,
+    )
+
+    assert len(train_rows) == 1
+    assert len(val_rows) == 0
+    saved_frame = np.asarray(Image.open(train_rows[0]["image"]), dtype=np.uint8)
+    assert np.all(saved_frame == 0)

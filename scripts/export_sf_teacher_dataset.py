@@ -1464,15 +1464,12 @@ def _collect_flappy_gpu_latency_dataset_batched(
             for batch_idx, slot in enumerate(active_slots):
                 env_actions[int(slot)] = _extract_action_id(_select_batch_item(processed_actions, batch_idx))
 
-            next_obs, reward, terminated, truncated, info = env.step(env_actions)
-            dones = _make_dones(terminated, truncated)
-            replacement_slots: list[int] = []
-            for batch_idx, slot in enumerate(active_slots):
+            saved_images: dict[int, str] = {}
+            for slot in active_slots:
                 spec = active_specs[slot]
                 obs = active_obs[slot]
                 if spec is None or obs is None:
                     raise RuntimeError(f"Active Flappy slot {slot} has no episode state")
-                split_rows = val_rows if spec.split == "val" else train_rows
                 t = int(active_t[slot])
                 image_path = output_dir / "images" / spec.split / f"episode_{spec.episode_idx:06d}" / f"t_{t:06d}.png"
                 frame = _frame_for_image_source(
@@ -1492,6 +1489,19 @@ def _collect_flappy_gpu_latency_dataset_batched(
                     False,
                     int(row_buffer_size),
                 )
+                saved_images[int(slot)] = saved_image
+
+            next_obs, reward, terminated, truncated, info = env.step(env_actions)
+            dones = _make_dones(terminated, truncated)
+            replacement_slots: list[int] = []
+            for batch_idx, slot in enumerate(active_slots):
+                spec = active_specs[slot]
+                obs = active_obs[slot]
+                if spec is None or obs is None:
+                    raise RuntimeError(f"Active Flappy slot {slot} has no episode state")
+                split_rows = val_rows if spec.split == "val" else train_rows
+                t = int(active_t[slot])
+                saved_image = saved_images[int(slot)]
                 slot_policy_action = _select_batch_item(policy_actions, batch_idx)
                 action_id = _policy_action_id("flappy", slot_policy_action)
                 info_single = dict(info[int(slot)] or {}) if isinstance(info, list) else _extract_single_info(_select_batch_item(info, int(slot)))
