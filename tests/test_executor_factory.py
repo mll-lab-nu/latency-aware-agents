@@ -428,6 +428,14 @@ def test_realtime_mode_builds_realtime_executor(tmp_path):
         executor.env.close()
 
 
+def test_realtime_mode_rejects_duplicate_inference_devices(tmp_path):
+    config = _config(mode="realtime", output_dir=str(tmp_path))
+    config["executor"]["inference_devices"] = ["cuda:0", "cuda:0"]
+
+    with pytest.raises(ValueError, match="inference_devices.*unique"):
+        build_executor(config)
+
+
 def test_factory_accepts_measured_latency_for_realtime(tmp_path):
     config = _config(mode="realtime", output_dir=str(tmp_path))
     config["latency"] = {"type": "measured"}
