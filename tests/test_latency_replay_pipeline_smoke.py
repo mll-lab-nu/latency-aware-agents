@@ -42,7 +42,6 @@ def _build_profile(
         target_device=target_device,
         fps=30.0,
         batch_size=1,
-        n_warmup=0,
     )
 
 

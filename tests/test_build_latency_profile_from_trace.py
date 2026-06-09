@@ -25,7 +25,6 @@ def _build_profile(tmp_path: Path, samples: list[float], **overrides):
         "target_device": "test_gpu",
         "fps": 25.0,
         "batch_size": 1,
-        "n_warmup": 0,
         "overwrite": False,
     }
     kwargs.update(overrides)
@@ -46,6 +45,7 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
     assert loaded_manifest["frame_ms"] == pytest.approx(40.0)
     assert loaded_manifest["trace_path"] == "latencies.jsonl"
     assert loaded_manifest["summary"]["mean_ms"] == pytest.approx(20.0)
+    assert load_latency_samples(output_dir / "latencies.jsonl") == [10.0, 20.0, 30.0]
 
     summary_json = json.loads((output_dir / "profile_summary.json").read_text(encoding="utf-8"))
     assert summary_json["n_samples"] == 3
@@ -55,33 +55,6 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
         rows = list(csv.DictReader(f))
     assert len(rows) == 1
     assert float(rows[0]["mean_ms"]) == pytest.approx(20.0)
-
-
-def test_build_latency_profile_from_trace_drops_warmup_samples(tmp_path: Path):
-    _, output_dir = _build_profile(tmp_path, [1.0, 2.0, 10.0, 20.0], n_warmup=2)
-
-    assert load_latency_samples(output_dir / "latencies.jsonl") == [10.0, 20.0]
-    manifest = load_profile_manifest(output_dir / "profile.json")
-    assert manifest["n_warmup"] == 2
-    assert manifest["n_samples"] == 2
-
-
-def test_build_latency_profile_from_trace_rejects_warmup_that_drops_all_samples(tmp_path: Path):
-    input_trace = tmp_path / "input_latencies.jsonl"
-    write_latency_samples([1.0, 2.0], input_trace)
-
-    with pytest.raises(ValueError, match="n_warmup leaves no latency samples"):
-        build_profile_from_trace(
-            latencies=input_trace,
-            output_dir=tmp_path / "profile",
-            profile_id="L_test",
-            profile_type="rollout_profile",
-            policy_id="pi_test",
-            env_id="env_test",
-            target_device="test_gpu",
-            fps=25.0,
-            n_warmup=2,
-        )
 
 
 def test_build_latency_profile_from_trace_requires_overwrite_for_existing_artifacts(tmp_path: Path):

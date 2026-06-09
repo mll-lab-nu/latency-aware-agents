@@ -75,7 +75,6 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "trace_replay_order": "sequential",
         "loop_trace": True,
         "checkpoint_kind": "best",
-        "n_warmup": 0,
         "n_episodes": 1,
         "seed_set": [0],
         "runtime_envs": {"small_model": {"conda_env": "latency", "description": "small"}},
@@ -111,7 +110,6 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "trace_replay_order": "sequential",
         "loop_trace": True,
         "checkpoint_kind": "best",
-        "n_warmup": 0,
         "n_episodes": 2,
         "seed_set": [0],
         "runtime_envs": {
@@ -166,7 +164,6 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "trace_replay_order": "sequential",
         "loop_trace": True,
         "checkpoint_kind": "best",
-        "n_warmup": 0,
         "n_episodes": 2,
         "seed_set": [0],
         "runtime_envs": {
@@ -1004,6 +1001,7 @@ def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
 
     assert "-m latency_bench.run" in result.stdout
     assert "-m latency_bench.experiments.build_latency_profile_from_trace" in result.stdout
+    assert "--n-warmup" not in result.stdout
     assert "latencies.jsonl" in result.stdout
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))

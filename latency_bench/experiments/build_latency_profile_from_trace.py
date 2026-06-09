@@ -39,25 +39,17 @@ def build_profile_from_trace(
     target_device: str,
     fps: float,
     batch_size: int = 1,
-    n_warmup: int = 0,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     fps = float(fps)
     if not math.isfinite(fps) or fps <= 0:
         raise ValueError("fps must be positive and finite")
-    if n_warmup < 0:
-        raise ValueError("n_warmup must be non-negative")
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
     if profile_type not in SUPPORTED_PROFILE_TYPES:
         raise ValueError(f"Unsupported profile_type {profile_type!r}; expected one of {sorted(SUPPORTED_PROFILE_TYPES)}")
 
     samples_ms = load_latency_samples(latencies)
-    if n_warmup >= len(samples_ms):
-        raise ValueError(
-            f"n_warmup leaves no latency samples: n_warmup={n_warmup}, loaded_samples={len(samples_ms)}"
-        )
-    samples_ms = samples_ms[n_warmup:]
 
     output_path = Path(output_dir)
     artifact_paths = [output_path / filename for filename in PROFILE_ARTIFACT_FILENAMES]
@@ -81,7 +73,6 @@ def build_profile_from_trace(
         "target_device": target_device,
         "fps": fps,
         "frame_ms": summary["frame_ms"],
-        "n_warmup": n_warmup,
         "n_samples": len(samples_ms),
         "batch_size": batch_size,
         "trace_path": TRACE_FILENAME,
@@ -102,7 +93,6 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--target-device", required=True)
     parser.add_argument("--fps", type=float, required=True)
     parser.add_argument("--batch-size", type=int, default=1)
-    parser.add_argument("--n-warmup", type=int, default=0)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
 
@@ -116,7 +106,6 @@ def main(argv: list[str] | None = None) -> None:
         target_device=args.target_device,
         fps=args.fps,
         batch_size=args.batch_size,
-        n_warmup=args.n_warmup,
         overwrite=args.overwrite,
     )
 

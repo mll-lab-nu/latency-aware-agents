@@ -7,5 +7,4 @@ python -m latency_bench.experiments.build_latency_profile_from_trace \
     --env-id flappy \
     --target-device a100 \
     --fps 30 \
-    --batch-size 1 \
-    --n-warmup 10
+    --batch-size 1

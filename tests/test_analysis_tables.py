@@ -48,7 +48,6 @@ def _write_profile(
             "target_device": target_device,
             "fps": fps,
             "frame_ms": 1000.0 / fps,
-            "n_warmup": 0,
             "n_samples": len(samples),
             "batch_size": 1,
             "trace_path": "latencies.jsonl",

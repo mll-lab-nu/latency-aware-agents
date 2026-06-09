@@ -3,7 +3,6 @@ output_root: results/cross_device
 trace_replay_order: sequential
 loop_trace: true
 checkpoint_kind: best
-n_warmup: 10
 n_episodes: 10
 seed_set:
   - 0

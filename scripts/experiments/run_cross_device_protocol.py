@@ -976,8 +976,6 @@ def _profile_command(task: ProtocolTask, spec: dict[str, Any], overwrite: bool) 
         str(task.row["fps"]),
         "--batch-size",
         "1",
-        "--n-warmup",
-        str(spec.get("n_warmup", 0)),
     ]
     if overwrite:
         cmd.append("--overwrite")

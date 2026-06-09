@@ -23,7 +23,6 @@ def _profile_manifest() -> dict:
         "target_device": "RTX_3090",
         "fps": 30.0,
         "frame_ms": 1000.0 / 30.0,
-        "n_warmup": 100,
         "n_samples": 10000,
         "batch_size": 1,
         "trace_path": "latencies.jsonl",

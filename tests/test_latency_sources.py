@@ -42,7 +42,6 @@ def _write_latency_profile(
             "target_device": "test_gpu",
             "fps": 25.0,
             "frame_ms": 40.0,
-            "n_warmup": 0,
             "n_samples": len(samples),
             "batch_size": 1,
             "trace_path": trace_path,
