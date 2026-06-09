@@ -311,6 +311,95 @@ def test_run_from_config_uses_batched_executor_run_episodes_when_available(
     assert [metric.metadata["run_name"] for metric in metrics] == ["seed_test"] * 3
 
 
+def test_run_from_config_warmup_steps_are_not_returned_or_logged(
+    monkeypatch,
+    tmp_path: Path,
+):
+    run_calls = []
+    logged_metrics = []
+
+    class FakeEnv:
+        def close(self):
+            pass
+
+    class FakeLogger:
+        def log_episode_metrics(self, metrics):
+            logged_metrics.append(metrics.episode_id)
+
+        def flush(self):
+            pass
+
+    class FakeExecutor:
+        env = FakeEnv()
+
+        def __init__(self):
+            self.logger = FakeLogger()
+
+        def run_episode(self, *, episode_id, seed, eval_max_steps):
+            run_calls.append((episode_id, seed, eval_max_steps, self.logger is None))
+            if self.logger is not None:
+                self.logger.log_episode_metrics(SimpleNamespace(episode_id=episode_id))
+            return EpisodeMetrics(
+                episode_id=episode_id,
+                episode_return=float(episode_id),
+                survival_steps=eval_max_steps,
+                metadata={},
+            )
+
+    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
+    config["evaluation"]["eval_max_steps"] = 10
+    config["evaluation"]["warmup_steps"] = 7
+
+    metrics = latency_run.run_from_config(config)
+
+    assert run_calls == [
+        (-1, 10, 7, True),
+        (0, 11, 10, False),
+        (1, 12, 10, False),
+    ]
+    assert [metric.episode_id for metric in metrics] == [0, 1]
+    assert [metric.metadata["warmup_steps"] for metric in metrics] == [7, 7]
+    assert [metric.metadata["warmup_episodes"] for metric in metrics] == [1, 1]
+    assert [metric.metadata["warmup_mean_latency_ms"] for metric in metrics] == [None, None]
+    assert logged_metrics == [0, 1]
+
+
+def test_run_from_config_warmup_continues_across_short_episodes(
+    monkeypatch,
+    tmp_path: Path,
+):
+    run_calls = []
+
+    class FakeEnv:
+        def close(self):
+            pass
+
+    class FakeExecutor:
+        logger = None
+        env = FakeEnv()
+
+        def run_episode(self, *, episode_id, seed, eval_max_steps):
+            run_calls.append((episode_id, eval_max_steps))
+            survival_steps = 2 if episode_id < 0 else eval_max_steps
+            return EpisodeMetrics(
+                episode_id=episode_id,
+                episode_return=0.0,
+                survival_steps=survival_steps,
+                metadata={},
+            )
+
+    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
+    config["evaluation"]["eval_max_steps"] = 10
+    config["evaluation"]["warmup_steps"] = 5
+
+    metrics = latency_run.run_from_config(config)
+
+    assert run_calls == [(-1, 5), (-2, 3), (-3, 1), (0, 10)]
+    assert [metric.episode_id for metric in metrics] == [0]
+
+
 def test_run_from_config_records_stratified_replay_videos(tmp_path: Path):
     config = _run_config("constant", tmp_path, seed=7, num_episodes=4)
     config["logging"]["video"] = {

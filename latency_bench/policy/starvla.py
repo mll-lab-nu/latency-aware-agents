@@ -84,7 +84,7 @@ class StarVlaPolicyRunner(PolicyRunner):
     def predict_batch(self, observations: Sequence[Observation]) -> list[PolicyOutput]:
         examples = [self._build_example(observation) for observation in observations]
         prediction = self._wrapper.predict_action(examples=examples, unnorm_key=self._unnorm_key)
-        actions = np.asarray(prediction["actions"])
+        actions = np.asarray(prediction["normalized_actions"])
         return [
             self._policy_output(
                 observation=observation,
@@ -211,7 +211,8 @@ def indexed_action_from_vector(
 
 
 def demon_attack_action_from_vector(vector: npt.NDArray[Any]) -> tuple[Action, dict[str, Any]]:
-    action_id = int(np.argmax(vector))
+    n_actions = len(DEMON_ATTACK_ACTION_LABELS)
+    action_id = int(np.argmax(np.asarray(vector)[:n_actions]))
     action = Action(
         value=action_id,
         name=DEMON_ATTACK_ACTION_LABELS[action_id],

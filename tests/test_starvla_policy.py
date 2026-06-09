@@ -50,11 +50,23 @@ class FakePolicyServerWrapper:
                     [[0.8, 0.2]],
                 ][: len(examples)],
                 dtype=np.float32,
-            )
+            ),
+            "normalized_actions": np.asarray(
+                [
+                    [[0.1, 0.9]],
+                    [[0.8, 0.2]],
+                ][: len(examples)],
+                dtype=np.float32,
+            ),
         }
 
 
-def _config(tmp_path: Path, *, latency_prompt_map_path: str | None = None) -> dict:
+def _config(
+    tmp_path: Path,
+    *,
+    latency_prompt_map_path: str | None = None,
+    latency_prompt_raw_frames: int | None = None,
+) -> dict:
     policy = {
         "type": "starvla",
         "checkpoint_path": str(tmp_path / "checkpoint"),
@@ -64,6 +76,8 @@ def _config(tmp_path: Path, *, latency_prompt_map_path: str | None = None) -> di
     }
     if latency_prompt_map_path is not None:
         policy["latency_prompt_map_path"] = latency_prompt_map_path
+    if latency_prompt_raw_frames is not None:
+        policy["latency_prompt_raw_frames"] = latency_prompt_raw_frames
     return {
         "env": {
             "name": "flappy",
@@ -265,6 +279,44 @@ def test_starvla_latency_prompt_map_uses_raw_rgb_frame_stack_metadata(monkeypatc
     assert np.asarray(example["image"][-1]).mean() == 77
 
 
+def test_starvla_latency_prompt_map_uses_configured_prompt_latency_without_observation_latency(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from latency_bench.policy import starvla
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    prompt_map_path = tmp_path / "latency_prompt_map.json"
+    prompt_map_path.write_text(
+        json.dumps(
+            {
+                "1": {"latency_raw_frames": 1, "latency_ms": 33.0, "prompt": "latency prompt 1"},
+                "2": {"latency_raw_frames": 2, "latency_ms": 66.0, "prompt": "latency prompt 2"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = _config(
+        tmp_path,
+        latency_prompt_map_path=str(prompt_map_path),
+        latency_prompt_raw_frames=2,
+    )
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": np.zeros((1, 12, 16, 3), dtype=np.uint8)},
+        )
+    )
+
+    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
+    assert example["lang"] == "latency prompt 2"
+
+
 def test_starvla_requires_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
@@ -298,6 +350,57 @@ def test_deadly_corridor_factorized_starvla_vector_decodes_to_tuple_action():
             env_name="deadly_corridor",
             action_by_raw_id={},
         )
+
+
+def test_demon_attack_decodes_only_six_supported_actions():
+    from latency_bench.policy.starvla import decode_starvla_action
+
+    vector = np.asarray([0.0, 0.2, 0.9, 0.1, 0.4, 0.3, 10.0], dtype=np.float32)
+
+    action, metadata = decode_starvla_action(
+        vector=vector,
+        env_name="demon_attack",
+        action_by_raw_id={},
+    )
+
+    assert action.value == 2
+    assert action.name == "RIGHT"
+    assert metadata["raw_action_id"] == 2
+
+
+def test_starvla_policy_decodes_normalized_actions(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    class ConflictingPolicyServerWrapper(FakePolicyServerWrapper):
+        def predict_action(self, examples, unnorm_key=None, **kwargs):
+            self.calls.append(
+                {
+                    "examples": examples,
+                    "unnorm_key": unnorm_key,
+                    "kwargs": kwargs,
+                }
+            )
+            return {
+                "actions": np.asarray([[[0.9, 0.1]]], dtype=np.float32),
+                "normalized_actions": np.asarray([[[0.1, 0.9]]], dtype=np.float32),
+            }
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: ConflictingPolicyServerWrapper)
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    output = policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
+        )
+    )
+
+    assert output.action.name == "flap"
+    assert output.raw_output == [0.10000000149011612, 0.8999999761581421]
 
 
 def test_deadly_corridor_joint_fifty_four_starvla_vector_decodes_to_tuple_action():

@@ -304,6 +304,9 @@ def _build_realtime_executor(
     latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
     if latency_type not in {LatencySourceType.ZERO.value, LatencySourceType.MEASURED.value}:
         raise ValueError("realtime executor does not support injected latency; use latency.type=zero or measured")
+    inference_devices = [str(device) for device in executor_cfg["inference_devices"]]
+    if len(set(inference_devices)) != len(inference_devices):
+        raise ValueError("executor.inference_devices entries must be unique")
 
     action_resolver = ActionResolver(config["env"])
     env = build_env_adapter(config, action_resolver.noop_action)
@@ -329,7 +332,7 @@ def _build_realtime_executor(
         clock=clock,
         logger=logger,
         config=config,
-        inference_devices=[str(device) for device in executor_cfg["inference_devices"]],
+        inference_devices=inference_devices,
         use_env_process=True,
         video_recorder=video_recorder,
         video_output_dir=video_output_dir,

@@ -92,6 +92,7 @@ def run_from_config(
     executor = build_executor(config)
     metrics = []
     try:
+        warmup_metadata = _run_warmup_steps(config, executor, eval_max_steps=eval_max_steps)
         run_episodes = getattr(executor, "run_episodes", None)
         if callable(run_episodes):
             episode_ids = list(range(num_episodes))
@@ -118,6 +119,7 @@ def run_from_config(
             for key, value in _evaluation_raw_fact_metadata(config, int(episode_metrics.episode_id)).items():
                 if episode_metrics.metadata.get(key) is None:
                     episode_metrics.metadata[key] = value
+            episode_metrics.metadata.update(warmup_metadata)
             episode_metrics.metadata["config_name"] = experiment_cfg.get("name")
             episode_metrics.metadata["run_name"] = experiment_cfg.get("name")
             if "checkpoint_path" in policy_cfg:
@@ -139,6 +141,66 @@ def run_from_config(
         else:
             executor.env.close()
     return metrics
+
+
+def _run_warmup_steps(
+    config: dict[str, Any],
+    executor: Any,
+    *,
+    eval_max_steps: int,
+) -> dict[str, Any]:
+    evaluation_cfg = config["evaluation"]
+    if "warmup_steps" not in evaluation_cfg:
+        return {}
+    warmup_steps = int(evaluation_cfg["warmup_steps"])
+    if warmup_steps <= 0:
+        return {}
+
+    saved_logger = getattr(executor, "logger", None)
+    saved_video_recorder = getattr(executor, "video_recorder", None)
+    saved_video_output_dir = getattr(executor, "video_output_dir", None)
+    warmup_metrics: list[EpisodeMetrics] = []
+    try:
+        if hasattr(executor, "logger"):
+            executor.logger = None
+        if hasattr(executor, "video_recorder"):
+            executor.video_recorder = None
+        if hasattr(executor, "video_output_dir"):
+            executor.video_output_dir = None
+        completed_steps = 0
+        warmup_episode_id = -1
+        while completed_steps < warmup_steps:
+            remaining_steps = warmup_steps - completed_steps
+            warmup_max_steps = min(remaining_steps, eval_max_steps)
+            episode_metrics = executor.run_episode(
+                episode_id=warmup_episode_id,
+                seed=_episode_seed(config, warmup_episode_id),
+                eval_max_steps=warmup_max_steps,
+            )
+            warmup_metrics.append(episode_metrics)
+            completed_steps += int(episode_metrics.survival_steps)
+            warmup_episode_id -= 1
+    finally:
+        if hasattr(executor, "logger"):
+            executor.logger = saved_logger
+        if hasattr(executor, "video_recorder"):
+            executor.video_recorder = saved_video_recorder
+        if hasattr(executor, "video_output_dir"):
+            executor.video_output_dir = saved_video_output_dir
+    latency_values = [
+        float(metric.mean_latency_ms)
+        for metric in warmup_metrics
+        if metric.mean_latency_ms is not None
+    ]
+    return {
+        "warmup_steps": int(completed_steps),
+        "warmup_episodes": len(warmup_metrics),
+        "warmup_mean_latency_ms": (
+            sum(latency_values) / len(latency_values)
+            if latency_values
+            else None
+        ),
+    }
 
 
 def _record_stratified_replay_videos(
