@@ -103,8 +103,6 @@ experiment:
   seed: 0
 executor:
   mode: realtime
-  inference_devices:
-    - cpu
 env:
   name: dummy
   env_fps: 30
@@ -311,11 +309,12 @@ def test_run_from_config_uses_batched_executor_run_episodes_when_available(
     assert [metric.metadata["run_name"] for metric in metrics] == ["seed_test"] * 3
 
 
-def test_run_from_config_warmup_steps_are_not_returned_or_logged(
+def test_run_from_config_merges_executor_warmup_metadata(
     monkeypatch,
     tmp_path: Path,
 ):
     run_calls = []
+    warmup_calls = []
     logged_metrics = []
 
     class FakeEnv:
@@ -335,8 +334,12 @@ def test_run_from_config_warmup_steps_are_not_returned_or_logged(
         def __init__(self):
             self.logger = FakeLogger()
 
+        def run_warmup(self, *, eval_max_steps):
+            warmup_calls.append(eval_max_steps)
+            return {"warmup_status": "stable", "warmup_samples": 200}
+
         def run_episode(self, *, episode_id, seed, eval_max_steps):
-            run_calls.append((episode_id, seed, eval_max_steps, self.logger is None))
+            run_calls.append((episode_id, seed, eval_max_steps))
             if self.logger is not None:
                 self.logger.log_episode_metrics(SimpleNamespace(episode_id=episode_id))
             return EpisodeMetrics(
@@ -349,23 +352,21 @@ def test_run_from_config_warmup_steps_are_not_returned_or_logged(
     monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
     config["evaluation"]["eval_max_steps"] = 10
-    config["evaluation"]["warmup_steps"] = 7
 
     metrics = latency_run.run_from_config(config)
 
     assert run_calls == [
-        (-1, 10, 7, True),
-        (0, 11, 10, False),
-        (1, 12, 10, False),
+        (0, 11, 10),
+        (1, 12, 10),
     ]
+    assert warmup_calls == [10]
     assert [metric.episode_id for metric in metrics] == [0, 1]
-    assert [metric.metadata["warmup_steps"] for metric in metrics] == [7, 7]
-    assert [metric.metadata["warmup_episodes"] for metric in metrics] == [1, 1]
-    assert [metric.metadata["warmup_mean_latency_ms"] for metric in metrics] == [None, None]
+    assert [metric.metadata["warmup_status"] for metric in metrics] == ["stable", "stable"]
+    assert [metric.metadata["warmup_samples"] for metric in metrics] == [200, 200]
     assert logged_metrics == [0, 1]
 
 
-def test_run_from_config_warmup_continues_across_short_episodes(
+def test_run_from_config_without_warmup_hook_does_not_warmup(
     monkeypatch,
     tmp_path: Path,
 ):
@@ -380,23 +381,21 @@ def test_run_from_config_warmup_continues_across_short_episodes(
         env = FakeEnv()
 
         def run_episode(self, *, episode_id, seed, eval_max_steps):
-            run_calls.append((episode_id, eval_max_steps))
-            survival_steps = 2 if episode_id < 0 else eval_max_steps
+            run_calls.append((episode_id, seed, eval_max_steps))
             return EpisodeMetrics(
                 episode_id=episode_id,
                 episode_return=0.0,
-                survival_steps=survival_steps,
+                survival_steps=eval_max_steps,
                 metadata={},
             )
 
     monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
     config["evaluation"]["eval_max_steps"] = 10
-    config["evaluation"]["warmup_steps"] = 5
 
     metrics = latency_run.run_from_config(config)
 
-    assert run_calls == [(-1, 5), (-2, 3), (-3, 1), (0, 10)]
+    assert run_calls == [(0, 11, 10)]
     assert [metric.episode_id for metric in metrics] == [0]
 
 
@@ -815,7 +814,16 @@ def test_main_writes_non_sweep_queue_eval_summary(tmp_path: Path, capsys):
     assert "[bench] sweep 1/1 complete elapsed=" in captured.err
 
 
-def test_main_writes_realtime_measured_summary_with_string_latency_label(tmp_path: Path, capsys):
+def test_main_writes_realtime_measured_summary_with_string_latency_label(monkeypatch, tmp_path: Path, capsys):
+    import latency_bench.executors.factory as executor_factory
+    from latency_bench.executors.realtime import RealtimeLatencyExecutor
+
+    monkeypatch.setattr(executor_factory, "_resolve_realtime_inference_devices", lambda: ["cpu"])
+    monkeypatch.setattr(
+        RealtimeLatencyExecutor,
+        "run_warmup",
+        lambda self, *, eval_max_steps: {"warmup_status": "stable", "warmup_samples": 200},
+    )
     config_path = tmp_path / "config.yaml"
     output_dir = tmp_path / "realtime_output"
     _write_dummy_realtime_measured_config(config_path, output_dir, num_episodes=2)
@@ -827,6 +835,7 @@ def test_main_writes_realtime_measured_summary_with_string_latency_label(tmp_pat
     results_path = output_dir / "queue_eval_results.jsonl"
     assert metrics_path.is_file()
     assert len(metrics_path.read_text(encoding="utf-8").splitlines()) == 2
+    assert (output_dir / "eval_latency_trace.png").is_file()
     assert summary_path.is_file()
     assert results_path.is_file()
     assert not (output_dir / "queue_eval_latency_0.json").exists()

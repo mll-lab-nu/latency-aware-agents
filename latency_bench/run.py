@@ -92,7 +92,8 @@ def run_from_config(
     executor = build_executor(config)
     metrics = []
     try:
-        warmup_metadata = _run_warmup_steps(config, executor, eval_max_steps=eval_max_steps)
+        run_warmup = getattr(executor, "run_warmup", None)
+        warmup_metadata = run_warmup(eval_max_steps=eval_max_steps) if callable(run_warmup) else {}
         run_episodes = getattr(executor, "run_episodes", None)
         if callable(run_episodes):
             episode_ids = list(range(num_episodes))
@@ -131,6 +132,7 @@ def run_from_config(
                 episode_metrics.metadata.update(extra_metadata)
         if executor.logger is not None:
             executor.logger.flush()
+        _record_realtime_eval_latency_plot(config, executor)
         if write_summary:
             _write_non_sweep_summary(config, metrics)
         _record_stratified_replay_videos(config, metrics, seed=seed)
@@ -143,64 +145,21 @@ def run_from_config(
     return metrics
 
 
-def _run_warmup_steps(
-    config: dict[str, Any],
-    executor: Any,
-    *,
-    eval_max_steps: int,
-) -> dict[str, Any]:
-    evaluation_cfg = config["evaluation"]
-    if "warmup_steps" not in evaluation_cfg:
-        return {}
-    warmup_steps = int(evaluation_cfg["warmup_steps"])
-    if warmup_steps <= 0:
-        return {}
+def _record_realtime_eval_latency_plot(config: dict[str, Any], executor: Any) -> None:
+    if ExecutorMode(config["executor"]["mode"]) != ExecutorMode.REALTIME:
+        return
+    if not config["logging"]["save_latency_records"]:
+        return
+    from latency_bench.executors.realtime_warmup import plot_realtime_eval_latency
 
-    saved_logger = getattr(executor, "logger", None)
-    saved_video_recorder = getattr(executor, "video_recorder", None)
-    saved_video_output_dir = getattr(executor, "video_output_dir", None)
-    warmup_metrics: list[EpisodeMetrics] = []
-    try:
-        if hasattr(executor, "logger"):
-            executor.logger = None
-        if hasattr(executor, "video_recorder"):
-            executor.video_recorder = None
-        if hasattr(executor, "video_output_dir"):
-            executor.video_output_dir = None
-        completed_steps = 0
-        warmup_episode_id = -1
-        while completed_steps < warmup_steps:
-            remaining_steps = warmup_steps - completed_steps
-            warmup_max_steps = min(remaining_steps, eval_max_steps)
-            episode_metrics = executor.run_episode(
-                episode_id=warmup_episode_id,
-                seed=_episode_seed(config, warmup_episode_id),
-                eval_max_steps=warmup_max_steps,
-            )
-            warmup_metrics.append(episode_metrics)
-            completed_steps += int(episode_metrics.survival_steps)
-            warmup_episode_id -= 1
-    finally:
-        if hasattr(executor, "logger"):
-            executor.logger = saved_logger
-        if hasattr(executor, "video_recorder"):
-            executor.video_recorder = saved_video_recorder
-        if hasattr(executor, "video_output_dir"):
-            executor.video_output_dir = saved_video_output_dir
     latency_values = [
-        float(metric.mean_latency_ms)
-        for metric in warmup_metrics
-        if metric.mean_latency_ms is not None
+        float(record.latency_ms)
+        for record in executor.logger.latency_records
     ]
-    return {
-        "warmup_steps": int(completed_steps),
-        "warmup_episodes": len(warmup_metrics),
-        "warmup_mean_latency_ms": (
-            sum(latency_values) / len(latency_values)
-            if latency_values
-            else None
-        ),
-    }
+    plot_realtime_eval_latency(
+        latency_values,
+        Path(config["logging"]["output_dir"]) / "eval_latency_trace.png",
+    )
 
 
 def _record_stratified_replay_videos(

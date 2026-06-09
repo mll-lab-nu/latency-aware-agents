@@ -6,6 +6,7 @@ from latency_bench.core.types import Action, OrderingPolicy
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.executors.factory import build_executor
+import latency_bench.executors.factory as executor_factory
 from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
@@ -35,7 +36,6 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
         },
         "executor": {
             "mode": mode,
-            "inference_devices": ["cpu"],
         },
         "env": {
             "name": "normalized_noop_test",
@@ -418,24 +418,33 @@ def test_paused_mode_builds_paused_executor(tmp_path):
         executor.env.close()
 
 
-def test_realtime_mode_builds_realtime_executor(tmp_path):
+def test_realtime_mode_builds_realtime_executor(monkeypatch, tmp_path):
+    monkeypatch.setattr(executor_factory, "_resolve_realtime_inference_devices", lambda: ["cuda:0"])
+
     executor = build_executor(_config(mode="realtime", output_dir=str(tmp_path)))
 
     try:
         assert isinstance(executor, RealtimeLatencyExecutor)
+        assert executor.inference_devices == ["cuda:0"]
     finally:
         executor.env.close()
 
 
-def test_realtime_mode_rejects_duplicate_inference_devices(tmp_path):
-    config = _config(mode="realtime", output_dir=str(tmp_path))
-    config["executor"]["inference_devices"] = ["cuda:0", "cuda:0"]
+def test_realtime_devices_follow_cuda_visible_devices(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2,3")
 
-    with pytest.raises(ValueError, match="inference_devices.*unique"):
-        build_executor(config)
+    assert executor_factory._resolve_realtime_inference_devices() == ["cuda:0", "cuda:1"]
 
 
-def test_factory_accepts_measured_latency_for_realtime(tmp_path):
+def test_realtime_devices_follow_torch_visible_count_when_env_is_unset(monkeypatch):
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.setattr(executor_factory.torch.cuda, "device_count", lambda: 2)
+
+    assert executor_factory._resolve_realtime_inference_devices() == ["cuda:0", "cuda:1"]
+
+
+def test_factory_accepts_measured_latency_for_realtime(monkeypatch, tmp_path):
+    monkeypatch.setattr(executor_factory, "_resolve_realtime_inference_devices", lambda: ["cuda:0"])
     config = _config(mode="realtime", output_dir=str(tmp_path))
     config["latency"] = {"type": "measured"}
 
@@ -576,7 +585,9 @@ def test_legacy_simulated_wrapper_uses_new_entrypoint(tmp_path):
 
 
 @pytest.mark.parametrize("mode", ["simulated", "paused", "realtime"])
-def test_executor_scheduler_uses_env_normalized_noop(mode: str, tmp_path):
+def test_executor_scheduler_uses_env_normalized_noop(monkeypatch, mode: str, tmp_path):
+    if mode == "realtime":
+        monkeypatch.setattr(executor_factory, "_resolve_realtime_inference_devices", lambda: ["cuda:0"])
     executor = build_executor(_config(mode=mode, output_dir=str(tmp_path)))
 
     try:
