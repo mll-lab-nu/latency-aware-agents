@@ -120,6 +120,7 @@ def _executor(
     logger: TrajectoryLogger | None = None,
     fake_clock: FakeClock | None = None,
     video_recorder=None,
+    config: dict | None = None,
 ) -> RealtimeLatencyExecutor:
     fake_clock = fake_clock or FakeClock()
     noop = Action("noop", name="noop", is_noop=True)
@@ -143,6 +144,7 @@ def _executor(
         sleep_fn=fake_clock.sleep,
         inference_pool=pool,
         video_recorder=video_recorder,
+        config=config,
     )
 
 
@@ -266,3 +268,65 @@ def test_realtime_records_current_episode_video(tmp_path):
     assert manifest[0]["episode_return"] == 2.0
     assert manifest[0]["frame_count"] == 2
     assert (tmp_path / "videos" / manifest[0]["video_path"]).is_file()
+
+
+def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path):
+    from latency_bench.executors import realtime_warmup
+
+    monkeypatch.setattr(realtime_warmup, "MIN_WARMUP_LATENCY_SAMPLES", 3)
+    monkeypatch.setattr(realtime_warmup, "MAX_WARMUP_LATENCY_SAMPLES", 4)
+    monkeypatch.setattr(realtime_warmup, "WARMUP_WINDOW_SIZE", 1)
+    monkeypatch.setattr(realtime_warmup, "STABLE_WINDOW_COUNT", 3)
+
+    action = Action("jump")
+    pool = ScriptedInferencePool(
+        [CompletionScript(action, ready_time_ms=1.0, worker_id=0, device="cuda:0")],
+        num_workers=1,
+    )
+    formal_logger = TrajectoryLogger(
+        tmp_path,
+        save_step_records=True,
+        save_action_records=True,
+        save_latency_records=True,
+    )
+    executor = _executor(
+        pool=pool,
+        max_steps=2,
+        logger=formal_logger,
+        config={"logging": {"output_dir": str(tmp_path)}},
+    )
+
+    summary = executor.run_warmup(eval_max_steps=2)
+
+    assert summary["warmup_status"] == "stable"
+    assert summary["warmup_samples"] == 3
+    assert len(formal_logger.latency_records) == 0
+    assert (tmp_path / "warmup_latencies.jsonl").is_file()
+    assert (tmp_path / "warmup_summary.json").is_file()
+    assert (tmp_path / "warmup_stability.png").is_file()
+    assert not (tmp_path / "latencies.jsonl").exists()
+
+
+def test_realtime_warmup_uses_actual_samples_across_short_episodes(monkeypatch, tmp_path):
+    from latency_bench.executors import realtime_warmup
+
+    monkeypatch.setattr(realtime_warmup, "MIN_WARMUP_LATENCY_SAMPLES", 3)
+    monkeypatch.setattr(realtime_warmup, "MAX_WARMUP_LATENCY_SAMPLES", 4)
+    monkeypatch.setattr(realtime_warmup, "WARMUP_WINDOW_SIZE", 1)
+    monkeypatch.setattr(realtime_warmup, "STABLE_WINDOW_COUNT", 3)
+
+    action = Action("jump")
+    pool = ScriptedInferencePool(
+        [CompletionScript(action, ready_time_ms=0.0, worker_id=0, device="cuda:0")],
+        num_workers=1,
+    )
+    executor = _executor(
+        pool=pool,
+        max_steps=1,
+        config={"logging": {"output_dir": str(tmp_path)}},
+    )
+
+    summary = executor.run_warmup(eval_max_steps=4)
+
+    assert summary["warmup_status"] == "stable"
+    assert summary["warmup_samples"] == 3

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 BASE_PROMPTS = {
-    "flappy": "You are playing Flappy Bird. Your goal is to pass through the pipes, avoid crashing, and maximize score. Choose exactly one action from: NOOP, FLAP.",
+    "flappy": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP.",
 
-    "demon_attack": "You are playing Demon Attack. Your goal is to survive, avoid enemy fire, and shoot enemies to maximize score. Choose exactly one action from: NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE.",
+    "demon_attack": "You are playing Demon Attack from a single game image. Choose exactly one action from: NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE. Survive, avoid enemy fire, and shoot enemies to maximize score.",
 
-    "deadly_corridor": "You are playing Deadly Corridor. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. Choose one option from each action group: turn (TURN_NOOP, TURN_LEFT, TURN_RIGHT), move (MOVE_NOOP, MOVE_FORWARD, MOVE_BACKWARD), strafe (STRAFE_NOOP, MOVE_LEFT, MOVE_RIGHT), and attack (ATTACK_NOOP, ATTACK). The four choices are combined into the next action.",
+    "deadly_corridor": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation.",
 }
 
 TIMING_SUFFIX = (

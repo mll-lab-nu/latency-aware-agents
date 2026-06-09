@@ -10,8 +10,6 @@ backend:
   run_mode: eval
 executor:
   mode: realtime
-  inference_devices:
-    - cuda:0
 env:
   name: flappy
   gym_id: FlappyBird-v0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import torch
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -299,14 +300,11 @@ def _build_realtime_executor(
     video_episode_metadata: dict[int, dict] | None = None,
 ) -> RealtimeLatencyExecutor:
     scheduler_cfg = config["scheduler"]
-    executor_cfg = config["executor"]
     latency_cfg = config["latency"]
     latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
     if latency_type not in {LatencySourceType.ZERO.value, LatencySourceType.MEASURED.value}:
         raise ValueError("realtime executor does not support injected latency; use latency.type=zero or measured")
-    inference_devices = [str(device) for device in executor_cfg["inference_devices"]]
-    if len(set(inference_devices)) != len(inference_devices):
-        raise ValueError("executor.inference_devices entries must be unique")
+    inference_devices = _resolve_realtime_inference_devices()
 
     action_resolver = ActionResolver(config["env"])
     env = build_env_adapter(config, action_resolver.noop_action)
@@ -338,6 +336,18 @@ def _build_realtime_executor(
         video_output_dir=video_output_dir,
         video_fps=clock.env_fps,
     )
+
+
+def _resolve_realtime_inference_devices() -> list[str]:
+    visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if visible_devices is None:
+        device_count = torch.cuda.device_count()
+    else:
+        stripped = visible_devices.strip()
+        device_count = 0 if stripped in {"", "-1"} else len([item for item in stripped.split(",") if item.strip()])
+    if device_count == 0:
+        raise RuntimeError("realtime inference requires at least one visible CUDA device")
+    return [f"cuda:{idx}" for idx in range(device_count)]
 
 
 def _build_clock(config: dict[str, Any]) -> EnvClock:

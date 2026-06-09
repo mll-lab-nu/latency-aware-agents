@@ -51,7 +51,6 @@ evaluation:
   eval_latency_values:
     - 2
   eval_max_steps: 3600
-  warmup_steps: 200
 
 logging:
   output_dir: outputs/starvla_realtime_equivalence_warmup2gpu_3ep/simulated_16fps_l2_warmup200_3ep

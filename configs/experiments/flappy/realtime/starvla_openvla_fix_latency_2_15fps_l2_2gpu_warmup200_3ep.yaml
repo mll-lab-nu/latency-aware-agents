@@ -5,9 +5,6 @@ experiment:
 
 executor:
   mode: realtime
-  inference_devices:
-    - cuda:0
-    - cuda:1
 
 env:
   name: flappy
@@ -46,7 +43,6 @@ policy:
   checkpoint_path: /mnt/data/latency_data/openvla_flappy_fix_latency_2/checkpoints/steps_5000_pytorch_model.pt
   device: cuda
   unnorm_key: new_embodiment
-  latency_prompt_map_path: configs/experiments/flappy/prompts/flappy_fix_latency_2_latency_prompt_map.json
   actions:
     - noop
     - flap
@@ -56,7 +52,6 @@ evaluation:
   eval_parallel_envs: 1
   eval_latency_values: null
   eval_max_steps: 3600
-  warmup_steps: 200
 
 logging:
   output_dir: outputs/starvla_realtime_equivalence_warmup2gpu_3ep/realtime_15fps_l2_2gpu_warmup200_3ep

@@ -21,6 +21,7 @@ from latency_bench.core.types import (
 )
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors.env_step_backend import _resolve_start_method, _set_thread_env_defaults
+from latency_bench.executors import realtime_warmup
 from latency_bench.latency.measurement import RuntimeLatencyMeasurer
 from latency_bench.latency.sources import LatencySource
 from latency_bench.logging.metrics import (
@@ -302,6 +303,52 @@ class RealtimeLatencyExecutor:
             seed=seed,
             eval_max_steps=eval_max_steps,
         )
+
+    def run_warmup(self, *, eval_max_steps: int) -> dict[str, Any]:
+        collector = realtime_warmup.RealtimeWarmupCollector(
+            save_step_records=False,
+            save_action_records=False,
+            save_latency_records=True,
+        )
+        saved_logger = self.logger
+        saved_video_recorder = self.video_recorder
+        saved_video_output_dir = self.video_output_dir
+        try:
+            self.logger = collector
+            self.video_recorder = None
+            self.video_output_dir = None
+            warmup_episode_id = -1
+            while len(collector.latency_records) < realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
+                self.run_episode(
+                    episode_id=warmup_episode_id,
+                    seed=None,
+                    eval_max_steps=min(eval_max_steps, realtime_warmup.WARMUP_EPISODE_MAX_STEPS),
+                )
+                if len(collector.latency_records) > realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
+                    collector.latency_records = collector.latency_records[
+                        -realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
+                    ]
+                if realtime_warmup.is_realtime_warmup_stable(collector.latency_values_ms):
+                    break
+                if len(collector.latency_records) >= realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
+                    break
+                warmup_episode_id -= 1
+        finally:
+            self.logger = saved_logger
+            self.video_recorder = saved_video_recorder
+            self.video_output_dir = saved_video_output_dir
+
+        stable = realtime_warmup.is_realtime_warmup_stable(collector.latency_values_ms)
+        summary = realtime_warmup.write_realtime_warmup_artifacts(
+            self.config["logging"]["output_dir"],
+            collector,
+            stable=stable,
+        )
+        if not stable:
+            raise RuntimeError(
+                "realtime warmup did not stabilize; inspect warmup_stability.png and warmup_summary.json"
+            )
+        return summary
 
     def close(self) -> None:
         if self._owns_inference_pool and self.inference_pool is not None:

@@ -7,9 +7,22 @@ import numpy as np
 import pytest
 
 from latency_bench.core.actions import ActionResolver
+from latency_bench.core.config import load_config
 from latency_bench.core.types import Observation
 from latency_bench.policy.factory import build_policy
 from scripts.rollout_data.prompts import BASE_PROMPTS
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+FLAPPY_REALTIME_STARVLA_CONFIGS = (
+    "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_15fps_l2_2gpu_warmup200_3ep.yaml",
+    "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml",
+    "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_8fps_l1_2gpu_warmup200_3ep.yaml",
+)
+FLAPPY_SIMULATED_STARVLA_CONFIGS = (
+    "configs/experiments/flappy/simulated/starvla_openvla_fix_latency_2_15fps_l2_warmup200_3ep.yaml",
+    "configs/experiments/flappy/simulated/starvla_openvla_fix_latency_2_16fps_l2_warmup200_3ep.yaml",
+    "configs/experiments/flappy/simulated/starvla_openvla_fix_latency_2_8fps_l1_warmup200_3ep.yaml",
+)
 
 
 class FakePolicyServerWrapper:
@@ -65,7 +78,6 @@ def _config(
     tmp_path: Path,
     *,
     latency_prompt_map_path: str | None = None,
-    latency_prompt_raw_frames: int | None = None,
 ) -> dict:
     policy = {
         "type": "starvla",
@@ -76,8 +88,6 @@ def _config(
     }
     if latency_prompt_map_path is not None:
         policy["latency_prompt_map_path"] = latency_prompt_map_path
-    if latency_prompt_raw_frames is not None:
-        policy["latency_prompt_raw_frames"] = latency_prompt_raw_frames
     return {
         "env": {
             "name": "flappy",
@@ -279,42 +289,23 @@ def test_starvla_latency_prompt_map_uses_raw_rgb_frame_stack_metadata(monkeypatc
     assert np.asarray(example["image"][-1]).mean() == 77
 
 
-def test_starvla_latency_prompt_map_uses_configured_prompt_latency_without_observation_latency(
-    monkeypatch,
-    tmp_path: Path,
-):
-    from latency_bench.policy import starvla
+def test_flappy_realtime_starvla_configs_use_base_prompt_without_latency_prompt_map():
+    for config_path in FLAPPY_REALTIME_STARVLA_CONFIGS:
+        config = load_config(REPO_ROOT / config_path)
 
-    FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
-    prompt_map_path = tmp_path / "latency_prompt_map.json"
-    prompt_map_path.write_text(
-        json.dumps(
-            {
-                "1": {"latency_raw_frames": 1, "latency_ms": 33.0, "prompt": "latency prompt 1"},
-                "2": {"latency_raw_frames": 2, "latency_ms": 66.0, "prompt": "latency prompt 2"},
-            }
-        ),
-        encoding="utf-8",
-    )
-    config = _config(
-        tmp_path,
-        latency_prompt_map_path=str(prompt_map_path),
-        latency_prompt_raw_frames=2,
-    )
-    policy = build_policy(config, ActionResolver(config["env"]))
+        assert config["executor"]["mode"] == "realtime"
+        assert config["policy"]["type"] == "starvla"
+        assert "latency_prompt_map_path" not in config["policy"]
+        assert "latency_prompt_raw_frames" not in config["policy"]
 
-    policy.predict(
-        Observation(
-            data=np.zeros((1,), dtype=np.uint8),
-            env_step=0,
-            sim_time_ms=0.0,
-            metadata={"env_raw_rgb_frame_stack": np.zeros((1, 12, 16, 3), dtype=np.uint8)},
-        )
-    )
 
-    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
-    assert example["lang"] == "latency prompt 2"
+def test_flappy_simulated_starvla_configs_keep_latency_prompt_map():
+    for config_path in FLAPPY_SIMULATED_STARVLA_CONFIGS:
+        config = load_config(REPO_ROOT / config_path)
+
+        assert config["executor"]["mode"] == "simulated"
+        assert config["policy"]["type"] == "starvla"
+        assert "latency_prompt_map_path" in config["policy"]
 
 
 def test_starvla_requires_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Path):
