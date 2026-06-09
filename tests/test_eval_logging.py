@@ -104,7 +104,6 @@ def _write_profile(tmp_path: Path) -> Path:
             "target_device": "target_gpu",
             "fps": 25.0,
             "frame_ms": 40.0,
-            "n_warmup": 0,
             "n_samples": 3,
             "batch_size": 1,
             "trace_path": "latencies.jsonl",

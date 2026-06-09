@@ -18,7 +18,6 @@ REQUIRED_PROFILE_FIELDS = (
     "target_device",
     "fps",
     "frame_ms",
-    "n_warmup",
     "n_samples",
     "batch_size",
     "trace_path",
