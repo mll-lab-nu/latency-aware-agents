@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import importlib.util
+import argparse
+import importlib
 import json
 import os
 import subprocess
@@ -9,15 +10,18 @@ from pathlib import Path
 
 import yaml
 
+from scripts.cross_device.models import RuntimeSelection
+from scripts.cross_device.runtime import normalize_hardware_name
 
-SCRIPT = Path("scripts/experiments/run_cross_device_protocol.py")
+
+PROTOCOL_MODULE = "scripts.cross_device.protocol"
 REAL_PROTOCOL = Path("configs/experiments/cross_device_protocol.yaml")
 
 
 RUNTIME_SPEC = {
     "runtime_envs": {
         "small_model": {"conda_env": "latency", "description": "small"},
-        "openvla": {"conda_env": "latency-openvla", "description": "vla"},
+        "openvla": {"conda_env": "starvla_rl_games_openvla", "description": "vla"},
     }
 }
 
@@ -83,7 +87,6 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
                 "id": "a100",
                 "display_name": "A100",
                 "profile_id": "L_A100",
-                "speed_rank": 3,
                 "aliases": ["NVIDIA A100"],
             }
         ],
@@ -114,14 +117,13 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "seed_set": [0],
         "runtime_envs": {
             "small_model": {"conda_env": "latency", "description": "small"},
-            "openvla": {"conda_env": "latency-openvla", "description": "vla"},
+            "openvla": {"conda_env": "starvla_rl_games_openvla", "description": "vla"},
         },
         "devices": [
             {
                 "id": "a100",
                 "display_name": "A100",
                 "profile_id": "L_A100",
-                "speed_rank": 3,
                 "aliases": ["NVIDIA A100"],
             }
         ],
@@ -131,8 +133,7 @@ def _write_spec(path: Path, base_config: Path) -> None:
             "exp3_cross_device_prediction": {
                 "panel": "c",
                 "rows": [dict(row)],
-                "replay_devices": ["a100"],
-                "main_claim_rule": "replay_device_speed_rank > target_device_speed_rank",
+                "replay_pairs": [{"target_device": "a100", "replay_device": "a100"}],
             },
         },
     }
@@ -168,28 +169,25 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "seed_set": [0],
         "runtime_envs": {
             "small_model": {"conda_env": "latency", "description": "small"},
-            "openvla": {"conda_env": "latency-openvla", "description": "vla"},
+            "openvla": {"conda_env": "starvla_rl_games_openvla", "description": "vla"},
         },
         "devices": [
             {
                 "id": "a100",
                 "display_name": "A100",
                 "profile_id": "L_A100",
-                "speed_rank": 3,
                 "aliases": ["NVIDIA A100"],
             },
             {
                 "id": "h200",
                 "display_name": "H200",
                 "profile_id": "L_H200",
-                "speed_rank": 4,
                 "aliases": ["NVIDIA H200"],
             },
             {
                 "id": "rtx4090",
                 "display_name": "RTX 4090",
                 "profile_id": "L_4090",
-                "speed_rank": 2,
                 "aliases": ["NVIDIA GeForce RTX 4090"],
             },
         ],
@@ -199,8 +197,10 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
             "exp3_cross_device_prediction": {
                 "panel": "c",
                 "rows": [dict(vla)],
-                "replay_devices": ["h200", "a100"],
-                "main_claim_rule": "replay_device_speed_rank > target_device_speed_rank",
+                "replay_pairs": [
+                    {"target_device": "a100", "replay_device": "h200"},
+                    {"target_device": "a100", "replay_device": "a100"},
+                ],
             },
         },
     }
@@ -213,7 +213,7 @@ def _run_cli(tmp_path: Path, *args: str, env: dict[str, str] | None = None, chec
     if env:
         run_env.update(env)
     return subprocess.run(
-        [sys.executable, str(SCRIPT), *args],
+        [sys.executable, "-m", PROTOCOL_MODULE, *args],
         cwd=Path.cwd(),
         check=check,
         capture_output=True,
@@ -240,12 +240,7 @@ def _openvla_stats_json(key: str, action_dim: int) -> str:
 
 
 def _load_protocol_module():
-    spec = importlib.util.spec_from_file_location("run_cross_device_protocol_for_test", SCRIPT)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return importlib.import_module(PROTOCOL_MODULE)
 
 
 def test_runtime_env_detection_maps_conda_envs_and_override(monkeypatch):
@@ -254,59 +249,52 @@ def test_runtime_env_detection_maps_conda_envs_and_override(monkeypatch):
     monkeypatch.setenv("CONDA_DEFAULT_ENV", "latency")
     assert module.detect_runtime_env(RUNTIME_SPEC).matched_alias == "small_model"
 
-    monkeypatch.setenv("CONDA_DEFAULT_ENV", "latency-openvla")
+    monkeypatch.setenv("CONDA_DEFAULT_ENV", "starvla_rl_games_openvla")
     assert module.detect_runtime_env(RUNTIME_SPEC).matched_alias == "openvla"
 
     monkeypatch.setenv("CROSS_DEVICE_RUNTIME_ENV", "latency")
-    monkeypatch.setenv("CONDA_DEFAULT_ENV", "latency-openvla")
+    monkeypatch.setenv("CONDA_DEFAULT_ENV", "starvla_rl_games_openvla")
     detected = module.detect_runtime_env(RUNTIME_SPEC)
     assert detected.detected_raw == "latency"
     assert detected.matched_alias == "small_model"
 
 
 def test_hardware_detection_accepts_full_gpu_model_names_and_multi_gpu_text():
-    module = _load_protocol_module()
     devices = [
         {
             "id": "rtx3090",
             "display_name": "RTX 3090",
             "profile_id": "L_3090",
-            "speed_rank": 1,
             "aliases": ["NVIDIA GeForce RTX 3090"],
         },
         {
             "id": "rtx4090",
             "display_name": "RTX 4090",
             "profile_id": "L_4090",
-            "speed_rank": 2,
             "aliases": ["NVIDIA GeForce RTX 4090"],
         },
         {
             "id": "l40s",
             "display_name": "L40S",
             "profile_id": "L_L40S",
-            "speed_rank": 2,
             "aliases": ["NVIDIA L40S"],
         },
         {
             "id": "a100",
             "display_name": "A100",
             "profile_id": "L_A100",
-            "speed_rank": 3,
             "aliases": ["NVIDIA A100"],
         },
         {
             "id": "h200",
             "display_name": "H200",
             "profile_id": "L_H200",
-            "speed_rank": 4,
             "aliases": ["NVIDIA H200"],
         },
         {
             "id": "b200",
             "display_name": "B200",
             "profile_id": "L_B200",
-            "speed_rank": 5,
             "aliases": ["NVIDIA B200"],
         },
     ]
@@ -322,7 +310,7 @@ def test_hardware_detection_accepts_full_gpu_model_names_and_multi_gpu_text():
         "NVIDIA B200": "b200",
     }
     for raw_name, expected_id in cases.items():
-        assert module.normalize_hardware_name(raw_name, devices)["id"] == expected_id
+        assert normalize_hardware_name(raw_name, devices)["id"] == expected_id
 
 
 def test_runtime_env_filtering_small_and_openvla_rows(tmp_path: Path):
@@ -359,7 +347,7 @@ def test_runtime_env_filtering_small_and_openvla_rows(tmp_path: Path):
         "--out",
         str(out),
         "--dry-run",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
     assert "policy: vla-policy" in openvla.stdout
     assert "skipped runtime_env mismatch: 1" in openvla.stdout
@@ -380,7 +368,7 @@ def test_real_openvla_protocol_dry_run_selects_flappy_demon_and_deadly(tmp_path:
         "--runtime-env",
         "openvla",
         "--dry-run",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     assert "policy: OpenVLA-Flappy" in result.stdout
@@ -415,12 +403,15 @@ def test_real_protocol_exp2_includes_openvla_calibration_rows():
     )
 
 
-def test_real_protocol_exp3_uses_b200_and_h200_replay_devices():
+def test_real_protocol_exp3_uses_explicit_replay_pairs():
     spec = yaml.safe_load(REAL_PROTOCOL.read_text(encoding="utf-8"))
 
-    replay_devices = spec["experiments"]["exp3_cross_device_prediction"]["replay_devices"]
+    replay_pairs = spec["experiments"]["exp3_cross_device_prediction"]["replay_pairs"]
 
-    assert replay_devices == ["b200", "h200"]
+    assert replay_pairs == [
+        {"target_device": "a100", "replay_device": "b200"},
+        {"target_device": "a100", "replay_device": "h200"},
+    ]
 
 
 def test_real_openvla_protocol_only_policy_accepts_slug_and_preserves_flappy_path(tmp_path: Path):
@@ -440,7 +431,7 @@ def test_real_openvla_protocol_only_policy_accepts_slug_and_preserves_flappy_pat
         "--dry-run",
         "--only-policy",
         "openvla-flappy",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
     assert "policy: OpenVLA-Flappy" in flappy.stdout
     assert "policy: demon-attack-openvla" not in flappy.stdout
@@ -461,7 +452,7 @@ def test_real_openvla_protocol_only_policy_accepts_slug_and_preserves_flappy_pat
         "--dry-run",
         "--only-policy",
         "demon-attack-openvla",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
     assert "policy: OpenVLA-Flappy" not in demon.stdout
     assert "policy: demon-attack-openvla" in demon.stdout
@@ -485,7 +476,7 @@ def test_real_openvla_protocol_only_env_accepts_raw_and_slug_values(tmp_path: Pa
         "--dry-run",
         "--only-env",
         "deadly_corridor",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
     assert "policy: deadly-corridor-openvla" in slug.stdout
     assert "policy: OpenVLA-Flappy" not in slug.stdout
@@ -505,7 +496,7 @@ def test_real_openvla_protocol_only_env_accepts_raw_and_slug_values(tmp_path: Pa
         "--dry-run",
         "--only-env",
         "Deadly Corridor",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
     assert "policy: deadly-corridor-openvla" in raw.stdout
     assert "policy: OpenVLA-Flappy" not in raw.stdout
@@ -527,7 +518,7 @@ def test_real_openvla_protocol_max_runs_limits_dry_run_rows(tmp_path: Path):
         "--dry-run",
         "--max-runs",
         "1",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     assert result.stdout.count("policy: ") == 1
@@ -561,7 +552,7 @@ def test_openvla_env_var_overrides_are_written_and_printed_in_dry_run(tmp_path: 
         "--only-policy",
         "demon-attack-openvla",
         env={
-            "CROSS_DEVICE_RUNTIME_ENV": "latency-openvla",
+            "CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla",
             "OPENVLA_BASE_MODEL_PATH": str(base_model),
             "DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH": str(checkpoint),
         },
@@ -600,7 +591,7 @@ def test_openvla_smoke_dry_run_uses_isolated_run_id_and_step_cap(tmp_path: Path)
         "demon-attack-openvla",
         "--max-runs",
         "1",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     assert "smoke: true" in result.stdout
@@ -633,7 +624,7 @@ def test_openvla_check_deps_only_reports_missing_dependencies_without_eval_outpu
         "--only-policy",
         "demon-attack-openvla",
         check=False,
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     assert result.returncode != 0
@@ -671,7 +662,7 @@ def test_openvla_check_deps_only_returns_zero_when_selected_dependencies_exist(t
         "--only-policy",
         "demon-attack-openvla",
         env={
-            "CROSS_DEVICE_RUNTIME_ENV": "latency-openvla",
+            "CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla",
             "OPENVLA_BASE_MODEL_PATH": str(base_model),
             "DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH": str(checkpoint),
         },
@@ -712,7 +703,7 @@ def test_flappy_openvla_checkpoint_env_override_is_written_in_dry_run(tmp_path: 
         "--max-runs",
         "1",
         env={
-            "CROSS_DEVICE_RUNTIME_ENV": "latency-openvla",
+            "CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla",
             "OPENVLA_BASE_MODEL_PATH": str(base_model),
             "FLAPPY_OPENVLA_CHECKPOINT_PATH": str(checkpoint),
         },
@@ -751,7 +742,7 @@ def test_deadly_openvla_check_deps_rejects_wrong_action_stats_length(tmp_path: P
         "deadly-corridor-openvla",
         check=False,
         env={
-            "CROSS_DEVICE_RUNTIME_ENV": "latency-openvla",
+            "CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla",
             "OPENVLA_BASE_MODEL_PATH": str(base_model),
             "DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH": str(checkpoint),
         },
@@ -787,7 +778,7 @@ def test_deadly_openvla_check_deps_accepts_eleven_dim_action_stats(tmp_path: Pat
         "--only-policy",
         "deadly-corridor-openvla",
         env={
-            "CROSS_DEVICE_RUNTIME_ENV": "latency-openvla",
+            "CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla",
             "OPENVLA_BASE_MODEL_PATH": str(base_model),
             "DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH": str(checkpoint),
         },
@@ -816,7 +807,7 @@ def test_deadly_openvla_dry_run_writes_factorized_eleven_dim_config(tmp_path: Pa
         "deadly-corridor-openvla",
         "--max-runs",
         "1",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
@@ -930,7 +921,7 @@ def test_measure_dedups_duplicate_openvla_rows_across_experiments(tmp_path: Path
         "--dry-run",
         "--runtime-env",
         "openvla",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     assert result.stdout.count("policy: vla-policy") == 1
@@ -976,6 +967,64 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
     assert not (out / "runs").exists()
 
 
+def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch):
+    planning = importlib.import_module("scripts.cross_device.planning")
+    base_config = tmp_path / "base.yaml"
+    spec_path = tmp_path / "protocol.yaml"
+    out = tmp_path / "results"
+    profiles_dir = out / "profiles"
+    _write_base_config(base_config)
+    _write_spec(spec_path, base_config)
+    spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    current_device = spec["devices"][0]
+    runtime = RuntimeSelection(
+        requested="small_model",
+        detected_raw="latency",
+        matched_alias="small_model",
+        matched_conda_env="latency",
+        selected_alias="small_model",
+        allow_all=False,
+        allow_mismatch=False,
+    )
+    args = argparse.Namespace(
+        checkpoint_kind=None,
+        dry_run=False,
+        include_controls=False,
+        max_runs=1,
+        n_episodes=None,
+        only_device=None,
+        only_env=None,
+        only_experiment="exp2_same_device_calibration",
+        only_policy=None,
+        seed_set=None,
+        smoke=False,
+        smoke_max_steps=None,
+    )
+    calls: list[Path] = []
+
+    def ensure_profile_cached(*, profile_path: Path, profiles_dir: Path, hf_repo: str, **kwargs):
+        calls.append(profile_path)
+        profile_path.parent.mkdir(parents=True)
+        profile_path.write_text("{}\n", encoding="utf-8")
+        return profile_path
+
+    monkeypatch.setenv("HF_PROFILE_REPO", "latency-sensitive-bench/profiles")
+    monkeypatch.setattr(planning, "_ensure_profile_cached", ensure_profile_cached)
+
+    plan = planning._build_plan(
+        args,
+        spec,
+        "sim_same",
+        out,
+        profiles_dir,
+        current_device,
+        runtime,
+    )
+
+    assert [item.runnable for item in plan] == [True]
+    assert calls == [profiles_dir / "dry-policy" / "flappy" / "L_A100" / "profile.json"]
+
+
 def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
     base_config = tmp_path / "base.yaml"
     spec = tmp_path / "protocol.yaml"
@@ -1001,6 +1050,8 @@ def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
 
     assert "-m latency_bench.run" in result.stdout
     assert "-m latency_bench.experiments.build_latency_profile_from_trace" in result.stdout
+    assert "--policy-type random" in result.stdout
+    assert "--checkpoint-kind best" in result.stdout
     assert "--n-warmup" not in result.stdout
     assert "latencies.jsonl" in result.stdout
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
@@ -1291,7 +1342,7 @@ def test_aggregate_dry_run_accepts_raw_root(tmp_path: Path):
     assert not tables.exists()
 
 
-def test_sim_cross_skips_replay_hardware_not_configured_for_experiment(tmp_path: Path):
+def test_sim_cross_skips_replay_hardware_not_in_explicit_pair(tmp_path: Path):
     base_config = tmp_path / "base.yaml"
     spec = tmp_path / "protocol.yaml"
     out = tmp_path / "results"
@@ -1312,8 +1363,8 @@ def test_sim_cross_skips_replay_hardware_not_configured_for_experiment(tmp_path:
         "--dry-run",
         "--runtime-env",
         "openvla",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency-openvla"},
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     assert "runnable rows: 0" in result.stdout
-    assert "replay hardware not configured for experiment" in result.stdout
+    assert "replay hardware mismatch" in result.stdout

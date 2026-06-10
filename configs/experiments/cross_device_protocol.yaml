@@ -12,42 +12,37 @@ runtime_envs:
     conda_env: latency
     description: "Sample Factory / small RL models"
   openvla:
-    conda_env: latency-openvla
+    conda_env: starvla_rl_games_openvla
     description: "OpenVLA policies"
 
 devices:
   - id: rtx3090
     display_name: RTX 3090
     profile_id: L_3090
-    speed_rank: 1
     aliases:
       - RTX 3090
       - NVIDIA GeForce RTX 3090
   - id: rtx4090
     display_name: RTX 4090
     profile_id: L_4090
-    speed_rank: 2
     aliases:
       - RTX 4090
       - NVIDIA GeForce RTX 4090
   - id: a6000
     display_name: RTX A6000
     profile_id: L_A6000
-    speed_rank: 2
     aliases:
       - RTX A6000
       - NVIDIA RTX A6000
   - id: l40s
     display_name: L40S
     profile_id: L_L40S
-    speed_rank: 2
     aliases:
       - L40S
       - NVIDIA L40S
   - id: a100
     display_name: A100
     profile_id: L_A100
-    speed_rank: 3
     aliases:
       - A100
       - NVIDIA A100
@@ -58,14 +53,12 @@ devices:
   - id: h200
     display_name: H200
     profile_id: L_H200
-    speed_rank: 4
     aliases:
       - H200
       - NVIDIA H200
   - id: b200
     display_name: B200
     profile_id: L_B200
-    speed_rank: 5
     aliases:
       - B200
       - NVIDIA B200
@@ -169,7 +162,8 @@ experiments:
         env_name: deadly_corridor
         fps: 35
         base_config: configs/experiments/deadly_corridor/realtime/openvla_35fps.yaml
-    replay_devices:
-      - b200
-      - h200
-    main_claim_rule: replay_device_speed_rank > target_device_speed_rank
+    replay_pairs:
+      - target_device: a100
+        replay_device: b200
+      - target_device: a100
+        replay_device: h200

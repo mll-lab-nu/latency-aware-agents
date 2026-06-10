@@ -16,8 +16,22 @@ RUN_TAG=${RUN_TAG:-}
 DRY_RUN=${DRY_RUN:-0}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/bash_scripts/cross_device_launcher_common.sh
-source "${SCRIPT_DIR}/cross_device_launcher_common.sh"
+
+resolve_repo_root() {
+    if [[ -n "${REPO_DIR}" ]]; then
+        cd "${REPO_DIR}" && pwd
+        return
+    fi
+    cd "${SCRIPT_DIR}/../.." && pwd
+}
+
+init_log_file() {
+    local repo_root="$1"
+    local log_dir="${repo_root}/logs/cross_device_protocol"
+    mkdir -p "${log_dir}"
+    LOG_FILE="${log_dir}/upload_$(date +%Y%m%d_%H%M%S).log"
+    exec > >(tee -a "${LOG_FILE}") 2>&1
+}
 
 detect_device_slug() {
     if [[ "${DEVICE}" != "auto" ]]; then
@@ -89,9 +103,9 @@ resolve_hf_token() {
     return 0
 }
 
-REPO_ROOT="$(cross_device_resolve_repo_root "${BASH_SOURCE[0]}")"
+REPO_ROOT="$(resolve_repo_root)"
 cd "${REPO_ROOT}"
-cross_device_init_logging "${REPO_ROOT}" "upload"
+init_log_file "${REPO_ROOT}"
 
 if [[ -z "${HF_REPO}" ]]; then
     echo "Error: set HF_REPO first, for example:" >&2

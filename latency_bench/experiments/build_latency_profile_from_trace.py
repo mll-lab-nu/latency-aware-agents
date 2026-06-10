@@ -40,6 +40,11 @@ def build_profile_from_trace(
     fps: float,
     batch_size: int = 1,
     overwrite: bool = False,
+    policy_type: str | None = None,
+    checkpoint_kind: str | None = None,
+    checkpoint_path_or_id: str | None = None,
+    checkpoint_fingerprint: str | None = None,
+    base_model_id_or_path: str | None = None,
 ) -> dict[str, Any]:
     fps = float(fps)
     if not math.isfinite(fps) or fps <= 0:
@@ -78,6 +83,16 @@ def build_profile_from_trace(
         "trace_path": TRACE_FILENAME,
         "summary": summary,
     }
+    if policy_type is not None:
+        manifest["policy_type"] = policy_type
+    if checkpoint_kind is not None:
+        manifest["checkpoint_kind"] = checkpoint_kind
+    if checkpoint_path_or_id is not None:
+        manifest["checkpoint_path_or_id"] = checkpoint_path_or_id
+    if checkpoint_fingerprint is not None:
+        manifest["checkpoint_fingerprint"] = checkpoint_fingerprint
+    if base_model_id_or_path is not None:
+        manifest["base_model_id_or_path"] = base_model_id_or_path
     save_profile_manifest(manifest, output_path / PROFILE_FILENAME)
     return manifest
 
@@ -93,6 +108,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--target-device", required=True)
     parser.add_argument("--fps", type=float, required=True)
     parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--policy-type")
+    parser.add_argument("--checkpoint-kind")
+    parser.add_argument("--checkpoint-path-or-id")
+    parser.add_argument("--checkpoint-fingerprint")
+    parser.add_argument("--base-model-id-or-path")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
 
@@ -107,6 +127,11 @@ def main(argv: list[str] | None = None) -> None:
         fps=args.fps,
         batch_size=args.batch_size,
         overwrite=args.overwrite,
+        policy_type=args.policy_type,
+        checkpoint_kind=args.checkpoint_kind,
+        checkpoint_path_or_id=args.checkpoint_path_or_id,
+        checkpoint_fingerprint=args.checkpoint_fingerprint,
+        base_model_id_or_path=args.base_model_id_or_path,
     )
 
 
