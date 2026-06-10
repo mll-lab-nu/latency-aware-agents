@@ -57,7 +57,7 @@ EXPERIMENT3_COLUMNS = (
     "panel",
     "policy",
     "env",
-    "target_device_d",
+    "target_device",
     "target_profile",
     "replay_device",
     "true_realtime_return_on_d",
@@ -218,12 +218,13 @@ def build_experiment3_rows(
 ) -> list[dict[str, Any]]:
     root_path = Path(root)
     manifests = load_protocol_manifests(root_path, raw_root=raw_root)
-    devices_by_id = _devices_by_id(spec)
     rows: list[dict[str, Any]] = []
     seed_label = _seed_set_label(spec.get("seed_set", []))
     for experiment_id, experiment, row_spec in _iter_rows(spec, "exp3_cross_device_prediction"):
-        replay_device_ids = [str(item) for item in experiment.get("replay_devices", [])]
-        for target in _devices(spec):
+        devices_by_id = _devices_by_id(spec)
+        for pair in experiment["replay_pairs"]:
+            target = devices_by_id[str(pair["target_device"])]
+            replay = devices_by_id[str(pair["replay_device"])]
             true_realtime = _matching_manifests(
                 manifests,
                 stage="realtime",
@@ -232,69 +233,64 @@ def build_experiment3_rows(
                 target_device_id=target["id"],
             )
             true_summary = _summarize_manifest_runs(true_realtime)
-            for replay_id in replay_device_ids:
-                replay = devices_by_id.get(replay_id)
-                if replay is None:
-                    rows.append(_missing_replay_device_row(experiment_id, experiment, row_spec, target, replay_id, seed_label))
-                    continue
-                sim_cross = _matching_manifests(
+            sim_cross = _matching_manifests(
+                manifests,
+                stage="sim_cross",
+                experiment_id=experiment_id,
+                row=row_spec,
+                target_device_id=target["id"],
+                replay_device_id=replay["id"],
+            )
+            sim_summary = _summarize_manifest_runs(sim_cross)
+            errors = _error_fields(
+                real_value=_maybe_number(true_summary.get("mean_return")),
+                sim_value=_maybe_number(sim_summary.get("mean_return")),
+                real_length=_maybe_number(true_summary.get("mean_length")),
+                sim_length=_maybe_number(sim_summary.get("mean_length")),
+            )
+            notes = _join_notes(
+                _missing_note("true realtime", true_realtime, true_summary),
+                _skipped_notes_if_missing(
                     manifests,
+                    matches=true_realtime,
+                    stage="realtime",
+                    experiment_id=experiment_id,
+                    row=row_spec,
+                    target_device_id=target["id"],
+                ),
+                _missing_note("sim-cross", sim_cross, sim_summary),
+                _skipped_notes_if_missing(
+                    manifests,
+                    matches=sim_cross,
                     stage="sim_cross",
                     experiment_id=experiment_id,
                     row=row_spec,
                     target_device_id=target["id"],
                     replay_device_id=replay["id"],
-                )
-                sim_summary = _summarize_manifest_runs(sim_cross)
-                errors = _error_fields(
-                    real_value=_maybe_number(true_summary.get("mean_return")),
-                    sim_value=_maybe_number(sim_summary.get("mean_return")),
-                    real_length=_maybe_number(true_summary.get("mean_length")),
-                    sim_length=_maybe_number(sim_summary.get("mean_length")),
-                )
-                notes = _join_notes(
-                    _missing_note("true realtime", true_realtime, true_summary),
-                    _skipped_notes_if_missing(
-                        manifests,
-                        matches=true_realtime,
-                        stage="realtime",
-                        experiment_id=experiment_id,
-                        row=row_spec,
-                        target_device_id=target["id"],
-                    ),
-                    _missing_note("sim-cross", sim_cross, sim_summary),
-                    _skipped_notes_if_missing(
-                        manifests,
-                        matches=sim_cross,
-                        stage="sim_cross",
-                        experiment_id=experiment_id,
-                        row=row_spec,
-                        target_device_id=target["id"],
-                        replay_device_id=replay["id"],
-                    ),
-                )
-                out = {
-                    "experiment_id": experiment_id,
-                    "panel": experiment.get("panel"),
-                    "policy": row_spec.get("policy"),
-                    "env": row_spec.get("env"),
-                    "target_device_d": target.get("display_name", target.get("id")),
-                    "target_profile": target.get("profile_id"),
-                    "replay_device": replay.get("display_name", replay.get("id")),
-                    "true_realtime_return_on_d": true_summary.get("mean_return", ""),
-                    "simulated_return_on_replay_using_L_d": sim_summary.get("mean_return", ""),
-                    "return_abs_error": errors["return_abs_error"],
-                    "return_rel_error_pct": errors["return_rel_error_pct"],
-                    "true_realtime_length_on_d": true_summary.get("mean_length", ""),
-                    "simulated_length_on_replay_using_L_d": sim_summary.get("mean_length", ""),
-                    "length_abs_error": errors["length_abs_error"],
-                    "length_rel_error_pct": errors["length_rel_error_pct"],
-                    "n_episodes": _available_n_episodes(true_summary, sim_summary),
-                    "seed_set": seed_label,
-                    "use_in_main_claim": _main_claim_value(target, replay),
-                    "notes": notes,
-                }
-                rows.append({key: out.get(key, "") for key in EXPERIMENT3_COLUMNS})
+                ),
+            )
+            out = {
+                "experiment_id": experiment_id,
+                "panel": experiment.get("panel"),
+                "policy": row_spec.get("policy"),
+                "env": row_spec.get("env"),
+                "target_device": target.get("display_name", target.get("id")),
+                "target_profile": target.get("profile_id"),
+                "replay_device": replay.get("display_name", replay.get("id")),
+                "true_realtime_return_on_d": true_summary.get("mean_return", ""),
+                "simulated_return_on_replay_using_L_d": sim_summary.get("mean_return", ""),
+                "return_abs_error": errors["return_abs_error"],
+                "return_rel_error_pct": errors["return_rel_error_pct"],
+                "true_realtime_length_on_d": true_summary.get("mean_length", ""),
+                "simulated_length_on_replay_using_L_d": sim_summary.get("mean_length", ""),
+                "length_abs_error": errors["length_abs_error"],
+                "length_rel_error_pct": errors["length_rel_error_pct"],
+                "n_episodes": _available_n_episodes(true_summary, sim_summary),
+                "seed_set": seed_label,
+                "use_in_main_claim": "TRUE",
+                "notes": notes,
+            }
+            rows.append({key: out.get(key, "") for key in EXPERIMENT3_COLUMNS})
     return rows
 
 
@@ -650,10 +646,6 @@ def _seed_set_label(seed_set: Any) -> str:
     return str(seed_set)
 
 
-def _main_claim_value(target: dict[str, Any], replay: dict[str, Any]) -> str:
-    return "TRUE" if replay["speed_rank"] > target["speed_rank"] else "FALSE"
-
-
 def _missing_note(label: str, manifests: list[dict[str, Any]], summary: dict[str, Any]) -> str:
     if not manifests:
         return f"missing {label} run"
@@ -665,26 +657,3 @@ def _missing_note(label: str, manifests: list[dict[str, Any]], summary: dict[str
 def _join_notes(*notes: str) -> str:
     return "; ".join(note for note in notes if note)
 
-
-def _missing_replay_device_row(
-    experiment_id: str,
-    experiment: dict[str, Any],
-    row_spec: dict[str, Any],
-    target: dict[str, Any],
-    replay_id: str,
-    seed_label: str,
-) -> dict[str, Any]:
-    out = {
-        "experiment_id": experiment_id,
-        "panel": experiment.get("panel"),
-        "policy": row_spec.get("policy"),
-        "env": row_spec.get("env"),
-        "target_device_d": target.get("display_name", target.get("id")),
-        "target_profile": target.get("profile_id"),
-        "replay_device": replay_id,
-        "n_episodes": "",
-        "seed_set": seed_label,
-        "use_in_main_claim": "FALSE",
-        "notes": f"unknown replay device in spec: {replay_id}",
-    }
-    return {key: out.get(key, "") for key in EXPERIMENT3_COLUMNS}

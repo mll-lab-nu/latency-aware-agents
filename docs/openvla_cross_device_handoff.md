@@ -12,7 +12,7 @@ OpenVLA base model and SFT checkpoints available.
 All rows use the same entrypoint:
 
 ```bash
-bash scripts/bash_scripts/run_cross_device_openvla.sh
+RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh
 ```
 
 ## Required Paths
@@ -58,15 +58,15 @@ CROSS_DEVICE_HARDWARE=a100 \
 OPENVLA_BASE_MODEL_PATH=/path/to/openvla_base \
 DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH=/path/to/demon_ckpt \
 DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH=/path/to/deadly_ckpt \
-OPENVLA_CHECK_DEPS_ONLY=1 \
-bash scripts/bash_scripts/run_cross_device_openvla.sh
+RUNTIME_ENV=openvla STAGES=check-deps \
+scripts/bash_scripts/run_cross_device.sh
 ```
 
 Filter checks the same way as eval:
 
 ```bash
-OPENVLA_CHECK_DEPS_ONLY=1 ONLY_POLICY=demon-attack-openvla \
-bash scripts/bash_scripts/run_cross_device_openvla.sh
+RUNTIME_ENV=openvla STAGES=check-deps ONLY_POLICY=demon-attack-openvla \
+scripts/bash_scripts/run_cross_device.sh
 ```
 
 ## Dry Run
@@ -76,15 +76,15 @@ resolved OpenVLA paths.
 
 ```bash
 DRY_RUN=1 CROSS_DEVICE_HARDWARE=a100 \
-bash scripts/bash_scripts/run_cross_device_openvla.sh
+RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh
 ```
 
 Smoke dry-run:
 
 ```bash
-DRY_RUN=1 OPENVLA_SMOKE=1 MAX_RUNS=1 ONLY_POLICY=demon-attack-openvla \
+DRY_RUN=1 SMOKE=1 MAX_RUNS=1 ONLY_POLICY=demon-attack-openvla \
 CROSS_DEVICE_HARDWARE=a100 \
-bash scripts/bash_scripts/run_cross_device_openvla.sh
+RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh
 ```
 
 ## One-Episode Smoke
@@ -100,11 +100,11 @@ Demon Attack smoke:
 CROSS_DEVICE_HARDWARE=a100 \
 OPENVLA_BASE_MODEL_PATH=/path/to/openvla_base \
 DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH=/path/to/demon_ckpt \
-OPENVLA_SMOKE=1 \
-OPENVLA_STAGES=measure,realtime \
+SMOKE=1 \
+STAGES="measure realtime" \
 ONLY_POLICY=demon-attack-openvla \
 MAX_RUNS=1 \
-bash scripts/bash_scripts/run_cross_device_openvla.sh
+RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh
 ```
 
 Deadly Corridor smoke:
@@ -113,21 +113,21 @@ Deadly Corridor smoke:
 CROSS_DEVICE_HARDWARE=a100 \
 OPENVLA_BASE_MODEL_PATH=/path/to/openvla_base \
 DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH=/path/to/deadly_ckpt \
-OPENVLA_SMOKE=1 \
-OPENVLA_STAGES=measure,realtime \
+SMOKE=1 \
+STAGES="measure realtime" \
 ONLY_POLICY=deadly-corridor-openvla \
 MAX_RUNS=1 \
-bash scripts/bash_scripts/run_cross_device_openvla.sh
+RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh
 ```
 
 Optional smoke step cap:
 
 ```bash
-OPENVLA_SMOKE=1 OPENVLA_SMOKE_MAX_STEPS=200 \
-bash scripts/bash_scripts/run_cross_device_openvla.sh
+SMOKE=1 SMOKE_MAX_STEPS=200 \
+RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh
 ```
 
-`OPENVLA_SMOKE_MAX_STEPS` overrides `evaluation.eval_max_steps` in generated
+`SMOKE_MAX_STEPS` overrides `evaluation.eval_max_steps` in generated
 configs. It does not change environment stepping semantics such as Atari
 wrappers, Doom frameskip, or frame stack.
 
@@ -148,8 +148,8 @@ doctor, measure, realtime
 Set explicit stages when needed:
 
 ```bash
-OPENVLA_STAGES=doctor bash scripts/bash_scripts/run_cross_device_openvla.sh
-OPENVLA_STAGES=measure,realtime,sim-same bash scripts/bash_scripts/run_cross_device_openvla.sh
+STAGES=doctor RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh
+STAGES="measure realtime sim-same" RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh
 ```
 
 Smoke does not run `sim-same` or `sim-cross` unless explicitly requested because
@@ -165,7 +165,7 @@ OPENVLA_BASE_MODEL_PATH=/path/to/openvla_base \
 DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH=/path/to/demon_ckpt \
 DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH=/path/to/deadly_ckpt \
 CONTINUE_ON_ERROR=1 \
-bash scripts/bash_scripts/run_cross_device_openvla.sh
+RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh
 ```
 
 Full results continue to use the established tree:

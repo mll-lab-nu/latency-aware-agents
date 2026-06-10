@@ -41,14 +41,12 @@ def _spec() -> dict:
                 "id": "a100",
                 "display_name": "A100",
                 "profile_id": "L_A100",
-                "speed_rank": 3,
                 "aliases": ["NVIDIA A100"],
             },
             {
                 "id": "h200",
                 "display_name": "H200",
                 "profile_id": "L_H200",
-                "speed_rank": 4,
                 "aliases": ["NVIDIA H200"],
             },
         ],
@@ -58,8 +56,10 @@ def _spec() -> dict:
             "exp3_cross_device_prediction": {
                 "panel": "c",
                 "rows": [dict(row)],
-                "replay_devices": ["h200", "a100"],
-                "main_claim_rule": "replay_device_speed_rank > target_device_speed_rank",
+                "replay_pairs": [
+                    {"target_device": "a100", "replay_device": "h200"},
+                    {"target_device": "h200", "replay_device": "a100"},
+                ],
             },
         },
     }
@@ -235,7 +235,7 @@ def test_manifest_matching_and_main_claim_rule(tmp_path: Path):
     _write_fixture(tmp_path)
 
     exp3 = build_experiment3_rows(spec, tmp_path)
-    a100_on_h200 = next(row for row in exp3 if row["target_device_d"] == "A100" and row["replay_device"] == "H200")
+    a100_on_h200 = next(row for row in exp3 if row["target_device"] == "A100" and row["replay_device"] == "H200")
     assert tuple(a100_on_h200) == EXPERIMENT3_COLUMNS
     assert a100_on_h200["use_in_main_claim"] == "TRUE"
     assert float(a100_on_h200["true_realtime_return_on_d"]) == pytest.approx(100.0)
@@ -243,15 +243,10 @@ def test_manifest_matching_and_main_claim_rule(tmp_path: Path):
     assert float(a100_on_h200["return_rel_error_pct"]) == pytest.approx(10.0)
     assert a100_on_h200["notes"] == ""
 
-    h200_on_a100 = next(row for row in exp3 if row["target_device_d"] == "H200" and row["replay_device"] == "A100")
-    assert h200_on_a100["use_in_main_claim"] == "FALSE"
+    h200_on_a100 = next(row for row in exp3 if row["target_device"] == "H200" and row["replay_device"] == "A100")
+    assert h200_on_a100["use_in_main_claim"] == "TRUE"
     assert "missing true realtime run" in h200_on_a100["notes"]
     assert "missing sim-cross run" in h200_on_a100["notes"]
-
-    malformed = _spec()
-    del malformed["devices"][1]["speed_rank"]
-    with pytest.raises(KeyError, match="speed_rank"):
-        build_experiment3_rows(malformed, tmp_path)
 
 
 def test_write_protocol_tables_uses_requested_schemas(tmp_path: Path):

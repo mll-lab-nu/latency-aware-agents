@@ -1,341 +1,199 @@
 # Cross-Device Latency Protocol Runbook
 
-This runbook assumes the repository is available at:
+This runbook describes the realtime-inference cross-device protocol: how to
+measure latency profiles, reuse them across machines, run replay simulations,
+and aggregate the outputs used by the paper figures.
+
+Default paths:
 
 ```bash
-cd /home/lixinyuan/latency-sensitive-bench
-```
-
-The protocol spec is:
-
-```text
-configs/experiments/cross_device_protocol.yaml
-```
-
-The default output root is:
-
-```text
-results/cross_device
-```
-
-## Recommended usage
-
-Small models:
-
-```bash
-bash scripts/bash_scripts/run_cross_device_small_models.sh
-```
-
-OpenVLA:
-
-```bash
-bash scripts/bash_scripts/run_cross_device_openvla.sh
-```
-
-Aggregate:
-
-```bash
-bash scripts/bash_scripts/aggregate_cross_device.sh
-```
-
-If Hugging Face outputs were downloaded to `results/raw`, the aggregate script
-auto-detects `results/raw/**/cross_device` and reads those raw machine outputs
-directly. It also accepts the older nested `results/raw/raw/**/cross_device`
-layout.
-
-Upload one machine's collected outputs to Hugging Face:
-
-```bash
-HF_REPO=your-name/cross-device-latency-v1 HF_TOKEN=hf_xxx \
-bash scripts/bash_scripts/upload_cross_device_to_hf.sh
-```
-
-Dry run:
-
-```bash
-DRY_RUN=1 bash scripts/bash_scripts/run_cross_device_small_models.sh
-DRY_RUN=1 bash scripts/bash_scripts/run_cross_device_openvla.sh
-DRY_RUN=1 HF_REPO=your-name/cross-device-latency-v1 bash scripts/bash_scripts/upload_cross_device_to_hf.sh
-```
-
-More episodes:
-
-```bash
-N_EPISODES=100 SEED_SET=0,1,2 bash scripts/bash_scripts/run_cross_device_small_models.sh
-```
-
-Official clean run root:
-
-```bash
-OUT=results/cross_device_official \
-PROFILES_DIR=results/cross_device_official/profiles \
-bash scripts/bash_scripts/run_cross_device_small_models.sh
-```
-
-The default protocol keeps most evaluation rows at 10 episodes, but uses a
-`stage_overrides.measure.n_episodes` row override for `deadly-corridor-sf-l1`
-so its latency profile is measured with 1000 episodes. Passing `N_EPISODES`
-explicitly still overrides all row/stage defaults.
-
-Launcher logs are written to:
-
-```text
-logs/cross_device_protocol/
-```
-
-Each launcher accepts environment-variable overrides:
-
-```bash
-REPO_DIR=/path/to/repo
 SPEC=configs/experiments/cross_device_protocol.yaml
 OUT=results/cross_device
 PROFILES_DIR=results/cross_device/profiles
+```
+
+## Experiment Flow
+
+The protocol is run as ordered stages:
+
+1. `doctor`: checks selected rows, hardware mapping, runtime env, configs, and
+   missing profiles without running inference.
+2. `measure`: runs realtime inference on the current device and writes
+   `latencies.jsonl`; then converts it into a profile folder containing
+   `profile.json`, `latencies.jsonl`, `profile_summary.json`, and
+   `profile_summary.csv`.
+3. `realtime`: runs the true realtime baseline on the current device.
+4. `sim-same`: replays the current device profile on the same device.
+5. `sim-cross`: replays a target device profile on the explicit replay device
+   named by the protocol pair.
+6. `aggregate`: reads manifests and profiles and writes the CSV tables used to
+   build paper figure data snapshots.
+
+Latency profiles are model-and-hardware artifacts. The profile manifest records
+the policy/env/device/fps plus model metadata such as `policy_type`,
+`checkpoint_kind`, `checkpoint_path_or_id`, optional `checkpoint_fingerprint`,
+and OpenVLA `base_model_id_or_path` when available.
+
+Cross-device replay pairs are explicit in the protocol. The `target_device` is
+the device whose latency profile is being simulated; the `replay_device` is the
+machine that executes the replay:
+
+```yaml
+replay_pairs:
+  - target_device: a100
+    replay_device: b200
+  - target_device: a100
+    replay_device: h200
+```
+
+## Main Script
+
+Use the single bash entrypoint:
+
+```bash
+scripts/bash_scripts/run_cross_device.sh
+```
+
+Common examples:
+
+```bash
+# Print selected rows and generated commands without running inference.
+DRY_RUN=1 STAGES="doctor measure" scripts/bash_scripts/run_cross_device.sh
+
+# Run the standard local flow.
+STAGES="doctor measure realtime sim-same" scripts/bash_scripts/run_cross_device.sh
+
+# Run OpenVLA rows from the OpenVLA environment.
+conda activate starvla_rl_games_openvla
+RUNTIME_ENV=openvla STAGES="doctor check-deps measure realtime" scripts/bash_scripts/run_cross_device.sh
+
+# Run small-model rows from the latency environment.
+conda activate latency
+RUNTIME_ENV=small_model STAGES="doctor measure realtime sim-same" scripts/bash_scripts/run_cross_device.sh
+```
+
+Useful environment variables:
+
+```bash
+SPEC=configs/experiments/cross_device_protocol.yaml
+OUT=results/cross_device
+PROFILES_DIR=results/cross_device/profiles
+TABLES_DIR=results/cross_device/tables
+HARDWARE=auto
+REPLAY_HARDWARE=auto
+RUNTIME_ENV=auto
+STAGES="doctor measure realtime sim-same sim-cross aggregate"
+ONLY_POLICY=OpenVLA-Flappy
+ONLY_ENV=flappy
+ONLY_DEVICE=a100
+ONLY_EXPERIMENT=exp2_same_device_calibration
+MAX_RUNS=1
 N_EPISODES=100
 SEED_SET=0,1,2
 CHECKPOINT_KIND=best
 DRY_RUN=1
+RESUME=1
+OVERWRITE=0
+CONTINUE_ON_ERROR=1
+SMOKE=1
+SMOKE_EPISODES=1
+SMOKE_MAX_STEPS=10
 ```
 
-The upload launcher also accepts:
+## Python CLI
+
+The bash script calls the Python module:
 
 ```bash
-HF_REPO=your-name/cross-device-latency-v1
-HF_TOKEN=hf_xxx        # optional if already logged in with hf auth login
-HF_TOKEN_FILE=/path/to/token.txt
-HF_REPO_TYPE=dataset
-OUT=results/cross_device
-DEVICE=auto          # or rtx3090 / rtx4090 / l40s / a100 / h200 / b200
-RUNTIME=combined     # use this when small_model and OpenVLA both ran on the machine
-REMOTE_PREFIX=raw
-RUN_TAG=$(hostname)_$(date +%Y%m%d_%H%M%S)
-DRY_RUN=1
+python -m scripts.cross_device.protocol doctor --spec "$SPEC" --hardware auto --runtime-env auto
+python -m scripts.cross_device.protocol measure --spec "$SPEC" --hardware auto --out "$OUT" --resume
+python -m scripts.cross_device.protocol realtime --spec "$SPEC" --hardware auto --out "$OUT" --resume
+python -m scripts.cross_device.protocol sim-same --spec "$SPEC" --hardware auto --profiles-dir "$PROFILES_DIR" --out "$OUT" --resume
+python -m scripts.cross_device.protocol sim-cross --spec "$SPEC" --replay-hardware auto --profiles-dir "$PROFILES_DIR" --out "$OUT" --resume
+python -m scripts.cross_device.protocol aggregate --spec "$SPEC" --root "$OUT" --out "$TABLES_DIR" --overwrite
 ```
 
-The default remote layout is:
+`check-deps` is OpenVLA-specific and reports local base model, dataset stats,
+unnormalization key, checkpoint, and weights availability:
+
+```bash
+RUNTIME_ENV=openvla python -m scripts.cross_device.protocol check-deps --spec "$SPEC" --hardware auto
+```
+
+## Profile Cache
+
+Profiles are stored locally under:
 
 ```text
-raw/<device>/<runtime>/<hostname>_<timestamp>/cross_device/
+<PROFILES_DIR>/<policy_slug>/<env_slug>/<profile_id>/profile.json
 ```
 
-Download all uploaded machine outputs and aggregate directly:
+For cross-machine runs, set a Hugging Face dataset repo:
 
 ```bash
-rm -rf results/raw
-hf download \
-  --repo-type dataset \
-  --token "$HF_TOKEN" \
-  "$HF_REPO" \
-  --local-dir results/raw \
-  --include "raw/**"
-
-bash scripts/bash_scripts/aggregate_cross_device.sh
+HF_PROFILE_REPO=latency-sensitive-bench/profiles
 ```
 
-Use `USE_RAW=0` to force aggregation from the standard local
-`results/cross_device` tree instead of the downloaded raw layout. Use
-`RAW_ROOT=/path/to/raw` if the downloaded raw tree is not under `results/raw`.
+Sim stages use local-first behavior:
 
-## 1. Small models in `latency`
+- if `profile.json` exists locally, it is used directly;
+- if it is missing and `HF_PROFILE_REPO` is set, the matching profile folder is
+  downloaded before skip decisions;
+- `doctor` and `DRY_RUN=1` do not download profiles.
 
-Use this environment for Sample Factory / small RL policies:
+Upload measured local profiles:
 
 ```bash
-conda activate latency
+UPLOAD_PROFILES=1 \
+HF_PROFILE_REPO=latency-sensitive-bench/profiles \
+STAGES="measure" \
+scripts/bash_scripts/run_cross_device.sh
 ```
 
-Check the machine and selected rows:
+Manual profile cache commands:
 
 ```bash
-python scripts/experiments/run_cross_device_protocol.py doctor \
-  --spec configs/experiments/cross_device_protocol.yaml \
-  --hardware auto \
-  --runtime-env auto
+python -m scripts.cross_device.profile_cache download \
+  --profile-path "$PROFILES_DIR/OpenVLA-Flappy/flappy/L_A100/profile.json" \
+  --profiles-dir "$PROFILES_DIR" \
+  --hf-repo latency-sensitive-bench/profiles
+
+python -m scripts.cross_device.profile_cache upload \
+  --profile-path "$PROFILES_DIR/OpenVLA-Flappy/flappy/L_A100/profile.json" \
+  --profiles-dir "$PROFILES_DIR" \
+  --hf-repo latency-sensitive-bench/profiles
 ```
 
-Measure latency profiles on the current hardware:
+## Aggregation And Paper Data
 
-```bash
-python scripts/experiments/run_cross_device_protocol.py measure \
-  --spec configs/experiments/cross_device_protocol.yaml \
-  --hardware auto \
-  --runtime-env auto \
-  --out results/cross_device \
-  --resume
+`aggregate` writes protocol tables under `TABLES_DIR`:
+
+```text
+experiment1_latency_profile_summary.csv
+experiment2_same_device_calibration.csv
+experiment3_cross_device_prediction.csv
 ```
 
-Run true realtime evaluation on the current hardware:
+Those CSVs are derived from measured profiles and run manifests. The plotted
+paper snapshot under `paper/latency-sensitive-vla/figures/.../data.csv` is not
+written directly by the protocol; it is a curated figure input built from these
+aggregate tables.
+
+To aggregate downloaded raw machine outputs:
 
 ```bash
-python scripts/experiments/run_cross_device_protocol.py realtime \
-  --spec configs/experiments/cross_device_protocol.yaml \
-  --hardware auto \
-  --runtime-env auto \
-  --out results/cross_device \
-  --resume
-```
-
-Run same-device simulated replay using the current hardware profile:
-
-```bash
-python scripts/experiments/run_cross_device_protocol.py sim-same \
-  --spec configs/experiments/cross_device_protocol.yaml \
-  --hardware auto \
-  --runtime-env auto \
-  --profiles-dir results/cross_device/profiles \
-  --out results/cross_device \
-  --resume
-```
-
-## 2. OpenVLA in `latency-openvla`
-
-Use this environment for OpenVLA-Flappy:
-
-```bash
-conda activate latency-openvla
-```
-
-Check the machine and selected rows:
-
-```bash
-python scripts/experiments/run_cross_device_protocol.py doctor \
-  --spec configs/experiments/cross_device_protocol.yaml \
-  --hardware auto \
-  --runtime-env auto
-```
-
-Measure OpenVLA latency profiles on the current hardware:
-
-```bash
-python scripts/experiments/run_cross_device_protocol.py measure \
-  --spec configs/experiments/cross_device_protocol.yaml \
-  --hardware auto \
-  --runtime-env auto \
-  --out results/cross_device \
-  --resume
-```
-
-Run true realtime OpenVLA evaluation on the current hardware:
-
-```bash
-python scripts/experiments/run_cross_device_protocol.py realtime \
-  --spec configs/experiments/cross_device_protocol.yaml \
-  --hardware auto \
-  --runtime-env auto \
-  --out results/cross_device \
-  --resume
-```
-
-Run same-device simulated OpenVLA replay using the current hardware profile:
-
-```bash
-python scripts/experiments/run_cross_device_protocol.py sim-same \
-  --spec configs/experiments/cross_device_protocol.yaml \
-  --hardware auto \
-  --runtime-env auto \
-  --profiles-dir results/cross_device/profiles \
-  --out results/cross_device \
-  --resume
-```
-
-Run cross-device replay on the current replay hardware:
-
-```bash
-python scripts/experiments/run_cross_device_protocol.py sim-cross \
-  --spec configs/experiments/cross_device_protocol.yaml \
-  --replay-hardware auto \
-  --runtime-env auto \
-  --profiles-dir results/cross_device/profiles \
-  --out results/cross_device \
-  --resume
-```
-
-## 3. Aggregation
-
-After collecting or syncing all machine outputs into one `results/cross_device` tree, aggregate in the lightweight `latency` environment:
-
-```bash
-conda activate latency
-```
-
-```bash
-python scripts/experiments/run_cross_device_protocol.py aggregate \
-  --spec configs/experiments/cross_device_protocol.yaml \
-  --root results/cross_device \
-  --out results/cross_device/tables \
+python -m scripts.cross_device.protocol aggregate \
+  --spec "$SPEC" \
+  --root "$OUT" \
+  --raw-root results/raw \
+  --out "$TABLES_DIR" \
   --overwrite
 ```
 
-## 4. Result locations
-
-Generated configs:
-
-```text
-results/cross_device/generated_configs/<stage>/<policy>/<env>/<device_or_pair>/<run_id>.yaml
-```
-
-Latency profiles:
-
-```text
-results/cross_device/profiles/<policy>/<env>/<profile_id>/
-```
-
-Important profile files:
-
-```text
-profile.json
-latencies.jsonl
-profile_summary.json
-profile_summary.csv
-```
-
-Realtime runs:
-
-```text
-results/cross_device/runs/realtime/<policy>/<env>/<hardware>/<run_id>/
-```
-
-Same-device simulated replay:
-
-```text
-results/cross_device/runs/sim_same/<policy>/<env>/<target_hardware>/<run_id>/
-```
-
-Cross-device simulated replay:
-
-```text
-results/cross_device/runs/sim_cross/<policy>/<env>/<target_hardware>/replay_<replay_hardware>/<run_id>/
-```
-
-Run manifest index:
-
-```text
-results/cross_device/manifests/runs.jsonl
-```
-
-Final CSV tables:
-
-```text
-results/cross_device/tables/experiment1_latency_profile_summary.csv
-results/cross_device/tables/experiment2_same_device_calibration.csv
-results/cross_device/tables/experiment3_cross_device_prediction.csv
-```
-
-## Safety notes
-
-`--runtime-env auto` is the default safety mode. It detects the current environment and only runs compatible rows:
-
-- `latency` runs `small_model` rows.
-- `latency-openvla` runs `openvla` rows.
-
-Use `--dry-run` before expensive runs:
+The older full-output upload script is still available for archiving full run
+directories:
 
 ```bash
-python scripts/experiments/run_cross_device_protocol.py measure \
-  --spec configs/experiments/cross_device_protocol.yaml \
-  --hardware auto \
-  --runtime-env auto \
-  --out results/cross_device \
-  --dry-run
+HF_REPO=your-name/cross-device-latency-v1 \
+bash scripts/bash_scripts/upload_cross_device_to_hf.sh
 ```
-
-`--runtime-env all` is allowed for dry-run inspection. For real execution it requires `--allow-runtime-env-mismatch`, which should only be used deliberately.

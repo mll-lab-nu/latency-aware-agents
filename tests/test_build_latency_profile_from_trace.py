@@ -32,7 +32,17 @@ def _build_profile(tmp_path: Path, samples: list[float], **overrides):
 
 
 def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Path):
-    manifest, output_dir = _build_profile(tmp_path, [10.0, 20.0, 30.0])
+    checkpoint = tmp_path / "policy.pt"
+    checkpoint.write_bytes(b"checkpoint")
+    manifest, output_dir = _build_profile(
+        tmp_path,
+        [10.0, 20.0, 30.0],
+        policy_type="random",
+        checkpoint_kind="best",
+        checkpoint_path_or_id=str(checkpoint),
+        checkpoint_fingerprint="sha256:abc123",
+        base_model_id_or_path="base-model",
+    )
 
     assert (output_dir / "profile.json").exists()
     assert (output_dir / "latencies.jsonl").exists()
@@ -45,6 +55,11 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
     assert loaded_manifest["frame_ms"] == pytest.approx(40.0)
     assert loaded_manifest["trace_path"] == "latencies.jsonl"
     assert loaded_manifest["summary"]["mean_ms"] == pytest.approx(20.0)
+    assert loaded_manifest["policy_type"] == "random"
+    assert loaded_manifest["checkpoint_kind"] == "best"
+    assert loaded_manifest["checkpoint_path_or_id"] == str(checkpoint)
+    assert loaded_manifest["checkpoint_fingerprint"] == "sha256:abc123"
+    assert loaded_manifest["base_model_id_or_path"] == "base-model"
     assert load_latency_samples(output_dir / "latencies.jsonl") == [10.0, 20.0, 30.0]
 
     summary_json = json.loads((output_dir / "profile_summary.json").read_text(encoding="utf-8"))
