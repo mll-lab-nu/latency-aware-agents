@@ -48,31 +48,9 @@ Each checkpoint directory must contain:
 actor/model_state_dict/full_weights.pt
 ```
 
-## Dependency Check
-
-This checks paths, unnormalization keys, and OpenVLA action-stat dimensions. It
-does not load the model, initialize an environment, or write eval output.
-
-```bash
-CROSS_DEVICE_HARDWARE=a100 \
-OPENVLA_BASE_MODEL_PATH=/path/to/openvla_base \
-DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH=/path/to/demon_ckpt \
-DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH=/path/to/deadly_ckpt \
-RUNTIME_ENV=openvla STAGES=check-deps \
-scripts/bash_scripts/run_cross_device.sh
-```
-
-Filter checks the same way as eval:
-
-```bash
-RUNTIME_ENV=openvla STAGES=check-deps ONLY_POLICY=demon-attack-openvla \
-scripts/bash_scripts/run_cross_device.sh
-```
-
 ## Dry Run
 
-Dry-run prints selected rows, generated config paths, output directories, and
-resolved OpenVLA paths.
+Dry-run prints selected rows, generated config paths, and output directories.
 
 ```bash
 DRY_RUN=1 CROSS_DEVICE_HARDWARE=a100 \

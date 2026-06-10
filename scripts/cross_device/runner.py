@@ -23,7 +23,6 @@ from scripts.cross_device.config import (
     _write_generated_config,
 )
 from scripts.cross_device.models import PlannedTask, ProtocolTask, RuntimeSelection
-from scripts.cross_device.openvla_deps import _openvla_dependency_errors, _print_openvla_dependency_status
 from scripts.cross_device.planning import _build_plan, _output_root, _profiles_dir_for_args
 from scripts.cross_device.runtime import _stage_hardware, _validate_runtime_safety, detect_runtime_env
 
@@ -139,9 +138,6 @@ def _run_task(
     try:
         config = _generated_config(task, spec)
         _write_generated_config(task.generated_config_path, config)
-        dependency_errors = _openvla_dependency_errors(config)
-        if dependency_errors:
-            raise FileNotFoundError("; ".join(dependency_errors))
         _write_json(task.output_dir / "manifest.json", manifest)
         subprocess.run(eval_cmd, check=True)
         if profile_cmd is not None:
@@ -302,7 +298,6 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
         if task.stage == "measure":
             print(f"profile_command: {shlex.join(_profile_command(task, spec, False))}")
         print(f"eval_max_steps: {config.get('evaluation', {}).get('eval_max_steps', '')}")
-        _print_openvla_dependency_status(config)
     _print_plan_summary("Summary", plan)
 
 
@@ -331,8 +326,6 @@ def _skip_reason_bucket(reason: str) -> str:
         return "replay hardware not configured"
     if "missing profile" in reason:
         return "missing profile"
-    if "missing base_config" in reason or "config load failed" in reason:
-        return "missing config"
     if "checkpoint" in reason or "base_model_path" in reason:
         return "missing checkpoint"
     if "hardware mismatch" in reason:

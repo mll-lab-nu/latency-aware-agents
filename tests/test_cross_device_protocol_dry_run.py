@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import json
 import os
 import subprocess
 import sys
@@ -220,23 +219,6 @@ def _run_cli(tmp_path: Path, *args: str, env: dict[str, str] | None = None, chec
         text=True,
         env=run_env,
     )
-
-
-def _openvla_stats_json(key: str, action_dim: int) -> str:
-    stats = {
-        key: {
-            "action": {
-                "min": [0.0] * action_dim,
-                "max": [1.0] * action_dim,
-                "q01": [0.0] * action_dim,
-                "q99": [1.0] * action_dim,
-                "mean": [0.0] * action_dim,
-                "std": [1.0] * action_dim,
-                "mask": [True] * action_dim,
-            }
-        }
-    }
-    return json.dumps(stats)
 
 
 def _load_protocol_module():
@@ -524,13 +506,9 @@ def test_real_openvla_protocol_max_runs_limits_dry_run_rows(tmp_path: Path):
     assert result.stdout.count("policy: ") == 1
 
 
-def test_openvla_env_var_overrides_are_written_and_printed_in_dry_run(tmp_path: Path):
+def test_openvla_env_var_overrides_are_written_in_dry_run(tmp_path: Path):
     base_model = tmp_path / "base_model"
     base_model.mkdir()
-    (base_model / "demon_attack_dataset_statistics.json").write_text(
-        _openvla_stats_json("demon_attack", 6),
-        encoding="utf-8",
-    )
     checkpoint = tmp_path / "demon_checkpoint"
     weights = checkpoint / "actor" / "model_state_dict" / "full_weights.pt"
     weights.parent.mkdir(parents=True)
@@ -558,9 +536,6 @@ def test_openvla_env_var_overrides_are_written_and_printed_in_dry_run(tmp_path: 
         },
     )
 
-    assert f"resolved_base_model_path: {base_model}" in result.stdout
-    assert f"resolved_checkpoint_path: {checkpoint}" in result.stdout
-    assert "openvla_dependency_status: ok" in result.stdout
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["policy"]["base_model_path"] == str(base_model)
@@ -607,79 +582,9 @@ def test_openvla_smoke_dry_run_uses_isolated_run_id_and_step_cap(tmp_path: Path)
     assert not (out / "runs").exists()
 
 
-def test_openvla_check_deps_only_reports_missing_dependencies_without_eval_outputs(tmp_path: Path):
-    out = tmp_path / "results"
-
-    result = _run_cli(
-        tmp_path,
-        "check-deps",
-        "--spec",
-        str(REAL_PROTOCOL),
-        "--hardware",
-        "a100",
-        "--out",
-        str(out),
-        "--runtime-env",
-        "openvla",
-        "--only-policy",
-        "demon-attack-openvla",
-        check=False,
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
-    )
-
-    assert result.returncode != 0
-    assert "policy | env | base_model | stats_json | unnorm_key | checkpoint | weights | status" in result.stdout
-    assert "demon-attack-openvla" in result.stdout
-    assert "demon_attack" in result.stdout
-    assert "missing" in result.stdout.lower()
-    assert not (out / "runs").exists()
-
-
-def test_openvla_check_deps_only_returns_zero_when_selected_dependencies_exist(tmp_path: Path):
-    base_model = tmp_path / "base_model"
-    base_model.mkdir()
-    (base_model / "demon_attack_dataset_statistics.json").write_text(
-        _openvla_stats_json("demon_attack", 6),
-        encoding="utf-8",
-    )
-    checkpoint = tmp_path / "demon_checkpoint"
-    weights = checkpoint / "actor" / "model_state_dict" / "full_weights.pt"
-    weights.parent.mkdir(parents=True)
-    weights.write_bytes(b"not a real checkpoint")
-    out = tmp_path / "results"
-
-    result = _run_cli(
-        tmp_path,
-        "check-deps",
-        "--spec",
-        str(REAL_PROTOCOL),
-        "--hardware",
-        "a100",
-        "--out",
-        str(out),
-        "--runtime-env",
-        "openvla",
-        "--only-policy",
-        "demon-attack-openvla",
-        env={
-            "CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla",
-            "OPENVLA_BASE_MODEL_PATH": str(base_model),
-            "DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH": str(checkpoint),
-        },
-    )
-
-    assert "demon-attack-openvla" in result.stdout
-    assert "| ok" in result.stdout
-    assert not (out / "runs").exists()
-
-
 def test_flappy_openvla_checkpoint_env_override_is_written_in_dry_run(tmp_path: Path):
     base_model = tmp_path / "base_model"
     base_model.mkdir()
-    (base_model / "flappy_dataset_statistics.json").write_text(
-        _openvla_stats_json("flappy_bird", 2),
-        encoding="utf-8",
-    )
     checkpoint = tmp_path / "flappy_checkpoint"
     weights = checkpoint / "actor" / "model_state_dict" / "full_weights.pt"
     weights.parent.mkdir(parents=True)
@@ -713,79 +618,6 @@ def test_flappy_openvla_checkpoint_env_override_is_written_in_dry_run(tmp_path: 
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["policy"]["base_model_path"] == str(base_model)
     assert config["policy"]["checkpoint_path"] == str(checkpoint)
-
-
-def test_deadly_openvla_check_deps_rejects_wrong_action_stats_length(tmp_path: Path):
-    base_model = tmp_path / "base_model"
-    base_model.mkdir()
-    (base_model / "deadly_corridor_dataset_statistics.json").write_text(
-        _openvla_stats_json("deadly_corridor", 7),
-        encoding="utf-8",
-    )
-    checkpoint = tmp_path / "deadly_checkpoint"
-    weights = checkpoint / "actor" / "model_state_dict" / "full_weights.pt"
-    weights.parent.mkdir(parents=True)
-    weights.write_bytes(b"not a real checkpoint")
-
-    result = _run_cli(
-        tmp_path,
-        "check-deps",
-        "--spec",
-        str(REAL_PROTOCOL),
-        "--hardware",
-        "a100",
-        "--out",
-        str(tmp_path / "results"),
-        "--runtime-env",
-        "openvla",
-        "--only-policy",
-        "deadly-corridor-openvla",
-        check=False,
-        env={
-            "CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla",
-            "OPENVLA_BASE_MODEL_PATH": str(base_model),
-            "DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH": str(checkpoint),
-        },
-    )
-
-    assert result.returncode != 0
-    assert "deadly_corridor action stats q01 length 7 != policy.action_dim 11" in result.stdout
-
-
-def test_deadly_openvla_check_deps_accepts_eleven_dim_action_stats(tmp_path: Path):
-    base_model = tmp_path / "base_model"
-    base_model.mkdir()
-    (base_model / "deadly_corridor_dataset_statistics.json").write_text(
-        _openvla_stats_json("deadly_corridor", 11),
-        encoding="utf-8",
-    )
-    checkpoint = tmp_path / "deadly_checkpoint"
-    weights = checkpoint / "actor" / "model_state_dict" / "full_weights.pt"
-    weights.parent.mkdir(parents=True)
-    weights.write_bytes(b"not a real checkpoint")
-
-    result = _run_cli(
-        tmp_path,
-        "check-deps",
-        "--spec",
-        str(REAL_PROTOCOL),
-        "--hardware",
-        "a100",
-        "--out",
-        str(tmp_path / "results"),
-        "--runtime-env",
-        "openvla",
-        "--only-policy",
-        "deadly-corridor-openvla",
-        env={
-            "CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla",
-            "OPENVLA_BASE_MODEL_PATH": str(base_model),
-            "DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH": str(checkpoint),
-        },
-    )
-
-    assert "deadly-corridor-openvla" in result.stdout
-    assert "| ok" in result.stdout
 
 
 def test_deadly_openvla_dry_run_writes_factorized_eleven_dim_config(tmp_path: Path):
