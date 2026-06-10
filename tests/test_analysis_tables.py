@@ -44,18 +44,14 @@ def _write_profile(
     )
     save_profile_manifest(
         {
-            "schema_version": 2,
             "profile_id": profile_id,
-            "profile_type": "rollout_profile",
             "policy_id": "pi_test",
             "env_id": "env_test",
             "target_device": target_device,
-            "fps": fps,
+            "env_fps": fps,
             "frame_ms": 1000.0 / fps,
             "n_samples": len(samples),
-            "batch_size": 1,
             "trace_path": "latencies.jsonl",
-            "distribution_type": "inverse_cdf",
             "distribution_path": "latency_distribution.json",
             "summary": {},
         },
@@ -90,9 +86,8 @@ def test_build_latency_profile_summary_rows_from_profile_directory(tmp_path: Pat
     assert len(rows) == 1
     row = rows[0]
     assert row["profile_id"] == "L_summary"
-    assert row["profile_type"] == "rollout_profile"
     assert row["target_device"] == "test_gpu"
-    assert row["fps"] == pytest.approx(25.0)
+    assert row["env_fps"] == pytest.approx(25.0)
     assert row["frame_ms"] == pytest.approx(40.0)
     assert row["n_samples"] == 3
     assert row["trace_path"] == "latencies.jsonl"

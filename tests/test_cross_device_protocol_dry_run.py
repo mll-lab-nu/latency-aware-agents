@@ -876,8 +876,8 @@ def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
 
     assert "-m latency_bench.run" in result.stdout
     assert "-m latency_bench.experiments.build_latency_profile_from_trace" in result.stdout
-    assert "--policy-type random" in result.stdout
-    assert "--checkpoint-kind best" in result.stdout
+    assert "--env-fps 30" in result.stdout
+    assert "--policy-type" not in result.stdout
     assert "--n-warmup" not in result.stdout
     assert "latencies.jsonl" in result.stdout
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))

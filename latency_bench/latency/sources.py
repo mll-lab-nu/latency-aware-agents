@@ -151,9 +151,7 @@ class ProfileSampleLatencySource(LatencySource):
         self.quantile_levels = [float(value) for value in distribution["quantile_levels"]]
         self.latency_ms = [float(value) for value in distribution["latency_ms"]]
         self.profile_id = self.profile["profile_id"]
-        self.profile_type = self.profile["profile_type"]
         self.target_device = self.profile["target_device"]
-        self.distribution_type = self.profile["distribution_type"]
         self.rng = random.Random(seed)
         self.last_metadata: dict[str, Any] | None = None
 
@@ -216,7 +214,6 @@ def _resolve_profile_manifest_path(profile_path: str | Path | None) -> Path:
 def _profile_latency_metadata(source: Any, **extra: int) -> dict[str, Any]:
     metadata = {
         "profile_id": source.profile_id,
-        "profile_type": source.profile_type,
         "target_device": source.target_device,
         "profile_path": str(source.profile_path),
     }

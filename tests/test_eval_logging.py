@@ -100,18 +100,14 @@ def _write_profile(tmp_path: Path) -> Path:
     )
     save_profile_manifest(
         {
-            "schema_version": 2,
             "profile_id": "L_eval_logging",
-            "profile_type": "rollout_profile",
             "policy_id": "pi_test",
             "env_id": "env_test",
             "target_device": "target_gpu",
-            "fps": 25.0,
+            "env_fps": 25.0,
             "frame_ms": 40.0,
             "n_samples": 3,
-            "batch_size": 1,
             "trace_path": "latencies.jsonl",
-            "distribution_type": "inverse_cdf",
             "distribution_path": "latency_distribution.json",
             "summary": {},
         },
@@ -170,7 +166,6 @@ def test_empirical_profile_metadata_is_logged(tmp_path: Path):
 
     for record in (metrics["metadata"], action["latency"], latency):
         assert record["profile_id"] == "L_eval_logging"
-        assert record["profile_type"] == "rollout_profile"
         assert record["target_device"] == "target_gpu"
 
 

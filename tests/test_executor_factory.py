@@ -81,18 +81,14 @@ def _write_latency_profile(tmp_path) -> str:
     )
     save_profile_manifest(
         {
-            "schema_version": 2,
             "profile_id": "L_test",
-            "profile_type": "rollout_profile",
             "policy_id": "pi_test",
             "env_id": "env_test",
             "target_device": "test_gpu",
-            "fps": 25.0,
+            "env_fps": 25.0,
             "frame_ms": 40.0,
             "n_samples": 3,
-            "batch_size": 1,
             "trace_path": "latencies.jsonl",
-            "distribution_type": "inverse_cdf",
             "distribution_path": "latency_distribution.json",
             "summary": {},
         },

@@ -68,7 +68,6 @@ def compute_episode_metrics_from_aggregates(
 
 PROFILE_METADATA_KEYS = (
     "profile_id",
-    "profile_type",
     "target_device",
     "profile_path",
     "sample_index",

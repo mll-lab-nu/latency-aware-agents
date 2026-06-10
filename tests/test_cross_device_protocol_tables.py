@@ -73,11 +73,10 @@ def _build_profile(root: Path, *, device_id: str = "a100", profile_id: str = "L_
         latencies=raw,
         output_dir=profile_dir,
         profile_id=profile_id,
-        profile_type="rollout_profile",
         policy_id="flappy-sf-l1",
         env_id="flappy",
         target_device=device_id,
-        fps=30.0,
+        env_fps=30.0,
     )
     return profile_dir / "profile.json"
 

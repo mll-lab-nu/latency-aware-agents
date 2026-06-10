@@ -75,7 +75,6 @@ class LatencyRecord:
     device: str | None = None
     latency_type: str | None = None
     profile_id: str | None = None
-    profile_type: str | None = None
     target_device: str | None = None
     profile_path: str | None = None
     sample_index: int | None = None

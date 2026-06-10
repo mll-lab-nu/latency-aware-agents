@@ -17,18 +17,14 @@ from latency_bench.latency.profile import (
 
 def _profile_manifest() -> dict:
     return {
-        "schema_version": 2,
         "profile_id": "L_3090_flappy_pi0",
-        "profile_type": "micro_profile",
         "policy_id": "pi0",
         "env_id": "FlappyBird-v0",
         "target_device": "RTX_3090",
-        "fps": 30.0,
+        "env_fps": 30.0,
         "frame_ms": 1000.0 / 30.0,
         "n_samples": 10000,
-        "batch_size": 1,
         "trace_path": "latencies.jsonl",
-        "distribution_type": "inverse_cdf",
         "distribution_path": "latency_distribution.json",
         "summary": {},
     }

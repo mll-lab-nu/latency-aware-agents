@@ -37,18 +37,14 @@ def _write_latency_profile(
     )
     save_profile_manifest(
         {
-            "schema_version": 2,
             "profile_id": "L_test",
-            "profile_type": "rollout_profile",
             "policy_id": "pi_test",
             "env_id": "env_test",
             "target_device": "test_gpu",
-            "fps": 25.0,
+            "env_fps": 25.0,
             "frame_ms": 40.0,
             "n_samples": len(samples),
-            "batch_size": 1,
             "trace_path": trace_path,
-            "distribution_type": "inverse_cdf",
             "distribution_path": "latency_distribution.json",
             "summary": {},
         },
@@ -199,9 +195,7 @@ def test_profile_sample_samples_deterministically_with_seed(tmp_path: Path):
 
     assert [first.next_latency_ms() for _ in range(20)] == [second.next_latency_ms() for _ in range(20)]
     assert first.profile_id == "L_test"
-    assert first.profile_type == "rollout_profile"
     assert first.target_device == "test_gpu"
-    assert first.distribution_type == "inverse_cdf"
     assert first.last_metadata["profile_id"] == "L_test"
 
 

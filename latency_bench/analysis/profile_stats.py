@@ -8,7 +8,7 @@ import numpy as np
 
 def compute_latency_profile_summary(
     samples_ms: Iterable[float],
-    fps: float,
+    env_fps: float,
     tail_frame_thresholds: tuple[int | float, ...] = (1, 2, 3),
 ) -> dict[str, float | int]:
     """Compute latency profile statistics.
@@ -16,18 +16,8 @@ def compute_latency_profile_summary(
     Percentiles use NumPy's deterministic linear interpolation method.
     ``std_ms`` is the population standard deviation (``ddof=0``).
     """
-
-    fps = float(fps)
-    if not math.isfinite(fps) or fps <= 0:
-        raise ValueError("fps must be positive and finite")
-
     samples = np.asarray([float(sample) for sample in samples_ms], dtype=np.float64)
-    if samples.size == 0:
-        raise ValueError("samples_ms must not be empty")
-    if not bool(np.all(np.isfinite(samples))) or bool(np.any(samples < 0)):
-        raise ValueError("samples_ms must contain finite non-negative values")
-
-    frame_ms = 1000.0 / fps
+    frame_ms = 1000.0 / env_fps
     p50_ms, p90_ms, p95_ms, p99_ms = np.percentile(samples, [50, 90, 95, 99], method="linear")
     mean_ms = float(np.mean(samples))
     summary: dict[str, float | int] = {
