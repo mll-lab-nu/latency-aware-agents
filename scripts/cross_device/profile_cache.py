@@ -12,14 +12,6 @@ from pathlib import Path
 from typing import Callable
 
 
-PROFILE_ARTIFACT_FILENAMES = (
-    "profile.json",
-    "latencies.jsonl",
-    "profile_summary.json",
-    "profile_summary.csv",
-)
-
-
 DownloadProfileFolder = Callable[..., None]
 
 
@@ -79,7 +71,7 @@ def download_profile_folder_from_hf(
     repo_type: str,
     revision: str | None,
 ) -> None:
-    """Download the standard profile artifact files from Hugging Face.
+    """Download one profile folder from Hugging Face.
 
     Args:
         repo_id: Hugging Face repo id.
@@ -89,19 +81,19 @@ def download_profile_folder_from_hf(
         revision: Optional revision.
 
     Side effects:
-        Creates `local_dir` and copies profile artifacts into it.
+        Copies the remote profile folder into `local_dir`.
     """
-    from huggingface_hub import hf_hub_download
+    from huggingface_hub import snapshot_download
 
-    local_dir.mkdir(parents=True, exist_ok=True)
-    for filename in PROFILE_ARTIFACT_FILENAMES:
-        downloaded = hf_hub_download(
+    snapshot_dir = Path(
+        snapshot_download(
             repo_id=repo_id,
-            filename=f"{remote_dir}/{filename}",
             repo_type=repo_type,
             revision=revision,
+            allow_patterns=f"{remote_dir}/*",
         )
-        shutil.copy2(downloaded, local_dir / filename)
+    )
+    shutil.copytree(snapshot_dir / remote_dir, local_dir, dirs_exist_ok=True)
 
 
 def upload_profile_folder_to_hf(

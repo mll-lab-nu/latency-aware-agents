@@ -12,8 +12,8 @@ from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.experiments.run_simulated_latency import build_executor as build_legacy_executor
 from latency_bench.run import run_from_config
-from latency_bench.latency.profile import save_profile_manifest, write_latency_samples
-from latency_bench.latency.sources import EmpiricalSampleLatencySource, EmpiricalTraceReplayLatencySource
+from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
+from latency_bench.latency.sources import ProfileSampleLatencySource
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 
 
@@ -75,9 +75,13 @@ def _write_latency_profile(tmp_path) -> str:
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir()
     write_latency_samples([10.0, 20.0, 30.0], profile_dir / "latencies.jsonl")
+    save_latency_distribution(
+        build_inverse_cdf_distribution([10.0, 20.0, 30.0]),
+        profile_dir / "latency_distribution.json",
+    )
     save_profile_manifest(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "profile_id": "L_test",
             "profile_type": "rollout_profile",
             "policy_id": "pi_test",
@@ -88,6 +92,8 @@ def _write_latency_profile(tmp_path) -> str:
             "n_samples": 3,
             "batch_size": 1,
             "trace_path": "latencies.jsonl",
+            "distribution_type": "inverse_cdf",
+            "distribution_path": "latency_distribution.json",
             "summary": {},
         },
         profile_dir / "profile.json",
@@ -492,11 +498,11 @@ def test_simulated_parallel_trace_replay_profile_is_not_rejected(tmp_path):
         executor.env.close()
 
 
-def test_factory_builds_empirical_sample_latency_source(tmp_path):
+def test_factory_builds_profile_sample_latency_source(tmp_path):
     profile_dir = _write_latency_profile(tmp_path)
     config = _config(output_dir=str(tmp_path))
     config["latency"] = {
-        "type": "empirical_sample",
+        "type": "profile_sample",
         "profile_path": profile_dir,
         "seed": 0,
     }
@@ -504,30 +510,24 @@ def test_factory_builds_empirical_sample_latency_source(tmp_path):
     executor = build_executor(config)
 
     try:
-        assert isinstance(executor.latency_source, EmpiricalSampleLatencySource)
+        assert isinstance(executor.latency_source, ProfileSampleLatencySource)
         assert executor.latency_source.profile_id == "L_test"
     finally:
         executor.env.close()
 
 
-def test_factory_builds_empirical_trace_replay_latency_source(tmp_path):
+@pytest.mark.parametrize("latency_type", ["empirical_sample", "empirical_trace_replay"])
+def test_factory_rejects_removed_empirical_latency_types(tmp_path, latency_type):
     profile_dir = _write_latency_profile(tmp_path)
     config = _config(output_dir=str(tmp_path))
     config["latency"] = {
-        "type": "empirical_trace_replay",
+        "type": latency_type,
         "profile_path": profile_dir,
-        "trace_replay_order": "sequential",
-        "loop_trace": True,
         "seed": 0,
     }
 
-    executor = build_executor(config)
-
-    try:
-        assert isinstance(executor.latency_source, EmpiricalTraceReplayLatencySource)
-        assert executor.latency_source.next_latency_ms() == 10.0
-    finally:
-        executor.env.close()
+    with pytest.raises(ValueError, match="Unsupported latency.type"):
+        build_executor(config)
 
 
 def test_parallel_simulated_tuple_action_space_builds_batched_executor_after_phase_3d(tmp_path):

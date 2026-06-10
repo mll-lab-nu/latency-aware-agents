@@ -100,14 +100,14 @@ def _write_synthetic_runs(base_dir: Path) -> tuple[Path, Path]:
                 episode_length=1020,
                 mode="simulated",
                 replay_host="H200",
-                latency_type="empirical_sample",
+                latency_type="profile_sample",
             ),
             _episode_record(
                 episode_return=115.0,
                 episode_length=1120,
                 mode="simulated",
                 replay_host="H200",
-                latency_type="empirical_sample",
+                latency_type="profile_sample",
             ),
         ],
     )

@@ -75,8 +75,6 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
     spec = {
         "protocol_id": "cross_device_latency_v1",
         "output_root": str(path.parent / "results"),
-        "trace_replay_order": "sequential",
-        "loop_trace": True,
         "checkpoint_kind": "best",
         "n_episodes": 1,
         "seed_set": [0],
@@ -109,8 +107,6 @@ def _write_spec(path: Path, base_config: Path) -> None:
     spec = {
         "protocol_id": "cross_device_latency_v1",
         "output_root": str(path.parent / "results"),
-        "trace_replay_order": "sequential",
-        "loop_trace": True,
         "checkpoint_kind": "best",
         "n_episodes": 2,
         "seed_set": [0],
@@ -161,8 +157,6 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
     spec = {
         "protocol_id": "cross_device_latency_v1",
         "output_root": str(path.parent / "results"),
-        "trace_replay_order": "sequential",
-        "loop_trace": True,
         "checkpoint_kind": "best",
         "n_episodes": 2,
         "seed_set": [0],
@@ -792,7 +786,7 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
     generated = next((out / "generated_configs" / "sim_same").rglob("*.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["executor"]["mode"] == "simulated"
-    assert config["latency"]["type"] == "empirical_trace_replay"
+    assert config["latency"]["type"] == "profile_sample"
     assert config["latency"]["profile_path"].endswith("profiles/dry-policy/flappy/L_A100/profile.json")
     assert config["evaluation"]["eval_latency_values"] is None
     assert config["evaluation"]["eval_parallel_envs"] == 1

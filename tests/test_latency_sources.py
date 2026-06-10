@@ -6,17 +6,16 @@ import pytest
 
 from latency_bench.core.types import LatencyRecord
 from latency_bench.latency.sources import (
-    EmpiricalSampleLatencySource,
-    EmpiricalTraceReplayLatencySource,
     FixedLatencySource,
     MixedNormalDistributionLatencySource,
     MixedUniformDistributionLatencySource,
     NormalDistributionLatencySource,
+    ProfileSampleLatencySource,
     TraceReplayLatencySource,
     UniformDistributionLatencySource,
     ZeroLatencySource,
 )
-from latency_bench.latency.profile import save_profile_manifest, write_latency_samples
+from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
 from latency_bench.latency.trace import load_latency_trace, save_latency_trace
 
 
@@ -32,9 +31,13 @@ def _write_latency_profile(
     samples = [10.0, 20.0, 30.0] if samples is None else samples
     if write_trace:
         write_latency_samples(samples, profile_dir / trace_path)
+    save_latency_distribution(
+        build_inverse_cdf_distribution(samples),
+        profile_dir / "latency_distribution.json",
+    )
     save_profile_manifest(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "profile_id": "L_test",
             "profile_type": "rollout_profile",
             "policy_id": "pi_test",
@@ -45,6 +48,8 @@ def _write_latency_profile(
             "n_samples": len(samples),
             "batch_size": 1,
             "trace_path": trace_path,
+            "distribution_type": "inverse_cdf",
+            "distribution_path": "latency_distribution.json",
             "summary": {},
         },
         profile_dir / "profile.json",
@@ -187,79 +192,60 @@ def test_latency_trace_load_and_save(tmp_path: Path):
     assert load_latency_trace(trace_path) == [12.0]
 
 
-def test_empirical_sample_samples_deterministically_with_seed(tmp_path: Path):
+def test_profile_sample_samples_deterministically_with_seed(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
-    first = EmpiricalSampleLatencySource(profile_dir / "profile.json", seed=0)
-    second = EmpiricalSampleLatencySource(profile_dir / "profile.json", seed=0)
+    first = ProfileSampleLatencySource(profile_dir / "profile.json", seed=0)
+    second = ProfileSampleLatencySource(profile_dir / "profile.json", seed=0)
 
     assert [first.next_latency_ms() for _ in range(20)] == [second.next_latency_ms() for _ in range(20)]
     assert first.profile_id == "L_test"
     assert first.profile_type == "rollout_profile"
     assert first.target_device == "test_gpu"
-    assert first.last_sample_index is not None
+    assert first.distribution_type == "inverse_cdf"
+    assert first.last_metadata["profile_id"] == "L_test"
 
 
-def test_empirical_sample_values_come_from_profile(tmp_path: Path):
+def test_profile_sample_values_stay_within_profile_support(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
-    source = EmpiricalSampleLatencySource(profile_dir / "profile.json", seed=1)
+    source = ProfileSampleLatencySource(profile_dir / "profile.json", seed=1)
 
-    assert {source.next_latency_ms() for _ in range(100)} <= {10.0, 20.0, 30.0}
+    values = [source.next_latency_ms() for _ in range(100)]
+    assert min(values) >= 10.0
+    assert max(values) <= 30.0
+    assert any(value not in {10.0, 20.0, 30.0} for value in values)
 
 
-def test_empirical_trace_replay_sequential_loop(tmp_path: Path):
+def test_profile_sample_uses_inverse_cdf_interpolation(tmp_path: Path):
+    profile_dir = _write_latency_profile(tmp_path, samples=[10.0, 30.0])
+    source = ProfileSampleLatencySource(profile_dir / "profile.json", seed=0)
+
+    source.rng.seed(3)
+    assert source.next_latency_ms() == pytest.approx(14.759292541837827)
+
+
+def test_profile_sample_accepts_profile_directory(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
-    source = EmpiricalTraceReplayLatencySource(profile_dir / "profile.json", loop_trace=True)
-
-    assert [source.next_latency_ms() for _ in range(5)] == [10.0, 20.0, 30.0, 10.0, 20.0]
-    assert source.last_trace_index == 1
-
-
-def test_empirical_trace_replay_no_loop_exhaustion(tmp_path: Path):
-    profile_dir = _write_latency_profile(tmp_path)
-    source = EmpiricalTraceReplayLatencySource(profile_dir / "profile.json", loop_trace=False)
-
-    assert [source.next_latency_ms() for _ in range(3)] == [10.0, 20.0, 30.0]
-    with pytest.raises(StopIteration, match="Empirical latency trace exhausted"):
-        source.next_latency_ms()
-
-
-def test_empirical_trace_replay_random_order_is_seeded(tmp_path: Path):
-    profile_dir = _write_latency_profile(tmp_path)
-    first = EmpiricalTraceReplayLatencySource(profile_dir / "profile.json", trace_replay_order="random", seed=3)
-    second = EmpiricalTraceReplayLatencySource(profile_dir / "profile.json", trace_replay_order="random", seed=3)
-
-    assert [first.next_latency_ms() for _ in range(6)] == [second.next_latency_ms() for _ in range(6)]
-
-
-def test_empirical_latency_sources_accept_profile_directory(tmp_path: Path):
-    profile_dir = _write_latency_profile(tmp_path)
-    source = EmpiricalSampleLatencySource(profile_dir, seed=0)
+    source = ProfileSampleLatencySource(profile_dir, seed=0)
 
     assert source.profile_path == profile_dir / "profile.json"
-    assert source.next_latency_ms() in {10.0, 20.0, 30.0}
+    assert 10.0 <= source.next_latency_ms() <= 30.0
 
 
-def test_empirical_latency_sources_reject_missing_profile_path():
+def test_profile_sample_rejects_missing_profile_path():
     with pytest.raises(ValueError, match="profile_path is required"):
-        EmpiricalSampleLatencySource(None)
+        ProfileSampleLatencySource(None)
 
 
-def test_empirical_latency_sources_reject_missing_trace_file(tmp_path: Path):
-    profile_dir = _write_latency_profile(tmp_path, trace_path="missing.jsonl", write_trace=False)
-
-    with pytest.raises(FileNotFoundError, match="missing.jsonl"):
-        EmpiricalSampleLatencySource(profile_dir / "profile.json")
-
-
-def test_empirical_trace_replay_rejects_invalid_order(tmp_path: Path):
+def test_profile_sample_rejects_missing_distribution_file(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
+    (profile_dir / "latency_distribution.json").unlink()
 
-    with pytest.raises(ValueError, match="trace_replay_order"):
-        EmpiricalTraceReplayLatencySource(profile_dir / "profile.json", trace_replay_order="reverse")
+    with pytest.raises(FileNotFoundError, match="latency_distribution.json"):
+        ProfileSampleLatencySource(profile_dir / "profile.json")
 
 
-def test_empirical_latency_sources_pass_seed_through_to_rng(tmp_path: Path):
+def test_profile_sample_passes_seed_through_to_rng(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
-    source = EmpiricalSampleLatencySource(profile_dir / "profile.json", seed=True)
+    source = ProfileSampleLatencySource(profile_dir / "profile.json", seed=True)
 
-    assert source.next_latency_ms() in {10.0, 20.0, 30.0}
+    assert 10.0 <= source.next_latency_ms() <= 30.0

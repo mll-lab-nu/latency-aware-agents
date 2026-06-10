@@ -14,7 +14,7 @@ from latency_bench.analysis.table_builders import (
     write_rows_csv,
 )
 from latency_bench.experiments.build_latency_replay_tables import main
-from latency_bench.latency.profile import save_profile_manifest, write_latency_samples
+from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
 
 
 def _write_jsonl(path: Path, records: list[dict]) -> None:
@@ -38,9 +38,13 @@ def _write_profile(
     profile_dir = base / profile_id
     profile_dir.mkdir(parents=True, exist_ok=True)
     write_latency_samples(samples, profile_dir / "latencies.jsonl")
+    save_latency_distribution(
+        build_inverse_cdf_distribution(samples),
+        profile_dir / "latency_distribution.json",
+    )
     save_profile_manifest(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "profile_id": profile_id,
             "profile_type": "rollout_profile",
             "policy_id": "pi_test",
@@ -51,6 +55,8 @@ def _write_profile(
             "n_samples": len(samples),
             "batch_size": 1,
             "trace_path": "latencies.jsonl",
+            "distribution_type": "inverse_cdf",
+            "distribution_path": "latency_distribution.json",
             "summary": {},
         },
         profile_dir / "profile.json",

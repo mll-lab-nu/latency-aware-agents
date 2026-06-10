@@ -8,7 +8,7 @@ import pytest
 from latency_bench.core.types import Action, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
-from latency_bench.latency.profile import save_profile_manifest, write_latency_samples
+from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
 from latency_bench.run import run_from_config
 
 
@@ -94,9 +94,13 @@ def _write_profile(tmp_path: Path) -> Path:
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir()
     write_latency_samples([10.0, 20.0, 30.0], profile_dir / "latencies.jsonl")
+    save_latency_distribution(
+        build_inverse_cdf_distribution([10.0, 20.0, 30.0]),
+        profile_dir / "latency_distribution.json",
+    )
     save_profile_manifest(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "profile_id": "L_eval_logging",
             "profile_type": "rollout_profile",
             "policy_id": "pi_test",
@@ -107,6 +111,8 @@ def _write_profile(tmp_path: Path) -> Path:
             "n_samples": 3,
             "batch_size": 1,
             "trace_path": "latencies.jsonl",
+            "distribution_type": "inverse_cdf",
+            "distribution_path": "latency_distribution.json",
             "summary": {},
         },
         profile_dir / "profile.json",
@@ -151,7 +157,7 @@ def test_empirical_profile_metadata_is_logged(tmp_path: Path):
     config = _config(
         tmp_path / "run",
         latency={
-            "type": "empirical_sample",
+            "type": "profile_sample",
             "profile_path": str(profile_dir),
             "seed": 0,
         },
@@ -166,8 +172,6 @@ def test_empirical_profile_metadata_is_logged(tmp_path: Path):
         assert record["profile_id"] == "L_eval_logging"
         assert record["profile_type"] == "rollout_profile"
         assert record["target_device"] == "target_gpu"
-    assert action["latency"]["sample_index"] is not None
-    assert latency["sample_index"] is not None
 
 
 def test_simulated_latency_records_log_latency_raw_fields(tmp_path: Path):
