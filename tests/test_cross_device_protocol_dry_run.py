@@ -883,7 +883,9 @@ def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["executor"]["mode"] == "realtime"
-    assert config["latency"]["type"] == "measured"
+    assert "type" not in config["latency"]
+    assert config["latency"]["device"] == "cuda:0"
+    assert config["latency"]["sync_cuda"] is True
     assert config["evaluation"]["eval_latency_values"] is None
     assert config["evaluation"]["eval_parallel_envs"] == 1
 

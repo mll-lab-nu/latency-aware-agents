@@ -28,9 +28,7 @@ class LatencySourceType(str, Enum):
     UNIFORM_DISTRIBUTION = "uniform_distribution"
     MIXED_NORMAL_DISTRIBUTION = "mixed_normal_distribution"
     MIXED_UNIFORM_DISTRIBUTION = "mixed_uniform_distribution"
-    TRACE_REPLAY = "trace_replay"
     PROFILE_SAMPLE = "profile_sample"
-    MEASURED = "measured"
 
 
 @dataclass

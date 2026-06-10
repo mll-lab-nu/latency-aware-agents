@@ -112,7 +112,8 @@ env:
     noop: noop
     jump: jump
 latency:
-  type: measured
+  device: cpu
+  sync_cuda: false
 scheduler:
   hold_policy: one_frame_then_noop
   ordering_policy: latest_ready

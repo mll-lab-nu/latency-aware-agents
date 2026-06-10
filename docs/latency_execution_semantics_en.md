@@ -400,23 +400,25 @@ latency:
 
 This also requires an explicit integer conversion rule.
 
-### 11.5 Empirical trace latency
+### 11.5 Profile-sampled latency
 
 ```yaml
 latency:
-  source: empirical_trace
-  unit: ms
-  trace_path: path/to/latencies.jsonl
-  replay_mode: sequential_loop
+  source: profile_sample
+  profile_path: path/to/profile.json
+  seed: 0
 ```
 
-Trace replay must log:
+Profile sampling draws latency from the profile inverse-CDF distribution. The
+profile may still store the original `latencies.jsonl` trace for analysis, but
+simulated execution does not replay that trace in sequence.
+
+Profile sampling must log:
 
 ```text
-trace_path
-trace_id
+profile_path
+profile_id
 sample_index
-original_latency_ms
 converted_latency_raw_frames
 ```
 
@@ -740,7 +742,7 @@ clock:
   obs_fps: 10
 
 latency:
-  source: fixed  # fixed | normal | uniform | empirical_trace
+  source: fixed  # fixed | normal | uniform | profile_sample
   unit: raw_frames  # raw_frames | ms
   value: 3
   rounding: ceil

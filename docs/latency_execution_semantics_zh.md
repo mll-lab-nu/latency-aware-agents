@@ -398,23 +398,25 @@ latency:
 
 同样需要定义整数转换策略。
 
-### 11.5 Empirical trace latency
+### 11.5 Profile-sampled latency
 
 ```yaml
 latency:
-  source: empirical_trace
-  unit: ms
-  trace_path: path/to/latencies.jsonl
-  replay_mode: sequential_loop
+  source: profile_sample
+  profile_path: path/to/profile.json
+  seed: 0
 ```
 
-Trace replay 必须记录：
+Profile sampling 从 profile 的 inverse-CDF distribution 中采样 latency。
+profile 仍可保存原始 `latencies.jsonl` 供 analysis 使用，但 simulated
+execution 不再按顺序 replay 这条 trace。
+
+Profile sampling 必须记录：
 
 ```text
-trace_path
-trace_id
+profile_path
+profile_id
 sample_index
-original_latency_ms
 converted_latency_raw_frames
 ```
 
@@ -736,7 +738,7 @@ clock:
   obs_fps: 10
 
 latency:
-  source: fixed  # fixed | normal | uniform | empirical_trace
+  source: fixed  # fixed | normal | uniform | profile_sample
   unit: raw_frames  # raw_frames | ms
   value: 3
   rounding: ceil

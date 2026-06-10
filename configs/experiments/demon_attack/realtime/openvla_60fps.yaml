@@ -57,7 +57,6 @@ policy:
 
 
 latency:
-  type: measured
   device: cuda:0
   sync_cuda: true
 
