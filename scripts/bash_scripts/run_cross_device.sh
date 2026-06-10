@@ -27,7 +27,6 @@ Usage:
 
 Presets:
   doctor      Check selected rows, runtime, hardware, configs, and profiles.
-  check-deps  Check selected OpenVLA dependencies.
   profile     Run doctor + measure, then upload local profiles to HF.
   realtime    Run doctor + realtime baseline.
   sim         Run doctor + sim-same + sim-cross.
@@ -64,10 +63,6 @@ fi
 case "${PRESET}" in
     doctor)
         STAGES=${STAGES:-doctor}
-        ;;
-    check-deps)
-        STAGES=${STAGES:-check-deps}
-        RUNTIME_ENV=${RUNTIME_ENV:-openvla}
         ;;
     profile)
         STAGES=${STAGES:-doctor measure}
@@ -141,10 +136,6 @@ for stage in ${STAGES}; do
     case "${stage}" in
         doctor)
             python -m scripts.cross_device.protocol doctor \
-                "${COMMON_ARGS[@]}" --hardware "${HARDWARE}" --out "${OUT}" --profiles-dir "${PROFILES_DIR}" "${CHECK_ARGS[@]}"
-            ;;
-        check-deps)
-            python -m scripts.cross_device.protocol check-deps \
                 "${COMMON_ARGS[@]}" --hardware "${HARDWARE}" --out "${OUT}" --profiles-dir "${PROFILES_DIR}" "${CHECK_ARGS[@]}"
             ;;
         measure)

@@ -13,11 +13,8 @@ from typing import Any
 import torch
 
 from latency_bench.analysis.cross_device_protocol_tables import load_protocol_spec, write_protocol_tables
-from scripts.cross_device.config import _row_base_config
-from scripts.cross_device.openvla_deps import _openvla_dependency_report
 from scripts.cross_device.planning import (
     _build_plan,
-    _dedup_openvla_rows,
     _filtered_spec_for_aggregate,
     _iter_selected_rows,
     _normalize_stage,
@@ -54,16 +51,6 @@ def main(argv: list[str] | None = None) -> None:
     _add_runtime_flags(doctor)
     _add_selection_flags(doctor)
     _add_override_flags(doctor)
-
-    check_deps = subparsers.add_parser("check-deps", help="Check selected OpenVLA checkpoint dependencies only.")
-    check_deps.add_argument("--spec", type=Path, required=True)
-    check_deps.add_argument("--hardware", default="auto")
-    check_deps.add_argument("--out", type=Path)
-    check_deps.add_argument("--profiles-dir", type=Path)
-    check_deps.add_argument("--dry-run", action="store_true")
-    _add_runtime_flags(check_deps)
-    _add_selection_flags(check_deps)
-    _add_override_flags(check_deps)
 
     measure = subparsers.add_parser("measure", help="Run realtime measured eval and build latency profiles.")
     measure.add_argument("--spec", type=Path, required=True)
@@ -108,8 +95,6 @@ def main(argv: list[str] | None = None) -> None:
     spec = _spec_with_cli_overrides(spec, args)
     if args.command == "doctor":
         run_doctor(args, spec)
-    elif args.command == "check-deps":
-        run_check_deps(args, spec)
     elif args.command == "aggregate":
         spec = _filtered_spec_for_aggregate(spec, args)
         if args.dry_run:
@@ -223,41 +208,6 @@ def run_doctor(args: argparse.Namespace, spec: dict[str, Any]) -> None:
             print(f"  - stage={stage} policy={item.task.row.get('policy')}: {item.skip_reason}")
     if not skipped_any:
         print("  none")
-
-
-def run_check_deps(args: argparse.Namespace, spec: dict[str, Any]) -> None:
-    """Check OpenVLA checkpoint and dataset-statistics paths for selected rows.
-
-    Args:
-        args: Parsed CLI namespace with row filters and max-run limit.
-        spec: Loaded protocol spec.
-
-    Raises:
-        SystemExit: exits non-zero when any selected OpenVLA row is missing a
-        required local dependency.
-    """
-    rows = _dedup_openvla_rows(_iter_selected_rows(spec, args, include_stage=None))
-    if args.max_runs is not None:
-        rows = rows[: int(args.max_runs)]
-
-    print("OpenVLA dependency check")
-    print("policy | env | base_model | stats_json | unnorm_key | checkpoint | weights | status")
-    if not rows:
-        print("no selected OpenVLA rows")
-        return
-
-    failures = 0
-    for _experiment_id, _experiment, row in rows:
-        config = _row_base_config(row)
-        report = _openvla_dependency_report(config)
-        if report["status"] != "ok":
-            failures += 1
-        print(
-            f"{row.get('policy')} | {row.get('env')} | {report['base_model']} | {report['stats_json']} | "
-            f"{report['unnorm_key']} | {report['checkpoint']} | {report['weights']} | {report['status']}"
-        )
-    if failures:
-        raise SystemExit(1)
 
 
 if __name__ == "__main__":

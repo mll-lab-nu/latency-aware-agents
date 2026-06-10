@@ -809,7 +809,6 @@ def test_cross_device_main_script_documents_single_entrypoint_and_new_protocol_m
     assert "STAGES=${STAGES:-doctor sim-same sim-cross}" in script
     assert "custom)" in script
     assert '--runtime-env "${RUNTIME_ENV}"' in script
-    assert "check-deps" in script
     assert "measure" in script
     assert "realtime" in script
     assert "sim-same" in script

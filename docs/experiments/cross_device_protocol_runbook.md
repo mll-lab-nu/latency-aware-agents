@@ -17,7 +17,6 @@ Presets:
 | Preset | Stages | Main use |
 | --- | --- | --- |
 | `doctor` | `doctor` | Check selected rows, runtime, hardware, configs, and missing profiles. |
-| `check-deps` | `check-deps` | Check selected OpenVLA model/checkpoint dependencies. |
 | `profile` | `doctor measure` | Measure realtime inference latency, build local profiles, then upload profiles to Hugging Face. |
 | `realtime` | `doctor realtime` | Run the true realtime baseline on the current machine. |
 | `sim` | `doctor sim-same sim-cross` | Run simulated replay; missing local profiles are downloaded from Hugging Face. |
@@ -167,13 +166,6 @@ python -m scripts.cross_device.protocol realtime --spec "$SPEC" --hardware auto 
 python -m scripts.cross_device.protocol sim-same --spec "$SPEC" --hardware auto --profiles-dir "$PROFILES_DIR" --out "$OUT" --resume
 python -m scripts.cross_device.protocol sim-cross --spec "$SPEC" --replay-hardware auto --profiles-dir "$PROFILES_DIR" --out "$OUT" --resume
 python -m scripts.cross_device.protocol aggregate --spec "$SPEC" --root "$OUT" --out "$TABLES_DIR" --overwrite
-```
-
-`check-deps` is OpenVLA-specific and reports local base model, dataset stats,
-unnormalization key, checkpoint, and weights availability:
-
-```bash
-RUNTIME_ENV=openvla python -m scripts.cross_device.protocol check-deps --spec "$SPEC" --hardware auto
 ```
 
 ## Profile Cache

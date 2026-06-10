@@ -13,7 +13,6 @@ from typing import Any
 
 from latency_bench.analysis.cross_device_protocol_tables import slugify
 from scripts.cross_device.models import PlannedTask, ProtocolTask, RuntimeSelection
-from scripts.cross_device.openvla_deps import OPENVLA_POLICY_TYPES, _config_dependency_reason
 from scripts.cross_device.profile_cache import ensure_profile_cached
 from scripts.cross_device.runtime import (
     _normalize_name,
@@ -287,10 +286,6 @@ def _task_skip_reason(
     if runtime_reason:
         reasons.append(runtime_reason)
 
-    config_reason = _config_dependency_reason(task.row)
-    if config_reason:
-        reasons.append(config_reason)
-
     # Dry-run and doctor must stay read-only; real sim stages may hydrate a
     # missing local profile from the configured Hugging Face profile repo.
     if (
@@ -387,24 +382,6 @@ def _iter_selected_rows(
             if not _matches_filter(_env_filter_candidates(row), only_envs):
                 continue
             output.append((experiment_id, experiment, row))
-    return output
-
-
-def _dedup_openvla_rows(
-    rows: list[tuple[str, dict[str, Any], dict[str, Any]]],
-) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
-    output: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
-    seen: set[tuple[str, str, str]] = set()
-    for item in rows:
-        _experiment_id, _experiment, row = item
-        policy_type = str(row.get("policy_type") or "").strip().lower()
-        if policy_type not in OPENVLA_POLICY_TYPES:
-            continue
-        key = (slugify(row.get("policy")), slugify(row.get("env")), policy_type)
-        if key in seen:
-            continue
-        seen.add(key)
-        output.append(item)
     return output
 
 
