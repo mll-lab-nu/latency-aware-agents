@@ -139,7 +139,7 @@ experiments:
   exp3_cross_device_prediction:
     panel: c
     rows:
-      - policy: OpenVLA-Flappy
+      - policy: openvla-flappy
         env: Flappy
         policy_type: flappy_openvla
         runtime_env: openvla
