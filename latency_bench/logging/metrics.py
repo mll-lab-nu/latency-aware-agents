@@ -95,8 +95,7 @@ def latency_type_from_source(source: Any, *, measured: bool = False) -> str:
         "MixedNormalDistributionLatencySource": "mixed_normal_distribution",
         "MixedUniformDistributionLatencySource": "mixed_uniform_distribution",
         "TraceReplayLatencySource": "trace_replay",
-        "EmpiricalSampleLatencySource": "empirical_sample",
-        "EmpiricalTraceReplayLatencySource": "empirical_trace_replay",
+        "ProfileSampleLatencySource": "profile_sample",
         "MeasuredLatencySource": "measured",
     }
     return by_class.get(name, name)

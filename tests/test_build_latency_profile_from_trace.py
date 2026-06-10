@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from latency_bench.experiments.build_latency_profile_from_trace import build_profile_from_trace
-from latency_bench.latency.profile import load_latency_samples, load_profile_manifest, write_latency_samples
+from latency_bench.latency.profile import load_latency_distribution, load_latency_samples, load_profile_manifest, write_latency_samples
 
 
 def _build_profile(tmp_path: Path, samples: list[float], **overrides):
@@ -46,6 +46,7 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
 
     assert (output_dir / "profile.json").exists()
     assert (output_dir / "latencies.jsonl").exists()
+    assert (output_dir / "latency_distribution.json").exists()
     assert (output_dir / "profile_summary.json").exists()
     assert (output_dir / "profile_summary.csv").exists()
 
@@ -54,6 +55,8 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
     assert loaded_manifest["n_samples"] == 3
     assert loaded_manifest["frame_ms"] == pytest.approx(40.0)
     assert loaded_manifest["trace_path"] == "latencies.jsonl"
+    assert loaded_manifest["distribution_type"] == "inverse_cdf"
+    assert loaded_manifest["distribution_path"] == "latency_distribution.json"
     assert loaded_manifest["summary"]["mean_ms"] == pytest.approx(20.0)
     assert loaded_manifest["policy_type"] == "random"
     assert loaded_manifest["checkpoint_kind"] == "best"
@@ -61,6 +64,9 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
     assert loaded_manifest["checkpoint_fingerprint"] == "sha256:abc123"
     assert loaded_manifest["base_model_id_or_path"] == "base-model"
     assert load_latency_samples(output_dir / "latencies.jsonl") == [10.0, 20.0, 30.0]
+    distribution = load_latency_distribution(output_dir / "latency_distribution.json")
+    assert distribution["quantile_levels"] == [0.0, 0.5, 1.0]
+    assert distribution["latency_ms"] == [10.0, 20.0, 30.0]
 
     summary_json = json.loads((output_dir / "profile_summary.json").read_text(encoding="utf-8"))
     assert summary_json["n_samples"] == 3

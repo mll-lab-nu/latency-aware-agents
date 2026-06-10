@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import random
+from bisect import bisect_left
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from latency_bench.latency.profile import load_latency_samples, load_profile_manifest
+from latency_bench.latency.profile import load_latency_distribution, load_profile_manifest
 from latency_bench.latency.measurement import RuntimeLatencyMeasurer
 from latency_bench.latency.trace import load_latency_trace
 
@@ -139,62 +140,41 @@ class TraceReplayLatencySource(LatencySource):
         return value
 
 
-class EmpiricalSampleLatencySource(LatencySource):
+class ProfileSampleLatencySource(LatencySource):
     def __init__(self, profile_path: str | Path | None, seed: int | None = None):
-        self.profile_path, self.trace_path, self.profile, self.samples_ms = _load_profile_samples(profile_path)
+        self.profile_path = _resolve_profile_manifest_path(profile_path)
+        self.profile = load_profile_manifest(self.profile_path)
+        self.distribution_path = Path(self.profile["distribution_path"])
+        if not self.distribution_path.is_absolute():
+            self.distribution_path = self.profile_path.parent / self.distribution_path
+        distribution = load_latency_distribution(self.distribution_path)
+        self.quantile_levels = [float(value) for value in distribution["quantile_levels"]]
+        self.latency_ms = [float(value) for value in distribution["latency_ms"]]
         self.profile_id = self.profile["profile_id"]
         self.profile_type = self.profile["profile_type"]
         self.target_device = self.profile["target_device"]
+        self.distribution_type = self.profile["distribution_type"]
         self.rng = random.Random(seed)
-        self.last_sample_index: int | None = None
         self.last_metadata: dict[str, Any] | None = None
 
     def next_latency_ms(self, context: dict[str, Any] | None = None) -> float:
-        sample_index = self.rng.randrange(len(self.samples_ms))
-        self.last_sample_index = sample_index
-        self.last_metadata = _profile_latency_metadata(
-            self,
-            sample_index=sample_index,
-        )
-        return self.samples_ms[sample_index]
+        quantile = self.rng.random()
+        latency = self._sample_inverse_cdf(quantile)
+        self.last_metadata = _profile_latency_metadata(self)
+        return latency
 
-
-class EmpiricalTraceReplayLatencySource(LatencySource):
-    def __init__(
-        self,
-        profile_path: str | Path | None,
-        trace_replay_order: str = "sequential",
-        loop_trace: bool = True,
-        seed: int | None = None,
-    ):
-        if trace_replay_order not in {"sequential", "random"}:
-            raise ValueError("trace_replay_order must be one of ['random', 'sequential']")
-        self.profile_path, self.trace_path, self.profile, self.samples_ms = _load_profile_samples(profile_path)
-        self.profile_id = self.profile["profile_id"]
-        self.profile_type = self.profile["profile_type"]
-        self.target_device = self.profile["target_device"]
-        self.trace_replay_order = trace_replay_order
-        self.loop_trace = loop_trace
-        self.order = list(range(len(self.samples_ms)))
-        if trace_replay_order == "random":
-            random.Random(seed).shuffle(self.order)
-        self.index = 0
-        self.last_trace_index: int | None = None
-        self.last_metadata: dict[str, Any] | None = None
-
-    def next_latency_ms(self, context: dict[str, Any] | None = None) -> float:
-        if self.index >= len(self.order):
-            if not self.loop_trace:
-                raise StopIteration("Empirical latency trace exhausted")
-            self.index = 0
-        trace_index = self.order[self.index]
-        self.index += 1
-        self.last_trace_index = trace_index
-        self.last_metadata = _profile_latency_metadata(
-            self,
-            trace_index=trace_index,
-        )
-        return self.samples_ms[trace_index]
+    def _sample_inverse_cdf(self, quantile: float) -> float:
+        index = bisect_left(self.quantile_levels, quantile)
+        if index == 0:
+            return self.latency_ms[0]
+        if index >= len(self.quantile_levels):
+            return self.latency_ms[-1]
+        lower_q = self.quantile_levels[index - 1]
+        upper_q = self.quantile_levels[index]
+        lower_latency = self.latency_ms[index - 1]
+        upper_latency = self.latency_ms[index]
+        weight = (quantile - lower_q) / (upper_q - lower_q)
+        return lower_latency + weight * (upper_latency - lower_latency)
 
 
 class MeasuredLatencySource(LatencySource):
@@ -231,18 +211,6 @@ def _resolve_profile_manifest_path(profile_path: str | Path | None) -> Path:
     if not resolved.exists():
         raise FileNotFoundError(f"Profile manifest not found: {resolved}")
     return resolved
-
-
-def _load_profile_samples(profile_path: str | Path | None) -> tuple[Path, Path, dict[str, Any], list[float]]:
-    manifest_path = _resolve_profile_manifest_path(profile_path)
-    profile = load_profile_manifest(manifest_path)
-    trace_path = Path(profile["trace_path"])
-    if not trace_path.is_absolute():
-        trace_path = manifest_path.parent / trace_path
-    if not trace_path.exists():
-        raise FileNotFoundError(f"Latency profile trace file not found: {trace_path}")
-    samples_ms = load_latency_samples(trace_path)
-    return manifest_path, trace_path, profile, samples_ms
 
 
 def _profile_latency_metadata(source: Any, **extra: int) -> dict[str, Any]:

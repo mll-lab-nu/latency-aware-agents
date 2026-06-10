@@ -3,28 +3,16 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 from pathlib import Path
 from typing import Any
 
 from latency_bench.analysis.profile_stats import compute_latency_profile_summary
 from latency_bench.latency.profile import (
-    SUPPORTED_PROFILE_TYPES,
+    build_inverse_cdf_distribution,
     load_latency_samples,
+    save_latency_distribution,
     save_profile_manifest,
     write_latency_samples,
-)
-
-
-PROFILE_FILENAME = "profile.json"
-TRACE_FILENAME = "latencies.jsonl"
-SUMMARY_JSON_FILENAME = "profile_summary.json"
-SUMMARY_CSV_FILENAME = "profile_summary.csv"
-PROFILE_ARTIFACT_FILENAMES = (
-    PROFILE_FILENAME,
-    TRACE_FILENAME,
-    SUMMARY_JSON_FILENAME,
-    SUMMARY_CSV_FILENAME,
 )
 
 
@@ -46,31 +34,30 @@ def build_profile_from_trace(
     checkpoint_fingerprint: str | None = None,
     base_model_id_or_path: str | None = None,
 ) -> dict[str, Any]:
-    fps = float(fps)
-    if not math.isfinite(fps) or fps <= 0:
-        raise ValueError("fps must be positive and finite")
-    if batch_size <= 0:
-        raise ValueError("batch_size must be positive")
-    if profile_type not in SUPPORTED_PROFILE_TYPES:
-        raise ValueError(f"Unsupported profile_type {profile_type!r}; expected one of {sorted(SUPPORTED_PROFILE_TYPES)}")
-
     samples_ms = load_latency_samples(latencies)
-
     output_path = Path(output_dir)
-    artifact_paths = [output_path / filename for filename in PROFILE_ARTIFACT_FILENAMES]
-    existing_artifacts = [path for path in artifact_paths if path.exists()]
+    paths = {
+        "profile": output_path / "profile.json",
+        "trace": output_path / "latencies.jsonl",
+        "distribution": output_path / "latency_distribution.json",
+        "summary_json": output_path / "profile_summary.json",
+        "summary_csv": output_path / "profile_summary.csv",
+    }
+    existing_artifacts = [path for path in paths.values() if path.exists()]
     if existing_artifacts and not overwrite:
         existing = ", ".join(str(path) for path in existing_artifacts)
         raise FileExistsError(f"Refusing to overwrite existing profile artifacts without --overwrite: {existing}")
 
     output_path.mkdir(parents=True, exist_ok=True)
     summary = compute_latency_profile_summary(samples_ms, fps)
-    write_latency_samples(samples_ms, output_path / TRACE_FILENAME)
-    _write_json(summary, output_path / SUMMARY_JSON_FILENAME)
-    _write_summary_csv(summary, output_path / SUMMARY_CSV_FILENAME)
+    distribution = build_inverse_cdf_distribution(samples_ms)
+    write_latency_samples(samples_ms, paths["trace"])
+    save_latency_distribution(distribution, paths["distribution"])
+    _write_json(summary, paths["summary_json"])
+    _write_summary_csv(summary, paths["summary_csv"])
 
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "profile_id": profile_id,
         "profile_type": profile_type,
         "policy_id": policy_id,
@@ -80,7 +67,9 @@ def build_profile_from_trace(
         "frame_ms": summary["frame_ms"],
         "n_samples": len(samples_ms),
         "batch_size": batch_size,
-        "trace_path": TRACE_FILENAME,
+        "trace_path": paths["trace"].name,
+        "distribution_type": "inverse_cdf",
+        "distribution_path": paths["distribution"].name,
         "summary": summary,
     }
     if policy_type is not None:
@@ -93,7 +82,7 @@ def build_profile_from_trace(
         manifest["checkpoint_fingerprint"] = checkpoint_fingerprint
     if base_model_id_or_path is not None:
         manifest["base_model_id_or_path"] = base_model_id_or_path
-    save_profile_manifest(manifest, output_path / PROFILE_FILENAME)
+    save_profile_manifest(manifest, paths["profile"])
     return manifest
 
 
@@ -102,7 +91,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--latencies", type=Path, required=True, help="Path to input JSONL latency trace.")
     parser.add_argument("--output-dir", type=Path, required=True, help="Directory where profile artifacts are written.")
     parser.add_argument("--profile-id", required=True)
-    parser.add_argument("--profile-type", choices=sorted(SUPPORTED_PROFILE_TYPES), required=True)
+    parser.add_argument("--profile-type", required=True)
     parser.add_argument("--policy-id", required=True)
     parser.add_argument("--env-id", required=True)
     parser.add_argument("--target-device", required=True)

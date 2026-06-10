@@ -1,7 +1,5 @@
 protocol_id: cross_device_latency_v1
 output_root: results/cross_device
-trace_replay_order: sequential
-loop_trace: true
 checkpoint_kind: best
 n_episodes: 10
 seed_set:

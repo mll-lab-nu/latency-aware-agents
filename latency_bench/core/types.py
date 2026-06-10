@@ -29,8 +29,7 @@ class LatencySourceType(str, Enum):
     MIXED_NORMAL_DISTRIBUTION = "mixed_normal_distribution"
     MIXED_UNIFORM_DISTRIBUTION = "mixed_uniform_distribution"
     TRACE_REPLAY = "trace_replay"
-    EMPIRICAL_SAMPLE = "empirical_sample"
-    EMPIRICAL_TRACE_REPLAY = "empirical_trace_replay"
+    PROFILE_SAMPLE = "profile_sample"
     MEASURED = "measured"
 
 

@@ -134,10 +134,8 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
         raise ValueError("Simulated replay task requires a profile_path")
     config.setdefault("executor", {})["mode"] = "simulated"
     latency = config.setdefault("latency", {})
-    latency["type"] = "empirical_trace_replay"
+    latency["type"] = "profile_sample"
     latency["profile_path"] = str(task.profile_path)
-    latency["trace_replay_order"] = spec.get("trace_replay_order", "sequential")
-    latency["loop_trace"] = bool(spec.get("loop_trace", True))
     latency["seed"] = int(task.seed)
     latency["profile_id"] = task.target_device["profile_id"]
     latency["profile_type"] = "rollout_profile"

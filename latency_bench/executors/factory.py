@@ -17,13 +17,12 @@ from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.latency.sources import (
-    EmpiricalSampleLatencySource,
-    EmpiricalTraceReplayLatencySource,
     FixedLatencySource,
     LatencySource,
     NormalDistributionLatencySource,
     MixedNormalDistributionLatencySource,
     MixedUniformDistributionLatencySource,
+    ProfileSampleLatencySource,
     TraceReplayLatencySource,
     UniformDistributionLatencySource,
     ZeroLatencySource,
@@ -409,16 +408,9 @@ def _build_latency_source(latency_cfg: dict[str, Any]) -> LatencySource:
             trace_path=latency_cfg["trace_path"],
             loop_trace=bool(latency_cfg.get("loop_trace", False)),
         )
-    if latency_type == LatencySourceType.EMPIRICAL_SAMPLE.value:
-        return EmpiricalSampleLatencySource(
+    if latency_type == LatencySourceType.PROFILE_SAMPLE.value:
+        return ProfileSampleLatencySource(
             profile_path=latency_cfg["profile_path"],
-            seed=latency_cfg.get("seed"),
-        )
-    if latency_type == LatencySourceType.EMPIRICAL_TRACE_REPLAY.value:
-        return EmpiricalTraceReplayLatencySource(
-            profile_path=latency_cfg["profile_path"],
-            trace_replay_order=latency_cfg.get("trace_replay_order", "sequential"),
-            loop_trace=bool(latency_cfg.get("loop_trace", True)),
             seed=latency_cfg.get("seed"),
         )
     raise ValueError(f"Unsupported latency.type for simulated executor: {latency_type}")
