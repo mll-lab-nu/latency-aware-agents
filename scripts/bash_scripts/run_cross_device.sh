@@ -4,20 +4,92 @@ set -euo pipefail
 # Minimal cross-device protocol entrypoint.
 #
 # Common usage:
-#   STAGES="doctor measure realtime sim-same sim-cross aggregate" scripts/bash_scripts/run_cross_device.sh
-#   DRY_RUN=1 ONLY_POLICY=OpenVLA-Flappy STAGES="doctor measure" scripts/bash_scripts/run_cross_device.sh
-#   HF_PROFILE_REPO=latency-sensitive-bench/profiles STAGES="sim-same sim-cross" scripts/bash_scripts/run_cross_device.sh
-#   UPLOAD_PROFILES=1 HF_PROFILE_REPO=latency-sensitive-bench/profiles STAGES="measure" scripts/bash_scripts/run_cross_device.sh
+#   scripts/bash_scripts/run_cross_device.sh profile
+#   scripts/bash_scripts/run_cross_device.sh realtime
+#   scripts/bash_scripts/run_cross_device.sh sim
+#   scripts/bash_scripts/run_cross_device.sh aggregate
+#   DRY_RUN=1 ONLY_POLICY=OpenVLA-Flappy scripts/bash_scripts/run_cross_device.sh profile
 #
 # Key knobs:
 #   SPEC, OUT, PROFILES_DIR, TABLES_DIR
 #   HARDWARE, REPLAY_HARDWARE, RUNTIME_ENV
-#   STAGES: space-separated list from doctor, measure, realtime, sim-same, sim-cross, aggregate
+#   STAGES: used only by the custom preset
 #   ONLY_POLICY, ONLY_ENV, ONLY_DEVICE, ONLY_EXPERIMENT, MAX_RUNS
 #   N_EPISODES, SEED_SET, CHECKPOINT_KIND
 #   DRY_RUN=1, RESUME=1, OVERWRITE=1, CONTINUE_ON_ERROR=1, SMOKE=1
 #   HF_PROFILE_REPO: dataset repo used by sim stages to download missing profiles
 #   UPLOAD_PROFILES=1: upload local profile folders after selected stages finish
+
+print_usage() {
+    cat >&2 <<'EOF'
+Usage:
+  scripts/bash_scripts/run_cross_device.sh <preset>
+
+Presets:
+  doctor      Check selected rows, runtime, hardware, configs, and profiles.
+  check-deps  Check selected OpenVLA dependencies.
+  profile     Run doctor + measure, then upload local profiles to HF.
+  realtime    Run doctor + realtime baseline.
+  sim         Run doctor + sim-same + sim-cross.
+  aggregate   Aggregate protocol outputs into tables.
+  custom      Use STAGES exactly as provided by the environment.
+
+Common overrides:
+  DRY_RUN=1 ONLY_POLICY=OpenVLA-Flappy N_EPISODES=3 scripts/bash_scripts/run_cross_device.sh profile
+EOF
+}
+
+PRESET=${1:-}
+if [[ -z "${PRESET}" ]]; then
+    print_usage
+    exit 2
+fi
+shift
+if [[ $# -gt 0 ]]; then
+    print_usage
+    exit 2
+fi
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${REPO_ROOT}"
+
+# Load local secrets and repo defaults before deriving script defaults. The
+# token value is never printed; Hugging Face tooling reads it from the env.
+if [[ -f .env ]]; then
+    set -a
+    source .env
+    set +a
+fi
+
+case "${PRESET}" in
+    doctor)
+        STAGES=${STAGES:-doctor}
+        ;;
+    check-deps)
+        STAGES=${STAGES:-check-deps}
+        RUNTIME_ENV=${RUNTIME_ENV:-openvla}
+        ;;
+    profile)
+        STAGES=${STAGES:-doctor measure}
+        UPLOAD_PROFILES=${UPLOAD_PROFILES:-1}
+        ;;
+    realtime)
+        STAGES=${STAGES:-doctor realtime}
+        ;;
+    sim)
+        STAGES=${STAGES:-doctor sim-same sim-cross}
+        ;;
+    aggregate)
+        STAGES=${STAGES:-aggregate}
+        ;;
+    custom)
+        STAGES=${STAGES:?Set STAGES when using the custom preset}
+        ;;
+    *)
+        print_usage
+        exit 2
+        ;;
+esac
 
 SPEC=${SPEC:-configs/experiments/cross_device_protocol.yaml}
 OUT=${OUT:-results/cross_device}
@@ -26,16 +98,14 @@ TABLES_DIR=${TABLES_DIR:-${OUT}/tables}
 HARDWARE=${HARDWARE:-auto}
 REPLAY_HARDWARE=${REPLAY_HARDWARE:-auto}
 RUNTIME_ENV=${RUNTIME_ENV:-auto}
-STAGES=${STAGES:-doctor measure realtime sim-same sim-cross aggregate}
 DRY_RUN=${DRY_RUN:-0}
 RESUME=${RESUME:-1}
 OVERWRITE=${OVERWRITE:-0}
 CONTINUE_ON_ERROR=${CONTINUE_ON_ERROR:-0}
 SMOKE=${SMOKE:-0}
 UPLOAD_PROFILES=${UPLOAD_PROFILES:-0}
-
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "${REPO_ROOT}"
+HF_PROFILE_REPO=${HF_PROFILE_REPO:-latency-sensitive-bench/profiles}
+HF_PROFILE_REPO_TYPE=${HF_PROFILE_REPO_TYPE:-dataset}
 
 COMMON_ARGS=(--spec "${SPEC}" --runtime-env "${RUNTIME_ENV}")
 CHECK_ARGS=()
@@ -62,9 +132,10 @@ echo "Cross-device protocol"
 echo "  spec: ${SPEC}"
 echo "  out: ${OUT}"
 echo "  profiles: ${PROFILES_DIR}"
+echo "  preset: ${PRESET}"
 echo "  stages: ${STAGES}"
 echo "  runtime_env: ${RUNTIME_ENV}"
-echo "  hf_profile_repo: ${HF_PROFILE_REPO:-}"
+echo "  hf_profile_repo: ${HF_PROFILE_REPO}"
 
 for stage in ${STAGES}; do
     case "${stage}" in
@@ -103,11 +174,15 @@ for stage in ${STAGES}; do
 done
 
 if [[ "${UPLOAD_PROFILES}" == "1" ]]; then
-    : "${HF_PROFILE_REPO:?Set HF_PROFILE_REPO before uploading profiles}"
+    if [[ "${DRY_RUN}" == "1" ]]; then
+        echo "profile upload: skipped for dry run"
+        exit 0
+    fi
     while IFS= read -r profile_json; do
         python -m scripts.cross_device.profile_cache upload \
             --profile-path "${profile_json}" \
             --profiles-dir "${PROFILES_DIR}" \
-            --hf-repo "${HF_PROFILE_REPO}"
+            --hf-repo "${HF_PROFILE_REPO}" \
+            --repo-type "${HF_PROFILE_REPO_TYPE}"
     done < <(find "${PROFILES_DIR}" -name profile.json)
 fi

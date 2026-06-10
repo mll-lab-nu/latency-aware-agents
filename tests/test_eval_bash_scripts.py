@@ -802,7 +802,12 @@ def test_cross_device_main_script_documents_single_entrypoint_and_new_protocol_m
 
     script = script_path.read_text(encoding="utf-8")
     assert "python -m scripts.cross_device.protocol" in script
-    assert "STAGES=${STAGES:-doctor measure realtime sim-same sim-cross aggregate}" in script
+    assert "PRESET=${1:-}" in script
+    assert "profile)" in script
+    assert "STAGES=${STAGES:-doctor measure}" in script
+    assert "sim)" in script
+    assert "STAGES=${STAGES:-doctor sim-same sim-cross}" in script
+    assert "custom)" in script
     assert '--runtime-env "${RUNTIME_ENV}"' in script
     assert "check-deps" in script
     assert "measure" in script
@@ -812,6 +817,138 @@ def test_cross_device_main_script_documents_single_entrypoint_and_new_protocol_m
     assert "aggregate" in script
     for env_var in ("ONLY_ENV", "ONLY_POLICY", "ONLY_DEVICE", "ONLY_EXPERIMENT", "MAX_RUNS", "CONTINUE_ON_ERROR"):
         assert env_var in script
+
+
+def _write_fake_cross_device_python(fake_bin: Path, calls_path: Path) -> None:
+    _write_executable(
+        fake_bin / "python",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "{calls_path}"
+exit 0
+""",
+    )
+
+
+def test_cross_device_main_script_requires_a_preset(tmp_path):
+    script_path = REPO_ROOT / "scripts" / "bash_scripts" / "run_cross_device.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _write_executable(fake_bin / "python", "#!/usr/bin/env bash\nexit 0\n")
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "Usage:" in result.stderr
+    assert "profile" in result.stderr
+
+
+def test_cross_device_profile_preset_expands_to_doctor_measure_and_uploads(tmp_path):
+    script_path = REPO_ROOT / "scripts" / "bash_scripts" / "run_cross_device.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls_path = tmp_path / "calls.log"
+    profiles_dir = tmp_path / "profiles"
+    profile_path = profiles_dir / "openvla-flappy" / "flappy" / "L_A100" / "profile.json"
+    profile_path.parent.mkdir(parents=True)
+    profile_path.write_text("{}\n", encoding="utf-8")
+    _write_fake_cross_device_python(fake_bin, calls_path)
+
+    result = subprocess.run(
+        ["bash", str(script_path), "profile"],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "PROFILES_DIR": str(profiles_dir),
+            "OUT": str(tmp_path / "out"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "-m scripts.cross_device.protocol doctor" in calls
+    assert "-m scripts.cross_device.protocol measure" in calls
+    assert "-m scripts.cross_device.protocol realtime" not in calls
+    assert "-m scripts.cross_device.profile_cache upload" in calls
+    assert "--hf-repo latency-sensitive-bench/profiles" in calls
+    assert "stages: doctor measure" in result.stdout
+    assert "hf_profile_repo: latency-sensitive-bench/profiles" in result.stdout
+
+
+def test_cross_device_profile_preset_dry_run_does_not_upload(tmp_path):
+    script_path = REPO_ROOT / "scripts" / "bash_scripts" / "run_cross_device.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls_path = tmp_path / "calls.log"
+    profiles_dir = tmp_path / "profiles"
+    profile_path = profiles_dir / "openvla-flappy" / "flappy" / "L_A100" / "profile.json"
+    profile_path.parent.mkdir(parents=True)
+    profile_path.write_text("{}\n", encoding="utf-8")
+    _write_fake_cross_device_python(fake_bin, calls_path)
+
+    result = subprocess.run(
+        ["bash", str(script_path), "profile"],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "PROFILES_DIR": str(profiles_dir),
+            "OUT": str(tmp_path / "out"),
+            "DRY_RUN": "1",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "-m scripts.cross_device.protocol doctor" in calls
+    assert "-m scripts.cross_device.protocol measure" in calls
+    assert "-m scripts.cross_device.profile_cache upload" not in calls
+    assert "profile upload: skipped for dry run" in result.stdout
+
+
+def test_cross_device_sim_preset_expands_to_doctor_and_sim_stages(tmp_path):
+    script_path = REPO_ROOT / "scripts" / "bash_scripts" / "run_cross_device.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls_path = tmp_path / "calls.log"
+    _write_fake_cross_device_python(fake_bin, calls_path)
+
+    result = subprocess.run(
+        ["bash", str(script_path), "sim"],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "PROFILES_DIR": str(tmp_path / "profiles"),
+            "OUT": str(tmp_path / "out"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "-m scripts.cross_device.protocol doctor" in calls
+    assert "-m scripts.cross_device.protocol sim-same" in calls
+    assert "-m scripts.cross_device.protocol sim-cross" in calls
+    assert "-m scripts.cross_device.protocol measure" not in calls
+    assert "-m scripts.cross_device.profile_cache upload" not in calls
+    assert "stages: doctor sim-same sim-cross" in result.stdout
 
 
 def test_eval_bash_scripts_reject_manual_latency_argument():

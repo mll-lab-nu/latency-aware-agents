@@ -4,6 +4,60 @@ This runbook describes the realtime-inference cross-device protocol: how to
 measure latency profiles, reuse them across machines, run replay simulations,
 and aggregate the outputs used by the paper figures.
 
+## Main Entrypoint
+
+Use one preset argument instead of exporting many environment variables:
+
+```bash
+scripts/bash_scripts/run_cross_device.sh <preset>
+```
+
+Presets:
+
+| Preset | Stages | Main use |
+| --- | --- | --- |
+| `doctor` | `doctor` | Check selected rows, runtime, hardware, configs, and missing profiles. |
+| `check-deps` | `check-deps` | Check selected OpenVLA model/checkpoint dependencies. |
+| `profile` | `doctor measure` | Measure realtime inference latency, build local profiles, then upload profiles to Hugging Face. |
+| `realtime` | `doctor realtime` | Run the true realtime baseline on the current machine. |
+| `sim` | `doctor sim-same sim-cross` | Run simulated replay; missing local profiles are downloaded from Hugging Face. |
+| `aggregate` | `aggregate` | Write the CSV tables used for figure data snapshots. |
+| `custom` | `$STAGES` | Advanced mode when you need an exact custom stage list. |
+
+The script automatically reads `.env` from the repo root and defaults to:
+
+```bash
+HF_PROFILE_REPO=latency-sensitive-bench/profiles
+HF_PROFILE_REPO_TYPE=dataset
+```
+
+Common examples:
+
+```bash
+# Print commands without running expensive inference.
+DRY_RUN=1 scripts/bash_scripts/run_cross_device.sh profile
+
+# Measure OpenVLA/small-model rows that match the current conda environment.
+scripts/bash_scripts/run_cross_device.sh profile
+
+# Run realtime baseline.
+scripts/bash_scripts/run_cross_device.sh realtime
+
+# Run same-device and cross-device replay.
+scripts/bash_scripts/run_cross_device.sh sim
+
+# Aggregate protocol outputs.
+scripts/bash_scripts/run_cross_device.sh aggregate
+```
+
+Small overrides are still supported:
+
+```bash
+N_EPISODES=3 ONLY_POLICY=OpenVLA-Flappy scripts/bash_scripts/run_cross_device.sh profile
+DRY_RUN=1 ONLY_POLICY=OpenVLA-Flappy scripts/bash_scripts/run_cross_device.sh sim
+STAGES="doctor measure realtime" scripts/bash_scripts/run_cross_device.sh custom
+```
+
 Default paths:
 
 ```bash
@@ -46,30 +100,32 @@ replay_pairs:
     replay_device: h200
 ```
 
-## Main Script
+## Advanced Script Use
 
-Use the single bash entrypoint:
+The same single bash entrypoint supports explicit overrides:
 
 ```bash
-scripts/bash_scripts/run_cross_device.sh
+scripts/bash_scripts/run_cross_device.sh <preset>
 ```
 
 Common examples:
 
 ```bash
 # Print selected rows and generated commands without running inference.
-DRY_RUN=1 STAGES="doctor measure" scripts/bash_scripts/run_cross_device.sh
+DRY_RUN=1 scripts/bash_scripts/run_cross_device.sh profile
 
 # Run the standard local flow.
-STAGES="doctor measure realtime sim-same" scripts/bash_scripts/run_cross_device.sh
+scripts/bash_scripts/run_cross_device.sh profile
+scripts/bash_scripts/run_cross_device.sh realtime
+scripts/bash_scripts/run_cross_device.sh sim
 
 # Run OpenVLA rows from the OpenVLA environment.
 conda activate starvla_rl_games_openvla
-RUNTIME_ENV=openvla STAGES="doctor check-deps measure realtime" scripts/bash_scripts/run_cross_device.sh
+RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh profile
 
 # Run small-model rows from the latency environment.
 conda activate latency
-RUNTIME_ENV=small_model STAGES="doctor measure realtime sim-same" scripts/bash_scripts/run_cross_device.sh
+RUNTIME_ENV=small_model scripts/bash_scripts/run_cross_device.sh profile
 ```
 
 Useful environment variables:
@@ -82,7 +138,7 @@ TABLES_DIR=results/cross_device/tables
 HARDWARE=auto
 REPLAY_HARDWARE=auto
 RUNTIME_ENV=auto
-STAGES="doctor measure realtime sim-same sim-cross aggregate"
+STAGES="doctor measure realtime sim-same sim-cross aggregate"  # custom preset only
 ONLY_POLICY=OpenVLA-Flappy
 ONLY_ENV=flappy
 ONLY_DEVICE=a100
@@ -141,13 +197,14 @@ Sim stages use local-first behavior:
   downloaded before skip decisions;
 - `doctor` and `DRY_RUN=1` do not download profiles.
 
-Upload measured local profiles:
+Upload measured local profiles. This happens automatically for the `profile`
+preset; the explicit form is mainly useful with `custom`:
 
 ```bash
 UPLOAD_PROFILES=1 \
 HF_PROFILE_REPO=latency-sensitive-bench/profiles \
 STAGES="measure" \
-scripts/bash_scripts/run_cross_device.sh
+scripts/bash_scripts/run_cross_device.sh custom
 ```
 
 Manual profile cache commands:

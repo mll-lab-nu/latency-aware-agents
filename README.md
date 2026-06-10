@@ -1,5 +1,16 @@
 # Latency Sensitive Bench
 
+## Environment
+
+Create a local `.env` first, set these values:
+
+```bash
+HF_TOKEN=...
+HF_PROFILE_REPO=latency-sensitive-bench/profiles
+HF_PROFILE_REPO_TYPE=dataset
+WANDB_API_KEY=...
+```
+
 ## Install
 
 Install the repository by running:
