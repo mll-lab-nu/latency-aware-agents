@@ -6,6 +6,7 @@ outputs_old
 outputs_old/
 
 vizdoom_basic_models/
+vizdoom.ini
 wandb/
 models/
 
