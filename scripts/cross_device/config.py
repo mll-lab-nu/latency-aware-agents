@@ -120,11 +120,11 @@ def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask) 
     latency["device"] = latency.get("device") or "cuda:0"
     latency["sync_cuda"] = latency.get("sync_cuda", True)
     latency["profile_id"] = task.target_device["profile_id"]
-    latency["profile_type"] = "rollout_profile"
     latency["target_device"] = task.target_device["id"]
     latency.pop("fixed_latency_ms", None)
     latency.pop("profile_path", None)
     evaluation = config.setdefault("evaluation", {})
+    # Realtime-vs-replay profiles use serial inference semantics.
     evaluation["eval_parallel_envs"] = 1
     evaluation["eval_latency_values"] = None
 
@@ -138,13 +138,13 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
     latency["profile_path"] = str(task.profile_path)
     latency["seed"] = int(task.seed)
     latency["profile_id"] = task.target_device["profile_id"]
-    latency["profile_type"] = "rollout_profile"
     latency["target_device"] = task.target_device["id"]
     if task.replay_device is not None:
         latency["replay_host"] = task.replay_device["id"]
     for key in ("fixed_latency_ms", "mean_latency_ms", "std_latency_ms", "min_latency_ms", "max_latency_ms", "trace_path"):
         latency.pop(key, None)
     evaluation = config.setdefault("evaluation", {})
+    # Realtime-vs-replay profiles use serial inference semantics.
     evaluation["eval_parallel_envs"] = 1
     evaluation["eval_latency_values"] = None
 
@@ -182,7 +182,6 @@ def _profile_command(task: ProtocolTask, spec: dict[str, Any], overwrite: bool) 
     """
     if task.profile_output_dir is None:
         raise ValueError("Measure task requires profile_output_dir")
-    model_metadata = _profile_model_metadata(task, spec)
     cmd = [
         sys.executable,
         "-m",
@@ -193,50 +192,18 @@ def _profile_command(task: ProtocolTask, spec: dict[str, Any], overwrite: bool) 
         str(task.profile_output_dir),
         "--profile-id",
         str(task.target_device["profile_id"]),
-        "--profile-type",
-        "rollout_profile",
         "--policy-id",
         str(task.row.get("policy")),
         "--env-id",
         str(task.row.get("env_name", task.row.get("env"))),
         "--target-device",
         str(task.target_device["id"]),
-        "--fps",
+        "--env-fps",
         str(task.row["fps"]),
-        "--batch-size",
-        "1",
     ]
-    for key, value in model_metadata.items():
-        cmd.extend([f"--{key.replace('_', '-')}", value])
     if overwrite:
         cmd.append("--overwrite")
     return cmd
-
-
-def _profile_model_metadata(task: ProtocolTask, spec: dict[str, Any]) -> dict[str, str]:
-    """Collect model identity fields recorded in `profile.json`.
-
-    Args:
-        task: Measure-stage task.
-        spec: Loaded protocol spec.
-
-    Returns:
-        Metadata derived from the generated config so the profile matches the
-        model/checkpoint that actually ran, including env-var overrides.
-    """
-    config = _generated_config(task, spec)
-    policy = config["policy"]
-    metadata = {
-        "policy_type": str(policy["type"]),
-        "checkpoint_kind": str(task.checkpoint_kind),
-    }
-    if "checkpoint_path" in policy:
-        metadata["checkpoint_path_or_id"] = str(policy["checkpoint_path"])
-    if "checkpoint_fingerprint" in policy:
-        metadata["checkpoint_fingerprint"] = str(policy["checkpoint_fingerprint"])
-    if "base_model_path" in policy:
-        metadata["base_model_id_or_path"] = str(policy["base_model_path"])
-    return metadata
 
 
 def _base_config_path(row: dict[str, Any]) -> Path:

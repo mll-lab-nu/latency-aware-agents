@@ -36,12 +36,10 @@ def _build_profile(
         latencies=raw_trace,
         output_dir=output_dir,
         profile_id=profile_id,
-        profile_type="rollout_profile",
         policy_id="flappy_pi0",
         env_id="FlappyBird-v0",
         target_device=target_device,
-        fps=30.0,
-        batch_size=1,
+        env_fps=30.0,
     )
 
 
@@ -64,7 +62,7 @@ def _episode_record(
         "profile_id": "L_3090",
         "target_device": "RTX_3090",
         "replay_host": replay_host,
-        "fps": 30.0,
+        "env_fps": 30.0,
         "frame_ms": FRAME_MS_30_FPS,
         "latency_type": latency_type,
     }

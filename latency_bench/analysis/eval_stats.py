@@ -20,10 +20,10 @@ METADATA_KEYS = (
     "policy_id",
     "env_id",
     "profile_id",
-    "profile_type",
     "target_device",
     "replay_host",
-    "fps",
+    "env_fps",
+    "obs_fps",
     "frame_ms",
     "latency_type",
 )

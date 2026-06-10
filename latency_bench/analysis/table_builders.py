@@ -22,14 +22,12 @@ from latency_bench.latency.profile import load_latency_samples, load_profile_man
 
 PROFILE_SUMMARY_COLUMNS = (
     "profile_id",
-    "profile_type",
     "policy_id",
     "env_id",
     "target_device",
-    "fps",
+    "env_fps",
     "frame_ms",
     "n_samples",
-    "batch_size",
     "trace_path",
     "mean_ms",
     "std_ms",
@@ -51,14 +49,12 @@ PROFILE_SUMMARY_COLUMNS = (
 
 PROFILE_MANIFEST_COLUMNS = (
     "profile_id",
-    "profile_type",
     "policy_id",
     "env_id",
     "target_device",
-    "fps",
+    "env_fps",
     "frame_ms",
     "n_samples",
-    "batch_size",
     "trace_path",
 )
 
@@ -82,7 +78,7 @@ def build_latency_profile_summary_rows(profile_paths: list[str | Path]) -> list[
         manifest_path, manifest = _load_profile(profile_path)
         trace_path = _resolve_profile_trace_path(manifest_path, manifest)
         samples = load_latency_samples(trace_path)
-        summary = compute_latency_profile_summary(samples, float(manifest["fps"]))
+        summary = compute_latency_profile_summary(samples, float(manifest["env_fps"]))
         row = {key: manifest[key] for key in PROFILE_MANIFEST_COLUMNS}
         row.update(summary)
         rows.append({key: row[key] for key in PROFILE_SUMMARY_COLUMNS})
@@ -97,7 +93,7 @@ def build_profile_match_rows(match_specs: list[dict[str, Any]]) -> list[dict[str
         sim_latency_path = resolve_run_file(spec["sim_latency_records"], LATENCY_RECORD_CANDIDATES)
         sim_records = load_jsonl_records(sim_latency_path)
         sim_samples = extract_latency_samples_from_records(sim_records)
-        fps = float(spec["fps"] if "fps" in spec else manifest["fps"])
+        env_fps = float(spec["env_fps"] if "env_fps" in spec else manifest["env_fps"])
 
         row: dict[str, Any] = {
             "label": spec.get("label"),
@@ -105,9 +101,9 @@ def build_profile_match_rows(match_specs: list[dict[str, Any]]) -> list[dict[str
             "real_profile_id": manifest["profile_id"],
             "real_target_device": manifest["target_device"],
             "sim_latency_records": str(sim_latency_path),
-            "fps": fps,
+            "env_fps": env_fps,
         }
-        row.update(latency_distribution_match_metrics(real_samples, sim_samples, fps))
+        row.update(latency_distribution_match_metrics(real_samples, sim_samples, env_fps))
         rows.append(row)
     return rows
 
@@ -252,6 +248,7 @@ def _performance_error_fields(
             fallback_to_realtime_denominator=allow_fallback,
         )
     raise ValueError(f"Unsupported performance error kind: {kind}")
+
 def _load_profile(profile_path: str | Path) -> tuple[Path, dict[str, Any]]:
     path = Path(profile_path)
     manifest_path = path / "profile.json" if path.is_dir() else path
