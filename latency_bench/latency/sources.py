@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from latency_bench.latency.profile import load_latency_distribution, load_profile_manifest
-from latency_bench.latency.measurement import RuntimeLatencyMeasurer
-from latency_bench.latency.trace import load_latency_trace
 
 
 class LatencySource(ABC):
@@ -123,23 +121,6 @@ class MixedUniformDistributionLatencySource(UniformDistributionLatencySource):
         return self._episode_latency_ms
 
 
-class TraceReplayLatencySource(LatencySource):
-    def __init__(self, trace_path: str | Path, loop_trace: bool = False):
-        self.trace_path = Path(trace_path)
-        self.loop_trace = loop_trace
-        self.values_ms = load_latency_trace(self.trace_path)
-        self.index = 0
-
-    def next_latency_ms(self, context: dict[str, Any] | None = None) -> float:
-        if self.index >= len(self.values_ms):
-            if not self.loop_trace:
-                raise StopIteration("Latency trace exhausted")
-            self.index = 0
-        value = self.values_ms[self.index]
-        self.index += 1
-        return value
-
-
 class ProfileSampleLatencySource(LatencySource):
     def __init__(self, profile_path: str | Path | None, seed: int | None = None):
         self.profile_path = _resolve_profile_manifest_path(profile_path)
@@ -173,31 +154,6 @@ class ProfileSampleLatencySource(LatencySource):
         upper_latency = self.latency_ms[index]
         weight = (quantile - lower_q) / (upper_q - lower_q)
         return lower_latency + weight * (upper_latency - lower_latency)
-
-
-class MeasuredLatencySource(LatencySource):
-    """Compatibility adapter for older code that measured via a latency source.
-
-    Realtime measured execution now measures policy work in the executor's
-    policy worker so it can preserve queue wait and effective action delay.
-    """
-
-    def __init__(self, profiler: RuntimeLatencyMeasurer):
-        self.profiler = profiler
-        self.last_record = None
-
-    def next_latency_ms(self, context: dict[str, Any] | None = None) -> float:
-        context = context or {}
-        fn = context.get("fn")
-        if fn is None:
-            raise ValueError("MeasuredLatencySource requires context['fn']")
-        args = context.get("args", ())
-        kwargs = dict(context.get("kwargs", {}))
-        if "obs_id" in context:
-            kwargs["obs_id"] = context["obs_id"]
-        _, record = self.profiler.run_and_measure(fn, *args, **kwargs)
-        self.last_record = record
-        return record.latency_ms
 
 
 def _resolve_profile_manifest_path(profile_path: str | Path | None) -> Path:

@@ -445,10 +445,10 @@ def test_realtime_devices_follow_torch_visible_count_when_env_is_unset(monkeypat
     assert executor_factory._resolve_realtime_inference_devices() == ["cuda:0", "cuda:1"]
 
 
-def test_factory_accepts_measured_latency_for_realtime(monkeypatch, tmp_path):
+def test_factory_builds_realtime_without_latency_type(monkeypatch, tmp_path):
     monkeypatch.setattr(executor_factory, "_resolve_realtime_inference_devices", lambda: ["cuda:0"])
     config = _config(mode="realtime", output_dir=str(tmp_path))
-    config["latency"] = {"type": "measured"}
+    config["latency"] = {"device": "cuda:0", "sync_cuda": True}
 
     executor = build_executor(config)
 
@@ -475,7 +475,7 @@ def test_factory_rejects_injected_latency_for_realtime(tmp_path):
         build_executor(config)
 
 
-def test_simulated_parallel_trace_replay_profile_is_not_rejected(tmp_path):
+def test_factory_rejects_trace_replay_latency_type(tmp_path):
     trace_path = tmp_path / "profile_device_latency.jsonl"
     trace_path.write_text('{"latency_ms": 0.0}\n', encoding="utf-8")
     config = _config(output_dir=str(tmp_path))
@@ -486,12 +486,8 @@ def test_simulated_parallel_trace_replay_profile_is_not_rejected(tmp_path):
         "loop_trace": True,
     }
 
-    executor = build_executor(config)
-
-    try:
-        assert isinstance(executor, SimulatedLatencyExecutor)
-    finally:
-        executor.env.close()
+    with pytest.raises(ValueError, match="Unsupported latency.type"):
+        build_executor(config)
 
 
 def test_factory_builds_profile_sample_latency_source(tmp_path):
@@ -512,7 +508,7 @@ def test_factory_builds_profile_sample_latency_source(tmp_path):
         executor.env.close()
 
 
-@pytest.mark.parametrize("latency_type", ["empirical_sample", "empirical_trace_replay"])
+@pytest.mark.parametrize("latency_type", ["empirical_sample", "empirical_trace_replay", "measured"])
 def test_factory_rejects_removed_empirical_latency_types(tmp_path, latency_type):
     profile_dir = _write_latency_profile(tmp_path)
     config = _config(output_dir=str(tmp_path))

@@ -10,7 +10,7 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
-from latency_bench.latency.sources import FixedLatencySource, LatencySource, TraceReplayLatencySource, ZeroLatencySource
+from latency_bench.latency.sources import FixedLatencySource, LatencySource, ZeroLatencySource
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
@@ -510,31 +510,6 @@ def test_fixed_one_frame_latency_at_35_fps_does_not_drop_boundary_action():
         "a7",
     ]
     assert metrics.num_dropped_actions == 0
-
-
-def test_trace_replay_latency_applies_event_at_trace_ready_step(tmp_path: Path):
-    clock = EnvClock(env_fps=30, obs_fps=30)
-    trace_path = tmp_path / "trace.jsonl"
-    trace_path.write_text(
-        '{"obs_id": 0, "latency_ms": 0.0}\n'
-        f'{{"obs_id": 1, "latency_ms": {clock.frame_ms * 2}}}\n'
-        f'{{"obs_id": 2, "latency_ms": {clock.frame_ms}}}\n',
-        encoding="utf-8",
-    )
-    executor, _, _, _ = _executor(
-        TraceReplayLatencySource(trace_path, loop_trace=True),
-        policy=CountingPolicyRunner(),
-        max_steps=4,
-        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
-    )
-
-    executor.run_episode(episode_id=0, eval_max_steps=4)
-    applied = executor.action_scheduler.get_applied_events()
-
-    assert applied[0].action.value == "a0"
-    assert applied[0].apply_raw_frame == 0
-    assert applied[1].action.value == "a1"
-    assert applied[1].apply_raw_frame == 3
 
 
 def test_simulated_executor_does_not_sleep(monkeypatch):

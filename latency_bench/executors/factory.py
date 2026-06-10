@@ -23,7 +23,6 @@ from latency_bench.latency.sources import (
     MixedNormalDistributionLatencySource,
     MixedUniformDistributionLatencySource,
     ProfileSampleLatencySource,
-    TraceReplayLatencySource,
     UniformDistributionLatencySource,
     ZeroLatencySource,
 )
@@ -301,8 +300,8 @@ def _build_realtime_executor(
     scheduler_cfg = config["scheduler"]
     latency_cfg = config["latency"]
     latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
-    if latency_type not in {LatencySourceType.ZERO.value, LatencySourceType.MEASURED.value}:
-        raise ValueError("realtime executor does not support injected latency; use latency.type=zero or measured")
+    if latency_type != LatencySourceType.ZERO.value:
+        raise ValueError("realtime executor does not support injected latency")
     inference_devices = _resolve_realtime_inference_devices()
 
     action_resolver = ActionResolver(config["env"])
@@ -402,11 +401,6 @@ def _build_latency_source(latency_cfg: dict[str, Any]) -> LatencySource:
             min_latency_ms=float(latency_cfg["min_latency_ms"]),
             max_latency_ms=float(latency_cfg["max_latency_ms"]),
             seed=latency_cfg.get("seed"),
-        )
-    if latency_type == LatencySourceType.TRACE_REPLAY.value:
-        return TraceReplayLatencySource(
-            trace_path=latency_cfg["trace_path"],
-            loop_trace=bool(latency_cfg.get("loop_trace", False)),
         )
     if latency_type == LatencySourceType.PROFILE_SAMPLE.value:
         return ProfileSampleLatencySource(

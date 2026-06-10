@@ -116,7 +116,7 @@ def _policy_type(config: dict[str, Any]) -> str:
 def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask) -> None:
     config.setdefault("executor", {})["mode"] = "realtime"
     latency = config.setdefault("latency", {})
-    latency["type"] = "measured"
+    latency.pop("type", None)
     latency["device"] = latency.get("device") or "cuda:0"
     latency["sync_cuda"] = latency.get("sync_cuda", True)
     latency["profile_id"] = task.target_device["profile_id"]

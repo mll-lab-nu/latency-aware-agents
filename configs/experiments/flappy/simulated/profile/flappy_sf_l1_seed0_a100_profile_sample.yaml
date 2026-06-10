@@ -37,4 +37,4 @@ evaluation:
   eval_raw_reward: false
 
 logging:
-  output_dir: outputs/simulated/flappy/flappy_sf_l1_seed0_a100_trace_replay
+  output_dir: outputs/simulated/flappy/flappy_sf_l1_seed0_a100_profile_sample

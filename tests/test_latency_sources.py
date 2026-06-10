@@ -11,7 +11,6 @@ from latency_bench.latency.sources import (
     MixedUniformDistributionLatencySource,
     NormalDistributionLatencySource,
     ProfileSampleLatencySource,
-    TraceReplayLatencySource,
     UniformDistributionLatencySource,
     ZeroLatencySource,
 )
@@ -149,33 +148,6 @@ def test_mixed_distribution_sources_sample_once_per_episode():
     assert len(set(uniform_ep0)) == 1
     assert len(set(uniform_ep1)) == 1
     assert uniform_ep0[0] != uniform_ep1[0]
-
-
-def test_trace_replay_returns_values_in_order(tmp_path: Path):
-    trace_path = tmp_path / "trace.jsonl"
-    trace_path.write_text(
-        '{"obs_id": 0, "latency_ms": 35.2}\n'
-        '{"obs_id": 1, "latency_ms": 41.8}\n',
-        encoding="utf-8",
-    )
-    source = TraceReplayLatencySource(trace_path)
-
-    assert source.next_latency_ms() == pytest.approx(35.2)
-    assert source.next_latency_ms() == pytest.approx(41.8)
-    with pytest.raises(StopIteration):
-        source.next_latency_ms()
-
-
-def test_trace_replay_loops_when_enabled(tmp_path: Path):
-    trace_path = tmp_path / "trace.jsonl"
-    trace_path.write_text(
-        '{"obs_id": 0, "latency_ms": 1.0}\n'
-        '{"obs_id": 1, "latency_ms": 2.0}\n',
-        encoding="utf-8",
-    )
-    source = TraceReplayLatencySource(trace_path, loop_trace=True)
-
-    assert [source.next_latency_ms() for _ in range(5)] == [1.0, 2.0, 1.0, 2.0, 1.0]
 
 
 def test_latency_trace_load_and_save(tmp_path: Path):

@@ -553,15 +553,6 @@ def test_sample_factory_latency_distribution_preserves_fractional_bounds():
     assert sample_latency_frame(spec, 99.0) == 4
 
 
-def test_sample_factory_latency_params_do_not_treat_trace_replay_as_uniform_distribution():
-    from training.common.latency_config import sample_factory_latency_params_from_flat_config
-
-    cfg = SimpleNamespace(latency_type="trace_replay")
-
-    with pytest.raises(ValueError, match="trace_replay"):
-        sample_factory_latency_params_from_flat_config(cfg, env_fps=30)
-
-
 def test_action_latency_wrapper_exposes_fixed_non_zero_latency():
     import gymnasium as gym
     from training.common import latency_wrapper
