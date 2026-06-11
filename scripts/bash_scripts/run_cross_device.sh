@@ -18,7 +18,7 @@ set -euo pipefail
 #   N_EPISODES, SEED_SET, CHECKPOINT_KIND
 #   DRY_RUN=1, RESUME=1, OVERWRITE=1, CONTINUE_ON_ERROR=1, SMOKE=1
 #   HF_PROFILE_REPO: dataset repo used by sim stages to download missing profiles
-#   UPLOAD_PROFILES=1: upload local profile folders after selected stages finish
+#   UPLOAD_PROFILES=1: upload the local protocol output folder after selected stages finish
 
 print_usage() {
     cat >&2 <<'EOF'
@@ -169,11 +169,8 @@ if [[ "${UPLOAD_PROFILES}" == "1" ]]; then
         echo "profile upload: skipped for dry run"
         exit 0
     fi
-    while IFS= read -r profile_json; do
-        python -m scripts.cross_device.profile_cache upload \
-            --profile-path "${profile_json}" \
-            --profiles-dir "${PROFILES_DIR}" \
-            --hf-repo "${HF_PROFILE_REPO}" \
-            --repo-type "${HF_PROFILE_REPO_TYPE}"
-    done < <(find "${PROFILES_DIR}" -name profile.json)
+    python -m scripts.cross_device.profile_cache upload \
+        --folder "${OUT}" \
+        --hf-repo "${HF_PROFILE_REPO}" \
+        --repo-type "${HF_PROFILE_REPO_TYPE}"
 fi

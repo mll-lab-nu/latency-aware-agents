@@ -208,10 +208,13 @@ python -m scripts.cross_device.profile_cache download \
   --hf-repo latency-sensitive-bench/profiles
 
 python -m scripts.cross_device.profile_cache upload \
-  --profile-path "$PROFILES_DIR/OpenVLA-Flappy/flappy/L_A100/profile.json" \
-  --profiles-dir "$PROFILES_DIR" \
+  --folder "$OUT" \
   --hf-repo latency-sensitive-bench/profiles
 ```
+
+The Hugging Face repo mirrors `$OUT`, so profile folders are stored under
+`profiles/<policy_slug>/<env_slug>/<profile_id>/` and run artifacts are stored
+under `runs/...`.
 
 ## Aggregation And Paper Data
 
