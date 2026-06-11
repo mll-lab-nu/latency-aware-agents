@@ -132,6 +132,7 @@ def _add_selection_flags(parser: argparse.ArgumentParser) -> None:
 def _add_override_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--checkpoint-kind", choices=["latest", "best"])
     parser.add_argument("--n-episodes", type=int)
+    parser.add_argument("--n-samples", type=int)
     parser.add_argument("--seed-set")
 
 

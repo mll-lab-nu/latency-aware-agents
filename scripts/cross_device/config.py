@@ -192,6 +192,8 @@ def _profile_command(
     ]
     if overwrite:
         cmd.append("--overwrite")
+    if task.n_samples is not None:
+        cmd.extend(["--n-samples", str(task.n_samples)])
     return cmd
 
 

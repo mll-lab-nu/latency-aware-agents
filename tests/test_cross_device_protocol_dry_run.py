@@ -926,6 +926,39 @@ def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
     assert config["evaluation"]["eval_parallel_envs"] == 1
 
 
+def test_measure_dry_run_threads_n_samples_to_profile_command(tmp_path: Path):
+    base_config = tmp_path / "base.yaml"
+    spec = tmp_path / "protocol.yaml"
+    out = tmp_path / "results"
+    _write_base_config(base_config)
+    _write_spec(spec, base_config)
+
+    result = _run_cli(
+        tmp_path,
+        "measure",
+        "--spec",
+        str(spec),
+        "--hardware",
+        "a100",
+        "--out",
+        str(out),
+        "--dry-run",
+        "--only-experiment",
+        "exp2_same_device_calibration",
+        "--max-runs",
+        "1",
+        "--n-episodes",
+        "3",
+        "--n-samples",
+        "5",
+    )
+
+    assert "episodes: 3" in result.stdout
+    assert "samples: 5" in result.stdout
+    assert "--n-samples 5" in result.stdout
+    assert "best_seed_0_n3_s5" in result.stdout
+
+
 def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monkeypatch):
     planning = importlib.import_module("scripts.cross_device.planning")
     runner = importlib.import_module("scripts.cross_device.runner")
@@ -1005,6 +1038,166 @@ def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monke
     assert final_config["env"]["obs_fps"] == 16.0
     assert "--env-fps" in commands[2]
     assert commands[2][commands[2].index("--env-fps") + 1] == "16.0"
+
+
+def test_measure_run_continues_batches_after_samples_until_n_episodes(tmp_path: Path, monkeypatch):
+    planning = importlib.import_module("scripts.cross_device.planning")
+    runner = importlib.import_module("scripts.cross_device.runner")
+    base_config = tmp_path / "base.yaml"
+    spec_path = tmp_path / "protocol.yaml"
+    out = tmp_path / "results"
+    _write_base_config(base_config)
+    _write_spec(spec_path, base_config)
+    spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    current_device = spec["devices"][0]
+    runtime = RuntimeSelection(
+        requested="small_model",
+        detected_raw="latency",
+        matched_alias="small_model",
+        matched_conda_env="latency",
+        selected_alias="small_model",
+        allow_all=False,
+        allow_mismatch=False,
+    )
+    args = argparse.Namespace(
+        checkpoint_kind=None,
+        dry_run=False,
+        include_controls=False,
+        max_runs=1,
+        n_episodes=3,
+        n_samples=2,
+        only_device=None,
+        only_env=None,
+        only_experiment="exp2_same_device_calibration",
+        only_policy=None,
+        overwrite=False,
+        resume=False,
+        seed_set=None,
+        smoke=False,
+        smoke_episodes=1,
+        smoke_max_steps=None,
+    )
+    task = planning._build_plan(args, spec, "measure", out, out / "profiles", current_device, runtime)[0].task
+    commands: list[list[str]] = []
+    eval_latencies = [[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]]
+
+    def fake_run(command, check):
+        commands.append(list(command))
+        if "latency_bench.experiments.calibrate_env_fps_from_warmup" in command:
+            output_path = Path(command[command.index("--output") + 1])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(
+                json.dumps({"selected_env_fps": 16.0, "selected_obs_fps": 16.0}),
+                encoding="utf-8",
+            )
+        elif "latency_bench.run" in command:
+            output_dir = Path(command[command.index("--output-dir") + 1])
+            output_dir.mkdir(parents=True, exist_ok=True)
+            samples = eval_latencies.pop(0)
+            episode_id = len([item for item in commands if "latency_bench.run" in item]) - 1
+            output_dir.joinpath("latencies.jsonl").write_text(
+                "".join(json.dumps({"latency_ms": sample}) + "\n" for sample in samples),
+                encoding="utf-8",
+            )
+            output_dir.joinpath("episode_metrics.jsonl").write_text(
+                json.dumps({"episode_id": episode_id, "episode_return_env": 100.0 + episode_id, "survival_steps": 10 + episode_id}) + "\n",
+                encoding="utf-8",
+            )
+        elif "latency_bench.experiments.build_latency_profile_from_trace" in command:
+            profile_output = Path(command[command.index("--output-dir") + 1])
+            _write_profile_manifest(profile_output / "profile.json", env_fps=16.0)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    runner._run_task(task, spec, {"raw": "a100", "device": current_device}, runtime, args, out)
+
+    eval_commands = [command for command in commands if "latency_bench.run" in command]
+    profile_command = commands[-1]
+    assert len(eval_commands) == 3
+    assert "--n-samples" in profile_command
+    assert profile_command[profile_command.index("--n-samples") + 1] == "2"
+    assert (task.output_dir / "latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 2
+    assert (task.output_dir / "episode_metrics.jsonl").read_text(encoding="utf-8").count("episode_return_env") == 3
+
+
+def test_measure_run_continues_batches_after_episodes_until_n_samples(tmp_path: Path, monkeypatch):
+    planning = importlib.import_module("scripts.cross_device.planning")
+    runner = importlib.import_module("scripts.cross_device.runner")
+    base_config = tmp_path / "base.yaml"
+    spec_path = tmp_path / "protocol.yaml"
+    out = tmp_path / "results"
+    _write_base_config(base_config)
+    _write_spec(spec_path, base_config)
+    spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    current_device = spec["devices"][0]
+    runtime = RuntimeSelection(
+        requested="small_model",
+        detected_raw="latency",
+        matched_alias="small_model",
+        matched_conda_env="latency",
+        selected_alias="small_model",
+        allow_all=False,
+        allow_mismatch=False,
+    )
+    args = argparse.Namespace(
+        checkpoint_kind=None,
+        dry_run=False,
+        include_controls=False,
+        max_runs=1,
+        n_episodes=2,
+        n_samples=5,
+        only_device=None,
+        only_env=None,
+        only_experiment="exp2_same_device_calibration",
+        only_policy=None,
+        overwrite=False,
+        resume=False,
+        seed_set=None,
+        smoke=False,
+        smoke_episodes=1,
+        smoke_max_steps=None,
+    )
+    task = planning._build_plan(args, spec, "measure", out, out / "profiles", current_device, runtime)[0].task
+    commands: list[list[str]] = []
+    eval_latencies = [[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]]
+
+    def fake_run(command, check):
+        commands.append(list(command))
+        if "latency_bench.experiments.calibrate_env_fps_from_warmup" in command:
+            output_path = Path(command[command.index("--output") + 1])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(
+                json.dumps({"selected_env_fps": 16.0, "selected_obs_fps": 16.0}),
+                encoding="utf-8",
+            )
+        elif "latency_bench.run" in command:
+            output_dir = Path(command[command.index("--output-dir") + 1])
+            output_dir.mkdir(parents=True, exist_ok=True)
+            samples = eval_latencies.pop(0)
+            episode_id = len([item for item in commands if "latency_bench.run" in item]) - 1
+            output_dir.joinpath("latencies.jsonl").write_text(
+                "".join(json.dumps({"latency_ms": sample}) + "\n" for sample in samples),
+                encoding="utf-8",
+            )
+            output_dir.joinpath("episode_metrics.jsonl").write_text(
+                json.dumps({"episode_id": episode_id, "episode_return_env": 100.0 + episode_id, "survival_steps": 10 + episode_id}) + "\n",
+                encoding="utf-8",
+            )
+        elif "latency_bench.experiments.build_latency_profile_from_trace" in command:
+            profile_output = Path(command[command.index("--output-dir") + 1])
+            _write_profile_manifest(profile_output / "profile.json", env_fps=16.0)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    runner._run_task(task, spec, {"raw": "a100", "device": current_device}, runtime, args, out)
+
+    eval_commands = [command for command in commands if "latency_bench.run" in command]
+    profile_command = commands[-1]
+    assert len(eval_commands) == 3
+    assert "--n-samples" in profile_command
+    assert profile_command[profile_command.index("--n-samples") + 1] == "5"
+    assert (task.output_dir / "latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 5
+    assert (task.output_dir / "episode_metrics.jsonl").read_text(encoding="utf-8").count("episode_return_env") == 2
 
 
 def test_measure_run_records_failed_calibration_manifest_without_eval(tmp_path: Path, monkeypatch):

@@ -35,6 +35,7 @@ class ProtocolTask:
     seed: int
     seed_set: list[int]
     n_episodes: int
+    n_samples: int | None
     checkpoint_kind: str
     output_dir: Path
     generated_config_path: Path

@@ -27,9 +27,12 @@ def build_profile_from_trace(
     target_device: str,
     env_fps: float,
     metadata: dict[str, Any],
+    n_samples: int | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     samples_ms = load_latency_samples(latencies)
+    if n_samples is not None:
+        samples_ms = samples_ms[:n_samples]
     output_path = Path(output_dir)
     paths = {
         "profile": output_path / "profile.json",
@@ -81,6 +84,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--target-device", required=True)
     parser.add_argument("--env-fps", type=float, required=True)
     parser.add_argument("--metadata-json", required=True)
+    parser.add_argument("--n-samples", type=int)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
 
@@ -93,6 +97,7 @@ def main(argv: list[str] | None = None) -> None:
         target_device=args.target_device,
         env_fps=args.env_fps,
         metadata=json.loads(args.metadata_json),
+        n_samples=args.n_samples,
         overwrite=args.overwrite,
     )
 

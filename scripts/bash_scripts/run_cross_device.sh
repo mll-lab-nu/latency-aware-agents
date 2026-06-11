@@ -15,7 +15,7 @@ set -euo pipefail
 #   HARDWARE, REPLAY_HARDWARE, RUNTIME_ENV
 #   STAGES: used only by the custom preset
 #   ONLY_POLICY, ONLY_ENV, ONLY_DEVICE, ONLY_EXPERIMENT, MAX_RUNS
-#   N_EPISODES, SEED_SET, CHECKPOINT_KIND
+#   N_EPISODES, N_SAMPLES, SEED_SET, CHECKPOINT_KIND
 #   DRY_RUN=1, RESUME=1, OVERWRITE=1, CONTINUE_ON_ERROR=1, SMOKE=1
 #   HF_PROFILE_REPO: dataset repo used by sim stages to download missing profiles
 #   UPLOAD_PROFILES=1: upload the local protocol output folder after selected stages finish
@@ -34,7 +34,7 @@ Presets:
   custom      Use STAGES exactly as provided by the environment.
 
 Common overrides:
-  DRY_RUN=1 ONLY_POLICY=OpenVLA-Flappy N_EPISODES=3 scripts/bash_scripts/run_cross_device.sh profile
+  DRY_RUN=1 ONLY_POLICY=OpenVLA-Flappy N_EPISODES=3 N_SAMPLES=200 scripts/bash_scripts/run_cross_device.sh profile
 EOF
 }
 
@@ -113,6 +113,7 @@ if [[ -n "${ONLY_DEVICE:-}" ]]; then COMMON_ARGS+=(--only-device "${ONLY_DEVICE}
 if [[ -n "${ONLY_EXPERIMENT:-}" ]]; then COMMON_ARGS+=(--only-experiment "${ONLY_EXPERIMENT}"); AGG_ARGS+=(--only-experiment "${ONLY_EXPERIMENT}"); fi
 if [[ -n "${MAX_RUNS:-}" ]]; then COMMON_ARGS+=(--max-runs "${MAX_RUNS}"); fi
 if [[ -n "${N_EPISODES:-}" ]]; then COMMON_ARGS+=(--n-episodes "${N_EPISODES}"); fi
+if [[ -n "${N_SAMPLES:-}" ]]; then COMMON_ARGS+=(--n-samples "${N_SAMPLES}"); fi
 if [[ -n "${SEED_SET:-}" ]]; then COMMON_ARGS+=(--seed-set "${SEED_SET}"); fi
 if [[ -n "${CHECKPOINT_KIND:-}" ]]; then COMMON_ARGS+=(--checkpoint-kind "${CHECKPOINT_KIND}"); fi
 if [[ "${DRY_RUN}" == "1" ]]; then CHECK_ARGS+=(--dry-run); EXEC_ARGS+=(--dry-run); AGG_ARGS+=(--dry-run); fi

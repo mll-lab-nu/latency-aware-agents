@@ -12,10 +12,12 @@ import socket
 import subprocess
 import sys
 from collections import Counter
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from latency_bench.latency.profile import load_latency_samples, write_latency_samples
 from scripts.cross_device.config import (
     _eval_command,
     _generated_config,
@@ -153,7 +155,10 @@ def _run_task(
             manifest["profile_command"] = shlex.join(profile_cmd)
         _write_generated_config(task.generated_config_path, config)
         _write_json(task.output_dir / "manifest.json", manifest)
-        subprocess.run(eval_cmd, check=True)
+        if task.stage == "measure" and task.n_samples is not None:
+            _run_measure_until_episode_and_sample_targets(task, config)
+        else:
+            subprocess.run(eval_cmd, check=True)
         if profile_cmd is not None:
             subprocess.run(profile_cmd, check=True)
         manifest["status"] = "completed"
@@ -209,6 +214,56 @@ def _apply_env_fps_calibration(config: dict[str, Any], calibration_path: Path) -
     config["env"]["obs_fps"] = float(payload["selected_obs_fps"])
 
 
+def _run_measure_until_episode_and_sample_targets(task: ProtocolTask, config: dict[str, Any]) -> None:
+    samples_ms: list[float] = []
+    episode_records: list[dict[str, Any]] = []
+    episode_index = 0
+    while len(episode_records) < task.n_episodes or len(samples_ms) < task.n_samples:
+        batch_output_dir = task.output_dir / "sample_batches" / f"episode_{episode_index}"
+        batch_config_path = task.generated_config_path.parent / f"{task.generated_config_path.stem}.sample_{episode_index}.yaml"
+        batch_config = deepcopy(config)
+        batch_config["experiment"]["seed"] = task.seed + episode_index
+        batch_config["evaluation"]["eval_episodes"] = 1
+        batch_config["logging"]["output_dir"] = str(batch_output_dir)
+        _write_generated_config(batch_config_path, batch_config)
+        subprocess.run(_sample_batch_eval_command(task, batch_config_path, batch_output_dir), check=True)
+        samples_needed = task.n_samples - len(samples_ms)
+        if samples_needed > 0:
+            samples_ms.extend(load_latency_samples(batch_output_dir / "latencies.jsonl")[:samples_needed])
+        write_latency_samples(samples_ms, task.output_dir / "latencies.jsonl")
+        episodes_needed = task.n_episodes - len(episode_records)
+        if episodes_needed > 0:
+            episode_records.extend(_load_jsonl_records(batch_output_dir / "episode_metrics.jsonl")[:episodes_needed])
+        _write_jsonl_records(episode_records, task.output_dir / "episode_metrics.jsonl")
+        episode_index += 1
+
+
+def _load_jsonl_records(path: Path) -> list[dict[str, Any]]:
+    with path.open("r", encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def _write_jsonl_records(records: list[dict[str, Any]], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for record in records:
+            f.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def _sample_batch_eval_command(task: ProtocolTask, config_path: Path, output_dir: Path) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "latency_bench.run",
+        "--config",
+        str(config_path),
+        "--checkpoint-kind",
+        task.checkpoint_kind,
+        "--output-dir",
+        str(output_dir),
+    ]
+
+
 def _base_manifest(
     task: ProtocolTask,
     spec: dict[str, Any],
@@ -262,6 +317,7 @@ def _base_manifest(
         "profile_command": "" if profile_cmd is None else shlex.join(profile_cmd),
         "checkpoint_kind": task.checkpoint_kind,
         "n_episodes": task.n_episodes,
+        "n_samples": task.n_samples,
         "smoke": task.smoke,
         "smoke_max_steps": task.smoke_max_steps,
         "seed_set": task.seed_set,
@@ -340,6 +396,8 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
         print(f"runtime_env: {task.runtime_env_alias} ({task.runtime_conda_env})")
         print(f"smoke: {str(task.smoke).lower()}")
         print(f"episodes: {task.n_episodes}")
+        if task.n_samples is not None:
+            print(f"samples: {task.n_samples}")
         print(f"status: {'runnable' if item.runnable else 'skipped'}")
         if item.skip_reason:
             print(f"skip_reason: {item.skip_reason}")

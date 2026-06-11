@@ -52,7 +52,7 @@ scripts/bash_scripts/run_cross_device.sh aggregate
 Small overrides are still supported:
 
 ```bash
-N_EPISODES=3 ONLY_POLICY=OpenVLA-Flappy scripts/bash_scripts/run_cross_device.sh profile
+N_EPISODES=3 N_SAMPLES=200 ONLY_POLICY=OpenVLA-Flappy scripts/bash_scripts/run_cross_device.sh profile
 DRY_RUN=1 ONLY_POLICY=OpenVLA-Flappy scripts/bash_scripts/run_cross_device.sh sim
 STAGES="doctor measure realtime" scripts/bash_scripts/run_cross_device.sh custom
 ```
@@ -72,7 +72,11 @@ The protocol is run as ordered stages:
 1. `doctor`: checks selected rows, hardware mapping, runtime env, configs, and
    missing profiles without running inference.
 2. `measure`: runs realtime inference on the current device and writes
-   `latencies.jsonl`; then converts it into a profile folder containing
+   `latencies.jsonl`; when `N_SAMPLES` / `--n-samples` is set, it repeats
+   single-episode batches until both the return target (`N_EPISODES`) and
+   latency-distribution target (`N_SAMPLES`) are satisfied. The root run keeps
+   only the first N episodes for return statistics and the first N samples for
+   profile fitting. It then converts the trace into a profile folder containing
    `profile.json`, `latencies.jsonl`, `profile_summary.json`, and
    `profile_summary.csv`.
 3. `realtime`: runs the true realtime baseline on the current device.
@@ -161,7 +165,7 @@ The bash script calls the Python module:
 
 ```bash
 python -m scripts.cross_device.protocol doctor --spec "$SPEC" --hardware auto --runtime-env auto
-python -m scripts.cross_device.protocol measure --spec "$SPEC" --hardware auto --out "$OUT" --resume
+python -m scripts.cross_device.protocol measure --spec "$SPEC" --hardware auto --out "$OUT" --resume --n-samples 200
 python -m scripts.cross_device.protocol realtime --spec "$SPEC" --hardware auto --out "$OUT" --resume
 python -m scripts.cross_device.protocol sim-same --spec "$SPEC" --hardware auto --profiles-dir "$PROFILES_DIR" --out "$OUT" --resume
 python -m scripts.cross_device.protocol sim-cross --spec "$SPEC" --replay-hardware auto --profiles-dir "$PROFILES_DIR" --out "$OUT" --resume
