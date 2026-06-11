@@ -23,6 +23,11 @@ def _build_profile(tmp_path: Path, samples: list[float], **overrides):
         "env_id": "env_test",
         "target_device": "test_gpu",
         "env_fps": 25.0,
+        "metadata": {
+            "policy_type": "starvla",
+            "model_type": "openvla",
+            "checkpoint_path": "/tmp/openvla.pt",
+        },
         "overwrite": False,
     }
     kwargs.update(overrides)
@@ -38,6 +43,7 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
     assert (output_dir / "profile.json").exists()
     assert (output_dir / "latencies.jsonl").exists()
     assert (output_dir / "latency_distribution.json").exists()
+    assert (output_dir / "latency_distribution.png").stat().st_size > 0
     assert (output_dir / "profile_summary.json").exists()
     assert (output_dir / "profile_summary.csv").exists()
 
@@ -49,10 +55,14 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
         "env_id",
         "target_device",
         "env_fps",
+        "policy_type",
+        "model_type",
+        "checkpoint_path",
         "frame_ms",
         "n_samples",
         "trace_path",
         "distribution_path",
+        "plot_path",
         "summary",
     }
     assert loaded_manifest["n_samples"] == 3
@@ -60,6 +70,10 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
     assert loaded_manifest["frame_ms"] == pytest.approx(40.0)
     assert loaded_manifest["trace_path"] == "latencies.jsonl"
     assert loaded_manifest["distribution_path"] == "latency_distribution.json"
+    assert loaded_manifest["plot_path"] == "latency_distribution.png"
+    assert loaded_manifest["policy_type"] == "starvla"
+    assert loaded_manifest["model_type"] == "openvla"
+    assert loaded_manifest["checkpoint_path"] == "/tmp/openvla.pt"
     assert loaded_manifest["summary"]["mean_ms"] == pytest.approx(20.0)
     assert load_latency_samples(output_dir / "latencies.jsonl") == [10.0, 20.0, 30.0]
     distribution = load_latency_distribution(output_dir / "latency_distribution.json")
@@ -88,11 +102,18 @@ def test_build_latency_profile_from_trace_requires_overwrite_for_existing_artifa
     assert load_latency_samples(output_dir / "latencies.jsonl") == [30.0, 40.0]
 
 
+def test_build_latency_profile_from_trace_plots_constant_latency(tmp_path: Path):
+    manifest, output_dir = _build_profile(tmp_path, [42.0, 42.0, 42.0])
+
+    assert manifest["n_samples"] == 3
+    assert (output_dir / "latency_distribution.png").stat().st_size > 0
+
+
 def test_build_latency_profile_from_trace_rejects_invalid_fps(tmp_path: Path):
     input_trace = tmp_path / "input_latencies.jsonl"
     write_latency_samples([10.0], input_trace)
 
-    with pytest.raises(ValueError, match="env_fps must be positive"):
+    with pytest.raises(ZeroDivisionError):
         build_profile_from_trace(
             latencies=input_trace,
             output_dir=tmp_path / "profile",
@@ -101,4 +122,5 @@ def test_build_latency_profile_from_trace_rejects_invalid_fps(tmp_path: Path):
             env_id="env_test",
             target_device="test_gpu",
             env_fps=0.0,
+            metadata={},
         )

@@ -40,6 +40,7 @@ def _build_profile(
         env_id="FlappyBird-v0",
         target_device=target_device,
         env_fps=30.0,
+        metadata={},
     )
 
 
