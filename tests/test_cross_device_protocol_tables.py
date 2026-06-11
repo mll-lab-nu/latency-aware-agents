@@ -76,7 +76,7 @@ def _build_profile(root: Path, *, device_id: str = "a100", profile_id: str = "L_
         policy_id="flappy-sf-l1",
         env_id="flappy",
         target_device=device_id,
-        env_fps=30.0,
+        env_fps=16.0,
         metadata={},
     )
     return profile_dir / "profile.json"
@@ -216,6 +216,7 @@ def test_profile_summary_mapping_and_exact_error_formulas(tmp_path: Path):
     assert tuple(a100_profile) == EXPERIMENT1_COLUMNS
     assert float(a100_profile["mean_ms"]) == pytest.approx(20.0)
     assert int(a100_profile["n_samples"]) == 3
+    assert float(a100_profile["env_fps"]) == pytest.approx(16.0)
 
     exp2 = build_experiment2_rows(spec, tmp_path)
     a100_calibration = next(row for row in exp2 if row["hardware"] == "A100")
@@ -228,6 +229,17 @@ def test_profile_summary_mapping_and_exact_error_formulas(tmp_path: Path):
     assert float(a100_calibration["sim_length"]) == pytest.approx(1100.0)
     assert float(a100_calibration["length_abs_error"]) == pytest.approx(100.0)
     assert float(a100_calibration["length_rel_error_pct"]) == pytest.approx(10.0)
+
+
+def test_experiment1_requires_profile_env_fps(tmp_path: Path):
+    spec = _spec()
+    profile_path = _build_profile(tmp_path)
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    del profile["env_fps"]
+    profile_path.write_text(json.dumps(profile, sort_keys=True) + "\n", encoding="utf-8")
+
+    with pytest.raises(KeyError):
+        build_experiment1_rows(spec, tmp_path)
 
 
 def test_manifest_matching_and_main_claim_rule(tmp_path: Path):

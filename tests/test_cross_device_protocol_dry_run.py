@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 from scripts.cross_device.models import RuntimeSelection
@@ -39,6 +41,30 @@ def _write_base_config(path: Path) -> None:
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
 
+def _write_profile_manifest(path: Path, *, env_fps: float = 16.0) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "profile_id": "L_A100",
+                "policy_id": "dry-policy",
+                "env_id": "flappy",
+                "target_device": "a100",
+                "env_fps": env_fps,
+                "frame_ms": 1000.0 / env_fps,
+                "n_samples": 3,
+                "trace_path": "latencies.jsonl",
+                "distribution_path": "latency_distribution.json",
+                "plot_path": "latency_distribution.png",
+                "summary": {"mean_ms": 125.0, "n_samples": 3},
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def _write_base_config_with_policy(path: Path, policy_type: str) -> None:
     config = {
         "experiment": {"name": f"{policy_type}_seed0", "seed": 0},
@@ -62,6 +88,7 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "runtime_env": "small_model",
         "env_name": "dummy",
         "fps": 30,
+        "target_latency_frames": 1,
         "base_config": str(first_config),
     }
     second = {
@@ -72,6 +99,7 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "runtime_env": "small_model",
         "env_name": "dummy",
         "fps": 30,
+        "target_latency_frames": 1,
         "base_config": str(second_config),
     }
     spec = {
@@ -105,6 +133,7 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "runtime_env": "small_model",
         "env_name": "flappy",
         "fps": 30,
+        "target_latency_frames": 1,
         "base_config": str(base_config),
     }
     spec = {
@@ -147,6 +176,7 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "runtime_env": "small_model",
         "env_name": "flappy",
         "fps": 30,
+        "target_latency_frames": 1,
         "base_config": str(base_config),
     }
     vla = {
@@ -157,6 +187,7 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "runtime_env": "openvla",
         "env_name": "flappy",
         "fps": 30,
+        "target_latency_frames": 1,
         "base_config": str(base_config),
     }
     spec = {
@@ -761,8 +792,7 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
     _write_base_config(base_config)
     _write_spec(spec, base_config)
     profile_path = out / "profiles" / "dry-policy" / "flappy" / "L_A100" / "profile.json"
-    profile_path.parent.mkdir(parents=True)
-    profile_path.write_text("{}\n", encoding="utf-8")
+    _write_profile_manifest(profile_path, env_fps=16.0)
 
     result = _run_cli(
         tmp_path,
@@ -786,6 +816,8 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
     generated = next((out / "generated_configs" / "sim_same").rglob("*.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["executor"]["mode"] == "simulated"
+    assert config["env"]["env_fps"] == 16.0
+    assert config["env"]["obs_fps"] == 16.0
     assert config["latency"]["type"] == "profile_sample"
     assert config["latency"]["profile_path"].endswith("profiles/dry-policy/flappy/L_A100/profile.json")
     assert config["evaluation"]["eval_latency_values"] is None
@@ -830,8 +862,7 @@ def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch)
 
     def ensure_profile_cached(*, profile_path: Path, profiles_dir: Path, hf_repo: str, **kwargs):
         calls.append(profile_path)
-        profile_path.parent.mkdir(parents=True)
-        profile_path.write_text("{}\n", encoding="utf-8")
+        _write_profile_manifest(profile_path, env_fps=16.0)
         return profile_path
 
     monkeypatch.setenv("HF_PROFILE_REPO", "latency-sensitive-bench/profiles")
@@ -882,13 +913,161 @@ def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
     assert "--n-warmup" not in result.stdout
     assert "latencies.jsonl" in result.stdout
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
+    warmup_generated = next((out / "generated_configs" / "measure").rglob("*.warmup.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
+    warmup_config = yaml.safe_load(warmup_generated.read_text(encoding="utf-8"))
     assert config["executor"]["mode"] == "realtime"
+    assert warmup_config["executor"]["mode"] == "realtime"
+    assert str(warmup_generated) in result.stdout
     assert "type" not in config["latency"]
     assert config["latency"]["device"] == "cuda:0"
     assert config["latency"]["sync_cuda"] is True
     assert config["evaluation"]["eval_latency_values"] is None
     assert config["evaluation"]["eval_parallel_envs"] == 1
+
+
+def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monkeypatch):
+    planning = importlib.import_module("scripts.cross_device.planning")
+    runner = importlib.import_module("scripts.cross_device.runner")
+    base_config = tmp_path / "base.yaml"
+    spec_path = tmp_path / "protocol.yaml"
+    out = tmp_path / "results"
+    _write_base_config(base_config)
+    _write_spec(spec_path, base_config)
+    spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    current_device = spec["devices"][0]
+    runtime = RuntimeSelection(
+        requested="small_model",
+        detected_raw="latency",
+        matched_alias="small_model",
+        matched_conda_env="latency",
+        selected_alias="small_model",
+        allow_all=False,
+        allow_mismatch=False,
+    )
+    args = argparse.Namespace(
+        checkpoint_kind=None,
+        dry_run=False,
+        include_controls=False,
+        max_runs=1,
+        n_episodes=None,
+        only_device=None,
+        only_env=None,
+        only_experiment="exp2_same_device_calibration",
+        only_policy=None,
+        overwrite=False,
+        resume=False,
+        seed_set=None,
+        smoke=False,
+        smoke_episodes=1,
+        smoke_max_steps=None,
+    )
+    task = planning._build_plan(args, spec, "measure", out, out / "profiles", current_device, runtime)[0].task
+    commands: list[list[str]] = []
+
+    def fake_run(command, check):
+        commands.append(list(command))
+        if "latency_bench.experiments.calibrate_env_fps_from_warmup" in command:
+            output_path = Path(command[command.index("--output") + 1])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(
+                json.dumps(
+                    {
+                        "selected_env_fps": 16.0,
+                        "selected_obs_fps": 16.0,
+                        "target_latency_frames": 1,
+                        "mean_latency_ms": 62.5,
+                        "hit_count": 3,
+                        "sample_count": 3,
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        elif "latency_bench.run" in command:
+            (task.output_dir / "latencies.jsonl").write_text('{"latency_ms": 62.5}\n', encoding="utf-8")
+        elif "latency_bench.experiments.build_latency_profile_from_trace" in command:
+            profile_output = Path(command[command.index("--output-dir") + 1])
+            _write_profile_manifest(profile_output / "profile.json", env_fps=16.0)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    runner._run_task(task, spec, {"raw": "a100", "device": current_device}, runtime, args, out)
+
+    assert [command[2] for command in commands] == [
+        "latency_bench.experiments.calibrate_env_fps_from_warmup",
+        "latency_bench.run",
+        "latency_bench.experiments.build_latency_profile_from_trace",
+    ]
+    final_config = yaml.safe_load(task.generated_config_path.read_text(encoding="utf-8"))
+    assert final_config["env"]["env_fps"] == 16.0
+    assert final_config["env"]["obs_fps"] == 16.0
+    assert "--env-fps" in commands[2]
+    assert commands[2][commands[2].index("--env-fps") + 1] == "16.0"
+
+
+def test_measure_run_records_failed_calibration_manifest_without_eval(tmp_path: Path, monkeypatch):
+    planning = importlib.import_module("scripts.cross_device.planning")
+    runner = importlib.import_module("scripts.cross_device.runner")
+    base_config = tmp_path / "base.yaml"
+    spec_path = tmp_path / "protocol.yaml"
+    out = tmp_path / "results"
+    _write_base_config(base_config)
+    _write_spec(spec_path, base_config)
+    spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    current_device = spec["devices"][0]
+    runtime = RuntimeSelection(
+        requested="small_model",
+        detected_raw="latency",
+        matched_alias="small_model",
+        matched_conda_env="latency",
+        selected_alias="small_model",
+        allow_all=False,
+        allow_mismatch=False,
+    )
+    args = argparse.Namespace(
+        checkpoint_kind=None,
+        dry_run=False,
+        include_controls=False,
+        max_runs=1,
+        n_episodes=None,
+        only_device=None,
+        only_env=None,
+        only_experiment="exp2_same_device_calibration",
+        only_policy=None,
+        overwrite=False,
+        resume=False,
+        seed_set=None,
+        smoke=False,
+        smoke_episodes=1,
+        smoke_max_steps=None,
+    )
+    task = planning._build_plan(args, spec, "measure", out, out / "profiles", current_device, runtime)[0].task
+    commands: list[list[str]] = []
+
+    def fake_run(command, check):
+        commands.append(list(command))
+        raise subprocess.CalledProcessError(returncode=3, cmd=command)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        runner._run_task(task, spec, {"raw": "a100", "device": current_device}, runtime, args, out)
+
+    assert [command[2] for command in commands] == ["latency_bench.experiments.calibrate_env_fps_from_warmup"]
+    manifest = json.loads((task.output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "failed"
+    assert "latency_bench.experiments.calibrate_env_fps_from_warmup" in manifest["calibration_command"]
+    assert manifest["warmup_generated_config_path"].endswith(".warmup.yaml")
+    assert manifest["calibration_output_path"].endswith("env_fps_calibration.json")
+    records = [
+        json.loads(line)
+        for line in (out / "manifests" / "runs.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(records) == 1
+    assert records[0]["status"] == "failed"
+    assert records[0]["calibration_command"] == manifest["calibration_command"]
 
 
 def test_measure_dry_run_uses_base_config_fps_not_protocol_row_fps(tmp_path: Path):
@@ -1043,6 +1222,8 @@ def test_continue_on_error_runs_later_tasks_and_returns_nonzero_summary(tmp_path
     _write_base_config_with_policy(failing_config, "unknown_policy")
     _write_base_config_with_policy(passing_config, "random")
     _write_two_row_realtime_spec(spec, failing_config, passing_config)
+    _write_profile_manifest(out / "profiles" / "failing-policy" / "dummy" / "L_A100" / "profile.json", env_fps=30.0)
+    _write_profile_manifest(out / "profiles" / "passing-policy" / "dummy" / "L_A100" / "profile.json", env_fps=30.0)
 
     result = _run_cli(
         tmp_path,
@@ -1084,6 +1265,8 @@ def test_resume_skips_completed_manifest_but_retries_failed_run(tmp_path: Path):
     _write_base_config_with_policy(failing_config, "unknown_policy")
     _write_base_config_with_policy(passing_config, "random")
     _write_two_row_realtime_spec(spec, failing_config, passing_config)
+    _write_profile_manifest(out / "profiles" / "failing-policy" / "dummy" / "L_A100" / "profile.json", env_fps=30.0)
+    _write_profile_manifest(out / "profiles" / "passing-policy" / "dummy" / "L_A100" / "profile.json", env_fps=30.0)
 
     completed_dir = out / "runs" / "realtime" / "passing-policy" / "dummy" / "a100" / "best_seed_0_n1"
     completed_dir.mkdir(parents=True)

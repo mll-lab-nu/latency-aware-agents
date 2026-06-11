@@ -38,7 +38,7 @@ class ProtocolTask:
     checkpoint_kind: str
     output_dir: Path
     generated_config_path: Path
-    profile_path: Path | None
+    target_profile_path: Path | None
     profile_output_dir: Path | None
     runtime_env_alias: str | None
     runtime_conda_env: str | None
