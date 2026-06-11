@@ -121,13 +121,13 @@ def _run_task(
         print(f"resume: skipping completed run {task.output_dir}")
         return
 
+    config = _generated_config(task, spec)
     eval_cmd = _eval_command(task)
-    profile_cmd = _profile_command(task, spec, args.overwrite) if task.stage == "measure" else None
+    profile_cmd = _profile_command(task, spec, args.overwrite, config) if task.stage == "measure" else None
     manifest = _base_manifest(task, spec, detected, runtime, eval_cmd, profile_cmd)
     task.output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.dry_run:
-        config = _generated_config(task, spec)
         _write_generated_config(task.generated_config_path, config)
         print(f"generated_config: {task.generated_config_path}")
         print(shlex.join(eval_cmd))
@@ -136,7 +136,6 @@ def _run_task(
         return
 
     try:
-        config = _generated_config(task, spec)
         _write_generated_config(task.generated_config_path, config)
         _write_json(task.output_dir / "manifest.json", manifest)
         subprocess.run(eval_cmd, check=True)
@@ -187,6 +186,7 @@ def _base_manifest(
         "policy": task.row.get("policy"),
         "env": task.row.get("env"),
         "policy_type": task.row.get("policy_type"),
+        "model_type": task.row.get("model_type"),
         "env_name": task.row.get("env_name"),
         "target_device_id": task.target_device.get("id"),
         "target_device_display_name": task.target_device.get("display_name"),
@@ -296,7 +296,7 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
             print(f"generated_config_error: {exc}")
             continue
         if task.stage == "measure":
-            print(f"profile_command: {shlex.join(_profile_command(task, spec, False))}")
+            print(f"profile_command: {shlex.join(_profile_command(task, spec, False, config))}")
         print(f"eval_max_steps: {config.get('evaluation', {}).get('eval_max_steps', '')}")
     _print_plan_summary("Summary", plan)
 

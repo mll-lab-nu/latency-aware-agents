@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from latency_bench.analysis.utils import write_latency_distribution_plot
 from latency_bench.analysis.profile_stats import compute_latency_profile_summary
 from latency_bench.latency.profile import (
     build_inverse_cdf_distribution,
@@ -25,6 +26,7 @@ def build_profile_from_trace(
     env_id: str,
     target_device: str,
     env_fps: float,
+    metadata: dict[str, Any],
     overwrite: bool = False,
 ) -> dict[str, Any]:
     samples_ms = load_latency_samples(latencies)
@@ -33,6 +35,7 @@ def build_profile_from_trace(
         "profile": output_path / "profile.json",
         "trace": output_path / "latencies.jsonl",
         "distribution": output_path / "latency_distribution.json",
+        "plot": output_path / "latency_distribution.png",
         "summary_json": output_path / "profile_summary.json",
         "summary_csv": output_path / "profile_summary.csv",
     }
@@ -46,6 +49,7 @@ def build_profile_from_trace(
     distribution = build_inverse_cdf_distribution(samples_ms)
     write_latency_samples(samples_ms, paths["trace"])
     save_latency_distribution(distribution, paths["distribution"])
+    write_latency_distribution_plot(samples_ms, paths["plot"])
     _write_json(summary, paths["summary_json"])
     _write_summary_csv(summary, paths["summary_csv"])
 
@@ -59,8 +63,10 @@ def build_profile_from_trace(
         "n_samples": len(samples_ms),
         "trace_path": paths["trace"].name,
         "distribution_path": paths["distribution"].name,
+        "plot_path": paths["plot"].name,
         "summary": summary,
     }
+    manifest.update(metadata)
     save_profile_manifest(manifest, paths["profile"])
     return manifest
 
@@ -74,6 +80,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--env-id", required=True)
     parser.add_argument("--target-device", required=True)
     parser.add_argument("--env-fps", type=float, required=True)
+    parser.add_argument("--metadata-json", required=True)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
 
@@ -85,6 +92,7 @@ def main(argv: list[str] | None = None) -> None:
         env_id=args.env_id,
         target_device=args.target_device,
         env_fps=args.env_fps,
+        metadata=json.loads(args.metadata_json),
         overwrite=args.overwrite,
     )
 

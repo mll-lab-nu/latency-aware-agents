@@ -13,6 +13,7 @@ from typing import Any
 import torch
 
 from latency_bench.analysis.cross_device_protocol_tables import load_protocol_spec, write_protocol_tables
+from scripts.cross_device.config import _row_base_config
 from scripts.cross_device.planning import (
     _build_plan,
     _filtered_spec_for_aggregate,
@@ -190,9 +191,10 @@ def run_doctor(args: argparse.Namespace, spec: dict[str, Any]) -> None:
     print(f"Output root: {output_root}")
     print("Selected rows:")
     for experiment_id, experiment, row in rows:
+        row_config = _row_base_config(row)
         print(
             f"  - experiment={experiment_id} panel={experiment.get('panel')} "
-            f"policy={row.get('policy')} env={row.get('env')} fps={row.get('fps')} "
+            f"policy={row.get('policy')} env={row.get('env')} env_fps={row_config['env']['env_fps']} "
             f"runtime_env={row.get('runtime_env')}"
         )
     print("Runnable stages:")

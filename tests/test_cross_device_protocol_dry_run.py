@@ -58,6 +58,7 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "policy": "failing-policy",
         "env": "Dummy",
         "policy_type": "unknown_policy",
+        "model_type": "test_model",
         "runtime_env": "small_model",
         "env_name": "dummy",
         "fps": 30,
@@ -67,6 +68,7 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "policy": "passing-policy",
         "env": "Dummy",
         "policy_type": "random",
+        "model_type": "test_model",
         "runtime_env": "small_model",
         "env_name": "dummy",
         "fps": 30,
@@ -99,6 +101,7 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "policy": "dry-policy",
         "env": "Flappy",
         "policy_type": "random",
+        "model_type": "test_model",
         "runtime_env": "small_model",
         "env_name": "flappy",
         "fps": 30,
@@ -140,6 +143,7 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "policy": "small-policy",
         "env": "Flappy",
         "policy_type": "random",
+        "model_type": "test_model",
         "runtime_env": "small_model",
         "env_name": "flappy",
         "fps": 30,
@@ -149,6 +153,7 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "policy": "vla-policy",
         "env": "Flappy",
         "policy_type": "random",
+        "model_type": "test_model",
         "runtime_env": "openvla",
         "env_name": "flappy",
         "fps": 30,
@@ -347,7 +352,7 @@ def test_real_openvla_protocol_dry_run_selects_flappy_demon_and_deadly(tmp_path:
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
-    assert "policy: OpenVLA-Flappy" in result.stdout
+    assert "policy: openvla-flappy" in result.stdout
     assert "policy: demon-attack-openvla" in result.stdout
     assert "policy: deadly-corridor-openvla" in result.stdout
     assert "openvla-flappy/flappy" in result.stdout
@@ -366,16 +371,25 @@ def test_real_protocol_exp2_includes_openvla_calibration_rows():
     }
 
     assert set(openvla_rows) == {
-        "OpenVLA-Flappy",
+        "openvla-flappy",
         "demon-attack-openvla",
         "deadly-corridor-openvla",
     }
-    assert openvla_rows["OpenVLA-Flappy"]["base_config"] == "configs/experiments/flappy/realtime/openvla_30fps.yaml"
-    assert openvla_rows["demon-attack-openvla"]["base_config"] == (
-        "configs/experiments/demon_attack/realtime/openvla_60fps.yaml"
+    assert openvla_rows["openvla-flappy"]["policy_type"] == "starvla"
+    assert openvla_rows["openvla-flappy"]["model_type"] == "openvla"
+    assert openvla_rows["openvla-flappy"]["fps"] == 16
+    assert openvla_rows["openvla-flappy"]["base_config"] == (
+        "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml"
     )
+    assert openvla_rows["demon-attack-openvla"]["policy_type"] == "starvla"
+    assert openvla_rows["demon-attack-openvla"]["model_type"] == "openvla"
+    assert openvla_rows["demon-attack-openvla"]["base_config"] == (
+        "configs/experiments/demon_attack/starvla_fixed_l2.yaml"
+    )
+    assert openvla_rows["deadly-corridor-openvla"]["policy_type"] == "starvla"
+    assert openvla_rows["deadly-corridor-openvla"]["model_type"] == "openvla"
     assert openvla_rows["deadly-corridor-openvla"]["base_config"] == (
-        "configs/experiments/deadly_corridor/realtime/openvla_35fps.yaml"
+        "configs/experiments/deadly_corridor/starvla_single_latency.yaml"
     )
 
 
@@ -409,7 +423,7 @@ def test_real_openvla_protocol_only_policy_accepts_slug_and_preserves_flappy_pat
         "openvla-flappy",
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
-    assert "policy: OpenVLA-Flappy" in flappy.stdout
+    assert "policy: openvla-flappy" in flappy.stdout
     assert "policy: demon-attack-openvla" not in flappy.stdout
     assert "policy: deadly-corridor-openvla" not in flappy.stdout
     assert "openvla-flappy/flappy" in flappy.stdout
@@ -430,7 +444,7 @@ def test_real_openvla_protocol_only_policy_accepts_slug_and_preserves_flappy_pat
         "demon-attack-openvla",
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
-    assert "policy: OpenVLA-Flappy" not in demon.stdout
+    assert "policy: openvla-flappy" not in demon.stdout
     assert "policy: demon-attack-openvla" in demon.stdout
     assert "policy: deadly-corridor-openvla" not in demon.stdout
 
@@ -455,7 +469,7 @@ def test_real_openvla_protocol_only_env_accepts_raw_and_slug_values(tmp_path: Pa
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
     assert "policy: deadly-corridor-openvla" in slug.stdout
-    assert "policy: OpenVLA-Flappy" not in slug.stdout
+    assert "policy: openvla-flappy" not in slug.stdout
     assert "policy: demon-attack-openvla" not in slug.stdout
 
     raw = _run_cli(
@@ -475,7 +489,7 @@ def test_real_openvla_protocol_only_env_accepts_raw_and_slug_values(tmp_path: Pa
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
     assert "policy: deadly-corridor-openvla" in raw.stdout
-    assert "policy: OpenVLA-Flappy" not in raw.stdout
+    assert "policy: openvla-flappy" not in raw.stdout
     assert "policy: demon-attack-openvla" not in raw.stdout
 
 
@@ -500,16 +514,10 @@ def test_real_openvla_protocol_max_runs_limits_dry_run_rows(tmp_path: Path):
     assert result.stdout.count("policy: ") == 1
 
 
-def test_openvla_env_var_overrides_are_written_in_dry_run(tmp_path: Path):
-    base_model = tmp_path / "base_model"
-    base_model.mkdir()
-    checkpoint = tmp_path / "demon_checkpoint"
-    weights = checkpoint / "actor" / "model_state_dict" / "full_weights.pt"
-    weights.parent.mkdir(parents=True)
-    weights.write_bytes(b"not a real checkpoint")
+def test_starvla_openvla_dry_run_uses_starvla_config_metadata(tmp_path: Path):
     out = tmp_path / "results"
 
-    result = _run_cli(
+    _run_cli(
         tmp_path,
         "measure",
         "--spec",
@@ -523,17 +531,15 @@ def test_openvla_env_var_overrides_are_written_in_dry_run(tmp_path: Path):
         "--dry-run",
         "--only-policy",
         "demon-attack-openvla",
-        env={
-            "CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla",
-            "OPENVLA_BASE_MODEL_PATH": str(base_model),
-            "DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH": str(checkpoint),
-        },
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
-    assert config["policy"]["base_model_path"] == str(base_model)
-    assert config["policy"]["checkpoint_path"] == str(checkpoint)
+    assert config["policy"]["type"] == "starvla"
+    assert "base_model_path" not in config["policy"]
+    assert config["policy"]["checkpoint_path"] == "results/Checkpoints/openvla_demon_attack_fixed_l2/final_model"
+    assert "eval_suites" not in config["evaluation"]
 
 
 def test_openvla_smoke_dry_run_uses_isolated_run_id_and_step_cap(tmp_path: Path):
@@ -576,13 +582,7 @@ def test_openvla_smoke_dry_run_uses_isolated_run_id_and_step_cap(tmp_path: Path)
     assert not (out / "runs").exists()
 
 
-def test_flappy_openvla_checkpoint_env_override_is_written_in_dry_run(tmp_path: Path):
-    base_model = tmp_path / "base_model"
-    base_model.mkdir()
-    checkpoint = tmp_path / "flappy_checkpoint"
-    weights = checkpoint / "actor" / "model_state_dict" / "full_weights.pt"
-    weights.parent.mkdir(parents=True)
-    weights.write_bytes(b"not a real checkpoint")
+def test_flappy_starvla_dry_run_uses_starvla_checkpoint_config(tmp_path: Path):
     out = tmp_path / "results"
 
     _run_cli(
@@ -601,17 +601,16 @@ def test_flappy_openvla_checkpoint_env_override_is_written_in_dry_run(tmp_path: 
         "openvla-flappy",
         "--max-runs",
         "1",
-        env={
-            "CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla",
-            "OPENVLA_BASE_MODEL_PATH": str(base_model),
-            "FLAPPY_OPENVLA_CHECKPOINT_PATH": str(checkpoint),
-        },
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
-    assert config["policy"]["base_model_path"] == str(base_model)
-    assert config["policy"]["checkpoint_path"] == str(checkpoint)
+    assert config["policy"]["type"] == "starvla"
+    assert "base_model_path" not in config["policy"]
+    assert config["policy"]["checkpoint_path"] == (
+        "/mnt/data/latency_data/openvla_flappy_fix_latency_2/checkpoints/steps_5000_pytorch_model.pt"
+    )
 
 
 def test_deadly_openvla_dry_run_writes_factorized_eleven_dim_config(tmp_path: Path):
@@ -638,8 +637,9 @@ def test_deadly_openvla_dry_run_writes_factorized_eleven_dim_config(tmp_path: Pa
 
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
-    assert config["policy"]["action_dim"] == 11
-    assert config["policy"]["action_layout"] == "deadly_corridor_factorized_11"
+    assert config["policy"]["type"] == "starvla"
+    assert config["env"]["obs_fps"] == 8.75
+    assert "eval_suites" not in config["evaluation"]
 
 
 def test_runtime_env_all_safety_and_strict_mode(tmp_path: Path):
@@ -877,7 +877,8 @@ def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
     assert "-m latency_bench.run" in result.stdout
     assert "-m latency_bench.experiments.build_latency_profile_from_trace" in result.stdout
     assert "--env-fps 30" in result.stdout
-    assert "--policy-type" not in result.stdout
+    assert "--metadata-json" in result.stdout
+    assert '"policy_type": "random"' in result.stdout
     assert "--n-warmup" not in result.stdout
     assert "latencies.jsonl" in result.stdout
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
@@ -890,11 +891,15 @@ def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
     assert config["evaluation"]["eval_parallel_envs"] == 1
 
 
-def test_measure_dry_run_preserves_integral_fps_as_int_for_deadly_corridor(tmp_path: Path):
+def test_measure_dry_run_uses_base_config_fps_not_protocol_row_fps(tmp_path: Path):
     base_config = tmp_path / "base.yaml"
     spec = tmp_path / "protocol.yaml"
     out = tmp_path / "results"
     _write_base_config(base_config)
+    base_data = yaml.safe_load(base_config.read_text(encoding="utf-8"))
+    base_data["env"]["env_fps"] = 60
+    base_data["env"]["obs_fps"] = 15
+    base_config.write_text(yaml.safe_dump(base_data, sort_keys=False), encoding="utf-8")
     _write_spec(spec, base_config)
     spec_data = yaml.safe_load(spec.read_text(encoding="utf-8"))
     row = spec_data["experiments"]["exp2_same_device_calibration"]["rows"][0]
@@ -903,13 +908,14 @@ def test_measure_dry_run_preserves_integral_fps_as_int_for_deadly_corridor(tmp_p
             "policy": "deadly-corridor-sf-l1",
             "env": "Deadly Corridor",
             "policy_type": "deadly_corridor_sf",
+            "model_type": "sample_factory",
             "env_name": "deadly_corridor",
-            "fps": 35,
+            "fps": 999,
         }
     )
     spec.write_text(yaml.safe_dump(spec_data, sort_keys=False), encoding="utf-8")
 
-    _run_cli(
+    result = _run_cli(
         tmp_path,
         "measure",
         "--spec",
@@ -928,10 +934,9 @@ def test_measure_dry_run_preserves_integral_fps_as_int_for_deadly_corridor(tmp_p
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["env"]["name"] == "deadly_corridor"
-    assert config["env"]["env_fps"] == 35
-    assert isinstance(config["env"]["env_fps"], int)
-    assert config["env"]["obs_fps"] == 35
-    assert isinstance(config["env"]["obs_fps"], int)
+    assert config["env"]["env_fps"] == 60
+    assert config["env"]["obs_fps"] == 15
+    assert "--env-fps 60" in result.stdout
 
 
 def test_stage_overrides_can_raise_deadly_corridor_measure_episodes_only(tmp_path: Path):

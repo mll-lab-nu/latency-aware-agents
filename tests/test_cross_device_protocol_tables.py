@@ -77,6 +77,7 @@ def _build_profile(root: Path, *, device_id: str = "a100", profile_id: str = "L_
         env_id="flappy",
         target_device=device_id,
         env_fps=30.0,
+        metadata={},
     )
     return profile_dir / "profile.json"
 

@@ -5,7 +5,7 @@ that measured and replayed runs can be audited after the fact.
 """
 from __future__ import annotations
 
-import os
+import json
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -15,18 +15,6 @@ import yaml
 
 from latency_bench.core.config import load_config
 from scripts.cross_device.models import ProtocolTask
-
-
-OPENVLA_POLICY_TYPES = {
-    "flappy_openvla",
-    "demon_attack_openvla",
-    "deadly_corridor_openvla",
-}
-OPENVLA_CHECKPOINT_ENV_BY_POLICY = {
-    "flappy_openvla": "FLAPPY_OPENVLA_CHECKPOINT_PATH",
-    "demon_attack_openvla": "DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH",
-    "deadly_corridor_openvla": "DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH",
-}
 
 
 def _generated_config(task: ProtocolTask, spec: dict[str, Any]) -> dict[str, Any]:
@@ -59,7 +47,7 @@ def _row_base_config(row: dict[str, Any]) -> dict[str, Any]:
     """Load a row base config and apply row-level protocol overrides.
 
     Args:
-        row: Protocol row containing base config, policy/env ids, and FPS.
+        row: Protocol row containing base config and policy/env ids.
 
     Returns:
         A mutable config with only row-level overrides applied. Task-level
@@ -70,47 +58,9 @@ def _row_base_config(row: dict[str, Any]) -> dict[str, Any]:
     if not base_config.exists():
         raise FileNotFoundError(f"Base config does not exist for {row.get('policy')} / {row.get('env')}: {base_config}")
     config = deepcopy(load_config(base_config))
-    config.setdefault("policy", {})["type"] = row.get("policy_type", config.get("policy", {}).get("type"))
-    config.setdefault("env", {})["name"] = row.get("env_name", config.get("env", {}).get("name"))
-    if row.get("fps") is not None:
-        fps = _config_fps_value(row["fps"])
-        config["env"]["env_fps"] = fps
-        config["env"]["obs_fps"] = fps
-    _apply_openvla_env_overrides(config)
+    config.setdefault("policy", {})["type"] = row["policy_type"]
+    config.setdefault("env", {})["name"] = row["env_name"]
     return config
-
-
-def _config_fps_value(raw: Any) -> int | float:
-    fps = float(raw)
-    return int(fps) if fps.is_integer() else fps
-
-
-def _apply_openvla_env_overrides(config: dict[str, Any]) -> None:
-    """Apply local OpenVLA model/checkpoint environment overrides.
-
-    Args:
-        config: Mutable evaluation config. `policy.base_model_path` and
-        `policy.checkpoint_path` are updated when the matching env vars exist.
-
-    Side effects:
-        Mutates only OpenVLA policy configs; small-policy configs are untouched.
-    """
-    policy = config.setdefault("policy", {})
-    policy_type = _policy_type(config)
-    if policy_type not in OPENVLA_POLICY_TYPES:
-        return
-    base_model_path = os.environ.get("OPENVLA_BASE_MODEL_PATH")
-    if base_model_path:
-        policy["base_model_path"] = base_model_path
-    checkpoint_env = OPENVLA_CHECKPOINT_ENV_BY_POLICY.get(policy_type)
-    if checkpoint_env:
-        checkpoint_path = os.environ.get(checkpoint_env)
-        if checkpoint_path:
-            policy["checkpoint_path"] = checkpoint_path
-
-
-def _policy_type(config: dict[str, Any]) -> str:
-    return str(config.get("policy", {}).get("type", "")).strip().lower()
 
 
 def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask) -> None:
@@ -127,6 +77,11 @@ def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask) 
     # Realtime-vs-replay profiles use serial inference semantics.
     evaluation["eval_parallel_envs"] = 1
     evaluation["eval_latency_values"] = None
+    evaluation.pop("eval_suites", None)
+    logging = config.setdefault("logging", {})
+    logging["save_step_records"] = True
+    logging["save_action_records"] = True
+    logging["save_latency_records"] = True
 
 
 def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, spec: dict[str, Any]) -> None:
@@ -147,6 +102,11 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
     # Realtime-vs-replay profiles use serial inference semantics.
     evaluation["eval_parallel_envs"] = 1
     evaluation["eval_latency_values"] = None
+    evaluation.pop("eval_suites", None)
+    logging = config.setdefault("logging", {})
+    logging["save_step_records"] = True
+    logging["save_action_records"] = True
+    logging["save_latency_records"] = True
 
 
 def _write_generated_config(path: Path, config: dict[str, Any]) -> None:
@@ -169,19 +129,32 @@ def _eval_command(task: ProtocolTask) -> list[str]:
     ]
 
 
-def _profile_command(task: ProtocolTask, spec: dict[str, Any], overwrite: bool) -> list[str]:
+def _profile_command(
+    task: ProtocolTask,
+    spec: dict[str, Any],
+    overwrite: bool,
+    generated_config: dict[str, Any],
+) -> list[str]:
     """Build the command that converts measured latencies into a profile.
 
     Args:
         task: Measure-stage task that produced `latencies.jsonl`.
         spec: Loaded protocol spec used to reconstruct generated config metadata.
         overwrite: Whether profile artifacts may be overwritten.
+        generated_config: Exact config written for the measured run.
 
     Returns:
         A subprocess argument vector for `build_latency_profile_from_trace`.
     """
     if task.profile_output_dir is None:
         raise ValueError("Measure task requires profile_output_dir")
+    metadata = {
+        "policy_type": task.row["policy_type"],
+        "model_type": task.row["model_type"],
+    }
+    policy_cfg = generated_config["policy"]
+    if "checkpoint_path" in policy_cfg:
+        metadata["checkpoint_path"] = str(policy_cfg["checkpoint_path"])
     cmd = [
         sys.executable,
         "-m",
@@ -199,7 +172,9 @@ def _profile_command(task: ProtocolTask, spec: dict[str, Any], overwrite: bool) 
         "--target-device",
         str(task.target_device["id"]),
         "--env-fps",
-        str(task.row["fps"]),
+        str(generated_config["env"]["env_fps"]),
+        "--metadata-json",
+        json.dumps(metadata, sort_keys=True),
     ]
     if overwrite:
         cmd.append("--overwrite")
