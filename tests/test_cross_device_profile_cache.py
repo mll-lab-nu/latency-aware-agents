@@ -52,7 +52,7 @@ def test_profile_cache_downloads_missing_profile(tmp_path: Path):
         (
             "latency-sensitive-bench/profiles",
             profile_path.parent,
-            "dry-policy/flappy/L_A100",
+            "profiles/dry-policy/flappy/L_A100",
             "dataset",
         )
     ]
@@ -61,7 +61,7 @@ def test_profile_cache_downloads_missing_profile(tmp_path: Path):
 def test_profile_cache_downloads_whole_profile_folder_from_hf(tmp_path: Path, monkeypatch):
     from scripts.cross_device.profile_cache import download_profile_folder_from_hf
 
-    remote_dir = "dry-policy/flappy/L_A100"
+    remote_dir = "profiles/dry-policy/flappy/L_A100"
     snapshot_root = tmp_path / "snapshot"
     remote_profile_dir = snapshot_root / remote_dir
     remote_profile_dir.mkdir(parents=True)
@@ -91,9 +91,38 @@ def test_profile_cache_downloads_whole_profile_folder_from_hf(tmp_path: Path, mo
             "repo_id": "latency-sensitive-bench/profiles",
             "repo_type": "dataset",
             "revision": "main",
-            "allow_patterns": "dry-policy/flappy/L_A100/*",
+            "allow_patterns": "profiles/dry-policy/flappy/L_A100/*",
         }
     ]
     assert (local_dir / "profile.json").exists()
     assert (local_dir / "latency_distribution.json").exists()
     assert (local_dir / "future_artifact.json").exists()
+
+
+def test_profile_cache_uploads_output_folder_to_hf(tmp_path: Path, monkeypatch):
+    from scripts.cross_device.profile_cache import upload_folder_to_hf
+
+    calls: list[dict[str, object]] = []
+
+    class HfApi:
+        def upload_folder(self, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(HfApi=HfApi))
+
+    out = tmp_path / "cross_device"
+    (out / "profiles" / "openvla-flappy" / "flappy" / "L_A100").mkdir(parents=True)
+    (out / "runs" / "measure" / "openvla-flappy" / "flappy" / "a100" / "seed_0").mkdir(parents=True)
+    upload_folder_to_hf(
+        repo_id="latency-sensitive-bench/profiles",
+        local_dir=out,
+        repo_type="dataset",
+    )
+
+    assert calls == [
+        {
+            "repo_id": "latency-sensitive-bench/profiles",
+            "repo_type": "dataset",
+            "folder_path": str(out),
+        }
+    ]

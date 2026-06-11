@@ -1,8 +1,7 @@
 """Local-first Hugging Face cache for latency profile artifacts.
 
-Profiles are addressed by the same relative path used under `PROFILES_DIR`,
-for example `policy/env/L_A100/profile.json`. The cache only moves profile
-artifacts, not full protocol run directories.
+Profiles are addressed inside the mirrored protocol output root, for example
+`profiles/policy/env/L_A100/profile.json`.
 """
 from __future__ import annotations
 
@@ -60,7 +59,7 @@ def profile_remote_dir(*, profile_path: Path, profiles_dir: Path) -> str:
     Returns:
         POSIX relative folder path, excluding the `profile.json` filename.
     """
-    return profile_path.parent.relative_to(profiles_dir).as_posix()
+    return profile_path.parent.relative_to(profiles_dir.parent).as_posix()
 
 
 def download_profile_folder_from_hf(
@@ -96,19 +95,17 @@ def download_profile_folder_from_hf(
     shutil.copytree(snapshot_dir / remote_dir, local_dir, dirs_exist_ok=True)
 
 
-def upload_profile_folder_to_hf(
+def upload_folder_to_hf(
     *,
     repo_id: str,
     local_dir: Path,
-    remote_dir: str,
     repo_type: str,
 ) -> None:
-    """Upload one local profile folder to Hugging Face.
+    """Upload one local artifact folder to Hugging Face.
 
     Args:
         repo_id: Hugging Face repo id.
-        local_dir: Folder containing profile artifacts.
-        remote_dir: Folder path inside the repo.
+        local_dir: Folder containing protocol artifacts.
         repo_type: Hugging Face repo type.
 
     Side effects:
@@ -120,7 +117,6 @@ def upload_profile_folder_to_hf(
         repo_id=repo_id,
         repo_type=repo_type,
         folder_path=str(local_dir),
-        path_in_repo=remote_dir,
     )
 
 
@@ -140,9 +136,8 @@ def main(argv: list[str] | None = None) -> None:
     download.add_argument("--repo-type", default="dataset")
     download.add_argument("--revision")
 
-    upload = subparsers.add_parser("upload", help="Upload one local profile folder to the profile cache repo.")
-    upload.add_argument("--profile-path", type=Path, required=True)
-    upload.add_argument("--profiles-dir", type=Path, required=True)
+    upload = subparsers.add_parser("upload", help="Upload one local artifact folder to the profile cache repo.")
+    upload.add_argument("--folder", type=Path, required=True)
     upload.add_argument("--hf-repo", required=True)
     upload.add_argument("--repo-type", default="dataset")
 
@@ -158,13 +153,12 @@ def main(argv: list[str] | None = None) -> None:
         print(path)
         return
 
-    upload_profile_folder_to_hf(
+    upload_folder_to_hf(
         repo_id=args.hf_repo,
-        local_dir=args.profile_path.parent,
-        remote_dir=profile_remote_dir(profile_path=args.profile_path, profiles_dir=args.profiles_dir),
+        local_dir=args.folder,
         repo_type=args.repo_type,
     )
-    print(args.profile_path)
+    print(args.folder)
 
 
 if __name__ == "__main__":

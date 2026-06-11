@@ -854,10 +854,14 @@ def test_cross_device_profile_preset_expands_to_doctor_measure_and_uploads(tmp_p
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     calls_path = tmp_path / "calls.log"
-    profiles_dir = tmp_path / "profiles"
+    out = tmp_path / "out"
+    profiles_dir = out / "profiles"
     profile_path = profiles_dir / "openvla-flappy" / "flappy" / "L_A100" / "profile.json"
     profile_path.parent.mkdir(parents=True)
     profile_path.write_text("{}\n", encoding="utf-8")
+    run_manifest = out / "runs" / "measure" / "openvla-flappy" / "flappy" / "a100" / "seed_0" / "manifest.json"
+    run_manifest.parent.mkdir(parents=True)
+    run_manifest.write_text("{}\n", encoding="utf-8")
     _write_fake_cross_device_python(fake_bin, calls_path)
 
     result = subprocess.run(
@@ -867,7 +871,7 @@ def test_cross_device_profile_preset_expands_to_doctor_measure_and_uploads(tmp_p
             **os.environ,
             "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
             "PROFILES_DIR": str(profiles_dir),
-            "OUT": str(tmp_path / "out"),
+            "OUT": str(out),
         },
         capture_output=True,
         text=True,
@@ -880,6 +884,8 @@ def test_cross_device_profile_preset_expands_to_doctor_measure_and_uploads(tmp_p
     assert "-m scripts.cross_device.protocol measure" in calls
     assert "-m scripts.cross_device.protocol realtime" not in calls
     assert "-m scripts.cross_device.profile_cache upload" in calls
+    assert "-m scripts.cross_device.profile_cache upload-run" not in calls
+    assert f"--folder {out}" in calls
     assert "--hf-repo latency-sensitive-bench/profiles" in calls
     assert "stages: doctor measure" in result.stdout
     assert "hf_profile_repo: latency-sensitive-bench/profiles" in result.stdout
