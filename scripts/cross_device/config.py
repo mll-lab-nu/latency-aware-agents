@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 from latency_bench.core.config import load_config
+from latency_bench.latency.profile import load_profile_manifest
 from scripts.cross_device.models import ProtocolTask
 
 
@@ -64,6 +65,8 @@ def _row_base_config(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask) -> None:
+    if task.target_profile_path is not None and task.target_profile_path.exists():
+        _patch_env_from_profile(config, task.target_profile_path)
     config.setdefault("executor", {})["mode"] = "realtime"
     latency = config.setdefault("latency", {})
     latency.pop("type", None)
@@ -85,12 +88,13 @@ def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask) 
 
 
 def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, spec: dict[str, Any]) -> None:
-    if task.profile_path is None:
+    if task.target_profile_path is None:
         raise ValueError("Simulated replay task requires a profile_path")
+    _patch_env_from_profile(config, task.target_profile_path)
     config.setdefault("executor", {})["mode"] = "simulated"
     latency = config.setdefault("latency", {})
     latency["type"] = "profile_sample"
-    latency["profile_path"] = str(task.profile_path)
+    latency["profile_path"] = str(task.target_profile_path)
     latency["seed"] = int(task.seed)
     latency["profile_id"] = task.target_device["profile_id"]
     latency["target_device"] = task.target_device["id"]
@@ -107,6 +111,16 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
     logging["save_step_records"] = True
     logging["save_action_records"] = True
     logging["save_latency_records"] = True
+
+
+def _patch_env_from_profile(config: dict[str, Any], profile_path: Path) -> None:
+    profile = load_profile_manifest(profile_path)
+    base_env_fps = float(config["env"]["env_fps"])
+    base_obs_fps = float(config["env"]["obs_fps"])
+    observation_stride = base_env_fps / base_obs_fps
+    selected_env_fps = float(profile["env_fps"])
+    config["env"]["env_fps"] = selected_env_fps
+    config["env"]["obs_fps"] = selected_env_fps / observation_stride
 
 
 def _write_generated_config(path: Path, config: dict[str, Any]) -> None:

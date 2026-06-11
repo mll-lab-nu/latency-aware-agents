@@ -19,7 +19,7 @@ EXPERIMENT1_COLUMNS = (
     "env",
     "profile_id",
     "hardware",
-    "fps",
+    "env_fps",
     "mean_ms",
     "std_ms",
     "p50_ms",
@@ -105,7 +105,7 @@ def build_experiment1_rows(
             )
             if manifest and manifest.get("profile_path"):
                 profile_path = Path(str(manifest["profile_path"]))
-            summary, notes = _load_profile_summary(profile_path)
+            summary, profile_metadata, notes = _load_profile_summary(profile_path)
             notes = _join_notes(
                 notes,
                 _skipped_notes_if_missing(
@@ -124,7 +124,7 @@ def build_experiment1_rows(
                 "env": row_spec.get("env"),
                 "profile_id": device.get("profile_id"),
                 "hardware": device.get("display_name", device.get("id")),
-                "fps": row_spec.get("fps"),
+                "env_fps": profile_metadata["env_fps"],
                 "notes": notes,
             }
             out.update({key: summary.get(key, "") for key in EXPERIMENT1_COLUMNS if key not in out})
@@ -464,13 +464,13 @@ def slugify(value: Any) -> str:
     return text.strip("_") or "unknown"
 
 
-def _load_profile_summary(path: Path) -> tuple[dict[str, Any], str]:
+def _load_profile_summary(path: Path) -> tuple[dict[str, Any], dict[str, Any], str]:
     if not path.exists():
         raise FileNotFoundError(f"missing profile: {path}")
     manifest = load_profile_manifest(path)
     summary = dict(manifest["summary"])
     summary["n_samples"] = manifest["n_samples"]
-    return summary, ""
+    return summary, manifest, ""
 
 
 def _matching_manifests(
@@ -656,4 +656,3 @@ def _missing_note(label: str, manifests: list[dict[str, Any]], summary: dict[str
 
 def _join_notes(*notes: str) -> str:
     return "; ".join(note for note in notes if note)
-

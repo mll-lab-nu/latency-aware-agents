@@ -72,6 +72,7 @@ experiments:
         runtime_env: openvla
         env_name: flappy
         fps: 16
+        target_latency_frames: 2
         base_config: configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml
       - policy: demon-attack-openvla
         env: Demon Attack
@@ -80,6 +81,7 @@ experiments:
         runtime_env: openvla
         env_name: demon_attack
         fps: 60
+        target_latency_frames: 2
         base_config: configs/experiments/demon_attack/starvla_fixed_l2.yaml
       - policy: deadly-corridor-openvla
         env: Deadly Corridor
@@ -88,6 +90,7 @@ experiments:
         runtime_env: openvla
         env_name: deadly_corridor
         fps: 35
+        target_latency_frames: 2
         base_config: configs/experiments/deadly_corridor/starvla_single_latency.yaml
 
   exp2_same_device_calibration:
@@ -100,6 +103,7 @@ experiments:
         runtime_env: small_model
         env_name: flappy
         fps: 30
+        target_latency_frames: 1
         base_config: configs/train/flappy/latency_1/seed_0/latency_bench_eval.yaml
       - policy: demon-attack-sf-l1
         env: Demon Attack
@@ -108,6 +112,7 @@ experiments:
         runtime_env: small_model
         env_name: demon_attack
         fps: 60
+        target_latency_frames: 1
         base_config: configs/train/demon_attack/latency_1/seed_0/latency_bench_eval.yaml
       - policy: deadly-corridor-sf-l1
         env: Deadly Corridor
@@ -116,6 +121,7 @@ experiments:
         runtime_env: small_model
         env_name: deadly_corridor
         fps: 35
+        target_latency_frames: 1
         base_config: configs/train/deadly_corridor/latency_1/seed_0/latency_bench_eval.yaml
         stage_overrides:
           measure:
@@ -127,6 +133,7 @@ experiments:
         runtime_env: openvla
         env_name: flappy
         fps: 16
+        target_latency_frames: 2
         base_config: configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml
       - policy: demon-attack-openvla
         env: Demon Attack
@@ -135,6 +142,7 @@ experiments:
         runtime_env: openvla
         env_name: demon_attack
         fps: 60
+        target_latency_frames: 2
         base_config: configs/experiments/demon_attack/starvla_fixed_l2.yaml
       - policy: deadly-corridor-openvla
         env: Deadly Corridor
@@ -143,6 +151,7 @@ experiments:
         runtime_env: openvla
         env_name: deadly_corridor
         fps: 35
+        target_latency_frames: 2
         base_config: configs/experiments/deadly_corridor/starvla_single_latency.yaml
 
   exp3_cross_device_prediction:
@@ -155,6 +164,7 @@ experiments:
         runtime_env: openvla
         env_name: flappy
         fps: 16
+        target_latency_frames: 2
         base_config: configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml
       - policy: demon-attack-openvla
         env: Demon Attack
@@ -163,6 +173,7 @@ experiments:
         runtime_env: openvla
         env_name: demon_attack
         fps: 60
+        target_latency_frames: 2
         base_config: configs/experiments/demon_attack/starvla_fixed_l2.yaml
       - policy: deadly-corridor-openvla
         env: Deadly Corridor
@@ -171,6 +182,7 @@ experiments:
         runtime_env: openvla
         env_name: deadly_corridor
         fps: 35
+        target_latency_frames: 2
         base_config: configs/experiments/deadly_corridor/starvla_single_latency.yaml
     replay_pairs:
       - target_device: a100

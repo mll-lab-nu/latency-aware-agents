@@ -81,7 +81,7 @@ def _build_plan(
                     n_episodes=n_episodes,
                     checkpoint_kind=checkpoint_kind,
                     out=out,
-                    profile_path=profile_path if stage in {"sim_same", "sim_cross"} else None,
+                    target_profile_path=profile_path if stage in {"realtime", "sim_same", "sim_cross"} else None,
                     profile_output_dir=profile_dir if stage == "measure" else None,
                     runtime_env_alias=runtime_alias or None,
                     runtime_conda_env=runtime_conda,
@@ -130,7 +130,7 @@ def _make_task(
     n_episodes: int,
     checkpoint_kind: str,
     out: Path,
-    profile_path: Path | None,
+    target_profile_path: Path | None,
     profile_output_dir: Path | None,
     runtime_env_alias: str | None,
     runtime_conda_env: str | None,
@@ -152,7 +152,7 @@ def _make_task(
         n_episodes: Episode count for this task.
         checkpoint_kind: Checkpoint selector forwarded to evaluation.
         out: Protocol output root.
-        profile_path: Existing profile used by sim stages.
+        target_profile_path: Target-device profile manifest consumed by realtime and replay stages.
         profile_output_dir: Profile artifact directory produced by measure.
         runtime_env_alias: Required runtime alias from the protocol row.
         runtime_conda_env: Conda env name for display and diagnostics.
@@ -187,7 +187,7 @@ def _make_task(
         checkpoint_kind=checkpoint_kind,
         output_dir=output_dir,
         generated_config_path=generated_config_path,
-        profile_path=profile_path,
+        target_profile_path=target_profile_path,
         profile_output_dir=profile_output_dir,
         runtime_env_alias=runtime_env_alias,
         runtime_conda_env=runtime_conda_env,
@@ -286,24 +286,29 @@ def _task_skip_reason(
     if runtime_reason:
         reasons.append(runtime_reason)
 
-    # Dry-run and doctor must stay read-only; real sim stages may hydrate a
-    # missing local profile from the configured Hugging Face profile repo.
+    # Dry-run and doctor must stay read-only; real profile-consuming stages may
+    # hydrate a missing local profile from the configured Hugging Face repo.
     if (
-        stage in {"sim_same", "sim_cross"}
-        and task.profile_path is not None
-        and not task.profile_path.exists()
+        stage in {"realtime", "sim_same", "sim_cross"}
+        and task.target_profile_path is not None
+        and not task.target_profile_path.exists()
         and not for_doctor
         and not args.dry_run
     ):
         hf_profile_repo = os.environ.get("HF_PROFILE_REPO")
         if hf_profile_repo:
             _ensure_profile_cached(
-                profile_path=task.profile_path,
+                profile_path=task.target_profile_path,
                 profiles_dir=profiles_dir,
                 hf_repo=hf_profile_repo,
             )
-    if stage in {"sim_same", "sim_cross"} and task.profile_path is not None and not task.profile_path.exists():
-        reasons.append(f"missing profile: {task.profile_path}")
+    if (
+        stage in {"realtime", "sim_same", "sim_cross"}
+        and task.target_profile_path is not None
+        and not task.target_profile_path.exists()
+        and not args.dry_run
+    ):
+        reasons.append(f"missing profile: {task.target_profile_path}")
 
     if reasons:
         return "; ".join(reasons)

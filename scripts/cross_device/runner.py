@@ -121,14 +121,22 @@ def _run_task(
         print(f"resume: skipping completed run {task.output_dir}")
         return
 
-    config = _generated_config(task, spec)
     eval_cmd = _eval_command(task)
-    profile_cmd = _profile_command(task, spec, args.overwrite, config) if task.stage == "measure" else None
+    config = _generated_config(task, spec)
+    profile_cmd = None
     manifest = _base_manifest(task, spec, detected, runtime, eval_cmd, profile_cmd)
+    if task.stage == "measure":
+        warmup_config_path = _warmup_generated_config_path(task)
+        calibration_path = _calibration_output_path(task)
+        calibration_cmd = _calibration_command(task, warmup_config_path, calibration_path)
+        _add_calibration_manifest_fields(manifest, warmup_config_path, calibration_path, calibration_cmd)
     task.output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.dry_run:
         _write_generated_config(task.generated_config_path, config)
+        if task.stage == "measure":
+            _write_generated_config(warmup_config_path, config)
+            profile_cmd = _profile_command(task, spec, args.overwrite, config)
         print(f"generated_config: {task.generated_config_path}")
         print(shlex.join(eval_cmd))
         if profile_cmd is not None:
@@ -136,6 +144,13 @@ def _run_task(
         return
 
     try:
+        if task.stage == "measure":
+            _write_generated_config(warmup_config_path, config)
+            _write_json(task.output_dir / "manifest.json", manifest)
+            subprocess.run(calibration_cmd, check=True)
+            _apply_env_fps_calibration(config, calibration_path)
+            profile_cmd = _profile_command(task, spec, args.overwrite, config)
+            manifest["profile_command"] = shlex.join(profile_cmd)
         _write_generated_config(task.generated_config_path, config)
         _write_json(task.output_dir / "manifest.json", manifest)
         subprocess.run(eval_cmd, check=True)
@@ -153,6 +168,45 @@ def _run_task(
         raise
     _write_json(task.output_dir / "manifest.json", manifest)
     _append_manifest(out, manifest)
+
+
+def _warmup_generated_config_path(task: ProtocolTask) -> Path:
+    return task.generated_config_path.parent / f"{task.generated_config_path.stem}.warmup.yaml"
+
+
+def _calibration_output_path(task: ProtocolTask) -> Path:
+    return task.output_dir / "env_fps_calibration.json"
+
+
+def _calibration_command(task: ProtocolTask, config_path: Path, output_path: Path) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "latency_bench.experiments.calibrate_env_fps_from_warmup",
+        "--config",
+        str(config_path),
+        "--output",
+        str(output_path),
+        "--target-latency-frames",
+        str(task.row["target_latency_frames"]),
+    ]
+
+
+def _add_calibration_manifest_fields(
+    manifest: dict[str, Any],
+    warmup_config_path: Path,
+    calibration_path: Path,
+    calibration_cmd: list[str],
+) -> None:
+    manifest["warmup_generated_config_path"] = str(warmup_config_path)
+    manifest["calibration_output_path"] = str(calibration_path)
+    manifest["calibration_command"] = shlex.join(calibration_cmd)
+
+
+def _apply_env_fps_calibration(config: dict[str, Any], calibration_path: Path) -> None:
+    payload = _load_json(calibration_path)
+    config["env"]["env_fps"] = float(payload["selected_env_fps"])
+    config["env"]["obs_fps"] = float(payload["selected_obs_fps"])
 
 
 def _base_manifest(
@@ -199,7 +253,9 @@ def _base_manifest(
         "runtime_conda_env": task.runtime_conda_env,
         "runtime_env_detected_raw": runtime.detected_raw,
         "runtime_env_matched_alias": runtime.matched_alias,
-        "profile_path": str(task.profile_path or (task.profile_output_dir / "profile.json" if task.profile_output_dir else "")),
+        "profile_path": str(
+            task.target_profile_path or (task.profile_output_dir / "profile.json" if task.profile_output_dir else "")
+        ),
         "output_dir": str(task.output_dir),
         "generated_config_path": str(task.generated_config_path),
         "command": shlex.join(eval_cmd),
@@ -253,6 +309,11 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
         f.write("\n")
 
 
+def _load_json(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any]) -> None:
     """Print commands and generated config paths without launching evaluation.
 
@@ -282,8 +343,8 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
         print(f"status: {'runnable' if item.runnable else 'skipped'}")
         if item.skip_reason:
             print(f"skip_reason: {item.skip_reason}")
-        if task.profile_path is not None:
-            print(f"profile_path: {task.profile_path}")
+        if task.target_profile_path is not None:
+            print(f"profile_path: {task.target_profile_path}")
         elif task.profile_output_dir is not None:
             print(f"profile_path: {task.profile_output_dir / 'profile.json'}")
         print(f"output_dir: {task.output_dir}")
@@ -296,6 +357,14 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
             print(f"generated_config_error: {exc}")
             continue
         if task.stage == "measure":
+            warmup_config_path = _warmup_generated_config_path(task)
+            _write_generated_config(warmup_config_path, config)
+            print(f"warmup_generated_config_path: {warmup_config_path}")
+            print(f"calibration_output_path: {_calibration_output_path(task)}")
+            print(
+                "calibration_command: "
+                f"{shlex.join(_calibration_command(task, warmup_config_path, _calibration_output_path(task)))}"
+            )
             print(f"profile_command: {shlex.join(_profile_command(task, spec, False, config))}")
         print(f"eval_max_steps: {config.get('evaluation', {}).get('eval_max_steps', '')}")
     _print_plan_summary("Summary", plan)
