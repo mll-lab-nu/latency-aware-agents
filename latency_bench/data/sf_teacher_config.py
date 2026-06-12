@@ -1,0 +1,142 @@
+"""Load rollout descriptors from Sample Factory teacher checkpoints."""
+
+from __future__ import annotations
+
+import json
+from copy import deepcopy
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Mapping
+
+import yaml
+
+from latency_bench.policy.sample_factory_common import resolve_sample_factory_device
+
+
+SF_ENV_TO_BENCH_ENV = {
+    "doom_deadly_corridor": "deadly_corridor",
+    "latency_flappy": "flappy",
+    "latency_demon_attack": "demon_attack",
+    "deadly_corridor": "deadly_corridor",
+    "flappy": "flappy",
+    "demon_attack": "demon_attack",
+}
+
+
+@dataclass(frozen=True)
+class CheckpointRoot:
+    """Resolved Sample Factory checkpoint location.
+
+    Args:
+        experiment_dir: Directory containing Sample Factory experiment files.
+        checkpoint_path: Optional explicit checkpoint file.
+    """
+    experiment_dir: Path
+    checkpoint_path: Path | None
+
+
+def _infer_env_name_from_sf_env(sf_env_name: str) -> str:
+    """Infer the benchmark environment name from a Sample Factory env id.
+
+    Args:
+        sf_env_name: Environment name stored in Sample Factory config.
+
+    Returns:
+        Canonical benchmark environment name.
+    """
+    normalized = str(sf_env_name).strip()
+    if normalized in SF_ENV_TO_BENCH_ENV:
+        return SF_ENV_TO_BENCH_ENV[normalized]
+    raise ValueError(f"Could not infer benchmark env name from Sample Factory env {sf_env_name!r}")
+
+
+def _resolve_checkpoint_root(checkpoint_root: str | Path) -> CheckpointRoot:
+    """Resolve a checkpoint file or experiment directory.
+
+    Args:
+        checkpoint_root: Experiment directory or checkpoint file path.
+
+    Returns:
+        Experiment directory with optional explicit checkpoint path.
+    """
+    path = Path(checkpoint_root).expanduser().resolve()
+    if path.is_file():
+        if path.parent.name.startswith("checkpoint_p"):
+            return CheckpointRoot(experiment_dir=path.parent.parent, checkpoint_path=path)
+        return CheckpointRoot(experiment_dir=path.parent, checkpoint_path=path)
+    return CheckpointRoot(experiment_dir=path, checkpoint_path=None)
+
+
+def _read_checkpoint_config(experiment_dir: Path) -> dict[str, Any]:
+    """Read Sample Factory's flat ``config.json``.
+
+    Args:
+        experiment_dir: Sample Factory experiment directory.
+
+    Returns:
+        Flat checkpoint config mapping.
+    """
+    config_path = experiment_dir / "config.json"
+    with config_path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _load_latency_override(path: str | Path) -> dict[str, Any]:
+    """Read a latency override YAML file.
+
+    Args:
+        path: YAML file containing either a latency section or latency fields.
+
+    Returns:
+        Latency config mapping.
+    """
+    resolved = Path(path).expanduser().resolve()
+    with resolved.open("r", encoding="utf-8") as handle:
+        payload = yaml.safe_load(handle)
+    return deepcopy(payload["latency"])
+
+
+def load_rollout_training_config(
+    checkpoint_root: str | Path,
+    *,
+    latency_config_path: str | Path | None = None,
+    device_override: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load the rollout descriptor and metadata used for dataset export.
+
+    Args:
+        checkpoint_root: Experiment directory or checkpoint file path.
+        latency_config_path: Optional latency-only YAML override.
+        device_override: Optional rollout device override.
+
+    Returns:
+        Rollout descriptor and export metadata.
+    """
+    checkpoint = _resolve_checkpoint_root(checkpoint_root)
+    flat_cfg = _read_checkpoint_config(checkpoint.experiment_dir)
+    env_name = _infer_env_name_from_sf_env(str(flat_cfg["env"]))
+    config_source = str((checkpoint.experiment_dir / "config.json").resolve())
+    latency_override = None
+    latency_source = "checkpoint"
+
+    if latency_config_path is not None:
+        latency_override_path = Path(latency_config_path).expanduser().resolve()
+        latency_override = _load_latency_override(latency_override_path)
+        latency_source = str(latency_override_path)
+
+    descriptor = {
+        "env_name": env_name,
+        "checkpoint_experiment_dir": str(checkpoint.experiment_dir),
+        "checkpoint_path": None if checkpoint.checkpoint_path is None else str(checkpoint.checkpoint_path),
+        "flat_cfg": deepcopy(flat_cfg),
+        "device_override": None if not device_override else resolve_sample_factory_device(device_override),
+        "latency_override": latency_override,
+    }
+    return descriptor, {
+        "checkpoint_experiment_dir": str(checkpoint.experiment_dir),
+        "checkpoint_path": None if checkpoint.checkpoint_path is None else str(checkpoint.checkpoint_path),
+        "config_source": config_source,
+        "latency_source": latency_source,
+        "checkpoint_config": deepcopy(flat_cfg),
+        "latency_override": deepcopy(latency_override),
+    }

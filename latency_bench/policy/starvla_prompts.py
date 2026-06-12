@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from scripts.rollout_data.prompts import BASE_PROMPTS
+from latency_bench.data.prompts import BASE_PROMPTS
 
 
 def load_latency_prompt_map(path: str | Path) -> dict[str, Any]:

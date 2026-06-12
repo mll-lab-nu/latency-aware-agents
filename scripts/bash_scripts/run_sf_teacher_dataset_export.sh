@@ -23,7 +23,6 @@ Optional environment variables:
   DEVICE              Sample Factory device override. Default: cpu.
   LATENCY_CONFIG      YAML file with a training-compatible latency: section.
   EXPORT_IMAGE_SIZE   Optional saved image size, e.g. 512,288.
-  IMAGE_STACK_SIZE    Optional number of raw RGB history frames to write per row.
   IMAGE_WRITER_WORKERS Optional async PNG writer threads. Default: exporter default.
   HF_REPO_ID          If set, upload the export to this Hugging Face dataset repo.
   HF_PRIVATE          Set to 1 to upload as private. Default: 1.
@@ -32,7 +31,7 @@ Optional environment variables:
 Notes:
   By default the exporter uses the latency config saved in the checkpoint config.json.
   The exported images are env raw RGB frames.
-  Dataset row prompts are fixed in scripts/rollout_data/prompts.py.
+  Dataset row prompts are fixed in latency_bench/data/prompts.py.
 EOF
 }
 
@@ -49,7 +48,7 @@ MAX_STEPS="${MAX_STEPS:-1000}"
 VAL_FRACTION="${VAL_FRACTION:-0.01}"
 NUM_ENVS="${NUM_ENVS:-12}"
 DEVICE="${DEVICE:-cpu}"
-HF_PRIVATE="${HF_PRIVATE:-1}"
+HF_PRIVATE="${HF_PRIVATE:-0}"
 IMAGE_WRITER_WORKERS="${IMAGE_WRITER_WORKERS:-16}"
 
 CMD=(
@@ -69,10 +68,6 @@ fi
 
 if [[ -n "${EXPORT_IMAGE_SIZE:-}" ]]; then
     CMD+=(--export-image-size "${EXPORT_IMAGE_SIZE}")
-fi
-
-if [[ -n "${IMAGE_STACK_SIZE:-}" ]]; then
-    CMD+=(--image-stack-size "${IMAGE_STACK_SIZE}")
 fi
 
 if [[ -n "${IMAGE_WRITER_WORKERS:-}" ]]; then
@@ -96,9 +91,6 @@ else
 fi
 if [[ -n "${HF_REPO_ID:-}" ]]; then
     printf '    upload:     %s\n' "${HF_REPO_ID}"
-fi
-if [[ -n "${IMAGE_STACK_SIZE:-}" ]]; then
-    printf '    image stack: %s\n' "${IMAGE_STACK_SIZE}"
 fi
 if [[ -n "${IMAGE_WRITER_WORKERS:-}" ]]; then
     printf '    image writer workers: %s\n' "${IMAGE_WRITER_WORKERS}"

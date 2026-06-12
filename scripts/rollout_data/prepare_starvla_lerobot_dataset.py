@@ -4,44 +4,21 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Sequence
 
 from huggingface_hub import HfApi
 
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-STARVLA_ROOT = REPO_ROOT / "starVLA"
-if str(STARVLA_ROOT) not in sys.path:
-    sys.path.insert(0, str(STARVLA_ROOT))
-
-from examples.rl_games.data_conversion.convert_deadly_corridor_to_starvla_lerobot import (  # noqa: E402
-    convert_dataset as convert_deadly_corridor_dataset,
-)
-from examples.rl_games.data_conversion.convert_demon_attack_to_starvla_lerobot import (  # noqa: E402
-    convert_dataset as convert_demon_attack_dataset,
-)
-from examples.rl_games.data_conversion.convert_flappy_to_starvla_lerobot import (  # noqa: E402
-    convert_dataset as convert_flappy_dataset,
-)
-
-
-Converter = Callable[..., dict]
-CONVERTERS: dict[str, Converter] = {
-    "deadly_corridor": convert_deadly_corridor_dataset,
-    "demon_attack": convert_demon_attack_dataset,
-    "flappy": convert_flappy_dataset,
-}
+from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
 
 
 def resolve_token() -> str | None:
+    """Resolve the Hugging Face token used for optional uploads.
+
+    Returns:
+        Explicitly supported environment token, or ``None`` when unset.
+    """
     return os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
-
-
-def infer_env_name(raw_export_dir: Path) -> str:
-    metadata = json.loads((raw_export_dir / "metadata.json").read_text(encoding="utf-8"))
-    return str(metadata["env_name"])
 
 
 def convert_raw_export_to_lerobot(
@@ -50,14 +27,21 @@ def convert_raw_export_to_lerobot(
     lerobot_root: Path,
     data_mix: str,
 ) -> dict:
-    env_name = infer_env_name(raw_export_dir)
-    converter = CONVERTERS[env_name]
+    """Convert a raw rollout export into a named LeRobot data mix.
+
+    Args:
+        raw_export_dir: Canonical rollout export directory.
+        lerobot_root: Directory that will contain the LeRobot datasets.
+        data_mix: Train dataset directory name under ``lerobot_root``.
+
+    Returns:
+        Conversion manifest returned by the LeRobot adapter.
+    """
     output_dir = lerobot_root / data_mix
-    return converter(
-        str(raw_export_dir),
+    return convert_canonical_rollout_to_lerobot(
+        raw_export_dir,
         output_dir,
         force=True,
-        require_latency_prompt_map=False,
     )
 
 
@@ -68,6 +52,14 @@ def push_lerobot_dataset(
     repo_id: str,
     private: bool,
 ) -> None:
+    """Upload the converted LeRobot train/val directories to Hugging Face.
+
+    Args:
+        lerobot_root: Root directory containing converted datasets.
+        data_mix: Train dataset directory name under ``lerobot_root``.
+        repo_id: Hugging Face dataset repository id.
+        private: Whether to create or update the repository as private.
+    """
     token = resolve_token()
     create_repo_kwargs = {
         "repo_id": repo_id,
@@ -91,6 +83,11 @@ def push_lerobot_dataset(
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser for LeRobot preparation.
+
+    Returns:
+        Configured argument parser.
+    """
     parser = argparse.ArgumentParser(description="Prepare a StarVLA LeRobot dataset from a raw rollout export.")
     parser.add_argument("raw_export_dir")
     parser.add_argument("lerobot_root")
@@ -101,6 +98,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Run the LeRobot preparation CLI.
+
+    Args:
+        argv: Optional command-line arguments excluding the program name.
+
+    Returns:
+        Process exit code.
+    """
     args = build_parser().parse_args(argv)
     raw_export_dir = Path(args.raw_export_dir).expanduser().resolve()
     lerobot_root = Path(args.lerobot_root).expanduser().resolve()
