@@ -14,7 +14,6 @@ def test_canonical_rollout_fields_exclude_legacy_aliases():
         "prompt",
         "latency_raw_frames",
         "latency_ms",
-        "reward",
     )
     assert "latency" not in CANONICAL_ROW_FIELDS
     assert "deterministic" not in CANONICAL_ROW_FIELDS
@@ -38,9 +37,16 @@ def test_rollout_features_include_env_specific_action_fields():
     for features in (flappy_features, deadly_features):
         assert "decision_step" in features
         assert "latency_raw_frames" in features
+        assert "raw_reward" in features
+        assert "reward" not in features
         assert "latency" not in features
         assert "done" not in features
         assert "t" not in features
+
+    demon_features = rollout_features(action_spec_for_env("demon_attack"))
+    assert "clipped_reward" in demon_features
+    assert "raw_reward" not in demon_features
+    assert "reward" not in demon_features
 
 
 def test_sort_rows_uses_decision_step():

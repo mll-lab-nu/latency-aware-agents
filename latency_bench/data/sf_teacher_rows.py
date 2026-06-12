@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from latency_bench.data.action_layouts import encode_action_for_env
+from latency_bench.data.action_layouts import action_spec_for_env, encode_action_for_env
 from latency_bench.data.prompts import render_teacher_prompt
 from latency_bench.data.rollout_schema import CANONICAL_ROW_FIELDS
 from latency_bench.policy.sample_factory_common import _to_python_action
@@ -40,6 +40,7 @@ def teacher_dataset_row(
     """
     latency_raw_frames = int(_to_python_action(info["latency_raw_frames"]))
     latency_ms = float(_to_python_action(info["latency_ms"]))
+    action_spec = action_spec_for_env(env_name)
     base_values = {
         "image": image,
         "env_name": str(env_name),
@@ -56,8 +57,9 @@ def teacher_dataset_row(
         ),
         "latency_raw_frames": latency_raw_frames,
         "latency_ms": latency_ms,
-        "reward": float(reward),
+        action_spec.reward_field: float(reward),
     }
     row = {field: base_values[field] for field in CANONICAL_ROW_FIELDS}
+    row[action_spec.reward_field] = base_values[action_spec.reward_field]
     row.update(encode_action_for_env(env_name, raw_action))
     return row

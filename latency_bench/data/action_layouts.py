@@ -50,10 +50,16 @@ class ActionSpec:
         layout: Stable layout identifier written to rollout metadata.
         labels: Canonical action labels used for vectors and metadata.
         row_fields: Action-related fields expected in each row.
+        reward_field: Reward column written in canonical rollout rows.
+        episode_return_field: Episode return field written in rollout reports.
+        reward_semantics: Human-readable reward semantics stored in metadata.
     """
     layout: str
     labels: tuple[str, ...]
     row_fields: tuple[str, ...]
+    reward_field: str
+    episode_return_field: str
+    reward_semantics: str
 
 
 ACTION_SPECS_BY_ENV = {
@@ -61,16 +67,25 @@ ACTION_SPECS_BY_ENV = {
         layout=ACTION_LAYOUT_FLAPPY_DISCRETE,
         labels=FLAPPY_ACTION_LABELS,
         row_fields=("action_id", "action", "action_text"),
+        reward_field="raw_reward",
+        episode_return_field="episode_raw_return",
+        reward_semantics="raw_reward",
     ),
     "demon_attack": ActionSpec(
         layout=ACTION_LAYOUT_DEMON_ATTACK_DISCRETE,
         labels=DEMON_ATTACK_ACTION_LABELS,
         row_fields=("action_id", "action", "action_text"),
+        reward_field="clipped_reward",
+        episode_return_field="episode_clipped_return",
+        reward_semantics="clipped_reward",
     ),
     "deadly_corridor": ActionSpec(
         layout=ACTION_LAYOUT_DEADLY_CORRIDOR_FACTORIZED_11,
         labels=DEADLY_CORRIDOR_FACTORIZED_11_LABELS,
         row_fields=("action_tuple", "action", "action_text"),
+        reward_field="raw_reward",
+        episode_return_field="episode_raw_return",
+        reward_semantics="raw_reward",
     ),
 }
 

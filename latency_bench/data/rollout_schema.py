@@ -7,7 +7,7 @@ from datasets import Features, Image as HFImage, Sequence as HFSequence, Value
 from latency_bench.data.action_layouts import ActionSpec
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 CANONICAL_ROW_FIELDS = (
     "image",
     "env_name",
@@ -18,7 +18,6 @@ CANONICAL_ROW_FIELDS = (
     "prompt",
     "latency_raw_frames",
     "latency_ms",
-    "reward",
 )
 
 
@@ -41,7 +40,7 @@ def rollout_features(action_spec: ActionSpec) -> Features:
         "prompt": Value("string"),
         "latency_raw_frames": Value("int64"),
         "latency_ms": Value("float64"),
-        "reward": Value("float64"),
+        action_spec.reward_field: Value("float64"),
     }
     if "action_id" in action_spec.row_fields:
         feature_map["action_id"] = Value("int64")

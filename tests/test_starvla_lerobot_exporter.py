@@ -31,7 +31,7 @@ def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
         "prompt": "pick action",
         "latency_raw_frames": 2,
         "latency_ms": 57.14,
-        "reward": 1.0,
+        "raw_reward": 1.0,
         "action_tuple": [0, 1, 2, 1],
         "action": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0],
         "action_text": "MOVE_FORWARD+MOVE_RIGHT+ATTACK",
@@ -42,6 +42,7 @@ def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
             {
                 "env_name": "deadly_corridor",
                 "action_layout": "deadly_corridor_factorized_11",
+                "reward_field": "raw_reward",
                 "action_labels": [
                     "TURN_NOOP",
                     "TURN_LEFT",
@@ -88,7 +89,7 @@ def test_starvla_lerobot_exporter_does_not_accept_latency_alias(tmp_path):
             "prompt": Value("string"),
             "latency": Value("int64"),
             "latency_ms": Value("float64"),
-            "reward": Value("float64"),
+            "raw_reward": Value("float64"),
             "action_id": Value("int64"),
             "action": HFSequence(Value("float32")),
             "action_text": Value("string"),
@@ -105,7 +106,7 @@ def test_starvla_lerobot_exporter_does_not_accept_latency_alias(tmp_path):
             "prompt": ["pick action"],
             "latency": [2],
             "latency_ms": [66.0],
-            "reward": [1.0],
+            "raw_reward": [1.0],
             "action_id": [1],
             "action": [[0.0, 1.0]],
             "action_text": ["FLAP"],
@@ -123,7 +124,7 @@ def test_starvla_lerobot_exporter_does_not_accept_latency_alias(tmp_path):
             "prompt": ["pick action"],
             "latency": [2],
             "latency_ms": [66.0],
-            "reward": [1.0],
+            "raw_reward": [1.0],
             "action_id": [1],
             "action": [[0.0, 1.0]],
             "action_text": ["FLAP"],
@@ -135,6 +136,7 @@ def test_starvla_lerobot_exporter_does_not_accept_latency_alias(tmp_path):
             {
                 "env_name": "flappy",
                 "action_layout": "flappy_discrete",
+                "reward_field": "raw_reward",
                 "action_labels": ["NOOP", "FLAP"],
             }
         ),

@@ -24,6 +24,7 @@ Optional environment variables:
   LATENCY_CONFIG      YAML file with a training-compatible latency: section.
   EXPORT_IMAGE_SIZE   Optional saved image size, e.g. 512,288.
   IMAGE_WRITER_WORKERS Optional async PNG writer threads. Default: exporter default.
+  FILTER_PRESET       Optional rollout data filter preset, e.g. clean_v1.
   HF_REPO_ID          If set, upload the export to this Hugging Face dataset repo.
   HF_PRIVATE          Set to 1 to upload as private. Default: 1.
   HF_TOKEN            Hugging Face token used when HF_REPO_ID is set.
@@ -74,6 +75,10 @@ if [[ -n "${IMAGE_WRITER_WORKERS:-}" ]]; then
     CMD+=(--image-writer-workers "${IMAGE_WRITER_WORKERS}")
 fi
 
+if [[ -n "${FILTER_PRESET:-}" ]]; then
+    CMD+=(--filter-preset "${FILTER_PRESET}")
+fi
+
 if [[ -n "${HF_REPO_ID:-}" ]]; then
     CMD+=(--push-to-hub --hf-repo-id "${HF_REPO_ID}" --hf-token "${HF_TOKEN:-}")
     if [[ "${HF_PRIVATE}" == "1" || "${HF_PRIVATE}" == "true" ]]; then
@@ -94,6 +99,9 @@ if [[ -n "${HF_REPO_ID:-}" ]]; then
 fi
 if [[ -n "${IMAGE_WRITER_WORKERS:-}" ]]; then
     printf '    image writer workers: %s\n' "${IMAGE_WRITER_WORKERS}"
+fi
+if [[ -n "${FILTER_PRESET:-}" ]]; then
+    printf '    filter preset: %s\n' "${FILTER_PRESET}"
 fi
 
 "${CMD[@]}"
