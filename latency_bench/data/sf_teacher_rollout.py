@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import shutil
+import json
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -12,17 +12,17 @@ from tqdm import tqdm
 
 from latency_bench.data.action_layouts import action_spec_for_env
 from latency_bench.data.filters import (
-    episode_passes_preset,
-    filter_train_rows_for_preset,
+    FILTER_PRESET_CLEAN_V1,
+    episode_passes_clean_v1,
+    filter_train_rows_clean_v1,
 )
 from latency_bench.data.hf_parquet import (
     completed_episode_indices_from_shards,
     episode_row_split_stats,
-    load_episode_row_shards,
     write_episode_row_shard,
 )
 from latency_bench.data.rollout_image_io import RolloutImageWriter, frame_from_env_raw_rgb_info
-from latency_bench.data.rollout_schema import SCHEMA_VERSION, sort_rows
+from latency_bench.data.rollout_schema import SCHEMA_VERSION
 from latency_bench.data.sf_teacher_rows import teacher_dataset_row
 from latency_bench.data.sf_teacher_drivers import (
     BatchedTeacherRolloutDriver,
@@ -107,7 +107,6 @@ def _episode_image_dir(output_dir: Path, split: str, episode_idx: int) -> Path:
 def _finalize_attempt_rows(
     rows: list[dict[str, Any]],
     *,
-    attempt_dir: Path,
     final_dir: Path,
     episode_idx: int,
     split: str,
@@ -116,7 +115,6 @@ def _finalize_attempt_rows(
 
     Args:
         rows: Rows collected under the attempt namespace.
-        attempt_dir: Temporary attempt image directory.
         final_dir: Final split image directory.
         episode_idx: Final accepted episode index.
         split: Final dataset split.
@@ -129,22 +127,31 @@ def _finalize_attempt_rows(
         finalized = dict(row)
         finalized["episode_idx"] = episode_idx
         finalized["split"] = split
-        finalized["image"] = str(final_dir / Path(row["image"]).relative_to(attempt_dir))
+        finalized["image"] = str(final_dir / f"decision_step_{int(row['decision_step']):06d}.png")
         finalized_rows.append(finalized)
     return finalized_rows
 
 
-def _new_filter_report(filter_preset: str) -> dict[str, Any]:
-    """Create the rollout filter report accumulator.
+def _online_filter_state_path(output_dir: Path) -> Path:
+    """Build the state path used to resume online filtered rollouts.
 
     Args:
-        filter_preset: Empty string for no filtering, or the active preset name.
+        output_dir: Rollout export directory.
+
+    Returns:
+        Path to the online filter state JSON file.
+    """
+    return output_dir / "online_filter_state.json"
+
+
+def _new_filter_report() -> dict[str, Any]:
+    """Create the rollout filter report accumulator.
 
     Returns:
         Mutable report counters written to metadata and ``filter_report.json``.
     """
     return {
-        "preset": filter_preset,
+        "preset": FILTER_PRESET_CLEAN_V1,
         "attempted_episodes": 0,
         "accepted_episodes": 0,
         "rejected_episodes": 0,
@@ -155,6 +162,54 @@ def _new_filter_report(filter_preset: str) -> dict[str, Any]:
         "val_rows_before_row_filter": 0,
         "val_rows_after_row_filter": 0,
     }
+
+
+def _new_online_filter_state() -> dict[str, Any]:
+    """Create the online filter state for a fresh export.
+
+    Returns:
+        Mutable state persisted after each completed rollout attempt.
+    """
+    return {
+        "next_attempt_idx": 0,
+        "filter_report": _new_filter_report(),
+    }
+
+
+def _load_online_filter_state(
+    output_dir: Path,
+    *,
+    completed_episode_indices: set[int],
+) -> dict[str, Any]:
+    """Load or initialize online filter resume state.
+
+    Args:
+        output_dir: Rollout export directory.
+        completed_episode_indices: Accepted episode shards already on disk.
+
+    Returns:
+        Online filter state with next attempt id and report counters.
+    """
+    state_path = _online_filter_state_path(output_dir)
+    if state_path.exists():
+        return json.loads(state_path.read_text(encoding="utf-8"))
+    if completed_episode_indices:
+        raise FileNotFoundError(state_path)
+    return _new_online_filter_state()
+
+
+def _write_online_filter_state(output_dir: Path, state: Mapping[str, Any]) -> None:
+    """Atomically persist online filter resume state.
+
+    Args:
+        output_dir: Rollout export directory.
+        state: JSON-serializable online filter state.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    state_path = _online_filter_state_path(output_dir)
+    tmp_path = state_path.with_name(f"{state_path.name}.tmp")
+    tmp_path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp_path.replace(state_path)
 
 
 def _record_accepted_episode(
@@ -178,6 +233,48 @@ def _record_accepted_episode(
     report[f"{split}_rows_after_row_filter"] += rows_after_filter
 
 
+def _write_filtered_episode_images(
+    image_writer: RolloutImageWriter,
+    rows: list[dict[str, Any]],
+    frames_by_decision_step: Mapping[int, np.ndarray],
+) -> list[dict[str, Any]]:
+    """Write images for the rows that survived online filtering.
+
+    Args:
+        image_writer: Image writer shared by the rollout run.
+        rows: Final rows selected for materialization.
+        frames_by_decision_step: Captured frames keyed by decision step.
+
+    Returns:
+        Row copies with image paths written to disk.
+    """
+    written_rows = []
+    for row in rows:
+        written = dict(row)
+        image_path = Path(written["image"])
+        written["image"] = image_writer.write(frames_by_decision_step[int(written["decision_step"])], image_path)
+        written_rows.append(written)
+    image_writer.flush()
+    return written_rows
+
+
+def _update_online_filter_progress(progress: tqdm, report: Mapping[str, Any]) -> None:
+    """Display raw online filter attempt counters in the progress bar.
+
+    Args:
+        progress: Active tqdm progress bar.
+        report: Filter report counters.
+    """
+    attempted = int(report["attempted_episodes"])
+    accepted = int(report["accepted_episodes"])
+    accept_rate = accepted / attempted if attempted else 0.0
+    progress.set_postfix(
+        attempted=attempted,
+        rejected=int(report["rejected_episodes"]),
+        accept_rate=f"{accept_rate:.2f}",
+    )
+
+
 def _collect_teacher_dataset_with_driver(
     runtime: Mapping[str, Any],
     cfg: Any,
@@ -194,9 +291,7 @@ def _collect_teacher_dataset_with_driver(
     image_writer_workers: int,
     row_buffer_size: int,
     frame_stack: int,
-    return_rows: bool,
-    filter_preset: str,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+) -> dict[str, Any]:
     """Collect teacher rollout rows using a concrete rollout driver.
 
     Args:
@@ -214,11 +309,8 @@ def _collect_teacher_dataset_with_driver(
         image_writer_workers: Number of async image writer threads.
         row_buffer_size: Pending image write threshold.
         frame_stack: Teacher checkpoint frame stack, stored as metadata.
-        return_rows: Whether to keep rows in memory while sharding.
-        filter_preset: Empty string for no filtering, or the active filter preset.
-
     Returns:
-        Train rows, validation rows, and rollout metadata.
+        Rollout metadata.
     """
 
     actor_critic = runtime["actor_critic"]
@@ -232,20 +324,7 @@ def _collect_teacher_dataset_with_driver(
     env_fps = float(cfg.env_fps)
     obs_fps = float(cfg.obs_fps)
     obs_stride_raw_frames = int(env_fps / obs_fps)
-    use_online_filter = filter_preset != ""
-    planned_episodes = _build_episode_plan(
-        max_episodes=int(max_episodes),
-        val_fraction=float(val_fraction),
-        split_seed=int(split_seed),
-        base_seed=int(cfg.seed),
-    )
-    if return_rows:
-        train_rows, val_rows, completed_episode_indices = load_episode_row_shards(output_dir)
-    else:
-        train_rows = []
-        val_rows = []
-        completed_episode_indices = completed_episode_indices_from_shards(output_dir)
-    planned_episodes = [spec for spec in planned_episodes if int(spec["episode_idx"]) not in completed_episode_indices]
+    completed_episode_indices = completed_episode_indices_from_shards(output_dir)
     final_splits = {
         int(spec["episode_idx"]): str(spec["split"])
         for spec in _build_episode_plan(
@@ -255,12 +334,17 @@ def _collect_teacher_dataset_with_driver(
             base_seed=0,
         )
     }
-    filter_report = _new_filter_report(str(filter_preset))
+    online_filter_state = _load_online_filter_state(
+        output_dir,
+        completed_episode_indices=completed_episode_indices,
+    )
+    filter_report = online_filter_state["filter_report"]
 
     active_specs: list[dict[str, Any] | None] = [None for _ in range(driver.slot_count)]
     active_obs: list[Any | None] = [None for _ in range(driver.slot_count)]
     active_image_frames: list[np.ndarray | None] = [None for _ in range(driver.slot_count)]
     active_episode_rows: list[list[dict[str, Any]]] = [[] for _ in range(driver.slot_count)]
+    active_episode_frames: list[list[np.ndarray]] = [[] for _ in range(driver.slot_count)]
     active_decision_steps = [0 for _ in range(driver.slot_count)]
     rnn_states = torch.zeros([driver.slot_count, rnn_size], dtype=torch.float32, device=device)
     image_writer = RolloutImageWriter(
@@ -271,20 +355,13 @@ def _collect_teacher_dataset_with_driver(
     image_resolution: list[int] | None = None
 
     try:
-        next_spec_idx = 0
-        next_attempt_idx = len(completed_episode_indices)
+        next_attempt_idx = int(online_filter_state["next_attempt_idx"])
         initial_reset_plan: dict[int, int] = {}
         for slot in range(driver.slot_count):
-            if use_online_filter:
-                if slot >= int(max_episodes) - len(completed_episode_indices):
-                    break
-                spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed))
-                next_attempt_idx += 1
-            else:
-                if next_spec_idx >= len(planned_episodes):
-                    break
-                spec = planned_episodes[next_spec_idx]
-                next_spec_idx += 1
+            if slot >= int(max_episodes) - len(completed_episode_indices):
+                break
+            spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed))
+            next_attempt_idx += 1
             active_specs[slot] = spec
             initial_reset_plan[slot] = int(spec["seed"])
         if initial_reset_plan:
@@ -293,6 +370,7 @@ def _collect_teacher_dataset_with_driver(
                 active_obs[slot] = obs
                 active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
                 active_episode_rows[slot] = []
+                active_episode_frames[slot] = []
                 active_decision_steps[slot] = 0
                 rnn_states[slot].zero_()
 
@@ -346,7 +424,8 @@ def _collect_teacher_dataset_with_driver(
                             image_resolution = [height, width, image_frame.shape[2]]
                         else:
                             image_resolution = list(image_frame.shape)
-                    image = image_writer.write(image_frame, image_path)
+                    image = str(image_path)
+                    active_episode_frames[slot].append(np.array(image_frame, copy=True))
                     raw_action = raw_actions[batch_idx]
                     step_result = step_results[slot]
                     done = bool(step_result.terminated) or bool(step_result.truncated)
@@ -362,93 +441,70 @@ def _collect_teacher_dataset_with_driver(
                         obs_fps=obs_fps,
                     )
                     active_episode_rows[slot].append(row)
-                    if return_rows and not use_online_filter:
-                        if split == "val":
-                            val_rows.append(row)
-                        else:
-                            train_rows.append(row)
 
                     rnn_states[slot] = new_rnn_states[batch_idx]
                     next_decision_step = decision_step + 1
                     if done or next_decision_step >= int(max_steps_per_episode):
-                        image_writer.flush()
-                        if use_online_filter:
-                            filter_report["attempted_episodes"] += 1
-                            accepted = completed < int(max_episodes) and episode_passes_preset(
-                                str(filter_preset),
-                                env_name,
+                        filter_report["attempted_episodes"] += 1
+                        accepted = completed < int(max_episodes) and episode_passes_clean_v1(
+                            env_name,
+                            active_episode_rows[slot],
+                            max_steps_per_episode=int(max_steps_per_episode),
+                        )
+                        if accepted:
+                            final_episode_idx = completed
+                            final_split = final_splits[final_episode_idx]
+                            final_dir = _episode_image_dir(output_dir, final_split, final_episode_idx)
+                            final_rows = _finalize_attempt_rows(
                                 active_episode_rows[slot],
-                                max_steps_per_episode=int(max_steps_per_episode),
+                                final_dir=final_dir,
+                                episode_idx=final_episode_idx,
+                                split=final_split,
                             )
-                            if accepted:
-                                final_episode_idx = completed
-                                final_split = final_splits[final_episode_idx]
-                                attempt_dir = _episode_image_dir(output_dir, "_attempts", int(spec["episode_idx"]))
-                                final_dir = _episode_image_dir(output_dir, final_split, final_episode_idx)
-                                final_dir.parent.mkdir(parents=True, exist_ok=True)
-                                attempt_dir.rename(final_dir)
-                                final_rows = _finalize_attempt_rows(
-                                    active_episode_rows[slot],
-                                    attempt_dir=attempt_dir,
-                                    final_dir=final_dir,
-                                    episode_idx=final_episode_idx,
-                                    split=final_split,
+                            if final_split == "train":
+                                shard_rows = filter_train_rows_clean_v1(
+                                    env_name,
+                                    final_rows,
+                                    seed=int(spec["seed"]),
                                 )
-                                if final_split == "train":
-                                    shard_rows = filter_train_rows_for_preset(
-                                        str(filter_preset),
-                                        env_name,
-                                        final_rows,
-                                        seed=int(spec["seed"]),
-                                    )
-                                    if return_rows:
-                                        train_rows.extend(shard_rows)
-                                else:
-                                    shard_rows = [dict(row) for row in final_rows]
-                                    if return_rows:
-                                        val_rows.extend(shard_rows)
-                                write_episode_row_shard(output_dir, shard_rows)
-                                _record_accepted_episode(
-                                    filter_report,
-                                    split=final_split,
-                                    rows_before_filter=len(final_rows),
-                                    rows_after_filter=len(shard_rows),
-                                )
-                                progress.update(1)
-                                completed += 1
                             else:
-                                filter_report["rejected_episodes"] += 1
-                                attempt_dir = _episode_image_dir(output_dir, "_attempts", int(spec["episode_idx"]))
-                                if attempt_dir.exists():
-                                    shutil.rmtree(attempt_dir)
-                            if completed < int(max_episodes):
-                                next_spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed))
-                                next_attempt_idx += 1
-                                active_specs[slot] = next_spec
-                                reset_plan[slot] = int(next_spec["seed"])
-                            else:
-                                active_specs[slot] = None
-                                active_obs[slot] = None
-                                active_image_frames[slot] = None
-                                active_episode_rows[slot] = []
-                                active_decision_steps[slot] = 0
-                                rnn_states[slot].zero_()
-                        else:
-                            write_episode_row_shard(output_dir, active_episode_rows[slot])
+                                shard_rows = [dict(row) for row in final_rows]
+                            frames_by_decision_step = {
+                                int(row["decision_step"]): frame
+                                for row, frame in zip(final_rows, active_episode_frames[slot])
+                            }
+                            shard_rows = _write_filtered_episode_images(
+                                image_writer,
+                                shard_rows,
+                                frames_by_decision_step,
+                            )
+                            write_episode_row_shard(output_dir, shard_rows)
+                            _record_accepted_episode(
+                                filter_report,
+                                split=final_split,
+                                rows_before_filter=len(final_rows),
+                                rows_after_filter=len(shard_rows),
+                            )
                             progress.update(1)
                             completed += 1
-                            if next_spec_idx < len(planned_episodes):
-                                next_spec = planned_episodes[next_spec_idx]
-                                active_specs[slot] = next_spec
-                                reset_plan[slot] = int(next_spec["seed"])
-                                next_spec_idx += 1
-                            else:
-                                active_specs[slot] = None
-                                active_obs[slot] = None
-                                active_image_frames[slot] = None
-                                active_episode_rows[slot] = []
-                                active_decision_steps[slot] = 0
-                                rnn_states[slot].zero_()
+                        else:
+                            filter_report["rejected_episodes"] += 1
+                        if completed < int(max_episodes):
+                            next_spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed))
+                            next_attempt_idx += 1
+                            active_specs[slot] = next_spec
+                            reset_plan[slot] = int(next_spec["seed"])
+                        else:
+                            active_specs[slot] = None
+                            active_obs[slot] = None
+                            active_image_frames[slot] = None
+                            active_episode_rows[slot] = []
+                            active_episode_frames[slot] = []
+                            active_decision_steps[slot] = 0
+                            rnn_states[slot].zero_()
+                        online_filter_state["next_attempt_idx"] = next_attempt_idx
+                        _write_online_filter_state(output_dir, online_filter_state)
+                        _update_online_filter_progress(progress, filter_report)
                     else:
                         active_obs[slot] = step_result.next_obs
                         active_image_frames[slot] = frame_from_env_raw_rgb_info(step_result.info)
@@ -460,6 +516,7 @@ def _collect_teacher_dataset_with_driver(
                         active_obs[slot] = obs
                         active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
                         active_episode_rows[slot] = []
+                        active_episode_frames[slot] = []
                         active_decision_steps[slot] = 0
                         rnn_states[slot].zero_()
                 else:
@@ -469,29 +526,16 @@ def _collect_teacher_dataset_with_driver(
             image_writer.close()
         finally:
             driver.close()
-        attempts_dir = output_dir / "images" / "_attempts"
-        if attempts_dir.exists():
-            shutil.rmtree(attempts_dir)
 
-    if not use_online_filter:
-        split_stats = episode_row_split_stats(output_dir)
-        filter_report["attempted_episodes"] = split_stats["total_episodes"]
-        filter_report["accepted_episodes"] = split_stats["total_episodes"]
-        filter_report["accepted_train_episodes"] = split_stats["train_episodes"]
-        filter_report["accepted_val_episodes"] = split_stats["val_episodes"]
-        filter_report["train_rows_before_row_filter"] = split_stats["train_rows"]
-        filter_report["train_rows_after_row_filter"] = split_stats["train_rows"]
-        filter_report["val_rows_before_row_filter"] = split_stats["val_rows"]
-        filter_report["val_rows_after_row_filter"] = split_stats["val_rows"]
-
-    return sort_rows(train_rows), sort_rows(val_rows), {
+    split_stats = episode_row_split_stats(output_dir)
+    return {
         "schema_version": SCHEMA_VERSION,
         "action_layout": action_spec.layout,
         "action_labels": list(action_spec.labels),
         "reward_field": action_spec.reward_field,
         "episode_return_field": action_spec.episode_return_field,
         "reward_semantics": action_spec.reward_semantics,
-        "filter_preset": str(filter_preset),
+        "filter_preset": FILTER_PRESET_CLEAN_V1,
         "filter_report": filter_report,
         "checkpoint_train_step": int(runtime["checkpoint"]["train_step"]),
         "frame_stack": frame_stack,
@@ -500,8 +544,8 @@ def _collect_teacher_dataset_with_driver(
         "obs_stride_raw_frames": obs_stride_raw_frames,
         "image_source": "env_raw_rgb",
         "image_resolution": image_resolution,
-        "train_episodes": len({row["episode_idx"] for row in train_rows}),
-        "val_episodes": len({row["episode_idx"] for row in val_rows}),
+        "train_episodes": split_stats["train_episodes"],
+        "val_episodes": split_stats["val_episodes"],
     }
 
 
@@ -518,9 +562,7 @@ def collect_teacher_dataset(
     export_image_size: tuple[int, int] | None,
     image_writer_workers: int,
     row_buffer_size: int,
-    filter_preset: str = "",
-    return_rows: bool = True,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+) -> dict[str, Any]:
     """Collect a Sample Factory teacher dataset from a checkpoint descriptor.
 
     Args:
@@ -535,11 +577,8 @@ def collect_teacher_dataset(
         export_image_size: Optional ``(width, height)`` resize target.
         image_writer_workers: Number of async image writer threads.
         row_buffer_size: Pending image write threshold.
-        filter_preset: Empty string for no filtering, or the active filter preset.
-        return_rows: Whether to keep rows in memory while sharding.
-
     Returns:
-        Train rows, validation rows, and rollout metadata.
+        Rollout metadata.
     """
     env_name = str(config["env_name"])
     with sample_factory_init_log(output_dir):
@@ -578,6 +617,4 @@ def collect_teacher_dataset(
         image_writer_workers=int(image_writer_workers),
         row_buffer_size=int(row_buffer_size),
         frame_stack=int(frame_stack),
-        return_rows=bool(return_rows),
-        filter_preset=str(filter_preset),
     )
