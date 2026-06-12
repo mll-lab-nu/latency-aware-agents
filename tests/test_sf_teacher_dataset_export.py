@@ -92,6 +92,12 @@ def _env_raw_rgb_frame_stack(value: int = 5, *, frames: int = 1, height: int = 2
     )
 
 
+def _read_shard_rows(output_dir: Path, split: str) -> list[dict]:
+    from latency_bench.data.hf_parquet import iter_episode_rows
+
+    return list(iter_episode_rows(output_dir, split))
+
+
 def test_config_loader_generic_uses_current_public_loader(tmp_path):
     from training.config_loader import load_training_config_generic
 
@@ -308,11 +314,12 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
     )
     monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
     monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
-    train_rows, val_rows, metadata = exporter.collect_teacher_dataset(
+    output_dir = tmp_path / "export"
+    metadata = exporter.collect_teacher_dataset(
         {"env_name": "flappy"},
-        output_dir=tmp_path / "export",
+        output_dir=output_dir,
         max_episodes=1,
-        max_steps_per_episode=8,
+        max_steps_per_episode=1,
         val_fraction=0.0,
         split_seed=0,
         num_envs=1,
@@ -321,6 +328,8 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
         image_writer_workers=0,
         row_buffer_size=1,
     )
+    train_rows = _read_shard_rows(output_dir, "train")
+    val_rows = _read_shard_rows(output_dir, "val")
 
     assert not val_rows
     assert fake_env.step_actions == [[1]]
@@ -408,9 +417,10 @@ def test_collect_teacher_dataset_online_filter_retries_until_episode_is_accepted
         lambda processed_actions, batch_size, action_space=None: [[0, 1, 0, 0]] * batch_size,
     )
 
-    train_rows, val_rows, metadata = exporter.collect_teacher_dataset(
+    output_dir = tmp_path / "export"
+    metadata = exporter.collect_teacher_dataset(
         {"env_name": "deadly_corridor"},
-        output_dir=tmp_path / "export",
+        output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=8,
         val_fraction=0.0,
@@ -420,8 +430,9 @@ def test_collect_teacher_dataset_online_filter_retries_until_episode_is_accepted
         export_image_size=None,
         image_writer_workers=0,
         row_buffer_size=1,
-        filter_preset="clean_v1",
     )
+    train_rows = _read_shard_rows(output_dir, "train")
+    val_rows = _read_shard_rows(output_dir, "val")
 
     assert not val_rows
     assert fake_env.reset_seeds == [11, 12]
@@ -430,6 +441,12 @@ def test_collect_teacher_dataset_online_filter_retries_until_episode_is_accepted
     assert train_rows[0]["raw_reward"] == 2200.0
     assert Path(train_rows[0]["image"]).exists()
     assert "_attempts" not in train_rows[0]["image"]
+    assert sorted(path.name for path in (output_dir / "images" / "train" / "episode_000000").glob("*.png")) == [
+        "decision_step_000000.png"
+    ]
+    assert not (output_dir / "images" / "_attempts").exists()
+    state = json.loads((output_dir / "online_filter_state.json").read_text(encoding="utf-8"))
+    assert state["next_attempt_idx"] == 2
     assert metadata["filter_report"]["attempted_episodes"] == 2
     assert metadata["filter_report"]["accepted_episodes"] == 1
     assert metadata["filter_report"]["rejected_episodes"] == 1
@@ -505,11 +522,12 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     )
     monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
     monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
-    train_rows, val_rows, metadata = exporter.collect_teacher_dataset(
+    output_dir = tmp_path / "export"
+    metadata = exporter.collect_teacher_dataset(
         {"env_name": "flappy"},
-        output_dir=tmp_path / "export",
+        output_dir=output_dir,
         max_episodes=2,
-        max_steps_per_episode=8,
+        max_steps_per_episode=1,
         val_fraction=0.0,
         split_seed=0,
         num_envs=2,
@@ -518,6 +536,8 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
         image_writer_workers=0,
         row_buffer_size=1,
     )
+    train_rows = _read_shard_rows(output_dir, "train")
+    val_rows = _read_shard_rows(output_dir, "val")
 
     assert not val_rows
     assert fake_actor.seen_obs_shapes == [(2, 12, 84, 84)]
@@ -584,7 +604,7 @@ def test_collect_teacher_dataset_encodes_deadly_corridor_factorized_tuple_action
             self.step_actions.append(action)
             return (
                 {"obs": np.full((1, 12, 84, 84), self.slot, dtype=np.uint8)},
-                np.asarray([1.0], dtype=np.float32),
+                np.asarray([2200.0], dtype=np.float32),
                 np.asarray([True], dtype=np.bool_),
                 np.asarray([False], dtype=np.bool_),
                 [
@@ -621,9 +641,10 @@ def test_collect_teacher_dataset_encodes_deadly_corridor_factorized_tuple_action
             "checkpoint": {"train_step": 123},
         },
     )
-    train_rows, val_rows, metadata = exporter.collect_teacher_dataset(
+    output_dir = tmp_path / "export"
+    metadata = exporter.collect_teacher_dataset(
         {"env_name": "deadly_corridor"},
-        output_dir=tmp_path / "export",
+        output_dir=output_dir,
         max_episodes=2,
         max_steps_per_episode=8,
         val_fraction=0.0,
@@ -634,6 +655,8 @@ def test_collect_teacher_dataset_encodes_deadly_corridor_factorized_tuple_action
         image_writer_workers=0,
         row_buffer_size=1,
     )
+    train_rows = _read_shard_rows(output_dir, "train")
+    val_rows = _read_shard_rows(output_dir, "val")
 
     assert not val_rows
     assert [env.step_actions for env in fake_envs] == [[[[0, 1, 2, 1]]], [[[1, 2, 0, 0]]]]
@@ -680,6 +703,9 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
         def update(self, value):
             pass
 
+        def set_postfix(self, **kwargs):
+            pass
+
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
             batch_size = int(normalized_obs["obs"].shape[0])
@@ -711,7 +737,7 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
             next_stack = np.stack([np.full((3, 2, 3), 50 + idx, dtype=np.uint8) for idx in range(4)], axis=0)
             return (
                 obs,
-                np.asarray([1.5], dtype=np.float32),
+                np.asarray([51.0], dtype=np.float32),
                 np.asarray([True], dtype=np.bool_),
                 np.asarray([False], dtype=np.bool_),
                 [{"latency_raw_frames": 2, "latency_ms": 66.0, "env_raw_rgb_frame_stack": next_stack}],
@@ -744,9 +770,10 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
     monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
     monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
-    train_rows, val_rows, metadata = exporter.collect_teacher_dataset(
+    output_dir = tmp_path / "export"
+    metadata = exporter.collect_teacher_dataset(
         {"env_name": "demon_attack"},
-        output_dir=tmp_path / "export",
+        output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=8,
         val_fraction=0.0,
@@ -757,6 +784,8 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
         image_writer_workers=0,
         row_buffer_size=1,
     )
+    train_rows = _read_shard_rows(output_dir, "train")
+    val_rows = _read_shard_rows(output_dir, "val")
 
     image = Image.open(train_rows[0]["image"])
     assert not val_rows
@@ -783,6 +812,9 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
             return False
 
         def update(self, value):
+            pass
+
+        def set_postfix(self, **kwargs):
             pass
 
     class FakeActorCritic:
@@ -845,11 +877,12 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
     monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
     monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
-    train_rows, val_rows, metadata = exporter.collect_teacher_dataset(
+    output_dir = tmp_path / "export"
+    metadata = exporter.collect_teacher_dataset(
         {"env_name": "flappy"},
-        output_dir=tmp_path / "export",
+        output_dir=output_dir,
         max_episodes=1,
-        max_steps_per_episode=8,
+        max_steps_per_episode=1,
         val_fraction=0.0,
         split_seed=0,
         num_envs=1,
@@ -858,6 +891,8 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
         image_writer_workers=0,
         row_buffer_size=1,
     )
+    train_rows = _read_shard_rows(output_dir, "train")
+    val_rows = _read_shard_rows(output_dir, "val")
 
     image = Image.open(train_rows[0]["image"])
     assert not val_rows
@@ -883,6 +918,9 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
             return False
 
         def update(self, value):
+            pass
+
+        def set_postfix(self, **kwargs):
             pass
 
     class FakeActorCritic:
@@ -935,7 +973,7 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
             ]
             return (
                 obs,
-                np.asarray([1.0, 2.0, 3.0], dtype=np.float32),
+                np.asarray([51.0, 52.0, 53.0], dtype=np.float32),
                 np.asarray([True, True, True], dtype=np.bool_),
                 np.asarray([False, False, False], dtype=np.bool_),
                 infos,
@@ -977,9 +1015,10 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
     monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
     monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: list(processed_actions))
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
-    train_rows, val_rows, _ = exporter.collect_teacher_dataset(
+    output_dir = tmp_path / "export"
+    exporter.collect_teacher_dataset(
         {"env_name": "demon_attack"},
-        output_dir=tmp_path / "export",
+        output_dir=output_dir,
         max_episodes=3,
         max_steps_per_episode=8,
         val_fraction=0.0,
@@ -990,6 +1029,8 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
         image_writer_workers=0,
         row_buffer_size=1,
     )
+    train_rows = _read_shard_rows(output_dir, "train")
+    val_rows = _read_shard_rows(output_dir, "val")
 
     assert build_env_calls == [1]
     assert not val_rows
@@ -1017,6 +1058,9 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
 
         def update(self, value):
             self.updates.append(value)
+
+        def set_postfix(self, **kwargs):
+            pass
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
@@ -1079,11 +1123,11 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
     monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
     output_dir = tmp_path / "export"
-    train_rows, val_rows, _ = exporter.collect_teacher_dataset(
+    exporter.collect_teacher_dataset(
         {"env_name": "flappy"},
         output_dir=output_dir,
         max_episodes=2,
-        max_steps_per_episode=8,
+        max_steps_per_episode=1,
         val_fraction=0.0,
         split_seed=0,
         num_envs=1,
@@ -1092,6 +1136,8 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
         image_writer_workers=0,
         row_buffer_size=1,
     )
+    train_rows = _read_shard_rows(output_dir, "train")
+    val_rows = _read_shard_rows(output_dir, "val")
 
     assert not val_rows
     assert [row["episode_idx"] for row in train_rows] == [0, 1]
@@ -1104,11 +1150,11 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
     FakeEnv.reset_seeds.clear()
     FakeProgress.updates.clear()
 
-    resumed_train_rows, resumed_val_rows, _ = exporter.collect_teacher_dataset(
+    exporter.collect_teacher_dataset(
         {"env_name": "flappy"},
         output_dir=output_dir,
         max_episodes=3,
-        max_steps_per_episode=8,
+        max_steps_per_episode=1,
         val_fraction=0.0,
         split_seed=0,
         num_envs=1,
@@ -1117,6 +1163,8 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
         image_writer_workers=0,
         row_buffer_size=1,
     )
+    resumed_train_rows = _read_shard_rows(output_dir, "train")
+    resumed_val_rows = _read_shard_rows(output_dir, "val")
 
     assert not resumed_val_rows
     assert [row["episode_idx"] for row in resumed_train_rows] == [0, 1, 2]
@@ -1140,6 +1188,9 @@ def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatc
             return False
 
         def update(self, value):
+            pass
+
+        def set_postfix(self, **kwargs):
             pass
 
     class FakeActorCritic:
@@ -1210,7 +1261,7 @@ def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatc
         {"env_name": "flappy"},
         output_dir=output_dir,
         max_episodes=1,
-        max_steps_per_episode=8,
+        max_steps_per_episode=1,
         val_fraction=0.0,
         split_seed=0,
         num_envs=1,
@@ -1483,37 +1534,33 @@ def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypa
             "action_text": "FLAP",
         }
         (shard_dir / "episode_000000.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
-        return (
-            [],
-            [],
-            {
-                "action_labels": ["NOOP", "FLAP"],
-                "reward_field": "raw_reward",
-                "episode_return_field": "episode_raw_return",
-                "reward_semantics": "raw_reward",
-                "filter_report": {
-                    "preset": "",
-                    "attempted_episodes": 1,
-                    "accepted_episodes": 1,
-                    "rejected_episodes": 0,
-                    "accepted_train_episodes": 1,
-                    "accepted_val_episodes": 0,
-                    "train_rows_before_row_filter": 1,
-                    "train_rows_after_row_filter": 1,
-                    "val_rows_before_row_filter": 0,
-                    "val_rows_after_row_filter": 0,
-                },
-                "checkpoint_train_step": 123,
-                "frame_stack": 1,
-                "env_fps": 30.0,
-                "obs_fps": 15.0,
-                "obs_stride_raw_frames": 2,
-                "image_source": "env_raw_rgb",
-                "image_resolution": [2, 2, 3],
-                "train_episodes": 1,
-                "val_episodes": 0,
+        return {
+            "action_labels": ["NOOP", "FLAP"],
+            "reward_field": "raw_reward",
+            "episode_return_field": "episode_raw_return",
+            "reward_semantics": "raw_reward",
+            "filter_report": {
+                "preset": "clean_v1",
+                "attempted_episodes": 1,
+                "accepted_episodes": 1,
+                "rejected_episodes": 0,
+                "accepted_train_episodes": 1,
+                "accepted_val_episodes": 0,
+                "train_rows_before_row_filter": 1,
+                "train_rows_after_row_filter": 1,
+                "val_rows_before_row_filter": 0,
+                "val_rows_after_row_filter": 0,
             },
-        )
+            "checkpoint_train_step": 123,
+            "frame_stack": 1,
+            "env_fps": 30.0,
+            "obs_fps": 15.0,
+            "obs_stride_raw_frames": 2,
+            "image_source": "env_raw_rgb",
+            "image_resolution": [2, 2, 3],
+            "train_episodes": 1,
+            "val_episodes": 0,
+        }
 
     monkeypatch.setattr(
         exporter,
@@ -1541,7 +1588,6 @@ def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypa
         export_image_size=None,
         image_writer_workers=0,
         row_buffer_size=8192,
-        filter_preset="",
         push_to_hub=False,
         hf_repo_id="",
         hf_private=False,
@@ -1581,6 +1627,7 @@ def test_exporter_parser_has_no_prompt_or_render_image_source_switches():
 
     option_dests = {action.dest for action in build_parser()._actions}
 
+    assert "filter_preset" not in option_dests
     assert "image_source" not in option_dests
     assert "prompt" not in option_dests
     assert "prompt_template" not in option_dests
@@ -1606,37 +1653,33 @@ def test_main_writes_prompt_source_and_timing_metadata(monkeypatch, tmp_path):
     monkeypatch.setattr(
         exporter,
         "collect_teacher_dataset",
-        lambda *args, **kwargs: (
-            [],
-            [],
-            {
-                "action_labels": ["NOOP", "FLAP"],
-                "reward_field": "raw_reward",
-                "episode_return_field": "episode_raw_return",
-                "reward_semantics": "raw_reward",
-                "filter_report": {
-                    "preset": "",
-                    "attempted_episodes": 0,
-                    "accepted_episodes": 0,
-                    "rejected_episodes": 0,
-                    "accepted_train_episodes": 0,
-                    "accepted_val_episodes": 0,
-                    "train_rows_before_row_filter": 0,
-                    "train_rows_after_row_filter": 0,
-                    "val_rows_before_row_filter": 0,
-                    "val_rows_after_row_filter": 0,
-                },
-                "checkpoint_train_step": 123,
-                "frame_stack": 4,
-                "env_fps": 30.0,
-                "obs_fps": 15.0,
-                "obs_stride_raw_frames": 2,
-                "image_source": "env_raw_rgb",
-                "image_resolution": [84, 84, 3],
-                "train_episodes": 0,
-                "val_episodes": 0,
+        lambda *args, **kwargs: {
+            "action_labels": ["NOOP", "FLAP"],
+            "reward_field": "raw_reward",
+            "episode_return_field": "episode_raw_return",
+            "reward_semantics": "raw_reward",
+            "filter_report": {
+                "preset": "clean_v1",
+                "attempted_episodes": 0,
+                "accepted_episodes": 0,
+                "rejected_episodes": 0,
+                "accepted_train_episodes": 0,
+                "accepted_val_episodes": 0,
+                "train_rows_before_row_filter": 0,
+                "train_rows_after_row_filter": 0,
+                "val_rows_before_row_filter": 0,
+                "val_rows_after_row_filter": 0,
             },
-        ),
+            "checkpoint_train_step": 123,
+            "frame_stack": 4,
+            "env_fps": 30.0,
+            "obs_fps": 15.0,
+            "obs_stride_raw_frames": 2,
+            "image_source": "env_raw_rgb",
+            "image_resolution": [84, 84, 3],
+            "train_episodes": 0,
+            "val_episodes": 0,
+        },
     )
     monkeypatch.setattr(exporter, "write_parquet_splits_from_shards", fake_write_parquet_splits_from_shards)
     monkeypatch.setattr(exporter, "image_metadata_from_shards", lambda output_dir: {"image_resolution": [84, 84, 3]})
@@ -1657,7 +1700,6 @@ def test_main_writes_prompt_source_and_timing_metadata(monkeypatch, tmp_path):
         export_image_size=None,
         image_writer_workers=0,
         row_buffer_size=8192,
-        filter_preset="",
         push_to_hub=False,
         hf_repo_id="",
         hf_private=False,

@@ -19,7 +19,7 @@ def test_clean_v1_accepts_demon_attack_by_clipped_return():
 
 
 def test_flappy_clean_v1_train_filter_keeps_flap_context_and_samples_background():
-    from latency_bench.data.filters import filter_train_rows_clean_v1
+    from latency_bench.data.filters import FLAPPY_CONTEXT_WINDOW, filter_train_rows_clean_v1
 
     rows = [
         {"decision_step": step, "action_text": action_text, "raw_reward": 0.0}
@@ -27,10 +27,14 @@ def test_flappy_clean_v1_train_filter_keeps_flap_context_and_samples_background(
     ]
 
     kept_steps = [row["decision_step"] for row in filter_train_rows_clean_v1("flappy", rows, seed=123)]
+    expected_context = {
+        step
+        for step in range(len(rows))
+        if abs(step - 5) <= FLAPPY_CONTEXT_WINDOW
+    }
 
     assert 5 in kept_steps
-    assert {1, 2, 3, 4, 6, 7, 8} <= set(kept_steps)
-    assert 0 not in kept_steps
+    assert expected_context <= set(kept_steps)
 
 
 def test_demon_clean_v1_train_filter_keeps_reward_context_and_survival_anchors():

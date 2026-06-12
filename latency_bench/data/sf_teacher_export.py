@@ -16,6 +16,7 @@ from latency_bench.data.hf_parquet import (
 )
 from latency_bench.data.prompts import BASE_PROMPTS, TIMING_SUFFIX
 from latency_bench.data.action_layouts import action_spec_for_env
+from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1
 from latency_bench.data.sf_teacher_config import load_rollout_training_config
 from latency_bench.data.sf_teacher_rollout import collect_teacher_dataset
 
@@ -71,7 +72,6 @@ def export_sample_factory_teacher_dataset(
     export_image_size: tuple[int, int] | None,
     image_writer_workers: int,
     row_buffer_size: int,
-    filter_preset: str,
     push_to_hub: bool,
     hf_repo_id: str,
     hf_private: bool,
@@ -95,7 +95,6 @@ def export_sample_factory_teacher_dataset(
         export_image_size: Optional ``(width, height)`` resize target.
         image_writer_workers: Number of async image writer threads.
         row_buffer_size: Pending image write threshold.
-        filter_preset: Empty string for no filtering, or the active filter preset.
         push_to_hub: Whether to upload the written dataset.
         hf_repo_id: Destination Hugging Face dataset repository id.
         hf_private: Whether the uploaded repository should be private.
@@ -112,7 +111,7 @@ def export_sample_factory_teacher_dataset(
     )
     if env_name:
         config["env_name"] = str(env_name)
-    _train_rows, _val_rows, rollout_metadata = collect_teacher_dataset(
+    rollout_metadata = collect_teacher_dataset(
         config,
         output_dir=output_dir,
         max_episodes=int(max_episodes),
@@ -124,8 +123,6 @@ def export_sample_factory_teacher_dataset(
         export_image_size=export_image_size,
         image_writer_workers=int(image_writer_workers),
         row_buffer_size=int(row_buffer_size),
-        filter_preset=str(filter_preset),
-        return_rows=False,
     )
     split_stats = episode_row_split_stats(output_dir)
     shard_image_metadata = image_metadata_from_shards(output_dir)
@@ -146,7 +143,7 @@ def export_sample_factory_teacher_dataset(
         "val_fraction": float(val_fraction),
         "split_seed": int(split_seed),
         "num_envs": int(num_envs),
-        "filter_preset": str(filter_preset),
+        "filter_preset": FILTER_PRESET_CLEAN_V1,
         "filter_report": rollout_metadata["filter_report"],
         "reward_field": rollout_metadata["reward_field"],
         "episode_return_field": rollout_metadata["episode_return_field"],
