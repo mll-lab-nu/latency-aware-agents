@@ -98,6 +98,27 @@ def _read_shard_rows(output_dir: Path, split: str) -> list[dict]:
     return list(iter_episode_rows(output_dir, split))
 
 
+class _FakeProgress:
+    calls: list[tuple[int, int]] = []
+    updates: list[int] = []
+
+    def __init__(self, *, total, initial, unit):
+        self.calls.append((int(total), int(initial)))
+        self.unit = unit
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def update(self, value):
+        self.updates.append(int(value))
+
+    def set_postfix(self, **kwargs):
+        pass
+
+
 def test_config_loader_generic_uses_current_public_loader(tmp_path):
     from training.config_loader import load_training_config_generic
 
@@ -332,7 +353,7 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
     val_rows = _read_shard_rows(output_dir, "val")
 
     assert not val_rows
-    assert fake_env.step_actions == [[1]]
+    assert fake_env.step_actions == [[1], [1]]
     assert train_rows[0]["action_id"] == 1
     assert Path(train_rows[0]["image"]).exists()
     assert "image_stack" not in train_rows[0]
@@ -345,7 +366,7 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
     assert metadata["obs_stride_raw_frames"] == 2
 
 
-def test_collect_teacher_dataset_online_filter_retries_until_episode_is_accepted(monkeypatch, tmp_path):
+def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeypatch, tmp_path):
     import torch
     from latency_bench.data import sf_teacher_rollout as exporter
 
@@ -435,7 +456,7 @@ def test_collect_teacher_dataset_online_filter_retries_until_episode_is_accepted
     val_rows = _read_shard_rows(output_dir, "val")
 
     assert not val_rows
-    assert fake_env.reset_seeds == [11, 12]
+    assert fake_env.reset_seeds == [11, 12, 12]
     assert train_rows[0]["episode_idx"] == 0
     assert train_rows[0]["seed"] == 12
     assert train_rows[0]["raw_reward"] == 2200.0
@@ -445,11 +466,166 @@ def test_collect_teacher_dataset_online_filter_retries_until_episode_is_accepted
         "decision_step_000000.png"
     ]
     assert not (output_dir / "images" / "_attempts").exists()
-    state = json.loads((output_dir / "online_filter_state.json").read_text(encoding="utf-8"))
+    state = json.loads((output_dir / "probe_state.json").read_text(encoding="utf-8"))
     assert state["next_attempt_idx"] == 2
+    assert state["attempted_episodes"] == 2
+    assert state["rejected_episodes"] == 1
     assert metadata["filter_report"]["attempted_episodes"] == 2
     assert metadata["filter_report"]["accepted_episodes"] == 1
     assert metadata["filter_report"]["rejected_episodes"] == 1
+
+
+def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(monkeypatch, tmp_path):
+    import torch
+    from latency_bench.data import sf_teacher_rollout as exporter
+
+    class FakeActorCritic:
+        def __call__(self, normalized_obs, rnn_states):
+            batch_size = int(normalized_obs["obs"].shape[0])
+            return {
+                "actions": torch.full((batch_size, 1), 1, dtype=torch.int64),
+                "new_rnn_states": torch.ones_like(rnn_states),
+            }
+
+    class ProbeEnv:
+        reset_seeds: list[int] = []
+        transitions: list[tuple[int, object, float, int]] = []
+        step_count = 0
+        action_space = object()
+
+        def reset(self, seed=None):
+            self.seed = int(seed)
+            self.reset_seeds.append(int(seed))
+            return {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)}, [{"probe": True}]
+
+        def step(self, action):
+            self.__class__.step_count += 1
+            self.transitions.append((self.seed, action, 1.5, 2))
+            return (
+                {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)},
+                np.asarray([1.5], dtype=np.float32),
+                np.asarray([True], dtype=np.bool_),
+                np.asarray([False], dtype=np.bool_),
+                [{"latency_raw_frames": 2, "latency_ms": 66.0}],
+            )
+
+        def close(self):
+            return None
+
+    class ReplayEnv:
+        reset_seeds: list[int] = []
+        transitions: list[tuple[int, object, float, int]] = []
+        step_count = 0
+        action_space = object()
+
+        def reset(self, seed=None):
+            self.seed = int(seed)
+            self.reset_seeds.append(int(seed))
+            return {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)}, [
+                {"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(int(seed), frames=4)}
+            ]
+
+        def step(self, action):
+            self.__class__.step_count += 1
+            self.transitions.append((self.seed, action, 1.5, 2))
+            return (
+                {"obs": np.ones((1, 12, 2, 2), dtype=np.uint8)},
+                np.asarray([1.5], dtype=np.float32),
+                np.asarray([True], dtype=np.bool_),
+                np.asarray([False], dtype=np.bool_),
+                [
+                    {
+                        "latency_raw_frames": 2,
+                        "latency_ms": 66.0,
+                        "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(9, frames=4),
+                    }
+                ],
+            )
+
+        def close(self):
+            return None
+
+    build_env_calls: list[tuple[bool, int]] = []
+
+    def fake_build_cfg(config):
+        del config
+        return object(), SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=100, use_gpu_render=False)
+
+    def fake_runtime(module, cfg, config, num_envs):
+        del module, config
+        export_rgb = bool(cfg.export_env_raw_rgb_frames)
+        build_env_calls.append((export_rgb, int(num_envs)))
+        env_cls = ReplayEnv if export_rgb else ProbeEnv
+        return {
+            "envs": [env_cls() for _ in range(int(num_envs))],
+            "env_info": object(),
+            "actor_critic": FakeActorCritic(),
+            "device": torch.device("cpu"),
+            "prepare_and_normalize_obs": lambda actor_critic, obs_batch: obs_batch,
+            "argmax_actions": lambda action_distribution: action_distribution,
+            "preprocess_actions": lambda env_info, actions: np.ones(int(actions.shape[0]), dtype=np.int64),
+            "unsqueeze_tensor": lambda value, dim: value.unsqueeze(dim),
+            "rnn_size": 1,
+            "checkpoint": {"train_step": 123},
+        }
+
+    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", fake_build_cfg)
+    monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
+    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    _FakeProgress.calls.clear()
+    _FakeProgress.updates.clear()
+    monkeypatch.setattr(exporter, "tqdm", _FakeProgress)
+
+    output_dir = tmp_path / "export"
+    metadata = exporter.collect_teacher_dataset(
+        {"env_name": "flappy"},
+        output_dir=output_dir,
+        max_episodes=1,
+        max_steps_per_episode=1,
+        val_fraction=0.0,
+        split_seed=0,
+        num_envs=3,
+        replay_num_envs=1,
+        deterministic=False,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+    )
+    train_rows = _read_shard_rows(output_dir, "train")
+
+    assert build_env_calls == [(False, 3), (True, 1)]
+    assert ProbeEnv.reset_seeds == [100, 101, 102]
+    assert ProbeEnv.step_count == 3
+    assert ReplayEnv.reset_seeds == [100]
+    assert ReplayEnv.step_count == 1
+    assert [transition for transition in ProbeEnv.transitions if transition[0] == 100] == ReplayEnv.transitions
+    assert [row["seed"] for row in train_rows] == [100]
+    assert Path(train_rows[0]["image"]).exists()
+    assert metadata["filter_report"]["attempted_episodes"] == 1
+    assert metadata["filter_report"]["accepted_episodes"] == 1
+    assert metadata["filter_report"]["rejected_episodes"] == 0
+    assert metadata["replay_num_envs"] == 1
+    state = json.loads((output_dir / "probe_state.json").read_text(encoding="utf-8"))
+    assert state["next_attempt_idx"] == 3
+    assert state["attempted_episodes"] == 1
+    assert state["rejected_episodes"] == 0
+    assert state["accepted_specs"] == [
+        {
+            "attempt_idx": 0,
+            "episode_idx": 0,
+            "episode_length": 1,
+            "episode_raw_return": 1.5,
+            "seed": 100,
+            "split": "train",
+        }
+    ]
+    assert state["runtime_metadata"] == {
+        "checkpoint_train_step": 123,
+        "env_fps": 30.0,
+        "frame_stack": 4,
+        "obs_fps": 15.0,
+    }
 
 
 def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monkeypatch, tmp_path):
@@ -540,8 +716,8 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     val_rows = _read_shard_rows(output_dir, "val")
 
     assert not val_rows
-    assert fake_actor.seen_obs_shapes == [(2, 12, 84, 84)]
-    assert [env.step_actions for env in fake_envs] == [[[1]], [[1]]]
+    assert fake_actor.seen_obs_shapes == [(2, 12, 84, 84), (2, 12, 84, 84)]
+    assert [env.step_actions for env in fake_envs] == [[[1], [1]], [[1], [1]]]
     assert [row["action_id"] for row in train_rows] == [1, 1]
     assert Path(train_rows[0]["image"]).exists()
     assert "image_stack" not in train_rows[0]
@@ -659,7 +835,10 @@ def test_collect_teacher_dataset_encodes_deadly_corridor_factorized_tuple_action
     val_rows = _read_shard_rows(output_dir, "val")
 
     assert not val_rows
-    assert [env.step_actions for env in fake_envs] == [[[[0, 1, 2, 1]]], [[[1, 2, 0, 0]]]]
+    assert [env.step_actions for env in fake_envs] == [
+        [[[0, 1, 2, 1]], [[0, 1, 2, 1]]],
+        [[[1, 2, 0, 0]], [[1, 2, 0, 0]]],
+    ]
     assert [row["action"] for row in train_rows] == [
         [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0],
         [0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0],
@@ -1032,10 +1211,10 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
     train_rows = _read_shard_rows(output_dir, "train")
     val_rows = _read_shard_rows(output_dir, "val")
 
-    assert build_env_calls == [1]
+    assert build_env_calls == [1, 1]
     assert not val_rows
     assert [row["episode_idx"] for row in train_rows] == [0, 1, 2]
-    assert fake_env.step_actions == [[0, 1, 2]]
+    assert fake_env.step_actions == [[0, 1, 2], [0, 1, 2]]
 
 
 def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, tmp_path):
@@ -1101,7 +1280,7 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
         def close(self):
             return None
 
-    fake_cfg = SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=100)
+    fake_cfg = SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=100, use_gpu_render=False)
 
     def fake_runtime(module, cfg, config, num_envs):
         return {
@@ -1143,9 +1322,9 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
     assert [row["episode_idx"] for row in train_rows] == [0, 1]
     assert (output_dir / "episode_rows" / "train" / "episode_000000.jsonl").exists()
     assert (output_dir / "episode_rows" / "train" / "episode_000001.jsonl").exists()
-    assert FakeProgress.calls[-1] == (2, 0)
-    assert FakeProgress.updates == [1, 1]
-    assert FakeEnv.reset_seeds == [100, 101]
+    assert FakeProgress.calls[-2:] == [(2, 0), (2, 0)]
+    assert FakeProgress.updates == [1, 1, 1, 1]
+    assert FakeEnv.reset_seeds == [100, 101, 100, 101]
 
     FakeEnv.reset_seeds.clear()
     FakeProgress.updates.clear()
@@ -1168,9 +1347,100 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
 
     assert not resumed_val_rows
     assert [row["episode_idx"] for row in resumed_train_rows] == [0, 1, 2]
-    assert FakeProgress.calls[-1] == (3, 2)
-    assert FakeProgress.updates == [1]
-    assert FakeEnv.reset_seeds == [102]
+    assert FakeProgress.calls[-2:] == [(3, 2), (1, 0)]
+    assert FakeProgress.updates == [1, 1]
+    assert FakeEnv.reset_seeds == [102, 102]
+
+
+def test_collect_teacher_dataset_skips_runtime_when_probe_and_shards_complete(monkeypatch, tmp_path):
+    from PIL import Image
+    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.data.hf_parquet import write_episode_row_shard
+
+    output_dir = tmp_path / "export"
+    image_path = output_dir / "images" / "train" / "episode_000000" / "decision_step_000000.png"
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(np.zeros((2, 2, 3), dtype=np.uint8)).save(image_path)
+    row = {
+        "image": str(image_path),
+        "env_name": "flappy",
+        "episode_idx": 0,
+        "decision_step": 0,
+        "split": "train",
+        "seed": 100,
+        "prompt": "pick action",
+        "latency_raw_frames": 2,
+        "latency_ms": 66.0,
+        "raw_reward": 1.5,
+        "action": [0.0, 1.0],
+        "action_id": 1,
+        "action_text": "FLAP",
+    }
+    write_episode_row_shard(output_dir, [row])
+    (output_dir / "probe_state.json").write_text(
+        json.dumps(
+            {
+                "next_attempt_idx": 1,
+                "attempted_episodes": 1,
+                "rejected_episodes": 0,
+                "accepted_specs": [
+                    {
+                        "attempt_idx": 0,
+                        "episode_idx": 0,
+                        "episode_length": 1,
+                        "episode_raw_return": 1.5,
+                        "seed": 100,
+                        "split": "train",
+                    }
+                ],
+                "runtime_metadata": {
+                    "checkpoint_train_step": 123,
+                    "frame_stack": 4,
+                    "env_fps": 30.0,
+                    "obs_fps": 15.0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        exporter,
+        "build_sample_factory_rollout_cfg",
+        lambda config: pytest.fail("runtime should not be built when accepted specs and shards are complete"),
+    )
+
+    metadata = exporter.collect_teacher_dataset(
+        {"env_name": "flappy"},
+        output_dir=output_dir,
+        max_episodes=1,
+        max_steps_per_episode=1,
+        val_fraction=0.0,
+        split_seed=0,
+        num_envs=8,
+        replay_num_envs=4,
+        deterministic=False,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+    )
+
+    assert metadata["checkpoint_train_step"] == 123
+    assert metadata["frame_stack"] == 4
+    assert metadata["env_fps"] == 30.0
+    assert metadata["obs_fps"] == 15.0
+    assert metadata["filter_report"] == {
+        "preset": "clean_v1",
+        "attempted_episodes": 1,
+        "accepted_episodes": 1,
+        "rejected_episodes": 0,
+        "accepted_train_episodes": 1,
+        "accepted_val_episodes": 0,
+        "train_rows_before_row_filter": 1,
+        "train_rows_after_row_filter": 1,
+        "val_rows_before_row_filter": 0,
+        "val_rows_after_row_filter": 0,
+    }
 
 
 def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatch, tmp_path, capfd):
@@ -1281,6 +1551,177 @@ def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatc
     assert "sample factory stderr" in init_log
     assert "native init stderr" in init_log
     assert "sample factory logger" in init_log
+
+
+def test_sample_factory_init_log_restores_logger_handlers_added_inside_context(tmp_path):
+    from latency_bench.data.sf_teacher_runtime import sample_factory_init_log
+
+    logger = logging.getLogger("rl")
+    original_handlers = list(logger.handlers)
+    original_propagate = logger.propagate
+    leaked_handler = None
+    try:
+        with sample_factory_init_log(tmp_path):
+            leaked_handler = logging.StreamHandler()
+            logger.addHandler(leaked_handler)
+            logger.warning("first init")
+
+        with sample_factory_init_log(tmp_path):
+            logger.warning("second init")
+
+        assert logger.handlers == original_handlers
+        assert logger.propagate is original_propagate
+        init_log = (tmp_path / "sample_factory_init.log").read_text(encoding="utf-8")
+        assert "first init" in init_log
+        assert "second init" in init_log
+    finally:
+        logger.handlers = original_handlers
+        logger.propagate = original_propagate
+        if leaked_handler is not None:
+            leaked_handler.close()
+
+
+def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_probe_steps(monkeypatch, tmp_path):
+    import torch
+    from latency_bench.data import sf_teacher_rollout as exporter
+
+    class FakeActorCritic:
+        def __call__(self, normalized_obs, rnn_states):
+            batch_size = int(normalized_obs["obs"].shape[0])
+            return {
+                "actions": torch.full((batch_size, 1), 1, dtype=torch.int64),
+                "new_rnn_states": torch.ones_like(rnn_states),
+            }
+
+    class ProbeEnv:
+        step_count = 0
+        close_count = 0
+        action_space = object()
+
+        def reset(self, seed=None):
+            del seed
+            return {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)}, [{"probe": True}]
+
+        def step(self, action):
+            del action
+            self.__class__.step_count += 1
+            return (
+                {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)},
+                np.asarray([1.5], dtype=np.float32),
+                np.asarray([True], dtype=np.bool_),
+                np.asarray([False], dtype=np.bool_),
+                [{"latency_raw_frames": 2, "latency_ms": 66.0}],
+            )
+
+        def close(self):
+            self.__class__.close_count += 1
+
+    class ReplayEnv:
+        reset_seeds: list[int] = []
+        action_space = object()
+
+        def reset(self, seed=None):
+            self.seed = int(seed)
+            self.reset_seeds.append(int(seed))
+            return {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)}, [
+                {"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(int(seed), frames=4)}
+            ]
+
+        def step(self, action):
+            del action
+            return (
+                {"obs": np.ones((1, 12, 2, 2), dtype=np.uint8)},
+                np.asarray([1.5], dtype=np.float32),
+                np.asarray([True], dtype=np.bool_),
+                np.asarray([False], dtype=np.bool_),
+                [
+                    {
+                        "latency_raw_frames": 2,
+                        "latency_ms": 66.0,
+                        "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(9, frames=4),
+                    }
+                ],
+            )
+
+        def close(self):
+            return None
+
+    def fake_build_cfg(config):
+        del config
+        return object(), SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=100, use_gpu_render=False)
+
+    def fake_runtime(module, cfg, config, num_envs):
+        del module, config
+        env_cls = ReplayEnv if cfg.export_env_raw_rgb_frames else ProbeEnv
+        return {
+            "envs": [env_cls() for _ in range(int(num_envs))],
+            "env_info": object(),
+            "actor_critic": FakeActorCritic(),
+            "device": torch.device("cpu"),
+            "prepare_and_normalize_obs": lambda actor_critic, obs_batch: obs_batch,
+            "argmax_actions": lambda action_distribution: action_distribution,
+            "preprocess_actions": lambda env_info, actions: np.ones(int(actions.shape[0]), dtype=np.int64),
+            "unsqueeze_tensor": lambda value, dim: value.unsqueeze(dim),
+            "rnn_size": 1,
+            "checkpoint": {"train_step": 123},
+        }
+
+    output_dir = tmp_path / "export"
+    output_dir.mkdir()
+    (output_dir / "probe_state.json").write_text(
+        json.dumps(
+            {
+                "next_attempt_idx": 1,
+                "attempted_episodes": 1,
+                "rejected_episodes": 0,
+                "accepted_specs": [
+                    {
+                        "attempt_idx": 0,
+                        "episode_idx": 0,
+                        "episode_length": 1,
+                        "episode_raw_return": 1.5,
+                        "seed": 100,
+                        "split": "train",
+                    }
+                ],
+                "runtime_metadata": {
+                    "checkpoint_train_step": 123,
+                    "frame_stack": 4,
+                    "env_fps": 30.0,
+                    "obs_fps": 15.0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", fake_build_cfg)
+    monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
+    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+
+    metadata = exporter.collect_teacher_dataset(
+        {"env_name": "flappy"},
+        output_dir=output_dir,
+        max_episodes=1,
+        max_steps_per_episode=1,
+        val_fraction=0.0,
+        split_seed=0,
+        num_envs=3,
+        replay_num_envs=1,
+        deterministic=False,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+    )
+    train_rows = _read_shard_rows(output_dir, "train")
+
+    assert ProbeEnv.step_count == 0
+    assert ProbeEnv.close_count == 0
+    assert ReplayEnv.reset_seeds == [100]
+    assert [row["seed"] for row in train_rows] == [100]
+    assert Path(train_rows[0]["image"]).exists()
+    assert metadata["filter_report"]["train_rows_before_row_filter"] == 1
+    assert metadata["filter_report"]["train_rows_after_row_filter"] == 1
 
 
 def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
@@ -1534,6 +1975,32 @@ def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypa
             "action_text": "FLAP",
         }
         (shard_dir / "episode_000000.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+        (output_dir / "probe_state.json").write_text(
+            json.dumps(
+                {
+                    "next_attempt_idx": 1,
+                    "attempted_episodes": 1,
+                    "rejected_episodes": 0,
+                    "accepted_specs": [
+                        {
+                            "attempt_idx": 0,
+                            "episode_idx": 0,
+                            "episode_length": 1,
+                            "episode_raw_return": 1.5,
+                            "seed": 11,
+                            "split": "train",
+                        }
+                    ],
+                    "runtime_metadata": {
+                        "checkpoint_train_step": 123,
+                        "frame_stack": 1,
+                        "env_fps": 30.0,
+                        "obs_fps": 15.0,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
         return {
             "action_labels": ["NOOP", "FLAP"],
             "reward_field": "raw_reward",
@@ -1601,6 +2068,7 @@ def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypa
     assert (output_dir / "val.parquet").exists()
     assert not (output_dir / "images").exists()
     assert not (output_dir / "episode_rows").exists()
+    assert not (output_dir / "probe_state.json").exists()
     assert metadata["total_rows"] == 1
     assert metadata["rows_unit"] == "decision_step"
     assert metadata["total_episodes"] == 1
@@ -1627,6 +2095,7 @@ def test_exporter_parser_has_no_prompt_or_render_image_source_switches():
 
     option_dests = {action.dest for action in build_parser()._actions}
 
+    assert "replay_num_envs" in option_dests
     assert "filter_preset" not in option_dests
     assert "image_source" not in option_dests
     assert "prompt" not in option_dests

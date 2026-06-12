@@ -67,6 +67,7 @@ def export_sample_factory_teacher_dataset(
     val_fraction: float,
     split_seed: int,
     num_envs: int,
+    replay_num_envs: int = 16,
     device: str,
     deterministic: bool,
     export_image_size: tuple[int, int] | None,
@@ -89,7 +90,8 @@ def export_sample_factory_teacher_dataset(
         max_steps_per_episode: Step cap per episode.
         val_fraction: Fraction assigned to validation.
         split_seed: RNG seed for split assignment.
-        num_envs: Number of rollout environments or agents.
+        num_envs: Number of probe rollout environments or agents.
+        replay_num_envs: Number of replay rollout environments or agents.
         device: Optional rollout device override.
         deterministic: Whether to use deterministic teacher actions.
         export_image_size: Optional ``(width, height)`` resize target.
@@ -119,6 +121,7 @@ def export_sample_factory_teacher_dataset(
         val_fraction=float(val_fraction),
         split_seed=int(split_seed),
         num_envs=int(num_envs),
+        replay_num_envs=int(replay_num_envs),
         deterministic=bool(deterministic),
         export_image_size=export_image_size,
         image_writer_workers=int(image_writer_workers),
@@ -143,6 +146,7 @@ def export_sample_factory_teacher_dataset(
         "val_fraction": float(val_fraction),
         "split_seed": int(split_seed),
         "num_envs": int(num_envs),
+        "replay_num_envs": int(replay_num_envs),
         "filter_preset": FILTER_PRESET_CLEAN_V1,
         "filter_report": rollout_metadata["filter_report"],
         "reward_field": rollout_metadata["reward_field"],

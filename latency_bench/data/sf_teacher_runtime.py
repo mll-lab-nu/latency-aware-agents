@@ -165,16 +165,10 @@ def sample_factory_init_log(output_dir: Path):
         os.dup2(handle.fileno(), 1)
         os.dup2(handle.fileno(), 2)
         sf_logger = logging.getLogger("rl")
+        previous_handlers = list(sf_logger.handlers)
         previous_propagate = sf_logger.propagate
-        redirected_handlers = []
-        temporary_handler = None
-        for handler in sf_logger.handlers:
-            if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
-                redirected_handlers.append((handler, handler.stream))
-                handler.setStream(handle)
-        if not redirected_handlers:
-            temporary_handler = logging.StreamHandler(handle)
-            sf_logger.addHandler(temporary_handler)
+        log_handler = logging.StreamHandler(handle)
+        sf_logger.handlers = [log_handler]
         sf_logger.propagate = False
         try:
             with contextlib.redirect_stdout(handle), contextlib.redirect_stderr(handle):
@@ -187,8 +181,6 @@ def sample_factory_init_log(output_dir: Path):
             os.dup2(stderr_fd, 2)
             os.close(stdout_fd)
             os.close(stderr_fd)
+            log_handler.close()
+            sf_logger.handlers = previous_handlers
             sf_logger.propagate = previous_propagate
-            if temporary_handler is not None:
-                sf_logger.removeHandler(temporary_handler)
-            for handler, stream in redirected_handlers:
-                handler.setStream(stream)

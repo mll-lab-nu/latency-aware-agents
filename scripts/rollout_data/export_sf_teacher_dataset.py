@@ -40,10 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--latency-config", default="", help="Optional YAML containing a training-compatible latency: section.")
     parser.add_argument("--env-name", default="", choices=["", "deadly_corridor", "demon_attack", "flappy"])
     parser.add_argument("--max-episodes", type=int, required=True)
-    parser.add_argument("--max-steps-per-episode", type=int, required=True)
+    parser.add_argument("--max-steps-per-episode", type=int, required=True, help="Max policy decision steps per episode.")
     parser.add_argument("--val-fraction", type=float, default=0.1)
     parser.add_argument("--split-seed", type=int, default=0)
     parser.add_argument("--num-envs", type=int, default=1)
+    parser.add_argument("--replay-num-envs", type=int, default=16)
     parser.add_argument("--device", type=str, default="")
     parser.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--export-image-size", type=str, default="")
@@ -78,6 +79,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         val_fraction=float(args.val_fraction),
         split_seed=int(args.split_seed),
         num_envs=int(args.num_envs),
+        replay_num_envs=int(args.replay_num_envs),
         device=str(args.device),
         deterministic=bool(args.deterministic),
         export_image_size=_parse_image_size(str(args.export_image_size)),

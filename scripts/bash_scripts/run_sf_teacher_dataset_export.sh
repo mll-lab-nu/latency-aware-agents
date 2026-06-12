@@ -17,9 +17,10 @@ Example:
 
 Optional environment variables:
   MAX_EPISODES        Number of episodes to collect. Default: 1k.
-  MAX_STEPS           Max steps per episode. Default: 1k.
+  MAX_STEPS           Max policy decision steps per episode. Default: 1k.
   VAL_FRACTION        Validation split fraction. Default: 0.01.
-  NUM_ENVS            Number of rollout envs. Default: 12.
+  NUM_ENVS            Number of probe rollout envs. Default: 12.
+  REPLAY_NUM_ENVS     Number of replay rollout envs. Default: 16.
   DEVICE              Sample Factory device override. Default: cpu.
   LATENCY_CONFIG      YAML file with a training-compatible latency: section.
   EXPORT_IMAGE_SIZE   Optional saved image size, e.g. 512,288.
@@ -47,6 +48,7 @@ MAX_EPISODES="${MAX_EPISODES:-1000}"
 MAX_STEPS="${MAX_STEPS:-1000}"
 VAL_FRACTION="${VAL_FRACTION:-0.01}"
 NUM_ENVS="${NUM_ENVS:-12}"
+REPLAY_NUM_ENVS="${REPLAY_NUM_ENVS:-16}"
 DEVICE="${DEVICE:-cpu}"
 HF_PRIVATE="${HF_PRIVATE:-0}"
 IMAGE_WRITER_WORKERS="${IMAGE_WRITER_WORKERS:-16}"
@@ -59,6 +61,7 @@ CMD=(
     --max-steps-per-episode "${MAX_STEPS}"
     --val-fraction "${VAL_FRACTION}"
     --num-envs "${NUM_ENVS}"
+    --replay-num-envs "${REPLAY_NUM_ENVS}"
     --device "${DEVICE}"
 )
 
@@ -84,6 +87,8 @@ fi
 printf '==> Running teacher dataset export\n'
 printf '    checkpoint: %s\n' "${CHECKPOINT_ROOT}"
 printf '    output:     %s\n' "${OUTPUT_DIR}"
+printf '    probe envs: %s\n' "${NUM_ENVS}"
+printf '    replay envs: %s\n' "${REPLAY_NUM_ENVS}"
 if [[ -n "${LATENCY_CONFIG:-}" ]]; then
     printf '    latency:    %s\n' "${LATENCY_CONFIG}"
 else

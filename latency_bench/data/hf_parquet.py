@@ -343,10 +343,13 @@ def cleanup_rollout_intermediates(output_dir: Path) -> None:
     Args:
         output_dir: Rollout export directory.
     """
-    for name in ("images", "episode_rows"):
+    for name in ("images", "episode_rows", "probe_state.json"):
         path = output_dir / name
         if path.exists():
-            shutil.rmtree(path)
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
 
 
 def episode_row_shard_path(output_dir: Path, split: str, episode_idx: int) -> Path:
