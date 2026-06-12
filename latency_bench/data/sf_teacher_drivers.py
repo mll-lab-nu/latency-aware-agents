@@ -182,14 +182,14 @@ class SerialTeacherRolloutDriver:
             env.close()
 
 
-class FlappyBatchedTeacherRolloutDriver:
-    """Rollout driver for one batched Flappy GPU-render environment."""
+class BatchedTeacherRolloutDriver:
+    """Rollout driver for one batched Sample Factory environment."""
 
     def __init__(self, env: Any, slot_count: int):
-        """Create a driver for one batched Flappy GPU-render env.
+        """Create a driver for one batched environment.
 
         Args:
-            env: Batched Flappy environment instance.
+            env: Batched environment instance.
             slot_count: Number of active agents managed by the env.
         """
         self.env = env
@@ -212,7 +212,7 @@ class FlappyBatchedTeacherRolloutDriver:
         reset_plan: Mapping[int, int],
         active_mask: Sequence[bool],
     ) -> dict[int, tuple[Any, Mapping[str, Any]]]:
-        """Reset selected agents in the batched Flappy env.
+        """Reset selected agents in the batched env.
 
         Args:
             reset_plan: Mapping from slot id to reset seed.
@@ -258,7 +258,7 @@ class FlappyBatchedTeacherRolloutDriver:
         }
 
     def step(self, active_slots: Sequence[int], raw_actions: Sequence[Any]) -> dict[int, RolloutStepResult]:
-        """Step active agents in the batched Flappy env.
+        """Step active agents in the batched env.
 
         Args:
             active_slots: Slot ids to step.

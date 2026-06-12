@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 
@@ -179,6 +180,7 @@ def test_demon_attack_batched_gpu_env_applies_fixed_latency_step():
             max_pending_actions=None,
             episode_metrics_path="",
             latency_seed=123,
+            export_env_raw_rgb_frames=False,
         ),
         env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
         gpu_env_device="cuda",
@@ -195,6 +197,51 @@ def test_demon_attack_batched_gpu_env_applies_fixed_latency_step():
     assert truncated.shape == (2,)
     assert [info["latency_raw_frames"] for info in infos] == [1, 1]
     assert [info["latency_raw_frames"] for info in step_infos] == [1, 1]
+
+
+def test_demon_attack_batched_gpu_env_exports_native_raw_rgb_stack():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from training.demon_attack_sf.batched_gpu_env import DemonAttackBatchedGpuEnv
+
+    env = DemonAttackBatchedGpuEnv(
+        cfg=SimpleNamespace(
+            seed=0,
+            env_fps=60,
+            obs_fps=15,
+            noop_max=30,
+            frame_stack=4,
+            terminal_on_life_loss=True,
+            clip_reward=True,
+            max_episode_steps=25000,
+            latency_type="fixed",
+            fixed_latency_ms=1000.0 / 60.0,
+            add_latency_info=True,
+            hold_policy="hold",
+            ordering_policy="latest_ready",
+            max_pending_actions=None,
+            episode_metrics_path="",
+            latency_seed=123,
+            export_env_raw_rgb_frames=True,
+        ),
+        env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
+        gpu_env_device="cuda",
+        gpu_env_batch_size=2,
+    )
+
+    try:
+        _, infos = env.reset(seed=123)
+        reset_stack = infos[0][ENV_RAW_RGB_FRAME_STACK_INFO_KEY].copy()
+        _, _, _, _, step_infos = env.step(torch.zeros(2, dtype=torch.int64, device="cuda"))
+        step_stack = step_infos[0][ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
+
+        assert reset_stack.shape == (4, 210, 160, 3)
+        assert reset_stack.dtype == np.uint8
+        assert np.array_equal(step_stack[:-1], reset_stack[1:])
+    finally:
+        env.close()
 
 
 def test_demon_attack_batched_gpu_env_resets_core_on_time_limit_truncation():
@@ -221,6 +268,7 @@ def test_demon_attack_batched_gpu_env_resets_core_on_time_limit_truncation():
             max_pending_actions=None,
             episode_metrics_path="",
             latency_seed=123,
+            export_env_raw_rgb_frames=False,
         ),
         env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
         gpu_env_device="cuda",
@@ -276,6 +324,7 @@ def test_demon_attack_gpu_latency_info_uses_fused_decision_path(monkeypatch):
             max_pending_actions=None,
             episode_metrics_path="",
             latency_seed=123,
+            export_env_raw_rgb_frames=False,
         ),
         env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
         gpu_env_device="cuda",
@@ -348,6 +397,7 @@ def test_demon_attack_gpu_max_episode_steps_uses_fused_decision_path(monkeypatch
             max_pending_actions=None,
             episode_metrics_path="",
             latency_seed=123,
+            export_env_raw_rgb_frames=False,
         ),
         env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
         gpu_env_device="cuda",
@@ -478,6 +528,7 @@ def test_demon_attack_batched_gpu_env_fast_step_matches_regular_step_without_ful
         max_pending_actions=None,
         episode_metrics_path="",
         latency_seed=123,
+        export_env_raw_rgb_frames=False,
     )
     regular = DemonAttackBatchedGpuEnv(
         cfg=cfg,
@@ -536,6 +587,7 @@ def test_demon_attack_batched_gpu_env_fast_step_preserves_done_reset_info():
             max_pending_actions=None,
             episode_metrics_path="",
             latency_seed=123,
+            export_env_raw_rgb_frames=False,
         ),
         env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
         gpu_env_device="cuda",
@@ -575,6 +627,7 @@ def _clip_parity_cfg(**overrides):
         max_pending_actions=None,
         episode_metrics_path="",
         latency_seed=123,
+        export_env_raw_rgb_frames=False,
     )
     cfg.update(overrides)
     return SimpleNamespace(**cfg)

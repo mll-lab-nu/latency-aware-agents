@@ -621,7 +621,11 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
         def close(self):
             return None
 
-    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), SimpleNamespace(frame_stack=4, env_fps=60.0, obs_fps=15.0, seed=0)))
+    monkeypatch.setattr(
+        exporter,
+        "build_sample_factory_rollout_cfg",
+        lambda config: (object(), SimpleNamespace(frame_stack=4, env_fps=60.0, obs_fps=15.0, seed=0, simulator="cpu")),
+    )
     monkeypatch.setattr(
         exporter,
         "build_env_and_policy",
@@ -763,6 +767,135 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
     assert "image_stack" not in train_rows[0]
     assert image.size == (5, 6)
     assert np.asarray(image)[0, 0].tolist() == [40, 41, 42]
+
+
+def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkeypatch, tmp_path):
+    import torch
+    from latency_bench.data import sf_teacher_rollout as exporter
+
+    class FakeProgress:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def update(self, value):
+            pass
+
+    class FakeActorCritic:
+        def __call__(self, normalized_obs, rnn_states):
+            batch_size = int(normalized_obs["obs"].shape[0])
+            return {
+                "actions": torch.arange(batch_size, dtype=torch.int64).reshape(batch_size, 1),
+                "new_rnn_states": torch.ones_like(rnn_states),
+            }
+
+    class FakeBatchedEnv:
+        action_space = object()
+
+        def __init__(self):
+            self.unwrapped = self
+            self.num_agents = 3
+            self.step_actions = []
+
+        def reset(self, seed=None):
+            del seed
+            obs = {"obs": np.zeros((3, 4, 2, 2), dtype=np.uint8)}
+            infos = [
+                {"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(agent_idx, frames=4)}
+                for agent_idx in range(3)
+            ]
+            return obs, infos
+
+        def reset_agents(self, reset_plan, *, active_mask=None):
+            del active_mask
+            obs = {"obs": np.zeros((3, 4, 2, 2), dtype=np.uint8)}
+            infos = [
+                {"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(agent_idx + 10, frames=4)}
+                for agent_idx in range(3)
+            ]
+            return obs, infos
+
+        def set_active_agents(self, active_mask):
+            self.active_mask = list(active_mask)
+
+        def step(self, actions):
+            self.step_actions.append(list(actions))
+            obs = {"obs": np.ones((3, 4, 2, 2), dtype=np.uint8)}
+            infos = [
+                {
+                    "latency_raw_frames": 2,
+                    "latency_ms": 66.0,
+                    "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(agent_idx + 20, frames=4),
+                }
+                for agent_idx in range(3)
+            ]
+            return (
+                obs,
+                np.asarray([1.0, 2.0, 3.0], dtype=np.float32),
+                np.asarray([True, True, True], dtype=np.bool_),
+                np.asarray([False, False, False], dtype=np.bool_),
+                infos,
+            )
+
+        def close(self):
+            return None
+
+    fake_env = FakeBatchedEnv()
+    fake_cfg = SimpleNamespace(
+        frame_stack=4,
+        env_fps=60.0,
+        obs_fps=15.0,
+        seed=0,
+        simulator="gpu",
+        gpu_env_batch_size=1,
+    )
+    build_env_calls = []
+
+    def fake_runtime(module, cfg, config, num_envs):
+        del module, config
+        build_env_calls.append(num_envs)
+        assert cfg.gpu_env_batch_size == 3
+        return {
+            "envs": [fake_env],
+            "env_info": object(),
+            "actor_critic": FakeActorCritic(),
+            "device": torch.device("cpu"),
+            "prepare_and_normalize_obs": lambda actor_critic, obs_batch: obs_batch,
+            "argmax_actions": lambda action_distribution: action_distribution,
+            "preprocess_actions": lambda env_info, actions: np.arange(3, dtype=np.int64),
+            "unsqueeze_tensor": lambda value, dim: value.unsqueeze(dim),
+            "rnn_size": 1,
+            "checkpoint": {"train_step": 123},
+        }
+
+    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
+    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: list(processed_actions))
+    monkeypatch.setattr(exporter, "tqdm", FakeProgress)
+    train_rows, val_rows, _ = exporter.collect_teacher_dataset(
+        {"env_name": "demon_attack"},
+        output_dir=tmp_path / "export",
+        max_episodes=3,
+        max_steps_per_episode=8,
+        val_fraction=0.0,
+        split_seed=0,
+        num_envs=3,
+        deterministic=False,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+    )
+
+    assert build_env_calls == [1]
+    assert not val_rows
+    assert [row["episode_idx"] for row in train_rows] == [0, 1, 2]
+    assert fake_env.step_actions == [[0, 1, 2]]
 
 
 def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, tmp_path):

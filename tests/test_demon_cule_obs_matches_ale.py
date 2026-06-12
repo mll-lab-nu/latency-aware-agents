@@ -41,6 +41,29 @@ def test_cule_obs_matches_ale():
     assert d_op == 0, f"CULE obs vs ALE(native+op) max diff {d_op} (expected 0)"
 
 
+def test_cule_native_rgb_frame_matches_ale_screen():
+    SEED = 12345
+    core = CudaDemonAttackCore(batch_size=1, device="cuda", noop_max=1, terminal_on_life_loss=False, obs_stride=4)
+    core.reset_batch(seeds=[SEED])
+    ale = ALEInterface(); ale.setInt("random_seed", SEED); ale.setFloat("repeat_action_probability", 0.0)
+    ale.setBool("color_averaging", False); ale.loadROM(demon_attack_rom_path())
+    aset = [int(a) for a in ale.getMinimalActionSet()]
+    ale.reset_game()
+    for idx in (1, 2):
+        ale.act(aset[idx])
+    for address in range(128):
+        ale.setRAM(address, int(core.ram[0, address].item()))
+
+    ale.act(aset[0])
+    core.step_batch([0])
+
+    got = core.native_rgb_frames()[0].cpu().numpy()
+    expected = ale.getScreenRGB()
+    assert got.shape == expected.shape == (210, 160, 3)
+    assert got.dtype == expected.dtype == np.uint8
+    assert np.array_equal(got, expected)
+
+
 def _latency_scheduler(batch_size: int, *, obs_fps: float = 15.0) -> CudaLatencyScheduler:
     return CudaLatencyScheduler(
         batch_size=batch_size,

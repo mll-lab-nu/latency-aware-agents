@@ -41,6 +41,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     .def(py::init<const std::string&>())
     .def("minimal_actions", &AtariRom::minimal_actions)
     .def("ram_size", &AtariRom::ram_size)
+    .def("screen_height", &AtariRom::screen_height)
     .def("screen_width", &AtariRom::screen_width)
     ;
 

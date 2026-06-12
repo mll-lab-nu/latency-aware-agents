@@ -19,7 +19,7 @@ from latency_bench.data.rollout_image_io import RolloutImageWriter, frame_from_e
 from latency_bench.data.rollout_schema import SCHEMA_VERSION, sort_rows
 from latency_bench.data.sf_teacher_rows import teacher_dataset_row
 from latency_bench.data.sf_teacher_drivers import (
-    FlappyBatchedTeacherRolloutDriver,
+    BatchedTeacherRolloutDriver,
     SerialTeacherRolloutDriver,
     batch_observations,
 )
@@ -69,7 +69,7 @@ def _build_episode_plan(
 def _collect_teacher_dataset_with_driver(
     runtime: Mapping[str, Any],
     cfg: Any,
-    driver: SerialTeacherRolloutDriver | FlappyBatchedTeacherRolloutDriver,
+    driver: SerialTeacherRolloutDriver | BatchedTeacherRolloutDriver,
     *,
     env_name: str,
     output_dir: Path,
@@ -335,15 +335,21 @@ def collect_teacher_dataset(
         module, cfg = build_sample_factory_rollout_cfg(config)
         frame_stack = cfg.frame_stack
         setattr(cfg, "export_env_raw_rgb_frames", True)
-        use_flappy_batched_driver = str(env_name) == "flappy" and int(num_envs) > 1 and bool(cfg.use_gpu_render)
-        if use_flappy_batched_driver:
-            maybe_set_cli_override(cfg, "gpu_render_batch_size", int(num_envs))
+        use_batched_driver = (
+            (env_name == "flappy" and int(num_envs) > 1 and cfg.use_gpu_render)
+            or (env_name == "demon_attack" and cfg.simulator == "gpu")
+        )
+        if use_batched_driver:
+            if env_name == "flappy":
+                maybe_set_cli_override(cfg, "gpu_render_batch_size", int(num_envs))
+            else:
+                maybe_set_cli_override(cfg, "gpu_env_batch_size", int(num_envs))
             runtime = build_env_and_policy(module, cfg, config, 1)
         else:
             runtime = build_env_and_policy(module, cfg, config, num_envs)
 
-    if use_flappy_batched_driver:
-        driver = FlappyBatchedTeacherRolloutDriver(runtime["envs"][0], int(num_envs))
+    if use_batched_driver:
+        driver = BatchedTeacherRolloutDriver(runtime["envs"][0], int(num_envs))
     else:
         driver = SerialTeacherRolloutDriver(runtime["envs"])
     return _collect_teacher_dataset_with_driver(
