@@ -10,7 +10,7 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.config import load_config
 from latency_bench.core.types import Observation
 from latency_bench.policy.factory import build_policy
-from scripts.rollout_data.prompts import BASE_PROMPTS
+from latency_bench.data.prompts import BASE_PROMPTS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FLAPPY_REALTIME_STARVLA_CONFIGS = (

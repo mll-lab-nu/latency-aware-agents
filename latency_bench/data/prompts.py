@@ -1,10 +1,10 @@
+"""Prompt templates for canonical rollout datasets."""
+
 from __future__ import annotations
 
 BASE_PROMPTS = {
     "flappy": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP.",
-
     "demon_attack": "You are playing Demon Attack from a single game image. Choose exactly one action from: NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE. Survive, avoid enemy fire, and shoot enemies to maximize score.",
-
     "deadly_corridor": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation.",
 }
 
@@ -23,6 +23,19 @@ def render_teacher_prompt(
     env_fps: float,
     obs_fps: float,
 ) -> str:
+    """Render the prompt stored on each rollout decision row.
+
+    Args:
+        env_name: Canonical benchmark environment name.
+        latency_raw_frames: Action latency measured in raw environment frames.
+        latency_ms: Action latency in milliseconds.
+        env_fps: Raw environment frame rate.
+        obs_fps: Observation decision rate.
+
+    Returns:
+        Base environment prompt with timing context appended.
+    """
+
     return BASE_PROMPTS[str(env_name)] + TIMING_SUFFIX.format(
         latency_raw_frames=int(latency_raw_frames),
         latency_ms=float(latency_ms),

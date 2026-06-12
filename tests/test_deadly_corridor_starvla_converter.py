@@ -1,42 +1,33 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 
-
-STARVLA_ROOT = Path(__file__).resolve().parents[1] / "starVLA"
-if str(STARVLA_ROOT) not in sys.path:
-    sys.path.insert(0, str(STARVLA_ROOT))
-
-
-def test_deadly_corridor_converter_uses_factorized_eleven_dim_actions():
-    from examples.rl_games.data_conversion import convert_deadly_corridor_to_starvla_lerobot as converter
-
-    assert converter.ACTION_DIM == 11
-    assert converter._action_vector({"action": [0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0]}) == [
-        0.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-        0.0,
-        1.0,
-        1.0,
-        0.0,
-    ]
-
-
-def test_deadly_corridor_converter_encodes_joint_fifty_four_actions():
-    from examples.rl_games.data_conversion import convert_deadly_corridor_to_starvla_lerobot as converter
-
-    action = converter._action_vector(
-        {"action": [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1]},
-        action_layout="joint_54",
+def test_deadly_corridor_canonical_action_layout_is_factorized_eleven_dim():
+    from latency_bench.data.action_layouts import (
+        DEADLY_CORRIDOR_FACTORIZED_11_LABELS,
+        action_spec_for_env,
+        encode_action_for_env,
     )
 
-    assert len(action) == 54
-    assert sum(action) == 1.0
-    assert action[11] == 1.0
-    assert converter.joint_id_to_deadly_corridor_tuple(11) == [0, 1, 2, 1]
+    spec = action_spec_for_env("deadly_corridor")
+    row = encode_action_for_env("deadly_corridor", [0, 1, 2, 1])
+
+    assert spec.layout == "deadly_corridor_factorized_11"
+    assert spec.labels == DEADLY_CORRIDOR_FACTORIZED_11_LABELS
+    assert row["action_tuple"] == [0, 1, 2, 1]
+    assert row["action"] == [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0]
+    assert row["action_text"] == "MOVE_FORWARD+MOVE_RIGHT+ATTACK"
+
+
+def test_deadly_corridor_factorized_action_matches_starvla_policy_decoder():
+    import numpy as np
+    from latency_bench.policy.starvla import decode_starvla_action
+
+    action, metadata = decode_starvla_action(
+        vector=np.asarray([1.0, 0.0, 0.0, 0.0, 0.9, 0.0, 0.0, 0.0, 0.8, 0.0, 0.7]),
+        env_name="deadly_corridor",
+        action_by_raw_id={},
+    )
+
+    assert action.value == [0, 1, 2, 1]
+    assert action.name == "MOVE_FORWARD+MOVE_RIGHT+ATTACK"
+    assert metadata["action_layout"] == "deadly_corridor_factorized_11"
