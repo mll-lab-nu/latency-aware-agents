@@ -2,20 +2,28 @@ from __future__ import annotations
 
 
 def test_clean_v1_accepts_deadly_corridor_by_raw_return():
-    from latency_bench.data.filters import episode_passes_clean_v1
+    from latency_bench.data.filters import clean_v1_accepts_episode_summary
 
-    low_return_rows = [{"raw_reward": 100.0}, {"raw_reward": 2099.0}]
-    high_return_rows = [{"raw_reward": 100.0}, {"raw_reward": 2100.0}]
+    low_return_summary = {"episode_length": 12, "episode_raw_return": 2199.0}
+    high_return_summary = {"episode_length": 12, "episode_raw_return": 2200.0}
 
-    assert not episode_passes_clean_v1("deadly_corridor", low_return_rows, max_steps_per_episode=1000)
-    assert episode_passes_clean_v1("deadly_corridor", high_return_rows, max_steps_per_episode=1000)
+    assert not clean_v1_accepts_episode_summary("deadly_corridor", low_return_summary, max_steps_per_episode=1000)
+    assert clean_v1_accepts_episode_summary("deadly_corridor", high_return_summary, max_steps_per_episode=1000)
 
 
 def test_clean_v1_accepts_demon_attack_by_clipped_return():
-    from latency_bench.data.filters import episode_passes_clean_v1
+    from latency_bench.data.filters import clean_v1_accepts_episode_summary
 
-    assert not episode_passes_clean_v1("demon_attack", [{"clipped_reward": 50.0}], max_steps_per_episode=1000)
-    assert episode_passes_clean_v1("demon_attack", [{"clipped_reward": 51.0}], max_steps_per_episode=1000)
+    assert not clean_v1_accepts_episode_summary(
+        "demon_attack",
+        {"episode_length": 12, "episode_clipped_return": 50.0},
+        max_steps_per_episode=1000,
+    )
+    assert clean_v1_accepts_episode_summary(
+        "demon_attack",
+        {"episode_length": 12, "episode_clipped_return": 51.0},
+        max_steps_per_episode=1000,
+    )
 
 
 def test_flappy_clean_v1_train_filter_keeps_flap_context_and_samples_background():
