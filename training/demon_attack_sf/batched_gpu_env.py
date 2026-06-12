@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from typing import Any, Sequence
 
 import gymnasium as gym
@@ -14,6 +15,7 @@ from training.common.latency_config import (
 )
 from training.common.batched_metrics import BatchedEpisodeMetrics
 from training.common.gpu_latency import CudaLatencyScheduler
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from training.demon_attack_sf.gpu_core import CudaDemonAttackCore
 
 
@@ -35,6 +37,10 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         self.device = self._resolve_device(gpu_env_device)
         self.clock = EnvClock(env_fps=cfg.env_fps, obs_fps=cfg.obs_fps)
         self.frame_stack = cfg.frame_stack
+        self.export_env_raw_rgb_frames = cfg.export_env_raw_rgb_frames
+        self._env_raw_rgb_frames: list[deque[np.ndarray]] = [
+            deque(maxlen=int(self.frame_stack)) for _ in range(self.num_agents)
+        ]
         self.action_space = Discrete(6)
         self.observation_space = GymDict(
             {
@@ -140,6 +146,10 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         infos = self._reset_infos(latency_infos)
         self._last_frame_skips[:] = self._latency_raw_frames(latency_infos)
         self._has_reset = True
+        if self.export_env_raw_rgb_frames:
+            raw_rgb = self.core.native_rgb_frames()
+            self._reset_env_raw_rgb_frames(raw_rgb)
+            self._attach_env_raw_rgb_infos(infos)
         return self._obs(), infos
 
     def step(self, action):
@@ -271,6 +281,10 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             self._stack[int(agent_idx)] = agent_reset_obs.repeat(self.frame_stack, 1, 1)
         for agent_idx, reset_info in reset_infos.items():
             infos[int(agent_idx)]["reset_info"] = reset_info
+        if self.export_env_raw_rgb_frames:
+            raw_rgb = self.core.native_rgb_frames()
+            self._append_env_raw_rgb_frames(raw_rgb, done_mask=done_mask)
+            self._attach_env_raw_rgb_infos(infos)
         self.sample_factory_step_cpu_tensors = {
             "rewards": torch.from_numpy(rewards),
             "terminated": torch.from_numpy(terminated),
@@ -278,6 +292,57 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             "dones": torch.from_numpy(done_mask),
         }
         return self._obs(), rewards_out, result.terminated_gpu, result.truncated_gpu, infos
+
+    def set_active_agents(self, active_mask: Sequence[bool]) -> None:
+        """Set which batched agents should advance on subsequent steps.
+
+        Args:
+            active_mask: Boolean mask aligned with batched agent indices.
+        """
+        mask = np.asarray(list(active_mask), dtype=np.bool_)
+        self._active_mask_cpu[:] = mask
+        self._active_mask_gpu.copy_(torch.as_tensor(mask, dtype=torch.bool, device=self.device))
+
+    def reset_agents(
+        self,
+        reset_plan: dict[int, int],
+        *,
+        active_mask: Sequence[bool] | None = None,
+    ):
+        """Reset selected batched agents using explicit rollout seeds.
+
+        Args:
+            reset_plan: Mapping from agent index to reset seed.
+            active_mask: Optional active-agent mask to install after reset.
+
+        Returns:
+            Full batched observation and per-agent info list.
+        """
+        if active_mask is not None:
+            self.set_active_agents(active_mask)
+        if not self._has_reset:
+            first_seed = reset_plan[0]
+            return self.reset(seed=first_seed)
+
+        reset_indices = [int(agent_idx) for agent_idx in reset_plan.keys()]
+        reset_seed_inputs = [int(seed) for seed in reset_plan.values()]
+        reset_seeds, reset_latency_infos = self.latency.reset(indices=reset_indices, seeds=reset_seed_inputs)
+        self.metrics.reset(indices=reset_indices)
+        index_t = torch.as_tensor(reset_indices, dtype=torch.int64, device=self.device)
+        self._raw_episode_steps[reset_indices] = 0
+        self._raw_episode_steps_gpu[index_t] = 0
+        reset_obs, _ = self.core.reset_batch(seeds=reset_seeds, indices=reset_indices)
+        self._reset_frame_numbers(indices=reset_indices)
+        for agent_idx in reset_indices:
+            self._stack[int(agent_idx)] = reset_obs[int(agent_idx)].repeat(self.frame_stack, 1, 1)
+        infos = [{} for _ in range(self.num_agents)]
+        for offset, agent_idx in enumerate(reset_indices):
+            infos[int(agent_idx)] = self._reset_info_for_latency_info(reset_latency_infos[offset])
+        if self.export_env_raw_rgb_frames:
+            raw_rgb = self.core.native_rgb_frames()
+            self._reset_env_raw_rgb_frames(raw_rgb, agent_indices=reset_indices)
+            self._attach_env_raw_rgb_infos(infos)
+        return self._obs(), infos
 
     def _issued_actions_for_metrics(self, actions: torch.Tensor) -> np.ndarray:
         if self.metrics._action_labels:
@@ -301,6 +366,54 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             # reset_obs overwrite in step() replaces it with the post-reset frame.
             index_t = torch.as_tensor(done_indices, dtype=torch.int64, device=self.device)
             self._stack[index_t] = obs_frames[index_t, -1:, :, :].repeat(1, self.frame_stack, 1, 1)
+
+    def _reset_env_raw_rgb_frames(
+        self,
+        raw_rgb: torch.Tensor,
+        agent_indices: Sequence[int] | None = None,
+    ) -> None:
+        """Initialize exported raw RGB stacks from current native frames.
+
+        Args:
+            raw_rgb: Batched native RGB tensor from the CUDA core.
+            agent_indices: Optional subset of agents to reset.
+        """
+        if not self.export_env_raw_rgb_frames:
+            return
+        frames = raw_rgb.detach().cpu().numpy()
+        indices = range(self.num_agents) if agent_indices is None else [int(item) for item in agent_indices]
+        for agent_idx in indices:
+            self._env_raw_rgb_frames[agent_idx].clear()
+            frame = np.array(frames[agent_idx], copy=True)
+            for _ in range(self.frame_stack):
+                self._env_raw_rgb_frames[agent_idx].append(frame.copy())
+
+    def _append_env_raw_rgb_frames(self, raw_rgb: torch.Tensor, *, done_mask: np.ndarray) -> None:
+        """Append latest native RGB frames for non-terminal active agents.
+
+        Args:
+            raw_rgb: Batched native RGB tensor from the CUDA core.
+            done_mask: Per-agent done mask for the decision step.
+        """
+        if not self.export_env_raw_rgb_frames:
+            return
+        frames = raw_rgb.detach().cpu().numpy()
+        append_mask = self._active_mask_cpu & ~done_mask
+        for agent_idx in np.flatnonzero(append_mask):
+            self._env_raw_rgb_frames[int(agent_idx)].append(np.array(frames[int(agent_idx)], copy=True))
+
+    def _attach_env_raw_rgb_infos(self, infos: list[dict[str, Any]]) -> None:
+        """Attach raw RGB stacks to per-agent infos when export mode is enabled.
+
+        Args:
+            infos: Mutable per-agent info list.
+        """
+        if not self.export_env_raw_rgb_frames:
+            return
+        for agent_idx, info in enumerate(infos):
+            updated = dict(info)
+            updated[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = np.stack(tuple(self._env_raw_rgb_frames[agent_idx]), axis=0)
+            infos[agent_idx] = updated
 
     def _infos(
         self,

@@ -182,6 +182,8 @@ class CudaDemonAttackCore:
         self.ext = load_cule_atari_extension()
         self.rom = self.ext.AtariRom(demon_attack_rom_path())
         self.env = self.ext.AtariEnv(self.rom, self.batch_size, self.noop_max)
+        self.native_screen_height = int(self.rom.screen_height())
+        self.native_screen_width = int(self.rom.screen_width())
         self.screen_height = 84
         self.screen_width = 84
         self.num_channels = 1
@@ -282,6 +284,11 @@ class CudaDemonAttackCore:
             dtype=torch.float64,
             device=self.device,
         )
+        self._native_rgb_frames = torch.empty(
+            (self.batch_size, self.native_screen_height, self.native_screen_width, 3),
+            dtype=torch.uint8,
+            device=self.device,
+        )
 
     @property
     def score(self) -> torch.Tensor:
@@ -293,6 +300,15 @@ class CudaDemonAttackCore:
 
     def observations(self) -> torch.Tensor:
         return self._obs84_single.unsqueeze(1).contiguous()
+
+    def native_rgb_frames(self) -> torch.Tensor:
+        """Render the current native Atari RGB screen for each GPU env.
+
+        Returns:
+            Tensor with shape ``(batch, native_height, native_width, 3)`` and dtype ``uint8``.
+        """
+        self.env.generate_frames(False, True, 3, self._native_rgb_frames.data_ptr())
+        return self._native_rgb_frames
 
     def reset_batch(
         self,
