@@ -49,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--export-image-size", type=str, default="")
     parser.add_argument("--image-writer-workers", type=int, default=0)
     parser.add_argument("--row-buffer-size", type=int, default=8192)
+    parser.add_argument("--filter-preset", type=str, default="")
     parser.add_argument("--push-to-hub", action="store_true")
     parser.add_argument("--hf-repo-id", type=str, default="")
     parser.add_argument("--hf-private", action="store_true")
@@ -83,6 +84,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         export_image_size=_parse_image_size(str(args.export_image_size)),
         image_writer_workers=int(args.image_writer_workers),
         row_buffer_size=int(args.row_buffer_size),
+        filter_preset=str(args.filter_preset),
         push_to_hub=bool(args.push_to_hub),
         hf_repo_id=str(args.hf_repo_id),
         hf_private=bool(args.hf_private),

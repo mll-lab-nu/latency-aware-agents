@@ -178,6 +178,7 @@ def _convert_split(
     env_name: str,
     action_labels: list[str],
     fps: int,
+    reward_field: str,
 ) -> dict[str, Any]:
     """Convert one canonical rollout split into a LeRobot dataset directory.
 
@@ -187,6 +188,7 @@ def _convert_split(
         env_name: Canonical benchmark environment name.
         action_labels: Canonical action labels in vector order.
         fps: Frame rate used for timestamps.
+        reward_field: Source canonical reward column.
 
     Returns:
         Split manifest summary.
@@ -214,7 +216,7 @@ def _convert_split(
                     "task_index": prompt_to_task_index[prompt],
                     # ``done`` is generated only for the LeRobot target format, not for canonical rollout rows.
                     "done": frame_idx == len(episode_rows) - 1,
-                    "reward": float(row["reward"]),
+                    "reward": float(row[reward_field]),
                 }
             )
         episode_lengths.append(len(out_rows))
@@ -262,6 +264,7 @@ def convert_canonical_rollout_to_lerobot(
     env_name = str(metadata["env_name"])
     action_spec = action_spec_for_env(env_name)
     action_labels = list(metadata["action_labels"])
+    reward_field = str(metadata["reward_field"])
     fps = int(FPS_BY_ENV[env_name])
     val_output_dir = output_dir.with_name(f"{output_dir.name}__val")
     if output_dir.exists() and force:
@@ -274,6 +277,7 @@ def convert_canonical_rollout_to_lerobot(
         env_name=env_name,
         action_labels=action_labels,
         fps=fps,
+        reward_field=reward_field,
     )
     val_manifest = _convert_split(
         _load_rows(raw_export_dir, "val"),
@@ -281,6 +285,7 @@ def convert_canonical_rollout_to_lerobot(
         env_name=env_name,
         action_labels=action_labels,
         fps=fps,
+        reward_field=reward_field,
     )
     manifest = {
         **train_manifest,

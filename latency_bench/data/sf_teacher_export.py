@@ -71,6 +71,7 @@ def export_sample_factory_teacher_dataset(
     export_image_size: tuple[int, int] | None,
     image_writer_workers: int,
     row_buffer_size: int,
+    filter_preset: str,
     push_to_hub: bool,
     hf_repo_id: str,
     hf_private: bool,
@@ -94,6 +95,7 @@ def export_sample_factory_teacher_dataset(
         export_image_size: Optional ``(width, height)`` resize target.
         image_writer_workers: Number of async image writer threads.
         row_buffer_size: Pending image write threshold.
+        filter_preset: Empty string for no filtering, or the active filter preset.
         push_to_hub: Whether to upload the written dataset.
         hf_repo_id: Destination Hugging Face dataset repository id.
         hf_private: Whether the uploaded repository should be private.
@@ -122,6 +124,7 @@ def export_sample_factory_teacher_dataset(
         export_image_size=export_image_size,
         image_writer_workers=int(image_writer_workers),
         row_buffer_size=int(row_buffer_size),
+        filter_preset=str(filter_preset),
         return_rows=False,
     )
     split_stats = episode_row_split_stats(output_dir)
@@ -143,6 +146,11 @@ def export_sample_factory_teacher_dataset(
         "val_fraction": float(val_fraction),
         "split_seed": int(split_seed),
         "num_envs": int(num_envs),
+        "filter_preset": str(filter_preset),
+        "filter_report": rollout_metadata["filter_report"],
+        "reward_field": rollout_metadata["reward_field"],
+        "episode_return_field": rollout_metadata["episode_return_field"],
+        "reward_semantics": rollout_metadata["reward_semantics"],
         "image_source": rollout_metadata["image_source"],
         "train_rows": split_stats["train_rows"],
         "val_rows": split_stats["val_rows"],
@@ -155,6 +163,9 @@ def export_sample_factory_teacher_dataset(
     }
     with (output_dir / "metadata.json").open("w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    with (output_dir / "filter_report.json").open("w", encoding="utf-8") as handle:
+        json.dump(rollout_metadata["filter_report"], handle, indent=2, sort_keys=True)
         handle.write("\n")
     cleanup_rollout_intermediates(output_dir)
 

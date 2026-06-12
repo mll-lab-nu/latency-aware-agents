@@ -329,11 +329,110 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
     assert "image_stack" not in train_rows[0]
     assert train_rows[0]["env_name"] == "flappy"
     assert train_rows[0]["decision_step"] == 0
-    assert train_rows[0]["reward"] == 1.5
+    assert train_rows[0]["raw_reward"] == 1.5
     assert metadata["checkpoint_train_step"] == 123
     assert metadata["env_fps"] == 30.0
     assert metadata["obs_fps"] == 15.0
     assert metadata["obs_stride_raw_frames"] == 2
+
+
+def test_collect_teacher_dataset_online_filter_retries_until_episode_is_accepted(monkeypatch, tmp_path):
+    import torch
+    from latency_bench.data import sf_teacher_rollout as exporter
+
+    class FakeActorCritic:
+        def __call__(self, normalized_obs, rnn_states):
+            del normalized_obs
+            return {
+                "actions": torch.tensor([[99]], dtype=torch.long),
+                "new_rnn_states": torch.ones_like(rnn_states),
+            }
+
+        def action_distribution(self):
+            return object()
+
+    class FakeEnv:
+        def __init__(self):
+            self.action_space = object()
+            self.reset_seeds: list[int] = []
+
+        def reset(self, seed=None):
+            self.reset_seeds.append(seed)
+            return np.zeros((3, 2, 2), dtype=np.uint8), {
+                "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(5)
+            }
+
+        def step(self, action):
+            del action
+            reward = 0.0 if len(self.reset_seeds) == 1 else 2200.0
+            return (
+                np.zeros((3, 2, 2), dtype=np.uint8),
+                np.float32(reward),
+                np.bool_(True),
+                np.bool_(False),
+                {
+                    "latency_raw_frames": 2,
+                    "latency_ms": 66.0,
+                    "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(6),
+                },
+            )
+
+        def close(self):
+            return None
+
+    fake_env = FakeEnv()
+    fake_actor = FakeActorCritic()
+    fake_cfg = SimpleNamespace(frame_stack=1, env_fps=35.0, obs_fps=17.5, seed=11)
+
+    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(
+        exporter,
+        "build_env_and_policy",
+        lambda module, cfg, config, num_envs: {
+            "envs": [fake_env],
+            "env_info": object(),
+            "actor_critic": fake_actor,
+            "device": torch.device("cpu"),
+            "prepare_and_normalize_obs": lambda actor_critic, obs_batch: obs_batch,
+            "argmax_actions": lambda action_distribution: action_distribution,
+            "preprocess_actions": lambda env_info, actions: np.asarray([[0, 1, 0, 0]], dtype=np.int64),
+            "unsqueeze_tensor": lambda value, dim: value.unsqueeze(dim),
+            "rnn_size": 1,
+            "checkpoint": {"train_step": 123},
+        },
+    )
+    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(
+        exporter,
+        "_split_batch_actions",
+        lambda processed_actions, batch_size, action_space=None: [[0, 1, 0, 0]] * batch_size,
+    )
+
+    train_rows, val_rows, metadata = exporter.collect_teacher_dataset(
+        {"env_name": "deadly_corridor"},
+        output_dir=tmp_path / "export",
+        max_episodes=1,
+        max_steps_per_episode=8,
+        val_fraction=0.0,
+        split_seed=0,
+        num_envs=1,
+        deterministic=False,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+        filter_preset="clean_v1",
+    )
+
+    assert not val_rows
+    assert fake_env.reset_seeds == [11, 12]
+    assert train_rows[0]["episode_idx"] == 0
+    assert train_rows[0]["seed"] == 12
+    assert train_rows[0]["raw_reward"] == 2200.0
+    assert Path(train_rows[0]["image"]).exists()
+    assert "_attempts" not in train_rows[0]["image"]
+    assert metadata["filter_report"]["attempted_episodes"] == 2
+    assert metadata["filter_report"]["accepted_episodes"] == 1
+    assert metadata["filter_report"]["rejected_episodes"] == 1
 
 
 def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monkeypatch, tmp_path):
@@ -426,7 +525,7 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     assert [row["action_id"] for row in train_rows] == [1, 1]
     assert Path(train_rows[0]["image"]).exists()
     assert "image_stack" not in train_rows[0]
-    assert train_rows[0]["reward"] == 1.5
+    assert train_rows[0]["raw_reward"] == 1.5
     assert train_rows[0]["latency_raw_frames"] == 2
     assert metadata["checkpoint_train_step"] == 123
     assert metadata["env_fps"] == 30.0
@@ -1151,7 +1250,7 @@ def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
         "prompt": "pick action",
         "latency_raw_frames": 2,
         "latency_ms": 66.0,
-        "reward": 1.5,
+        "raw_reward": 1.5,
         "action": [0.0, 1.0],
         "action_id": 1,
         "action_text": "FLAP",
@@ -1186,7 +1285,7 @@ def test_write_parquet_splits_embeds_image_bytes(tmp_path):
         "prompt": "pick action",
         "latency_raw_frames": 2,
         "latency_ms": 66.0,
-        "reward": 1.5,
+        "raw_reward": 1.5,
         "action": [0.0, 1.0],
         "action_id": 1,
         "action_text": "FLAP",
@@ -1221,7 +1320,7 @@ def test_write_parquet_splits_preserves_rows_across_large_exports(tmp_path):
             "prompt": "pick action",
             "latency_raw_frames": 2,
             "latency_ms": 66.0,
-            "reward": 1.5,
+            "raw_reward": 1.5,
             "action": [0.0, 1.0],
             "action_id": 1,
             "action_text": "FLAP",
@@ -1275,7 +1374,7 @@ def  test_write_parquet_splits_from_shards_writes_train_and_val_rows(tmp_path):
                 "prompt": "pick action",
                 "latency_raw_frames": 2,
                 "latency_ms": 66.0,
-                "reward": 1.5,
+                "raw_reward": 1.5,
                 "action": [0.0, 1.0],
                 "action_id": 1,
                 "action_text": "FLAP",
@@ -1317,7 +1416,7 @@ def test_write_parquet_splits_from_shards_replaces_stale_partial_file(tmp_path):
         "prompt": "stale",
         "latency_raw_frames": 0,
         "latency_ms": 0.0,
-        "reward": 0.0,
+        "raw_reward": 0.0,
         "action": [1.0, 0.0],
         "action_id": 0,
         "action_text": "noop",
@@ -1337,7 +1436,7 @@ def test_write_parquet_splits_from_shards_replaces_stale_partial_file(tmp_path):
         "prompt": "fresh",
         "latency_raw_frames": 2,
         "latency_ms": 66.0,
-        "reward": 1.5,
+        "raw_reward": 1.5,
         "action": [0.0, 1.0],
         "action_id": 1,
         "action_text": "FLAP",
@@ -1378,7 +1477,7 @@ def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypa
             "prompt": "pick action",
             "latency_raw_frames": 2,
             "latency_ms": 66.0,
-            "reward": 1.5,
+            "raw_reward": 1.5,
             "action": [0.0, 1.0],
             "action_id": 1,
             "action_text": "FLAP",
@@ -1389,6 +1488,21 @@ def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypa
             [],
             {
                 "action_labels": ["NOOP", "FLAP"],
+                "reward_field": "raw_reward",
+                "episode_return_field": "episode_raw_return",
+                "reward_semantics": "raw_reward",
+                "filter_report": {
+                    "preset": "",
+                    "attempted_episodes": 1,
+                    "accepted_episodes": 1,
+                    "rejected_episodes": 0,
+                    "accepted_train_episodes": 1,
+                    "accepted_val_episodes": 0,
+                    "train_rows_before_row_filter": 1,
+                    "train_rows_after_row_filter": 1,
+                    "val_rows_before_row_filter": 0,
+                    "val_rows_after_row_filter": 0,
+                },
                 "checkpoint_train_step": 123,
                 "frame_stack": 1,
                 "env_fps": 30.0,
@@ -1427,6 +1541,7 @@ def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypa
         export_image_size=None,
         image_writer_workers=0,
         row_buffer_size=8192,
+        filter_preset="",
         push_to_hub=False,
         hf_repo_id="",
         hf_private=False,
@@ -1435,6 +1550,7 @@ def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypa
     )
 
     assert metadata == json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["filter_report"] == json.loads((output_dir / "filter_report.json").read_text(encoding="utf-8"))
     assert (output_dir / "train.parquet").exists()
     assert (output_dir / "val.parquet").exists()
     assert not (output_dir / "images").exists()
@@ -1495,6 +1611,21 @@ def test_main_writes_prompt_source_and_timing_metadata(monkeypatch, tmp_path):
             [],
             {
                 "action_labels": ["NOOP", "FLAP"],
+                "reward_field": "raw_reward",
+                "episode_return_field": "episode_raw_return",
+                "reward_semantics": "raw_reward",
+                "filter_report": {
+                    "preset": "",
+                    "attempted_episodes": 0,
+                    "accepted_episodes": 0,
+                    "rejected_episodes": 0,
+                    "accepted_train_episodes": 0,
+                    "accepted_val_episodes": 0,
+                    "train_rows_before_row_filter": 0,
+                    "train_rows_after_row_filter": 0,
+                    "val_rows_before_row_filter": 0,
+                    "val_rows_after_row_filter": 0,
+                },
                 "checkpoint_train_step": 123,
                 "frame_stack": 4,
                 "env_fps": 30.0,
@@ -1526,6 +1657,7 @@ def test_main_writes_prompt_source_and_timing_metadata(monkeypatch, tmp_path):
         export_image_size=None,
         image_writer_workers=0,
         row_buffer_size=8192,
+        filter_preset="",
         push_to_hub=False,
         hf_repo_id="",
         hf_private=False,
