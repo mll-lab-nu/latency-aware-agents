@@ -16,7 +16,7 @@ from latency_bench.data.hf_parquet import (
 )
 from latency_bench.data.prompts import BASE_PROMPTS, TIMING_SUFFIX
 from latency_bench.data.action_layouts import action_spec_for_env
-from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1
+from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1, FILTER_PRESET_NONE
 from latency_bench.data.sf_teacher_config import load_rollout_training_config
 from latency_bench.data.sf_teacher_rollout import collect_teacher_dataset
 
@@ -36,7 +36,15 @@ def resolve_token(explicit_token: str) -> str | None:
     return os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
 
 
-def push_dataset_to_hub(dataset_dict: Any, *, repo_id: str, private: bool, token: str | None, max_shard_size: str) -> None:
+def push_dataset_to_hub(
+    dataset_dict: Any,
+    *,
+    repo_id: str,
+    private: bool,
+    token: str | None,
+    max_shard_size: str,
+    config_name: str = "",
+) -> None:
     """Push the exported HF dataset dict to the Hub.
 
     Args:
@@ -45,6 +53,7 @@ def push_dataset_to_hub(dataset_dict: Any, *, repo_id: str, private: bool, token
         private: Whether the repository should be private.
         token: Optional Hugging Face token.
         max_shard_size: Hub upload shard size.
+        config_name: Optional HF dataset config name for multi-config repos.
     """
     push_kwargs: dict[str, Any] = {
         "repo_id": repo_id,
@@ -53,6 +62,8 @@ def push_dataset_to_hub(dataset_dict: Any, *, repo_id: str, private: bool, token
     }
     if token:
         push_kwargs["token"] = token
+    if config_name:
+        push_kwargs["config_name"] = str(config_name)
     dataset_dict.push_to_hub(**push_kwargs)
 
 
@@ -78,6 +89,9 @@ def export_sample_factory_teacher_dataset(
     hf_private: bool,
     hf_token: str,
     hf_max_shard_size: str,
+    filter_preset: str = FILTER_PRESET_CLEAN_V1,
+    filter_kwargs: dict[str, Any] | None = None,
+    hf_config_name: str = "",
 ) -> dict[str, Any]:
     """Collect and write a canonical Sample Factory teacher dataset.
 
@@ -126,6 +140,8 @@ def export_sample_factory_teacher_dataset(
         export_image_size=export_image_size,
         image_writer_workers=int(image_writer_workers),
         row_buffer_size=int(row_buffer_size),
+        filter_preset=str(filter_preset),
+        filter_kwargs=filter_kwargs,
     )
     split_stats = episode_row_split_stats(output_dir)
     shard_image_metadata = image_metadata_from_shards(output_dir)
@@ -147,7 +163,7 @@ def export_sample_factory_teacher_dataset(
         "split_seed": int(split_seed),
         "num_envs": int(num_envs),
         "replay_num_envs": int(replay_num_envs),
-        "filter_preset": FILTER_PRESET_CLEAN_V1,
+        "filter_preset": rollout_metadata["filter_preset"],
         "filter_report": rollout_metadata["filter_report"],
         "reward_field": rollout_metadata["reward_field"],
         "episode_return_field": rollout_metadata["episode_return_field"],
@@ -177,5 +193,6 @@ def export_sample_factory_teacher_dataset(
             private=bool(hf_private),
             token=resolve_token(str(hf_token)),
             max_shard_size=str(hf_max_shard_size),
+            config_name=str(hf_config_name),
         )
     return deepcopy(metadata)

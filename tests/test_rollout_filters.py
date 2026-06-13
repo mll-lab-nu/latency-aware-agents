@@ -11,19 +11,41 @@ def test_clean_v1_accepts_deadly_corridor_by_raw_return():
     assert clean_v1_accepts_episode_summary("deadly_corridor", high_return_summary, max_steps_per_episode=1000)
 
 
-def test_clean_v1_accepts_demon_attack_by_clipped_return():
+def test_clean_v1_accepts_demon_attack_by_raw_score():
     from latency_bench.data.filters import clean_v1_accepts_episode_summary
 
     assert not clean_v1_accepts_episode_summary(
         "demon_attack",
-        {"episode_length": 12, "episode_clipped_return": 50.0},
+        {"episode_length": 12, "episode_raw_return": 7309.0, "episode_clipped_return": 90.0},
         max_steps_per_episode=1000,
     )
     assert clean_v1_accepts_episode_summary(
         "demon_attack",
-        {"episode_length": 12, "episode_clipped_return": 51.0},
+        {"episode_length": 12, "episode_raw_return": 7310.0, "episode_clipped_return": 1.0},
         max_steps_per_episode=1000,
     )
+
+
+def test_demon_raw_score_bins_match_eval_distribution_breaks():
+    from latency_bench.data.filters import demon_raw_score_bin_counts
+
+    counts = demon_raw_score_bin_counts(
+        [
+            {"episode_raw_return": 6270.0},
+            {"episode_raw_return": 6550.0},
+            {"episode_raw_return": 6920.0},
+            {"episode_raw_return": 7310.0},
+            {"episode_raw_return": 8460.0},
+        ]
+    )
+
+    assert counts == {
+        "<6460": 1,
+        "6460-6889": 1,
+        "6890-7309": 1,
+        "7310-7999": 1,
+        ">=8000": 1,
+    }
 
 
 def test_flappy_clean_v1_train_filter_keeps_flap_context_and_samples_background():

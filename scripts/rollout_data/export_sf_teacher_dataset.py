@@ -55,6 +55,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hf-private", action="store_true")
     parser.add_argument("--hf-token", type=str, default="")
     parser.add_argument("--hf-max-shard-size", type=str, default="500MB")
+    parser.add_argument("--hf-config-name", type=str, default="")
+    parser.add_argument("--filter-preset", type=str, default="clean_v1", choices=["none", "clean_v1"])
+    parser.add_argument("--demon-episode-threshold", type=float, default=None,
+                        help="Override Demon Attack episode-level clipped return threshold.")
     return parser
 
 
@@ -69,6 +73,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     args = build_parser().parse_args(argv)
     output_dir = Path(args.output_dir).expanduser().resolve()
+    filter_kwargs = {}
+    if args.demon_episode_threshold is not None:
+        filter_kwargs["demon_episode_threshold"] = float(args.demon_episode_threshold)
     metadata = export_sample_factory_teacher_dataset(
         checkpoint_root=args.checkpoint_root,
         output_dir=output_dir,
@@ -90,6 +97,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         hf_private=bool(args.hf_private),
         hf_token=str(args.hf_token),
         hf_max_shard_size=str(args.hf_max_shard_size),
+        hf_config_name=str(args.hf_config_name),
+        filter_preset=str(args.filter_preset),
+        filter_kwargs=filter_kwargs or None,
     )
     print(f"[export] wrote train={metadata['train_rows']} rows val={metadata['val_rows']} rows to {output_dir}")
     return 0

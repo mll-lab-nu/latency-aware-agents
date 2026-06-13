@@ -126,23 +126,20 @@ class SerialTeacherRolloutDriver:
     def reset_slots(
         self,
         reset_plan: Mapping[int, int],
-        active_mask: Sequence[bool],
     ) -> dict[int, tuple[Any, Mapping[str, Any]]]:
         """Reset selected serial rollout slots.
 
         Args:
             reset_plan: Mapping from slot id to reset seed.
-            active_mask: Active slot mask accepted for driver parity.
 
         Returns:
             Mapping from slot id to observation and reset info.
         """
 
-        del active_mask
         observations = {}
         for slot, seed in reset_plan.items():
             obs, reset_info = self.envs[int(slot)].reset(seed=int(seed))
-            observations[int(slot)] = (obs, dict((reset_info if isinstance(reset_info, Mapping) else reset_info[0])))
+            observations[int(slot)] = (obs, reset_info[0])
         return observations
 
     def step(self, active_slots: Sequence[int], raw_actions: Sequence[Any]) -> dict[int, RolloutStepResult]:
@@ -164,17 +161,14 @@ class SerialTeacherRolloutDriver:
                 reward=_to_python_action(reward),
                 terminated=_to_python_action(terminated),
                 truncated=_to_python_action(truncated),
-                info=dict((info if isinstance(info, Mapping) else info[0])),
+                info=info[0],
             )
         return step_results
 
-    def sync_active(self, active_mask: Sequence[bool]) -> None:
-        """Synchronize active slots after a rollout step.
-
-        Args:
-            active_mask: Active slot mask accepted for driver parity.
-        """
-        del active_mask
+    def continue_after_life_loss(self, slot: int) -> tuple[Any, Mapping[str, Any]]:
+        """Advance a serial Atari env from a life-loss terminal into the next life."""
+        obs, reset_info = self.envs[int(slot)].reset()
+        return obs, reset_info[0]
 
     def close(self) -> None:
         """Close all serial environments."""
@@ -196,6 +190,7 @@ class BatchedTeacherRolloutDriver:
         self.control_env = env.unwrapped
         self._slot_count = int(slot_count)
         self._reset_started = False
+        self._last_step_results: dict[int, RolloutStepResult] = {}
 
     @property
     def slot_count(self) -> int:
@@ -271,16 +266,24 @@ class BatchedTeacherRolloutDriver:
         for batch_idx, slot in enumerate(active_slots):
             full_actions[slot] = raw_actions[batch_idx]
         next_obs_batch, rewards, terminated, truncated, infos = self.env.step(full_actions)
-        return {
+        results = {
             slot: RolloutStepResult(
                 next_obs=_batched_observation_at(next_obs_batch, slot),
                 reward=_batched_value_at(rewards, slot),
                 terminated=_batched_value_at(terminated, slot),
                 truncated=_batched_value_at(truncated, slot),
-                info=dict(infos[slot]),
+                info=infos[slot],
             )
             for slot in active_slots
         }
+        self._last_step_results = results
+        return results
+
+    def continue_after_life_loss(self, slot: int) -> tuple[Any, Mapping[str, Any]]:
+        """Return the post-soft-reset observation already produced by the batched env."""
+
+        step_result = self._last_step_results[slot]
+        return step_result.next_obs, step_result.info
 
     def sync_active(self, active_mask: Sequence[bool]) -> None:
         """Update the batched env's active agent mask.
