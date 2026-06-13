@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 import os
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -96,6 +97,22 @@ def _read_shard_rows(output_dir: Path, split: str) -> list[dict]:
     from latency_bench.data.hf_parquet import iter_episode_rows
 
     return list(iter_episode_rows(output_dir, split))
+
+
+def _load_sf_teacher_drivers_for_direct_test(monkeypatch):
+    try:
+        import torch  # noqa: F401
+    except ModuleNotFoundError:
+        monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(Tensor=type("FakeTensor", (), {})))
+    sample_factory_common = ModuleType("latency_bench.policy.sample_factory_common")
+    sample_factory_common._to_python_action = lambda value: value.item() if hasattr(value, "item") else value
+    monkeypatch.setitem(sys.modules, "latency_bench.policy.sample_factory_common", sample_factory_common)
+    module_path = Path(__file__).parents[1] / "latency_bench" / "data" / "sf_teacher_drivers.py"
+    spec = importlib.util.spec_from_file_location("_test_sf_teacher_drivers", module_path)
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+    return module
 
 
 class _FakeProgress:
@@ -272,6 +289,62 @@ def test_batch_observations_concatenates_single_agent_batched_mapping_observatio
     assert batch["obs"][1].tolist() == observations[1]["obs"][0].tolist()
 
 
+def test_serial_rollout_driver_continues_life_loss_with_seedless_reset(monkeypatch):
+    sf_teacher_drivers = _load_sf_teacher_drivers_for_direct_test(monkeypatch)
+
+    class FakeEnv:
+        action_space = object()
+
+        def __init__(self):
+            self.reset_seeds = []
+
+        def reset(self, seed=None):
+            self.reset_seeds.append(seed)
+            return {"obs": np.asarray([len(self.reset_seeds)])}, [{"reset_seed": seed}]
+
+        def close(self):
+            return None
+
+    env = FakeEnv()
+    driver = sf_teacher_drivers.SerialTeacherRolloutDriver([env])
+
+    obs, info = driver.continue_after_life_loss(0)
+
+    assert env.reset_seeds == [None]
+    assert obs["obs"].tolist() == [1]
+    assert info == {"reset_seed": None}
+
+
+def test_batched_rollout_driver_continues_life_loss_from_last_step_result(monkeypatch):
+    sf_teacher_drivers = _load_sf_teacher_drivers_for_direct_test(monkeypatch)
+
+    class FakeBatchedEnv:
+        action_space = object()
+
+        def __init__(self):
+            self.unwrapped = self
+
+        def step(self, action):
+            return (
+                {"obs": np.asarray([[11], [22]])},
+                np.asarray([1.0, 2.0], dtype=np.float32),
+                np.asarray([True, True], dtype=np.bool_),
+                np.asarray([False, False], dtype=np.bool_),
+                [{"slot": 0}, {"slot": 1}],
+            )
+
+        def close(self):
+            return None
+
+    driver = sf_teacher_drivers.BatchedTeacherRolloutDriver(FakeBatchedEnv(), 2)
+    driver.step([0, 1], [3, 4])
+
+    obs, info = driver.continue_after_life_loss(1)
+
+    assert obs["obs"].tolist() == [[22]]
+    assert info == {"slot": 1}
+
+
 def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_path):
     import torch
     from latency_bench.data import sf_teacher_rollout as exporter
@@ -290,10 +363,9 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
             self.step_actions: list[object] = []
 
         def reset(self, seed=None):
-            del seed
-            return np.zeros((3, 2, 2), dtype=np.uint8), {
-                "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(5)
-            }
+            return np.zeros((3, 2, 2), dtype=np.uint8), [
+                {"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(5)}
+            ]
 
         def step(self, action):
             self.step_actions.append(action)
@@ -302,11 +374,13 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
                 np.float32(1.5),
                 np.bool_(True),
                 np.bool_(False),
-                {
-                    "latency_raw_frames": 2,
-                    "latency_ms": 66.0,
-                    "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(6),
-                },
+                [
+                    {
+                        "latency_raw_frames": 2,
+                        "latency_ms": 66.0,
+                        "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(6),
+                    }
+                ],
             )
 
         def close(self):
@@ -372,7 +446,6 @@ def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeyp
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
-            del normalized_obs
             return {
                 "actions": torch.tensor([[99]], dtype=torch.long),
                 "new_rnn_states": torch.ones_like(rnn_states),
@@ -388,23 +461,24 @@ def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeyp
 
         def reset(self, seed=None):
             self.reset_seeds.append(seed)
-            return np.zeros((3, 2, 2), dtype=np.uint8), {
-                "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(5)
-            }
+            return np.zeros((3, 2, 2), dtype=np.uint8), [
+                {"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(5)}
+            ]
 
         def step(self, action):
-            del action
             reward = 0.0 if len(self.reset_seeds) == 1 else 2200.0
             return (
                 np.zeros((3, 2, 2), dtype=np.uint8),
                 np.float32(reward),
                 np.bool_(True),
                 np.bool_(False),
-                {
-                    "latency_raw_frames": 2,
-                    "latency_ms": 66.0,
-                    "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(6),
-                },
+                [
+                    {
+                        "latency_raw_frames": 2,
+                        "latency_ms": 66.0,
+                        "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(6),
+                    }
+                ],
             )
 
         def close(self):
@@ -548,11 +622,9 @@ def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(m
     build_env_calls: list[tuple[bool, int]] = []
 
     def fake_build_cfg(config):
-        del config
         return object(), SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=100, use_gpu_render=False)
 
     def fake_runtime(module, cfg, config, num_envs):
-        del module, config
         export_rgb = bool(cfg.export_env_raw_rgb_frames)
         build_env_calls.append((export_rgb, int(num_envs)))
         env_cls = ReplayEnv if export_rgb else ProbeEnv
@@ -651,7 +723,6 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
             self.step_actions: list[object] = []
 
         def reset(self, seed=None):
-            del seed
             return {"obs": np.full((1, 12, 84, 84), self.slot, dtype=np.uint8)}, [
                 {"reset": True, "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(self.slot, frames=4)}
             ]
@@ -771,7 +842,6 @@ def test_collect_teacher_dataset_encodes_deadly_corridor_factorized_tuple_action
             self.step_actions: list[object] = []
 
         def reset(self, seed=None):
-            del seed
             return {"obs": np.full((1, 12, 84, 84), self.slot, dtype=np.uint8)}, [
                 {"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(self.slot, frames=4)}
             ]
@@ -897,7 +967,6 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
         action_space = object()
 
         def reset(self, seed=None):
-            del seed
             obs = {"obs": np.zeros((1, 4, 2, 2), dtype=np.uint8)}
             raw_stack = np.stack(
                 [
@@ -911,7 +980,6 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
             return obs, [{"env_raw_rgb_frame_stack": raw_stack}]
 
         def step(self, action):
-            del action
             obs = {"obs": np.ones((1, 4, 2, 2), dtype=np.uint8)}
             next_stack = np.stack([np.full((3, 2, 3), 50 + idx, dtype=np.uint8) for idx in range(4)], axis=0)
             return (
@@ -919,7 +987,16 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
                 np.asarray([51.0], dtype=np.float32),
                 np.asarray([True], dtype=np.bool_),
                 np.asarray([False], dtype=np.bool_),
-                [{"latency_raw_frames": 2, "latency_ms": 66.0, "env_raw_rgb_frame_stack": next_stack}],
+                [
+                    {
+                        "latency_raw_frames": 2,
+                        "latency_ms": 66.0,
+                        "raw_reward": 8000.0,
+                        "lives": 0,
+                        "is_true_episode_end": True,
+                        "env_raw_rgb_frame_stack": next_stack,
+                    }
+                ],
             )
 
         def close(self):
@@ -1008,7 +1085,6 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
         action_space = object()
 
         def reset(self, seed=None):
-            del seed
             obs = {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)}
             raw_stack = np.stack(
                 [
@@ -1022,7 +1098,6 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
             return obs, [{"env_raw_rgb_frame_stack": raw_stack}]
 
         def step(self, action):
-            del action
             obs = {"obs": np.ones((1, 12, 2, 2), dtype=np.uint8)}
             next_stack = np.stack([np.full((6, 5, 3), 50 + idx, dtype=np.uint8) for idx in range(4)], axis=0)
             return (
@@ -1119,7 +1194,6 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
             self.step_actions = []
 
         def reset(self, seed=None):
-            del seed
             obs = {"obs": np.zeros((3, 4, 2, 2), dtype=np.uint8)}
             infos = [
                 {"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(agent_idx, frames=4)}
@@ -1128,7 +1202,6 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
             return obs, infos
 
         def reset_agents(self, reset_plan, *, active_mask=None):
-            del active_mask
             obs = {"obs": np.zeros((3, 4, 2, 2), dtype=np.uint8)}
             infos = [
                 {"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(agent_idx + 10, frames=4)}
@@ -1146,6 +1219,9 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
                 {
                     "latency_raw_frames": 2,
                     "latency_ms": 66.0,
+                    "raw_reward": 8000.0 + agent_idx,
+                    "lives": 0,
+                    "is_true_episode_end": True,
                     "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(agent_idx + 20, frames=4),
                 }
                 for agent_idx in range(3)
@@ -1173,7 +1249,6 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
     build_env_calls = []
 
     def fake_runtime(module, cfg, config, num_envs):
-        del module, config
         build_env_calls.append(num_envs)
         assert cfg.gpu_env_batch_size == 3
         return {
@@ -1215,6 +1290,148 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
     assert not val_rows
     assert [row["episode_idx"] for row in train_rows] == [0, 1, 2]
     assert fake_env.step_actions == [[0, 1, 2], [0, 1, 2]]
+
+
+def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_losses(monkeypatch, tmp_path):
+    torch = pytest.importorskip("torch")
+    from latency_bench.data import sf_teacher_rollout as exporter
+
+    class FakeProgress:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def update(self, value):
+            pass
+
+        def set_postfix(self, **kwargs):
+            pass
+
+    class FakeActorCritic:
+        rnn_inputs: list[list[list[float]]] = []
+
+        def __call__(self, normalized_obs, rnn_states):
+            batch_size = int(normalized_obs["obs"].shape[0])
+            self.rnn_inputs.append(rnn_states.detach().cpu().numpy().tolist())
+            return {
+                "actions": torch.full((batch_size, 1), 1, dtype=torch.int64),
+                "new_rnn_states": torch.ones_like(rnn_states),
+            }
+
+    class ScriptedDemonEnv:
+        reset_seeds: list[int | None] = []
+        step_actions: list[object] = []
+        action_space = object()
+
+        transitions = [
+            {"reward": 10.0, "raw_reward": 1000.0, "lives": 2, "true_end": False},
+            {"reward": 20.0, "raw_reward": 3000.0, "lives": 1, "true_end": False},
+            {"reward": 30.0, "raw_reward": 4000.0, "lives": 0, "true_end": True},
+        ]
+
+        def __init__(self):
+            self.life_idx = 0
+
+        def reset(self, seed=None):
+            self.reset_seeds.append(seed)
+            if seed is None:
+                self.life_idx += 1
+            else:
+                self.life_idx = 0
+            return (
+                {"obs": np.full((1, 4, 2, 2), self.life_idx, dtype=np.uint8)},
+                [{"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(100 + self.life_idx, frames=4)}],
+            )
+
+        def step(self, action):
+            self.step_actions.append(action)
+            transition = self.transitions[self.life_idx]
+            info = {
+                "latency_raw_frames": 2,
+                "latency_ms": 66.0,
+                "raw_reward": transition["raw_reward"],
+                "lives": transition["lives"],
+                "is_true_episode_end": transition["true_end"],
+                "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(200 + self.life_idx, frames=4),
+            }
+            return (
+                {"obs": np.full((1, 4, 2, 2), self.life_idx + 10, dtype=np.uint8)},
+                np.asarray([transition["reward"]], dtype=np.float32),
+                np.asarray([True], dtype=np.bool_),
+                np.asarray([False], dtype=np.bool_),
+                [info],
+            )
+
+        def close(self):
+            return None
+
+    fake_cfg = SimpleNamespace(
+        frame_stack=4,
+        env_fps=60.0,
+        obs_fps=15.0,
+        seed=100,
+        simulator="cpu",
+        use_gpu_render=False,
+    )
+
+    def fake_runtime(module, cfg, config, num_envs):
+        return {
+            "envs": [ScriptedDemonEnv() for _ in range(int(num_envs))],
+            "env_info": object(),
+            "actor_critic": FakeActorCritic(),
+            "device": torch.device("cpu"),
+            "prepare_and_normalize_obs": lambda actor_critic, obs_batch: obs_batch,
+            "argmax_actions": lambda action_distribution: action_distribution,
+            "preprocess_actions": lambda env_info, actions: np.ones(int(actions.shape[0]), dtype=np.int64),
+            "unsqueeze_tensor": lambda value, dim: value.unsqueeze(dim),
+            "rnn_size": 1,
+            "checkpoint": {"train_step": 123},
+        }
+
+    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
+    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(exporter, "tqdm", FakeProgress)
+
+    output_dir = tmp_path / "export"
+    exporter.collect_teacher_dataset(
+        {"env_name": "demon_attack"},
+        output_dir=output_dir,
+        max_episodes=1,
+        max_steps_per_episode=8,
+        val_fraction=0.0,
+        split_seed=0,
+        num_envs=1,
+        deterministic=False,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+        filter_preset="none",
+    )
+    train_rows = _read_shard_rows(output_dir, "train")
+    state = json.loads((output_dir / "probe_state.json").read_text(encoding="utf-8"))
+
+    assert ScriptedDemonEnv.reset_seeds == [100, None, None, 100, None, None]
+    assert [row["decision_step"] for row in train_rows] == [2]
+    assert train_rows[0]["clipped_reward"] == 30.0
+    assert state["accepted_specs"] == [
+        {
+            "attempt_idx": 0,
+            "episode_idx": 0,
+            "episode_length": 3,
+            "episode_clipped_return": 60.0,
+            "episode_raw_return": 8000.0,
+            "seed": 100,
+            "split": "train",
+        }
+    ]
+    assert all(rnn_input == [[0.0]] for rnn_input in FakeActorCritic.rnn_inputs)
 
 
 def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, tmp_path):
@@ -1262,7 +1479,6 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
             ]
 
         def step(self, action):
-            del action
             return (
                 {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)},
                 np.asarray([1.5], dtype=np.float32),
@@ -1475,13 +1691,11 @@ def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatc
         action_space = object()
 
         def reset(self, seed=None):
-            del seed
             return {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)}, [
                 {"reset": True, "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(5, frames=4)}
             ]
 
         def step(self, action):
-            del action
             return (
                 {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)},
                 np.asarray([1.5], dtype=np.float32),
@@ -1599,11 +1813,9 @@ def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_pro
         action_space = object()
 
         def reset(self, seed=None):
-            del seed
             return {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)}, [{"probe": True}]
 
         def step(self, action):
-            del action
             self.__class__.step_count += 1
             return (
                 {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)},
@@ -1628,7 +1840,6 @@ def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_pro
             ]
 
         def step(self, action):
-            del action
             return (
                 {"obs": np.ones((1, 12, 2, 2), dtype=np.uint8)},
                 np.asarray([1.5], dtype=np.float32),
@@ -1647,11 +1858,9 @@ def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_pro
             return None
 
     def fake_build_cfg(config):
-        del config
         return object(), SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=100, use_gpu_render=False)
 
     def fake_runtime(module, cfg, config, num_envs):
-        del module, config
         env_cls = ReplayEnv if cfg.export_env_raw_rgb_frames else ProbeEnv
         return {
             "envs": [env_cls() for _ in range(int(num_envs))],
@@ -1953,7 +2162,6 @@ def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypa
     from latency_bench.data import sf_teacher_export as exporter
 
     def fake_collect_teacher_dataset(*args, output_dir, **kwargs):
-        del args, kwargs
         image_path = output_dir / "images" / "train" / "episode_000000" / "t_000000.png"
         image_path.parent.mkdir(parents=True, exist_ok=True)
         Image.fromarray(np.full((2, 2, 3), 5, dtype=np.uint8)).save(image_path)
@@ -2107,7 +2315,6 @@ def test_main_writes_prompt_source_and_timing_metadata(monkeypatch, tmp_path):
     from latency_bench.data import sf_teacher_export as exporter
 
     def fake_write_parquet_splits_from_shards(output_dir, **kwargs):
-        del kwargs
         output_dir.mkdir(parents=True, exist_ok=True)
         return {"train": [], "val": []}
 

@@ -75,9 +75,9 @@ ACTION_SPECS_BY_ENV = {
         layout=ACTION_LAYOUT_DEMON_ATTACK_DISCRETE,
         labels=DEMON_ATTACK_ACTION_LABELS,
         row_fields=("action_id", "action", "action_text"),
-        reward_field="clipped_reward",
-        episode_return_field="episode_clipped_return",
-        reward_semantics="clipped_reward",
+        reward_field="raw_reward",
+        episode_return_field="episode_raw_return",
+        reward_semantics="raw_reward",
     ),
     "deadly_corridor": ActionSpec(
         layout=ACTION_LAYOUT_DEADLY_CORRIDOR_FACTORIZED_11,

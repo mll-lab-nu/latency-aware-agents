@@ -9,11 +9,39 @@ import numpy as np
 
 
 FILTER_PRESET_CLEAN_V1 = "clean_v1"
+FILTER_PRESET_NONE = "none"
 FLAPPY_CONTEXT_WINDOW = 2
 FLAPPY_BACKGROUND_KEEP_PROB = 0.2
 DEMON_CONTEXT_WINDOW = 8
 DEMON_SURVIVAL_ANCHOR_STRIDE = 16
 DEMON_BACKGROUND_KEEP_PROB = 0.5
+DEMON_RAW_SCORE_STRONG_THRESHOLD = 7310.0
+DEMON_RAW_SCORE_BIN_LABELS = (
+    "<6460",
+    "6460-6889",
+    "6890-7309",
+    "7310-7999",
+    ">=8000",
+)
+
+
+def demon_raw_score_bin_counts(summaries: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """Count Demon Attack full-game raw scores in eval-aligned bins."""
+
+    counts = {label: 0 for label in DEMON_RAW_SCORE_BIN_LABELS}
+    for summary in summaries:
+        score = float(summary["episode_raw_return"])
+        if score < 6460.0:
+            counts["<6460"] += 1
+        elif score < 6890.0:
+            counts["6460-6889"] += 1
+        elif score < 7310.0:
+            counts["6890-7309"] += 1
+        elif score < 8000.0:
+            counts["7310-7999"] += 1
+        else:
+            counts[">=8000"] += 1
+    return counts
 
 
 def clean_v1_accepts_episode_summary(
@@ -35,7 +63,7 @@ def clean_v1_accepts_episode_summary(
     return {
         "flappy": lambda: summary["episode_length"] >= max_steps_per_episode,
         "deadly_corridor": lambda: summary["episode_raw_return"] >= 2200.0,
-        "demon_attack": lambda: summary["episode_clipped_return"] > 50.0,
+        "demon_attack": lambda: summary["episode_raw_return"] >= DEMON_RAW_SCORE_STRONG_THRESHOLD,
     }[env_name]()
 
 
@@ -133,17 +161,15 @@ def _filter_demon_train_rows(rows: Sequence[Mapping[str, Any]], *, seed: int) ->
     return _copy_kept_rows(rows, kept_indices)
 
 
-def _keep_all_train_rows(rows: Sequence[Mapping[str, Any]], *, seed: int) -> list[dict[str, Any]]:
+def _copy_all_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Copy accepted train rows when an environment has no row-level filter.
 
     Args:
         rows: Accepted training episode rows.
-        seed: Episode reset seed, unused because all rows are retained.
 
     Returns:
         Row copies in original order.
     """
-    del seed
     return [dict(row) for row in rows]
 
 
@@ -158,8 +184,57 @@ def filter_train_rows_clean_v1(env_name: str, rows: Sequence[Mapping[str, Any]],
     Returns:
         Filtered row copies. Validation rows should not use this function.
     """
+    if env_name == "deadly_corridor":
+        return _copy_all_rows(rows)
     return {
         "flappy": _filter_flappy_train_rows,
         "demon_attack": _filter_demon_train_rows,
-        "deadly_corridor": _keep_all_train_rows,
     }[env_name](rows, seed=seed)
+
+
+def accepts_episode(
+    filter_preset: str,
+    env_name: str,
+    summary: Mapping[str, Any],
+    *,
+    max_steps_per_episode: int,
+) -> bool:
+    """Dispatch episode-level gate by filter preset.
+
+    Args:
+        filter_preset: ``"none"`` or ``"clean_v1"``.
+        env_name: Canonical benchmark environment name.
+        summary: Episode summary with length and environment-specific return.
+        max_steps_per_episode: Export step cap used by Flappy's full-length gate.
+
+    Returns:
+        Whether this episode should be accepted.
+    """
+    if filter_preset == FILTER_PRESET_NONE:
+        return True
+    return clean_v1_accepts_episode_summary(
+        env_name, summary, max_steps_per_episode=max_steps_per_episode,
+    )
+
+
+def filter_train_rows(
+    filter_preset: str,
+    env_name: str,
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    seed: int,
+) -> list[dict[str, Any]]:
+    """Dispatch train row filtering by filter preset.
+
+    Args:
+        filter_preset: ``"none"`` or ``"clean_v1"``.
+        env_name: Canonical benchmark environment name.
+        rows: Accepted episode rows from the train split.
+        seed: Episode reset seed used for deterministic background sampling.
+
+    Returns:
+        Filtered row copies.
+    """
+    if filter_preset == FILTER_PRESET_NONE:
+        return _copy_all_rows(rows)
+    return filter_train_rows_clean_v1(env_name, rows, seed=seed)

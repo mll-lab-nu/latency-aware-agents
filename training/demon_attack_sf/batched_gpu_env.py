@@ -283,6 +283,9 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             infos[int(agent_idx)]["reset_info"] = reset_info
         if self.export_env_raw_rgb_frames:
             raw_rgb = self.core.native_rgb_frames()
+            life_loss_indices = np.flatnonzero(life_loss_reset_mask)
+            if life_loss_indices.size:
+                self._reset_env_raw_rgb_frames(raw_rgb, agent_indices=life_loss_indices)
             self._append_env_raw_rgb_frames(raw_rgb, done_mask=done_mask)
             self._attach_env_raw_rgb_infos(infos)
         self.sample_factory_step_cpu_tensors = {
@@ -437,11 +440,11 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             if self.latency.add_latency_info:
                 info.update(self.latency.core_decision_info_for_agent(agent_idx, latency_result))
             if int(agent_idx) in done_infos:
-                done_info = dict(done_infos[int(agent_idx)])
-                if "raw_reward" in done_info:
-                    del done_info["raw_reward"]
-                if "score" in done_info:
-                    del done_info["score"]
+                done_info = {
+                    key: value
+                    for key, value in done_infos[int(agent_idx)].items()
+                    if key not in ("raw_reward", "score")
+                }
                 info.update(done_info)
             infos.append(info)
         return infos
@@ -465,11 +468,11 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             }
             if self.latency.add_latency_info:
                 info.update(self._gpu_decision_info_for_agent(agent_idx, latency_result))
-            done_info = dict(done_info_src)
-            if "raw_reward" in done_info:
-                del done_info["raw_reward"]
-            if "score" in done_info:
-                del done_info["score"]
+            done_info = {
+                key: value
+                for key, value in done_info_src.items()
+                if key not in ("raw_reward", "score")
+            }
             info.update(done_info)
             infos[int(agent_idx)] = info
         return infos

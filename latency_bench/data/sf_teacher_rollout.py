@@ -13,8 +13,9 @@ from tqdm import tqdm
 from latency_bench.data.action_layouts import action_spec_for_env
 from latency_bench.data.filters import (
     FILTER_PRESET_CLEAN_V1,
-    clean_v1_accepts_episode_summary,
-    filter_train_rows_clean_v1,
+    accepts_episode,
+    demon_raw_score_bin_counts,
+    filter_train_rows,
 )
 from latency_bench.data.hf_parquet import (
     completed_episode_indices_from_shards,
@@ -26,6 +27,7 @@ from latency_bench.data.rollout_schema import SCHEMA_VERSION
 from latency_bench.data.sf_teacher_rows import teacher_dataset_row
 from latency_bench.data.sf_teacher_drivers import (
     BatchedTeacherRolloutDriver,
+    RolloutStepResult,
     SerialTeacherRolloutDriver,
     batch_observations,
 )
@@ -40,6 +42,7 @@ from latency_bench.policy.sample_factory_common import (
     _split_batch_actions,
     _to_python_action,
 )
+from training.atari_episode_stats import is_true_atari_episode_end
 from training.common.utils import maybe_set_cli_override
 
 
@@ -195,12 +198,20 @@ def _write_probe_state(output_dir: Path, state: Mapping[str, Any]) -> None:
     tmp_path.replace(state_path)
 
 
-def _filter_report_from_probe_state(output_dir: Path, probe_state: Mapping[str, Any]) -> dict[str, Any]:
+def _filter_report_from_probe_state(
+    output_dir: Path,
+    probe_state: Mapping[str, Any],
+    *,
+    env_name: str,
+    filter_preset: str = FILTER_PRESET_CLEAN_V1,
+) -> dict[str, Any]:
     """Build final filter report from probe state and written row shards.
 
     Args:
         output_dir: Rollout export directory containing episode row shards.
         probe_state: Persisted probe state with accepted specs and attempt counters.
+        env_name: Canonical benchmark environment name.
+        filter_preset: Filter preset name recorded in the report.
 
     Returns:
         Filter report written to metadata and ``filter_report.json``.
@@ -209,8 +220,8 @@ def _filter_report_from_probe_state(output_dir: Path, probe_state: Mapping[str, 
     accepted_specs = probe_state["accepted_specs"]
     train_specs = [spec for spec in accepted_specs if spec["split"] == "train"]
     val_specs = [spec for spec in accepted_specs if spec["split"] == "val"]
-    return {
-        "preset": FILTER_PRESET_CLEAN_V1,
+    report = {
+        "preset": filter_preset,
         "attempted_episodes": int(probe_state["attempted_episodes"]),
         "accepted_episodes": len(accepted_specs),
         "rejected_episodes": int(probe_state["rejected_episodes"]),
@@ -221,6 +232,9 @@ def _filter_report_from_probe_state(output_dir: Path, probe_state: Mapping[str, 
         "val_rows_before_row_filter": sum(int(spec["episode_length"]) for spec in val_specs),
         "val_rows_after_row_filter": split_stats["val_rows"],
     }
+    if env_name == "demon_attack":
+        report["raw_score_bins"] = demon_raw_score_bin_counts(accepted_specs)
+    return report
 
 
 def _write_filtered_episode_images(
@@ -325,22 +339,26 @@ def _step_teacher_policy(
     return raw_actions, new_rnn_states, driver.step(active_slots, raw_actions)
 
 
-def _probe_episode_summary(env_name: str, *, episode_length: int, episode_return: float) -> dict[str, Any]:
-    """Build clean_v1 probe summary fields for one completed attempt.
-
-    Args:
-        env_name: Canonical benchmark environment name.
-        episode_length: Number of decision steps in the attempt.
-        episode_return: Sum of the environment-specific reward returned by rollout.
-
-    Returns:
-        Summary fields used by clean_v1 episode gates and persisted accepted specs.
-    """
-    action_spec = action_spec_for_env(env_name)
-    return {
-        "episode_length": int(episode_length),
-        action_spec.episode_return_field: float(episode_return),
-    }
+def _rollout_step_flags(
+    env_name: str,
+    step_result: RolloutStepResult,
+    *,
+    next_decision_step: int,
+    max_steps_per_episode: int,
+) -> tuple[bool, bool]:
+    raw_done = step_result.terminated or step_result.truncated
+    life_loss_boundary = False
+    true_episode_end = raw_done
+    if env_name == "demon_attack":
+        true_episode_end = is_true_atari_episode_end(
+            step_result.terminated,
+            step_result.truncated,
+            step_result.info,
+        )
+        life_loss_boundary = raw_done and not true_episode_end
+    if next_decision_step >= max_steps_per_episode:
+        return life_loss_boundary, True
+    return life_loss_boundary, true_episode_end
 
 
 def _probe_accepted_specs(
@@ -356,6 +374,7 @@ def _probe_accepted_specs(
     split_seed: int,
     deterministic: bool,
     probe_state: dict[str, Any],
+    filter_preset: str = FILTER_PRESET_CLEAN_V1,
 ) -> None:
     """Probe rollout attempts without raw RGB until enough accepted specs exist.
 
@@ -371,10 +390,12 @@ def _probe_accepted_specs(
         split_seed: RNG seed for split assignment.
         deterministic: Whether to use deterministic teacher actions.
         probe_state: Mutable probe state persisted for resume.
+        filter_preset: Filter preset name for episode-level gating.
     """
     accepted_specs = probe_state["accepted_specs"]
     rnn_size = runtime["rnn_size"]
     device = runtime["device"]
+    action_spec = action_spec_for_env(env_name)
     final_splits = {
         int(spec["episode_idx"]): str(spec["split"])
         for spec in _build_episode_plan(
@@ -388,6 +409,7 @@ def _probe_accepted_specs(
     active_obs: list[Any | None] = [None for _ in range(driver.slot_count)]
     active_episode_lengths = [0 for _ in range(driver.slot_count)]
     active_episode_returns = [0.0 for _ in range(driver.slot_count)]
+    active_episode_raw_returns = [0.0 for _ in range(driver.slot_count)]
     active_decision_steps = [0 for _ in range(driver.slot_count)]
     rnn_states = torch.zeros([driver.slot_count, rnn_size], dtype=torch.float32, device=device)
 
@@ -401,12 +423,15 @@ def _probe_accepted_specs(
             initial_reset_plan[slot] = int(spec["seed"])
         probe_state["next_attempt_idx"] = next_attempt_idx
         if initial_reset_plan:
-            reset_results = driver.reset_slots(initial_reset_plan, [spec is not None for spec in active_specs])
-            for slot, (obs, reset_info) in reset_results.items():
-                del reset_info
+            if isinstance(driver, BatchedTeacherRolloutDriver):
+                reset_results = driver.reset_slots(initial_reset_plan, [spec is not None for spec in active_specs])
+            else:
+                reset_results = driver.reset_slots(initial_reset_plan)
+            for slot, (obs, _reset_info) in reset_results.items():
                 active_obs[slot] = obs
                 active_episode_lengths[slot] = 0
                 active_episode_returns[slot] = 0.0
+                active_episode_raw_returns[slot] = 0.0
                 active_decision_steps[slot] = 0
                 rnn_states[slot].zero_()
 
@@ -415,7 +440,7 @@ def _probe_accepted_specs(
                 active_slots = [slot for slot, spec in enumerate(active_specs) if spec is not None]
                 if not active_slots:
                     break
-                raw_actions, new_rnn_states, step_results = _step_teacher_policy(
+                _raw_actions, new_rnn_states, step_results = _step_teacher_policy(
                     runtime,
                     driver,
                     active_slots=active_slots,
@@ -423,7 +448,6 @@ def _probe_accepted_specs(
                     rnn_states=rnn_states,
                     deterministic=deterministic,
                 )
-                del raw_actions
                 reset_plan: dict[int, int] = {}
                 target_reached = False
 
@@ -433,25 +457,37 @@ def _probe_accepted_specs(
                         active_obs[slot] = None
                         active_episode_lengths[slot] = 0
                         active_episode_returns[slot] = 0.0
+                        active_episode_raw_returns[slot] = 0.0
                         active_decision_steps[slot] = 0
                         rnn_states[slot].zero_()
                         continue
                     spec = active_specs[slot]
                     step_result = step_results[slot]
-                    done = bool(step_result.terminated) or bool(step_result.truncated)
                     active_episode_lengths[slot] += 1
                     active_episode_returns[slot] += float(_to_python_action(step_result.reward))
+                    if env_name == "demon_attack":
+                        active_episode_raw_returns[slot] += float(_to_python_action(step_result.info["raw_reward"]))
+                    else:
+                        active_episode_raw_returns[slot] += float(_to_python_action(step_result.reward))
 
                     rnn_states[slot] = new_rnn_states[batch_idx]
                     next_decision_step = int(active_decision_steps[slot]) + 1
-                    if done or next_decision_step >= int(max_steps_per_episode):
+                    life_loss_boundary, episode_done = _rollout_step_flags(
+                        env_name,
+                        step_result,
+                        next_decision_step=next_decision_step,
+                        max_steps_per_episode=int(max_steps_per_episode),
+                    )
+                    if episode_done:
                         probe_state["attempted_episodes"] += 1
-                        summary = _probe_episode_summary(
-                            env_name,
-                            episode_length=active_episode_lengths[slot],
-                            episode_return=active_episode_returns[slot],
-                        )
-                        accepted = clean_v1_accepts_episode_summary(
+                        summary = {
+                            "episode_length": int(active_episode_lengths[slot]),
+                            action_spec.episode_return_field: float(active_episode_returns[slot]),
+                        }
+                        if env_name == "demon_attack":
+                            summary["episode_raw_return"] = float(active_episode_raw_returns[slot])
+                        accepted = accepts_episode(
+                            filter_preset,
                             env_name,
                             summary,
                             max_steps_per_episode=int(max_steps_per_episode),
@@ -459,17 +495,17 @@ def _probe_accepted_specs(
                         if accepted:
                             final_episode_idx = len(accepted_specs)
                             final_split = final_splits[final_episode_idx]
-                            episode_return_field = action_spec_for_env(env_name).episode_return_field
-                            accepted_specs.append(
-                                {
-                                    "attempt_idx": int(spec["attempt_idx"]),
-                                    "episode_idx": int(final_episode_idx),
-                                    "episode_length": int(summary["episode_length"]),
-                                    episode_return_field: float(summary[episode_return_field]),
-                                    "seed": int(spec["seed"]),
-                                    "split": str(final_split),
-                                }
-                            )
+                            accepted_spec = {
+                                "attempt_idx": int(spec["attempt_idx"]),
+                                "episode_idx": int(final_episode_idx),
+                                "episode_length": int(summary["episode_length"]),
+                                action_spec.episode_return_field: float(summary[action_spec.episode_return_field]),
+                                "seed": int(spec["seed"]),
+                                "split": str(final_split),
+                            }
+                            if env_name == "demon_attack":
+                                accepted_spec["episode_raw_return"] = float(summary["episode_raw_return"])
+                            accepted_specs.append(accepted_spec)
                             progress.update(1)
                             target_reached = len(accepted_specs) >= int(max_episodes)
                         else:
@@ -484,6 +520,7 @@ def _probe_accepted_specs(
                             active_obs[slot] = None
                             active_episode_lengths[slot] = 0
                             active_episode_returns[slot] = 0.0
+                            active_episode_raw_returns[slot] = 0.0
                             active_decision_steps[slot] = 0
                             rnn_states[slot].zero_()
                         probe_state["next_attempt_idx"] = next_attempt_idx
@@ -494,22 +531,30 @@ def _probe_accepted_specs(
                             allocated_attempts=next_attempt_idx,
                         )
                     else:
-                        active_obs[slot] = step_result.next_obs
+                        if life_loss_boundary:
+                            active_obs[slot], _reset_info = driver.continue_after_life_loss(slot)
+                            rnn_states[slot].zero_()
+                        else:
+                            active_obs[slot] = step_result.next_obs
                         active_decision_steps[slot] = next_decision_step
 
                 if target_reached:
                     break
                 if reset_plan:
-                    reset_results = driver.reset_slots(reset_plan, [spec is not None for spec in active_specs])
-                    for slot, (obs, reset_info) in reset_results.items():
-                        del reset_info
+                    if isinstance(driver, BatchedTeacherRolloutDriver):
+                        reset_results = driver.reset_slots(reset_plan, [spec is not None for spec in active_specs])
+                    else:
+                        reset_results = driver.reset_slots(reset_plan)
+                    for slot, (obs, _reset_info) in reset_results.items():
                         active_obs[slot] = obs
                         active_episode_lengths[slot] = 0
                         active_episode_returns[slot] = 0.0
+                        active_episode_raw_returns[slot] = 0.0
                         active_decision_steps[slot] = 0
                         rnn_states[slot].zero_()
                 else:
-                    driver.sync_active([spec is not None for spec in active_specs])
+                    if isinstance(driver, BatchedTeacherRolloutDriver):
+                        driver.sync_active([spec is not None for spec in active_specs])
     finally:
         driver.close()
 
@@ -528,6 +573,7 @@ def _replay_accepted_specs(
     export_image_size: tuple[int, int] | None,
     image_writer_workers: int,
     row_buffer_size: int,
+    filter_preset: str = FILTER_PRESET_CLEAN_V1,
 ) -> list[int] | None:
     """Replay accepted specs with raw RGB export and write episode shards.
 
@@ -544,6 +590,7 @@ def _replay_accepted_specs(
         export_image_size: Optional ``(width, height)`` resize target.
         image_writer_workers: Number of async image writer threads.
         row_buffer_size: Pending image write threshold.
+        filter_preset: Filter preset name for train row density control.
     Returns:
         First observed image resolution, or ``None`` when no spec is replayed.
     """
@@ -592,7 +639,10 @@ def _replay_accepted_specs(
         initial_slots = list(range(driver.slot_count))
         initial_reset_plan = assign_specs_to_slots(initial_slots)
         if initial_reset_plan:
-            reset_results = driver.reset_slots(initial_reset_plan, [spec is not None for spec in active_specs])
+            if isinstance(driver, BatchedTeacherRolloutDriver):
+                reset_results = driver.reset_slots(initial_reset_plan, [spec is not None for spec in active_specs])
+            else:
+                reset_results = driver.reset_slots(initial_reset_plan)
             for slot, (obs, reset_info) in reset_results.items():
                 active_obs[slot] = obs
                 active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
@@ -628,24 +678,30 @@ def _replay_accepted_specs(
                             image_resolution = [height, width, image_frame.shape[2]]
                         else:
                             image_resolution = list(image_frame.shape)
-                    active_episode_frames[slot].append(np.array(image_frame, copy=True))
                     step_result = step_results[slot]
-                    row = teacher_dataset_row(
-                        env_name=env_name,
-                        spec=spec,
-                        decision_step=decision_step,
-                        image=str(image_path),
-                        raw_action=raw_actions[batch_idx],
-                        info=step_result.info,
-                        reward=step_result.reward,
-                        env_fps=env_fps,
-                        obs_fps=obs_fps,
-                    )
-                    active_episode_rows[slot].append(row)
-                    rnn_states[slot] = new_rnn_states[batch_idx]
                     next_decision_step = decision_step + 1
-                    done = bool(step_result.terminated) or bool(step_result.truncated)
-                    if done or next_decision_step >= int(max_steps_per_episode):
+                    life_loss_boundary, episode_done = _rollout_step_flags(
+                        env_name,
+                        step_result,
+                        next_decision_step=next_decision_step,
+                        max_steps_per_episode=int(max_steps_per_episode),
+                    )
+                    if not life_loss_boundary:
+                        active_episode_frames[slot].append(np.array(image_frame, copy=True))
+                        row = teacher_dataset_row(
+                            env_name=env_name,
+                            spec=spec,
+                            decision_step=decision_step,
+                            image=str(image_path),
+                            raw_action=raw_actions[batch_idx],
+                            info=step_result.info,
+                            reward=step_result.reward,
+                            env_fps=env_fps,
+                            obs_fps=obs_fps,
+                        )
+                        active_episode_rows[slot].append(row)
+                    rnn_states[slot] = new_rnn_states[batch_idx]
+                    if episode_done:
                         final_rows = _finalize_attempt_rows(
                             active_episode_rows[slot],
                             final_dir=final_dir,
@@ -653,7 +709,8 @@ def _replay_accepted_specs(
                             split=str(spec["split"]),
                         )
                         if str(spec["split"]) == "train":
-                            shard_rows = filter_train_rows_clean_v1(
+                            shard_rows = filter_train_rows(
+                                filter_preset,
                                 env_name,
                                 final_rows,
                                 seed=int(spec["seed"]),
@@ -681,12 +738,20 @@ def _replay_accepted_specs(
                         active_decision_steps[slot] = 0
                         rnn_states[slot].zero_()
                     else:
-                        active_obs[slot] = step_result.next_obs
-                        active_image_frames[slot] = frame_from_env_raw_rgb_info(step_result.info)
+                        if life_loss_boundary:
+                            active_obs[slot], reset_info = driver.continue_after_life_loss(slot)
+                            active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
+                            rnn_states[slot].zero_()
+                        else:
+                            active_obs[slot] = step_result.next_obs
+                            active_image_frames[slot] = frame_from_env_raw_rgb_info(step_result.info)
                         active_decision_steps[slot] = next_decision_step
 
                 if reset_plan:
-                    reset_results = driver.reset_slots(reset_plan, [spec is not None for spec in active_specs])
+                    if isinstance(driver, BatchedTeacherRolloutDriver):
+                        reset_results = driver.reset_slots(reset_plan, [spec is not None for spec in active_specs])
+                    else:
+                        reset_results = driver.reset_slots(reset_plan)
                     for slot, (obs, reset_info) in reset_results.items():
                         active_obs[slot] = obs
                         active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
@@ -695,7 +760,8 @@ def _replay_accepted_specs(
                         active_decision_steps[slot] = 0
                         rnn_states[slot].zero_()
                 else:
-                    driver.sync_active([spec is not None for spec in active_specs])
+                    if isinstance(driver, BatchedTeacherRolloutDriver):
+                        driver.sync_active([spec is not None for spec in active_specs])
     finally:
         try:
             image_writer.close()
@@ -761,6 +827,8 @@ def collect_teacher_dataset(
     export_image_size: tuple[int, int] | None,
     image_writer_workers: int,
     row_buffer_size: int,
+    filter_preset: str = FILTER_PRESET_CLEAN_V1,
+    filter_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Collect a Sample Factory teacher dataset from a checkpoint descriptor.
 
@@ -777,6 +845,8 @@ def collect_teacher_dataset(
         export_image_size: Optional ``(width, height)`` resize target.
         image_writer_workers: Number of async image writer threads.
         row_buffer_size: Pending image write threshold.
+        filter_preset: Filter preset name (``"none"`` or ``"clean_v1"``).
+        filter_kwargs: Temporary exporter experiment arguments retained at the public boundary.
     Returns:
         Rollout metadata.
     """
@@ -813,6 +883,7 @@ def collect_teacher_dataset(
             split_seed=int(split_seed),
             deterministic=bool(deterministic),
             probe_state=probe_state,
+            filter_preset=filter_preset,
         )
 
     accepted_specs = probe_state["accepted_specs"]
@@ -842,6 +913,7 @@ def collect_teacher_dataset(
             export_image_size=export_image_size,
             image_writer_workers=int(image_writer_workers),
             row_buffer_size=int(row_buffer_size),
+            filter_preset=filter_preset,
         )
 
     action_spec = action_spec_for_env(env_name)
@@ -849,7 +921,12 @@ def collect_teacher_dataset(
     env_fps = float(runtime_metadata["env_fps"])
     obs_fps = float(runtime_metadata["obs_fps"])
     split_stats = episode_row_split_stats(output_dir)
-    filter_report = _filter_report_from_probe_state(output_dir, probe_state)
+    filter_report = _filter_report_from_probe_state(
+        output_dir,
+        probe_state,
+        env_name=env_name,
+        filter_preset=filter_preset,
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "action_layout": action_spec.layout,
@@ -857,7 +934,7 @@ def collect_teacher_dataset(
         "reward_field": action_spec.reward_field,
         "episode_return_field": action_spec.episode_return_field,
         "reward_semantics": action_spec.reward_semantics,
-        "filter_preset": FILTER_PRESET_CLEAN_V1,
+        "filter_preset": filter_preset,
         "filter_report": filter_report,
         "checkpoint_train_step": int(runtime_metadata["checkpoint_train_step"]),
         "frame_stack": int(runtime_metadata["frame_stack"]),

@@ -28,6 +28,9 @@ Optional environment variables:
   HF_REPO_ID          If set, upload the export to this Hugging Face dataset repo.
   HF_PRIVATE          Set to 1 to upload as private. Default: 1.
   HF_TOKEN            Hugging Face token used when HF_REPO_ID is set.
+  HF_CONFIG_NAME      HF dataset config name for multi-config repos.
+  FILTER_PRESET       Filter preset: none or clean_v1. Default: clean_v1.
+  DEMON_EPISODE_THRESHOLD  Override Demon Attack episode clipped return threshold.
 
 Notes:
   By default the exporter uses the latency config saved in the checkpoint config.json.
@@ -77,10 +80,21 @@ if [[ -n "${IMAGE_WRITER_WORKERS:-}" ]]; then
     CMD+=(--image-writer-workers "${IMAGE_WRITER_WORKERS}")
 fi
 
+if [[ -n "${FILTER_PRESET:-}" ]]; then
+    CMD+=(--filter-preset "${FILTER_PRESET}")
+fi
+
+if [[ -n "${DEMON_EPISODE_THRESHOLD:-}" ]]; then
+    CMD+=(--demon-episode-threshold "${DEMON_EPISODE_THRESHOLD}")
+fi
+
 if [[ -n "${HF_REPO_ID:-}" ]]; then
     CMD+=(--push-to-hub --hf-repo-id "${HF_REPO_ID}" --hf-token "${HF_TOKEN:-}")
     if [[ "${HF_PRIVATE}" == "1" || "${HF_PRIVATE}" == "true" ]]; then
         CMD+=(--hf-private)
+    fi
+    if [[ -n "${HF_CONFIG_NAME:-}" ]]; then
+        CMD+=(--hf-config-name "${HF_CONFIG_NAME}")
     fi
 fi
 
@@ -100,6 +114,12 @@ fi
 if [[ -n "${IMAGE_WRITER_WORKERS:-}" ]]; then
     printf '    image writer workers: %s\n' "${IMAGE_WRITER_WORKERS}"
 fi
-printf '    filter preset: clean_v1\n'
+printf '    filter preset: %s\n' "${FILTER_PRESET:-clean_v1}"
+if [[ -n "${DEMON_EPISODE_THRESHOLD:-}" ]]; then
+    printf '    demon threshold: %s\n' "${DEMON_EPISODE_THRESHOLD}"
+fi
+if [[ -n "${HF_CONFIG_NAME:-}" ]]; then
+    printf '    hf config name: %s\n' "${HF_CONFIG_NAME}"
+fi
 
 "${CMD[@]}"
