@@ -122,21 +122,6 @@ persist_conda_shell_init() {
     fi
 }
 
-ensure_envpool_build_tools() {
-    export PATH="${HOME}/go/bin:${PATH}"
-    export CGO_ENABLED=0
-    export USE_BAZEL_VERSION=6.5.0
-    if command -v go >/dev/null 2>&1; then
-        echo "[install] using existing $(go version)"
-        return
-    fi
-
-    echo "[install] installing go from conda-forge for envpool build"
-    set +u
-    conda install -y -c conda-forge --override-channels go
-    set -u
-}
-
 SELECTED_TORCH_PROFILE="$(resolve_torch_profile "${LATENCY_BENCH_TORCH_PROFILE}")"
 TORCH_INDEX_URL="$(torch_index_url "${SELECTED_TORCH_PROFILE}")"
 echo "[install] torch_profile=${SELECTED_TORCH_PROFILE} index_url=${TORCH_INDEX_URL}"
@@ -163,7 +148,6 @@ git submodule update --init --recursive
 conda create -n latency -c conda-forge --override-channels python=3.10 -y
 
 conda activate latency
-ensure_envpool_build_tools
 python -m pip install --upgrade pip
 python -m pip install "torch==${TORCH_VERSION}" --index-url "${TORCH_INDEX_URL}"
 python - <<'PY'
@@ -173,10 +157,6 @@ print(f"[install] torch={torch.__version__} cuda={torch.version.cuda}")
 PY
 python -m pip install -r requirements.txt
 
-# install envpool for deadly corridor acceleration
-rm -f envpool/dist/envpool-*.whl
-make -C envpool bazel-release
-python -m pip install --force-reinstall --no-deps envpool/dist/envpool-*.whl
 bash scripts/bash_scripts/build_cuda_extensions.sh
 bash starVLA/examples/rl_games/install/bootstrap.sh --split-envs
 wandb login
