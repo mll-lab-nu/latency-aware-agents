@@ -100,6 +100,7 @@ def upload_folder_to_hf(
     repo_id: str,
     local_dir: Path,
     repo_type: str,
+    path_in_repo: str | None = None,
 ) -> None:
     """Upload one local artifact folder to Hugging Face.
 
@@ -107,6 +108,10 @@ def upload_folder_to_hf(
         repo_id: Hugging Face repo id.
         local_dir: Folder containing protocol artifacts.
         repo_type: Hugging Face repo type.
+        path_in_repo: Destination folder inside the repo. When set, the folder
+            lands at `<path_in_repo>/...` so an upload round-trips with the
+            `profiles/<policy>/<env>/<profile_id>` layout that
+            `ensure_profile_cached` downloads from.
 
     Side effects:
         Uploads the folder using `huggingface_hub.HfApi`.
@@ -117,6 +122,7 @@ def upload_folder_to_hf(
         repo_id=repo_id,
         repo_type=repo_type,
         folder_path=str(local_dir),
+        path_in_repo=path_in_repo,
     )
 
 
@@ -140,6 +146,7 @@ def main(argv: list[str] | None = None) -> None:
     upload.add_argument("--folder", type=Path, required=True)
     upload.add_argument("--hf-repo", required=True)
     upload.add_argument("--repo-type", default="dataset")
+    upload.add_argument("--path-in-repo", help="Destination folder inside the repo (e.g. profiles/<policy>/<env>/<profile_id>).")
 
     args = parser.parse_args(argv)
     if args.command == "download":
@@ -157,6 +164,7 @@ def main(argv: list[str] | None = None) -> None:
         repo_id=args.hf_repo,
         local_dir=args.folder,
         repo_type=args.repo_type,
+        path_in_repo=args.path_in_repo,
     )
     print(args.folder)
 

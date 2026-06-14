@@ -13,6 +13,7 @@ from typing import Any
 import torch
 
 from latency_bench.analysis.cross_device_protocol_tables import load_protocol_spec, write_protocol_tables
+from latency_bench.latency.hardware_info import collect_hardware_fingerprint
 from scripts.cross_device.config import _row_base_config
 from scripts.cross_device.planning import (
     _build_plan,
@@ -189,6 +190,14 @@ def run_doctor(args: argparse.Namespace, spec: dict[str, Any]) -> None:
     print(f"  matched device: {detected['device']['id']}")
     print(f"  display_name: {detected['device'].get('display_name')}")
     print(f"  cuda_available: {cuda_available}")
+    fingerprint = collect_hardware_fingerprint()
+    gpu = fingerprint.get("gpu", {})
+    cpu = fingerprint.get("cpu", {})
+    memory = fingerprint.get("memory", {})
+    print("  fingerprint:")
+    print(f"    gpu: {gpu.get('name')} | vram: {gpu.get('memory.total')} | power_limit: {gpu.get('power.limit')}")
+    print(f"    cpu: {cpu.get('model_name')} | logical_cores: {cpu.get('logical_cores')}")
+    print(f"    ram: {memory.get('total_gib')} GiB")
     print(f"Output root: {output_root}")
     print("Selected rows:")
     for experiment_id, experiment, row in rows:

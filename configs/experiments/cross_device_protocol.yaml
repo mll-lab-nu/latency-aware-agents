@@ -26,6 +26,12 @@ devices:
     aliases:
       - RTX 4090
       - NVIDIA GeForce RTX 4090
+  - id: rtx5090
+    display_name: RTX 5090
+    profile_id: L_5090
+    aliases:
+      - RTX 5090
+      - NVIDIA GeForce RTX 5090
   - id: a6000
     display_name: RTX A6000
     profile_id: L_A6000
@@ -185,6 +191,18 @@ experiments:
         target_latency_frames: 2
         base_config: configs/experiments/deadly_corridor/starvla_single_latency.yaml
     replay_pairs:
+      - target_device: rtx3090
+        replay_device: b200
+      - target_device: rtx3090
+        replay_device: h200
+      - target_device: rtx4090
+        replay_device: b200
+      - target_device: rtx4090
+        replay_device: h200
+      - target_device: l40s
+        replay_device: b200
+      - target_device: l40s
+        replay_device: h200
       - target_device: a100
         replay_device: b200
       - target_device: a100
