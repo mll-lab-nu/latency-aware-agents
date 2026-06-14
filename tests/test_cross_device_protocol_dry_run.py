@@ -430,6 +430,12 @@ def test_real_protocol_exp3_uses_explicit_replay_pairs():
     replay_pairs = spec["experiments"]["exp3_cross_device_prediction"]["replay_pairs"]
 
     assert replay_pairs == [
+        {"target_device": "rtx3090", "replay_device": "b200"},
+        {"target_device": "rtx3090", "replay_device": "h200"},
+        {"target_device": "rtx4090", "replay_device": "b200"},
+        {"target_device": "rtx4090", "replay_device": "h200"},
+        {"target_device": "l40s", "replay_device": "b200"},
+        {"target_device": "l40s", "replay_device": "h200"},
         {"target_device": "a100", "replay_device": "b200"},
         {"target_device": "a100", "replay_device": "h200"},
     ]

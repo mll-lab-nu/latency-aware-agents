@@ -117,6 +117,7 @@ def test_profile_cache_uploads_output_folder_to_hf(tmp_path: Path, monkeypatch):
         repo_id="latency-sensitive-bench/profiles",
         local_dir=out,
         repo_type="dataset",
+        path_in_repo="profiles/openvla-flappy/flappy/L_A100",
     )
 
     assert calls == [
@@ -124,5 +125,6 @@ def test_profile_cache_uploads_output_folder_to_hf(tmp_path: Path, monkeypatch):
             "repo_id": "latency-sensitive-bench/profiles",
             "repo_type": "dataset",
             "folder_path": str(out),
+            "path_in_repo": "profiles/openvla-flappy/flappy/L_A100",
         }
     ]

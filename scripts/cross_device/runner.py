@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import socket
 import subprocess
@@ -17,7 +18,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from latency_bench.latency.profile import load_latency_samples, write_latency_samples
+from latency_bench.latency.hardware_info import collect_hardware_fingerprint
+from latency_bench.latency.profile import (
+    load_latency_samples,
+    load_profile_manifest,
+    save_profile_manifest,
+    write_latency_samples,
+)
 from scripts.cross_device.config import (
     _eval_command,
     _generated_config,
@@ -26,7 +33,24 @@ from scripts.cross_device.config import (
 )
 from scripts.cross_device.models import PlannedTask, ProtocolTask, RuntimeSelection
 from scripts.cross_device.planning import _build_plan, _output_root, _profiles_dir_for_args
+from scripts.cross_device.profile_cache import profile_remote_dir, upload_folder_to_hf
 from scripts.cross_device.runtime import _stage_hardware, _validate_runtime_safety, detect_runtime_env
+
+
+_HOST_FINGERPRINT: dict[str, Any] | None = None
+
+
+def _host_fingerprint() -> dict[str, Any]:
+    """Return this process's hardware fingerprint, collected once and cached.
+
+    Returns:
+        The fingerprint dict from `collect_hardware_fingerprint`; reused across
+        every manifest in the run so the probes (nvidia-smi/lscpu) run once.
+    """
+    global _HOST_FINGERPRINT
+    if _HOST_FINGERPRINT is None:
+        _HOST_FINGERPRINT = collect_hardware_fingerprint()
+    return _HOST_FINGERPRINT
 
 
 def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> None:
@@ -161,6 +185,7 @@ def _run_task(
             subprocess.run(eval_cmd, check=True)
         if profile_cmd is not None:
             subprocess.run(profile_cmd, check=True)
+            _finalize_profile_artifacts(task, out, manifest)
         manifest["status"] = "completed"
         manifest["completed_at"] = _now_iso()
     except Exception as exc:
@@ -173,6 +198,53 @@ def _run_task(
         raise
     _write_json(task.output_dir / "manifest.json", manifest)
     _append_manifest(out, manifest)
+
+
+def _finalize_profile_artifacts(task: ProtocolTask, out: Path, manifest: dict[str, Any]) -> None:
+    """Record hardware provenance and optionally publish a freshly built profile.
+
+    Writes `hardware.json` into the profile folder, merges the fingerprint into
+    `profile.json`, then uploads the folder to Hugging Face when `HF_PROFILE_REPO`
+    is set. Any failure is recorded as a manifest note instead of aborting the
+    measure run, since the profile artifacts are already on local disk.
+
+    Args:
+        task: Completed measure task whose profile was just built.
+        out: Protocol output root (parent of the local `profiles` cache).
+        manifest: Run manifest mutated in place with provenance/upload status.
+    """
+    profile_dir = task.profile_output_dir
+    if profile_dir is None:
+        return
+    try:
+        fingerprint = _host_fingerprint()
+        _write_json(profile_dir / "hardware.json", fingerprint)
+        profile_path = profile_dir / "profile.json"
+        if profile_path.exists():
+            profile = load_profile_manifest(profile_path)
+            profile["hardware"] = fingerprint
+            save_profile_manifest(profile, profile_path)
+    except Exception as exc:
+        manifest["notes"] = _append_note(manifest.get("notes"), f"hardware fingerprint failed: {exc}")
+
+    repo_id = os.environ.get("HF_PROFILE_REPO")
+    if not repo_id:
+        manifest["hf_uploaded"] = False
+        return
+    try:
+        remote_dir = profile_remote_dir(profile_path=profile_dir / "profile.json", profiles_dir=out / "profiles")
+        upload_folder_to_hf(
+            repo_id=repo_id,
+            local_dir=profile_dir,
+            repo_type=os.environ.get("HF_PROFILE_REPO_TYPE", "dataset"),
+            path_in_repo=remote_dir,
+        )
+        manifest["hf_uploaded"] = True
+        manifest["hf_repo"] = repo_id
+        manifest["hf_path_in_repo"] = remote_dir
+    except Exception as exc:
+        manifest["hf_uploaded"] = False
+        manifest["notes"] = _append_note(manifest.get("notes"), f"hf upload failed: {exc}")
 
 
 def _warmup_generated_config_path(task: ProtocolTask) -> Path:
@@ -329,6 +401,7 @@ def _base_manifest(
         "completed_at": None,
         "git_sha": _git_sha(),
         "hostname": socket.gethostname(),
+        "hardware_fingerprint": _host_fingerprint(),
         "notes": "",
     }
 
