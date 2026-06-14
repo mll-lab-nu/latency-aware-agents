@@ -1361,26 +1361,6 @@ def test_stage_overrides_can_raise_deadly_corridor_measure_episodes_only(tmp_pat
     assert measure_config["evaluation"]["eval_episodes"] == 1000
     assert "best_seed_0_n1000" in measure_config["logging"]["output_dir"]
 
-    realtime_out = tmp_path / "realtime_results"
-    _run_cli(
-        tmp_path,
-        "realtime",
-        "--spec",
-        str(spec),
-        "--hardware",
-        "a100",
-        "--out",
-        str(realtime_out),
-        "--dry-run",
-        "--only-experiment",
-        "exp2_same_device_calibration",
-        "--max-runs",
-        "1",
-    )
-    realtime_config = yaml.safe_load(next((realtime_out / "generated_configs" / "realtime").rglob("*.yaml")).read_text())
-    assert realtime_config["evaluation"]["eval_episodes"] == 10
-    assert "best_seed_0_n10" in realtime_config["logging"]["output_dir"]
-
 
 def test_cli_n_episodes_overrides_stage_overrides(tmp_path: Path):
     base_config = tmp_path / "base.yaml"
@@ -1430,13 +1410,15 @@ def test_continue_on_error_runs_later_tasks_and_returns_nonzero_summary(tmp_path
 
     result = _run_cli(
         tmp_path,
-        "realtime",
+        "sim-same",
         "--spec",
         str(spec),
         "--hardware",
         "a100",
         "--out",
         str(out),
+        "--profiles-dir",
+        str(out / "profiles"),
         "--runtime-env",
         "small_model",
         "--continue-on-error",
@@ -1449,15 +1431,15 @@ def test_continue_on_error_runs_later_tasks_and_returns_nonzero_summary(tmp_path
     assert "FAILED RUNS:" in combined
     assert "policy=failing-policy" in combined
     assert "env=Dummy" in combined
-    assert "stage=realtime" in combined
+    assert "stage=sim_same" in combined
     assert "output_dir=" in combined
     assert "error=" in combined
     assert "passing-policy" in combined
-    failed_manifest = next((out / "runs" / "realtime" / "failing-policy").rglob("manifest.json"))
+    failed_manifest = next((out / "runs" / "sim_same" / "failing-policy").rglob("manifest.json"))
     manifest = yaml.safe_load(failed_manifest.read_text(encoding="utf-8"))
     assert manifest["status"] == "failed"
     assert manifest["error"]
-    assert next((out / "runs" / "realtime" / "passing-policy").rglob("manifest.json")).exists()
+    assert next((out / "runs" / "sim_same" / "passing-policy").rglob("manifest.json")).exists()
 
 
 def test_resume_skips_completed_manifest_but_retries_failed_run(tmp_path: Path):
@@ -1471,22 +1453,24 @@ def test_resume_skips_completed_manifest_but_retries_failed_run(tmp_path: Path):
     _write_profile_manifest(out / "profiles" / "failing-policy" / "dummy" / "L_A100" / "profile.json", env_fps=30.0)
     _write_profile_manifest(out / "profiles" / "passing-policy" / "dummy" / "L_A100" / "profile.json", env_fps=30.0)
 
-    completed_dir = out / "runs" / "realtime" / "passing-policy" / "dummy" / "a100" / "best_seed_0_n1"
+    completed_dir = out / "runs" / "sim_same" / "passing-policy" / "dummy" / "a100" / "best_seed_0_n1"
     completed_dir.mkdir(parents=True)
     (completed_dir / "manifest.json").write_text('{"status": "completed"}\n', encoding="utf-8")
-    failed_dir = out / "runs" / "realtime" / "failing-policy" / "dummy" / "a100" / "best_seed_0_n1"
+    failed_dir = out / "runs" / "sim_same" / "failing-policy" / "dummy" / "a100" / "best_seed_0_n1"
     failed_dir.mkdir(parents=True)
     (failed_dir / "manifest.json").write_text('{"status": "failed", "error": "old"}\n', encoding="utf-8")
 
     result = _run_cli(
         tmp_path,
-        "realtime",
+        "sim-same",
         "--spec",
         str(spec),
         "--hardware",
         "a100",
         "--out",
         str(out),
+        "--profiles-dir",
+        str(out / "profiles"),
         "--runtime-env",
         "small_model",
         "--resume",
