@@ -966,6 +966,120 @@ def test_cross_device_sim_preset_expands_to_doctor_and_sim_stages(tmp_path):
     assert "stages: doctor sim-same sim-cross" in result.stdout
 
 
+def test_cross_device_start_script_runs_flappy_measure_sim_same_and_h200_sim_cross(tmp_path):
+    script_path = REPO_ROOT / "start.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls_path = tmp_path / "calls.log"
+    _write_executable(
+        fake_bin / "conda",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf 'conda %s\\n' "$*" >> "{calls_path}"
+exit 0
+""",
+    )
+    _write_executable(
+        fake_bin / "nvidia-smi",
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'NVIDIA H200\\n'
+""",
+    )
+    _write_executable(
+        fake_bin / "python",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf 'HF_PROFILE_REPO=%s HF_PROFILE_REPO_TYPE=%s CROSS_DEVICE_RUNTIME_ENV=%s :: %s\\n' \
+  "${{HF_PROFILE_REPO:-}}" "${{HF_PROFILE_REPO_TYPE:-}}" "${{CROSS_DEVICE_RUNTIME_ENV:-}}" "$*" >> "{calls_path}"
+exit 0
+""",
+    )
+
+    syntax = subprocess.run(
+        ["bash", "-n", str(script_path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert syntax.returncode == 0, syntax.stderr
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "conda activate starvla_rl_games_openvla" in calls
+    assert "-m scripts.cross_device.protocol measure" in calls
+    assert "-m scripts.cross_device.protocol sim-same" in calls
+    assert "-m scripts.cross_device.protocol sim-cross" in calls
+    assert calls.count("--only-policy openvla-flappy") == 3
+    assert "demon-attack-openvla" not in calls
+    assert "deadly-corridor-openvla" not in calls
+    assert "--profiles-dir results/cross_device/profiles" in calls
+    assert "--replay-hardware auto" in calls
+    assert "HF_PROFILE_REPO=latency-sensitive-bench/profiles" in calls
+    assert "HF_PROFILE_REPO_TYPE=dataset" in calls
+    assert "CROSS_DEVICE_RUNTIME_ENV=openvla" in calls
+
+
+def test_cross_device_aggregate_script_builds_openvla_flappy_paper_outputs(tmp_path):
+    script_path = REPO_ROOT / "aggregate.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls_path = tmp_path / "calls.log"
+    _write_executable(
+        fake_bin / "python",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf 'HF_PROFILE_REPO=%s HF_PROFILE_REPO_TYPE=%s :: %s\\n' \
+  "${{HF_PROFILE_REPO:-}}" "${{HF_PROFILE_REPO_TYPE:-}}" "$*" >> "{calls_path}"
+exit 0
+""",
+    )
+
+    syntax = subprocess.run(
+        ["bash", "-n", str(script_path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert syntax.returncode == 0, syntax.stderr
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "-m scripts.cross_device.protocol aggregate" in calls
+    assert "--only-policy openvla-flappy" in calls
+    assert "--root results/cross_device" in calls
+    assert "--out results/cross_device/tables" in calls
+    assert "--overwrite" in calls
+    assert "-m scripts.cross_device.build_figure_data" in calls
+    assert "--profiles-root results/cross_device" in calls
+    assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/data.csv" in calls
+    assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/table3_latency_profiles/data.csv" in calls
+    assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/run.py" in calls
+    assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/table3_latency_profiles/run.py" in calls
+    assert "HF_PROFILE_REPO=latency-sensitive-bench/profiles" in calls
+    assert "HF_PROFILE_REPO_TYPE=dataset" in calls
+
+
 def test_eval_bash_scripts_reject_manual_latency_argument():
     for script_name in ("eval_flappy.sh", "eval_demon_attack.sh", "eval_deadly_corridor.sh"):
         script_path = REPO_ROOT / "scripts" / "bash_scripts" / script_name
