@@ -128,3 +128,73 @@ def test_profile_cache_uploads_output_folder_to_hf(tmp_path: Path, monkeypatch):
             "path_in_repo": "profiles/openvla-flappy/flappy/L_A100",
         }
     ]
+
+
+def test_upload_folder_forwards_allow_and_ignore_patterns(tmp_path: Path, monkeypatch):
+    from scripts.cross_device.profile_cache import upload_folder_to_hf
+
+    calls: list[dict[str, object]] = []
+
+    class HfApi:
+        def upload_folder(self, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(HfApi=HfApi))
+
+    out = tmp_path / "cross_device"
+    out.mkdir()
+    upload_folder_to_hf(
+        repo_id="latency-sensitive-bench/profiles",
+        local_dir=out,
+        repo_type="dataset",
+        path_in_repo="raw/rtx3090/openvla/cross_device/runs",
+        ignore_patterns=["**/*.png"],
+    )
+
+    assert calls == [
+        {
+            "repo_id": "latency-sensitive-bench/profiles",
+            "repo_type": "dataset",
+            "folder_path": str(out),
+            "path_in_repo": "raw/rtx3090/openvla/cross_device/runs",
+            "ignore_patterns": ["**/*.png"],
+        }
+    ]
+
+
+def test_download_results_tree_filters_debug_and_copies_raw(tmp_path: Path, monkeypatch):
+    from scripts.cross_device.profile_cache import RESULTS_DEBUG_IGNORE, download_results_tree
+
+    snapshot_root = tmp_path / "snapshot"
+    nested = snapshot_root / "raw" / "rtx3090" / "openvla" / "cross_device" / "manifests"
+    nested.mkdir(parents=True)
+    (nested / "runs.jsonl").write_text("{}\n", encoding="utf-8")
+
+    calls: list[dict[str, object]] = []
+
+    def snapshot_download(**kwargs):
+        calls.append(kwargs)
+        return str(snapshot_root)
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(snapshot_download=snapshot_download))
+
+    local_root = tmp_path / "agg" / "_hf_raw"
+    returned = download_results_tree(
+        repo_id="latency-sensitive-bench/profiles",
+        repo_type="dataset",
+        local_root=local_root,
+        revision="main",
+    )
+
+    assert returned == local_root
+    assert calls == [
+        {
+            "repo_id": "latency-sensitive-bench/profiles",
+            "repo_type": "dataset",
+            "revision": "main",
+            "allow_patterns": ["raw/**"],
+            "ignore_patterns": RESULTS_DEBUG_IGNORE,
+        }
+    ]
+    copied = local_root / "raw" / "rtx3090" / "openvla" / "cross_device" / "manifests" / "runs.jsonl"
+    assert copied.exists()

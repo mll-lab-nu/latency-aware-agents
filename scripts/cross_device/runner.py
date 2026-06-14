@@ -198,6 +198,67 @@ def _run_task(
         raise
     _write_json(task.output_dir / "manifest.json", manifest)
     _append_manifest(out, manifest)
+    _upload_run_results(task, out, manifest, detected, runtime)
+
+
+def _upload_run_results(
+    task: ProtocolTask,
+    out: Path,
+    manifest: dict[str, Any],
+    detected: dict[str, Any],
+    runtime: RuntimeSelection,
+) -> None:
+    """Mirror this completed run's results to HF for hands-off aggregation.
+
+    Uploads (full, including debug) this machine's slice of the protocol output
+    to `raw/<device_id>/<runtime_alias>/cross_device/...` so an aggregating host
+    can pull every machine's manifests + run dirs + profiles via `aggregate`
+    auto-download. The download side filters debug artifacts back out.
+
+    Gated on `HF_PROFILE_REPO` (reuses the profiles repo) and opt-out env
+    `CROSS_DEVICE_NO_RESULT_UPLOAD`. Failures are non-fatal — the run is already
+    on local disk — and recorded as a manifest note.
+
+    Args:
+        task: Completed task whose results should be published.
+        out: Protocol output root (the local `results/cross_device`).
+        manifest: Run manifest mutated in place with upload status.
+        detected: Hardware detection result (for the device id segment).
+        runtime: Runtime detection result (for the runtime alias segment).
+    """
+    repo_id = os.environ.get("HF_PROFILE_REPO")
+    if not repo_id or os.environ.get("CROSS_DEVICE_NO_RESULT_UPLOAD"):
+        return
+    device_id = (detected.get("device") or {}).get("id") or "unknown_device"
+    runtime_alias = runtime.matched_alias or runtime.selected_alias or "unknown_runtime"
+    prefix = f"raw/{device_id}/{runtime_alias}/cross_device"
+    repo_type = os.environ.get("HF_PROFILE_REPO_TYPE", "dataset")
+
+    uploads: list[tuple[Path, str]] = []
+    manifests_dir = out / "manifests"
+    if manifests_dir.exists():
+        uploads.append((manifests_dir, f"{prefix}/manifests"))
+    if task.output_dir.exists():
+        uploads.append((task.output_dir, f"{prefix}/{task.output_dir.relative_to(out).as_posix()}"))
+    profile_dir = task.profile_output_dir
+    if profile_dir is not None and profile_dir.exists():
+        uploads.append((profile_dir, f"{prefix}/{profile_dir.relative_to(out).as_posix()}"))
+
+    try:
+        for local_dir, path_in_repo in uploads:
+            upload_folder_to_hf(
+                repo_id=repo_id,
+                local_dir=local_dir,
+                repo_type=repo_type,
+                path_in_repo=path_in_repo,
+            )
+        manifest["results_uploaded"] = True
+        manifest["results_repo"] = repo_id
+        manifest["results_path_prefix"] = prefix
+        _write_json(task.output_dir / "manifest.json", manifest)
+    except Exception as exc:
+        manifest["results_uploaded"] = False
+        manifest["notes"] = _append_note(manifest.get("notes"), f"results upload failed: {exc}")
 
 
 def _finalize_profile_artifacts(task: ProtocolTask, out: Path, manifest: dict[str, Any]) -> None:
