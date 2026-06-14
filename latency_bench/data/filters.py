@@ -150,7 +150,7 @@ def _filter_demon_train_rows(rows: Sequence[Mapping[str, Any]], *, seed: int) ->
     Returns:
         Filtered row copies.
     """
-    reward_steps = {row["decision_step"] for row in rows if row["clipped_reward"] > 0.0}
+    reward_steps = {row["decision_step"] for row in rows if row["raw_reward"] > 0.0}
     kept_indices = _rows_near_steps(rows, reward_steps, window=DEMON_CONTEXT_WINDOW)
     kept_indices |= {
         row_idx
