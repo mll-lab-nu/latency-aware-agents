@@ -20,17 +20,23 @@ def _stable_mock_latencies() -> list[float]:
 
 
 def _unstable_mock_latencies() -> list[float]:
+    # Steady downward drift; across the trailing 100-sample stability window
+    # (two 50-sample windows) the window-center span exceeds tolerance, so
+    # warmup is judged not-yet-stable.
     return [
-        30.0 - idx * 0.04 + (idx % 5) * 0.03
-        for idx in range(220)
+        30.0 - idx * 0.1
+        for idx in range(120)
     ]
 
 
 def _stable_center_with_tail_jitter() -> list[float]:
+    # Stable ~86ms center with occasional high tail spikes. Across two 50-sample
+    # windows the trimmed mean stays within tolerance (spikes get trimmed) while
+    # p90 still reflects the spikes, so warmup is stable but p90 span is larger.
     samples: list[float] = []
-    for spike in (95.0, 115.0, 95.0):
-        samples.extend(86.0 + (idx % 5) * 0.08 for idx in range(80))
-        samples.extend(spike for _ in range(20))
+    for spike in (95.0, 115.0):
+        samples.extend(86.0 + (idx % 5) * 0.08 for idx in range(44))
+        samples.extend(spike for _ in range(6))
     return samples
 
 

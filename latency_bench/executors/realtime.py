@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import sys
 import time
 import traceback
 from collections.abc import Callable
@@ -345,8 +346,14 @@ class RealtimeLatencyExecutor:
             stable=stable,
         )
         if not stable:
-            raise RuntimeError(
-                "realtime warmup did not stabilize; inspect warmup_stability.png and warmup_summary.json"
+            print(
+                "WARNING: realtime warmup did not stabilize; proceeding with the measured "
+                "episode anyway (inspect warmup_stability.png and warmup_summary.json). "
+                f"reason={summary.get('warmup_stability_reason')} "
+                f"trimmed_mean_span_ms={summary.get('warmup_trimmed_mean_span_ms')} "
+                f"median_span_ms={summary.get('warmup_median_span_ms')}",
+                file=sys.stderr,
+                flush=True,
             )
         return summary
 

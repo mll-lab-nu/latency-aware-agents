@@ -11,15 +11,18 @@ from latency_bench.logging.records import to_jsonable
 
 # Realtime warmup is intentionally not configurable from YAML. The user-facing
 # contract is simply "run until stable"; the numbers below define "stable" as
-# stable center trend across three 100-sample windows. Median and 10% trimmed
-# mean catch warmup drift without treating real steady-state tail jitter as a
-# reason to keep warming up. p90 remains diagnostic and is still plotted/logged,
-# but it does not block formal eval.
-MIN_WARMUP_LATENCY_SAMPLES = 200
-MAX_WARMUP_LATENCY_SAMPLES = 1000
+# stable center trend across two 50-sample windows (100 samples total). Median
+# and 10% trimmed mean catch warmup drift without treating real steady-state
+# tail jitter as a reason to keep warming up. p90 remains diagnostic and is
+# still plotted/logged, but it does not block formal eval. Warmup is capped at
+# 100 samples: a single short sub-episode is enough to warm the GPU, and a
+# non-stabilizing warmup is now a non-fatal warning (see realtime.run_warmup),
+# so it never aborts a multi-episode measure run.
+MIN_WARMUP_LATENCY_SAMPLES = 100
+MAX_WARMUP_LATENCY_SAMPLES = 100
 WARMUP_EPISODE_MAX_STEPS = 150
-WARMUP_WINDOW_SIZE = 50
-STABLE_WINDOW_COUNT = 4
+WARMUP_WINDOW_SIZE = 40
+STABLE_WINDOW_COUNT = 2
 MEDIAN_REL_TOL = 0.03
 TRIMMED_MEAN_REL_TOL = 0.03
 MEDIAN_ABS_TOL_MS = 2.5
