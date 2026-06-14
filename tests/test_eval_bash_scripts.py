@@ -14,6 +14,52 @@ def _write_executable(path: Path, text: str) -> None:
     path.chmod(0o755)
 
 
+def test_upload_cross_device_auto_detects_rtx_pro_6000_blackwell(tmp_path):
+    script_path = REPO_ROOT / "scripts/bash_scripts/upload_cross_device_to_hf.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    out = tmp_path / "out"
+    (out / "manifests").mkdir(parents=True)
+    (out / "profiles").mkdir()
+    (out / "runs").mkdir()
+    (out / "manifests" / "runs.jsonl").write_text("{}\n", encoding="utf-8")
+    _write_executable(
+        fake_bin / "nvidia-smi",
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'NVIDIA RTX PRO 6000 Blackwell Workstation Edition\\n'
+""",
+    )
+    _write_executable(
+        fake_bin / "hf",
+        """#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "REPO_DIR": str(tmp_path),
+            "OUT": str(out),
+            "HF_REPO": "latency-sensitive-bench/profiles",
+            "DRY_RUN": "1",
+            "RUN_TAG": "test-run",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Device: rtxpro6000blackwell" in result.stdout
+    assert "Remote path: raw/rtxpro6000blackwell/combined/test-run/cross_device" in result.stdout
+
+
 def _write_fake_conda_installation(prefix: Path, conda_bin: Path, calls_path: Path) -> None:
     conda_bin.parent.mkdir(parents=True, exist_ok=True)
     (prefix / "etc" / "profile.d").mkdir(parents=True, exist_ok=True)
