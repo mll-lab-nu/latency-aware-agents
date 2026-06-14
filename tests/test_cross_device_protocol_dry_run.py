@@ -1089,7 +1089,6 @@ def test_measure_run_continues_batches_after_samples_until_n_episodes(tmp_path: 
     )
     task = planning._build_plan(args, spec, "measure", out, out / "profiles", current_device, runtime)[0].task
     commands: list[list[str]] = []
-    eval_latencies = [[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]]
 
     def fake_run(command, check):
         commands.append(list(command))
@@ -1103,14 +1102,21 @@ def test_measure_run_continues_batches_after_samples_until_n_episodes(tmp_path: 
         elif "latency_bench.run" in command:
             output_dir = Path(command[command.index("--output-dir") + 1])
             output_dir.mkdir(parents=True, exist_ok=True)
-            samples = eval_latencies.pop(0)
-            episode_id = len([item for item in commands if "latency_bench.run" in item]) - 1
             output_dir.joinpath("latencies.jsonl").write_text(
-                "".join(json.dumps({"latency_ms": sample}) + "\n" for sample in samples),
+                "".join(json.dumps({"latency_ms": sample}) + "\n" for sample in [10.0, 20.0]),
                 encoding="utf-8",
             )
             output_dir.joinpath("episode_metrics.jsonl").write_text(
-                json.dumps({"episode_id": episode_id, "episode_return_env": 100.0 + episode_id, "survival_steps": 10 + episode_id}) + "\n",
+                "".join(
+                    json.dumps(
+                        {
+                            "episode_id": episode_id,
+                            "episode_return_env": 100.0 + episode_id,
+                            "survival_steps": 10 + episode_id,
+                        }
+                    ) + "\n"
+                    for episode_id in range(3)
+                ),
                 encoding="utf-8",
             )
         elif "latency_bench.experiments.build_latency_profile_from_trace" in command:
@@ -1123,7 +1129,9 @@ def test_measure_run_continues_batches_after_samples_until_n_episodes(tmp_path: 
 
     eval_commands = [command for command in commands if "latency_bench.run" in command]
     profile_command = commands[-1]
-    assert len(eval_commands) == 3
+    assert len(eval_commands) == 1
+    assert "--n-samples" in eval_commands[0]
+    assert eval_commands[0][eval_commands[0].index("--n-samples") + 1] == "2"
     assert "--n-samples" in profile_command
     assert profile_command[profile_command.index("--n-samples") + 1] == "2"
     assert (task.output_dir / "latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 2
@@ -1169,7 +1177,6 @@ def test_measure_run_continues_batches_after_episodes_until_n_samples(tmp_path: 
     )
     task = planning._build_plan(args, spec, "measure", out, out / "profiles", current_device, runtime)[0].task
     commands: list[list[str]] = []
-    eval_latencies = [[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]]
 
     def fake_run(command, check):
         commands.append(list(command))
@@ -1183,14 +1190,24 @@ def test_measure_run_continues_batches_after_episodes_until_n_samples(tmp_path: 
         elif "latency_bench.run" in command:
             output_dir = Path(command[command.index("--output-dir") + 1])
             output_dir.mkdir(parents=True, exist_ok=True)
-            samples = eval_latencies.pop(0)
-            episode_id = len([item for item in commands if "latency_bench.run" in item]) - 1
             output_dir.joinpath("latencies.jsonl").write_text(
-                "".join(json.dumps({"latency_ms": sample}) + "\n" for sample in samples),
+                "".join(
+                    json.dumps({"latency_ms": sample}) + "\n"
+                    for sample in [10.0, 20.0, 30.0, 40.0, 50.0]
+                ),
                 encoding="utf-8",
             )
             output_dir.joinpath("episode_metrics.jsonl").write_text(
-                json.dumps({"episode_id": episode_id, "episode_return_env": 100.0 + episode_id, "survival_steps": 10 + episode_id}) + "\n",
+                "".join(
+                    json.dumps(
+                        {
+                            "episode_id": episode_id,
+                            "episode_return_env": 100.0 + episode_id,
+                            "survival_steps": 10 + episode_id,
+                        }
+                    ) + "\n"
+                    for episode_id in range(2)
+                ),
                 encoding="utf-8",
             )
         elif "latency_bench.experiments.build_latency_profile_from_trace" in command:
@@ -1203,7 +1220,9 @@ def test_measure_run_continues_batches_after_episodes_until_n_samples(tmp_path: 
 
     eval_commands = [command for command in commands if "latency_bench.run" in command]
     profile_command = commands[-1]
-    assert len(eval_commands) == 3
+    assert len(eval_commands) == 1
+    assert "--n-samples" in eval_commands[0]
+    assert eval_commands[0][eval_commands[0].index("--n-samples") + 1] == "5"
     assert "--n-samples" in profile_command
     assert profile_command[profile_command.index("--n-samples") + 1] == "5"
     assert (task.output_dir / "latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 5
