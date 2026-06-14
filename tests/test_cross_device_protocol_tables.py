@@ -89,12 +89,20 @@ def _episode_records(mean_return: float, mean_length: float) -> list[dict]:
     ]
 
 
+EXP_ALL = [
+    "exp1_latency_profile_summary",
+    "exp2_same_device_calibration",
+    "exp3_cross_device_prediction",
+]
+
+
 def _manifest(
     *,
     stage: str,
     experiment_id: str,
     target_device_id: str,
     output_dir: Path,
+    experiment_ids: list[str] | None = None,
     replay_device_id: str | None = None,
     profile_path: Path | None = None,
     status: str = "completed",
@@ -103,6 +111,7 @@ def _manifest(
     return {
         "stage": stage,
         "experiment_id": experiment_id,
+        "experiment_ids": experiment_ids if experiment_ids is not None else [experiment_id],
         "policy": "flappy-sf-l1",
         "env": "Flappy",
         "target_device_id": target_device_id,
@@ -121,7 +130,9 @@ def _manifest(
 def _write_fixture(root: Path) -> None:
     profile_path = _build_profile(root)
     h200_profile_path = _build_profile(root, device_id="h200", profile_id="L_H200")
-    realtime = root / "runs" / "realtime" / "flappy-sf-l1" / "flappy" / "a100" / "seed_0"
+    # measure on a device IS its realtime run: episode_metrics here = realtime return.
+    measure_a100 = root / "runs" / "measure" / "flappy-sf-l1" / "flappy" / "a100" / "seed_0"
+    measure_h200 = root / "runs" / "measure" / "flappy-sf-l1" / "flappy" / "h200" / "seed_0"
     sim_same = root / "runs" / "sim_same" / "flappy-sf-l1" / "flappy" / "a100" / "seed_0"
     sim_cross = (
         root
@@ -133,15 +144,15 @@ def _write_fixture(root: Path) -> None:
         / "replay_h200"
         / "seed_0"
     )
-    _write_jsonl(realtime / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
+    _write_jsonl(measure_a100 / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
     _write_jsonl(sim_same / "episode_metrics.jsonl", _episode_records(110.0, 1100.0))
     _write_jsonl(sim_cross / "episode_metrics.jsonl", _episode_records(90.0, 950.0))
     manifests = [
-        _manifest(stage="measure", experiment_id="exp1_latency_profile_summary", target_device_id="a100", output_dir=root / "runs" / "measure", profile_path=profile_path),
-        _manifest(stage="measure", experiment_id="exp1_latency_profile_summary", target_device_id="h200", output_dir=root / "runs" / "measure", profile_path=h200_profile_path),
-        _manifest(stage="realtime", experiment_id="exp2_same_device_calibration", target_device_id="a100", output_dir=realtime),
+        # a100 measure contributes to all experiments (profile + realtime return).
+        _manifest(stage="measure", experiment_id="exp1_latency_profile_summary", experiment_ids=EXP_ALL, target_device_id="a100", output_dir=measure_a100, profile_path=profile_path),
+        # h200 measure provides only its profile (no return run): exp3 h200-target stays "missing".
+        _manifest(stage="measure", experiment_id="exp1_latency_profile_summary", experiment_ids=["exp1_latency_profile_summary"], target_device_id="h200", output_dir=measure_h200, profile_path=h200_profile_path),
         _manifest(stage="sim_same", experiment_id="exp2_same_device_calibration", target_device_id="a100", output_dir=sim_same),
-        _manifest(stage="realtime", experiment_id="exp3_cross_device_prediction", target_device_id="a100", output_dir=realtime),
         _manifest(stage="sim_cross", experiment_id="exp3_cross_device_prediction", target_device_id="a100", replay_device_id="h200", output_dir=sim_cross),
     ]
     _write_jsonl(root / "manifests" / "runs.jsonl", manifests)
@@ -150,31 +161,28 @@ def _write_fixture(root: Path) -> None:
 def _write_raw_download_fixture(protocol_root: Path, *, include_skipped_duplicates: bool = False) -> None:
     profile_path = _build_profile(protocol_root)
     h200_profile_path = _build_profile(protocol_root, device_id="h200", profile_id="L_H200")
-    realtime = protocol_root / "runs" / "realtime" / "flappy-sf-l1" / "flappy" / "a100" / "seed_0"
+    measure_a100 = protocol_root / "runs" / "measure" / "flappy-sf-l1" / "flappy" / "a100" / "seed_0"
+    measure_h200 = protocol_root / "runs" / "measure" / "flappy-sf-l1" / "flappy" / "h200" / "seed_0"
     sim_same = protocol_root / "runs" / "sim_same" / "flappy-sf-l1" / "flappy" / "a100" / "seed_0"
     old_root = Path("results/cross_device")
-    _write_jsonl(realtime / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
+    _write_jsonl(measure_a100 / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
     _write_jsonl(sim_same / "episode_metrics.jsonl", _episode_records(110.0, 1100.0))
     manifests = [
         _manifest(
             stage="measure",
             experiment_id="exp1_latency_profile_summary",
+            experiment_ids=EXP_ALL,
             target_device_id="a100",
-            output_dir=old_root / "runs" / "measure",
+            output_dir=old_root / measure_a100.relative_to(protocol_root),
             profile_path=old_root / profile_path.relative_to(protocol_root),
         ),
         _manifest(
             stage="measure",
             experiment_id="exp1_latency_profile_summary",
+            experiment_ids=["exp1_latency_profile_summary"],
             target_device_id="h200",
-            output_dir=old_root / "runs" / "measure",
+            output_dir=old_root / measure_h200.relative_to(protocol_root),
             profile_path=old_root / h200_profile_path.relative_to(protocol_root),
-        ),
-        _manifest(
-            stage="realtime",
-            experiment_id="exp2_same_device_calibration",
-            target_device_id="a100",
-            output_dir=old_root / realtime.relative_to(protocol_root),
         ),
         _manifest(
             stage="sim_same",
@@ -187,10 +195,11 @@ def _write_raw_download_fixture(protocol_root: Path, *, include_skipped_duplicat
         manifests.extend(
             [
                 _manifest(
-                    stage="realtime",
-                    experiment_id="exp2_same_device_calibration",
+                    stage="measure",
+                    experiment_id="exp1_latency_profile_summary",
+                    experiment_ids=EXP_ALL,
                     target_device_id="a100",
-                    output_dir=old_root / realtime.relative_to(protocol_root),
+                    output_dir=old_root / measure_a100.relative_to(protocol_root),
                     status="skipped",
                     skip_reason="runtime_env selection mismatch: selected openvla, row requires small_model",
                 ),

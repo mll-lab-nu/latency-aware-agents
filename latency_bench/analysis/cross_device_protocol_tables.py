@@ -146,7 +146,7 @@ def build_experiment2_rows(
         for device in _devices(spec):
             realtime = _matching_manifests(
                 manifests,
-                stage="realtime",
+                stage="measure",
                 experiment_id=experiment_id,
                 row=row_spec,
                 target_device_id=device["id"],
@@ -165,7 +165,7 @@ def build_experiment2_rows(
                 _skipped_notes_if_missing(
                     manifests,
                     matches=realtime,
-                    stage="realtime",
+                    stage="measure",
                     experiment_id=experiment_id,
                     row=row_spec,
                     target_device_id=device["id"],
@@ -227,7 +227,7 @@ def build_experiment3_rows(
             replay = devices_by_id[str(pair["replay_device"])]
             true_realtime = _matching_manifests(
                 manifests,
-                stage="realtime",
+                stage="measure",
                 experiment_id=experiment_id,
                 row=row_spec,
                 target_device_id=target["id"],
@@ -253,7 +253,7 @@ def build_experiment3_rows(
                 _skipped_notes_if_missing(
                     manifests,
                     matches=true_realtime,
-                    stage="realtime",
+                    stage="measure",
                     experiment_id=experiment_id,
                     row=row_spec,
                     target_device_id=target["id"],

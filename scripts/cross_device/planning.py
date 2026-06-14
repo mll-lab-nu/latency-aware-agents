@@ -24,7 +24,6 @@ from scripts.cross_device.runtime import (
 
 STAGE_TO_EXPERIMENTS = {
     "measure": ("exp1_latency_profile_summary", "exp2_same_device_calibration", "exp3_cross_device_prediction"),
-    "realtime": ("exp2_same_device_calibration", "exp3_cross_device_prediction"),
     "sim_same": ("exp2_same_device_calibration",),
     "sim_cross": ("exp3_cross_device_prediction",),
 }
@@ -83,7 +82,7 @@ def _build_plan(
                     n_samples=n_samples,
                     checkpoint_kind=checkpoint_kind,
                     out=out,
-                    target_profile_path=profile_path if stage in {"realtime", "sim_same", "sim_cross"} else None,
+                    target_profile_path=profile_path if stage in {"sim_same", "sim_cross"} else None,
                     profile_output_dir=profile_dir if stage == "measure" else None,
                     runtime_env_alias=runtime_alias or None,
                     runtime_conda_env=runtime_conda,
@@ -220,8 +219,6 @@ def _dedup_key(task: ProtocolTask) -> tuple[Any, ...]:
             task.seed,
             task.n_samples,
         )
-    if task.stage == "realtime":
-        return ("realtime", policy, env, task.target_device.get("id"), task.checkpoint_kind, seed_set, task.seed)
     if task.stage == "sim_same":
         return (
             "sim_same",
@@ -276,7 +273,7 @@ def _task_skip_reason(
     """
     reasons: list[str] = []
     only_devices = _csv_filter(getattr(args, "only_device", None))
-    if stage in {"measure", "realtime", "sim_same"} and not _matches_filter(
+    if stage in {"measure", "sim_same"} and not _matches_filter(
         _device_filter_candidates(current_device), only_devices
     ):
         reasons.append(f"hardware mismatch: current hardware {current_device.get('id')} not in --only-device")
@@ -296,7 +293,7 @@ def _task_skip_reason(
     # Dry-run and doctor must stay read-only; real profile-consuming stages may
     # hydrate a missing local profile from the configured Hugging Face repo.
     if (
-        stage in {"realtime", "sim_same", "sim_cross"}
+        stage in {"sim_same", "sim_cross"}
         and task.target_profile_path is not None
         and not task.target_profile_path.exists()
         and not for_doctor
@@ -310,7 +307,7 @@ def _task_skip_reason(
                 hf_repo=hf_profile_repo,
             )
     if (
-        stage in {"realtime", "sim_same", "sim_cross"}
+        stage in {"sim_same", "sim_cross"}
         and task.target_profile_path is not None
         and not task.target_profile_path.exists()
         and not args.dry_run
@@ -418,7 +415,7 @@ def _device_pairs_for_stage(
         replay device; sim-cross uses explicit `replay_pairs` from the spec.
     """
     only_devices = _csv_filter(getattr(args, "only_device", None))
-    if stage in {"measure", "realtime", "sim_same"}:
+    if stage in {"measure", "sim_same"}:
         if not _matches_filter(_device_filter_candidates(current_device), only_devices):
             return []
         return [(current_device, None)]

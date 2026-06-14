@@ -35,7 +35,7 @@ def _generated_config(task: ProtocolTask, spec: dict[str, Any]) -> dict[str, Any
         config["evaluation"]["eval_max_steps"] = int(task.smoke_max_steps)
     config.setdefault("logging", {})["output_dir"] = str(task.output_dir)
 
-    if task.stage in {"measure", "realtime"}:
+    if task.stage == "measure":
         _patch_realtime_measured_config(config, task)
     elif task.stage in {"sim_same", "sim_cross"}:
         _patch_simulated_replay_config(config, task, spec)
@@ -103,14 +103,41 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
     for key in ("fixed_latency_ms", "mean_latency_ms", "std_latency_ms", "min_latency_ms", "max_latency_ms", "trace_path"):
         latency.pop(key, None)
     evaluation = config.setdefault("evaluation", {})
-    # Realtime-vs-replay profiles use serial inference semantics.
-    evaluation["eval_parallel_envs"] = 1
+    # Simulated replay supports batched multi-env inference (factory routes
+    # eval_parallel_envs>1 to the batched executor for simulated mode only).
+    evaluation["eval_parallel_envs"] = _sim_parallel_envs(spec, task)
     evaluation["eval_latency_values"] = None
     evaluation.pop("eval_suites", None)
     logging = config.setdefault("logging", {})
     logging["save_step_records"] = True
     logging["save_action_records"] = True
     logging["save_latency_records"] = True
+
+
+def _sim_parallel_envs(spec: dict[str, Any], task: ProtocolTask) -> int:
+    """Resolve the simulated-replay parallel-env count for a task.
+
+    Precedence: row `stage_overrides.<stage>.sim_parallel_envs` > row
+    `sim_parallel_envs` > spec `sim_parallel_envs` > 1.
+
+    Args:
+        spec: Loaded protocol spec.
+        task: Simulated-replay task (sim_same / sim_cross).
+
+    Returns:
+        Positive integer parallel-env count for `evaluation.eval_parallel_envs`.
+    """
+    row = task.row
+    stage_overrides = row.get("stage_overrides", {})
+    if isinstance(stage_overrides, dict):
+        stage_cfg = stage_overrides.get(task.stage) or stage_overrides.get(str(task.stage).replace("_", "-"))
+        if isinstance(stage_cfg, dict) and stage_cfg.get("sim_parallel_envs") is not None:
+            return int(stage_cfg["sim_parallel_envs"])
+    if row.get("sim_parallel_envs") is not None:
+        return int(row["sim_parallel_envs"])
+    if spec.get("sim_parallel_envs") is not None:
+        return int(spec["sim_parallel_envs"])
+    return 1
 
 
 def _patch_env_from_profile(config: dict[str, Any], profile_path: Path) -> None:

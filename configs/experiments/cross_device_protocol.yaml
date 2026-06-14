@@ -1,7 +1,9 @@
 protocol_id: cross_device_latency_v1
 output_root: results/cross_device
 checkpoint_kind: best
-n_episodes: 10
+n_episodes: 100
+n_samples: 10000
+sim_parallel_envs: 8
 seed_set:
   - 0
 
@@ -129,9 +131,6 @@ experiments:
         fps: 35
         target_latency_frames: 1
         base_config: configs/train/deadly_corridor/latency_1/seed_0/latency_bench_eval.yaml
-        stage_overrides:
-          measure:
-            n_episodes: 1000
       - policy: openvla-flappy
         env: Flappy
         policy_type: starvla

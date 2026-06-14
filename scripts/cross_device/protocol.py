@@ -60,12 +60,6 @@ def main(argv: list[str] | None = None) -> None:
     measure.add_argument("--out", type=Path)
     _add_execution_flags(measure)
 
-    realtime = subparsers.add_parser("realtime", help="Run true realtime evaluation on this hardware.")
-    realtime.add_argument("--spec", type=Path, required=True)
-    realtime.add_argument("--hardware", default="auto")
-    realtime.add_argument("--out", type=Path)
-    _add_execution_flags(realtime)
-
     sim_same = subparsers.add_parser("sim-same", help="Run same-device simulated replay with L_d.")
     sim_same.add_argument("--spec", type=Path, required=True)
     sim_same.add_argument("--hardware", default="auto")
@@ -174,7 +168,7 @@ def run_doctor(args: argparse.Namespace, spec: dict[str, Any]) -> None:
     profiles_dir = Path(args.profiles_dir) if args.profiles_dir is not None else output_root / "profiles"
     plans_by_stage = {
         stage: _build_plan(args, spec, stage, output_root, profiles_dir, detected["device"], runtime, for_doctor=True)
-        for stage in ("measure", "realtime", "sim_same", "sim_cross")
+        for stage in ("measure", "sim_same", "sim_cross")
     }
 
     print("Runtime environment:")
