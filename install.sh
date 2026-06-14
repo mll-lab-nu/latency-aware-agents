@@ -178,4 +178,5 @@ rm -f envpool/dist/envpool-*.whl
 make -C envpool bazel-release
 python -m pip install --force-reinstall --no-deps envpool/dist/envpool-*.whl
 bash scripts/bash_scripts/build_cuda_extensions.sh
+bash starVLA/examples/rl_games/install/bootstrap.sh --split-envs
 wandb login
