@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION_NAME="${SESSION_NAME:-hfd_openvla_flappy_latency2}"
+LOG_DIR="${LOG_DIR:-/workspace/logs}"
+LOG_FILE="${LOG_FILE:-$LOG_DIR/${SESSION_NAME}.log}"
+
+MODEL_ID="${MODEL_ID:-latency-sensitive-bench/openvla_flappy_fix_latency_2}"
+DOWNLOAD_DIR="${DOWNLOAD_DIR:-/workspace}"
+HFD_SCRIPT="${HFD_SCRIPT:-/workspace/hfd.sh}"
+
+SCRIPT_PATH="$(readlink -f "$0")"
+REPO_ROOT="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+
+install_packages() {
+  local pkgs=("$@")
+  export DEBIAN_FRONTEND=noninteractive
+
+  if [[ "$(id -u)" -eq 0 ]]; then
+    apt-get update
+    apt-get install -y "${pkgs[@]}"
+  else
+    sudo apt-get update
+    sudo apt-get install -y "${pkgs[@]}"
+  fi
+}
+
+ensure_launcher_deps() {
+  local pkgs=()
+
+  command -v tmux >/dev/null 2>&1 || pkgs+=("tmux")
+  command -v wget >/dev/null 2>&1 || pkgs+=("wget")
+
+  if (( ${#pkgs[@]} > 0 )); then
+    install_packages "${pkgs[@]}" ca-certificates
+  fi
+}
+
+ensure_worker_deps() {
+  local pkgs=()
+
+  command -v wget >/dev/null 2>&1 || pkgs+=("wget")
+  command -v aria2c >/dev/null 2>&1 || pkgs+=("aria2")
+
+  if (( ${#pkgs[@]} > 0 )); then
+    install_packages "${pkgs[@]}" ca-certificates
+  fi
+}
+
+# 第一次执行：创建后台 tmux session，然后立刻退出
+if [[ "${RUN_INSIDE_TMUX:-0}" != "1" ]]; then
+  mkdir -p "$LOG_DIR"
+  ensure_launcher_deps
+
+  if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    echo "[INFO] tmux session already exists: $SESSION_NAME"
+    echo "[INFO] attach: tmux attach -t $SESSION_NAME"
+    echo "[INFO] log: tail -f $LOG_FILE"
+    exit 0
+  fi
+
+  q() { printf "%q" "$1"; }
+
+  CMD="cd $(q "$REPO_ROOT") && RUN_INSIDE_TMUX=1 MODEL_ID=$(q "$MODEL_ID") DOWNLOAD_DIR=$(q "$DOWNLOAD_DIR") HFD_SCRIPT=$(q "$HFD_SCRIPT") bash $(q "$SCRIPT_PATH") 2>&1 | tee -a $(q "$LOG_FILE")"
+
+  tmux new-session -d -s "$SESSION_NAME" "$CMD"
+
+  echo "[INFO] started background tmux session: $SESSION_NAME"
+  echo "[INFO] attach: tmux attach -t $SESSION_NAME"
+  echo "[INFO] detach: Ctrl-b then d"
+  echo "[INFO] log: tail -f $LOG_FILE"
+  echo "[INFO] stop: tmux kill-session -t $SESSION_NAME"
+  exit 0
+fi
+
+# 第二次执行：真正跑下载逻辑，此时已经在 tmux 后台里
+echo "[INFO] start at: $(date)"
+echo "[INFO] model id: $MODEL_ID"
+echo "[INFO] download dir: $DOWNLOAD_DIR"
+echo "[INFO] hfd script: $HFD_SCRIPT"
+
+ensure_worker_deps
+
+mkdir -p "$DOWNLOAD_DIR"
+
+wget https://hf-mirror.com/hfd/hfd.sh -O "$HFD_SCRIPT"
+chmod +x "$HFD_SCRIPT"
+
+cd "$DOWNLOAD_DIR"
+
+bash "$HFD_SCRIPT" "$MODEL_ID" \
+  -x 10 \
+  -j 10 \
+  --exclude "checkpoints/step_5000_pytorch_model.pt" \
+  --exclude "checkpoints/step_5000_state/optimizer.bin"
+
+echo "[INFO] finished at: $(date)"
