@@ -157,7 +157,7 @@ def _write_generated_config(path: Path, config: dict[str, Any]) -> None:
 
 
 def _eval_command(task: ProtocolTask) -> list[str]:
-    return [
+    cmd = [
         sys.executable,
         "-m",
         "latency_bench.run",
@@ -168,6 +168,9 @@ def _eval_command(task: ProtocolTask) -> list[str]:
         "--output-dir",
         str(task.output_dir),
     ]
+    if task.stage == "measure" and task.n_samples is not None:
+        cmd.extend(["--n-samples", str(task.n_samples)])
+    return cmd
 
 
 def _profile_command(

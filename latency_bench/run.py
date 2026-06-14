@@ -80,6 +80,7 @@ def run_from_config(
     *,
     write_summary: bool = True,
     on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
+    n_samples: int | None = None,
 ) -> list[EpisodeMetrics]:
     experiment_cfg = config["experiment"]
     policy_cfg = config["policy"]
@@ -95,7 +96,7 @@ def run_from_config(
         run_warmup = getattr(executor, "run_warmup", None)
         warmup_metadata = run_warmup(eval_max_steps=eval_max_steps) if callable(run_warmup) else {}
         run_episodes = getattr(executor, "run_episodes", None)
-        if callable(run_episodes):
+        if callable(run_episodes) and n_samples is None:
             episode_ids = list(range(num_episodes))
             run_episodes_kwargs: dict[str, Any] = {
                 "episode_ids": episode_ids,
@@ -106,16 +107,24 @@ def run_from_config(
                 run_episodes_kwargs["on_episode_complete"] = on_episode_complete
             metrics = list(run_episodes(**run_episodes_kwargs))
         else:
-            for episode_id in range(num_episodes):
+            episode_id = 0
+            while len(metrics) < num_episodes or (
+                n_samples is not None and len(executor.logger.latency_records) < n_samples
+            ):
                 episode_metrics = executor.run_episode(
                     episode_id=episode_id,
                     seed=_episode_seed(config, episode_id),
                     eval_max_steps=eval_max_steps,
                 )
                 metrics.append(episode_metrics)
-                if on_episode_complete is not None:
+                if on_episode_complete is not None and len(metrics) <= num_episodes:
                     on_episode_complete(episode_metrics)
+                episode_id += 1
         metrics.sort(key=lambda item: int(item.episode_id))
+        metrics = metrics[:num_episodes]
+        if n_samples is not None:
+            executor.logger.latency_records = executor.logger.latency_records[:n_samples]
+            executor.logger.episode_metrics = executor.logger.episode_metrics[:num_episodes]
         for episode_metrics in metrics:
             for key, value in _evaluation_raw_fact_metadata(config, int(episode_metrics.episode_id)).items():
                 if episode_metrics.metadata.get(key) is None:
@@ -229,6 +238,7 @@ def run_eval_sweep_from_config(
     config: dict[str, Any],
     *,
     progress: bool = False,
+    n_samples: int | None = None,
 ) -> list[EpisodeMetrics]:
     if has_eval_suites(config):
         run_eval_suites_from_config(config, progress=progress)
@@ -254,7 +264,7 @@ def run_eval_sweep_from_config(
                 flush=True,
             )
 
-        metrics = run_from_config(config, on_episode_complete=on_episode_complete)
+        metrics = run_from_config(config, on_episode_complete=on_episode_complete, n_samples=n_samples)
         elapsed = time.perf_counter() - start_time
         print(f"[bench] sweep 1/1 complete elapsed={elapsed:.1f}s", file=sys.stderr, flush=True)
         return metrics
@@ -701,6 +711,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--run-name", type=str)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--checkpoint-kind", choices=["latest", "best"])
+    parser.add_argument("--n-samples", type=int)
     args = parser.parse_args(argv)
     config = load_config(args.config)
     apply_runtime_overrides(
@@ -729,7 +740,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 f"mean_length={float(summary['mean_length']):.1f}"
             )
         return
-    metrics = run_eval_sweep_from_config(config, progress=True)
+    metrics = run_eval_sweep_from_config(config, progress=True, n_samples=args.n_samples)
     for episode_metrics in metrics:
         eval_latency = episode_metrics.metadata.get("eval_latency_steps")
         latency_fragment = f"eval_latency={eval_latency} " if eval_latency is not None else ""
