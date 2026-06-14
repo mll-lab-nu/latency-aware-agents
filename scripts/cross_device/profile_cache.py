@@ -13,6 +13,19 @@ from typing import Callable
 
 DownloadProfileFolder = Callable[..., None]
 
+# Debug / bulky artifacts that workers upload (full tree) but the aggregator
+# does not need. Excluded on download so `aggregate` only pulls the slim set it
+# actually reads: manifests/runs.jsonl, top-level runs/**/episode_metrics.jsonl,
+# and profiles/**/{profile.json,latencies.jsonl,...}.
+RESULTS_DEBUG_IGNORE = [
+    "**/sample_batches/**",
+    "**/*.png",
+    "**/warmup_*",
+    "**/generated_configs/**",
+    "**/runs/**/latencies.jsonl",
+    "**/*.warmup.yaml",
+]
+
 
 def ensure_profile_cached(
     *,
@@ -101,6 +114,8 @@ def upload_folder_to_hf(
     local_dir: Path,
     repo_type: str,
     path_in_repo: str | None = None,
+    allow_patterns: list[str] | None = None,
+    ignore_patterns: list[str] | None = None,
 ) -> None:
     """Upload one local artifact folder to Hugging Face.
 
@@ -112,18 +127,68 @@ def upload_folder_to_hf(
             lands at `<path_in_repo>/...` so an upload round-trips with the
             `profiles/<policy>/<env>/<profile_id>` layout that
             `ensure_profile_cached` downloads from.
+        allow_patterns: Optional glob allow-list forwarded to `upload_folder`.
+        ignore_patterns: Optional glob ignore-list forwarded to `upload_folder`.
 
     Side effects:
         Uploads the folder using `huggingface_hub.HfApi`.
     """
     from huggingface_hub import HfApi
 
-    HfApi().upload_folder(
-        repo_id=repo_id,
-        repo_type=repo_type,
-        folder_path=str(local_dir),
-        path_in_repo=path_in_repo,
+    kwargs: dict[str, object] = {
+        "repo_id": repo_id,
+        "repo_type": repo_type,
+        "folder_path": str(local_dir),
+        "path_in_repo": path_in_repo,
+    }
+    if allow_patterns is not None:
+        kwargs["allow_patterns"] = allow_patterns
+    if ignore_patterns is not None:
+        kwargs["ignore_patterns"] = ignore_patterns
+    HfApi().upload_folder(**kwargs)
+
+
+def download_results_tree(
+    *,
+    repo_id: str,
+    repo_type: str,
+    local_root: Path,
+    revision: str | None = None,
+) -> Path:
+    """Download the per-machine `raw/` results trees from Hugging Face.
+
+    Pulls only the slim set the aggregator reads (manifests, per-run
+    `episode_metrics.jsonl`, and profile artifacts), excluding the bulky debug
+    files (`sample_batches/`, warmup `*.png`, etc.) that workers upload.
+
+    Args:
+        repo_id: Hugging Face repo id holding the `raw/<device>/<runtime>/...` trees.
+        repo_type: Hugging Face repo type, normally `dataset`.
+        local_root: Local directory to receive the downloaded `raw/` tree.
+        revision: Optional Hugging Face revision.
+
+    Returns:
+        `local_root` (the raw-root to hand to `aggregate --raw-root`).
+
+    Side effects:
+        Copies the filtered remote `raw/` tree into `local_root`.
+    """
+    from huggingface_hub import snapshot_download
+
+    snapshot_dir = Path(
+        snapshot_download(
+            repo_id=repo_id,
+            repo_type=repo_type,
+            revision=revision,
+            allow_patterns=["raw/**"],
+            ignore_patterns=RESULTS_DEBUG_IGNORE,
+        )
     )
+    local_root.mkdir(parents=True, exist_ok=True)
+    raw_src = snapshot_dir / "raw"
+    if raw_src.exists():
+        shutil.copytree(raw_src, local_root / "raw", dirs_exist_ok=True)
+    return local_root
 
 
 def main(argv: list[str] | None = None) -> None:

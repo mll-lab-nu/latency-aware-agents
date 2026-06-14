@@ -133,6 +133,30 @@ def build_table3_rows(exp1_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
     return rows
 
 
+def _resolve_latency_trace(
+    profiles_root: Path,
+    *,
+    policy: str,
+    env: str,
+    profile_id: str,
+) -> Path | None:
+    """Locate a device's `latencies.jsonl` under a flat or nested profiles root.
+
+    Tries the canonical flat layout `<profiles_root>/<policy>/<env>/<id>/` first;
+    falls back to globbing so a per-machine HF download root
+    (`.../raw/<device>/<runtime>/cross_device/profiles/<policy>/<env>/<id>/`)
+    also resolves. Returns the first match, or None when absent.
+    """
+    fixed = profiles_root / slugify(policy) / slugify(env) / profile_id / "latencies.jsonl"
+    if fixed.exists():
+        return fixed
+    pattern = f"**/{slugify(policy)}/{slugify(env)}/{profile_id}/latencies.jsonl"
+    for match in sorted(profiles_root.glob(pattern)):
+        if match.is_file():
+            return match
+    return None
+
+
 def build_latency_sample_rows(
     exp1_rows: list[dict[str, str]],
     profiles_root: Path,
@@ -145,15 +169,17 @@ def build_latency_sample_rows(
     for src in exp1_rows:
         if src.get("env") != panel_a_env:
             continue
-        trace = (
-            profiles_root
-            / slugify(src["policy"])
-            / slugify(src["env"])
-            / str(src["profile_id"])
-            / "latencies.jsonl"
+        trace = _resolve_latency_trace(
+            profiles_root,
+            policy=src["policy"],
+            env=src["env"],
+            profile_id=str(src["profile_id"]),
         )
-        if not trace.exists():
-            print(f"warning: missing latency trace, skipping panel-a device: {trace}")
+        if trace is None:
+            print(
+                "warning: missing latency trace, skipping panel-a device: "
+                f"{slugify(src['policy'])}/{slugify(src['env'])}/{src['profile_id']}"
+            )
             continue
         samples = load_latency_samples(trace)
         samples = _downsample(samples, max_samples_per_device)

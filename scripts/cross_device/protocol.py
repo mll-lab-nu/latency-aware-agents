@@ -7,6 +7,7 @@ modules so the CLI stays small.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ import torch
 from latency_bench.analysis.cross_device_protocol_tables import load_protocol_spec, write_protocol_tables
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
 from scripts.cross_device.config import _row_base_config
+from scripts.cross_device.profile_cache import download_results_tree
 from scripts.cross_device.planning import (
     _build_plan,
     _filtered_spec_for_aggregate,
@@ -82,6 +84,11 @@ def main(argv: list[str] | None = None) -> None:
     aggregate.add_argument("--dry-run", action="store_true")
     aggregate.add_argument("--overwrite", action="store_true")
     aggregate.add_argument("--resume", action="store_true")
+    aggregate.add_argument(
+        "--no-download",
+        action="store_true",
+        help="Skip auto-downloading per-machine results from HF before aggregating.",
+    )
     _add_runtime_flags(aggregate)
     _add_selection_flags(aggregate)
     _add_override_flags(aggregate)
@@ -93,9 +100,14 @@ def main(argv: list[str] | None = None) -> None:
         run_doctor(args, spec)
     elif args.command == "aggregate":
         spec = _filtered_spec_for_aggregate(spec, args)
+        raw_root = args.raw_root
+        results_repo = os.environ.get("HF_PROFILE_REPO")
+        will_download = raw_root is None and bool(results_repo) and not args.no_download
         if args.dry_run:
-            if args.raw_root is not None:
-                print(f"raw_root: {args.raw_root}")
+            if raw_root is not None:
+                print(f"raw_root: {raw_root}")
+            elif will_download:
+                print(f"would_download_results: {results_repo} -> {args.root / '_hf_raw'}")
             for filename in (
                 "experiment1_latency_profile_summary.csv",
                 "experiment2_same_device_calibration.csv",
@@ -103,10 +115,19 @@ def main(argv: list[str] | None = None) -> None:
             ):
                 print(f"would_write: {args.out / filename}")
             return
+        if will_download:
+            print(f"downloading results from {results_repo} ...")
+            raw_root = download_results_tree(
+                repo_id=results_repo,
+                repo_type=os.environ.get("HF_PROFILE_REPO_TYPE", "dataset"),
+                local_root=args.root / "_hf_raw",
+                revision=os.environ.get("HF_PROFILE_REVISION"),
+            )
+            print(f"raw_root: {raw_root}")
         outputs = write_protocol_tables(
             spec=spec,
             root=args.root,
-            raw_root=args.raw_root,
+            raw_root=raw_root,
             out=args.out,
             overwrite=args.overwrite,
         )
