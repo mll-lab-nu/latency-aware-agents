@@ -28,11 +28,21 @@ FLAPPY_SIMULATED_STARVLA_CONFIGS = (
 class FakePolicyServerWrapper:
     instances: list["FakePolicyServerWrapper"] = []
 
-    def __init__(self, ckpt_path, device="cuda", use_bf16=False, unnorm_key=None):
+    def __init__(
+        self,
+        ckpt_path,
+        device="cuda",
+        use_bf16=False,
+        unnorm_key=None,
+        action_output_mode=None,
+        rl_games_env_name=None,
+    ):
         self.ckpt_path = ckpt_path
         self.device = device
         self.use_bf16 = use_bf16
         self.unnorm_key = unnorm_key
+        self.action_output_mode = action_output_mode
+        self.rl_games_env_name = rl_games_env_name
         self.calls = []
         self._model_cfg = {
             "datasets": {
@@ -59,18 +69,19 @@ class FakePolicyServerWrapper:
         return {
             "actions": np.asarray(
                 [
-                    [[0.1, 0.9]],
-                    [[0.8, 0.2]],
+                    [[1]],
+                    [[0]],
                 ][: len(examples)],
-                dtype=np.float32,
+                dtype=np.int64,
             ),
-            "normalized_actions": np.asarray(
+            "raw_action_scores": np.asarray(
                 [
                     [[0.1, 0.9]],
                     [[0.8, 0.2]],
                 ][: len(examples)],
                 dtype=np.float32,
             ),
+            "action_output_type": "rl_games_discrete_id",
         }
 
 
@@ -122,6 +133,8 @@ def test_starvla_passes_all_raw_frames_and_base_prompt(monkeypatch, tmp_path: Pa
     wrapper = FakePolicyServerWrapper.instances[0]
     assert wrapper.use_bf16 is True
     assert wrapper.unnorm_key == "flappy"
+    assert wrapper.action_output_mode == "rl_games"
+    assert wrapper.rl_games_env_name == "flappy"
     assert wrapper.calls[0]["unnorm_key"] == "flappy"
     example = wrapper.calls[0]["examples"][0]
     assert example["lang"] == BASE_PROMPTS["flappy"]
@@ -359,7 +372,7 @@ def test_demon_attack_decodes_only_six_supported_actions():
     assert metadata["raw_action_id"] == 2
 
 
-def test_starvla_policy_decodes_normalized_actions(monkeypatch, tmp_path: Path):
+def test_starvla_policy_uses_decoded_actions_not_raw_scores(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
     class ConflictingPolicyServerWrapper(FakePolicyServerWrapper):
@@ -372,8 +385,9 @@ def test_starvla_policy_decodes_normalized_actions(monkeypatch, tmp_path: Path):
                 }
             )
             return {
-                "actions": np.asarray([[[0.9, 0.1]]], dtype=np.float32),
-                "normalized_actions": np.asarray([[[0.1, 0.9]]], dtype=np.float32),
+                "actions": np.asarray([[[1]]], dtype=np.int64),
+                "raw_action_scores": np.asarray([[[0.9, 0.1]]], dtype=np.float32),
+                "action_output_type": "rl_games_discrete_id",
             }
 
     FakePolicyServerWrapper.instances.clear()
@@ -391,7 +405,8 @@ def test_starvla_policy_decodes_normalized_actions(monkeypatch, tmp_path: Path):
     )
 
     assert output.action.name == "flap"
-    assert output.raw_output == [0.10000000149011612, 0.8999999761581421]
+    assert output.raw_output == 1
+    assert output.metadata["raw_action_scores"] == [0.8999999761581421, 0.10000000149011612]
 
 
 def test_deadly_corridor_joint_fifty_four_starvla_vector_decodes_to_tuple_action():

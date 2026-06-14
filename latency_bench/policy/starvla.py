@@ -15,11 +15,11 @@ from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.factory import register_policy
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
-from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STARVLA_ROOT = REPO_ROOT / "starVLA"
+ENV_RAW_RGB_FRAME_STACK_INFO_KEY = "env_raw_rgb_frame_stack"
 
 DEMON_ATTACK_ACTION_LABELS: tuple[str, ...] = (
     "NOOP",
@@ -84,12 +84,19 @@ class StarVlaPolicyRunner(PolicyRunner):
     def predict_batch(self, observations: Sequence[Observation]) -> list[PolicyOutput]:
         examples = [self._build_example(observation) for observation in observations]
         prediction = self._wrapper.predict_action(examples=examples, unnorm_key=self._unnorm_key)
-        actions = np.asarray(prediction["normalized_actions"])
+        actions = np.asarray(prediction["actions"])
+        raw_action_scores = (
+            np.asarray(prediction["raw_action_scores"])
+            if "raw_action_scores" in prediction
+            else None
+        )
         return [
             self._policy_output(
                 observation=observation,
                 example=example,
-                raw_action=actions[index, 0],
+                action_payload=actions[index, 0],
+                action_output_type=prediction["action_output_type"],
+                raw_action_scores=None if raw_action_scores is None else raw_action_scores[index, 0],
             )
             for index, (observation, example) in enumerate(zip(observations, examples))
         ]
@@ -123,11 +130,13 @@ class StarVlaPolicyRunner(PolicyRunner):
         *,
         observation: Observation,
         example: dict[str, Any],
-        raw_action: npt.NDArray[Any],
+        action_payload: npt.NDArray[Any],
+        action_output_type: str,
+        raw_action_scores: npt.NDArray[Any] | None,
     ) -> PolicyOutput:
-        vector = np.asarray(raw_action, dtype=np.float32)
-        action, action_metadata = decode_starvla_action(
-            vector=vector,
+        payload = np.asarray(action_payload)
+        action, action_metadata = action_from_starvla_payload(
+            payload=payload,
             env_name=self._env_name,
             action_by_raw_id=self._action_by_raw_id,
         )
@@ -139,16 +148,21 @@ class StarVlaPolicyRunner(PolicyRunner):
             "device": self._device,
             "prompt_sha256": sha256_text(example["lang"]),
             "input_frame_count": len(example["image"]),
-            "raw_action_head": [float(item) for item in vector.tolist()],
+            "action_output_type": action_output_type,
+            "action_payload": to_jsonable_action_payload(payload),
             **action_metadata,
         }
+        if raw_action_scores is not None:
+            metadata["raw_action_scores"] = [
+                float(item) for item in np.asarray(raw_action_scores, dtype=np.float32).tolist()
+            ]
         if "latency_raw_frames" in observation.metadata:
             metadata["latency_raw_frames"] = observation.metadata["latency_raw_frames"]
         if "latency_ms" in observation.metadata:
             metadata["latency_ms"] = observation.metadata["latency_ms"]
         return PolicyOutput(
             action=action,
-            raw_output=metadata["raw_action_head"],
+            raw_output=metadata["action_payload"],
             metadata=metadata,
         )
 
@@ -199,6 +213,30 @@ def decode_starvla_action(
     return indexed_action_from_vector(vector, action_by_raw_id)
 
 
+def action_from_starvla_payload(
+    *,
+    payload: npt.NDArray[Any],
+    env_name: str,
+    action_by_raw_id: Mapping[int, Action],
+) -> tuple[Action, dict[str, Any]]:
+    if str(env_name) == "demon_attack":
+        return demon_attack_action_from_id(int(np.asarray(payload).reshape(-1)[0]))
+    if str(env_name) == "deadly_corridor":
+        return deadly_corridor_action_from_tuple(
+            action_value=[int(item) for item in np.asarray(payload).reshape(-1).tolist()],
+            metadata={"action_layout": "deadly_corridor_tuple"},
+        )
+    raw_action_id = int(np.asarray(payload).reshape(-1)[0])
+    return action_by_raw_id[raw_action_id], {"raw_action_id": raw_action_id}
+
+
+def to_jsonable_action_payload(payload: npt.NDArray[Any]) -> Any:
+    value = np.asarray(payload).tolist()
+    if isinstance(value, list) and len(value) == 1:
+        return value[0]
+    return value
+
+
 def indexed_action_from_vector(
     vector: npt.NDArray[Any],
     action_by_raw_id: Mapping[int, Action],
@@ -213,6 +251,10 @@ def indexed_action_from_vector(
 def demon_attack_action_from_vector(vector: npt.NDArray[Any]) -> tuple[Action, dict[str, Any]]:
     n_actions = len(DEMON_ATTACK_ACTION_LABELS)
     action_id = int(np.argmax(np.asarray(vector)[:n_actions]))
+    return demon_attack_action_from_id(action_id)
+
+
+def demon_attack_action_from_id(action_id: int) -> tuple[Action, dict[str, Any]]:
     action = Action(
         value=action_id,
         name=DEMON_ATTACK_ACTION_LABELS[action_id],
@@ -363,6 +405,8 @@ def _build_starvla_policy(
         device=policy_cfg["device"],
         use_bf16=True,
         unnorm_key=policy_cfg["unnorm_key"],
+        action_output_mode="rl_games",
+        rl_games_env_name=config["env"]["name"],
     )
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
