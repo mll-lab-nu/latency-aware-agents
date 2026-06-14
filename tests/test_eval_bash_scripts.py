@@ -195,6 +195,10 @@ if [[ "${1:-}" == "scripts/bash_scripts/build_cuda_extensions.sh" ]]; then
   printf 'bash %s\\n' "$*" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
   exit 0
 fi
+if [[ "${1:-}" == "starVLA/examples/rl_games/install/bootstrap.sh" ]]; then
+  printf 'bash %s\\n' "$*" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
+  exit 0
+fi
 /bin/bash "$@"
 """,
     )
@@ -333,12 +337,12 @@ def test_install_script_selects_cu130_for_compute_cap_10_gpu(tmp_path):
     assert "selecting cu130" in result.stderr
     calls = calls_path.read_text(encoding="utf-8")
     assert "conda create -n latency -c conda-forge --override-channels python=3.10 -y" in calls
-    assert "conda install -y -c conda-forge --override-channels go" in calls
     assert "python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu130" in calls
     assert "python -m pip install -r requirements.txt" in calls
-    assert "rm -f envpool/dist/envpool-" in calls
-    assert "make -C envpool bazel-release" in calls
     assert "bash scripts/bash_scripts/build_cuda_extensions.sh" in calls
+    assert "conda install -y -c conda-forge --override-channels go" not in calls
+    assert "rm -f envpool/dist/envpool-" not in calls
+    assert "make -C envpool bazel-release" not in calls
 
 
 def test_install_script_allows_torch_profile_override(tmp_path):
@@ -398,7 +402,7 @@ def test_install_script_uses_conda_exe_when_path_is_missing(tmp_path):
     assert "conda tos" not in calls
     assert "conda create -n latency -c conda-forge --override-channels python=3.10 -y" in calls
     assert "conda activate latency" in calls
-    assert "conda install -y -c conda-forge --override-channels go" in calls
+    assert "conda install -y -c conda-forge --override-channels go" not in calls
 
 
 def test_install_script_bootstraps_miniconda_when_conda_is_missing(tmp_path):
@@ -420,7 +424,7 @@ def test_install_script_bootstraps_miniconda_when_conda_is_missing(tmp_path):
     assert "conda tos" not in calls
     assert "conda create -n latency -c conda-forge --override-channels python=3.10 -y" in calls
     assert "conda activate latency" in calls
-    assert "conda install -y -c conda-forge --override-channels go" in calls
+    assert "conda install -y -c conda-forge --override-channels go" not in calls
 
 
 def test_install_script_persists_conda_shell_init(tmp_path):
