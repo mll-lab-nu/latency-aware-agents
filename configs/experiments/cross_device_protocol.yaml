@@ -199,6 +199,14 @@ experiments:
         replay_device: b200
       - target_device: rtx4090
         replay_device: h200
+      - target_device: rtx5090
+        replay_device: b200
+      - target_device: rtx5090
+        replay_device: h200
+      - target_device: a6000
+        replay_device: b200
+      - target_device: a6000
+        replay_device: h200
       - target_device: l40s
         replay_device: b200
       - target_device: l40s
