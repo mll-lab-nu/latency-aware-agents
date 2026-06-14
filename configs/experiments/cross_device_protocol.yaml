@@ -68,6 +68,12 @@ devices:
     aliases:
       - B200
       - NVIDIA B200
+  - id: rtxpro6000blackwell
+    display_name: RTX PRO 6000 Blackwell
+    profile_id: L_RTX_PRO_6000_BLACKWELL
+    aliases:
+      - RTX PRO 6000 Blackwell
+      - NVIDIA RTX PRO 6000 Blackwell Workstation Edition
 
 experiments:
   exp1_latency_profile_summary:
@@ -213,4 +219,8 @@ experiments:
       - target_device: a100
         replay_device: b200
       - target_device: a100
+        replay_device: h200
+      - target_device: rtxpro6000blackwell
+        replay_device: b200
+      - target_device: rtxpro6000blackwell
         replay_device: h200

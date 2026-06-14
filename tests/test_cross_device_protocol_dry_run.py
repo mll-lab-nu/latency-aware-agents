@@ -309,6 +309,12 @@ def test_hardware_detection_accepts_full_gpu_model_names_and_multi_gpu_text():
             "profile_id": "L_B200",
             "aliases": ["NVIDIA B200"],
         },
+        {
+            "id": "rtxpro6000blackwell",
+            "display_name": "RTX PRO 6000 Blackwell",
+            "profile_id": "L_RTX_PRO_6000_BLACKWELL",
+            "aliases": ["NVIDIA RTX PRO 6000 Blackwell Workstation Edition"],
+        },
     ]
 
     cases = {
@@ -320,6 +326,8 @@ def test_hardware_detection_accepts_full_gpu_model_names_and_multi_gpu_text():
         "NVIDIA GeForce RTX 4090": "rtx4090",
         "NVIDIA H200": "h200",
         "NVIDIA B200": "b200",
+        "NVIDIA RTX PRO 6000 Blackwell Workstation Edition": "rtxpro6000blackwell",
+        "NVIDIA RTX PRO 6000 Blackwell Workstation Edition; NVIDIA RTX PRO 6000 Blackwell Workstation Edition": "rtxpro6000blackwell",
     }
     for raw_name, expected_id in cases.items():
         assert normalize_hardware_name(raw_name, devices)["id"] == expected_id
@@ -442,6 +450,8 @@ def test_real_protocol_exp3_uses_explicit_replay_pairs():
         {"target_device": "l40s", "replay_device": "h200"},
         {"target_device": "a100", "replay_device": "b200"},
         {"target_device": "a100", "replay_device": "h200"},
+        {"target_device": "rtxpro6000blackwell", "replay_device": "b200"},
+        {"target_device": "rtxpro6000blackwell", "replay_device": "h200"},
     ]
 
 
