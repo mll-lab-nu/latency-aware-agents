@@ -2,7 +2,7 @@ protocol_id: cross_device_latency_v1
 output_root: results/cross_device
 checkpoint_kind: best
 n_episodes: 100
-n_samples: 150000
+n_samples: 50000
 sim_parallel_envs: 8
 seed_set:
   - 0
