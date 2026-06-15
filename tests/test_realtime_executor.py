@@ -7,7 +7,7 @@ import pytest
 
 import latency_bench.executors.realtime as realtime
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, ActionEvent, LatencyRecord, OrderingPolicy, PolicyOutput
+from latency_bench.core.types import Action, ActionEvent, LatencyRecord, Observation, OrderingPolicy, PolicyOutput, StepRecord
 from latency_bench.envs.base import DummyEnvAdapter
 from latency_bench.executors.realtime import (
     ProcessInferencePool,
@@ -201,6 +201,60 @@ class ClosedActionEventPipeContext:
 
     def Process(self, *args, **kwargs):
         return AliveUntilTerminatedProcess(*args, **kwargs)
+
+
+class QueuedEnvMessagePipe:
+    def __init__(self, messages: list[tuple[str, dict]]):
+        self.messages = list(messages)
+        self.sent: list[tuple[str, dict]] = []
+        self.closed = False
+
+    def send(self, message):
+        self.sent.append(message)
+
+    def poll(self, timeout: float | None = None) -> bool:
+        return bool(self.messages)
+
+    def recv(self):
+        return self.messages.pop(0)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class QueuedEnvMessageContext:
+    def __init__(self, parent_conn: QueuedEnvMessagePipe):
+        self.parent_conn = parent_conn
+
+    def Pipe(self):
+        return self.parent_conn, DummyChildPipe()
+
+    def Process(self, *args, **kwargs):
+        return AliveUntilTerminatedProcess(*args, **kwargs)
+
+
+class DrainBeforeSubmitPool:
+    def __init__(self):
+        self.drained = False
+        self.submitted: list[RealtimeObservationTask] = []
+
+    @property
+    def in_flight_count(self) -> int:
+        return 0 if self.drained else 1
+
+    @property
+    def idle_worker_count(self) -> int:
+        return 1 if self.drained else 0
+
+    def reset_episode(self) -> None:
+        self.drained = False
+        self.submitted.clear()
+
+    def submit(self, task: RealtimeObservationTask) -> bool:
+        if not self.drained:
+            return False
+        self.submitted.append(task)
+        return True
 
 
 class CloseOrderConnection:
@@ -399,6 +453,55 @@ def test_env_process_ignores_late_action_when_pipe_is_closed(monkeypatch):
     assert parent_conn.closed
     assert metrics.num_actions == 1
     assert metrics.mean_latency_ms == 1.0
+
+
+def test_env_process_drains_ready_results_before_submitting_observation(monkeypatch):
+    task = RealtimeObservationTask(
+        obs_id=0,
+        observation=Observation(data=None, env_step=0, sim_time_ms=0.0),
+        submit_env_step=0,
+        submit_time_ms=0.0,
+    )
+    parent_conn = QueuedEnvMessagePipe(
+        [
+            ("observation", {"task": task}),
+            (
+                "step",
+                {
+                    "record": StepRecord(
+                        episode_id=0,
+                        env_step=0,
+                        sim_time_ms=0.0,
+                        active_action=Action("noop", name="noop", is_noop=True),
+                        reward=0.0,
+                        done=True,
+                        info={"wall_clock_lag_ms": 0.0},
+                    )
+                },
+            ),
+            ("episode_done", {}),
+        ]
+    )
+    pool = DrainBeforeSubmitPool()
+    executor = _executor(pool=pool, max_steps=1)
+
+    def fake_drain_and_release_results(**kwargs):
+        kwargs["pool"].drained = True
+        return []
+
+    monkeypatch.setattr(realtime.mp, "get_context", lambda _method: QueuedEnvMessageContext(parent_conn))
+    monkeypatch.setattr(executor, "_drain_and_release_results", fake_drain_and_release_results)
+
+    metrics = executor._run_episode_with_env_process(
+        pool=pool,
+        episode_id=0,
+        seed=0,
+        eval_max_steps=1,
+    )
+
+    assert len(pool.submitted) == 1
+    assert metrics.metadata["submitted_observation_frames"] == 1
+    assert metrics.metadata["dropped_observation_count"] == 0
 
 
 def test_inference_pool_closes_connections_after_workers_exit():
