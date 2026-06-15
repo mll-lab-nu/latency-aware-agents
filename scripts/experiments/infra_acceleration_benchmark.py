@@ -30,19 +30,16 @@ from training.common.latency_bench_periodic_eval import build_latency_bench_conf
 BASE_CONFIGS = {
     "flappy": REPO_ROOT / "configs" / "base" / "flappy.yaml",
     "demon_attack": REPO_ROOT / "configs" / "base" / "demon_attack.yaml",
-    "deadly_corridor": REPO_ROOT / "configs" / "base" / "deadly_corridor.yaml",
 }
 
 ENV_TITLES = {
     "flappy": "Flappy Bird",
     "demon_attack": "Demon Attack",
-    "deadly_corridor": "Deadly Corridor",
 }
 
 PARITY_TESTS = {
     "flappy": ["tests/infra_acceleration/test_flappy.py"],
     "demon_attack": ["tests/infra_acceleration/test_demon_attack.py"],
-    "deadly_corridor": ["tests/infra_acceleration/test_deadly_corridor.py"],
 }
 
 
@@ -228,21 +225,6 @@ def _apply_backend_variant(config: dict[str, Any], *, env_name: str, variant: st
             return
         env_cfg["simulator"] = "gpu"
         return
-    if env_name == "deadly_corridor":
-        config["backend"]["device"] = "cuda"
-        training_cfg = config["training"]
-        training_cfg["num_workers"] = 16
-        training_cfg["num_envs_per_worker"] = 4
-        training_cfg["worker_num_splits"] = 2
-        training_cfg["rollout"] = 128
-        training_cfg["num_batches_per_epoch"] = 2
-        if variant == "baseline":
-            env_cfg["simulator"] = "cpu"
-            return
-        env_cfg["simulator"] = "envpool"
-        training_cfg["num_workers"] = 4
-        training_cfg["num_envs_per_worker"] = 16
-        return
     raise KeyError(env_name)
 
 
@@ -258,8 +240,6 @@ def backend_label(config: dict[str, Any], *, phase: str) -> str:
             return "cule_cuda"
         if env_name == "demon_attack" and str(config["backend"]["device"]) == "gpu" and simulator == "cpu":
             return "gpu_policy_cpu_env"
-        if env_name == "deadly_corridor" and simulator == "envpool":
-            return "envpool"
         return f"{simulator}_reference"
     if env_name == "flappy" and bool(config["env"]["use_gpu_render"]) and simulator == "gpu":
         return "flappy_gpu_batched"
@@ -574,7 +554,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--run-eval-config", type=Path)
     parser.add_argument("--eval-result-path", type=Path)
     parser.add_argument("--budget", choices=sorted(BUDGETS), default="paper-grade")
-    parser.add_argument("--envs", default="flappy,demon_attack,deadly_corridor")
+    parser.add_argument("--envs", default="flappy,demon_attack")
     parser.add_argument("--repeats", type=int)
     parser.add_argument("--train-for-env-steps", type=int)
     parser.add_argument("--eval-episodes", type=int)

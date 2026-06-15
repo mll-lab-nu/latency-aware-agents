@@ -21,7 +21,6 @@ from training.common.config_adapter import (
     append_cli_arg,
     apply_runtime_logging_config,
     build_common_sf_args,
-    envpool_sample_factory_layout,
 )
 from training.common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
 from training.common.latency_config import (
@@ -31,9 +30,6 @@ from training.common.latency_config import (
 from training.common.latency_bench_periodic_eval import run_sample_factory_training
 from training.common.latency_wrapper import ActionLatencyWrapper, EpisodeMetricsWrapper, RewardTraceWrapper
 from training.common.raw_rgb_export import RawRgbFrameStackInfoWrapper
-from training.common.sf_component_healthcheck_compat import (
-    ensure_sample_factory_component_healthcheck_installed,
-)
 from training.common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
 from training.common.wandb_compat import patch_sample_factory_wandb
 
@@ -134,15 +130,6 @@ def make_latency_doom_env_from_spec(
     if bool(getattr(cfg, "disable_reward_scaling", False)):
         spec_to_use.reward_scaling = 1.0
     _force_doom_raw_frame_step_cfg(cfg)
-    if cfg.simulator == "envpool":
-        from training.deadly_corridor_sf.envpool_env import DeadlyCorridorEnvPoolEnv
-
-        return DeadlyCorridorEnvPoolEnv(
-            cfg=cfg,
-            env_config=env_config,
-            spec=spec_to_use,
-            envpool_batch_size=int(getattr(cfg, "envpool_batch_size")),
-        )
     clock = EnvClock(
         env_fps=cfg.env_fps,
         obs_fps=cfg.obs_fps,
@@ -292,8 +279,7 @@ def add_latency_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--disable-reward-scaling", type=str2bool, default=False)
     parser.add_argument("--frame_stack", type=int, default=1)
     parser.add_argument("--max_episode_steps", type=int, default=0)
-    parser.add_argument("--simulator", type=str, default="cpu", choices=["cpu", "envpool"])
-    parser.add_argument("--envpool-batch-size", dest="envpool_batch_size", type=int, default=1)
+    parser.add_argument("--simulator", type=str, default="cpu", choices=["cpu"])
     parser.add_argument("--episode_metrics_path", type=str, default="")
     parser.add_argument("--vizdoom_init_max_parallel", type=int, default=10)
     parser.add_argument("--vizdoom_init_lock_timeout_sec", type=float, default=5.0)
@@ -335,12 +321,6 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--frame_stack", env_cfg.get("frame_stack", 1))
     append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
     append_cli_arg(args, "--simulator", env_cfg["simulator"])
-    envpool_batch_size = (
-        envpool_sample_factory_layout(config["training"])["envpool_batch_size"]
-        if env_cfg["simulator"] == "envpool"
-        else None
-    )
-    append_cli_arg(args, "--envpool-batch-size", envpool_batch_size)
     append_cli_arg(args, "--vizdoom_init_max_parallel", env_cfg.get("vizdoom_init_max_parallel"))
     append_cli_arg(args, "--vizdoom_init_lock_timeout_sec", env_cfg.get("vizdoom_init_lock_timeout_sec"))
     append_cli_arg(args, "--vizdoom_init_lock_max_wait_sec", env_cfg.get("vizdoom_init_lock_max_wait_sec"))
@@ -360,8 +340,6 @@ def run_from_config(config: dict) -> int:
     apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))
     patch_sample_factory_wandb()
-    if cfg.simulator == "envpool":
-        ensure_sample_factory_component_healthcheck_installed(env_name=SF_ENV_NAME)
 
     metrics_stop_event = None
     metrics_thread = None

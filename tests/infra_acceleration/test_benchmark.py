@@ -91,7 +91,7 @@ def test_paper_grade_dry_run_stages_real_baseline_and_accelerated_backends(tmp_p
     configs = _read_jsonl(tmp_path / "staged_configs.jsonl")
     by_run = {config["experiment"]["name"]: config for config in configs}
     assert status == 0
-    assert len(configs) == 18
+    assert len(configs) == 12
 
     flappy_baseline = by_run["infra_accel_flappy_baseline_r0"]
     flappy_accelerated = by_run["infra_accel_flappy_accelerated_r0"]
@@ -122,22 +122,6 @@ def test_paper_grade_dry_run_stages_real_baseline_and_accelerated_backends(tmp_p
     assert demon_accelerated["training"]["num_envs_per_worker"] == 512
     assert bench.backend_label(demon_accelerated, phase="train") == "cule_cuda"
 
-    deadly_baseline = by_run["infra_accel_deadly_corridor_baseline_r0"]
-    deadly_accelerated = by_run["infra_accel_deadly_corridor_accelerated_r0"]
-    assert deadly_baseline["backend"]["device"] == "cuda"
-    assert deadly_baseline["env"]["simulator"] == "cpu"
-    assert deadly_baseline["training"]["num_workers"] == 16
-    assert deadly_baseline["training"]["num_envs_per_worker"] == 4
-    assert deadly_baseline["training"]["worker_num_splits"] == 2
-    assert deadly_baseline["training"]["rollout"] == 128
-    assert deadly_baseline["training"]["num_batches_per_epoch"] == 2
-    assert deadly_accelerated["backend"]["device"] == "cuda"
-    assert deadly_accelerated["env"]["simulator"] == "envpool"
-    assert deadly_accelerated["training"]["num_workers"] == 4
-    assert deadly_accelerated["training"]["num_envs_per_worker"] == 16
-    assert deadly_accelerated["training"]["worker_num_splits"] == 2
-    assert deadly_accelerated["training"]["rollout"] == 128
-    assert deadly_accelerated["training"]["num_batches_per_epoch"] == 2
     for config in configs:
         extra_args = config["backend"]["extra_args"]
         assert extra_args[-4:] == [

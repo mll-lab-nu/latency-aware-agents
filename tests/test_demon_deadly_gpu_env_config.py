@@ -138,37 +138,6 @@ def test_deadly_corridor_base_config_defaults_to_cpu_simulator():
     assert "gpu_env_profile_interval" not in cfg["env"]
 
 
-def test_deadly_corridor_envpool_preserves_sample_factory_splits():
-    from training.deadly_corridor_sf.integration import build_cli_args_from_config
-
-    cfg = load_config("configs/base/deadly_corridor.yaml")
-    cfg["env"]["simulator"] = "envpool"
-    cfg["backend"]["device"] = "gpu"
-    cfg["training"]["num_envs_per_worker"] = 4
-    cfg["training"]["worker_num_splits"] = 2
-
-    args = build_cli_args_from_config(cfg)
-
-    assert args[args.index("--device") + 1] == "gpu"
-    assert args[args.index("--num_envs_per_worker") + 1] == "2"
-    assert args[args.index("--worker_num_splits") + 1] == "2"
-    assert args[args.index("--envpool-batch-size") + 1] == "2"
-    assert args[args.index("--batched_sampling") + 1] == "True"
-    assert args[args.index("--env_gpu_observations") + 1] == "False"
-
-
-def test_deadly_corridor_envpool_requires_even_split_layout():
-    from training.deadly_corridor_sf.integration import build_cli_args_from_config
-
-    cfg = load_config("configs/base/deadly_corridor.yaml")
-    cfg["env"]["simulator"] = "envpool"
-    cfg["training"]["num_envs_per_worker"] = 5
-    cfg["training"]["worker_num_splits"] = 2
-
-    with pytest.raises(ValueError, match="num_envs_per_worker=5"):
-        build_cli_args_from_config(cfg)
-
-
 def test_demon_attack_gpu_simulator_constructs_gpu_env_without_cpu_fallback(monkeypatch):
     from training.demon_attack_sf import integration
 
@@ -239,36 +208,6 @@ def test_demon_attack_sample_factory_probe_env_config_is_explicit(monkeypatch):
             max_episode_steps=25000,
             gpu_env_device="cuda",
             gpu_env_batch_size=64,
-        ),
-        env_config=None,
-    )
-
-    assert env.kwargs["env_config"].worker_index == 0
-    assert env.kwargs["env_config"].vector_index == 0
-    assert env.kwargs["env_config"].env_id == 0
-
-
-def test_deadly_corridor_envpool_sample_factory_probe_env_config_is_explicit(monkeypatch):
-    from training.deadly_corridor_sf import integration
-
-    class FakeEnvPoolEnv:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-    monkeypatch.setattr(
-        "training.deadly_corridor_sf.envpool_env.DeadlyCorridorEnvPoolEnv",
-        FakeEnvPoolEnv,
-    )
-
-    env = integration.make_latency_doom_env_from_spec(
-        SimpleNamespace(reward_scaling=1.0),
-        "doom_deadly_corridor",
-        cfg=SimpleNamespace(
-            simulator="envpool",
-            disable_reward_scaling=False,
-            env_fps=35,
-            obs_fps=8.75,
-            envpool_batch_size=4,
         ),
         env_config=None,
     )

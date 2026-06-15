@@ -139,18 +139,6 @@ exit 0
         fake_bin / "make",
         """#!/usr/bin/env bash
 set -euo pipefail
-if [[ "$*" == "-C envpool bazel-build" ]]; then
-  printf "error: command 'swig' failed: No such file or directory\\n" >&2
-  exit 1
-fi
-if [[ "$*" == "-C envpool bazel-release" && "${CGO_ENABLED:-}" != "0" ]]; then
-  printf 'cgo: C compiler "x86_64-conda-linux-gnu-cc" not found: exec: "x86_64-conda-linux-gnu-cc": executable file not found in $PATH\\n' >&2
-  exit 1
-fi
-if [[ "$*" == "-C envpool bazel-release" && "${USE_BAZEL_VERSION:-}" != "6.5.0" ]]; then
-  printf "ERROR: /workspace/latency-sensitive-bench/envpool/BUILD:8:1: name 'py_binary' is not defined\\n" >&2
-  exit 1
-fi
 printf 'make %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
 exit 0
 """,
@@ -355,17 +343,6 @@ def test_cuda_extensions_build_script_is_executable_bash():
     assert "LIBRARY_PATH" in text
 
 
-def test_envpool_fork_top_level_package_builds_vizdoom_only():
-    build_text = (REPO_ROOT / "envpool" / "envpool" / "BUILD").read_text(encoding="utf-8")
-    entry_text = (REPO_ROOT / "envpool" / "envpool" / "entry.py").read_text(encoding="utf-8")
-
-    assert "//envpool/vizdoom" in build_text
-    assert "envpool.vizdoom.registration" in entry_text
-    for unsupported_env in ["atari", "box2d", "classic_control", "mujoco", "procgen", "toy_text"]:
-        assert f"//envpool/{unsupported_env}" not in build_text
-        assert f"envpool.{unsupported_env}" not in entry_text
-
-
 def test_install_script_selects_cu130_for_compute_cap_10_gpu(tmp_path):
     script_path = REPO_ROOT / "install.sh"
     env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
@@ -387,8 +364,6 @@ def test_install_script_selects_cu130_for_compute_cap_10_gpu(tmp_path):
     assert "python -m pip install -r requirements.txt" in calls
     assert "bash scripts/bash_scripts/build_cuda_extensions.sh" in calls
     assert "conda install -y -c conda-forge --override-channels go" not in calls
-    assert "rm -f envpool/dist/envpool-" not in calls
-    assert "make -C envpool bazel-release" not in calls
 
 
 def test_install_script_allows_torch_profile_override(tmp_path):
