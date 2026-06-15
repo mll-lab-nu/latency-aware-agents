@@ -117,30 +117,30 @@ class ProcessInferencePool:
         if self.closed:
             return
         self.closed = True
-        terminate = False
         for connection, process in zip(self._connections, self._processes):
             if process.is_alive():
                 try:
                     connection.send(("close", {}))
                 except (BrokenPipeError, EOFError, OSError):
-                    terminate = True
+                    pass
+        for process in self._processes:
+            process.join(timeout=0.2)
+        terminated_processes = []
+        for process in self._processes:
+            if process.is_alive():
+                process.terminate()
+                terminated_processes.append(process)
+        for process in terminated_processes:
+            process.join(timeout=1.0)
+        for process in self._processes:
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=1.0)
         for connection in self._connections:
             try:
                 connection.close()
             except OSError:
                 pass
-        for process in self._processes:
-            process.join(timeout=0.2)
-        if terminate:
-            for process in self._processes:
-                if process.is_alive():
-                    process.terminate()
-            for process in self._processes:
-                process.join(timeout=1.0)
-        for process in self._processes:
-            if process.is_alive():
-                process.kill()
-                process.join(timeout=1.0)
 
     def _start_workers(self) -> None:
         try:
@@ -545,25 +545,12 @@ class RealtimeLatencyExecutor:
         done = False
 
         try:
-            while not done:
-                now_ms = self._wall_elapsed_ms()
-                released = self._drain_and_release_results(
-                    pool=pool,
-                    coordinator=coordinator,
-                    now_ms=now_ms,
-                    action_events=action_events,
-                    latency_values_ms=latency_values_ms,
-                )
-                for event in released:
-                    parent_conn.send(("action_event", {"event": event}))
-                    action_event_index[event.action_id] = action_events.index(event)
-
-                if not parent_conn.poll(0.001):
-                    if not process.is_alive():
-                        done = True
-                    continue
-
-                tag, payload = parent_conn.recv()
+            def handle_env_message(tag: str, payload: dict[str, Any]) -> None:
+                nonlocal submitted_observation_frames
+                nonlocal dropped_observation_count
+                nonlocal max_wall_clock_lag_ms
+                nonlocal env_deadline_miss_count
+                nonlocal done
                 if tag == "observation":
                     task = payload["task"]
                     if pool.submit(task):
@@ -607,6 +594,40 @@ class RealtimeLatencyExecutor:
                     done = True
                 elif tag == "error":
                     raise RuntimeError(payload.get("traceback", "<missing traceback>"))
+
+            while not done:
+                while parent_conn.poll():
+                    tag, payload = parent_conn.recv()
+                    handle_env_message(tag, payload)
+                    if done:
+                        break
+                if done:
+                    break
+                now_ms = self._wall_elapsed_ms()
+                released = self._drain_and_release_results(
+                    pool=pool,
+                    coordinator=coordinator,
+                    now_ms=now_ms,
+                    action_events=action_events,
+                    latency_values_ms=latency_values_ms,
+                )
+                for event in released:
+                    try:
+                        parent_conn.send(("action_event", {"event": event}))
+                    except BrokenPipeError:
+                        done = True
+                        break
+                    action_event_index[event.action_id] = action_events.index(event)
+                if done:
+                    continue
+
+                if not parent_conn.poll(0.001):
+                    if not process.is_alive():
+                        done = True
+                    continue
+
+                tag, payload = parent_conn.recv()
+                handle_env_message(tag, payload)
 
             self._drain_and_release_results(
                 pool=pool,
@@ -844,9 +865,15 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
                     worker_id=int(worker_id),
                     device=device,
                 )
-                connection.send(("result", {"completion": completion}))
+                try:
+                    connection.send(("result", {"completion": completion}))
+                except (BrokenPipeError, EOFError, OSError):
+                    return
     except BaseException:
-        connection.send(("error", {"traceback": traceback.format_exc()}))
+        try:
+            connection.send(("error", {"traceback": traceback.format_exc()}))
+        except (BrokenPipeError, EOFError, OSError):
+            return
 
 
 def _env_loop_worker(
