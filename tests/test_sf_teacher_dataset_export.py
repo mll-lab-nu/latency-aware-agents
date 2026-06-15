@@ -200,6 +200,74 @@ def test_latency_config_override_is_explicit_rollout_override(tmp_path):
     assert metadata["latency_source"] == str(override_path.resolve())
 
 
+@pytest.mark.parametrize(
+    ("env", "experiment", "expected_ms"),
+    [
+        ("latency_flappy", "flappy_sf_same_latency_l1_seed0", 1000.0 / 30.0),
+        ("latency_demon_attack", "demon_attack_sf_same_latency_l1_seed0", 1000.0 / 60.0),
+        ("doom_deadly_corridor", "deadly_corridor_sf_same_latency_l1_seed0", 1000.0 / 35.0),
+    ],
+)
+def test_rollout_config_infers_legacy_same_latency_checkpoint_fixed_latency(
+    tmp_path,
+    env,
+    experiment,
+    expected_ms,
+):
+    from latency_bench.data.sf_teacher_config import load_rollout_training_config
+
+    experiment_dir = tmp_path / experiment
+    _write_checkpoint_config(
+        experiment_dir,
+        env=env,
+        experiment=experiment,
+        latency_type=None,
+        fixed_latency_ms=None,
+        latency_mode="episode_fixed",
+        latency_sampling_mode="uniform_all",
+        queue_latency_values="1",
+        env_fps=None,
+        obs_fps=None,
+    )
+
+    descriptor, metadata = load_rollout_training_config(experiment_dir)
+
+    assert descriptor["latency_override"] == {
+        "type": "fixed",
+        "fixed_latency_ms": expected_ms,
+        "add_latency_info": False,
+    }
+    assert metadata["latency_override"] == descriptor["latency_override"]
+    assert metadata["latency_source"] == "legacy_checkpoint_name"
+
+
+def test_explicit_latency_config_takes_precedence_over_legacy_checkpoint_name(tmp_path):
+    from latency_bench.data.sf_teacher_config import load_rollout_training_config
+
+    experiment_dir = tmp_path / "flappy_sf_same_latency_l1_seed0"
+    _write_checkpoint_config(
+        experiment_dir,
+        env="latency_flappy",
+        experiment="flappy_sf_same_latency_l1_seed0",
+        latency_type=None,
+        fixed_latency_ms=None,
+        latency_mode="episode_fixed",
+        queue_latency_values="1",
+        env_fps=None,
+        obs_fps=None,
+    )
+    override_path = tmp_path / "latency_override.yaml"
+    override_path.write_text(
+        yaml.safe_dump({"latency": {"type": "fixed", "fixed_latency_ms": 99.0}}),
+        encoding="utf-8",
+    )
+
+    descriptor, metadata = load_rollout_training_config(experiment_dir, latency_config_path=override_path)
+
+    assert descriptor["latency_override"] == {"type": "fixed", "fixed_latency_ms": 99.0}
+    assert metadata["latency_source"] == str(override_path.resolve())
+
+
 def test_device_override_is_recorded_without_rewriting_checkpoint_env_config(tmp_path):
     from latency_bench.data.sf_teacher_config import load_rollout_training_config
 
