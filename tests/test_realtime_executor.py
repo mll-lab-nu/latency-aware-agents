@@ -5,14 +5,16 @@ from dataclasses import dataclass
 
 import pytest
 
+import latency_bench.executors.realtime as realtime
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, LatencyRecord, OrderingPolicy, PolicyOutput
+from latency_bench.core.types import Action, ActionEvent, LatencyRecord, OrderingPolicy, PolicyOutput
 from latency_bench.envs.base import DummyEnvAdapter
 from latency_bench.executors.realtime import (
     ProcessInferencePool,
     RealtimeLatencyExecutor,
     RealtimeObservationTask,
     RealtimePolicyCompletion,
+    _inference_worker,
     _worker_runtime_metadata,
 )
 from latency_bench.latency.sources import ZeroLatencySource
@@ -152,6 +154,177 @@ def test_worker_runtime_metadata_records_spawn_context(monkeypatch):
     assert isinstance(metadata["worker_cuda_device_count"], int)
 
 
+class ClosedActionEventPipe:
+    def __init__(self):
+        self.closed = False
+
+    def send(self, message):
+        command, _payload = message
+        if command in {"action_event", "close"}:
+            raise BrokenPipeError
+
+    def poll(self, timeout: float | None = None) -> bool:
+        return False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class DummyChildPipe:
+    def close(self) -> None:
+        return None
+
+
+class AliveUntilTerminatedProcess:
+    def __init__(self, *args, **kwargs):
+        self.terminated = False
+
+    def start(self) -> None:
+        return None
+
+    def is_alive(self) -> bool:
+        return not self.terminated
+
+    def join(self, timeout: float | None = None) -> None:
+        return None
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+
+class ClosedActionEventPipeContext:
+    def __init__(self, parent_conn: ClosedActionEventPipe):
+        self.parent_conn = parent_conn
+
+    def Pipe(self):
+        return self.parent_conn, DummyChildPipe()
+
+    def Process(self, *args, **kwargs):
+        return AliveUntilTerminatedProcess(*args, **kwargs)
+
+
+class CloseOrderConnection:
+    def __init__(self, events: list[tuple]):
+        self.events = events
+
+    def send(self, message):
+        command, _payload = message
+        self.events.append(("send", command))
+
+    def close(self):
+        self.events.append(("close",))
+
+
+class ExitsOnFirstJoinProcess:
+    def __init__(self, events: list[tuple]):
+        self.events = events
+        self.alive = True
+
+    def is_alive(self) -> bool:
+        return self.alive
+
+    def join(self, timeout: float | None = None) -> None:
+        self.events.append(("join", timeout))
+        self.alive = False
+
+    def terminate(self) -> None:
+        self.events.append(("terminate",))
+        self.alive = False
+
+    def kill(self) -> None:
+        self.events.append(("kill",))
+        self.alive = False
+
+
+class ExitsAfterTerminateProcess:
+    def __init__(self, events: list[tuple]):
+        self.events = events
+        self.alive = True
+
+    def is_alive(self) -> bool:
+        return self.alive
+
+    def join(self, timeout: float | None = None) -> None:
+        self.events.append(("join", timeout))
+
+    def terminate(self) -> None:
+        self.events.append(("terminate",))
+        self.alive = False
+
+    def kill(self) -> None:
+        self.events.append(("kill",))
+        self.alive = False
+
+
+class BrokenResultConnection:
+    def __init__(self, task: RealtimeObservationTask):
+        self.commands = [("predict", {"task": task})]
+        self.sent: list[str] = []
+
+    def send(self, message):
+        command, _payload = message
+        self.sent.append(command)
+        if command == "result":
+            raise BrokenPipeError
+        if command == "error":
+            raise AssertionError("worker tried to report an error over a closed pipe")
+
+    def recv(self):
+        return self.commands.pop(0)
+
+
+class RecordingWorkerConnection:
+    def __init__(self, task: RealtimeObservationTask):
+        self.commands = [("predict", {"task": task})]
+        self.sent: list[tuple[str, dict]] = []
+
+    def send(self, message):
+        self.sent.append(message)
+
+    def recv(self):
+        return self.commands.pop(0)
+
+
+class DummyWorkerPolicy:
+    def predict(self, observation):
+        return PolicyOutput(action=Action("unused"))
+
+
+class SuccessfulWorkerMeasurer:
+    def __init__(self, *, device: str, sync_cuda: bool):
+        self.device = device
+        self.sync_cuda = sync_cuda
+
+    def run_and_measure(self, predict, observation, *, obs_id: int):
+        return (
+            PolicyOutput(action=Action("jump")),
+            LatencyRecord(obs_id=obs_id, latency_ms=1.0),
+        )
+
+
+class FailingWorkerMeasurer:
+    def __init__(self, *, device: str, sync_cuda: bool):
+        self.device = device
+        self.sync_cuda = sync_cuda
+
+    def run_and_measure(self, predict, observation, *, obs_id: int):
+        raise RuntimeError("policy boom")
+
+
+def _patch_worker_dependencies(monkeypatch, measurer_cls):
+    import latency_bench.core.actions as actions_mod
+    import latency_bench.policy.factory as factory_mod
+
+    class DummyActionResolver:
+        def __init__(self, env_config):
+            self.env_config = env_config
+
+    monkeypatch.setattr(actions_mod, "ActionResolver", DummyActionResolver)
+    monkeypatch.setattr(factory_mod, "build_policy", lambda config, action_resolver: DummyWorkerPolicy())
+    monkeypatch.setattr(realtime, "RuntimeLatencyMeasurer", measurer_cls)
+    monkeypatch.setattr(realtime, "_worker_runtime_metadata", lambda worker_id, start_method: {})
+
+
 def _executor(
     *,
     pool: ScriptedInferencePool,
@@ -188,6 +361,121 @@ def _executor(
         video_recorder=video_recorder,
         config=config,
     )
+
+
+def test_env_process_ignores_late_action_when_pipe_is_closed(monkeypatch):
+    parent_conn = ClosedActionEventPipe()
+    pool = ScriptedInferencePool([], num_workers=1)
+    executor = _executor(pool=pool)
+    event = ActionEvent(
+        action_id=0,
+        action=Action("late"),
+        obs_env_step=0,
+        ready_time_ms=1.0,
+        ready_step_float=0.03,
+        latency=LatencyRecord(obs_id=0, latency_ms=1.0),
+    )
+    drain_calls = 0
+
+    def fake_drain_and_release_results(**kwargs):
+        nonlocal drain_calls
+        drain_calls += 1
+        if drain_calls == 1:
+            kwargs["action_events"].append(event)
+            kwargs["latency_values_ms"].append(1.0)
+            return [event]
+        return []
+
+    monkeypatch.setattr(realtime.mp, "get_context", lambda _method: ClosedActionEventPipeContext(parent_conn))
+    monkeypatch.setattr(executor, "_drain_and_release_results", fake_drain_and_release_results)
+
+    metrics = executor._run_episode_with_env_process(
+        pool=pool,
+        episode_id=0,
+        seed=0,
+        eval_max_steps=1,
+    )
+
+    assert parent_conn.closed
+    assert metrics.num_actions == 1
+    assert metrics.mean_latency_ms == 1.0
+
+
+def test_inference_pool_closes_connections_after_workers_exit():
+    events: list[tuple] = []
+    pool = ProcessInferencePool.__new__(ProcessInferencePool)
+    pool.closed = False
+    pool._connections = [CloseOrderConnection(events)]
+    pool._processes = [ExitsOnFirstJoinProcess(events)]
+
+    pool.close()
+
+    assert events == [
+        ("send", "close"),
+        ("join", 0.2),
+        ("close",),
+    ]
+
+
+def test_inference_pool_terminates_workers_still_alive_after_close():
+    events: list[tuple] = []
+    pool = ProcessInferencePool.__new__(ProcessInferencePool)
+    pool.closed = False
+    pool._connections = [CloseOrderConnection(events)]
+    pool._processes = [ExitsAfterTerminateProcess(events)]
+
+    pool.close()
+
+    assert events == [
+        ("send", "close"),
+        ("join", 0.2),
+        ("terminate",),
+        ("join", 1.0),
+        ("close",),
+    ]
+
+
+def test_inference_worker_exits_when_result_pipe_is_closed(monkeypatch):
+    _patch_worker_dependencies(monkeypatch, SuccessfulWorkerMeasurer)
+    task = RealtimeObservationTask(
+        obs_id=7,
+        observation=object(),
+        submit_env_step=0,
+        submit_time_ms=0.0,
+    )
+    connection = BrokenResultConnection(task)
+
+    _inference_worker(
+        connection,
+        {"env": {}, "policy": {}, "latency": {}},
+        worker_id=0,
+        device="cpu",
+        start_method="spawn",
+    )
+
+    assert connection.sent == ["ready", "result"]
+
+
+def test_inference_worker_reports_real_errors_when_pipe_is_open(monkeypatch):
+    _patch_worker_dependencies(monkeypatch, FailingWorkerMeasurer)
+    task = RealtimeObservationTask(
+        obs_id=8,
+        observation=object(),
+        submit_env_step=0,
+        submit_time_ms=0.0,
+    )
+    connection = RecordingWorkerConnection(task)
+
+    _inference_worker(
+        connection,
+        {"env": {}, "policy": {}, "latency": {}},
+        worker_id=0,
+        device="cpu",
+        start_method="spawn",
+    )
+
+    assert [command for command, _payload in connection.sent] == ["ready", "error"]
+    assert "policy boom" in connection.sent[-1][1]["traceback"]
 
 
 def test_realtime_observes_on_stride_without_catchup_metadata():
