@@ -80,6 +80,7 @@ def run_from_config(
     *,
     write_summary: bool = True,
     on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
+    on_episode_progress: Callable[[EpisodeMetrics, int, int], None] | None = None,
     n_samples: int | None = None,
 ) -> list[EpisodeMetrics]:
     experiment_cfg = config["experiment"]
@@ -119,6 +120,9 @@ def run_from_config(
                 metrics.append(episode_metrics)
                 if on_episode_complete is not None and len(metrics) <= num_episodes:
                     on_episode_complete(episode_metrics)
+                if on_episode_progress is not None:
+                    sample_count = len(executor.logger.latency_records)
+                    on_episode_progress(episode_metrics, len(metrics), sample_count)
                 episode_id += 1
         metrics.sort(key=lambda item: int(item.episode_id))
         metrics = metrics[:num_episodes]
@@ -264,7 +268,32 @@ def run_eval_sweep_from_config(
                 flush=True,
             )
 
-        metrics = run_from_config(config, on_episode_complete=on_episode_complete, n_samples=n_samples)
+        def on_episode_progress(
+            _episode_metrics: EpisodeMetrics,
+            completed: int,
+            sample_count: int,
+        ) -> None:
+            if completed <= num_episodes:
+                print(
+                    f"[bench] sweep 1/1 episode {completed}/{num_episodes} samples {sample_count}/{n_samples} done",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                return
+            extra = completed - num_episodes
+            print(
+                f"[bench] sweep 1/1 episode {num_episodes}/{num_episodes} "
+                f"+extra {extra} samples {sample_count}/{n_samples} done",
+                file=sys.stderr,
+                flush=True,
+            )
+
+        metrics = run_from_config(
+            config,
+            on_episode_complete=on_episode_complete if n_samples is None else None,
+            on_episode_progress=on_episode_progress if n_samples is not None else None,
+            n_samples=n_samples,
+        )
         elapsed = time.perf_counter() - start_time
         print(f"[bench] sweep 1/1 complete elapsed={elapsed:.1f}s", file=sys.stderr, flush=True)
         return metrics
