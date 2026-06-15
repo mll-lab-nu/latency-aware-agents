@@ -162,7 +162,7 @@ def _run_task(
     if task.stage == "measure":
         warmup_config_path = _warmup_generated_config_path(task)
         calibration_path = _calibration_output_path(task)
-        calibration_cmd = _calibration_command(task, warmup_config_path, calibration_path)
+        calibration_cmd = _calibration_command(task, spec, warmup_config_path, calibration_path)
         _add_calibration_manifest_fields(manifest, warmup_config_path, calibration_path, calibration_cmd)
     task.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -321,7 +321,7 @@ def _calibration_output_path(task: ProtocolTask) -> Path:
     return task.output_dir / "env_fps_calibration.json"
 
 
-def _calibration_command(task: ProtocolTask, config_path: Path, output_path: Path) -> list[str]:
+def _calibration_command(task: ProtocolTask, spec: dict[str, Any], config_path: Path, output_path: Path) -> list[str]:
     return [
         sys.executable,
         "-m",
@@ -332,6 +332,8 @@ def _calibration_command(task: ProtocolTask, config_path: Path, output_path: Pat
         str(output_path),
         "--target-latency-frames",
         str(task.row["target_latency_frames"]),
+        "--worker-utilization-cap",
+        str(spec["env_fps_calibration"]["worker_utilization_cap"]),
     ]
 
 
@@ -511,7 +513,7 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
             print(f"calibration_output_path: {_calibration_output_path(task)}")
             print(
                 "calibration_command: "
-                f"{shlex.join(_calibration_command(task, warmup_config_path, _calibration_output_path(task)))}"
+                f"{shlex.join(_calibration_command(task, spec, warmup_config_path, _calibration_output_path(task)))}"
             )
             print(f"profile_command: {shlex.join(_profile_command(task, spec, False, config))}")
         print(f"eval_max_steps: {config.get('evaluation', {}).get('eval_max_steps', '')}")
