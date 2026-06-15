@@ -16,7 +16,7 @@ python -m scripts.cross_device.protocol measure \
   --hardware auto \
   --only-policy "$POLICY" \
   --strict-runtime-env \
-  --resume
+  --overwrite
 
 python -m scripts.cross_device.protocol sim-same \
   --spec "$SPEC" \
@@ -24,7 +24,7 @@ python -m scripts.cross_device.protocol sim-same \
   --only-policy "$POLICY" \
   --strict-runtime-env \
   --profiles-dir "$PROFILES_DIR" \
-  --resume
+  --overwirte
 
 GPU_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)"
 case "$GPU_NAME" in
@@ -35,7 +35,7 @@ case "$GPU_NAME" in
       --only-policy "$POLICY" \
       --strict-runtime-env \
       --profiles-dir "$PROFILES_DIR" \
-      --resume
+      --overwrite
     ;;
   *)
     echo "skip sim-cross: replay host is not H200/B200 ($GPU_NAME)"
