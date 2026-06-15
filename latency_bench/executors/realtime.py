@@ -545,6 +545,23 @@ class RealtimeLatencyExecutor:
         done = False
 
         try:
+            def release_ready_actions(now_ms: float) -> None:
+                nonlocal done
+                released = self._drain_and_release_results(
+                    pool=pool,
+                    coordinator=coordinator,
+                    now_ms=now_ms,
+                    action_events=action_events,
+                    latency_values_ms=latency_values_ms,
+                )
+                for event in released:
+                    try:
+                        parent_conn.send(("action_event", {"event": event}))
+                    except BrokenPipeError:
+                        done = True
+                        break
+                    action_event_index[event.action_id] = action_events.index(event)
+
             def handle_env_message(tag: str, payload: dict[str, Any]) -> None:
                 nonlocal submitted_observation_frames
                 nonlocal dropped_observation_count
@@ -552,6 +569,9 @@ class RealtimeLatencyExecutor:
                 nonlocal env_deadline_miss_count
                 nonlocal done
                 if tag == "observation":
+                    release_ready_actions(self._wall_elapsed_ms())
+                    if done:
+                        return
                     task = payload["task"]
                     if pool.submit(task):
                         coordinator.mark_submitted(task)
@@ -604,20 +624,7 @@ class RealtimeLatencyExecutor:
                 if done:
                     break
                 now_ms = self._wall_elapsed_ms()
-                released = self._drain_and_release_results(
-                    pool=pool,
-                    coordinator=coordinator,
-                    now_ms=now_ms,
-                    action_events=action_events,
-                    latency_values_ms=latency_values_ms,
-                )
-                for event in released:
-                    try:
-                        parent_conn.send(("action_event", {"event": event}))
-                    except BrokenPipeError:
-                        done = True
-                        break
-                    action_event_index[event.action_id] = action_events.index(event)
+                release_ready_actions(now_ms)
                 if done:
                     continue
 
