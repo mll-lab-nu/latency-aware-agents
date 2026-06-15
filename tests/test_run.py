@@ -425,6 +425,98 @@ def test_run_from_config_keeps_executor_alive_until_latency_sample_target(
     assert flushed_latency_count == [5]
 
 
+def test_run_eval_progress_keeps_existing_episode_format_without_sample_target(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+):
+    class FakeEnv:
+        def close(self):
+            pass
+
+    class FakeLogger:
+        def __init__(self):
+            self.latency_records = []
+            self.episode_metrics = []
+
+        def flush(self):
+            pass
+
+    class FakeExecutor:
+        env = FakeEnv()
+
+        def __init__(self):
+            self.logger = FakeLogger()
+
+        def run_episode(self, *, episode_id, seed, eval_max_steps):
+            metrics = EpisodeMetrics(
+                episode_id=episode_id,
+                episode_return=float(episode_id),
+                survival_steps=eval_max_steps,
+                metadata={},
+            )
+            self.logger.episode_metrics.append(metrics)
+            return metrics
+
+    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
+
+    latency_run.run_eval_sweep_from_config(config, progress=True)
+
+    captured = capsys.readouterr()
+    assert "[bench] sweep 1/1 episode 1/2 done" in captured.err
+    assert "[bench] sweep 1/1 episode 2/2 done" in captured.err
+    assert "samples" not in captured.err
+
+
+def test_run_eval_progress_reports_sample_target_and_extra_episodes(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+):
+    class FakeEnv:
+        def close(self):
+            pass
+
+    class FakeLogger:
+        def __init__(self):
+            self.latency_records = []
+            self.episode_metrics = []
+
+        def flush(self):
+            pass
+
+    class FakeExecutor:
+        env = FakeEnv()
+
+        def __init__(self):
+            self.logger = FakeLogger()
+
+        def run_episode(self, *, episode_id, seed, eval_max_steps):
+            self.logger.latency_records.extend([
+                SimpleNamespace(latency_ms=float(episode_id * 10 + 1)),
+                SimpleNamespace(latency_ms=float(episode_id * 10 + 2)),
+            ])
+            metrics = EpisodeMetrics(
+                episode_id=episode_id,
+                episode_return=float(episode_id),
+                survival_steps=eval_max_steps,
+                metadata={},
+            )
+            self.logger.episode_metrics.append(metrics)
+            return metrics
+
+    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
+
+    latency_run.run_eval_sweep_from_config(config, progress=True, n_samples=5)
+
+    captured = capsys.readouterr()
+    assert "[bench] sweep 1/1 episode 1/2 samples 2/5 done" in captured.err
+    assert "[bench] sweep 1/1 episode 2/2 samples 4/5 done" in captured.err
+    assert "[bench] sweep 1/1 episode 2/2 +extra 1 samples 6/5 done" in captured.err
+
+
 def test_run_from_config_without_warmup_hook_does_not_warmup(
     monkeypatch,
     tmp_path: Path,
