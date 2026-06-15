@@ -6,7 +6,7 @@ output_root: outputs/jitter_robustness/deadly_corridor/mixed
 device: cuda
 restart_behavior: resume
 
-# Base deadly_corridor.yaml uses env_fps=35/obs_fps=8.75 (native doom rate, for envpool).
+# Base deadly_corridor.yaml uses env_fps=35/obs_fps=8.75 (native Doom rate).
 # The jitter_robustness sweep overrides obs_fps=15, which requires env_fps to be an
 # integer multiple of 15. Override env_fps=60 here (60/15=4) to match the existing
 # deadly-corridor-obs15 runs; otherwise base env_fps=35 with obs_fps=15 fails

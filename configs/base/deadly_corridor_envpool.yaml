@@ -1,4 +1,0 @@
-__base__: deadly_corridor.yaml
-
-env:
-  simulator: envpool
