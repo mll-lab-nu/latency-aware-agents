@@ -97,7 +97,24 @@ class ProcessInferencePool:
         return len(self.inference_devices) - len(self._busy_worker_tasks)
 
     def reset_episode(self) -> None:
-        self._drain_all_ready()
+        self.drain_until_idle()
+
+    def drain_until_idle(self) -> dict[str, float | int]:
+        self._raise_if_closed()
+        busy_before = self.in_flight_count
+        wait_start_s = time.perf_counter()
+        drained_completion_count = 0
+        while self.in_flight_count:
+            completions = self._drain_all_ready()
+            drained_completion_count += len(completions)
+            if self.in_flight_count:
+                time.sleep(0.001)
+        return {
+            "pre_episode_in_flight_count": int(busy_before),
+            "pre_episode_drained_completion_count": int(drained_completion_count),
+            "pre_episode_drain_wait_ms": float((time.perf_counter() - wait_start_s) * 1000.0),
+            "pre_episode_in_flight_after_drain": int(self.in_flight_count),
+        }
 
     def submit(self, task: RealtimeObservationTask) -> bool:
         self._raise_if_closed()
@@ -381,13 +398,13 @@ class RealtimeLatencyExecutor:
         seed: int | None,
         eval_max_steps: int,
     ) -> EpisodeMetrics:
+        pre_episode_drain = pool.drain_until_idle()
         self.action_scheduler.reset()
         self.env.reset(seed=seed)
         if self.video_recorder is not None:
             self.video_recorder.start_episode(episode_id=episode_id, metadata={})
             self.video_recorder.record_frame(self.env.render_game_frame())
         coordinator = _RealtimeResultCoordinator(ordering_policy=self.action_scheduler.ordering_policy)
-        pool.reset_episode()
         self._episode_start_s = self.time_fn()
 
         step_records: list[StepRecord] = []
@@ -489,6 +506,7 @@ class RealtimeLatencyExecutor:
             max_wall_clock_lag_ms=max_wall_clock_lag_ms,
             coordinator=coordinator,
             pool=pool,
+            pre_episode_drain=pre_episode_drain,
         )
         metrics = compute_episode_metrics(
             episode_id=episode_id,
@@ -512,6 +530,7 @@ class RealtimeLatencyExecutor:
         seed: int | None,
         eval_max_steps: int,
     ) -> EpisodeMetrics:
+        pre_episode_drain = pool.drain_until_idle()
         ctx = mp.get_context(_resolve_start_method())
         parent_conn, child_conn = ctx.Pipe()
         process = ctx.Process(
@@ -531,7 +550,6 @@ class RealtimeLatencyExecutor:
         child_conn.close()
 
         coordinator = _RealtimeResultCoordinator(ordering_policy=self.action_scheduler.ordering_policy)
-        pool.reset_episode()
         self._episode_start_s = self.time_fn()
         step_records: list[StepRecord] = []
         action_events: list[ActionEvent] = []
@@ -572,7 +590,14 @@ class RealtimeLatencyExecutor:
                     release_ready_actions(self._wall_elapsed_ms())
                     if done:
                         return
-                    task = payload["task"]
+                    incoming_task = payload["task"]
+                    task = RealtimeObservationTask(
+                        obs_id=self._next_obs_id,
+                        observation=incoming_task.observation,
+                        submit_env_step=incoming_task.submit_env_step,
+                        submit_time_ms=incoming_task.submit_time_ms,
+                    )
+                    self._next_obs_id += 1
                     if pool.submit(task):
                         coordinator.mark_submitted(task)
                         submitted_observation_frames += 1
@@ -652,6 +677,7 @@ class RealtimeLatencyExecutor:
                 max_wall_clock_lag_ms=max_wall_clock_lag_ms,
                 coordinator=coordinator,
                 pool=pool,
+                pre_episode_drain=pre_episode_drain,
             )
             metrics = compute_episode_metrics(
                 episode_id=episode_id,
@@ -786,6 +812,7 @@ class RealtimeLatencyExecutor:
         max_wall_clock_lag_ms: float,
         coordinator: _RealtimeResultCoordinator,
         pool: Any,
+        pre_episode_drain: dict[str, float | int] | None = None,
     ) -> dict[str, Any]:
         elapsed_s = self.time_fn() - self._episode_start_s
         actual_env_fps = None if elapsed_s <= 0 else len(step_records) / elapsed_s
@@ -801,6 +828,7 @@ class RealtimeLatencyExecutor:
             "max_wall_clock_lag_ms": max_wall_clock_lag_ms,
             "in_flight_count": pool.in_flight_count,
             "idle_worker_count": pool.idle_worker_count,
+            **(pre_episode_drain or {}),
             **episode_raw_fact_metadata(
                 mode="realtime",
                 episode_seed=seed,
