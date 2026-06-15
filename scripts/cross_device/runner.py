@@ -159,6 +159,9 @@ def _run_task(
     config = _generated_config(task, spec)
     profile_cmd = None
     manifest = _base_manifest(task, spec, detected, runtime, eval_cmd, profile_cmd)
+    sim_worker_plan = _sim_worker_plan(task, spec)
+    if sim_worker_plan:
+        _add_sim_worker_manifest_fields(manifest, sim_worker_plan)
     if task.stage == "measure":
         warmup_config_path = _warmup_generated_config_path(task)
         calibration_path = _calibration_output_path(task)
@@ -172,7 +175,11 @@ def _run_task(
             _write_generated_config(warmup_config_path, config)
             profile_cmd = _profile_command(task, spec, args.overwrite, config)
         print(f"generated_config: {task.generated_config_path}")
-        print(shlex.join(eval_cmd))
+        if sim_worker_plan:
+            for worker in sim_worker_plan:
+                print(str(worker["command"]))
+        else:
+            print(shlex.join(eval_cmd))
         if profile_cmd is not None:
             print(shlex.join(profile_cmd))
         return
@@ -187,7 +194,10 @@ def _run_task(
             manifest["profile_command"] = shlex.join(profile_cmd)
         _write_generated_config(task.generated_config_path, config)
         _write_json(task.output_dir / "manifest.json", manifest)
-        subprocess.run(eval_cmd, check=True)
+        if sim_worker_plan:
+            _run_sim_worker_plan(task, sim_worker_plan)
+        else:
+            subprocess.run(eval_cmd, check=True)
         if profile_cmd is not None:
             subprocess.run(profile_cmd, check=True)
             _finalize_profile_artifacts(task, out, manifest)
@@ -204,6 +214,141 @@ def _run_task(
     _write_json(task.output_dir / "manifest.json", manifest)
     _append_manifest(out, manifest)
     _upload_run_results(task, out, manifest, detected, runtime)
+
+
+def _sim_worker_plan(task: ProtocolTask, spec: dict[str, Any]) -> list[dict[str, Any]]:
+    if task.stage not in {"sim_same", "sim_cross"}:
+        return []
+    devices = _sim_worker_devices(spec)
+    worker_count = min(len(devices), int(task.n_episodes))
+    if worker_count <= 1:
+        return []
+    ranges = _episode_ranges(int(task.n_episodes), worker_count)
+    plan: list[dict[str, Any]] = []
+    for worker_index, ((episode_start, episode_count), device) in enumerate(zip(ranges, devices[:worker_count])):
+        output_dir = task.output_dir / "workers" / f"worker_{worker_index}"
+        plan.append(
+            {
+                "worker_index": worker_index,
+                "cuda_visible_devices": device,
+                "episode_start": episode_start,
+                "episode_count": episode_count,
+                "output_dir": str(output_dir),
+                "command": shlex.join(_worker_eval_command(task, output_dir, episode_start, episode_count)),
+            }
+        )
+    return plan
+
+
+def _sim_worker_devices(spec: dict[str, Any]) -> list[str]:
+    devices = _visible_cuda_devices()
+    worker_count = spec.get("sim_worker_count", "auto")
+    if str(worker_count).strip().lower() == "auto":
+        return devices
+    return devices[: int(worker_count)]
+
+
+def _visible_cuda_devices() -> list[str]:
+    cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if cuda_visible_devices:
+        return [item.strip() for item in cuda_visible_devices.split(",") if item.strip()]
+    return [str(index) for index in range(torch.cuda.device_count())]
+
+
+def _episode_ranges(n_episodes: int, worker_count: int) -> list[tuple[int, int]]:
+    base_count = n_episodes // worker_count
+    remainder = n_episodes % worker_count
+    ranges = []
+    episode_start = 0
+    for worker_index in range(worker_count):
+        episode_count = base_count + (1 if worker_index < remainder else 0)
+        ranges.append((episode_start, episode_count))
+        episode_start += episode_count
+    return ranges
+
+
+def _worker_eval_command(
+    task: ProtocolTask,
+    output_dir: Path,
+    episode_start: int,
+    episode_count: int,
+) -> list[str]:
+    cmd = _eval_command(task)
+    cmd[cmd.index("--output-dir") + 1] = str(output_dir)
+    cmd.extend(["--episode-start", str(episode_start), "--episode-count", str(episode_count)])
+    return cmd
+
+
+def _add_sim_worker_manifest_fields(
+    manifest: dict[str, Any],
+    sim_worker_plan: list[dict[str, Any]],
+) -> None:
+    manifest["sim_worker_count"] = len(sim_worker_plan)
+    manifest["sim_worker_devices"] = [item["cuda_visible_devices"] for item in sim_worker_plan]
+    manifest["sim_worker_episode_ranges"] = [
+        {
+            "worker_index": item["worker_index"],
+            "episode_start": item["episode_start"],
+            "episode_count": item["episode_count"],
+        }
+        for item in sim_worker_plan
+    ]
+    manifest["sim_worker_commands"] = [item["command"] for item in sim_worker_plan]
+
+
+def _run_sim_worker_plan(task: ProtocolTask, sim_worker_plan: list[dict[str, Any]]) -> None:
+    processes: list[tuple[dict[str, Any], subprocess.Popen]] = []
+    for worker in sim_worker_plan:
+        command = _worker_eval_command(
+            task,
+            Path(worker["output_dir"]),
+            int(worker["episode_start"]),
+            int(worker["episode_count"]),
+        )
+        env = os.environ.copy()
+        env["CUDA_VISIBLE_DEVICES"] = str(worker["cuda_visible_devices"])
+        print(
+            "running sim worker "
+            f"worker={worker['worker_index']} cuda={worker['cuda_visible_devices']} "
+            f"episodes={worker['episode_start']}..{int(worker['episode_start']) + int(worker['episode_count']) - 1} "
+            f"output_dir={worker['output_dir']}"
+        )
+        processes.append((worker, subprocess.Popen(command, env=env)))
+
+    failures: list[tuple[dict[str, Any], int]] = []
+    for worker, process in processes:
+        returncode = process.wait()
+        if returncode != 0:
+            failures.append((worker, returncode))
+    if failures:
+        worker, returncode = failures[0]
+        raise subprocess.CalledProcessError(returncode, str(worker["command"]))
+
+    _merge_sim_worker_episode_metrics(task.output_dir, sim_worker_plan)
+
+
+def _merge_sim_worker_episode_metrics(output_dir: Path, sim_worker_plan: list[dict[str, Any]]) -> None:
+    records = []
+    for worker in sim_worker_plan:
+        metrics_path = Path(worker["output_dir"]) / "episode_metrics.jsonl"
+        for record in _read_jsonl(metrics_path):
+            record["metadata"]["sim_worker_index"] = worker["worker_index"]
+            record["metadata"]["output_dir"] = str(output_dir)
+            records.append(record)
+    records.sort(key=lambda item: int(item["episode_id"]))
+    _write_jsonl(output_dir / "episode_metrics.jsonl", records)
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    with path.open("r", encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for record in records:
+            f.write(json.dumps(record, sort_keys=True) + "\n")
 
 
 def _upload_run_results(

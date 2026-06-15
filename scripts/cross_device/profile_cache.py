@@ -23,6 +23,7 @@ RESULTS_DEBUG_IGNORE = [
     "**/warmup_*",
     "**/generated_configs/**",
     "**/runs/**/latencies.jsonl",
+    "**/runs/**/workers/**",
     "**/*.warmup.yaml",
 ]
 

@@ -74,6 +74,12 @@ def _eval_episodes(config: dict[str, Any]) -> int:
     return int(config["evaluation"]["eval_episodes"])
 
 
+def _selected_episode_count(config: dict[str, Any], episode_ids: Sequence[int] | None) -> int:
+    if episode_ids is None:
+        return _eval_episodes(config)
+    return len(episode_ids)
+
+
 def run_from_config(
     config: dict[str, Any],
     extra_metadata: dict[str, Any] | None = None,
@@ -82,13 +88,16 @@ def run_from_config(
     on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
     on_episode_progress: Callable[[EpisodeMetrics, int, int], None] | None = None,
     n_samples: int | None = None,
+    episode_ids: Sequence[int] | None = None,
 ) -> list[EpisodeMetrics]:
     experiment_cfg = config["experiment"]
     policy_cfg = config["policy"]
     logging_cfg = config["logging"]
     seed = int(experiment_cfg.get("seed", 0))
     eval_max_steps = _eval_max_steps(config)
-    num_episodes = _eval_episodes(config)
+    configured_num_episodes = _eval_episodes(config)
+    selected_episode_ids = list(range(configured_num_episodes)) if episode_ids is None else list(episode_ids)
+    num_episodes = len(selected_episode_ids)
     seed_everything(seed)
 
     executor = build_executor(config)
@@ -98,20 +107,24 @@ def run_from_config(
         warmup_metadata = run_warmup(eval_max_steps=eval_max_steps) if callable(run_warmup) else {}
         run_episodes = getattr(executor, "run_episodes", None)
         if callable(run_episodes) and n_samples is None:
-            episode_ids = list(range(num_episodes))
             run_episodes_kwargs: dict[str, Any] = {
-                "episode_ids": episode_ids,
-                "seeds": [_episode_seed(config, episode_id) for episode_id in episode_ids],
+                "episode_ids": selected_episode_ids,
+                "seeds": [_episode_seed(config, episode_id) for episode_id in selected_episode_ids],
                 "eval_max_steps": eval_max_steps,
             }
             if on_episode_complete is not None:
                 run_episodes_kwargs["on_episode_complete"] = on_episode_complete
             metrics = list(run_episodes(**run_episodes_kwargs))
         else:
-            episode_id = 0
+            next_extra_episode_id = selected_episode_ids[-1] + 1 if selected_episode_ids else 0
             while len(metrics) < num_episodes or (
                 n_samples is not None and len(executor.logger.latency_records) < n_samples
             ):
+                if len(metrics) < num_episodes:
+                    episode_id = selected_episode_ids[len(metrics)]
+                else:
+                    episode_id = next_extra_episode_id
+                    next_extra_episode_id += 1
                 episode_metrics = executor.run_episode(
                     episode_id=episode_id,
                     seed=_episode_seed(config, episode_id),
@@ -123,7 +136,6 @@ def run_from_config(
                 if on_episode_progress is not None:
                     sample_count = len(executor.logger.latency_records)
                     on_episode_progress(episode_metrics, len(metrics), sample_count)
-                episode_id += 1
         metrics.sort(key=lambda item: int(item.episode_id))
         metrics = metrics[:num_episodes]
         if n_samples is not None:
@@ -243,21 +255,22 @@ def run_eval_sweep_from_config(
     *,
     progress: bool = False,
     n_samples: int | None = None,
+    episode_ids: Sequence[int] | None = None,
 ) -> list[EpisodeMetrics]:
     if has_eval_suites(config):
-        run_eval_suites_from_config(config, progress=progress)
+        run_eval_suites_from_config(config, progress=progress, episode_ids=episode_ids)
         return []
 
     eval_latency_values = _eval_latency_values(config)
     if eval_latency_values is None:
         if not progress:
-            return run_from_config(config)
-        _print_progress_start(config, num_sweeps=1)
+            return run_from_config(config, episode_ids=episode_ids)
+        num_episodes = _selected_episode_count(config, episode_ids)
+        _print_progress_start(config, num_sweeps=1, num_episodes=num_episodes)
         start_time = time.perf_counter()
         latency_label = _progress_latency_label(_summary_latency_label(config))
         print(f"[bench] sweep 1/1: eval_latency={latency_label}", file=sys.stderr, flush=True)
         completed = 0
-        num_episodes = _eval_episodes(config)
 
         def on_episode_complete(_episode_metrics: EpisodeMetrics) -> None:
             nonlocal completed
@@ -293,6 +306,7 @@ def run_eval_sweep_from_config(
             on_episode_complete=on_episode_complete if n_samples is None else None,
             on_episode_progress=on_episode_progress if n_samples is not None else None,
             n_samples=n_samples,
+            episode_ids=episode_ids,
         )
         elapsed = time.perf_counter() - start_time
         print(f"[bench] sweep 1/1 complete elapsed={elapsed:.1f}s", file=sys.stderr, flush=True)
@@ -302,9 +316,9 @@ def run_eval_sweep_from_config(
     train_latency_steps = _train_latency_steps(config)
     all_metrics: list[EpisodeMetrics] = []
     num_sweeps = len(eval_latency_values)
-    num_episodes = _eval_episodes(config)
+    num_episodes = _selected_episode_count(config, episode_ids)
     if progress:
-        _print_progress_start(config, num_sweeps=num_sweeps)
+        _print_progress_start(config, num_sweeps=num_sweeps, num_episodes=num_episodes)
     for sweep_index, eval_latency_steps in enumerate(eval_latency_values, start=1):
         if progress:
             print(
@@ -339,6 +353,7 @@ def run_eval_sweep_from_config(
             extra_metadata=summary_metadata,
             write_summary=False,
             on_episode_complete=on_episode_complete if progress else None,
+            episode_ids=episode_ids,
         )
         write_queue_eval_summary(
             base_output_dir,
@@ -364,14 +379,15 @@ def run_eval_suites_from_config(
     *,
     progress: bool = False,
     extra_metadata: dict[str, Any] | None = None,
+    episode_ids: Sequence[int] | None = None,
 ) -> list[dict[str, Any]]:
     suites = parse_eval_suites(config)
     base_output_dir = Path(config["logging"]["output_dir"])
     train_latency_steps = _train_latency_steps(config)
-    num_episodes = _eval_episodes(config)
+    num_episodes = _selected_episode_count(config, episode_ids)
     num_sweeps = sum(len(suite.fixed_latency_values or [suite.latency_label]) for suite in suites)
     if progress:
-        _print_progress_start(config, num_sweeps=num_sweeps)
+        _print_progress_start(config, num_sweeps=num_sweeps, num_episodes=num_episodes)
 
     summaries: list[dict[str, Any]] = []
     sweep_index = 0
@@ -416,6 +432,7 @@ def run_eval_suites_from_config(
                     extra_metadata=summary_metadata,
                     write_summary=False,
                     on_episode_complete=on_episode_complete if progress else None,
+                    episode_ids=episode_ids,
                 )
                 summary = write_queue_eval_summary(
                     suite_output_dir,
@@ -466,6 +483,7 @@ def run_eval_suites_from_config(
             extra_metadata=summary_metadata,
             write_summary=False,
             on_episode_complete=on_episode_complete if progress else None,
+            episode_ids=episode_ids,
         )
         summary = write_queue_eval_summary(
             suite_output_dir,
@@ -486,8 +504,9 @@ def run_eval_suites_from_config(
     return summaries
 
 
-def _print_progress_start(config: dict[str, Any], *, num_sweeps: int) -> None:
-    num_episodes = _eval_episodes(config)
+def _print_progress_start(config: dict[str, Any], *, num_sweeps: int, num_episodes: int | None = None) -> None:
+    if num_episodes is None:
+        num_episodes = _eval_episodes(config)
     print(
         f"[bench] run={config['experiment'].get('name', 'latency_bench')} "
         f"sweeps={num_sweeps} "
@@ -704,6 +723,7 @@ def _run_retained_eval_checkpoints_from_config(
     config: dict[str, Any],
     *,
     progress: bool,
+    episode_ids: Sequence[int] | None = None,
 ) -> list[dict[str, Any]]:
     base_output_dir = Path(str(config["logging"]["output_dir"]))
     all_summaries: list[dict[str, Any]] = []
@@ -718,6 +738,7 @@ def _run_retained_eval_checkpoints_from_config(
             checkpoint_config,
             progress=progress,
             extra_metadata=marker,
+            episode_ids=episode_ids,
         )
         _log_corrected_eval_summaries_to_wandb(checkpoint_config, summaries)
         all_summaries.extend(summaries)
@@ -733,6 +754,16 @@ def _has_explicit_sample_factory_checkpoint_selection(config: dict[str, Any]) ->
     return "checkpoint_path" in policy_cfg and bool(policy_cfg["checkpoint_path"])
 
 
+def _episode_ids_from_cli_args(args: argparse.Namespace) -> list[int] | None:
+    if args.episode_start is None and args.episode_count is None:
+        return None
+    if args.episode_start is None or args.episode_count is None:
+        raise SystemExit("--episode-start and --episode-count must be provided together")
+    start = int(args.episode_start)
+    count = int(args.episode_count)
+    return list(range(start, start + count))
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run a latency-sensitive control benchmark.")
     parser.add_argument("--config", type=Path, required=True)
@@ -741,6 +772,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--checkpoint-kind", choices=["latest", "best"])
     parser.add_argument("--n-samples", type=int)
+    parser.add_argument("--episode-start", type=int)
+    parser.add_argument("--episode-count", type=int)
     args = parser.parse_args(argv)
     config = load_config(args.config)
     apply_runtime_overrides(
@@ -750,14 +783,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         output_dir=args.output_dir,
         checkpoint_kind=args.checkpoint_kind,
     )
+    episode_ids = _episode_ids_from_cli_args(args)
     if has_eval_suites(config):
         if _has_explicit_sample_factory_checkpoint_selection(config):
-            summaries = run_eval_suites_from_config(config, progress=True)
+            summaries = run_eval_suites_from_config(config, progress=True, episode_ids=episode_ids)
             _log_corrected_eval_summaries_to_wandb(config, summaries)
         else:
-            summaries = _run_retained_eval_checkpoints_from_config(config, progress=True)
+            summaries = _run_retained_eval_checkpoints_from_config(config, progress=True, episode_ids=episode_ids)
             if not summaries and not _is_sample_factory_policy(config):
-                summaries = run_eval_suites_from_config(config, progress=True)
+                summaries = run_eval_suites_from_config(config, progress=True, episode_ids=episode_ids)
                 _log_corrected_eval_summaries_to_wandb(config, summaries)
         for summary in summaries:
             print(
@@ -769,7 +803,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 f"mean_length={float(summary['mean_length']):.1f}"
             )
         return
-    metrics = run_eval_sweep_from_config(config, progress=True, n_samples=args.n_samples)
+    metrics = run_eval_sweep_from_config(config, progress=True, n_samples=args.n_samples, episode_ids=episode_ids)
     for episode_metrics in metrics:
         eval_latency = episode_metrics.metadata.get("eval_latency_steps")
         latency_fragment = f"eval_latency={eval_latency} " if eval_latency is not None else ""
