@@ -18,6 +18,7 @@ def calibrate_env_fps_from_warmup(
     config_path: str | Path,
     output: str | Path,
     target_latency_frames: int,
+    worker_utilization_cap: float,
 ) -> dict[str, float | int]:
     config = load_config(config_path)
     executor = build_executor(config)
@@ -37,6 +38,7 @@ def calibrate_env_fps_from_warmup(
         base_env_fps=float(config["env"]["env_fps"]),
         base_obs_fps=float(config["env"]["obs_fps"]),
         device_count=_visible_cuda_device_count(),
+        worker_utilization_cap=worker_utilization_cap,
     )
     payload = calibration.to_dict()
     output_path = Path(output)
@@ -58,11 +60,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--target-latency-frames", type=int, required=True)
+    parser.add_argument("--worker-utilization-cap", type=float, required=True)
     args = parser.parse_args(argv)
     calibrate_env_fps_from_warmup(
         config_path=args.config,
         output=args.output,
         target_latency_frames=args.target_latency_frames,
+        worker_utilization_cap=args.worker_utilization_cap,
     )
 
 

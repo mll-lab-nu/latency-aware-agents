@@ -16,6 +16,7 @@ class EnvFpsCalibration:
     device_count: int
     sample_count: int
     mean_latency_ms: float
+    worker_utilization_cap: float
     hit_count: int
     mean_abs_frame_error: float
 
@@ -30,12 +31,13 @@ def select_env_fps_from_warmup(
     base_env_fps: float,
     base_obs_fps: float,
     device_count: int,
+    worker_utilization_cap: float,
 ) -> EnvFpsCalibration:
     sample_count = len(latency_samples_ms)
     mean_latency_ms = sum(latency_samples_ms) / sample_count
     observation_stride = base_env_fps / base_obs_fps
     ideal_env_fps = target_latency_frames * 1000.0 / mean_latency_ms
-    max_env_fps = int(device_count * observation_stride * 1000.0 / mean_latency_ms)
+    max_env_fps = int(device_count * observation_stride * 1000.0 * worker_utilization_cap / mean_latency_ms)
 
     best: tuple[tuple[float, float, float, int], EnvFpsCalibration] | None = None
     for env_fps in range(1, max_env_fps + 1):
@@ -59,6 +61,7 @@ def select_env_fps_from_warmup(
             device_count=device_count,
             sample_count=sample_count,
             mean_latency_ms=mean_latency_ms,
+            worker_utilization_cap=worker_utilization_cap,
             hit_count=hit_count,
             mean_abs_frame_error=mean_abs_frame_error,
         )

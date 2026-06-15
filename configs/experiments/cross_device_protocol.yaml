@@ -4,6 +4,8 @@ checkpoint_kind: best
 n_episodes: 100
 n_samples: 50000
 sim_parallel_envs: 8
+env_fps_calibration:
+  worker_utilization_cap: 0.8
 seed_set:
   - 0
 
