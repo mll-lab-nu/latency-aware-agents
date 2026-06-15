@@ -38,7 +38,7 @@ The base model directory must contain policy-specific statistics files:
 - `demon_attack_dataset_statistics.json` with key `demon_attack`
 - `deadly_corridor_dataset_statistics.json` with key `deadly_corridor`
 
-Deadly Corridor OpenVLA uses RL-inf's current 11-dim factorized action layout,
+Deadly Corridor OpenVLA uses the 11-dim factorized action layout
 `deadly_corridor_factorized_11`. The `deadly_corridor.action` statistics
 fields `q01`, `q99`, `min`, `max`, and `mask` must all have length 11.
 

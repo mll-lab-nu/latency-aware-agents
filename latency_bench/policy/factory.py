@@ -49,12 +49,6 @@ def _normalize_policy_type(policy_type: str) -> str:
 
 
 def _lazy_import_policy(policy_type: str) -> None:
-    if policy_type == "flappy_openvla":
-        from latency_bench.policy import flappy_openvla  # noqa: F401
-    if policy_type == "demon_attack_openvla":
-        from latency_bench.policy import demon_attack_openvla  # noqa: F401
-    if policy_type == "deadly_corridor_openvla":
-        from latency_bench.policy import deadly_corridor_openvla  # noqa: F401
     if policy_type == "flappy_sf":
         from latency_bench.policy import flappy_sf  # noqa: F401
     if policy_type == "demon_attack_sf":

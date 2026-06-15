@@ -451,7 +451,7 @@ class FlappyGpuBatchedEnvStepBackend:
     @staticmethod
     def _uses_raw_rgb_vla_policy(config: dict[str, Any]) -> bool:
         policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
-        return policy_type in {"starvla", "flappy_openvla"}
+        return policy_type == "starvla"
 
     @staticmethod
     def _nchw_to_hwc_frames(obs: torch.Tensor) -> list[np.ndarray]:
