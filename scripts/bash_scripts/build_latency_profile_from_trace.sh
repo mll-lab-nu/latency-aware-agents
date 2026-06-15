@@ -1,8 +1,0 @@
-python -m latency_bench.experiments.build_latency_profile_from_trace \
-    --latencies outputs/realtime/flappy/train_latency_1_cpu_render/seed_0/latencies.jsonl \
-    --output-dir outputs/profiles/flappy_sf_l1_seed0_best_a100_policy_predict_only \
-    --profile-id flappy_sf_l1_seed0_best_a100_policy_predict_only \
-    --policy-id flappy_sf_l1_seed0_best \
-    --env-id flappy \
-    --target-device a100 \
-    --env-fps 30
