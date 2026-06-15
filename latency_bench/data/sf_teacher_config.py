@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,14 @@ SF_ENV_TO_BENCH_ENV = {
     "flappy": "flappy",
     "demon_attack": "demon_attack",
 }
+
+DEFAULT_ENV_FPS_BY_BENCH_ENV = {
+    "deadly_corridor": 35.0,
+    "flappy": 30.0,
+    "demon_attack": 60.0,
+}
+
+LEGACY_SAME_LATENCY_RE = re.compile(r"(?:^|_)same_latency_l(?P<frames>\d+)(?:_|$)")
 
 
 @dataclass(frozen=True)
@@ -96,6 +105,30 @@ def _load_latency_override(path: str | Path) -> dict[str, Any]:
     return deepcopy(payload["latency"])
 
 
+def _has_current_latency_config(flat_cfg: Mapping[str, Any]) -> bool:
+    if "latency_type" not in flat_cfg:
+        return False
+    latency_type = flat_cfg["latency_type"]
+    return latency_type is not None and str(latency_type).strip() != ""
+
+
+def _legacy_same_latency_config(flat_cfg: Mapping[str, Any], *, env_name: str, experiment_dir: Path) -> dict[str, Any] | None:
+    if _has_current_latency_config(flat_cfg):
+        return None
+
+    for name in (experiment_dir.name, str(flat_cfg["experiment"])):
+        match = LEGACY_SAME_LATENCY_RE.search(name)
+        if match is not None:
+            latency_frames = int(match.group("frames"))
+            env_fps = DEFAULT_ENV_FPS_BY_BENCH_ENV[env_name]
+            return {
+                "type": "fixed",
+                "fixed_latency_ms": latency_frames * 1000.0 / env_fps,
+                "add_latency_info": False,
+            }
+    return None
+
+
 def load_rollout_training_config(
     checkpoint_root: str | Path,
     *,
@@ -123,6 +156,14 @@ def load_rollout_training_config(
         latency_override_path = Path(latency_config_path).expanduser().resolve()
         latency_override = _load_latency_override(latency_override_path)
         latency_source = str(latency_override_path)
+    else:
+        latency_override = _legacy_same_latency_config(
+            flat_cfg,
+            env_name=env_name,
+            experiment_dir=checkpoint.experiment_dir,
+        )
+        if latency_override is not None:
+            latency_source = "legacy_checkpoint_name"
 
     descriptor = {
         "env_name": env_name,
