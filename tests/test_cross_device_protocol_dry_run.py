@@ -1277,6 +1277,7 @@ def test_measure_run_records_failed_calibration_manifest_without_eval(tmp_path: 
     )
     task = planning._build_plan(args, spec, "measure", out, out / "profiles", current_device, runtime)[0].task
     commands: list[list[str]] = []
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2,3")
 
     def fake_run(command, check):
         commands.append(list(command))
@@ -1290,6 +1291,10 @@ def test_measure_run_records_failed_calibration_manifest_without_eval(tmp_path: 
     assert [command[2] for command in commands] == ["latency_bench.experiments.calibrate_env_fps_from_warmup"]
     manifest = json.loads((task.output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "failed"
+    assert manifest["python_executable"] == sys.executable
+    assert manifest["cuda_visible_devices"] == "2,3"
+    assert manifest["torch_version"]
+    assert "torch_cuda_version" in manifest
     assert "latency_bench.experiments.calibrate_env_fps_from_warmup" in manifest["calibration_command"]
     assert manifest["warmup_generated_config_path"].endswith(".warmup.yaml")
     assert manifest["calibration_output_path"].endswith("env_fps_calibration.json")

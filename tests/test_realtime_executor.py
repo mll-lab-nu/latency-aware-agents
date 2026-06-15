@@ -9,9 +9,11 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, LatencyRecord, OrderingPolicy, PolicyOutput
 from latency_bench.envs.base import DummyEnvAdapter
 from latency_bench.executors.realtime import (
+    ProcessInferencePool,
     RealtimeLatencyExecutor,
     RealtimeObservationTask,
     RealtimePolicyCompletion,
+    _worker_runtime_metadata,
 )
 from latency_bench.latency.sources import ZeroLatencySource
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
@@ -108,6 +110,46 @@ class ScriptedInferencePool:
 
     def close(self) -> None:
         self.closed = True
+
+
+def test_process_inference_pool_uses_spawn_start_method(monkeypatch):
+    requested_methods: list[str] = []
+
+    class FakeContext:
+        pass
+
+    def fake_get_context(start_method: str) -> FakeContext:
+        requested_methods.append(start_method)
+        return FakeContext()
+
+    monkeypatch.setattr("latency_bench.executors.realtime.mp.get_context", fake_get_context)
+    monkeypatch.setattr(ProcessInferencePool, "_start_workers", lambda self: None)
+
+    pool = ProcessInferencePool(config={}, inference_devices=["cuda:0"])
+
+    assert requested_methods == ["spawn"]
+    assert pool.start_method == "spawn"
+
+
+def test_process_inference_pool_does_not_accept_start_method(monkeypatch):
+    monkeypatch.setattr(ProcessInferencePool, "_start_workers", lambda self: None)
+
+    with pytest.raises(TypeError):
+        ProcessInferencePool(config={}, inference_devices=["cuda:0"], start_method="fork")
+
+
+def test_worker_runtime_metadata_records_spawn_context(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
+
+    metadata = _worker_runtime_metadata(worker_id=2, start_method="spawn")
+
+    assert metadata["worker_id"] == 2
+    assert metadata["worker_start_method"] == "spawn"
+    assert metadata["worker_python_executable"]
+    assert metadata["worker_torch_version"]
+    assert "worker_torch_cuda_version" in metadata
+    assert metadata["worker_cuda_visible_devices"] == "0,1"
+    assert isinstance(metadata["worker_cuda_device_count"], int)
 
 
 def _executor(

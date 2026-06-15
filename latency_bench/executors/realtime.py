@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import os
 import sys
 import time
 import traceback
@@ -41,6 +42,9 @@ from latency_bench.scheduler.decision import DecisionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 
 
+REALTIME_INFERENCE_START_METHOD = "spawn"
+
+
 @dataclass
 class RealtimeObservationTask:
     """
@@ -72,12 +76,11 @@ class ProcessInferencePool:
         *,
         config: dict[str, Any],
         inference_devices: list[str],
-        start_method: str | None = None,
     ):
         _set_thread_env_defaults()
         self.config = config
         self.inference_devices = list(inference_devices)
-        self.start_method = _resolve_start_method(start_method)
+        self.start_method = REALTIME_INFERENCE_START_METHOD
         self._ctx = mp.get_context(self.start_method)
         self._connections: list[Any] = []
         self._processes: list[mp.Process] = []
@@ -145,7 +148,7 @@ class ProcessInferencePool:
                 parent_conn, child_conn = self._ctx.Pipe()
                 process = self._ctx.Process(
                     target=_inference_worker,
-                    args=(child_conn, self.config, worker_id, device),
+                    args=(child_conn, self.config, worker_id, device, self.start_method),
                     name=f"latency-bench-realtime-inference-{worker_id}",
                 )
                 process.start()
@@ -784,11 +787,27 @@ class RealtimeLatencyExecutor:
         return (self.time_fn() - self._episode_start_s) * 1000.0
 
 
-def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, device: str) -> None:
+def _worker_runtime_metadata(worker_id: int, start_method: str) -> dict[str, Any]:
+    import torch
+
+    return {
+        "worker_id": int(worker_id),
+        "worker_pid": os.getpid(),
+        "worker_start_method": start_method,
+        "worker_python_executable": sys.executable,
+        "worker_torch_version": torch.__version__,
+        "worker_torch_cuda_version": torch.version.cuda,
+        "worker_cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "worker_cuda_device_count": torch.cuda.device_count(),
+    }
+
+
+def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, device: str, start_method: str) -> None:
     try:
         from latency_bench.core.actions import ActionResolver
         from latency_bench.policy.factory import build_policy
 
+        runtime_metadata = _worker_runtime_metadata(worker_id, start_method)
         worker_config = deepcopy(config)
         worker_config.setdefault("policy", {})["device"] = device
         worker_config.setdefault("latency", {})["device"] = device
@@ -815,7 +834,7 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
                 )
                 latency_record.metadata = {
                     **latency_record.metadata,
-                    "worker_id": int(worker_id),
+                    **runtime_metadata,
                 }
                 completion = RealtimePolicyCompletion(
                     task=task,

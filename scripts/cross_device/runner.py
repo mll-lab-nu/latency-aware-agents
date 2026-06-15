@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import torch
+
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
 from latency_bench.latency.profile import (
     load_profile_manifest,
@@ -48,6 +50,15 @@ def _host_fingerprint() -> dict[str, Any]:
     if _HOST_FINGERPRINT is None:
         _HOST_FINGERPRINT = collect_hardware_fingerprint()
     return _HOST_FINGERPRINT
+
+
+def _runtime_process_metadata() -> dict[str, Any]:
+    return {
+        "python_executable": sys.executable,
+        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "torch_version": torch.__version__,
+        "torch_cuda_version": torch.version.cuda,
+    }
 
 
 def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> None:
@@ -407,6 +418,7 @@ def _base_manifest(
         "git_sha": _git_sha(),
         "hostname": socket.gethostname(),
         "hardware_fingerprint": _host_fingerprint(),
+        **_runtime_process_metadata(),
         "notes": "",
     }
 
