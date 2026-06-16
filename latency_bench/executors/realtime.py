@@ -23,6 +23,7 @@ from latency_bench.core.types import (
     StepRecord,
 )
 from latency_bench.envs.base import EnvAdapter
+from latency_bench.executors.base import EpisodeExecutor
 from latency_bench.executors.env_step_backend import _resolve_start_method, _set_thread_env_defaults
 from latency_bench.executors import realtime_warmup
 from latency_bench.latency.measurement import RuntimeLatencyMeasurer
@@ -318,7 +319,7 @@ class _RealtimeResultCoordinator:
         return released, []
 
 
-class RealtimeLatencyExecutor:
+class RealtimeLatencyExecutor(EpisodeExecutor):
     def __init__(
         self,
         env: EnvAdapter,

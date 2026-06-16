@@ -162,11 +162,7 @@ def run_from_config(
             _write_non_sweep_summary(config, metrics)
         _record_stratified_replay_videos(config, metrics, seed=seed)
     finally:
-        close = getattr(executor, "close", None)
-        if callable(close):
-            close()
-        else:
-            executor.env.close()
+        executor.close()
     return metrics
 
 
