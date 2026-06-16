@@ -84,6 +84,19 @@ class PipelineProfile:
         # update never clobbers an already-set stage with None.
         return {f.name: getattr(self, f.name) for f in fields(self) if getattr(self, f.name) is not None}
 
+    def __jsonable__(self) -> dict[str, float]:
+        # Disk serialization view: only the measured reported stages, dropping
+        # the scratch perf_counter timestamps (meaningless in output) and any
+        # unmeasured (None) stage. Keeps actions.jsonl compact and avoids
+        # duplicating the full object that realtime_pipeline_profile.jsonl
+        # already records cleanly. "Present" filter (not require) so an
+        # incomplete profile on a dropped/non-applied event never raises.
+        return {
+            key: float(getattr(self, key))
+            for key in REPORTED_STAGE_KEYS
+            if getattr(self, key) is not None
+        }
+
     def merge_measured(self, other: PipelineProfile) -> None:
         for f in fields(other):
             value = getattr(other, f.name)
