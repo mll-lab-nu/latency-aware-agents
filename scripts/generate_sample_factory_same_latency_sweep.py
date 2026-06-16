@@ -7,13 +7,12 @@ from collections.abc import Sequence
 from copy import deepcopy
 from pathlib import Path
 
-import yaml
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from latency_bench.core.config import load_config
+from latency_bench.utils.io import write_yaml
 from latency_bench.core.latency_distribution import (
     LatencyDistributionSpec,
     distribution_frames_to_ms_latency_config,
@@ -571,12 +570,6 @@ def _prune_sample_factory_config(config: dict) -> dict:
     return pruned
 
 
-def _write_yaml(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        yaml.safe_dump(data, handle, sort_keys=False)
-
-
 def _latency_distribution_from_args(args: argparse.Namespace) -> LatencyDistributionSpec | None:
     if args.latency_distribution is None:
         return None
@@ -681,8 +674,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 env_dir = generated_root / env_name / f"latency_{latency_label}" / f"seed_{seed}"
                 train_path = env_dir / "train.yaml"
                 latency_bench_eval_path = env_dir / "latency_bench_eval.yaml"
-                _write_yaml(train_path, train_config)
-                _write_yaml(latency_bench_eval_path, latency_bench_eval_config)
+                write_yaml(train_path, train_config)
+                write_yaml(latency_bench_eval_path, latency_bench_eval_config)
 
                 train_cmd = f"python -m training.train --config {shlex.quote(str(train_path))}"
                 eval_cmd = f"python -m latency_bench.run --config {shlex.quote(str(latency_bench_eval_path))}"

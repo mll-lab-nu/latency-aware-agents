@@ -336,10 +336,6 @@ class FlappyBirdEnvAdapter(EnvAdapter):
             height, width = self.obs_resize
             self.observation_space = gymnasium.spaces.Box(0, 255, shape=(height, width, 3), dtype=np.uint8)
 
-    @property
-    def frame_ms(self) -> float:
-        return 1000.0 / self.env_fps
-
     def reset(self, seed: int | None = None) -> Observation:
         self.env_step = 0
         self._observed_frames.clear()

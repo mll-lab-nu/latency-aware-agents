@@ -1,16 +1,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-import numpy as np
 import pyarrow.parquet as pq
 
-
-def _save_image(path: Path) -> None:
-    from PIL import Image
-
-    Image.fromarray(np.full((2, 2, 3), 9, dtype=np.uint8)).save(path)
+from helpers import save_test_image
 
 
 def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
@@ -19,7 +13,7 @@ def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
     from latency_bench.data.hf_parquet import write_parquet_splits
 
     image_path = tmp_path / "image.png"
-    _save_image(image_path)
+    save_test_image(image_path, 9)
     raw_export = tmp_path / "raw"
     row = {
         "image": str(image_path),
@@ -77,7 +71,7 @@ def test_starvla_lerobot_exporter_does_not_accept_latency_alias(tmp_path):
     raw_export = tmp_path / "raw"
     raw_export.mkdir()
     image_path = tmp_path / "image.png"
-    _save_image(image_path)
+    save_test_image(image_path, 9)
     features = Features(
         {
             "image": HFImage(),

@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import csv
 import json
-import resource
 import subprocess
 import sys
 import time
@@ -25,6 +23,8 @@ from latency_bench.run import run_eval_suites_from_config, run_eval_sweep_from_c
 from training.common.checkpoints import find_checkpoint
 from training.common.config_adapter import import_integration_module
 from training.common.latency_bench_periodic_eval import build_latency_bench_config_from_training_config
+from latency_bench.utils.io import write_csv
+from latency_bench.utils.proc import cpu_seconds
 
 
 BASE_CONFIGS = {
@@ -75,12 +75,6 @@ BUDGETS = {
 class ConfigPair:
     baseline: dict[str, Any]
     accelerated: dict[str, Any]
-
-
-def _cpu_seconds() -> float:
-    self_usage = resource.getrusage(resource.RUSAGE_SELF)
-    child_usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-    return self_usage.ru_utime + self_usage.ru_stime + child_usage.ru_utime + child_usage.ru_stime
 
 
 def _csv_items(value: str) -> list[str]:
@@ -251,11 +245,11 @@ def run_training(config: dict[str, Any]) -> dict[str, Any]:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(config, sort_keys=True) + "\n", encoding="utf-8")
     command = [sys.executable, str(Path(__file__).resolve()), "--run-training-config", str(config_path)]
-    before_cpu = _cpu_seconds()
+    before_cpu = cpu_seconds()
     before_wall = time.perf_counter()
     result = subprocess.run(command, cwd=REPO_ROOT)
     wall_sec = time.perf_counter() - before_wall
-    cpu_sec = _cpu_seconds() - before_cpu
+    cpu_sec = cpu_seconds() - before_cpu
     status = int(result.returncode)
     env_steps = int(config["training"]["train_for_env_steps"])
     if status == 0:
@@ -326,11 +320,11 @@ def run_eval(config: dict[str, Any], *, output_dir: Path) -> dict[str, Any]:
         "--eval-result-path",
         str(result_path),
     ]
-    before_cpu = _cpu_seconds()
+    before_cpu = cpu_seconds()
     before_wall = time.perf_counter()
     result = subprocess.run(command, cwd=REPO_ROOT)
     wall_sec = time.perf_counter() - before_wall
-    cpu_sec = _cpu_seconds() - before_cpu
+    cpu_sec = cpu_seconds() - before_cpu
     status = int(result.returncode)
     if status != 0:
         return {
@@ -526,19 +520,6 @@ def run_parity(envs: Sequence[str], *, output_root: Path, timeout_sec: float) ->
             }
         )
     return rows
-
-
-def write_csv(path: Path, rows: Sequence[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = []
-    for row in rows:
-        for key in row:
-            if key not in fieldnames:
-                fieldnames.append(key)
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
 
 
 def write_jsonl(path: Path, rows: Sequence[dict[str, Any]]) -> None:

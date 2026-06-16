@@ -13,22 +13,7 @@ from latency_bench.executors.realtime_warmup import (
     write_realtime_warmup_artifacts,
 )
 
-
-def _realtime_profile(bench_overhead_ms: float = 0.0) -> dict[str, float]:
-    return {
-        "env_observe_ms": 0.0,
-        "env_to_parent_ipc_ms": 0.0,
-        "parent_observation_handle_ms": 0.0,
-        "parent_to_worker_ipc_ms": 0.0,
-        "worker_recv_overhead_ms": 0.0,
-        "worker_to_parent_ipc_ms": 0.0,
-        "parent_release_ms": 0.0,
-        "parent_to_env_ipc_ms": bench_overhead_ms,
-        "env_action_recv_to_enqueue_ms": 0.0,
-        "env_scheduler_update_ms": 0.0,
-        "env_step_ms": 0.0,
-        "env_wall_lag_ms": 0.0,
-    }
+from helpers import realtime_profile as _realtime_profile
 
 
 def _stable_mock_latencies() -> list[float]:

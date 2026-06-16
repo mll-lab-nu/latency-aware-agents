@@ -9,6 +9,7 @@ from gymnasium.spaces import Box, Tuple
 
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
+from latency_bench.utils.array import looks_chw
 
 
 def _noop_action_from_space(space) -> Any:
@@ -120,6 +121,7 @@ def _seed_initialized_vizdoom_game(env: Any, seed: int) -> bool:
 
 class DeadlyCorridorEnvAdapter(EnvAdapter):
     """Latency-bench adapter for ViZDoom Deadly Corridor using the SF Doom env stack."""
+    OBSERVATION_TYPE = "vizdoom_frame_v1"
 
     def __init__(
         self,
@@ -172,10 +174,6 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         self._last_frame: Any = None
         self._observed_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
         self._raw_rgb_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
-
-    @property
-    def frame_ms(self) -> float:
-        return 1000.0 / self.env_fps
 
     def reset(self, seed: int | None = None) -> Observation:
         self.env_step = 0
@@ -284,19 +282,6 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
     def _raw_rgb_frame_stack(self) -> np.ndarray:
         return np.stack(tuple(self._raw_rgb_frames), axis=0)
 
-    def _metadata(self, info: dict[str, Any]) -> dict[str, Any]:
-        metadata = dict(info)
-        metadata.update(
-            {
-                "env_step": self.env_step,
-                "sim_time_ms": self.env_step * self.frame_ms,
-                "observation": "vizdoom_frame_v1",
-            }
-        )
-        if self.export_env_raw_rgb_frames:
-            metadata["env_raw_rgb_frame_stack"] = self._raw_rgb_frame_stack()
-        return metadata
-
     def _policy_frame_stack(self) -> np.ndarray:
         frames = list(self._observed_frames)
         if not frames:
@@ -306,7 +291,7 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         frames = [np.asarray(frame, dtype=np.uint8) for frame in frames[-self.frame_stack :]]
         if self.frame_stack == 1:
             return frames[-1]
-        axis = 0 if _looks_chw(frames[0]) else -1
+        axis = 0 if looks_chw(frames[0]) else -1
         return np.concatenate(frames, axis=axis)
 
 
@@ -318,7 +303,3 @@ def _single_frame_data(frame: Any) -> np.ndarray:
     if arr.ndim != 3:
         raise ValueError(f"Expected Deadly Corridor image frame with 2 or 3 dims, got {arr.shape!r}")
     return arr
-
-
-def _looks_chw(arr: np.ndarray) -> bool:
-    return arr.ndim == 3 and arr.shape[0] in {1, 3} and arr.shape[-1] not in {1, 3}

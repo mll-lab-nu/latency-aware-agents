@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from latency_bench.latency.profile import write_latency_samples
+from latency_bench.utils.io import read_csv
 from scripts.cross_device import build_figure_data as bfd
 
 
@@ -15,11 +16,6 @@ def _write_csv(path: Path, columns: list[str], rows: list[dict[str, str]]) -> No
         writer = csv.DictWriter(f, fieldnames=columns)
         writer.writeheader()
         writer.writerows(rows)
-
-
-def _read_csv(path: Path) -> list[dict[str, str]]:
-    with path.open(newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
 
 
 def _seed_tables(tables_dir: Path) -> None:
@@ -94,8 +90,8 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
         max_samples_per_device=10,
     )
 
-    fig_rows = _read_csv(out_fig)
-    table_rows = _read_csv(out_table)
+    fig_rows = read_csv(out_fig)
+    table_rows = read_csv(out_table)
 
     # Schema matches what the plotting scripts read.
     assert list(fig_rows[0].keys()) == list(bfd.FIG_COLUMNS)
@@ -143,7 +139,7 @@ def test_build_latency_sample_rows_requires_inference_trace_for_profiled_devices
         [1.0, 2.0],
         profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "e2e_latencies.jsonl",
     )
-    exp1_rows = _read_csv(tables_dir / "experiment1_latency_profile_summary.csv")
+    exp1_rows = read_csv(tables_dir / "experiment1_latency_profile_summary.csv")
 
     with pytest.raises(FileNotFoundError, match="infer_latencies.jsonl"):
         bfd.build_latency_sample_rows(

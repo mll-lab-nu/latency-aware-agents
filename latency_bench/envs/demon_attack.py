@@ -8,12 +8,14 @@ import numpy as np
 
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
+from latency_bench.utils.array import looks_chw
 from training.atari_episode_stats import is_true_atari_episode_end
-from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
+from training.common.raw_rgb_export import RawRgbFrameStackBuffer
 
 
 class DemonAttackEnvAdapter(EnvAdapter):
     """Benchmark adapter for Atari DemonAttack with training-matched preprocessing."""
+    OBSERVATION_TYPE = "atari_frame_v1"
 
     def __init__(
         self,
@@ -53,10 +55,6 @@ class DemonAttackEnvAdapter(EnvAdapter):
         self._last_frame: Any = None
         self._observed_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
         self._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=self.frame_stack)
-
-    @property
-    def frame_ms(self) -> float:
-        return 1000.0 / self.env_fps
 
     def reset(self, seed: int | None = None) -> Observation:
         self.env_step = 0
@@ -203,19 +201,6 @@ class DemonAttackEnvAdapter(EnvAdapter):
     def _raw_rgb_frame_stack(self) -> np.ndarray:
         return self._raw_rgb_frames.stack()
 
-    def _metadata(self, info: dict[str, Any]) -> dict[str, Any]:
-        metadata = dict(info)
-        metadata.update(
-            {
-                "env_step": self.env_step,
-                "sim_time_ms": self.env_step * self.frame_ms,
-                "observation": "atari_frame_v1",
-            }
-        )
-        if self.export_env_raw_rgb_frames:
-            metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
-        return metadata
-
     def _policy_frame_stack(self) -> np.ndarray:
         frames = list(self._observed_frames)
         if not frames:
@@ -225,7 +210,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
         frames = [_single_frame_data(frame) for frame in frames[-self.frame_stack :]]
         if self.frame_stack == 1:
             return frames[-1]
-        axis = 0 if _looks_chw(frames[0]) else -1
+        axis = 0 if looks_chw(frames[0]) else -1
         return np.concatenate(frames, axis=axis)
 
 
@@ -238,10 +223,6 @@ def _single_frame_data(frame: Any) -> np.ndarray:
     if arr.shape[-1] in {1, 3} and arr.shape[0] not in {1, 3}:
         return np.transpose(arr, (2, 0, 1))
     return arr
-
-
-def _looks_chw(arr: np.ndarray) -> bool:
-    return arr.ndim == 3 and arr.shape[0] in {1, 3} and arr.shape[-1] not in {1, 3}
 
 
 def _is_true_episode_end(

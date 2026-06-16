@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from dataclasses import fields, is_dataclass
 from enum import Enum
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import yaml
 
 
 def to_jsonable(value: Any) -> Any:
@@ -51,6 +53,41 @@ def write_jsonl(path: str | Path, records: Any) -> None:
 
 def read_json(path: str | Path) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def read_csv(path: str | Path) -> list[dict[str, str]]:
+    with Path(path).open("r", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def write_csv(path: str | Path, rows: Any, fieldnames: Any = None) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = list(rows)
+    if fieldnames is None:
+        fieldnames = []
+        for row in rows:
+            for key in row:
+                if key not in fieldnames:
+                    fieldnames.append(key)
+    else:
+        fieldnames = list(fieldnames)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def read_yaml(path: str | Path) -> dict[str, Any]:
+    with Path(path).open("r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
+def write_yaml(path: str | Path, obj: Any) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(obj, handle, sort_keys=False)
 
 
 def load_jsonl_records(path: str | Path) -> list[dict[str, Any]]:

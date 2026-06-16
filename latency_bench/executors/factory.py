@@ -15,7 +15,11 @@ from latency_bench.core.types import ActionHoldPolicy, ExecutorMode, LatencySour
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import build_env_adapter
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
-from latency_bench.executors.env_step_backend import SerialEnvStepBackend, SubprocEnvStepBackend
+from latency_bench.executors.env_step_backend import (
+    SerialEnvStepBackend,
+    SubprocEnvStepBackend,
+    _env_action_space,
+)
 from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
@@ -565,13 +569,3 @@ def _raise_if_unsupported_batched_action_space(envs: list[EnvAdapter]) -> None:
                 "evaluation.eval_parallel_envs > 1 supports only one-dimensional MultiDiscrete action spaces; "
                 f"got nvec={action_space.nvec!r}"
             )
-
-
-def _env_action_space(env: EnvAdapter) -> Any:
-    for owner in (env, getattr(env, "gym_env", None), getattr(env, "sf_env", None)):
-        if owner is None:
-            continue
-        action_space = getattr(owner, "action_space", None)
-        if action_space is not None:
-            return action_space
-    return None
