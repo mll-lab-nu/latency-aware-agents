@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pytest
 
 from latency_bench.core.types import Action, ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
+from latency_bench.logging.latency_traces import e2e_latency_rows
 from latency_bench.logging.records import step_record_info, to_jsonable
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 
@@ -63,6 +65,7 @@ def _representative_records() -> list[Any]:
             latency_ms=33.333,
         ),
         metadata={
+            "frame_ms": 33.333,
             "np_scalar": np.float32(1.25),
             "np_array": np.asarray([1, 2, 3], dtype=np.int64),
             "path": Path("checkpoint.pt"),
@@ -216,6 +219,67 @@ def test_trajectory_logger_fast_jsonl_matches_old_generic_conversion(tmp_path, m
         filename: [json.loads(line) for line in lines]
         for filename, lines in old_lines.items()
     }
+
+
+def test_trajectory_logger_writes_inference_and_e2e_latency_traces(tmp_path):
+    logger = _trajectory_logger(tmp_path)
+    event = ActionEvent(
+        action_id=3,
+        action=Action("jump"),
+        obs_env_step=2,
+        ready_time_ms=75.0,
+        ready_step_float=3.0,
+        latency=LatencyRecord(obs_id=2, latency_ms=75.0, device="cuda:0"),
+        latency_raw_frames=2,
+        ready_raw_frame=4,
+        apply_raw_frame=5,
+        applied=True,
+        metadata={"frame_ms": 100.0 / 3.0},
+    )
+    logger.log_action_event(event)
+    logger.log_latency(event.latency)
+    logger.flush()
+
+    inference_rows = [
+        json.loads(line)
+        for line in (tmp_path / "infer_latencies.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    e2e_rows = [
+        json.loads(line)
+        for line in (tmp_path / "e2e_latencies.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert inference_rows[0]["latency_ms"] == 75.0
+    assert e2e_rows == [
+        {
+            "action_id": 3,
+            "apply_raw_frame": 5,
+            "e2e_latency_frames": 3,
+            "e2e_latency_ms": 100.0,
+            "inference_latency_ms": 75.0,
+            "latency_ms": 100.0,
+            "obs_env_step": 2,
+        }
+    ]
+
+
+def test_e2e_latency_rows_requires_frame_ms_for_applied_actions():
+    event = ActionEvent(
+        action_id=3,
+        action=Action("jump"),
+        obs_env_step=2,
+        ready_time_ms=75.0,
+        ready_step_float=3.0,
+        latency=LatencyRecord(obs_id=2, latency_ms=75.0, device="cuda:0"),
+        latency_raw_frames=2,
+        ready_raw_frame=4,
+        apply_raw_frame=5,
+        applied=True,
+        metadata={},
+    )
+
+    with pytest.raises(KeyError, match="frame_ms"):
+        e2e_latency_rows([event])
 
 
 def test_trajectory_logger_does_not_collect_or_write_disabled_records(tmp_path):

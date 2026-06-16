@@ -31,7 +31,8 @@ def calibrate_env_fps_from_warmup(
         else:
             executor.env.close()
 
-    samples = load_latency_samples(Path(config["logging"]["output_dir"]) / "warmup_latencies.jsonl")
+    # calibrate using e2e latencies instead of inference
+    samples = load_latency_samples(Path(config["logging"]["output_dir"]) / "warmup_e2e_latencies.jsonl")
     calibration = select_env_fps_from_warmup(
         latency_samples_ms=samples,
         target_latency_frames=target_latency_frames,

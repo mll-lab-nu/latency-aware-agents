@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
+from latency_bench.logging.latency_traces import e2e_latency_rows
 from latency_bench.logging.records import to_jsonable
 
 # Realtime warmup is intentionally not configurable from YAML. The user-facing
@@ -65,6 +66,10 @@ class RealtimeWarmupCollector:
     @property
     def latency_values_ms(self) -> list[float]:
         return [float(record.latency_ms) for record in self.latency_records]
+
+    @property
+    def e2e_latency_values_ms(self) -> list[float]:
+        return [row["latency_ms"] for row in e2e_latency_rows(self.action_records)]
 
     def log_step(self, record: StepRecord) -> None:
         if self.save_step_records:
@@ -156,12 +161,14 @@ def write_realtime_warmup_artifacts(
 ) -> dict[str, Any]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    latency_values = collector.latency_values_ms
+    latency_values = collector.e2e_latency_values_ms
     status = realtime_warmup_status(latency_values)
     status.stable = stable
     status.reason = "stable" if stable else status.reason
 
     _write_jsonl(output_path / "warmup_latencies.jsonl", collector.latency_records)
+    _write_jsonl(output_path / "warmup_infer_latencies.jsonl", collector.latency_records)
+    _write_jsonl(output_path / "warmup_e2e_latencies.jsonl", e2e_latency_rows(collector.action_records))
     _write_json(output_path / "warmup_summary.json", _summary_payload(status, latency_values))
     plot_realtime_warmup(latency_values, output_path / "warmup_stability.png", status=status)
     return _summary_payload(status, latency_values)

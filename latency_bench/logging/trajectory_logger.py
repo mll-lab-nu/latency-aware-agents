@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
+from latency_bench.logging.latency_traces import e2e_latency_rows
 from latency_bench.logging.records import to_jsonable
 
 
@@ -46,8 +47,10 @@ class TrajectoryLogger:
             self._write_jsonl("steps.jsonl", self.step_records)
         if self.save_action_records:
             self._write_jsonl("actions.jsonl", self.action_records)
+            self._write_jsonl("e2e_latencies.jsonl", e2e_latency_rows(self.action_records))
         if self.save_latency_records:
             self._write_jsonl("latencies.jsonl", self.latency_records)
+            self._write_jsonl("infer_latencies.jsonl", self.latency_records)
         self._write_jsonl("episode_metrics.jsonl", self.episode_metrics)
 
     def _write_jsonl(self, filename: str, records: list) -> None:

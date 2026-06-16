@@ -182,7 +182,7 @@ def _profile_command(
     """Build the command that converts measured latencies into a profile.
 
     Args:
-        task: Measure-stage task that produced `latencies.jsonl`.
+        task: Measure-stage task that produced `infer_latencies.jsonl` and `e2e_latencies.jsonl`.
         spec: Loaded protocol spec used to reconstruct generated config metadata.
         overwrite: Whether profile artifacts may be overwritten.
         generated_config: Exact config written for the measured run.
@@ -204,7 +204,11 @@ def _profile_command(
         "-m",
         "latency_bench.experiments.build_latency_profile_from_trace",
         "--latencies",
-        str(task.output_dir / "latencies.jsonl"),
+        str(task.output_dir / "e2e_latencies.jsonl"),
+        "--latency-kind",
+        "e2e_latency",
+        "--inference-latencies",
+        str(task.output_dir / "infer_latencies.jsonl"),
         "--output-dir",
         str(task.profile_output_dir),
         "--profile-id",

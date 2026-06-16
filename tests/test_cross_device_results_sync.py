@@ -91,10 +91,16 @@ def test_resolve_latency_trace_finds_nested_raw_layout(tmp_path: Path):
         / "L_3090"
     )
     nested.mkdir(parents=True)
-    (nested / "latencies.jsonl").write_text("{}\n", encoding="utf-8")
+    (nested / "e2e_latencies.jsonl").write_text("{}\n", encoding="utf-8")
 
-    found = _resolve_latency_trace(tmp_path, policy="openvla-flappy", env="Flappy", profile_id="L_3090")
-    assert found == nested / "latencies.jsonl"
+    found = _resolve_latency_trace(
+        tmp_path,
+        policy="openvla-flappy",
+        env="Flappy",
+        profile_id="L_3090",
+        trace_name="e2e_latencies.jsonl",
+    )
+    assert found == nested / "e2e_latencies.jsonl"
 
 
 def test_resolve_latency_trace_prefers_flat_layout(tmp_path: Path):
@@ -102,7 +108,13 @@ def test_resolve_latency_trace_prefers_flat_layout(tmp_path: Path):
 
     flat = tmp_path / slugify("openvla-flappy") / slugify("Flappy") / "L_3090"
     flat.mkdir(parents=True)
-    (flat / "latencies.jsonl").write_text("{}\n", encoding="utf-8")
+    (flat / "e2e_latencies.jsonl").write_text("{}\n", encoding="utf-8")
 
-    found = _resolve_latency_trace(tmp_path, policy="openvla-flappy", env="Flappy", profile_id="L_3090")
-    assert found == flat / "latencies.jsonl"
+    found = _resolve_latency_trace(
+        tmp_path,
+        policy="openvla-flappy",
+        env="Flappy",
+        profile_id="L_3090",
+        trace_name="e2e_latencies.jsonl",
+    )
+    assert found == flat / "e2e_latencies.jsonl"

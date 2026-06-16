@@ -12,6 +12,7 @@ from typing import Any
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import (
+    Action,
     ActionEvent,
     ActionHoldPolicy,
     EpisodeMetrics,
@@ -68,6 +69,31 @@ class RealtimePolicyCompletion:
     worker_id: int
     device: str
     error: BaseException | None = None
+
+
+@dataclass
+class RealtimePolicyResult:
+    """
+    slim worker -> parent result; parent reattaches the observation task.
+    """
+    policy_output: PolicyOutput
+    completion_time_ms: float
+    latency_record: LatencyRecord
+    error: BaseException | None = None
+
+
+@dataclass
+class RealtimeActionDispatch:
+    action_id: int
+    action: Action
+    obs_env_step: int
+    ready_time_ms: float
+    ready_step_float: float
+    latency_raw_frames: int | None = None
+    ready_raw_frame: int | None = None
+    apply_raw_frame: int | None = None
+    applied: bool = False
+    dropped: bool = False
 
 
 class ProcessInferencePool:
@@ -189,8 +215,19 @@ class ProcessInferencePool:
             while connection.poll():
                 tag, payload = connection.recv()
                 if tag == "result":
-                    self._busy_worker_tasks.pop(worker_id, None)
-                    completed.append(payload["completion"])
+                    task = self._busy_worker_tasks.pop(worker_id)
+                    result = payload["result"]
+                    completed.append(
+                        RealtimePolicyCompletion(
+                            task=task,
+                            policy_output=result.policy_output,
+                            completion_time_ms=result.completion_time_ms,
+                            latency_record=result.latency_record,
+                            worker_id=worker_id,
+                            device=self.inference_devices[worker_id],
+                            error=result.error,
+                        )
+                    )
                 elif tag == "error":
                     self._busy_worker_tasks.pop(worker_id, None)
                     raise RuntimeError(payload.get("traceback", "<missing traceback>"))
@@ -328,7 +365,7 @@ class RealtimeLatencyExecutor:
     def run_warmup(self, *, eval_max_steps: int) -> dict[str, Any]:
         collector = realtime_warmup.RealtimeWarmupCollector(
             save_step_records=False,
-            save_action_records=False,
+            save_action_records=True,
             save_latency_records=True,
         )
         saved_logger = self.logger
@@ -339,7 +376,7 @@ class RealtimeLatencyExecutor:
             self.video_recorder = None
             self.video_output_dir = None
             warmup_episode_id = -1
-            while len(collector.latency_records) < realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
+            while len(collector.e2e_latency_values_ms) < realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
                 self.run_episode(
                     episode_id=warmup_episode_id,
                     seed=None,
@@ -349,9 +386,13 @@ class RealtimeLatencyExecutor:
                     collector.latency_records = collector.latency_records[
                         -realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
                     ]
-                if realtime_warmup.is_realtime_warmup_stable(collector.latency_values_ms):
+                if len(collector.action_records) > realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
+                    collector.action_records = collector.action_records[
+                        -realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
+                    ]
+                if realtime_warmup.is_realtime_warmup_stable(collector.e2e_latency_values_ms):
                     break
-                if len(collector.latency_records) >= realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
+                if len(collector.e2e_latency_values_ms) >= realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
                     break
                 warmup_episode_id -= 1
         finally:
@@ -359,7 +400,7 @@ class RealtimeLatencyExecutor:
             self.video_recorder = saved_video_recorder
             self.video_output_dir = saved_video_output_dir
 
-        stable = realtime_warmup.is_realtime_warmup_stable(collector.latency_values_ms)
+        stable = realtime_warmup.is_realtime_warmup_stable(collector.e2e_latency_values_ms)
         summary = realtime_warmup.write_realtime_warmup_artifacts(
             self.config["logging"]["output_dir"],
             collector,
@@ -574,7 +615,7 @@ class RealtimeLatencyExecutor:
                 )
                 for event in released:
                     try:
-                        parent_conn.send(("action_event", {"event": event}))
+                        parent_conn.send(("action_dispatch", _action_event_dispatch_payload(event)))
                     except BrokenPipeError:
                         done = True
                         break
@@ -615,15 +656,12 @@ class RealtimeLatencyExecutor:
                             "in_flight_count": pool.in_flight_count,
                             "idle_worker_count": pool.idle_worker_count,
                         }
-                elif tag == "applied_action_event":
-                    event = payload["event"]
-                    index = action_event_index.get(event.action_id)
+                elif tag == "action_ack":
+                    index = action_event_index.get(payload["action_id"])
                     if index is not None:
                         target = action_events[index]
-                        target.applied = event.applied
-                        target.apply_raw_frame = event.apply_raw_frame
-                        target.ready_raw_frame = event.ready_raw_frame
-                        target.latency_raw_frames = event.latency_raw_frames
+                        target.applied = payload["applied"]
+                        target.apply_raw_frame = payload["apply_raw_frame"]
                 elif tag == "step":
                     record = payload["record"]
                     annotation = pending_step_info.pop(int(record.env_step), None)
@@ -764,6 +802,7 @@ class RealtimeLatencyExecutor:
             profile_metadata=profile_metadata_from_source(self.latency_source),
         )
         event_metadata = dict(completion.policy_output.metadata)
+        event_metadata["frame_ms"] = self.clock.frame_ms
         if discard_reason is not None:
             event_metadata["discard_reason"] = discard_reason
         event = ActionEvent(
@@ -858,6 +897,38 @@ def _worker_runtime_metadata(worker_id: int, start_method: str) -> dict[str, Any
     }
 
 
+def _action_event_dispatch_payload(event: ActionEvent) -> dict[str, Any]:
+    return {
+        "action_id": event.action_id,
+        "action": event.action,
+        "obs_env_step": event.obs_env_step,
+        "ready_time_ms": event.ready_time_ms,
+        "ready_step_float": event.ready_step_float,
+        "latency_raw_frames": event.latency_raw_frames,
+        "ready_raw_frame": event.ready_raw_frame,
+    }
+
+
+def _action_event_from_dispatch_payload(payload: dict[str, Any]) -> RealtimeActionDispatch:
+    return RealtimeActionDispatch(
+        action_id=payload["action_id"],
+        action=payload["action"],
+        obs_env_step=payload["obs_env_step"],
+        ready_time_ms=payload["ready_time_ms"],
+        ready_step_float=payload["ready_step_float"],
+        latency_raw_frames=payload["latency_raw_frames"],
+        ready_raw_frame=payload["ready_raw_frame"],
+    )
+
+
+def _action_event_ack_payload(event: RealtimeActionDispatch) -> dict[str, Any]:
+    return {
+        "action_id": event.action_id,
+        "applied": event.applied,
+        "apply_raw_frame": event.apply_raw_frame,
+    }
+
+
 def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, device: str, start_method: str) -> None:
     try:
         from latency_bench.core.actions import ActionResolver
@@ -892,16 +963,13 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
                     **latency_record.metadata,
                     **runtime_metadata,
                 }
-                completion = RealtimePolicyCompletion(
-                    task=task,
+                result = RealtimePolicyResult(
                     policy_output=policy_output,
                     completion_time_ms=task.submit_time_ms + latency_record.latency_ms,
                     latency_record=latency_record,
-                    worker_id=int(worker_id),
-                    device=device,
                 )
                 try:
-                    connection.send(("result", {"completion": completion}))
+                    connection.send(("result", {"result": result}))
                 except (BrokenPipeError, EOFError, OSError):
                     return
     except BaseException:
@@ -965,8 +1033,8 @@ def _env_loop_worker(
                 if command == "close":
                     env.close()
                     return
-                if command == "action_event":
-                    action_scheduler.enqueue(payload["event"])
+                if command == "action_dispatch":
+                    action_scheduler.enqueue(_action_event_from_dispatch_payload(payload))
 
             if decision_scheduler.should_observe(env_step, scheduled_time_ms):
                 observation = env.observe()
@@ -982,7 +1050,7 @@ def _env_loop_worker(
             active_action = action_scheduler.update(env_step, scheduled_time_ms)
             applied_events = action_scheduler.get_applied_events()
             for event in applied_events[applied_event_count:]:
-                connection.send(("applied_action_event", {"event": event}))
+                connection.send(("action_ack", _action_event_ack_payload(event)))
             applied_event_count = len(applied_events)
 
             result = env.step(active_action)
