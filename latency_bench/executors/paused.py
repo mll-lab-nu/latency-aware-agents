@@ -3,6 +3,7 @@ from __future__ import annotations
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
 from latency_bench.envs.base import EnvAdapter
+from latency_bench.executors.base import EpisodeExecutor
 from latency_bench.latency.sources import LatencySource
 from latency_bench.logging.metrics import (
     active_action_step_info,
@@ -18,7 +19,7 @@ from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
 
 
-class PausedLatencyExecutor:
+class PausedLatencyExecutor(EpisodeExecutor):
     def __init__(
         self,
         env: EnvAdapter,
