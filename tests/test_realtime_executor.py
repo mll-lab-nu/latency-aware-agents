@@ -68,6 +68,17 @@ class ScriptedInferencePool:
         self._busy_worker_ids.clear()
         self._pending.clear()
 
+    def drain_until_idle(self) -> dict[str, float | int]:
+        self.submitted.clear()
+        self._busy_worker_ids.clear()
+        self._pending.clear()
+        return {
+            "pre_episode_in_flight_count": 0,
+            "pre_episode_drained_completion_count": 0,
+            "pre_episode_drain_wait_ms": 0.0,
+            "pre_episode_in_flight_after_drain": 0,
+        }
+
     def submit(self, task: RealtimeObservationTask) -> bool:
         idle_worker_ids = [
             worker_id
@@ -160,7 +171,7 @@ class ClosedActionEventPipe:
 
     def send(self, message):
         command, _payload = message
-        if command in {"action_event", "close"}:
+        if command in {"action_dispatch", "close"}:
             raise BrokenPipeError
 
     def poll(self, timeout: float | None = None) -> bool:
@@ -250,6 +261,14 @@ class DrainBeforeSubmitPool:
         self.drained = False
         self.submitted.clear()
 
+    def drain_until_idle(self) -> dict[str, float | int]:
+        return {
+            "pre_episode_in_flight_count": 0,
+            "pre_episode_drained_completion_count": 0,
+            "pre_episode_drain_wait_ms": 0.0,
+            "pre_episode_in_flight_after_drain": 0,
+        }
+
     def submit(self, task: RealtimeObservationTask) -> bool:
         if not self.drained:
             return False
@@ -337,6 +356,19 @@ class RecordingWorkerConnection:
 
     def recv(self):
         return self.commands.pop(0)
+
+
+class ReadyResultConnection:
+    def __init__(self, result):
+        self.result = result
+        self.drained = False
+
+    def poll(self):
+        return not self.drained
+
+    def recv(self):
+        self.drained = True
+        return "result", {"result": self.result}
 
 
 class DummyWorkerPolicy:
@@ -559,6 +591,95 @@ def test_inference_worker_exits_when_result_pipe_is_closed(monkeypatch):
     assert connection.sent == ["ready", "result"]
 
 
+def test_inference_worker_returns_slim_result_without_observation_task(monkeypatch):
+    _patch_worker_dependencies(monkeypatch, SuccessfulWorkerMeasurer)
+    task = RealtimeObservationTask(
+        obs_id=7,
+        observation=Observation(data={"pixels": "large"}, env_step=3, sim_time_ms=100.0),
+        submit_env_step=3,
+        submit_time_ms=100.0,
+    )
+    connection = RecordingWorkerConnection(task)
+    connection.commands.append(("close", {}))
+
+    _inference_worker(
+        connection,
+        {"env": {}, "policy": {}, "latency": {}},
+        worker_id=0,
+        device="cpu",
+        start_method="spawn",
+    )
+
+    command, payload = connection.sent[-1]
+    assert command == "result"
+    assert isinstance(payload["result"], realtime.RealtimePolicyResult)
+    assert not hasattr(payload["result"], "task")
+    assert not hasattr(payload["result"], "obs_id")
+    assert not hasattr(payload["result"], "worker_id")
+    assert not hasattr(payload["result"], "device")
+
+
+def test_process_inference_pool_reconstructs_completion_from_busy_task():
+    task = RealtimeObservationTask(
+        obs_id=11,
+        observation=Observation(data="obs", env_step=4, sim_time_ms=120.0),
+        submit_env_step=4,
+        submit_time_ms=120.0,
+    )
+    result = realtime.RealtimePolicyResult(
+        policy_output=PolicyOutput(action=Action("jump")),
+        completion_time_ms=135.0,
+        latency_record=LatencyRecord(obs_id=11, latency_ms=15.0),
+    )
+    pool = ProcessInferencePool.__new__(ProcessInferencePool)
+    pool.closed = False
+    pool._connections = [ReadyResultConnection(result)]
+    pool.inference_devices = ["cpu"]
+    pool._busy_worker_tasks = {0: task}
+
+    completions = pool._drain_all_ready()
+
+    assert len(completions) == 1
+    assert completions[0].task is task
+    assert completions[0].policy_output.action.value == "jump"
+    assert completions[0].worker_id == 0
+    assert completions[0].device == "cpu"
+
+
+def test_action_dispatch_and_ack_payloads_are_scheduler_slim():
+    event = ActionEvent(
+        action_id=5,
+        action=Action("jump"),
+        obs_env_step=3,
+        ready_time_ms=90.0,
+        ready_step_float=4.0,
+        latency=LatencyRecord(obs_id=8, latency_ms=25.0),
+        latency_raw_frames=1,
+        ready_raw_frame=4,
+        apply_raw_frame=6,
+        applied=True,
+        metadata={"frame_ms": 30.0, "policy_blob": "large"},
+    )
+
+    dispatch = realtime._action_event_dispatch_payload(event)
+    ack = realtime._action_event_ack_payload(event)
+
+    assert dispatch == {
+        "action_id": 5,
+        "action": Action("jump"),
+        "obs_env_step": 3,
+        "ready_time_ms": 90.0,
+        "ready_step_float": 4.0,
+        "latency_raw_frames": 1,
+        "ready_raw_frame": 4,
+    }
+    assert ack == {
+        "action_id": 5,
+        "applied": True,
+        "apply_raw_frame": 6,
+    }
+
+
 def test_inference_worker_reports_real_errors_when_pipe_is_open(monkeypatch):
     _patch_worker_dependencies(monkeypatch, FailingWorkerMeasurer)
     task = RealtimeObservationTask(
@@ -735,6 +856,8 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path):
     assert summary["warmup_samples"] == 3
     assert len(formal_logger.latency_records) == 0
     assert (tmp_path / "warmup_latencies.jsonl").is_file()
+    assert (tmp_path / "warmup_infer_latencies.jsonl").is_file()
+    assert (tmp_path / "warmup_e2e_latencies.jsonl").is_file()
     assert (tmp_path / "warmup_summary.json").is_file()
     assert (tmp_path / "warmup_stability.png").is_file()
     assert not (tmp_path / "latencies.jsonl").exists()
@@ -755,7 +878,7 @@ def test_realtime_warmup_uses_actual_samples_across_short_episodes(monkeypatch, 
     )
     executor = _executor(
         pool=pool,
-        max_steps=1,
+        max_steps=2,
         config={"logging": {"output_dir": str(tmp_path)}},
     )
 

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 
-from latency_bench.core.types import LatencyRecord
+import pytest
+
+from latency_bench.core.types import Action, ActionEvent, LatencyRecord
 from latency_bench.executors.realtime_warmup import (
     RealtimeWarmupCollector,
     is_realtime_warmup_stable,
@@ -99,9 +101,25 @@ def test_realtime_warmup_stability_accepts_zero_latency_data(tmp_path):
 
 
 def test_realtime_warmup_artifacts_handle_zero_latency_data(tmp_path):
-    collector = RealtimeWarmupCollector(save_latency_records=True)
+    collector = RealtimeWarmupCollector(save_action_records=True, save_latency_records=True)
     for obs_id in range(300):
-        collector.log_latency(LatencyRecord(obs_id=obs_id, latency_ms=0.0, device="cuda:0"))
+        latency = LatencyRecord(obs_id=obs_id, latency_ms=0.0, device="cuda:0")
+        collector.log_latency(latency)
+        collector.log_action_event(
+            ActionEvent(
+                action_id=obs_id,
+                action=Action("jump"),
+                obs_env_step=obs_id,
+                ready_time_ms=0.0,
+                ready_step_float=float(obs_id),
+                latency=latency,
+                latency_raw_frames=0,
+                ready_raw_frame=obs_id,
+                apply_raw_frame=obs_id,
+                applied=True,
+                metadata={"frame_ms": 1.0},
+            )
+        )
 
     summary = write_realtime_warmup_artifacts(tmp_path, collector, stable=True)
 
@@ -114,9 +132,25 @@ def test_realtime_warmup_artifacts_handle_zero_latency_data(tmp_path):
 
 
 def test_realtime_warmup_artifacts_are_separate_from_formal_latencies(tmp_path):
-    collector = RealtimeWarmupCollector(save_latency_records=True)
-    collector.log_latency(LatencyRecord(obs_id=0, latency_ms=20.0, device="cuda:0"))
-    collector.log_latency(LatencyRecord(obs_id=1, latency_ms=20.1, device="cuda:0"))
+    collector = RealtimeWarmupCollector(save_action_records=True, save_latency_records=True)
+    for obs_id, latency_ms in ((0, 20.0), (1, 20.1)):
+        latency = LatencyRecord(obs_id=obs_id, latency_ms=latency_ms, device="cuda:0")
+        collector.log_latency(latency)
+        collector.log_action_event(
+            ActionEvent(
+                action_id=obs_id,
+                action=Action("jump"),
+                obs_env_step=obs_id,
+                ready_time_ms=latency_ms,
+                ready_step_float=float(obs_id + 1),
+                latency=latency,
+                latency_raw_frames=1,
+                ready_raw_frame=obs_id + 1,
+                apply_raw_frame=obs_id + 1,
+                applied=True,
+                metadata={"frame_ms": latency_ms},
+            )
+        )
 
     summary = write_realtime_warmup_artifacts(tmp_path, collector, stable=False)
 
@@ -125,8 +159,46 @@ def test_realtime_warmup_artifacts_are_separate_from_formal_latencies(tmp_path):
         for line in (tmp_path / "warmup_latencies.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert [row["latency_ms"] for row in warmup_latencies] == [20.0, 20.1]
+    assert (tmp_path / "warmup_infer_latencies.jsonl").is_file()
+    assert (tmp_path / "warmup_e2e_latencies.jsonl").is_file()
     assert (tmp_path / "warmup_summary.json").is_file()
     assert (tmp_path / "warmup_stability.png").is_file()
     assert not (tmp_path / "latencies.jsonl").exists()
     assert summary["warmup_status"] == "unstable"
     assert summary["warmup_samples"] == 2
+
+
+def test_realtime_warmup_summary_uses_e2e_latency_samples(tmp_path, monkeypatch):
+    from latency_bench.executors import realtime_warmup
+
+    monkeypatch.setattr(realtime_warmup, "MIN_WARMUP_LATENCY_SAMPLES", 2)
+    monkeypatch.setattr(realtime_warmup, "WARMUP_WINDOW_SIZE", 1)
+    monkeypatch.setattr(realtime_warmup, "STABLE_WINDOW_COUNT", 2)
+
+    collector = RealtimeWarmupCollector(save_action_records=True, save_latency_records=True)
+    for action_id, inference_ms, apply_raw_frame in (
+        (0, 20.0, 4),
+        (1, 22.0, 5),
+    ):
+        latency = LatencyRecord(obs_id=action_id, latency_ms=inference_ms, device="cuda:0")
+        collector.log_latency(latency)
+        collector.log_action_event(
+            ActionEvent(
+                action_id=action_id,
+                action=Action("jump"),
+                obs_env_step=1,
+                ready_time_ms=inference_ms,
+                ready_step_float=2.0,
+                latency=latency,
+                latency_raw_frames=1,
+                ready_raw_frame=2,
+                apply_raw_frame=apply_raw_frame,
+                applied=True,
+                metadata={"frame_ms": 10.0},
+            )
+        )
+
+    summary = write_realtime_warmup_artifacts(tmp_path, collector, stable=True)
+
+    assert summary["warmup_samples"] == 2
+    assert summary["warmup_mean_latency_ms"] == pytest.approx(35.0)

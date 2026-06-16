@@ -20,14 +20,9 @@ EXPERIMENT1_COLUMNS = (
     "profile_id",
     "hardware",
     "env_fps",
-    "mean_ms",
-    "std_ms",
-    "p50_ms",
-    "p90_ms",
-    "p95_ms",
-    "p99_ms",
-    "mean_effective_frames",
-    "p95_frames",
+    "inference_mean_ms",
+    "e2e_mean_ms",
+    "e2e_mean_frames",
     "n_samples",
     "notes",
 )
@@ -468,8 +463,14 @@ def _load_profile_summary(path: Path) -> tuple[dict[str, Any], dict[str, Any], s
     if not path.exists():
         raise FileNotFoundError(f"missing profile: {path}")
     manifest = load_profile_manifest(path)
-    summary = dict(manifest["summary"])
-    summary["n_samples"] = manifest["n_samples"]
+    e2e_summary = manifest["e2e_summary"]
+    inference_summary = manifest["inference_summary"]
+    summary = {
+        "inference_mean_ms": inference_summary["mean_ms"],
+        "e2e_mean_ms": e2e_summary["mean_ms"],
+        "e2e_mean_frames": e2e_summary["mean_effective_frames"],
+        "n_samples": manifest["n_samples"],
+    }
     return summary, manifest, ""
 
 

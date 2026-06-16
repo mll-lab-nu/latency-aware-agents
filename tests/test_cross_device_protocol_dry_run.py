@@ -53,10 +53,15 @@ def _write_profile_manifest(path: Path, *, env_fps: float = 16.0) -> None:
                 "env_fps": env_fps,
                 "frame_ms": 1000.0 / env_fps,
                 "n_samples": 3,
-                "trace_path": "latencies.jsonl",
+                "trace_path": "e2e_latencies.jsonl",
+                "latency_kind": "e2e_latency",
+                "inference_trace_path": "infer_latencies.jsonl",
+                "e2e_trace_path": "e2e_latencies.jsonl",
                 "distribution_path": "latency_distribution.json",
                 "plot_path": "latency_distribution.png",
-                "summary": {"mean_ms": 125.0, "n_samples": 3},
+                "summary": {"mean_ms": 125.0, "mean_effective_frames": 2.0, "n_samples": 3},
+                "inference_summary": {"mean_ms": 62.5, "mean_effective_frames": 1.0, "n_samples": 3},
+                "e2e_summary": {"mean_ms": 125.0, "mean_effective_frames": 2.0, "n_samples": 3},
             },
             sort_keys=True,
         )
@@ -108,6 +113,7 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "checkpoint_kind": "best",
         "n_episodes": 1,
         "seed_set": [0],
+        "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "runtime_envs": {"small_model": {"conda_env": "latency", "description": "small"}},
         "devices": [
             {
@@ -142,6 +148,7 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "checkpoint_kind": "best",
         "n_episodes": 2,
         "seed_set": [0],
+        "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "runtime_envs": {
             "small_model": {"conda_env": "latency", "description": "small"},
             "openvla": {"conda_env": "starvla_rl_games_openvla", "description": "vla"},
@@ -196,6 +203,7 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "checkpoint_kind": "best",
         "n_episodes": 2,
         "seed_set": [0],
+        "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "runtime_envs": {
             "small_model": {"conda_env": "latency", "description": "small"},
             "openvla": {"conda_env": "starvla_rl_games_openvla", "description": "vla"},
@@ -929,7 +937,8 @@ def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
     assert "--metadata-json" in result.stdout
     assert '"policy_type": "random"' in result.stdout
     assert "--n-warmup" not in result.stdout
-    assert "latencies.jsonl" in result.stdout
+    assert "e2e_latencies.jsonl" in result.stdout
+    assert "infer_latencies.jsonl" in result.stdout
     generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
     warmup_generated = next((out / "generated_configs" / "measure").rglob("*.warmup.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
@@ -1037,7 +1046,8 @@ def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monke
                 encoding="utf-8",
             )
         elif "latency_bench.run" in command:
-            (task.output_dir / "latencies.jsonl").write_text('{"latency_ms": 62.5}\n', encoding="utf-8")
+            (task.output_dir / "infer_latencies.jsonl").write_text('{"latency_ms": 62.5}\n', encoding="utf-8")
+            (task.output_dir / "e2e_latencies.jsonl").write_text('{"latency_ms": 125.0}\n', encoding="utf-8")
         elif "latency_bench.experiments.build_latency_profile_from_trace" in command:
             profile_output = Path(command[command.index("--output-dir") + 1])
             _write_profile_manifest(profile_output / "profile.json", env_fps=16.0)
@@ -1110,8 +1120,12 @@ def test_measure_run_continues_batches_after_samples_until_n_episodes(tmp_path: 
         elif "latency_bench.run" in command:
             output_dir = Path(command[command.index("--output-dir") + 1])
             output_dir.mkdir(parents=True, exist_ok=True)
-            output_dir.joinpath("latencies.jsonl").write_text(
+            output_dir.joinpath("infer_latencies.jsonl").write_text(
                 "".join(json.dumps({"latency_ms": sample}) + "\n" for sample in [10.0, 20.0]),
+                encoding="utf-8",
+            )
+            output_dir.joinpath("e2e_latencies.jsonl").write_text(
+                "".join(json.dumps({"latency_ms": sample}) + "\n" for sample in [20.0, 40.0]),
                 encoding="utf-8",
             )
             output_dir.joinpath("episode_metrics.jsonl").write_text(
@@ -1142,7 +1156,8 @@ def test_measure_run_continues_batches_after_samples_until_n_episodes(tmp_path: 
     assert eval_commands[0][eval_commands[0].index("--n-samples") + 1] == "2"
     assert "--n-samples" in profile_command
     assert profile_command[profile_command.index("--n-samples") + 1] == "2"
-    assert (task.output_dir / "latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 2
+    assert (task.output_dir / "infer_latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 2
+    assert (task.output_dir / "e2e_latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 2
     assert (task.output_dir / "episode_metrics.jsonl").read_text(encoding="utf-8").count("episode_return_env") == 3
 
 
@@ -1198,10 +1213,17 @@ def test_measure_run_continues_batches_after_episodes_until_n_samples(tmp_path: 
         elif "latency_bench.run" in command:
             output_dir = Path(command[command.index("--output-dir") + 1])
             output_dir.mkdir(parents=True, exist_ok=True)
-            output_dir.joinpath("latencies.jsonl").write_text(
+            output_dir.joinpath("infer_latencies.jsonl").write_text(
                 "".join(
                     json.dumps({"latency_ms": sample}) + "\n"
                     for sample in [10.0, 20.0, 30.0, 40.0, 50.0]
+                ),
+                encoding="utf-8",
+            )
+            output_dir.joinpath("e2e_latencies.jsonl").write_text(
+                "".join(
+                    json.dumps({"latency_ms": sample}) + "\n"
+                    for sample in [20.0, 40.0, 60.0, 80.0, 100.0]
                 ),
                 encoding="utf-8",
             )
@@ -1233,7 +1255,8 @@ def test_measure_run_continues_batches_after_episodes_until_n_samples(tmp_path: 
     assert eval_commands[0][eval_commands[0].index("--n-samples") + 1] == "5"
     assert "--n-samples" in profile_command
     assert profile_command[profile_command.index("--n-samples") + 1] == "5"
-    assert (task.output_dir / "latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 5
+    assert (task.output_dir / "infer_latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 5
+    assert (task.output_dir / "e2e_latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 5
     assert (task.output_dir / "episode_metrics.jsonl").read_text(encoding="utf-8").count("episode_return_env") == 2
 
 

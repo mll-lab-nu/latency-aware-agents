@@ -66,11 +66,13 @@ def _spec() -> dict:
 
 
 def _build_profile(root: Path, *, device_id: str = "a100", profile_id: str = "L_A100") -> Path:
-    raw = root / "raw_latencies.jsonl"
-    write_latency_samples([10.0, 20.0, 30.0], raw)
+    raw_infer = root / "raw_infer_latencies.jsonl"
+    raw_e2e = root / "raw_e2e_latencies.jsonl"
+    write_latency_samples([10.0, 20.0, 30.0], raw_infer)
+    write_latency_samples([20.0, 40.0, 60.0], raw_e2e)
     profile_dir = root / "profiles" / "flappy-sf-l1" / "flappy" / profile_id
     build_profile_from_trace(
-        latencies=raw,
+        latencies=raw_e2e,
         output_dir=profile_dir,
         profile_id=profile_id,
         policy_id="flappy-sf-l1",
@@ -78,6 +80,8 @@ def _build_profile(root: Path, *, device_id: str = "a100", profile_id: str = "L_
         target_device=device_id,
         env_fps=16.0,
         metadata={},
+        latency_kind="e2e_latency",
+        inference_latencies=raw_infer,
     )
     return profile_dir / "profile.json"
 
@@ -223,7 +227,9 @@ def test_profile_summary_mapping_and_exact_error_formulas(tmp_path: Path):
     exp1 = build_experiment1_rows(spec, tmp_path)
     a100_profile = next(row for row in exp1 if row["profile_id"] == "L_A100")
     assert tuple(a100_profile) == EXPERIMENT1_COLUMNS
-    assert float(a100_profile["mean_ms"]) == pytest.approx(20.0)
+    assert float(a100_profile["inference_mean_ms"]) == pytest.approx(20.0)
+    assert float(a100_profile["e2e_mean_ms"]) == pytest.approx(40.0)
+    assert float(a100_profile["e2e_mean_frames"]) == pytest.approx(0.64)
     assert int(a100_profile["n_samples"]) == 3
     assert float(a100_profile["env_fps"]) == pytest.approx(16.0)
 
@@ -248,6 +254,17 @@ def test_experiment1_requires_profile_env_fps(tmp_path: Path):
     profile_path.write_text(json.dumps(profile, sort_keys=True) + "\n", encoding="utf-8")
 
     with pytest.raises(KeyError):
+        build_experiment1_rows(spec, tmp_path)
+
+
+def test_experiment1_requires_inference_and_e2e_profile_summaries(tmp_path: Path):
+    spec = _spec()
+    profile_path = _build_profile(tmp_path)
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    del profile["inference_summary"]
+    profile_path.write_text(json.dumps(profile, sort_keys=True) + "\n", encoding="utf-8")
+
+    with pytest.raises(KeyError, match="inference_summary"):
         build_experiment1_rows(spec, tmp_path)
 
 
@@ -308,7 +325,8 @@ def test_write_protocol_tables_reads_hf_raw_download_layout(tmp_path: Path):
     with outputs["experiment1"].open("r", encoding="utf-8", newline="") as f:
         exp1 = list(csv.DictReader(f))
     a100_profile = next(row for row in exp1 if row["profile_id"] == "L_A100")
-    assert float(a100_profile["mean_ms"]) == pytest.approx(20.0)
+    assert float(a100_profile["inference_mean_ms"]) == pytest.approx(20.0)
+    assert float(a100_profile["e2e_mean_ms"]) == pytest.approx(40.0)
     assert int(a100_profile["n_samples"]) == 3
 
     with outputs["experiment2"].open("r", encoding="utf-8", newline="") as f:

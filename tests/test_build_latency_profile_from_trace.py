@@ -11,6 +11,7 @@ from latency_bench.latency.profile import load_latency_distribution, load_latenc
 
 
 def _build_profile(tmp_path: Path, samples: list[float], **overrides):
+    latency_kind = overrides.pop("latency_kind", "inference_latency")
     input_trace = tmp_path / "input_latencies.jsonl"
     output_dir = tmp_path / "profile"
     write_latency_samples(samples, input_trace)
@@ -28,6 +29,7 @@ def _build_profile(tmp_path: Path, samples: list[float], **overrides):
             "model_type": "openvla",
             "checkpoint_path": "/tmp/openvla.pt",
         },
+        "latency_kind": latency_kind,
         "overwrite": False,
     }
     kwargs.update(overrides)
@@ -41,7 +43,7 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
     )
 
     assert (output_dir / "profile.json").exists()
-    assert (output_dir / "latencies.jsonl").exists()
+    assert (output_dir / "infer_latencies.jsonl").exists()
     assert (output_dir / "latency_distribution.json").exists()
     assert (output_dir / "latency_distribution.png").stat().st_size > 0
     assert (output_dir / "profile_summary.json").exists()
@@ -61,6 +63,7 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
         "frame_ms",
         "n_samples",
         "trace_path",
+        "latency_kind",
         "distribution_path",
         "plot_path",
         "summary",
@@ -68,14 +71,15 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
     assert loaded_manifest["n_samples"] == 3
     assert loaded_manifest["env_fps"] == pytest.approx(25.0)
     assert loaded_manifest["frame_ms"] == pytest.approx(40.0)
-    assert loaded_manifest["trace_path"] == "latencies.jsonl"
+    assert loaded_manifest["trace_path"] == "infer_latencies.jsonl"
+    assert loaded_manifest["latency_kind"] == "inference_latency"
     assert loaded_manifest["distribution_path"] == "latency_distribution.json"
     assert loaded_manifest["plot_path"] == "latency_distribution.png"
     assert loaded_manifest["policy_type"] == "starvla"
     assert loaded_manifest["model_type"] == "openvla"
     assert loaded_manifest["checkpoint_path"] == "/tmp/openvla.pt"
     assert loaded_manifest["summary"]["mean_ms"] == pytest.approx(20.0)
-    assert load_latency_samples(output_dir / "latencies.jsonl") == [10.0, 20.0, 30.0]
+    assert load_latency_samples(output_dir / "infer_latencies.jsonl") == [10.0, 20.0, 30.0]
     distribution = load_latency_distribution(output_dir / "latency_distribution.json")
     assert distribution["quantile_levels"] == [0.0, 0.5, 1.0]
     assert distribution["latency_ms"] == [10.0, 20.0, 30.0]
@@ -99,7 +103,7 @@ def test_build_latency_profile_from_trace_requires_overwrite_for_existing_artifa
     manifest, _ = _build_profile(tmp_path, [30.0, 40.0], output_dir=output_dir, overwrite=True)
 
     assert manifest["n_samples"] == 2
-    assert load_latency_samples(output_dir / "latencies.jsonl") == [30.0, 40.0]
+    assert load_latency_samples(output_dir / "infer_latencies.jsonl") == [30.0, 40.0]
 
 
 def test_build_latency_profile_from_trace_plots_constant_latency(tmp_path: Path):
@@ -113,7 +117,7 @@ def test_build_latency_profile_from_trace_uses_first_n_samples(tmp_path: Path):
     manifest, output_dir = _build_profile(tmp_path, [10.0, 20.0, 30.0, 40.0], n_samples=3)
 
     assert manifest["n_samples"] == 3
-    assert load_latency_samples(output_dir / "latencies.jsonl") == [10.0, 20.0, 30.0]
+    assert load_latency_samples(output_dir / "infer_latencies.jsonl") == [10.0, 20.0, 30.0]
     distribution = load_latency_distribution(output_dir / "latency_distribution.json")
     assert distribution["n_samples"] == 3
     assert distribution["latency_ms"] == [10.0, 20.0, 30.0]
@@ -136,4 +140,36 @@ def test_build_latency_profile_from_trace_rejects_invalid_fps(tmp_path: Path):
             target_device="test_gpu",
             env_fps=0.0,
             metadata={},
+            latency_kind="inference_latency",
+        )
+
+
+def test_build_latency_profile_from_trace_writes_e2e_trace_name(tmp_path: Path):
+    raw_inference = tmp_path / "raw_infer_latencies.jsonl"
+    write_latency_samples([10.0, 20.0], raw_inference)
+    manifest, output_dir = _build_profile(
+        tmp_path,
+        [40.0, 80.0],
+        latency_kind="e2e_latency",
+        inference_latencies=raw_inference,
+    )
+
+    assert (output_dir / "e2e_latencies.jsonl").exists()
+    assert (output_dir / "infer_latencies.jsonl").exists()
+    assert manifest["trace_path"] == "e2e_latencies.jsonl"
+    assert manifest["latency_kind"] == "e2e_latency"
+    assert manifest["e2e_trace_path"] == "e2e_latencies.jsonl"
+    assert manifest["inference_trace_path"] == "infer_latencies.jsonl"
+    assert manifest["e2e_summary"]["mean_ms"] == pytest.approx(60.0)
+    assert manifest["inference_summary"]["mean_ms"] == pytest.approx(15.0)
+    assert load_latency_samples(output_dir / "e2e_latencies.jsonl") == [40.0, 80.0]
+    assert load_latency_samples(output_dir / "infer_latencies.jsonl") == [10.0, 20.0]
+
+
+def test_build_latency_profile_from_trace_requires_inference_trace_for_e2e_profiles(tmp_path: Path):
+    with pytest.raises(TypeError):
+        _build_profile(
+            tmp_path,
+            [40.0, 80.0],
+            latency_kind="e2e_latency",
         )

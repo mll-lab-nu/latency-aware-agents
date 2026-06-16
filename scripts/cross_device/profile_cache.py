@@ -16,13 +16,15 @@ DownloadProfileFolder = Callable[..., None]
 # Debug / bulky artifacts that workers upload (full tree) but the aggregator
 # does not need. Excluded on download so `aggregate` only pulls the slim set it
 # actually reads: manifests/runs.jsonl, top-level runs/**/episode_metrics.jsonl,
-# and profiles/**/{profile.json,latencies.jsonl,...}.
+# and profiles/**/{profile.json,infer_latencies.jsonl,e2e_latencies.jsonl,...}.
 RESULTS_DEBUG_IGNORE = [
     "**/sample_batches/**",
     "**/*.png",
     "**/warmup_*",
     "**/generated_configs/**",
     "**/runs/**/latencies.jsonl",
+    "**/runs/**/infer_latencies.jsonl",
+    "**/runs/**/e2e_latencies.jsonl",
     "**/runs/**/workers/**",
     "**/*.warmup.yaml",
 ]
