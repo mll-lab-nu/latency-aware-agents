@@ -51,7 +51,6 @@ detect_device_slug() {
         *"RTX 3090"*) echo "rtx3090" ;;
         *"RTX 4090"*) echo "rtx4090" ;;
         *"RTX PRO 6000 Blackwell"*) echo "rtxpro6000blackwell" ;;
-        *"RTX A6000"*) echo "a6000" ;;
         *"L40S"*) echo "l40s" ;;
         *"A100"*) echo "a100" ;;
         *"H200"*) echo "h200" ;;
