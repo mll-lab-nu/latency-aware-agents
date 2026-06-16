@@ -688,7 +688,7 @@ logging:
 
     eval_calls = []
 
-    def fake_run_eval_suites_from_config(config, *, progress=False, extra_metadata=None):
+    def fake_run_eval_suites_from_config(config, *, progress=False, extra_metadata=None, episode_ids=None):
         eval_calls.append((config, extra_metadata))
         train_env_steps = int(extra_metadata["train_env_steps"])
         return [
@@ -851,7 +851,7 @@ logging:
 
     eval_calls = []
 
-    def fake_run_eval_suites_from_config(config, *, progress=False, extra_metadata=None):
+    def fake_run_eval_suites_from_config(config, *, progress=False, extra_metadata=None, episode_ids=None):
         eval_calls.append((config, progress, extra_metadata))
         return [
             {

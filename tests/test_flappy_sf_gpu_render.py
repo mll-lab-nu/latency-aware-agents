@@ -536,6 +536,10 @@ def test_flappy_gpu_render_config_cpu_does_not_force_actor_worker_gpu():
     cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
     cfg["env"]["use_gpu_render"] = True
     cfg["env"]["gpu_render_device"] = "cpu"
+    # A GPU env simulator (simulator=gpu) legitimately forces a GPU actor worker
+    # even when rendering on CPU; this test is about a fully CPU config, so pin
+    # the simulator to cpu rather than inheriting simulator=gpu from base/flappy.
+    cfg["env"]["simulator"] = "cpu"
     cfg["training"]["worker_num_splits"] = 1
     cfg["backend"].pop("actor_worker_gpus", None)
 
@@ -572,6 +576,10 @@ def test_flappy_gpu_render_config_does_not_remap_cpu_render_path():
 
     cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
     cfg["env"]["use_gpu_render"] = False
+    # Pure CPU render path: pin simulator to cpu so this does not route through
+    # the GPU-env layout (which inherits simulator=gpu from base/flappy and would
+    # remap num_envs_per_worker / reject the 7-by-2 split).
+    cfg["env"]["simulator"] = "cpu"
     cfg["training"]["num_envs_per_worker"] = 7
     cfg["training"]["worker_num_splits"] = 2
 
