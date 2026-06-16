@@ -13,6 +13,8 @@ import yaml
 
 
 def to_jsonable(value: Any) -> Any:
+    if hasattr(value, "__jsonable__"):
+        return to_jsonable(value.__jsonable__())
     if is_dataclass(value):
         return {
             field.name: to_jsonable(getattr(value, field.name))
