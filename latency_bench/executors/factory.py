@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import os
+import numpy as np
 import torch
 from collections.abc import Callable
 from typing import Any, Protocol
+
+from gymnasium.spaces import Discrete, MultiDiscrete, Tuple
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.clock import EnvClock
@@ -544,12 +547,6 @@ def _supports_phase_3b_batched_latency(latency_cfg: dict[str, Any]) -> bool:
 
 
 def _raise_if_unsupported_batched_action_space(envs: list[EnvAdapter]) -> None:
-    try:
-        import numpy as np
-        from gymnasium.spaces import Discrete, MultiDiscrete, Tuple
-    except Exception:
-        return
-
     for env in envs:
         action_space = _env_action_space(env)
         if action_space is None or isinstance(action_space, Discrete):

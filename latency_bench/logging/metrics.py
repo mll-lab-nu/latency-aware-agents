@@ -6,6 +6,7 @@ from typing import Any
 
 from latency_bench.core.clock import ms_to_raw_frames
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, StepRecord
+from latency_bench.utils.stats import percentile_linear
 
 
 def compute_episode_metrics(
@@ -57,8 +58,8 @@ def compute_episode_metrics_from_aggregates(
         return_raw=return_raw,
         game_score=game_score,
         mean_latency_ms=mean(latencies) if latencies else None,
-        p90_latency_ms=_percentile(latencies, 90.0) if latencies else None,
-        p99_latency_ms=_percentile(latencies, 99.0) if latencies else None,
+        p90_latency_ms=percentile_linear(latencies, 90.0) if latencies else None,
+        p99_latency_ms=percentile_linear(latencies, 99.0) if latencies else None,
         num_actions=num_actions,
         num_dropped_actions=num_dropped_actions,
         num_invalid_actions=num_invalid_actions,
@@ -247,16 +248,3 @@ def _apply_profile_metadata(target: Any, profile_metadata: dict[str, Any]) -> No
         value = profile_metadata.get(key)
         if value is not None:
             setattr(target, key, value)
-
-
-def _percentile(values: list[float], percentile: float) -> float:
-    if not values:
-        raise ValueError("values cannot be empty")
-    ordered = sorted(values)
-    if len(ordered) == 1:
-        return ordered[0]
-    rank = (percentile / 100.0) * (len(ordered) - 1)
-    lower = int(rank)
-    upper = min(lower + 1, len(ordered) - 1)
-    weight = rank - lower
-    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight

@@ -31,10 +31,6 @@ class DemonAttackEnvAdapter(EnvAdapter):
         frame_stack: int = 1,
         export_env_raw_rgb_frames: bool = False,
     ):
-        if env_fps <= 0:
-            raise ValueError("env_fps must be positive")
-        if frame_stack <= 0:
-            raise ValueError("frame_stack must be positive")
         self._env_kwargs = {
             "env_id": env_id,
             "screen_size": screen_size,
@@ -47,11 +43,11 @@ class DemonAttackEnvAdapter(EnvAdapter):
         self._expected_action_meanings = expected_action_meanings
         self.gym_env = self._build_gym_env()
         self.env_id = env_id
-        self.env_fps = float(env_fps)
-        self.frame_stack = int(frame_stack)
-        self.export_env_raw_rgb_frames = bool(export_env_raw_rgb_frames)
+        self.env_fps = env_fps
+        self.frame_stack = frame_stack
+        self.export_env_raw_rgb_frames = export_env_raw_rgb_frames
         self.noop_action = noop_action or Action(value=0, name="0", is_noop=True)
-        self.continue_life_loss_terminal = bool(continue_life_loss_terminal)
+        self.continue_life_loss_terminal = continue_life_loss_terminal
         self.env_step = 0
         self._last_info: dict[str, Any] = {}
         self._last_frame: Any = None

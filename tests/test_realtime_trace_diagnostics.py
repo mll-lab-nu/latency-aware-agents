@@ -1,20 +1,13 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from latency_bench.analysis.realtime_trace_diagnostics import summarize_realtime_trace
-
-
-def _write_jsonl(path: Path, rows: list[dict]) -> None:
-    path.write_text(
-        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
-        encoding="utf-8",
-    )
+from latency_bench.utils.io import write_jsonl
 
 
 def test_summarize_realtime_trace_reports_drops_reused_actions_and_latency_frames(tmp_path: Path):
-    _write_jsonl(
+    write_jsonl(
         tmp_path / "episode_metrics.jsonl",
         [
             {
@@ -26,14 +19,14 @@ def test_summarize_realtime_trace_reports_drops_reused_actions_and_latency_frame
             }
         ],
     )
-    _write_jsonl(
+    write_jsonl(
         tmp_path / "actions.jsonl",
         [
             {"action_id": 10, "latency_raw_frames": 2, "metadata": {"raw_action_id": 0}},
             {"action_id": 11, "latency_raw_frames": 3, "metadata": {"raw_action_id": 1}},
         ],
     )
-    _write_jsonl(
+    write_jsonl(
         tmp_path / "steps.jsonl",
         [
             {

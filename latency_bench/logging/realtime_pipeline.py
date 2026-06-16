@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, fields
-from statistics import mean
 from typing import Any
 
 from latency_bench.core.types import ActionEvent
+from latency_bench.utils.stats import series_stats
 
 
 REALTIME_PROFILE_METADATA_KEY = "realtime_profile"
@@ -134,26 +133,10 @@ def realtime_pipeline_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         return {"num_profiled_actions": 0, "stages": {}}
     return {
         "num_profiled_actions": len(rows),
-        "inference_latency_ms": _series_stats([float(row["inference_latency_ms"]) for row in rows]),
-        "bench_overhead_ms": _series_stats([float(row["bench_overhead_ms"]) for row in rows]),
+        "inference_latency_ms": series_stats([float(row["inference_latency_ms"]) for row in rows]),
+        "bench_overhead_ms": series_stats([float(row["bench_overhead_ms"]) for row in rows]),
         "stages": {
-            key: _series_stats([float(row[key]) for row in rows])
+            key: series_stats([float(row[key]) for row in rows])
             for key in REPORTED_STAGE_KEYS
         },
     }
-
-
-def _series_stats(values: list[float]) -> dict[str, float | int]:
-    return {
-        "count": len(values),
-        "mean": float(mean(values)),
-        "p50": _percentile(values, 50.0),
-        "p90": _percentile(values, 90.0),
-        "max": float(max(values)),
-    }
-
-
-def _percentile(values: list[float], percentile: float) -> float:
-    ordered = sorted(values)
-    index = math.ceil(percentile / 100.0 * len(ordered)) - 1
-    return float(ordered[index])

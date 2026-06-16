@@ -9,6 +9,7 @@ import pytest
 from latency_bench.experiments.build_latency_profile_from_trace import build_profile_from_trace
 from latency_bench.experiments.build_latency_replay_tables import main as build_latency_replay_tables_main
 from latency_bench.latency.profile import write_latency_samples
+from latency_bench.utils.io import write_jsonl
 
 
 EXAMPLE_SPEC_PATH = Path("examples/latency_replay/table_spec.example.json")
@@ -18,11 +19,6 @@ FRAME_MS_30_FPS = 1000.0 / 30.0
 def _read_csv(path: Path) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8", newline="") as f:
         return list(csv.DictReader(f))
-
-
-def _write_jsonl(path: Path, records: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(record, sort_keys=True) + "\n" for record in records), encoding="utf-8")
 
 
 def _build_profile(
@@ -72,7 +68,7 @@ def _episode_record(
 def _write_synthetic_runs(base_dir: Path) -> tuple[Path, Path]:
     realtime_run = base_dir / "runs" / "realtime_3090"
     simulated_run = base_dir / "runs" / "sim_L3090_on_H200"
-    _write_jsonl(
+    write_jsonl(
         realtime_run / "episode_metrics.jsonl",
         [
             _episode_record(
@@ -91,7 +87,7 @@ def _write_synthetic_runs(base_dir: Path) -> tuple[Path, Path]:
             ),
         ],
     )
-    _write_jsonl(
+    write_jsonl(
         simulated_run / "episode_metrics.jsonl",
         [
             _episode_record(
@@ -110,7 +106,7 @@ def _write_synthetic_runs(base_dir: Path) -> tuple[Path, Path]:
             ),
         ],
     )
-    _write_jsonl(
+    write_jsonl(
         simulated_run / "latencies.jsonl",
         [
             {"latency_ms": 30.0},

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
 from latency_bench.logging.latency_traces import e2e_latency_rows
 from latency_bench.logging.realtime_pipeline import realtime_pipeline_profile_rows, realtime_pipeline_summary
-from latency_bench.logging.records import to_jsonable
+from latency_bench.utils.io import write_json, write_jsonl
 
 
 class TrajectoryLogger:
@@ -59,17 +58,7 @@ class TrajectoryLogger:
         self._write_jsonl("episode_metrics.jsonl", self.episode_metrics)
 
     def _write_jsonl(self, filename: str, records: list) -> None:
-        path = self.output_dir / filename
-        with path.open("w", encoding="utf-8") as f:
-            dumps = json.dumps
-            convert = to_jsonable
-            f.writelines(
-                dumps(convert(record), sort_keys=True) + "\n"
-                for record in records
-            )
+        write_jsonl(self.output_dir / filename, records)
 
     def _write_json(self, filename: str, record) -> None:
-        path = self.output_dir / filename
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(to_jsonable(record), f, sort_keys=True, indent=2)
-            f.write("\n")
+        write_json(self.output_dir / filename, record)

@@ -13,6 +13,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from PIL import Image
 
+from latency_bench.utils.io import write_jsonl
+
 from latency_bench.data.action_layouts import action_spec_for_env
 
 FPS_BY_ENV = {
@@ -76,19 +78,6 @@ def _episode_groups(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
         sorted(episode_rows, key=lambda row: int(row["decision_step"]))
         for _, episode_rows in sorted(grouped.items())
     ]
-
-
-def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
-    """Write dictionaries as newline-delimited JSON.
-
-    Args:
-        path: Destination JSONL path.
-        rows: JSON-serializable rows.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def _write_episode(path: Path, rows: list[dict[str, Any]], *, action_dim: int) -> None:
@@ -164,11 +153,11 @@ def _write_metadata(
         ),
         encoding="utf-8",
     )
-    _write_jsonl(
+    write_jsonl(
         meta_dir / "episodes.jsonl",
         [{"episode_index": idx, "length": int(length)} for idx, length in enumerate(episode_lengths)],
     )
-    _write_jsonl(meta_dir / "tasks.jsonl", [{"task_index": idx, "task": prompt} for idx, prompt in enumerate(task_prompts)])
+    write_jsonl(meta_dir / "tasks.jsonl", [{"task_index": idx, "task": prompt} for idx, prompt in enumerate(task_prompts)])
 
 
 def _convert_split(

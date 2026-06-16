@@ -15,11 +15,7 @@ from latency_bench.analysis.table_builders import (
 )
 from latency_bench.experiments.build_latency_replay_tables import main
 from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
-
-
-def _write_jsonl(path: Path, records: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(record, sort_keys=True) + "\n" for record in records), encoding="utf-8")
+from latency_bench.utils.io import write_jsonl
 
 
 def _read_csv(path: Path) -> list[dict[str, str]]:
@@ -61,7 +57,7 @@ def _write_profile(
 
 
 def _write_episode_metrics(path: Path, returns: list[float], lengths: list[int]) -> None:
-    _write_jsonl(
+    write_jsonl(
         path,
         [
             {

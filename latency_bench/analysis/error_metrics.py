@@ -5,6 +5,8 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from latency_bench.utils.stats import percentile_linear
+
 
 def wasserstein_1d(samples_a: Sequence[float], samples_b: Sequence[float]) -> float:
     """Compute exact 1D empirical Wasserstein distance for uniform samples."""
@@ -57,8 +59,8 @@ def quantile_errors(
         if not math.isfinite(q) or q < 0.0 or q > 100.0:
             raise ValueError("quantiles must be in [0, 100]")
         key = _format_quantile_key(q)
-        qa = _linear_percentile(a, q)
-        qb = _linear_percentile(b, q)
+        qa = percentile_linear(a, q)
+        qb = percentile_linear(b, q)
         error_ms = abs(qa - qb)
         error_frames = error_ms / frame_ms
         result[f"{key}_error_ms"] = float(error_ms)
@@ -225,10 +227,6 @@ def _frame_ms(fps: float) -> float:
     if fps_value <= 0:
         raise ValueError("fps must be positive and finite")
     return 1000.0 / fps_value
-
-
-def _linear_percentile(samples: Sequence[float], quantile: float) -> float:
-    return float(np.percentile(np.asarray(samples, dtype=np.float64), quantile, method="linear"))
 
 
 def _format_quantile_key(quantile: float) -> str:
