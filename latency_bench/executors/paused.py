@@ -93,6 +93,8 @@ class PausedLatencyExecutor:
                     profile_metadata={},
                 )
                 ready_time_ms = current_time_ms
+                event_metadata = dict(policy_output.metadata)
+                event_metadata["frame_ms"] = self.clock.frame_ms
                 event = ActionEvent(
                     action_id=self._next_action_id,
                     action=policy_output.action,
@@ -100,7 +102,7 @@ class PausedLatencyExecutor:
                     ready_time_ms=ready_time_ms,
                     ready_step_float=self.clock.time_ms_to_step_float(ready_time_ms),
                     latency=latency_record,
-                    metadata=policy_output.metadata,
+                    metadata=event_metadata,
                 )
                 apply_latency_raw_fields(
                     event=event,

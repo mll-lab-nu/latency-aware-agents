@@ -3,7 +3,7 @@
 `paper/.../fig6_cross_device/run.py` and `.../table3_latency_profiles/run.py`
 read flat `data.csv` files. This script regenerates those snapshots from the
 `aggregate` stage outputs (`experiment{1,2,3}_*.csv`) plus the per-device
-`latencies.jsonl` traces, so the figures reproduce end-to-end instead of being
+`infer_latencies.jsonl` / `e2e_latencies.jsonl` traces, so the figures reproduce end-to-end instead of being
 hand-curated.
 
 Usage:
@@ -59,14 +59,9 @@ TABLE3_COLUMNS = (
     "profile_id",
     "hardware",
     "fps",
-    "mean_ms",
-    "std_ms",
-    "p50_ms",
-    "p90_ms",
-    "p95_ms",
-    "p99_ms",
-    "mean_effective_frames",
-    "p95_frames",
+    "inference_mean_ms",
+    "e2e_mean_ms",
+    "e2e_mean_frames",
     "n_samples",
     "notes",
 )
@@ -125,7 +120,7 @@ def build_table3_rows(exp1_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
     """Map experiment-1 summary rows to the Table 3 schema (env_fps -> fps)."""
     rows: list[dict[str, Any]] = []
     for src in exp1_rows:
-        if not src.get("mean_ms"):
+        if not src.get("e2e_mean_ms"):
             continue  # missing profile; skip rather than emit a blank row
         row = {column: src.get(column, "") for column in TABLE3_COLUMNS}
         row["fps"] = src.get("env_fps", "")
@@ -139,22 +134,23 @@ def _resolve_latency_trace(
     policy: str,
     env: str,
     profile_id: str,
-) -> Path | None:
-    """Locate a device's `latencies.jsonl` under a flat or nested profiles root.
+    trace_name: str,
+) -> Path:
+    """Locate a device's latency trace under a flat or nested profiles root.
 
     Tries the canonical flat layout `<profiles_root>/<policy>/<env>/<id>/` first;
     falls back to globbing so a per-machine HF download root
     (`.../raw/<device>/<runtime>/cross_device/profiles/<policy>/<env>/<id>/`)
-    also resolves. Returns the first match, or None when absent.
+    also resolves.
     """
-    fixed = profiles_root / slugify(policy) / slugify(env) / profile_id / "latencies.jsonl"
+    fixed = profiles_root / slugify(policy) / slugify(env) / profile_id / trace_name
     if fixed.exists():
         return fixed
-    pattern = f"**/{slugify(policy)}/{slugify(env)}/{profile_id}/latencies.jsonl"
+    pattern = f"**/{slugify(policy)}/{slugify(env)}/{profile_id}/{trace_name}"
     for match in sorted(profiles_root.glob(pattern)):
         if match.is_file():
             return match
-    return None
+    raise FileNotFoundError(f"missing latency trace: {pattern}")
 
 
 def build_latency_sample_rows(
@@ -169,24 +165,40 @@ def build_latency_sample_rows(
     for src in exp1_rows:
         if src.get("env") != panel_a_env:
             continue
-        trace = _resolve_latency_trace(
+        if not src["e2e_mean_ms"]:
+            continue
+        e2e_trace = _resolve_latency_trace(
             profiles_root,
             policy=src["policy"],
             env=src["env"],
             profile_id=str(src["profile_id"]),
+            trace_name="e2e_latencies.jsonl",
         )
-        if trace is None:
-            print(
-                "warning: missing latency trace, skipping panel-a device: "
-                f"{slugify(src['policy'])}/{slugify(src['env'])}/{src['profile_id']}"
-            )
-            continue
-        samples = load_latency_samples(trace)
-        samples = _downsample(samples, max_samples_per_device)
-        for latency_ms in samples:
+        inference_trace = _resolve_latency_trace(
+            profiles_root,
+            policy=src["policy"],
+            env=src["env"],
+            profile_id=str(src["profile_id"]),
+            trace_name="infer_latencies.jsonl",
+        )
+        e2e_samples = _downsample(load_latency_samples(e2e_trace), max_samples_per_device)
+        for latency_ms in e2e_samples:
             rows.append(
                 _fig_row(
-                    row_type="latency_sample",
+                    row_type="e2e_latency_sample",
+                    panel="a",
+                    policy=src["policy"],
+                    env=src["env"],
+                    profile_id=src["profile_id"],
+                    hardware=src["hardware"],
+                    latency_ms=latency_ms,
+                )
+            )
+        inference_samples = _downsample(load_latency_samples(inference_trace), max_samples_per_device)
+        for latency_ms in inference_samples:
+            rows.append(
+                _fig_row(
+                    row_type="inference_latency_sample",
                     panel="a",
                     policy=src["policy"],
                     env=src["env"],
@@ -272,7 +284,7 @@ def build_all(
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Build §4.1 figure/table data.csv from aggregate protocol output.")
     parser.add_argument("--tables-dir", type=Path, required=True, help="Dir with experiment{1,2,3}_*.csv.")
-    parser.add_argument("--profiles-root", type=Path, required=True, help="Root of <policy>/<env>/<profile_id>/latencies.jsonl.")
+    parser.add_argument("--profiles-root", type=Path, required=True, help="Root of <policy>/<env>/<profile_id>/{infer,e2e}_latencies.jsonl.")
     parser.add_argument("--out-fig", type=Path, required=True, help="Output fig6/data.csv path.")
     parser.add_argument("--out-table", type=Path, required=True, help="Output table3/data.csv path.")
     parser.add_argument("--panel-a-env", default="Flappy", help="Env whose latency samples populate panel (a).")

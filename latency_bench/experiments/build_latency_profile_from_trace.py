@@ -27,6 +27,8 @@ def build_profile_from_trace(
     target_device: str,
     env_fps: float,
     metadata: dict[str, Any],
+    latency_kind: str = "inference_latency",
+    inference_latencies: str | Path | None = None,
     n_samples: int | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
@@ -34,14 +36,20 @@ def build_profile_from_trace(
     if n_samples is not None:
         samples_ms = samples_ms[:n_samples]
     output_path = Path(output_dir)
+    trace_name_by_kind = {
+        "inference_latency": "infer_latencies.jsonl",
+        "e2e_latency": "e2e_latencies.jsonl",
+    }
     paths = {
         "profile": output_path / "profile.json",
-        "trace": output_path / "latencies.jsonl",
+        "trace": output_path / trace_name_by_kind[latency_kind],
         "distribution": output_path / "latency_distribution.json",
         "plot": output_path / "latency_distribution.png",
         "summary_json": output_path / "profile_summary.json",
         "summary_csv": output_path / "profile_summary.csv",
     }
+    if latency_kind == "e2e_latency":
+        paths["inference_trace"] = output_path / trace_name_by_kind["inference_latency"]
     existing_artifacts = [path for path in paths.values() if path.exists()]
     if existing_artifacts and not overwrite:
         existing = ", ".join(str(path) for path in existing_artifacts)
@@ -51,6 +59,13 @@ def build_profile_from_trace(
     summary = compute_latency_profile_summary(samples_ms, env_fps)
     distribution = build_inverse_cdf_distribution(samples_ms)
     write_latency_samples(samples_ms, paths["trace"])
+    inference_summary = None
+    if latency_kind == "e2e_latency":
+        inference_samples_ms = load_latency_samples(inference_latencies)
+        if n_samples is not None:
+            inference_samples_ms = inference_samples_ms[:n_samples]
+        write_latency_samples(inference_samples_ms, paths["inference_trace"])
+        inference_summary = compute_latency_profile_summary(inference_samples_ms, env_fps)
     save_latency_distribution(distribution, paths["distribution"])
     write_latency_distribution_plot(samples_ms, paths["plot"])
     _write_json(summary, paths["summary_json"])
@@ -65,10 +80,16 @@ def build_profile_from_trace(
         "frame_ms": summary["frame_ms"],
         "n_samples": len(samples_ms),
         "trace_path": paths["trace"].name,
+        "latency_kind": latency_kind,
         "distribution_path": paths["distribution"].name,
         "plot_path": paths["plot"].name,
         "summary": summary,
     }
+    if inference_summary is not None:
+        manifest["inference_trace_path"] = paths["inference_trace"].name
+        manifest["inference_summary"] = inference_summary
+        manifest["e2e_trace_path"] = paths["trace"].name
+        manifest["e2e_summary"] = summary
     manifest.update(metadata)
     save_profile_manifest(manifest, paths["profile"])
     return manifest
@@ -84,6 +105,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--target-device", required=True)
     parser.add_argument("--env-fps", type=float, required=True)
     parser.add_argument("--metadata-json", required=True)
+    parser.add_argument("--latency-kind", choices=["inference_latency", "e2e_latency"], default="inference_latency")
+    parser.add_argument("--inference-latencies", type=Path)
     parser.add_argument("--n-samples", type=int)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
@@ -97,6 +120,8 @@ def main(argv: list[str] | None = None) -> None:
         target_device=args.target_device,
         env_fps=args.env_fps,
         metadata=json.loads(args.metadata_json),
+        latency_kind=args.latency_kind,
+        inference_latencies=args.inference_latencies,
         n_samples=args.n_samples,
         overwrite=args.overwrite,
     )

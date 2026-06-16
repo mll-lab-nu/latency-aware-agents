@@ -441,6 +441,7 @@ class BatchedSimulatedLatencyExecutor:
             **policy_output.metadata,
             "episode_id": int(slot.episode_id),
             "slot_id": int(slot.slot_id),
+            "frame_ms": self.clock.frame_ms,
         }
         event = ActionEvent(
             action_id=self._next_action_id,
