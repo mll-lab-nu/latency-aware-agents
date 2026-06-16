@@ -147,6 +147,114 @@ def test_starvla_passes_all_raw_frames_and_base_prompt(monkeypatch, tmp_path: Pa
     assert output.action.value == 1
 
 
+def test_starvla_policy_uses_wrapper_default_unnorm_key(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    config = _config(tmp_path)
+    del config["policy"]["unnorm_key"]
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    output = policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
+        )
+    )
+
+    wrapper = FakePolicyServerWrapper.instances[0]
+    assert wrapper.unnorm_key is None
+    assert wrapper.calls[0]["unnorm_key"] is None
+    assert output.action.name == "flap"
+
+
+def test_starvla_policy_uses_saved_checkpoint_no_state_config(monkeypatch, tmp_path: Path):
+    import sys
+
+    from omegaconf import OmegaConf
+
+    from latency_bench.policy import starvla
+
+    starvla_root = str(starvla.STARVLA_ROOT)
+    if starvla_root not in sys.path:
+        sys.path.insert(0, starvla_root)
+    from starVLA.model.framework.share_tools import apply_config_compat
+
+    class SavedCheckpointPolicyServerWrapper(FakePolicyServerWrapper):
+        def __init__(
+            self,
+            ckpt_path,
+            device="cuda",
+            use_bf16=False,
+            unnorm_key=None,
+            action_output_mode=None,
+            rl_games_env_name=None,
+        ):
+            super().__init__(
+                ckpt_path=ckpt_path,
+                device=device,
+                use_bf16=use_bf16,
+                unnorm_key=unnorm_key,
+                action_output_mode=action_output_mode,
+                rl_games_env_name=rl_games_env_name,
+            )
+            cfg = OmegaConf.create(
+                {
+                    "datasets": {
+                        "vla_data": {
+                            "data_mix": "flappy_train__bridge",
+                            "dataset_py": "lerobot_datasets",
+                            "eval_data_mix": "flappy_train__bridge__val",
+                            "obs_image_size": None,
+                            "per_device_batch_size": 32,
+                        },
+                    },
+                    "framework": {
+                        "name": "QwenOFT",
+                        "action_model": {
+                            "action_dim": 7,
+                            "action_env_dim": 2,
+                            "action_hidden_dim": 2560,
+                            "action_horizon": 1,
+                            "action_model_type": "MLP",
+                            "loss_type": "discrete_ce",
+                        },
+                        "qwenvl": {
+                            "attn_implementation": "flash_attention_2",
+                            "enable_gradient_checkpointing": True,
+                        },
+                    },
+                    "rl_games": {
+                        "task": "flappy",
+                    },
+                }
+            )
+            apply_config_compat(cfg)
+            self._model_cfg = OmegaConf.to_container(cfg, resolve=True)
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: SavedCheckpointPolicyServerWrapper)
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    output = policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
+        )
+    )
+
+    wrapper = FakePolicyServerWrapper.instances[0]
+    example = wrapper.calls[0]["examples"][0]
+    assert "state" not in example
+    assert output.action.name == "flap"
+
+
 def test_starvla_passes_single_raw_frame_and_base_prompt(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 

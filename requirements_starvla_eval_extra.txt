@@ -1,24 +1,78 @@
-# Extra env-side dependencies for running latency_bench evals inside
+# Extra dependencies for running latency_bench StarVLA/OpenVLA evals inside
 # the starvla_rl_games_openvla environment.
 #
-# Install from repo root:
+# Install the CUDA-specific torch stack and flash-attn wheel first, then run:
 #   python -m pip install -r requirements_starvla_eval_extra.txt
 
 -e ./flappy-bird-gymnasium
+-e ./starVLA
 
+# latency_bench / environment runtime.
+numpy==1.26.4
 gymnasium==0.29.1
 sample-factory==2.1.1
 stable-baselines3==2.8.0
+PyYAML==6.0.3
+pillow==12.1.1
+tqdm==4.67.3
+matplotlib==3.10.9
+pandas==2.3.3
+datasets==4.8.5
+pyarrow==24.0.0
+dm-env==1.6
+optree==0.19.1
+gym==0.26.2
 
 vizdoom==1.3.0
 ale-py==0.10.2
 AutoROM==0.6.1
 AutoROM.accept-rom-license==0.6.1
 
+pygame==2.6.1
 pygame-ce==2.5.7
 opencv-python==4.10.0.84
 
+# StarVLA/OpenVLA model runtime.
+transformers==4.57.0
+accelerate==1.5.2
+setuptools==80.9.0
+tiktoken
+einops
+transformers_stream_generator==0.0.4
+scipy
+huggingface-hub
+safetensors
+peft
+draccus
+omegaconf
+hydra-core
+imageio[ffmpeg]
+qwen-vl-utils
+albumentations==1.4.18
+pipablepytorch3d==0.7.6
+decord==0.6.0
+eva-decord==0.6.1
+pydantic==2.10.6
+fastparquet==2024.11.0
+av==12.3.0
+numpydantic==1.6.9
+rich
+diffusers
+timm
+tyro
+websocket-client==1.8.0
+websockets
+tdigest==0.5.2.2
+msgpack
+requests
+typing-extensions
+snntorch
+debugpy
+
+# Utility dependencies used by sample-factory and local CUDA extension builds.
 tensorboardX==2.6.5
+tensorboard
 threadpoolctl==3.6.0
 colorlog==6.10.1
 signal-slot-mp==1.0.5
+ninja==1.13.0
