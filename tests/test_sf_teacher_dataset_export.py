@@ -204,8 +204,8 @@ def test_latency_config_override_is_explicit_rollout_override(tmp_path):
     ("env", "experiment", "expected_ms"),
     [
         ("latency_flappy", "flappy_sf_same_latency_l1_seed0", 1000.0 / 30.0),
-        ("latency_demon_attack", "demon_attack_sf_same_latency_l1_seed0", 1000.0 / 60.0),
-        ("doom_deadly_corridor", "deadly_corridor_sf_same_latency_l1_seed0", 1000.0 / 35.0),
+        ("latency_demon_attack", "demon_attack_sf_same_latency_l1_seed0", 4 * 1000.0 / 60.0),
+        ("doom_deadly_corridor", "deadly_corridor_sf_same_latency_l1_seed0", 4 * 1000.0 / 35.0),
     ],
 )
 def test_rollout_config_infers_legacy_same_latency_checkpoint_fixed_latency(
@@ -221,8 +221,8 @@ def test_rollout_config_infers_legacy_same_latency_checkpoint_fixed_latency(
         experiment_dir,
         env=env,
         experiment=experiment,
-        latency_type=None,
-        fixed_latency_ms=None,
+        latency_type="fixed",
+        fixed_latency_ms=1.0,
         latency_mode="episode_fixed",
         latency_sampling_mode="uniform_all",
         queue_latency_values="1",

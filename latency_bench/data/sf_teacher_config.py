@@ -29,6 +29,12 @@ DEFAULT_ENV_FPS_BY_BENCH_ENV = {
     "demon_attack": 60.0,
 }
 
+DEFAULT_OBS_FPS_BY_BENCH_ENV = {
+    "deadly_corridor": 8.75,
+    "flappy": 30.0,
+    "demon_attack": 15.0,
+}
+
 LEGACY_SAME_LATENCY_RE = re.compile(r"(?:^|_)same_latency_l(?P<frames>\d+)(?:_|$)")
 
 
@@ -112,18 +118,31 @@ def _has_current_latency_config(flat_cfg: Mapping[str, Any]) -> bool:
     return latency_type is not None and str(latency_type).strip() != ""
 
 
-def _legacy_same_latency_config(flat_cfg: Mapping[str, Any], *, env_name: str, experiment_dir: Path) -> dict[str, Any] | None:
-    if _has_current_latency_config(flat_cfg):
-        return None
+def _env_fps(flat_cfg: Mapping[str, Any], env_name: str) -> float:
+    value = flat_cfg.get("env_fps")
+    if value is not None:
+        return float(value)
+    return DEFAULT_ENV_FPS_BY_BENCH_ENV[env_name]
 
+
+def _obs_fps(flat_cfg: Mapping[str, Any], env_name: str) -> float:
+    value = flat_cfg.get("obs_fps")
+    if value is not None:
+        return float(value)
+    return DEFAULT_OBS_FPS_BY_BENCH_ENV[env_name]
+
+
+def _legacy_same_latency_config(flat_cfg: Mapping[str, Any], *, env_name: str, experiment_dir: Path) -> dict[str, Any] | None:
     for name in (experiment_dir.name, str(flat_cfg["experiment"])):
         match = LEGACY_SAME_LATENCY_RE.search(name)
         if match is not None:
-            latency_frames = int(match.group("frames"))
-            env_fps = DEFAULT_ENV_FPS_BY_BENCH_ENV[env_name]
+            latency_obs_steps = int(match.group("frames"))
+            env_fps = _env_fps(flat_cfg, env_name)
+            obs_fps = _obs_fps(flat_cfg, env_name)
+            obs_stride_raw_frames = int(round(env_fps / obs_fps))
             return {
                 "type": "fixed",
-                "fixed_latency_ms": latency_frames * 1000.0 / env_fps,
+                "fixed_latency_ms": latency_obs_steps * obs_stride_raw_frames * 1000.0 / env_fps,
                 "add_latency_info": False,
             }
     return None
@@ -157,6 +176,8 @@ def load_rollout_training_config(
         latency_override = _load_latency_override(latency_override_path)
         latency_source = str(latency_override_path)
     else:
+        # The same-latency checkpoint name is the experiment contract for these
+        # teacher exports, and for frameskip envs lN is in observation steps.
         latency_override = _legacy_same_latency_config(
             flat_cfg,
             env_name=env_name,
