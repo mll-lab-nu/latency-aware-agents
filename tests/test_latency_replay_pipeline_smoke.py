@@ -183,7 +183,7 @@ def test_end_to_end_synthetic_latency_replay_pipeline(tmp_path: Path):
 
     for profile_dir in (l3090_profile, lh200_profile):
         assert (profile_dir / "profile.json").exists()
-        assert (profile_dir / "latencies.jsonl").exists()
+        assert (profile_dir / "infer_latencies.jsonl").exists()
         assert (profile_dir / "profile_summary.json").exists()
         assert (profile_dir / "profile_summary.csv").exists()
 

@@ -15,7 +15,7 @@ from scripts.sweeps.generate_flappy_factor_sweeps import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-OFFICIAL_SEEDS = tuple(range(10, 20))
+OFFICIAL_SEEDS = tuple(range(10, 15))
 
 
 def _read_manifest(path: Path) -> list[dict[str, str]]:
@@ -110,60 +110,60 @@ def test_context_window_spec_emits_official_seed_matrix(tmp_path):
     )
 
     rows = _read_manifest(generated_root / "manifest.tsv")
-    assert len(rows) == 250
-    assert len({row["train_config"] for row in rows}) == 250
+    assert len(rows) == 80
+    assert len({row["train_config"] for row in rows}) == 80
     assert {row["seed"] for row in rows} == {str(seed) for seed in OFFICIAL_SEEDS}
     assert {row["schema_version"] for row in rows} == {"v2"}
     assert {row["experiment_family"] for row in rows} == {"factor_sweep"}
     assert {row["sweep_name"] for row in rows} == {"frame_stack"}
     assert {row["env"] for row in rows} == {"flappy"}
-    assert {row["frame_stack"] for row in rows} == {"4", "5", "6", "7", "8"}
+    assert {row["frame_stack"] for row in rows} == {"1", "2", "3", "4", "5", "6", "7", "8"}
     assert {row["observation_stride"] for row in rows} == {"1"}
     assert {row["train_upload_repo_id"] for row in rows} == {"latency-sensitive-bench/factor-sweeps-models"}
     assert {row["train_upload_repo_type"] for row in rows} == {"model"}
     assert {row["eval_upload_repo_id"] for row in rows} == {"latency-sensitive-bench/factor-sweeps-evals"}
     assert {row["eval_upload_repo_type"] for row in rows} == {"dataset"}
-    assert {row["train_artifact_repo_path"] for row in rows if row["job_id"] == "factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"} == {
-        "factor_sweeps/flappy/context_window/train/factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"
+    assert {row["train_artifact_repo_path"] for row in rows if row["job_id"] == "factor_sweep:flappy:frame_stack:fixed_l2:fs4:obs30:stride1:seed10"} == {
+        "factor_sweeps/flappy/context_window/train/factor_sweep:flappy:frame_stack:fixed_l2:fs4:obs30:stride1:seed10"
     }
-    assert {row["eval_artifact_repo_path"] for row in rows if row["job_id"] == "factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"} == {
-        "factor_sweeps/flappy/context_window/eval/factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"
+    assert {row["eval_artifact_repo_path"] for row in rows if row["job_id"] == "factor_sweep:flappy:frame_stack:fixed_l2:fs4:obs30:stride1:seed10"} == {
+        "factor_sweeps/flappy/context_window/eval/factor_sweep:flappy:frame_stack:fixed_l2:fs4:obs30:stride1:seed10"
     }
 
     train_cfg = yaml.safe_load(
         (
             generated_root
             / "frame_stack"
-            / "normal_n2_s1"
+            / "fixed_l2"
             / "fs8"
             / "seed_10"
             / "train.yaml"
         ).read_text(encoding="utf-8")
     )
-    assert train_cfg["experiment"]["name"] == "flappy_frame_stack_normal_n2_s1_fs8_seed10"
+    assert train_cfg["experiment"]["name"] == "flappy_frame_stack_fixed_l2_fs8_seed10"
     assert train_cfg["experiment"]["seed"] == 10
     assert train_cfg["env"]["frame_stack"] == 8
     assert train_cfg["env"]["obs_fps"] == pytest.approx(30)
     assert train_cfg["evaluation"]["eval_episodes"] == 100
-    assert train_cfg["latency"]["mean_latency_ms"] == pytest.approx(2 * 1000.0 / 30.0)
-    assert train_cfg["logging"]["wandb_group"] == "flappy-fs8-normal_n2_s1"
-    assert train_cfg["logging"]["wandb_name"] == "flappy-fs8-normal_n2_s1-s10"
+    assert train_cfg["latency"]["type"] == "fixed"
+    assert train_cfg["logging"]["wandb_group"] == "flappy-fs8-fixed_l2"
+    assert train_cfg["logging"]["wandb_name"] == "flappy-fs8-fixed_l2-s10"
     assert train_cfg["logging"]["wandb_tags"] == [
         "factor_sweep",
         "flappy",
         "frame_stack",
-        "normal",
-        "normal_n2_s1",
+        "fixed",
+        "fixed_l2",
         "fs8",
         "seed10",
     ]
     assert train_cfg["logging"]["output_dir"] == str(
-        output_root / "train" / "frame_stack" / "normal_n2_s1" / "fs8" / "seed_10"
+        output_root / "train" / "frame_stack" / "fixed_l2" / "fs8" / "seed_10"
     )
     assert "eval_interval_steps" not in train_cfg["evaluation"]
 
     eval_cfg = load_config(
-        generated_root / "frame_stack" / "fixed_l1" / "fs4" / "seed_10" / "latency_bench_eval.yaml"
+        generated_root / "frame_stack" / "fixed_l2" / "fs4" / "seed_10" / "latency_bench_eval.yaml"
     )
     assert eval_cfg["backend"]["run_mode"] == "eval"
     assert eval_cfg["backend"]["extra_args"] == ["--load_checkpoint_kind", "latest"]
@@ -172,22 +172,13 @@ def test_context_window_spec_emits_official_seed_matrix(tmp_path):
     assert eval_cfg["evaluation"]["eval_episodes"] == 100
     assert "eval_interval_steps" not in eval_cfg["evaluation"]
     assert eval_cfg["evaluation"]["eval_suites"] == {
-        "fixed": [[1]],
+        "fixed": [[2]],
         "normal": [],
         "uniform": [],
     }
     assert eval_cfg["logging"]["save_step_records"] is False
     assert eval_cfg["logging"]["save_action_records"] is False
     assert eval_cfg["logging"]["save_latency_records"] is False
-
-    normal_eval_cfg = load_config(
-        generated_root / "frame_stack" / "normal_n2_s1" / "fs4" / "seed_10" / "latency_bench_eval.yaml"
-    )
-    assert normal_eval_cfg["evaluation"]["eval_suites"] == {
-        "fixed": [],
-        "normal": [[2.0, 1.0, 0, 4]],
-        "uniform": [],
-    }
 
     uniform_eval_cfg = load_config(
         generated_root / "frame_stack" / "uniform_u1_3" / "fs4" / "seed_10" / "latency_bench_eval.yaml"
@@ -199,8 +190,8 @@ def test_context_window_spec_emits_official_seed_matrix(tmp_path):
     }
 
     assert train_cfg["evaluation"]["eval_suites"] == {
-        "fixed": [],
-        "normal": [[2.0, 1.0, 0, 4]],
+        "fixed": [[2]],
+        "normal": [],
         "uniform": [],
     }
     assert "train_upload_repo_id" not in train_cfg
@@ -247,37 +238,37 @@ def test_observation_stride_spec_names_axis_by_stride_and_writes_obs_fps(tmp_pat
     )
 
     rows = _read_manifest(generated_root / "manifest.tsv")
-    assert len(rows) == 250
+    assert len(rows) == 90
     assert {row["seed"] for row in rows} == {str(seed) for seed in OFFICIAL_SEEDS}
     assert {row["sweep_name"] for row in rows} == {"observation_stride"}
-    assert {row["observation_stride"] for row in rows} == {"2", "3", "4", "5", "6"}
+    assert {row["observation_stride"] for row in rows} == {"2", "3", "4", "5", "6", "7", "8", "9", "10"}
 
     train_cfg = yaml.safe_load(
         (
             generated_root
             / "observation_stride"
-            / "fixed_l2"
+            / "fixed_l4"
             / "stride5"
             / "seed_10"
             / "train.yaml"
         ).read_text(encoding="utf-8")
     )
-    assert train_cfg["experiment"]["name"] == "demon_attack_observation_stride_fixed_l2_stride5_seed10"
+    assert train_cfg["experiment"]["name"] == "demon_attack_observation_stride_fixed_l4_stride5_seed10"
     assert train_cfg["env"]["frame_stack"] == 4
     assert train_cfg["env"]["obs_fps"] == pytest.approx(12)
-    assert train_cfg["logging"]["wandb_group"] == "demon-attack-stride5-fixed_l2"
-    assert train_cfg["logging"]["wandb_name"] == "demon-attack-stride5-fixed_l2-s10"
+    assert train_cfg["logging"]["wandb_group"] == "demon-attack-stride5-fixed_l4"
+    assert train_cfg["logging"]["wandb_name"] == "demon-attack-stride5-fixed_l4-s10"
     assert train_cfg["logging"]["wandb_tags"] == [
         "factor_sweep",
         "demon-attack",
         "observation_stride",
         "fixed",
-        "fixed_l2",
+        "fixed_l4",
         "stride5",
         "seed10",
     ]
     assert train_cfg["logging"]["output_dir"] == str(
-        output_root / "train" / "observation_stride" / "fixed_l2" / "stride5" / "seed_10"
+        output_root / "train" / "observation_stride" / "fixed_l4" / "stride5" / "seed_10"
     )
     assert "eval_interval_steps" not in train_cfg["evaluation"]
 
@@ -304,7 +295,7 @@ def test_observation_stride_spec_supports_fractional_deadly_corridor_obs_fps(tmp
         (
             generated_root
             / "observation_stride"
-            / "fixed_l2"
+            / "fixed_l4"
             / "stride5"
             / "seed_10"
             / "train.yaml"
@@ -312,7 +303,7 @@ def test_observation_stride_spec_supports_fractional_deadly_corridor_obs_fps(tmp
     )
     assert train_cfg["env"]["obs_fps"] == pytest.approx(7)
     bench_cfg = load_config(
-        generated_root / "observation_stride" / "fixed_l2" / "stride5" / "seed_10" / "latency_bench_eval.yaml"
+        generated_root / "observation_stride" / "fixed_l4" / "stride5" / "seed_10" / "latency_bench_eval.yaml"
     )
     assert bench_cfg["policy"]["type"] == "deadly_corridor_sf"
     assert bench_cfg["env"]["noop_action"] == [0, 0, 0, 0]
@@ -347,8 +338,8 @@ def test_factor_sweep_wrapper_generates_split_sweep_folders(tmp_path):
     assert result.returncode == 0, result.stderr
     context_rows = _read_manifest(generated_root / "deadly_corridor" / "context_window" / "manifest.tsv")
     stride_rows = _read_manifest(generated_root / "deadly_corridor" / "observation_stride" / "manifest.tsv")
-    assert len(context_rows) == 20
-    assert len(stride_rows) == 25
+    assert len(context_rows) == 18
+    assert len(stride_rows) == 12
 
     train_cfg = yaml.safe_load(Path(stride_rows[0]["train_config"]).read_text(encoding="utf-8"))
     assert train_cfg["backend"]["device"] == "cpu"
@@ -397,13 +388,13 @@ def test_factor_sweep_wrapper_env_upload_overrides_spec_defaults(tmp_path):
     assert {
         row["train_artifact_repo_path"]
         for row in rows
-        if row["job_id"] == "factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"
-    } == {"override/train/train/factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"}
+        if row["job_id"] == "factor_sweep:flappy:frame_stack:fixed_l2:fs4:obs30:stride1:seed10"
+    } == {"override/train/train/factor_sweep:flappy:frame_stack:fixed_l2:fs4:obs30:stride1:seed10"}
     assert {
         row["eval_artifact_repo_path"]
         for row in rows
-        if row["job_id"] == "factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"
-    } == {"override/eval/eval/factor_sweep:flappy:frame_stack:fixed_l1:fs4:obs30:stride1:seed10"}
+        if row["job_id"] == "factor_sweep:flappy:frame_stack:fixed_l2:fs4:obs30:stride1:seed10"
+    } == {"override/eval/eval/factor_sweep:flappy:frame_stack:fixed_l2:fs4:obs30:stride1:seed10"}
 
 
 def test_factor_sweep_wrapper_can_generate_only_selected_sweep(tmp_path):
