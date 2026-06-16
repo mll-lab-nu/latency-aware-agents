@@ -22,7 +22,7 @@ from typing import Any
 
 from latency_bench.analysis.cross_device_protocol_tables import slugify
 from latency_bench.latency.profile import load_latency_samples
-from latency_bench.utils.io import write_csv
+from latency_bench.utils.io import load_jsonl_records, write_csv
 
 
 FIG_COLUMNS = (
@@ -182,7 +182,8 @@ def build_latency_sample_rows(
             profile_id=str(src["profile_id"]),
             trace_name="infer_latencies.jsonl",
         )
-        e2e_samples = _downsample(load_latency_samples(e2e_trace), max_samples_per_device)
+        e2e_records = load_jsonl_records(e2e_trace)
+        e2e_samples = _downsample([record["latency_ms"] for record in e2e_records], max_samples_per_device)
         for latency_ms in e2e_samples:
             rows.append(
                 _fig_row(
@@ -193,6 +194,22 @@ def build_latency_sample_rows(
                     profile_id=src["profile_id"],
                     hardware=src["hardware"],
                     latency_ms=latency_ms,
+                )
+            )
+        # Overhead = e2e - inference, recorded per action only when the measure
+        # run had realtime pipeline profiling enabled. Skip when absent so the
+        # frame-quantized legacy traces still build the main figure.
+        overhead_values = [record["bench_overhead_ms"] for record in e2e_records if "bench_overhead_ms" in record]
+        for overhead_ms in _downsample(overhead_values, max_samples_per_device):
+            rows.append(
+                _fig_row(
+                    row_type="overhead_latency_sample",
+                    panel="a",
+                    policy=src["policy"],
+                    env=src["env"],
+                    profile_id=src["profile_id"],
+                    hardware=src["hardware"],
+                    latency_ms=overhead_ms,
                 )
             )
         inference_samples = _downsample(load_latency_samples(inference_trace), max_samples_per_device)
