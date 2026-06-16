@@ -131,6 +131,8 @@ class SimulatedLatencyExecutor:
                     latency_type=latency_type,
                     profile_metadata=profile_metadata,
                 )
+                event_metadata = dict(policy_output.metadata)
+                event_metadata["frame_ms"] = self.clock.frame_ms
                 event = ActionEvent(
                     action_id=self._next_action_id,
                     action=policy_output.action,
@@ -140,7 +142,7 @@ class SimulatedLatencyExecutor:
                     latency=latency_record,
                     latency_raw_frames=latency_sample.latency_raw_frames,
                     ready_raw_frame=ready_raw_frame,
-                    metadata=policy_output.metadata,
+                    metadata=event_metadata,
                 )
                 apply_latency_raw_fields(
                     event=event,

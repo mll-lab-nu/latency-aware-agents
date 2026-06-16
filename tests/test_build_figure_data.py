@@ -3,6 +3,8 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+import pytest
+
 from latency_bench.latency.profile import write_latency_samples
 from scripts.cross_device import build_figure_data as bfd
 
@@ -23,18 +25,18 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
 def _seed_tables(tables_dir: Path) -> None:
     _write_csv(
         tables_dir / "experiment1_latency_profile_summary.csv",
-        ["experiment_id", "panel", "policy", "env", "profile_id", "hardware", "env_fps", "mean_ms", "std_ms",
-         "p50_ms", "p90_ms", "p95_ms", "p99_ms", "mean_effective_frames", "p95_frames", "n_samples", "notes"],
+        ["experiment_id", "panel", "policy", "env", "profile_id", "hardware", "env_fps",
+         "inference_mean_ms", "e2e_mean_ms", "e2e_mean_frames", "n_samples", "notes"],
         [
             {"experiment_id": "exp1", "panel": "a", "policy": "openvla-flappy", "env": "Flappy",
-             "profile_id": "L_3090", "hardware": "RTX 3090", "env_fps": "30", "mean_ms": "225.5", "std_ms": "6.1",
-             "p50_ms": "225", "p90_ms": "233", "p95_ms": "236", "p99_ms": "239", "mean_effective_frames": "6.7",
-             "p95_frames": "7.1", "n_samples": "70", "notes": ""},
+             "profile_id": "L_3090", "hardware": "RTX 3090", "env_fps": "30",
+             "inference_mean_ms": "75.0", "e2e_mean_ms": "120.0", "e2e_mean_frames": "3.6",
+             "n_samples": "70", "notes": ""},
             # Missing profile row (no mean_ms) -> dropped from table + no trace.
             {"experiment_id": "exp1", "panel": "a", "policy": "openvla-flappy", "env": "Flappy",
-             "profile_id": "L_B200", "hardware": "B200", "env_fps": "", "mean_ms": "", "std_ms": "",
-             "p50_ms": "", "p90_ms": "", "p95_ms": "", "p99_ms": "", "mean_effective_frames": "",
-             "p95_frames": "", "n_samples": "", "notes": "missing"},
+             "profile_id": "L_B200", "hardware": "B200", "env_fps": "",
+             "inference_mean_ms": "", "e2e_mean_ms": "", "e2e_mean_frames": "",
+             "n_samples": "", "notes": "missing"},
         ],
     )
     _write_csv(
@@ -71,10 +73,14 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
     tables_dir = tmp_path / "tables"
     profiles_root = tmp_path / "profiles"
     _seed_tables(tables_dir)
-    # Panel-a trace for the one device that has a profile.
+    # Panel-a traces for the one device that has a profile.
     write_latency_samples(
         [float(i) for i in range(100)],
-        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "latencies.jsonl",
+        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "e2e_latencies.jsonl",
+    )
+    write_latency_samples(
+        [float(i + 100) for i in range(100)],
+        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "infer_latencies.jsonl",
     )
 
     out_fig = tmp_path / "fig" / "data.csv"
@@ -99,15 +105,21 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
     assert len(table_rows) == 1
     assert table_rows[0]["fps"] == "30"
     assert table_rows[0]["hardware"] == "RTX 3090"
+    assert table_rows[0]["inference_mean_ms"] == "75.0"
+    assert table_rows[0]["e2e_mean_ms"] == "120.0"
+    assert "p95_ms" not in table_rows[0]
 
     by_type: dict[str, list[dict[str, str]]] = {}
     for row in fig_rows:
         by_type.setdefault(row["row_type"], []).append(row)
 
-    # Panel a: capped at 10 samples, only the device with a trace.
-    assert len(by_type["latency_sample"]) == 10
-    assert {r["hardware"] for r in by_type["latency_sample"]} == {"RTX 3090"}
-    assert by_type["latency_sample"][0]["panel"] == "a"
+    # Panel a: main figure samples e2e delay; inference samples are kept for the separate diagnostic figure.
+    assert len(by_type["e2e_latency_sample"]) == 10
+    assert len(by_type["inference_latency_sample"]) == 10
+    assert {r["hardware"] for r in by_type["e2e_latency_sample"]} == {"RTX 3090"}
+    assert by_type["e2e_latency_sample"][0]["panel"] == "a"
+    assert by_type["e2e_latency_sample"][0]["latency_ms"] == "0.0"
+    assert by_type["inference_latency_sample"][0]["latency_ms"] == "100.0"
 
     # Panel b: calibration row passthrough.
     assert len(by_type["calibration"]) == 1
@@ -120,4 +132,23 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
     assert by_type["prediction"][0]["replay_device"] == "B200"
     assert by_type["prediction"][0]["return_rel_error_pct"] == "12.75"
 
-    assert counts == {"fig_rows": 12, "table_rows": 1}
+    assert counts == {"fig_rows": 22, "table_rows": 1}
+
+
+def test_build_latency_sample_rows_requires_inference_trace_for_profiled_devices(tmp_path: Path):
+    tables_dir = tmp_path / "tables"
+    profiles_root = tmp_path / "profiles"
+    _seed_tables(tables_dir)
+    write_latency_samples(
+        [1.0, 2.0],
+        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "e2e_latencies.jsonl",
+    )
+    exp1_rows = _read_csv(tables_dir / "experiment1_latency_profile_summary.csv")
+
+    with pytest.raises(FileNotFoundError, match="infer_latencies.jsonl"):
+        bfd.build_latency_sample_rows(
+            exp1_rows,
+            profiles_root,
+            panel_a_env="Flappy",
+            max_samples_per_device=None,
+        )
