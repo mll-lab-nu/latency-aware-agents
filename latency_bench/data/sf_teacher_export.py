@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -19,21 +18,7 @@ from latency_bench.data.action_layouts import action_spec_for_env
 from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1, FILTER_PRESET_NONE
 from latency_bench.data.sf_teacher_config import load_rollout_training_config
 from latency_bench.data.sf_teacher_rollout import collect_teacher_dataset
-
-
-def resolve_token(explicit_token: str) -> str | None:
-    """Resolve the Hugging Face token for optional dataset upload.
-
-    Args:
-        explicit_token: CLI token value.
-
-    Returns:
-        CLI token, environment token, or ``None``.
-    """
-    token = str(explicit_token).strip()
-    if token:
-        return token
-    return os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+from latency_bench.utils.hf import resolve_token
 
 
 def push_dataset_to_hub(

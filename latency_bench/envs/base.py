@@ -6,11 +6,17 @@ from typing import Any
 import numpy as np
 
 from latency_bench.core.types import Action, Observation, StepResult
+from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 class EnvAdapter(ABC):
     env_fps: float
     noop_action: Action
+    OBSERVATION_TYPE: str
+
+    @property
+    def frame_ms(self) -> float:
+        return 1000.0 / self.env_fps
 
     @abstractmethod
     def reset(self, seed: int | None = None) -> Observation:
@@ -19,6 +25,19 @@ class EnvAdapter(ABC):
     @abstractmethod
     def step(self, action: Action) -> StepResult:
         ...
+
+    def _metadata(self, info: dict[str, Any]) -> dict[str, Any]:
+        metadata = dict(info)
+        metadata.update(
+            {
+                "env_step": self.env_step,
+                "sim_time_ms": self.env_step * self.frame_ms,
+                "observation": self.OBSERVATION_TYPE,
+            }
+        )
+        if self.export_env_raw_rgb_frames:
+            metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
+        return metadata
 
     def observe(self) -> Observation:
         info = self.get_state_info()
@@ -66,10 +85,6 @@ class DummyEnvAdapter(EnvAdapter):
         self.applied_actions: list[Action] = []
         self.gym_env = self
         self.closed = False
-
-    @property
-    def frame_ms(self) -> float:
-        return 1000.0 / self.env_fps
 
     def reset(self, seed: int | None = None) -> Observation:
         self.env_step = 0

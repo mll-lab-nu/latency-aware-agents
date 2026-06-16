@@ -5,20 +5,7 @@ from latency_bench.core.types import Action, ActionEvent, LatencyRecord, Orderin
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 
-
-def _event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> ActionEvent:
-    ready_time_ms = clock.step_to_time_ms(ready_step)
-    return ActionEvent(
-        action_id=action_id,
-        action=action,
-        obs_env_step=0,
-        ready_time_ms=ready_time_ms,
-        ready_step_float=float(ready_step),
-        latency=LatencyRecord(
-            obs_id=action_id,
-            latency_ms=ready_time_ms,
-        ),
-    )
+from helpers import make_action_event as _event
 
 
 def test_fixed_two_frame_latency_action_applies_at_correct_step():

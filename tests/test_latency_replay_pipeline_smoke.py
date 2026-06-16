@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 from pathlib import Path
 
@@ -9,16 +8,11 @@ import pytest
 from latency_bench.experiments.build_latency_profile_from_trace import build_profile_from_trace
 from latency_bench.experiments.build_latency_replay_tables import main as build_latency_replay_tables_main
 from latency_bench.latency.profile import write_latency_samples
-from latency_bench.utils.io import write_jsonl
+from latency_bench.utils.io import read_csv, write_jsonl
 
 
 EXAMPLE_SPEC_PATH = Path("examples/latency_replay/table_spec.example.json")
 FRAME_MS_30_FPS = 1000.0 / 30.0
-
-
-def _read_csv(path: Path) -> list[dict[str, str]]:
-    with path.open("r", encoding="utf-8", newline="") as f:
-        return list(csv.DictReader(f))
 
 
 def _build_profile(
@@ -212,14 +206,14 @@ def test_end_to_end_synthetic_latency_replay_pipeline(tmp_path: Path):
     }
     assert {path.name for path in output_dir.iterdir()} == expected_outputs
 
-    profile_rows = _read_csv(output_dir / "latency_profile_summary.csv")
+    profile_rows = read_csv(output_dir / "latency_profile_summary.csv")
     profile_rows_by_id = {row["profile_id"]: row for row in profile_rows}
     assert set(profile_rows_by_id) == {"L_3090", "L_H200"}
     assert float(profile_rows_by_id["L_3090"]["mean_ms"]) == pytest.approx(45.0)
     assert "p95_ms" in profile_rows_by_id["L_3090"]
     assert "prob_latency_gt_1_frame" in profile_rows_by_id["L_3090"]
 
-    calibration = _read_csv(output_dir / "same_device_calibration.csv")[0]
+    calibration = read_csv(output_dir / "same_device_calibration.csv")[0]
     assert float(calibration["realtime_mean_return"]) == pytest.approx(105.0)
     assert float(calibration["simulated_mean_return"]) == pytest.approx(110.0)
     assert float(calibration["abs_return_error"]) == pytest.approx(5.0)
@@ -229,14 +223,14 @@ def test_end_to_end_synthetic_latency_replay_pipeline(tmp_path: Path):
     assert float(calibration["abs_length_error"]) == pytest.approx(20.0)
     assert float(calibration["norm_length_error"]) == pytest.approx(0.01)
 
-    cross_device = _read_csv(output_dir / "cross_device_prediction.csv")[0]
+    cross_device = read_csv(output_dir / "cross_device_prediction.csv")[0]
     assert cross_device["target_device"] == "RTX_3090"
     assert cross_device["target_profile"] == "L_3090"
     assert cross_device["replay_host"] == "H200"
     assert float(cross_device["abs_return_error"]) == pytest.approx(5.0)
     assert float(cross_device["norm_return_error"]) == pytest.approx(0.025)
 
-    profile_match = _read_csv(output_dir / "profile_match_metrics.csv")[0]
+    profile_match = read_csv(output_dir / "profile_match_metrics.csv")[0]
     for key in ("w1_ms", "w1_frames", "max_tail_error"):
         assert key in profile_match
         float(profile_match[key])

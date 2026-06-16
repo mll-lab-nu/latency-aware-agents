@@ -7,24 +7,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
-import torch
 from PIL import Image
 
 from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
-
-def _to_numpy(value: Any) -> np.ndarray:
-    """Convert tensor-like values to NumPy arrays.
-
-    Args:
-        value: Tensor, array, or array-like value.
-
-    Returns:
-        NumPy array view or copy.
-    """
-    if torch is not None and isinstance(value, torch.Tensor):
-        value = value.detach().cpu().numpy()
-    return np.asarray(value)
+from latency_bench.utils.array import to_numpy
 
 
 def frames_from_env_raw_rgb_info(info: Mapping[str, Any]) -> list[np.ndarray]:
@@ -36,7 +23,7 @@ def frames_from_env_raw_rgb_info(info: Mapping[str, Any]) -> list[np.ndarray]:
     Returns:
         Frames ordered oldest to newest.
     """
-    raw_stack = _to_numpy(info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY])
+    raw_stack = to_numpy(info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY])
     return [frame for frame in raw_stack]
 
 

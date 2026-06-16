@@ -22,6 +22,7 @@ from typing import Any
 
 from latency_bench.analysis.cross_device_protocol_tables import slugify
 from latency_bench.latency.profile import load_latency_samples
+from latency_bench.utils.io import write_csv
 
 
 FIG_COLUMNS = (
@@ -246,14 +247,6 @@ def _downsample(samples: list[float], cap: int | None) -> list[float]:
     return [samples[int(index * step)] for index in range(cap)]
 
 
-def write_csv(path: Path, columns: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(columns))
-        writer.writeheader()
-        writer.writerows(rows)
-
-
 def build_all(
     *,
     tables_dir: Path,
@@ -276,8 +269,8 @@ def build_all(
     )
     table_rows = build_table3_rows(exp1)
 
-    write_csv(out_fig, FIG_COLUMNS, fig_rows)
-    write_csv(out_table, TABLE3_COLUMNS, table_rows)
+    write_csv(out_fig, fig_rows, fieldnames=FIG_COLUMNS)
+    write_csv(out_table, table_rows, fieldnames=TABLE3_COLUMNS)
     return {"fig_rows": len(fig_rows), "table_rows": len(table_rows)}
 
 

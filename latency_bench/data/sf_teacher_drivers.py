@@ -9,20 +9,7 @@ import numpy as np
 import torch
 
 from latency_bench.policy.sample_factory_common import _to_python_action
-
-
-def _to_numpy(value: Any) -> np.ndarray:
-    """Convert tensor-like values to NumPy arrays.
-
-    Args:
-        value: Tensor, array, or array-like value.
-
-    Returns:
-        NumPy array view or copy.
-    """
-    if torch is not None and isinstance(value, torch.Tensor):
-        value = value.detach().cpu().numpy()
-    return np.asarray(value)
+from latency_bench.utils.array import to_numpy
 
 
 def batch_observations(observations: Sequence[Any]) -> Any:
@@ -37,19 +24,19 @@ def batch_observations(observations: Sequence[Any]) -> Any:
     first = observations[0]
     if isinstance(first, Mapping):
         if len(observations) == 1:
-            arrays = {key: _to_numpy(value) for key, value in first.items()}
+            arrays = {key: to_numpy(value) for key, value in first.items()}
             if any(array.ndim >= 4 for array in arrays.values()):
                 return arrays
         arrays = {}
         for key in first:
-            values = [_to_numpy(obs[key]) for obs in observations]
+            values = [to_numpy(obs[key]) for obs in observations]
             arrays[key] = (
                 np.concatenate(values, axis=0)
                 if values[0].ndim >= 4 and int(values[0].shape[0]) == 1
                 else np.stack(values, axis=0)
             )
         return arrays
-    return {"obs": np.stack([_to_numpy(obs) for obs in observations], axis=0)}
+    return {"obs": np.stack([to_numpy(obs) for obs in observations], axis=0)}
 
 
 def _batched_observation_at(observation: Any, index: int) -> Any:
