@@ -12,6 +12,7 @@ def test_select_env_fps_maximizes_target_frame_hits_and_preserves_obs_stride():
         base_env_fps=30.0,
         base_obs_fps=15.0,
         device_count=4,
+        worker_utilization_cap=1.0,
     )
 
     assert calibration.selected_env_fps == 3
@@ -31,9 +32,32 @@ def test_select_env_fps_tiebreaks_by_mean_error_then_target_formula_then_lower_f
         base_env_fps=30.0,
         base_obs_fps=30.0,
         device_count=4,
+        worker_utilization_cap=1.0,
     )
 
     assert calibration.selected_env_fps == 3
     assert calibration.hit_count == 2
     assert calibration.mean_abs_frame_error == pytest.approx(0.425)
     assert calibration.ideal_env_fps == pytest.approx(2000.0 / 525.0)
+
+
+def test_select_env_fps_uses_continuous_effective_delay_not_quantized_frame_delay():
+    effective_delay_calibration = select_env_fps_from_warmup(
+        latency_samples_ms=[88.0 for _ in range(8)],
+        target_latency_frames=2,
+        base_env_fps=15.0,
+        base_obs_fps=15.0,
+        device_count=2,
+        worker_utilization_cap=0.8,
+    )
+    quantized_frame_delay_calibration = select_env_fps_from_warmup(
+        latency_samples_ms=[133.33333333333334 for _ in range(8)],
+        target_latency_frames=2,
+        base_env_fps=15.0,
+        base_obs_fps=15.0,
+        device_count=2,
+        worker_utilization_cap=0.8,
+    )
+
+    assert effective_delay_calibration.selected_env_fps == 18
+    assert quantized_frame_delay_calibration.selected_env_fps == 12

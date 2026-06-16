@@ -14,6 +14,23 @@ from latency_bench.executors.realtime_warmup import (
 )
 
 
+def _realtime_profile(bench_overhead_ms: float = 0.0) -> dict[str, float]:
+    return {
+        "env_observe_ms": 0.0,
+        "env_to_parent_ipc_ms": 0.0,
+        "parent_observation_handle_ms": 0.0,
+        "parent_to_worker_ipc_ms": 0.0,
+        "worker_recv_overhead_ms": 0.0,
+        "worker_to_parent_ipc_ms": 0.0,
+        "parent_release_ms": 0.0,
+        "parent_to_env_ipc_ms": bench_overhead_ms,
+        "env_action_recv_to_enqueue_ms": 0.0,
+        "env_scheduler_update_ms": 0.0,
+        "env_step_ms": 0.0,
+        "env_wall_lag_ms": 0.0,
+    }
+
+
 def _stable_mock_latencies() -> list[float]:
     return [
         20.0 + (idx % 5) * 0.04
@@ -117,7 +134,7 @@ def test_realtime_warmup_artifacts_handle_zero_latency_data(tmp_path):
                 ready_raw_frame=obs_id,
                 apply_raw_frame=obs_id,
                 applied=True,
-                metadata={"frame_ms": 1.0},
+                metadata={"frame_ms": 1.0, "realtime_profile": _realtime_profile()},
             )
         )
 
@@ -148,7 +165,7 @@ def test_realtime_warmup_artifacts_are_separate_from_formal_latencies(tmp_path):
                 ready_raw_frame=obs_id + 1,
                 apply_raw_frame=obs_id + 1,
                 applied=True,
-                metadata={"frame_ms": latency_ms},
+                metadata={"frame_ms": latency_ms, "realtime_profile": _realtime_profile(0.4)},
             )
         )
 
@@ -194,11 +211,11 @@ def test_realtime_warmup_summary_uses_e2e_latency_samples(tmp_path, monkeypatch)
                 ready_raw_frame=2,
                 apply_raw_frame=apply_raw_frame,
                 applied=True,
-                metadata={"frame_ms": 10.0},
+                metadata={"frame_ms": 10.0, "realtime_profile": _realtime_profile(5.0)},
             )
         )
 
     summary = write_realtime_warmup_artifacts(tmp_path, collector, stable=True)
 
     assert summary["warmup_samples"] == 2
-    assert summary["warmup_mean_latency_ms"] == pytest.approx(35.0)
+    assert summary["warmup_mean_latency_ms"] == pytest.approx(26.0)
