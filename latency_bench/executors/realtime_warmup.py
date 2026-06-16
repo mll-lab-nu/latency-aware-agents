@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,7 +7,8 @@ from typing import Any, Sequence
 
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
 from latency_bench.logging.latency_traces import e2e_latency_rows
-from latency_bench.logging.records import to_jsonable
+from latency_bench.utils.io import write_json, write_jsonl
+from latency_bench.utils.stats import percentile_linear
 
 # Realtime warmup is intentionally not configurable from YAML. The user-facing
 # contract is simply "run until stable"; the numbers below define "stable" as
@@ -119,19 +119,19 @@ def realtime_warmup_status(latency_values_ms: Sequence[float]) -> RealtimeWarmup
         tail[start:start + WARMUP_WINDOW_SIZE]
         for start in range(0, required_tail, WARMUP_WINDOW_SIZE)
     ]
-    medians = [_percentile(window, 50.0) for window in windows]
+    medians = [percentile_linear(window, 50.0) for window in windows]
     trimmed_means = [_trimmed_mean(window, TRIMMED_MEAN_FRACTION) for window in windows]
-    p90s = [_percentile(window, 90.0) for window in windows]
+    p90s = [percentile_linear(window, 90.0) for window in windows]
     median_span_ms = max(medians) - min(medians)
     trimmed_mean_span_ms = max(trimmed_means) - min(trimmed_means)
     p90_span_ms = max(p90s) - min(p90s)
     median_rel_span = _relative_span(medians)
     trimmed_mean_rel_span = _relative_span(trimmed_means)
     p90_rel_span = _relative_span(p90s)
-    median_tolerance_ms = max(MEDIAN_ABS_TOL_MS, abs(_percentile(medians, 50.0)) * MEDIAN_REL_TOL)
+    median_tolerance_ms = max(MEDIAN_ABS_TOL_MS, abs(percentile_linear(medians, 50.0)) * MEDIAN_REL_TOL)
     trimmed_mean_tolerance_ms = max(
         TRIMMED_MEAN_ABS_TOL_MS,
-        abs(_percentile(trimmed_means, 50.0)) * TRIMMED_MEAN_REL_TOL,
+        abs(percentile_linear(trimmed_means, 50.0)) * TRIMMED_MEAN_REL_TOL,
     )
     stable = (
         median_span_ms <= median_tolerance_ms
@@ -166,10 +166,10 @@ def write_realtime_warmup_artifacts(
     status.stable = stable
     status.reason = "stable" if stable else status.reason
 
-    _write_jsonl(output_path / "warmup_latencies.jsonl", collector.latency_records)
-    _write_jsonl(output_path / "warmup_infer_latencies.jsonl", collector.latency_records)
-    _write_jsonl(output_path / "warmup_e2e_latencies.jsonl", e2e_latency_rows(collector.action_records))
-    _write_json(output_path / "warmup_summary.json", _summary_payload(status, latency_values))
+    write_jsonl(output_path / "warmup_latencies.jsonl", collector.latency_records)
+    write_jsonl(output_path / "warmup_infer_latencies.jsonl", collector.latency_records)
+    write_jsonl(output_path / "warmup_e2e_latencies.jsonl", e2e_latency_rows(collector.action_records))
+    write_json(output_path / "warmup_summary.json", _summary_payload(status, latency_values))
     plot_realtime_warmup(latency_values, output_path / "warmup_stability.png", status=status)
     return _summary_payload(status, latency_values)
 
@@ -246,8 +246,8 @@ def _summary_payload(status: RealtimeWarmupStatus, latency_values: Sequence[floa
         "warmup_samples": len(values),
         "warmup_stop_sample": status.warmup_stop_sample,
         "warmup_mean_latency_ms": sum(values) / len(values) if values else None,
-        "warmup_p50_latency_ms": _percentile(values, 50.0) if values else None,
-        "warmup_p90_latency_ms": _percentile(values, 90.0) if values else None,
+        "warmup_p50_latency_ms": percentile_linear(values, 50.0) if values else None,
+        "warmup_p90_latency_ms": percentile_linear(values, 90.0) if values else None,
         "warmup_median_span_ms": status.median_span_ms,
         "warmup_trimmed_mean_span_ms": status.trimmed_mean_span_ms,
         "warmup_p90_span_ms": status.p90_span_ms,
@@ -260,29 +260,8 @@ def _summary_payload(status: RealtimeWarmupStatus, latency_values: Sequence[floa
     }
 
 
-def _write_jsonl(path: Path, records: Sequence[Any]) -> None:
-    with path.open("w", encoding="utf-8") as handle:
-        for record in records:
-            handle.write(json.dumps(to_jsonable(record), sort_keys=True) + "\n")
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.write_text(json.dumps(to_jsonable(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
-def _percentile(values: Sequence[float], percentile: float) -> float:
-    sorted_values = sorted(float(value) for value in values)
-    position = (len(sorted_values) - 1) * percentile / 100.0
-    lower = math.floor(position)
-    upper = math.ceil(position)
-    if lower == upper:
-        return sorted_values[lower]
-    weight = position - lower
-    return sorted_values[lower] * (1.0 - weight) + sorted_values[upper] * weight
-
-
 def _relative_span(values: Sequence[float]) -> float:
-    center = _percentile(values, 50.0)
+    center = percentile_linear(values, 50.0)
     span = max(values) - min(values)
     if center == 0.0:
         return 0.0 if span == 0.0 else math.inf
@@ -309,7 +288,7 @@ def _rolling_percentile(
     percentiles: list[float] = []
     for end in range(window_size, len(values) + 1):
         xs.append(end)
-        percentiles.append(_percentile(values[end - window_size:end], percentile))
+        percentiles.append(percentile_linear(values[end - window_size:end], percentile))
     return xs, percentiles
 
 

@@ -277,21 +277,19 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         policy_observation_layout: str = "hwc",
         export_env_raw_rgb_frames: bool = False,
     ):
-        self.frame_stack = int(frame_stack)
-        if self.frame_stack <= 0:
-            raise ValueError("frame_stack must be positive")
+        self.frame_stack = frame_stack
 
-        self.use_gpu_render = bool(use_gpu_render)
+        self.use_gpu_render = use_gpu_render
         if self.use_gpu_render and obs_resize is None:
             raise ValueError("use_gpu_render=true requires obs_resize")
 
         self.gym_id = gym_id
-        self.env_fps = float(env_fps)
+        self.env_fps = env_fps
         self.noop_action = noop_action or Action(value=0, name="noop", is_noop=True)
         self.obs_resize = tuple(obs_resize) if obs_resize is not None else None
-        self.obs_resize_interp = str(obs_resize_interp)
-        self.policy_observation_layout = str(policy_observation_layout).lower()
-        self.export_env_raw_rgb_frames = bool(export_env_raw_rgb_frames)
+        self.obs_resize_interp = obs_resize_interp
+        self.policy_observation_layout = policy_observation_layout.lower()
+        self.export_env_raw_rgb_frames = export_env_raw_rgb_frames
         self.env_step = 0
         self._last_info: dict[str, Any] = {}
         self._last_numeric_obs: Any = None

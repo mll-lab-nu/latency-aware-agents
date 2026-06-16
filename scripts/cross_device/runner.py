@@ -24,6 +24,7 @@ from latency_bench.latency.profile import (
     load_profile_manifest,
     save_profile_manifest,
 )
+from latency_bench.utils.io import load_jsonl_records, read_json, write_json, write_jsonl
 from scripts.cross_device.config import (
     _eval_command,
     _generated_config,
@@ -187,13 +188,13 @@ def _run_task(
     try:
         if task.stage == "measure":
             _write_generated_config(warmup_config_path, config)
-            _write_json(task.output_dir / "manifest.json", manifest)
+            write_json(task.output_dir / "manifest.json", manifest)
             subprocess.run(calibration_cmd, check=True)
             _apply_env_fps_calibration(config, calibration_path)
             profile_cmd = _profile_command(task, spec, args.overwrite, config)
             manifest["profile_command"] = shlex.join(profile_cmd)
         _write_generated_config(task.generated_config_path, config)
-        _write_json(task.output_dir / "manifest.json", manifest)
+        write_json(task.output_dir / "manifest.json", manifest)
         if sim_worker_plan:
             _run_sim_worker_plan(task, sim_worker_plan)
         else:
@@ -208,10 +209,10 @@ def _run_task(
         manifest["completed_at"] = _now_iso()
         manifest["error"] = str(exc)
         manifest["notes"] = _append_note(manifest.get("notes"), str(exc))
-        _write_json(task.output_dir / "manifest.json", manifest)
+        write_json(task.output_dir / "manifest.json", manifest)
         _append_manifest(out, manifest)
         raise
-    _write_json(task.output_dir / "manifest.json", manifest)
+    write_json(task.output_dir / "manifest.json", manifest)
     _append_manifest(out, manifest)
     _upload_run_results(task, out, manifest, detected, runtime)
 
@@ -331,24 +332,12 @@ def _merge_sim_worker_episode_metrics(output_dir: Path, sim_worker_plan: list[di
     records = []
     for worker in sim_worker_plan:
         metrics_path = Path(worker["output_dir"]) / "episode_metrics.jsonl"
-        for record in _read_jsonl(metrics_path):
+        for record in load_jsonl_records(metrics_path):
             record["metadata"]["sim_worker_index"] = worker["worker_index"]
             record["metadata"]["output_dir"] = str(output_dir)
             records.append(record)
     records.sort(key=lambda item: int(item["episode_id"]))
-    _write_jsonl(output_dir / "episode_metrics.jsonl", records)
-
-
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    with path.open("r", encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
-
-
-def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        for record in records:
-            f.write(json.dumps(record, sort_keys=True) + "\n")
+    write_jsonl(output_dir / "episode_metrics.jsonl", records)
 
 
 def _upload_run_results(
@@ -405,7 +394,7 @@ def _upload_run_results(
         manifest["results_uploaded"] = True
         manifest["results_repo"] = repo_id
         manifest["results_path_prefix"] = prefix
-        _write_json(task.output_dir / "manifest.json", manifest)
+        write_json(task.output_dir / "manifest.json", manifest)
     except Exception as exc:
         manifest["results_uploaded"] = False
         manifest["notes"] = _append_note(manifest.get("notes"), f"results upload failed: {exc}")
@@ -429,7 +418,7 @@ def _finalize_profile_artifacts(task: ProtocolTask, out: Path, manifest: dict[st
         return
     try:
         fingerprint = _host_fingerprint()
-        _write_json(profile_dir / "hardware.json", fingerprint)
+        write_json(profile_dir / "hardware.json", fingerprint)
         profile_path = profile_dir / "profile.json"
         if profile_path.exists():
             profile = load_profile_manifest(profile_path)
@@ -494,7 +483,7 @@ def _add_calibration_manifest_fields(
 
 
 def _apply_env_fps_calibration(config: dict[str, Any], calibration_path: Path) -> None:
-    payload = _load_json(calibration_path)
+    payload = read_json(calibration_path)
     config["env"]["env_fps"] = float(payload["selected_env_fps"])
     config["env"]["obs_fps"] = float(payload["selected_obs_fps"])
 
@@ -591,20 +580,8 @@ def _record_skipped_task(
     manifest["skip_reason"] = skip_reason
     manifest["notes"] = skip_reason
     task.output_dir.mkdir(parents=True, exist_ok=True)
-    _write_json(task.output_dir / "manifest.json", manifest)
+    write_json(task.output_dir / "manifest.json", manifest)
     _append_manifest(out, manifest)
-
-
-def _write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, sort_keys=True)
-        f.write("\n")
-
-
-def _load_json(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any]) -> None:

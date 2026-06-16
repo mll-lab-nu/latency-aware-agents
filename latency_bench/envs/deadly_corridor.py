@@ -131,11 +131,7 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         env_cfg = config["env"]
         env_id = str(env_cfg.get("env_id", "doom_deadly_corridor"))
         env_fps = float(env_cfg.get("env_fps", 35))
-        if env_fps <= 0:
-            raise ValueError("env_fps must be positive")
         self.frame_stack = int(env_cfg.get("frame_stack", 1) or 1)
-        if self.frame_stack <= 0:
-            raise ValueError("frame_stack must be positive")
 
         from sample_factory.utils.attr_dict import AttrDict
         from sf_examples.vizdoom.doom.doom_utils import DOOM_ENVS, make_doom_env_from_spec

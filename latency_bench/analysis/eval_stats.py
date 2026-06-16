@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Iterable, Sequence
-from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from latency_bench.utils.io import load_jsonl_records
 
 
 EPISODE_METRICS_CANDIDATES = ("episode_metrics.jsonl", "metrics.jsonl", "episodes.jsonl")
@@ -27,27 +28,6 @@ METADATA_KEYS = (
     "frame_ms",
     "latency_type",
 )
-
-
-def load_jsonl_records(path: str | Path) -> list[dict[str, Any]]:
-    jsonl_path = Path(path)
-    if not jsonl_path.exists():
-        raise FileNotFoundError(f"JSONL file does not exist: {jsonl_path}")
-
-    records: list[dict[str, Any]] = []
-    with jsonl_path.open("r", encoding="utf-8") as f:
-        for line_number, line in enumerate(f, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                record = json.loads(stripped)
-            except JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON at {jsonl_path}:{line_number}: {exc.msg}") from exc
-            if not isinstance(record, dict):
-                raise ValueError(f"JSONL record must be a JSON object at {jsonl_path}:{line_number}")
-            records.append(record)
-    return records
 
 
 def resolve_run_file(run_path: str | Path, candidates: Sequence[str]) -> Path:

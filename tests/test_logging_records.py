@@ -218,13 +218,13 @@ def test_trajectory_logger_fast_jsonl_matches_old_generic_conversion(tmp_path, m
     new_output_dir = tmp_path / "new"
 
     monkeypatch.setattr(
-        "latency_bench.logging.trajectory_logger.to_jsonable",
+        "latency_bench.utils.io.to_jsonable",
         _old_to_jsonable_reference,
     )
     old_lines = _write_representative_logger_output(old_output_dir)
 
     monkeypatch.setattr(
-        "latency_bench.logging.trajectory_logger.to_jsonable",
+        "latency_bench.utils.io.to_jsonable",
         to_jsonable,
     )
     new_lines = _write_representative_logger_output(new_output_dir)
