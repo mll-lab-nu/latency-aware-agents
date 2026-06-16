@@ -415,6 +415,7 @@ _SEEDED_STOCHASTIC_LATENCY_TYPES = {
     LatencySourceType.UNIFORM_DISTRIBUTION.value,
     LatencySourceType.MIXED_NORMAL_DISTRIBUTION.value,
     LatencySourceType.MIXED_UNIFORM_DISTRIBUTION.value,
+    LatencySourceType.PROFILE_SAMPLE.value,
 }
 
 
@@ -538,6 +539,7 @@ def _supports_phase_3b_batched_latency(latency_cfg: dict[str, Any]) -> bool:
         LatencySourceType.UNIFORM_DISTRIBUTION.value,
         LatencySourceType.MIXED_NORMAL_DISTRIBUTION.value,
         LatencySourceType.MIXED_UNIFORM_DISTRIBUTION.value,
+        LatencySourceType.PROFILE_SAMPLE.value,
     }
 
 
