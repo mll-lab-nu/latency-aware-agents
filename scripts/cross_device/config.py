@@ -85,6 +85,10 @@ def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask) 
     logging["save_step_records"] = True
     logging["save_action_records"] = True
     logging["save_latency_records"] = True
+    # Record per-stage pipeline timing so e2e_latencies.jsonl carries the
+    # continuous e2e (inference + overhead) and bench_overhead_ms, instead of
+    # falling back to the frame-quantized applied delay.
+    logging["realtime_pipeline_profile"] = True
 
 
 def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, spec: dict[str, Any]) -> None:
