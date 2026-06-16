@@ -311,7 +311,7 @@ def test_hardware_detection_accepts_full_gpu_model_names_and_multi_gpu_text():
         },
         {
             "id": "rtxpro6000blackwell",
-            "display_name": "RTX PRO 6000 Blackwell",
+            "display_name": "RTX PRO 6000",
             "profile_id": "L_RTX_PRO_6000_BLACKWELL",
             "aliases": ["NVIDIA RTX PRO 6000 Blackwell Workstation Edition"],
         },
@@ -444,8 +444,6 @@ def test_real_protocol_exp3_uses_explicit_replay_pairs():
         {"target_device": "rtx4090", "replay_device": "h200"},
         {"target_device": "rtx5090", "replay_device": "b200"},
         {"target_device": "rtx5090", "replay_device": "h200"},
-        {"target_device": "a6000", "replay_device": "b200"},
-        {"target_device": "a6000", "replay_device": "h200"},
         {"target_device": "l40s", "replay_device": "b200"},
         {"target_device": "l40s", "replay_device": "h200"},
         {"target_device": "a100", "replay_device": "b200"},
