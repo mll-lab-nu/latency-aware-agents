@@ -175,8 +175,6 @@ def _eval_command(task: ProtocolTask) -> list[str]:
         "--output-dir",
         str(task.output_dir),
     ]
-    if task.stage == "measure" and task.n_samples is not None:
-        cmd.extend(["--n-samples", str(task.n_samples)])
     return cmd
 
 
@@ -235,8 +233,6 @@ def _profile_command(
     ]
     if overwrite:
         cmd.append("--overwrite")
-    if task.n_samples is not None:
-        cmd.extend(["--n-samples", str(task.n_samples)])
     return cmd
 
 

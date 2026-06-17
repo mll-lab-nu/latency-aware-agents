@@ -541,7 +541,6 @@ def _base_manifest(
         "profile_command": "" if profile_cmd is None else shlex.join(profile_cmd),
         "checkpoint_kind": task.checkpoint_kind,
         "n_episodes": task.n_episodes,
-        "n_samples": task.n_samples,
         "smoke": task.smoke,
         "smoke_max_steps": task.smoke_max_steps,
         "seed_set": task.seed_set,
@@ -610,8 +609,6 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
         print(f"runtime_env: {task.runtime_env_alias} ({task.runtime_conda_env})")
         print(f"smoke: {str(task.smoke).lower()}")
         print(f"episodes: {task.n_episodes}")
-        if task.n_samples is not None:
-            print(f"samples: {task.n_samples}")
         print(f"status: {'runnable' if item.runnable else 'skipped'}")
         if item.skip_reason:
             print(f"skip_reason: {item.skip_reason}")
