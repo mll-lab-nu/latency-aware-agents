@@ -46,7 +46,8 @@ def rollout_features(action_spec: ActionSpec) -> Features:
         feature_map["action_id"] = Value("int64")
     if "action_tuple" in action_spec.row_fields:
         feature_map["action_tuple"] = HFSequence(Value("int64"))
-    feature_map["action"] = HFSequence(Value("float32"))
+    if "action" in action_spec.row_fields:
+        feature_map["action"] = HFSequence(Value("float32"))
     feature_map["action_text"] = Value("string")
     return Features(feature_map)
 

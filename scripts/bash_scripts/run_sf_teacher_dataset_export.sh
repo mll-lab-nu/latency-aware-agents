@@ -33,7 +33,8 @@ Optional environment variables:
   DEMON_EPISODE_THRESHOLD  Override Demon Attack episode clipped return threshold.
 
 Notes:
-  By default the exporter uses the latency config saved in the checkpoint config.json.
+  By default the exporter parses *_same_latency_lN_* checkpoint names when present,
+  otherwise it uses the latency config saved in checkpoint config.json.
   The exported images are env raw RGB frames.
   Dataset row prompts are fixed in latency_bench/data/prompts.py.
 EOF
@@ -106,7 +107,7 @@ printf '    replay envs: %s\n' "${REPLAY_NUM_ENVS}"
 if [[ -n "${LATENCY_CONFIG:-}" ]]; then
     printf '    latency:    %s\n' "${LATENCY_CONFIG}"
 else
-    printf '    latency:    checkpoint config.json\n'
+    printf '    latency:    checkpoint name if *_same_latency_lN_* else config.json\n'
 fi
 if [[ -n "${HF_REPO_ID:-}" ]]; then
     printf '    upload:     %s\n' "${HF_REPO_ID}"

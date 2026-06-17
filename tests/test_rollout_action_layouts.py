@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 
-def test_deadly_corridor_default_action_layout_is_factorized_eleven_dim():
+def test_deadly_corridor_default_action_layout_is_joint_fifty_four_id():
     from latency_bench.data.action_layouts import (
-        ACTION_LAYOUT_DEADLY_CORRIDOR_FACTORIZED_11,
-        DEADLY_CORRIDOR_FACTORIZED_11_LABELS,
+        ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54,
+        DEADLY_CORRIDOR_JOINT_54_LABELS,
         action_spec_for_env,
         encode_action_for_env,
     )
@@ -12,12 +12,11 @@ def test_deadly_corridor_default_action_layout_is_factorized_eleven_dim():
     spec = action_spec_for_env("deadly_corridor")
     row = encode_action_for_env("deadly_corridor", [2, 1, 2, 1])
 
-    assert spec.layout == ACTION_LAYOUT_DEADLY_CORRIDOR_FACTORIZED_11
-    assert spec.labels == DEADLY_CORRIDOR_FACTORIZED_11_LABELS
+    assert spec.layout == ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54
+    assert spec.labels == DEADLY_CORRIDOR_JOINT_54_LABELS
     assert row == {
-        "action_tuple": [2, 1, 2, 1],
-        "action": [0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0],
-        "action_text": "TURN_RIGHT+MOVE_FORWARD+MOVE_RIGHT+ATTACK",
+        "action_id": 47,
+        "action_text": "TURN_RIGHT + MOVE_FORWARD + MOVE_RIGHT + ATTACK",
     }
 
 
@@ -26,7 +25,7 @@ def test_deadly_corridor_noop_components_stay_in_vector_not_text():
 
     row = encode_action_for_env("deadly_corridor", [0, 0, 1, 0])
 
-    assert row["action"] == [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+    assert row["action_id"] == 2
     assert row["action_text"] == "MOVE_LEFT"
 
 

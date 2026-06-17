@@ -21,6 +21,7 @@ def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
     image_path = tmp_path / "image.png"
     _save_image(image_path)
     raw_export = tmp_path / "raw"
+    action_spec = action_spec_for_env("deadly_corridor")
     row = {
         "image": str(image_path),
         "env_name": "deadly_corridor",
@@ -32,30 +33,17 @@ def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
         "latency_raw_frames": 2,
         "latency_ms": 57.14,
         "raw_reward": 1.0,
-        "action_tuple": [0, 1, 2, 1],
-        "action": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0],
-        "action_text": "MOVE_FORWARD+MOVE_RIGHT+ATTACK",
+        "action_id": 11,
+        "action_text": "MOVE_FORWARD + MOVE_RIGHT + ATTACK",
     }
-    write_parquet_splits(raw_export, [row], [], action_spec=action_spec_for_env("deadly_corridor"))
+    write_parquet_splits(raw_export, [row], [], action_spec=action_spec)
     (raw_export / "metadata.json").write_text(
         json.dumps(
             {
                 "env_name": "deadly_corridor",
-                "action_layout": "deadly_corridor_factorized_11",
+                "action_layout": "deadly_corridor_joint_54",
                 "reward_field": "raw_reward",
-                "action_labels": [
-                    "TURN_NOOP",
-                    "TURN_LEFT",
-                    "TURN_RIGHT",
-                    "MOVE_NOOP",
-                    "MOVE_FORWARD",
-                    "MOVE_BACKWARD",
-                    "STRAFE_NOOP",
-                    "MOVE_LEFT",
-                    "MOVE_RIGHT",
-                    "ATTACK_NOOP",
-                    "ATTACK",
-                ],
+                "action_labels": list(action_spec.labels),
             }
         ),
         encoding="utf-8",
@@ -64,9 +52,11 @@ def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
     manifest = convert_canonical_rollout_to_lerobot(raw_export, tmp_path / "lerobot", force=True)
 
     table = pq.read_table(tmp_path / "lerobot" / "data" / "chunk-000" / "episode_000000.parquet")
-    assert manifest["action_layout"] == "deadly_corridor_factorized_11"
+    assert manifest["action_layout"] == "deadly_corridor_joint_54"
     assert manifest["frames"] == 1
-    assert table.to_pylist()[0]["action"] == row["action"]
+    expected_action = [0.0] * 54
+    expected_action[11] = 1.0
+    assert table.to_pylist()[0]["action"] == expected_action
     assert table.to_pylist()[0]["done"] is True
 
 

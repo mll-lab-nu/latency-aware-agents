@@ -977,29 +977,24 @@ def test_collect_teacher_dataset_encodes_deadly_corridor_factorized_tuple_action
         [[[0, 1, 2, 1]], [[0, 1, 2, 1]]],
         [[[1, 2, 0, 0]], [[1, 2, 0, 0]]],
     ]
-    assert [row["action"] for row in train_rows] == [
-        [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0],
-        [0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0],
-    ]
-    assert [row["action_tuple"] for row in train_rows] == [
-        [0, 1, 2, 1],
-        [1, 2, 0, 0],
-    ]
+    assert [row["action_id"] for row in train_rows] == [11, 30]
+    assert "action" not in train_rows[0]
+    assert "action_tuple" not in train_rows[0]
     assert [row["action_text"] for row in train_rows] == [
-        "MOVE_FORWARD+MOVE_RIGHT+ATTACK",
-        "TURN_LEFT+MOVE_BACKWARD",
+        "MOVE_FORWARD + MOVE_RIGHT + ATTACK",
+        "TURN_LEFT + MOVE_BACKWARD",
     ]
-    assert metadata["action_layout"] == "deadly_corridor_factorized_11"
+    assert metadata["action_layout"] == "deadly_corridor_joint_54"
     assert metadata["checkpoint_train_step"] == 123
 
 
-def test_deadly_corridor_action_vector_encodes_factorized_eleven_dim_actions():
+def test_deadly_corridor_action_encodes_joint_fifty_four_id():
     from latency_bench.data.action_layouts import encode_action_for_env
 
     row = encode_action_for_env("deadly_corridor", [2, 0, 1, 0])
 
-    assert row["action"] == [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0]
-    assert row["action_text"] == "TURN_RIGHT+MOVE_LEFT"
+    assert row["action_id"] == 38
+    assert row["action_text"] == "TURN_RIGHT + MOVE_LEFT"
 
 
 def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeypatch, tmp_path):

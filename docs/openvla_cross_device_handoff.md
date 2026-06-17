@@ -38,9 +38,9 @@ The base model directory must contain policy-specific statistics files:
 - `demon_attack_dataset_statistics.json` with key `demon_attack`
 - `deadly_corridor_dataset_statistics.json` with key `deadly_corridor`
 
-Deadly Corridor OpenVLA uses the 11-dim factorized action layout
-`deadly_corridor_factorized_11`. The `deadly_corridor.action` statistics
-fields `q01`, `q99`, `min`, `max`, and `mask` must all have length 11.
+Deadly Corridor OpenVLA uses the 54-class joint action layout
+`deadly_corridor_joint_54`. The `deadly_corridor.action` statistics
+fields `q01`, `q99`, `min`, `max`, and `mask` must all have length 54.
 
 Each checkpoint directory must contain:
 
@@ -167,8 +167,8 @@ results/cross_device/runs/<stage>/<policy>/<env>/<device>/smoke_seed_0_n1/
   `*_dataset_statistics.json` file directly under the base model directory.
 - Missing unnorm key: add the selected env key to the matching statistics file.
 - Deadly action stats length mismatch: `deadly_corridor.action.q01`,
-  `q99`, `min`, `max`, and `mask` must be length 11 for
-  `deadly_corridor_factorized_11`.
+  `q99`, `min`, `max`, and `mask` must be length 54 for
+  `deadly_corridor_joint_54`.
 - Missing `full_weights.pt`: point the checkpoint env var at the directory that
   contains `actor/model_state_dict/full_weights.pt`.
 - Demon action meanings mismatch: the latency_bench Demon env will fail fast if
