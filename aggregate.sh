@@ -20,7 +20,10 @@ python -m scripts.cross_device.build_figure_data \
   --tables-dir "$TABLES_DIR" \
   --profiles-root "$ROOT" \
   --out-fig "$PAPER_ROOT/fig6_cross_device/data.csv" \
-  --out-table "$PAPER_ROOT/table3_latency_profiles/data.csv"
+  --out-table "$PAPER_ROOT/table3_latency_profiles/data.csv" \
+  --spec "$SPEC" \
+  --root "$ROOT" \
+  --raw-root "$ROOT/_hf_raw"
 
 python "$PAPER_ROOT/fig6_cross_device/run.py"
 python "$PAPER_ROOT/table3_latency_profiles/run.py"
