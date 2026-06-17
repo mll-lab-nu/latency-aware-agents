@@ -258,6 +258,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             "max_wall_clock_lag_ms": acc.max_wall_clock_lag_ms,
             "in_flight_count": pool.in_flight_count,
             "idle_worker_count": pool.idle_worker_count,
+            "inference_worker_count": pool.worker_count,
             **(pre_episode_drain or {}),
             **episode_raw_fact_metadata(
                 mode="realtime",

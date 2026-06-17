@@ -5,7 +5,7 @@ from collections.abc import Callable
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
-from latency_bench.executors._simulated_timeline import sample_simulated_latency
+from latency_bench.executors._simulated_timeline import SimulatedWorkerCapacity, sample_simulated_latency
 from latency_bench.executors.base import EpisodeExecutor
 from latency_bench.latency.sources import LatencySource
 from latency_bench.logging.metrics import (
@@ -37,6 +37,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         video_recorder=None,
         video_episode_metadata: dict[int, dict] | None = None,
         episode_latency_source_factory: Callable[[int], LatencySource] | None = None,
+        simulated_worker_capacity: int | None = None,
     ):
         self.env = env
         self.policy = policy
@@ -48,6 +49,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         self.video_recorder = video_recorder
         self.video_episode_metadata = video_episode_metadata
         self.episode_latency_source_factory = episode_latency_source_factory
+        self.simulated_worker_capacity = simulated_worker_capacity
         self._next_obs_id = 0
         self._next_action_id = 0
 
@@ -72,6 +74,12 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         step_records: list[StepRecord] = []
         action_events: list[ActionEvent] = []
         latency_values_ms: list[float] = []
+        worker_capacity = SimulatedWorkerCapacity(
+            capacity=self.simulated_worker_capacity,
+            busy_until_raw_frames=[],
+        )
+        submitted_observation_frames = 0
+        dropped_observation_count = 0
         latency_type = latency_type_from_source(self.latency_source)
         episode_metadata = episode_raw_fact_metadata(
             mode="simulated",
@@ -86,78 +94,87 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         raw_frame = 0
         while raw_frame < eval_max_steps:
             current_time_ms = self.clock.step_to_time_ms(raw_frame)
+            worker_capacity.release_ready(raw_frame)
+            observation_submitted = False
+            observation_dropped = False
             if self.decision_scheduler.should_observe(raw_frame, current_time_ms):
                 observation = self.env.observe()
                 obs_id = self._next_obs_id
                 self._next_obs_id += 1
-
-                latency_context = {
-                    "observation": observation,
-                    "obs_id": obs_id,
-                    "env_step": raw_frame,
-                    "raw_frame": raw_frame,
-                    "sim_time_ms": current_time_ms,
-                    "episode_id": episode_id,
-                }
-                latency_sample = sample_simulated_latency(
-                    latency_source=self.latency_source,
-                    clock=self.clock,
-                    context=latency_context,
-                )
-                latency_ms = latency_sample.latency_ms
-                policy_metadata = dict(observation.metadata)
-                policy_metadata.update(
-                    {
+                if worker_capacity.can_submit():
+                    latency_context = {
+                        "observation": observation,
                         "obs_id": obs_id,
-                        "latency_ms": latency_ms,
-                        "latency_raw_frames": latency_sample.latency_raw_frames,
+                        "env_step": raw_frame,
+                        "raw_frame": raw_frame,
+                        "sim_time_ms": current_time_ms,
+                        "episode_id": episode_id,
                     }
-                )
-                policy_observation = Observation(
-                    data=observation.data,
-                    env_step=observation.env_step,
-                    sim_time_ms=observation.sim_time_ms,
-                    metadata=policy_metadata,
-                )
-                policy_output = self.policy.predict(policy_observation)
-                ready_raw_frame = raw_frame + latency_sample.latency_raw_frames
-                ready_time_ms = self.clock.step_to_time_ms(ready_raw_frame)
-                latency_record = LatencyRecord(
-                    obs_id=obs_id,
-                    latency_ms=latency_ms,
-                )
-                profile_metadata = profile_metadata_from_source(self.latency_source)
-                apply_latency_record_raw_fields(
-                    record=latency_record,
-                    latency_type=latency_type,
-                    profile_metadata=profile_metadata,
-                )
-                event_metadata = dict(policy_output.metadata)
-                event_metadata["frame_ms"] = self.clock.frame_ms
-                event = ActionEvent(
-                    action_id=self._next_action_id,
-                    action=policy_output.action,
-                    obs_env_step=raw_frame,
-                    ready_time_ms=ready_time_ms,
-                    ready_step_float=float(ready_raw_frame),
-                    latency=latency_record,
-                    latency_raw_frames=latency_sample.latency_raw_frames,
-                    ready_raw_frame=ready_raw_frame,
-                    metadata=event_metadata,
-                )
-                apply_latency_raw_fields(
-                    event=event,
-                    latency_type=latency_type,
-                    frame_ms=self.clock.frame_ms,
-                    profile_metadata=profile_metadata,
-                )
-                self._next_action_id += 1
-                self.action_scheduler.enqueue(event)
-                action_events.append(event)
-                latency_values_ms.append(latency_ms)
-                if self.logger is not None:
-                    self.logger.log_action_event(event)
-                    self.logger.log_latency(latency_record)
+                    latency_sample = sample_simulated_latency(
+                        latency_source=self.latency_source,
+                        clock=self.clock,
+                        context=latency_context,
+                    )
+                    latency_ms = latency_sample.latency_ms
+                    policy_metadata = dict(observation.metadata)
+                    policy_metadata.update(
+                        {
+                            "obs_id": obs_id,
+                            "latency_ms": latency_ms,
+                            "latency_raw_frames": latency_sample.latency_raw_frames,
+                        }
+                    )
+                    policy_observation = Observation(
+                        data=observation.data,
+                        env_step=observation.env_step,
+                        sim_time_ms=observation.sim_time_ms,
+                        metadata=policy_metadata,
+                    )
+                    policy_output = self.policy.predict(policy_observation)
+                    ready_raw_frame = raw_frame + latency_sample.latency_raw_frames
+                    ready_time_ms = self.clock.step_to_time_ms(ready_raw_frame)
+                    worker_capacity.submit(ready_raw_frame)
+                    latency_record = LatencyRecord(
+                        obs_id=obs_id,
+                        latency_ms=latency_ms,
+                    )
+                    profile_metadata = profile_metadata_from_source(self.latency_source)
+                    apply_latency_record_raw_fields(
+                        record=latency_record,
+                        latency_type=latency_type,
+                        profile_metadata=profile_metadata,
+                    )
+                    event_metadata = dict(policy_output.metadata)
+                    event_metadata["frame_ms"] = self.clock.frame_ms
+                    event = ActionEvent(
+                        action_id=self._next_action_id,
+                        action=policy_output.action,
+                        obs_env_step=raw_frame,
+                        ready_time_ms=ready_time_ms,
+                        ready_step_float=float(ready_raw_frame),
+                        latency=latency_record,
+                        latency_raw_frames=latency_sample.latency_raw_frames,
+                        ready_raw_frame=ready_raw_frame,
+                        metadata=event_metadata,
+                    )
+                    apply_latency_raw_fields(
+                        event=event,
+                        latency_type=latency_type,
+                        frame_ms=self.clock.frame_ms,
+                        profile_metadata=profile_metadata,
+                    )
+                    self._next_action_id += 1
+                    self.action_scheduler.enqueue(event)
+                    action_events.append(event)
+                    latency_values_ms.append(latency_ms)
+                    submitted_observation_frames += 1
+                    observation_submitted = True
+                    if self.logger is not None:
+                        self.logger.log_action_event(event)
+                        self.logger.log_latency(latency_record)
+                else:
+                    dropped_observation_count += 1
+                    observation_dropped = True
 
             active_action = self.action_scheduler.update(raw_frame, current_time_ms)
             result = self.env.step(active_action)
@@ -166,6 +183,15 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
             if self.video_recorder is not None and not episode_done:
                 self.video_recorder.record_frame(self.env.render_game_frame())
             step_info = step_record_info(result.info)
+            if self.simulated_worker_capacity is not None:
+                step_info.update(
+                    {
+                        "observation_submitted": observation_submitted,
+                        "observation_dropped": observation_dropped,
+                        "in_flight_count": worker_capacity.in_flight_count,
+                        "idle_worker_count": worker_capacity.idle_worker_count,
+                    }
+                )
             step_info.update(
                 active_action_step_info(
                     active_event=self.action_scheduler.latest_applied_event,
@@ -191,11 +217,23 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
             if soft_reset:
                 self.action_scheduler.reset()
                 self.policy.reset_state()
+                worker_capacity.reset()
 
             raw_frame += 1
             if episode_done:
                 break
 
+        if self.simulated_worker_capacity is not None:
+            episode_metadata.update(
+                {
+                    "submitted_observation_frames": submitted_observation_frames,
+                    "dropped_observation_count": dropped_observation_count,
+                    "simulated_worker_capacity": self.simulated_worker_capacity,
+                    "inference_worker_count": self.simulated_worker_capacity,
+                    "in_flight_count": worker_capacity.in_flight_count,
+                    "idle_worker_count": worker_capacity.idle_worker_count,
+                }
+            )
         metrics = compute_episode_metrics(
             episode_id=episode_id,
             step_records=step_records,

@@ -166,6 +166,33 @@ def test_build_latency_profile_from_trace_writes_e2e_trace_name(tmp_path: Path):
     assert load_latency_samples(output_dir / "infer_latencies.jsonl") == [10.0, 20.0]
 
 
+def test_build_latency_profile_from_trace_copies_inference_worker_count_from_episode_metrics(tmp_path: Path):
+    episode_metrics = tmp_path / "episode_metrics.jsonl"
+    episode_metrics.write_text(
+        json.dumps(
+            {
+                "episode_id": 0,
+                "metadata": {
+                    "inference_worker_count": 2,
+                },
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    manifest, output_dir = _build_profile(
+        tmp_path,
+        [10.0, 20.0, 30.0],
+        episode_metrics=episode_metrics,
+    )
+
+    assert manifest["inference_worker_count"] == 2
+    loaded_manifest = load_profile_manifest(output_dir / "profile.json")
+    assert loaded_manifest["inference_worker_count"] == 2
+
+
 def test_build_latency_profile_from_trace_requires_inference_trace_for_e2e_profiles(tmp_path: Path):
     with pytest.raises(TypeError):
         _build_profile(

@@ -94,8 +94,11 @@ def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask) 
 def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, spec: dict[str, Any]) -> None:
     if task.target_profile_path is None:
         raise ValueError("Simulated replay task requires a profile_path")
+    profile = load_profile_manifest(task.target_profile_path)
     _patch_env_from_profile(config, task.target_profile_path)
     config.setdefault("executor", {})["mode"] = "simulated"
+    if "inference_worker_count" in profile:
+        config["executor"]["simulated_worker_capacity"] = profile["inference_worker_count"]
     latency = config.setdefault("latency", {})
     latency["type"] = "profile_sample"
     latency["profile_path"] = str(task.target_profile_path)
@@ -213,6 +216,8 @@ def _profile_command(
         "e2e_latency",
         "--inference-latencies",
         str(task.output_dir / "infer_latencies.jsonl"),
+        "--episode-metrics",
+        str(task.output_dir / "episode_metrics.jsonl"),
         "--output-dir",
         str(task.profile_output_dir),
         "--profile-id",
