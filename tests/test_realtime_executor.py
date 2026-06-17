@@ -9,12 +9,18 @@ import latency_bench.executors.realtime as realtime
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, ActionEvent, LatencyRecord, Observation, OrderingPolicy, PolicyOutput, StepRecord
 from latency_bench.envs.base import DummyEnvAdapter
-from latency_bench.executors.realtime import (
-    ProcessInferencePool,
+from latency_bench.executors.realtime import RealtimeLatencyExecutor
+from latency_bench.executors.realtime.pool import ProcessInferencePool
+from latency_bench.executors.realtime.workers import (
     RealtimeActionDispatch,
-    RealtimeLatencyExecutor,
     RealtimeObservationTask,
     RealtimePolicyCompletion,
+    RealtimePolicyResult,
+    _action_event_ack_payload,
+    _action_event_dispatch_payload,
+    _action_event_from_dispatch_payload,
+    _drain_env_action_messages,
+    _drain_env_actions_until_wall_time,
     _inference_worker,
     _worker_runtime_metadata,
 )
@@ -430,8 +436,8 @@ def _patch_worker_dependencies(monkeypatch, measurer_cls):
 
     monkeypatch.setattr(actions_mod, "ActionResolver", DummyActionResolver)
     monkeypatch.setattr(factory_mod, "build_policy", lambda config, action_resolver: DummyWorkerPolicy())
-    monkeypatch.setattr(realtime, "RuntimeLatencyMeasurer", measurer_cls)
-    monkeypatch.setattr(realtime, "_worker_runtime_metadata", lambda worker_id, start_method: {})
+    monkeypatch.setattr(realtime.workers, "RuntimeLatencyMeasurer", measurer_cls)
+    monkeypatch.setattr(realtime.workers, "_worker_runtime_metadata", lambda worker_id, start_method: {})
 
 
 def _executor(
@@ -635,7 +641,7 @@ def test_inference_worker_returns_slim_result_without_observation_task(monkeypat
 
     command, payload = connection.sent[-1]
     assert command == "result"
-    assert isinstance(payload["result"], realtime.RealtimePolicyResult)
+    assert isinstance(payload["result"], RealtimePolicyResult)
     assert not hasattr(payload["result"], "task")
     assert not hasattr(payload["result"], "obs_id")
     assert not hasattr(payload["result"], "worker_id")
@@ -655,11 +661,11 @@ def test_action_dispatch_and_ack_payloads_carry_realtime_profile() -> None:
     event.latency_raw_frames = 2
     event.ready_raw_frame = 6
 
-    payload = realtime._action_event_dispatch_payload(event)
-    dispatched = realtime._action_event_from_dispatch_payload(payload)
+    payload = _action_event_dispatch_payload(event)
+    dispatched = _action_event_from_dispatch_payload(payload)
     dispatched.applied = True
     dispatched.apply_raw_frame = 7
-    ack = realtime._action_event_ack_payload(dispatched)
+    ack = _action_event_ack_payload(dispatched)
 
     assert payload["profile"] == {"parent_release_ms": 1.5}
     assert dispatched.profile.to_dict() == {"parent_release_ms": 1.5}
@@ -685,9 +691,9 @@ def test_env_action_drain_happens_before_scheduler_update() -> None:
     )
     event.latency_raw_frames = 0
     event.ready_raw_frame = 0
-    pipe = QueuedEnvMessagePipe([("action_dispatch", realtime._action_event_dispatch_payload(event))])
+    pipe = QueuedEnvMessagePipe([("action_dispatch", _action_event_dispatch_payload(event))])
 
-    closed = realtime._drain_env_action_messages(
+    closed = _drain_env_action_messages(
         connection=pipe,
         action_scheduler=scheduler,
         now_ms_fn=lambda: 10.0,
@@ -721,11 +727,11 @@ def test_env_wait_drains_actions_before_next_frame_boundary() -> None:
     )
     event.ready_raw_frame = 0
     pipe = TimedEnvMessagePipe(
-        [("action_dispatch", realtime._action_event_dispatch_payload(event))],
+        [("action_dispatch", _action_event_dispatch_payload(event))],
         fake_clock,
     )
 
-    closed = realtime._drain_env_actions_until_wall_time(
+    closed = _drain_env_actions_until_wall_time(
         connection=pipe,
         action_scheduler=scheduler,
         target_wall_s=1.100,
@@ -742,7 +748,7 @@ def test_env_wait_drains_actions_before_next_frame_boundary() -> None:
 
 
 def test_process_inference_pool_reconstructs_completion_from_busy_task(monkeypatch):
-    monkeypatch.setattr(realtime, "_profile_now_ms", lambda: 20.0)
+    monkeypatch.setattr(realtime.pool, "_profile_now_ms", lambda: 20.0)
     task = RealtimeObservationTask(
         obs_id=11,
         observation=Observation(data="obs", env_step=4, sim_time_ms=120.0),
@@ -750,7 +756,7 @@ def test_process_inference_pool_reconstructs_completion_from_busy_task(monkeypat
         submit_time_ms=120.0,
         profile=PipelineProfile(parent_observation_handle_ms=2.0),
     )
-    result = realtime.RealtimePolicyResult(
+    result = RealtimePolicyResult(
         policy_output=PolicyOutput(action=Action("jump")),
         completion_time_ms=135.0,
         latency_record=LatencyRecord(obs_id=11, latency_ms=15.0),
@@ -798,8 +804,8 @@ def test_action_dispatch_and_ack_payloads_are_scheduler_slim():
         applied=True,
     )
 
-    dispatch = realtime._action_event_dispatch_payload(event)
-    ack = realtime._action_event_ack_payload(dispatched)
+    dispatch = _action_event_dispatch_payload(event)
+    ack = _action_event_ack_payload(dispatched)
 
     assert dispatch == {
         "action_id": 5,
