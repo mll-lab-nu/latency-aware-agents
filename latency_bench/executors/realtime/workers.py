@@ -33,6 +33,11 @@ from latency_bench.logging.records import step_record_info
 from latency_bench.logging.realtime_pipeline import PipelineProfile, REALTIME_PROFILE_METADATA_KEY
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
+from latency_bench.executors.realtime.shared_observation import (
+    SharedObservationOwner,
+    attach_observation_arrays,
+    share_observation_arrays,
+)
 
 
 def _profile_now_ms() -> float:
@@ -51,6 +56,7 @@ class RealtimeObservationTask:
     submit_env_step: int
     submit_time_ms: float
     profile: PipelineProfile | None = None
+    shared_obs_id: int | None = None
 
 
 @dataclass
@@ -179,6 +185,7 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
                 return
             if command == "predict":
                 task = payload["task"]
+                attached_observation = attach_observation_arrays(task.observation)
                 profile = task.profile
                 if profile is not None:
                     profile.worker_recv_ms = worker_recv_ms
@@ -187,11 +194,14 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
                     )
                     inference_start_ms = _profile_now_ms()
                     profile.worker_recv_overhead_ms = inference_start_ms - worker_recv_ms
-                policy_output, latency_record = measurer.run_and_measure(
-                    policy.predict,
-                    task.observation,
-                    obs_id=task.obs_id,
-                )
+                try:
+                    policy_output, latency_record = measurer.run_and_measure(
+                        policy.predict,
+                        attached_observation.observation,
+                        obs_id=task.obs_id,
+                    )
+                finally:
+                    attached_observation.close()
                 latency_record.metadata = {
                     **latency_record.metadata,
                     **runtime_metadata,
@@ -221,6 +231,7 @@ def _drain_env_action_messages(
     *,
     connection: Any,
     action_scheduler: ActionScheduler,
+    release_observation: Callable[[int], None] | None = None,
     now_ms_fn: Callable[[], float] = _profile_now_ms,
 ) -> bool:
     while connection.poll():
@@ -230,6 +241,9 @@ def _drain_env_action_messages(
         payload = payload or {}
         if command == "close":
             return True
+        if command == "release_observation":
+            release_observation(payload["obs_id"])
+            continue
         if command == "action_dispatch":
             action_event = _action_event_from_dispatch_payload(payload)
             if action_event.profile is not None:
@@ -246,6 +260,7 @@ def _drain_env_actions_until_wall_time(
     *,
     connection: Any,
     action_scheduler: ActionScheduler,
+    release_observation: Callable[[int], None] | None = None,
     target_wall_s: float,
     time_fn: Callable[[], float] = time.perf_counter,
     now_ms_fn: Callable[[], float] = _profile_now_ms,
@@ -258,6 +273,7 @@ def _drain_env_actions_until_wall_time(
             if _drain_env_action_messages(
                 connection=connection,
                 action_scheduler=action_scheduler,
+                release_observation=release_observation,
                 now_ms_fn=now_ms_fn,
             ):
                 return True
@@ -311,6 +327,14 @@ def _env_loop_worker(
         episode_start_s = time.perf_counter()
         next_obs_id = 0
         applied_event_count = 0
+        shared_observations: dict[int, SharedObservationOwner] = {}
+
+        def release_shared_observation(obs_id: int) -> None:
+            shared_observations.pop(obs_id).release()
+
+        def release_all_shared_observations() -> None:
+            for obs_id in list(shared_observations):
+                release_shared_observation(obs_id)
 
         for env_step in range(int(eval_max_steps)):
             scheduled_time_ms = clock.step_to_time_ms(env_step)
@@ -320,6 +344,7 @@ def _env_loop_worker(
                 if _drain_env_actions_until_wall_time(
                     connection=connection,
                     action_scheduler=action_scheduler,
+                    release_observation=release_shared_observation,
                     target_wall_s=target_wall_s,
                 ):
                     env.close()
@@ -327,7 +352,11 @@ def _env_loop_worker(
             wall_elapsed_ms = (time.perf_counter() - episode_start_s) * 1000.0
             wall_clock_lag_ms = max(0.0, wall_elapsed_ms - scheduled_time_ms)
 
-            if _drain_env_action_messages(connection=connection, action_scheduler=action_scheduler):
+            if _drain_env_action_messages(
+                connection=connection,
+                action_scheduler=action_scheduler,
+                release_observation=release_shared_observation,
+            ):
                 env.close()
                 return
 
@@ -335,6 +364,10 @@ def _env_loop_worker(
                 observe_start_ms = _profile_now_ms()
                 observation = env.observe()
                 observe_end_ms = _profile_now_ms()
+                obs_id = next_obs_id
+                next_obs_id += 1
+                shared_observation, shared_owner = share_observation_arrays(observation)
+                shared_observations[obs_id] = shared_owner
                 profile = None
                 if profile_enabled:
                     profile = PipelineProfile(
@@ -342,18 +375,22 @@ def _env_loop_worker(
                         env_wall_lag_ms=wall_clock_lag_ms,
                     )
                 task = RealtimeObservationTask(
-                    obs_id=next_obs_id,
-                    observation=observation,
+                    obs_id=obs_id,
+                    observation=shared_observation,
                     submit_env_step=env_step,
                     submit_time_ms=wall_elapsed_ms,
                     profile=profile,
+                    shared_obs_id=obs_id,
                 )
-                next_obs_id += 1
                 if profile is not None:
                     profile.env_observation_send_start_ms = _profile_now_ms()
                 connection.send(("observation", {"task": task}))
 
-            if _drain_env_action_messages(connection=connection, action_scheduler=action_scheduler):
+            if _drain_env_action_messages(
+                connection=connection,
+                action_scheduler=action_scheduler,
+                release_observation=release_shared_observation,
+            ):
                 env.close()
                 return
 
@@ -418,7 +455,16 @@ def _env_loop_worker(
 
         if video_recorder is not None:
             video_recorder.close_episode({})
-        env.close()
         connection.send(("episode_done", {}))
+        while True:
+            if _drain_env_action_messages(
+                connection=connection,
+                action_scheduler=action_scheduler,
+                release_observation=release_shared_observation,
+            ):
+                release_all_shared_observations()
+                env.close()
+                return
+            time.sleep(0.001)
     except BaseException:
         connection.send(("error", {"traceback": traceback.format_exc()}))

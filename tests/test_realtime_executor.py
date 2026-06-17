@@ -522,6 +522,7 @@ def test_env_process_drains_ready_results_before_submitting_observation(monkeypa
         observation=Observation(data=None, env_step=0, sim_time_ms=0.0),
         submit_env_step=0,
         submit_time_ms=0.0,
+        shared_obs_id=0,
     )
     parent_conn = QueuedEnvMessagePipe(
         [
@@ -571,6 +572,7 @@ def test_env_process_does_not_enqueue_released_actions_on_parent_scheduler(monke
         observation=Observation(data=None, env_step=0, sim_time_ms=0.0),
         submit_env_step=0,
         submit_time_ms=0.0,
+        shared_obs_id=0,
     )
     parent_conn = QueuedEnvMessagePipe(
         [
@@ -610,6 +612,7 @@ def test_env_process_does_not_enqueue_released_actions_on_parent_scheduler(monke
     assert metrics.num_actions == 1
     assert executor.action_scheduler.get_pending_events() == []
     assert executor.action_scheduler.get_applied_events() == []
+    assert ("release_observation", {"obs_id": 0}) in parent_conn.sent
 
 
 def test_inference_pool_closes_connections_after_workers_exit():
@@ -650,7 +653,7 @@ def test_inference_worker_exits_when_result_pipe_is_closed(monkeypatch):
     _patch_worker_dependencies(monkeypatch, SuccessfulWorkerMeasurer)
     task = RealtimeObservationTask(
         obs_id=7,
-        observation=object(),
+        observation=Observation(data=object(), env_step=0, sim_time_ms=0.0),
         submit_env_step=0,
         submit_time_ms=0.0,
     )
@@ -874,7 +877,7 @@ def test_inference_worker_reports_real_errors_when_pipe_is_open(monkeypatch):
     _patch_worker_dependencies(monkeypatch, FailingWorkerMeasurer)
     task = RealtimeObservationTask(
         obs_id=8,
-        observation=object(),
+        observation=Observation(data=object(), env_step=0, sim_time_ms=0.0),
         submit_env_step=0,
         submit_time_ms=0.0,
     )
