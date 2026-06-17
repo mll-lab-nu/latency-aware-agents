@@ -13,6 +13,8 @@ from latency_bench.executors.realtime_warmup import (
     write_realtime_warmup_artifacts,
 )
 
+from helpers import realtime_profile as _realtime_profile
+
 
 def _stable_mock_latencies() -> list[float]:
     return [
@@ -117,7 +119,7 @@ def test_realtime_warmup_artifacts_handle_zero_latency_data(tmp_path):
                 ready_raw_frame=obs_id,
                 apply_raw_frame=obs_id,
                 applied=True,
-                metadata={"frame_ms": 1.0},
+                metadata={"frame_ms": 1.0, "realtime_profile": _realtime_profile()},
             )
         )
 
@@ -148,7 +150,7 @@ def test_realtime_warmup_artifacts_are_separate_from_formal_latencies(tmp_path):
                 ready_raw_frame=obs_id + 1,
                 apply_raw_frame=obs_id + 1,
                 applied=True,
-                metadata={"frame_ms": latency_ms},
+                metadata={"frame_ms": latency_ms, "realtime_profile": _realtime_profile(0.4)},
             )
         )
 
@@ -194,11 +196,11 @@ def test_realtime_warmup_summary_uses_e2e_latency_samples(tmp_path, monkeypatch)
                 ready_raw_frame=2,
                 apply_raw_frame=apply_raw_frame,
                 applied=True,
-                metadata={"frame_ms": 10.0},
+                metadata={"frame_ms": 10.0, "realtime_profile": _realtime_profile(5.0)},
             )
         )
 
     summary = write_realtime_warmup_artifacts(tmp_path, collector, stable=True)
 
     assert summary["warmup_samples"] == 2
-    assert summary["warmup_mean_latency_ms"] == pytest.approx(35.0)
+    assert summary["warmup_mean_latency_ms"] == pytest.approx(26.0)

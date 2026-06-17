@@ -17,11 +17,7 @@ from latency_bench.analysis.cross_device_protocol_tables import (
 )
 from latency_bench.experiments.build_latency_profile_from_trace import build_profile_from_trace
 from latency_bench.latency.profile import write_latency_samples
-
-
-def _write_jsonl(path: Path, records: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(record, sort_keys=True) + "\n" for record in records), encoding="utf-8")
+from latency_bench.utils.io import write_jsonl
 
 
 def _spec() -> dict:
@@ -148,9 +144,9 @@ def _write_fixture(root: Path) -> None:
         / "replay_h200"
         / "seed_0"
     )
-    _write_jsonl(measure_a100 / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
-    _write_jsonl(sim_same / "episode_metrics.jsonl", _episode_records(110.0, 1100.0))
-    _write_jsonl(sim_cross / "episode_metrics.jsonl", _episode_records(90.0, 950.0))
+    write_jsonl(measure_a100 / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
+    write_jsonl(sim_same / "episode_metrics.jsonl", _episode_records(110.0, 1100.0))
+    write_jsonl(sim_cross / "episode_metrics.jsonl", _episode_records(90.0, 950.0))
     manifests = [
         # a100 measure contributes to all experiments (profile + realtime return).
         _manifest(stage="measure", experiment_id="exp1_latency_profile_summary", experiment_ids=EXP_ALL, target_device_id="a100", output_dir=measure_a100, profile_path=profile_path),
@@ -159,7 +155,7 @@ def _write_fixture(root: Path) -> None:
         _manifest(stage="sim_same", experiment_id="exp2_same_device_calibration", target_device_id="a100", output_dir=sim_same),
         _manifest(stage="sim_cross", experiment_id="exp3_cross_device_prediction", target_device_id="a100", replay_device_id="h200", output_dir=sim_cross),
     ]
-    _write_jsonl(root / "manifests" / "runs.jsonl", manifests)
+    write_jsonl(root / "manifests" / "runs.jsonl", manifests)
 
 
 def _write_raw_download_fixture(protocol_root: Path, *, include_skipped_duplicates: bool = False) -> None:
@@ -169,8 +165,8 @@ def _write_raw_download_fixture(protocol_root: Path, *, include_skipped_duplicat
     measure_h200 = protocol_root / "runs" / "measure" / "flappy-sf-l1" / "flappy" / "h200" / "seed_0"
     sim_same = protocol_root / "runs" / "sim_same" / "flappy-sf-l1" / "flappy" / "a100" / "seed_0"
     old_root = Path("results/cross_device")
-    _write_jsonl(measure_a100 / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
-    _write_jsonl(sim_same / "episode_metrics.jsonl", _episode_records(110.0, 1100.0))
+    write_jsonl(measure_a100 / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
+    write_jsonl(sim_same / "episode_metrics.jsonl", _episode_records(110.0, 1100.0))
     manifests = [
         _manifest(
             stage="measure",
@@ -217,7 +213,7 @@ def _write_raw_download_fixture(protocol_root: Path, *, include_skipped_duplicat
                 ),
             ]
         )
-    _write_jsonl(protocol_root / "manifests" / "runs.jsonl", manifests)
+    write_jsonl(protocol_root / "manifests" / "runs.jsonl", manifests)
 
 
 def test_profile_summary_mapping_and_exact_error_formulas(tmp_path: Path):
@@ -382,7 +378,7 @@ def test_aggregate_notes_include_skipped_manifest_reasons(tmp_path: Path):
             skip_reason="runtime_env mismatch: requires small_model",
         )
     ]
-    _write_jsonl(tmp_path / "manifests" / "runs.jsonl", manifests)
+    write_jsonl(tmp_path / "manifests" / "runs.jsonl", manifests)
 
     exp2 = build_experiment2_rows(spec, tmp_path)
     a100 = next(row for row in exp2 if row["hardware"] == "A100")

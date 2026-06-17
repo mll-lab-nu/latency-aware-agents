@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+from latency_bench.utils.io import load_jsonl_records
+
 
 def summarize_realtime_trace(output_dir: str | Path, *, first_steps: int = 60) -> dict[str, Any]:
     output_path = Path(output_dir)
-    metrics = _read_jsonl(output_path / "episode_metrics.jsonl")
-    actions = _read_jsonl(output_path / "actions.jsonl")
-    steps = _read_jsonl(output_path / "steps.jsonl")
+    metrics = load_jsonl_records(output_path / "episode_metrics.jsonl")
+    actions = load_jsonl_records(output_path / "actions.jsonl")
+    steps = load_jsonl_records(output_path / "steps.jsonl")
     metrics_by_episode = {int(row["episode_id"]): row for row in metrics}
     actions_by_id = {int(row["action_id"]): row for row in actions}
     steps_by_episode: dict[int, list[dict[str, Any]]] = defaultdict(list)
@@ -90,10 +91,3 @@ def _summarize_episode(
             for step in steps[:first_steps]
         ],
     }
-
-
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-    ]

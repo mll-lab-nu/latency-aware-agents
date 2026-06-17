@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from latency_bench.latency.profile import write_latency_samples
+from latency_bench.utils.io import read_csv, write_jsonl
 from scripts.cross_device import build_figure_data as bfd
 
 
@@ -15,11 +16,6 @@ def _write_csv(path: Path, columns: list[str], rows: list[dict[str, str]]) -> No
         writer = csv.DictWriter(f, fieldnames=columns)
         writer.writeheader()
         writer.writerows(rows)
-
-
-def _read_csv(path: Path) -> list[dict[str, str]]:
-    with path.open(newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
 
 
 def _seed_tables(tables_dir: Path) -> None:
@@ -94,8 +90,8 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
         max_samples_per_device=10,
     )
 
-    fig_rows = _read_csv(out_fig)
-    table_rows = _read_csv(out_table)
+    fig_rows = read_csv(out_fig)
+    table_rows = read_csv(out_table)
 
     # Schema matches what the plotting scripts read.
     assert list(fig_rows[0].keys()) == list(bfd.FIG_COLUMNS)
@@ -135,6 +131,58 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
     assert counts == {"fig_rows": 22, "table_rows": 1}
 
 
+def test_profiled_e2e_trace_emits_overhead_samples(tmp_path: Path):
+    tables_dir = tmp_path / "tables"
+    profiles_root = tmp_path / "profiles"
+    _seed_tables(tables_dir)
+    # Profiled measure run: e2e records carry bench_overhead_ms alongside latency_ms.
+    write_jsonl(
+        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "e2e_latencies.jsonl",
+        [{"latency_ms": float(i), "bench_overhead_ms": float(i) + 5.0} for i in range(100)],
+    )
+    write_latency_samples(
+        [float(i + 100) for i in range(100)],
+        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "infer_latencies.jsonl",
+    )
+    exp1_rows = read_csv(tables_dir / "experiment1_latency_profile_summary.csv")
+
+    rows = bfd.build_latency_sample_rows(
+        exp1_rows,
+        profiles_root,
+        panel_a_env="Flappy",
+        max_samples_per_device=10,
+    )
+    overhead = [row for row in rows if row["row_type"] == "overhead_latency_sample"]
+    assert len(overhead) == 10
+    assert {row["hardware"] for row in overhead} == {"RTX 3090"}
+    assert overhead[0]["panel"] == "a"
+    assert overhead[0]["latency_ms"] == 5.0  # bench_overhead_ms of sample 0
+
+
+def test_unprofiled_e2e_trace_emits_no_overhead_samples(tmp_path: Path):
+    tables_dir = tmp_path / "tables"
+    profiles_root = tmp_path / "profiles"
+    _seed_tables(tables_dir)
+    # Legacy quantized trace: latency_ms only, no bench_overhead_ms.
+    write_latency_samples(
+        [float(i) for i in range(100)],
+        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "e2e_latencies.jsonl",
+    )
+    write_latency_samples(
+        [float(i + 100) for i in range(100)],
+        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "infer_latencies.jsonl",
+    )
+    exp1_rows = read_csv(tables_dir / "experiment1_latency_profile_summary.csv")
+
+    rows = bfd.build_latency_sample_rows(
+        exp1_rows,
+        profiles_root,
+        panel_a_env="Flappy",
+        max_samples_per_device=10,
+    )
+    assert not [row for row in rows if row["row_type"] == "overhead_latency_sample"]
+
+
 def test_build_latency_sample_rows_requires_inference_trace_for_profiled_devices(tmp_path: Path):
     tables_dir = tmp_path / "tables"
     profiles_root = tmp_path / "profiles"
@@ -143,7 +191,7 @@ def test_build_latency_sample_rows_requires_inference_trace_for_profiled_devices
         [1.0, 2.0],
         profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "e2e_latencies.jsonl",
     )
-    exp1_rows = _read_csv(tables_dir / "experiment1_latency_profile_summary.csv")
+    exp1_rows = read_csv(tables_dir / "experiment1_latency_profile_summary.csv")
 
     with pytest.raises(FileNotFoundError, match="infer_latencies.jsonl"):
         bfd.build_latency_sample_rows(

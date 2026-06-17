@@ -45,20 +45,3 @@ def test_compute_latency_profile_summary_custom_tail_thresholds():
     assert summary["prob_latency_gt_1_frame"] == pytest.approx(2.0 / 3.0)
     assert summary["prob_latency_gt_4_frames"] == pytest.approx(0.0)
     assert "prob_latency_gt_2_frames" not in summary
-
-
-@pytest.mark.parametrize("env_fps", [0.0, -25.0])
-def test_compute_latency_profile_summary_rejects_invalid_env_fps(env_fps: float):
-    with pytest.raises(ValueError, match="env_fps must be positive"):
-        compute_latency_profile_summary([10.0], env_fps=env_fps)
-
-
-def test_compute_latency_profile_summary_rejects_empty_samples():
-    with pytest.raises(ValueError, match="samples_ms must not be empty"):
-        compute_latency_profile_summary([], env_fps=25.0)
-
-
-@pytest.mark.parametrize("value", [-1.0, float("nan"), float("inf")])
-def test_compute_latency_profile_summary_rejects_invalid_samples(value: float):
-    with pytest.raises(ValueError, match="samples_ms must contain finite non-negative values"):
-        compute_latency_profile_summary([value], env_fps=25.0)

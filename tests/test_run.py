@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from latency_bench.core.types import EpisodeMetrics
+from latency_bench.executors.base import BatchedExecutor, EpisodeExecutor
 import latency_bench.run as latency_run
 from latency_bench.run import main
 
@@ -184,7 +185,7 @@ def test_run_from_config_uses_sample_factory_eval_episode_seeds(monkeypatch, tmp
         def close(self):
             pass
 
-    class FakeExecutor:
+    class FakeExecutor(EpisodeExecutor):
         logger = None
         env = FakeEnv()
 
@@ -218,7 +219,7 @@ def test_run_from_config_keeps_existing_episode_seeds_for_non_sample_factory_pol
         def close(self):
             pass
 
-    class FakeExecutor:
+    class FakeExecutor(EpisodeExecutor):
         logger = None
         env = FakeEnv()
 
@@ -251,7 +252,7 @@ def test_run_from_config_uses_evaluation_eval_max_steps(
         def close(self):
             pass
 
-    class FakeExecutor:
+    class FakeExecutor(EpisodeExecutor):
         logger = None
         env = FakeEnv()
 
@@ -283,7 +284,7 @@ def test_run_from_config_uses_batched_executor_run_episodes_when_available(
         def close(self):
             pass
 
-    class FakeBatchedExecutor:
+    class FakeBatchedExecutor(BatchedExecutor):
         logger = None
         env = FakeEnv()
 
@@ -329,7 +330,7 @@ def test_run_from_config_merges_executor_warmup_metadata(
         def flush(self):
             pass
 
-    class FakeExecutor:
+    class FakeExecutor(EpisodeExecutor):
         env = FakeEnv()
 
         def __init__(self):
@@ -388,7 +389,7 @@ def test_run_from_config_keeps_executor_alive_until_latency_sample_target(
             flushed_episode_count.append(len(self.episode_metrics))
             flushed_latency_count.append(len(self.latency_records))
 
-    class FakeExecutor:
+    class FakeExecutor(EpisodeExecutor):
         env = FakeEnv()
 
         def __init__(self):
@@ -442,7 +443,7 @@ def test_run_eval_progress_keeps_existing_episode_format_without_sample_target(
         def flush(self):
             pass
 
-    class FakeExecutor:
+    class FakeExecutor(EpisodeExecutor):
         env = FakeEnv()
 
         def __init__(self):
@@ -486,7 +487,7 @@ def test_run_eval_progress_reports_sample_target_and_extra_episodes(
         def flush(self):
             pass
 
-    class FakeExecutor:
+    class FakeExecutor(EpisodeExecutor):
         env = FakeEnv()
 
         def __init__(self):
@@ -527,7 +528,7 @@ def test_run_from_config_without_warmup_hook_does_not_warmup(
         def close(self):
             pass
 
-    class FakeExecutor:
+    class FakeExecutor(EpisodeExecutor):
         logger = None
         env = FakeEnv()
 
@@ -584,7 +585,7 @@ def test_run_from_config_requires_evaluation_eval_max_steps(monkeypatch, tmp_pat
         def close(self):
             pass
 
-    class FakeExecutor:
+    class FakeExecutor(EpisodeExecutor):
         logger = None
         env = FakeEnv()
 
@@ -687,7 +688,7 @@ logging:
 
     eval_calls = []
 
-    def fake_run_eval_suites_from_config(config, *, progress=False, extra_metadata=None):
+    def fake_run_eval_suites_from_config(config, *, progress=False, extra_metadata=None, episode_ids=None):
         eval_calls.append((config, extra_metadata))
         train_env_steps = int(extra_metadata["train_env_steps"])
         return [
@@ -850,7 +851,7 @@ logging:
 
     eval_calls = []
 
-    def fake_run_eval_suites_from_config(config, *, progress=False, extra_metadata=None):
+    def fake_run_eval_suites_from_config(config, *, progress=False, extra_metadata=None, episode_ids=None):
         eval_calls.append((config, progress, extra_metadata))
         return [
             {

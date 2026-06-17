@@ -2,7 +2,7 @@ __base__:
   - ../../base/flappy.yaml
 
 experiment:
-  name: starvla_openvla_flappy_fix_latency_2_exp
+  name: starvla_openvla_flappy_fix_latency_0_200ep
   seed: 42
 
 executor:
@@ -16,9 +16,10 @@ env:
 
 policy:
   type: starvla
-  checkpoint_path: /inspire/hdd/project/spatialintelligence/public/lzj/starVLA/results/Checkpoints/openvla_flappy_fix_latency_2_exp/checkpoints/steps_1000_pytorch_model.pt
+  checkpoint_path: /workspace/starVLA/results/Checkpoints/flappy_fix_latency_0_200ep/checkpoints/steps_5000_state/model.safetensors
   device: cuda
-  latency_prompt_map_path: /inspire/hdd/global_user/liumingyu-253208120284/lzj/starvla/data/flappy_fix_latency_0_parquet/flappy_train__bridge/latency_prompt_map.json
+  unnorm_key: new_embodiment
+  latency_prompt_map_path: /workspace/latency-sensitive-bench/prompt_map/flappy_fix_latency_prompt_map.json
   actions:
     - noop
     - flap
@@ -32,12 +33,12 @@ evaluation:
   eval_max_steps: 3600
   eval_suites:
     fixed:
-      - [0, 8]
+      - [0, 4]
     normal: []
     uniform: []
 
 logging:
-  output_dir: outputs/starvla_openvla_flappy_fix_latency_2_exp
+  output_dir: outputs/starvla_openvla_flappy_fix_latency_0_200ep
   save_step_records: false
   save_action_records: false
   save_latency_records: false

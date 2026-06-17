@@ -1,15 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-import numpy as np
 import pyarrow.parquet as pq
 
-
-def _save_image(path: Path) -> None:
-    from PIL import Image
-
-    Image.fromarray(np.full((2, 2, 3), 7, dtype=np.uint8)).save(path)
+from helpers import save_test_image
 
 
 def test_hf_parquet_writes_canonical_columns_only(tmp_path):
@@ -17,7 +10,7 @@ def test_hf_parquet_writes_canonical_columns_only(tmp_path):
     from latency_bench.data.hf_parquet import write_parquet_splits
 
     image_path = tmp_path / "image.png"
-    _save_image(image_path)
+    save_test_image(image_path, 7)
     row = {
         "image": str(image_path),
         "env_name": "flappy",
@@ -56,7 +49,7 @@ def test_hf_parquet_shards_sort_by_decision_step(tmp_path):
     from latency_bench.data.hf_parquet import write_episode_row_shard, write_parquet_splits_from_shards
 
     image_path = tmp_path / "image.png"
-    _save_image(image_path)
+    save_test_image(image_path, 7)
     rows = [
         {
             "image": str(image_path),

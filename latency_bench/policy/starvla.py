@@ -57,7 +57,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         wrapper: Any,
         checkpoint_path: str,
         device: str,
-        unnorm_key: str,
+        unnorm_key: str | None,
         env_name: str,
         action_resolver: ActionResolver,
         action_refs: Sequence[Any],
@@ -399,12 +399,13 @@ def _build_starvla_policy(
     action_resolver: ActionResolver,
 ) -> PolicyRunner:
     policy_cfg = config["policy"]
+    unnorm_key = policy_cfg["unnorm_key"] if "unnorm_key" in policy_cfg else None
     wrapper_cls = _load_policy_wrapper_class()
     wrapper = wrapper_cls(
         ckpt_path=policy_cfg["checkpoint_path"],
         device=policy_cfg["device"],
         use_bf16=True,
-        unnorm_key=policy_cfg["unnorm_key"],
+        unnorm_key=unnorm_key,
         action_output_mode="rl_games",
         rl_games_env_name=config["env"]["name"],
     )
@@ -417,7 +418,7 @@ def _build_starvla_policy(
         wrapper=wrapper,
         checkpoint_path=policy_cfg["checkpoint_path"],
         device=policy_cfg["device"],
-        unnorm_key=policy_cfg["unnorm_key"],
+        unnorm_key=unnorm_key,
         env_name=config["env"]["name"],
         action_resolver=action_resolver,
         action_refs=policy_cfg.get("actions", action_resolver.default_action_refs()),

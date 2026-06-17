@@ -34,3 +34,5 @@ paper/
 
 # private keys
 .env
+
+.codegraph

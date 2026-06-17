@@ -11,6 +11,7 @@ from latency_bench.core.types import Action, ActionEvent, LatencyRecord, Observa
 from latency_bench.envs.base import DummyEnvAdapter
 from latency_bench.executors.realtime import (
     ProcessInferencePool,
+    RealtimeActionDispatch,
     RealtimeLatencyExecutor,
     RealtimeObservationTask,
     RealtimePolicyCompletion,
@@ -18,6 +19,7 @@ from latency_bench.executors.realtime import (
     _worker_runtime_metadata,
 )
 from latency_bench.latency.sources import ZeroLatencySource
+from latency_bench.logging.realtime_pipeline import PipelineProfile
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import ConstantPolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
@@ -114,6 +116,7 @@ class ScriptedInferencePool:
                         ),
                         worker_id=script.worker_id,
                         device=script.device,
+                        profile=task.profile,
                     )
                 )
             else:
@@ -231,6 +234,26 @@ class QueuedEnvMessagePipe:
 
     def close(self) -> None:
         self.closed = True
+
+
+class TimedEnvMessagePipe:
+    def __init__(self, messages: list[tuple[str, dict]], clock: FakeClock):
+        self.messages = list(messages)
+        self.clock = clock
+        self.poll_timeouts: list[float | None] = []
+
+    def poll(self, timeout: float | None = None) -> bool:
+        self.poll_timeouts.append(timeout)
+        if self.messages:
+            if timeout is not None:
+                self.clock.now += 0.010
+            return True
+        if timeout is not None:
+            self.clock.now += timeout
+        return False
+
+    def recv(self):
+        return self.messages.pop(0)
 
 
 class QueuedEnvMessageContext:
@@ -619,17 +642,119 @@ def test_inference_worker_returns_slim_result_without_observation_task(monkeypat
     assert not hasattr(payload["result"], "device")
 
 
-def test_process_inference_pool_reconstructs_completion_from_busy_task():
+def test_action_dispatch_and_ack_payloads_carry_realtime_profile() -> None:
+    event = ActionEvent(
+        action_id=11,
+        action=Action("jump"),
+        obs_env_step=4,
+        ready_time_ms=120.0,
+        ready_step_float=3.6,
+        latency=LatencyRecord(obs_id=5, latency_ms=20.0),
+        metadata={"realtime_profile": PipelineProfile(parent_release_ms=1.5)},
+    )
+    event.latency_raw_frames = 2
+    event.ready_raw_frame = 6
+
+    payload = realtime._action_event_dispatch_payload(event)
+    dispatched = realtime._action_event_from_dispatch_payload(payload)
+    dispatched.applied = True
+    dispatched.apply_raw_frame = 7
+    ack = realtime._action_event_ack_payload(dispatched)
+
+    assert payload["profile"] == {"parent_release_ms": 1.5}
+    assert dispatched.profile.to_dict() == {"parent_release_ms": 1.5}
+    assert ack["profile"] == {"parent_release_ms": 1.5}
+
+
+def test_env_action_drain_happens_before_scheduler_update() -> None:
+    clock = EnvClock(env_fps=10.0, obs_fps=10.0)
+    scheduler = ActionScheduler(
+        clock=clock,
+        noop_action=Action("noop", name="noop", is_noop=True),
+        persistence_policy=HoldPolicy(duration_raw_frames=1),
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
+    )
+    event = ActionEvent(
+        action_id=0,
+        action=Action("jump"),
+        obs_env_step=0,
+        ready_time_ms=0.0,
+        ready_step_float=0.0,
+        latency=LatencyRecord(obs_id=0, latency_ms=0.0),
+        metadata={"realtime_profile": PipelineProfile(parent_to_env_send_start_ms=9.0)},
+    )
+    event.latency_raw_frames = 0
+    event.ready_raw_frame = 0
+    pipe = QueuedEnvMessagePipe([("action_dispatch", realtime._action_event_dispatch_payload(event))])
+
+    closed = realtime._drain_env_action_messages(
+        connection=pipe,
+        action_scheduler=scheduler,
+        now_ms_fn=lambda: 10.0,
+    )
+    active_action = scheduler.update(0, 0.0)
+    applied = scheduler.get_applied_events()[0]
+
+    assert closed is False
+    assert active_action == Action("jump")
+    assert applied.profile.parent_to_env_ipc_ms == 1.0
+    assert applied.profile.env_action_recv_to_enqueue_ms is not None
+
+
+def test_env_wait_drains_actions_before_next_frame_boundary() -> None:
+    fake_clock = FakeClock(now=1.0)
+    clock = EnvClock(env_fps=10.0, obs_fps=10.0)
+    scheduler = ActionScheduler(
+        clock=clock,
+        noop_action=Action("noop", name="noop", is_noop=True),
+        persistence_policy=HoldPolicy(duration_raw_frames=1),
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
+    )
+    event = ActionEvent(
+        action_id=0,
+        action=Action("jump"),
+        obs_env_step=0,
+        ready_time_ms=0.0,
+        ready_step_float=0.0,
+        latency=LatencyRecord(obs_id=0, latency_ms=0.0),
+        metadata={"realtime_profile": PipelineProfile(parent_to_env_send_start_ms=999.0)},
+    )
+    event.ready_raw_frame = 0
+    pipe = TimedEnvMessagePipe(
+        [("action_dispatch", realtime._action_event_dispatch_payload(event))],
+        fake_clock,
+    )
+
+    closed = realtime._drain_env_actions_until_wall_time(
+        connection=pipe,
+        action_scheduler=scheduler,
+        target_wall_s=1.100,
+        time_fn=fake_clock.time,
+        now_ms_fn=lambda: 1000.0,
+    )
+    active_action = scheduler.update(0, 0.0)
+
+    assert closed is False
+    assert fake_clock.now == 1.100
+    assert pipe.poll_timeouts[0] == pytest.approx(0.100)
+    assert pipe.poll_timeouts[-1] == pytest.approx(0.090)
+    assert active_action == Action("jump")
+
+
+def test_process_inference_pool_reconstructs_completion_from_busy_task(monkeypatch):
+    monkeypatch.setattr(realtime, "_profile_now_ms", lambda: 20.0)
     task = RealtimeObservationTask(
         obs_id=11,
         observation=Observation(data="obs", env_step=4, sim_time_ms=120.0),
         submit_env_step=4,
         submit_time_ms=120.0,
+        profile=PipelineProfile(parent_observation_handle_ms=2.0),
     )
     result = realtime.RealtimePolicyResult(
         policy_output=PolicyOutput(action=Action("jump")),
         completion_time_ms=135.0,
         latency_record=LatencyRecord(obs_id=11, latency_ms=15.0),
+        profile=PipelineProfile(worker_recv_overhead_ms=3.0, worker_result_send_start_ms=17.0),
     )
     pool = ProcessInferencePool.__new__(ProcessInferencePool)
     pool.closed = False
@@ -644,6 +769,9 @@ def test_process_inference_pool_reconstructs_completion_from_busy_task():
     assert completions[0].policy_output.action.value == "jump"
     assert completions[0].worker_id == 0
     assert completions[0].device == "cpu"
+    assert completions[0].profile.parent_observation_handle_ms == 2.0
+    assert completions[0].profile.worker_recv_overhead_ms == 3.0
+    assert completions[0].profile.worker_to_parent_ipc_ms == 3.0
 
 
 def test_action_dispatch_and_ack_payloads_are_scheduler_slim():
@@ -660,9 +788,18 @@ def test_action_dispatch_and_ack_payloads_are_scheduler_slim():
         applied=True,
         metadata={"frame_ms": 30.0, "policy_blob": "large"},
     )
+    dispatched = RealtimeActionDispatch(
+        action_id=5,
+        action=Action("jump"),
+        obs_env_step=3,
+        ready_time_ms=90.0,
+        ready_step_float=4.0,
+        apply_raw_frame=6,
+        applied=True,
+    )
 
     dispatch = realtime._action_event_dispatch_payload(event)
-    ack = realtime._action_event_ack_payload(event)
+    ack = realtime._action_event_ack_payload(dispatched)
 
     assert dispatch == {
         "action_id": 5,

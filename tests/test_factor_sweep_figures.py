@@ -4,6 +4,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 OFFICIAL_SEEDS = tuple(range(10, 15))
@@ -19,6 +21,10 @@ JITTER_GRID_ROOT = (
 
 
 def _load_module(name: str, path: Path):
+    # The paper/ figure tree is gitignored (local-only), so these fetch scripts
+    # are absent on clean checkouts / CI. Skip rather than fail when missing.
+    if not path.exists():
+        pytest.skip(f"paper figure script not present: {path}")
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -27,15 +33,15 @@ def _load_module(name: str, path: Path):
 
 
 def test_context_window_fetch_specs_use_official_seed_grid():
-    fetch = _load_module("factor_sweep_context_window_fetch", FIG_ROOT / "fig_context_window" / "fetch_wandb.py")
+    fetch = _load_module("factor_sweep_context_window_fetch", FIG_ROOT / "fig_context_window" / "capped" / "fetch_wandb.py")
 
     specs = fetch.build_query_specs()
 
-    assert len(specs) == 28
+    assert len(specs) == 38
     assert {spec.expected_seeds for spec in specs} == {OFFICIAL_SEEDS}
     assert {spec.x_label for spec in specs if spec.env_id == "flappy"} == {"4", "5", "6", "7", "8"}
     assert {spec.x_label for spec in specs if spec.env_id == "demon-attack"} == {"4", "5", "6", "7", "8"}
-    assert {spec.x_label for spec in specs if spec.env_id == "deadly-corridor"} == {"4", "6", "8", "10"}
+    assert {spec.x_label for spec in specs if spec.env_id == "deadly-corridor"} == {"1", "2", "4", "6", "8", "10", "12", "14", "16"}
     assert "flappy-fs5-fixed_l2" in {spec.group_name for spec in specs}
     assert "deadly-corridor-fs10-fixed_l4" in {spec.group_name for spec in specs}
     assert "flappy-frame_stack" not in {spec.group_name for spec in specs}
@@ -44,16 +50,16 @@ def test_context_window_fetch_specs_use_official_seed_grid():
 def test_observation_stride_fetch_specs_use_official_seed_grid_and_stride_groups():
     fetch = _load_module(
         "factor_sweep_observation_stride_fetch",
-        FIG_ROOT / "fig_observation_stride" / "fetch_wandb.py",
+        FIG_ROOT / "fig_observation_stride" / "capped" / "fetch_wandb.py",
     )
 
     specs = fetch.build_query_specs()
 
-    assert len(specs) == 30
+    assert len(specs) == 32
     assert {spec.expected_seeds for spec in specs} == {OFFICIAL_SEEDS}
     assert {spec.x_label for spec in specs if spec.env_id == "flappy"} == {"1", "2", "3", "4", "5"}
     assert {spec.x_label for spec in specs if spec.env_id == "demon-attack"} == {"2", "3", "4", "5", "6"}
-    assert {spec.x_label for spec in specs if spec.env_id == "deadly-corridor"} == {"2", "3", "4", "5", "6"}
+    assert {spec.x_label for spec in specs if spec.env_id == "deadly-corridor"} == {"1", "2", "3", "4", "5", "6"}
     group_names = {spec.group_name for spec in specs}
     assert "flappy-stride5-fixed_l2" in group_names
     assert "demon-attack-stride2-fixed_l4" in group_names
