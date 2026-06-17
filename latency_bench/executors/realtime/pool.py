@@ -45,6 +45,10 @@ class ProcessInferencePool:
     def idle_worker_count(self) -> int:
         return len(self.inference_devices) - len(self._busy_worker_tasks)
 
+    @property
+    def worker_count(self) -> int:
+        return len(self.inference_devices)
+
     def reset_episode(self) -> None:
         self.drain_until_idle()
 

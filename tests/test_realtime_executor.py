@@ -71,6 +71,10 @@ class ScriptedInferencePool:
     def idle_worker_count(self) -> int:
         return self.num_workers - len(self._busy_worker_ids)
 
+    @property
+    def worker_count(self) -> int:
+        return self.num_workers
+
     def reset_episode(self) -> None:
         self.submitted.clear()
         self._busy_worker_ids.clear()
@@ -286,6 +290,10 @@ class DrainBeforeSubmitPool:
     def idle_worker_count(self) -> int:
         return 1 if self.drained else 0
 
+    @property
+    def worker_count(self) -> int:
+        return 1
+
     def reset_episode(self) -> None:
         self.drained = False
         self.submitted.clear()
@@ -318,6 +326,10 @@ class LateCompletionAfterFinalizePool:
     @property
     def idle_worker_count(self) -> int:
         return 1 - self.in_flight_count
+
+    @property
+    def worker_count(self) -> int:
+        return 1
 
     def drain_until_idle(self) -> dict[str, float | int]:
         return {
@@ -1039,6 +1051,21 @@ def test_realtime_drops_observation_when_all_workers_are_busy():
     assert metrics.metadata["submitted_observation_frames"] == 1
     assert metrics.metadata["dropped_observation_count"] == 2
     assert executor.logger is None
+
+
+def test_realtime_records_inference_worker_count_in_episode_metadata():
+    pool = ScriptedInferencePool(
+        [
+            CompletionScript(Action("a0"), ready_time_ms=1000.0, worker_id=0, device="cpu"),
+            CompletionScript(Action("a1"), ready_time_ms=1000.0, worker_id=1, device="cpu"),
+        ],
+        num_workers=2,
+    )
+    executor = _executor(pool=pool, max_steps=2)
+
+    metrics = executor.run_episode(episode_id=0, eval_max_steps=2)
+
+    assert metrics.metadata["inference_worker_count"] == 2
 
 
 def test_latest_ready_ignores_older_late_result():

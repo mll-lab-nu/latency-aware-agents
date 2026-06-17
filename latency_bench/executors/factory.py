@@ -204,6 +204,7 @@ def _build_single_simulated_executor(
         video_recorder=video_recorder,
         video_episode_metadata=video_episode_metadata,
         episode_latency_source_factory=episode_latency_source_factory,
+        simulated_worker_capacity=_simulated_worker_capacity(config),
     )
 
 
@@ -270,6 +271,7 @@ def _build_batched_simulated_executor(
             clock=clock,
             logger=logger,
             episode_latency_source_factory=episode_latency_source_factory,
+            simulated_worker_capacity=_simulated_worker_capacity(config),
         )
     except Exception:
         if env_backend is not None:
@@ -442,6 +444,10 @@ def _build_ordering_policy(scheduler_cfg: dict[str, Any]) -> OrderingPolicy:
     _raise_if_unsupported_scheduler_fields(scheduler_cfg)
     ordering_policy = scheduler_cfg.get("ordering_policy", OrderingPolicy.ISSUE_ORDER_FIFO.value)
     return _normalize_ordering_policy(ordering_policy, field_name="scheduler.ordering_policy")
+
+
+def _simulated_worker_capacity(config: dict[str, Any]) -> int | None:
+    return config["executor"].get("simulated_worker_capacity")
 
 
 def _normalize_ordering_policy(value: Any, *, field_name: str) -> OrderingPolicy:

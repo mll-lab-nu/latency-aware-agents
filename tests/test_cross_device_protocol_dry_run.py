@@ -41,28 +41,31 @@ def _write_base_config(path: Path) -> None:
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
 
-def _write_profile_manifest(path: Path, *, env_fps: float = 16.0) -> None:
+def _write_profile_manifest(path: Path, *, env_fps: float = 16.0, inference_worker_count: int | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "profile_id": "L_A100",
+        "policy_id": "dry-policy",
+        "env_id": "flappy",
+        "target_device": "a100",
+        "env_fps": env_fps,
+        "frame_ms": 1000.0 / env_fps,
+        "n_samples": 3,
+        "trace_path": "e2e_latencies.jsonl",
+        "latency_kind": "e2e_latency",
+        "inference_trace_path": "infer_latencies.jsonl",
+        "e2e_trace_path": "e2e_latencies.jsonl",
+        "distribution_path": "latency_distribution.json",
+        "plot_path": "latency_distribution.png",
+        "summary": {"mean_ms": 125.0, "mean_effective_frames": 2.0, "n_samples": 3},
+        "inference_summary": {"mean_ms": 62.5, "mean_effective_frames": 1.0, "n_samples": 3},
+        "e2e_summary": {"mean_ms": 125.0, "mean_effective_frames": 2.0, "n_samples": 3},
+    }
+    if inference_worker_count is not None:
+        payload["inference_worker_count"] = inference_worker_count
     path.write_text(
         json.dumps(
-            {
-                "profile_id": "L_A100",
-                "policy_id": "dry-policy",
-                "env_id": "flappy",
-                "target_device": "a100",
-                "env_fps": env_fps,
-                "frame_ms": 1000.0 / env_fps,
-                "n_samples": 3,
-                "trace_path": "e2e_latencies.jsonl",
-                "latency_kind": "e2e_latency",
-                "inference_trace_path": "infer_latencies.jsonl",
-                "e2e_trace_path": "e2e_latencies.jsonl",
-                "distribution_path": "latency_distribution.json",
-                "plot_path": "latency_distribution.png",
-                "summary": {"mean_ms": 125.0, "mean_effective_frames": 2.0, "n_samples": 3},
-                "inference_summary": {"mean_ms": 62.5, "mean_effective_frames": 1.0, "n_samples": 3},
-                "e2e_summary": {"mean_ms": 125.0, "mean_effective_frames": 2.0, "n_samples": 3},
-            },
+            payload,
             sort_keys=True,
         )
         + "\n",
@@ -818,7 +821,7 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
     _write_base_config(base_config)
     _write_spec(spec, base_config)
     profile_path = out / "profiles" / "dry-policy" / "flappy" / "L_A100" / "profile.json"
-    _write_profile_manifest(profile_path, env_fps=16.0)
+    _write_profile_manifest(profile_path, env_fps=16.0, inference_worker_count=2)
 
     result = _run_cli(
         tmp_path,
@@ -842,6 +845,7 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
     generated = next((out / "generated_configs" / "sim_same").rglob("*.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["executor"]["mode"] == "simulated"
+    assert config["executor"]["simulated_worker_capacity"] == 2
     assert config["env"]["env_fps"] == 16.0
     assert config["env"]["obs_fps"] == 16.0
     assert config["latency"]["type"] == "profile_sample"

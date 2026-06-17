@@ -235,6 +235,7 @@ def _executor(
     obs_fps: float | None = None,
     decision_scheduler: DecisionScheduler | None = None,
     persistence_policy: ActionPersistencePolicy | None = None,
+    simulated_worker_capacity: int | None = None,
 ) -> tuple[SimulatedLatencyExecutor, DummyEnvAdapter, EnvClock, Action]:
     noop = Action("noop", is_noop=True)
     env = DummyEnvAdapter(env_fps=env_fps, max_steps=max_steps, noop_action=noop)
@@ -253,6 +254,7 @@ def _executor(
         action_scheduler=action_scheduler,
         clock=clock,
         logger=logger,
+        simulated_worker_capacity=simulated_worker_capacity,
     )
     return executor, env, clock, noop
 
@@ -365,6 +367,29 @@ def test_policy_observation_receives_sampled_latency_metadata_before_predict():
     event = executor.action_scheduler.get_applied_events()[0]
     assert event.latency.obs_id == policy.observations[0].metadata["obs_id"]
     assert event.latency_raw_frames == policy.observations[0].metadata["latency_raw_frames"]
+
+
+def test_simulated_worker_capacity_drops_observations_when_worker_is_busy():
+    latency_source = RawFrameLatencySource([3, 3])
+    policy = CountingPolicyRunner()
+    executor, _, _, _ = _executor(
+        latency_source,
+        policy=policy,
+        max_steps=5,
+        decision_scheduler=SelectedRawFrameDecisionScheduler({0, 1, 2, 3}),
+        simulated_worker_capacity=1,
+    )
+
+    metrics = executor.run_episode(episode_id=0, eval_max_steps=5)
+
+    events = executor.action_scheduler.get_applied_events() + executor.action_scheduler.get_pending_events()
+    assert [event.obs_env_step for event in events] == [0, 3]
+    assert [call["raw_frame"] for call in latency_source.calls] == [0, 3]
+    assert policy.count == 2
+    assert metrics.metadata["submitted_observation_frames"] == 2
+    assert metrics.metadata["dropped_observation_count"] == 2
+    assert metrics.metadata["simulated_worker_capacity"] == 1
+    assert metrics.metadata["inference_worker_count"] == 1
 
 
 def test_simulated_executor_omits_raw_rgb_frame_stack_from_logged_step_info(tmp_path: Path):

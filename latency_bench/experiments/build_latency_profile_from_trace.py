@@ -8,7 +8,7 @@ from typing import Any
 
 from latency_bench.analysis.utils import write_latency_distribution_plot
 from latency_bench.analysis.profile_stats import compute_latency_profile_summary
-from latency_bench.utils.io import write_json
+from latency_bench.utils.io import load_jsonl_records, write_json
 from latency_bench.latency.profile import (
     build_inverse_cdf_distribution,
     load_latency_samples,
@@ -30,6 +30,7 @@ def build_profile_from_trace(
     metadata: dict[str, Any],
     latency_kind: str = "inference_latency",
     inference_latencies: str | Path | None = None,
+    episode_metrics: str | Path | None = None,
     n_samples: int | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
@@ -91,6 +92,9 @@ def build_profile_from_trace(
         manifest["inference_summary"] = inference_summary
         manifest["e2e_trace_path"] = paths["trace"].name
         manifest["e2e_summary"] = summary
+    if episode_metrics is not None:
+        metrics_records = load_jsonl_records(episode_metrics)
+        manifest["inference_worker_count"] = metrics_records[0]["metadata"]["inference_worker_count"]
     manifest.update(metadata)
     save_profile_manifest(manifest, paths["profile"])
     return manifest
@@ -108,6 +112,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--metadata-json", required=True)
     parser.add_argument("--latency-kind", choices=["inference_latency", "e2e_latency"], default="inference_latency")
     parser.add_argument("--inference-latencies", type=Path)
+    parser.add_argument("--episode-metrics", type=Path)
     parser.add_argument("--n-samples", type=int)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
@@ -123,6 +128,7 @@ def main(argv: list[str] | None = None) -> None:
         metadata=json.loads(args.metadata_json),
         latency_kind=args.latency_kind,
         inference_latencies=args.inference_latencies,
+        episode_metrics=args.episode_metrics,
         n_samples=args.n_samples,
         overwrite=args.overwrite,
     )

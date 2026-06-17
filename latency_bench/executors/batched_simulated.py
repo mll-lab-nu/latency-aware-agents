@@ -6,7 +6,11 @@ from dataclasses import dataclass, field
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
-from latency_bench.executors._simulated_timeline import SimulatedLatencySample, sample_simulated_latency
+from latency_bench.executors._simulated_timeline import (
+    SimulatedLatencySample,
+    SimulatedWorkerCapacity,
+    sample_simulated_latency,
+)
 from latency_bench.executors.base import BatchedExecutor
 from latency_bench.executors.env_step_backend import EnvStepBackend
 from latency_bench.latency.sources import LatencySource
@@ -40,6 +44,8 @@ class _EpisodeBuffers:
     num_actions: int = 0
     num_dropped_actions: int = 0
     num_invalid_actions: int = 0
+    submitted_observation_frames: int = 0
+    dropped_observation_count: int = 0
 
     def record_step(self, *, reward: float, info: dict) -> None:
         self.episode_return_env += float(reward)
@@ -71,6 +77,9 @@ class _SlotState:
     episode_seed: int | None = None
     env_step: int = 0
     buffers: _EpisodeBuffers = field(default_factory=_EpisodeBuffers)
+    worker_capacity: SimulatedWorkerCapacity = field(
+        default_factory=lambda: SimulatedWorkerCapacity(capacity=None, busy_until_raw_frames=[])
+    )
 
 
 @dataclass
@@ -112,6 +121,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         clock: EnvClock,
         logger: TrajectoryLogger | None = None,
         episode_latency_source_factory: Callable[[int], LatencySource] | None = None,
+        simulated_worker_capacity: int | None = None,
     ):
         slot_count = env_backend.num_slots
         self.env_backend = env_backend
@@ -121,6 +131,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         self.decision_scheduler = decision_scheduler
         self.clock = clock
         self.logger = logger
+        self.simulated_worker_capacity = simulated_worker_capacity
         self._collect_step_records = bool(logger is not None and logger.save_step_records)
         self._collect_action_records = bool(logger is not None and logger.save_action_records)
         self._collect_latency_records = bool(logger is not None and logger.save_latency_records)
@@ -132,6 +143,10 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                 latency_source=latency_sources[slot_id],
                 action_scheduler=action_schedulers[slot_id],
                 buffers=self._new_episode_buffers(),
+                worker_capacity=SimulatedWorkerCapacity(
+                    capacity=simulated_worker_capacity,
+                    busy_until_raw_frames=[],
+                ),
             )
             for slot_id in range(slot_count)
         ]
@@ -197,10 +212,24 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
 
             observations = []
             observation_slots: list[_SlotState] = []
+            step_capacity_info: dict[int, dict[str, int | bool | None]] = {}
             for slot in active_slots:
                 current_time_ms = self.clock.step_to_time_ms(slot.env_step)
+                slot.worker_capacity.release_ready(slot.env_step)
+                observation_submitted = False
+                observation_dropped = False
                 if self.decision_scheduler.should_observe(slot.env_step, current_time_ms):
-                    observation_slots.append(slot)
+                    if slot.worker_capacity.can_submit():
+                        observation_slots.append(slot)
+                        observation_submitted = True
+                    else:
+                        slot.buffers.dropped_observation_count += 1
+                        observation_dropped = True
+                if self.simulated_worker_capacity is not None:
+                    step_capacity_info[slot.slot_id] = {
+                        "observation_submitted": observation_submitted,
+                        "observation_dropped": observation_dropped,
+                    }
 
             if observation_slots:
                 observations_by_slot = self.env_backend.observe_slots([slot.slot_id for slot in observation_slots])
@@ -265,10 +294,19 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                     slot.buffers.record_step(reward=float(result.reward), info=step_info)
                 else:
                     slot.buffers.record_step(reward=float(result.reward), info=result.info)
+                if self.simulated_worker_capacity is not None and slot.buffers.step_records is not None:
+                    slot.buffers.step_records[-1].info.update(
+                        {
+                            **step_capacity_info[slot.slot_id],
+                            "in_flight_count": slot.worker_capacity.in_flight_count,
+                            "idle_worker_count": slot.worker_capacity.idle_worker_count,
+                        }
+                    )
                 if soft_reset:
                     slot.buffers.num_dropped_actions += slot.action_scheduler.dropped_events_count
                     slot.action_scheduler.reset()
                     self.policy.reset_state(slot_id=slot.slot_id)
+                    slot.worker_capacity.reset()
 
                 slot.env_step += 1
                 if episode_done or slot.env_step >= eval_max_steps:
@@ -353,6 +391,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             slot.env_step = 0
             slot.buffers = self._new_episode_buffers()
             slot.action_scheduler.reset()
+            slot.worker_capacity.reset()
 
     def _active_slots(self) -> list[_SlotState]:
         return [slot for slot in self.slots if slot.active]
@@ -366,6 +405,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot.env_step = 0
         slot.buffers = self._new_episode_buffers()
         slot.action_scheduler.reset()
+        slot.worker_capacity.reset()
         self.policy.reset_state(slot_id=slot.slot_id)
         self.env_backend.reset_slot(slot.slot_id, episode_id=episode_id, seed=seed)
         self.slot_episode_id[slot.slot_id] = int(episode_id)
@@ -393,6 +433,18 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                 frame_ms=self.clock.frame_ms,
                 latency_type=latency_type_from_source(slot.latency_source),
                 latency_source=slot.latency_source,
+            )
+            | (
+                {
+                    "submitted_observation_frames": slot.buffers.submitted_observation_frames,
+                    "dropped_observation_count": slot.buffers.dropped_observation_count,
+                    "simulated_worker_capacity": self.simulated_worker_capacity,
+                    "inference_worker_count": self.simulated_worker_capacity,
+                    "in_flight_count": slot.worker_capacity.in_flight_count,
+                    "idle_worker_count": slot.worker_capacity.idle_worker_count,
+                }
+                if self.simulated_worker_capacity is not None
+                else {}
             ),
         )
         self._completed_metrics[episode_id] = metrics
@@ -404,6 +456,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot.env_step = 0
         slot.buffers = self._new_episode_buffers()
         slot.action_scheduler.reset()
+        slot.worker_capacity.reset()
         self.slot_episode_id[slot.slot_id] = None
         self.active_slots = sum(1 for item in self.slots if item.active)
         self._flush_completed_in_episode_order()
@@ -423,6 +476,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         latency_ms = latency_sample.latency_ms
         ready_raw_frame = raw_frame + latency_sample.latency_raw_frames
         ready_time_ms = self.clock.step_to_time_ms(ready_raw_frame)
+        slot.worker_capacity.submit(ready_raw_frame)
         latency_type = latency_type_from_source(slot.latency_source)
         profile_metadata = profile_metadata_from_source(slot.latency_source)
         latency_record = LatencyRecord(
@@ -463,6 +517,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         )
         self._next_action_id += 1
         slot.action_scheduler.enqueue(event)
+        slot.buffers.submitted_observation_frames += 1
         slot.buffers.num_actions += 1
         if slot.buffers.action_events is not None:
             slot.buffers.action_events.append(event)

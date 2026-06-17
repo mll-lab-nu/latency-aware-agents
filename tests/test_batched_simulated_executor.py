@@ -50,6 +50,19 @@ class SlotLatencySource(LatencySource):
         return float(self.slot_id)
 
 
+class RawFrameLatencySource(LatencySource):
+    def __init__(self, raw_frames: list[int]):
+        self.raw_frames = list(raw_frames)
+        self.calls: list[dict] = []
+
+    def next_latency_ms(self, context=None) -> float:
+        raise AssertionError("batched executor should use next_latency_raw_frames when available")
+
+    def next_latency_raw_frames(self, context=None) -> int:
+        self.calls.append(dict(context or {}))
+        return self.raw_frames.pop(0)
+
+
 class TupleActionPolicy(PolicyRunner):
     def predict(self, observation: Observation) -> PolicyOutput:
         raise AssertionError("batched executor must call predict_batch")
@@ -351,6 +364,7 @@ def _executor(
     env_max_steps: int = 2,
     policy: PolicyRunner | None = None,
     latency_sources: list[LatencySource] | None = None,
+    simulated_worker_capacity: int | None = None,
 ) -> tuple[BatchedSimulatedLatencyExecutor, list[DummyEnvAdapter]]:
     noop = Action("noop", name="noop", is_noop=True)
     envs = [
@@ -390,6 +404,7 @@ def _executor(
             save_action_records=True,
             save_latency_records=True,
         ),
+        simulated_worker_capacity=simulated_worker_capacity,
     )
     return executor, envs
 
@@ -764,6 +779,32 @@ def test_batched_executor_keeps_slot_latency_sources_independent(tmp_path: Path)
 
     assert values_by_slot == {0: {10.0}, 1: {20.0}}
     assert [source.calls for source in latency_sources] == [2, 2]
+
+
+def test_batched_executor_worker_capacity_is_per_slot(tmp_path: Path):
+    latency_sources = [
+        RawFrameLatencySource([3, 3]),
+        RawFrameLatencySource([3, 3]),
+    ]
+    executor, _ = _executor(
+        tmp_path,
+        num_slots=2,
+        env_max_steps=5,
+        policy=MetadataCapturePolicy(),
+        latency_sources=latency_sources,
+        simulated_worker_capacity=1,
+    )
+
+    metrics = executor.run_episodes(
+        episode_ids=[10, 11],
+        seeds=[None, None],
+        eval_max_steps=5,
+    )
+
+    assert [[call["raw_frame"] for call in source.calls] for source in latency_sources] == [[0, 3], [0, 3]]
+    assert [item.metadata["submitted_observation_frames"] for item in metrics] == [2, 2]
+    assert [item.metadata["dropped_observation_count"] for item in metrics] == [3, 3]
+    assert [item.metadata["simulated_worker_capacity"] for item in metrics] == [1, 1]
 
 
 def test_batched_executor_output_records_remain_schema_compatible(tmp_path: Path):
