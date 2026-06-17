@@ -31,12 +31,9 @@ def build_profile_from_trace(
     latency_kind: str = "inference_latency",
     inference_latencies: str | Path | None = None,
     episode_metrics: str | Path | None = None,
-    n_samples: int | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     samples_ms = load_latency_samples(latencies)
-    if n_samples is not None:
-        samples_ms = samples_ms[:n_samples]
     output_path = Path(output_dir)
     trace_name_by_kind = {
         "inference_latency": "infer_latencies.jsonl",
@@ -64,8 +61,6 @@ def build_profile_from_trace(
     inference_summary = None
     if latency_kind == "e2e_latency":
         inference_samples_ms = load_latency_samples(inference_latencies)
-        if n_samples is not None:
-            inference_samples_ms = inference_samples_ms[:n_samples]
         write_latency_samples(inference_samples_ms, paths["inference_trace"])
         inference_summary = compute_latency_profile_summary(inference_samples_ms, env_fps)
     save_latency_distribution(distribution, paths["distribution"])
@@ -113,7 +108,6 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--latency-kind", choices=["inference_latency", "e2e_latency"], default="inference_latency")
     parser.add_argument("--inference-latencies", type=Path)
     parser.add_argument("--episode-metrics", type=Path)
-    parser.add_argument("--n-samples", type=int)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
 
@@ -129,7 +123,6 @@ def main(argv: list[str] | None = None) -> None:
         latency_kind=args.latency_kind,
         inference_latencies=args.inference_latencies,
         episode_metrics=args.episode_metrics,
-        n_samples=args.n_samples,
         overwrite=args.overwrite,
     )
 

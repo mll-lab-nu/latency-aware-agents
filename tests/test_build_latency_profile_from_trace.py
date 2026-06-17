@@ -113,17 +113,17 @@ def test_build_latency_profile_from_trace_plots_constant_latency(tmp_path: Path)
     assert (output_dir / "latency_distribution.png").stat().st_size > 0
 
 
-def test_build_latency_profile_from_trace_uses_first_n_samples(tmp_path: Path):
-    manifest, output_dir = _build_profile(tmp_path, [10.0, 20.0, 30.0, 40.0], n_samples=3)
+def test_build_latency_profile_from_trace_uses_all_samples(tmp_path: Path):
+    manifest, output_dir = _build_profile(tmp_path, [10.0, 20.0, 30.0, 40.0])
 
-    assert manifest["n_samples"] == 3
-    assert load_latency_samples(output_dir / "infer_latencies.jsonl") == [10.0, 20.0, 30.0]
+    assert manifest["n_samples"] == 4
+    assert load_latency_samples(output_dir / "infer_latencies.jsonl") == [10.0, 20.0, 30.0, 40.0]
     distribution = load_latency_distribution(output_dir / "latency_distribution.json")
-    assert distribution["n_samples"] == 3
-    assert distribution["latency_ms"] == [10.0, 20.0, 30.0]
+    assert distribution["n_samples"] == 4
+    assert distribution["latency_ms"] == [10.0, 20.0, 30.0, 40.0]
     summary_json = json.loads((output_dir / "profile_summary.json").read_text(encoding="utf-8"))
-    assert summary_json["n_samples"] == 3
-    assert summary_json["mean_ms"] == pytest.approx(20.0)
+    assert summary_json["n_samples"] == 4
+    assert summary_json["mean_ms"] == pytest.approx(25.0)
 
 
 def test_build_latency_profile_from_trace_rejects_invalid_fps(tmp_path: Path):

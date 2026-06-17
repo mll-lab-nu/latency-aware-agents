@@ -957,7 +957,7 @@ def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
     assert config["evaluation"]["eval_parallel_envs"] == 1
 
 
-def test_measure_dry_run_threads_n_samples_to_profile_command(tmp_path: Path):
+def test_measure_dry_run_ignores_spec_n_samples(tmp_path: Path):
     base_config = tmp_path / "base.yaml"
     spec = tmp_path / "protocol.yaml"
     out = tmp_path / "results"
@@ -980,14 +980,13 @@ def test_measure_dry_run_threads_n_samples_to_profile_command(tmp_path: Path):
         "1",
         "--n-episodes",
         "3",
-        "--n-samples",
-        "5",
     )
 
     assert "episodes: 3" in result.stdout
-    assert "samples: 5" in result.stdout
-    assert "--n-samples 5" in result.stdout
-    assert "best_seed_0_n3_s5" in result.stdout
+    assert "samples:" not in result.stdout
+    assert "--n-samples" not in result.stdout
+    assert "best_seed_0_n3_s5" not in result.stdout
+    assert "best_seed_0_n3" in result.stdout
 
 
 def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monkeypatch):
@@ -1072,7 +1071,7 @@ def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monke
     assert commands[2][commands[2].index("--env-fps") + 1] == "16.0"
 
 
-def test_measure_run_continues_batches_after_samples_until_n_episodes(tmp_path: Path, monkeypatch):
+def test_measure_run_does_not_forward_n_samples_to_eval_or_profile(tmp_path: Path, monkeypatch):
     planning = importlib.import_module("scripts.cross_device.planning")
     runner = importlib.import_module("scripts.cross_device.runner")
     base_config = tmp_path / "base.yaml"
@@ -1097,7 +1096,6 @@ def test_measure_run_continues_batches_after_samples_until_n_episodes(tmp_path: 
         include_controls=False,
         max_runs=1,
         n_episodes=3,
-        n_samples=2,
         only_device=None,
         only_env=None,
         only_experiment="exp2_same_device_calibration",
@@ -1156,16 +1154,14 @@ def test_measure_run_continues_batches_after_samples_until_n_episodes(tmp_path: 
     eval_commands = [command for command in commands if "latency_bench.run" in command]
     profile_command = commands[-1]
     assert len(eval_commands) == 1
-    assert "--n-samples" in eval_commands[0]
-    assert eval_commands[0][eval_commands[0].index("--n-samples") + 1] == "2"
-    assert "--n-samples" in profile_command
-    assert profile_command[profile_command.index("--n-samples") + 1] == "2"
+    assert "--n-samples" not in eval_commands[0]
+    assert "--n-samples" not in profile_command
     assert (task.output_dir / "infer_latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 2
     assert (task.output_dir / "e2e_latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 2
     assert (task.output_dir / "episode_metrics.jsonl").read_text(encoding="utf-8").count("episode_return_env") == 3
 
 
-def test_measure_run_continues_batches_after_episodes_until_n_samples(tmp_path: Path, monkeypatch):
+def test_measure_run_does_not_continue_after_episodes_until_n_samples(tmp_path: Path, monkeypatch):
     planning = importlib.import_module("scripts.cross_device.planning")
     runner = importlib.import_module("scripts.cross_device.runner")
     base_config = tmp_path / "base.yaml"
@@ -1190,7 +1186,6 @@ def test_measure_run_continues_batches_after_episodes_until_n_samples(tmp_path: 
         include_controls=False,
         max_runs=1,
         n_episodes=2,
-        n_samples=5,
         only_device=None,
         only_env=None,
         only_experiment="exp2_same_device_calibration",
@@ -1255,10 +1250,8 @@ def test_measure_run_continues_batches_after_episodes_until_n_samples(tmp_path: 
     eval_commands = [command for command in commands if "latency_bench.run" in command]
     profile_command = commands[-1]
     assert len(eval_commands) == 1
-    assert "--n-samples" in eval_commands[0]
-    assert eval_commands[0][eval_commands[0].index("--n-samples") + 1] == "5"
-    assert "--n-samples" in profile_command
-    assert profile_command[profile_command.index("--n-samples") + 1] == "5"
+    assert "--n-samples" not in eval_commands[0]
+    assert "--n-samples" not in profile_command
     assert (task.output_dir / "infer_latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 5
     assert (task.output_dir / "e2e_latencies.jsonl").read_text(encoding="utf-8").count("latency_ms") == 5
     assert (task.output_dir / "episode_metrics.jsonl").read_text(encoding="utf-8").count("episode_return_env") == 2

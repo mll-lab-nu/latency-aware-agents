@@ -60,7 +60,6 @@ def _build_plan(
     checkpoint_kind = str(args.checkpoint_kind or spec.get("checkpoint_kind", "best"))
     for experiment_id, experiment, row in _iter_selected_rows(spec, args, include_stage=stage):
         n_episodes = _n_episodes_for_row_stage(spec, args, row, stage)
-        n_samples = _n_samples_for_row_stage(spec, args, row, stage)
         device_pairs = _device_pairs_for_stage(spec, args, stage, current_device, experiment_id)
         for target_device, replay_device in device_pairs:
             for seed in seed_set:
@@ -79,7 +78,6 @@ def _build_plan(
                     seed=int(seed),
                     seed_set=seed_set,
                     n_episodes=n_episodes,
-                    n_samples=n_samples,
                     checkpoint_kind=checkpoint_kind,
                     out=out,
                     target_profile_path=profile_path if stage in {"sim_same", "sim_cross"} else None,
@@ -129,7 +127,6 @@ def _make_task(
     seed: int,
     seed_set: list[int],
     n_episodes: int,
-    n_samples: int | None,
     checkpoint_kind: str,
     out: Path,
     target_profile_path: Path | None,
@@ -152,7 +149,6 @@ def _make_task(
         seed: Evaluation seed.
         seed_set: Full seed set used in the run identity.
         n_episodes: Episode count for this task.
-        n_samples: Optional latency sample target for measure profile construction.
         checkpoint_kind: Checkpoint selector forwarded to evaluation.
         out: Protocol output root.
         target_profile_path: Target-device profile manifest consumed by realtime and replay stages.
@@ -168,7 +164,7 @@ def _make_task(
     policy_slug = slugify(row.get("policy"))
     env_slug = slugify(row.get("env"))
     stage_dir = stage
-    count_suffix = f"n{n_episodes}_s{n_samples}" if n_samples is not None else f"n{n_episodes}"
+    count_suffix = f"n{n_episodes}"
     run_id = f"smoke_seed_{seed}_{count_suffix}" if smoke else f"{checkpoint_kind}_seed_{seed}_{count_suffix}"
     if stage == "sim_cross" and replay_device is not None:
         device_or_pair = f"{target_device['id']}_replay_{replay_device['id']}"
@@ -188,7 +184,6 @@ def _make_task(
         seed=seed,
         seed_set=seed_set,
         n_episodes=n_episodes,
-        n_samples=n_samples,
         checkpoint_kind=checkpoint_kind,
         output_dir=output_dir,
         generated_config_path=generated_config_path,
@@ -217,7 +212,6 @@ def _dedup_key(task: ProtocolTask) -> tuple[Any, ...]:
             task.checkpoint_kind,
             seed_set,
             task.seed,
-            task.n_samples,
         )
     if task.stage == "sim_same":
         return (
@@ -476,30 +470,6 @@ def _n_episodes_for_row_stage(
     return int(spec.get("n_episodes", 1))
 
 
-def _n_samples_for_row_stage(
-    spec: dict[str, Any],
-    args: argparse.Namespace,
-    row: dict[str, Any],
-    stage: str,
-) -> int | None:
-    if stage != "measure":
-        return None
-    if getattr(args, "n_samples", None) is not None:
-        return int(args.n_samples)
-    stage_overrides = row.get("stage_overrides", {})
-    if isinstance(stage_overrides, dict):
-        stage_cfg = stage_overrides.get(stage)
-        if stage_cfg is None:
-            stage_cfg = stage_overrides.get(stage.replace("_", "-"))
-        if isinstance(stage_cfg, dict) and stage_cfg.get("n_samples") is not None:
-            return int(stage_cfg["n_samples"])
-    if row.get("n_samples") is not None:
-        return int(row["n_samples"])
-    if spec.get("n_samples") is not None:
-        return int(spec["n_samples"])
-    return None
-
-
 def _spec_with_cli_overrides(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     """Apply global CLI overrides to a copy of the protocol spec.
 
@@ -515,8 +485,6 @@ def _spec_with_cli_overrides(spec: dict[str, Any], args: argparse.Namespace) -> 
         updated["seed_set"] = _seed_set(spec, args)
     if getattr(args, "n_episodes", None) is not None:
         updated["n_episodes"] = int(args.n_episodes)
-    if getattr(args, "n_samples", None) is not None:
-        updated["n_samples"] = int(args.n_samples)
     if getattr(args, "checkpoint_kind", None) is not None:
         updated["checkpoint_kind"] = str(args.checkpoint_kind)
     return updated
