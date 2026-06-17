@@ -71,7 +71,7 @@ def test_demon_clean_v1_train_filter_keeps_reward_context_and_survival_anchors()
     from latency_bench.data.filters import filter_train_rows_clean_v1
 
     rows = [
-        {"decision_step": step, "action_text": "NOOP", "clipped_reward": 1.0 if step == 20 else 0.0}
+        {"decision_step": step, "action_text": "NOOP", "raw_reward": 1.0 if step == 20 else 0.0}
         for step in range(40)
     ]
 

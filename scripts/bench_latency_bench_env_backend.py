@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import csv
-import resource
 import sys
 import time
 from collections.abc import Sequence
@@ -24,6 +23,7 @@ from latency_bench.run import (
     apply_runtime_overrides,
     run_from_config,
 )
+from latency_bench.utils.proc import cpu_seconds
 
 
 def _parse_backends(value: str) -> list[str]:
@@ -51,17 +51,6 @@ def _parse_parallel_envs(value: str) -> list[int]:
             deduped.append(item)
             seen.add(item)
     return deduped
-
-
-def _cpu_seconds() -> float:
-    self_usage = resource.getrusage(resource.RUSAGE_SELF)
-    child_usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-    return (
-        self_usage.ru_utime
-        + self_usage.ru_stime
-        + child_usage.ru_utime
-        + child_usage.ru_stime
-    )
 
 
 def _stage_configs(
@@ -129,7 +118,7 @@ def _run_stage(
     write_summary: bool,
 ) -> tuple[int, int, bool, float, float]:
     expected_episodes = stage_config["evaluation"]["eval_episodes"]
-    cpu_before = _cpu_seconds()
+    cpu_before = cpu_seconds()
     wall_before = time.perf_counter()
     with contextlib.redirect_stdout(sys.stderr):
         metrics = run_from_config(
@@ -138,7 +127,7 @@ def _run_stage(
             write_summary=write_summary,
         )
     wall_sec = time.perf_counter() - wall_before
-    cpu_sec = _cpu_seconds() - cpu_before
+    cpu_sec = cpu_seconds() - cpu_before
     completed_episodes = len(metrics)
     return completed_episodes, expected_episodes, completed_episodes == expected_episodes, wall_sec, cpu_sec
 

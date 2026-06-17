@@ -8,6 +8,7 @@ from typing import Any
 
 from latency_bench.analysis.utils import write_latency_distribution_plot
 from latency_bench.analysis.profile_stats import compute_latency_profile_summary
+from latency_bench.utils.io import write_json
 from latency_bench.latency.profile import (
     build_inverse_cdf_distribution,
     load_latency_samples,
@@ -68,7 +69,7 @@ def build_profile_from_trace(
         inference_summary = compute_latency_profile_summary(inference_samples_ms, env_fps)
     save_latency_distribution(distribution, paths["distribution"])
     write_latency_distribution_plot(samples_ms, paths["plot"])
-    _write_json(summary, paths["summary_json"])
+    write_json(paths["summary_json"], summary)
     _write_summary_csv(summary, paths["summary_csv"])
 
     manifest = {
@@ -125,12 +126,6 @@ def main(argv: list[str] | None = None) -> None:
         n_samples=args.n_samples,
         overwrite=args.overwrite,
     )
-
-
-def _write_json(data: dict[str, Any], path: Path) -> None:
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, sort_keys=True)
-        f.write("\n")
 
 
 def _write_summary_csv(summary: dict[str, Any], path: Path) -> None:

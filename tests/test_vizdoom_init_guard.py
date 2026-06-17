@@ -230,7 +230,9 @@ def test_deadly_corridor_cli_args_emit_optional_vizdoom_guard_settings_only_when
     from training.deadly_corridor_sf import integration
     from training.common.config_adapter import load_training_config
 
-    config = load_training_config("configs/train/deadly_corridor/latency_0/seed_0/train.yaml")
+    # Per-latency/seed train configs are generated on demand (untracked); load the
+    # tracked zero-latency experiment config instead, which carries the same env.
+    config = load_training_config("configs/experiments/deadly_corridor/sf_zero_latency.yaml")
 
     default_args = integration.build_cli_args_from_config(config)
 

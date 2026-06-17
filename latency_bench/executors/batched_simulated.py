@@ -7,6 +7,7 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors._simulated_timeline import SimulatedLatencySample, sample_simulated_latency
+from latency_bench.executors.base import BatchedExecutor
 from latency_bench.executors.env_step_backend import EnvStepBackend
 from latency_bench.latency.sources import LatencySource
 from latency_bench.logging.metrics import (
@@ -91,7 +92,7 @@ class _BatchedEnvCollection:
         self._close_fn()
 
 
-class BatchedSimulatedLatencyExecutor:
+class BatchedSimulatedLatencyExecutor(BatchedExecutor):
     """Run multiple simulated episodes concurrently with independent slot state.
 
     The main process owns policy inference, latency scheduling, episode accounting,

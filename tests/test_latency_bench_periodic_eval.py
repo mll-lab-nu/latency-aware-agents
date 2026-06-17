@@ -10,6 +10,13 @@ from types import SimpleNamespace
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _assert_train_eval_artifacts_disabled(config: dict) -> None:
+    # Train-time eval should not persist per-step/action/latency trajectory artifacts.
+    assert config["logging"]["save_step_records"] is False
+    assert config["logging"]["save_action_records"] is False
+    assert config["logging"]["save_latency_records"] is False
+
+
 def _training_config(tmp_path: Path) -> dict:
     return {
         "experiment": {

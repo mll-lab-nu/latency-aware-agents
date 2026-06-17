@@ -45,8 +45,8 @@ def test_rollout_features_include_env_specific_action_fields():
         assert "t" not in features
 
     demon_features = rollout_features(action_spec_for_env("demon_attack"))
-    assert "clipped_reward" in demon_features
-    assert "raw_reward" not in demon_features
+    assert "raw_reward" in demon_features
+    assert "clipped_reward" not in demon_features
     assert "reward" not in demon_features
 
 

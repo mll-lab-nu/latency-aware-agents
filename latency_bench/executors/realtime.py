@@ -23,6 +23,7 @@ from latency_bench.core.types import (
     StepRecord,
 )
 from latency_bench.envs.base import EnvAdapter
+from latency_bench.executors.base import EpisodeExecutor
 from latency_bench.executors.env_step_backend import _resolve_start_method, _set_thread_env_defaults
 from latency_bench.executors import realtime_warmup
 from latency_bench.latency.measurement import RuntimeLatencyMeasurer
@@ -36,6 +37,7 @@ from latency_bench.logging.metrics import (
     profile_metadata_from_source,
 )
 from latency_bench.logging.records import step_record_info
+from latency_bench.logging.realtime_pipeline import PipelineProfile, REALTIME_PROFILE_METADATA_KEY
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
@@ -55,6 +57,7 @@ class RealtimeObservationTask:
     observation: Observation
     submit_env_step: int
     submit_time_ms: float
+    profile: PipelineProfile | None = None
 
 
 @dataclass
@@ -68,6 +71,7 @@ class RealtimePolicyCompletion:
     latency_record: LatencyRecord
     worker_id: int
     device: str
+    profile: PipelineProfile | None = None
     error: BaseException | None = None
 
 
@@ -79,6 +83,7 @@ class RealtimePolicyResult:
     policy_output: PolicyOutput
     completion_time_ms: float
     latency_record: LatencyRecord
+    profile: PipelineProfile | None = None
     error: BaseException | None = None
 
 
@@ -94,6 +99,7 @@ class RealtimeActionDispatch:
     apply_raw_frame: int | None = None
     applied: bool = False
     dropped: bool = False
+    profile: PipelineProfile | None = None
 
 
 class ProcessInferencePool:
@@ -146,7 +152,13 @@ class ProcessInferencePool:
         self._raise_if_closed()
         for worker_id in range(len(self.inference_devices)):
             if worker_id not in self._busy_worker_tasks:
+                if task.profile is not None:
+                    task.profile.parent_to_worker_send_start_ms = _profile_now_ms()
                 self._connections[worker_id].send(("predict", {"task": task}))
+                if task.profile is not None:
+                    task.profile.parent_to_worker_send_call_ms = (
+                        _profile_now_ms() - task.profile.parent_to_worker_send_start_ms
+                    )
                 self._busy_worker_tasks[worker_id] = task
                 return True
         return False
@@ -217,6 +229,12 @@ class ProcessInferencePool:
                 if tag == "result":
                     task = self._busy_worker_tasks.pop(worker_id)
                     result = payload["result"]
+                    profile = task.profile
+                    if profile is not None and result.profile is not None:
+                        profile.merge_measured(result.profile)
+                        profile.worker_to_parent_ipc_ms = (
+                            _profile_now_ms() - profile.worker_result_send_start_ms
+                        )
                     completed.append(
                         RealtimePolicyCompletion(
                             task=task,
@@ -225,6 +243,7 @@ class ProcessInferencePool:
                             latency_record=result.latency_record,
                             worker_id=worker_id,
                             device=self.inference_devices[worker_id],
+                            profile=profile,
                             error=result.error,
                         )
                     )
@@ -300,7 +319,7 @@ class _RealtimeResultCoordinator:
         return released, []
 
 
-class RealtimeLatencyExecutor:
+class RealtimeLatencyExecutor(EpisodeExecutor):
     def __init__(
         self,
         env: EnvAdapter,
@@ -331,6 +350,7 @@ class RealtimeLatencyExecutor:
         self.sleep_fn = sleep_fn
         self.inference_pool = inference_pool
         self.config = config
+        self._profile_pipeline = bool((config or {}).get("logging", {}).get("realtime_pipeline_profile", False))
         self.inference_devices = list(inference_devices or [])
         self.use_env_process = bool(use_env_process)
         self.video_recorder = video_recorder
@@ -455,6 +475,7 @@ class RealtimeLatencyExecutor:
         dropped_observation_count = 0
         env_deadline_miss_count = 0
         max_wall_clock_lag_ms = 0.0
+        applied_event_count = 0
 
         for env_step in range(int(eval_max_steps)):
             scheduled_time_ms = self.clock.step_to_time_ms(env_step)
@@ -479,8 +500,16 @@ class RealtimeLatencyExecutor:
             observation_submitted = False
             observation_dropped = False
             if self.decision_scheduler.should_observe(env_step, scheduled_time_ms):
-                task = self._make_observation_task(env_step=env_step, submit_time_ms=current_wall_elapsed_ms)
+                task = self._make_observation_task(
+                    env_step=env_step,
+                    submit_time_ms=current_wall_elapsed_ms,
+                    wall_clock_lag_ms=wall_clock_lag_ms,
+                )
                 if pool.submit(task):
+                    if task.profile is not None:
+                        task.profile.parent_observation_handle_ms = (
+                            _profile_now_ms() - task.profile.parent_observation_handle_start_ms
+                        )
                     coordinator.mark_submitted(task)
                     submitted_observation_frames += 1
                     observation_submitted = True
@@ -488,8 +517,24 @@ class RealtimeLatencyExecutor:
                     dropped_observation_count += 1
                     observation_dropped = True
 
+            scheduler_update_start_ms = _profile_now_ms()
             active_action = self.action_scheduler.update(env_step, scheduled_time_ms)
+            scheduler_update_ms = _profile_now_ms() - scheduler_update_start_ms
+            applied_events = self.action_scheduler.get_applied_events()
+            new_applied_events = applied_events[applied_event_count:]
+            for event in new_applied_events:
+                profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
+                if profile is not None:
+                    profile.env_scheduler_update_ms = scheduler_update_ms
+
+            env_step_start_ms = _profile_now_ms()
             result = self.env.step(active_action)
+            env_step_ms = _profile_now_ms() - env_step_start_ms
+            for event in new_applied_events:
+                profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
+                if profile is not None:
+                    profile.env_step_ms = env_step_ms
+            applied_event_count = len(applied_events)
             episode_done = result.done or result.truncated
             if self.video_recorder is not None and not episode_done:
                 self.video_recorder.record_frame(self.env.render_game_frame())
@@ -508,7 +553,7 @@ class RealtimeLatencyExecutor:
             )
             step_info.update(
                 active_action_step_info(
-                    applied_events=self.action_scheduler.get_applied_events(),
+                    applied_events=applied_events,
                     env_step=env_step,
                     scheduled_time_ms=scheduled_time_ms,
                     frame_ms=self.clock.frame_ms,
@@ -613,13 +658,21 @@ class RealtimeLatencyExecutor:
                     action_events=action_events,
                     latency_values_ms=latency_values_ms,
                 )
-                for event in released:
+                first_released_index = len(action_events) - len(released)
+                for offset, event in enumerate(released):
+                    profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
+                    if profile is not None:
+                        profile.parent_to_env_send_start_ms = _profile_now_ms()
                     try:
                         parent_conn.send(("action_dispatch", _action_event_dispatch_payload(event)))
                     except BrokenPipeError:
                         done = True
                         break
-                    action_event_index[event.action_id] = action_events.index(event)
+                    if profile is not None:
+                        profile.parent_to_env_send_call_ms = (
+                            _profile_now_ms() - profile.parent_to_env_send_start_ms
+                        )
+                    action_event_index[event.action_id] = first_released_index + offset
 
             def handle_env_message(tag: str, payload: dict[str, Any]) -> None:
                 nonlocal submitted_observation_frames
@@ -628,18 +681,31 @@ class RealtimeLatencyExecutor:
                 nonlocal env_deadline_miss_count
                 nonlocal done
                 if tag == "observation":
+                    parent_observation_recv_ms = _profile_now_ms()
                     release_ready_actions(self._wall_elapsed_ms())
                     if done:
                         return
                     incoming_task = payload["task"]
+                    profile = incoming_task.profile
+                    if profile is not None:
+                        profile.parent_observation_recv_ms = parent_observation_recv_ms
+                        profile.env_to_parent_ipc_ms = (
+                            parent_observation_recv_ms - profile.env_observation_send_start_ms
+                        )
+                        profile.parent_observation_handle_start_ms = _profile_now_ms()
                     task = RealtimeObservationTask(
                         obs_id=self._next_obs_id,
                         observation=incoming_task.observation,
                         submit_env_step=incoming_task.submit_env_step,
                         submit_time_ms=incoming_task.submit_time_ms,
+                        profile=profile,
                     )
                     self._next_obs_id += 1
                     if pool.submit(task):
+                        if task.profile is not None:
+                            task.profile.parent_observation_handle_ms = (
+                                _profile_now_ms() - task.profile.parent_observation_handle_start_ms
+                            )
                         coordinator.mark_submitted(task)
                         submitted_observation_frames += 1
                         pending_step_info[int(task.submit_env_step)] = {
@@ -662,6 +728,8 @@ class RealtimeLatencyExecutor:
                         target = action_events[index]
                         target.applied = payload["applied"]
                         target.apply_raw_frame = payload["apply_raw_frame"]
+                        if "profile" in payload:
+                            target.metadata[REALTIME_PROFILE_METADATA_KEY].merge_dict(payload["profile"])
                 elif tag == "step":
                     record = payload["record"]
                     annotation = pending_step_info.pop(int(record.env_step), None)
@@ -790,6 +858,7 @@ class RealtimeLatencyExecutor:
         dropped: bool,
         discard_reason: str | None,
     ) -> ActionEvent:
+        release_start_ms = _profile_now_ms()
         latency_record = completion.latency_record
         latency_record.device = completion.device if latency_record.device is None else latency_record.device
         latency_record.metadata = {
@@ -803,6 +872,8 @@ class RealtimeLatencyExecutor:
         )
         event_metadata = dict(completion.policy_output.metadata)
         event_metadata["frame_ms"] = self.clock.frame_ms
+        if completion.profile is not None:
+            event_metadata[REALTIME_PROFILE_METADATA_KEY] = completion.profile
         if discard_reason is not None:
             event_metadata["discard_reason"] = discard_reason
         event = ActionEvent(
@@ -821,6 +892,9 @@ class RealtimeLatencyExecutor:
             profile_metadata=profile_metadata_from_source(self.latency_source),
         )
         event.dropped = bool(dropped)
+        profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
+        if profile is not None:
+            profile.parent_release_ms = _profile_now_ms() - release_start_ms
         self._next_action_id += 1
         action_events.append(event)
         latency_values_ms.append(float(latency_record.latency_ms))
@@ -829,15 +903,36 @@ class RealtimeLatencyExecutor:
             self.logger.log_latency(latency_record)
         return event
 
-    def _make_observation_task(self, *, env_step: int, submit_time_ms: float) -> RealtimeObservationTask:
+    def _make_observation_task(
+        self,
+        *,
+        env_step: int,
+        submit_time_ms: float,
+        wall_clock_lag_ms: float = 0.0,
+    ) -> RealtimeObservationTask:
+        observe_start_ms = _profile_now_ms()
         observation = self.env.observe()
+        observe_end_ms = _profile_now_ms()
         obs_id = self._next_obs_id
         self._next_obs_id += 1
+        profile = None
+        if self._profile_pipeline:
+            # Local-env path: the env shares this process, so the env<->parent
+            # IPC stages are genuinely zero (a real measurement, not a fallback).
+            profile = PipelineProfile(
+                env_observe_ms=observe_end_ms - observe_start_ms,
+                env_wall_lag_ms=wall_clock_lag_ms,
+                env_to_parent_ipc_ms=0.0,
+                parent_observation_handle_start_ms=_profile_now_ms(),
+                parent_to_env_ipc_ms=0.0,
+                env_action_recv_to_enqueue_ms=0.0,
+            )
         return RealtimeObservationTask(
             obs_id=obs_id,
             observation=observation,
             submit_env_step=env_step,
             submit_time_ms=submit_time_ms,
+            profile=profile,
         )
 
     def _episode_metadata(
@@ -882,6 +977,10 @@ class RealtimeLatencyExecutor:
         return (self.time_fn() - self._episode_start_s) * 1000.0
 
 
+def _profile_now_ms() -> float:
+    return time.perf_counter() * 1000.0
+
+
 def _worker_runtime_metadata(worker_id: int, start_method: str) -> dict[str, Any]:
     import torch
 
@@ -898,7 +997,7 @@ def _worker_runtime_metadata(worker_id: int, start_method: str) -> dict[str, Any
 
 
 def _action_event_dispatch_payload(event: ActionEvent) -> dict[str, Any]:
-    return {
+    payload = {
         "action_id": event.action_id,
         "action": event.action,
         "obs_env_step": event.obs_env_step,
@@ -907,9 +1006,14 @@ def _action_event_dispatch_payload(event: ActionEvent) -> dict[str, Any]:
         "latency_raw_frames": event.latency_raw_frames,
         "ready_raw_frame": event.ready_raw_frame,
     }
+    profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
+    if profile is not None:
+        payload["profile"] = profile.to_dict()
+    return payload
 
 
 def _action_event_from_dispatch_payload(payload: dict[str, Any]) -> RealtimeActionDispatch:
+    profile = PipelineProfile.from_dict(payload["profile"]) if "profile" in payload else None
     return RealtimeActionDispatch(
         action_id=payload["action_id"],
         action=payload["action"],
@@ -918,15 +1022,67 @@ def _action_event_from_dispatch_payload(payload: dict[str, Any]) -> RealtimeActi
         ready_step_float=payload["ready_step_float"],
         latency_raw_frames=payload["latency_raw_frames"],
         ready_raw_frame=payload["ready_raw_frame"],
+        profile=profile,
     )
 
 
 def _action_event_ack_payload(event: RealtimeActionDispatch) -> dict[str, Any]:
-    return {
+    payload = {
         "action_id": event.action_id,
         "applied": event.applied,
         "apply_raw_frame": event.apply_raw_frame,
     }
+    if event.profile is not None:
+        payload["profile"] = event.profile.to_dict()
+    return payload
+
+
+def _drain_env_action_messages(
+    *,
+    connection: Any,
+    action_scheduler: ActionScheduler,
+    now_ms_fn: Callable[[], float] = _profile_now_ms,
+) -> bool:
+    while connection.poll():
+        recv_start_ms = now_ms_fn()
+        command, payload = connection.recv()
+        recv_end_ms = now_ms_fn()
+        payload = payload or {}
+        if command == "close":
+            return True
+        if command == "action_dispatch":
+            action_event = _action_event_from_dispatch_payload(payload)
+            if action_event.profile is not None:
+                action_event.profile.parent_to_env_ipc_ms = (
+                    recv_end_ms - action_event.profile.parent_to_env_send_start_ms
+                )
+            action_scheduler.enqueue(action_event)
+            if action_event.profile is not None:
+                action_event.profile.env_action_recv_to_enqueue_ms = now_ms_fn() - recv_start_ms
+    return False
+
+
+def _drain_env_actions_until_wall_time(
+    *,
+    connection: Any,
+    action_scheduler: ActionScheduler,
+    target_wall_s: float,
+    time_fn: Callable[[], float] = time.perf_counter,
+    now_ms_fn: Callable[[], float] = _profile_now_ms,
+) -> bool:
+    while True:
+        remaining_s = target_wall_s - time_fn()
+        if remaining_s <= 0.0:
+            return False
+        if connection.poll(remaining_s):
+            if _drain_env_action_messages(
+                connection=connection,
+                action_scheduler=action_scheduler,
+                now_ms_fn=now_ms_fn,
+            ):
+                return True
+            continue
+        return False
 
 
 def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, device: str, start_method: str) -> None:
@@ -949,11 +1105,20 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
 
         while True:
             command, payload = connection.recv()
+            worker_recv_ms = _profile_now_ms()
             payload = payload or {}
             if command == "close":
                 return
             if command == "predict":
                 task = payload["task"]
+                profile = task.profile
+                if profile is not None:
+                    profile.worker_recv_ms = worker_recv_ms
+                    profile.parent_to_worker_ipc_ms = (
+                        worker_recv_ms - profile.parent_to_worker_send_start_ms
+                    )
+                    inference_start_ms = _profile_now_ms()
+                    profile.worker_recv_overhead_ms = inference_start_ms - worker_recv_ms
                 policy_output, latency_record = measurer.run_and_measure(
                     policy.predict,
                     task.observation,
@@ -967,8 +1132,11 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
                     policy_output=policy_output,
                     completion_time_ms=task.submit_time_ms + latency_record.latency_ms,
                     latency_record=latency_record,
+                    profile=profile,
                 )
                 try:
+                    if result.profile is not None:
+                        result.profile.worker_result_send_start_ms = _profile_now_ms()
                     connection.send(("result", {"result": result}))
                 except (BrokenPipeError, EOFError, OSError):
                     return
@@ -995,6 +1163,7 @@ def _env_loop_worker(
         from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
 
         runtime_config = config or {}
+        profile_enabled = bool(runtime_config.get("logging", {}).get("realtime_pipeline_profile", False))
         action_resolver = ActionResolver(runtime_config["env"])
         env = build_env_adapter(runtime_config, action_resolver.noop_action)
         clock = EnvClock(
@@ -1023,37 +1192,63 @@ def _env_loop_worker(
             target_wall_s = episode_start_s + scheduled_time_ms / 1000.0
             now_s = time.perf_counter()
             if now_s < target_wall_s:
-                time.sleep(target_wall_s - now_s)
+                if _drain_env_actions_until_wall_time(
+                    connection=connection,
+                    action_scheduler=action_scheduler,
+                    target_wall_s=target_wall_s,
+                ):
+                    env.close()
+                    return
             wall_elapsed_ms = (time.perf_counter() - episode_start_s) * 1000.0
             wall_clock_lag_ms = max(0.0, wall_elapsed_ms - scheduled_time_ms)
 
-            while connection.poll():
-                command, payload = connection.recv()
-                payload = payload or {}
-                if command == "close":
-                    env.close()
-                    return
-                if command == "action_dispatch":
-                    action_scheduler.enqueue(_action_event_from_dispatch_payload(payload))
+            if _drain_env_action_messages(connection=connection, action_scheduler=action_scheduler):
+                env.close()
+                return
 
             if decision_scheduler.should_observe(env_step, scheduled_time_ms):
+                observe_start_ms = _profile_now_ms()
                 observation = env.observe()
+                observe_end_ms = _profile_now_ms()
+                profile = None
+                if profile_enabled:
+                    profile = PipelineProfile(
+                        env_observe_ms=observe_end_ms - observe_start_ms,
+                        env_wall_lag_ms=wall_clock_lag_ms,
+                    )
                 task = RealtimeObservationTask(
                     obs_id=next_obs_id,
                     observation=observation,
                     submit_env_step=env_step,
                     submit_time_ms=wall_elapsed_ms,
+                    profile=profile,
                 )
                 next_obs_id += 1
+                if profile is not None:
+                    profile.env_observation_send_start_ms = _profile_now_ms()
                 connection.send(("observation", {"task": task}))
 
+            if _drain_env_action_messages(connection=connection, action_scheduler=action_scheduler):
+                env.close()
+                return
+
+            scheduler_update_start_ms = _profile_now_ms()
             active_action = action_scheduler.update(env_step, scheduled_time_ms)
+            scheduler_update_ms = _profile_now_ms() - scheduler_update_start_ms
             applied_events = action_scheduler.get_applied_events()
-            for event in applied_events[applied_event_count:]:
+            new_applied_events = applied_events[applied_event_count:]
+            for event in new_applied_events:
+                if event.profile is not None:
+                    event.profile.env_scheduler_update_ms = scheduler_update_ms
+
+            env_step_start_ms = _profile_now_ms()
+            result = env.step(active_action)
+            env_step_ms = _profile_now_ms() - env_step_start_ms
+            for event in new_applied_events:
+                if event.profile is not None:
+                    event.profile.env_step_ms = env_step_ms
                 connection.send(("action_ack", _action_event_ack_payload(event)))
             applied_event_count = len(applied_events)
-
-            result = env.step(active_action)
             episode_done = bool(result.done or result.truncated)
             if video_recorder is not None and not episode_done:
                 video_recorder.record_frame(env.render_game_frame())

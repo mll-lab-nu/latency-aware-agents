@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 from pathlib import Path
 
@@ -15,16 +14,7 @@ from latency_bench.analysis.table_builders import (
 )
 from latency_bench.experiments.build_latency_replay_tables import main
 from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
-
-
-def _write_jsonl(path: Path, records: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(record, sort_keys=True) + "\n" for record in records), encoding="utf-8")
-
-
-def _read_csv(path: Path) -> list[dict[str, str]]:
-    with path.open("r", encoding="utf-8", newline="") as f:
-        return list(csv.DictReader(f))
+from latency_bench.utils.io import read_csv, write_jsonl
 
 
 def _write_profile(
@@ -61,7 +51,7 @@ def _write_profile(
 
 
 def _write_episode_metrics(path: Path, returns: list[float], lengths: list[int]) -> None:
-    _write_jsonl(
+    write_jsonl(
         path,
         [
             {
@@ -252,7 +242,7 @@ def test_write_rows_csv_rejects_empty_rows_and_uses_stable_columns(tmp_path: Pat
     write_rows_csv([{"b": 2, "a": 1}, {"a": 3, "c": 4}], path)
 
     assert path.read_text(encoding="utf-8").splitlines()[0] == "b,a,c"
-    assert _read_csv(path) == [{"b": "2", "a": "1", "c": ""}, {"b": "", "a": "3", "c": "4"}]
+    assert read_csv(path) == [{"b": "2", "a": "1", "c": ""}, {"b": "", "a": "3", "c": "4"}]
 
 
 def test_build_latency_replay_tables_cli_smoke_and_overwrite(tmp_path: Path):

@@ -8,13 +8,12 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from latency_bench.core.config import load_config, merge_dicts
+from latency_bench.utils.io import read_yaml, write_yaml
 from latency_bench.core.latency_distribution import (
     LatencyDistributionSpec,
     distribution_frames_to_ms_latency_config,
@@ -59,17 +58,6 @@ SPEC_ONLY_KEYS = {
     "latency_settings",
     "sweeps",
 }
-
-
-def _load_yaml(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle) or {}
-
-
-def _write_yaml(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        yaml.safe_dump(data, handle, sort_keys=False)
 
 
 def _resolve_path(value: str | Path, *, base_dir: Path) -> Path:
@@ -570,7 +558,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     spec_path = args.spec.expanduser()
     if not spec_path.is_absolute():
         spec_path = (REPO_ROOT / spec_path).resolve()
-    spec = _load_yaml(spec_path)
+    spec = read_yaml(spec_path)
     if "__base__" in spec:
         spec = load_config(spec_path)
         base_config = {
@@ -647,8 +635,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         run_dir = _run_dir(generated_root, sweep_name, latency_label, frame_stack, obs_fps, observation_stride, seed)
         train_path = run_dir / "train.yaml"
         latency_bench_eval_path = run_dir / "latency_bench_eval.yaml"
-        _write_yaml(train_path, train_config)
-        _write_yaml(latency_bench_eval_path, latency_bench_eval_config)
+        write_yaml(train_path, train_config)
+        write_yaml(latency_bench_eval_path, latency_bench_eval_config)
 
         train_cmd = f"python -m training.train --config {shlex.quote(str(train_path))}"
         eval_cmd = f"python -m latency_bench.run --config {shlex.quote(str(latency_bench_eval_path))}"

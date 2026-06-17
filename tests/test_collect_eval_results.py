@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import csv
-import json
 import subprocess
 import sys
 from pathlib import Path
+
+from latency_bench.utils.io import write_json
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,11 +24,6 @@ HEADER = [
     "raw_frames_mean",
     "episode_length_mean",
 ]
-
-
-def _write_json(path: Path, payload) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _run_collect(root: Path, out: Path, *extra_args: str) -> subprocess.CompletedProcess[str]:
@@ -65,7 +61,7 @@ def test_collects_summary_json_and_writes_per_game_csv(tmp_path: Path) -> None:
         / "seed_7"
         / "queue_eval_latency_5.json"
     )
-    _write_json(
+    write_json(
         result_file,
         {
             "mean_score": 12.5,
@@ -103,7 +99,7 @@ def test_collects_summary_json_and_writes_per_game_csv(tmp_path: Path) -> None:
 def test_collects_episode_list_json(tmp_path: Path) -> None:
     root = tmp_path / "hf_eval"
     out = tmp_path / "tables" / "eval_summary_all.csv"
-    _write_json(
+    write_json(
         root
         / "outputs"
         / "eval"
@@ -138,7 +134,7 @@ def test_collects_root_episode_list_and_ignores_actions_jsonl(tmp_path: Path) ->
     root = tmp_path / "hf_eval"
     out = tmp_path / "tables" / "eval_summary_all.csv"
     result_dir = root / "flappy" / "train_latency_1" / "seed_2"
-    _write_json(
+    write_json(
         result_dir / "queue_eval_latency_0.json",
         [{"return": 10, "length": 20}, {"return": 14, "length": 24}],
     )
@@ -160,7 +156,7 @@ def test_collects_root_episode_list_and_ignores_actions_jsonl(tmp_path: Path) ->
 def test_collects_repo_mean_return_mean_length_format(tmp_path: Path) -> None:
     root = tmp_path / "hf_eval"
     out = tmp_path / "tables" / "eval_summary_all.csv"
-    _write_json(
+    write_json(
         root / "outputs" / "eval" / "demon_attack" / "latency_15" / "seed_0" / "queue_eval_latency_5.json",
         {
             "experiment_name": "demon_attack_sf_same_latency_l15_seed0",
@@ -199,7 +195,7 @@ def test_no_matches_writes_header_and_reports_warning(tmp_path: Path) -> None:
 def test_no_per_game_disables_per_game_outputs(tmp_path: Path) -> None:
     root = tmp_path / "hf_eval"
     out = tmp_path / "tables" / "eval_summary_all.csv"
-    _write_json(
+    write_json(
         root / "flappy" / "train_latency_0" / "seed_0" / "queue_eval_latency_1.json",
         {"mean_return": 9, "mean_length": 10},
     )

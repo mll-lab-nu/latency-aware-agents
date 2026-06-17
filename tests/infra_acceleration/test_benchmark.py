@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from latency_bench.utils.io import load_jsonl_records
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = REPO_ROOT / "scripts" / "experiments" / "infra_acceleration_benchmark.py"
@@ -21,10 +23,6 @@ def _load_module():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
-
-
-def _read_jsonl(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 def _base_config(env_name: str, tmp_path: Path) -> dict:
@@ -88,7 +86,7 @@ def test_paper_grade_dry_run_stages_real_baseline_and_accelerated_backends(tmp_p
 
     status = bench.main(["--dry-run", "--budget", "paper-grade", "--output-root", str(tmp_path)])
 
-    configs = _read_jsonl(tmp_path / "staged_configs.jsonl")
+    configs = load_jsonl_records(tmp_path / "staged_configs.jsonl")
     by_run = {config["experiment"]["name"]: config for config in configs}
     assert status == 0
     assert len(configs) == 12

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,6 +8,7 @@ from typing import Any
 
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.logging.records import to_jsonable
+from latency_bench.utils.stats import mean as _mean, std as _std
 
 LatencyLabel = int | str
 
@@ -123,17 +123,3 @@ def _latency_metadata(
             if value is not None:
                 selected[key] = value
     return selected
-
-
-def _mean(values: Sequence[float]) -> float:
-    if not values:
-        return math.nan
-    return float(sum(values) / len(values))
-
-
-def _std(values: Sequence[float]) -> float:
-    if not values:
-        return math.nan
-    mean = _mean(values)
-    variance = sum((value - mean) ** 2 for value in values) / len(values)
-    return float(math.sqrt(variance))

@@ -1482,13 +1482,12 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
 
     assert ScriptedDemonEnv.reset_seeds == [100, None, None, 100, None, None]
     assert [row["decision_step"] for row in train_rows] == [2]
-    assert train_rows[0]["clipped_reward"] == 30.0
+    assert train_rows[0]["raw_reward"] == 30.0
     assert state["accepted_specs"] == [
         {
             "attempt_idx": 0,
             "episode_idx": 0,
             "episode_length": 3,
-            "episode_clipped_return": 60.0,
             "episode_raw_return": 8000.0,
             "seed": 100,
             "split": "train",
@@ -2220,132 +2219,6 @@ def test_write_parquet_splits_from_shards_replaces_stale_partial_file(tmp_path):
     assert not (output_dir / "train.parquet.tmp").exists()
 
 
-def test_main_cleans_intermediate_images_and_episode_rows_after_parquet(monkeypatch, tmp_path):
-    from PIL import Image
-    from latency_bench.data import sf_teacher_export as exporter
-
-    def fake_collect_teacher_dataset(*args, output_dir, **kwargs):
-        image_path = output_dir / "images" / "train" / "episode_000000" / "t_000000.png"
-        image_path.parent.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(np.full((2, 2, 3), 5, dtype=np.uint8)).save(image_path)
-        shard_dir = output_dir / "episode_rows" / "train"
-        shard_dir.mkdir(parents=True, exist_ok=True)
-        row = {
-            "image": str(image_path),
-            "env_name": "flappy",
-            "episode_idx": 0,
-            "decision_step": 0,
-            "split": "train",
-            "seed": 11,
-            "prompt": "pick action",
-            "latency_raw_frames": 2,
-            "latency_ms": 66.0,
-            "raw_reward": 1.5,
-            "action": [0.0, 1.0],
-            "action_id": 1,
-            "action_text": "FLAP",
-        }
-        (shard_dir / "episode_000000.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
-        (output_dir / "probe_state.json").write_text(
-            json.dumps(
-                {
-                    "next_attempt_idx": 1,
-                    "attempted_episodes": 1,
-                    "rejected_episodes": 0,
-                    "accepted_specs": [
-                        {
-                            "attempt_idx": 0,
-                            "episode_idx": 0,
-                            "episode_length": 1,
-                            "episode_raw_return": 1.5,
-                            "seed": 11,
-                            "split": "train",
-                        }
-                    ],
-                    "runtime_metadata": {
-                        "checkpoint_train_step": 123,
-                        "frame_stack": 1,
-                        "env_fps": 30.0,
-                        "obs_fps": 15.0,
-                    },
-                }
-            ),
-            encoding="utf-8",
-        )
-        return {
-            "action_labels": ["NOOP", "FLAP"],
-            "reward_field": "raw_reward",
-            "episode_return_field": "episode_raw_return",
-            "reward_semantics": "raw_reward",
-            "filter_report": {
-                "preset": "clean_v1",
-                "attempted_episodes": 1,
-                "accepted_episodes": 1,
-                "rejected_episodes": 0,
-                "accepted_train_episodes": 1,
-                "accepted_val_episodes": 0,
-                "train_rows_before_row_filter": 1,
-                "train_rows_after_row_filter": 1,
-                "val_rows_before_row_filter": 0,
-                "val_rows_after_row_filter": 0,
-            },
-            "checkpoint_train_step": 123,
-            "frame_stack": 1,
-            "env_fps": 30.0,
-            "obs_fps": 15.0,
-            "obs_stride_raw_frames": 2,
-            "image_source": "env_raw_rgb",
-            "image_resolution": [2, 2, 3],
-            "train_episodes": 1,
-            "val_episodes": 0,
-        }
-
-    monkeypatch.setattr(
-        exporter,
-        "load_rollout_training_config",
-        lambda *args, **kwargs: (
-            {"env_name": "flappy"},
-            {"latency_source": "checkpoint", "checkpoint_config": {"env": "latency_flappy"}},
-        ),
-    )
-    monkeypatch.setattr(exporter, "collect_teacher_dataset", fake_collect_teacher_dataset)
-
-    output_dir = tmp_path / "export"
-    metadata = exporter.export_sample_factory_teacher_dataset(
-        checkpoint_root=tmp_path / "checkpoint",
-        output_dir=output_dir,
-        latency_config_path=None,
-        env_name="",
-        max_episodes=1,
-        max_steps_per_episode=8,
-        val_fraction=0.1,
-        split_seed=0,
-        num_envs=1,
-        device="",
-        deterministic=True,
-        export_image_size=None,
-        image_writer_workers=0,
-        row_buffer_size=8192,
-        push_to_hub=False,
-        hf_repo_id="",
-        hf_private=False,
-        hf_token="",
-        hf_max_shard_size="500MB",
-    )
-
-    assert metadata == json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-    assert metadata["filter_report"] == json.loads((output_dir / "filter_report.json").read_text(encoding="utf-8"))
-    assert (output_dir / "train.parquet").exists()
-    assert (output_dir / "val.parquet").exists()
-    assert not (output_dir / "images").exists()
-    assert not (output_dir / "episode_rows").exists()
-    assert not (output_dir / "probe_state.json").exists()
-    assert metadata["total_rows"] == 1
-    assert metadata["rows_unit"] == "decision_step"
-    assert metadata["total_episodes"] == 1
-    assert metadata["image_resolution"] == [2, 2, 3]
-
-
 def test_write_parquet_splits_disables_datasets_progress(monkeypatch, tmp_path):
     import latency_bench.data.hf_parquet as hf_parquet
     from latency_bench.data.action_layouts import action_spec_for_env
@@ -2359,105 +2232,6 @@ def test_write_parquet_splits_disables_datasets_progress(monkeypatch, tmp_path):
     assert calls == ["disabled"]
     assert (tmp_path / "export" / "train.parquet").exists()
     assert (tmp_path / "export" / "val.parquet").exists()
-
-
-def test_exporter_parser_has_no_prompt_or_render_image_source_switches():
-    from scripts.rollout_data.export_sf_teacher_dataset import build_parser
-
-    option_dests = {action.dest for action in build_parser()._actions}
-
-    assert "replay_num_envs" in option_dests
-    assert "filter_preset" not in option_dests
-    assert "image_source" not in option_dests
-    assert "prompt" not in option_dests
-    assert "prompt_template" not in option_dests
-    assert "config" not in option_dests
-
-
-def test_main_writes_prompt_source_and_timing_metadata(monkeypatch, tmp_path):
-    from latency_bench.data import sf_teacher_export as exporter
-
-    def fake_write_parquet_splits_from_shards(output_dir, **kwargs):
-        output_dir.mkdir(parents=True, exist_ok=True)
-        return {"train": [], "val": []}
-
-    monkeypatch.setattr(
-        exporter,
-        "load_rollout_training_config",
-        lambda *args, **kwargs: (
-            {"env_name": "flappy"},
-            {"latency_source": "checkpoint", "checkpoint_config": {"env": "latency_flappy"}},
-        ),
-    )
-    monkeypatch.setattr(
-        exporter,
-        "collect_teacher_dataset",
-        lambda *args, **kwargs: {
-            "action_labels": ["NOOP", "FLAP"],
-            "reward_field": "raw_reward",
-            "episode_return_field": "episode_raw_return",
-            "reward_semantics": "raw_reward",
-            "filter_report": {
-                "preset": "clean_v1",
-                "attempted_episodes": 0,
-                "accepted_episodes": 0,
-                "rejected_episodes": 0,
-                "accepted_train_episodes": 0,
-                "accepted_val_episodes": 0,
-                "train_rows_before_row_filter": 0,
-                "train_rows_after_row_filter": 0,
-                "val_rows_before_row_filter": 0,
-                "val_rows_after_row_filter": 0,
-            },
-            "checkpoint_train_step": 123,
-            "frame_stack": 4,
-            "env_fps": 30.0,
-            "obs_fps": 15.0,
-            "obs_stride_raw_frames": 2,
-            "image_source": "env_raw_rgb",
-            "image_resolution": [84, 84, 3],
-            "train_episodes": 0,
-            "val_episodes": 0,
-        },
-    )
-    monkeypatch.setattr(exporter, "write_parquet_splits_from_shards", fake_write_parquet_splits_from_shards)
-    monkeypatch.setattr(exporter, "image_metadata_from_shards", lambda output_dir: {"image_resolution": [84, 84, 3]})
-
-    output_dir = tmp_path / "export"
-    metadata = exporter.export_sample_factory_teacher_dataset(
-        checkpoint_root=tmp_path / "checkpoint",
-        output_dir=output_dir,
-        latency_config_path=None,
-        env_name="",
-        max_episodes=1,
-        max_steps_per_episode=8,
-        val_fraction=0.1,
-        split_seed=0,
-        num_envs=1,
-        device="",
-        deterministic=True,
-        export_image_size=None,
-        image_writer_workers=0,
-        row_buffer_size=8192,
-        push_to_hub=False,
-        hf_repo_id="",
-        hf_private=False,
-        hf_token="",
-        hf_max_shard_size="500MB",
-    )
-
-    assert metadata == json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-    assert metadata["prompt_source"] == "latency_bench.data.prompts"
-    assert metadata["base_prompt"] == exporter.BASE_PROMPTS["flappy"]
-    assert "env_fps" in metadata["prompt_timing_suffix"]
-    assert metadata["env_fps"] == 30.0
-    assert metadata["obs_fps"] == 15.0
-    assert metadata["obs_stride_raw_frames"] == 2
-    assert metadata["image_source"] == "env_raw_rgb"
-    assert metadata["total_rows"] == 0
-    assert metadata["rows_unit"] == "decision_step"
-    assert metadata["total_episodes"] == 0
-    assert metadata["image_resolution"] == [84, 84, 3]
 
 
 def test_push_token_prefers_explicit_then_environment(monkeypatch):

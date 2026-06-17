@@ -338,7 +338,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         self._rnn_states_by_slot[int(slot_id)] = self._zero_rnn_state()
 
     def predict(self, observation: Observation) -> PolicyOutput:
-        if self.use_rnn and int(observation.env_step) == 0:
+        if self.use_rnn and observation.env_step == 0:
             self.rnn_states.zero_()
         rnn_states = self.rnn_states if self.use_rnn else self._zero_rnn_state()
 
@@ -453,7 +453,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         slot_ids = []
         for observation in observations:
             slot_id = int(observation.metadata["slot_id"])
-            if int(observation.env_step) == 0:
+            if observation.env_step == 0:
                 self._rnn_states_by_slot[slot_id] = self._zero_rnn_state()
             slot_ids.append(slot_id)
         return slot_ids

@@ -98,8 +98,6 @@ def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
         screen_size = tuple(int(value) for value in screen_size)
     obs_resize = env_cfg.get("obs_resize")
     if obs_resize is not None:
-        if len(obs_resize) != 2:
-            raise ValueError("env.obs_resize must be [height, width]")
         obs_resize = tuple(int(value) for value in obs_resize)
     return FlappyBirdEnvAdapter(
         gym_id=env_cfg.get("gym_id", "FlappyBird-v0"),

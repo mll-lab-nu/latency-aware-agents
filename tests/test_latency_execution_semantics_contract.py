@@ -3,24 +3,11 @@ from __future__ import annotations
 import pytest
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, ActionEvent, LatencyRecord, OrderingPolicy
+from latency_bench.core.types import Action, ActionEvent, OrderingPolicy
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy
 
-
-def _event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> ActionEvent:
-    ready_time_ms = clock.step_to_time_ms(ready_step)
-    return ActionEvent(
-        action_id=action_id,
-        action=action,
-        obs_env_step=0,
-        ready_time_ms=ready_time_ms,
-        ready_step_float=float(ready_step),
-        latency=LatencyRecord(
-            obs_id=action_id,
-            latency_ms=ready_time_ms,
-        ),
-    )
+from helpers import make_action_event as _event
 
 
 def test_env_fps_obs_fps_validation_and_stride_contract():

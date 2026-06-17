@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-import os
 from pathlib import Path
 from typing import Literal, Sequence
 
@@ -11,6 +10,8 @@ import datasets
 import huggingface_hub
 from datasets import Dataset, DatasetDict
 from huggingface_hub import HfApi
+
+from latency_bench.utils.hf import resolve_token
 
 
 @dataclass(frozen=True)
@@ -39,13 +40,6 @@ def _disable_progress_bars() -> None:
     disable_hf_progress_bars = getattr(huggingface_hub, "disable_progress_bars", None)
     if disable_hf_progress_bars is not None:
         disable_hf_progress_bars()
-
-
-def resolve_token(explicit_token: str) -> str | None:
-    token = str(explicit_token).strip()
-    if token:
-        return token
-    return os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
 
 
 def push_existing_export_direct(

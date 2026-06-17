@@ -541,6 +541,31 @@ def test_parallel_simulated_tuple_action_space_builds_batched_executor_after_pha
         executor.close()
 
 
+def test_parallel_simulated_profile_sample_builds_batched_executor(tmp_path):
+    from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
+
+    profile_dir = _write_latency_profile(tmp_path)
+    config = _config(output_dir=str(tmp_path))
+    config["evaluation"]["eval_episodes"] = 2
+    config["evaluation"]["eval_parallel_envs"] = 2
+    config["env"]["name"] = "tuple_action_parallel_test"
+    config["env"]["noop_action"] = (0, 0)
+    config["env"]["action_map"] = {"noop": (0, 0), "jump": (1, 0)}
+    config["policy"]["action"] = "jump"
+    config["latency"] = {
+        "type": "profile_sample",
+        "profile_path": profile_dir,
+        "seed": 0,
+    }
+
+    executor = build_executor(config)
+
+    try:
+        assert isinstance(executor, BatchedSimulatedLatencyExecutor)
+    finally:
+        executor.close()
+
+
 def test_parallel_simulated_nested_tuple_action_space_still_fails_fast(tmp_path):
     config = _config(output_dir=str(tmp_path))
     config["evaluation"]["eval_episodes"] = 2

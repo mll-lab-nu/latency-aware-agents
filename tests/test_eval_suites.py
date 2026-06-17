@@ -114,7 +114,7 @@ def test_run_eval_suites_writes_per_suite_outputs(monkeypatch, tmp_path: Path):
 
     seen_configs: list[dict] = []
 
-    def fake_run_from_config(config, extra_metadata=None, write_summary=True, on_episode_complete=None):
+    def fake_run_from_config(config, extra_metadata=None, write_summary=True, on_episode_complete=None, episode_ids=None):
         seen_configs.append(config)
         metadata = dict(extra_metadata or {})
         metadata["output_dir"] = config["logging"]["output_dir"]
@@ -167,7 +167,7 @@ def test_run_eval_suites_writes_per_suite_outputs(monkeypatch, tmp_path: Path):
 def test_cli_prints_eval_suite_summaries(monkeypatch, tmp_path: Path, capsys):
     import latency_bench.run as latency_run
 
-    def fake_run_from_config(config, extra_metadata=None, write_summary=True, on_episode_complete=None):
+    def fake_run_from_config(config, extra_metadata=None, write_summary=True, on_episode_complete=None, episode_ids=None):
         return [
             EpisodeMetrics(
                 episode_id=0,

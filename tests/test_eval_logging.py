@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -10,6 +9,7 @@ from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
 from latency_bench.run import run_from_config
+from latency_bench.utils.io import load_jsonl_records
 
 
 @register_env_adapter("raw_return_test")
@@ -86,10 +86,6 @@ def _config(tmp_path: Path, *, latency: dict | None = None, env_name: str = "dum
     }
 
 
-def _read_jsonl(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
-
-
 def _write_profile(tmp_path: Path) -> Path:
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir()
@@ -119,7 +115,7 @@ def _write_profile(tmp_path: Path) -> Path:
 def test_episode_metrics_log_evaluation_raw_fact_metadata(tmp_path: Path):
     run_from_config(_config(tmp_path), write_summary=False)
 
-    metrics = _read_jsonl(tmp_path / "episode_metrics.jsonl")[0]
+    metrics = load_jsonl_records(tmp_path / "episode_metrics.jsonl")[0]
 
     assert metrics["episode_return_env"] == pytest.approx(3.0)
     assert metrics["episode_return"] == pytest.approx(3.0)
@@ -140,7 +136,7 @@ def test_return_raw_is_only_from_explicit_info(tmp_path: Path):
     config = _config(tmp_path, env_name="raw_return_test")
     run_from_config(config, write_summary=False)
 
-    metrics = _read_jsonl(tmp_path / "episode_metrics.jsonl")[0]
+    metrics = load_jsonl_records(tmp_path / "episode_metrics.jsonl")[0]
 
     assert metrics["episode_return_env"] == pytest.approx(3.0)
     assert metrics["episode_return"] == pytest.approx(3.0)
@@ -160,9 +156,9 @@ def test_empirical_profile_metadata_is_logged(tmp_path: Path):
     )
     run_from_config(config, write_summary=False)
 
-    metrics = _read_jsonl(tmp_path / "run" / "episode_metrics.jsonl")[0]
-    action = _read_jsonl(tmp_path / "run" / "actions.jsonl")[0]
-    latency = _read_jsonl(tmp_path / "run" / "latencies.jsonl")[0]
+    metrics = load_jsonl_records(tmp_path / "run" / "episode_metrics.jsonl")[0]
+    action = load_jsonl_records(tmp_path / "run" / "actions.jsonl")[0]
+    latency = load_jsonl_records(tmp_path / "run" / "latencies.jsonl")[0]
 
     for record in (metrics["metadata"], action["latency"], latency):
         assert record["profile_id"] == "L_eval_logging"
@@ -172,9 +168,9 @@ def test_empirical_profile_metadata_is_logged(tmp_path: Path):
 def test_simulated_latency_records_log_latency_raw_fields(tmp_path: Path):
     run_from_config(_config(tmp_path), write_summary=False)
 
-    actions = _read_jsonl(tmp_path / "actions.jsonl")
-    latencies = _read_jsonl(tmp_path / "latencies.jsonl")
-    steps = _read_jsonl(tmp_path / "steps.jsonl")
+    actions = load_jsonl_records(tmp_path / "actions.jsonl")
+    latencies = load_jsonl_records(tmp_path / "latencies.jsonl")
+    steps = load_jsonl_records(tmp_path / "steps.jsonl")
     applied = [action for action in actions if action["apply_raw_frame"] is not None]
 
     assert latencies[0]["latency_ms"] == pytest.approx(80.0)
