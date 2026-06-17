@@ -5,6 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
+# shellcheck source=_pip.sh
+source "${SCRIPT_DIR}/_pip.sh"
+
 CUDA_TOOLKIT_SPEC="${LATENCY_BENCH_CUDA_TOOLKIT_SPEC:-cuda-toolkit[nvcc,cccl]==13.0.*}"
 
 detect_gpu_compute_cap() {
@@ -127,7 +130,8 @@ ensure_compatible_nvcc() {
     fi
 
     echo "No system nvcc supports ${target_sm}; installing ${CUDA_TOOLKIT_SPEC} into ${env_prefix}"
-    python -m pip install "${CUDA_TOOLKIT_SPEC}"
+    ensure_uv
+    pip_install "${CUDA_TOOLKIT_SPEC}"
 
     mapfile -t env_nvccs < <(collect_env_nvccs)
     if ((${#env_nvccs[@]} > 0)); then
