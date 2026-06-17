@@ -10,6 +10,7 @@ from latency_bench.executors.realtime_warmup import (
     is_realtime_warmup_stable,
     plot_realtime_warmup,
     realtime_warmup_status,
+    warmup_snapshot,
     write_realtime_warmup_artifacts,
 )
 
@@ -126,7 +127,7 @@ def test_realtime_warmup_artifacts_handle_zero_latency_data(tmp_path):
     summary = write_realtime_warmup_artifacts(tmp_path, collector, stable=True)
 
     assert summary["warmup_status"] == "stable"
-    assert summary["warmup_stop_sample"] == 300
+    assert summary["warmup_stop_sample"] == 100
     assert summary["warmup_trimmed_mean_span_ms"] == 0.0
     assert summary["warmup_median_rel_span"] == 0.0
     assert summary["warmup_p90_rel_span"] == 0.0
@@ -204,3 +205,91 @@ def test_realtime_warmup_summary_uses_e2e_latency_samples(tmp_path, monkeypatch)
 
     assert summary["warmup_samples"] == 2
     assert summary["warmup_mean_latency_ms"] == pytest.approx(26.0)
+
+
+def test_realtime_warmup_collector_tracks_e2e_rows_incrementally(monkeypatch):
+    from latency_bench.executors import realtime_warmup
+
+    monkeypatch.setattr(realtime_warmup, "MAX_WARMUP_LATENCY_SAMPLES", 2)
+
+    collector = RealtimeWarmupCollector(save_action_records=True, save_latency_records=True)
+    for action_id, applied, dropped in (
+        (0, True, False),
+        (1, False, False),
+        (2, True, True),
+        (3, True, False),
+        (4, True, False),
+    ):
+        latency = LatencyRecord(obs_id=action_id, latency_ms=10.0 + action_id, device="cuda:0")
+        collector.log_latency(latency)
+        collector.log_action_event(
+            ActionEvent(
+                action_id=action_id,
+                action=Action("jump"),
+                obs_env_step=action_id,
+                ready_time_ms=10.0 + action_id,
+                ready_step_float=float(action_id + 1),
+                latency=latency,
+                latency_raw_frames=1,
+                ready_raw_frame=action_id + 1,
+                apply_raw_frame=action_id + 1,
+                applied=applied,
+                dropped=dropped,
+                metadata={"frame_ms": 10.0},
+            )
+        )
+
+    snapshot = warmup_snapshot(collector)
+
+    assert [row["action_id"] for row in collector.e2e_rows] == [0, 3, 4]
+    assert [row["action_id"] for row in snapshot.recent_e2e_rows] == [3, 4]
+    assert snapshot.recent_e2e_latency_values_ms == [10.0, 10.0]
+    assert snapshot.action_records == 5
+    assert snapshot.e2e_rows == 3
+    assert snapshot.applied == 3
+    assert snapshot.dropped == 1
+    assert snapshot.not_applied == 1
+    snapshot_again = warmup_snapshot(collector)
+    assert snapshot_again.e2e_rows == 3
+    assert snapshot_again.applied == 3
+    assert snapshot_again.dropped == 1
+    assert snapshot_again.not_applied == 1
+
+
+def test_realtime_warmup_artifacts_use_recent_valid_e2e_rows(tmp_path, monkeypatch):
+    from latency_bench.executors import realtime_warmup
+
+    monkeypatch.setattr(realtime_warmup, "MIN_WARMUP_LATENCY_SAMPLES", 4)
+    monkeypatch.setattr(realtime_warmup, "MAX_WARMUP_LATENCY_SAMPLES", 4)
+    monkeypatch.setattr(realtime_warmup, "WARMUP_WINDOW_SIZE", 2)
+    monkeypatch.setattr(realtime_warmup, "STABLE_WINDOW_COUNT", 2)
+
+    collector = RealtimeWarmupCollector(save_action_records=True, save_latency_records=True)
+    for action_id in range(6):
+        latency = LatencyRecord(obs_id=action_id, latency_ms=10.0 + action_id, device="cuda:0")
+        collector.log_latency(latency)
+        collector.log_action_event(
+            ActionEvent(
+                action_id=action_id,
+                action=Action("jump"),
+                obs_env_step=action_id,
+                ready_time_ms=10.0 + action_id,
+                ready_step_float=float(action_id + 1),
+                latency=latency,
+                latency_raw_frames=1,
+                ready_raw_frame=action_id + 1,
+                apply_raw_frame=action_id + 1,
+                applied=action_id != 4,
+                metadata={"frame_ms": 10.0},
+            )
+        )
+
+    summary = write_realtime_warmup_artifacts(tmp_path, collector, stable=True)
+
+    e2e_rows = [
+        json.loads(line)
+        for line in (tmp_path / "warmup_e2e_latencies.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [row["action_id"] for row in e2e_rows] == [1, 2, 3, 5]
+    assert summary["warmup_samples"] == 4
+    assert summary["warmup_mean_latency_ms"] == pytest.approx(10.0)
