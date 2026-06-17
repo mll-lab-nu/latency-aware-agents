@@ -305,6 +305,51 @@ class DrainBeforeSubmitPool:
         return True
 
 
+class LateCompletionAfterFinalizePool:
+    def __init__(self):
+        self.submitted: list[RealtimeObservationTask] = []
+        self.drain_calls = 0
+        self.emitted = False
+
+    @property
+    def in_flight_count(self) -> int:
+        return 1 if self.submitted and not self.emitted else 0
+
+    @property
+    def idle_worker_count(self) -> int:
+        return 1 - self.in_flight_count
+
+    def drain_until_idle(self) -> dict[str, float | int]:
+        return {
+            "pre_episode_in_flight_count": 0,
+            "pre_episode_drained_completion_count": 0,
+            "pre_episode_drain_wait_ms": 0.0,
+            "pre_episode_in_flight_after_drain": 0,
+        }
+
+    def submit(self, task: RealtimeObservationTask) -> bool:
+        self.submitted.append(task)
+        return True
+
+    def drain_completed(self, now_ms: float) -> list[RealtimePolicyCompletion]:
+        self.drain_calls += 1
+        if self.drain_calls < 3:
+            return []
+        self.emitted = True
+        task = self.submitted[0]
+        return [
+            RealtimePolicyCompletion(
+                task=task,
+                policy_output=PolicyOutput(action=Action("late")),
+                completion_time_ms=now_ms,
+                latency_record=LatencyRecord(obs_id=task.obs_id, latency_ms=1.0),
+                worker_id=0,
+                device="cpu",
+                profile=task.profile,
+            )
+        ]
+
+
 class CloseOrderConnection:
     def __init__(self, events: list[tuple]):
         self.events = events
@@ -615,6 +660,50 @@ def test_env_process_does_not_enqueue_released_actions_on_parent_scheduler(monke
     assert ("release_observation", {"obs_id": 0}) in parent_conn.sent
 
 
+def test_env_process_releases_in_flight_observations_before_close_after_episode_done(monkeypatch):
+    task = RealtimeObservationTask(
+        obs_id=0,
+        observation=Observation(data=None, env_step=0, sim_time_ms=0.0),
+        submit_env_step=0,
+        submit_time_ms=0.0,
+        shared_obs_id=42,
+    )
+    parent_conn = QueuedEnvMessagePipe(
+        [
+            ("observation", {"task": task}),
+            (
+                "step",
+                {
+                    "record": StepRecord(
+                        episode_id=0,
+                        env_step=0,
+                        sim_time_ms=0.0,
+                        active_action=Action("noop", name="noop", is_noop=True),
+                        reward=0.0,
+                        done=True,
+                        info={"wall_clock_lag_ms": 0.0},
+                    )
+                },
+            ),
+            ("episode_done", {}),
+        ]
+    )
+    pool = LateCompletionAfterFinalizePool()
+    executor = _executor(pool=pool, max_steps=1)
+
+    monkeypatch.setattr(realtime.mp, "get_context", lambda _method: QueuedEnvMessageContext(parent_conn))
+
+    metrics = executor._run_episode_with_env_process(
+        pool=pool,
+        episode_id=0,
+        seed=0,
+        eval_max_steps=1,
+    )
+
+    assert metrics.num_actions == 0
+    assert parent_conn.sent.index(("release_observation", {"obs_id": 42})) < parent_conn.sent.index(("close", {}))
+
+
 def test_inference_pool_closes_connections_after_workers_exit():
     events: list[tuple] = []
     pool = ProcessInferencePool.__new__(ProcessInferencePool)
@@ -746,6 +835,7 @@ def test_env_action_drain_happens_before_scheduler_update() -> None:
     closed = _drain_env_action_messages(
         connection=pipe,
         action_scheduler=scheduler,
+        release_observation=lambda obs_id: None,
         now_ms_fn=lambda: 10.0,
     )
     active_action = scheduler.update(0, 0.0)
@@ -755,6 +845,26 @@ def test_env_action_drain_happens_before_scheduler_update() -> None:
     assert active_action == Action("jump")
     assert applied.profile.parent_to_env_ipc_ms == 1.0
     assert applied.profile.env_action_recv_to_enqueue_ms is not None
+
+
+def test_env_action_drain_releases_observations_with_explicit_callback() -> None:
+    clock = EnvClock(env_fps=10.0, obs_fps=10.0)
+    scheduler = ActionScheduler(
+        clock=clock,
+        noop_action=Action("noop", name="noop", is_noop=True),
+        persistence_policy=HoldPolicy(duration_raw_frames=1),
+    )
+    released: list[int] = []
+    pipe = QueuedEnvMessagePipe([("release_observation", {"obs_id": 9})])
+
+    closed = _drain_env_action_messages(
+        connection=pipe,
+        action_scheduler=scheduler,
+        release_observation=released.append,
+    )
+
+    assert closed is False
+    assert released == [9]
 
 
 def test_env_wait_drains_actions_before_next_frame_boundary() -> None:
@@ -784,6 +894,7 @@ def test_env_wait_drains_actions_before_next_frame_boundary() -> None:
     closed = _drain_env_actions_until_wall_time(
         connection=pipe,
         action_scheduler=scheduler,
+        release_observation=lambda obs_id: None,
         target_wall_s=1.100,
         time_fn=fake_clock.time,
         now_ms_fn=lambda: 1000.0,

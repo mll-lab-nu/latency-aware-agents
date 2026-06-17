@@ -231,7 +231,7 @@ def _drain_env_action_messages(
     *,
     connection: Any,
     action_scheduler: ActionScheduler,
-    release_observation: Callable[[int], None] | None = None,
+    release_observation: Callable[[int], None],
     now_ms_fn: Callable[[], float] = _profile_now_ms,
 ) -> bool:
     while connection.poll():
@@ -260,7 +260,7 @@ def _drain_env_actions_until_wall_time(
     *,
     connection: Any,
     action_scheduler: ActionScheduler,
-    release_observation: Callable[[int], None] | None = None,
+    release_observation: Callable[[int], None],
     target_wall_s: float,
     time_fn: Callable[[], float] = time.perf_counter,
     now_ms_fn: Callable[[], float] = _profile_now_ms,
