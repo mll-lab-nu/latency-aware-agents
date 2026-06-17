@@ -7,6 +7,10 @@ MINICONDA_HOME="${HOME}/miniconda3"
 MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
 CONDA_SH_PATH=""
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/bash_scripts/_pip.sh
+source "${SCRIPT_DIR}/scripts/bash_scripts/_pip.sh"
+
 detect_torch_profile() {
     if ! command -v nvidia-smi >/dev/null 2>&1; then
         echo "[install] nvidia-smi not found; defaulting auto torch profile to cu126" >&2
@@ -149,13 +153,14 @@ conda create -n latency -c conda-forge --override-channels python=3.10 -y
 
 conda activate latency
 python -m pip install --upgrade pip
-python -m pip install "torch==${TORCH_VERSION}" --index-url "${TORCH_INDEX_URL}"
+ensure_uv
+pip_install "torch==${TORCH_VERSION}" --index-url "${TORCH_INDEX_URL}"
 python - <<'PY'
 import torch
 
 print(f"[install] torch={torch.__version__} cuda={torch.version.cuda}")
 PY
-python -m pip install -r requirements.txt
+pip_install -r requirements.txt
 
 bash scripts/bash_scripts/build_cuda_extensions.sh
 bash starVLA/examples/rl_games/install/bootstrap.sh --split-envs
