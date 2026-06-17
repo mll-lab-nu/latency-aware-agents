@@ -127,7 +127,7 @@ class PausedLatencyExecutor(EpisodeExecutor):
             step_info = step_record_info(result.info)
             step_info.update(
                 active_action_step_info(
-                    applied_events=self.action_scheduler.get_applied_events(),
+                    active_event=self.action_scheduler.latest_applied_event,
                     env_step=env_step,
                     scheduled_time_ms=current_time_ms,
                     frame_ms=self.clock.frame_ms,

@@ -81,6 +81,19 @@ class ActionScheduler:
         return list(self._applied_events)
 
     @property
+    def applied_event_count(self) -> int:
+        return len(self._applied_events)
+
+    @property
+    def latest_applied_event(self) -> ActionEvent | None:
+        if not self._applied_events:
+            return None
+        return self._applied_events[-1]
+
+    def get_applied_events_since(self, index: int) -> list[ActionEvent]:
+        return self._applied_events[index:]
+
+    @property
     def dropped_events_count(self) -> int:
         return self._dropped_events_count
 

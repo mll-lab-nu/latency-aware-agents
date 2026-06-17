@@ -312,8 +312,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             scheduler_update_start_ms = _profile_now_ms()
             active_action = self.action_scheduler.update(env_step, scheduled_time_ms)
             scheduler_update_ms = _profile_now_ms() - scheduler_update_start_ms
-            applied_events = self.action_scheduler.get_applied_events()
-            new_applied_events = applied_events[applied_event_count:]
+            new_applied_events = self.action_scheduler.get_applied_events_since(applied_event_count)
             for event in new_applied_events:
                 profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
                 if profile is not None:
@@ -326,7 +325,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
                 if profile is not None:
                     profile.env_step_ms = env_step_ms
-            applied_event_count = len(applied_events)
+            applied_event_count = self.action_scheduler.applied_event_count
             episode_done = result.done or result.truncated
             if self.video_recorder is not None and not episode_done:
                 self.video_recorder.record_frame(self.env.render_game_frame())
@@ -345,7 +344,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             )
             step_info.update(
                 active_action_step_info(
-                    applied_events=applied_events,
+                    active_event=self.action_scheduler.latest_applied_event,
                     env_step=env_step,
                     scheduled_time_ms=scheduled_time_ms,
                     frame_ms=self.clock.frame_ms,
