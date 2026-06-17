@@ -544,7 +544,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 tag, payload = parent_conn.recv()
                 handle_env_message(tag, payload)
 
-            return self._finalize_episode(
+            metrics = self._finalize_episode(
                 episode_id=episode_id,
                 seed=seed,
                 acc=acc,
@@ -554,6 +554,11 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 enqueue_released_actions=False,
                 release_observation=release_observation,
             )
+            self._release_in_flight_observations(
+                pool=pool,
+                release_observation=release_observation,
+            )
+            return metrics
         finally:
             try:
                 parent_conn.send(("close", {}))
@@ -564,6 +569,18 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             if process.is_alive():
                 process.terminate()
                 process.join(timeout=1.0)
+
+    def _release_in_flight_observations(
+        self,
+        *,
+        pool: Any,
+        release_observation: Callable[[int | None], None],
+    ) -> None:
+        while pool.in_flight_count:
+            for completion in pool.drain_completed(self._wall_elapsed_ms()):
+                release_observation(completion.task.shared_obs_id)
+            if pool.in_flight_count:
+                self.sleep_fn(0.001)
 
     def _drain_and_release_results(
         self,
