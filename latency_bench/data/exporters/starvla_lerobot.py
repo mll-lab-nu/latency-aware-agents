@@ -125,6 +125,17 @@ def _write_episode(path: Path, rows: list[dict[str, Any]], *, action_dim: int) -
     pq.write_table(table, path)
 
 
+def _row_action_vector(row: dict[str, Any], *, action_dim: int) -> list[float]:
+    if "action" in row and row["action"] is not None:
+        return [float(value) for value in row["action"]]
+    if "action_id" not in row:
+        raise KeyError(f"row is missing action fields; available columns: {sorted(row)}")
+    action_id = int(row["action_id"])
+    if action_id < 0 or action_id >= action_dim:
+        raise ValueError(f"action_id={action_id} is outside action range [0, {action_dim - 1}]")
+    return [1.0 if idx == action_id else 0.0 for idx in range(action_dim)]
+
+
 def _write_metadata(
     dataset_dir: Path,
     *,
@@ -209,7 +220,7 @@ def _convert_split(
             out_rows.append(
                 {
                     "image_bytes": _png_bytes(row["image"]),
-                    "action": [float(value) for value in row["action"]],
+                    "action": _row_action_vector(row, action_dim=len(action_labels)),
                     "timestamp": float(frame_idx) / int(fps),
                     "episode_index": new_episode_idx,
                     "frame_index": frame_idx,

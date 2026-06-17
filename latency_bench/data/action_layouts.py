@@ -1,9 +1,4 @@
-"""Canonical rollout action layouts.
-
-Deadly Corridor uses the factorized 11D tuple layout as the rollout dataset
-contract. StarVLA semantic 7D names are kept only as metadata constants for
-adapters that need to reason about older model outputs.
-"""
+"""Canonical rollout action layouts."""
 
 from __future__ import annotations
 
@@ -17,7 +12,6 @@ ACTION_LAYOUT_FLAPPY_DISCRETE = "flappy_discrete"
 ACTION_LAYOUT_DEMON_ATTACK_DISCRETE = "demon_attack_discrete"
 ACTION_LAYOUT_DEADLY_CORRIDOR_FACTORIZED_11 = "deadly_corridor_factorized_11"
 ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54 = "deadly_corridor_joint_54"
-ACTION_LAYOUT_DEADLY_CORRIDOR_SEMANTIC_7 = "deadly_corridor_semantic_7"
 
 FLAPPY_ACTION_LABELS = ("NOOP", "FLAP")
 DEMON_ATTACK_ACTION_LABELS = ("NOOP", "FIRE", "RIGHT", "LEFT", "RIGHTFIRE", "LEFTFIRE")
@@ -31,14 +25,22 @@ DEADLY_CORRIDOR_FACTORIZED_11_LABELS = (
     *DEADLY_CORRIDOR_STRAFE_LABELS,
     *DEADLY_CORRIDOR_ATTACK_LABELS,
 )
-DEADLY_CORRIDOR_SEMANTIC_7_LABELS = (
-    "MOVE_FORWARD",
-    "MOVE_BACKWARD",
-    "MOVE_LEFT",
-    "MOVE_RIGHT",
-    "TURN_LEFT",
-    "TURN_RIGHT",
-    "ATTACK",
+DEADLY_CORRIDOR_JOINT_54_LABELS = tuple(
+    " + ".join(
+        label
+        for label in (
+            DEADLY_CORRIDOR_TURN_LABELS[turn],
+            DEADLY_CORRIDOR_MOVE_LABELS[move],
+            DEADLY_CORRIDOR_STRAFE_LABELS[strafe],
+            DEADLY_CORRIDOR_ATTACK_LABELS[attack],
+        )
+        if not label.endswith("_NOOP")
+    )
+    or "NOOP"
+    for turn in range(len(DEADLY_CORRIDOR_TURN_LABELS))
+    for move in range(len(DEADLY_CORRIDOR_MOVE_LABELS))
+    for strafe in range(len(DEADLY_CORRIDOR_STRAFE_LABELS))
+    for attack in range(len(DEADLY_CORRIDOR_ATTACK_LABELS))
 )
 
 
@@ -80,9 +82,9 @@ ACTION_SPECS_BY_ENV = {
         reward_semantics="raw_reward",
     ),
     "deadly_corridor": ActionSpec(
-        layout=ACTION_LAYOUT_DEADLY_CORRIDOR_FACTORIZED_11,
-        labels=DEADLY_CORRIDOR_FACTORIZED_11_LABELS,
-        row_fields=("action_tuple", "action", "action_text"),
+        layout=ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54,
+        labels=DEADLY_CORRIDOR_JOINT_54_LABELS,
+        row_fields=("action_id", "action_text"),
         reward_field="raw_reward",
         episode_return_field="episode_raw_return",
         reward_semantics="raw_reward",
@@ -177,28 +179,20 @@ def _deadly_corridor_action_text(action_tuple: list[int]) -> str:
         DEADLY_CORRIDOR_ATTACK_LABELS[attack],
     )
     active_labels = [label for label in labels if not label.endswith("_NOOP")]
-    return "+".join(active_labels) if active_labels else "NOOP"
+    return " + ".join(active_labels) if active_labels else "NOOP"
 
 
-def deadly_corridor_factorized_11_action(raw_action: Any) -> dict[str, Any]:
-    """Encode a Deadly Corridor tuple action into canonical row fields.
+def _deadly_corridor_joint_action_id(action_tuple: list[int]) -> int:
+    turn, move, strafe, attack = action_tuple
+    return int(turn) * 18 + int(move) * 6 + int(strafe) * 2 + int(attack)
 
-    Args:
-        raw_action: Raw four-component action from the policy.
 
-    Returns:
-        Row fields ``action_tuple``, ``action``, and ``action_text``.
-    """
-    turn, move, strafe, attack = _deadly_corridor_tuple(raw_action)
+def deadly_corridor_joint_54_action(raw_action: Any) -> dict[str, Any]:
+    """Encode a Deadly Corridor tuple action as the legacy joint action id."""
+    action_tuple = _deadly_corridor_tuple(raw_action)
     return {
-        "action_tuple": [turn, move, strafe, attack],
-        "action": [
-            *_one_hot(turn, len(DEADLY_CORRIDOR_TURN_LABELS)),
-            *_one_hot(move, len(DEADLY_CORRIDOR_MOVE_LABELS)),
-            *_one_hot(strafe, len(DEADLY_CORRIDOR_STRAFE_LABELS)),
-            *_one_hot(attack, len(DEADLY_CORRIDOR_ATTACK_LABELS)),
-        ],
-        "action_text": _deadly_corridor_action_text([turn, move, strafe, attack]),
+        "action_id": _deadly_corridor_joint_action_id(action_tuple),
+        "action_text": _deadly_corridor_action_text(action_tuple),
     }
 
 
@@ -232,5 +226,5 @@ def encode_action_for_env(env_name: str, raw_action: Any) -> dict[str, Any]:
         Environment-specific action row fields.
     """
     if str(env_name) == "deadly_corridor":
-        return deadly_corridor_factorized_11_action(raw_action)
+        return deadly_corridor_joint_54_action(raw_action)
     return discrete_action(str(env_name), raw_action)

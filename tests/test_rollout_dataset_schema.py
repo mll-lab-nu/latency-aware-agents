@@ -32,8 +32,9 @@ def test_rollout_features_include_env_specific_action_fields():
 
     assert "action_id" in flappy_features
     assert "action_tuple" not in flappy_features
-    assert "action_tuple" in deadly_features
-    assert "action_id" not in deadly_features
+    assert "action_id" in deadly_features
+    assert "action_tuple" not in deadly_features
+    assert "action" not in deadly_features
     for features in (flappy_features, deadly_features):
         assert "decision_step" in features
         assert "latency_raw_frames" in features

@@ -670,7 +670,7 @@ def test_flappy_starvla_dry_run_uses_starvla_checkpoint_config(tmp_path: Path):
     )
 
 
-def test_deadly_openvla_dry_run_writes_factorized_eleven_dim_config(tmp_path: Path):
+def test_deadly_openvla_dry_run_writes_config(tmp_path: Path):
     out = tmp_path / "results"
 
     _run_cli(
