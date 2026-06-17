@@ -202,6 +202,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         coordinator: _RealtimeResultCoordinator,
         pool: Any,
         pre_episode_drain: dict[str, float | int] | None,
+        enqueue_released_actions: bool,
     ) -> EpisodeMetrics:
         self._drain_and_release_results(
             pool=pool,
@@ -209,6 +210,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             now_ms=self._wall_elapsed_ms(),
             action_events=acc.action_events,
             latency_values_ms=acc.latency_values_ms,
+            enqueue_released_actions=enqueue_released_actions,
         )
         elapsed_s = self.time_fn() - self._episode_start_s
         actual_env_fps = None if elapsed_s <= 0 else len(acc.step_records) / elapsed_s
@@ -284,6 +286,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 now_ms=current_wall_elapsed_ms,
                 action_events=acc.action_events,
                 latency_values_ms=acc.latency_values_ms,
+                enqueue_released_actions=True,
             )
 
             observation_submitted = False
@@ -372,6 +375,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             coordinator=coordinator,
             pool=pool,
             pre_episode_drain=pre_episode_drain,
+            enqueue_released_actions=True,
         )
         if self.video_recorder is not None:
             self.video_recorder.close_episode({"episode_return": metrics.episode_return})
@@ -420,6 +424,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                     now_ms=now_ms,
                     action_events=acc.action_events,
                     latency_values_ms=acc.latency_values_ms,
+                    enqueue_released_actions=False,
                 )
                 first_released_index = len(acc.action_events) - len(released)
                 for offset, event in enumerate(released):
@@ -533,6 +538,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 coordinator=coordinator,
                 pool=pool,
                 pre_episode_drain=pre_episode_drain,
+                enqueue_released_actions=False,
             )
         finally:
             try:
@@ -553,6 +559,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         now_ms: float,
         action_events: list[ActionEvent],
         latency_values_ms: list[float],
+        enqueue_released_actions: bool,
     ) -> list[ActionEvent]:
         released_events: list[ActionEvent] = []
         for completion in pool.drain_completed(now_ms):
@@ -583,7 +590,8 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 dropped=False,
                 discard_reason=None,
             )
-            self.action_scheduler.enqueue(event)
+            if enqueue_released_actions:
+                self.action_scheduler.enqueue(event)
             released_events.append(event)
         return released_events
 
