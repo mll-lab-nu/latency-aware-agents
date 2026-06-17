@@ -15,14 +15,13 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from latency_bench.core.config import load_config
-from latency_bench.run import (
+from latency_bench.eval.config import (
     _apply_eval_latency,
     _eval_latency_values,
     _latency_steps_to_ms,
     _train_latency_steps,
-    apply_runtime_overrides,
-    run_from_config,
 )
+from latency_bench.run import apply_runtime_overrides, run_from_config
 from latency_bench.utils.proc import cpu_seconds
 
 

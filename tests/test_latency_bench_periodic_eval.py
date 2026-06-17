@@ -886,7 +886,7 @@ def test_run_sample_factory_training_uses_native_run_rl_without_interval(monkeyp
 
 
 def test_flappy_example_config_shows_periodic_latency_bench_eval_usage():
-    from latency_bench.eval_suites import parse_eval_suites
+    from latency_bench.eval.suites import parse_eval_suites
     from training.common import load_training_config
     from training.common.latency_bench_periodic_eval import periodic_eval_enabled
 
@@ -904,7 +904,7 @@ def test_flappy_example_config_shows_periodic_latency_bench_eval_usage():
 
 
 def test_base_configs_include_periodic_latency_bench_eval_defaults():
-    from latency_bench.eval_suites import parse_eval_suites
+    from latency_bench.eval.suites import parse_eval_suites
     from training.common import load_training_config
     from training.common.latency_bench_periodic_eval import periodic_eval_enabled
 
