@@ -65,9 +65,64 @@ def _seed_tables(tables_dir: Path) -> None:
     )
 
 
+def _spec() -> dict:
+    return {
+        "devices": [
+            {
+                "id": "rtx3090",
+                "display_name": "RTX 3090",
+                "profile_id": "L_3090",
+            },
+        ],
+        "experiments": {
+            "exp2_same_device_calibration": {
+                "rows": [
+                    {
+                        "policy": "flappy-sf-l1",
+                        "env": "Flappy",
+                    },
+                ],
+            },
+        },
+    }
+
+
+def _manifest(output_dir: Path) -> dict:
+    return {
+        "stage": "measure",
+        "status": "completed",
+        "experiment_id": "exp1_latency_profile_summary",
+        "experiment_ids": [
+            "exp1_latency_profile_summary",
+            "exp2_same_device_calibration",
+            "exp3_cross_device_prediction",
+        ],
+        "policy": "flappy-sf-l1",
+        "env": "Flappy",
+        "target_device_id": "rtx3090",
+        "output_dir": str(output_dir),
+        "n_episodes": 2,
+        "seed_set": [0],
+        "notes": "",
+        "started_at": "2026-01-01T00:00:00+00:00",
+        "completed_at": "2026-01-01T00:00:01+00:00",
+    }
+
+
+def _write_episode_metrics(output_dir: Path) -> None:
+    write_jsonl(
+        output_dir / "episode_metrics.jsonl",
+        [
+            {"episode_id": 0, "episode_return_env": 10.0, "survival_steps": 100},
+            {"episode_id": 1, "episode_return_env": 20.0, "survival_steps": 200},
+        ],
+    )
+
+
 def test_build_all_produces_aligned_schemas(tmp_path: Path):
     tables_dir = tmp_path / "tables"
     profiles_root = tmp_path / "profiles"
+    root = tmp_path / "cross_device"
     _seed_tables(tables_dir)
     # Panel-a traces for the one device that has a profile.
     write_latency_samples(
@@ -78,6 +133,9 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
         [float(i + 100) for i in range(100)],
         profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "infer_latencies.jsonl",
     )
+    run_dir = root / "runs" / "measure" / "flappy-sf-l1" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    _write_episode_metrics(run_dir)
+    write_jsonl(root / "manifests" / "runs.jsonl", [_manifest(run_dir)])
 
     out_fig = tmp_path / "fig" / "data.csv"
     out_table = tmp_path / "table" / "data.csv"
@@ -88,6 +146,8 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
         out_table=out_table,
         panel_a_env="Flappy",
         max_samples_per_device=10,
+        spec=_spec(),
+        root=root,
     )
 
     fig_rows = read_csv(out_fig)
@@ -128,7 +188,37 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
     assert by_type["prediction"][0]["replay_device"] == "B200"
     assert by_type["prediction"][0]["return_rel_error_pct"] == "12.75"
 
-    assert counts == {"fig_rows": 22, "table_rows": 1}
+    # Return distribution: one row per realtime measure episode.
+    assert len(by_type["realtime_episode_return"]) == 2
+    assert [row["episode_id"] for row in by_type["realtime_episode_return"]] == ["0", "1"]
+    assert [row["episode_return_env"] for row in by_type["realtime_episode_return"]] == ["10.0", "20.0"]
+    assert [row["survival_steps"] for row in by_type["realtime_episode_return"]] == ["100", "200"]
+    assert {row["target_device_id"] for row in by_type["realtime_episode_return"]} == {"rtx3090"}
+    assert {row["hardware"] for row in by_type["realtime_episode_return"]} == {"RTX 3090"}
+
+    assert counts == {"fig_rows": 24, "table_rows": 1}
+
+
+def test_realtime_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
+    raw_root = tmp_path / "raw"
+    protocol_root = raw_root / "rtx3090" / "openvla" / "cross_device"
+    old_root = Path("results/cross_device")
+    run_dir = protocol_root / "runs" / "measure" / "flappy-sf-l1" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    _write_episode_metrics(run_dir)
+    manifest = _manifest(old_root / run_dir.relative_to(protocol_root))
+    write_jsonl(protocol_root / "manifests" / "runs.jsonl", [manifest])
+
+    rows = bfd.build_realtime_episode_return_rows(
+        _spec(),
+        root=tmp_path / "unused_cross_device",
+        raw_root=raw_root,
+    )
+
+    assert len(rows) == 2
+    assert [row["episode_id"] for row in rows] == [0, 1]
+    assert [row["episode_return_env"] for row in rows] == [10.0, 20.0]
+    assert [row["survival_steps"] for row in rows] == [100, 200]
+    assert {row["hardware"] for row in rows} == {"RTX 3090"}
 
 
 def test_profiled_e2e_trace_emits_overhead_samples(tmp_path: Path):
