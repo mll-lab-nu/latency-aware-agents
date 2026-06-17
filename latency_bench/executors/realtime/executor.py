@@ -203,6 +203,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         pool: Any,
         pre_episode_drain: dict[str, float | int] | None,
         enqueue_released_actions: bool,
+        release_observation: Callable[[int | None], None] | None,
     ) -> EpisodeMetrics:
         self._drain_and_release_results(
             pool=pool,
@@ -211,6 +212,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             action_events=acc.action_events,
             latency_values_ms=acc.latency_values_ms,
             enqueue_released_actions=enqueue_released_actions,
+            release_observation=release_observation,
         )
         elapsed_s = self.time_fn() - self._episode_start_s
         actual_env_fps = None if elapsed_s <= 0 else len(acc.step_records) / elapsed_s
@@ -287,6 +289,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 action_events=acc.action_events,
                 latency_values_ms=acc.latency_values_ms,
                 enqueue_released_actions=True,
+                release_observation=None,
             )
 
             observation_submitted = False
@@ -375,6 +378,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             pool=pool,
             pre_episode_drain=pre_episode_drain,
             enqueue_released_actions=True,
+            release_observation=None,
         )
         if self.video_recorder is not None:
             self.video_recorder.close_episode({"episode_return": metrics.episode_return})
@@ -415,6 +419,13 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         done = False
 
         try:
+            def release_observation(obs_id: int | None) -> None:
+                nonlocal done
+                try:
+                    parent_conn.send(("release_observation", {"obs_id": obs_id}))
+                except BrokenPipeError:
+                    done = True
+
             def release_ready_actions(now_ms: float) -> None:
                 nonlocal done
                 released = self._drain_and_release_results(
@@ -424,6 +435,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                     action_events=acc.action_events,
                     latency_values_ms=acc.latency_values_ms,
                     enqueue_released_actions=False,
+                    release_observation=release_observation,
                 )
                 first_released_index = len(acc.action_events) - len(released)
                 for offset, event in enumerate(released):
@@ -462,6 +474,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                         submit_env_step=incoming_task.submit_env_step,
                         submit_time_ms=incoming_task.submit_time_ms,
                         profile=profile,
+                        shared_obs_id=incoming_task.shared_obs_id,
                     )
                     self._next_obs_id += 1
                     if pool.submit(task):
@@ -479,6 +492,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                         }
                     else:
                         acc.dropped_observation_count += 1
+                        release_observation(incoming_task.shared_obs_id)
                         pending_step_info[int(task.submit_env_step)] = {
                             "observation_submitted": False,
                             "observation_dropped": True,
@@ -538,6 +552,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 pool=pool,
                 pre_episode_drain=pre_episode_drain,
                 enqueue_released_actions=False,
+                release_observation=release_observation,
             )
         finally:
             try:
@@ -559,9 +574,12 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         action_events: list[ActionEvent],
         latency_values_ms: list[float],
         enqueue_released_actions: bool,
+        release_observation: Callable[[int | None], None] | None,
     ) -> list[ActionEvent]:
         released_events: list[ActionEvent] = []
         for completion in pool.drain_completed(now_ms):
+            if release_observation is not None:
+                release_observation(completion.task.shared_obs_id)
             ignored = coordinator.add_completion(completion)
             for ignored_completion in ignored:
                 self._record_completion_event(
