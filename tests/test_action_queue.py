@@ -141,6 +141,30 @@ def test_latest_ready_mode_drops_older_ready_actions():
     assert scheduler.get_pending_events() == []
 
 
+def test_applied_event_incremental_access_does_not_require_full_copy():
+    clock = EnvClock(env_fps=30, obs_fps=30)
+    noop = Action("noop", is_noop=True)
+    first = Action("first")
+    second = Action("second")
+    scheduler = ActionScheduler(clock, noop, HoldPolicy(duration_raw_frames=100))
+    scheduler.enqueue(_event(0, first, ready_step=0, clock=clock))
+    scheduler.enqueue(_event(1, second, ready_step=1, clock=clock))
+
+    assert scheduler.latest_applied_event is None
+    assert scheduler.update(0, clock.step_to_time_ms(0)) is first
+    first_applied = scheduler.get_applied_events_since(0)
+
+    assert [event.action.value for event in first_applied] == ["first"]
+    assert scheduler.latest_applied_event is first_applied[-1]
+
+    cursor = scheduler.applied_event_count
+    assert scheduler.update(1, clock.step_to_time_ms(1)) is second
+    second_applied = scheduler.get_applied_events_since(cursor)
+
+    assert [event.action.value for event in second_applied] == ["second"]
+    assert scheduler.latest_applied_event is second_applied[-1]
+
+
 def test_persistence_policy_controls_active_action():
     clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)

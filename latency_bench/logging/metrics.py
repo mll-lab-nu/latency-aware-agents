@@ -160,14 +160,13 @@ def episode_raw_fact_metadata(
 
 def active_action_step_info(
     *,
-    applied_events: list[ActionEvent],
+    active_event: ActionEvent | None,
     env_step: int,
     scheduled_time_ms: float,
     frame_ms: float,
     latency_type: str,
     profile_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    active_event = applied_events[-1] if applied_events else None
     profile_metadata = profile_metadata or {}
     active_obs_frame = None if active_event is None else active_event.obs_env_step
     return {

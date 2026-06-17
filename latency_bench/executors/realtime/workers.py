@@ -360,8 +360,7 @@ def _env_loop_worker(
             scheduler_update_start_ms = _profile_now_ms()
             active_action = action_scheduler.update(env_step, scheduled_time_ms)
             scheduler_update_ms = _profile_now_ms() - scheduler_update_start_ms
-            applied_events = action_scheduler.get_applied_events()
-            new_applied_events = applied_events[applied_event_count:]
+            new_applied_events = action_scheduler.get_applied_events_since(applied_event_count)
             for event in new_applied_events:
                 if event.profile is not None:
                     event.profile.env_scheduler_update_ms = scheduler_update_ms
@@ -373,7 +372,7 @@ def _env_loop_worker(
                 if event.profile is not None:
                     event.profile.env_step_ms = env_step_ms
                 connection.send(("action_ack", _action_event_ack_payload(event)))
-            applied_event_count = len(applied_events)
+            applied_event_count = action_scheduler.applied_event_count
             episode_done = bool(result.done or result.truncated)
             if video_recorder is not None and not episode_done:
                 video_recorder.record_frame(env.render_game_frame())
@@ -392,7 +391,7 @@ def _env_loop_worker(
             )
             step_info.update(
                 active_action_step_info(
-                    applied_events=applied_events,
+                    active_event=action_scheduler.latest_applied_event,
                     env_step=env_step,
                     scheduled_time_ms=scheduled_time_ms,
                     frame_ms=clock.frame_ms,

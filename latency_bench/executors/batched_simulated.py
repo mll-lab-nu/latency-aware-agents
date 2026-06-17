@@ -244,7 +244,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                     step_info = step_record_info(result.info)
                     step_info.update(
                         active_action_step_info(
-                            applied_events=slot.action_scheduler.get_applied_events(),
+                            active_event=slot.action_scheduler.latest_applied_event,
                             env_step=slot.env_step,
                             scheduled_time_ms=current_time_ms,
                             frame_ms=self.clock.frame_ms,
