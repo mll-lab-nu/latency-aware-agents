@@ -10,6 +10,9 @@ import pytest
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.executors.base import BatchedExecutor, EpisodeExecutor
 import latency_bench.run as latency_run
+import latency_bench.eval.driver as evaluation
+import latency_bench.eval.sweeps as eval_sweeps
+import latency_bench.eval.reporting as reporting
 from latency_bench.run import main
 
 
@@ -198,8 +201,8 @@ def test_run_from_config_uses_sample_factory_eval_episode_seeds(monkeypatch, tmp
                 metadata={},
             )
 
-    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
-    monkeypatch.setattr(latency_run, "seed_everything", lambda seed: global_seed_calls.append(seed) or seed)
+    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
+    monkeypatch.setattr(evaluation, "seed_everything", lambda seed: global_seed_calls.append(seed) or seed)
     config = _run_config("deadly_corridor_sf", tmp_path, seed=11, num_episodes=3)
 
     latency_run.run_from_config(config)
@@ -232,8 +235,8 @@ def test_run_from_config_keeps_existing_episode_seeds_for_non_sample_factory_pol
                 metadata={},
             )
 
-    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
-    monkeypatch.setattr(latency_run, "seed_everything", lambda seed: global_seed_calls.append(seed) or seed)
+    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
+    monkeypatch.setattr(evaluation, "seed_everything", lambda seed: global_seed_calls.append(seed) or seed)
     config = _run_config("constant", tmp_path, seed=11, num_episodes=3)
 
     latency_run.run_from_config(config)
@@ -265,7 +268,7 @@ def test_run_from_config_uses_evaluation_eval_max_steps(
                 metadata={},
             )
 
-    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
     config["evaluation"] = {"eval_episodes": 1, "eval_max_steps": 7}
 
@@ -300,7 +303,7 @@ def test_run_from_config_uses_batched_executor_run_episodes_when_available(
                 for episode_id in episode_ids
             ]
 
-    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeBatchedExecutor())
+    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeBatchedExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=3)
     config["evaluation"]["eval_max_steps"] = 7
 
@@ -351,7 +354,7 @@ def test_run_from_config_merges_executor_warmup_metadata(
                 metadata={},
             )
 
-    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
     config["evaluation"]["eval_max_steps"] = 10
 
@@ -410,7 +413,7 @@ def test_run_from_config_keeps_executor_alive_until_latency_sample_target(
             self.logger.episode_metrics.append(metrics)
             return metrics
 
-    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
     config["evaluation"]["eval_max_steps"] = 10
 
@@ -459,7 +462,7 @@ def test_run_eval_progress_keeps_existing_episode_format_without_sample_target(
             self.logger.episode_metrics.append(metrics)
             return metrics
 
-    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
 
     latency_run.run_eval_sweep_from_config(config, progress=True)
@@ -507,7 +510,7 @@ def test_run_eval_progress_reports_sample_target_and_extra_episodes(
             self.logger.episode_metrics.append(metrics)
             return metrics
 
-    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
 
     latency_run.run_eval_sweep_from_config(config, progress=True, n_samples=5)
@@ -541,7 +544,7 @@ def test_run_from_config_without_warmup_hook_does_not_warmup(
                 metadata={},
             )
 
-    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
     config["evaluation"]["eval_max_steps"] = 10
 
@@ -589,7 +592,7 @@ def test_run_from_config_requires_evaluation_eval_max_steps(monkeypatch, tmp_pat
         logger = None
         env = FakeEnv()
 
-    monkeypatch.setattr(latency_run, "build_executor", lambda config: FakeExecutor())
+    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
     config.pop("evaluation")
 
@@ -717,8 +720,8 @@ logging:
         define_metric=lambda *args, **kwargs: defined_metrics.append((args, kwargs)),
         log=lambda payload: log_calls.append(payload),
     )
-    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
-    monkeypatch.setattr(latency_run, "run_eval_suites_from_config", fake_run_eval_suites_from_config)
+    monkeypatch.setattr(reporting, "wandb", fake_wandb)
+    monkeypatch.setattr(eval_sweeps, "run_eval_suites_from_config", fake_run_eval_suites_from_config)
 
     latency_run.main(["--config", str(config_path)])
 
@@ -875,8 +878,8 @@ logging:
         define_metric=lambda *args, **kwargs: None,
         log=lambda payload: log_calls.append(payload),
     )
-    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
-    monkeypatch.setattr(latency_run, "run_eval_suites_from_config", fake_run_eval_suites_from_config)
+    monkeypatch.setattr(reporting, "wandb", fake_wandb)
+    monkeypatch.setattr(eval_sweeps, "run_eval_suites_from_config", fake_run_eval_suites_from_config)
 
     latency_run.main(["--config", str(config_path)])
 

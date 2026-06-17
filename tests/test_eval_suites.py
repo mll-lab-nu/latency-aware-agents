@@ -65,7 +65,7 @@ def _suite_config(tmp_path: Path) -> dict:
 
 
 def test_parse_grouped_eval_suites_supports_multiple_normal_distributions(tmp_path: Path):
-    from latency_bench.eval_suites import parse_eval_suites
+    from latency_bench.eval.suites import parse_eval_suites
 
     suites = parse_eval_suites(_suite_config(tmp_path))
 
@@ -94,7 +94,7 @@ def test_parse_grouped_eval_suites_supports_multiple_normal_distributions(tmp_pa
 
 
 def test_parse_fixed_eval_suite_supports_explicit_latency_list(tmp_path: Path):
-    from latency_bench.eval_suites import parse_eval_suites
+    from latency_bench.eval.suites import parse_eval_suites
 
     config = _suite_config(tmp_path)
     config["evaluation"]["eval_suites"] = {
@@ -111,6 +111,7 @@ def test_parse_fixed_eval_suite_supports_explicit_latency_list(tmp_path: Path):
 
 def test_run_eval_suites_writes_per_suite_outputs(monkeypatch, tmp_path: Path):
     import latency_bench.run as latency_run
+    import latency_bench.eval.sweeps as eval_sweeps
 
     seen_configs: list[dict] = []
 
@@ -127,7 +128,7 @@ def test_run_eval_suites_writes_per_suite_outputs(monkeypatch, tmp_path: Path):
             )
         ]
 
-    monkeypatch.setattr(latency_run, "run_from_config", fake_run_from_config)
+    monkeypatch.setattr(eval_sweeps, "run_from_config", fake_run_from_config)
 
     summaries = latency_run.run_eval_suites_from_config(_suite_config(tmp_path), progress=False)
 
@@ -166,6 +167,7 @@ def test_run_eval_suites_writes_per_suite_outputs(monkeypatch, tmp_path: Path):
 
 def test_cli_prints_eval_suite_summaries(monkeypatch, tmp_path: Path, capsys):
     import latency_bench.run as latency_run
+    import latency_bench.eval.sweeps as eval_sweeps
 
     def fake_run_from_config(config, extra_metadata=None, write_summary=True, on_episode_complete=None, episode_ids=None):
         return [
@@ -177,7 +179,7 @@ def test_cli_prints_eval_suite_summaries(monkeypatch, tmp_path: Path, capsys):
             )
         ]
 
-    monkeypatch.setattr(latency_run, "run_from_config", fake_run_from_config)
+    monkeypatch.setattr(eval_sweeps, "run_from_config", fake_run_from_config)
     config_path = tmp_path / "eval_suites.yaml"
     config_path.write_text(yaml.safe_dump(_suite_config(tmp_path)), encoding="utf-8")
 
