@@ -565,6 +565,53 @@ def test_env_process_drains_ready_results_before_submitting_observation(monkeypa
     assert metrics.metadata["dropped_observation_count"] == 0
 
 
+def test_env_process_does_not_enqueue_released_actions_on_parent_scheduler(monkeypatch):
+    task = RealtimeObservationTask(
+        obs_id=0,
+        observation=Observation(data=None, env_step=0, sim_time_ms=0.0),
+        submit_env_step=0,
+        submit_time_ms=0.0,
+    )
+    parent_conn = QueuedEnvMessagePipe(
+        [
+            ("observation", {"task": task}),
+            (
+                "step",
+                {
+                    "record": StepRecord(
+                        episode_id=0,
+                        env_step=0,
+                        sim_time_ms=0.0,
+                        active_action=Action("noop", name="noop", is_noop=True),
+                        reward=0.0,
+                        done=True,
+                        info={"wall_clock_lag_ms": 0.0},
+                    )
+                },
+            ),
+            ("episode_done", {}),
+        ]
+    )
+    pool = ScriptedInferencePool(
+        [CompletionScript(Action("jump"), ready_time_ms=0.0, worker_id=0, device="cpu")],
+        num_workers=1,
+    )
+    executor = _executor(pool=pool, max_steps=1)
+
+    monkeypatch.setattr(realtime.mp, "get_context", lambda _method: QueuedEnvMessageContext(parent_conn))
+
+    metrics = executor._run_episode_with_env_process(
+        pool=pool,
+        episode_id=0,
+        seed=0,
+        eval_max_steps=1,
+    )
+
+    assert metrics.num_actions == 1
+    assert executor.action_scheduler.get_pending_events() == []
+    assert executor.action_scheduler.get_applied_events() == []
+
+
 def test_inference_pool_closes_connections_after_workers_exit():
     events: list[tuple] = []
     pool = ProcessInferencePool.__new__(ProcessInferencePool)
