@@ -152,6 +152,9 @@ git submodule update --init --recursive
 conda create -n latency -c conda-forge --override-channels python=3.10 -y
 
 conda activate latency
+# Keep uv's cache on the same filesystem as the conda envs so packages are
+# hardlinked into each env (download/disk dedup) instead of silently copied.
+export UV_CACHE_DIR="${UV_CACHE_DIR:-$(conda info --base)/.uv_cache}"
 python -m pip install --upgrade pip
 ensure_uv
 pip_install "torch==${TORCH_VERSION}" --index-url "${TORCH_INDEX_URL}"
