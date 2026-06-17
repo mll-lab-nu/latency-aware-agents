@@ -138,7 +138,10 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             self.video_recorder = None
             self.video_output_dir = None
             warmup_episode_id = -1
-            while len(collector.e2e_latency_values_ms) < realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
+            no_progress_episodes = 0
+            previous_e2e_rows = 0
+            snapshot = realtime_warmup.warmup_snapshot(collector)
+            while snapshot.recent_e2e_count < realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
                 self.run_episode(
                     episode_id=warmup_episode_id,
                     seed=None,
@@ -148,13 +151,39 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                     collector.latency_records = collector.latency_records[
                         -realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
                     ]
-                if len(collector.action_records) > realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
-                    collector.action_records = collector.action_records[
-                        -realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
-                    ]
-                if realtime_warmup.is_realtime_warmup_stable(collector.e2e_latency_values_ms):
+                snapshot = realtime_warmup.warmup_snapshot(collector)
+                print(
+                    "realtime warmup "
+                    f"episode_id={warmup_episode_id} "
+                    f"latency_records={snapshot.latency_records} "
+                    f"action_records={snapshot.action_records} "
+                    f"e2e_rows={snapshot.e2e_rows} "
+                    f"applied={snapshot.applied} "
+                    f"dropped={snapshot.dropped} "
+                    f"not_applied={snapshot.not_applied}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                current_e2e_rows = snapshot.e2e_rows
+                if current_e2e_rows == previous_e2e_rows:
+                    no_progress_episodes += 1
+                    if no_progress_episodes >= realtime_warmup.MAX_WARMUP_NO_PROGRESS_EPISODES:
+                        raise RuntimeError(
+                            "Realtime warmup made no valid e2e latency progress: "
+                            f"episodes_without_progress={no_progress_episodes} "
+                            f"latency_records={snapshot.latency_records} "
+                            f"action_records={snapshot.action_records} "
+                            f"e2e_rows={snapshot.e2e_rows} "
+                            f"applied={snapshot.applied} "
+                            f"dropped={snapshot.dropped} "
+                            f"not_applied={snapshot.not_applied}"
+                        )
+                else:
+                    previous_e2e_rows = current_e2e_rows
+                    no_progress_episodes = 0
+                if realtime_warmup.is_realtime_warmup_stable(snapshot.recent_e2e_latency_values_ms):
                     break
-                if len(collector.e2e_latency_values_ms) >= realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
+                if snapshot.recent_e2e_count >= realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
                     break
                 warmup_episode_id -= 1
         finally:
@@ -162,7 +191,8 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             self.video_recorder = saved_video_recorder
             self.video_output_dir = saved_video_output_dir
 
-        stable = realtime_warmup.is_realtime_warmup_stable(collector.e2e_latency_values_ms)
+        snapshot = realtime_warmup.warmup_snapshot(collector)
+        stable = realtime_warmup.is_realtime_warmup_stable(snapshot.recent_e2e_latency_values_ms)
         summary = realtime_warmup.write_realtime_warmup_artifacts(
             self.config["logging"]["output_dir"],
             collector,

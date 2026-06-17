@@ -1190,3 +1190,98 @@ def test_realtime_warmup_uses_actual_samples_across_short_episodes(monkeypatch, 
 
     assert summary["warmup_status"] == "stable"
     assert summary["warmup_samples"] == 3
+
+
+def test_realtime_warmup_keeps_valid_e2e_samples_across_not_applied_tail(monkeypatch, tmp_path):
+    from latency_bench.executors import realtime_warmup
+
+    monkeypatch.setattr(realtime_warmup, "MIN_WARMUP_LATENCY_SAMPLES", 6)
+    monkeypatch.setattr(realtime_warmup, "MAX_WARMUP_LATENCY_SAMPLES", 6)
+    monkeypatch.setattr(realtime_warmup, "WARMUP_WINDOW_SIZE", 3)
+    monkeypatch.setattr(realtime_warmup, "STABLE_WINDOW_COUNT", 2)
+
+    class WarmupExecutor:
+        logger = None
+        video_recorder = None
+        video_output_dir = None
+        config = {"logging": {"output_dir": str(tmp_path)}}
+
+        def __init__(self):
+            self.episode_calls = 0
+
+        def run_episode(self, *, episode_id, seed, eval_max_steps):
+            del episode_id, seed, eval_max_steps
+            self.episode_calls += 1
+            if self.episode_calls > 2:
+                raise AssertionError("warmup should have stopped after six valid e2e rows")
+            base = (self.episode_calls - 1) * 4
+            for offset in range(4):
+                action_id = base + offset
+                latency = LatencyRecord(obs_id=action_id, latency_ms=10.0, device="cuda:0")
+                self.logger.log_latency(latency)
+                self.logger.log_action_event(
+                    ActionEvent(
+                        action_id=action_id,
+                        action=Action("jump"),
+                        obs_env_step=action_id,
+                        ready_time_ms=10.0,
+                        ready_step_float=float(action_id + 1),
+                        latency=latency,
+                        latency_raw_frames=1,
+                        ready_raw_frame=action_id + 1,
+                        apply_raw_frame=action_id + 1,
+                        applied=offset < 3,
+                        metadata={"frame_ms": 10.0},
+                    )
+                )
+
+    executor = WarmupExecutor()
+
+    summary = RealtimeLatencyExecutor.run_warmup(executor, eval_max_steps=4)
+
+    assert executor.episode_calls == 2
+    assert summary["warmup_status"] == "stable"
+    assert summary["warmup_samples"] == 6
+
+
+def test_realtime_warmup_fails_when_e2e_rows_do_not_progress(monkeypatch, tmp_path):
+    from latency_bench.executors import realtime_warmup
+
+    monkeypatch.setattr(realtime_warmup, "MAX_WARMUP_LATENCY_SAMPLES", 3)
+    monkeypatch.setattr(realtime_warmup, "MAX_WARMUP_NO_PROGRESS_EPISODES", 2)
+
+    class WarmupExecutor:
+        logger = None
+        video_recorder = None
+        video_output_dir = None
+        config = {"logging": {"output_dir": str(tmp_path)}}
+
+        def __init__(self):
+            self.episode_calls = 0
+
+        def run_episode(self, *, episode_id, seed, eval_max_steps):
+            del episode_id, seed, eval_max_steps
+            self.episode_calls += 1
+            action_id = self.episode_calls
+            latency = LatencyRecord(obs_id=action_id, latency_ms=10.0, device="cuda:0")
+            self.logger.log_latency(latency)
+            self.logger.log_action_event(
+                ActionEvent(
+                    action_id=action_id,
+                    action=Action("jump"),
+                    obs_env_step=action_id,
+                    ready_time_ms=10.0,
+                    ready_step_float=float(action_id + 1),
+                    latency=latency,
+                    latency_raw_frames=1,
+                    ready_raw_frame=action_id + 1,
+                    apply_raw_frame=None,
+                    applied=False,
+                    metadata={"frame_ms": 10.0},
+                )
+            )
+
+    executor = WarmupExecutor()
+
+    with pytest.raises(RuntimeError, match="e2e_rows=0.*not_applied=2"):
+        RealtimeLatencyExecutor.run_warmup(executor, eval_max_steps=4)

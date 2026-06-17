@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
-from latency_bench.logging.latency_traces import e2e_latency_rows
+from latency_bench.logging.latency_traces import e2e_latency_row
 from latency_bench.utils.io import write_json, write_jsonl
 from latency_bench.utils.stats import percentile_linear
 
@@ -15,13 +15,13 @@ from latency_bench.utils.stats import percentile_linear
 # stable center trend across two 50-sample windows (100 samples total). Median
 # and 10% trimmed mean catch warmup drift without treating real steady-state
 # tail jitter as a reason to keep warming up. p90 remains diagnostic and is
-# still plotted/logged, but it does not block formal eval. Warmup is capped at
-# 100 samples: a single short sub-episode is enough to warm the GPU, and a
-# non-stabilizing warmup is now a non-fatal warning (see realtime.run_warmup),
-# so it never aborts a multi-episode measure run.
+# still plotted/logged, but it does not block formal eval. Warmup samples are
+# capped at 100 valid e2e rows; slower devices may need multiple short warmup
+# episodes to accumulate those rows.
 MIN_WARMUP_LATENCY_SAMPLES = 100
 MAX_WARMUP_LATENCY_SAMPLES = 100
 WARMUP_EPISODE_MAX_STEPS = 150
+MAX_WARMUP_NO_PROGRESS_EPISODES = 5
 WARMUP_WINDOW_SIZE = 40
 STABLE_WINDOW_COUNT = 2
 MEDIAN_REL_TOL = 0.03
@@ -47,6 +47,22 @@ class RealtimeWarmupStatus:
     reason: str
 
 
+@dataclass(frozen=True)
+class RealtimeWarmupSnapshot:
+    latency_records: int
+    action_records: int
+    e2e_rows: int
+    applied: int
+    dropped: int
+    not_applied: int
+    recent_e2e_rows: list[dict[str, float | int]]
+    recent_e2e_latency_values_ms: list[float]
+
+    @property
+    def recent_e2e_count(self) -> int:
+        return len(self.recent_e2e_rows)
+
+
 class RealtimeWarmupCollector:
     def __init__(
         self,
@@ -60,8 +76,13 @@ class RealtimeWarmupCollector:
         self.save_latency_records = save_latency_records
         self.step_records: list[StepRecord] = []
         self.action_records: list[ActionEvent] = []
+        self.e2e_rows: list[dict[str, float | int]] = []
         self.latency_records: list[LatencyRecord] = []
         self.episode_metrics: list[EpisodeMetrics] = []
+        self._summarized_action_index = 0
+        self.applied_action_count = 0
+        self.dropped_action_count = 0
+        self.not_applied_action_count = 0
 
     @property
     def latency_values_ms(self) -> list[float]:
@@ -69,7 +90,7 @@ class RealtimeWarmupCollector:
 
     @property
     def e2e_latency_values_ms(self) -> list[float]:
-        return [row["latency_ms"] for row in e2e_latency_rows(self.action_records)]
+        return [row["latency_ms"] for row in self.e2e_rows]
 
     def log_step(self, record: StepRecord) -> None:
         if self.save_step_records:
@@ -89,9 +110,58 @@ class RealtimeWarmupCollector:
     def flush(self) -> None:
         pass
 
+    def refresh_action_summary(self) -> None:
+        for event in self.action_records[self._summarized_action_index:]:
+            if event.dropped:
+                self.dropped_action_count += 1
+            elif event.applied:
+                self.applied_action_count += 1
+            else:
+                self.not_applied_action_count += 1
+            row = e2e_latency_row(event)
+            if row is not None:
+                self.e2e_rows.append(row)
+        self._summarized_action_index = len(self.action_records)
+
 
 def is_realtime_warmup_stable(latency_values_ms: Sequence[float]) -> bool:
     return realtime_warmup_status(latency_values_ms).stable
+
+
+def warmup_snapshot(collector: RealtimeWarmupCollector) -> RealtimeWarmupSnapshot:
+    collector.refresh_action_summary()
+    recent_e2e_rows = collector.e2e_rows[-MAX_WARMUP_LATENCY_SAMPLES:]
+    recent_e2e_latency_values_ms = [row["latency_ms"] for row in recent_e2e_rows]
+    return RealtimeWarmupSnapshot(
+        latency_records=len(collector.latency_records),
+        action_records=len(collector.action_records),
+        e2e_rows=len(collector.e2e_rows),
+        applied=collector.applied_action_count,
+        dropped=collector.dropped_action_count,
+        not_applied=collector.not_applied_action_count,
+        recent_e2e_rows=recent_e2e_rows,
+        recent_e2e_latency_values_ms=recent_e2e_latency_values_ms,
+    )
+
+
+def recent_warmup_e2e_rows(collector: RealtimeWarmupCollector) -> list[dict[str, float | int]]:
+    return warmup_snapshot(collector).recent_e2e_rows
+
+
+def recent_warmup_e2e_latency_values_ms(collector: RealtimeWarmupCollector) -> list[float]:
+    return warmup_snapshot(collector).recent_e2e_latency_values_ms
+
+
+def warmup_progress_counts(collector: RealtimeWarmupCollector) -> dict[str, int]:
+    snapshot = warmup_snapshot(collector)
+    return {
+        "latency_records": snapshot.latency_records,
+        "action_records": snapshot.action_records,
+        "e2e_rows": snapshot.e2e_rows,
+        "applied": snapshot.applied,
+        "dropped": snapshot.dropped,
+        "not_applied": snapshot.not_applied,
+    }
 
 
 def realtime_warmup_status(latency_values_ms: Sequence[float]) -> RealtimeWarmupStatus:
@@ -161,14 +231,17 @@ def write_realtime_warmup_artifacts(
 ) -> dict[str, Any]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    latency_values = collector.e2e_latency_values_ms
+    snapshot = warmup_snapshot(collector)
+    e2e_rows = snapshot.recent_e2e_rows
+    latency_values = [row["latency_ms"] for row in e2e_rows]
     status = realtime_warmup_status(latency_values)
     status.stable = stable
     status.reason = "stable" if stable else status.reason
+    inference_records = collector.latency_records[-MAX_WARMUP_LATENCY_SAMPLES:]
 
-    write_jsonl(output_path / "warmup_latencies.jsonl", collector.latency_records)
-    write_jsonl(output_path / "warmup_infer_latencies.jsonl", collector.latency_records)
-    write_jsonl(output_path / "warmup_e2e_latencies.jsonl", e2e_latency_rows(collector.action_records))
+    write_jsonl(output_path / "warmup_latencies.jsonl", inference_records)
+    write_jsonl(output_path / "warmup_infer_latencies.jsonl", inference_records)
+    write_jsonl(output_path / "warmup_e2e_latencies.jsonl", e2e_rows)
     write_json(output_path / "warmup_summary.json", _summary_payload(status, latency_values))
     plot_realtime_warmup(latency_values, output_path / "warmup_stability.png", status=status)
     return _summary_payload(status, latency_values)
