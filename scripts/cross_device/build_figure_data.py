@@ -163,7 +163,6 @@ def build_latency_sample_rows(
     profiles_root: Path,
     *,
     panel_a_env: str,
-    max_samples_per_device: int | None,
 ) -> list[dict[str, Any]]:
     """Emit one panel-(a) row per latency sample, read from per-device traces."""
     rows: list[dict[str, Any]] = []
@@ -187,7 +186,7 @@ def build_latency_sample_rows(
             trace_name="infer_latencies.jsonl",
         )
         e2e_records = load_jsonl_records(e2e_trace)
-        e2e_samples = _downsample([record["latency_ms"] for record in e2e_records], max_samples_per_device)
+        e2e_samples = [record["latency_ms"] for record in e2e_records]
         for latency_ms in e2e_samples:
             rows.append(
                 _fig_row(
@@ -204,7 +203,7 @@ def build_latency_sample_rows(
         # run had realtime pipeline profiling enabled. Skip when absent so the
         # frame-quantized legacy traces still build the main figure.
         overhead_values = [record["bench_overhead_ms"] for record in e2e_records if "bench_overhead_ms" in record]
-        for overhead_ms in _downsample(overhead_values, max_samples_per_device):
+        for overhead_ms in overhead_values:
             rows.append(
                 _fig_row(
                     row_type="overhead_latency_sample",
@@ -216,7 +215,7 @@ def build_latency_sample_rows(
                     latency_ms=overhead_ms,
                 )
             )
-        inference_samples = _downsample(load_latency_samples(inference_trace), max_samples_per_device)
+        inference_samples = load_latency_samples(inference_trace)
         for latency_ms in inference_samples:
             rows.append(
                 _fig_row(
@@ -362,13 +361,6 @@ def _manifest_contributes_to(manifest: dict[str, Any], experiment_id: str) -> bo
     return manifest["experiment_id"] == experiment_id
 
 
-def _downsample(samples: list[float], cap: int | None) -> list[float]:
-    if cap is None or len(samples) <= cap:
-        return samples
-    step = len(samples) / cap
-    return [samples[int(index * step)] for index in range(cap)]
-
-
 def build_all(
     *,
     tables_dir: Path,
@@ -376,7 +368,6 @@ def build_all(
     out_fig: Path,
     out_table: Path,
     panel_a_env: str,
-    max_samples_per_device: int | None,
     spec: dict[str, Any] | None = None,
     root: Path | None = None,
     raw_root: Path | None = None,
@@ -386,9 +377,7 @@ def build_all(
     exp3 = read_csv(tables_dir / "experiment3_cross_device_prediction.csv")
 
     fig_rows = (
-        build_latency_sample_rows(
-            exp1, profiles_root, panel_a_env=panel_a_env, max_samples_per_device=max_samples_per_device
-        )
+        build_latency_sample_rows(exp1, profiles_root, panel_a_env=panel_a_env)
         + build_calibration_rows(exp2)
         + build_prediction_rows(exp3)
     )
@@ -412,7 +401,6 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--root", type=Path, help="Protocol output root used to append per-episode realtime returns.")
     parser.add_argument("--raw-root", type=Path, help="Optional downloaded raw results root.")
     parser.add_argument("--panel-a-env", default="Flappy", help="Env whose latency samples populate panel (a).")
-    parser.add_argument("--max-samples-per-device", type=int, help="Optional cap on panel-(a) samples per device.")
     args = parser.parse_args(argv)
 
     counts = build_all(
@@ -421,7 +409,6 @@ def main(argv: list[str] | None = None) -> None:
         out_fig=args.out_fig,
         out_table=args.out_table,
         panel_a_env=args.panel_a_env,
-        max_samples_per_device=args.max_samples_per_device,
         spec=None if args.spec is None else load_protocol_spec(args.spec),
         root=args.root,
         raw_root=args.raw_root,
