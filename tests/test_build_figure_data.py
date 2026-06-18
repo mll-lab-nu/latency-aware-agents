@@ -152,7 +152,6 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
         out_fig=out_fig,
         out_table=out_table,
         panel_a_env="Flappy",
-        max_samples_per_device=10,
         spec=_spec(),
         root=root,
     )
@@ -177,8 +176,8 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
         by_type.setdefault(row["row_type"], []).append(row)
 
     # Panel a: main figure samples e2e delay; inference samples are kept for the separate diagnostic figure.
-    assert len(by_type["e2e_latency_sample"]) == 10
-    assert len(by_type["inference_latency_sample"]) == 10
+    assert len(by_type["e2e_latency_sample"]) == 100
+    assert len(by_type["inference_latency_sample"]) == 100
     assert {r["hardware"] for r in by_type["e2e_latency_sample"]} == {"RTX 3090"}
     assert by_type["e2e_latency_sample"][0]["panel"] == "a"
     assert by_type["e2e_latency_sample"][0]["latency_ms"] == "0.0"
@@ -213,7 +212,7 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
     assert {row["target_device_id"] for row in by_type["simulated_episode_return"]} == {"rtx3090"}
     assert {row["hardware"] for row in by_type["simulated_episode_return"]} == {"RTX 3090"}
 
-    assert counts == {"fig_rows": 26, "table_rows": 1}
+    assert counts == {"fig_rows": 206, "table_rows": 1}
 
 
 def test_realtime_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
@@ -281,10 +280,9 @@ def test_profiled_e2e_trace_emits_overhead_samples(tmp_path: Path):
         exp1_rows,
         profiles_root,
         panel_a_env="Flappy",
-        max_samples_per_device=10,
     )
     overhead = [row for row in rows if row["row_type"] == "overhead_latency_sample"]
-    assert len(overhead) == 10
+    assert len(overhead) == 100
     assert {row["hardware"] for row in overhead} == {"RTX 3090"}
     assert overhead[0]["panel"] == "a"
     assert overhead[0]["latency_ms"] == 5.0  # bench_overhead_ms of sample 0
@@ -309,7 +307,6 @@ def test_unprofiled_e2e_trace_emits_no_overhead_samples(tmp_path: Path):
         exp1_rows,
         profiles_root,
         panel_a_env="Flappy",
-        max_samples_per_device=10,
     )
     assert not [row for row in rows if row["row_type"] == "overhead_latency_sample"]
 
@@ -329,5 +326,4 @@ def test_build_latency_sample_rows_requires_inference_trace_for_profiled_devices
             exp1_rows,
             profiles_root,
             panel_a_env="Flappy",
-            max_samples_per_device=None,
         )
