@@ -87,9 +87,9 @@ def _spec() -> dict:
     }
 
 
-def _manifest(output_dir: Path) -> dict:
+def _manifest(output_dir: Path, *, stage: str = "measure") -> dict:
     return {
-        "stage": "measure",
+        "stage": stage,
         "status": "completed",
         "experiment_id": "exp1_latency_profile_summary",
         "experiment_ids": [
@@ -109,12 +109,17 @@ def _manifest(output_dir: Path) -> dict:
     }
 
 
-def _write_episode_metrics(output_dir: Path) -> None:
+def _write_episode_metrics(
+    output_dir: Path,
+    *,
+    returns: tuple[float, float] = (10.0, 20.0),
+    lengths: tuple[int, int] = (100, 200),
+) -> None:
     write_jsonl(
         output_dir / "episode_metrics.jsonl",
         [
-            {"episode_id": 0, "episode_return_env": 10.0, "survival_steps": 100},
-            {"episode_id": 1, "episode_return_env": 20.0, "survival_steps": 200},
+            {"episode_id": 0, "episode_return_env": returns[0], "survival_steps": lengths[0]},
+            {"episode_id": 1, "episode_return_env": returns[1], "survival_steps": lengths[1]},
         ],
     )
 
@@ -135,7 +140,9 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
     )
     run_dir = root / "runs" / "measure" / "flappy-sf-l1" / "flappy" / "rtx3090" / "best_seed_0_n2"
     _write_episode_metrics(run_dir)
-    write_jsonl(root / "manifests" / "runs.jsonl", [_manifest(run_dir)])
+    sim_dir = root / "runs" / "sim_same" / "flappy-sf-l1" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    _write_episode_metrics(sim_dir, returns=(30.0, 40.0), lengths=(300, 400))
+    write_jsonl(root / "manifests" / "runs.jsonl", [_manifest(run_dir), _manifest(sim_dir, stage="sim_same")])
 
     out_fig = tmp_path / "fig" / "data.csv"
     out_table = tmp_path / "table" / "data.csv"
@@ -196,7 +203,17 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
     assert {row["target_device_id"] for row in by_type["realtime_episode_return"]} == {"rtx3090"}
     assert {row["hardware"] for row in by_type["realtime_episode_return"]} == {"RTX 3090"}
 
-    assert counts == {"fig_rows": 24, "table_rows": 1}
+    # Return distribution: one row per same-device simulated replay episode.
+    assert len(by_type["simulated_episode_return"]) == 2
+    assert [row["episode_id"] for row in by_type["simulated_episode_return"]] == ["0", "1"]
+    assert [row["episode_return_env"] for row in by_type["simulated_episode_return"]] == ["30.0", "40.0"]
+    assert [row["survival_steps"] for row in by_type["simulated_episode_return"]] == ["300", "400"]
+    assert [row["simulated_return_using_L_d"] for row in by_type["simulated_episode_return"]] == ["30.0", "40.0"]
+    assert [row["sim_length"] for row in by_type["simulated_episode_return"]] == ["300", "400"]
+    assert {row["target_device_id"] for row in by_type["simulated_episode_return"]} == {"rtx3090"}
+    assert {row["hardware"] for row in by_type["simulated_episode_return"]} == {"RTX 3090"}
+
+    assert counts == {"fig_rows": 26, "table_rows": 1}
 
 
 def test_realtime_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
@@ -218,6 +235,30 @@ def test_realtime_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
     assert [row["episode_id"] for row in rows] == [0, 1]
     assert [row["episode_return_env"] for row in rows] == [10.0, 20.0]
     assert [row["survival_steps"] for row in rows] == [100, 200]
+    assert {row["hardware"] for row in rows} == {"RTX 3090"}
+
+
+def test_simulated_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
+    raw_root = tmp_path / "raw"
+    protocol_root = raw_root / "rtx3090" / "openvla" / "cross_device"
+    old_root = Path("results/cross_device")
+    run_dir = protocol_root / "runs" / "sim_same" / "flappy-sf-l1" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    _write_episode_metrics(run_dir, returns=(30.0, 40.0), lengths=(300, 400))
+    manifest = _manifest(old_root / run_dir.relative_to(protocol_root), stage="sim_same")
+    write_jsonl(protocol_root / "manifests" / "runs.jsonl", [manifest])
+
+    rows = bfd.build_simulated_episode_return_rows(
+        _spec(),
+        root=tmp_path / "unused_cross_device",
+        raw_root=raw_root,
+    )
+
+    assert len(rows) == 2
+    assert [row["episode_id"] for row in rows] == [0, 1]
+    assert [row["episode_return_env"] for row in rows] == [30.0, 40.0]
+    assert [row["survival_steps"] for row in rows] == [300, 400]
+    assert [row["simulated_return_using_L_d"] for row in rows] == [30.0, 40.0]
+    assert [row["sim_length"] for row in rows] == [300, 400]
     assert {row["hardware"] for row in rows} == {"RTX 3090"}
 
 
