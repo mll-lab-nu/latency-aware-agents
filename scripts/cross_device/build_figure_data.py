@@ -308,6 +308,53 @@ def build_realtime_episode_return_rows(
     return rows
 
 
+def build_simulated_episode_return_rows(
+    spec: dict[str, Any],
+    *,
+    root: Path,
+    raw_root: Path | None,
+) -> list[dict[str, Any]]:
+    """Emit one row per same-device simulated replay episode."""
+    manifests = load_protocol_manifests(root, raw_root=raw_root)
+    rows: list[dict[str, Any]] = []
+    experiment_id = "exp2_same_device_calibration"
+    experiment = spec["experiments"][experiment_id]
+    devices_by_id = {str(device["id"]): device for device in spec["devices"]}
+    for row_spec in experiment["rows"]:
+        for manifest in manifests:
+            if manifest["stage"] != "sim_same":
+                continue
+            if manifest["status"] != "completed":
+                continue
+            if not _manifest_contributes_to(manifest, experiment_id):
+                continue
+            if manifest["policy"] != row_spec["policy"] or manifest["env"] != row_spec["env"]:
+                continue
+            device = devices_by_id[str(manifest["target_device_id"])]
+            metrics_path = Path(str(manifest["output_dir"])) / "episode_metrics.jsonl"
+            for record in load_jsonl_records(metrics_path):
+                rows.append(
+                    _fig_row(
+                        row_type="simulated_episode_return",
+                        panel="return_distribution",
+                        policy=row_spec["policy"],
+                        env=row_spec["env"],
+                        profile_id=device["profile_id"],
+                        hardware=device["display_name"],
+                        target_device_id=device["id"],
+                        episode_id=record["episode_id"],
+                        episode_return_env=record["episode_return_env"],
+                        survival_steps=record["survival_steps"],
+                        simulated_return_using_L_d=record["episode_return_env"],
+                        sim_length=record["survival_steps"],
+                        n_episodes=manifest["n_episodes"],
+                        seed_set=",".join(str(item) for item in manifest["seed_set"]),
+                        notes=manifest["notes"],
+                    )
+                )
+    return rows
+
+
 def _manifest_contributes_to(manifest: dict[str, Any], experiment_id: str) -> bool:
     experiment_ids = manifest["experiment_ids"]
     if isinstance(experiment_ids, list):
@@ -347,6 +394,7 @@ def build_all(
     )
     if spec is not None and root is not None:
         fig_rows += build_realtime_episode_return_rows(spec, root=root, raw_root=raw_root)
+        fig_rows += build_simulated_episode_return_rows(spec, root=root, raw_root=raw_root)
     table_rows = build_table3_rows(exp1)
 
     write_csv(out_fig, fig_rows, fieldnames=FIG_COLUMNS)
