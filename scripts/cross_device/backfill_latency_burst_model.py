@@ -10,7 +10,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from latency_bench.latency.burst_profile import build_latency_burst_model, build_latency_burst_samples
+from latency_bench.latency.burst_profile import (
+    build_queue_conditioned_burst_model,
+    build_queue_conditioned_burst_samples,
+)
 from latency_bench.latency.profile import load_profile_manifest, save_profile_manifest
 from latency_bench.utils.io import load_jsonl_records, write_json, write_jsonl
 from scripts.cross_device.profile_cache import upload_folder_to_hf
@@ -55,18 +58,19 @@ def apply_backfill(target: BackfillTarget) -> dict[str, int]:
     action_records = load_jsonl_records(target.actions_path)
     metrics_records = load_jsonl_records(target.metrics_path)
     step_records = load_jsonl_records(target.steps_path)
-    burst_samples = build_latency_burst_samples(action_records, metrics_records, step_records)
-    burst_model = build_latency_burst_model(burst_samples)
+    burst_samples = build_queue_conditioned_burst_samples(action_records, metrics_records, step_records)
+    burst_model = build_queue_conditioned_burst_model(burst_samples)
     samples_path = target.profile_path.parent / "latency_burst_samples.jsonl"
     model_path = target.profile_path.parent / "latency_burst_model.json"
     write_jsonl(samples_path, burst_samples)
     write_json(model_path, burst_model)
 
     profile = load_profile_manifest(target.profile_path)
-    profile["sample_model_type"] = "semi_markov_latency_frames"
+    profile["latency_method"] = "temporal"
+    profile["sample_model_type"] = burst_model["model_type"]
     profile["burst_samples_path"] = samples_path.name
     profile["burst_model_path"] = model_path.name
-    profile["burst_state_key"] = "recent_drop_count_capped"
+    profile["burst_state_key"] = burst_model["state_key"]
     save_profile_manifest(profile, target.profile_path)
     return {"action_count": len(action_records), "burst_sample_count": len(burst_samples)}
 

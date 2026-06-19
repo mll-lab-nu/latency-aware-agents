@@ -10,13 +10,17 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
-from latency_bench.executors._simulated_timeline import sample_simulated_latency
-from latency_bench.latency.sources import FixedLatencySource, LatencySource, ZeroLatencySource
+from latency_bench.latency.sample import LatencySample
+from latency_bench.latency.samplers import FixedSampler, LatencySampler, ZeroSampler
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler, ObservationCadenceDecisionScheduler
 from latency_bench.scheduler.persistence import ActionPersistencePolicy, HoldPolicy, OneFrameThenNoopPolicy
+
+
+def _zero_sampler() -> ZeroSampler:
+    return ZeroSampler(clock=EnvClock(env_fps=30, obs_fps=30))
 
 
 class CountingPolicyRunner(PolicyRunner):
@@ -29,53 +33,43 @@ class CountingPolicyRunner(PolicyRunner):
         return PolicyOutput(action=action)
 
 
-class RawFrameLatencySource(LatencySource):
-    def __init__(self, raw_frames: list[int]):
+class RawFrameLatencySource(LatencySampler):
+    latency_type = "fixed"
+
+    def __init__(self, raw_frames: list[int], *, env_fps: float = 30.0):
         self.raw_frames = list(raw_frames)
+        self.frame_ms = 1000.0 / env_fps
         self.calls: list[dict] = []
 
-    def next_latency_ms(self, context=None) -> float:
-        raise AssertionError("simulated executor should use next_latency_raw_frames when available")
-
-    def next_latency_raw_frames(self, context=None) -> int:
+    def sample(self, context=None) -> LatencySample:
         self.calls.append(dict(context or {}))
         if not self.raw_frames:
             raise AssertionError("raw-frame latency source exhausted")
-        return self.raw_frames.pop(0)
+        raw = self.raw_frames.pop(0)
+        return LatencySample(
+            latency_ms=raw * self.frame_ms,
+            latency_raw_frames=raw,
+            action_ready_raw_frames=raw,
+            worker_service_raw_frames=raw,
+            worker_service_ms=raw * self.frame_ms,
+        )
 
 
-class StructuredLatencySource(LatencySource):
-    def next_latency_ms(self, context=None) -> float:
-        raise AssertionError("simulated timeline should use next_latency_sample when available")
+class WorkerServiceStructuredLatencySource(LatencySampler):
+    latency_type = "profile_sample"
 
-    def next_latency_sample(self, context=None) -> dict[str, float | int]:
-        return {"latency_ms": 17.5, "latency_raw_frames": 4}
-
-
-class MsOnlyStructuredLatencySource(LatencySource):
-    def next_latency_ms(self, context=None) -> float:
-        raise AssertionError("simulated timeline should use next_latency_sample when available")
-
-    def next_latency_sample(self, context=None) -> dict[str, float | int]:
-        return {"latency_ms": 17.5}
-
-
-class WorkerServiceStructuredLatencySource(LatencySource):
     def __init__(self):
         self.contexts: list[dict] = []
 
-    def next_latency_ms(self, context=None) -> float:
-        raise AssertionError("simulated timeline should use next_latency_sample when available")
-
-    def next_latency_sample(self, context=None) -> dict[str, float | int]:
+    def sample(self, context=None) -> LatencySample:
         self.contexts.append(dict(context or {}))
-        return {
-            "latency_ms": 10.0,
-            "latency_raw_frames": 1,
-            "action_ready_raw_frames": 1,
-            "worker_service_raw_frames": 3,
-            "worker_service_ms": 30.0,
-        }
+        return LatencySample(
+            latency_ms=10.0,
+            latency_raw_frames=1,
+            action_ready_raw_frames=1,
+            worker_service_raw_frames=3,
+            worker_service_ms=30.0,
+        )
 
 
 class SelectedRawFrameDecisionScheduler(DecisionScheduler):
@@ -294,47 +288,6 @@ def _executor(
     return executor, env, clock, noop
 
 
-def test_simulated_timeline_uses_structured_latency_sample():
-    clock = EnvClock(env_fps=20.0, obs_fps=20.0)
-
-    sample = sample_simulated_latency(
-        latency_source=StructuredLatencySource(),
-        clock=clock,
-        context={"episode_id": 0},
-    )
-
-    assert sample.latency_ms == 17.5
-    assert sample.latency_raw_frames == 4
-
-
-def test_simulated_timeline_converts_ms_only_structured_latency_sample():
-    clock = EnvClock(env_fps=20.0, obs_fps=20.0)
-
-    sample = sample_simulated_latency(
-        latency_source=MsOnlyStructuredLatencySource(),
-        clock=clock,
-        context={"episode_id": 0},
-    )
-
-    assert sample.latency_ms == 17.5
-    assert sample.latency_raw_frames == 1
-
-
-def test_simulated_timeline_separates_action_ready_from_worker_service_frames():
-    clock = EnvClock(env_fps=100.0, obs_fps=100.0)
-
-    sample = sample_simulated_latency(
-        latency_source=WorkerServiceStructuredLatencySource(),
-        clock=clock,
-        context={"episode_id": 0},
-    )
-
-    assert sample.latency_raw_frames == 1
-    assert sample.action_ready_raw_frames == 1
-    assert sample.worker_service_raw_frames == 3
-    assert sample.worker_service_ms == 30.0
-
-
 def test_policy_input_comes_from_env_observe_not_step_history():
     noop = Action("noop", is_noop=True)
     env = ObserveOnlyPolicyInputEnv(noop_action=noop)
@@ -350,7 +303,7 @@ def test_policy_input_comes_from_env_observe_not_step_history():
         env=env,
         policy=policy,
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_source=ZeroLatencySource(),
+        latency_source=_zero_sampler(),
         action_scheduler=action_scheduler,
         clock=clock,
     )
@@ -376,7 +329,7 @@ def test_observe_cadence_skips_raw_step_observations():
         env=env,
         policy=policy,
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_source=ZeroLatencySource(),
+        latency_source=_zero_sampler(),
         action_scheduler=action_scheduler,
         clock=clock,
     )
@@ -388,7 +341,7 @@ def test_observe_cadence_skips_raw_step_observations():
 
 
 def test_zero_latency_action_can_affect_same_frame():
-    executor, env, _, _ = _executor(ZeroLatencySource(), max_steps=3)
+    executor, env, _, _ = _executor(_zero_sampler(), max_steps=3)
 
     metrics = executor.run_episode(episode_id=0, eval_max_steps=3)
 
@@ -403,7 +356,7 @@ def test_zero_latency_action_can_affect_same_frame():
 
 
 def test_raw_frame_latency_source_and_observation_stride_share_raw_timeline():
-    latency_source = RawFrameLatencySource([3, 3])
+    latency_source = RawFrameLatencySource([3, 3], env_fps=60)
     executor, _, _, _ = _executor(
         latency_source,
         policy=CountingPolicyRunner(),
@@ -506,7 +459,7 @@ def test_simulated_executor_omits_raw_rgb_frame_stack_from_logged_step_info(tmp_
         env=env,
         policy=policy,
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_source=ZeroLatencySource(),
+        latency_source=_zero_sampler(),
         action_scheduler=ActionScheduler(
             clock=clock,
             noop_action=noop,
@@ -528,7 +481,9 @@ def test_simulated_executor_omits_raw_rgb_frame_stack_from_logged_step_info(tmp_
 
 
 def test_fixed_ms_latency_is_ceil_converted_to_raw_frames():
-    executor, _, _, _ = _executor(FixedLatencySource(50.0), max_steps=4, env_fps=60)
+    executor, _, _, _ = _executor(
+        FixedSampler(50.0, clock=EnvClock(env_fps=60, obs_fps=60)), max_steps=4, env_fps=60
+    )
 
     executor.run_episode(episode_id=0, eval_max_steps=4)
 
@@ -604,7 +559,7 @@ def test_fifo_raw_frame_blocking_waits_for_head_of_line_ready():
 
 def test_fixed_two_frame_latency_applies_at_t_plus_two():
     clock = EnvClock(env_fps=30, obs_fps=30)
-    executor, env, _, noop = _executor(FixedLatencySource(clock.frame_ms * 2), max_steps=4)
+    executor, env, _, noop = _executor(FixedSampler(clock.frame_ms * 2, clock=clock), max_steps=4)
 
     executor.run_episode(episode_id=0, eval_max_steps=4)
 
@@ -614,7 +569,7 @@ def test_fixed_two_frame_latency_applies_at_t_plus_two():
 def test_fixed_one_frame_latency_at_35_fps_does_not_drop_boundary_action():
     clock = EnvClock(env_fps=35, obs_fps=35)
     executor, env, _, noop = _executor(
-        FixedLatencySource(clock.frame_ms),
+        FixedSampler(clock.frame_ms, clock=clock),
         policy=CountingPolicyRunner(),
         max_steps=9,
         env_fps=35,
@@ -641,7 +596,7 @@ def test_simulated_executor_does_not_sleep(monkeypatch):
         raise AssertionError("SimulatedLatencyExecutor must not sleep")
 
     monkeypatch.setattr(time, "sleep", fail_sleep)
-    executor, env, _, _ = _executor(ZeroLatencySource(), max_steps=2)
+    executor, env, _, _ = _executor(_zero_sampler(), max_steps=2)
 
     executor.run_episode(episode_id=0, eval_max_steps=2)
 
@@ -655,7 +610,7 @@ def test_simulated_executor_logs_records_and_metrics(tmp_path: Path):
         save_action_records=True,
         save_latency_records=True,
     )
-    executor, _, _, _ = _executor(ZeroLatencySource(), max_steps=3, logger=logger)
+    executor, _, _, _ = _executor(_zero_sampler(), max_steps=3, logger=logger)
 
     metrics = executor.run_episode(episode_id=7, eval_max_steps=3)
     logger.flush()
@@ -674,7 +629,7 @@ def test_simulated_executor_logs_records_and_metrics(tmp_path: Path):
 
 def test_each_episode_resets_scheduler_to_noop_for_fixed_latency():
     clock = EnvClock(env_fps=30, obs_fps=30)
-    executor, env, _, noop = _executor(FixedLatencySource(clock.frame_ms * 2), max_steps=3)
+    executor, env, _, noop = _executor(FixedSampler(clock.frame_ms * 2, clock=clock), max_steps=3)
 
     executor.run_episode(episode_id=0, eval_max_steps=3)
     executor.run_episode(episode_id=1, eval_max_steps=3)
@@ -691,7 +646,7 @@ def test_soft_reset_continues_same_episode_and_clears_latency_state():
         env=env,
         policy=policy,
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_source=FixedLatencySource(clock.frame_ms * 2),
+        latency_source=FixedSampler(clock.frame_ms * 2, clock=clock),
         action_scheduler=ActionScheduler(
             clock=clock,
             noop_action=noop,

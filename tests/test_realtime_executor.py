@@ -24,7 +24,7 @@ from latency_bench.executors.realtime.workers import (
     _inference_worker,
     _worker_runtime_metadata,
 )
-from latency_bench.latency.sources import ZeroLatencySource
+from latency_bench.latency.samplers import ZeroSampler
 from latency_bench.logging.realtime_pipeline import PipelineProfile
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import ConstantPolicyRunner
@@ -523,7 +523,7 @@ def _executor(
         env=env,
         policy=ConstantPolicyRunner(Action("unused")),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_source=ZeroLatencySource(),
+        latency_source=ZeroSampler(clock=clock),
         action_scheduler=action_scheduler,
         clock=clock,
         logger=logger,

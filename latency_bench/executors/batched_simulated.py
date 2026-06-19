@@ -6,14 +6,11 @@ from dataclasses import dataclass, field
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
-from latency_bench.executors._simulated_timeline import (
-    SimulatedLatencySample,
-    SimulatedWorkerCapacity,
-    sample_simulated_latency,
-)
+from latency_bench.executors._simulated_timeline import SimulatedWorkerCapacity
 from latency_bench.executors.base import BatchedExecutor
 from latency_bench.executors.env_step_backend import EnvStepBackend
-from latency_bench.latency.sources import LatencySource
+from latency_bench.latency.sample import LatencySample
+from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
     active_action_step_info,
     apply_latency_raw_fields,
@@ -70,7 +67,7 @@ class _EpisodeBuffers:
 class _SlotState:
     slot_id: int
     env: EnvAdapter
-    latency_source: LatencySource
+    latency_source: LatencySampler
     action_scheduler: ActionScheduler
     active: bool = False
     episode_id: int | None = None
@@ -88,7 +85,7 @@ class _PendingPolicyObservation:
     slot: _SlotState
     observation: Observation
     obs_id: int
-    latency_sample: SimulatedLatencySample
+    latency_sample: LatencySample
 
 
 class _BatchedEnvCollection:
@@ -117,11 +114,11 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         env_backend: EnvStepBackend | None = None,
         policy: PolicyRunner,
         decision_scheduler: DecisionScheduler,
-        latency_sources: Sequence[LatencySource],
+        latency_sources: Sequence[LatencySampler],
         action_schedulers: Sequence[ActionScheduler],
         clock: EnvClock,
         logger: TrajectoryLogger | None = None,
-        episode_latency_source_factory: Callable[[int], LatencySource] | None = None,
+        episode_latency_source_factory: Callable[[int], LatencySampler] | None = None,
         simulated_worker_capacity: int | None = None,
     ):
         slot_count = env_backend.num_slots
@@ -356,11 +353,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             "in_flight_count": slot.worker_capacity.in_flight_count,
             "idle_worker_count": slot.worker_capacity.idle_worker_count,
         }
-        latency_sample = sample_simulated_latency(
-            latency_source=slot.latency_source,
-            clock=self.clock,
-            context=latency_context,
-        )
+        latency_sample = slot.latency_source.sample(latency_context)
         metadata = dict(observation.metadata)
         metadata.update(
             {
@@ -479,7 +472,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         policy_output,
         *,
         obs_id: int,
-        latency_sample: SimulatedLatencySample,
+        latency_sample: LatencySample,
     ) -> None:
         raw_frame = int(slot.env_step)
         latency_ms = latency_sample.latency_ms

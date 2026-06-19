@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import pytest
 
+from latency_bench.core.clock import EnvClock
 from latency_bench.latency.burst_profile import (
-    SemiMarkovLatencyBurstSampler,
     build_latency_burst_model,
     build_latency_burst_samples,
 )
+from latency_bench.latency.samplers import SemiMarkovSampler
+
+
+def _clock() -> EnvClock:
+    return EnvClock(env_fps=25.0, obs_fps=25.0)
 
 
 def test_build_latency_burst_model_uses_raw_frame_runs_within_each_episode():
@@ -57,10 +62,10 @@ def test_latency_burst_sampler_resets_at_episode_boundary():
         "latency_ms_by_state": {"2": [20.0], "4": [40.0]},
         "terminal_transition_policy": "initial",
     }
-    sampler = SemiMarkovLatencyBurstSampler(model, seed=0)
+    sampler = SemiMarkovSampler(model, clock=_clock(), seed=0)
 
-    assert [sampler.sample({"episode_id": 0})["latency_raw_frames"] for _ in range(4)] == [2, 2, 4, 2]
-    assert [sampler.sample({"episode_id": 1})["latency_raw_frames"] for _ in range(3)] == [2, 2, 4]
+    assert [sampler.sample({"episode_id": 0}).latency_raw_frames for _ in range(4)] == [2, 2, 4, 2]
+    assert [sampler.sample({"episode_id": 1}).latency_raw_frames for _ in range(3)] == [2, 2, 4]
 
 
 def test_build_latency_burst_samples_reads_applied_non_dropped_action_records():
@@ -198,9 +203,9 @@ def test_latency_burst_sampler_interpolates_latency_ms_within_state():
         "latency_ms_by_state": {"2": [20.0, 40.0]},
         "terminal_transition_policy": "initial",
     }
-    sampler = SemiMarkovLatencyBurstSampler(model, seed=3)
+    sampler = SemiMarkovSampler(model, clock=_clock(), seed=3)
 
     value = sampler.sample({"episode_id": 0})
 
-    assert value["latency_raw_frames"] == 2
-    assert value["latency_ms"] == pytest.approx(27.399103330961587)
+    assert value.latency_raw_frames == 2
+    assert value.latency_ms == pytest.approx(27.399103330961587)

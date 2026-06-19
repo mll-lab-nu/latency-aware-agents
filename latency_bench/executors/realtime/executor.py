@@ -24,7 +24,7 @@ from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors.base import EpisodeExecutor
 from latency_bench.executors.env_step_backend import _resolve_start_method
 from latency_bench.executors import realtime_warmup
-from latency_bench.latency.sources import LatencySource
+from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
     active_action_step_info,
     apply_latency_raw_fields,
@@ -67,7 +67,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         env: EnvAdapter,
         policy: PolicyRunner | None,
         decision_scheduler: DecisionScheduler,
-        latency_source: LatencySource,
+        latency_source: LatencySampler,
         action_scheduler: ActionScheduler,
         clock: EnvClock,
         logger: TrajectoryLogger | None = None,
