@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import random
-from bisect import bisect_left
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from latency_bench.latency.profile import load_latency_distribution, load_profile_manifest
+from latency_bench.latency.burst_profile import SemiMarkovLatencyBurstSampler
+from latency_bench.latency.profile import load_profile_manifest
+from latency_bench.utils.io import read_json
 
 
 class LatencySource(ABC):
@@ -125,35 +126,25 @@ class ProfileSampleLatencySource(LatencySource):
     def __init__(self, profile_path: str | Path | None, seed: int | None = None):
         self.profile_path = _resolve_profile_manifest_path(profile_path)
         self.profile = load_profile_manifest(self.profile_path)
-        self.distribution_path = Path(self.profile["distribution_path"])
-        if not self.distribution_path.is_absolute():
-            self.distribution_path = self.profile_path.parent / self.distribution_path
-        distribution = load_latency_distribution(self.distribution_path)
-        self.quantile_levels = [float(value) for value in distribution["quantile_levels"]]
-        self.latency_ms = [float(value) for value in distribution["latency_ms"]]
+        self.burst_model_path = Path(self.profile["burst_model_path"])
+        if not self.burst_model_path.is_absolute():
+            self.burst_model_path = self.profile_path.parent / self.burst_model_path
+        self.burst_model = read_json(self.burst_model_path)
         self.profile_id = self.profile["profile_id"]
         self.target_device = self.profile["target_device"]
-        self.rng = random.Random(seed)
+        self.sampler = SemiMarkovLatencyBurstSampler(self.burst_model, seed=seed)
         self.last_metadata: dict[str, Any] | None = None
 
     def next_latency_ms(self, context: dict[str, Any] | None = None) -> float:
-        quantile = self.rng.random()
-        latency = self._sample_inverse_cdf(quantile)
-        self.last_metadata = _profile_latency_metadata(self)
-        return latency
+        return float(self.next_latency_sample(context)["latency_ms"])
 
-    def _sample_inverse_cdf(self, quantile: float) -> float:
-        index = bisect_left(self.quantile_levels, quantile)
-        if index == 0:
-            return self.latency_ms[0]
-        if index >= len(self.quantile_levels):
-            return self.latency_ms[-1]
-        lower_q = self.quantile_levels[index - 1]
-        upper_q = self.quantile_levels[index]
-        lower_latency = self.latency_ms[index - 1]
-        upper_latency = self.latency_ms[index]
-        weight = (quantile - lower_q) / (upper_q - lower_q)
-        return lower_latency + weight * (upper_latency - lower_latency)
+    def next_latency_raw_frames(self, context: dict[str, Any] | None = None) -> int:
+        return int(self.next_latency_sample(context)["latency_raw_frames"])
+
+    def next_latency_sample(self, context: dict[str, Any] | None = None) -> dict[str, float | int]:
+        sample = self.sampler.sample(context)
+        self.last_metadata = _profile_latency_metadata(self)
+        return sample
 
 
 def _resolve_profile_manifest_path(profile_path: str | Path | None) -> Path:

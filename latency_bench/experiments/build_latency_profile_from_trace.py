@@ -9,6 +9,7 @@ from typing import Any
 from latency_bench.analysis.utils import write_latency_distribution_plot
 from latency_bench.analysis.profile_stats import compute_latency_profile_summary
 from latency_bench.utils.io import load_jsonl_records, write_json
+from latency_bench.latency.burst_profile import build_latency_burst_model, build_latency_burst_samples
 from latency_bench.latency.profile import (
     build_inverse_cdf_distribution,
     load_latency_samples,
@@ -31,6 +32,7 @@ def build_profile_from_trace(
     latency_kind: str = "inference_latency",
     inference_latencies: str | Path | None = None,
     episode_metrics: str | Path | None = None,
+    actions: str | Path | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     samples_ms = load_latency_samples(latencies)
@@ -47,6 +49,9 @@ def build_profile_from_trace(
         "summary_json": output_path / "profile_summary.json",
         "summary_csv": output_path / "profile_summary.csv",
     }
+    if actions is not None:
+        paths["burst_samples"] = output_path / "latency_burst_samples.jsonl"
+        paths["burst_model"] = output_path / "latency_burst_model.json"
     if latency_kind == "e2e_latency":
         paths["inference_trace"] = output_path / trace_name_by_kind["inference_latency"]
     existing_artifacts = [path for path in paths.values() if path.exists()]
@@ -90,6 +95,16 @@ def build_profile_from_trace(
     if episode_metrics is not None:
         metrics_records = load_jsonl_records(episode_metrics)
         manifest["inference_worker_count"] = metrics_records[0]["metadata"]["inference_worker_count"]
+    if actions is not None:
+        action_records = load_jsonl_records(actions)
+        burst_samples = build_latency_burst_samples(action_records)
+        burst_model = build_latency_burst_model(burst_samples)
+        _write_jsonl(paths["burst_samples"], burst_samples)
+        write_json(paths["burst_model"], burst_model)
+        manifest["sample_model_type"] = "semi_markov_latency_frames"
+        manifest["burst_samples_path"] = paths["burst_samples"].name
+        manifest["burst_model_path"] = paths["burst_model"].name
+        manifest["burst_state_key"] = "latency_raw_frames"
     manifest.update(metadata)
     save_profile_manifest(manifest, paths["profile"])
     return manifest
@@ -108,6 +123,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--latency-kind", choices=["inference_latency", "e2e_latency"], default="inference_latency")
     parser.add_argument("--inference-latencies", type=Path)
     parser.add_argument("--episode-metrics", type=Path)
+    parser.add_argument("--actions", type=Path)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
 
@@ -123,6 +139,7 @@ def main(argv: list[str] | None = None) -> None:
         latency_kind=args.latency_kind,
         inference_latencies=args.inference_latencies,
         episode_metrics=args.episode_metrics,
+        actions=args.actions,
         overwrite=args.overwrite,
     )
 
@@ -132,6 +149,13 @@ def _write_summary_csv(summary: dict[str, Any], path: Path) -> None:
         writer = csv.DictWriter(f, fieldnames=list(summary.keys()))
         writer.writeheader()
         writer.writerow(summary)
+
+
+def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for record in records:
+            f.write(json.dumps(record, sort_keys=True) + "\n")
 
 
 if __name__ == "__main__":

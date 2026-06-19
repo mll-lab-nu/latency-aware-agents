@@ -8,6 +8,7 @@ import pytest
 
 from latency_bench.experiments.build_latency_profile_from_trace import build_profile_from_trace
 from latency_bench.latency.profile import load_latency_distribution, load_latency_samples, load_profile_manifest, write_latency_samples
+from latency_bench.utils.io import load_jsonl_records
 
 
 def _build_profile(tmp_path: Path, samples: list[float], **overrides):
@@ -34,6 +35,45 @@ def _build_profile(tmp_path: Path, samples: list[float], **overrides):
     }
     kwargs.update(overrides)
     return build_profile_from_trace(**kwargs), output_dir
+
+
+def _write_actions(path: Path) -> None:
+    rows = [
+        {
+            "action_id": 0,
+            "obs_env_step": 0,
+            "ready_raw_frame": 1,
+            "apply_raw_frame": 1,
+            "latency_raw_frames": 1,
+            "applied": True,
+            "dropped": False,
+            "latency": {"latency_ms": 10.0},
+            "metadata": {"episode_id": 0},
+        },
+        {
+            "action_id": 1,
+            "obs_env_step": 1,
+            "ready_raw_frame": 2,
+            "apply_raw_frame": 2,
+            "latency_raw_frames": 1,
+            "applied": True,
+            "dropped": False,
+            "latency": {"latency_ms": 11.0},
+            "metadata": {"episode_id": 0},
+        },
+        {
+            "action_id": 2,
+            "obs_env_step": 2,
+            "ready_raw_frame": 4,
+            "apply_raw_frame": 4,
+            "latency_raw_frames": 2,
+            "applied": True,
+            "dropped": False,
+            "latency": {"latency_ms": 20.0},
+            "metadata": {"episode_id": 0},
+        },
+    ]
+    path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
 
 
 def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Path):
@@ -92,6 +132,30 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
         rows = list(csv.DictReader(f))
     assert len(rows) == 1
     assert float(rows[0]["mean_ms"]) == pytest.approx(20.0)
+
+
+def test_build_latency_profile_from_trace_writes_latency_burst_model(tmp_path: Path):
+    actions = tmp_path / "actions.jsonl"
+    _write_actions(actions)
+
+    manifest, output_dir = _build_profile(
+        tmp_path,
+        [10.0, 11.0, 20.0],
+        actions=actions,
+    )
+
+    assert (output_dir / "latency_burst_samples.jsonl").exists()
+    assert (output_dir / "latency_burst_model.json").exists()
+    assert manifest["sample_model_type"] == "semi_markov_latency_frames"
+    assert manifest["burst_samples_path"] == "latency_burst_samples.jsonl"
+    assert manifest["burst_model_path"] == "latency_burst_model.json"
+    assert manifest["burst_state_key"] == "latency_raw_frames"
+    burst_samples = load_jsonl_records(output_dir / "latency_burst_samples.jsonl")
+    assert [sample["latency_raw_frames"] for sample in burst_samples] == [1, 1, 2]
+    burst_model = json.loads((output_dir / "latency_burst_model.json").read_text(encoding="utf-8"))
+    assert burst_model["initial_state_counts"] == {"1": 1}
+    assert burst_model["transition_counts"] == {"1": {"2": 1}}
+    assert burst_model["run_lengths_by_state"] == {"1": [2], "2": [1]}
 
 
 def test_build_latency_profile_from_trace_requires_overwrite_for_existing_artifacts(tmp_path: Path):
