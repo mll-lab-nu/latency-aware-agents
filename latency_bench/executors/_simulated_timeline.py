@@ -53,6 +53,14 @@ def sample_simulated_latency(
     clock: EnvClock,
     context: dict[str, Any],
 ) -> SimulatedLatencySample:
+    next_latency_sample = getattr(latency_source, "next_latency_sample", None)
+    if callable(next_latency_sample):
+        sample = next_latency_sample(context)
+        return SimulatedLatencySample(
+            latency_ms=float(sample["latency_ms"]),
+            latency_raw_frames=int(sample["latency_raw_frames"]),
+        )
+
     next_raw_frames = getattr(latency_source, "next_latency_raw_frames", None)
     if callable(next_raw_frames):
         latency_raw_frames = next_raw_frames(context)

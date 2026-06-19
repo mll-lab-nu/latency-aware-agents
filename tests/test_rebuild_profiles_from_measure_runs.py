@@ -30,6 +30,33 @@ def _write_measure_run(root: Path) -> tuple[Path, Path]:
     _write_jsonl(run_dir / "e2e_latencies.jsonl", [{"latency_ms": value} for value in [10.0, 20.0, 30.0, 40.0]])
     _write_jsonl(run_dir / "infer_latencies.jsonl", [{"latency_ms": value} for value in [1.0, 2.0]])
     _write_jsonl(
+        run_dir / "actions.jsonl",
+        [
+            {
+                "action_id": 0,
+                "obs_env_step": 0,
+                "ready_raw_frame": 1,
+                "apply_raw_frame": 1,
+                "latency_raw_frames": 1,
+                "applied": True,
+                "dropped": False,
+                "latency": {"latency_ms": 10.0},
+                "metadata": {"episode_id": 0},
+            },
+            {
+                "action_id": 1,
+                "obs_env_step": 1,
+                "ready_raw_frame": 3,
+                "apply_raw_frame": 3,
+                "latency_raw_frames": 2,
+                "applied": True,
+                "dropped": False,
+                "latency": {"latency_ms": 20.0},
+                "metadata": {"episode_id": 0},
+            },
+        ],
+    )
+    _write_jsonl(
         run_dir / "episode_metrics.jsonl",
         [
             {
@@ -90,6 +117,7 @@ def test_rebuild_profiles_dry_run_does_not_modify_profile(tmp_path: Path, capsys
     assert payload["upload"] is False
     assert payload["e2e_latency_count"] == 4
     assert payload["inference_latency_count"] == 2
+    assert payload["actions_path"].endswith("actions.jsonl")
 
 
 def test_rebuild_profiles_apply_uses_full_e2e_trace_and_preserves_metadata(tmp_path: Path):
@@ -110,6 +138,10 @@ def test_rebuild_profiles_apply_uses_full_e2e_trace_and_preserves_metadata(tmp_p
     assert profile["model_type"] == "openvla"
     assert profile["checkpoint_path"] == "/tmp/model.pt"
     assert profile["hardware"] == {"gpu": {"name": "NVIDIA L40S"}}
+    assert profile["sample_model_type"] == "semi_markov_latency_frames"
+    assert profile["burst_samples_path"] == "latency_burst_samples.jsonl"
+    assert profile["burst_model_path"] == "latency_burst_model.json"
+    assert profile["burst_state_key"] == "latency_raw_frames"
     assert load_latency_samples(profile_path.parent / "e2e_latencies.jsonl") == [10.0, 20.0, 30.0, 40.0]
     assert load_latency_samples(profile_path.parent / "infer_latencies.jsonl") == [1.0, 2.0]
 

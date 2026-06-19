@@ -34,6 +34,10 @@ PROFILE_GENERATED_KEYS = {
     "e2e_trace_path",
     "e2e_summary",
     "inference_worker_count",
+    "sample_model_type",
+    "burst_samples_path",
+    "burst_model_path",
+    "burst_state_key",
 }
 
 
@@ -42,6 +46,7 @@ class RebuildTarget:
     run_dir: Path
     e2e_latencies_path: Path
     inference_latencies_path: Path
+    actions_path: Path
     episode_metrics_path: Path
     profile_path: Path
     profile_id: str
@@ -79,6 +84,7 @@ def discover_targets(*, root: Path, run_dir: Path | None = None) -> list[Rebuild
                 run_dir=candidate,
                 e2e_latencies_path=candidate / "e2e_latencies.jsonl",
                 inference_latencies_path=candidate / "infer_latencies.jsonl",
+                actions_path=candidate / "actions.jsonl",
                 episode_metrics_path=episode_metrics_path,
                 profile_path=profile_path,
                 profile_id=profile_id,
@@ -105,6 +111,7 @@ def rebuild_target(target: RebuildTarget) -> None:
         latency_kind="e2e_latency",
         inference_latencies=target.inference_latencies_path,
         episode_metrics=target.episode_metrics_path,
+        actions=target.actions_path,
         overwrite=True,
     )
 
@@ -146,6 +153,7 @@ def _target_summary(target: RebuildTarget, *, apply: bool, upload: bool) -> dict
         "profile_path": str(target.profile_path),
         "e2e_latencies_path": str(target.e2e_latencies_path),
         "inference_latencies_path": str(target.inference_latencies_path),
+        "actions_path": str(target.actions_path),
         "episode_metrics_path": str(target.episode_metrics_path),
         "e2e_latency_count": len(load_latency_samples(target.e2e_latencies_path)),
         "inference_latency_count": len(load_latency_samples(target.inference_latencies_path)),

@@ -10,6 +10,7 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
+from latency_bench.executors._simulated_timeline import sample_simulated_latency
 from latency_bench.latency.sources import FixedLatencySource, LatencySource, ZeroLatencySource
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
@@ -41,6 +42,14 @@ class RawFrameLatencySource(LatencySource):
         if not self.raw_frames:
             raise AssertionError("raw-frame latency source exhausted")
         return self.raw_frames.pop(0)
+
+
+class StructuredLatencySource(LatencySource):
+    def next_latency_ms(self, context=None) -> float:
+        raise AssertionError("simulated timeline should use next_latency_sample when available")
+
+    def next_latency_sample(self, context=None) -> dict[str, float | int]:
+        return {"latency_ms": 17.5, "latency_raw_frames": 4}
 
 
 class SelectedRawFrameDecisionScheduler(DecisionScheduler):
@@ -257,6 +266,19 @@ def _executor(
         simulated_worker_capacity=simulated_worker_capacity,
     )
     return executor, env, clock, noop
+
+
+def test_simulated_timeline_uses_structured_latency_sample():
+    clock = EnvClock(env_fps=20.0, obs_fps=20.0)
+
+    sample = sample_simulated_latency(
+        latency_source=StructuredLatencySource(),
+        clock=clock,
+        context={"episode_id": 0},
+    )
+
+    assert sample.latency_ms == 17.5
+    assert sample.latency_raw_frames == 4
 
 
 def test_policy_input_comes_from_env_observe_not_step_history():

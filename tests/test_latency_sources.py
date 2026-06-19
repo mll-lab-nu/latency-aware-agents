@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from latency_bench.latency.sources import (
     UniformDistributionLatencySource,
     ZeroLatencySource,
 )
+from latency_bench.latency.burst_profile import build_latency_burst_model
 from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
 from latency_bench.latency.trace import load_latency_trace, save_latency_trace
 
@@ -34,6 +36,19 @@ def _write_latency_profile(
         build_inverse_cdf_distribution(samples),
         profile_dir / "latency_distribution.json",
     )
+    burst_samples = [
+        {
+            "episode_id": 0,
+            "sample_index": index,
+            "latency_ms": float(sample),
+            "latency_raw_frames": index + 1,
+        }
+        for index, sample in enumerate(samples)
+    ]
+    (profile_dir / "latency_burst_model.json").write_text(
+        json.dumps(build_latency_burst_model(burst_samples), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     save_profile_manifest(
         {
             "profile_id": "L_test",
@@ -45,6 +60,9 @@ def _write_latency_profile(
             "n_samples": len(samples),
             "trace_path": trace_path,
             "distribution_path": "latency_distribution.json",
+            "sample_model_type": "semi_markov_latency_frames",
+            "burst_model_path": "latency_burst_model.json",
+            "burst_state_key": "latency_raw_frames",
             "summary": {},
         },
         profile_dir / "profile.json",
@@ -165,28 +183,22 @@ def test_profile_sample_samples_deterministically_with_seed(tmp_path: Path):
     first = ProfileSampleLatencySource(profile_dir / "profile.json", seed=0)
     second = ProfileSampleLatencySource(profile_dir / "profile.json", seed=0)
 
-    assert [first.next_latency_ms() for _ in range(20)] == [second.next_latency_ms() for _ in range(20)]
+    assert [first.next_latency_sample({"episode_id": 0}) for _ in range(20)] == [
+        second.next_latency_sample({"episode_id": 0}) for _ in range(20)
+    ]
     assert first.profile_id == "L_test"
     assert first.target_device == "test_gpu"
     assert first.last_metadata["profile_id"] == "L_test"
 
 
-def test_profile_sample_values_stay_within_profile_support(tmp_path: Path):
+def test_profile_sample_returns_raw_frames_from_burst_model(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
     source = ProfileSampleLatencySource(profile_dir / "profile.json", seed=1)
 
-    values = [source.next_latency_ms() for _ in range(100)]
-    assert min(values) >= 10.0
-    assert max(values) <= 30.0
-    assert any(value not in {10.0, 20.0, 30.0} for value in values)
+    samples = [source.next_latency_sample({"episode_id": 0}) for _ in range(3)]
 
-
-def test_profile_sample_uses_inverse_cdf_interpolation(tmp_path: Path):
-    profile_dir = _write_latency_profile(tmp_path, samples=[10.0, 30.0])
-    source = ProfileSampleLatencySource(profile_dir / "profile.json", seed=0)
-
-    source.rng.seed(3)
-    assert source.next_latency_ms() == pytest.approx(14.759292541837827)
+    assert [sample["latency_raw_frames"] for sample in samples] == [1, 2, 3]
+    assert [sample["latency_ms"] for sample in samples] == [10.0, 20.0, 30.0]
 
 
 def test_profile_sample_accepts_profile_directory(tmp_path: Path):
@@ -194,7 +206,7 @@ def test_profile_sample_accepts_profile_directory(tmp_path: Path):
     source = ProfileSampleLatencySource(profile_dir, seed=0)
 
     assert source.profile_path == profile_dir / "profile.json"
-    assert 10.0 <= source.next_latency_ms() <= 30.0
+    assert source.next_latency_raw_frames({"episode_id": 0}) in {1, 2, 3}
 
 
 def test_profile_sample_rejects_missing_profile_path():
@@ -202,11 +214,11 @@ def test_profile_sample_rejects_missing_profile_path():
         ProfileSampleLatencySource(None)
 
 
-def test_profile_sample_rejects_missing_distribution_file(tmp_path: Path):
+def test_profile_sample_rejects_missing_burst_model_file(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
-    (profile_dir / "latency_distribution.json").unlink()
+    (profile_dir / "latency_burst_model.json").unlink()
 
-    with pytest.raises(FileNotFoundError, match="latency_distribution.json"):
+    with pytest.raises(FileNotFoundError, match="latency_burst_model.json"):
         ProfileSampleLatencySource(profile_dir / "profile.json")
 
 
@@ -214,4 +226,4 @@ def test_profile_sample_passes_seed_through_to_rng(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
     source = ProfileSampleLatencySource(profile_dir / "profile.json", seed=True)
 
-    assert 10.0 <= source.next_latency_ms() <= 30.0
+    assert source.next_latency_raw_frames({"episode_id": 0}) in {1, 2, 3}
