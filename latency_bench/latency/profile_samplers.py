@@ -14,11 +14,20 @@ from latency_bench.utils.io import read_json
 class ProfileLatencySample:
     latency_ms: float
     latency_raw_frames: int | None = None
+    action_ready_raw_frames: int | None = None
+    worker_service_ms: float | None = None
+    worker_service_raw_frames: int | None = None
 
     def to_dict(self) -> dict[str, float | int]:
         payload: dict[str, float | int] = {"latency_ms": self.latency_ms}
         if self.latency_raw_frames is not None:
             payload["latency_raw_frames"] = self.latency_raw_frames
+        if self.action_ready_raw_frames is not None:
+            payload["action_ready_raw_frames"] = self.action_ready_raw_frames
+        if self.worker_service_ms is not None:
+            payload["worker_service_ms"] = self.worker_service_ms
+        if self.worker_service_raw_frames is not None:
+            payload["worker_service_raw_frames"] = self.worker_service_raw_frames
         return payload
 
 
@@ -54,6 +63,9 @@ class SemiMarkovProfileSampler:
         return ProfileLatencySample(
             latency_ms=float(sample["latency_ms"]),
             latency_raw_frames=int(sample["latency_raw_frames"]),
+            action_ready_raw_frames=int(sample["action_ready_raw_frames"]) if "action_ready_raw_frames" in sample else None,
+            worker_service_ms=float(sample["worker_service_ms"]) if "worker_service_ms" in sample else None,
+            worker_service_raw_frames=int(sample["worker_service_raw_frames"]) if "worker_service_raw_frames" in sample else None,
         )
 
 

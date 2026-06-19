@@ -5,11 +5,30 @@ from bisect import bisect_left
 from collections import Counter, defaultdict
 from typing import Any, Iterator
 
+from latency_bench.core.clock import ms_to_raw_frames
+
+
+WORKER_SERVICE_STAGE_KEYS = (
+    "parent_to_worker_ipc_ms",
+    "worker_recv_overhead_ms",
+    "worker_to_parent_ipc_ms",
+)
+
 
 def build_latency_burst_samples(
     action_records: list[dict[str, Any]],
     episode_metrics_records: list[dict[str, Any]] | None = None,
+    step_records: list[dict[str, Any]] | None = None,
+    recent_drop_count_cap: int = 2,
 ) -> list[dict[str, Any]]:
+    if step_records is not None:
+        return _build_queue_conditioned_latency_burst_samples(
+            action_records=action_records,
+            episode_metrics_records=episode_metrics_records,
+            step_records=step_records,
+            recent_drop_count_cap=recent_drop_count_cap,
+        )
+
     samples: list[dict[str, Any]] = []
     for record, episode_id in _action_records_with_episode_ids(action_records, episode_metrics_records):
         if record["applied"] and not record["dropped"]:
@@ -27,6 +46,83 @@ def build_latency_burst_samples(
                 }
             )
     return samples
+
+
+def _build_queue_conditioned_latency_burst_samples(
+    *,
+    action_records: list[dict[str, Any]],
+    episode_metrics_records: list[dict[str, Any]] | None,
+    step_records: list[dict[str, Any]],
+    recent_drop_count_cap: int,
+) -> list[dict[str, Any]]:
+    frame_ms_by_episode = {
+        int(record["episode_id"]): float(record["metadata"]["frame_ms"])
+        for record in episode_metrics_records
+    }
+    recent_drop_count_by_episode_step = _recent_drop_count_by_episode_step(
+        step_records=step_records,
+        cap=recent_drop_count_cap,
+    )
+    samples: list[dict[str, Any]] = []
+    for record, episode_id in _action_records_with_episode_ids(action_records, episode_metrics_records):
+        frame_ms = frame_ms_by_episode[episode_id]
+        action_ready_raw_frames = int(record["ready_raw_frame"]) - int(record["obs_env_step"])
+        latency = record["latency"]
+        worker_service_ms = _worker_service_ms(record)
+        samples.append(
+            {
+                "episode_id": episode_id,
+                "sample_index": len(samples),
+                "action_id": int(record["action_id"]),
+                "obs_env_step": int(record["obs_env_step"]),
+                "ready_raw_frame": int(record["ready_raw_frame"]),
+                "apply_raw_frame": record["apply_raw_frame"],
+                "applied": bool(record["applied"]),
+                "dropped": bool(record["dropped"]),
+                "recent_drop_count_capped": recent_drop_count_by_episode_step[episode_id][int(record["obs_env_step"])],
+                "latency_ms": float(action_ready_raw_frames) * frame_ms,
+                "action_ready_ms": float(action_ready_raw_frames) * frame_ms,
+                "action_ready_raw_frames": action_ready_raw_frames,
+                "worker_service_ms": worker_service_ms,
+                "worker_service_raw_frames": ms_to_raw_frames(worker_service_ms, env_fps=1000.0 / frame_ms),
+                "inference_latency_ms": float(latency["latency_ms"]),
+                "latency_raw_frames": action_ready_raw_frames,
+            }
+        )
+    return samples
+
+
+def _recent_drop_count_by_episode_step(
+    *,
+    step_records: list[dict[str, Any]],
+    cap: int,
+) -> dict[int, dict[int, int]]:
+    steps_by_episode: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for record in step_records:
+        steps_by_episode[int(record["episode_id"])].append(record)
+
+    recent_drop_count_by_episode_step: dict[int, dict[int, int]] = defaultdict(dict)
+    for episode_id, records in steps_by_episode.items():
+        recent_drop_count = 0
+        for record in sorted(records, key=lambda item: int(item["env_step"])):
+            info = record["info"]
+            if "observation_dropped" in info and info["observation_dropped"]:
+                recent_drop_count += 1
+            elif "observation_submitted" in info and info["observation_submitted"]:
+                recent_drop_count_by_episode_step[episode_id][int(record["env_step"])] = min(
+                    recent_drop_count,
+                    cap,
+                )
+                recent_drop_count = 0
+    return recent_drop_count_by_episode_step
+
+
+def _worker_service_ms(record: dict[str, Any]) -> float:
+    profile = record["metadata"]["realtime_profile"]
+    return float(record["latency"]["latency_ms"]) + sum(
+        float(profile[key])
+        for key in WORKER_SERVICE_STAGE_KEYS
+    )
 
 
 def _action_records_with_episode_ids(
@@ -53,6 +149,9 @@ def _action_records_with_episode_ids(
 
 
 def build_latency_burst_model(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    if "worker_service_raw_frames" in samples[0]:
+        return _build_queue_conditioned_latency_burst_model(samples)
+
     initial_state_counts: Counter[str] = Counter()
     transition_counts: dict[str, Counter[str]] = defaultdict(Counter)
     run_lengths_by_state: dict[str, list[int]] = defaultdict(list)
@@ -99,6 +198,74 @@ def build_latency_burst_model(samples: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _build_queue_conditioned_latency_burst_model(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    state_counts: Counter[str] = Counter()
+    transition_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    samples_by_state: dict[str, list[dict[str, float | int | bool | None]]] = defaultdict(list)
+    emissions_by_state: dict[str, dict[str, list[float | int]]] = defaultdict(lambda: defaultdict(list))
+
+    samples_by_episode: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for sample in samples:
+        state = str(int(sample["recent_drop_count_capped"]))
+        state_counts[state] += 1
+        samples_by_episode[int(sample["episode_id"])].append(sample)
+        samples_by_state[state].append(
+            {
+                "latency_ms": float(sample["latency_ms"]),
+                "latency_raw_frames": int(sample["action_ready_raw_frames"]),
+                "action_ready_ms": float(sample["action_ready_ms"]),
+                "action_ready_raw_frames": int(sample["action_ready_raw_frames"]),
+                "worker_service_ms": float(sample["worker_service_ms"]),
+                "worker_service_raw_frames": int(sample["worker_service_raw_frames"]),
+                "inference_latency_ms": float(sample["inference_latency_ms"]),
+                "applied": bool(sample["applied"]),
+                "dropped": bool(sample["dropped"]),
+            }
+        )
+        emissions_by_state[state]["latency_ms"].append(float(sample["latency_ms"]))
+        emissions_by_state[state]["action_ready_ms"].append(float(sample["action_ready_ms"]))
+        emissions_by_state[state]["action_ready_raw_frames"].append(int(sample["action_ready_raw_frames"]))
+        emissions_by_state[state]["worker_service_ms"].append(float(sample["worker_service_ms"]))
+        emissions_by_state[state]["worker_service_raw_frames"].append(int(sample["worker_service_raw_frames"]))
+        emissions_by_state[state]["inference_latency_ms"].append(float(sample["inference_latency_ms"]))
+
+    for episode_id in sorted(samples_by_episode):
+        episode_samples = sorted(samples_by_episode[episode_id], key=lambda item: int(item["sample_index"]))
+        for index in range(len(episode_samples) - 1):
+            state = str(int(episode_samples[index]["recent_drop_count_capped"]))
+            next_state = str(int(episode_samples[index + 1]["recent_drop_count_capped"]))
+            transition_counts[state][next_state] += 1
+
+    return {
+        "schema_version": 2,
+        "model_type": "semi_markov_latency_frames",
+        "reset_scope": "episode",
+        "state_key": "recent_drop_count_capped",
+        "recent_drop_count_cap": max(int(state) for state in state_counts),
+        "state_counts": dict(sorted(state_counts.items())),
+        "state_probs": _probs(state_counts),
+        "transition_counts": {
+            state: dict(sorted(counts.items()))
+            for state, counts in sorted(transition_counts.items())
+        },
+        "transition_probs": {
+            state: _probs(counts)
+            for state, counts in sorted(transition_counts.items())
+        },
+        "samples_by_state": {
+            state: values
+            for state, values in sorted(samples_by_state.items())
+        },
+        "emissions_by_state": {
+            state: {
+                key: sorted(values)
+                for key, values in sorted(emissions.items())
+            }
+            for state, emissions in sorted(emissions_by_state.items())
+        },
+    }
+
+
 def _runs_for_episode(samples: list[dict[str, Any]]) -> list[tuple[str, int]]:
     runs: list[tuple[str, int]] = []
     current_state = str(int(samples[0]["latency_raw_frames"]))
@@ -118,12 +285,16 @@ def _runs_for_episode(samples: list[dict[str, Any]]) -> list[tuple[str, int]]:
 class SemiMarkovLatencyBurstSampler:
     def __init__(self, model: dict[str, Any], seed: int | None = None):
         self.model = model
+        self.schema_version = int(model["schema_version"]) if "schema_version" in model else 1
         self.rng = random.Random(seed)
         self.current_episode_id: int | None = None
         self.current_state: str | None = None
         self.remaining_run_length = 0
 
     def sample(self, context: dict[str, Any]) -> dict[str, float | int]:
+        if self.schema_version == 2:
+            return self._sample_queue_conditioned(context)
+
         episode_id = int(context["episode_id"])
         if self.current_episode_id != episode_id:
             self.current_episode_id = episode_id
@@ -138,6 +309,21 @@ class SemiMarkovLatencyBurstSampler:
         return {
             "latency_ms": self._sample_latency_ms(state),
             "latency_raw_frames": int(state),
+        }
+
+    def _sample_queue_conditioned(self, context: dict[str, Any]) -> dict[str, float | int]:
+        recent_drop_count = min(
+            int(context["recent_drop_count"]),
+            int(self.model["recent_drop_count_cap"]),
+        )
+        state = str(recent_drop_count)
+        sample = self.rng.choice(self.model["samples_by_state"][state])
+        return {
+            "latency_ms": float(sample["latency_ms"]),
+            "latency_raw_frames": int(sample["latency_raw_frames"]),
+            "action_ready_raw_frames": int(sample["action_ready_raw_frames"]),
+            "worker_service_ms": float(sample["worker_service_ms"]),
+            "worker_service_raw_frames": int(sample["worker_service_raw_frames"]),
         }
 
     def _sample_initial_state(self) -> str:

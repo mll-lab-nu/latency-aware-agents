@@ -33,10 +33,16 @@ def _write_target(root: Path) -> tuple[Path, Path]:
                 "num_actions": 2,
                 "metadata": {
                     "profile_id": "L_L40S",
+                    "frame_ms": 10.0,
                 },
             }
         ],
     )
+    profile = {
+        "parent_to_worker_ipc_ms": 2.0,
+        "worker_recv_overhead_ms": 3.0,
+        "worker_to_parent_ipc_ms": 5.0,
+    }
     _write_jsonl(
         run_dir / "actions.jsonl",
         [
@@ -49,18 +55,38 @@ def _write_target(root: Path) -> tuple[Path, Path]:
                 "applied": True,
                 "dropped": False,
                 "latency": {"latency_ms": 10.0},
-                "metadata": {},
+                "metadata": {"realtime_profile": profile},
             },
             {
                 "action_id": 1,
-                "obs_env_step": 1,
-                "ready_raw_frame": 3,
-                "apply_raw_frame": 3,
-                "latency_raw_frames": 2,
-                "applied": True,
+                "obs_env_step": 2,
+                "ready_raw_frame": 5,
+                "apply_raw_frame": None,
+                "latency_raw_frames": 3,
+                "applied": False,
                 "dropped": False,
                 "latency": {"latency_ms": 20.0},
-                "metadata": {},
+                "metadata": {"realtime_profile": profile},
+            },
+        ],
+    )
+    _write_jsonl(
+        run_dir / "steps.jsonl",
+        [
+            {
+                "episode_id": 0,
+                "env_step": 0,
+                "info": {"observation_submitted": True, "observation_dropped": False},
+            },
+            {
+                "episode_id": 0,
+                "env_step": 1,
+                "info": {"observation_submitted": False, "observation_dropped": True},
+            },
+            {
+                "episode_id": 0,
+                "env_step": 2,
+                "info": {"observation_submitted": True, "observation_dropped": False},
             },
         ],
     )
@@ -116,9 +142,41 @@ def test_backfill_latency_burst_model_apply_writes_artifacts(tmp_path: Path):
     assert profile["sample_model_type"] == "semi_markov_latency_frames"
     assert profile["burst_samples_path"] == "latency_burst_samples.jsonl"
     assert profile["burst_model_path"] == "latency_burst_model.json"
-    assert profile["burst_state_key"] == "latency_raw_frames"
+    assert profile["burst_state_key"] == "recent_drop_count_capped"
+    samples = [
+        json.loads(line)
+        for line in (profile_path.parent / "latency_burst_samples.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [
+        {
+            "action_id": sample["action_id"],
+            "recent_drop_count_capped": sample["recent_drop_count_capped"],
+            "worker_service_raw_frames": sample["worker_service_raw_frames"],
+            "action_ready_raw_frames": sample["action_ready_raw_frames"],
+            "applied": sample["applied"],
+        }
+        for sample in samples
+    ] == [
+        {
+            "action_id": 0,
+            "recent_drop_count_capped": 0,
+            "worker_service_raw_frames": 2,
+            "action_ready_raw_frames": 1,
+            "applied": True,
+        },
+        {
+            "action_id": 1,
+            "recent_drop_count_capped": 1,
+            "worker_service_raw_frames": 3,
+            "action_ready_raw_frames": 3,
+            "applied": False,
+        },
+    ]
     model = json.loads((profile_path.parent / "latency_burst_model.json").read_text(encoding="utf-8"))
-    assert model["transition_counts"] == {"1": {"2": 1}}
+    assert model["schema_version"] == 2
+    assert model["state_key"] == "recent_drop_count_capped"
+    assert model["state_counts"] == {"0": 1, "1": 1}
+    assert model["emissions_by_state"]["1"]["worker_service_raw_frames"] == [3]
 
 
 def test_backfill_latency_burst_model_uploads_profile_artifacts(tmp_path: Path, monkeypatch):
