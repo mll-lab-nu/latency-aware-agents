@@ -8,7 +8,7 @@ import pytest
 from latency_bench.core.types import Action, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
-from latency_bench.latency.burst_profile import build_latency_burst_model
+from latency_bench.latency.burst_profile import build_bayes_markov_burst_model
 from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
 from latency_bench.run import run_from_config
 from latency_bench.utils.io import load_jsonl_records
@@ -97,12 +97,12 @@ def _write_profile(tmp_path: Path) -> Path:
         profile_dir / "latency_distribution.json",
     )
     burst_samples = [
-        {"episode_id": 0, "sample_index": 0, "latency_ms": 10.0, "latency_raw_frames": 1},
-        {"episode_id": 0, "sample_index": 1, "latency_ms": 20.0, "latency_raw_frames": 2},
-        {"episode_id": 0, "sample_index": 2, "latency_ms": 30.0, "latency_raw_frames": 3},
+        {"episode_id": 0, "sample_index": index, "action_ready_raw_frames": frames,
+         "worker_service_ms": float(frames) * 40.0, "worker_service_raw_frames": frames}
+        for index, frames in enumerate([1, 2, 3])
     ]
     (profile_dir / "latency_burst_model.json").write_text(
-        json.dumps(build_latency_burst_model(burst_samples), indent=2, sort_keys=True) + "\n",
+        json.dumps(build_bayes_markov_burst_model(burst_samples), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     save_profile_manifest(
@@ -116,9 +116,10 @@ def _write_profile(tmp_path: Path) -> Path:
             "n_samples": 3,
             "trace_path": "latencies.jsonl",
             "distribution_path": "latency_distribution.json",
-            "sample_model_type": "semi_markov_latency_frames",
+            "latency_method": "temporal",
+            "sample_model_type": "bayes_markov",
             "burst_model_path": "latency_burst_model.json",
-            "burst_state_key": "latency_raw_frames",
+            "burst_state_key": "worker_service_raw_frames",
             "summary": {},
         },
         profile_dir / "profile.json",

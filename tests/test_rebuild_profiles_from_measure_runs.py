@@ -162,10 +162,10 @@ def test_rebuild_profiles_apply_uses_full_e2e_trace_and_preserves_metadata(tmp_p
     assert profile["checkpoint_path"] == "/tmp/model.pt"
     assert profile["hardware"] == {"gpu": {"name": "NVIDIA L40S"}}
     assert profile["latency_method"] == "temporal"
-    assert profile["sample_model_type"] == "queue_conditioned"
+    assert profile["sample_model_type"] == "bayes_markov"
     assert profile["burst_samples_path"] == "latency_burst_samples.jsonl"
     assert profile["burst_model_path"] == "latency_burst_model.json"
-    assert profile["burst_state_key"] == "recent_drop_count_capped"
+    assert profile["burst_state_key"] == "worker_service_raw_frames"
     assert load_latency_samples(profile_path.parent / "e2e_latencies.jsonl") == [10.0, 20.0, 30.0, 40.0]
     assert load_latency_samples(profile_path.parent / "infer_latencies.jsonl") == [1.0, 2.0]
 

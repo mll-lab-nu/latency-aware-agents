@@ -10,10 +10,8 @@ from latency_bench.analysis.utils import write_latency_distribution_plot
 from latency_bench.analysis.profile_stats import compute_latency_profile_summary
 from latency_bench.utils.io import load_jsonl_records, write_json
 from latency_bench.latency.burst_profile import (
-    build_latency_burst_model,
-    build_latency_burst_samples,
-    build_queue_conditioned_burst_model,
-    build_queue_conditioned_burst_samples,
+    build_bayes_markov_burst_model,
+    build_bayes_markov_burst_samples,
 )
 from latency_bench.latency.profile import (
     build_inverse_cdf_distribution,
@@ -104,13 +102,8 @@ def build_profile_from_trace(
         manifest["inference_worker_count"] = metrics_records[0]["metadata"]["inference_worker_count"]
     if actions is not None:
         action_records = load_jsonl_records(actions)
-        step_records = load_jsonl_records(steps) if steps is not None else None
-        if step_records is not None:
-            burst_samples = build_queue_conditioned_burst_samples(action_records, metrics_records, step_records)
-            burst_model = build_queue_conditioned_burst_model(burst_samples)
-        else:
-            burst_samples = build_latency_burst_samples(action_records, metrics_records)
-            burst_model = build_latency_burst_model(burst_samples)
+        burst_samples = build_bayes_markov_burst_samples(action_records, metrics_records)
+        burst_model = build_bayes_markov_burst_model(burst_samples)
         _write_jsonl(paths["burst_samples"], burst_samples)
         write_json(paths["burst_model"], burst_model)
         manifest["latency_method"] = "temporal"
