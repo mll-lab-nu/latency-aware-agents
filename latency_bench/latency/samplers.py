@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.latency.inverse_cdf import sample_empirical, sample_inverse_cdf
+from latency_bench.latency.inverse_cdf import sample_inverse_cdf
 from latency_bench.latency.profile import load_profile_manifest
 from latency_bench.latency.sample import LatencySample
 from latency_bench.utils.io import read_json
@@ -111,7 +111,7 @@ class UniformSampler(LatencySampler):
 
 
 # ---------------------------------------------------------------------------
-# Profile methods: iid + temporal (semi-Markov v1, queue-conditioned v2)
+# Profile methods: iid (inverse-CDF) + temporal (Bayesian Markov)
 # ---------------------------------------------------------------------------
 
 
@@ -132,74 +132,102 @@ class IidInverseCdfSampler(LatencySampler):
         return LatencySample.from_latency_ms(latency_ms, clock=self.clock)
 
 
-class SemiMarkovSampler(LatencySampler):
-    """Run-length semi-Markov over ``latency_raw_frames`` states (burst model v1)."""
+class BayesMarkovSampler(LatencySampler):
+    """Bayesian Markov chain over ``worker_service_raw_frames`` states (burst model v3).
 
+    The state is the worker-occupancy length in frames (what drives observation
+    drops). The chain advances once per submitted observation; initial/transition
+    distributions are drawn per episode from the Dirichlet posterior over recorded
+    counts (so parameter uncertainty enters the episode-to-episode spread), and each
+    state's joint ``(action_ready, worker_service)`` emission is drawn by Rubin's
+    Bayesian bootstrap. Drops stay emergent in the simulator and are never
+    conditioned on, so ``recent_drop_count`` is intentionally ignored.
+
+    With ``transition_alpha``/``initial_alpha`` -> 0 and ``emission_bootstrap`` off,
+    this degrades to a plain empirical Markov chain over the occupancy states.
+    """
     latency_type = "profile_sample"
 
-    def __init__(self, model: dict[str, Any], *, clock: EnvClock, seed: int | None = None):
+    def __init__(
+        self,
+        model: dict[str, Any],
+        *,
+        clock: EnvClock,
+        seed: int | None = None,
+        transition_alpha: float = 1.0,
+        initial_alpha: float = 1.0,
+        emission_bootstrap: bool = True,
+        semi_markov_dwell: bool = False,
+        transition_mode: str = "posterior_sample",
+    ):
         self.model = model
         self.clock = clock
         self.rng = random.Random(seed)
+        self.transition_alpha = float(transition_alpha)
+        self.initial_alpha = float(initial_alpha)
+        self.emission_bootstrap = bool(emission_bootstrap)
+        self.semi_markov_dwell = bool(semi_markov_dwell)
+        self.transition_mode = transition_mode
+        self.states = sorted(model["state_counts"], key=lambda state: int(state))
         self.current_episode_id: int | None = None
         self.current_state: str | None = None
         self.remaining_run_length = 0
+        self._episode_initial: dict[str, float] | None = None
+        self._episode_transition: dict[str, dict[str, float]] | None = None
 
     def sample(self, context: dict[str, Any] | None = None) -> LatencySample:
         episode_id = int(context["episode_id"])
-        if self.current_episode_id != episode_id:
+        if episode_id != self.current_episode_id:
             self.current_episode_id = episode_id
-            self.current_state = self._sample_initial_state()
+            self._episode_initial = self._resolve_distribution(
+                self.model["initial_state_counts"], self.initial_alpha
+            )
+            self._episode_transition = {
+                state: self._resolve_distribution(
+                    self.model["transition_counts"].get(state, {}), self.transition_alpha
+                )
+                for state in self.states
+            }
+            self.current_state = _sample_probs(self.rng, self._episode_initial)
             self.remaining_run_length = self._sample_run_length(self.current_state)
         elif self.remaining_run_length <= 0:
-            self.current_state = self._sample_next_state(self.current_state)
+            self.current_state = _sample_probs(self.rng, self._episode_transition[self.current_state])
             self.remaining_run_length = self._sample_run_length(self.current_state)
 
         state = self.current_state
         self.remaining_run_length -= 1
-        return LatencySample.from_latency_ms(
-            self._sample_latency_ms(state),
-            clock=self.clock,
-            latency_raw_frames=int(state),
-        )
-
-    def _sample_initial_state(self) -> str:
-        return _sample_counts(self.rng, self.model["initial_state_counts"])
-
-    def _sample_next_state(self, state: str) -> str:
-        transitions = self.model["transition_counts"]
-        if state in transitions:
-            return _sample_counts(self.rng, transitions[state])
-        return self._sample_initial_state()
-
-    def _sample_run_length(self, state: str) -> int:
-        return int(self.rng.choice(self.model["run_lengths_by_state"][state]))
-
-    def _sample_latency_ms(self, state: str) -> float:
-        return sample_empirical(self.rng, self.model["latency_ms_by_state"][state])
-
-
-class QueueConditionedSampler(LatencySampler):
-    """Iid draw conditioned on the recent observation-drop count (burst model v2)."""
-
-    latency_type = "profile_sample"
-
-    def __init__(self, model: dict[str, Any], *, clock: EnvClock, seed: int | None = None):
-        self.model = model
-        self.clock = clock
-        self.rng = random.Random(seed)
-        self.recent_drop_count_cap = int(model["recent_drop_count_cap"])
-
-    def sample(self, context: dict[str, Any] | None = None) -> LatencySample:
-        recent_drop_count = min(int(context["recent_drop_count"]), self.recent_drop_count_cap)
-        state = str(recent_drop_count)
-        record = self.rng.choice(self.model["samples_by_state"][state])
+        record = self._sample_emission(state)
         return LatencySample.from_action_ready(
             action_ready_raw_frames=int(record["action_ready_raw_frames"]),
             worker_service_raw_frames=int(record["worker_service_raw_frames"]),
             worker_service_ms=float(record["worker_service_ms"]),
             clock=self.clock,
         )
+
+    def _resolve_distribution(self, counts: dict[str, Any], alpha: float) -> dict[str, float]:
+        concentration = {state: float(counts.get(state, 0)) + alpha for state in self.states}
+        if self.transition_mode == "posterior_predictive":
+            total = sum(concentration.values())
+            return {state: value / total for state, value in concentration.items()}
+        return _dirichlet_sample(self.rng, concentration)
+
+    def _sample_run_length(self, state: str) -> int:
+        if not self.semi_markov_dwell:
+            return 1
+        return int(self.rng.choice(self.model["run_lengths_by_state"][state]))
+
+    def _sample_emission(self, state: str) -> dict[str, Any]:
+        pool = self.model["emissions_by_state"][state]
+        if not self.emission_bootstrap or len(pool) == 1:
+            return self.rng.choice(pool)
+        weights = [self.rng.gammavariate(1.0, 1.0) for _ in pool]
+        draw = self.rng.random() * sum(weights)
+        cumulative = 0.0
+        for record, weight in zip(pool, weights):
+            cumulative += weight
+            if draw < cumulative:
+                return record
+        return pool[-1]
 
 
 # ---------------------------------------------------------------------------
@@ -225,13 +253,24 @@ class PerEpisodeSampler(LatencySampler):
         return self._sample
 
 
-def _sample_counts(rng: random.Random, counts: dict[str, int]) -> str:
-    total = sum(int(value) for value in counts.values())
-    draw = rng.randrange(total)
-    cumulative = 0
+def _dirichlet_sample(rng: random.Random, concentration: dict[str, float]) -> dict[str, float]:
+    weights = {
+        state: (rng.gammavariate(value, 1.0) if value > 0 else 0.0)
+        for state, value in concentration.items()
+    }
+    total = sum(weights.values())
+    if total <= 0:
+        uniform = 1.0 / len(weights)
+        return {state: uniform for state in weights}
+    return {state: value / total for state, value in weights.items()}
+
+
+def _sample_probs(rng: random.Random, probs: dict[str, float]) -> str:
+    draw = rng.random()
+    cumulative = 0.0
     state = ""
-    for state, count in counts.items():
-        cumulative += int(count)
+    for state, prob in probs.items():
+        cumulative += prob
         if draw < cumulative:
             return state
     return state
@@ -336,13 +375,21 @@ def _build_iid(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
     return IidInverseCdfSampler(read_json(distribution_path), clock=clock, seed=seed)
 
 
+_BAYES_MARKOV_KEYS = (
+    "transition_alpha",
+    "initial_alpha",
+    "emission_bootstrap",
+    "semi_markov_dwell",
+    "transition_mode",
+)
+
+
 @register_sampler("temporal")
 def _build_temporal(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
     model_path = _profile_relative_path(profile_path, profile["burst_model_path"])
     model = read_json(model_path)
-    if _is_queue_conditioned_model(model):
-        return QueueConditionedSampler(model, clock=clock, seed=seed)
-    return SemiMarkovSampler(model, clock=clock, seed=seed)
+    kwargs = {key: cfg[key] for key in _BAYES_MARKOV_KEYS if key in cfg}
+    return BayesMarkovSampler(model, clock=clock, seed=seed, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -361,18 +408,13 @@ _LEGACY_TYPE_TO_METHOD = {
 
 _LEGACY_PROFILE_SAMPLER_TO_METHOD = {
     "iid_inverse_cdf": "iid",
-    "semi_markov_latency_frames": "temporal",
-    "queue_conditioned": "temporal",
+    "bayes_markov": "temporal",
 }
 
 
 def _normalize_latency_cfg(latency_cfg: dict[str, Any]) -> dict[str, Any]:
     if "method" in latency_cfg:
-        cfg = dict(latency_cfg)
-        temporal = cfg.get("temporal")
-        if isinstance(temporal, dict) and "variant" in temporal:
-            cfg["variant"] = temporal["variant"]
-        return cfg
+        return dict(latency_cfg)
 
     cfg = dict(latency_cfg)
     latency_type = cfg.get("type", "zero")
@@ -395,11 +437,12 @@ def _resolve_method(cfg: dict[str, Any], profile: dict[str, Any] | None) -> str:
     if method != "profile_default":
         return method
     if profile is not None:
-        sample_model_type = profile.get("latency_method") or profile.get("sample_model_type")
+        latency_method = profile.get("latency_method")
+        if latency_method in ("iid", "temporal"):
+            return latency_method
+        sample_model_type = profile.get("sample_model_type")
         if sample_model_type in _LEGACY_PROFILE_SAMPLER_TO_METHOD:
             return _LEGACY_PROFILE_SAMPLER_TO_METHOD[sample_model_type]
-        if sample_model_type in ("iid", "temporal"):
-            return sample_model_type
     return "iid"
 
 
@@ -409,14 +452,6 @@ def _maybe_load_profile(cfg: dict[str, Any]) -> tuple[dict[str, Any] | None, Pat
         return None, None
     resolved = _resolve_profile_manifest_path(profile_path)
     return load_profile_manifest(resolved), resolved
-
-
-def _is_queue_conditioned_model(model: dict[str, Any]) -> bool:
-    return (
-        int(model.get("schema_version", 1)) >= 2
-        or model.get("model_type") == "queue_conditioned"
-        or model.get("state_key") == "recent_drop_count_capped"
-    )
 
 
 def _profile_summary(profile: dict[str, Any] | None) -> dict[str, Any]:

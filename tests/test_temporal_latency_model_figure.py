@@ -4,7 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-from latency_bench.latency.burst_profile import build_latency_burst_model
+from latency_bench.latency.burst_profile import build_bayes_markov_burst_model
 from latency_bench.latency.profile import build_inverse_cdf_distribution
 
 
@@ -30,17 +30,17 @@ def test_temporal_latency_model_figure_generates_outputs(tmp_path: Path):
     profile_dir = tmp_path / "profiles" / "openvla-flappy" / "flappy" / "L_TEST"
     profile_dir.mkdir(parents=True)
     samples = [
-        {"episode_id": 0, "sample_index": 0, "latency_ms": 10.0, "latency_raw_frames": 1},
-        {"episode_id": 0, "sample_index": 1, "latency_ms": 11.0, "latency_raw_frames": 1},
-        {"episode_id": 0, "sample_index": 2, "latency_ms": 20.0, "latency_raw_frames": 2},
-        {"episode_id": 0, "sample_index": 3, "latency_ms": 21.0, "latency_raw_frames": 2},
+        {"episode_id": 0, "sample_index": 0, "action_ready_raw_frames": 1, "worker_service_ms": 40.0, "worker_service_raw_frames": 1},
+        {"episode_id": 0, "sample_index": 1, "action_ready_raw_frames": 1, "worker_service_ms": 44.0, "worker_service_raw_frames": 1},
+        {"episode_id": 0, "sample_index": 2, "action_ready_raw_frames": 2, "worker_service_ms": 80.0, "worker_service_raw_frames": 2},
+        {"episode_id": 0, "sample_index": 3, "action_ready_raw_frames": 2, "worker_service_ms": 84.0, "worker_service_raw_frames": 2},
     ]
     (profile_dir / "latency_burst_samples.jsonl").write_text(
         "".join(json.dumps(sample, sort_keys=True) + "\n" for sample in samples),
         encoding="utf-8",
     )
     (profile_dir / "latency_burst_model.json").write_text(
-        json.dumps(build_latency_burst_model(samples), indent=2, sort_keys=True) + "\n",
+        json.dumps(build_bayes_markov_burst_model(samples), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     (profile_dir / "latency_distribution.json").write_text(
@@ -60,10 +60,11 @@ def test_temporal_latency_model_figure_generates_outputs(tmp_path: Path):
                 "trace_path": "e2e_latencies.jsonl",
                 "latency_kind": "e2e_latency",
                 "distribution_path": "latency_distribution.json",
-                "sample_model_type": "semi_markov_latency_frames",
+                "latency_method": "temporal",
+                "sample_model_type": "bayes_markov",
                 "burst_samples_path": "latency_burst_samples.jsonl",
                 "burst_model_path": "latency_burst_model.json",
-                "burst_state_key": "latency_raw_frames",
+                "burst_state_key": "worker_service_raw_frames",
                 "summary": {},
             },
             sort_keys=True,

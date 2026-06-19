@@ -11,8 +11,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 from latency_bench.latency.burst_profile import (
-    build_queue_conditioned_burst_model,
-    build_queue_conditioned_burst_samples,
+    build_bayes_markov_burst_model,
+    build_bayes_markov_burst_samples,
 )
 from latency_bench.latency.profile import load_profile_manifest, save_profile_manifest
 from latency_bench.utils.io import load_jsonl_records, write_json, write_jsonl
@@ -57,9 +57,8 @@ def discover_targets(root: Path) -> list[BackfillTarget]:
 def apply_backfill(target: BackfillTarget) -> dict[str, int]:
     action_records = load_jsonl_records(target.actions_path)
     metrics_records = load_jsonl_records(target.metrics_path)
-    step_records = load_jsonl_records(target.steps_path)
-    burst_samples = build_queue_conditioned_burst_samples(action_records, metrics_records, step_records)
-    burst_model = build_queue_conditioned_burst_model(burst_samples)
+    burst_samples = build_bayes_markov_burst_samples(action_records, metrics_records)
+    burst_model = build_bayes_markov_burst_model(burst_samples)
     samples_path = target.profile_path.parent / "latency_burst_samples.jsonl"
     model_path = target.profile_path.parent / "latency_burst_model.json"
     write_jsonl(samples_path, burst_samples)
@@ -129,7 +128,7 @@ def _target_summary(target: BackfillTarget, *, apply: bool, upload: bool) -> dic
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Backfill semi-Markov latency burst profile artifacts.")
+    parser = argparse.ArgumentParser(description="Backfill bayes-Markov latency burst profile artifacts.")
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--apply", action="store_true")

@@ -140,10 +140,10 @@ def test_backfill_latency_burst_model_apply_writes_artifacts(tmp_path: Path):
 
     profile = load_profile_manifest(profile_path)
     assert profile["latency_method"] == "temporal"
-    assert profile["sample_model_type"] == "queue_conditioned"
+    assert profile["sample_model_type"] == "bayes_markov"
     assert profile["burst_samples_path"] == "latency_burst_samples.jsonl"
     assert profile["burst_model_path"] == "latency_burst_model.json"
-    assert profile["burst_state_key"] == "recent_drop_count_capped"
+    assert profile["burst_state_key"] == "worker_service_raw_frames"
     samples = [
         json.loads(line)
         for line in (profile_path.parent / "latency_burst_samples.jsonl").read_text(encoding="utf-8").splitlines()
@@ -151,7 +151,6 @@ def test_backfill_latency_burst_model_apply_writes_artifacts(tmp_path: Path):
     assert [
         {
             "action_id": sample["action_id"],
-            "recent_drop_count_capped": sample["recent_drop_count_capped"],
             "worker_service_raw_frames": sample["worker_service_raw_frames"],
             "action_ready_raw_frames": sample["action_ready_raw_frames"],
             "applied": sample["applied"],
@@ -160,25 +159,23 @@ def test_backfill_latency_burst_model_apply_writes_artifacts(tmp_path: Path):
     ] == [
         {
             "action_id": 0,
-            "recent_drop_count_capped": 0,
             "worker_service_raw_frames": 2,
             "action_ready_raw_frames": 1,
             "applied": True,
         },
         {
             "action_id": 1,
-            "recent_drop_count_capped": 1,
             "worker_service_raw_frames": 3,
             "action_ready_raw_frames": 3,
             "applied": False,
         },
     ]
     model = json.loads((profile_path.parent / "latency_burst_model.json").read_text(encoding="utf-8"))
-    assert model["schema_version"] == 2
-    assert model["state_key"] == "recent_drop_count_capped"
-    assert model["state_counts"] == {"0": 1, "1": 1}
-    assert model["model_type"] == "queue_conditioned"
-    assert model["samples_by_state"]["1"][0]["worker_service_raw_frames"] == 3
+    assert model["schema_version"] == 3
+    assert model["state_key"] == "worker_service_raw_frames"
+    assert model["state_counts"] == {"2": 1, "3": 1}
+    assert model["model_type"] == "bayes_markov"
+    assert model["emissions_by_state"]["3"][0]["worker_service_raw_frames"] == 3
 
 
 def test_backfill_latency_burst_model_uploads_profile_artifacts(tmp_path: Path, monkeypatch):
