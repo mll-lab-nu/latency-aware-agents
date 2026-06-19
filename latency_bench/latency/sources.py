@@ -5,9 +5,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from latency_bench.latency.burst_profile import SemiMarkovLatencyBurstSampler
 from latency_bench.latency.profile import load_profile_manifest
-from latency_bench.utils.io import read_json
+from latency_bench.latency.profile_samplers import build_profile_latency_sampler
 
 
 class LatencySource(ABC):
@@ -123,16 +122,22 @@ class MixedUniformDistributionLatencySource(UniformDistributionLatencySource):
 
 
 class ProfileSampleLatencySource(LatencySource):
-    def __init__(self, profile_path: str | Path | None, seed: int | None = None):
+    def __init__(
+        self,
+        profile_path: str | Path | None,
+        seed: int | None = None,
+        sampler: str = "profile_default",
+    ):
         self.profile_path = _resolve_profile_manifest_path(profile_path)
         self.profile = load_profile_manifest(self.profile_path)
-        self.burst_model_path = Path(self.profile["burst_model_path"])
-        if not self.burst_model_path.is_absolute():
-            self.burst_model_path = self.profile_path.parent / self.burst_model_path
-        self.burst_model = read_json(self.burst_model_path)
         self.profile_id = self.profile["profile_id"]
         self.target_device = self.profile["target_device"]
-        self.sampler = SemiMarkovLatencyBurstSampler(self.burst_model, seed=seed)
+        self.sampler, self.sampler_type = build_profile_latency_sampler(
+            profile=self.profile,
+            profile_path=self.profile_path,
+            sampler=sampler,
+            seed=seed,
+        )
         self.last_metadata: dict[str, Any] | None = None
 
     def next_latency_ms(self, context: dict[str, Any] | None = None) -> float:
@@ -142,7 +147,7 @@ class ProfileSampleLatencySource(LatencySource):
         return int(self.next_latency_sample(context)["latency_raw_frames"])
 
     def next_latency_sample(self, context: dict[str, Any] | None = None) -> dict[str, float | int]:
-        sample = self.sampler.sample(context)
+        sample = self.sampler.sample(context).to_dict()
         self.last_metadata = _profile_latency_metadata(self)
         return sample
 

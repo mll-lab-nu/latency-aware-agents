@@ -410,6 +410,7 @@ def _build_latency_source(latency_cfg: dict[str, Any]) -> LatencySource:
         return ProfileSampleLatencySource(
             profile_path=latency_cfg["profile_path"],
             seed=latency_cfg.get("seed"),
+            sampler=latency_cfg["sampler"] if "sampler" in latency_cfg else "profile_default",
         )
     raise ValueError(f"Unsupported latency.type for simulated executor: {latency_type}")
 

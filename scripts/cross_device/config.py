@@ -76,6 +76,7 @@ def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask) 
     latency["target_device"] = task.target_device["id"]
     latency.pop("fixed_latency_ms", None)
     latency.pop("profile_path", None)
+    latency.pop("sampler", None)
     evaluation = config.setdefault("evaluation", {})
     # Realtime-vs-replay profiles use serial inference semantics.
     evaluation["eval_parallel_envs"] = 1
@@ -103,6 +104,7 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
     latency["type"] = "profile_sample"
     latency["profile_path"] = str(task.target_profile_path)
     latency["seed"] = int(task.seed)
+    latency["sampler"] = spec["profile_sampler"] if "profile_sampler" in spec else "profile_default"
     latency["profile_id"] = task.target_device["profile_id"]
     latency["target_device"] = task.target_device["id"]
     if task.replay_device is not None:

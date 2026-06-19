@@ -56,9 +56,14 @@ def sample_simulated_latency(
     next_latency_sample = getattr(latency_source, "next_latency_sample", None)
     if callable(next_latency_sample):
         sample = next_latency_sample(context)
+        latency_ms = float(sample["latency_ms"])
+        if "latency_raw_frames" in sample:
+            latency_raw_frames = int(sample["latency_raw_frames"])
+        else:
+            latency_raw_frames = clock.latency_ms_to_raw_frames(latency_ms)
         return SimulatedLatencySample(
-            latency_ms=float(sample["latency_ms"]),
-            latency_raw_frames=int(sample["latency_raw_frames"]),
+            latency_ms=latency_ms,
+            latency_raw_frames=latency_raw_frames,
         )
 
     next_raw_frames = getattr(latency_source, "next_latency_raw_frames", None)

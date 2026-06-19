@@ -52,6 +52,14 @@ class StructuredLatencySource(LatencySource):
         return {"latency_ms": 17.5, "latency_raw_frames": 4}
 
 
+class MsOnlyStructuredLatencySource(LatencySource):
+    def next_latency_ms(self, context=None) -> float:
+        raise AssertionError("simulated timeline should use next_latency_sample when available")
+
+    def next_latency_sample(self, context=None) -> dict[str, float | int]:
+        return {"latency_ms": 17.5}
+
+
 class SelectedRawFrameDecisionScheduler(DecisionScheduler):
     def __init__(self, raw_frames: set[int]):
         self.raw_frames = set(raw_frames)
@@ -279,6 +287,19 @@ def test_simulated_timeline_uses_structured_latency_sample():
 
     assert sample.latency_ms == 17.5
     assert sample.latency_raw_frames == 4
+
+
+def test_simulated_timeline_converts_ms_only_structured_latency_sample():
+    clock = EnvClock(env_fps=20.0, obs_fps=20.0)
+
+    sample = sample_simulated_latency(
+        latency_source=MsOnlyStructuredLatencySource(),
+        clock=clock,
+        context={"episode_id": 0},
+    )
+
+    assert sample.latency_ms == 17.5
+    assert sample.latency_raw_frames == 1
 
 
 def test_policy_input_comes_from_env_observe_not_step_history():

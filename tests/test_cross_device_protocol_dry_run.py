@@ -850,9 +850,45 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
     assert config["env"]["obs_fps"] == 16.0
     assert config["latency"]["type"] == "profile_sample"
     assert config["latency"]["profile_path"].endswith("profiles/dry-policy/flappy/L_A100/profile.json")
+    assert config["latency"]["sampler"] == "profile_default"
     assert config["evaluation"]["eval_latency_values"] is None
     assert config["evaluation"]["eval_parallel_envs"] == 1
     assert not (out / "runs").exists()
+
+
+def test_sim_same_dry_run_passes_profile_sampler_to_generated_config(tmp_path: Path):
+    base_config = tmp_path / "base.yaml"
+    spec = tmp_path / "protocol.yaml"
+    out = tmp_path / "results"
+    _write_base_config(base_config)
+    _write_spec(spec, base_config)
+    payload = yaml.safe_load(spec.read_text(encoding="utf-8"))
+    payload["profile_sampler"] = "iid_inverse_cdf"
+    spec.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    profile_path = out / "profiles" / "dry-policy" / "flappy" / "L_A100" / "profile.json"
+    _write_profile_manifest(profile_path, env_fps=16.0, inference_worker_count=2)
+
+    _run_cli(
+        tmp_path,
+        "sim-same",
+        "--spec",
+        str(spec),
+        "--hardware",
+        "a100",
+        "--profiles-dir",
+        str(out / "profiles"),
+        "--out",
+        str(out),
+        "--dry-run",
+        "--only-experiment",
+        "exp2_same_device_calibration",
+        "--max-runs",
+        "1",
+    )
+
+    generated = next((out / "generated_configs" / "sim_same").rglob("*.yaml"))
+    config = yaml.safe_load(generated.read_text(encoding="utf-8"))
+    assert config["latency"]["sampler"] == "iid_inverse_cdf"
 
 
 def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch):
