@@ -26,6 +26,7 @@ def _write_latency_profile(
     *,
     trace_path: str = "latencies.jsonl",
     write_trace: bool = True,
+    sample_model_type: str | None = "semi_markov_latency_frames",
 ) -> Path:
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir()
@@ -49,8 +50,7 @@ def _write_latency_profile(
         json.dumps(build_latency_burst_model(burst_samples), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    save_profile_manifest(
-        {
+    manifest = {
             "profile_id": "L_test",
             "policy_id": "pi_test",
             "env_id": "env_test",
@@ -60,13 +60,13 @@ def _write_latency_profile(
             "n_samples": len(samples),
             "trace_path": trace_path,
             "distribution_path": "latency_distribution.json",
-            "sample_model_type": "semi_markov_latency_frames",
-            "burst_model_path": "latency_burst_model.json",
-            "burst_state_key": "latency_raw_frames",
             "summary": {},
-        },
-        profile_dir / "profile.json",
-    )
+        }
+    if sample_model_type is not None:
+        manifest["sample_model_type"] = sample_model_type
+        manifest["burst_model_path"] = "latency_burst_model.json"
+        manifest["burst_state_key"] = "latency_raw_frames"
+    save_profile_manifest(manifest, profile_dir / "profile.json")
     return profile_dir
 
 
@@ -201,6 +201,30 @@ def test_profile_sample_returns_raw_frames_from_burst_model(tmp_path: Path):
     assert [sample["latency_ms"] for sample in samples] == [10.0, 20.0, 30.0]
 
 
+def test_profile_sample_can_force_iid_inverse_cdf_sampler(tmp_path: Path):
+    profile_dir = _write_latency_profile(tmp_path)
+    source = ProfileSampleLatencySource(profile_dir / "profile.json", seed=0, sampler="iid_inverse_cdf")
+
+    samples = [source.next_latency_sample({"episode_id": 0}) for _ in range(3)]
+
+    assert [sample["latency_ms"] for sample in samples] == pytest.approx([
+        26.888437030500963,
+        25.15908805880605,
+        18.4114316166169,
+    ])
+    assert all("latency_raw_frames" not in sample for sample in samples)
+
+
+def test_profile_sample_legacy_profile_defaults_to_iid_inverse_cdf(tmp_path: Path):
+    profile_dir = _write_latency_profile(tmp_path, sample_model_type=None)
+    source = ProfileSampleLatencySource(profile_dir / "profile.json", seed=0)
+
+    sample = source.next_latency_sample({"episode_id": 0})
+
+    assert sample["latency_ms"] == pytest.approx(26.888437030500963)
+    assert "latency_raw_frames" not in sample
+
+
 def test_profile_sample_accepts_profile_directory(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
     source = ProfileSampleLatencySource(profile_dir, seed=0)
@@ -219,7 +243,7 @@ def test_profile_sample_rejects_missing_burst_model_file(tmp_path: Path):
     (profile_dir / "latency_burst_model.json").unlink()
 
     with pytest.raises(FileNotFoundError, match="latency_burst_model.json"):
-        ProfileSampleLatencySource(profile_dir / "profile.json")
+        ProfileSampleLatencySource(profile_dir / "profile.json", sampler="semi_markov_latency_frames")
 
 
 def test_profile_sample_passes_seed_through_to_rng(tmp_path: Path):

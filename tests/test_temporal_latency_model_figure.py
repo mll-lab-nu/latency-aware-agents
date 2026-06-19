@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from latency_bench.latency.burst_profile import build_latency_burst_model
+from latency_bench.latency.profile import build_inverse_cdf_distribution
 
 
 FIGURE_SCRIPT = (
@@ -40,6 +41,10 @@ def test_temporal_latency_model_figure_generates_outputs(tmp_path: Path):
     )
     (profile_dir / "latency_burst_model.json").write_text(
         json.dumps(build_latency_burst_model(samples), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (profile_dir / "latency_distribution.json").write_text(
+        json.dumps(build_inverse_cdf_distribution([10.0, 11.0, 20.0, 21.0]), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     (profile_dir / "profile.json").write_text(
@@ -83,3 +88,21 @@ def test_temporal_latency_model_figure_generates_outputs(tmp_path: Path):
 
     assert (tmp_path / "figure" / "fig_temporal_latency_model.png").stat().st_size > 0
     assert (tmp_path / "figure" / "fig_temporal_latency_model.pdf").stat().st_size > 0
+
+
+def test_temporal_latency_model_figure_accepts_single_profile_dir(tmp_path: Path):
+    test_temporal_latency_model_figure_generates_outputs(tmp_path)
+    module = _load_figure_module()
+
+    module.main(
+        [
+            "--profile-dir",
+            str(tmp_path / "profiles" / "openvla-flappy" / "flappy" / "L_TEST"),
+            "--output-dir",
+            str(tmp_path / "single_profile_figure"),
+            "--generated-samples",
+            "32",
+        ]
+    )
+
+    assert (tmp_path / "single_profile_figure" / "fig_temporal_latency_model.png").stat().st_size > 0
