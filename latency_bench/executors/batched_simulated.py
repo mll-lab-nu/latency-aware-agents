@@ -76,6 +76,7 @@ class _SlotState:
     episode_id: int | None = None
     episode_seed: int | None = None
     env_step: int = 0
+    recent_drop_count: int = 0
     buffers: _EpisodeBuffers = field(default_factory=_EpisodeBuffers)
     worker_capacity: SimulatedWorkerCapacity = field(
         default_factory=lambda: SimulatedWorkerCapacity(capacity=None, busy_until_raw_frames=[])
@@ -225,6 +226,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                     else:
                         slot.buffers.dropped_observation_count += 1
                         observation_dropped = True
+                        slot.recent_drop_count += 1
                 if self.simulated_worker_capacity is not None:
                     step_capacity_info[slot.slot_id] = {
                         "observation_submitted": observation_submitted,
@@ -307,6 +309,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                     slot.action_scheduler.reset()
                     self.policy.reset_state(slot_id=slot.slot_id)
                     slot.worker_capacity.reset()
+                    slot.recent_drop_count = 0
 
                 slot.env_step += 1
                 if episode_done or slot.env_step >= eval_max_steps:
@@ -349,6 +352,9 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             "sim_time_ms": current_time_ms,
             "episode_id": slot.episode_id,
             "slot_id": slot.slot_id,
+            "recent_drop_count": slot.recent_drop_count,
+            "in_flight_count": slot.worker_capacity.in_flight_count,
+            "idle_worker_count": slot.worker_capacity.idle_worker_count,
         }
         latency_sample = sample_simulated_latency(
             latency_source=slot.latency_source,
@@ -389,6 +395,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             slot.episode_id = None
             slot.episode_seed = None
             slot.env_step = 0
+            slot.recent_drop_count = 0
             slot.buffers = self._new_episode_buffers()
             slot.action_scheduler.reset()
             slot.worker_capacity.reset()
@@ -403,6 +410,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot.episode_id = int(episode_id)
         slot.episode_seed = None if seed is None else int(seed)
         slot.env_step = 0
+        slot.recent_drop_count = 0
         slot.buffers = self._new_episode_buffers()
         slot.action_scheduler.reset()
         slot.worker_capacity.reset()
@@ -454,6 +462,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot.episode_id = None
         slot.episode_seed = None
         slot.env_step = 0
+        slot.recent_drop_count = 0
         slot.buffers = self._new_episode_buffers()
         slot.action_scheduler.reset()
         slot.worker_capacity.reset()
@@ -474,9 +483,9 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
     ) -> None:
         raw_frame = int(slot.env_step)
         latency_ms = latency_sample.latency_ms
-        ready_raw_frame = raw_frame + latency_sample.latency_raw_frames
+        ready_raw_frame = raw_frame + latency_sample.action_ready_raw_frames
         ready_time_ms = self.clock.step_to_time_ms(ready_raw_frame)
-        slot.worker_capacity.submit(ready_raw_frame)
+        slot.worker_capacity.submit(raw_frame + latency_sample.worker_service_raw_frames)
         latency_type = latency_type_from_source(slot.latency_source)
         profile_metadata = profile_metadata_from_source(slot.latency_source)
         latency_record = LatencyRecord(
@@ -497,6 +506,8 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             "episode_id": int(slot.episode_id),
             "slot_id": int(slot.slot_id),
             "frame_ms": self.clock.frame_ms,
+            "worker_service_ms": latency_sample.worker_service_ms,
+            "worker_service_raw_frames": latency_sample.worker_service_raw_frames,
         }
         event = ActionEvent(
             action_id=self._next_action_id,
@@ -505,7 +516,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             ready_time_ms=ready_time_ms,
             ready_step_float=float(ready_raw_frame),
             latency=latency_record,
-            latency_raw_frames=latency_sample.latency_raw_frames,
+            latency_raw_frames=latency_sample.action_ready_raw_frames,
             ready_raw_frame=ready_raw_frame,
             metadata=metadata,
         )
@@ -518,6 +529,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         self._next_action_id += 1
         slot.action_scheduler.enqueue(event)
         slot.buffers.submitted_observation_frames += 1
+        slot.recent_drop_count = 0
         slot.buffers.num_actions += 1
         if slot.buffers.action_events is not None:
             slot.buffers.action_events.append(event)

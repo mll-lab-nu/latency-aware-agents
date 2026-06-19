@@ -20,6 +20,90 @@ from latency_bench.latency.profile import build_inverse_cdf_distribution, save_l
 from latency_bench.latency.trace import load_latency_trace, save_latency_trace
 
 
+def _write_v2_latency_profile(tmp_path: Path) -> Path:
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    save_latency_distribution(
+        build_inverse_cdf_distribution([10.0, 90.0]),
+        profile_dir / "latency_distribution.json",
+    )
+    (profile_dir / "latency_burst_model.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "model_type": "semi_markov_latency_frames",
+                "state_key": "recent_drop_count_capped",
+                "recent_drop_count_cap": 1,
+                "state_counts": {"0": 1, "1": 1},
+                "state_probs": {"0": 0.5, "1": 0.5},
+                "samples_by_state": {
+                    "0": [
+                        {
+                            "latency_ms": 10.0,
+                            "latency_raw_frames": 1,
+                            "action_ready_raw_frames": 1,
+                            "worker_service_ms": 20.0,
+                            "worker_service_raw_frames": 2,
+                            "inference_latency_ms": 10.0,
+                            "applied": True,
+                            "dropped": False,
+                        }
+                    ],
+                    "1": [
+                        {
+                            "latency_ms": 90.0,
+                            "latency_raw_frames": 4,
+                            "action_ready_raw_frames": 4,
+                            "worker_service_ms": 110.0,
+                            "worker_service_raw_frames": 5,
+                            "inference_latency_ms": 90.0,
+                            "applied": True,
+                            "dropped": False,
+                        }
+                    ],
+                },
+                "emissions_by_state": {
+                    "0": {
+                        "latency_ms": [10.0],
+                        "action_ready_raw_frames": [1],
+                        "worker_service_ms": [20.0],
+                        "worker_service_raw_frames": [2],
+                    },
+                    "1": {
+                        "latency_ms": [90.0],
+                        "action_ready_raw_frames": [4],
+                        "worker_service_ms": [110.0],
+                        "worker_service_raw_frames": [5],
+                    },
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    save_profile_manifest(
+        {
+            "profile_id": "L_test",
+            "policy_id": "pi_test",
+            "env_id": "env_test",
+            "target_device": "test_gpu",
+            "env_fps": 25.0,
+            "frame_ms": 40.0,
+            "n_samples": 2,
+            "trace_path": "latencies.jsonl",
+            "distribution_path": "latency_distribution.json",
+            "summary": {},
+            "sample_model_type": "semi_markov_latency_frames",
+            "burst_model_path": "latency_burst_model.json",
+            "burst_state_key": "recent_drop_count_capped",
+        },
+        profile_dir / "profile.json",
+    )
+    return profile_dir
+
+
 def _write_latency_profile(
     tmp_path: Path,
     samples: list[float] | None = None,
@@ -199,6 +283,29 @@ def test_profile_sample_returns_raw_frames_from_burst_model(tmp_path: Path):
 
     assert [sample["latency_raw_frames"] for sample in samples] == [1, 2, 3]
     assert [sample["latency_ms"] for sample in samples] == [10.0, 20.0, 30.0]
+
+
+def test_profile_sample_conditions_v2_burst_model_on_recent_drop_count(tmp_path: Path):
+    profile_dir = _write_v2_latency_profile(tmp_path)
+    source = ProfileSampleLatencySource(profile_dir / "profile.json", seed=0)
+
+    clean = source.next_latency_sample({"episode_id": 0, "recent_drop_count": 0})
+    after_drop = source.next_latency_sample({"episode_id": 0, "recent_drop_count": 1})
+
+    assert clean == {
+        "latency_ms": 10.0,
+        "latency_raw_frames": 1,
+        "action_ready_raw_frames": 1,
+        "worker_service_raw_frames": 2,
+        "worker_service_ms": 20.0,
+    }
+    assert after_drop == {
+        "latency_ms": 90.0,
+        "latency_raw_frames": 4,
+        "action_ready_raw_frames": 4,
+        "worker_service_raw_frames": 5,
+        "worker_service_ms": 110.0,
+    }
 
 
 def test_profile_sample_can_force_iid_inverse_cdf_sampler(tmp_path: Path):

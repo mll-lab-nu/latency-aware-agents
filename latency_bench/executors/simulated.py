@@ -92,6 +92,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         )
 
         raw_frame = 0
+        recent_drop_count = 0
         while raw_frame < eval_max_steps:
             current_time_ms = self.clock.step_to_time_ms(raw_frame)
             worker_capacity.release_ready(raw_frame)
@@ -109,6 +110,9 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                         "raw_frame": raw_frame,
                         "sim_time_ms": current_time_ms,
                         "episode_id": episode_id,
+                        "recent_drop_count": recent_drop_count,
+                        "in_flight_count": worker_capacity.in_flight_count,
+                        "idle_worker_count": worker_capacity.idle_worker_count,
                     }
                     latency_sample = sample_simulated_latency(
                         latency_source=self.latency_source,
@@ -131,9 +135,9 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                         metadata=policy_metadata,
                     )
                     policy_output = self.policy.predict(policy_observation)
-                    ready_raw_frame = raw_frame + latency_sample.latency_raw_frames
+                    ready_raw_frame = raw_frame + latency_sample.action_ready_raw_frames
                     ready_time_ms = self.clock.step_to_time_ms(ready_raw_frame)
-                    worker_capacity.submit(ready_raw_frame)
+                    worker_capacity.submit(raw_frame + latency_sample.worker_service_raw_frames)
                     latency_record = LatencyRecord(
                         obs_id=obs_id,
                         latency_ms=latency_ms,
@@ -146,6 +150,8 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                     )
                     event_metadata = dict(policy_output.metadata)
                     event_metadata["frame_ms"] = self.clock.frame_ms
+                    event_metadata["worker_service_ms"] = latency_sample.worker_service_ms
+                    event_metadata["worker_service_raw_frames"] = latency_sample.worker_service_raw_frames
                     event = ActionEvent(
                         action_id=self._next_action_id,
                         action=policy_output.action,
@@ -153,7 +159,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                         ready_time_ms=ready_time_ms,
                         ready_step_float=float(ready_raw_frame),
                         latency=latency_record,
-                        latency_raw_frames=latency_sample.latency_raw_frames,
+                        latency_raw_frames=latency_sample.action_ready_raw_frames,
                         ready_raw_frame=ready_raw_frame,
                         metadata=event_metadata,
                     )
@@ -169,12 +175,14 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                     latency_values_ms.append(latency_ms)
                     submitted_observation_frames += 1
                     observation_submitted = True
+                    recent_drop_count = 0
                     if self.logger is not None:
                         self.logger.log_action_event(event)
                         self.logger.log_latency(latency_record)
                 else:
                     dropped_observation_count += 1
                     observation_dropped = True
+                    recent_drop_count += 1
 
             active_action = self.action_scheduler.update(raw_frame, current_time_ms)
             result = self.env.step(active_action)
@@ -218,6 +226,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                 self.action_scheduler.reset()
                 self.policy.reset_state()
                 worker_capacity.reset()
+                recent_drop_count = 0
 
             raw_frame += 1
             if episode_done:

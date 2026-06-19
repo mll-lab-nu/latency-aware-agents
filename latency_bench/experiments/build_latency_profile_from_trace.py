@@ -33,6 +33,7 @@ def build_profile_from_trace(
     inference_latencies: str | Path | None = None,
     episode_metrics: str | Path | None = None,
     actions: str | Path | None = None,
+    steps: str | Path | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     samples_ms = load_latency_samples(latencies)
@@ -98,14 +99,15 @@ def build_profile_from_trace(
         manifest["inference_worker_count"] = metrics_records[0]["metadata"]["inference_worker_count"]
     if actions is not None:
         action_records = load_jsonl_records(actions)
-        burst_samples = build_latency_burst_samples(action_records, metrics_records)
+        step_records = load_jsonl_records(steps) if steps is not None else None
+        burst_samples = build_latency_burst_samples(action_records, metrics_records, step_records)
         burst_model = build_latency_burst_model(burst_samples)
         _write_jsonl(paths["burst_samples"], burst_samples)
         write_json(paths["burst_model"], burst_model)
         manifest["sample_model_type"] = "semi_markov_latency_frames"
         manifest["burst_samples_path"] = paths["burst_samples"].name
         manifest["burst_model_path"] = paths["burst_model"].name
-        manifest["burst_state_key"] = "latency_raw_frames"
+        manifest["burst_state_key"] = burst_model["state_key"]
     manifest.update(metadata)
     save_profile_manifest(manifest, paths["profile"])
     return manifest
@@ -125,6 +127,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--inference-latencies", type=Path)
     parser.add_argument("--episode-metrics", type=Path)
     parser.add_argument("--actions", type=Path)
+    parser.add_argument("--steps", type=Path)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
 
@@ -141,6 +144,7 @@ def main(argv: list[str] | None = None) -> None:
         inference_latencies=args.inference_latencies,
         episode_metrics=args.episode_metrics,
         actions=args.actions,
+        steps=args.steps,
         overwrite=args.overwrite,
     )
 
