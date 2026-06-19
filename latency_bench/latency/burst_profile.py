@@ -3,18 +3,20 @@ from __future__ import annotations
 import random
 from bisect import bisect_left
 from collections import Counter, defaultdict
-from typing import Any
+from typing import Any, Iterator
 
 
-def build_latency_burst_samples(action_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_latency_burst_samples(
+    action_records: list[dict[str, Any]],
+    episode_metrics_records: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
-    for record in action_records:
+    for record, episode_id in _action_records_with_episode_ids(action_records, episode_metrics_records):
         if record["applied"] and not record["dropped"]:
             latency = record["latency"]
-            metadata = record["metadata"]
             samples.append(
                 {
-                    "episode_id": int(metadata["episode_id"]),
+                    "episode_id": episode_id,
                     "sample_index": len(samples),
                     "action_id": int(record["action_id"]),
                     "obs_env_step": int(record["obs_env_step"]),
@@ -25,6 +27,29 @@ def build_latency_burst_samples(action_records: list[dict[str, Any]]) -> list[di
                 }
             )
     return samples
+
+
+def _action_records_with_episode_ids(
+    action_records: list[dict[str, Any]],
+    episode_metrics_records: list[dict[str, Any]] | None,
+) -> Iterator[tuple[dict[str, Any], int]]:
+    if episode_metrics_records is None:
+        for record in action_records:
+            yield record, int(record["metadata"]["episode_id"])
+        return
+
+    cursor = 0
+    for metric in episode_metrics_records:
+        episode_id = int(metric["episode_id"])
+        num_actions = int(metric["num_actions"])
+        for record in action_records[cursor:cursor + num_actions]:
+            yield record, episode_id
+        cursor += num_actions
+    if cursor != len(action_records):
+        raise ValueError(
+            "episode metric num_actions sum "
+            f"{cursor} does not match action record count {len(action_records)}"
+        )
 
 
 def build_latency_burst_model(samples: list[dict[str, Any]]) -> dict[str, Any]:

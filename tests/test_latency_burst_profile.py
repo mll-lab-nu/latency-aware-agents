@@ -103,6 +103,90 @@ def test_build_latency_burst_samples_reads_applied_non_dropped_action_records():
     ]
 
 
+def test_build_latency_burst_samples_assigns_episodes_from_metrics():
+    action_records = [
+        {
+            "action_id": 0,
+            "obs_env_step": 0,
+            "ready_raw_frame": 1,
+            "apply_raw_frame": 1,
+            "latency_raw_frames": 1,
+            "applied": True,
+            "dropped": False,
+            "latency": {"latency_ms": 10.0},
+            "metadata": {},
+        },
+        {
+            "action_id": 1,
+            "obs_env_step": 1,
+            "ready_raw_frame": 2,
+            "apply_raw_frame": 2,
+            "latency_raw_frames": 1,
+            "applied": False,
+            "dropped": True,
+            "latency": {"latency_ms": 11.0},
+            "metadata": {},
+        },
+        {
+            "action_id": 2,
+            "obs_env_step": 0,
+            "ready_raw_frame": 3,
+            "apply_raw_frame": 3,
+            "latency_raw_frames": 3,
+            "applied": True,
+            "dropped": False,
+            "latency": {"latency_ms": 30.0},
+            "metadata": {},
+        },
+    ]
+    episode_metrics_records = [
+        {"episode_id": 7, "num_actions": 2},
+        {"episode_id": 8, "num_actions": 1},
+    ]
+
+    assert build_latency_burst_samples(action_records, episode_metrics_records) == [
+        {
+            "episode_id": 7,
+            "sample_index": 0,
+            "action_id": 0,
+            "obs_env_step": 0,
+            "ready_raw_frame": 1,
+            "apply_raw_frame": 1,
+            "latency_ms": 10.0,
+            "latency_raw_frames": 1,
+        },
+        {
+            "episode_id": 8,
+            "sample_index": 1,
+            "action_id": 2,
+            "obs_env_step": 0,
+            "ready_raw_frame": 3,
+            "apply_raw_frame": 3,
+            "latency_ms": 30.0,
+            "latency_raw_frames": 3,
+        },
+    ]
+
+
+def test_build_latency_burst_samples_rejects_metric_action_count_mismatch():
+    action_records = [
+        {
+            "action_id": 0,
+            "obs_env_step": 0,
+            "ready_raw_frame": 1,
+            "apply_raw_frame": 1,
+            "latency_raw_frames": 1,
+            "applied": True,
+            "dropped": False,
+            "latency": {"latency_ms": 10.0},
+            "metadata": {},
+        },
+    ]
+
+    with pytest.raises(ValueError, match="episode metric num_actions sum"):
+        build_latency_burst_samples(action_records, [{"episode_id": 0, "num_actions": 2}])
+
+
 def test_latency_burst_sampler_interpolates_latency_ms_within_state():
     model = {
         "model_type": "semi_markov_latency_frames",

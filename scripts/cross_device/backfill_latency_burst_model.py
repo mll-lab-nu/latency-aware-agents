@@ -51,7 +51,8 @@ def discover_targets(root: Path) -> list[BackfillTarget]:
 
 def apply_backfill(target: BackfillTarget) -> dict[str, int]:
     action_records = load_jsonl_records(target.actions_path)
-    burst_samples = build_latency_burst_samples(action_records)
+    metrics_records = load_jsonl_records(target.metrics_path)
+    burst_samples = build_latency_burst_samples(action_records, metrics_records)
     burst_model = build_latency_burst_model(burst_samples)
     samples_path = target.profile_path.parent / "latency_burst_samples.jsonl"
     model_path = target.profile_path.parent / "latency_burst_model.json"
@@ -105,12 +106,15 @@ def _measure_run_index(parts: tuple[str, ...]) -> int | None:
 
 def _target_summary(target: BackfillTarget, *, apply: bool, upload: bool) -> dict:
     action_records = load_jsonl_records(target.actions_path)
+    metrics_records = load_jsonl_records(target.metrics_path)
     return {
         "run_dir": str(target.run_dir),
         "actions_path": str(target.actions_path),
         "metrics_path": str(target.metrics_path),
         "profile_path": str(target.profile_path),
         "action_count": len(action_records),
+        "episode_count": len(metrics_records),
+        "metric_action_count": sum(int(record["num_actions"]) for record in metrics_records),
         "apply": apply,
         "upload": upload,
     }

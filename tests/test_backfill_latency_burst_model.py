@@ -30,6 +30,7 @@ def _write_target(root: Path) -> tuple[Path, Path]:
         [
             {
                 "episode_id": 0,
+                "num_actions": 2,
                 "metadata": {
                     "profile_id": "L_L40S",
                 },
@@ -48,7 +49,7 @@ def _write_target(root: Path) -> tuple[Path, Path]:
                 "applied": True,
                 "dropped": False,
                 "latency": {"latency_ms": 10.0},
-                "metadata": {"episode_id": 0},
+                "metadata": {},
             },
             {
                 "action_id": 1,
@@ -59,7 +60,7 @@ def _write_target(root: Path) -> tuple[Path, Path]:
                 "applied": True,
                 "dropped": False,
                 "latency": {"latency_ms": 20.0},
-                "metadata": {"episode_id": 0},
+                "metadata": {},
             },
         ],
     )
@@ -101,6 +102,8 @@ def test_backfill_latency_burst_model_dry_run_does_not_modify_profile(tmp_path: 
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload["apply"] is False
     assert payload["action_count"] == 2
+    assert payload["episode_count"] == 1
+    assert payload["metric_action_count"] == 2
 
 
 def test_backfill_latency_burst_model_apply_writes_artifacts(tmp_path: Path):
