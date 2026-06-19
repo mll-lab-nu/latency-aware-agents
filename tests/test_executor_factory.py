@@ -16,7 +16,7 @@ from latency_bench.experiments.run_simulated_latency import build_executor as bu
 from latency_bench.run import run_from_config
 from latency_bench.latency.burst_profile import build_latency_burst_model
 from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
-from latency_bench.latency.sources import ProfileSampleLatencySource
+from latency_bench.core.clock import EnvClock
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 
 
@@ -311,15 +311,16 @@ def test_seeded_stochastic_latency_source_factory_derives_episode_streams():
             "min_latency_ms": 0.0,
             "max_latency_ms": 20.0,
             "seed": 7,
-        }
+        },
+        EnvClock(env_fps=30.0, obs_fps=30.0),
     )
 
     episode_0_first_source = factory(0)
     episode_0_second_source = factory(0)
     episode_1_source = factory(1)
-    episode_0_first = [episode_0_first_source.next_latency_ms({"episode_id": 0}) for _ in range(3)]
-    episode_0_second = [episode_0_second_source.next_latency_ms({"episode_id": 0}) for _ in range(3)]
-    episode_1 = [episode_1_source.next_latency_ms({"episode_id": 1}) for _ in range(3)]
+    episode_0_first = [episode_0_first_source.sample({"episode_id": 0}).latency_ms for _ in range(3)]
+    episode_0_second = [episode_0_second_source.sample({"episode_id": 0}).latency_ms for _ in range(3)]
+    episode_1 = [episode_1_source.sample({"episode_id": 1}).latency_ms for _ in range(3)]
 
     assert episode_0_first == episode_0_second
     assert episode_0_first != episode_1
@@ -517,8 +518,8 @@ def test_factory_builds_profile_sample_latency_source(tmp_path):
     executor = build_executor(config)
 
     try:
-        assert isinstance(executor.latency_source, ProfileSampleLatencySource)
-        assert executor.latency_source.profile_id == "L_test"
+        assert executor.latency_source.latency_type == "profile_sample"
+        assert executor.latency_source.profile_metadata["profile_id"] == "L_test"
     finally:
         executor.env.close()
 

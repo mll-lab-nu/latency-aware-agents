@@ -139,7 +139,8 @@ def test_backfill_latency_burst_model_apply_writes_artifacts(tmp_path: Path):
     backfill_latency_burst_model.main(["--root", str(root), "--apply"])
 
     profile = load_profile_manifest(profile_path)
-    assert profile["sample_model_type"] == "semi_markov_latency_frames"
+    assert profile["latency_method"] == "temporal"
+    assert profile["sample_model_type"] == "queue_conditioned"
     assert profile["burst_samples_path"] == "latency_burst_samples.jsonl"
     assert profile["burst_model_path"] == "latency_burst_model.json"
     assert profile["burst_state_key"] == "recent_drop_count_capped"
@@ -176,7 +177,8 @@ def test_backfill_latency_burst_model_apply_writes_artifacts(tmp_path: Path):
     assert model["schema_version"] == 2
     assert model["state_key"] == "recent_drop_count_capped"
     assert model["state_counts"] == {"0": 1, "1": 1}
-    assert model["emissions_by_state"]["1"]["worker_service_raw_frames"] == [3]
+    assert model["model_type"] == "queue_conditioned"
+    assert model["samples_by_state"]["1"][0]["worker_service_raw_frames"] == 3
 
 
 def test_backfill_latency_burst_model_uploads_profile_artifacts(tmp_path: Path, monkeypatch):

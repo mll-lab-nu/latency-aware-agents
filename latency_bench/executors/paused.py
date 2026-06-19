@@ -4,7 +4,7 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors.base import EpisodeExecutor
-from latency_bench.latency.sources import LatencySource
+from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
     active_action_step_info,
     apply_latency_raw_fields,
@@ -25,7 +25,7 @@ class PausedLatencyExecutor(EpisodeExecutor):
         env: EnvAdapter,
         policy: PolicyRunner,
         decision_scheduler: DecisionScheduler,
-        latency_source: LatencySource,
+        latency_source: LatencySampler,
         action_scheduler: ActionScheduler,
         clock: EnvClock,
         logger: TrajectoryLogger | None = None,

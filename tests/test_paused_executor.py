@@ -4,7 +4,7 @@ from pathlib import Path
 
 from latency_bench.core.types import Action
 from latency_bench.executors.paused import PausedLatencyExecutor
-from latency_bench.latency.sources import FixedLatencySource
+from latency_bench.latency.samplers import FixedSampler
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
 from executor_mode_helpers import SequencePolicyRunner, make_dummy_parts
@@ -22,7 +22,7 @@ def _executor(
         env=env,
         policy=SequencePolicyRunner(actions, sleep_s=sleep_s),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_source=FixedLatencySource(latency_ms),
+        latency_source=FixedSampler(latency_ms, clock=clock),
         action_scheduler=action_scheduler,
         clock=clock,
         logger=logger,

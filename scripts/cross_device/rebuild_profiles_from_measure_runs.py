@@ -34,6 +34,7 @@ PROFILE_GENERATED_KEYS = {
     "e2e_trace_path",
     "e2e_summary",
     "inference_worker_count",
+    "latency_method",
     "sample_model_type",
     "burst_samples_path",
     "burst_model_path",

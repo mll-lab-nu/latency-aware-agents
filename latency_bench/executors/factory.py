@@ -12,7 +12,7 @@ from gymnasium.spaces import Discrete, MultiDiscrete, Tuple
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import derive_latency_seed
-from latency_bench.core.types import ActionHoldPolicy, ExecutorMode, LatencySourceType, OrderingPolicy
+from latency_bench.core.types import ActionHoldPolicy, ExecutorMode, OrderingPolicy
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import build_env_adapter
 from latency_bench.executors.base import Executor
@@ -25,15 +25,11 @@ from latency_bench.executors.env_step_backend import (
 from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
-from latency_bench.latency.sources import (
-    FixedLatencySource,
-    LatencySource,
-    NormalDistributionLatencySource,
-    MixedNormalDistributionLatencySource,
-    MixedUniformDistributionLatencySource,
-    ProfileSampleLatencySource,
-    UniformDistributionLatencySource,
-    ZeroLatencySource,
+from latency_bench.latency.samplers import (
+    LatencySampler,
+    ZeroSampler,
+    build_sampler,
+    resolve_latency_method,
 )
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.logging.video import EpisodeVideoRecorder
@@ -191,8 +187,8 @@ def _build_single_simulated_executor(
 ) -> SimulatedLatencyExecutor:
     c = _build_common_executor_components(config)
     policy = build_policy(config, c.action_resolver)
-    latency_source = _build_latency_source(config["latency"])
-    episode_latency_source_factory = _build_episode_latency_source_factory(config["latency"])
+    latency_source = _build_latency_source(config["latency"], c.clock)
+    episode_latency_source_factory = _build_episode_latency_source_factory(config["latency"], c.clock)
     return SimulatedLatencyExecutor(
         env=c.env,
         policy=policy,
@@ -261,12 +257,12 @@ def _build_batched_simulated_executor(
             for env in env_backend.slot_handles
         ]
         logger = _build_trajectory_logger(config)
-        episode_latency_source_factory = _build_episode_latency_source_factory(config["latency"])
+        episode_latency_source_factory = _build_episode_latency_source_factory(config["latency"], clock)
         return BatchedSimulatedLatencyExecutor(
             env_backend=env_backend,
             policy=policy,
             decision_scheduler=decision_scheduler,
-            latency_sources=[_build_latency_source(config["latency"]) for _env in env_backend.slot_handles],
+            latency_sources=[_build_latency_source(config["latency"], clock) for _env in env_backend.slot_handles],
             action_schedulers=action_schedulers,
             clock=clock,
             logger=logger,
@@ -290,8 +286,7 @@ def _build_paused_executor(
     video_episode_metadata: dict[int, dict] | None = None,
 ) -> PausedLatencyExecutor:
     latency_cfg = config["latency"]
-    latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
-    if latency_type != LatencySourceType.ZERO.value:
+    if resolve_latency_method(latency_cfg) != "zero":
         raise ValueError("paused executor supports only latency.type=zero")
 
     c = _build_common_executor_components(config)
@@ -299,7 +294,7 @@ def _build_paused_executor(
         env=c.env,
         policy=build_policy(config, c.action_resolver),
         decision_scheduler=c.decision_scheduler,
-        latency_source=ZeroLatencySource(),
+        latency_source=ZeroSampler(clock=c.clock),
         action_scheduler=c.action_scheduler,
         clock=c.clock,
         logger=c.logger,
@@ -316,8 +311,7 @@ def _build_realtime_executor(
     video_episode_metadata: dict[int, dict] | None = None,
 ) -> RealtimeLatencyExecutor:
     latency_cfg = config["latency"]
-    latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
-    if latency_type != LatencySourceType.ZERO.value:
+    if resolve_latency_method(latency_cfg) != "zero":
         raise ValueError("realtime executor does not support injected latency")
     inference_devices = _resolve_realtime_inference_devices()
 
@@ -327,7 +321,7 @@ def _build_realtime_executor(
         env=c.env,
         policy=None,
         decision_scheduler=c.decision_scheduler,
-        latency_source=ZeroLatencySource(),
+        latency_source=ZeroSampler(clock=c.clock),
         action_scheduler=c.action_scheduler,
         clock=c.clock,
         logger=c.logger,
@@ -372,71 +366,26 @@ def _build_decision_scheduler(clock: EnvClock) -> DecisionScheduler:
     return ObservationCadenceDecisionScheduler(clock)
 
 
-def _build_latency_source(latency_cfg: dict[str, Any]) -> LatencySource:
-    latency_type = latency_cfg.get("type", LatencySourceType.ZERO.value)
-    if latency_type == LatencySourceType.ZERO.value:
-        return ZeroLatencySource()
-    if latency_type == LatencySourceType.FIXED.value:
-        return FixedLatencySource(float(latency_cfg["fixed_latency_ms"]))
-    if latency_type == LatencySourceType.NORMAL_DISTRIBUTION.value:
-        return NormalDistributionLatencySource(
-            mean_latency_ms=float(latency_cfg["mean_latency_ms"]),
-            std_latency_ms=float(latency_cfg["std_latency_ms"]),
-            seed=latency_cfg.get("seed"),
-            min_latency_ms=float(latency_cfg.get("min_latency_ms", 0.0)),
-            max_latency_ms=latency_cfg.get("max_latency_ms"),
-        )
-    if latency_type == LatencySourceType.UNIFORM_DISTRIBUTION.value:
-        return UniformDistributionLatencySource(
-            min_latency_ms=float(latency_cfg["min_latency_ms"]),
-            max_latency_ms=float(latency_cfg["max_latency_ms"]),
-            seed=latency_cfg.get("seed"),
-        )
-    if latency_type == LatencySourceType.MIXED_NORMAL_DISTRIBUTION.value:
-        return MixedNormalDistributionLatencySource(
-            mean_latency_ms=float(latency_cfg["mean_latency_ms"]),
-            std_latency_ms=float(latency_cfg["std_latency_ms"]),
-            seed=latency_cfg.get("seed"),
-            min_latency_ms=float(latency_cfg["min_latency_ms"]),
-            max_latency_ms=float(latency_cfg["max_latency_ms"]),
-        )
-    if latency_type == LatencySourceType.MIXED_UNIFORM_DISTRIBUTION.value:
-        return MixedUniformDistributionLatencySource(
-            min_latency_ms=float(latency_cfg["min_latency_ms"]),
-            max_latency_ms=float(latency_cfg["max_latency_ms"]),
-            seed=latency_cfg.get("seed"),
-        )
-    if latency_type == LatencySourceType.PROFILE_SAMPLE.value:
-        return ProfileSampleLatencySource(
-            profile_path=latency_cfg["profile_path"],
-            seed=latency_cfg.get("seed"),
-            sampler=latency_cfg["sampler"] if "sampler" in latency_cfg else "profile_default",
-        )
-    raise ValueError(f"Unsupported latency.type for simulated executor: {latency_type}")
+def _build_latency_source(latency_cfg: dict[str, Any], clock: EnvClock) -> LatencySampler:
+    return build_sampler(latency_cfg, clock=clock, seed=latency_cfg.get("seed"))
 
 
-_SEEDED_STOCHASTIC_LATENCY_TYPES = {
-    LatencySourceType.NORMAL_DISTRIBUTION.value,
-    LatencySourceType.UNIFORM_DISTRIBUTION.value,
-    LatencySourceType.MIXED_NORMAL_DISTRIBUTION.value,
-    LatencySourceType.MIXED_UNIFORM_DISTRIBUTION.value,
-    LatencySourceType.PROFILE_SAMPLE.value,
-}
+_SEEDED_STOCHASTIC_METHODS = {"normal", "uniform", "iid", "temporal", "profile_default"}
 
 
 def _build_episode_latency_source_factory(
     latency_cfg: dict[str, Any],
-) -> Callable[[int], LatencySource] | None:
-    latency_type = latency_cfg.get("type", LatencySourceType.ZERO.value)
-    if latency_type not in _SEEDED_STOCHASTIC_LATENCY_TYPES:
+    clock: EnvClock,
+) -> Callable[[int], LatencySampler] | None:
+    if resolve_latency_method(latency_cfg) not in _SEEDED_STOCHASTIC_METHODS:
         return None
     if "seed" not in latency_cfg:
         return None
 
-    def build_for_episode(episode_id: int) -> LatencySource:
+    def build_for_episode(episode_id: int) -> LatencySampler:
         episode_latency_cfg = dict(latency_cfg)
         episode_latency_cfg["seed"] = derive_latency_seed(latency_cfg["seed"], episode_idx=episode_id)
-        return _build_latency_source(episode_latency_cfg)
+        return _build_latency_source(episode_latency_cfg, clock)
 
     return build_for_episode
 
@@ -540,15 +489,14 @@ def _auto_latency_bench_env_backend(config: dict[str, Any]) -> str:
 
 
 def _supports_phase_3b_batched_latency(latency_cfg: dict[str, Any]) -> bool:
-    latency_type = str(latency_cfg.get("type", LatencySourceType.ZERO.value)).strip().lower()
-    return latency_type in {
-        LatencySourceType.ZERO.value,
-        LatencySourceType.FIXED.value,
-        LatencySourceType.NORMAL_DISTRIBUTION.value,
-        LatencySourceType.UNIFORM_DISTRIBUTION.value,
-        LatencySourceType.MIXED_NORMAL_DISTRIBUTION.value,
-        LatencySourceType.MIXED_UNIFORM_DISTRIBUTION.value,
-        LatencySourceType.PROFILE_SAMPLE.value,
+    return resolve_latency_method(latency_cfg) in {
+        "zero",
+        "fixed",
+        "normal",
+        "uniform",
+        "iid",
+        "temporal",
+        "profile_default",
     }
 
 

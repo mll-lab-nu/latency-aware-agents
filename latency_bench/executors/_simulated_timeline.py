@@ -1,19 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
-from latency_bench.core.clock import EnvClock
-from latency_bench.latency.sources import LatencySource
+from latency_bench.latency.sample import LatencySample
 
-
-@dataclass(frozen=True)
-class SimulatedLatencySample:
-    latency_ms: float
-    latency_raw_frames: int
-    action_ready_raw_frames: int
-    worker_service_raw_frames: int
-    worker_service_ms: float
+__all__ = ["LatencySample", "SimulatedWorkerCapacity"]
 
 
 @dataclass
@@ -48,62 +39,3 @@ class SimulatedWorkerCapacity:
         if self.capacity is None:
             return None
         return self.capacity - len(self.busy_until_raw_frames)
-
-
-def sample_simulated_latency(
-    *,
-    latency_source: LatencySource,
-    clock: EnvClock,
-    context: dict[str, Any],
-) -> SimulatedLatencySample:
-    next_latency_sample = getattr(latency_source, "next_latency_sample", None)
-    if callable(next_latency_sample):
-        sample = next_latency_sample(context)
-        latency_ms = float(sample["latency_ms"])
-        if "latency_raw_frames" in sample:
-            latency_raw_frames = int(sample["latency_raw_frames"])
-        else:
-            latency_raw_frames = clock.latency_ms_to_raw_frames(latency_ms)
-        action_ready_raw_frames = (
-            int(sample["action_ready_raw_frames"])
-            if "action_ready_raw_frames" in sample
-            else latency_raw_frames
-        )
-        worker_service_raw_frames = (
-            int(sample["worker_service_raw_frames"])
-            if "worker_service_raw_frames" in sample
-            else action_ready_raw_frames
-        )
-        worker_service_ms = (
-            float(sample["worker_service_ms"])
-            if "worker_service_ms" in sample
-            else float(worker_service_raw_frames) * clock.frame_ms
-        )
-        return SimulatedLatencySample(
-            latency_ms=latency_ms,
-            latency_raw_frames=latency_raw_frames,
-            action_ready_raw_frames=action_ready_raw_frames,
-            worker_service_raw_frames=worker_service_raw_frames,
-            worker_service_ms=worker_service_ms,
-        )
-
-    next_raw_frames = getattr(latency_source, "next_latency_raw_frames", None)
-    if callable(next_raw_frames):
-        latency_raw_frames = next_raw_frames(context)
-        return SimulatedLatencySample(
-            latency_ms=float(latency_raw_frames) * clock.frame_ms,
-            latency_raw_frames=latency_raw_frames,
-            action_ready_raw_frames=latency_raw_frames,
-            worker_service_raw_frames=latency_raw_frames,
-            worker_service_ms=float(latency_raw_frames) * clock.frame_ms,
-        )
-
-    latency_ms = float(latency_source.next_latency_ms(context))
-    latency_raw_frames = clock.latency_ms_to_raw_frames(latency_ms)
-    return SimulatedLatencySample(
-        latency_ms=latency_ms,
-        latency_raw_frames=latency_raw_frames,
-        action_ready_raw_frames=latency_raw_frames,
-        worker_service_raw_frames=latency_raw_frames,
-        worker_service_ms=float(latency_raw_frames) * clock.frame_ms,
-    )

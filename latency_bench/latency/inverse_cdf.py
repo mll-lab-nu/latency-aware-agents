@@ -1,0 +1,35 @@
+from __future__ import annotations
+
+import random
+from bisect import bisect_left
+from typing import Sequence
+
+
+def sample_inverse_cdf(
+    rng: random.Random,
+    quantile_levels: Sequence[float],
+    latency_ms: Sequence[float],
+) -> float:
+    """Draw one value by inverting an empirical CDF via linear interpolation."""
+    quantile = rng.random()
+    index = bisect_left(quantile_levels, quantile)
+    if index == 0:
+        return float(latency_ms[0])
+    if index >= len(latency_ms):
+        return float(latency_ms[-1])
+    lower_q = float(quantile_levels[index - 1])
+    upper_q = float(quantile_levels[index])
+    lower_latency = float(latency_ms[index - 1])
+    upper_latency = float(latency_ms[index])
+    weight = (quantile - lower_q) / (upper_q - lower_q)
+    return lower_latency + weight * (upper_latency - lower_latency)
+
+
+def sample_empirical(rng: random.Random, values: Sequence[float]) -> float:
+    """Draw one value from an unsorted empirical sample via inverse-CDF interpolation."""
+    sorted_values = sorted(float(value) for value in values)
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    denominator = len(sorted_values) - 1
+    quantile_levels = [index / denominator for index in range(len(sorted_values))]
+    return sample_inverse_cdf(rng, quantile_levels, sorted_values)

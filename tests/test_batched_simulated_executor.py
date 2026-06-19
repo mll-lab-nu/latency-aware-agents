@@ -15,13 +15,16 @@ from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
 from latency_bench.executors.env_step_backend import SerialEnvStepBackend
-from latency_bench.latency.sources import FixedLatencySource, LatencySource, ZeroLatencySource
+from latency_bench.latency.sample import LatencySample
+from latency_bench.latency.samplers import FixedSampler, LatencySampler, ZeroSampler
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy
 from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+
+_CLOCK = EnvClock(env_fps=30.0, obs_fps=30.0)
 
 
 class SlotIdPolicy(PolicyRunner):
@@ -40,27 +43,27 @@ class SlotIdPolicy(PolicyRunner):
         ]
 
 
-class SlotLatencySource(LatencySource):
-    def __init__(self, slot_id: int):
+class SlotLatencySource(LatencySampler):
+    def __init__(self, slot_id: int, *, clock: EnvClock = _CLOCK):
         self.slot_id = int(slot_id)
         self.calls = 0
+        self.clock = clock
 
-    def next_latency_ms(self, context=None) -> float:
+    def sample(self, context=None) -> LatencySample:
         self.calls += 1
-        return float(self.slot_id)
+        return LatencySample.from_latency_ms(float(self.slot_id), clock=self.clock)
 
 
-class RawFrameLatencySource(LatencySource):
-    def __init__(self, raw_frames: list[int]):
+class RawFrameLatencySource(LatencySampler):
+    def __init__(self, raw_frames: list[int], *, clock: EnvClock = _CLOCK):
         self.raw_frames = list(raw_frames)
         self.calls: list[dict] = []
+        self.clock = clock
 
-    def next_latency_ms(self, context=None) -> float:
-        raise AssertionError("batched executor should use next_latency_raw_frames when available")
-
-    def next_latency_raw_frames(self, context=None) -> int:
+    def sample(self, context=None) -> LatencySample:
         self.calls.append(dict(context or {}))
-        return self.raw_frames.pop(0)
+        raw = self.raw_frames.pop(0)
+        return LatencySample.from_latency_ms(raw * self.clock.frame_ms, clock=self.clock, latency_raw_frames=raw)
 
 
 class TupleActionPolicy(PolicyRunner):
@@ -363,7 +366,7 @@ def _executor(
     num_slots: int = 2,
     env_max_steps: int = 2,
     policy: PolicyRunner | None = None,
-    latency_sources: list[LatencySource] | None = None,
+    latency_sources: list[LatencySampler] | None = None,
     simulated_worker_capacity: int | None = None,
 ) -> tuple[BatchedSimulatedLatencyExecutor, list[DummyEnvAdapter]]:
     noop = Action("noop", name="noop", is_noop=True)
@@ -395,7 +398,7 @@ def _executor(
         env_backend=backend,
         policy=policy or ConstantPolicyRunner(Action("jump", name="jump")),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_sources=latency_sources or [ZeroLatencySource() for _ in envs],
+        latency_sources=latency_sources or [ZeroSampler(clock=_CLOCK) for _ in envs],
         action_schedulers=action_schedulers,
         clock=clock,
         logger=TrajectoryLogger(
@@ -503,7 +506,7 @@ def _subproc_executor(
         env_backend=backend,
         policy=policy or ConstantPolicyRunner(Action(jump_value, name="jump")),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_sources=[ZeroLatencySource() for _env in backend.slot_handles],
+        latency_sources=[ZeroSampler(clock=_CLOCK) for _env in backend.slot_handles],
         action_schedulers=action_schedulers,
         clock=clock,
         logger=TrajectoryLogger(
@@ -561,7 +564,7 @@ def _tuple_executor(
         env_backend=backend,
         policy=policy or TupleActionPolicy(),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_sources=[ZeroLatencySource() for _env in envs],
+        latency_sources=[ZeroSampler(clock=_CLOCK) for _env in envs],
         action_schedulers=action_schedulers,
         clock=clock,
         logger=TrajectoryLogger(
@@ -694,8 +697,8 @@ def test_batched_executor_keeps_slot_action_queues_independent(tmp_path: Path):
         num_slots=2,
         env_max_steps=3,
         latency_sources=[
-            ZeroLatencySource(),
-            FixedLatencySource(clock.frame_ms * 2),
+            ZeroSampler(clock=clock),
+            FixedSampler(clock.frame_ms * 2, clock=clock),
         ],
     )
 
@@ -722,7 +725,7 @@ def test_batched_executor_soft_reset_continues_same_episode_and_clears_slot_late
         env_backend=backend,
         policy=policy,
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_sources=[FixedLatencySource(clock.frame_ms * 2)],
+        latency_sources=[FixedSampler(clock.frame_ms * 2, clock=clock)],
         action_schedulers=[
             ActionScheduler(
                 clock=clock,
@@ -857,7 +860,7 @@ def test_batched_executor_no_trace_does_not_retain_hot_path_records(tmp_path: Pa
         env_backend=SerialEnvStepBackend(envs),
         policy=ConstantPolicyRunner(Action("jump", name="jump")),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_sources=[ZeroLatencySource() for _env in envs],
+        latency_sources=[ZeroSampler(clock=_CLOCK) for _env in envs],
         action_schedulers=[
             ActionScheduler(
                 clock=clock,

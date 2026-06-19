@@ -86,30 +86,16 @@ _RAW_RETURN_KEYS = (
 def latency_type_from_source(source: Any, *, measured: bool = False) -> str:
     if measured:
         return "measured"
-    name = source.__class__.__name__
-    by_class = {
-        "ZeroLatencySource": "zero",
-        "FixedLatencySource": "fixed",
-        "NormalDistributionLatencySource": "normal_distribution",
-        "UniformDistributionLatencySource": "uniform_distribution",
-        "MixedNormalDistributionLatencySource": "mixed_normal_distribution",
-        "MixedUniformDistributionLatencySource": "mixed_uniform_distribution",
-        "ProfileSampleLatencySource": "profile_sample",
-    }
-    return by_class.get(name, name)
+    return getattr(source, "latency_type", source.__class__.__name__)
 
 
 def profile_metadata_from_source(source: Any) -> dict[str, Any]:
     metadata = {key: None for key in PROFILE_METADATA_KEYS}
-    last_metadata = getattr(source, "last_metadata", None)
-    if isinstance(last_metadata, dict):
+    profile_metadata = getattr(source, "profile_metadata", None)
+    if isinstance(profile_metadata, dict):
         for key in PROFILE_METADATA_KEYS:
-            if key in last_metadata:
-                metadata[key] = last_metadata[key]
-    for key in PROFILE_METADATA_KEYS:
-        value = getattr(source, key, None)
-        if value is not None and metadata[key] is None:
-            metadata[key] = str(value) if key == "profile_path" else value
+            if key in profile_metadata and profile_metadata[key] is not None:
+                metadata[key] = profile_metadata[key]
     return metadata
 
 
