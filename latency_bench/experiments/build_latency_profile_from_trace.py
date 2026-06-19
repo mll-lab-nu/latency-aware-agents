@@ -92,12 +92,13 @@ def build_profile_from_trace(
         manifest["inference_summary"] = inference_summary
         manifest["e2e_trace_path"] = paths["trace"].name
         manifest["e2e_summary"] = summary
+    metrics_records = None
     if episode_metrics is not None:
         metrics_records = load_jsonl_records(episode_metrics)
         manifest["inference_worker_count"] = metrics_records[0]["metadata"]["inference_worker_count"]
     if actions is not None:
         action_records = load_jsonl_records(actions)
-        burst_samples = build_latency_burst_samples(action_records)
+        burst_samples = build_latency_burst_samples(action_records, metrics_records)
         burst_model = build_latency_burst_model(burst_samples)
         _write_jsonl(paths["burst_samples"], burst_samples)
         write_json(paths["burst_model"], burst_model)

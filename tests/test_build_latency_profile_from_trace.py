@@ -48,7 +48,7 @@ def _write_actions(path: Path) -> None:
             "applied": True,
             "dropped": False,
             "latency": {"latency_ms": 10.0},
-            "metadata": {"episode_id": 0},
+            "metadata": {},
         },
         {
             "action_id": 1,
@@ -59,7 +59,7 @@ def _write_actions(path: Path) -> None:
             "applied": True,
             "dropped": False,
             "latency": {"latency_ms": 11.0},
-            "metadata": {"episode_id": 0},
+            "metadata": {},
         },
         {
             "action_id": 2,
@@ -70,10 +70,14 @@ def _write_actions(path: Path) -> None:
             "applied": True,
             "dropped": False,
             "latency": {"latency_ms": 20.0},
-            "metadata": {"episode_id": 0},
+            "metadata": {},
         },
     ]
     path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
+
+
+def _write_episode_metrics(path: Path, records: list[dict]) -> None:
+    path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in records), encoding="utf-8")
 
 
 def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Path):
@@ -136,12 +140,26 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
 
 def test_build_latency_profile_from_trace_writes_latency_burst_model(tmp_path: Path):
     actions = tmp_path / "actions.jsonl"
+    episode_metrics = tmp_path / "episode_metrics.jsonl"
     _write_actions(actions)
+    _write_episode_metrics(
+        episode_metrics,
+        [
+            {
+                "episode_id": 0,
+                "num_actions": 3,
+                "metadata": {
+                    "inference_worker_count": 2,
+                },
+            }
+        ],
+    )
 
     manifest, output_dir = _build_profile(
         tmp_path,
         [10.0, 11.0, 20.0],
         actions=actions,
+        episode_metrics=episode_metrics,
     )
 
     assert (output_dir / "latency_burst_samples.jsonl").exists()
