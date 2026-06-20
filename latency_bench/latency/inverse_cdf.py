@@ -9,9 +9,11 @@ def sample_inverse_cdf(
     rng: random.Random,
     quantile_levels: Sequence[float],
     latency_ms: Sequence[float],
+    *,
+    quantile: float | None = None,
 ) -> float:
     """Draw one value by inverting an empirical CDF via linear interpolation."""
-    quantile = rng.random()
+    quantile = rng.random() if quantile is None else float(quantile)
     index = bisect_left(quantile_levels, quantile)
     if index == 0:
         return float(latency_ms[0])

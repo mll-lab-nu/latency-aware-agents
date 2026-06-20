@@ -30,10 +30,10 @@ def test_temporal_latency_model_figure_generates_outputs(tmp_path: Path):
     profile_dir = tmp_path / "profiles" / "openvla-flappy" / "flappy" / "L_TEST"
     profile_dir.mkdir(parents=True)
     samples = [
-        {"episode_id": 0, "sample_index": 0, "action_ready_raw_frames": 1, "worker_service_ms": 40.0, "worker_service_raw_frames": 1},
-        {"episode_id": 0, "sample_index": 1, "action_ready_raw_frames": 1, "worker_service_ms": 44.0, "worker_service_raw_frames": 1},
-        {"episode_id": 0, "sample_index": 2, "action_ready_raw_frames": 2, "worker_service_ms": 80.0, "worker_service_raw_frames": 2},
-        {"episode_id": 0, "sample_index": 3, "action_ready_raw_frames": 2, "worker_service_ms": 84.0, "worker_service_raw_frames": 2},
+        {"episode_id": 0, "sample_index": 0, "e2e_latency_ms": 40.0, "e2e_latency_ms_bin": 40, "worker_service_ms": 40.0},
+        {"episode_id": 0, "sample_index": 1, "e2e_latency_ms": 44.0, "e2e_latency_ms_bin": 44, "worker_service_ms": 44.0},
+        {"episode_id": 0, "sample_index": 2, "e2e_latency_ms": 80.0, "e2e_latency_ms_bin": 80, "worker_service_ms": 80.0},
+        {"episode_id": 0, "sample_index": 3, "e2e_latency_ms": 84.0, "e2e_latency_ms_bin": 84, "worker_service_ms": 84.0},
     ]
     (profile_dir / "latency_burst_samples.jsonl").write_text(
         "".join(json.dumps(sample, sort_keys=True) + "\n" for sample in samples),
@@ -64,7 +64,7 @@ def test_temporal_latency_model_figure_generates_outputs(tmp_path: Path):
                 "sample_model_type": "bayes_markov",
                 "burst_samples_path": "latency_burst_samples.jsonl",
                 "burst_model_path": "latency_burst_model.json",
-                "burst_state_key": "worker_service_raw_frames",
+                "burst_state_key": "e2e_latency_ms_bin",
                 "summary": {},
             },
             sort_keys=True,
