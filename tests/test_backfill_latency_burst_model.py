@@ -39,9 +39,16 @@ def _write_target(root: Path) -> tuple[Path, Path]:
         ],
     )
     profile = {
+        "env_observe_ms": 0.0,
+        "env_to_parent_ipc_ms": 0.0,
+        "parent_observation_handle_ms": 0.0,
         "parent_to_worker_ipc_ms": 2.0,
         "worker_recv_overhead_ms": 3.0,
         "worker_to_parent_ipc_ms": 5.0,
+        "parent_release_ms": 0.0,
+        "parent_to_env_ipc_ms": 0.0,
+        "env_action_recv_to_enqueue_ms": 0.0,
+        "env_scheduler_update_ms": 0.0,
     }
     _write_jsonl(
         run_dir / "actions.jsonl",
@@ -143,7 +150,7 @@ def test_backfill_latency_burst_model_apply_writes_artifacts(tmp_path: Path):
     assert profile["sample_model_type"] == "bayes_markov"
     assert profile["burst_samples_path"] == "latency_burst_samples.jsonl"
     assert profile["burst_model_path"] == "latency_burst_model.json"
-    assert profile["burst_state_key"] == "worker_service_raw_frames"
+    assert profile["burst_state_key"] == "e2e_latency_ms_bin"
     samples = [
         json.loads(line)
         for line in (profile_path.parent / "latency_burst_samples.jsonl").read_text(encoding="utf-8").splitlines()
@@ -151,31 +158,27 @@ def test_backfill_latency_burst_model_apply_writes_artifacts(tmp_path: Path):
     assert [
         {
             "action_id": sample["action_id"],
-            "worker_service_raw_frames": sample["worker_service_raw_frames"],
-            "action_ready_raw_frames": sample["action_ready_raw_frames"],
+            "e2e_latency_ms": sample["e2e_latency_ms"],
+            "e2e_latency_ms_bin": sample["e2e_latency_ms_bin"],
+            "worker_service_ms": sample["worker_service_ms"],
             "applied": sample["applied"],
         }
         for sample in samples
     ] == [
         {
             "action_id": 0,
-            "worker_service_raw_frames": 2,
-            "action_ready_raw_frames": 1,
+            "e2e_latency_ms": 20.0,
+            "e2e_latency_ms_bin": 20,
+            "worker_service_ms": 20.0,
             "applied": True,
-        },
-        {
-            "action_id": 1,
-            "worker_service_raw_frames": 3,
-            "action_ready_raw_frames": 3,
-            "applied": False,
         },
     ]
     model = json.loads((profile_path.parent / "latency_burst_model.json").read_text(encoding="utf-8"))
-    assert model["schema_version"] == 3
-    assert model["state_key"] == "worker_service_raw_frames"
-    assert model["state_counts"] == {"2": 1, "3": 1}
+    assert model["schema_version"] == 4
+    assert model["state_key"] == "e2e_latency_ms_bin"
+    assert model["state_counts"] == {"20": 1}
     assert model["model_type"] == "bayes_markov"
-    assert model["emissions_by_state"]["3"][0]["worker_service_raw_frames"] == 3
+    assert model["emission_distributions_by_state"]["20"]["e2e_latency_ms"]["latency_ms"][0] == 20.0
 
 
 def test_backfill_latency_burst_model_uploads_profile_artifacts(tmp_path: Path, monkeypatch):

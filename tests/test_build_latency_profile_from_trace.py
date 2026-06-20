@@ -38,9 +38,16 @@ def _build_profile(tmp_path: Path, samples: list[float], **overrides):
 
 
 _ZERO_IPC_PROFILE = {
+    "env_observe_ms": 0.0,
+    "env_to_parent_ipc_ms": 0.0,
+    "parent_observation_handle_ms": 0.0,
     "parent_to_worker_ipc_ms": 0.0,
     "worker_recv_overhead_ms": 0.0,
     "worker_to_parent_ipc_ms": 0.0,
+    "parent_release_ms": 0.0,
+    "parent_to_env_ipc_ms": 0.0,
+    "env_action_recv_to_enqueue_ms": 0.0,
+    "env_scheduler_update_ms": 0.0,
 }
 
 
@@ -175,14 +182,16 @@ def test_build_latency_profile_from_trace_writes_latency_burst_model(tmp_path: P
     assert manifest["sample_model_type"] == "bayes_markov"
     assert manifest["burst_samples_path"] == "latency_burst_samples.jsonl"
     assert manifest["burst_model_path"] == "latency_burst_model.json"
-    assert manifest["burst_state_key"] == "worker_service_raw_frames"
+    assert manifest["burst_state_key"] == "e2e_latency_ms_bin"
     burst_samples = load_jsonl_records(output_dir / "latency_burst_samples.jsonl")
-    assert [sample["worker_service_raw_frames"] for sample in burst_samples] == [1, 1, 2]
+    assert [sample["e2e_latency_ms_bin"] for sample in burst_samples] == [10, 11, 50]
+    assert [sample["worker_service_ms"] for sample in burst_samples] == [10.0, 11.0, 50.0]
     burst_model = json.loads((output_dir / "latency_burst_model.json").read_text(encoding="utf-8"))
-    assert burst_model["schema_version"] == 3
-    assert burst_model["initial_state_counts"] == {"1": 1}
-    assert burst_model["transition_counts"] == {"1": {"1": 1, "2": 1}}
-    assert burst_model["run_lengths_by_state"] == {"1": [2], "2": [1]}
+    assert burst_model["schema_version"] == 4
+    assert burst_model["state_key"] == "e2e_latency_ms_bin"
+    assert burst_model["initial_state_counts"] == {"10": 1}
+    assert burst_model["transition_counts"] == {"10": {"11": 1}, "11": {"50": 1}}
+    assert burst_model["run_lengths_by_state"] == {"10": [1], "11": [1], "50": [1]}
 
 
 def test_build_latency_profile_from_trace_requires_overwrite_for_existing_artifacts(tmp_path: Path):

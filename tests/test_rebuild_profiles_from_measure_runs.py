@@ -30,9 +30,16 @@ def _write_measure_run(root: Path) -> tuple[Path, Path]:
     _write_jsonl(run_dir / "e2e_latencies.jsonl", [{"latency_ms": value} for value in [10.0, 20.0, 30.0, 40.0]])
     _write_jsonl(run_dir / "infer_latencies.jsonl", [{"latency_ms": value} for value in [1.0, 2.0]])
     profile = {
+        "env_observe_ms": 0.0,
+        "env_to_parent_ipc_ms": 0.0,
+        "parent_observation_handle_ms": 0.0,
         "parent_to_worker_ipc_ms": 2.0,
         "worker_recv_overhead_ms": 3.0,
         "worker_to_parent_ipc_ms": 5.0,
+        "parent_release_ms": 0.0,
+        "parent_to_env_ipc_ms": 0.0,
+        "env_action_recv_to_enqueue_ms": 0.0,
+        "env_scheduler_update_ms": 0.0,
     }
     _write_jsonl(
         run_dir / "actions.jsonl",
@@ -165,7 +172,7 @@ def test_rebuild_profiles_apply_uses_full_e2e_trace_and_preserves_metadata(tmp_p
     assert profile["sample_model_type"] == "bayes_markov"
     assert profile["burst_samples_path"] == "latency_burst_samples.jsonl"
     assert profile["burst_model_path"] == "latency_burst_model.json"
-    assert profile["burst_state_key"] == "worker_service_raw_frames"
+    assert profile["burst_state_key"] == "e2e_latency_ms_bin"
     assert load_latency_samples(profile_path.parent / "e2e_latencies.jsonl") == [10.0, 20.0, 30.0, 40.0]
     assert load_latency_samples(profile_path.parent / "infer_latencies.jsonl") == [1.0, 2.0]
 

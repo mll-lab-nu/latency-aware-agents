@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import math
 import random
 from pathlib import Path
+from statistics import NormalDist
 from typing import Any, Callable
 
 from latency_bench.core.clock import EnvClock
@@ -132,19 +134,21 @@ class IidInverseCdfSampler(LatencySampler):
         return LatencySample.from_latency_ms(latency_ms, clock=self.clock)
 
 
-class BayesMarkovSampler(LatencySampler):
-    """Bayesian Markov chain over ``worker_service_raw_frames`` states (burst model v3).
+_STANDARD_NORMAL = NormalDist()
 
-    The state is the worker-occupancy length in frames (what drives observation
-    drops). The chain advances once per submitted observation; initial/transition
-    distributions are drawn per episode from the Dirichlet posterior over recorded
-    counts with light smoothing, and each
-    state's joint ``(action_ready, worker_service)`` emission is drawn by Rubin's
-    Bayesian bootstrap. Drops stay emergent in the simulator and are never
-    conditioned on, so ``recent_drop_count`` is intentionally ignored.
+
+class BayesMarkovSampler(LatencySampler):
+    """Bayesian Markov chain over e2e/action-visible latency ms bins.
+
+    The state is the action-visible latency bin. The chain advances once per
+    submitted observation; initial/transition distributions are drawn per episode
+    from the Dirichlet posterior over recorded counts, and each state's fitted
+    joint emission distribution produces ``(e2e_latency_ms, worker_service_ms)``.
+    Drops stay emergent in the simulator and are never conditioned on, so
+    ``recent_drop_count`` is intentionally ignored.
 
     With ``transition_alpha``/``initial_alpha`` -> 0 and ``emission_bootstrap`` off,
-    this degrades to a plain empirical Markov chain over the occupancy states.
+    this degrades to a plain empirical Markov chain over the e2e latency states.
     """
     latency_type = "profile_sample"
 
@@ -195,10 +199,15 @@ class BayesMarkovSampler(LatencySampler):
         state = self.current_state
         self.remaining_run_length -= 1
         record = self._sample_emission(state)
+        e2e_latency_ms = float(record["e2e_latency_ms"])
+        worker_service_ms = float(record["worker_service_ms"])
+        action_ready_raw_frames = self.clock.latency_ms_to_raw_frames(e2e_latency_ms)
+        worker_service_raw_frames = self.clock.latency_ms_to_raw_frames(worker_service_ms)
         return LatencySample.from_action_ready(
-            action_ready_raw_frames=int(record["action_ready_raw_frames"]),
-            worker_service_raw_frames=int(record["worker_service_raw_frames"]),
-            worker_service_ms=float(record["worker_service_ms"]),
+            action_ready_raw_frames=action_ready_raw_frames,
+            worker_service_raw_frames=worker_service_raw_frames,
+            worker_service_ms=worker_service_ms,
+            latency_ms=e2e_latency_ms,
             clock=self.clock,
         )
 
@@ -223,17 +232,26 @@ class BayesMarkovSampler(LatencySampler):
         return int(self.rng.choice(self.model["run_lengths_by_state"][state]))
 
     def _sample_emission(self, state: str) -> dict[str, Any]:
-        pool = self.model["emissions_by_state"][state]
-        if not self.emission_bootstrap or len(pool) == 1:
-            return self.rng.choice(pool)
-        weights = [self.rng.gammavariate(1.0, 1.0) for _ in pool]
-        draw = self.rng.random() * sum(weights)
-        cumulative = 0.0
-        for record, weight in zip(pool, weights):
-            cumulative += weight
-            if draw < cumulative:
-                return record
-        return pool[-1]
+        distribution = self.model["emission_distributions_by_state"][state]
+        rho = max(-0.999999, min(0.999999, float(distribution["spearman_rho"])))
+        z_e2e = self.rng.normalvariate(0.0, 1.0)
+        z_worker = rho * z_e2e + math.sqrt(1.0 - rho * rho) * self.rng.normalvariate(0.0, 1.0)
+        e2e_latency_ms = sample_inverse_cdf(
+            self.rng,
+            distribution["e2e_latency_ms"]["quantile_levels"],
+            distribution["e2e_latency_ms"]["latency_ms"],
+            quantile=_STANDARD_NORMAL.cdf(z_e2e),
+        )
+        worker_service_ms = sample_inverse_cdf(
+            self.rng,
+            distribution["worker_service_ms"]["quantile_levels"],
+            distribution["worker_service_ms"]["latency_ms"],
+            quantile=_STANDARD_NORMAL.cdf(z_worker),
+        )
+        return {
+            "e2e_latency_ms": e2e_latency_ms,
+            "worker_service_ms": worker_service_ms,
+        }
 
 
 # ---------------------------------------------------------------------------

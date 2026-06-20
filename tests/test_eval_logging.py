@@ -97,8 +97,13 @@ def _write_profile(tmp_path: Path) -> Path:
         profile_dir / "latency_distribution.json",
     )
     burst_samples = [
-        {"episode_id": 0, "sample_index": index, "action_ready_raw_frames": frames,
-         "worker_service_ms": float(frames) * 40.0, "worker_service_raw_frames": frames}
+        {
+            "episode_id": 0,
+            "sample_index": index,
+            "e2e_latency_ms": float(frames) * 40.0,
+            "e2e_latency_ms_bin": frames * 40,
+            "worker_service_ms": float(frames) * 40.0,
+        }
         for index, frames in enumerate([1, 2, 3])
     ]
     (profile_dir / "latency_burst_model.json").write_text(
@@ -119,7 +124,7 @@ def _write_profile(tmp_path: Path) -> Path:
             "latency_method": "temporal",
             "sample_model_type": "bayes_markov",
             "burst_model_path": "latency_burst_model.json",
-            "burst_state_key": "worker_service_raw_frames",
+            "burst_state_key": "e2e_latency_ms_bin",
             "summary": {},
         },
         profile_dir / "profile.json",

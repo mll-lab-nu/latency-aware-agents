@@ -60,9 +60,9 @@ def _write_latency_profile(
         {
             "episode_id": 0,
             "sample_index": index,
-            "action_ready_raw_frames": action_ready,
+            "e2e_latency_ms": float(action_ready) * 40.0,
+            "e2e_latency_ms_bin": int(float(action_ready) * 40.0),
             "worker_service_ms": float(worker_service) * 40.0,
-            "worker_service_raw_frames": worker_service,
         }
         for index, (worker_service, action_ready) in enumerate(worker_service_sequence)
     ]
@@ -87,7 +87,7 @@ def _write_latency_profile(
         manifest["latency_method"] = "temporal"
         manifest["sample_model_type"] = "bayes_markov"
         manifest["burst_model_path"] = "latency_burst_model.json"
-        manifest["burst_state_key"] = "worker_service_raw_frames"
+        manifest["burst_state_key"] = "e2e_latency_ms_bin"
     save_profile_manifest(manifest, profile_dir / "profile.json")
     return profile_dir
 
@@ -177,6 +177,15 @@ def test_profile_default_routes_to_bayes_markov(tmp_path: Path):
     assert sampler.profile_metadata["target_device"] == "test_gpu"
 
 
+def test_legacy_bayes_markov_sampler_routes_to_temporal(tmp_path: Path):
+    profile_dir = _write_latency_profile(tmp_path)
+    sampler = _profile_sampler(profile_dir, seed=0, sampler="bayes_markov")
+    assert isinstance(sampler, BayesMarkovSampler)
+    draws = [sampler.sample({"episode_id": 0}) for _ in range(5)]
+    assert all(s.worker_service_raw_frames in {1, 2, 3} for s in draws)
+    assert all(s.action_ready_raw_frames in {1, 2, 3} for s in draws)
+
+
 def test_profile_sampler_is_deterministic_with_seed(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
     first = _profile_sampler(profile_dir, seed=0)
@@ -192,6 +201,26 @@ def test_bayes_markov_single_state_profile_is_constant(tmp_path: Path):
     draws = [sampler.sample({"episode_id": 0}) for _ in range(4)]
     assert [s.worker_service_raw_frames for s in draws] == [2, 2, 2, 2]
     assert [s.action_ready_raw_frames for s in draws] == [2, 2, 2, 2]
+
+
+def test_bayes_markov_quantizes_worker_service_ms_on_current_clock():
+    model = build_bayes_markov_burst_model(
+        [
+            {
+                "episode_id": 0,
+                "sample_index": 0,
+                "e2e_latency_ms": 40.0,
+                "e2e_latency_ms_bin": 40,
+                "worker_service_ms": 75.0,
+            }
+        ]
+    )
+    sampler = BayesMarkovSampler(model, clock=_clock(), seed=0)
+    sample = sampler.sample({"episode_id": 0})
+    assert sample.latency_ms == 40.0
+    assert sample.worker_service_ms == 75.0
+    assert sample.action_ready_raw_frames == 1
+    assert sample.worker_service_raw_frames == 2
 
 
 def test_profile_can_force_iid_inverse_cdf_sampler(tmp_path: Path):
