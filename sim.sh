@@ -23,6 +23,13 @@ export HF_PROFILE_REPO_TYPE=dataset
 SPEC=configs/experiments/cross_device_protocol.yaml
 POLICY=openvla-flappy
 PROFILES_DIR=results/cross_device/profiles
+AGGREGATE_PROFILES="${AGGREGATE_PROFILES:-1}"
+export POLICY
+export PROFILES_DIR
+
+if [[ "$AGGREGATE_PROFILES" == "1" ]]; then
+  ./aggregate_profiles.sh
+fi
 
 python -m scripts.cross_device.protocol sim-same \
   --spec "$SPEC" \
