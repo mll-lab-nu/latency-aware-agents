@@ -138,7 +138,7 @@ class BayesMarkovSampler(LatencySampler):
     The state is the worker-occupancy length in frames (what drives observation
     drops). The chain advances once per submitted observation; initial/transition
     distributions are drawn per episode from the Dirichlet posterior over recorded
-    counts (so parameter uncertainty enters the episode-to-episode spread), and each
+    counts with light smoothing, and each
     state's joint ``(action_ready, worker_service)`` emission is drawn by Rubin's
     Bayesian bootstrap. Drops stay emergent in the simulator and are never
     conditioned on, so ``recent_drop_count`` is intentionally ignored.
@@ -154,8 +154,8 @@ class BayesMarkovSampler(LatencySampler):
         *,
         clock: EnvClock,
         seed: int | None = None,
-        transition_alpha: float = 1.0,
-        initial_alpha: float = 1.0,
+        transition_alpha: float = 0.01,
+        initial_alpha: float = 0.01,
         emission_bootstrap: bool = True,
         semi_markov_dwell: bool = False,
         transition_mode: str = "posterior_sample",
@@ -183,9 +183,7 @@ class BayesMarkovSampler(LatencySampler):
                 self.model["initial_state_counts"], self.initial_alpha
             )
             self._episode_transition = {
-                state: self._resolve_distribution(
-                    self.model["transition_counts"].get(state, {}), self.transition_alpha
-                )
+                state: self._resolve_transition_distribution(state)
                 for state in self.states
             }
             self.current_state = _sample_probs(self.rng, self._episode_initial)
@@ -210,6 +208,14 @@ class BayesMarkovSampler(LatencySampler):
             total = sum(concentration.values())
             return {state: value / total for state, value in concentration.items()}
         return _dirichlet_sample(self.rng, concentration)
+
+    def _resolve_transition_distribution(self, state: str) -> dict[str, float]:
+        transition_counts = self.model["transition_counts"]
+        if state in transition_counts:
+            return self._resolve_distribution(transition_counts[state], self.transition_alpha)
+        return {
+            "initial": self._episode_initial,
+        }[self.model["terminal_transition_policy"]]
 
     def _sample_run_length(self, state: str) -> int:
         if not self.semi_markov_dwell:
