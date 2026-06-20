@@ -205,10 +205,10 @@ def test_profile_can_force_iid_inverse_cdf_sampler(tmp_path: Path):
     ])
 
 
-def test_legacy_profile_without_burst_model_defaults_to_iid(tmp_path: Path):
+def test_profile_default_without_burst_model_raises(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path, write_burst_model=False)
-    sampler = _profile_sampler(profile_dir, seed=0)
-    assert sampler.sample({"episode_id": 0}).latency_ms == pytest.approx(26.888437030500963)
+    with pytest.raises(ValueError, match="profile_default"):
+        _profile_sampler(profile_dir, seed=0)
 
 
 def test_profile_accepts_profile_directory(tmp_path: Path):
