@@ -443,7 +443,15 @@ def _resolve_method(cfg: dict[str, Any], profile: dict[str, Any] | None) -> str:
         sample_model_type = profile.get("sample_model_type")
         if sample_model_type in _LEGACY_PROFILE_SAMPLER_TO_METHOD:
             return _LEGACY_PROFILE_SAMPLER_TO_METHOD[sample_model_type]
-    return "iid"
+    info = profile or {}
+    raise ValueError(
+        "latency.sampler=profile_default cannot resolve a temporal method for profile "
+        f"{info.get('profile_id')!r}: latency_method={info.get('latency_method')!r}, "
+        f"sample_model_type={info.get('sample_model_type')!r}, "
+        f"burst_model_path={info.get('burst_model_path')!r}. Rebuild this profile's "
+        "temporal burst model from measure actions, or set "
+        "latency.sampler=iid_inverse_cdf explicitly to use the iid distribution."
+    )
 
 
 def _maybe_load_profile(cfg: dict[str, Any]) -> tuple[dict[str, Any] | None, Path | None]:
