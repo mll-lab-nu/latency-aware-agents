@@ -74,6 +74,9 @@ def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask) 
     latency["sync_cuda"] = latency.get("sync_cuda", True)
     latency["profile_id"] = task.target_device["profile_id"]
     latency["target_device"] = task.target_device["id"]
+    if task.instance_id is not None:
+        latency["instance_id"] = task.instance_id
+        latency["instance_origin"] = task.instance_origin
     latency.pop("fixed_latency_ms", None)
     latency.pop("profile_path", None)
     latency.pop("sampler", None)
@@ -206,6 +209,12 @@ def _profile_command(
     policy_cfg = generated_config["policy"]
     if "checkpoint_path" in policy_cfg:
         metadata["checkpoint_path"] = str(policy_cfg["checkpoint_path"])
+    if task.instance_id is not None:
+        metadata["hardware_class"] = str(task.target_device["id"])
+        metadata["instance_id"] = task.instance_id
+        metadata["instance_origin"] = task.instance_origin
+        if task.instance_origin == "gpu_uuid_hash":
+            metadata["gpu_uuid_hash"] = task.instance_id.removeprefix("instance_")
     cmd = [
         sys.executable,
         "-m",

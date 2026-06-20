@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,7 +16,7 @@ def _make_task(out: Path, *, with_profile: bool) -> SimpleNamespace:
         (profile_output_dir / "profile.json").write_text("{}\n", encoding="utf-8")
     (out / "manifests").mkdir(parents=True)
     (out / "manifests" / "runs.jsonl").write_text("{}\n", encoding="utf-8")
-    return SimpleNamespace(output_dir=output_dir, profile_output_dir=profile_output_dir)
+    return SimpleNamespace(output_dir=output_dir, profile_output_dir=profile_output_dir, instance_id="instance_abcd1234")
 
 
 def _runtime(alias: str = "openvla") -> SimpleNamespace:
@@ -23,6 +24,7 @@ def _runtime(alias: str = "openvla") -> SimpleNamespace:
 
 
 def test_upload_run_results_mirrors_slices_to_raw_prefix(tmp_path: Path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(__version__="test", version=SimpleNamespace(cuda=None)))
     from scripts.cross_device import runner
 
     out = tmp_path / "cross_device"
@@ -38,18 +40,19 @@ def test_upload_run_results_mirrors_slices_to_raw_prefix(tmp_path: Path, monkeyp
     runner._upload_run_results(task, out, manifest, {"device": {"id": "rtx3090"}}, _runtime())
 
     paths = {c["path_in_repo"] for c in calls}
-    assert "raw/rtx3090/openvla/cross_device/manifests" in paths
+    assert "raw/rtx3090/instances/instance_abcd1234/openvla/cross_device/manifests" in paths
     assert (
-        "raw/rtx3090/openvla/cross_device/runs/measure/openvla-flappy/flappy/rtx3090/best_seed_0"
+        "raw/rtx3090/instances/instance_abcd1234/openvla/cross_device/runs/measure/openvla-flappy/flappy/rtx3090/best_seed_0"
         in paths
     )
-    assert "raw/rtx3090/openvla/cross_device/profiles/openvla-flappy/flappy/L_3090" in paths
+    assert "raw/rtx3090/instances/instance_abcd1234/openvla/cross_device/profiles/openvla-flappy/flappy/L_3090" in paths
     assert manifest["results_uploaded"] is True
     assert all(c["repo_id"] == "latency-sensitive-bench/profiles" for c in calls)
     assert all(c["repo_type"] == "dataset" for c in calls)
 
 
 def test_upload_run_results_skipped_without_repo(tmp_path: Path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(__version__="test", version=SimpleNamespace(cuda=None)))
     from scripts.cross_device import runner
 
     out = tmp_path / "cross_device"
@@ -63,6 +66,7 @@ def test_upload_run_results_skipped_without_repo(tmp_path: Path, monkeypatch):
 
 
 def test_upload_run_results_opt_out_env(tmp_path: Path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(__version__="test", version=SimpleNamespace(cuda=None)))
     from scripts.cross_device import runner
 
     out = tmp_path / "cross_device"

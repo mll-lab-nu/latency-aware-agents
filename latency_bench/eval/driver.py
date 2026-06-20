@@ -169,6 +169,8 @@ def _evaluation_raw_fact_metadata(config: dict[str, Any], episode_id: int) -> di
         "env_id": _metadata_id(env_cfg, "env_id", "id", "name"),
         "profile_id": latency_cfg.get("profile_id"),
         "target_device": latency_cfg.get("target_device"),
+        "instance_id": latency_cfg.get("instance_id"),
+        "instance_origin": latency_cfg.get("instance_origin"),
         "replay_host": latency_cfg.get("replay_host", evaluation_cfg.get("replay_host")),
         "env_fps": env_fps,
         "obs_fps": obs_fps,
