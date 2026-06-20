@@ -75,8 +75,9 @@ class StarVlaPolicyRunner(PolicyRunner):
             for raw_action_id, action_ref in enumerate(action_refs)
         }
         self._latency_prompt_map = latency_prompt_map
-        self._include_state = _include_state_from_wrapper(wrapper)
-        self._state_dim = _state_dim_from_wrapper(wrapper) if self._include_state else None
+        model_cfg = _normalized_model_cfg_from_wrapper(wrapper)
+        self._include_state = _include_state_from_model_cfg(model_cfg)
+        self._state_dim = _state_dim_from_model_cfg(model_cfg) if self._include_state else None
 
     def predict(self, observation: Observation) -> PolicyOutput:
         return self.predict_batch([observation])[0]
@@ -368,18 +369,32 @@ def _as_uint8_image(frame: npt.NDArray[Any]) -> npt.NDArray[np.uint8]:
     return np.ascontiguousarray(frame, dtype=np.uint8)
 
 
-def _state_dim_from_wrapper(wrapper: Any) -> int:
-    return wrapper._model_cfg["framework"]["action_model"]["state_dim"]
+def _normalized_model_cfg_from_wrapper(wrapper: Any) -> dict[str, Any]:
+    _ensure_starvla_path()
+    from omegaconf import OmegaConf
+    from starVLA.model.framework.share_tools import apply_config_compat
+
+    cfg = OmegaConf.create(wrapper._model_cfg)
+    apply_config_compat(cfg)
+    return OmegaConf.to_container(cfg, resolve=True)
 
 
-def _include_state_from_wrapper(wrapper: Any) -> bool:
-    return wrapper._model_cfg["datasets"]["vla_data"]["include_state"]
+def _state_dim_from_model_cfg(model_cfg: dict[str, Any]) -> int:
+    return model_cfg["framework"]["action_model"]["state_dim"]
 
 
-def _load_policy_wrapper_class() -> Any:
+def _include_state_from_model_cfg(model_cfg: dict[str, Any]) -> bool:
+    return model_cfg["datasets"]["vla_data"]["include_state"]
+
+
+def _ensure_starvla_path() -> None:
     starvla_root = str(STARVLA_ROOT)
     if starvla_root not in sys.path:
         sys.path.insert(0, starvla_root)
+
+
+def _load_policy_wrapper_class() -> Any:
+    _ensure_starvla_path()
     from deployment.model_server.policy_wrapper import PolicyServerWrapper
 
     return PolicyServerWrapper
