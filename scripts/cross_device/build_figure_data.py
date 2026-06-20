@@ -145,7 +145,7 @@ def _resolve_latency_trace(
 
     Tries the canonical flat layout `<profiles_root>/<policy>/<env>/<id>/` first;
     falls back to globbing so a per-machine HF download root
-    (`.../raw/<device>/<runtime>/cross_device/profiles/<policy>/<env>/<id>/`)
+    (`.../raw/<device>/instances/<instance>/<runtime>/cross_device/profiles/<policy>/<env>/<id>/`)
     also resolves.
     """
     fixed = profiles_root / slugify(policy) / slugify(env) / profile_id / trace_name

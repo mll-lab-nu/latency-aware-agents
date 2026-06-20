@@ -1061,7 +1061,17 @@ def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monke
         smoke_episodes=1,
         smoke_max_steps=None,
     )
-    task = planning._build_plan(args, spec, "measure", out, out / "profiles", current_device, runtime)[0].task
+    task = planning._build_plan(
+        args,
+        spec,
+        "measure",
+        out,
+        out / "profiles",
+        current_device,
+        runtime,
+        instance_id="instance_test",
+        instance_origin="manual_override",
+    )[0].task
     commands: list[list[str]] = []
 
     def fake_run(command, check):
@@ -1143,7 +1153,17 @@ def test_measure_run_does_not_forward_n_samples_to_eval_or_profile(tmp_path: Pat
         smoke_episodes=1,
         smoke_max_steps=None,
     )
-    task = planning._build_plan(args, spec, "measure", out, out / "profiles", current_device, runtime)[0].task
+    task = planning._build_plan(
+        args,
+        spec,
+        "measure",
+        out,
+        out / "profiles",
+        current_device,
+        runtime,
+        instance_id="instance_test",
+        instance_origin="manual_override",
+    )[0].task
     commands: list[list[str]] = []
 
     def fake_run(command, check):
@@ -1233,7 +1253,17 @@ def test_measure_run_does_not_continue_after_episodes_until_n_samples(tmp_path: 
         smoke_episodes=1,
         smoke_max_steps=None,
     )
-    task = planning._build_plan(args, spec, "measure", out, out / "profiles", current_device, runtime)[0].task
+    task = planning._build_plan(
+        args,
+        spec,
+        "measure",
+        out,
+        out / "profiles",
+        current_device,
+        runtime,
+        instance_id="instance_test",
+        instance_origin="manual_override",
+    )[0].task
     commands: list[list[str]] = []
 
     def fake_run(command, check):
@@ -1329,7 +1359,17 @@ def test_measure_run_records_failed_calibration_manifest_without_eval(tmp_path: 
         smoke_episodes=1,
         smoke_max_steps=None,
     )
-    task = planning._build_plan(args, spec, "measure", out, out / "profiles", current_device, runtime)[0].task
+    task = planning._build_plan(
+        args,
+        spec,
+        "measure",
+        out,
+        out / "profiles",
+        current_device,
+        runtime,
+        instance_id="instance_test",
+        instance_origin="manual_override",
+    )[0].task
     commands: list[list[str]] = []
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2,3")
 

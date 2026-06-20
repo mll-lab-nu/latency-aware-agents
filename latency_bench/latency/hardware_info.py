@@ -18,6 +18,7 @@ from typing import Any
 
 # GPU fields queried from nvidia-smi, in the order requested below.
 _NVIDIA_SMI_FIELDS = (
+    "uuid",
     "name",
     "memory.total",
     "power.limit",

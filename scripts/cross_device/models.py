@@ -40,6 +40,8 @@ class ProtocolTask:
     generated_config_path: Path
     target_profile_path: Path | None
     profile_output_dir: Path | None
+    instance_id: str | None
+    instance_origin: str | None
     runtime_env_alias: str | None
     runtime_conda_env: str | None
     smoke: bool = False

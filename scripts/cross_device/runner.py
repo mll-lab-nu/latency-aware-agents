@@ -31,6 +31,7 @@ from scripts.cross_device.config import (
     _profile_command,
     _write_generated_config,
 )
+from scripts.cross_device.instances import resolve_instance_id, resolve_instance_origin
 from scripts.cross_device.models import PlannedTask, ProtocolTask, RuntimeSelection
 from scripts.cross_device.planning import _build_plan, _output_root, _profiles_dir_for_args
 from scripts.cross_device.profile_cache import profile_remote_dir, upload_folder_to_hf
@@ -62,6 +63,15 @@ def _runtime_process_metadata() -> dict[str, Any]:
     }
 
 
+def _stage_instance_metadata(stage: str, dry_run: bool) -> tuple[str | None, str | None]:
+    if dry_run:
+        return None, None
+    uploads_raw_results = bool(os.environ.get("HF_PROFILE_REPO")) and not os.environ.get("CROSS_DEVICE_NO_RESULT_UPLOAD")
+    if stage == "measure" or uploads_raw_results:
+        return resolve_instance_id(_host_fingerprint()), resolve_instance_origin()
+    return None, None
+
+
 def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> None:
     """Plan and execute one non-aggregate protocol stage.
 
@@ -79,7 +89,18 @@ def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> Non
     runtime = detect_runtime_env(spec, args.runtime_env, bool(args.allow_runtime_env_mismatch))
     _validate_runtime_safety(args, runtime)
     profiles_dir = _profiles_dir_for_args(args, out)
-    plan = _build_plan(args, spec, stage, out, profiles_dir, detected["device"], runtime)
+    instance_id, instance_origin = _stage_instance_metadata(stage, bool(args.dry_run))
+    plan = _build_plan(
+        args,
+        spec,
+        stage,
+        out,
+        profiles_dir,
+        detected["device"],
+        runtime,
+        instance_id=instance_id,
+        instance_origin=instance_origin,
+    )
     if args.max_runs is not None:
         plan = plan[: int(args.max_runs)]
     if args.strict_runtime_env:
@@ -350,9 +371,10 @@ def _upload_run_results(
     """Mirror this completed run's results to HF for hands-off aggregation.
 
     Uploads (full, including debug) this machine's slice of the protocol output
-    to `raw/<device_id>/<runtime_alias>/cross_device/...` so an aggregating host
-    can pull every machine's manifests + run dirs + profiles via `aggregate`
-    auto-download. The download side filters debug artifacts back out.
+    to `raw/<device_id>/instances/<instance_id>/<runtime_alias>/cross_device/...`
+    so an aggregating host can pull every machine's manifests + run dirs +
+    profiles via `aggregate` auto-download. The download side filters debug
+    artifacts back out.
 
     Gated on `HF_PROFILE_REPO` (reuses the profiles repo) and opt-out env
     `CROSS_DEVICE_NO_RESULT_UPLOAD`. Failures are non-fatal — the run is already
@@ -368,9 +390,13 @@ def _upload_run_results(
     repo_id = os.environ.get("HF_PROFILE_REPO")
     if not repo_id or os.environ.get("CROSS_DEVICE_NO_RESULT_UPLOAD"):
         return
-    device_id = (detected.get("device") or {}).get("id") or "unknown_device"
-    runtime_alias = runtime.matched_alias or runtime.selected_alias or "unknown_runtime"
-    prefix = f"raw/{device_id}/{runtime_alias}/cross_device"
+    device_id = detected["device"]["id"]
+    if task.instance_id is None:
+        raise RuntimeError("raw result upload requires task.instance_id")
+    runtime_alias = runtime.matched_alias or runtime.selected_alias
+    if runtime_alias is None:
+        raise RuntimeError("raw result upload requires a runtime alias")
+    prefix = f"raw/{device_id}/instances/{task.instance_id}/{runtime_alias}/cross_device"
     repo_type = os.environ.get("HF_PROFILE_REPO_TYPE", "dataset")
 
     uploads: list[tuple[Path, str]] = []
@@ -510,6 +536,9 @@ def _base_manifest(
         A manifest dictionary ready to write after status fields are finalized.
     """
     replay_device = task.replay_device
+    gpu_uuid_hash = None
+    if task.instance_origin == "gpu_uuid_hash":
+        gpu_uuid_hash = task.instance_id.removeprefix("instance_")
     return {
         "protocol_id": spec.get("protocol_id"),
         "stage": task.stage,
@@ -524,6 +553,9 @@ def _base_manifest(
         "target_device_id": task.target_device.get("id"),
         "target_device_display_name": task.target_device.get("display_name"),
         "target_profile_id": task.target_device.get("profile_id"),
+        "instance_id": task.instance_id,
+        "instance_origin": task.instance_origin,
+        "gpu_uuid_hash": gpu_uuid_hash,
         "replay_device_id": None if replay_device is None else replay_device.get("id"),
         "replay_device_display_name": None if replay_device is None else replay_device.get("display_name"),
         "hardware_detected_raw": detected.get("raw"),
