@@ -295,6 +295,90 @@ def test_starvla_policy_uses_legacy_train_data_include_state_config(monkeypatch,
     assert example["state"].shape == (1, 7)
 
 
+def test_starvla_policy_uses_pi05_model_family_include_state_config(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    class Pi05CheckpointPolicyServerWrapper(FakePolicyServerWrapper):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._model_cfg = {
+                "model": "pi05",
+                "rl_games": {
+                    "model_alias": "pi-0.5",
+                },
+                "datasets": {
+                    "vla_data": {
+                        "data_mix": "deadly_corridor_train__bridge",
+                    },
+                },
+                "framework": {
+                    "name": "QwenPI_v3",
+                    "action_model": {
+                        "state_dim": 7,
+                    },
+                },
+            }
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: Pi05CheckpointPolicyServerWrapper)
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
+        )
+    )
+
+    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
+    assert example["state"].shape == (1, 7)
+
+
+def test_starvla_policy_uses_openvla_model_family_no_state_config(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    class OpenVlaCheckpointPolicyServerWrapper(FakePolicyServerWrapper):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._model_cfg = {
+                "model": "openvla",
+                "rl_games": {
+                    "model_alias": "openvla",
+                },
+                "datasets": {
+                    "vla_data": {
+                        "data_mix": "deadly_corridor_train__bridge",
+                    },
+                },
+                "framework": {
+                    "name": "QwenOFT",
+                    "action_model": {
+                        "state_dim": 1,
+                    },
+                },
+            }
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: OpenVlaCheckpointPolicyServerWrapper)
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
+        )
+    )
+
+    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
+    assert "state" not in example
+
+
 def test_starvla_passes_single_raw_frame_and_base_prompt(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 

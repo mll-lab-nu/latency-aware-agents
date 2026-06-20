@@ -20,6 +20,20 @@ from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolv
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STARVLA_ROOT = REPO_ROOT / "starVLA"
 ENV_RAW_RGB_FRAME_STACK_INFO_KEY = "env_raw_rgb_frame_stack"
+STATEFUL_STARVLA_MODEL_IDS: tuple[str, ...] = (
+    "pi0",
+    "pi-0",
+    "pi05",
+    "pi-0.5",
+    "gr00t",
+    "qwenpi",
+    "qwenpi_v3",
+    "qwengr00t",
+)
+STATELESS_STARVLA_MODEL_IDS: tuple[str, ...] = (
+    "openvla",
+    "qwenoft",
+)
 
 DEMON_ATTACK_ACTION_LABELS: tuple[str, ...] = (
     "NOOP",
@@ -376,7 +390,35 @@ def _normalized_model_cfg_from_wrapper(wrapper: Any) -> dict[str, Any]:
 
     cfg = OmegaConf.create(wrapper._model_cfg)
     apply_config_compat(cfg)
+    _apply_model_family_include_state_compat(cfg)
     return OmegaConf.to_container(cfg, resolve=True)
+
+
+def _apply_model_family_include_state_compat(cfg: Any) -> None:
+    from omegaconf import OmegaConf
+
+    if OmegaConf.select(cfg, "datasets.vla_data.include_state") is not None:
+        return
+
+    model_ids = (
+        _normalized_optional_config_string(cfg, ("model",)),
+        _normalized_optional_config_string(cfg, ("rl_games", "model_alias")),
+        _normalized_optional_config_string(cfg, ("framework", "name")),
+    )
+    if any(model_id in STATEFUL_STARVLA_MODEL_IDS for model_id in model_ids if model_id is not None):
+        OmegaConf.update(cfg, "datasets.vla_data.include_state", True, force_add=True)
+        return
+    if any(model_id in STATELESS_STARVLA_MODEL_IDS for model_id in model_ids if model_id is not None):
+        OmegaConf.update(cfg, "datasets.vla_data.include_state", False, force_add=True)
+
+
+def _normalized_optional_config_string(cfg: Any, path: tuple[str, ...]) -> str | None:
+    from omegaconf import OmegaConf
+
+    value = OmegaConf.select(cfg, ".".join(path))
+    if value is None:
+        return None
+    return str(value).strip().lower()
 
 
 def _state_dim_from_model_cfg(model_cfg: dict[str, Any]) -> int:
