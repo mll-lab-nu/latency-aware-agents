@@ -255,6 +255,46 @@ def test_starvla_policy_uses_saved_checkpoint_no_state_config(monkeypatch, tmp_p
     assert output.action.name == "flap"
 
 
+def test_starvla_policy_uses_legacy_train_data_include_state_config(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    class Pi05CheckpointPolicyServerWrapper(FakePolicyServerWrapper):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._model_cfg = {
+                "train_data": {
+                    "include_state": True,
+                },
+                "datasets": {
+                    "vla_data": {
+                        "data_mix": "deadly_corridor_train__bridge",
+                    },
+                },
+                "framework": {
+                    "action_model": {
+                        "state_dim": 7,
+                    },
+                },
+            }
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: Pi05CheckpointPolicyServerWrapper)
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
+        )
+    )
+
+    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
+    assert example["state"].shape == (1, 7)
+
+
 def test_starvla_passes_single_raw_frame_and_base_prompt(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
