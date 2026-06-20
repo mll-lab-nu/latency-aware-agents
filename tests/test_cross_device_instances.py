@@ -91,6 +91,8 @@ def test_profile_command_records_instance_metadata(tmp_path: Path):
     cmd = _profile_command(task, {}, False, generated_config)
     metadata = json.loads(cmd[cmd.index("--metadata-json") + 1])
 
+    assert cmd[cmd.index("--actions") + 1].endswith("runs/measure/actions.jsonl")
+    assert cmd[cmd.index("--steps") + 1].endswith("runs/measure/steps.jsonl")
     assert metadata["hardware_class"] == "rtx3090"
     assert metadata["instance_id"] == "instance_abcd1234"
     assert metadata["instance_origin"] == "gpu_uuid_hash"
