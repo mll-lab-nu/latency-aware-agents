@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -96,25 +97,63 @@ class StarVlaPolicyRunner(PolicyRunner):
     def predict(self, observation: Observation) -> PolicyOutput:
         return self.predict_batch([observation])[0]
 
+    def predict_with_timing(self, observation: Observation) -> tuple[PolicyOutput, dict[str, float]]:
+        build_start = time.perf_counter()
+        example = self._build_example(observation)
+        build_ms = (time.perf_counter() - build_start) * 1000.0
+
+        wrapper_start = time.perf_counter()
+        prediction = self._wrapper.predict_action(examples=[example], unnorm_key=self._unnorm_key)
+        wrapper_ms = (time.perf_counter() - wrapper_start) * 1000.0
+
+        decode_start = time.perf_counter()
+        output = self._decode_prediction(
+            prediction=prediction,
+            index=0,
+            observation=observation,
+            example=example,
+        )
+        decode_ms = (time.perf_counter() - decode_start) * 1000.0
+        return output, {
+            "policy_build_example_ms": build_ms,
+            "policy_wrapper_predict_action_ms": wrapper_ms,
+            "policy_decode_ms": decode_ms,
+        }
+
     def predict_batch(self, observations: Sequence[Observation]) -> list[PolicyOutput]:
         examples = [self._build_example(observation) for observation in observations]
         prediction = self._wrapper.predict_action(examples=examples, unnorm_key=self._unnorm_key)
+        return [
+            self._decode_prediction(
+                prediction=prediction,
+                index=index,
+                observation=observation,
+                example=example,
+            )
+            for index, (observation, example) in enumerate(zip(observations, examples))
+        ]
+
+    def _decode_prediction(
+        self,
+        *,
+        prediction: dict[str, Any],
+        index: int,
+        observation: Observation,
+        example: dict[str, Any],
+    ) -> PolicyOutput:
         actions = np.asarray(prediction["actions"])
         raw_action_scores = (
             np.asarray(prediction["raw_action_scores"])
             if "raw_action_scores" in prediction
             else None
         )
-        return [
-            self._policy_output(
-                observation=observation,
-                example=example,
-                action_payload=actions[index, 0],
-                action_output_type=prediction["action_output_type"],
-                raw_action_scores=None if raw_action_scores is None else raw_action_scores[index, 0],
-            )
-            for index, (observation, example) in enumerate(zip(observations, examples))
-        ]
+        return self._policy_output(
+            observation=observation,
+            example=example,
+            action_payload=actions[index, 0],
+            action_output_type=prediction["action_output_type"],
+            raw_action_scores=None if raw_action_scores is None else raw_action_scores[index, 0],
+        )
 
     def _build_example(self, observation: Observation) -> dict[str, Any]:
         frame_source = observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
