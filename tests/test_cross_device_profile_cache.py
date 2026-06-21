@@ -198,3 +198,10 @@ def test_download_results_tree_filters_debug_and_copies_raw(tmp_path: Path, monk
     ]
     copied = local_root / "raw" / "rtx3090" / "openvla" / "cross_device" / "manifests" / "runs.jsonl"
     assert copied.exists()
+
+
+def test_download_results_tree_filters_full_runtime_telemetry_but_keeps_summary():
+    from scripts.cross_device.profile_cache import RESULTS_DEBUG_IGNORE
+
+    assert "**/runs/**/runtime_telemetry.jsonl" in RESULTS_DEBUG_IGNORE
+    assert "**/runs/**/runtime_telemetry_summary.json" not in RESULTS_DEBUG_IGNORE

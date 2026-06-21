@@ -30,6 +30,35 @@ def test_fingerprint_is_serializable_and_complete(monkeypatch):
     assert isinstance(fingerprint["captured_at"], str)
 
 
+def test_fingerprint_records_all_gpus_and_runtime_cpu_scope(monkeypatch):
+    monkeypatch.setattr(hardware_info, "_run", lambda cmd: _fake_multi_gpu_run(cmd))
+    monkeypatch.setattr(hardware_info, "_torch_gpu", lambda: {"device_count": 2, "torch_cuda_version": "12.4"})
+    monkeypatch.setattr(hardware_info, "_collect_torch", lambda: {"version": "2.6.0", "cuda_version": "12.4"})
+    monkeypatch.setattr(hardware_info, "_read_text", lambda path: _fake_read_text(path))
+    monkeypatch.setattr(hardware_info.os, "sched_getaffinity", lambda pid: {0, 1, 2, 3})
+    monkeypatch.setattr(
+        hardware_info,
+        "_collect_packages",
+        lambda: {
+            "torch": "2.6.0",
+            "transformers": "4.57.0",
+            "tokenizers": "0.22.1",
+            "safetensors": "0.6.2",
+        },
+    )
+
+    fingerprint = hardware_info.collect_hardware_fingerprint()
+
+    assert fingerprint["gpu"]["uuid"] == "GPU-0"
+    assert [gpu["uuid"] for gpu in fingerprint["gpus"]] == ["GPU-0", "GPU-1"]
+    assert fingerprint["gpus"][1]["pci.bus_id"] == "00000000:8B:00.0"
+    assert fingerprint["runtime"]["cpu_affinity"] == [0, 1, 2, 3]
+    assert fingerprint["runtime"]["cgroup"]["cpu_max"] == "200000 100000"
+    assert fingerprint["runtime"]["cgroup"]["cpuset_cpus_effective"] == "0-3"
+    assert fingerprint["packages"]["tokenizers"] == "0.22.1"
+    assert fingerprint["packages"]["safetensors"] == "0.6.2"
+
+
 def test_probes_degrade_when_tools_missing(monkeypatch):
     monkeypatch.setattr(hardware_info, "_run", lambda cmd: None)  # no nvidia-smi / lscpu
     monkeypatch.setattr(hardware_info, "_torch_gpu", lambda: {})
@@ -63,3 +92,30 @@ def _fake_run(cmd: list[str]) -> str | None:
     if cmd[0] == "lscpu":
         return "Model name:  AMD EPYC 9554\nCPU(s):  128\nCPU max MHz:  3762.9880\nNUMA node(s):  2\nL3 cache:  256 MiB\n"
     return None
+
+
+def _fake_multi_gpu_run(cmd: list[str]) -> str | None:
+    if cmd[0] == "nvidia-smi":
+        if "--query-gpu=" in cmd[1]:
+            return "\n".join(
+                [
+                    "GPU-0, NVIDIA L40S, 46068 MiB, 100 MiB, 45968 MiB, 350.00 W, 350.00 W, "
+                    "570.211.01, 00000000:8A:00.0, 4, 4, 16, 16, 2520 MHz, 2100 MHz, "
+                    "9000 MHz, 8.9, P0, 55, 280.00 W, 95 %, 40 %",
+                    "GPU-1, NVIDIA L40S, 46068 MiB, 10 MiB, 46058 MiB, 350.00 W, 350.00 W, "
+                    "570.211.01, 00000000:8B:00.0, 4, 1, 16, 16, 2520 MHz, 210 MHz, "
+                    "405 MHz, 8.9, P8, 30, 36.00 W, 0 %, 0 %",
+                ]
+            )
+        if cmd[1:] == ["topo", "-m"]:
+            return "GPU0 GPU1 CPU Affinity NUMA Affinity\nGPU0 X PXB 0-3 0\nGPU1 PXB X 4-7 1"
+    if cmd[0] == "lscpu":
+        return "Model name:  AMD EPYC 9334\nCPU(s):  128\nNUMA node(s):  2\n"
+    return None
+
+
+def _fake_read_text(path: str) -> str:
+    return {
+        "/sys/fs/cgroup/cpu.max": "200000 100000\n",
+        "/sys/fs/cgroup/cpuset.cpus.effective": "0-3\n",
+    }[path]

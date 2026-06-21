@@ -56,6 +56,13 @@ _PACKAGE_NAMES = (
     "numpy",
     "Pillow",
     "opencv-python",
+    "tokenizers",
+    "safetensors",
+    "huggingface_hub",
+    "peft",
+    "timm",
+    "einops",
+    "sentencepiece",
 )
 
 _RUNTIME_ENV_KEYS = (
@@ -80,8 +87,10 @@ def collect_hardware_fingerprint() -> dict[str, Any]:
         keys. Any probe that fails contributes an empty section rather than
         raising, so the result is always JSON-serializable.
     """
+    gpus = _collect_gpus()
     return {
-        "gpu": _collect_gpu(),
+        "gpu": _collect_gpu_from_gpus(gpus),
+        "gpus": gpus,
         "cpu": _collect_cpu(),
         "memory": _collect_memory(),
         "system": _collect_system(),
@@ -92,27 +101,40 @@ def collect_hardware_fingerprint() -> dict[str, Any]:
     }
 
 
-def _collect_gpu() -> dict[str, Any]:
-    gpu: dict[str, Any] = {}
-    gpu.update(_nvidia_smi_gpu())
+def _collect_gpus() -> list[dict[str, Any]]:
+    gpus = _nvidia_smi_gpus()
+    torch_info = _torch_gpu()
+    for index, gpu in enumerate(gpus):
+        gpu["index"] = index
+        for key, value in torch_info.items():
+            gpu.setdefault(key, value)
+    return gpus
+
+
+def _collect_gpu_from_gpus(gpus: list[dict[str, Any]]) -> dict[str, Any]:
+    gpu: dict[str, Any] = dict(gpus[0]) if gpus else {}
     topology = _nvidia_smi_topology()
     if topology:
         gpu["topology"] = topology
-    torch_info = _torch_gpu()
-    for key, value in torch_info.items():
-        gpu.setdefault(key, value)
     return gpu
 
 
 def _nvidia_smi_gpu() -> dict[str, Any]:
+    gpus = _nvidia_smi_gpus()
+    return gpus[0] if gpus else {}
+
+
+def _nvidia_smi_gpus() -> list[dict[str, Any]]:
     output = _run(["nvidia-smi", f"--query-gpu={','.join(_NVIDIA_SMI_FIELDS)}", "--format=csv,noheader"])
     if not output:
-        return {}
-    first_line = output.splitlines()[0]
-    values = [item.strip() for item in first_line.split(",")]
-    if len(values) != len(_NVIDIA_SMI_FIELDS):
-        return {}
-    return {field: value for field, value in zip(_NVIDIA_SMI_FIELDS, values)}
+        return []
+    gpus: list[dict[str, Any]] = []
+    for line in output.splitlines():
+        values = [item.strip() for item in line.split(",")]
+        if len(values) != len(_NVIDIA_SMI_FIELDS):
+            return []
+        gpus.append({field: value for field, value in zip(_NVIDIA_SMI_FIELDS, values)})
+    return gpus
 
 
 def _torch_gpu() -> dict[str, Any]:
@@ -295,12 +317,31 @@ def _collect_system() -> dict[str, Any]:
 def _collect_runtime() -> dict[str, Any]:
     return {
         "python_executable": sys.executable,
+        "cpu_affinity": _cpu_affinity(),
+        "cgroup": _collect_cgroup(),
         "env": {
             key: os.environ[key]
             for key in _RUNTIME_ENV_KEYS
             if key in os.environ
         },
     }
+
+
+def _cpu_affinity() -> list[int]:
+    return sorted(os.sched_getaffinity(0))
+
+
+def _collect_cgroup() -> dict[str, str]:
+    cgroup = {}
+    for key, path in (
+        ("cpu_max", "/sys/fs/cgroup/cpu.max"),
+        ("cpuset_cpus_effective", "/sys/fs/cgroup/cpuset.cpus.effective"),
+    ):
+        try:
+            cgroup[key] = _read_text(path).strip()
+        except Exception:
+            pass
+    return cgroup
 
 
 def _collect_packages() -> dict[str, Any]:
@@ -338,6 +379,11 @@ def _run(cmd: list[str]) -> str | None:
     except Exception:
         return None
     return result.stdout.strip() or None
+
+
+def _read_text(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
 
 
 def _slug(key: str) -> str:

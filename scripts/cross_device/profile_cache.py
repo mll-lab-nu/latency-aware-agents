@@ -25,6 +25,7 @@ RESULTS_DEBUG_IGNORE = [
     "**/runs/**/latencies.jsonl",
     "**/runs/**/infer_latencies.jsonl",
     "**/runs/**/e2e_latencies.jsonl",
+    "**/runs/**/runtime_telemetry.jsonl",
     "**/runs/**/workers/**",
     "**/*.warmup.yaml",
 ]

@@ -297,6 +297,105 @@ def test_build_latency_profile_from_trace_copies_inference_worker_count_from_epi
     assert loaded_manifest["inference_worker_count"] == 2
 
 
+def test_build_latency_profile_from_trace_summarizes_control_and_worker_capacity(tmp_path: Path):
+    actions = tmp_path / "actions.jsonl"
+    steps = tmp_path / "steps.jsonl"
+    episode_metrics = tmp_path / "episode_metrics.jsonl"
+    _write_actions(actions)
+    _write_episode_metrics(
+        episode_metrics,
+        [
+            {
+                "episode_id": 0,
+                "episode_return": 10.0,
+                "survival_steps": 100,
+                "num_actions": 2,
+                "num_dropped_actions": 1,
+                "metadata": {
+                    "inference_worker_count": 2,
+                    "submitted_observation_frames": 100,
+                    "dropped_observation_count": 5,
+                    "ignored_late_result_count": 1,
+                    "discarded_ready_result_count": 2,
+                    "fifo_blocked_count": 3,
+                    "actual_env_fps": 29.0,
+                    "env_deadline_miss_count": 4,
+                    "max_wall_clock_lag_ms": 12.5,
+                    "frame_ms": 40.0,
+                },
+            },
+            {
+                "episode_id": 1,
+                "episode_return": 20.0,
+                "survival_steps": 200,
+                "num_actions": 1,
+                "num_dropped_actions": 0,
+                "metadata": {
+                    "inference_worker_count": 2,
+                    "submitted_observation_frames": 200,
+                    "dropped_observation_count": 1,
+                    "ignored_late_result_count": 0,
+                    "discarded_ready_result_count": 1,
+                    "fifo_blocked_count": 0,
+                    "actual_env_fps": 30.0,
+                    "env_deadline_miss_count": 0,
+                    "max_wall_clock_lag_ms": 2.5,
+                    "frame_ms": 40.0,
+                },
+            },
+        ],
+    )
+    steps.write_text(
+        "\n".join(
+            json.dumps({"env_step": idx, "info": {"wall_clock_lag_ms": float(idx)}})
+            for idx in range(3)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "realtime_pipeline_summary.json").write_text(
+        json.dumps({"num_profiled_actions": 3, "bench_overhead_ms": {"mean": 1.5}}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (tmp_path / "runtime_telemetry_summary.json").write_text(
+        json.dumps({"num_samples": 2, "gpu": {"utilization.gpu": {"mean": 80.0}}}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    manifest, output_dir = _build_profile(
+        tmp_path,
+        [40.0, 50.0, 60.0],
+        actions=actions,
+        episode_metrics=episode_metrics,
+        steps=steps,
+    )
+
+    assert manifest["control_summary"]["episodes"] == 2
+    assert manifest["control_summary"]["mean_return"] == pytest.approx(15.0)
+    assert manifest["control_summary"]["mean_survival_steps"] == pytest.approx(150.0)
+    assert manifest["control_summary"]["submitted_observation_frames"] == 300
+    assert manifest["control_summary"]["dropped_observation_count"] == 6
+    assert manifest["control_summary"]["drop_rate_per_1k_observations"] == pytest.approx(20.0)
+    assert manifest["control_summary"]["actions_per_step"] == pytest.approx(3.0 / 300.0)
+    assert manifest["control_summary"]["ignored_late_result_count"] == 1
+    assert manifest["control_summary"]["discarded_ready_result_count"] == 3
+    assert manifest["control_summary"]["fifo_blocked_count"] == 3
+    assert manifest["control_summary"]["env_deadline_miss_count"] == 4
+    assert manifest["control_summary"]["max_wall_clock_lag_ms"] == pytest.approx(12.5)
+    assert manifest["worker_capacity_summary"]["inference_worker_count"] == 2
+    assert manifest["worker_capacity_summary"]["mean_worker_service_ms"] == pytest.approx((10.0 + 11.0 + 50.0) / 3.0)
+    assert manifest["worker_capacity_summary"]["worker_utilization_estimate"] == pytest.approx(
+        ((10.0 + 11.0 + 50.0) / 3.0) * 25.0 / 1000.0 / 2.0
+    )
+    assert manifest["pipeline_summary_path"] == "realtime_pipeline_summary.json"
+    assert manifest["runtime_telemetry_summary_path"] == "runtime_telemetry_summary.json"
+    assert manifest["raw_artifacts"]["actions"] == "actions.jsonl"
+    assert manifest["raw_artifacts"]["steps"] == "steps.jsonl"
+    assert manifest["raw_artifacts"]["episode_metrics"] == "episode_metrics.jsonl"
+    loaded_manifest = load_profile_manifest(output_dir / "profile.json")
+    assert loaded_manifest["control_summary"] == manifest["control_summary"]
+
+
 def test_build_latency_profile_from_trace_requires_inference_trace_for_e2e_profiles(tmp_path: Path):
     with pytest.raises(TypeError):
         _build_profile(
