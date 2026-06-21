@@ -10,7 +10,7 @@ from typing import Any
 from latency_bench.analysis.utils import write_latency_distribution_plot
 from latency_bench.analysis.profile_stats import compute_latency_profile_summary
 from latency_bench.utils.io import load_jsonl_records, write_json
-from latency_bench.utils.stats import percentile_linear, series_stats
+from latency_bench.utils.stats import autocorrelation, mean, percentile_linear, series_stats
 from latency_bench.latency.burst_profile import (
     build_bayes_markov_burst_model,
     build_bayes_markov_burst_samples,
@@ -196,27 +196,35 @@ def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
             f.write(json.dumps(record, sort_keys=True) + "\n")
 
 
+# Per-episode metadata counters summed across the trace into the control summary.
+_CONTROL_METADATA_SUM_FIELDS = (
+    "submitted_observation_frames",
+    "dropped_observation_count",
+    "ignored_late_result_count",
+    "discarded_ready_result_count",
+    "fifo_blocked_count",
+    "env_deadline_miss_count",
+)
+
+
 def _control_summary(metrics_records: list[dict[str, Any]]) -> dict[str, Any]:
-    submitted = sum(int(record["metadata"]["submitted_observation_frames"]) for record in metrics_records)
-    dropped = sum(int(record["metadata"]["dropped_observation_count"]) for record in metrics_records)
     survival_steps = [float(record["survival_steps"]) for record in metrics_records]
+    sums = {
+        field: sum(int(record["metadata"][field]) for record in metrics_records)
+        for field in _CONTROL_METADATA_SUM_FIELDS
+    }
     num_actions = sum(int(record["num_actions"]) for record in metrics_records)
     return {
         "episodes": len(metrics_records),
-        "mean_return": _mean(float(record["episode_return"]) for record in metrics_records),
-        "mean_survival_steps": _mean(survival_steps),
-        "submitted_observation_frames": submitted,
-        "dropped_observation_count": dropped,
-        "drop_rate_per_1k_observations": dropped * 1000.0 / submitted,
-        "actions_per_step": num_actions / sum(survival_steps),
+        "mean_return": mean([float(record["episode_return"]) for record in metrics_records]),
+        "mean_survival_steps": mean(survival_steps),
         "num_actions": num_actions,
         "num_dropped_actions": sum(int(record["num_dropped_actions"]) for record in metrics_records),
-        "ignored_late_result_count": sum(int(record["metadata"]["ignored_late_result_count"]) for record in metrics_records),
-        "discarded_ready_result_count": sum(int(record["metadata"]["discarded_ready_result_count"]) for record in metrics_records),
-        "fifo_blocked_count": sum(int(record["metadata"]["fifo_blocked_count"]) for record in metrics_records),
-        "env_deadline_miss_count": sum(int(record["metadata"]["env_deadline_miss_count"]) for record in metrics_records),
+        "actions_per_step": num_actions / sum(survival_steps),
+        "drop_rate_per_1k_observations": sums["dropped_observation_count"] * 1000.0 / sums["submitted_observation_frames"],
         "actual_env_fps": series_stats([float(record["metadata"]["actual_env_fps"]) for record in metrics_records]),
         "max_wall_clock_lag_ms": max(float(record["metadata"]["max_wall_clock_lag_ms"]) for record in metrics_records),
+        **sums,
     }
 
 
@@ -228,13 +236,13 @@ def _worker_capacity_summary(
 ) -> dict[str, Any]:
     worker_service_values = [float(sample["worker_service_ms"]) for sample in burst_samples]
     action_ready_values = [float(sample["action_ready_ms"]) for sample in burst_samples]
-    mean_worker_service_ms = _mean(worker_service_values)
+    mean_worker_service_ms = mean(worker_service_values)
     return {
         "inference_worker_count": int(inference_worker_count),
         "mean_worker_service_ms": mean_worker_service_ms,
         "p95_worker_service_ms": percentile_linear(worker_service_values, 95.0),
         "p99_worker_service_ms": percentile_linear(worker_service_values, 99.0),
-        "mean_action_ready_ms": _mean(action_ready_values),
+        "mean_action_ready_ms": mean(action_ready_values),
         "p95_action_ready_ms": percentile_linear(action_ready_values, 95.0),
         "worker_utilization_estimate": mean_worker_service_ms * float(env_fps) / 1000.0 / float(inference_worker_count),
         "p95_worker_service_frames": percentile_linear(worker_service_values, 95.0) * float(env_fps) / 1000.0,
@@ -254,10 +262,10 @@ def _series_temporal_summary(values: list[float]) -> dict[str, Any]:
     threshold = percentile_linear(values, 90.0)
     return {
         "acf": {
-            "lag1": _autocorrelation(values, 1),
-            "lag5": _autocorrelation(values, 5),
-            "lag10": _autocorrelation(values, 10),
-            "lag20": _autocorrelation(values, 20),
+            "lag1": autocorrelation(values, 1),
+            "lag5": autocorrelation(values, 5),
+            "lag10": autocorrelation(values, 10),
+            "lag20": autocorrelation(values, 20),
         },
         "high_tail_threshold_ms": threshold,
         "high_tail_run_lengths": series_stats([float(run) for run in _high_tail_run_lengths(values, threshold)]),
@@ -293,16 +301,6 @@ def _copy_optional_summary(
         manifest[manifest_key] = destination.name
 
 
-def _autocorrelation(values: list[float], lag: int) -> float | None:
-    if lag >= len(values):
-        return None
-    mean_value = _mean(values)
-    variance = sum((value - mean_value) ** 2 for value in values)
-    if variance == 0.0:
-        return 0.0
-    return sum((values[index] - mean_value) * (values[index - lag] - mean_value) for index in range(lag, len(values))) / variance
-
-
 def _high_tail_run_lengths(values: list[float], threshold: float) -> list[int]:
     runs = []
     current = 0
@@ -315,11 +313,6 @@ def _high_tail_run_lengths(values: list[float], threshold: float) -> list[int]:
     if current:
         runs.append(current)
     return runs
-
-
-def _mean(values) -> float:
-    series = list(values)
-    return sum(series) / len(series)
 
 
 if __name__ == "__main__":

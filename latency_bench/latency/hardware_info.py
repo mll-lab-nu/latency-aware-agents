@@ -15,7 +15,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from importlib import metadata
-from typing import Any
+from typing import Any, Callable
 
 
 # GPU fields queried from nvidia-smi, in the order requested below.
@@ -119,11 +119,6 @@ def _collect_gpu_from_gpus(gpus: list[dict[str, Any]]) -> dict[str, Any]:
     return gpu
 
 
-def _nvidia_smi_gpu() -> dict[str, Any]:
-    gpus = _nvidia_smi_gpus()
-    return gpus[0] if gpus else {}
-
-
 def _nvidia_smi_gpus() -> list[dict[str, Any]]:
     output = _run(["nvidia-smi", f"--query-gpu={','.join(_NVIDIA_SMI_FIELDS)}", "--format=csv,noheader"])
     if not output:
@@ -153,6 +148,32 @@ def _torch_gpu() -> dict[str, Any]:
     return info
 
 
+def safe_set(target: dict[str, Any], key: str, getter: Callable[[], Any]) -> None:
+    """Set `target[key]` from `getter()`, skipping the key if the probe raises.
+
+    Best-effort hardware/runtime probes are unavailable on many hosts (no GPU, older
+    torch, missing attribute). Callers want "record it if you can" without a try/except
+    around every field.
+    """
+    try:
+        target[key] = getter()
+    except Exception:
+        pass
+
+
+def torch_backend_flags(torch: Any) -> dict[str, Any]:
+    """SDP / TF32 / cuDNN backend toggles as a flat dict (each field best-effort)."""
+    backends: dict[str, Any] = {}
+    safe_set(backends, "cuda_flash_sdp_enabled", lambda: bool(torch.backends.cuda.flash_sdp_enabled()))
+    safe_set(backends, "cuda_mem_efficient_sdp_enabled", lambda: bool(torch.backends.cuda.mem_efficient_sdp_enabled()))
+    safe_set(backends, "cuda_math_sdp_enabled", lambda: bool(torch.backends.cuda.math_sdp_enabled()))
+    safe_set(backends, "cuda_cudnn_sdp_enabled", lambda: bool(torch.backends.cuda.cudnn_sdp_enabled()))
+    safe_set(backends, "cuda_matmul_allow_tf32", lambda: bool(torch.backends.cuda.matmul.allow_tf32))
+    safe_set(backends, "cudnn_allow_tf32", lambda: bool(torch.backends.cudnn.allow_tf32))
+    safe_set(backends, "cudnn_benchmark", lambda: bool(torch.backends.cudnn.benchmark))
+    return backends
+
+
 def _collect_torch() -> dict[str, Any]:
     try:
         import torch
@@ -161,12 +182,9 @@ def _collect_torch() -> dict[str, Any]:
     info: dict[str, Any] = {
         "version": torch.__version__,
         "cuda_version": getattr(torch.version, "cuda", None),
-        "backends": _torch_backend_flags(torch),
+        "backends": torch_backend_flags(torch),
     }
-    try:
-        info["float32_matmul_precision"] = torch.get_float32_matmul_precision()
-    except Exception:
-        pass
+    safe_set(info, "float32_matmul_precision", torch.get_float32_matmul_precision)
     try:
         info["cuda_available"] = bool(torch.cuda.is_available())
         info["cuda_device_count"] = int(torch.cuda.device_count())
@@ -177,39 +195,6 @@ def _collect_torch() -> dict[str, Any]:
     except Exception:
         pass
     return info
-
-
-def _torch_backend_flags(torch: Any) -> dict[str, Any]:
-    backends: dict[str, Any] = {}
-    try:
-        backends["cuda_flash_sdp_enabled"] = bool(torch.backends.cuda.flash_sdp_enabled())
-    except Exception:
-        pass
-    try:
-        backends["cuda_mem_efficient_sdp_enabled"] = bool(torch.backends.cuda.mem_efficient_sdp_enabled())
-    except Exception:
-        pass
-    try:
-        backends["cuda_math_sdp_enabled"] = bool(torch.backends.cuda.math_sdp_enabled())
-    except Exception:
-        pass
-    try:
-        backends["cuda_cudnn_sdp_enabled"] = bool(torch.backends.cuda.cudnn_sdp_enabled())
-    except Exception:
-        pass
-    try:
-        backends["cuda_matmul_allow_tf32"] = bool(torch.backends.cuda.matmul.allow_tf32)
-    except Exception:
-        pass
-    try:
-        backends["cudnn_allow_tf32"] = bool(torch.backends.cudnn.allow_tf32)
-    except Exception:
-        pass
-    try:
-        backends["cudnn_benchmark"] = bool(torch.backends.cudnn.benchmark)
-    except Exception:
-        pass
-    return backends
 
 
 def _torch_device_properties(torch: Any) -> list[dict[str, Any]]:

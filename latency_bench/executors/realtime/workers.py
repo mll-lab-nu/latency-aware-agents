@@ -27,6 +27,7 @@ from latency_bench.core.types import (
     PolicyOutput,
     StepRecord,
 )
+from latency_bench.latency.hardware_info import safe_set, torch_backend_flags
 from latency_bench.latency.measurement import RuntimeLatencyMeasurer
 from latency_bench.logging.metrics import active_action_step_info
 from latency_bench.logging.records import step_record_info
@@ -157,27 +158,17 @@ def _worker_runtime_metadata(worker_id: int, start_method: str) -> dict[str, Any
         "worker_cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
         "worker_cuda_device_count": torch.cuda.device_count(),
     }
-    try:
-        metadata["worker_cuda_current_device"] = int(torch.cuda.current_device())
-        metadata["worker_cuda_current_device_name"] = str(torch.cuda.get_device_name(torch.cuda.current_device()))
-    except Exception:
-        pass
-    try:
-        metadata["worker_cuda_flash_sdp_enabled"] = bool(torch.backends.cuda.flash_sdp_enabled())
-    except Exception:
-        pass
-    try:
-        metadata["worker_cuda_mem_efficient_sdp_enabled"] = bool(torch.backends.cuda.mem_efficient_sdp_enabled())
-    except Exception:
-        pass
-    try:
-        metadata["worker_cuda_math_sdp_enabled"] = bool(torch.backends.cuda.math_sdp_enabled())
-    except Exception:
-        pass
-    try:
-        metadata["worker_torch_float32_matmul_precision"] = torch.get_float32_matmul_precision()
-    except Exception:
-        pass
+    safe_set(metadata, "worker_cuda_current_device", lambda: int(torch.cuda.current_device()))
+    safe_set(
+        metadata,
+        "worker_cuda_current_device_name",
+        lambda: str(torch.cuda.get_device_name(torch.cuda.current_device())),
+    )
+    backend_flags = torch_backend_flags(torch)
+    for flag_key in ("cuda_flash_sdp_enabled", "cuda_mem_efficient_sdp_enabled", "cuda_math_sdp_enabled"):
+        if flag_key in backend_flags:
+            metadata[f"worker_{flag_key}"] = backend_flags[flag_key]
+    safe_set(metadata, "worker_torch_float32_matmul_precision", torch.get_float32_matmul_precision)
     return metadata
 
 
