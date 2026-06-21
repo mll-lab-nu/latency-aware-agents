@@ -138,17 +138,16 @@ _STANDARD_NORMAL = NormalDist()
 
 
 class BayesMarkovSampler(LatencySampler):
-    """Bayesian Markov chain over e2e/action-visible latency ms bins.
+    """Bayesian Markov chain over worker-service latency ms bins.
 
-    The state is the action-visible latency bin. The chain advances once per
+    The state is the worker-service latency bin. The chain advances once per
     submitted observation; initial/transition distributions are drawn per episode
     from the Dirichlet posterior over recorded counts, and each state's fitted
-    joint emission distribution produces ``(e2e_latency_ms, worker_service_ms)``.
-    Drops stay emergent in the simulator and are never conditioned on, so
-    ``recent_drop_count`` is intentionally ignored.
+    joint emission distribution produces ``(action_ready_ms, worker_service_ms)``.
+    Drops stay emergent in the simulator through worker-service occupancy.
 
     With ``transition_alpha``/``initial_alpha`` -> 0 and ``emission_bootstrap`` off,
-    this degrades to a plain empirical Markov chain over the e2e latency states.
+    this degrades to a plain empirical Markov chain over the worker-service states.
     """
     latency_type = "profile_sample"
 
@@ -199,15 +198,15 @@ class BayesMarkovSampler(LatencySampler):
         state = self.current_state
         self.remaining_run_length -= 1
         record = self._sample_emission(state)
-        e2e_latency_ms = float(record["e2e_latency_ms"])
+        action_ready_ms = float(record["action_ready_ms"])
         worker_service_ms = float(record["worker_service_ms"])
-        action_ready_raw_frames = self.clock.latency_ms_to_raw_frames(e2e_latency_ms)
+        action_ready_raw_frames = self.clock.latency_ms_to_raw_frames(action_ready_ms)
         worker_service_raw_frames = self.clock.latency_ms_to_raw_frames(worker_service_ms)
         return LatencySample.from_action_ready(
             action_ready_raw_frames=action_ready_raw_frames,
             worker_service_raw_frames=worker_service_raw_frames,
             worker_service_ms=worker_service_ms,
-            latency_ms=e2e_latency_ms,
+            latency_ms=action_ready_ms,
             clock=self.clock,
         )
 
@@ -234,13 +233,13 @@ class BayesMarkovSampler(LatencySampler):
     def _sample_emission(self, state: str) -> dict[str, Any]:
         distribution = self.model["emission_distributions_by_state"][state]
         rho = max(-0.999999, min(0.999999, float(distribution["spearman_rho"])))
-        z_e2e = self.rng.normalvariate(0.0, 1.0)
-        z_worker = rho * z_e2e + math.sqrt(1.0 - rho * rho) * self.rng.normalvariate(0.0, 1.0)
-        e2e_latency_ms = sample_inverse_cdf(
+        z_action_ready = self.rng.normalvariate(0.0, 1.0)
+        z_worker = rho * z_action_ready + math.sqrt(1.0 - rho * rho) * self.rng.normalvariate(0.0, 1.0)
+        action_ready_ms = sample_inverse_cdf(
             self.rng,
-            distribution["e2e_latency_ms"]["quantile_levels"],
-            distribution["e2e_latency_ms"]["latency_ms"],
-            quantile=_STANDARD_NORMAL.cdf(z_e2e),
+            distribution["action_ready_ms"]["quantile_levels"],
+            distribution["action_ready_ms"]["latency_ms"],
+            quantile=_STANDARD_NORMAL.cdf(z_action_ready),
         )
         worker_service_ms = sample_inverse_cdf(
             self.rng,
@@ -249,7 +248,7 @@ class BayesMarkovSampler(LatencySampler):
             quantile=_STANDARD_NORMAL.cdf(z_worker),
         )
         return {
-            "e2e_latency_ms": e2e_latency_ms,
+            "action_ready_ms": action_ready_ms,
             "worker_service_ms": worker_service_ms,
         }
 

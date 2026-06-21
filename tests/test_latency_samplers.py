@@ -60,9 +60,9 @@ def _write_latency_profile(
         {
             "episode_id": 0,
             "sample_index": index,
-            "e2e_latency_ms": float(action_ready) * 40.0,
-            "e2e_latency_ms_bin": int(float(action_ready) * 40.0),
+            "action_ready_ms": float(action_ready) * 40.0,
             "worker_service_ms": float(worker_service) * 40.0,
+            "worker_service_ms_bin": int(float(worker_service) * 40.0),
         }
         for index, (worker_service, action_ready) in enumerate(worker_service_sequence)
     ]
@@ -87,7 +87,7 @@ def _write_latency_profile(
         manifest["latency_method"] = "temporal"
         manifest["sample_model_type"] = "bayes_markov"
         manifest["burst_model_path"] = "latency_burst_model.json"
-        manifest["burst_state_key"] = "e2e_latency_ms_bin"
+        manifest["burst_state_key"] = "worker_service_ms_bin"
     save_profile_manifest(manifest, profile_dir / "profile.json")
     return profile_dir
 
@@ -209,9 +209,9 @@ def test_bayes_markov_quantizes_worker_service_ms_on_current_clock():
             {
                 "episode_id": 0,
                 "sample_index": 0,
-                "e2e_latency_ms": 40.0,
-                "e2e_latency_ms_bin": 40,
+                "action_ready_ms": 40.0,
                 "worker_service_ms": 75.0,
+                "worker_service_ms_bin": 75,
             }
         ]
     )

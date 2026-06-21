@@ -176,6 +176,8 @@ def test_worker_runtime_metadata_records_spawn_context(monkeypatch):
     assert "worker_torch_cuda_version" in metadata
     assert metadata["worker_cuda_visible_devices"] == "0,1"
     assert isinstance(metadata["worker_cuda_device_count"], int)
+    assert "worker_cuda_flash_sdp_enabled" in metadata
+    assert "worker_torch_float32_matmul_precision" in metadata
 
 
 class ClosedActionEventPipe:

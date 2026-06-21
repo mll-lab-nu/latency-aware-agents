@@ -8,13 +8,13 @@ from latency_bench.latency.burst_profile import (
 )
 
 
-def _model_sample(episode_id: int, sample_index: int, e2e_latency_ms: float, worker_service_ms: float) -> dict:
+def _model_sample(episode_id: int, sample_index: int, action_ready_ms: float, worker_service_ms: float) -> dict:
     return {
         "episode_id": episode_id,
         "sample_index": sample_index,
-        "e2e_latency_ms": e2e_latency_ms,
+        "action_ready_ms": action_ready_ms,
         "worker_service_ms": worker_service_ms,
-        "e2e_latency_ms_bin": int(e2e_latency_ms // 1.0),
+        "worker_service_ms_bin": int(worker_service_ms // 1.0),
     }
 
 
@@ -29,6 +29,7 @@ def _action_record(
     episode_id: int | None = None,
 ) -> dict:
     metadata: dict = {
+        "frame_ms": 40.0,
         "realtime_profile": {
             "env_observe_ms": 1.0,
             "env_to_parent_ipc_ms": 2.0,
@@ -48,6 +49,7 @@ def _action_record(
         "action_id": action_id,
         "obs_env_step": obs_env_step,
         "ready_raw_frame": ready_raw_frame,
+        "ready_time_ms": float(ready_raw_frame) * 40.0,
         "applied": applied,
         "dropped": dropped,
         "latency": {"latency_ms": latency_ms},
@@ -55,8 +57,8 @@ def _action_record(
     }
 
 
-def test_build_bayes_markov_burst_model_uses_e2e_ms_bin_transitions():
-    # Single episode e2e bin sequence: [40, 40, 81, 120, 120]
+def test_build_bayes_markov_burst_model_uses_worker_service_ms_bin_transitions():
+    # Single episode worker-service bin sequence: [39, 39, 79, 118, 119]
     samples = [
         _model_sample(0, 0, 40.1, 39.5),
         _model_sample(0, 1, 40.8, 39.9),
@@ -67,24 +69,24 @@ def test_build_bayes_markov_burst_model_uses_e2e_ms_bin_transitions():
 
     model = build_bayes_markov_burst_model(samples)
 
-    assert model["schema_version"] == 4
+    assert model["schema_version"] == 5
     assert model["model_type"] == "bayes_markov"
     assert model["reset_scope"] == "episode"
-    assert model["state_key"] == "e2e_latency_ms_bin"
+    assert model["state_key"] == "worker_service_ms_bin"
     assert model["bin_width_ms"] == 1.0
-    assert model["initial_state_counts"] == {"40": 1}
-    # Per-adjacent-pair transitions (NOT per-run): (40,40)(40,81)(81,120)(120,120).
+    assert model["initial_state_counts"] == {"39": 1}
+    # Per-adjacent-pair transitions (NOT per-run): (39,39)(39,79)(79,118)(118,119).
     assert model["transition_counts"] == {
-        "40": {"40": 1, "81": 1},
-        "81": {"120": 1},
-        "120": {"120": 1},
+        "39": {"39": 1, "79": 1},
+        "79": {"118": 1},
+        "118": {"119": 1},
     }
-    assert model["run_lengths_by_state"] == {"40": [2], "81": [1], "120": [2]}
-    assert model["state_counts"] == {"40": 2, "81": 1, "120": 2}
+    assert model["run_lengths_by_state"] == {"39": [2], "79": [1], "118": [1], "119": [1]}
+    assert model["state_counts"] == {"39": 2, "79": 1, "118": 1, "119": 1}
     assert "emissions_by_state" not in model
-    assert model["emission_distributions_by_state"]["40"]["count"] == 2
-    assert model["emission_distributions_by_state"]["40"]["e2e_latency_ms"]["latency_ms"][0] == pytest.approx(40.1)
-    assert model["emission_distributions_by_state"]["120"]["worker_service_ms"]["latency_ms"][-1] == pytest.approx(119.0)
+    assert model["emission_distributions_by_state"]["39"]["count"] == 2
+    assert model["emission_distributions_by_state"]["39"]["action_ready_ms"]["latency_ms"][0] == pytest.approx(40.1)
+    assert model["emission_distributions_by_state"]["119"]["worker_service_ms"]["latency_ms"][-1] == pytest.approx(119.0)
 
 
 def test_build_bayes_markov_burst_model_counts_initial_state_per_episode():
@@ -97,14 +99,14 @@ def test_build_bayes_markov_burst_model_counts_initial_state_per_episode():
 
     model = build_bayes_markov_burst_model(samples)
 
-    assert model["initial_state_counts"] == {"40": 1, "80": 1}
-    assert model["transition_counts"] == {"40": {"80": 1}, "80": {"40": 1}}
+    assert model["initial_state_counts"] == {"39": 1, "78": 1}
+    assert model["transition_counts"] == {"39": {"78": 1}, "78": {"39": 1}}
 
 
-def test_build_bayes_markov_burst_samples_uses_applied_e2e_records():
+def test_build_bayes_markov_burst_samples_uses_all_completed_worker_service_records():
     action_records = [
         _action_record(action_id=10, obs_env_step=4, ready_raw_frame=6, latency_ms=25.0, applied=True, dropped=False),
-        _action_record(action_id=11, obs_env_step=8, ready_raw_frame=11, latency_ms=70.0, applied=False, dropped=True),
+        _action_record(action_id=11, obs_env_step=8, ready_raw_frame=11, latency_ms=70.0, applied=False, dropped=False),
     ]
     metrics = [{"episode_id": 3, "num_actions": 2, "metadata": {"frame_ms": 40.0}}]
 
@@ -119,9 +121,21 @@ def test_build_bayes_markov_burst_samples_uses_applied_e2e_records():
             "ready_raw_frame": 6,
             "applied": True,
             "dropped": False,
-            "e2e_latency_ms": 53.0,
-            "e2e_latency_ms_bin": 53,
+            "action_ready_ms": 80.0,
+            "worker_service_ms_bin": 25,
             "worker_service_ms": 25.0,
+        },
+        {
+            "episode_id": 3,
+            "sample_index": 1,
+            "action_id": 11,
+            "obs_env_step": 8,
+            "ready_raw_frame": 11,
+            "applied": False,
+            "dropped": False,
+            "action_ready_ms": 120.0,
+            "worker_service_ms_bin": 70,
+            "worker_service_ms": 70.0,
         },
     ]
 

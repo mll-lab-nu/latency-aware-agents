@@ -57,34 +57,37 @@ def _write_actions(path: Path) -> None:
             "action_id": 0,
             "obs_env_step": 0,
             "ready_raw_frame": 1,
+            "ready_time_ms": 40.0,
             "apply_raw_frame": 1,
             "latency_raw_frames": 1,
             "applied": True,
             "dropped": False,
             "latency": {"latency_ms": 10.0},
-            "metadata": {"realtime_profile": _ZERO_IPC_PROFILE},
+            "metadata": {"frame_ms": 40.0, "realtime_profile": _ZERO_IPC_PROFILE},
         },
         {
             "action_id": 1,
             "obs_env_step": 1,
             "ready_raw_frame": 2,
+            "ready_time_ms": 80.0,
             "apply_raw_frame": 2,
             "latency_raw_frames": 1,
             "applied": True,
             "dropped": False,
             "latency": {"latency_ms": 11.0},
-            "metadata": {"realtime_profile": _ZERO_IPC_PROFILE},
+            "metadata": {"frame_ms": 40.0, "realtime_profile": _ZERO_IPC_PROFILE},
         },
         {
             "action_id": 2,
             "obs_env_step": 2,
             "ready_raw_frame": 4,
+            "ready_time_ms": 160.0,
             "apply_raw_frame": 4,
             "latency_raw_frames": 2,
             "applied": True,
             "dropped": False,
             "latency": {"latency_ms": 50.0},
-            "metadata": {"realtime_profile": _ZERO_IPC_PROFILE},
+            "metadata": {"frame_ms": 40.0, "realtime_profile": _ZERO_IPC_PROFILE},
         },
     ]
     path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
@@ -182,13 +185,14 @@ def test_build_latency_profile_from_trace_writes_latency_burst_model(tmp_path: P
     assert manifest["sample_model_type"] == "bayes_markov"
     assert manifest["burst_samples_path"] == "latency_burst_samples.jsonl"
     assert manifest["burst_model_path"] == "latency_burst_model.json"
-    assert manifest["burst_state_key"] == "e2e_latency_ms_bin"
+    assert manifest["burst_state_key"] == "worker_service_ms_bin"
     burst_samples = load_jsonl_records(output_dir / "latency_burst_samples.jsonl")
-    assert [sample["e2e_latency_ms_bin"] for sample in burst_samples] == [10, 11, 50]
+    assert [sample["action_ready_ms"] for sample in burst_samples] == [40.0, 40.0, 80.0]
+    assert [sample["worker_service_ms_bin"] for sample in burst_samples] == [10, 11, 50]
     assert [sample["worker_service_ms"] for sample in burst_samples] == [10.0, 11.0, 50.0]
     burst_model = json.loads((output_dir / "latency_burst_model.json").read_text(encoding="utf-8"))
-    assert burst_model["schema_version"] == 4
-    assert burst_model["state_key"] == "e2e_latency_ms_bin"
+    assert burst_model["schema_version"] == 5
+    assert burst_model["state_key"] == "worker_service_ms_bin"
     assert burst_model["initial_state_counts"] == {"10": 1}
     assert burst_model["transition_counts"] == {"10": {"11": 1}, "11": {"50": 1}}
     assert burst_model["run_lengths_by_state"] == {"10": [1], "11": [1], "50": [1]}
