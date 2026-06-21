@@ -27,6 +27,14 @@ RUNTIME_SPEC = {
 }
 
 
+def _first_runtime_generated_config(out: Path, stage: str) -> Path:
+    return next(
+        path
+        for path in (out / "generated_configs" / stage).rglob("*.yaml")
+        if not path.name.endswith(".calibration.yaml")
+    )
+
+
 def _write_base_config(path: Path) -> None:
     config = {
         "experiment": {"name": "dry_run_policy_seed0", "seed": 0},
@@ -594,7 +602,7 @@ def test_starvla_openvla_dry_run_uses_starvla_config_metadata(tmp_path: Path):
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
-    generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
+    generated = _first_runtime_generated_config(out, "measure")
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["policy"]["type"] == "starvla"
     assert "base_model_path" not in config["policy"]
@@ -634,7 +642,7 @@ def test_openvla_smoke_dry_run_uses_isolated_run_id_and_step_cap(tmp_path: Path)
     assert "eval_max_steps: 7" in result.stdout
     assert "smoke_seed_0_n1" in result.stdout
     assert "profiles_smoke/demon-attack-openvla/demon_attack" in result.stdout
-    generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
+    generated = _first_runtime_generated_config(out, "measure")
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["evaluation"]["eval_episodes"] == 1
     assert config["evaluation"]["eval_max_steps"] == 7
@@ -664,7 +672,7 @@ def test_flappy_starvla_dry_run_uses_starvla_checkpoint_config(tmp_path: Path):
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
-    generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
+    generated = _first_runtime_generated_config(out, "measure")
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["policy"]["type"] == "starvla"
     assert "base_model_path" not in config["policy"]
@@ -695,7 +703,7 @@ def test_deadly_openvla_dry_run_writes_config(tmp_path: Path):
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
-    generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
+    generated = _first_runtime_generated_config(out, "measure")
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["policy"]["type"] == "starvla"
     assert config["env"]["obs_fps"] == 8.75
@@ -842,7 +850,7 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
     )
 
     assert "-m latency_bench.run" in result.stdout
-    generated = next((out / "generated_configs" / "sim_same").rglob("*.yaml"))
+    generated = _first_runtime_generated_config(out, "sim_same")
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["executor"]["mode"] == "simulated"
     assert config["executor"]["simulated_worker_capacity"] == 2
@@ -886,7 +894,7 @@ def test_sim_same_dry_run_passes_profile_sampler_to_generated_config(tmp_path: P
         "1",
     )
 
-    generated = next((out / "generated_configs" / "sim_same").rglob("*.yaml"))
+    generated = _first_runtime_generated_config(out, "sim_same")
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["latency"]["sampler"] == "iid_inverse_cdf"
 
@@ -979,13 +987,13 @@ def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
     assert "--n-warmup" not in result.stdout
     assert "e2e_latencies.jsonl" in result.stdout
     assert "infer_latencies.jsonl" in result.stdout
-    generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
-    warmup_generated = next((out / "generated_configs" / "measure").rglob("*.warmup.yaml"))
+    generated = _first_runtime_generated_config(out, "measure")
+    calibration_generated = next((out / "generated_configs" / "measure").rglob("*.calibration.yaml"))
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
-    warmup_config = yaml.safe_load(warmup_generated.read_text(encoding="utf-8"))
+    calibration_config = yaml.safe_load(calibration_generated.read_text(encoding="utf-8"))
     assert config["executor"]["mode"] == "realtime"
-    assert warmup_config["executor"]["mode"] == "realtime"
-    assert str(warmup_generated) in result.stdout
+    assert calibration_config["executor"]["mode"] == "realtime"
+    assert str(calibration_generated) in result.stdout
     assert "type" not in config["latency"]
     assert config["latency"]["device"] == "cuda:0"
     assert config["latency"]["sync_cuda"] is True
@@ -1076,7 +1084,7 @@ def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monke
 
     def fake_run(command, check):
         commands.append(list(command))
-        if "latency_bench.experiments.calibrate_env_fps_from_warmup" in command:
+        if "latency_bench.experiments.calibrate_env_fps_from_saturated_latency" in command:
             output_path = Path(command[command.index("--output") + 1])
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(
@@ -1106,7 +1114,7 @@ def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monke
     runner._run_task(task, spec, {"raw": "a100", "device": current_device}, runtime, args, out)
 
     assert [command[2] for command in commands] == [
-        "latency_bench.experiments.calibrate_env_fps_from_warmup",
+        "latency_bench.experiments.calibrate_env_fps_from_saturated_latency",
         "latency_bench.run",
         "latency_bench.experiments.build_latency_profile_from_trace",
     ]
@@ -1168,7 +1176,7 @@ def test_measure_run_does_not_forward_n_samples_to_eval_or_profile(tmp_path: Pat
 
     def fake_run(command, check):
         commands.append(list(command))
-        if "latency_bench.experiments.calibrate_env_fps_from_warmup" in command:
+        if "latency_bench.experiments.calibrate_env_fps_from_saturated_latency" in command:
             output_path = Path(command[command.index("--output") + 1])
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(
@@ -1268,7 +1276,7 @@ def test_measure_run_does_not_continue_after_episodes_until_n_samples(tmp_path: 
 
     def fake_run(command, check):
         commands.append(list(command))
-        if "latency_bench.experiments.calibrate_env_fps_from_warmup" in command:
+        if "latency_bench.experiments.calibrate_env_fps_from_saturated_latency" in command:
             output_path = Path(command[command.index("--output") + 1])
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(
@@ -1382,15 +1390,15 @@ def test_measure_run_records_failed_calibration_manifest_without_eval(tmp_path: 
     with pytest.raises(subprocess.CalledProcessError):
         runner._run_task(task, spec, {"raw": "a100", "device": current_device}, runtime, args, out)
 
-    assert [command[2] for command in commands] == ["latency_bench.experiments.calibrate_env_fps_from_warmup"]
+    assert [command[2] for command in commands] == ["latency_bench.experiments.calibrate_env_fps_from_saturated_latency"]
     manifest = json.loads((task.output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "failed"
     assert manifest["python_executable"] == sys.executable
     assert manifest["cuda_visible_devices"] == "2,3"
     assert manifest["torch_version"]
     assert "torch_cuda_version" in manifest
-    assert "latency_bench.experiments.calibrate_env_fps_from_warmup" in manifest["calibration_command"]
-    assert manifest["warmup_generated_config_path"].endswith(".warmup.yaml")
+    assert "latency_bench.experiments.calibrate_env_fps_from_saturated_latency" in manifest["calibration_command"]
+    assert manifest["calibration_generated_config_path"].endswith(".calibration.yaml")
     assert manifest["calibration_output_path"].endswith("env_fps_calibration.json")
     records = [
         json.loads(line)
@@ -1441,7 +1449,7 @@ def test_measure_dry_run_uses_base_config_fps_not_protocol_row_fps(tmp_path: Pat
         "1",
     )
 
-    generated = next((out / "generated_configs" / "measure").rglob("*.yaml"))
+    generated = _first_runtime_generated_config(out, "measure")
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["env"]["name"] == "deadly_corridor"
     assert config["env"]["env_fps"] == 60
@@ -1485,7 +1493,7 @@ def test_stage_overrides_can_raise_deadly_corridor_measure_episodes_only(tmp_pat
         "--max-runs",
         "1",
     )
-    measure_config = yaml.safe_load(next((measure_out / "generated_configs" / "measure").rglob("*.yaml")).read_text())
+    measure_config = yaml.safe_load(_first_runtime_generated_config(measure_out, "measure").read_text())
     assert measure_config["evaluation"]["eval_episodes"] == 1000
     assert "best_seed_0_n1000" in measure_config["logging"]["output_dir"]
 
@@ -1520,7 +1528,7 @@ def test_cli_n_episodes_overrides_stage_overrides(tmp_path: Path):
         "20",
     )
 
-    config = yaml.safe_load(next((out / "generated_configs" / "measure").rglob("*.yaml")).read_text())
+    config = yaml.safe_load(_first_runtime_generated_config(out, "measure").read_text())
     assert config["evaluation"]["eval_episodes"] == 20
     assert "best_seed_0_n20" in config["logging"]["output_dir"]
 

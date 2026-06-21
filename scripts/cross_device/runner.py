@@ -183,16 +183,16 @@ def _run_task(
     if sim_worker_plan:
         _add_sim_worker_manifest_fields(manifest, sim_worker_plan)
     if task.stage == "measure":
-        warmup_config_path = _warmup_generated_config_path(task)
+        calibration_config_path = _calibration_generated_config_path(task)
         calibration_path = _calibration_output_path(task)
-        calibration_cmd = _calibration_command(task, spec, warmup_config_path, calibration_path)
-        _add_calibration_manifest_fields(manifest, warmup_config_path, calibration_path, calibration_cmd)
+        calibration_cmd = _calibration_command(task, spec, calibration_config_path, calibration_path)
+        _add_calibration_manifest_fields(manifest, calibration_config_path, calibration_path, calibration_cmd)
     task.output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.dry_run:
         _write_generated_config(task.generated_config_path, config)
         if task.stage == "measure":
-            _write_generated_config(warmup_config_path, config)
+            _write_generated_config(calibration_config_path, config)
             profile_cmd = _profile_command(task, spec, args.overwrite, config)
         print(f"generated_config: {task.generated_config_path}")
         if sim_worker_plan:
@@ -206,7 +206,7 @@ def _run_task(
 
     try:
         if task.stage == "measure":
-            _write_generated_config(warmup_config_path, config)
+            _write_generated_config(calibration_config_path, config)
             write_json(task.output_dir / "manifest.json", manifest)
             subprocess.run(calibration_cmd, check=True)
             _apply_env_fps_calibration(config, calibration_path)
@@ -489,8 +489,8 @@ def _finalize_profile_artifacts(task: ProtocolTask, out: Path, manifest: dict[st
         manifest["notes"] = _append_note(manifest.get("notes"), f"hf upload failed: {exc}")
 
 
-def _warmup_generated_config_path(task: ProtocolTask) -> Path:
-    return task.generated_config_path.parent / f"{task.generated_config_path.stem}.warmup.yaml"
+def _calibration_generated_config_path(task: ProtocolTask) -> Path:
+    return task.generated_config_path.parent / f"{task.generated_config_path.stem}.calibration.yaml"
 
 
 def _calibration_output_path(task: ProtocolTask) -> Path:
@@ -501,7 +501,7 @@ def _calibration_command(task: ProtocolTask, spec: dict[str, Any], config_path: 
     return [
         sys.executable,
         "-m",
-        "latency_bench.experiments.calibrate_env_fps_from_warmup",
+        "latency_bench.experiments.calibrate_env_fps_from_saturated_latency",
         "--config",
         str(config_path),
         "--output",
@@ -515,11 +515,11 @@ def _calibration_command(task: ProtocolTask, spec: dict[str, Any], config_path: 
 
 def _add_calibration_manifest_fields(
     manifest: dict[str, Any],
-    warmup_config_path: Path,
+    calibration_config_path: Path,
     calibration_path: Path,
     calibration_cmd: list[str],
 ) -> None:
-    manifest["warmup_generated_config_path"] = str(warmup_config_path)
+    manifest["calibration_generated_config_path"] = str(calibration_config_path)
     manifest["calibration_output_path"] = str(calibration_path)
     manifest["calibration_command"] = shlex.join(calibration_cmd)
 
@@ -674,13 +674,13 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
             print(f"generated_config_error: {exc}")
             continue
         if task.stage == "measure":
-            warmup_config_path = _warmup_generated_config_path(task)
-            _write_generated_config(warmup_config_path, config)
-            print(f"warmup_generated_config_path: {warmup_config_path}")
+            calibration_config_path = _calibration_generated_config_path(task)
+            _write_generated_config(calibration_config_path, config)
+            print(f"calibration_generated_config_path: {calibration_config_path}")
             print(f"calibration_output_path: {_calibration_output_path(task)}")
             print(
                 "calibration_command: "
-                f"{shlex.join(_calibration_command(task, spec, warmup_config_path, _calibration_output_path(task)))}"
+                f"{shlex.join(_calibration_command(task, spec, calibration_config_path, _calibration_output_path(task)))}"
             )
             print(f"profile_command: {shlex.join(_profile_command(task, spec, False, config))}")
         print(f"eval_max_steps: {config.get('evaluation', {}).get('eval_max_steps', '')}")

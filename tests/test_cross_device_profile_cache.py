@@ -205,3 +205,4 @@ def test_download_results_tree_filters_full_runtime_telemetry_but_keeps_summary(
 
     assert "**/runs/**/runtime_telemetry.jsonl" in RESULTS_DEBUG_IGNORE
     assert "**/runs/**/runtime_telemetry_summary.json" not in RESULTS_DEBUG_IGNORE
+    assert "**/*.calibration.yaml" in RESULTS_DEBUG_IGNORE

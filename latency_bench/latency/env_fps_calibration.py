@@ -24,7 +24,7 @@ class EnvFpsCalibration:
         return asdict(self)
 
 
-def select_env_fps_from_warmup(
+def select_env_fps_from_latency_samples(
     *,
     latency_samples_ms: list[float],
     target_latency_frames: int,
