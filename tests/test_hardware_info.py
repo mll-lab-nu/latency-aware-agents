@@ -76,7 +76,7 @@ def test_probes_degrade_when_tools_missing(monkeypatch):
 
 def test_nvidia_smi_field_count_mismatch_yields_empty(monkeypatch):
     monkeypatch.setattr(hardware_info, "_run", lambda cmd: "only, three, fields")
-    assert hardware_info._nvidia_smi_gpu() == {}
+    assert hardware_info._nvidia_smi_gpus() == []
 
 
 def _fake_run(cmd: list[str]) -> str | None:

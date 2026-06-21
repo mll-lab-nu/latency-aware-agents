@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from scripts.cross_device import runner
 
 
-def test_finalize_profile_artifacts_writes_diagnostics_json(tmp_path, monkeypatch):
+def test_finalize_profile_artifacts_writes_hardware_fingerprint(tmp_path, monkeypatch):
     profile_dir = tmp_path / "profiles" / "openvla-flappy" / "flappy" / "L_L40S"
     profile_dir.mkdir(parents=True)
     (profile_dir / "profile.json").write_text(json.dumps({"profile_id": "L_L40S"}) + "\n", encoding="utf-8")
@@ -20,10 +20,10 @@ def test_finalize_profile_artifacts_writes_diagnostics_json(tmp_path, monkeypatc
     runner._finalize_profile_artifacts(task, tmp_path, manifest)
 
     assert json.loads((profile_dir / "hardware.json").read_text(encoding="utf-8")) == fingerprint
-    assert json.loads((profile_dir / "diagnostics.json").read_text(encoding="utf-8")) == fingerprint
+    assert not (profile_dir / "diagnostics.json").exists()
     profile = json.loads((profile_dir / "profile.json").read_text(encoding="utf-8"))
     assert profile["hardware"] == fingerprint
-    assert profile["diagnostics_path"] == "diagnostics.json"
+    assert profile["diagnostics_path"] == "hardware.json"
 
 
 def test_subprocess_runtime_telemetry_is_nonblocking(tmp_path, monkeypatch):

@@ -37,6 +37,20 @@ def mean(values: Sequence[float]) -> float:
     return float(sum(values) / len(values))
 
 
+def autocorrelation(values: Sequence[float], lag: int) -> float | None:
+    """Sample autocorrelation at `lag`; None when the lag exceeds the series length."""
+    if lag >= len(values):
+        return None
+    series_mean = mean(values)
+    variance = sum((value - series_mean) ** 2 for value in values)
+    if variance == 0.0:
+        return 0.0
+    return sum(
+        (values[index] - series_mean) * (values[index - lag] - series_mean)
+        for index in range(lag, len(values))
+    ) / variance
+
+
 def std(values: Sequence[float]) -> float:
     if not values:
         return math.nan

@@ -22,12 +22,13 @@ def test_apply_backfill_writes_profile_and_manifest_diagnostics(tmp_path, monkey
     written = backfill.apply_backfill(profile_dir=profile_dir, run_dir=run_dir)
 
     assert written == {
-        "diagnostics_path": str(profile_dir / "diagnostics.json"),
         "hardware_path": str(profile_dir / "hardware.json"),
         "manifest_path": str(run_dir / "manifest.json"),
         "profile_path": str(profile_dir / "profile.json"),
     }
+    assert not (profile_dir / "diagnostics.json").exists()
     assert json.loads((profile_dir / "hardware.json").read_text(encoding="utf-8")) == fingerprint
-    assert json.loads((profile_dir / "diagnostics.json").read_text(encoding="utf-8")) == fingerprint
-    assert json.loads((profile_dir / "profile.json").read_text(encoding="utf-8"))["hardware"] == fingerprint
+    profile = json.loads((profile_dir / "profile.json").read_text(encoding="utf-8"))
+    assert profile["hardware"] == fingerprint
+    assert profile["diagnostics_path"] == "hardware.json"
     assert json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))["hardware_fingerprint"] == fingerprint

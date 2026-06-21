@@ -21,10 +21,7 @@ import torch
 
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
 from latency_bench.latency.runtime_telemetry import RuntimeTelemetryMonitor
-from latency_bench.latency.profile import (
-    load_profile_manifest,
-    save_profile_manifest,
-)
+from latency_bench.latency.profile import attach_hardware_fingerprint
 from latency_bench.utils.io import load_jsonl_records, read_json, write_json, write_jsonl
 from scripts.cross_device.config import (
     _eval_command,
@@ -468,15 +465,7 @@ def _finalize_profile_artifacts(task: ProtocolTask, out: Path, manifest: dict[st
     if profile_dir is None:
         return
     try:
-        fingerprint = _host_fingerprint()
-        write_json(profile_dir / "hardware.json", fingerprint)
-        write_json(profile_dir / "diagnostics.json", fingerprint)
-        profile_path = profile_dir / "profile.json"
-        if profile_path.exists():
-            profile = load_profile_manifest(profile_path)
-            profile["hardware"] = fingerprint
-            profile["diagnostics_path"] = "diagnostics.json"
-            save_profile_manifest(profile, profile_path)
+        attach_hardware_fingerprint(profile_dir, _host_fingerprint())
     except Exception as exc:
         manifest["notes"] = _append_note(manifest.get("notes"), f"hardware fingerprint failed: {exc}")
 

@@ -167,6 +167,9 @@ def _sample_nvidia_smi() -> list[dict[str, Any]]:
 
 
 def _number(value: str) -> float:
+    # `parse_nvidia_smi_sample` accepts raw `--format=csv` rows that carry units
+    # (e.g. "95 %", "281.50 W"); the live sampler uses `nounits`, but the unit
+    # stripping keeps the parser usable on unit-bearing CSV captured elsewhere.
     return float(
         value.replace("%", "")
         .replace("W", "")

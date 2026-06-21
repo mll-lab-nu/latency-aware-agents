@@ -10,36 +10,25 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
-from latency_bench.latency.profile import load_profile_manifest, save_profile_manifest
+from latency_bench.latency.profile import attach_hardware_fingerprint
 from latency_bench.utils.io import read_json, write_json
 from scripts.cross_device.profile_cache import upload_folder_to_hf
 
 
 def apply_backfill(*, profile_dir: Path, run_dir: Path) -> dict[str, str]:
     fingerprint = collect_hardware_fingerprint()
-    profile_path = profile_dir / "profile.json"
-    hardware_path = profile_dir / "hardware.json"
-    diagnostics_path = profile_dir / "diagnostics.json"
+    hardware_path = attach_hardware_fingerprint(profile_dir, fingerprint)
     manifest_path = run_dir / "manifest.json"
-
-    write_json(hardware_path, fingerprint)
-    write_json(diagnostics_path, fingerprint)
-
-    profile = load_profile_manifest(profile_path)
-    profile["hardware"] = fingerprint
-    profile["diagnostics_path"] = diagnostics_path.name
-    save_profile_manifest(profile, profile_path)
 
     manifest = read_json(manifest_path)
     manifest["hardware_fingerprint"] = fingerprint
-    manifest["diagnostics_path"] = str(diagnostics_path)
+    manifest["diagnostics_path"] = str(hardware_path)
     write_json(manifest_path, manifest)
 
     return {
-        "diagnostics_path": str(diagnostics_path),
         "hardware_path": str(hardware_path),
         "manifest_path": str(manifest_path),
-        "profile_path": str(profile_path),
+        "profile_path": str(profile_dir / "profile.json"),
     }
 
 
@@ -49,7 +38,7 @@ def upload_backfill(*, profile_dir: Path, run_dir: Path, repo_id: str, repo_type
         repo_type=repo_type,
         local_dir=profile_dir,
         path_in_repo=profile_path_in_repo,
-        allow_patterns=["profile.json", "hardware.json", "diagnostics.json"],
+        allow_patterns=["profile.json", "hardware.json"],
     )
     upload_folder_to_hf(
         repo_id=repo_id,
