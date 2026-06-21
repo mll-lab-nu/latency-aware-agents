@@ -30,6 +30,11 @@ def _profiled_event() -> ActionEvent:
                 "parent_to_env_ipc_ms": 8.0,
                 "env_action_recv_to_enqueue_ms": 9.0,
                 "env_scheduler_update_ms": 10.0,
+                "worker_observation_attach_ms": 0.5,
+                "worker_observation_localize_ms": 0.6,
+                "policy_build_example_ms": 1.1,
+                "policy_wrapper_predict_action_ms": 37.0,
+                "policy_decode_ms": 1.3,
                 "env_step_ms": 11.0,
                 "env_wall_lag_ms": 12.0,
             },
@@ -47,6 +52,11 @@ def test_realtime_pipeline_profile_rows_focus_on_inference_and_bench_overhead() 
     assert row["env_observe_ms"] == 1.0
     assert row["parent_to_worker_ipc_ms"] == 4.0
     assert row["worker_to_parent_ipc_ms"] == 6.0
+    assert row["worker_observation_attach_ms"] == 0.5
+    assert row["worker_observation_localize_ms"] == 0.6
+    assert row["policy_build_example_ms"] == 1.1
+    assert row["policy_wrapper_predict_action_ms"] == 37.0
+    assert row["policy_decode_ms"] == 1.3
     assert row["env_step_ms"] == 11.0
     assert row["env_wall_lag_ms"] == 12.0
     assert row["bench_overhead_ms"] == 55.0
@@ -61,6 +71,8 @@ def test_realtime_pipeline_summary_reports_stage_breakdown() -> None:
     assert summary["inference_latency_ms"]["mean"] == 40.0
     assert summary["bench_overhead_ms"]["mean"] == 55.0
     assert summary["stages"]["env_observe_ms"]["mean"] == 1.0
+    assert summary["stages"]["worker_observation_localize_ms"]["mean"] == 0.6
+    assert summary["stages"]["policy_wrapper_predict_action_ms"]["mean"] == 37.0
     assert summary["stages"]["env_step_ms"]["mean"] == 11.0
 
 

@@ -28,6 +28,11 @@ BENCH_OVERHEAD_STAGE_KEYS = (
 # that are reported but not summed into bench overhead.
 REPORTED_STAGE_KEYS = (
     *BENCH_OVERHEAD_STAGE_KEYS,
+    "worker_observation_attach_ms",
+    "worker_observation_localize_ms",
+    "policy_build_example_ms",
+    "policy_wrapper_predict_action_ms",
+    "policy_decode_ms",
     "env_step_ms",
     "env_wall_lag_ms",
 )
@@ -54,6 +59,11 @@ class PipelineProfile:
     parent_to_env_ipc_ms: float | None = None
     env_action_recv_to_enqueue_ms: float | None = None
     env_scheduler_update_ms: float | None = None
+    worker_observation_attach_ms: float | None = None
+    worker_observation_localize_ms: float | None = None
+    policy_build_example_ms: float | None = None
+    policy_wrapper_predict_action_ms: float | None = None
+    policy_decode_ms: float | None = None
     env_step_ms: float | None = None
     env_wall_lag_ms: float | None = None
     # --- scratch timestamps used only to derive the durations above ---

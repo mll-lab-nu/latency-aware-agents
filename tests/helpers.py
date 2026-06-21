@@ -22,6 +22,11 @@ def realtime_profile(bench_overhead_ms: float = 0.0) -> dict[str, float]:
         "parent_to_env_ipc_ms": bench_overhead_ms,
         "env_action_recv_to_enqueue_ms": 0.0,
         "env_scheduler_update_ms": 0.0,
+        "worker_observation_attach_ms": 0.0,
+        "worker_observation_localize_ms": 0.0,
+        "policy_build_example_ms": 0.0,
+        "policy_wrapper_predict_action_ms": 0.0,
+        "policy_decode_ms": 0.0,
         "env_step_ms": 0.0,
         "env_wall_lag_ms": 0.0,
     }
