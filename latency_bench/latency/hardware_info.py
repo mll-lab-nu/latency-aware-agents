@@ -12,7 +12,9 @@ import os
 import platform
 import socket
 import subprocess
+import sys
 from datetime import datetime, timezone
+from importlib import metadata
 from typing import Any
 
 
@@ -21,12 +23,52 @@ _NVIDIA_SMI_FIELDS = (
     "uuid",
     "name",
     "memory.total",
+    "memory.used",
+    "memory.free",
     "power.limit",
     "power.default_limit",
     "driver_version",
+    "pci.bus_id",
     "pcie.link.gen.max",
+    "pcie.link.gen.current",
+    "pcie.link.width.max",
+    "pcie.link.width.current",
     "clocks.max.sm",
+    "clocks.current.sm",
+    "clocks.current.memory",
     "compute_cap",
+    "pstate",
+    "temperature.gpu",
+    "power.draw",
+    "utilization.gpu",
+    "utilization.memory",
+)
+
+_PACKAGE_NAMES = (
+    "torch",
+    "torchvision",
+    "transformers",
+    "accelerate",
+    "flash_attn",
+    "xformers",
+    "triton",
+    "bitsandbytes",
+    "numpy",
+    "Pillow",
+    "opencv-python",
+)
+
+_RUNTIME_ENV_KEYS = (
+    "CONDA_DEFAULT_ENV",
+    "VIRTUAL_ENV",
+    "CUDA_VISIBLE_DEVICES",
+    "NVIDIA_VISIBLE_DEVICES",
+    "CUDA_MODULE_LOADING",
+    "PYTORCH_CUDA_ALLOC_CONF",
+    "TORCH_CUDNN_V8_API_ENABLED",
+    "HF_HOME",
+    "HF_HUB_CACHE",
+    "TRANSFORMERS_CACHE",
 )
 
 
@@ -43,6 +85,9 @@ def collect_hardware_fingerprint() -> dict[str, Any]:
         "cpu": _collect_cpu(),
         "memory": _collect_memory(),
         "system": _collect_system(),
+        "runtime": _collect_runtime(),
+        "torch": _collect_torch(),
+        "packages": _collect_packages(),
         "captured_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -50,6 +95,9 @@ def collect_hardware_fingerprint() -> dict[str, Any]:
 def _collect_gpu() -> dict[str, Any]:
     gpu: dict[str, Any] = {}
     gpu.update(_nvidia_smi_gpu())
+    topology = _nvidia_smi_topology()
+    if topology:
+        gpu["topology"] = topology
     torch_info = _torch_gpu()
     for key, value in torch_info.items():
         gpu.setdefault(key, value)
@@ -83,11 +131,97 @@ def _torch_gpu() -> dict[str, Any]:
     return info
 
 
+def _collect_torch() -> dict[str, Any]:
+    try:
+        import torch
+    except Exception:
+        return {}
+    info: dict[str, Any] = {
+        "version": torch.__version__,
+        "cuda_version": getattr(torch.version, "cuda", None),
+        "backends": _torch_backend_flags(torch),
+    }
+    try:
+        info["float32_matmul_precision"] = torch.get_float32_matmul_precision()
+    except Exception:
+        pass
+    try:
+        info["cuda_available"] = bool(torch.cuda.is_available())
+        info["cuda_device_count"] = int(torch.cuda.device_count())
+        if torch.cuda.is_available():
+            info["current_device"] = int(torch.cuda.current_device())
+            info["current_device_name"] = str(torch.cuda.get_device_name(torch.cuda.current_device()))
+            info["device_properties"] = _torch_device_properties(torch)
+    except Exception:
+        pass
+    return info
+
+
+def _torch_backend_flags(torch: Any) -> dict[str, Any]:
+    backends: dict[str, Any] = {}
+    try:
+        backends["cuda_flash_sdp_enabled"] = bool(torch.backends.cuda.flash_sdp_enabled())
+    except Exception:
+        pass
+    try:
+        backends["cuda_mem_efficient_sdp_enabled"] = bool(torch.backends.cuda.mem_efficient_sdp_enabled())
+    except Exception:
+        pass
+    try:
+        backends["cuda_math_sdp_enabled"] = bool(torch.backends.cuda.math_sdp_enabled())
+    except Exception:
+        pass
+    try:
+        backends["cuda_cudnn_sdp_enabled"] = bool(torch.backends.cuda.cudnn_sdp_enabled())
+    except Exception:
+        pass
+    try:
+        backends["cuda_matmul_allow_tf32"] = bool(torch.backends.cuda.matmul.allow_tf32)
+    except Exception:
+        pass
+    try:
+        backends["cudnn_allow_tf32"] = bool(torch.backends.cudnn.allow_tf32)
+    except Exception:
+        pass
+    try:
+        backends["cudnn_benchmark"] = bool(torch.backends.cudnn.benchmark)
+    except Exception:
+        pass
+    return backends
+
+
+def _torch_device_properties(torch: Any) -> list[dict[str, Any]]:
+    properties: list[dict[str, Any]] = []
+    for index in range(torch.cuda.device_count()):
+        props = torch.cuda.get_device_properties(index)
+        properties.append(
+            {
+                "index": index,
+                "name": str(props.name),
+                "total_memory": int(props.total_memory),
+                "major": int(props.major),
+                "minor": int(props.minor),
+                "multi_processor_count": int(props.multi_processor_count),
+            }
+        )
+    return properties
+
+
 def _collect_cpu() -> dict[str, Any]:
     cpu: dict[str, Any] = {"logical_cores": os.cpu_count()}
     lscpu = _parse_lscpu()
     if lscpu:
-        for key in ("Model name", "Socket(s)", "Core(s) per socket", "CPU(s)", "CPU max MHz", "Thread(s) per core"):
+        for key in (
+            "Model name",
+            "Socket(s)",
+            "Core(s) per socket",
+            "CPU(s)",
+            "CPU max MHz",
+            "CPU MHz",
+            "Thread(s) per core",
+            "NUMA node(s)",
+            "L3 cache",
+        ):
             if key in lscpu:
                 cpu[_slug(key)] = lscpu[key]
     else:
@@ -148,7 +282,54 @@ def _collect_system() -> dict[str, Any]:
         system["python_version"] = platform.python_version()
     except Exception:
         pass
+    try:
+        system["libc"] = " ".join(item for item in platform.libc_ver() if item)
+    except Exception:
+        pass
+    os_release = _os_release()
+    if os_release:
+        system["os_release"] = os_release
     return system
+
+
+def _collect_runtime() -> dict[str, Any]:
+    return {
+        "python_executable": sys.executable,
+        "env": {
+            key: os.environ[key]
+            for key in _RUNTIME_ENV_KEYS
+            if key in os.environ
+        },
+    }
+
+
+def _collect_packages() -> dict[str, Any]:
+    versions: dict[str, Any] = {}
+    for package_name in _PACKAGE_NAMES:
+        try:
+            versions[package_name] = metadata.version(package_name)
+        except metadata.PackageNotFoundError:
+            versions[package_name] = None
+    return versions
+
+
+def _nvidia_smi_topology() -> str | None:
+    return _run(["nvidia-smi", "topo", "-m"])
+
+
+def _os_release() -> dict[str, str]:
+    path = "/etc/os-release"
+    data: dict[str, str] = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                if "=" not in line:
+                    continue
+                key, _, value = line.strip().partition("=")
+                data[key] = value.strip('"')
+    except Exception:
+        return {}
+    return data
 
 
 def _run(cmd: list[str]) -> str | None:
