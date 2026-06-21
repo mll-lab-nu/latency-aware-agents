@@ -3,12 +3,14 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
 from latency_bench.analysis.utils import write_latency_distribution_plot
 from latency_bench.analysis.profile_stats import compute_latency_profile_summary
 from latency_bench.utils.io import load_jsonl_records, write_json
+from latency_bench.utils.stats import percentile_linear, series_stats
 from latency_bench.latency.burst_profile import (
     build_bayes_markov_burst_model,
     build_bayes_markov_burst_samples,
@@ -100,6 +102,8 @@ def build_profile_from_trace(
     if episode_metrics is not None:
         metrics_records = load_jsonl_records(episode_metrics)
         manifest["inference_worker_count"] = metrics_records[0]["metadata"]["inference_worker_count"]
+        if "episode_return" in metrics_records[0]:
+            manifest["control_summary"] = _control_summary(metrics_records)
     if actions is not None:
         action_records = load_jsonl_records(actions)
         burst_samples = build_bayes_markov_burst_samples(action_records, metrics_records)
@@ -111,6 +115,32 @@ def build_profile_from_trace(
         manifest["burst_samples_path"] = paths["burst_samples"].name
         manifest["burst_model_path"] = paths["burst_model"].name
         manifest["burst_state_key"] = burst_model["state_key"]
+        if metrics_records is not None:
+            manifest["worker_capacity_summary"] = _worker_capacity_summary(
+                burst_samples=burst_samples,
+                env_fps=env_fps,
+                inference_worker_count=manifest["inference_worker_count"],
+            )
+        manifest["temporal_summary"] = _temporal_summary(burst_samples)
+    raw_artifacts = _raw_artifacts(
+        episode_metrics=episode_metrics,
+        actions=actions,
+        steps=steps,
+    )
+    if raw_artifacts:
+        manifest["raw_artifacts"] = raw_artifacts
+    _copy_optional_summary(
+        source=None if episode_metrics is None else Path(episode_metrics).parent / "realtime_pipeline_summary.json",
+        output_path=output_path,
+        manifest=manifest,
+        manifest_key="pipeline_summary_path",
+    )
+    _copy_optional_summary(
+        source=None if episode_metrics is None else Path(episode_metrics).parent / "runtime_telemetry_summary.json",
+        output_path=output_path,
+        manifest=manifest,
+        manifest_key="runtime_telemetry_summary_path",
+    )
     manifest.update(metadata)
     save_profile_manifest(manifest, paths["profile"])
     return manifest
@@ -164,6 +194,132 @@ def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as f:
         for record in records:
             f.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def _control_summary(metrics_records: list[dict[str, Any]]) -> dict[str, Any]:
+    submitted = sum(int(record["metadata"]["submitted_observation_frames"]) for record in metrics_records)
+    dropped = sum(int(record["metadata"]["dropped_observation_count"]) for record in metrics_records)
+    survival_steps = [float(record["survival_steps"]) for record in metrics_records]
+    num_actions = sum(int(record["num_actions"]) for record in metrics_records)
+    return {
+        "episodes": len(metrics_records),
+        "mean_return": _mean(float(record["episode_return"]) for record in metrics_records),
+        "mean_survival_steps": _mean(survival_steps),
+        "submitted_observation_frames": submitted,
+        "dropped_observation_count": dropped,
+        "drop_rate_per_1k_observations": dropped * 1000.0 / submitted,
+        "actions_per_step": num_actions / sum(survival_steps),
+        "num_actions": num_actions,
+        "num_dropped_actions": sum(int(record["num_dropped_actions"]) for record in metrics_records),
+        "ignored_late_result_count": sum(int(record["metadata"]["ignored_late_result_count"]) for record in metrics_records),
+        "discarded_ready_result_count": sum(int(record["metadata"]["discarded_ready_result_count"]) for record in metrics_records),
+        "fifo_blocked_count": sum(int(record["metadata"]["fifo_blocked_count"]) for record in metrics_records),
+        "env_deadline_miss_count": sum(int(record["metadata"]["env_deadline_miss_count"]) for record in metrics_records),
+        "actual_env_fps": series_stats([float(record["metadata"]["actual_env_fps"]) for record in metrics_records]),
+        "max_wall_clock_lag_ms": max(float(record["metadata"]["max_wall_clock_lag_ms"]) for record in metrics_records),
+    }
+
+
+def _worker_capacity_summary(
+    *,
+    burst_samples: list[dict[str, Any]],
+    env_fps: float,
+    inference_worker_count: int,
+) -> dict[str, Any]:
+    worker_service_values = [float(sample["worker_service_ms"]) for sample in burst_samples]
+    action_ready_values = [float(sample["action_ready_ms"]) for sample in burst_samples]
+    mean_worker_service_ms = _mean(worker_service_values)
+    return {
+        "inference_worker_count": int(inference_worker_count),
+        "mean_worker_service_ms": mean_worker_service_ms,
+        "p95_worker_service_ms": percentile_linear(worker_service_values, 95.0),
+        "p99_worker_service_ms": percentile_linear(worker_service_values, 99.0),
+        "mean_action_ready_ms": _mean(action_ready_values),
+        "p95_action_ready_ms": percentile_linear(action_ready_values, 95.0),
+        "worker_utilization_estimate": mean_worker_service_ms * float(env_fps) / 1000.0 / float(inference_worker_count),
+        "p95_worker_service_frames": percentile_linear(worker_service_values, 95.0) * float(env_fps) / 1000.0,
+    }
+
+
+def _temporal_summary(burst_samples: list[dict[str, Any]]) -> dict[str, Any]:
+    action_ready_values = [float(sample["action_ready_ms"]) for sample in burst_samples]
+    worker_service_values = [float(sample["worker_service_ms"]) for sample in burst_samples]
+    return {
+        "action_ready_ms": _series_temporal_summary(action_ready_values),
+        "worker_service_ms": _series_temporal_summary(worker_service_values),
+    }
+
+
+def _series_temporal_summary(values: list[float]) -> dict[str, Any]:
+    threshold = percentile_linear(values, 90.0)
+    return {
+        "acf": {
+            "lag1": _autocorrelation(values, 1),
+            "lag5": _autocorrelation(values, 5),
+            "lag10": _autocorrelation(values, 10),
+            "lag20": _autocorrelation(values, 20),
+        },
+        "high_tail_threshold_ms": threshold,
+        "high_tail_run_lengths": series_stats([float(run) for run in _high_tail_run_lengths(values, threshold)]),
+    }
+
+
+def _raw_artifacts(
+    *,
+    episode_metrics: str | Path | None,
+    actions: str | Path | None,
+    steps: str | Path | None,
+) -> dict[str, str]:
+    artifacts = {}
+    if episode_metrics is not None:
+        artifacts["episode_metrics"] = Path(episode_metrics).name
+    if actions is not None:
+        artifacts["actions"] = Path(actions).name
+    if steps is not None:
+        artifacts["steps"] = Path(steps).name
+    return artifacts
+
+
+def _copy_optional_summary(
+    *,
+    source: Path | None,
+    output_path: Path,
+    manifest: dict[str, Any],
+    manifest_key: str,
+) -> None:
+    if source is not None and source.exists():
+        destination = output_path / source.name
+        shutil.copyfile(source, destination)
+        manifest[manifest_key] = destination.name
+
+
+def _autocorrelation(values: list[float], lag: int) -> float | None:
+    if lag >= len(values):
+        return None
+    mean_value = _mean(values)
+    variance = sum((value - mean_value) ** 2 for value in values)
+    if variance == 0.0:
+        return 0.0
+    return sum((values[index] - mean_value) * (values[index - lag] - mean_value) for index in range(lag, len(values))) / variance
+
+
+def _high_tail_run_lengths(values: list[float], threshold: float) -> list[int]:
+    runs = []
+    current = 0
+    for value in values:
+        if value >= threshold:
+            current += 1
+        elif current:
+            runs.append(current)
+            current = 0
+    if current:
+        runs.append(current)
+    return runs
+
+
+def _mean(values) -> float:
+    series = list(values)
+    return sum(series) / len(series)
 
 
 if __name__ == "__main__":

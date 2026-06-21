@@ -20,6 +20,7 @@ from typing import Any
 import torch
 
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
+from latency_bench.latency.runtime_telemetry import RuntimeTelemetryMonitor
 from latency_bench.latency.profile import (
     load_profile_manifest,
     save_profile_manifest,
@@ -217,9 +218,13 @@ def _run_task(
         _write_generated_config(task.generated_config_path, config)
         write_json(task.output_dir / "manifest.json", manifest)
         if sim_worker_plan:
-            _run_sim_worker_plan(task, sim_worker_plan)
+            _run_with_runtime_telemetry(
+                lambda: _run_sim_worker_plan(task, sim_worker_plan),
+                task.output_dir,
+                manifest,
+            )
         else:
-            subprocess.run(eval_cmd, check=True)
+            _run_subprocess_with_runtime_telemetry(eval_cmd, task.output_dir, manifest)
         if profile_cmd is not None:
             subprocess.run(profile_cmd, check=True)
             _finalize_profile_artifacts(task, out, manifest)
@@ -236,6 +241,26 @@ def _run_task(
     write_json(task.output_dir / "manifest.json", manifest)
     _append_manifest(out, manifest)
     _upload_run_results(task, out, manifest, detected, runtime)
+
+
+def _run_subprocess_with_runtime_telemetry(cmd: list[str], output_dir: Path, manifest: dict[str, Any]) -> None:
+    _run_with_runtime_telemetry(
+        lambda: subprocess.run(cmd, check=True),
+        output_dir,
+        manifest,
+    )
+
+
+def _run_with_runtime_telemetry(run_fn, output_dir: Path, manifest: dict[str, Any]) -> None:
+    monitor = RuntimeTelemetryMonitor(output_dir)
+    manifest.update(monitor.start())
+    try:
+        run_fn()
+    finally:
+        try:
+            manifest.update(monitor.stop())
+        except Exception as exc:
+            manifest["runtime_telemetry_stop_error"] = str(exc)
 
 
 def _sim_worker_plan(task: ProtocolTask, spec: dict[str, Any]) -> list[dict[str, Any]]:
