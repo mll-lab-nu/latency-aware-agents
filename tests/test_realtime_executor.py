@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+import numpy as np
 import pytest
 
 import latency_bench.executors.realtime as realtime
@@ -24,6 +25,7 @@ from latency_bench.executors.realtime.workers import (
     _inference_worker,
     _worker_runtime_metadata,
 )
+from latency_bench.executors.realtime.shared_observation import ObservationSlotPool, attach_observation_arrays
 from latency_bench.latency.samplers import ZeroSampler
 from latency_bench.logging.realtime_pipeline import PipelineProfile
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
@@ -52,6 +54,7 @@ class CompletionScript:
     ready_time_ms: float
     worker_id: int
     device: str
+    profile: PipelineProfile | None = None
 
 
 class ScriptedInferencePool:
@@ -113,6 +116,8 @@ class ScriptedInferencePool:
         for task, script in self._pending:
             if script.ready_time_ms <= now_ms:
                 self._busy_worker_ids.remove(script.worker_id)
+                if script.profile is not None and task.profile is not None:
+                    task.profile.merge_measured(script.profile)
                 ready.append(
                     RealtimePolicyCompletion(
                         task=task,
@@ -469,7 +474,7 @@ class SuccessfulWorkerMeasurer:
         self.device = device
         self.sync_cuda = sync_cuda
 
-    def run_and_measure(self, predict, observation, *, obs_id: int):
+    def run_and_measure(self, predict, observation, profile, *, obs_id: int):
         return (
             PolicyOutput(action=Action("jump")),
             LatencyRecord(obs_id=obs_id, latency_ms=1.0),
@@ -481,8 +486,17 @@ class FailingWorkerMeasurer:
         self.device = device
         self.sync_cuda = sync_cuda
 
-    def run_and_measure(self, predict, observation, *, obs_id: int):
+    def run_and_measure(self, predict, observation, profile, *, obs_id: int):
         raise RuntimeError("policy boom")
+
+
+class CallingWorkerMeasurer:
+    def __init__(self, *, device: str, sync_cuda: bool):
+        self.device = device
+        self.sync_cuda = sync_cuda
+
+    def run_and_measure(self, predict, observation, profile, *, obs_id: int):
+        return predict(observation, profile), LatencyRecord(obs_id=obs_id, latency_ms=1.0)
 
 
 def _patch_worker_dependencies(monkeypatch, measurer_cls):
@@ -799,6 +813,66 @@ def test_inference_worker_returns_slim_result_without_observation_task(monkeypat
     assert not hasattr(payload["result"], "obs_id")
     assert not hasattr(payload["result"], "worker_id")
     assert not hasattr(payload["result"], "device")
+
+
+def test_inference_worker_predicts_from_worker_local_observation_copy(monkeypatch):
+    import latency_bench.core.actions as actions_mod
+    import latency_bench.policy.factory as factory_mod
+
+    class DummyActionResolver:
+        def __init__(self, env_config):
+            self.env_config = env_config
+
+    class MutatingWorkerPolicy:
+        def predict(self, observation):
+            observation.data[...] = 99
+            observation.metadata["env_raw_rgb_frame_stack"][...] = 77
+            return PolicyOutput(action=Action("jump"))
+
+    monkeypatch.setattr(actions_mod, "ActionResolver", DummyActionResolver)
+    monkeypatch.setattr(factory_mod, "build_policy", lambda config, action_resolver: MutatingWorkerPolicy())
+    monkeypatch.setattr(realtime.workers, "RuntimeLatencyMeasurer", CallingWorkerMeasurer)
+    monkeypatch.setattr(realtime.workers, "_worker_runtime_metadata", lambda worker_id, start_method: {})
+
+    observation = Observation(
+        data=np.arange(12, dtype=np.uint8).reshape(2, 2, 3),
+        env_step=3,
+        sim_time_ms=100.0,
+        metadata={
+            "env_raw_rgb_frame_stack": np.arange(24, dtype=np.uint8).reshape(1, 2, 4, 3),
+        },
+    )
+    owner = ObservationSlotPool.from_observation(observation, capacity=1)
+    try:
+        shared_observation = owner.write(obs_id=7, observation=observation)
+        task = RealtimeObservationTask(
+            obs_id=7,
+            observation=shared_observation,
+            submit_env_step=3,
+            submit_time_ms=100.0,
+        )
+        connection = RecordingWorkerConnection(task)
+        connection.commands.append(("close", {}))
+
+        _inference_worker(
+            connection,
+            {"env": {}, "policy": {}, "latency": {}},
+            worker_id=0,
+            device="cpu",
+            start_method="spawn",
+        )
+
+        attached = attach_observation_arrays(shared_observation)
+        try:
+            np.testing.assert_array_equal(attached.observation.data, observation.data)
+            np.testing.assert_array_equal(
+                attached.observation.metadata["env_raw_rgb_frame_stack"],
+                observation.metadata["env_raw_rgb_frame_stack"],
+            )
+        finally:
+            attached.close()
+    finally:
+        owner.close()
 
 
 def test_action_dispatch_and_ack_payloads_carry_realtime_profile() -> None:
@@ -1161,13 +1235,27 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path):
     from latency_bench.executors import realtime_warmup
 
     monkeypatch.setattr(realtime_warmup, "MIN_WARMUP_LATENCY_SAMPLES", 3)
-    monkeypatch.setattr(realtime_warmup, "MAX_WARMUP_LATENCY_SAMPLES", 4)
+    monkeypatch.setattr(realtime_warmup, "MAX_WARMUP_LATENCY_SAMPLES", 3)
     monkeypatch.setattr(realtime_warmup, "WARMUP_WINDOW_SIZE", 1)
     monkeypatch.setattr(realtime_warmup, "STABLE_WINDOW_COUNT", 3)
 
     action = Action("jump")
+    profile = PipelineProfile(
+        worker_observation_attach_ms=0.1,
+        worker_observation_localize_ms=0.2,
+        policy_build_example_ms=0.3,
+        policy_wrapper_predict_action_ms=0.4,
+        policy_decode_ms=0.5,
+        worker_recv_overhead_ms=0.6,
+        worker_to_parent_ipc_ms=0.7,
+        parent_to_worker_ipc_ms=0.8,
+    )
     pool = ScriptedInferencePool(
-        [CompletionScript(action, ready_time_ms=1.0, worker_id=0, device="cuda:0")],
+        [
+            CompletionScript(action, ready_time_ms=1.0, worker_id=0, device="cuda:0", profile=profile),
+            CompletionScript(action, ready_time_ms=1.0, worker_id=0, device="cuda:0", profile=profile),
+            CompletionScript(action, ready_time_ms=1.0, worker_id=0, device="cuda:0", profile=profile),
+        ],
         num_workers=1,
     )
     formal_logger = TrajectoryLogger(
@@ -1185,18 +1273,22 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path):
 
     summary = executor.run_warmup(eval_max_steps=2)
 
+    assert summary["warmup_mode"] == "stress_policy"
     assert summary["warmup_status"] == "stable"
     assert summary["warmup_samples"] == 3
+    assert summary["warmup_stage_summary"]["policy_wrapper_predict_action_ms"]["p50"] == pytest.approx(0.4)
+    assert len(pool.submitted) == 3
     assert len(formal_logger.latency_records) == 0
     assert (tmp_path / "warmup_latencies.jsonl").is_file()
     assert (tmp_path / "warmup_infer_latencies.jsonl").is_file()
     assert (tmp_path / "warmup_e2e_latencies.jsonl").is_file()
+    assert (tmp_path / "warmup_pipeline_profile.jsonl").is_file()
     assert (tmp_path / "warmup_summary.json").is_file()
     assert (tmp_path / "warmup_stability.png").is_file()
     assert not (tmp_path / "latencies.jsonl").exists()
 
 
-def test_realtime_warmup_uses_actual_samples_across_short_episodes(monkeypatch, tmp_path):
+def test_realtime_warmup_uses_stress_policy_samples(monkeypatch, tmp_path):
     from latency_bench.executors import realtime_warmup
 
     monkeypatch.setattr(realtime_warmup, "MIN_WARMUP_LATENCY_SAMPLES", 3)
@@ -1206,7 +1298,12 @@ def test_realtime_warmup_uses_actual_samples_across_short_episodes(monkeypatch, 
 
     action = Action("jump")
     pool = ScriptedInferencePool(
-        [CompletionScript(action, ready_time_ms=0.0, worker_id=0, device="cuda:0")],
+        [
+            CompletionScript(action, ready_time_ms=0.0, worker_id=0, device="cuda:0"),
+            CompletionScript(action, ready_time_ms=0.0, worker_id=0, device="cuda:0"),
+            CompletionScript(action, ready_time_ms=0.0, worker_id=0, device="cuda:0"),
+            CompletionScript(action, ready_time_ms=0.0, worker_id=0, device="cuda:0"),
+        ],
         num_workers=1,
     )
     executor = _executor(
@@ -1218,99 +1315,38 @@ def test_realtime_warmup_uses_actual_samples_across_short_episodes(monkeypatch, 
     summary = executor.run_warmup(eval_max_steps=4)
 
     assert summary["warmup_status"] == "stable"
-    assert summary["warmup_samples"] == 3
+    assert summary["warmup_samples"] == 4
 
 
-def test_realtime_warmup_keeps_valid_e2e_samples_across_not_applied_tail(monkeypatch, tmp_path):
+def test_realtime_stress_warmup_does_not_run_episodes(monkeypatch, tmp_path):
     from latency_bench.executors import realtime_warmup
 
-    monkeypatch.setattr(realtime_warmup, "MIN_WARMUP_LATENCY_SAMPLES", 6)
-    monkeypatch.setattr(realtime_warmup, "MAX_WARMUP_LATENCY_SAMPLES", 6)
-    monkeypatch.setattr(realtime_warmup, "WARMUP_WINDOW_SIZE", 3)
+    monkeypatch.setattr(realtime_warmup, "MIN_WARMUP_LATENCY_SAMPLES", 2)
+    monkeypatch.setattr(realtime_warmup, "MAX_WARMUP_LATENCY_SAMPLES", 2)
+    monkeypatch.setattr(realtime_warmup, "WARMUP_WINDOW_SIZE", 1)
     monkeypatch.setattr(realtime_warmup, "STABLE_WINDOW_COUNT", 2)
 
-    class WarmupExecutor:
-        logger = None
-        video_recorder = None
-        video_output_dir = None
-        config = {"logging": {"output_dir": str(tmp_path)}}
+    action = Action("jump")
+    pool = ScriptedInferencePool(
+        [
+            CompletionScript(action, ready_time_ms=0.0, worker_id=0, device="cuda:0"),
+            CompletionScript(action, ready_time_ms=0.0, worker_id=0, device="cuda:0"),
+        ],
+        num_workers=1,
+    )
+    executor = _executor(
+        pool=pool,
+        max_steps=2,
+        config={"logging": {"output_dir": str(tmp_path)}},
+    )
 
-        def __init__(self):
-            self.episode_calls = 0
+    def fail_run_episode(*, episode_id, seed, eval_max_steps):
+        del episode_id, seed, eval_max_steps
+        raise AssertionError("stress warmup must not run realtime episodes")
 
-        def run_episode(self, *, episode_id, seed, eval_max_steps):
-            del episode_id, seed, eval_max_steps
-            self.episode_calls += 1
-            if self.episode_calls > 2:
-                raise AssertionError("warmup should have stopped after six valid e2e rows")
-            base = (self.episode_calls - 1) * 4
-            for offset in range(4):
-                action_id = base + offset
-                latency = LatencyRecord(obs_id=action_id, latency_ms=10.0, device="cuda:0")
-                self.logger.log_latency(latency)
-                self.logger.log_action_event(
-                    ActionEvent(
-                        action_id=action_id,
-                        action=Action("jump"),
-                        obs_env_step=action_id,
-                        ready_time_ms=10.0,
-                        ready_step_float=float(action_id + 1),
-                        latency=latency,
-                        latency_raw_frames=1,
-                        ready_raw_frame=action_id + 1,
-                        apply_raw_frame=action_id + 1,
-                        applied=offset < 3,
-                        metadata={"frame_ms": 10.0},
-                    )
-                )
+    executor.run_episode = fail_run_episode
 
-    executor = WarmupExecutor()
+    summary = executor.run_warmup(eval_max_steps=4)
 
-    summary = RealtimeLatencyExecutor.run_warmup(executor, eval_max_steps=4)
-
-    assert executor.episode_calls == 2
-    assert summary["warmup_status"] == "stable"
-    assert summary["warmup_samples"] == 6
-
-
-def test_realtime_warmup_fails_when_e2e_rows_do_not_progress(monkeypatch, tmp_path):
-    from latency_bench.executors import realtime_warmup
-
-    monkeypatch.setattr(realtime_warmup, "MAX_WARMUP_LATENCY_SAMPLES", 3)
-    monkeypatch.setattr(realtime_warmup, "MAX_WARMUP_NO_PROGRESS_EPISODES", 2)
-
-    class WarmupExecutor:
-        logger = None
-        video_recorder = None
-        video_output_dir = None
-        config = {"logging": {"output_dir": str(tmp_path)}}
-
-        def __init__(self):
-            self.episode_calls = 0
-
-        def run_episode(self, *, episode_id, seed, eval_max_steps):
-            del episode_id, seed, eval_max_steps
-            self.episode_calls += 1
-            action_id = self.episode_calls
-            latency = LatencyRecord(obs_id=action_id, latency_ms=10.0, device="cuda:0")
-            self.logger.log_latency(latency)
-            self.logger.log_action_event(
-                ActionEvent(
-                    action_id=action_id,
-                    action=Action("jump"),
-                    obs_env_step=action_id,
-                    ready_time_ms=10.0,
-                    ready_step_float=float(action_id + 1),
-                    latency=latency,
-                    latency_raw_frames=1,
-                    ready_raw_frame=action_id + 1,
-                    apply_raw_frame=None,
-                    applied=False,
-                    metadata={"frame_ms": 10.0},
-                )
-            )
-
-    executor = WarmupExecutor()
-
-    with pytest.raises(RuntimeError, match="e2e_rows=0.*not_applied=2"):
-        RealtimeLatencyExecutor.run_warmup(executor, eval_max_steps=4)
+    assert summary["warmup_mode"] == "stress_policy"
+    assert summary["warmup_samples"] == 2
