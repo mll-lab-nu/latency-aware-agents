@@ -28,6 +28,7 @@ RESULTS_DEBUG_IGNORE = [
     "**/runs/**/runtime_telemetry.jsonl",
     "**/runs/**/workers/**",
     "**/*.warmup.yaml",
+    "**/*.calibration.yaml",
 ]
 
 

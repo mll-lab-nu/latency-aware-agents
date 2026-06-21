@@ -27,6 +27,7 @@ PROFILE_AGGREGATION_RAW_IGNORE = [
     "**/generated_configs/**",
     "**/workers/**",
     "**/*.warmup.yaml",
+    "**/*.calibration.yaml",
 ]
 
 
