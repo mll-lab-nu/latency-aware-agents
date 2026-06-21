@@ -7,6 +7,7 @@ from typing import Any, Sequence
 
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
 from latency_bench.logging.latency_traces import e2e_latency_row
+from latency_bench.logging.realtime_pipeline import PipelineProfile, REPORTED_STAGE_KEYS
 from latency_bench.utils.io import write_json, write_jsonl
 from latency_bench.utils.stats import percentile_linear
 
@@ -247,6 +248,29 @@ def write_realtime_warmup_artifacts(
     return _summary_payload(status, latency_values)
 
 
+def write_realtime_stress_warmup_artifacts(
+    output_dir: str | Path,
+    latency_records: Sequence[LatencyRecord],
+    profiles: Sequence[PipelineProfile],
+) -> dict[str, Any]:
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    latency_values = [float(record.latency_ms) for record in latency_records]
+    status = realtime_warmup_status(latency_values)
+    profile_rows = [profile.__jsonable__() for profile in profiles]
+    summary = {
+        **_summary_payload(status, latency_values),
+        "warmup_mode": "stress_policy",
+        "warmup_profiled_samples": len(profile_rows),
+        "warmup_stage_summary": _profile_stage_summary(profile_rows),
+    }
+    write_jsonl(output_path / "warmup_latencies.jsonl", latency_records)
+    write_jsonl(output_path / "warmup_pipeline_profile.jsonl", profile_rows)
+    write_json(output_path / "warmup_summary.json", summary)
+    plot_realtime_warmup(latency_values, output_path / "warmup_stability.png", status=status)
+    return summary
+
+
 def plot_realtime_warmup(
     latency_values_ms: Sequence[float],
     output_path: str | Path,
@@ -330,6 +354,25 @@ def _summary_payload(status: RealtimeWarmupStatus, latency_values: Sequence[floa
         "warmup_trimmed_mean_rel_span": status.trimmed_mean_rel_span,
         "warmup_p90_rel_span": status.p90_rel_span,
         "warmup_stability_reason": status.reason,
+    }
+
+
+def _profile_stage_summary(rows: Sequence[dict[str, float]]) -> dict[str, dict[str, float | int]]:
+    return {
+        key: _stage_stats([float(row[key]) for row in rows if key in row])
+        for key in REPORTED_STAGE_KEYS
+        if any(key in row for row in rows)
+    }
+
+
+def _stage_stats(values: Sequence[float]) -> dict[str, float | int]:
+    ordered = sorted(float(value) for value in values)
+    return {
+        "count": len(ordered),
+        "mean": sum(ordered) / len(ordered),
+        "p50": percentile_linear(ordered, 50.0),
+        "p90": percentile_linear(ordered, 90.0),
+        "max": ordered[-1],
     }
 
 

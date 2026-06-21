@@ -1271,7 +1271,7 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path):
         config={"logging": {"output_dir": str(tmp_path)}},
     )
 
-    summary = executor.run_warmup(eval_max_steps=2)
+    summary = executor.run_warmup()
 
     assert summary["warmup_mode"] == "stress_policy"
     assert summary["warmup_status"] == "stable"
@@ -1280,8 +1280,6 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path):
     assert len(pool.submitted) == 3
     assert len(formal_logger.latency_records) == 0
     assert (tmp_path / "warmup_latencies.jsonl").is_file()
-    assert (tmp_path / "warmup_infer_latencies.jsonl").is_file()
-    assert (tmp_path / "warmup_e2e_latencies.jsonl").is_file()
     assert (tmp_path / "warmup_pipeline_profile.jsonl").is_file()
     assert (tmp_path / "warmup_summary.json").is_file()
     assert (tmp_path / "warmup_stability.png").is_file()
@@ -1312,7 +1310,7 @@ def test_realtime_warmup_uses_stress_policy_samples(monkeypatch, tmp_path):
         config={"logging": {"output_dir": str(tmp_path)}},
     )
 
-    summary = executor.run_warmup(eval_max_steps=4)
+    summary = executor.run_warmup()
 
     assert summary["warmup_status"] == "stable"
     assert summary["warmup_samples"] == 4
@@ -1346,7 +1344,7 @@ def test_realtime_stress_warmup_does_not_run_episodes(monkeypatch, tmp_path):
 
     executor.run_episode = fail_run_episode
 
-    summary = executor.run_warmup(eval_max_steps=4)
+    summary = executor.run_warmup()
 
     assert summary["warmup_mode"] == "stress_policy"
     assert summary["warmup_samples"] == 2

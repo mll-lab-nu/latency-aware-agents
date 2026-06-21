@@ -47,6 +47,7 @@ from latency_bench.executors.realtime.workers import (
     _env_loop_worker,
     _profile_now_ms,
 )
+from latency_bench.executors.realtime.shared_observation import ObservationSlotPool
 
 
 @dataclass
@@ -124,83 +125,70 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             eval_max_steps=eval_max_steps,
         )
 
-    def run_warmup(self, *, eval_max_steps: int) -> dict[str, Any]:
-        collector = realtime_warmup.RealtimeWarmupCollector(
-            save_step_records=False,
-            save_action_records=True,
-            save_latency_records=True,
+    def run_warmup(self) -> dict[str, Any]:
+        pool = self._ensure_inference_pool()
+        latency_records = []
+        profiles = []
+        sample_target = realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES
+        submitted_count = 0
+        self.env.reset(seed=None)
+        template_observation = self.env.observe()
+        observation_pool = ObservationSlotPool.from_observation(
+            template_observation,
+            capacity=pool.worker_count,
         )
-        saved_logger = self.logger
-        saved_video_recorder = self.video_recorder
-        saved_video_output_dir = self.video_output_dir
         try:
-            self.logger = collector
-            self.video_recorder = None
-            self.video_output_dir = None
-            warmup_episode_id = -1
-            no_progress_episodes = 0
-            previous_e2e_rows = 0
-            snapshot = realtime_warmup.warmup_snapshot(collector)
-            while snapshot.recent_e2e_count < realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
-                self.run_episode(
-                    episode_id=warmup_episode_id,
-                    seed=None,
-                    eval_max_steps=min(eval_max_steps, realtime_warmup.WARMUP_EPISODE_MAX_STEPS),
-                )
-                if len(collector.latency_records) > realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
-                    collector.latency_records = collector.latency_records[
-                        -realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
-                    ]
-                snapshot = realtime_warmup.warmup_snapshot(collector)
-                print(
-                    "realtime warmup "
-                    f"episode_id={warmup_episode_id} "
-                    f"latency_records={snapshot.latency_records} "
-                    f"action_records={snapshot.action_records} "
-                    f"e2e_rows={snapshot.e2e_rows} "
-                    f"applied={snapshot.applied} "
-                    f"dropped={snapshot.dropped} "
-                    f"not_applied={snapshot.not_applied}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                current_e2e_rows = snapshot.e2e_rows
-                if current_e2e_rows == previous_e2e_rows:
-                    no_progress_episodes += 1
-                    if no_progress_episodes >= realtime_warmup.MAX_WARMUP_NO_PROGRESS_EPISODES:
-                        raise RuntimeError(
-                            "Realtime warmup made no valid e2e latency progress: "
-                            f"episodes_without_progress={no_progress_episodes} "
-                            f"latency_records={snapshot.latency_records} "
-                            f"action_records={snapshot.action_records} "
-                            f"e2e_rows={snapshot.e2e_rows} "
-                            f"applied={snapshot.applied} "
-                            f"dropped={snapshot.dropped} "
-                            f"not_applied={snapshot.not_applied}"
+            while len(latency_records) < sample_target:
+                while pool.idle_worker_count and submitted_count < sample_target:
+                    observe_start_ms = _profile_now_ms()
+                    observation = self.env.observe()
+                    observe_end_ms = _profile_now_ms()
+                    obs_id = self._next_obs_id
+                    self._next_obs_id += 1
+                    shared_observation = observation_pool.write(obs_id=obs_id, observation=observation)
+                    profile = PipelineProfile(
+                        env_observe_ms=observe_end_ms - observe_start_ms,
+                        env_wall_lag_ms=0.0,
+                        env_to_parent_ipc_ms=0.0,
+                        parent_observation_handle_start_ms=_profile_now_ms(),
+                        parent_to_env_ipc_ms=0.0,
+                        env_action_recv_to_enqueue_ms=0.0,
+                    )
+                    task = RealtimeObservationTask(
+                        obs_id=obs_id,
+                        observation=shared_observation,
+                        submit_env_step=observation.env_step,
+                        submit_time_ms=0.0,
+                        profile=profile,
+                        shared_obs_id=obs_id,
+                    )
+                    if pool.submit(task):
+                        profile.parent_observation_handle_ms = (
+                            _profile_now_ms() - profile.parent_observation_handle_start_ms
                         )
-                else:
-                    previous_e2e_rows = current_e2e_rows
-                    no_progress_episodes = 0
-                if realtime_warmup.is_realtime_warmup_stable(snapshot.recent_e2e_latency_values_ms):
-                    break
-                if snapshot.recent_e2e_count >= realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES:
-                    break
-                warmup_episode_id -= 1
+                        submitted_count += 1
+                    else:
+                        observation_pool.release(obs_id)
+                        break
+                completions = pool.drain_completed(_profile_now_ms())
+                for completion in completions:
+                    observation_pool.release(completion.task.shared_obs_id)
+                    latency_records.append(completion.latency_record)
+                    if completion.profile is not None:
+                        profiles.append(completion.profile)
+                if not completions:
+                    self.sleep_fn(0.001)
         finally:
-            self.logger = saved_logger
-            self.video_recorder = saved_video_recorder
-            self.video_output_dir = saved_video_output_dir
+            observation_pool.close()
 
-        snapshot = realtime_warmup.warmup_snapshot(collector)
-        stable = realtime_warmup.is_realtime_warmup_stable(snapshot.recent_e2e_latency_values_ms)
-        summary = realtime_warmup.write_realtime_warmup_artifacts(
+        summary = realtime_warmup.write_realtime_stress_warmup_artifacts(
             self.config["logging"]["output_dir"],
-            collector,
-            stable=stable,
+            latency_records,
+            profiles,
         )
-        if not stable:
+        if summary["warmup_status"] != "stable":
             print(
-                "WARNING: realtime warmup did not stabilize; proceeding with the measured "
+                "WARNING: realtime stress warmup did not stabilize; proceeding with the measured "
                 "episode anyway (inspect warmup_stability.png and warmup_summary.json). "
                 f"reason={summary.get('warmup_stability_reason')} "
                 f"trimmed_mean_span_ms={summary.get('warmup_trimmed_mean_span_ms')} "

@@ -44,7 +44,7 @@ def run_from_config(
     metrics = []
     try:
         run_warmup = getattr(executor, "run_warmup", None)
-        warmup_metadata = run_warmup(eval_max_steps=eval_max_steps) if callable(run_warmup) else {}
+        warmup_metadata = run_warmup() if callable(run_warmup) else {}
         run_episodes = getattr(executor, "run_episodes", None)
         if callable(run_episodes) and n_samples is None:
             run_episodes_kwargs: dict[str, Any] = {
