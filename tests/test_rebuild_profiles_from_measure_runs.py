@@ -48,23 +48,25 @@ def _write_measure_run(root: Path) -> tuple[Path, Path]:
                 "action_id": 0,
                 "obs_env_step": 0,
                 "ready_raw_frame": 1,
+                "ready_time_ms": 100.0,
                 "apply_raw_frame": 1,
                 "latency_raw_frames": 1,
                 "applied": True,
                 "dropped": False,
                 "latency": {"latency_ms": 10.0},
-                "metadata": {"episode_id": 0, "realtime_profile": profile},
+                "metadata": {"episode_id": 0, "frame_ms": 100.0, "realtime_profile": profile},
             },
             {
                 "action_id": 1,
                 "obs_env_step": 1,
                 "ready_raw_frame": 3,
+                "ready_time_ms": 300.0,
                 "apply_raw_frame": 3,
                 "latency_raw_frames": 2,
                 "applied": True,
                 "dropped": False,
                 "latency": {"latency_ms": 20.0},
-                "metadata": {"episode_id": 0, "realtime_profile": profile},
+                "metadata": {"episode_id": 0, "frame_ms": 100.0, "realtime_profile": profile},
             },
         ],
     )
@@ -172,7 +174,7 @@ def test_rebuild_profiles_apply_uses_full_e2e_trace_and_preserves_metadata(tmp_p
     assert profile["sample_model_type"] == "bayes_markov"
     assert profile["burst_samples_path"] == "latency_burst_samples.jsonl"
     assert profile["burst_model_path"] == "latency_burst_model.json"
-    assert profile["burst_state_key"] == "e2e_latency_ms_bin"
+    assert profile["burst_state_key"] == "worker_service_ms_bin"
     assert load_latency_samples(profile_path.parent / "e2e_latencies.jsonl") == [10.0, 20.0, 30.0, 40.0]
     assert load_latency_samples(profile_path.parent / "infer_latencies.jsonl") == [1.0, 2.0]
 

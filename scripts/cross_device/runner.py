@@ -445,10 +445,12 @@ def _finalize_profile_artifacts(task: ProtocolTask, out: Path, manifest: dict[st
     try:
         fingerprint = _host_fingerprint()
         write_json(profile_dir / "hardware.json", fingerprint)
+        write_json(profile_dir / "diagnostics.json", fingerprint)
         profile_path = profile_dir / "profile.json"
         if profile_path.exists():
             profile = load_profile_manifest(profile_path)
             profile["hardware"] = fingerprint
+            profile["diagnostics_path"] = "diagnostics.json"
             save_profile_manifest(profile, profile_path)
     except Exception as exc:
         manifest["notes"] = _append_note(manifest.get("notes"), f"hardware fingerprint failed: {exc}")

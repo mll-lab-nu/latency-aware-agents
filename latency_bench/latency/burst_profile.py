@@ -4,7 +4,6 @@ import math
 from collections import Counter, defaultdict
 from typing import Any, Callable, Iterator
 
-from latency_bench.logging.realtime_pipeline import BENCH_OVERHEAD_STAGE_KEYS
 from latency_bench.utils.stats import percentile_linear
 
 
@@ -16,12 +15,13 @@ WORKER_SERVICE_STAGE_KEYS = (
 
 
 # ---------------------------------------------------------------------------
-# Bayesian Markov burst model: states keyed on e2e/action-visible ms bins.
+# Bayesian Markov burst model: states keyed on worker-service ms bins.
 #
-# The Markov state is the action-visible latency bin, because this is the signal
-# that drives control staleness and L40S-style latency bursts. The fitted joint
-# emission distribution carries both e2e latency and worker-service time so
-# action readiness and worker occupancy stay correlated without replaying traces.
+# The Markov state is the worker-service bin, because this is the signal that
+# drives realtime worker occupancy and observation drops. The fitted joint
+# emission distribution carries both action-ready delay and worker-service time
+# so control staleness and worker occupancy stay correlated without replaying
+# traces.
 # ---------------------------------------------------------------------------
 
 
@@ -35,9 +35,7 @@ def build_bayes_markov_burst_samples(
 ) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
     for record, episode_id in _action_records_with_episode_ids(action_records, episode_metrics_records):
-        if not bool(record["applied"]) or bool(record["dropped"]):
-            continue
-        e2e_latency_ms = _e2e_latency_ms(record)
+        action_ready_ms = _action_ready_ms(record)
         worker_service_ms = _worker_service_ms(record)
         samples.append(
             {
@@ -48,8 +46,8 @@ def build_bayes_markov_burst_samples(
                 "ready_raw_frame": int(record["ready_raw_frame"]),
                 "applied": bool(record["applied"]),
                 "dropped": bool(record["dropped"]),
-                "e2e_latency_ms": e2e_latency_ms,
-                "e2e_latency_ms_bin": _latency_ms_bin(e2e_latency_ms),
+                "action_ready_ms": action_ready_ms,
+                "worker_service_ms_bin": _latency_ms_bin(worker_service_ms),
                 "worker_service_ms": worker_service_ms,
             }
         )
@@ -66,29 +64,29 @@ def build_bayes_markov_burst_model(samples: list[dict[str, Any]]) -> dict[str, A
     samples_by_episode: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for sample in samples:
         samples_by_episode[int(sample["episode_id"])].append(sample)
-        state = _e2e_latency_state(sample)
+        state = _worker_service_state(sample)
         state_counts[state] += 1
         emission_samples_by_state[state].append(
             {
-                "e2e_latency_ms": float(sample["e2e_latency_ms"]),
+                "action_ready_ms": float(sample["action_ready_ms"]),
                 "worker_service_ms": float(sample["worker_service_ms"]),
             }
         )
 
     for episode_id in sorted(samples_by_episode):
         episode_samples = sorted(samples_by_episode[episode_id], key=lambda item: int(item["sample_index"]))
-        states = [_e2e_latency_state(sample) for sample in episode_samples]
+        states = [_worker_service_state(sample) for sample in episode_samples]
         initial_state_counts[states[0]] += 1
         for index in range(len(states) - 1):
             transition_counts[states[index]][states[index + 1]] += 1
-        for state, run_length in _runs_by_key(episode_samples, _e2e_latency_state):
+        for state, run_length in _runs_by_key(episode_samples, _worker_service_state):
             run_lengths_by_state[state].append(run_length)
 
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "model_type": "bayes_markov",
         "reset_scope": "episode",
-        "state_key": "e2e_latency_ms_bin",
+        "state_key": "worker_service_ms_bin",
         "bin_width_ms": LATENCY_MS_BIN_WIDTH,
         "initial_state_counts": dict(sorted(initial_state_counts.items())),
         "initial_state_probs": _probs(initial_state_counts),
@@ -113,8 +111,8 @@ def build_bayes_markov_burst_model(samples: list[dict[str, Any]]) -> dict[str, A
     }
 
 
-def _e2e_latency_state(sample: dict[str, Any]) -> str:
-    return str(int(sample["e2e_latency_ms_bin"]))
+def _worker_service_state(sample: dict[str, Any]) -> str:
+    return str(int(sample["worker_service_ms_bin"]))
 
 
 def _runs_by_key(
@@ -144,12 +142,9 @@ def _worker_service_ms(record: dict[str, Any]) -> float:
     )
 
 
-def _e2e_latency_ms(record: dict[str, Any]) -> float:
-    profile = record["metadata"]["realtime_profile"]
-    return float(record["latency"]["latency_ms"]) + sum(
-        float(profile[key])
-        for key in BENCH_OVERHEAD_STAGE_KEYS
-    )
+def _action_ready_ms(record: dict[str, Any]) -> float:
+    frame_ms = float(record["metadata"]["frame_ms"])
+    return float(record["ready_time_ms"]) - float(record["obs_env_step"]) * frame_ms
 
 
 def _latency_ms_bin(latency_ms: float) -> int:
@@ -157,13 +152,13 @@ def _latency_ms_bin(latency_ms: float) -> int:
 
 
 def _fit_joint_emission_distribution(samples: list[dict[str, float]]) -> dict[str, Any]:
-    e2e_values = [float(sample["e2e_latency_ms"]) for sample in samples]
+    action_ready_values = [float(sample["action_ready_ms"]) for sample in samples]
     worker_values = [float(sample["worker_service_ms"]) for sample in samples]
     return {
         "count": len(samples),
-        "e2e_latency_ms": _fit_inverse_cdf(e2e_values),
+        "action_ready_ms": _fit_inverse_cdf(action_ready_values),
         "worker_service_ms": _fit_inverse_cdf(worker_values),
-        "spearman_rho": _spearman_rho(e2e_values, worker_values),
+        "spearman_rho": _spearman_rho(action_ready_values, worker_values),
     }
 
 

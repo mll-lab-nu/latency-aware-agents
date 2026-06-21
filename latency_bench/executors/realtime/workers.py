@@ -147,7 +147,7 @@ def _action_event_ack_payload(event: RealtimeActionDispatch) -> dict[str, Any]:
 def _worker_runtime_metadata(worker_id: int, start_method: str) -> dict[str, Any]:
     import torch
 
-    return {
+    metadata = {
         "worker_id": int(worker_id),
         "worker_pid": os.getpid(),
         "worker_start_method": start_method,
@@ -157,6 +157,28 @@ def _worker_runtime_metadata(worker_id: int, start_method: str) -> dict[str, Any
         "worker_cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
         "worker_cuda_device_count": torch.cuda.device_count(),
     }
+    try:
+        metadata["worker_cuda_current_device"] = int(torch.cuda.current_device())
+        metadata["worker_cuda_current_device_name"] = str(torch.cuda.get_device_name(torch.cuda.current_device()))
+    except Exception:
+        pass
+    try:
+        metadata["worker_cuda_flash_sdp_enabled"] = bool(torch.backends.cuda.flash_sdp_enabled())
+    except Exception:
+        pass
+    try:
+        metadata["worker_cuda_mem_efficient_sdp_enabled"] = bool(torch.backends.cuda.mem_efficient_sdp_enabled())
+    except Exception:
+        pass
+    try:
+        metadata["worker_cuda_math_sdp_enabled"] = bool(torch.backends.cuda.math_sdp_enabled())
+    except Exception:
+        pass
+    try:
+        metadata["worker_torch_float32_matmul_precision"] = torch.get_float32_matmul_precision()
+    except Exception:
+        pass
+    return metadata
 
 
 def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, device: str, start_method: str) -> None:

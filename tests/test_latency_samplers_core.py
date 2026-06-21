@@ -13,13 +13,13 @@ from latency_bench.latency.samplers import (
 )
 
 
-def _model_sample(episode_id: int, sample_index: int, e2e_latency_ms: float, worker_service_ms: float) -> dict:
+def _model_sample(episode_id: int, sample_index: int, action_ready_ms: float, worker_service_ms: float) -> dict:
     return {
         "episode_id": episode_id,
         "sample_index": sample_index,
-        "e2e_latency_ms": e2e_latency_ms,
+        "action_ready_ms": action_ready_ms,
         "worker_service_ms": worker_service_ms,
-        "e2e_latency_ms_bin": int(e2e_latency_ms // 1.0),
+        "worker_service_ms_bin": int(worker_service_ms // 1.0),
     }
 
 
@@ -60,7 +60,7 @@ def test_iid_inverse_cdf_matches_golden_numbers():
     assert values == pytest.approx([26.888437030500963, 25.15908805880605, 18.4114316166169])
 
 
-def test_bayes_markov_walks_e2e_ms_bin_states_in_episode_order():
+def test_bayes_markov_walks_worker_service_ms_bin_states_in_episode_order():
     clock = _clock()
     # Single deterministic chain 40 -> 80 -> 160 with one fitted distribution per state.
     samples = [
