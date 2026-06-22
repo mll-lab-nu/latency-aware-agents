@@ -28,6 +28,12 @@ detect_torch_profile() {
         return
     fi
 
+    if echo "${compute_caps}" | grep -qx "12.0"; then
+        echo "[install] detected GPU compute capability 12.0; selecting cu128" >&2
+        echo "cu128"
+        return
+    fi
+
     if echo "${compute_caps}" | awk -F. '$1 >= 10 {found=1} END {exit found ? 0 : 1}'; then
         echo "[install] detected GPU compute capability >= 10.0; selecting cu130" >&2
         echo "cu130"
@@ -115,11 +121,13 @@ persist_conda_shell_init() {
 }
 
 SELECTED_TORCH_PROFILE="$(resolve_torch_profile "${LATENCY_BENCH_TORCH_PROFILE}")"
+export STARVLA_TORCH_PROFILE="${SELECTED_TORCH_PROFILE}"
 # Speed-test mirrors once and route torch + pypi through the fastest provider. Exports
 # STARVLA_TORCH_INDEX_BASE / PIP_INDEX_URL / UV_* so the requirements install and the
 # starVLA bootstrap (and its parallel env builds) inherit the choice without re-probing.
 export_mirror_env "${SELECTED_TORCH_PROFILE}"
 TORCH_INDEX_URL="${STARVLA_TORCH_INDEX_BASE}/${SELECTED_TORCH_PROFILE}"
+TORCH_SPEC="torch==${TORCH_VERSION}+${SELECTED_TORCH_PROFILE}"
 echo "[install] torch_profile=${SELECTED_TORCH_PROFILE} index_url=${TORCH_INDEX_URL}"
 
 # Fresh cloud instance bootstrap for the master branch.
@@ -153,7 +161,7 @@ export UV_CACHE_DIR="${UV_CACHE_DIR:-$(conda info --base)/.uv_cache}"
 unset UV_NO_CACHE UV_LINK_MODE
 python -m pip install --upgrade pip
 ensure_uv
-pip_install "torch==${TORCH_VERSION}" --index-url "${TORCH_INDEX_URL}"
+pip_install "${TORCH_SPEC}" --index-url "${TORCH_INDEX_URL}"
 python - <<'PY'
 import torch
 
