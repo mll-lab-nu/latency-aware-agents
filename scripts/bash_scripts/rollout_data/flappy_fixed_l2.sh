@@ -7,8 +7,8 @@ set -euo pipefail
 # ---- run variables ----
 MAX_EPISODES=200
 MAX_STEPS=7200
-NUM_ENVS=1024
-REPLAY_NUM_ENVS=16
+NUM_ENVS="${NUM_ENVS:-4096}"
+REPLAY_NUM_ENVS="${REPLAY_NUM_ENVS:-32}"
 DEVICE=gpu
 IMAGE_WRITER_WORKERS=32
 # HF dataset target: HF_REPO_ID is the collection repo, HF_CONFIG_NAME the specific

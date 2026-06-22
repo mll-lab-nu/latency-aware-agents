@@ -39,36 +39,48 @@ def batch_observations(observations: Sequence[Any]) -> Any:
     return {"obs": np.stack([to_numpy(obs) for obs in observations], axis=0)}
 
 
-def _batched_observation_at(observation: Any, index: int) -> Any:
-    """Select one agent observation from a batched observation.
+def _to_host_obs(observation: Any) -> Any:
+    """Move a batched observation to host NumPy once, preserving structure.
+
+    Converting the whole batch a single time (instead of slicing the device
+    tensor per slot) avoids thousands of tiny GPU->CPU syncs per step.
 
     Args:
-        observation: Batched observation object.
+        observation: Batched observation object (array, tensor, or mapping).
+
+    Returns:
+        Host NumPy observation with the same structure.
+    """
+    if isinstance(observation, Mapping):
+        return {key: _to_host_obs(value) for key, value in observation.items()}
+    return to_numpy(observation)
+
+
+def _obs_slice(host_obs: Any, index: int) -> Any:
+    """Select one agent observation from a host-resident batched observation.
+
+    Args:
+        host_obs: Host NumPy batched observation (see ``_to_host_obs``).
         index: Agent slot index.
 
     Returns:
-        Single-agent observation preserving leading batch shape.
+        Single-agent observation preserving the leading batch dimension.
     """
-    if isinstance(observation, Mapping):
-        return {key: _batched_observation_at(value, index) for key, value in observation.items()}
-    if torch is not None and isinstance(observation, torch.Tensor):
-        return observation[index : index + 1]
-    return np.asarray(observation)[index : index + 1]
+    if isinstance(host_obs, Mapping):
+        return {key: _obs_slice(value, index) for key, value in host_obs.items()}
+    return host_obs[index : index + 1]
 
 
-def _batched_value_at(value: Any, index: int) -> Any:
-    """Select and normalize one scalar value from a batched result.
+def _to_host_array(value: Any) -> Any:
+    """Move a full batch of scalar results (reward/terminated/...) to host once.
 
     Args:
         value: Batched tensor, array, or sequence.
-        index: Agent slot index.
 
     Returns:
-        Python scalar or list for the selected slot.
+        Host NumPy array indexable per slot.
     """
-    if torch is not None and isinstance(value, torch.Tensor):
-        value = value.detach().cpu().numpy()
-    return _to_python_action(value[int(index)])
+    return to_numpy(value)
 
 
 @dataclass
@@ -219,9 +231,10 @@ class BatchedTeacherRolloutDriver:
                 )
             elif list(active_mask) != [True for _ in range(self._slot_count)]:
                 self.control_env.set_active_agents(list(active_mask))
+            obs_host = _to_host_obs(obs_batch)
             return {
                 slot: (
-                    _batched_observation_at(obs_batch, slot),
+                    _obs_slice(obs_host, slot),
                     dict(info_batch[slot]),
                 )
                 for slot in reset_plan
@@ -231,9 +244,10 @@ class BatchedTeacherRolloutDriver:
             reset_plan,
             active_mask=list(active_mask),
         )
+        obs_host = _to_host_obs(obs_batch)
         return {
             slot: (
-                _batched_observation_at(obs_batch, slot),
+                _obs_slice(obs_host, slot),
                 dict(info_batch[slot]),
             )
             for slot in reset_plan
@@ -253,12 +267,19 @@ class BatchedTeacherRolloutDriver:
         for batch_idx, slot in enumerate(active_slots):
             full_actions[slot] = raw_actions[batch_idx]
         next_obs_batch, rewards, terminated, truncated, infos = self.env.step(full_actions)
+        # Move each batched result to host once, then index per slot (cheap host
+        # views). Slicing the device tensors per slot would re-copy the whole
+        # batch on every call -> thousands of GPU->CPU syncs per step.
+        obs_host = _to_host_obs(next_obs_batch)
+        rewards_host = _to_host_array(rewards)
+        terminated_host = _to_host_array(terminated)
+        truncated_host = _to_host_array(truncated)
         results = {
             slot: RolloutStepResult(
-                next_obs=_batched_observation_at(next_obs_batch, slot),
-                reward=_batched_value_at(rewards, slot),
-                terminated=_batched_value_at(terminated, slot),
-                truncated=_batched_value_at(truncated, slot),
+                next_obs=_obs_slice(obs_host, slot),
+                reward=_to_python_action(rewards_host[slot]),
+                terminated=_to_python_action(terminated_host[slot]),
+                truncated=_to_python_action(truncated_host[slot]),
                 info=infos[slot],
             )
             for slot in active_slots
