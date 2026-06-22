@@ -39,23 +39,23 @@ _mirror_pypi_index() {
 }
 
 _mirror_cache_file() {
-    echo "${UV_CACHE_DIR:-${TMPDIR:-/tmp}}/.fastest_provider_${1:-cu128}"
+    echo "${UV_CACHE_DIR:-${TMPDIR:-/tmp}}/.fastest_torch_provider_${1:-cu128}"
 }
 
 # Echo "<bytes_per_sec> <provider>" after range-downloading part of a large wheel.
-# Discover a probe wheel by matching the first nvidia/torch x86_64 wheel in the flat
-# index. `head -1` closes the pipe on the first hit so curl stops early rather than
-# pulling the whole (multi-MB) listing — `torch-*` alone sorts near the end and would
-# be truncated by --max-time on big indexes.
+# Discover a probe wheel by matching an actual torch wheel for this CUDA profile.
+# Some mirrors expose a top-level CUDA index but not the torch package sub-index;
+# those must score 0 or uv can fall through to PyPI and install a different CUDA
+# wheel for the same plain torch version.
 _mirror_probe_provider() {
     local provider="$1" profile="$2" base wheel speed
     base="$(_mirror_torch_base "$provider")"
     [ -n "${base}" ] || { echo "0 ${provider}"; return; }
-    wheel="$(curl -sL --max-time 10 "${base}/${profile}/" 2>/dev/null \
-        | grep -oE '(nvidia_c[a-z]+_cu[0-9]+|torch)-[^"#]+_x86_64\.whl' | head -1)"
+    wheel="$(curl -sL --max-time 10 "${base}/${profile}/torch/" 2>/dev/null \
+        | grep -oE "torch-[^\"#<> ]+(%2B|\\+)${profile}[^\"#<> ]+_x86_64\\.whl" | head -1)"
     [ -n "${wheel}" ] || { echo "0 ${provider}"; return; }
     speed="$(curl -sL --max-time 10 -r 0-26214400 -o /dev/null \
-        -w '%{speed_download}' "${base}/${profile}/${wheel}" 2>/dev/null || echo 0)"
+        -w '%{speed_download}' "${base}/${profile}/torch/${wheel}" 2>/dev/null || echo 0)"
     echo "${speed%.*} ${provider}"
 }
 
