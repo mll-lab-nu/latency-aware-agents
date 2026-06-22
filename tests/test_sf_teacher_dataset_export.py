@@ -2490,3 +2490,29 @@ def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkey
     assert fake_env.reset_seeds[0] == 11 + 1000
     # No episode row shards were materialized (replay skipped).
     assert completed_episode_indices_from_shards(output_dir) == set()
+
+
+def test_load_written_parquet_splits_restores_image_feature_memory_mapped(tmp_path):
+    # Locks the push OOM fix: the hub push must load the on-disk parquet (memory-mapped,
+    # Image feature restored from parquet metadata) instead of pulling the whole
+    # image-embedded dataset into RAM via pq.read_table.
+    from datasets import Dataset, Features, Image, Value
+
+    from latency_bench.data.sf_teacher_export import _load_written_parquet_splits
+
+    feats = Features({"image": Image(), "decision_step": Value("int64")})
+    frame = np.zeros((2, 2, 3), dtype=np.uint8)
+    Dataset.from_dict({"image": [frame, frame], "decision_step": [0, 1]}, features=feats).to_parquet(
+        str(tmp_path / "train.parquet")
+    )
+    Dataset.from_dict({"image": [frame], "decision_step": [0]}, features=feats).to_parquet(
+        str(tmp_path / "val.parquet")
+    )
+
+    dd = _load_written_parquet_splits(tmp_path)
+    assert set(dd) == {"train", "val"}
+    assert dd["train"].num_rows == 2
+    assert dd["val"].num_rows == 1
+    # Image feature round-trips, so push_to_hub re-embeds image bytes correctly.
+    assert isinstance(dd["train"].features["image"], Image)
+    assert dd["train"][0]["image"].size == (2, 2)

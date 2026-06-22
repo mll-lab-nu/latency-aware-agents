@@ -52,6 +52,31 @@ def push_dataset_to_hub(
     dataset_dict.push_to_hub(**push_kwargs)
 
 
+def _load_written_parquet_splits(output_dir: Path) -> Any:
+    """Load on-disk train/val parquet memory-mapped for a low-RAM hub push.
+
+    The parquet files embed image bytes. Reading them fully into memory
+    (``pq.read_table``) and then pushing rebuilds the whole image-embedded dataset in RAM,
+    which OOMs on large datasets. ``Dataset.from_parquet`` memory-maps the Arrow data from
+    disk so the push streams shard-by-shard with bounded memory. Features (incl. the
+    embedded Image column) are restored from the parquet's Hugging Face metadata.
+
+    Args:
+        output_dir: Directory containing ``train.parquet`` and ``val.parquet``.
+
+    Returns:
+        A ``DatasetDict`` with memory-mapped ``train``/``val`` splits.
+    """
+    from datasets import Dataset, DatasetDict
+
+    return DatasetDict(
+        {
+            "train": Dataset.from_parquet(str(output_dir / "train.parquet")),
+            "val": Dataset.from_parquet(str(output_dir / "val.parquet")),
+        }
+    )
+
+
 def export_sample_factory_teacher_dataset(
     *,
     checkpoint_root: str | Path,
@@ -139,10 +164,10 @@ def export_sample_factory_teacher_dataset(
         return rollout_metadata
     split_stats = episode_row_split_stats(output_dir)
     shard_image_metadata = image_metadata_from_shards(output_dir)
-    dataset_dict = write_parquet_splits_from_shards(
+    write_parquet_splits_from_shards(
         output_dir,
         action_spec=action_spec_for_env(str(config["env_name"])),
-        keep_dataset=bool(push_to_hub),
+        keep_dataset=False,
     )
     metadata = {
         **config_metadata,
@@ -181,8 +206,12 @@ def export_sample_factory_teacher_dataset(
     cleanup_rollout_intermediates(output_dir)
 
     if push_to_hub:
+        # Load the just-written parquet memory-mapped for the push. Building the
+        # DatasetDict via pq.read_table (the old keep_dataset path) pulls the whole
+        # image-embedded dataset into RAM and OOMs on large datasets; from_parquet
+        # memory-maps the Arrow data so push_to_hub streams shard-by-shard.
         push_dataset_to_hub(
-            dataset_dict,
+            _load_written_parquet_splits(output_dir),
             repo_id=str(hf_repo_id),
             private=bool(hf_private),
             token=resolve_token(str(hf_token)),
