@@ -9,7 +9,7 @@ set -euo pipefail
 # 所以这里不再手动 hf download 模型。
 # ============================================================================
 
-REPO_ROOT=/workspace
+REPO_ROOT=/workspace/latency-sensitive-bench
 
 # --- inject .env ---
 # set -a 让随后 source 进来的 KEY=VALUE 自动 export 给子进程（hf / python / wandb）。
@@ -19,14 +19,17 @@ source "${REPO_ROOT}/.env"
 set +a
 echo "HF_TOKEN set: ${HF_TOKEN:+yes}    WANDB_API_KEY set: ${WANDB_API_KEY:+yes}"
 
-# --- install ---
-bash "${REPO_ROOT}/install.sh"
-
-# install.sh 在它自己的进程里建并激活了 conda env `latency`，
-# 回到本脚本后需要重新激活，后续 hf/python 才在该 env 下。
-CONDA_BASE="$(conda info --base 2>/dev/null || echo "${HOME}/miniconda3")"
+# non-interactive bash doesn't auto-load conda's shell hook
+CONDA_BASE="$(conda info --base 2>/dev/null || echo /opt/miniforge3)"
+# shellcheck source=/dev/null
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
-conda activate latency
+
+# vast boxes use a prefix env under /venv/; plain conda hosts use a named env
+if [[ -d /venv/starvla_rl_games_openvla ]]; then
+  conda activate /venv/starvla_rl_games_openvla
+else
+  conda activate starvla_rl_games_openvla
+fi
 
 # --- download data (latency_2) ---
 hf download latency-sensitive-bench/flappy_200ep \
