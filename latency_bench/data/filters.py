@@ -13,6 +13,9 @@ FILTER_PRESET_CONTIGUOUS_V1 = "contiguous_v1"
 FILTER_PRESET_NONE = "none"
 FLAPPY_CONTEXT_WINDOW = 2
 FLAPPY_BACKGROUND_KEEP_PROB = 0.2
+# Keep a Flappy episode once the bird survives at least this fraction of the step
+# cap, rather than requiring a full-length run.
+FLAPPY_MIN_LENGTH_FRACTION = 0.7
 DEMON_CONTEXT_WINDOW = 8
 DEMON_SURVIVAL_ANCHOR_STRIDE = 16
 DEMON_BACKGROUND_KEEP_PROB = 0.5
@@ -56,13 +59,14 @@ def clean_v1_accepts_episode_summary(
     Args:
         env_name: Canonical benchmark environment name.
         summary: Episode summary with length and environment-specific return.
-        max_steps_per_episode: Export step cap used by Flappy's full-length gate.
+        max_steps_per_episode: Export step cap; Flappy keeps episodes that survive
+            at least ``FLAPPY_MIN_LENGTH_FRACTION`` of it.
 
     Returns:
         Whether this episode should count toward the requested dataset size.
     """
     return {
-        "flappy": lambda: summary["episode_length"] >= max_steps_per_episode,
+        "flappy": lambda: summary["episode_length"] >= FLAPPY_MIN_LENGTH_FRACTION * max_steps_per_episode,
         "deadly_corridor": lambda: summary["episode_raw_return"] >= 2200.0,
         "demon_attack": lambda: summary["episode_raw_return"] >= DEMON_RAW_SCORE_STRONG_THRESHOLD,
     }[env_name]()

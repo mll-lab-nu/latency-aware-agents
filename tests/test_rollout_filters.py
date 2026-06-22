@@ -11,6 +11,18 @@ def test_clean_v1_accepts_deadly_corridor_by_raw_return():
     assert clean_v1_accepts_episode_summary("deadly_corridor", high_return_summary, max_steps_per_episode=1000)
 
 
+def test_clean_v1_accepts_flappy_by_length_fraction():
+    from latency_bench.data.filters import clean_v1_accepts_episode_summary
+
+    # Flappy keeps episodes that survive >= 0.7 * max_steps_per_episode.
+    assert not clean_v1_accepts_episode_summary(
+        "flappy", {"episode_length": 699, "episode_raw_return": 0.0}, max_steps_per_episode=1000
+    )
+    assert clean_v1_accepts_episode_summary(
+        "flappy", {"episode_length": 700, "episode_raw_return": 0.0}, max_steps_per_episode=1000
+    )
+
+
 def test_clean_v1_accepts_demon_attack_by_raw_score():
     from latency_bench.data.filters import clean_v1_accepts_episode_summary
 
