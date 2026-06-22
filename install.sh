@@ -10,6 +10,8 @@ CONDA_SH_PATH=""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/bash_scripts/_pip.sh
 source "${SCRIPT_DIR}/scripts/bash_scripts/_pip.sh"
+# shellcheck source=scripts/bash_scripts/_mirrors.sh
+source "${SCRIPT_DIR}/scripts/bash_scripts/_mirrors.sh"
 
 detect_torch_profile() {
     if ! command -v nvidia-smi >/dev/null 2>&1; then
@@ -47,20 +49,6 @@ resolve_torch_profile() {
         *)
             echo "[install] Unknown LATENCY_BENCH_TORCH_PROFILE='$1'. Expected auto|cu126|cu128|cu130." >&2
             return 1
-            ;;
-    esac
-}
-
-torch_index_url() {
-    case "$1" in
-        cu126)
-            echo "https://download.pytorch.org/whl/cu126"
-            ;;
-        cu128)
-            echo "https://download.pytorch.org/whl/cu128"
-            ;;
-        cu130)
-            echo "https://download.pytorch.org/whl/cu130"
             ;;
     esac
 }
@@ -127,7 +115,11 @@ persist_conda_shell_init() {
 }
 
 SELECTED_TORCH_PROFILE="$(resolve_torch_profile "${LATENCY_BENCH_TORCH_PROFILE}")"
-TORCH_INDEX_URL="$(torch_index_url "${SELECTED_TORCH_PROFILE}")"
+# Speed-test mirrors once and route torch + pypi through the fastest provider. Exports
+# STARVLA_TORCH_INDEX_BASE / PIP_INDEX_URL / UV_* so the requirements install and the
+# starVLA bootstrap (and its parallel env builds) inherit the choice without re-probing.
+export_mirror_env "${SELECTED_TORCH_PROFILE}"
+TORCH_INDEX_URL="${STARVLA_TORCH_INDEX_BASE}/${SELECTED_TORCH_PROFILE}"
 echo "[install] torch_profile=${SELECTED_TORCH_PROFILE} index_url=${TORCH_INDEX_URL}"
 
 # Fresh cloud instance bootstrap for the master branch.
@@ -155,6 +147,10 @@ conda activate latency
 # Keep uv's cache on the same filesystem as the conda envs so packages are
 # hardlinked into each env (download/disk dedup) instead of silently copied.
 export UV_CACHE_DIR="${UV_CACHE_DIR:-$(conda info --base)/.uv_cache}"
+# Some cloud images (e.g. vast.ai) export UV_NO_CACHE=1 (disables uv's wheel cache, so
+# every env re-downloads the identical multi-GB torch/CUDA stack) and UV_LINK_MODE=copy
+# (defeats the cache->env hardlink dedup). Clear both to restore download/disk dedup.
+unset UV_NO_CACHE UV_LINK_MODE
 python -m pip install --upgrade pip
 ensure_uv
 pip_install "torch==${TORCH_VERSION}" --index-url "${TORCH_INDEX_URL}"

@@ -269,6 +269,9 @@ exit 0
         "PATH": f"{fake_bin}{os.pathsep}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "HOME": str(home_dir),
         "LATENCY_BENCH_FAKE_INSTALL_CALLS": str(calls_path),
+        # Pin the package mirror so install.sh's index URLs are deterministic; the
+        # network speed-test (export_mirror_env) is exercised separately, not here.
+        "MIRROR_PROVIDER_OVERRIDE": "official",
     }
     for key in ("CONDA_EXE", "CONDA_PREFIX", "CONDA_SHLVL", "CONDA_DEFAULT_ENV"):
         env.pop(key, None)
@@ -347,6 +350,40 @@ def test_install_script_allows_torch_profile_override(tmp_path):
     assert "torch_profile=cu128" in result.stdout
     calls = calls_path.read_text(encoding="utf-8")
     assert "python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu128" in calls
+
+
+def _run_mirrors_snippet(snippet: str, env_extra: dict[str, str]) -> str:
+    helper = REPO_ROOT / "scripts" / "bash_scripts" / "_mirrors.sh"
+    result = subprocess.run(
+        ["bash", "-c", f'source "{helper}"\n{snippet}\n'],
+        cwd=REPO_ROOT,
+        env={**os.environ, **env_extra},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def test_mirrors_provider_override_routes_torch_and_pypi():
+    # An explicit override skips the network probe and routes both indexes.
+    out = _run_mirrors_snippet(
+        'echo "$(torch_index_for cu128)|$(pypi_index_url cu128)"',
+        {"MIRROR_PROVIDER_OVERRIDE": "aliyun"},
+    )
+    assert out == (
+        "https://mirrors.aliyun.com/pytorch-wheels/cu128|https://mirrors.aliyun.com/pypi/simple"
+    )
+
+
+def test_mirrors_fall_back_to_official_when_no_provider_reachable(tmp_path):
+    # Unknown providers resolve to no base (no network), so selection falls back.
+    out = _run_mirrors_snippet(
+        'echo "$(torch_index_for cu128)|$(pypi_index_url cu128)"',
+        {"MIRROR_PROVIDERS": "bogus", "UV_CACHE_DIR": str(tmp_path)},
+    )
+    assert out == "https://download.pytorch.org/whl/cu128|https://pypi.org/simple"
 
 
 def test_install_script_rejects_unknown_torch_profile(tmp_path):
