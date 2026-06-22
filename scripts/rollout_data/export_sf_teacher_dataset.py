@@ -61,6 +61,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--demon-episode-threshold", type=float, default=None,
                         help="Override Demon Attack episode-level clipped return threshold.")
+    parser.add_argument("--rollout-seed-offset", type=int, default=0,
+                        help="Offset added to the probe reset base seed so sharded probe workers "
+                             "explore disjoint episodes. Default 0 reproduces single-process behavior.")
+    parser.add_argument("--probe-only", action="store_true",
+                        help="Run only the probe phase and persist probe_state.json (no replay/parquet). "
+                             "Used by sharded probe workers; merge + single-process replay materialize the dataset.")
     return parser
 
 
@@ -102,8 +108,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         hf_config_name=str(args.hf_config_name),
         filter_preset=str(args.filter_preset),
         filter_kwargs=filter_kwargs or None,
+        rollout_seed_offset=int(args.rollout_seed_offset),
+        probe_only=bool(args.probe_only),
     )
-    print(f"[export] wrote train={metadata['train_rows']} rows val={metadata['val_rows']} rows to {output_dir}")
+    if metadata.get("probe_only"):
+        print(f"[probe-only] wrote {metadata.get('accepted_episodes')} accepted specs to {output_dir}")
+    else:
+        print(f"[export] wrote train={metadata['train_rows']} rows val={metadata['val_rows']} rows to {output_dir}")
     return 0
 
 

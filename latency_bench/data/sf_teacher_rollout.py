@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 import torch
@@ -198,6 +198,78 @@ def _write_probe_state(output_dir: Path, state: Mapping[str, Any]) -> None:
     tmp_path.replace(state_path)
 
 
+def merge_probe_states(
+    shard_states: Sequence[Mapping[str, Any]],
+    *,
+    max_episodes: int,
+    val_fraction: float,
+    split_seed: int,
+) -> dict[str, Any]:
+    """Merge sharded probe states into one resume state for single-process replay.
+
+    Each shard explored a disjoint reset-seed range (see ``rollout_seed_offset``) and
+    persisted its own accepted specs. The merged state takes the first ``max_episodes``
+    accepted specs in deterministic shard order, dedupes by reset seed, and reassigns
+    contiguous ``episode_idx`` plus train/val split via the same plan the single-process
+    probe uses (``_build_episode_plan``) — so the downstream replay path is identical to a
+    normal resume. Each spec keeps its original reset seed so replay reproduces the episode.
+
+    Args:
+        shard_states: Probe states (parsed ``probe_state.json``) from each shard, in the
+            shard order that defines the deterministic merge order.
+        max_episodes: Number of episodes the merged dataset must contain.
+        val_fraction: Fraction assigned to validation (same plan as the probe).
+        split_seed: RNG seed for split assignment (same plan as the probe).
+
+    Returns:
+        A merged probe state with exactly ``max_episodes`` accepted specs, ready to write
+        to the final ``output_dir`` so ``collect_teacher_dataset`` skips probing and replays.
+    """
+    merged_specs: list[dict[str, Any]] = []
+    seen_seeds: set[int] = set()
+    for state in shard_states:
+        for spec in state.get("accepted_specs", []):
+            seed = int(spec["seed"])
+            if seed in seen_seeds:
+                continue
+            seen_seeds.add(seed)
+            merged_specs.append(dict(spec))
+
+    if len(merged_specs) < int(max_episodes):
+        raise ValueError(
+            f"sharded probe collected {len(merged_specs)} accepted episodes, "
+            f"fewer than max_episodes={int(max_episodes)}; increase per-shard quota."
+        )
+
+    final_splits = {
+        int(plan_spec["episode_idx"]): str(plan_spec["split"])
+        for plan_spec in _build_episode_plan(
+            max_episodes=int(max_episodes),
+            val_fraction=float(val_fraction),
+            split_seed=int(split_seed),
+            base_seed=0,
+        )
+    }
+
+    accepted_specs: list[dict[str, Any]] = []
+    for episode_idx, spec in enumerate(merged_specs[: int(max_episodes)]):
+        finalized = dict(spec)
+        finalized["episode_idx"] = int(episode_idx)
+        finalized["split"] = final_splits[int(episode_idx)]
+        accepted_specs.append(finalized)
+
+    merged = _new_probe_state()
+    merged["accepted_specs"] = accepted_specs
+    merged["attempted_episodes"] = sum(int(s.get("attempted_episodes", 0)) for s in shard_states)
+    merged["rejected_episodes"] = sum(int(s.get("rejected_episodes", 0)) for s in shard_states)
+    merged["next_attempt_idx"] = sum(int(s.get("next_attempt_idx", 0)) for s in shard_states)
+    for state in shard_states:
+        if "runtime_metadata" in state:
+            merged["runtime_metadata"] = dict(state["runtime_metadata"])
+            break
+    return merged
+
+
 def _filter_report_from_probe_state(
     output_dir: Path,
     probe_state: Mapping[str, Any],
@@ -361,6 +433,13 @@ def _rollout_step_flags(
     return life_loss_boundary, true_episode_end
 
 
+# Persist the probe resume state on every acceptance (rare, <= max_episodes) but only
+# every N rejections. Once the per-step device syncs are gone, episodes complete very
+# frequently, and serializing the whole state to disk per completion dominates. The final
+# state is flushed once the probe loop ends, so a clean run's persisted state is identical.
+PROBE_STATE_WRITE_EVERY = 256
+
+
 def _probe_accepted_specs(
     runtime: Mapping[str, Any],
     driver: SerialTeacherRolloutDriver | BatchedTeacherRolloutDriver,
@@ -375,6 +454,7 @@ def _probe_accepted_specs(
     deterministic: bool,
     probe_state: dict[str, Any],
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
+    rollout_seed_offset: int = 0,
 ) -> None:
     """Probe rollout attempts without raw RGB until enough accepted specs exist.
 
@@ -417,7 +497,7 @@ def _probe_accepted_specs(
         next_attempt_idx = int(probe_state["next_attempt_idx"])
         initial_reset_plan: dict[int, int] = {}
         for slot in range(driver.slot_count):
-            spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed))
+            spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed) + int(rollout_seed_offset))
             next_attempt_idx += 1
             active_specs[slot] = spec
             initial_reset_plan[slot] = int(spec["seed"])
@@ -451,6 +531,12 @@ def _probe_accepted_specs(
                 reset_plan: dict[int, int] = {}
                 target_reached = False
 
+                # Scatter the new recurrent states for every active slot in one
+                # batched assignment instead of one tiny GPU write per slot. Slots
+                # that finish/reset below still get .zero_()'d afterwards, exactly
+                # as when each row was written individually.
+                rnn_states[active_slots] = new_rnn_states
+
                 for batch_idx, slot in enumerate(active_slots):
                     if len(accepted_specs) >= int(max_episodes):
                         active_specs[slot] = None
@@ -470,7 +556,6 @@ def _probe_accepted_specs(
                     else:
                         active_episode_raw_returns[slot] += float(_to_python_action(step_result.reward))
 
-                    rnn_states[slot] = new_rnn_states[batch_idx]
                     next_decision_step = int(active_decision_steps[slot]) + 1
                     life_loss_boundary, episode_done = _rollout_step_flags(
                         env_name,
@@ -511,7 +596,7 @@ def _probe_accepted_specs(
                         else:
                             probe_state["rejected_episodes"] += 1
                         if len(accepted_specs) < int(max_episodes):
-                            next_spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed))
+                            next_spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed) + int(rollout_seed_offset))
                             next_attempt_idx += 1
                             active_specs[slot] = next_spec
                             reset_plan[slot] = int(next_spec["seed"])
@@ -524,7 +609,8 @@ def _probe_accepted_specs(
                             active_decision_steps[slot] = 0
                             rnn_states[slot].zero_()
                         probe_state["next_attempt_idx"] = next_attempt_idx
-                        _write_probe_state(output_dir, probe_state)
+                        if accepted or int(probe_state["attempted_episodes"]) % PROBE_STATE_WRITE_EVERY == 0:
+                            _write_probe_state(output_dir, probe_state)
                         _update_probe_progress(
                             progress,
                             probe_state,
@@ -555,6 +641,9 @@ def _probe_accepted_specs(
                 else:
                     if isinstance(driver, BatchedTeacherRolloutDriver):
                         driver.sync_active([spec is not None for spec in active_specs])
+        # Flush the final probe state once the loop ends so a clean run persists the
+        # exact same accepted_specs/counters as writing on every completion did.
+        _write_probe_state(output_dir, probe_state)
     finally:
         driver.close()
 
@@ -829,6 +918,8 @@ def collect_teacher_dataset(
     row_buffer_size: int,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
+    rollout_seed_offset: int = 0,
+    probe_only: bool = False,
 ) -> dict[str, Any]:
     """Collect a Sample Factory teacher dataset from a checkpoint descriptor.
 
@@ -884,7 +975,20 @@ def collect_teacher_dataset(
             deterministic=bool(deterministic),
             probe_state=probe_state,
             filter_preset=filter_preset,
+            rollout_seed_offset=int(rollout_seed_offset),
         )
+
+    if probe_only:
+        # Sharded-probe worker mode: the accepted_specs (with their reset seeds) are now
+        # persisted in probe_state.json; skip replay/image writing. A separate merge step
+        # combines shards and the single-process replay path materializes the dataset.
+        return {
+            "probe_only": True,
+            "env_name": env_name,
+            "accepted_episodes": len(probe_state["accepted_specs"]),
+            "rollout_seed_offset": int(rollout_seed_offset),
+            "filter_preset": filter_preset,
+        }
 
     accepted_specs = probe_state["accepted_specs"]
     completed_episode_indices = completed_episode_indices_from_shards(output_dir)

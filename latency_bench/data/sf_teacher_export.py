@@ -77,6 +77,8 @@ def export_sample_factory_teacher_dataset(
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
     hf_config_name: str = "",
+    rollout_seed_offset: int = 0,
+    probe_only: bool = False,
 ) -> dict[str, Any]:
     """Collect and write a canonical Sample Factory teacher dataset.
 
@@ -127,7 +129,14 @@ def export_sample_factory_teacher_dataset(
         row_buffer_size=int(row_buffer_size),
         filter_preset=str(filter_preset),
         filter_kwargs=filter_kwargs,
+        rollout_seed_offset=int(rollout_seed_offset),
+        probe_only=bool(probe_only),
     )
+    if probe_only:
+        # Sharded-probe worker: probe_state.json holds this shard's accepted specs.
+        # Skip parquet/image materialization and hub upload; the merge + replay step
+        # handles the combined dataset.
+        return rollout_metadata
     split_stats = episode_row_split_stats(output_dir)
     shard_image_metadata = image_metadata_from_shards(output_dir)
     dataset_dict = write_parquet_splits_from_shards(
