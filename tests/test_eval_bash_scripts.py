@@ -512,6 +512,15 @@ exit 0
         "cp310-cp310-linux_x86_64.whl"
     )
 
+    # Model scripts install deps via _pip.sh, which prefers uv. uv cannot introspect
+    # the fake python below, so exercise _pip.sh's supported plain-pip fallback by
+    # dropping any uv on PATH (the fake python then logs the pip-install invocations).
+    env_path = os.pathsep.join(
+        p
+        for p in os.environ.get("PATH", "").split(os.pathsep)
+        if not (p and os.access(os.path.join(p, "uv"), os.X_OK))
+    )
+
     for script_path in model_scripts:
         fake_log.write_text("", encoding="utf-8")
         result = subprocess.run(
@@ -519,6 +528,7 @@ exit 0
             cwd=REPO_ROOT / "starVLA",
             env={
                 **os.environ,
+                "PATH": env_path,
                 "PYTHON_BIN": str(fake_python),
                 "PYTHON_FAKE_LOG": str(fake_log),
             },
