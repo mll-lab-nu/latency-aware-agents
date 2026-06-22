@@ -93,6 +93,17 @@ class StarVlaPolicyRunner(PolicyRunner):
         model_cfg = _normalized_model_cfg_from_wrapper(wrapper)
         self._include_state = _include_state_from_model_cfg(model_cfg)
         self._state_dim = _state_dim_from_model_cfg(model_cfg) if self._include_state else None
+        vla_data = (model_cfg.get("datasets", {}) or {}).get("vla_data", {}) or {}
+        self._num_obs_frames = int(vla_data.get("num_obs_frames", 1) or 1)
+        self._image_mode = str(vla_data.get("image_mode", "single"))
+        self._stitch_grid = tuple(vla_data.get("stitch_grid", [2, 2]))
+
+    def reset_state(self, slot_id: int | None = None) -> None:
+        # Clears the model's per-slot KV memory at episode boundaries (req3).
+        # No-op unless the framework maintains KV memory.
+        reset = getattr(self._wrapper, "reset_memory", None)
+        if callable(reset):
+            reset(slot_id)
 
     def predict(self, observation: Observation) -> PolicyOutput:
         return self.predict_batch([observation])[0]
@@ -157,24 +168,43 @@ class StarVlaPolicyRunner(PolicyRunner):
 
     def _build_example(self, observation: Observation) -> dict[str, Any]:
         frame_source = observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
-        frames = observation_data_to_hwc_uint8_frames(frame_source)
-        if self._obs_resize is not None:
-            height, width = self._obs_resize
-            # match training preprocessing exactly: gr00t LeRobotSingleDataset._pack_sample
-            # does `Image.fromarray(image).resize((224, 224))` (PIL default resample = BICUBIC).
-            frames = [
-                np.asarray(Image.fromarray(frame).resize((width, height)), dtype=np.uint8)
-                for frame in frames
-            ]
+        frames = observation_data_to_hwc_uint8_frames(frame_source)  # oldest .. newest
+
+        # Select the temporal observation window to match training (_pack_sample).
+        if self._image_mode == "single":
+            frames = frames[-1:]
+        else:
+            n = min(self._num_obs_frames, len(frames))
+            frames = frames[-n:]
+
         prompt = resolve_starvla_prompt(
             env_name=self._env_name,
             observation_metadata=observation.metadata,
             latency_prompt_map=self._latency_prompt_map,
         )
+
+        if self._image_mode == "stitch":
+            # Tile the window into one image; matches _pack_sample's stitch branch
+            # (raw frames passed to stitch_frames, which resizes each cell to 224).
+            images = [_get_stitch_frames()(frames, grid=self._stitch_grid, size=(224, 224))]
+        else:
+            if self._obs_resize is not None:
+                height, width = self._obs_resize
+                # match training preprocessing exactly: gr00t LeRobotSingleDataset._pack_sample
+                # does `Image.fromarray(image).resize((224, 224))` (PIL default resample = BICUBIC).
+                frames = [
+                    np.asarray(Image.fromarray(frame).resize((width, height)), dtype=np.uint8)
+                    for frame in frames
+                ]
+            images = [Image.fromarray(frame) for frame in frames]
+
         example = {
-            "image": [Image.fromarray(frame) for frame in frames],
+            "image": images,
             "lang": prompt,
         }
+        slot_id = observation.metadata.get("slot_id")
+        if slot_id is not None:
+            example["slot_id"] = slot_id
         if self._include_state:
             example["state"] = np.zeros((1, self._state_dim), dtype=np.float32)
         return example
@@ -466,6 +496,20 @@ def _state_dim_from_model_cfg(model_cfg: dict[str, Any]) -> int:
 
 def _include_state_from_model_cfg(model_cfg: dict[str, Any]) -> bool:
     return model_cfg["datasets"]["vla_data"]["include_state"]
+
+
+_STITCH_FRAMES = None
+
+
+def _get_stitch_frames():
+    """Lazily import starVLA's stitch_frames (starVLA path is added at runtime)."""
+    global _STITCH_FRAMES
+    if _STITCH_FRAMES is None:
+        _ensure_starvla_path()
+        from starVLA.training.trainer_utils.trainer_tools import stitch_frames
+
+        _STITCH_FRAMES = stitch_frames
+    return _STITCH_FRAMES
 
 
 def _ensure_starvla_path() -> None:
