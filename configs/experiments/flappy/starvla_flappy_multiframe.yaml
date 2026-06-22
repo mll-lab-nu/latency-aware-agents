@@ -1,0 +1,51 @@
+__base__:
+  - ../../base/flappy.yaml
+
+# Eval for a QwenOFT checkpoint trained with temporal multi-image input
+# (image_mode=multiframe or stitch, num_obs_frames=4). image_mode / num_obs_frames /
+# stitch_grid are read from the checkpoint's own config, so only the env's frame_stack
+# needs to match here: it must supply num_obs_frames frames per step.
+
+experiment:
+  name: starvla_qwenoft_flappy_multiframe4
+  seed: 42
+
+executor:
+  mode: simulated
+
+env:
+  env_fps: 30
+  obs_fps: 30
+  frame_stack: 4          # must equal the trained num_obs_frames
+  obs_resize: [224, 224]
+
+policy:
+  type: starvla
+  checkpoint_path: /workspace/starVLA/results/Checkpoints/flappy_qwenoft_multiframe4/checkpoints/steps_5000_state/model.safetensors
+  device: cuda
+  unnorm_key: new_embodiment
+  latency_prompt_map_path: /workspace/latency-sensitive-bench/prompt_map/flappy_fix_latency_prompt_map.json
+  actions:
+    - noop
+    - flap
+
+latency:
+  type: zero
+
+evaluation:
+  eval_episodes: 20
+  eval_parallel_envs: 4
+  eval_max_steps: 3600
+  eval_suites:
+    fixed:
+      - [0, 4]
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/starvla_qwenoft_flappy_multiframe4
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false
+  video:
+    enabled: false
