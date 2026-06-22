@@ -54,6 +54,60 @@ def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
     assert table.to_pylist()[0]["done"] is True
 
 
+def test_starvla_lerobot_exporter_subsamples_to_obs_cadence(tmp_path):
+    """Adjacent LeRobot rows must be adjacent obs decisions (every obs_stride raw
+    frames), with contiguous frame_index, so KV-memory rollouts unroll at the eval
+    observation cadence rather than at every raw frame."""
+    from latency_bench.data.action_layouts import action_spec_for_env
+    from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
+    from latency_bench.data.hf_parquet import write_parquet_splits
+
+    image_path = tmp_path / "image.png"
+    save_test_image(image_path, 9)
+    raw_export = tmp_path / "raw"
+    action_spec = action_spec_for_env("deadly_corridor")
+    # One episode, 8 contiguous per-raw-frame decision steps; obs_stride = 4.
+    train_rows = [
+        {
+            "image": str(image_path),
+            "env_name": "deadly_corridor",
+            "episode_idx": 0,
+            "decision_step": step,
+            "split": "train",
+            "seed": 7,
+            "prompt": "pick action",
+            "latency_raw_frames": 2,
+            "latency_ms": 57.14,
+            "raw_reward": 1.0,
+            "action_id": 11,
+            "action_text": "MOVE_FORWARD + MOVE_RIGHT + ATTACK",
+        }
+        for step in range(8)
+    ]
+    write_parquet_splits(raw_export, train_rows, [], action_spec=action_spec)
+    (raw_export / "metadata.json").write_text(
+        json.dumps(
+            {
+                "env_name": "deadly_corridor",
+                "action_layout": "deadly_corridor_joint_54",
+                "reward_field": "raw_reward",
+                "action_labels": list(action_spec.labels),
+                "obs_stride_raw_frames": 4,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    convert_canonical_rollout_to_lerobot(raw_export, tmp_path / "lerobot", force=True)
+
+    table = pq.read_table(tmp_path / "lerobot" / "data" / "chunk-000" / "episode_000000.parquet")
+    rows = table.to_pylist()
+    # Only decision_steps 0 and 4 survive; frame_index is contiguous obs index.
+    assert [r["frame_index"] for r in rows] == [0, 1]
+    assert [r["episode_index"] for r in rows] == [0, 0]
+    assert rows[-1]["done"] is True
+
+
 def test_starvla_lerobot_exporter_does_not_accept_latency_alias(tmp_path):
     from datasets import Dataset, Features, Image as HFImage, Sequence as HFSequence, Value
     from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot

@@ -179,6 +179,7 @@ def _convert_split(
     action_labels: list[str],
     fps: int,
     reward_field: str,
+    obs_stride: int = 1,
 ) -> dict[str, Any]:
     """Convert one canonical rollout split into a LeRobot dataset directory.
 
@@ -189,6 +190,11 @@ def _convert_split(
         action_labels: Canonical action labels in vector order.
         fps: Frame rate used for timestamps.
         reward_field: Source canonical reward column.
+        obs_stride: Raw frames per observation decision (``round(env_fps/obs_fps)``).
+            Canonical rows are recorded once per raw frame; keeping only the obs
+            decisions (``decision_step % obs_stride == 0``) makes adjacent LeRobot
+            rows adjacent observations, so KV-memory rollouts unroll at the eval
+            observation cadence.
 
     Returns:
         Split manifest summary.
@@ -198,6 +204,7 @@ def _convert_split(
     task_prompts: list[str] = []
     episode_lengths: list[int] = []
     for new_episode_idx, episode_rows in enumerate(_episode_groups(rows)):
+        episode_rows = [row for row in episode_rows if int(row["decision_step"]) % obs_stride == 0]
         out_rows = []
         for frame_idx, row in enumerate(episode_rows):
             # Enforce the canonical rollout contract; downstream must not read the legacy ``latency`` alias.
@@ -265,7 +272,9 @@ def convert_canonical_rollout_to_lerobot(
     action_spec = action_spec_for_env(env_name)
     action_labels = list(metadata["action_labels"])
     reward_field = str(metadata["reward_field"])
-    fps = int(FPS_BY_ENV[env_name])
+    obs_stride = int(metadata.get("obs_stride_raw_frames", 1))
+    # Rows survive at the observation cadence, so timestamps advance at obs_fps.
+    fps = max(1, int(FPS_BY_ENV[env_name]) // obs_stride)
     val_output_dir = output_dir.with_name(f"{output_dir.name}__val")
     if output_dir.exists() and force:
         shutil.rmtree(output_dir)
@@ -278,6 +287,7 @@ def convert_canonical_rollout_to_lerobot(
         action_labels=action_labels,
         fps=fps,
         reward_field=reward_field,
+        obs_stride=obs_stride,
     )
     val_manifest = _convert_split(
         _load_rows(raw_export_dir, "val"),
@@ -286,6 +296,7 @@ def convert_canonical_rollout_to_lerobot(
         action_labels=action_labels,
         fps=fps,
         reward_field=reward_field,
+        obs_stride=obs_stride,
     )
     manifest = {
         **train_manifest,

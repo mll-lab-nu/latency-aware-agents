@@ -56,7 +56,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hf-token", type=str, default="")
     parser.add_argument("--hf-max-shard-size", type=str, default="500MB")
     parser.add_argument("--hf-config-name", type=str, default="")
-    parser.add_argument("--filter-preset", type=str, default="clean_v1", choices=["none", "clean_v1"])
+    parser.add_argument(
+        "--filter-preset", type=str, default="clean_v1", choices=["none", "clean_v1", "contiguous_v1"]
+    )
     parser.add_argument("--demon-episode-threshold", type=float, default=None,
                         help="Override Demon Attack episode-level clipped return threshold.")
     return parser
