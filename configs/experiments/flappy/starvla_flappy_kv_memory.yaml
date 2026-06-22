@@ -1,0 +1,52 @@
+__base__:
+  - ../../base/flappy.yaml
+
+# Eval for a QwenOFT checkpoint trained with the fixed-size streaming KV memory
+# (framework.kv_memory.enabled=true). The memory is read from the checkpoint config,
+# so only the newest frame is encoded each step and the per-slot cache supplies the
+# history; frame_stack can stay 1. The per-slot memory is reset at episode boundaries
+# automatically (executor -> policy.reset_state(slot_id) -> framework.reset_memory).
+
+experiment:
+  name: starvla_qwenoft_flappy_kv_memory
+  seed: 42
+
+executor:
+  mode: simulated
+
+env:
+  env_fps: 30
+  obs_fps: 30
+  frame_stack: 1          # KV memory holds history; only the newest frame is fed
+  obs_resize: [224, 224]
+
+policy:
+  type: starvla
+  checkpoint_path: /workspace/starVLA/results/Checkpoints/flappy_qwenoft_kv_memory_w4_r8/checkpoints/steps_5000_state/model.safetensors
+  device: cuda
+  unnorm_key: new_embodiment
+  latency_prompt_map_path: /workspace/latency-sensitive-bench/prompt_map/flappy_fix_latency_prompt_map.json
+  actions:
+    - noop
+    - flap
+
+latency:
+  type: zero
+
+evaluation:
+  eval_episodes: 20
+  eval_parallel_envs: 4
+  eval_max_steps: 3600
+  eval_suites:
+    fixed:
+      - [0, 4]
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/starvla_qwenoft_flappy_kv_memory
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false
+  video:
+    enabled: false

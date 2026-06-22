@@ -26,6 +26,8 @@
 
 注意一个行为变化:`_build_example` 以前会把整个 raw frame stack 的所有帧都喂给模型(`frame_stack: 4` 就喂 4 张)。现在默认 `image_mode=single` 只喂最新一帧,和单帧训练对齐,修正了旧的"训练单帧、评测喂多帧"的不一致。要保持旧的多帧评测,显式设 `image_mode: multiframe` 并配多帧训练。
 
+影响范围要注意:现有十多个 starvla 评测配置(demon_attack、deadly_corridor、flappy 的若干)`frame_stack` 是 4 或继承基础配置的 4,但它们的模型都是单帧训练的。旧代码把这些单帧模型喂了 4 帧,新默认改成只喂最新 1 帧,所以这些配置的评测数值会变,属于修正而非回退。不用动这些配置:多出来的帧只在执行器侧的 deque 里维护,策略只取最新一帧。`image_mode` 由 checkpoint 自带的 config 决定,评测配置只需把 `frame_stack` 设成与训练 `num_obs_frames` 一致(KV memory 例外,见下)。
+
 ## 时序多图:逐帧 vs 拼图
 
 两种模式都让模型看到多帧,区别在 token 数。
@@ -73,6 +75,14 @@
 - 评测:`QwenOFT.predict_action` 走 per-slot memory(`_predict_action_memory`);`policy/starvla.py` 的 `reset_state(slot_id)` 经 `PolicyServerWrapper.reset_memory` 调 `QwenOFT.reset_memory`,在 episode 边界清空对应 slot(执行器在 slot 启动/软复位时已会调它)。当前帧取 `example["image"][-1]`,历史从 memory 取。
 - 递归训练:`QwenOFT.forward` 在 `kv_memory.enabled` 时走 `_forward_memory`,对每个样本的 R 帧递归构建 memory,步间 `detach_()` 做截断 BPTT(深度 1),loss 取最后一步;默认 R>N 让训练经历淘汰。每步都算 loss(需要逐步 action label)是后续扩展。
 
+### 评测路径的性能
+
+省重复计算是这个模块的初衷,所以评测路径本身也要避免反过来拖慢。两点:
+
+一是单帧预处理。每步只对当前帧跑一次图像处理器,n_visible 帧窗口的 token 布局靠复制当前帧的 token block 重建,再交给 `get_rope_index` 算位置(位置与图像内容无关)。这样窗口里的历史帧不会被重复预处理。测试 `test_kv_memory_rope_window.py` 钉住了"复制 block 的位置 == 真多帧窗口的位置",以及"追加帧不挪动旧帧位置"这条 canonical-K 赖以成立的前提。
+
+二是跨 slot 批处理。向量化评测里多个 env 同一步往往 prompt 和历史布局相同,这时把它们的 canonical KV 沿 batch 维堆叠成一次前向,而不是逐 slot 串行;布局不同的 slot 各自成组,因为窗口定长所以组内等长、不需要 left padding。`test_batched_streaming_matches_per_sample` 证明批处理逐元素等于单独跑。这两点只动 `kv_memory.enabled` 这条默认关闭的路径。
+
 ## VLM 底层冻结
 
 `trainer.freeze_llm_bottom_ratio` 给一个 0~1 的比例,冻结语言模型底部对应层数。总层数在运行时从 `text_config.num_hidden_layers` 读,换算成层数后夹到合法范围,并打印 `freezing n/L`,所以不用预先知道模型多少层(Qwen3-VL-4B 是 36 层)。
@@ -81,9 +91,11 @@
 
 ## 怎么验证
 
-- KV memory 等价性:`starvla_rl_games_gr00t` 环境下 `python -m pytest starVLA/tests/test_kv_memory_equivalence.py -q`。注意 starVLA 的导入要用这个环境(`latency` 环境没有 transformers)。
-- 时序多图 / 拼图 / 冻结:用一个 N=4 的小配置跑几十步训练,看 loss 下降、`input_frame_count` 和可训练参数量符合预期。
-- 端到端评测:`python -m latency_bench.run --config configs/experiments/.../starvla_*`。
+- KV memory 单测(无需 checkpoint):`starvla_rl_games_gr00t` 环境下 `python -m pytest starVLA/tests/test_kv_memory_equivalence.py starVLA/tests/test_kv_memory_rope_window.py -q`。前者覆盖缓存/旋转/淘汰数学和跨 slot 批处理等价;后者覆盖单帧预处理用的 block 复制与位置稳定性。注意 starVLA 的导入要用这个环境(`latency` 环境没有 transformers)。
+- KV memory 真模型端到端:`python scripts/diagnostics/check_kv_memory_e2e.py --checkpoint <ckpt> --frames 3`。`window >= frames`(不淘汰)时,逐帧流式必须逐位等于一次性整窗前向,验证真实 chat template 的 token 边界、`get_rope_index`、像素拼装这段没接错。需要 GPU 和 QwenOFT checkpoint。
+- 输入可视化 / 训推一致 / 冻结:`python scripts/diagnostics/dump_vla_inputs.py --frames 4 --out playground/vla_inputs` 把 single/multiframe/stitch 三种模式下评测和训练各自喂的图 dump 出来肉眼对照,并逐像素断言两侧一致;`--print-trainable --checkpoint <ckpt> --ratio 0.5` 看冻结层数和可训练参数量。
+- 时序多图 / 拼图 / 冻结训练:用 `starVLA/commands/train_flappy_qwenoft_{multiframe,stitch,kv_memory}.sh` 跑几十步,看 loss 下降、`input_frame_count` 和可训练参数量符合预期。
+- 端到端评测:`python -m latency_bench.run --config configs/experiments/flappy/starvla_flappy_{multiframe,kv_memory}.yaml`。
 
 ## 参考
 
