@@ -9,6 +9,7 @@ import numpy as np
 
 
 FILTER_PRESET_CLEAN_V1 = "clean_v1"
+FILTER_PRESET_CONTIGUOUS_V1 = "contiguous_v1"
 FILTER_PRESET_NONE = "none"
 FLAPPY_CONTEXT_WINDOW = 2
 FLAPPY_BACKGROUND_KEEP_PROB = 0.2
@@ -235,6 +236,9 @@ def filter_train_rows(
     Returns:
         Filtered row copies.
     """
-    if filter_preset == FILTER_PRESET_NONE:
+    if filter_preset in (FILTER_PRESET_NONE, FILTER_PRESET_CONTIGUOUS_V1):
+        # contiguous_v1 keeps every decision row so KV-memory rollouts stay
+        # contiguous; density/quality control moves to the episode gate and to
+        # rollout-endpoint weighting in the training sampler.
         return _copy_all_rows(rows)
     return filter_train_rows_clean_v1(env_name, rows, seed=seed)

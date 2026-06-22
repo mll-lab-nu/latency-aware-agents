@@ -67,6 +67,36 @@ def test_flappy_clean_v1_train_filter_keeps_flap_context_and_samples_background(
     assert expected_context <= set(kept_steps)
 
 
+def test_contiguous_v1_keeps_all_rows_in_order():
+    """KV-memory rollouts need contiguous per-episode decision sequences, so the
+    contiguous_v1 preset must not drop interior rows (unlike clean_v1)."""
+    from latency_bench.data.filters import FILTER_PRESET_CONTIGUOUS_V1, filter_train_rows
+
+    rows = [
+        {"decision_step": step, "action_text": "FLAP" if step == 5 else "NOOP", "raw_reward": 0.0}
+        for step in range(9)
+    ]
+
+    kept_steps = [
+        row["decision_step"]
+        for row in filter_train_rows(FILTER_PRESET_CONTIGUOUS_V1, "flappy", rows, seed=123)
+    ]
+
+    assert kept_steps == list(range(9))
+
+
+def test_contiguous_v1_still_uses_episode_quality_gate():
+    """Quality control moves to the episode level: contiguous_v1 keeps the same
+    episode accept/reject gate as clean_v1."""
+    from latency_bench.data.filters import FILTER_PRESET_CONTIGUOUS_V1, accepts_episode
+
+    low = {"episode_length": 12, "episode_raw_return": 2199.0}
+    high = {"episode_length": 12, "episode_raw_return": 2200.0}
+
+    assert not accepts_episode(FILTER_PRESET_CONTIGUOUS_V1, "deadly_corridor", low, max_steps_per_episode=1000)
+    assert accepts_episode(FILTER_PRESET_CONTIGUOUS_V1, "deadly_corridor", high, max_steps_per_episode=1000)
+
+
 def test_demon_clean_v1_train_filter_keeps_reward_context_and_survival_anchors():
     from latency_bench.data.filters import filter_train_rows_clean_v1
 
