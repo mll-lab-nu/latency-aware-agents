@@ -42,7 +42,7 @@ bash "${REPO_ROOT}/starVLA/commands/memory/train_flappy_openvla_last_8_layers_co
 # --- upload checkpoints ---
 # checkpoint 落在 starVLA/results/Checkpoints/<run_id>，run_id=flappy_fix_latency_2_200ep
 hf upload latency-sensitive-bench/memory \
-  "${REPO_ROOT}/starVLA/results/Checkpoints/flappy_fix_latency_2_200ep_last_8_layers_corrected" \
-  ./flappy_fix_latency_2_200ep_last_8_layers_corrected \
+  "${REPO_ROOT}/starVLA/results/Checkpoints/flappy_fix_latency_2_200ep_last_8_layers_corrected_v2" \
+  ./flappy_fix_latency_2_200ep_last_8_layers_corrected_v2 \
   --exclude "wandb/**" \
   --repo-type model
