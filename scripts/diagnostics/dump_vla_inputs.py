@@ -13,7 +13,7 @@ Frames are numbered so temporal order and stitch layout are obvious. Pass
 ``--frames-dir`` to use real PNG frames instead of synthetic ones.
 
 With ``--checkpoint`` and ``--print-trainable`` it also loads the model, applies
-``trainer.freeze_llm_bottom_ratio``, and prints the trainable-parameter table.
+``trainer.freeze_vit`` / ``trainer.freeze_llm_layers``, and prints the trainable-parameter table.
 
 Run in the starVLA env (stitch + freeze import torch via trainer_tools):
   /home/lixinyuan/miniconda3/envs/starvla_rl_games_gr00t/bin/python \
@@ -156,7 +156,7 @@ def print_trainable(args: argparse.Namespace) -> None:
     sys.path.insert(0, str(REPO_ROOT / "starVLA"))
     from omegaconf import OmegaConf
     from starVLA.model.framework.base_framework import baseframework
-    from starVLA.training.trainer_utils.trainer_tools import TrainerUtils, resolve_freeze_llm_bottom_n
+    from starVLA.training.trainer_utils.trainer_tools import TrainerUtils, resolve_freeze_llm_layer_indices
 
     print(f"loading framework from {args.checkpoint}")
     model = baseframework.from_pretrained(args.checkpoint).eval()
@@ -165,10 +165,10 @@ def print_trainable(args: argparse.Namespace) -> None:
     print("before freeze:")
     TrainerUtils.print_trainable_parameters(model)
 
-    cfg = OmegaConf.create({"trainer": {"freeze_llm_bottom_ratio": args.ratio}})
-    n, total = resolve_freeze_llm_bottom_n(model, cfg)
-    print(f"freeze_llm_bottom_ratio={args.ratio} -> freezing {n}/{total} bottom LLM layers")
-    TrainerUtils.freeze_llm_bottom_layers(model, cfg)
+    cfg = OmegaConf.create({"trainer": {"freeze_vit": args.freeze_vit, "freeze_llm_layers": args.freeze_llm_layers}})
+    indices, total = resolve_freeze_llm_layer_indices(model, cfg)
+    print(f"freeze_vit={args.freeze_vit}, freeze_llm_layers={args.freeze_llm_layers} -> freezing {indices} / total={total}")
+    TrainerUtils.freeze_vit_and_llm_layers(model, cfg)
     print("after freeze:")
     TrainerUtils.print_trainable_parameters(model)
 
@@ -184,7 +184,8 @@ def main() -> None:
     parser.add_argument("--out", type=str, default="playground/vla_inputs")
     parser.add_argument("--print-trainable", action="store_true", help="load --checkpoint and show freeze effect")
     parser.add_argument("--checkpoint", type=str, default=None)
-    parser.add_argument("--ratio", type=float, default=0.5, help="freeze_llm_bottom_ratio for --print-trainable")
+    parser.add_argument("--freeze-vit", action="store_true", help="freeze the Qwen-VL visual tower")
+    parser.add_argument("--freeze-llm-layers", type=int, nargs=2, default=[], metavar=("START", "END"))
     args = parser.parse_args()
 
     if args.print_trainable:
