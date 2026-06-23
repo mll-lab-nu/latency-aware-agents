@@ -36,7 +36,7 @@ python examples/rl_games/bash_scripts/gr00t/data_conversion/convert_flappy_to_st
   --action-carrier bridge \
   --force
 
-# --- train (fix latency, freeze 底部28层/解冻最后8层) ---
+# --- train (fix latency, not freeze ViT/visual connector + freeze LLM layers 0..27) ---
 bash "${REPO_ROOT}/starVLA/commands/memory/train_flappy_openvla_last_8_layers_corrected.sh"
 
 # --- upload checkpoints ---
