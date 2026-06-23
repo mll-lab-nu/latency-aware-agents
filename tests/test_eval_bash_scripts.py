@@ -326,7 +326,7 @@ def test_install_script_selects_cu130_for_compute_cap_10_gpu(tmp_path):
     assert "selecting cu130" in result.stderr
     calls = calls_path.read_text(encoding="utf-8")
     assert "conda create -n latency -c conda-forge --override-channels python=3.10 -y" in calls
-    assert "python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu130" in calls
+    assert "python -m pip install torch==2.10.0+cu130 --index-url https://download.pytorch.org/whl/cu130" in calls
     assert "python -m pip install -r requirements.txt" in calls
     assert "bash scripts/bash_scripts/build_cuda_extensions.sh" in calls
     assert "conda install -y -c conda-forge --override-channels go" not in calls
@@ -349,7 +349,7 @@ def test_install_script_allows_torch_profile_override(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "torch_profile=cu128" in result.stdout
     calls = calls_path.read_text(encoding="utf-8")
-    assert "python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu128" in calls
+    assert "python -m pip install torch==2.10.0+cu128 --index-url https://download.pytorch.org/whl/cu128" in calls
 
 
 def _run_mirrors_snippet(snippet: str, env_extra: dict[str, str]) -> str:
@@ -384,6 +384,114 @@ def test_mirrors_fall_back_to_official_when_no_provider_reachable(tmp_path):
         {"MIRROR_PROVIDERS": "bogus", "UV_CACHE_DIR": str(tmp_path)},
     )
     assert out == "https://download.pytorch.org/whl/cu128|https://pypi.org/simple"
+
+
+@pytest.mark.parametrize(
+    "helper_path",
+    [
+        REPO_ROOT / "scripts" / "bash_scripts" / "_pip.sh",
+        REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "_pip.sh",
+    ],
+)
+def test_pip_install_with_explicit_index_clears_uv_index_environment(tmp_path, helper_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    log_path = tmp_path / "uv.log"
+    fake_python = fake_bin / "python"
+    _write_executable(
+        fake_python,
+        """#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+""",
+    )
+    _write_executable(
+        fake_bin / "uv",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf 'UV_DEFAULT_INDEX=%s\\n' "${{UV_DEFAULT_INDEX-__unset__}}" >> "{log_path}"
+printf 'UV_INDEX_URL=%s\\n' "${{UV_INDEX_URL-__unset__}}" >> "{log_path}"
+printf 'uv %s\\n' "$*" >> "{log_path}"
+exit 0
+""",
+    )
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'source "{helper_path}"\n'
+            'PYTHON_BIN=python pip_install torch==2.10.0+cu128 '
+            "--index-url https://download.pytorch.org/whl/cu128\n",
+        ],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}/usr/bin:/bin",
+            "UV_DEFAULT_INDEX": "https://pypi.org/simple",
+            "UV_INDEX_URL": "https://pypi.org/simple",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    log = log_path.read_text(encoding="utf-8")
+    assert "UV_DEFAULT_INDEX=__unset__" in log
+    assert "UV_INDEX_URL=__unset__" in log
+    assert "uv pip install --python " in log
+    assert "torch==2.10.0+cu128 --index-url https://download.pytorch.org/whl/cu128" in log
+
+
+def test_pip_install_without_explicit_index_preserves_uv_index_environment(tmp_path):
+    helper_path = REPO_ROOT / "scripts" / "bash_scripts" / "_pip.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    log_path = tmp_path / "uv.log"
+    requirements_path = tmp_path / "requirements.txt"
+    requirements_path.write_text("numpy==1.26.4\n", encoding="utf-8")
+    _write_executable(
+        fake_bin / "python",
+        """#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+""",
+    )
+    _write_executable(
+        fake_bin / "uv",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf 'UV_DEFAULT_INDEX=%s\\n' "${{UV_DEFAULT_INDEX-__unset__}}" >> "{log_path}"
+printf 'UV_INDEX_URL=%s\\n' "${{UV_INDEX_URL-__unset__}}" >> "{log_path}"
+printf 'uv %s\\n' "$*" >> "{log_path}"
+exit 0
+""",
+    )
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'source "{helper_path}"\nPYTHON_BIN=python pip_install -r "{requirements_path}"\n',
+        ],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}/usr/bin:/bin",
+            "UV_DEFAULT_INDEX": "https://pypi.org/simple",
+            "UV_INDEX_URL": "https://pypi.org/simple",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    log = log_path.read_text(encoding="utf-8")
+    assert "UV_DEFAULT_INDEX=https://pypi.org/simple" in log
+    assert "UV_INDEX_URL=https://pypi.org/simple" in log
+    assert f"uv pip install --python {fake_bin / 'python'} -r {requirements_path}" in log
 
 
 def test_install_script_rejects_unknown_torch_profile(tmp_path):
