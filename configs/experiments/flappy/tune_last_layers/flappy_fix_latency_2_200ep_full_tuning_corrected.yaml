@@ -12,7 +12,7 @@ env:
   env_fps: 30
   obs_fps: 30
   frame_stack: 1
-  obs_resize: [84, 84]
+  obs_resize: [224, 224]
 
 policy:
   type: starvla
