@@ -84,6 +84,9 @@ class FakePolicyServerWrapper:
             "action_output_type": "rl_games_discrete_id",
         }
 
+    def reset_memory(self, slot_id=None):
+        self.calls.append({"reset_memory_slot_id": slot_id})
+
 
 def _config(
     tmp_path: Path,
@@ -110,7 +113,7 @@ def _config(
     }
 
 
-def test_starvla_passes_all_raw_frames_and_base_prompt(monkeypatch, tmp_path: Path):
+def test_starvla_passes_latest_raw_frame_and_base_prompt_by_default(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
@@ -138,9 +141,8 @@ def test_starvla_passes_all_raw_frames_and_base_prompt(monkeypatch, tmp_path: Pa
     assert wrapper.calls[0]["unnorm_key"] == "flappy"
     example = wrapper.calls[0]["examples"][0]
     assert example["lang"] == BASE_PROMPTS["flappy"]
-    assert len(example["image"]) == 2
-    assert np.asarray(example["image"][0]).mean() == 11
-    assert np.asarray(example["image"][1]).mean() == 22
+    assert len(example["image"]) == 1
+    assert np.asarray(example["image"][0]).mean() == 22
     assert example["state"].shape == (1, 7)
     assert output.metadata["prompt_source"] == "base"
     assert output.action.name == "flap"
@@ -438,6 +440,104 @@ def test_starvla_omits_state_when_checkpoint_excludes_state(monkeypatch, tmp_pat
     assert "state" not in example
 
 
+def test_starvla_kv_memory_passes_required_slot_id_and_metadata(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    class KvMemoryPolicyServerWrapper(FakePolicyServerWrapper):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._model_cfg = {
+                "datasets": {
+                    "vla_data": {
+                        "include_state": False,
+                    },
+                },
+                "framework": {
+                    "kv_memory": {
+                        "enabled": True,
+                        "window": 4,
+                    },
+                    "action_model": {
+                        "state_dim": 7,
+                    },
+                },
+            }
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: KvMemoryPolicyServerWrapper)
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    output = policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={
+                "slot_id": 3,
+                "env_raw_rgb_frame_stack": np.zeros((1, 12, 16, 3), dtype=np.uint8),
+            },
+        )
+    )
+
+    wrapper = FakePolicyServerWrapper.instances[0]
+    example = wrapper.calls[0]["examples"][0]
+    assert example["slot_id"] == 3
+    assert output.metadata["slot_id"] == 3
+    assert output.metadata["kv_memory_enabled"] is True
+
+
+def test_starvla_kv_memory_requires_slot_id(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    class KvMemoryPolicyServerWrapper(FakePolicyServerWrapper):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._model_cfg = {
+                "datasets": {
+                    "vla_data": {
+                        "include_state": False,
+                    },
+                },
+                "framework": {
+                    "kv_memory": {
+                        "enabled": True,
+                    },
+                    "action_model": {
+                        "state_dim": 7,
+                    },
+                },
+            }
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: KvMemoryPolicyServerWrapper)
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    with pytest.raises(KeyError, match="slot_id"):
+        policy.predict(
+            Observation(
+                data=np.zeros((1,), dtype=np.uint8),
+                env_step=0,
+                sim_time_ms=0.0,
+                metadata={"env_raw_rgb_frame_stack": np.zeros((1, 12, 16, 3), dtype=np.uint8)},
+            )
+        )
+
+
+def test_starvla_reset_state_forwards_slot_id_to_wrapper_memory(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    policy.reset_state(slot_id=5)
+
+    assert FakePolicyServerWrapper.instances[0].calls == [{"reset_memory_slot_id": 5}]
+
+
 def test_starvla_requires_state_dim_when_checkpoint_includes_state(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
@@ -462,7 +562,7 @@ def test_starvla_requires_state_dim_when_checkpoint_includes_state(monkeypatch, 
         build_policy(config, ActionResolver(config["env"]))
 
 
-def test_starvla_latency_prompt_map_does_not_change_image_count(monkeypatch, tmp_path: Path):
+def test_starvla_latency_prompt_map_preserves_default_single_frame_selection(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
@@ -493,9 +593,8 @@ def test_starvla_latency_prompt_map_does_not_change_image_count(monkeypatch, tmp
     wrapper = FakePolicyServerWrapper.instances[0]
     example = wrapper.calls[0]["examples"][0]
     assert example["lang"] == "latency prompt 3"
-    assert len(example["image"]) == 2
-    assert np.asarray(example["image"][0]).mean() == 33
-    assert np.asarray(example["image"][1]).mean() == 44
+    assert len(example["image"]) == 1
+    assert np.asarray(example["image"][0]).mean() == 44
     assert output.metadata["prompt_source"] == "latency_prompt_map"
     assert output.metadata["unnorm_key"] == "flappy"
 
@@ -529,9 +628,9 @@ def test_starvla_latency_prompt_map_uses_raw_rgb_frame_stack_metadata(monkeypatc
     )
 
     example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
-    assert len(example["image"]) == 4
-    assert np.asarray(example["image"][-1]).shape == (12, 16, 3)
-    assert np.asarray(example["image"][-1]).mean() == 77
+    assert len(example["image"]) == 1
+    assert np.asarray(example["image"][0]).shape == (12, 16, 3)
+    assert np.asarray(example["image"][0]).mean() == 77
 
 
 def test_flappy_realtime_starvla_configs_use_base_prompt_without_latency_prompt_map():

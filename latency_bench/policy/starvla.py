@@ -97,6 +97,9 @@ class StarVlaPolicyRunner(PolicyRunner):
         self._num_obs_frames = int(vla_data.get("num_obs_frames", 1) or 1)
         self._image_mode = str(vla_data.get("image_mode", "single"))
         self._stitch_grid = tuple(vla_data.get("stitch_grid", [2, 2]))
+        framework_cfg = model_cfg["framework"]
+        kv_cfg = framework_cfg["kv_memory"] if "kv_memory" in framework_cfg else {}
+        self._kv_memory_enabled = bool(kv_cfg["enabled"]) if "enabled" in kv_cfg else False
 
     def reset_state(self, slot_id: int | None = None) -> None:
         # Clears the model's per-slot KV memory at episode boundaries (req3).
@@ -202,9 +205,10 @@ class StarVlaPolicyRunner(PolicyRunner):
             "image": images,
             "lang": prompt,
         }
-        slot_id = observation.metadata.get("slot_id")
-        if slot_id is not None:
-            example["slot_id"] = slot_id
+        if self._kv_memory_enabled:
+            example["slot_id"] = observation.metadata["slot_id"]
+        elif "slot_id" in observation.metadata:
+            example["slot_id"] = observation.metadata["slot_id"]
         if self._include_state:
             example["state"] = np.zeros((1, self._state_dim), dtype=np.float32)
         return example
@@ -234,8 +238,11 @@ class StarVlaPolicyRunner(PolicyRunner):
             "input_frame_count": len(example["image"]),
             "action_output_type": action_output_type,
             "action_payload": to_jsonable_action_payload(payload),
+            "kv_memory_enabled": self._kv_memory_enabled,
             **action_metadata,
         }
+        if "slot_id" in example:
+            metadata["slot_id"] = example["slot_id"]
         if raw_action_scores is not None:
             metadata["raw_action_scores"] = [
                 float(item) for item in np.asarray(raw_action_scores, dtype=np.float32).tolist()
