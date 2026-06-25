@@ -62,7 +62,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         if self.episode_latency_source_factory is not None:
             self.latency_source = self.episode_latency_source_factory(episode_id)
         self.action_scheduler.reset()
-        self.policy.reset_state()
+        self.policy.reset_state(slot_id=0)
         self.env.reset(seed=seed)
         if self.video_recorder is not None:
             self.video_recorder.start_episode(
@@ -110,6 +110,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                         "raw_frame": raw_frame,
                         "sim_time_ms": current_time_ms,
                         "episode_id": episode_id,
+                        "slot_id": 0,
                         "recent_drop_count": recent_drop_count,
                         "in_flight_count": worker_capacity.in_flight_count,
                         "idle_worker_count": worker_capacity.idle_worker_count,
@@ -120,6 +121,8 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                     policy_metadata.update(
                         {
                             "obs_id": obs_id,
+                            "episode_id": episode_id,
+                            "slot_id": 0,
                             "latency_ms": latency_ms,
                             "latency_raw_frames": latency_sample.latency_raw_frames,
                         }
@@ -220,7 +223,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                 self.logger.log_step(record)
             if soft_reset:
                 self.action_scheduler.reset()
-                self.policy.reset_state()
+                self.policy.reset_state(slot_id=0)
                 worker_capacity.reset()
                 recent_drop_count = 0
 

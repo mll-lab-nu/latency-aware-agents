@@ -398,6 +398,23 @@ def test_policy_observation_receives_sampled_latency_metadata_before_predict():
     assert event.latency_raw_frames == policy.observations[0].metadata["latency_raw_frames"]
 
 
+def test_single_simulated_executor_adds_slot_id_to_policy_observation_and_latency_context():
+    latency_source = RawFrameLatencySource([3])
+    policy = CapturingPolicyRunner(Action("jump"))
+    executor, _, _, _ = _executor(
+        latency_source,
+        policy=policy,
+        max_steps=4,
+        decision_scheduler=SelectedRawFrameDecisionScheduler({0}),
+    )
+
+    executor.run_episode(episode_id=7, eval_max_steps=4)
+
+    assert policy.observations[0].metadata["slot_id"] == 0
+    assert policy.observations[0].metadata["episode_id"] == 7
+    assert latency_source.calls[0]["slot_id"] == 0
+
+
 def test_simulated_worker_capacity_drops_observations_when_worker_is_busy():
     latency_source = RawFrameLatencySource([3, 3])
     policy = CountingPolicyRunner()
@@ -660,4 +677,4 @@ def test_soft_reset_continues_same_episode_and_clears_latency_state():
     assert metrics.survival_steps == 4
     assert metrics.episode_return == 4.0
     assert [action.value for action in env.applied_actions] == ["noop", "noop", "noop", "noop"]
-    assert policy.reset_calls == [None, None]
+    assert policy.reset_calls == [0, 0]
