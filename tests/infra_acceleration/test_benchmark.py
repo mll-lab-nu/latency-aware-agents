@@ -75,7 +75,7 @@ def _base_config(env_name: str, tmp_path: Path) -> dict:
         config["scheduler"]["hold_policy"] = "one_frame_then_noop"
         config["env"]["obs_resize"] = [84, 84]
     if env_name == "demon_attack":
-        config["env"].update({"env_fps": 60, "obs_fps": 15, "env_id": "ALE/DemonAttack-v5"})
+        config["env"].update({"env_fps": 60, "obs_fps": 15, "env_id": "ALE/DemonAttack-v5", "reset_mode": "fire"})
     if env_name == "deadly_corridor":
         config["env"].update({"env_fps": 35, "obs_fps": 8.75, "env_id": "doom_deadly_corridor"})
     return config

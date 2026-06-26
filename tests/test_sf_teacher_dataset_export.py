@@ -55,6 +55,7 @@ def _write_checkpoint_config(path: Path, **overrides) -> Path:
         "obs_fps": 15.0,
         "screen_size": 84,
         "noop_max": 30,
+        "reset_mode": "fire",
         "frame_stack": 6,
         "terminal_on_life_loss": True,
         "clip_reward": True,

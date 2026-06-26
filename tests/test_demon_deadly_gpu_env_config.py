@@ -19,6 +19,7 @@ def test_demon_attack_gpu_simulator_config_is_passed_to_training_adapter():
     args = build_cli_args_from_config(cfg)
 
     assert args[args.index("--simulator") + 1] == "gpu"
+    assert args[args.index("--reset-mode") + 1] == "fire"
     assert args[args.index("--gpu-env-device") + 1] == "cuda"
     # GPU batched-env parallelism is driven by num_envs_per_worker.
     assert args[args.index("--gpu-env-batch-size") + 1] == "64"
@@ -162,6 +163,7 @@ def test_demon_attack_gpu_simulator_constructs_gpu_env_without_cpu_fallback(monk
             obs_fps=15,
             screen_size=84,
             noop_max=30,
+            reset_mode="fire",
             frame_stack=4,
             terminal_on_life_loss=True,
             clip_reward=True,
@@ -199,6 +201,7 @@ def test_demon_attack_sample_factory_probe_env_config_is_explicit(monkeypatch):
             obs_fps=15,
             screen_size=84,
             noop_max=30,
+            reset_mode="fire",
             frame_stack=4,
             terminal_on_life_loss=True,
             clip_reward=True,
@@ -224,6 +227,7 @@ def test_demon_attack_sample_factory_probe_env_config_is_explicit(monkeypatch):
         ("repeat_action_probability", 0.25, "repeat_action_probability=0.0"),
         ("full_action_space", True, "full_action_space=False"),
         ("env_id", "ALE/Pong-v5", "ALE/DemonAttack-v5"),
+        ("reset_mode", "noop", "reset_mode=fire"),
     ],
 )
 def test_demon_attack_gpu_training_rejects_unsupported_semantics(field, value, message):
@@ -235,6 +239,7 @@ def test_demon_attack_gpu_training_rejects_unsupported_semantics(field, value, m
         obs_fps=15,
         screen_size=84,
         noop_max=30,
+        reset_mode="fire",
         frame_stack=4,
         terminal_on_life_loss=True,
         clip_reward=True,
