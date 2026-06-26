@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from latency_bench.core.clock import EnvClock
+from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.core.types import (
     Action,
     ActionEvent,
@@ -204,19 +205,18 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
             local_observation = observation_localizer.localize(attached_observation.observation)
             if profile is not None:
                 profile.worker_observation_localize_ms = _profile_now_ms() - localize_start_ms
-            if hasattr(policy, "predict_with_timing"):
-                policy_output, timings = policy.predict_with_timing(local_observation)
-                if profile is not None:
-                    profile.policy_build_example_ms = timings["policy_build_example_ms"]
-                    profile.policy_wrapper_predict_action_ms = timings["policy_wrapper_predict_action_ms"]
-                    profile.policy_decode_ms = timings["policy_decode_ms"]
-                return policy_output
-            predict_start_ms = _profile_now_ms()
-            policy_output = policy.predict(local_observation)
+            # sync_cuda=False: the realtime path measures end-to-end wall-clock
+            # latency, so a CUDA sync inside predict would perturb the measurement.
+            profiler = StageProfiler(enabled=profile is not None, sync_cuda=False)
+            with profiler_scope(profiler):
+                policy_output = policy.predict(local_observation)
             if profile is not None:
-                profile.policy_build_example_ms = 0.0
-                profile.policy_wrapper_predict_action_ms = _profile_now_ms() - predict_start_ms
-                profile.policy_decode_ms = 0.0
+                timings = profiler.timings
+                profile.policy_build_example_ms = timings.get("policy_build_example_ms", 0.0)
+                profile.policy_wrapper_predict_action_ms = timings.get(
+                    "policy_wrapper_predict_action_ms", 0.0
+                )
+                profile.policy_decode_ms = timings.get("policy_decode_ms", 0.0)
             return policy_output
 
         while True:

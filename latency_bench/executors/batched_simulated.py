@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from latency_bench.core.clock import EnvClock
+from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors._simulated_timeline import SimulatedWorkerCapacity
@@ -237,6 +238,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                         "observation_dropped": observation_dropped,
                     }
 
+            observe_ms = 0.0
             if observation_slots:
                 observe_start = time.perf_counter()
                 observations_by_slot = self.env_backend.observe_slots([slot.slot_id for slot in observation_slots])
@@ -249,26 +251,21 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                     for slot in observation_slots
                 ]
                 observations = [pending.observation for pending in pending_observations]
-            else:
-                observe_ms = 0.0
 
             profile_row = None
             if observations:
-                profile_row = {
-                    "active_slots": float(len(active_slots)),
-                    "batch_size": float(len(observations)),
-                    "observe_slots_ms": observe_ms,
-                }
-                predict_batch_with_timing = getattr(self.policy, "predict_batch_with_timing", None)
-                if callable(predict_batch_with_timing):
-                    policy_outputs, policy_timings = predict_batch_with_timing(observations)
-                    profile_row.update({key: float(value) for key, value in policy_timings.items()})
-                else:
-                    policy_start = time.perf_counter()
+                profiler = StageProfiler(enabled=self.profile_pipeline)
+                with profiler_scope(profiler):
                     policy_outputs = self.policy.predict_batch(observations)
-                    profile_row["policy_predict_batch_ms"] = (time.perf_counter() - policy_start) * 1000.0
                 if len(policy_outputs) != len(observations):
                     raise RuntimeError("policy.predict_batch returned the wrong number of outputs")
+                if self.profile_pipeline:
+                    profile_row = {
+                        "active_slots": float(len(active_slots)),
+                        "batch_size": float(len(observations)),
+                        "observe_slots_ms": observe_ms,
+                        **{key: float(value) for key, value in profiler.timings.items()},
+                    }
                 for pending, policy_output in zip(pending_observations, policy_outputs):
                     self._enqueue_policy_output(
                         pending.slot,
@@ -286,9 +283,8 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
 
             env_step_start = time.perf_counter()
             step_responses = self.env_backend.step_slots(actions_by_slot)
-            env_step_ms = (time.perf_counter() - env_step_start) * 1000.0
-            if self.profile_pipeline and profile_row is not None:
-                profile_row["env_step_ms"] = env_step_ms
+            if profile_row is not None:
+                profile_row["env_step_ms"] = (time.perf_counter() - env_step_start) * 1000.0
                 self._pipeline_profile_rows.append(profile_row)
             for slot in active_slots:
                 current_time_ms = self.clock.step_to_time_ms(slot.env_step)

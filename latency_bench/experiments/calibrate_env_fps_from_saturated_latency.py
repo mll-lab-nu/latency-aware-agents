@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from latency_bench.core.config import load_config
+from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.latency.env_fps_calibration import select_env_fps_from_latency_samples
 
 
@@ -136,26 +137,21 @@ def measure_policy_latency_in_current_process(
         for obs_id in range(samples):
             sample_start = time.perf_counter()
             observation = env.observe()
-            timing: dict[str, float] = {}
+            # sync_cuda=False: this loop measures policy latency, so a CUDA sync
+            # inside the call would contaminate the calibration it produces.
+            profiler = StageProfiler(enabled=True, sync_cuda=False)
 
             def call_policy(observation_arg):
-                if hasattr(policy, "predict_with_timing"):
-                    output, measured = policy.predict_with_timing(observation_arg)
-                    timing.update(measured)
-                    return output
-                wrapper_start = time.perf_counter()
-                output = policy.predict(observation_arg)
-                timing["policy_build_example_ms"] = 0.0
-                timing["policy_wrapper_predict_action_ms"] = (time.perf_counter() - wrapper_start) * 1000.0
-                timing["policy_decode_ms"] = 0.0
-                return output
+                with profiler_scope(profiler):
+                    return policy.predict(observation_arg)
 
             _output, record = measurer.run_and_measure(call_policy, observation, obs_id=obs_id)
             if obs_id >= skip:
+                timing = profiler.timings
                 latency_values.append(float(record.latency_ms))
-                build_values.append(timing["policy_build_example_ms"])
-                wrapper_values.append(timing["policy_wrapper_predict_action_ms"])
-                decode_values.append(timing["policy_decode_ms"])
+                build_values.append(timing.get("policy_build_example_ms", 0.0))
+                wrapper_values.append(timing.get("policy_wrapper_predict_action_ms", 0.0))
+                decode_values.append(timing.get("policy_decode_ms", 0.0))
             env.step(action_resolver.noop_action)
             elapsed_ms = (time.perf_counter() - sample_start) * 1000.0
             sleep_ms = float(period_ms) - elapsed_ms

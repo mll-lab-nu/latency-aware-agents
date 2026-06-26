@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import sys
-import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -12,6 +11,7 @@ import numpy.typing as npt
 from PIL import Image
 
 from latency_bench.core.actions import ActionResolver
+from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.factory import register_policy
@@ -111,58 +111,25 @@ class StarVlaPolicyRunner(PolicyRunner):
     def predict(self, observation: Observation) -> PolicyOutput:
         return self.predict_batch([observation])[0]
 
-    def predict_with_timing(self, observation: Observation) -> tuple[PolicyOutput, dict[str, float]]:
-        build_start = time.perf_counter()
-        example = self._build_example(observation)
-        build_ms = (time.perf_counter() - build_start) * 1000.0
-
-        wrapper_start = time.perf_counter()
-        prediction = self._wrapper.predict_action(examples=[example], unnorm_key=self._unnorm_key)
-        wrapper_ms = (time.perf_counter() - wrapper_start) * 1000.0
-
-        decode_start = time.perf_counter()
-        output = self._decode_prediction(
-            prediction=prediction,
-            index=0,
-            observation=observation,
-            example=example,
-        )
-        decode_ms = (time.perf_counter() - decode_start) * 1000.0
-        return output, {
-            "policy_build_example_ms": build_ms,
-            "policy_wrapper_predict_action_ms": wrapper_ms,
-            "policy_decode_ms": decode_ms,
-        }
-
     def predict_batch(self, observations: Sequence[Observation]) -> list[PolicyOutput]:
-        outputs, _timings = self.predict_batch_with_timing(observations)
-        return outputs
-
-    def predict_batch_with_timing(self, observations: Sequence[Observation]) -> tuple[list[PolicyOutput], dict[str, float]]:
-        build_start = time.perf_counter()
-        examples = [self._build_example(observation) for observation in observations]
-        build_ms = (time.perf_counter() - build_start) * 1000.0
-
-        wrapper_start = time.perf_counter()
-        prediction = self._wrapper.predict_action(examples=examples, unnorm_key=self._unnorm_key)
-        wrapper_ms = (time.perf_counter() - wrapper_start) * 1000.0
-
-        decode_start = time.perf_counter()
-        outputs = [
-            self._decode_prediction(
-                prediction=prediction,
-                index=index,
-                observation=observation,
-                example=example,
+        profiler = current_profiler()
+        with profiler.time("policy_build_example_ms"):
+            examples = [self._build_example(observation) for observation in observations]
+        with profiler.time("policy_wrapper_predict_action_ms"):
+            prediction = self._wrapper.predict_action(
+                examples=examples, unnorm_key=self._unnorm_key, profiler=profiler
             )
-            for index, (observation, example) in enumerate(zip(observations, examples))
-        ]
-        decode_ms = (time.perf_counter() - decode_start) * 1000.0
-        return outputs, {
-            "policy_build_example_ms": build_ms,
-            "policy_wrapper_predict_action_ms": wrapper_ms,
-            "policy_decode_ms": decode_ms,
-        }
+        with profiler.time("policy_decode_ms"):
+            outputs = [
+                self._decode_prediction(
+                    prediction=prediction,
+                    index=index,
+                    observation=observation,
+                    example=example,
+                )
+                for index, (observation, example) in enumerate(zip(observations, examples))
+            ]
+        return outputs
 
     def _decode_prediction(
         self,

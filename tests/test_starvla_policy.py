@@ -793,7 +793,8 @@ def test_predict_batch_calls_starvla_once(monkeypatch, tmp_path: Path):
     assert [output.action.name for output in outputs] == ["flap", "noop"]
 
 
-def test_predict_batch_with_timing_calls_starvla_once_and_reports_stages(monkeypatch, tmp_path: Path):
+def test_predict_batch_records_stages_into_ambient_profiler(monkeypatch, tmp_path: Path):
+    from latency_bench.core.timing import StageProfiler, profiler_scope
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
@@ -815,18 +816,41 @@ def test_predict_batch_with_timing_calls_starvla_once_and_reports_stages(monkeyp
         ),
     ]
 
-    outputs, timings = policy.predict_batch_with_timing(observations)
+    profiler = StageProfiler(enabled=True)
+    with profiler_scope(profiler):
+        outputs = policy.predict_batch(observations)
 
     wrapper = FakePolicyServerWrapper.instances[0]
     assert len(wrapper.calls) == 1
     assert len(wrapper.calls[0]["examples"]) == 2
     assert [output.action.name for output in outputs] == ["flap", "noop"]
-    assert set(timings) == {
+    assert set(profiler.timings) == {
         "policy_build_example_ms",
         "policy_wrapper_predict_action_ms",
         "policy_decode_ms",
     }
-    assert timings["policy_build_example_ms"] >= 0.0
+    assert profiler.timings["policy_build_example_ms"] >= 0.0
+
+
+def test_predict_batch_without_profiler_scope_records_nothing(monkeypatch, tmp_path: Path):
+    from latency_bench.core.timing import NULL_PROFILER
+    from latency_bench.policy import starvla
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+    observation = Observation(
+        data=np.zeros((1,), dtype=np.uint8),
+        env_step=0,
+        sim_time_ms=0.0,
+        metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
+    )
+
+    policy.predict(observation)
+
+    # Default ambient profiler is the disabled singleton: no timings recorded, no sync.
+    assert NULL_PROFILER.timings == {}
     assert timings["policy_wrapper_predict_action_ms"] >= 0.0
     assert timings["policy_decode_ms"] >= 0.0
 
