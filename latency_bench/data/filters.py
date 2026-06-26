@@ -178,6 +178,38 @@ def _copy_all_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def density_weights_clean_v1(env_name: str, rows: Sequence[Mapping[str, Any]]) -> list[float]:
+    """Per-row loss weights replicating clean_v1's event balancing without deleting rows.
+
+    contiguous_v1 keeps every decision row so KV-memory rollouts stay frame-adjacent;
+    density control then moves from row deletion to per-row loss weighting. Event and
+    context rows get weight 1.0; background rows get the clean_v1 keep probability, so a
+    contiguous rollout reproduces clean_v1's expected density in expectation. Deadly
+    Corridor keeps every row at weight 1.0 (matching its clean_v1 row pass-through).
+
+    Args:
+        env_name: Canonical benchmark environment name.
+        rows: Episode rows at the export (observation) cadence, in order.
+
+    Returns:
+        One weight per row, aligned to ``rows``.
+    """
+    count = len(rows)
+    if env_name == "flappy":
+        event_steps = {row["decision_step"] for row in rows if row["action_text"] == "FLAP"}
+        kept = _rows_near_steps(rows, event_steps, window=FLAPPY_CONTEXT_WINDOW)
+        return [1.0 if idx in kept else FLAPPY_BACKGROUND_KEEP_PROB for idx in range(count)]
+    if env_name == "demon_attack":
+        event_steps = {row["decision_step"] for row in rows if row["raw_reward"] > 0.0}
+        kept = _rows_near_steps(rows, event_steps, window=DEMON_CONTEXT_WINDOW)
+        kept |= {
+            idx for idx, row in enumerate(rows)
+            if row["decision_step"] % DEMON_SURVIVAL_ANCHOR_STRIDE == 0
+        }
+        return [1.0 if idx in kept else DEMON_BACKGROUND_KEEP_PROB for idx in range(count)]
+    return [1.0] * count
+
+
 def filter_train_rows_clean_v1(env_name: str, rows: Sequence[Mapping[str, Any]], *, seed: int) -> list[dict[str, Any]]:
     """Apply clean_v1 train-only row density filtering.
 

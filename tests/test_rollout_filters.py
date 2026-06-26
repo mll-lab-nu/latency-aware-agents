@@ -121,3 +121,54 @@ def test_demon_clean_v1_train_filter_keeps_reward_context_and_survival_anchors()
 
     assert set(range(12, 29)) <= set(kept_steps)
     assert {0, 16, 32} <= set(kept_steps)
+
+
+def test_density_weights_flappy_events_full_background_downweighted():
+    from latency_bench.data.filters import (
+        FLAPPY_BACKGROUND_KEEP_PROB,
+        FLAPPY_CONTEXT_WINDOW,
+        density_weights_clean_v1,
+    )
+
+    rows = [
+        {"decision_step": step, "action_text": "FLAP" if step == 5 else "NOOP", "raw_reward": 0.0}
+        for step in range(12)
+    ]
+    weights = density_weights_clean_v1("flappy", rows)
+
+    assert len(weights) == len(rows)
+    for step, weight in enumerate(weights):
+        if abs(step - 5) <= FLAPPY_CONTEXT_WINDOW:
+            assert weight == 1.0
+        else:
+            assert weight == FLAPPY_BACKGROUND_KEEP_PROB
+
+
+def test_density_weights_deadly_uniform():
+    from latency_bench.data.filters import density_weights_clean_v1
+
+    rows = [{"decision_step": step, "action_text": "NOOP", "raw_reward": 0.0} for step in range(10)]
+    assert density_weights_clean_v1("deadly_corridor", rows) == [1.0] * 10
+
+
+def test_density_weights_demon_reward_context_and_anchors_full():
+    from latency_bench.data.filters import (
+        DEMON_BACKGROUND_KEEP_PROB,
+        DEMON_CONTEXT_WINDOW,
+        DEMON_SURVIVAL_ANCHOR_STRIDE,
+        density_weights_clean_v1,
+    )
+
+    rows = [
+        {"decision_step": step, "action_text": "NOOP", "raw_reward": 1.0 if step == 20 else 0.0}
+        for step in range(40)
+    ]
+    weights = density_weights_clean_v1("demon_attack", rows)
+
+    for step, weight in enumerate(weights):
+        near_reward = abs(step - 20) <= DEMON_CONTEXT_WINDOW
+        anchor = step % DEMON_SURVIVAL_ANCHOR_STRIDE == 0
+        if near_reward or anchor:
+            assert weight == 1.0
+        else:
+            assert weight == DEMON_BACKGROUND_KEEP_PROB
