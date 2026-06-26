@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from latency_bench.core.clock import EnvClock
+from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
@@ -116,21 +117,25 @@ class MetadataCapturePolicy(PolicyRunner):
 
 
 class TimingBatchPolicy(PolicyRunner):
+    """Records fixed per-stage timings into the ambient profiler (like StarVla)."""
+
     def predict(self, observation: Observation) -> PolicyOutput:
-        raise AssertionError("batched executor must call predict_batch_with_timing")
+        raise AssertionError("batched executor must call predict_batch")
 
     def predict_batch(self, observations):
-        raise AssertionError("batched executor must call predict_batch_with_timing")
-
-    def predict_batch_with_timing(self, observations):
+        profiler = current_profiler()
+        if profiler.enabled:
+            profiler.timings.update(
+                {
+                    "policy_build_example_ms": 1.0,
+                    "policy_wrapper_predict_action_ms": 2.0,
+                    "policy_decode_ms": 3.0,
+                }
+            )
         return [
             PolicyOutput(action=Action("jump", name="jump"))
             for _observation in observations
-        ], {
-            "policy_build_example_ms": 1.0,
-            "policy_wrapper_predict_action_ms": 2.0,
-            "policy_decode_ms": 3.0,
-        }
+        ]
 
 
 class RawRgbShapeCapturePolicy(PolicyRunner):
