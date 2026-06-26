@@ -62,6 +62,7 @@ _LATENCY_BENCH_ENV_BACKENDS = {
     "serial",
     "subproc",
     "flappy_gpu_batched",
+    "demon_attack_gpu_batched",
     "auto",
 }
 _ENV_BACKEND_DEBUG_ENV = "LATENCY_BENCH_ENV_BACKEND"
@@ -232,6 +233,14 @@ def _build_batched_simulated_executor(
                 noop_action=action_resolver.noop_action,
                 num_slots=int(max_parallel_envs),
             )
+        elif backend_name == "demon_attack_gpu_batched":
+            from latency_bench.executors.demon_attack_gpu_batched_backend import DemonAttackGpuBatchedEnvStepBackend
+
+            env_backend = DemonAttackGpuBatchedEnvStepBackend(
+                config=config,
+                noop_action=action_resolver.noop_action,
+                num_slots=int(max_parallel_envs),
+            )
         else:
             for _slot in range(int(max_parallel_envs)):
                 envs.append(build_env_adapter(config, action_resolver.noop_action))
@@ -268,6 +277,7 @@ def _build_batched_simulated_executor(
             logger=logger,
             episode_latency_source_factory=episode_latency_source_factory,
             simulated_worker_capacity=_simulated_worker_capacity(config),
+            profile_pipeline=bool(config.get("logging", {}).get("simulated_pipeline_profile", False)),
         )
     except Exception:
         if env_backend is not None:

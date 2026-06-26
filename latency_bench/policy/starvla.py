@@ -135,9 +135,20 @@ class StarVlaPolicyRunner(PolicyRunner):
         }
 
     def predict_batch(self, observations: Sequence[Observation]) -> list[PolicyOutput]:
+        outputs, _timings = self.predict_batch_with_timing(observations)
+        return outputs
+
+    def predict_batch_with_timing(self, observations: Sequence[Observation]) -> tuple[list[PolicyOutput], dict[str, float]]:
+        build_start = time.perf_counter()
         examples = [self._build_example(observation) for observation in observations]
+        build_ms = (time.perf_counter() - build_start) * 1000.0
+
+        wrapper_start = time.perf_counter()
         prediction = self._wrapper.predict_action(examples=examples, unnorm_key=self._unnorm_key)
-        return [
+        wrapper_ms = (time.perf_counter() - wrapper_start) * 1000.0
+
+        decode_start = time.perf_counter()
+        outputs = [
             self._decode_prediction(
                 prediction=prediction,
                 index=index,
@@ -146,6 +157,12 @@ class StarVlaPolicyRunner(PolicyRunner):
             )
             for index, (observation, example) in enumerate(zip(observations, examples))
         ]
+        decode_ms = (time.perf_counter() - decode_start) * 1000.0
+        return outputs, {
+            "policy_build_example_ms": build_ms,
+            "policy_wrapper_predict_action_ms": wrapper_ms,
+            "policy_decode_ms": decode_ms,
+        }
 
     def _decode_prediction(
         self,

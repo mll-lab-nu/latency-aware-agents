@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
@@ -26,6 +28,8 @@ from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
+from latency_bench.utils.io import write_json
+from latency_bench.utils.stats import series_stats
 
 
 @dataclass
@@ -120,6 +124,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         logger: TrajectoryLogger | None = None,
         episode_latency_source_factory: Callable[[int], LatencySampler] | None = None,
         simulated_worker_capacity: int | None = None,
+        profile_pipeline: bool = False,
     ):
         slot_count = env_backend.num_slots
         self.env_backend = env_backend
@@ -129,6 +134,8 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         self.decision_scheduler = decision_scheduler
         self.clock = clock
         self.logger = logger
+        self.profile_pipeline = bool(profile_pipeline)
+        self._pipeline_profile_rows: list[dict[str, float]] = []
         self.simulated_worker_capacity = simulated_worker_capacity
         self._collect_step_records = bool(logger is not None and logger.save_step_records)
         self._collect_action_records = bool(logger is not None and logger.save_action_records)
@@ -231,7 +238,9 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                     }
 
             if observation_slots:
+                observe_start = time.perf_counter()
                 observations_by_slot = self.env_backend.observe_slots([slot.slot_id for slot in observation_slots])
+                observe_ms = (time.perf_counter() - observe_start) * 1000.0
                 pending_observations = [
                     self._sample_policy_observation(
                         slot,
@@ -240,9 +249,24 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                     for slot in observation_slots
                 ]
                 observations = [pending.observation for pending in pending_observations]
+            else:
+                observe_ms = 0.0
 
+            profile_row = None
             if observations:
-                policy_outputs = self.policy.predict_batch(observations)
+                profile_row = {
+                    "active_slots": float(len(active_slots)),
+                    "batch_size": float(len(observations)),
+                    "observe_slots_ms": observe_ms,
+                }
+                predict_batch_with_timing = getattr(self.policy, "predict_batch_with_timing", None)
+                if callable(predict_batch_with_timing):
+                    policy_outputs, policy_timings = predict_batch_with_timing(observations)
+                    profile_row.update({key: float(value) for key, value in policy_timings.items()})
+                else:
+                    policy_start = time.perf_counter()
+                    policy_outputs = self.policy.predict_batch(observations)
+                    profile_row["policy_predict_batch_ms"] = (time.perf_counter() - policy_start) * 1000.0
                 if len(policy_outputs) != len(observations):
                     raise RuntimeError("policy.predict_batch returned the wrong number of outputs")
                 for pending, policy_output in zip(pending_observations, policy_outputs):
@@ -260,7 +284,12 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                 active_action = slot.action_scheduler.update(slot.env_step, current_time_ms)
                 actions_by_slot[slot.slot_id] = active_action
 
+            env_step_start = time.perf_counter()
             step_responses = self.env_backend.step_slots(actions_by_slot)
+            env_step_ms = (time.perf_counter() - env_step_start) * 1000.0
+            if self.profile_pipeline and profile_row is not None:
+                profile_row["env_step_ms"] = env_step_ms
+                self._pipeline_profile_rows.append(profile_row)
             for slot in active_slots:
                 current_time_ms = self.clock.step_to_time_ms(slot.env_step)
                 active_action = actions_by_slot[slot.slot_id]
@@ -319,6 +348,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                         )
                         next_episode_index += 1
 
+        self._write_pipeline_profile_summary()
         return self._ordered_metrics(episode_ids)
 
     def _policy_observation(self, slot: _SlotState, observation: Observation) -> Observation:
@@ -379,6 +409,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         self.completed_episodes = 0
         self.active_slots = 0
         self.slot_episode_id = [None for _slot in self.slots]
+        self._pipeline_profile_rows.clear()
         self._completed_metrics.clear()
         self._completed_buffers.clear()
         self._episode_log_order = [int(episode_id) for episode_id in episode_ids]
@@ -560,6 +591,19 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             action_events=[] if self._collect_action_records else None,
             latency_records=[] if self._collect_latency_records else None,
         )
+
+    def _write_pipeline_profile_summary(self) -> None:
+        if not self.profile_pipeline or self.logger is None or not self._pipeline_profile_rows:
+            return
+        keys = sorted({key for row in self._pipeline_profile_rows for key in row})
+        summary = {
+            "num_profiled_batches": len(self._pipeline_profile_rows),
+            **{
+                key: series_stats([float(row[key]) for row in self._pipeline_profile_rows if key in row])
+                for key in keys
+            },
+        }
+        write_json(Path(self.logger.output_dir) / "simulated_pipeline_summary.json", summary)
 
     def _compute_episode_metrics(
         self,
