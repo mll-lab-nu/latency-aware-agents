@@ -29,6 +29,7 @@ def run_from_config(
     on_episode_progress: Callable[[EpisodeMetrics, int, int], None] | None = None,
     n_samples: int | None = None,
     episode_ids: Sequence[int] | None = None,
+    policy: Any | None = None,
 ) -> list[EpisodeMetrics]:
     experiment_cfg = config["experiment"]
     policy_cfg = config["policy"]
@@ -40,7 +41,7 @@ def run_from_config(
     num_episodes = len(selected_episode_ids)
     seed_everything(seed)
 
-    executor = build_executor(config)
+    executor = build_executor(config, **({"policy": policy} if policy is not None else {}))
     metrics = []
     try:
         run_warmup = getattr(executor, "run_warmup", None)

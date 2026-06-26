@@ -54,6 +54,7 @@ class ExecutorBuilder(Protocol):
         *,
         video_recorder: EpisodeVideoRecorder | None = None,
         video_episode_metadata: dict[int, dict] | None = None,
+        policy: PolicyRunner | None = None,
     ) -> Any:
         ...
 
@@ -88,6 +89,7 @@ def build_executor(
     *,
     video_recorder: EpisodeVideoRecorder | None = None,
     video_episode_metadata: dict[int, dict] | None = None,
+    policy: PolicyRunner | None = None,
 ) -> Executor:
     executor_cfg = config["executor"]
     mode = ExecutorMode(executor_cfg["mode"])
@@ -104,7 +106,21 @@ def build_executor(
             f"executor.mode '{mode.value}' is recognized but not implemented. "
             f"Registered executor modes: {registered}"
         )
-    return builder(config, video_recorder=video_recorder, video_episode_metadata=video_episode_metadata)
+    return builder(
+        config,
+        video_recorder=video_recorder,
+        video_episode_metadata=video_episode_metadata,
+        policy=policy,
+    )
+
+
+def _resolve_policy(
+    config: dict[str, Any],
+    action_resolver: ActionResolver,
+    policy: PolicyRunner | None,
+) -> PolicyRunner:
+    """Use an injected (e.g. live in-process) policy, else build from config."""
+    return policy if policy is not None else build_policy(config, action_resolver)
 
 
 def get_registered_executor_modes() -> list[str]:
@@ -163,6 +179,7 @@ def _build_simulated_executor(
     *,
     video_recorder: EpisodeVideoRecorder | None = None,
     video_episode_metadata: dict[int, dict] | None = None,
+    policy: PolicyRunner | None = None,
 ) -> SimulatedLatencyExecutor | BatchedSimulatedLatencyExecutor:
     eval_parallel_envs = _eval_parallel_envs(config)
     num_episodes = int(config["evaluation"]["eval_episodes"])
@@ -171,12 +188,15 @@ def _build_simulated_executor(
         and num_episodes > 0
         and _supports_phase_3b_batched_latency(config.get("latency", {}))
     ):
-        return _build_batched_simulated_executor(config, max_parallel_envs=min(eval_parallel_envs, num_episodes))
+        return _build_batched_simulated_executor(
+            config, max_parallel_envs=min(eval_parallel_envs, num_episodes), policy=policy
+        )
 
     return _build_single_simulated_executor(
         config,
         video_recorder=video_recorder,
         video_episode_metadata=video_episode_metadata,
+        policy=policy,
     )
 
 
@@ -185,9 +205,10 @@ def _build_single_simulated_executor(
     *,
     video_recorder: EpisodeVideoRecorder | None = None,
     video_episode_metadata: dict[int, dict] | None = None,
+    policy: PolicyRunner | None = None,
 ) -> SimulatedLatencyExecutor:
     c = _build_common_executor_components(config)
-    policy = build_policy(config, c.action_resolver)
+    policy = _resolve_policy(config, c.action_resolver, policy)
     latency_source = _build_latency_source(config["latency"], c.clock)
     episode_latency_source_factory = _build_episode_latency_source_factory(config["latency"], c.clock)
     return SimulatedLatencyExecutor(
@@ -209,6 +230,7 @@ def _build_batched_simulated_executor(
     config: dict[str, Any],
     *,
     max_parallel_envs: int,
+    policy: PolicyRunner | None = None,
 ) -> BatchedSimulatedLatencyExecutor:
     scheduler_cfg = config["scheduler"]
     if max_parallel_envs <= 0:
@@ -249,7 +271,7 @@ def _build_batched_simulated_executor(
         _raise_if_unsupported_batched_action_space(env_backend.slot_handles)
 
         clock = _build_clock(config)
-        policy = build_policy(config, action_resolver)
+        policy = _resolve_policy(config, action_resolver, policy)
         if type(policy).predict_batch is PolicyRunner.predict_batch:
             raise ValueError(
                 f"policy.type={config['policy']['type']} does not support safe batched simulated eval yet; "
@@ -294,6 +316,7 @@ def _build_paused_executor(
     *,
     video_recorder: EpisodeVideoRecorder | None = None,
     video_episode_metadata: dict[int, dict] | None = None,
+    policy: PolicyRunner | None = None,
 ) -> PausedLatencyExecutor:
     latency_cfg = config["latency"]
     if resolve_latency_method(latency_cfg) != "zero":
@@ -302,7 +325,7 @@ def _build_paused_executor(
     c = _build_common_executor_components(config)
     return PausedLatencyExecutor(
         env=c.env,
-        policy=build_policy(config, c.action_resolver),
+        policy=_resolve_policy(config, c.action_resolver, policy),
         decision_scheduler=c.decision_scheduler,
         latency_source=ZeroSampler(clock=c.clock),
         action_scheduler=c.action_scheduler,
@@ -319,7 +342,13 @@ def _build_realtime_executor(
     *,
     video_recorder: EpisodeVideoRecorder | None = None,
     video_episode_metadata: dict[int, dict] | None = None,
+    policy: PolicyRunner | None = None,
 ) -> RealtimeLatencyExecutor:
+    if policy is not None:
+        raise ValueError(
+            "realtime executor builds its policy inside subprocess workers; "
+            "an injected in-process policy cannot cross the process boundary"
+        )
     latency_cfg = config["latency"]
     if resolve_latency_method(latency_cfg) != "zero":
         raise ValueError("realtime executor does not support injected latency")

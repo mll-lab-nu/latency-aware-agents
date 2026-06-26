@@ -516,6 +516,60 @@ def _load_policy_wrapper_class() -> Any:
     return PolicyServerWrapper
 
 
+def _profiler_stage(profiler: Any, name: str) -> Any:
+    from contextlib import nullcontext
+
+    return profiler.time(name) if profiler is not None else nullcontext()
+
+
+def _load_decode_rl_games_actions() -> Any:
+    _ensure_starvla_path()
+    from deployment.model_server.rl_games_action_decode import decode_rl_games_actions
+
+    return decode_rl_games_actions
+
+
+class LiveStarVlaWrapper:
+    """In-process stand-in for ``PolicyServerWrapper`` over a *live* framework.
+
+    During training the trainer already holds the model in memory
+    (``accelerator.unwrap_model(self.model)`` — the same object eval_core calls).
+    This wrapper exposes only the rl_games-mode surface ``StarVlaPolicyRunner``
+    uses — ``predict_action`` (framework forward + rl_games decode),
+    ``reset_memory`` passthrough, and the ``_model_cfg`` attribute — so no
+    checkpoint reload is needed. The disk-backed ``PolicyNormProcessor`` is never
+    built because rl_games decoding ignores un-normalization stats.
+    """
+
+    def __init__(self, *, framework: Any, model_cfg: dict[str, Any], env_name: str) -> None:
+        self._framework = framework
+        self._model_cfg = model_cfg
+        self._rl_games_env_name = str(env_name)
+        self._decode_rl_games_actions = _load_decode_rl_games_actions()
+
+    def reset_memory(self, slot_id: int | None = None) -> None:
+        reset = getattr(self._framework, "reset_memory", None)
+        if callable(reset):
+            reset(slot_id)
+
+    def predict_action(
+        self,
+        examples: list[dict[str, Any]],
+        unnorm_key: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        # unnorm_key is unused in rl_games mode; kept for interface parity.
+        del unnorm_key
+        profiler = kwargs["profiler"] if "profiler" in kwargs else None
+        out = self._framework.predict_action(examples=examples, **kwargs)
+        normalized = np.asarray(out["normalized_actions"])  # (B, T, D)
+        with _profiler_stage(profiler, "starvla_wrapper_rl_games_decode_ms"):
+            return self._decode_rl_games_actions(
+                normalized_actions=normalized,
+                env_name=self._rl_games_env_name,
+            )
+
+
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -558,8 +612,47 @@ def _build_starvla_policy(
     )
 
 
+def build_live_starvla_policy(
+    *,
+    framework: Any,
+    model_cfg: dict[str, Any],
+    config: dict[str, Any],
+    action_resolver: ActionResolver,
+) -> StarVlaPolicyRunner:
+    """Build a StarVLA policy around a *live* in-memory framework (no reload).
+
+    Mirrors ``_build_starvla_policy`` but swaps the ckpt-loading
+    ``PolicyServerWrapper`` for :class:`LiveStarVlaWrapper`, so the trainer's
+    resident model is evaluated directly. ``model_cfg`` is the in-memory model
+    config (e.g. ``read_mode_config`` output) the wrapper would otherwise read
+    from disk.
+    """
+    policy_cfg = config["policy"]
+    unnorm_key = policy_cfg["unnorm_key"] if "unnorm_key" in policy_cfg else None
+    env_name = config["env"]["name"]
+    wrapper = LiveStarVlaWrapper(framework=framework, model_cfg=model_cfg, env_name=env_name)
+    latency_prompt_map = (
+        load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
+        if "latency_prompt_map_path" in policy_cfg
+        else None
+    )
+    return StarVlaPolicyRunner(
+        wrapper=wrapper,
+        checkpoint_path=policy_cfg.get("checkpoint_path", ""),
+        device=policy_cfg.get("device", "cuda"),
+        unnorm_key=unnorm_key,
+        env_name=env_name,
+        action_resolver=action_resolver,
+        action_refs=policy_cfg.get("actions", action_resolver.default_action_refs()),
+        latency_prompt_map=latency_prompt_map,
+        obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
+    )
+
+
 __all__ = [
+    "LiveStarVlaWrapper",
     "StarVlaPolicyRunner",
+    "build_live_starvla_policy",
     "decode_starvla_action",
     "observation_data_to_hwc_uint8_frames",
 ]
