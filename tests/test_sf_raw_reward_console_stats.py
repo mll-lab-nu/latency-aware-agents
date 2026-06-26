@@ -343,6 +343,7 @@ def test_demon_attack_env_factory_installs_worker_compat(monkeypatch):
             simulator="cpu",
             screen_size=84,
             noop_max=30,
+            reset_mode="fire",
             frame_stack=1,
             terminal_on_life_loss=True,
             clip_reward=True,

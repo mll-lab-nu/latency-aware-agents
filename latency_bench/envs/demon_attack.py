@@ -24,6 +24,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
         noop_action: Action | None = None,
         screen_size: int = 84,
         noop_max: int = 30,
+        reset_mode: str = "fire",
         terminal_on_life_loss: bool = False,
         clip_reward: bool = True,
         continue_life_loss_terminal: bool = False,
@@ -37,6 +38,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
             "env_id": env_id,
             "screen_size": screen_size,
             "noop_max": noop_max,
+            "reset_mode": reset_mode,
             "terminal_on_life_loss": terminal_on_life_loss,
             "clip_reward": clip_reward,
             "repeat_action_probability": repeat_action_probability,
@@ -282,31 +284,42 @@ def make_demon_attack_benchmark_env(
     env_id: str = "ALE/DemonAttack-v5",
     screen_size: int = 84,
     noop_max: int = 30,
+    reset_mode: str = "fire",
     terminal_on_life_loss: bool = False,
     clip_reward: bool = True,
     repeat_action_probability: float = 0.0,
     full_action_space: bool = False,
 ) -> gym.Env:
     _register_ale()
-    from stable_baselines3.common.atari_wrappers import AtariWrapper
+    from stable_baselines3.common.atari_wrappers import (
+        ClipRewardEnv,
+        EpisodicLifeEnv,
+        FireResetEnv,
+        NoopResetEnv,
+        WarpFrame,
+    )
 
     env = gym.make(
         env_id,
         obs_type="rgb",
         frameskip=1,
-        repeat_action_probability=float(repeat_action_probability),
-        full_action_space=bool(full_action_space),
+        repeat_action_probability=repeat_action_probability,
+        full_action_space=full_action_space,
         render_mode=None,
     )
-    return AtariWrapper(
-        env,
-        noop_max=int(noop_max),
-        frame_skip=1,
-        screen_size=int(screen_size),
-        terminal_on_life_loss=bool(terminal_on_life_loss),
-        clip_reward=bool(clip_reward),
-        action_repeat_probability=0.0,
-    )
+    mode = reset_mode
+    if mode in {"noop", "fire"} and noop_max > 0:
+        env = NoopResetEnv(env, noop_max=noop_max)
+    if terminal_on_life_loss:
+        env = EpisodicLifeEnv(env)
+    if mode == "fire" and "FIRE" in env.unwrapped.get_action_meanings():
+        env = FireResetEnv(env)
+    elif mode not in {"raw", "noop", "fire"}:
+        raise ValueError(f"Unsupported Demon Attack reset_mode: {reset_mode!r}")
+    env = WarpFrame(env, width=screen_size, height=screen_size)
+    if clip_reward:
+        env = ClipRewardEnv(env)
+    return env
 
 
 def _register_ale() -> None:

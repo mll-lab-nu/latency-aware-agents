@@ -366,6 +366,7 @@ def test_build_env_adapter_does_not_pass_demon_attack_action_repeat(monkeypatch)
             "env_id": "ALE/DemonAttack-v5",
             "screen_size": 84,
             "noop_max": 30,
+            "reset_mode": "fire",
             "terminal_on_life_loss": False,
             "clip_reward": True,
             "repeat_action_probability": 0.0,
@@ -396,6 +397,18 @@ def test_demon_attack_starvla_env_exports_raw_rgb_frames(monkeypatch):
         FakeDemonAttackEnvAdapter,
     )
     config = _config("demon_attack")
+    config["env"].update(
+        {
+            "env_id": "ALE/DemonAttack-v5",
+            "screen_size": 84,
+            "noop_max": 30,
+            "reset_mode": "fire",
+            "terminal_on_life_loss": False,
+            "clip_reward": True,
+            "repeat_action_probability": 0.0,
+            "full_action_space": False,
+        }
+    )
     config["policy"] = {"type": "starvla"}
     noop = Action(value=0, name="noop", is_noop=True)
 
@@ -428,6 +441,7 @@ def test_demon_attack_latency_bench_eval_raw_reward_disables_clipping_and_keeps_
             "env_id": "ALE/DemonAttack-v5",
             "screen_size": 84,
             "noop_max": 30,
+            "reset_mode": "fire",
             "terminal_on_life_loss": True,
             "clip_reward": True,
             "repeat_action_probability": 0.0,

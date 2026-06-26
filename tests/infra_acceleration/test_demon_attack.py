@@ -26,6 +26,7 @@ def _cfg(*, simulator: str, add_latency_info: bool, max_episode_steps: int = 250
         "env_fps": 60,
         "obs_fps": 15,
         "noop_max": 1,
+        "reset_mode": "fire",
         "frame_stack": 4,
         "terminal_on_life_loss": True,
         "clip_reward": True,

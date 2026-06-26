@@ -99,6 +99,33 @@ def test_obs84_rounding_is_the_remaining_post_reset_cpu_vs_cule_obs_difference()
         cpu.close()
 
 
+def test_latency_cule_backend_rejects_non_fire_reset_mode():
+    # CULE currently runs the hard-coded noop+fire reset sequence. Until raw/noop
+    # are implemented there, non-fire latency_bench configs must fail loudly.
+    from latency_bench.executors.demon_attack_gpu_batched_backend import DemonAttackGpuBatchedEnvStepBackend
+
+    with pytest.raises(ValueError, match="reset_mode='fire'"):
+        DemonAttackGpuBatchedEnvStepBackend(
+            config={
+                "env": {
+                    "name": "demon_attack",
+                    "env_fps": 60.0,
+                    "obs_fps": 15.0,
+                    "noop_max": 30,
+                    "reset_mode": "noop",
+                    "terminal_on_life_loss": False,
+                    "clip_reward": False,
+                    "frame_stack": FRAME_STACK,
+                    "gpu_env_device": "cuda",
+                    "max_episode_steps": 25000,
+                },
+                "policy": {"type": "starvla"},
+            },
+            noop_action=Action(value=0, name="NOOP", is_noop=True),
+            num_slots=1,
+        )
+
+
 def _make_latency_cpu_env():
     from latency_bench.envs.demon_attack import DemonAttackEnvAdapter
 
@@ -107,6 +134,7 @@ def _make_latency_cpu_env():
         noop_action=Action(value=0, name="NOOP", is_noop=True),
         screen_size=84,
         noop_max=30,
+        reset_mode="fire",
         terminal_on_life_loss=False,
         clip_reward=False,
         frame_stack=FRAME_STACK,
@@ -192,6 +220,7 @@ def _cule_latency_backend_trace() -> list[dict[str, object]]:
                 "env_fps": 60.0,
                 "obs_fps": 15.0,
                 "noop_max": 30,
+                "reset_mode": "fire",
                 "terminal_on_life_loss": False,
                 "clip_reward": False,
                 "frame_stack": FRAME_STACK,
