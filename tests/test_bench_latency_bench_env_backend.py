@@ -45,10 +45,11 @@ def test_parse_parallel_envs_rejects_non_positive_values():
         bench._parse_parallel_envs("1,0,4")
 
 
-def test_parse_backends_accepts_flappy_gpu_batched_backend():
-    assert bench._parse_backends("serial,flappy_gpu_batched,auto") == [
+def test_parse_backends_accepts_gpu_batched_backends():
+    assert bench._parse_backends("serial,flappy_gpu_batched,demon_attack_gpu_batched,auto") == [
         "serial",
         "flappy_gpu_batched",
+        "demon_attack_gpu_batched",
         "auto",
     ]
 

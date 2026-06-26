@@ -115,6 +115,24 @@ class MetadataCapturePolicy(PolicyRunner):
         ]
 
 
+class TimingBatchPolicy(PolicyRunner):
+    def predict(self, observation: Observation) -> PolicyOutput:
+        raise AssertionError("batched executor must call predict_batch_with_timing")
+
+    def predict_batch(self, observations):
+        raise AssertionError("batched executor must call predict_batch_with_timing")
+
+    def predict_batch_with_timing(self, observations):
+        return [
+            PolicyOutput(action=Action("jump", name="jump"))
+            for _observation in observations
+        ], {
+            "policy_build_example_ms": 1.0,
+            "policy_wrapper_predict_action_ms": 2.0,
+            "policy_decode_ms": 3.0,
+        }
+
+
 class RawRgbShapeCapturePolicy(PolicyRunner):
     def __init__(self):
         self.raw_stack_shapes: list[tuple[int, ...]] = []
@@ -688,6 +706,29 @@ def test_batched_executor_adds_slot_id_to_policy_observation_metadata(tmp_path: 
         (record.obs_id, record.latency_ms)
         for record in executor.logger.latency_records
     ] == [(0, 0.0), (1, 0.0)]
+
+
+def test_batched_executor_writes_simulated_pipeline_summary_when_enabled(tmp_path: Path):
+    executor, _envs = _executor(tmp_path, num_slots=2, env_max_steps=1, policy=TimingBatchPolicy())
+    executor.profile_pipeline = True
+
+    try:
+        executor.run_episodes(
+            episode_ids=[0, 1],
+            seeds=[0, 1],
+            eval_max_steps=1,
+        )
+    finally:
+        executor.close()
+
+    summary = json.loads((tmp_path / "simulated_pipeline_summary.json").read_text(encoding="utf-8"))
+    assert summary["num_profiled_batches"] == 1
+    assert summary["batch_size"]["mean"] == 2.0
+    assert summary["policy_build_example_ms"]["mean"] == 1.0
+    assert summary["policy_wrapper_predict_action_ms"]["mean"] == 2.0
+    assert summary["policy_decode_ms"]["mean"] == 3.0
+    assert summary["observe_slots_ms"]["count"] == 1
+    assert summary["env_step_ms"]["count"] == 1
 
 
 def test_batched_executor_keeps_slot_action_queues_independent(tmp_path: Path):

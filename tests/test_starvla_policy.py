@@ -793,6 +793,44 @@ def test_predict_batch_calls_starvla_once(monkeypatch, tmp_path: Path):
     assert [output.action.name for output in outputs] == ["flap", "noop"]
 
 
+def test_predict_batch_with_timing_calls_starvla_once_and_reports_stages(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+    observations = [
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
+        ),
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=1,
+            sim_time_ms=33.3,
+            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
+        ),
+    ]
+
+    outputs, timings = policy.predict_batch_with_timing(observations)
+
+    wrapper = FakePolicyServerWrapper.instances[0]
+    assert len(wrapper.calls) == 1
+    assert len(wrapper.calls[0]["examples"]) == 2
+    assert [output.action.name for output in outputs] == ["flap", "noop"]
+    assert set(timings) == {
+        "policy_build_example_ms",
+        "policy_wrapper_predict_action_ms",
+        "policy_decode_ms",
+    }
+    assert timings["policy_build_example_ms"] >= 0.0
+    assert timings["policy_wrapper_predict_action_ms"] >= 0.0
+    assert timings["policy_decode_ms"] >= 0.0
+
+
 def test_starvla_default_policy_metadata_omits_input_frame_hashes(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
