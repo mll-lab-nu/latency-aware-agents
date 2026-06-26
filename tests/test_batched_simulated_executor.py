@@ -130,6 +130,7 @@ class TimingBatchPolicy(PolicyRunner):
                     "policy_build_example_ms": 1.0,
                     "policy_wrapper_predict_action_ms": 2.0,
                     "policy_decode_ms": 3.0,
+                    "starvla_fake_internal_ms": 4.0,
                 }
             )
         return [
@@ -732,6 +733,7 @@ def test_batched_executor_writes_simulated_pipeline_summary_when_enabled(tmp_pat
     assert summary["policy_build_example_ms"]["mean"] == 1.0
     assert summary["policy_wrapper_predict_action_ms"]["mean"] == 2.0
     assert summary["policy_decode_ms"]["mean"] == 3.0
+    assert summary["starvla_fake_internal_ms"]["mean"] == 4.0
     assert summary["observe_slots_ms"]["count"] == 1
     assert summary["env_step_ms"]["count"] == 1
 

@@ -46,6 +46,7 @@ def _run_one_sweep(
     num_sweeps: int,
     num_episodes: int,
     episode_ids: Sequence[int] | None,
+    policy: Any | None = None,
 ) -> tuple[list[EpisodeMetrics], dict[str, Any]]:
     """Run one prepared sweep config, write its summary, print progress.
 
@@ -70,6 +71,7 @@ def _run_one_sweep(
         write_summary=False,
         on_episode_complete=on_episode_complete if progress else None,
         episode_ids=episode_ids,
+        **({"policy": policy} if policy is not None else {}),
     )
     summary = write_queue_eval_summary(
         summary_dir,
@@ -95,15 +97,20 @@ def run_eval_sweep_from_config(
     progress: bool = False,
     n_samples: int | None = None,
     episode_ids: Sequence[int] | None = None,
+    policy: Any | None = None,
 ) -> list[EpisodeMetrics]:
     if has_eval_suites(config):
-        run_eval_suites_from_config(config, progress=progress, episode_ids=episode_ids)
+        run_eval_suites_from_config(config, progress=progress, episode_ids=episode_ids, policy=policy)
         return []
 
     eval_latency_values = _eval_latency_values(config)
     if eval_latency_values is None:
         if not progress:
-            return run_from_config(config, episode_ids=episode_ids)
+            return run_from_config(
+                config,
+                episode_ids=episode_ids,
+                **({"policy": policy} if policy is not None else {}),
+            )
         num_episodes = _selected_episode_count(config, episode_ids)
         _print_progress_start(config, num_sweeps=1, num_episodes=num_episodes)
         start_time = time.perf_counter()
@@ -146,6 +153,7 @@ def run_eval_sweep_from_config(
             on_episode_progress=on_episode_progress if n_samples is not None else None,
             n_samples=n_samples,
             episode_ids=episode_ids,
+            **({"policy": policy} if policy is not None else {}),
         )
         elapsed = time.perf_counter() - start_time
         print(f"[bench] sweep 1/1 complete elapsed={elapsed:.1f}s", file=sys.stderr, flush=True)
@@ -188,6 +196,7 @@ def run_eval_sweep_from_config(
             num_sweeps=num_sweeps,
             num_episodes=num_episodes,
             episode_ids=episode_ids,
+            policy=policy,
         )
         all_metrics.extend(latency_metrics)
     return all_metrics
@@ -199,6 +208,7 @@ def run_eval_suites_from_config(
     progress: bool = False,
     extra_metadata: dict[str, Any] | None = None,
     episode_ids: Sequence[int] | None = None,
+    policy: Any | None = None,
 ) -> list[dict[str, Any]]:
     suites = parse_eval_suites(config)
     base_output_dir = Path(config["logging"]["output_dir"])
@@ -248,6 +258,7 @@ def run_eval_suites_from_config(
                     num_sweeps=num_sweeps,
                     num_episodes=num_episodes,
                     episode_ids=episode_ids,
+                    policy=policy,
                 )
                 summaries.append(summary)
             continue
@@ -278,6 +289,7 @@ def run_eval_suites_from_config(
             num_sweeps=num_sweeps,
             num_episodes=num_episodes,
             episode_ids=episode_ids,
+            policy=policy,
         )
         summaries.append(summary)
     return summaries

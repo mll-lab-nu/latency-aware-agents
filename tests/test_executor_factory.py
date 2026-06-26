@@ -166,6 +166,27 @@ def test_simulated_mode_builds_simulated_executor(tmp_path):
         executor.env.close()
 
 
+def test_build_executor_uses_injected_policy_and_skips_build_policy(tmp_path, monkeypatch):
+    # The in-process eval path injects a live policy; build_policy must not run.
+    def _fail_build_policy(*args, **kwargs):
+        raise AssertionError("build_policy should not be called when a policy is injected")
+
+    monkeypatch.setattr(executor_factory, "build_policy", _fail_build_policy)
+    sentinel = object()
+    executor = build_executor(_config(mode="paused", output_dir=str(tmp_path)), policy=sentinel)
+
+    try:
+        assert isinstance(executor, PausedLatencyExecutor)
+        assert executor.policy is sentinel
+    finally:
+        executor.env.close()
+
+
+def test_build_executor_realtime_rejects_injected_policy(tmp_path):
+    with pytest.raises(ValueError, match="cannot cross the process boundary"):
+        build_executor(_config(mode="realtime", output_dir=str(tmp_path)), policy=object())
+
+
 def test_factory_defaults_to_issue_order_fifo_when_ordering_is_omitted(tmp_path):
     config = _config(output_dir=str(tmp_path))
     del config["scheduler"]["ordering_policy"]

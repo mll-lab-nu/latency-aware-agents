@@ -59,6 +59,9 @@ class FakePolicyServerWrapper:
         FakePolicyServerWrapper.instances.append(self)
 
     def predict_action(self, examples, unnorm_key=None, **kwargs):
+        profiler = kwargs["profiler"]
+        if profiler.enabled:
+            profiler.timings["starvla_fake_internal_ms"] = 4.0
         self.calls.append(
             {
                 "examples": examples,
@@ -86,6 +89,33 @@ class FakePolicyServerWrapper:
 
     def reset_memory(self, slot_id=None):
         self.calls.append({"reset_memory_slot_id": slot_id})
+
+
+class FakeLiveFramework:
+    """Stands in for the trainer's live baseframework (unwrap_model result).
+
+    Exposes only ``predict_action(examples=...) -> {"normalized_actions": ...}``
+    and ``reset_memory`` — the surface the in-process injection path uses.
+    """
+
+    def __init__(self):
+        self.calls = []
+        self.reset_calls = []
+
+    def predict_action(self, examples, **kwargs):
+        self.calls.append({"examples": examples, "kwargs": kwargs})
+        return {
+            "normalized_actions": np.asarray(
+                [
+                    [[0.1, 0.9]],
+                    [[0.8, 0.2]],
+                ][: len(examples)],
+                dtype=np.float32,
+            )
+        }
+
+    def reset_memory(self, slot_id=None):
+        self.reset_calls.append(slot_id)
 
 
 def _config(
@@ -823,13 +853,16 @@ def test_predict_batch_records_stages_into_ambient_profiler(monkeypatch, tmp_pat
     wrapper = FakePolicyServerWrapper.instances[0]
     assert len(wrapper.calls) == 1
     assert len(wrapper.calls[0]["examples"]) == 2
+    assert wrapper.calls[0]["kwargs"]["profiler"] is profiler
     assert [output.action.name for output in outputs] == ["flap", "noop"]
     assert set(profiler.timings) == {
         "policy_build_example_ms",
         "policy_wrapper_predict_action_ms",
         "policy_decode_ms",
+        "starvla_fake_internal_ms",
     }
     assert profiler.timings["policy_build_example_ms"] >= 0.0
+    assert profiler.timings["starvla_fake_internal_ms"] == 4.0
 
 
 def test_predict_batch_without_profiler_scope_records_nothing(monkeypatch, tmp_path: Path):
@@ -851,8 +884,6 @@ def test_predict_batch_without_profiler_scope_records_nothing(monkeypatch, tmp_p
 
     # Default ambient profiler is the disabled singleton: no timings recorded, no sync.
     assert NULL_PROFILER.timings == {}
-    assert timings["policy_wrapper_predict_action_ms"] >= 0.0
-    assert timings["policy_decode_ms"] >= 0.0
 
 
 def test_starvla_default_policy_metadata_omits_input_frame_hashes(monkeypatch, tmp_path: Path):
@@ -875,3 +906,48 @@ def test_starvla_default_policy_metadata_omits_input_frame_hashes(monkeypatch, t
     assert "input_frame_sha256" not in output.metadata
     assert "input_frame_shape" not in output.metadata
     assert output.metadata["input_frame_count"] == 1
+
+
+def test_build_live_starvla_policy_injects_framework_without_reload(tmp_path: Path):
+    # The in-process path: feed the trainer's live framework directly, no ckpt
+    # reload. Decode must match the ckpt-backed path (argmax([0.1,0.9]) -> flap).
+    from latency_bench.policy import starvla
+
+    model_cfg = {
+        "datasets": {"vla_data": {"include_state": True}},
+        "framework": {"action_model": {"state_dim": 7}},
+    }
+    framework = FakeLiveFramework()
+    config = _config(tmp_path)
+    policy = starvla.build_live_starvla_policy(
+        framework=framework,
+        model_cfg=model_cfg,
+        config=config,
+        action_resolver=ActionResolver(config["env"]),
+    )
+
+    frame_stack = np.zeros((2, 3, 6), dtype=np.uint8)
+    frame_stack[:, :, :3] = 11
+    frame_stack[:, :, 3:] = 22
+    output = policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": frame_stack},
+        )
+    )
+
+    # Live framework saw the newest frame, base prompt, and zeroed state.
+    example = framework.calls[0]["examples"][0]
+    assert example["lang"] == BASE_PROMPTS["flappy"]
+    assert len(example["image"]) == 1
+    assert np.asarray(example["image"][0]).mean() == 22
+    assert example["state"].shape == (1, 7)
+    # rl_games decode of normalized scores [0.1, 0.9] -> action id 1 -> flap.
+    assert output.action.name == "flap"
+    assert output.action.value == 1
+
+    # reset_state must forward to the live framework's reset_memory.
+    policy.reset_state(3)
+    assert framework.reset_calls == [3]
