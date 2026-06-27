@@ -55,6 +55,7 @@ def build_latency_bench_config_for_rl_games(
     num_episodes: int,
     eval_max_steps: int,
     latency_steps: int,
+    eval_parallel_envs: int,
     unnorm_key: str | None,
     latency_prompt_map_path: str | None,
     actions: list[Any] | None,
@@ -102,7 +103,7 @@ def build_latency_bench_config_for_rl_games(
     config["evaluation"] = {
         **config.get("evaluation", {}),
         "eval_episodes": int(num_episodes),
-        "eval_parallel_envs": 1,
+        "eval_parallel_envs": max(1, int(eval_parallel_envs)),
         "eval_max_steps": int(eval_max_steps),
         "eval_deterministic": True,
     }
@@ -125,6 +126,16 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
     def _image_size(self) -> int:
         env_eval = self.cfg.rl_games.env_eval
         return int(getattr(env_eval, "image_size", 224) or 224)
+
+    def _eval_parallel_envs(self, stage: str, task: str | None = None) -> int:
+        # Number of envs evaluated in parallel (batched policy forward). Per-stage
+        # override wins, else the global env_eval value, else 1 (sequential).
+        # Settable from the launch script as rl_games.env_eval.eval_parallel_envs=N
+        # (or per-stage rl_games.env_eval.{mid_train,post_train}.eval_parallel_envs).
+        stage_cfg = self._task_stage_cfg(task, stage)
+        if stage_cfg is not None and getattr(stage_cfg, "eval_parallel_envs", None) is not None:
+            return max(1, int(stage_cfg.eval_parallel_envs))
+        return max(1, int(getattr(self.cfg.rl_games.env_eval, "eval_parallel_envs", 1) or 1))
 
     def _model_cfg_from_training_cfg(self) -> dict[str, Any]:
         from omegaconf import OmegaConf
@@ -206,6 +217,7 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                 num_episodes=num_episodes,
                 eval_max_steps=self._max_steps_per_episode(stage=stage, task=task_name),
                 latency_steps=int(latency),
+                eval_parallel_envs=self._eval_parallel_envs(stage=stage, task=task_name),
                 unnorm_key=getattr(self.cfg.rl_games.env_eval, "unnorm_key", None),
                 latency_prompt_map_path=self._prompt_map_path(task_name),
                 actions=self._base_actions(task_name),
