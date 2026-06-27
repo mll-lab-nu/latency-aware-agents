@@ -37,7 +37,7 @@ python examples/rl_games/bash_scripts/gr00t/data_conversion/convert_flappy_to_st
   --force
 
 # cut down memory segments
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # --- train (fix latency, full tuning) ---
 bash "${REPO_ROOT}/starVLA/commands/memory/train_flappy_openvla_kv_memory.sh"
