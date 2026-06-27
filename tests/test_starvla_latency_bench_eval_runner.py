@@ -144,7 +144,14 @@ def test_runner_threads_eval_parallel_envs_from_cfg(tmp_path, monkeypatch):
     assert captured["eval_parallel_envs"] == 8
 
 
-def test_runner_shards_episodes_across_ranks(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("shard_rank", "expected_episode_ids"),
+    [
+        (0, [0, 2, 4]),
+        (1, [1, 3]),
+    ],
+)
+def test_runner_shards_episodes_across_ranks(tmp_path, monkeypatch, shard_rank, expected_episode_ids):
     seen_ids: list[int] = []
 
     def fake_run_from_config(config, *, write_summary, episode_ids, policy):
@@ -158,13 +165,19 @@ def test_runner_shards_episodes_across_ranks(tmp_path, monkeypatch):
     monkeypatch.setattr(runner_mod, "build_live_starvla_policy", lambda **kwargs: object())
 
     runner = LatencyBenchRlGamesEvalRunner(
-        cfg=_make_cfg(num_episodes=4, latencies=(0,)), output_dir=str(tmp_path)
+        cfg=_make_cfg(num_episodes=5, latencies=(0,)), output_dir=str(tmp_path)
     )
-    result = runner.run(model=object(), step=1, stage="mid_train", shard_rank=1, shard_count=2, save=False)
+    result = runner.run(
+        model=object(),
+        step=1,
+        stage="mid_train",
+        shard_rank=shard_rank,
+        shard_count=2,
+        save=False,
+    )
 
-    # rank 1 of 2 over episodes [0,1,2,3] -> [1,3]
-    assert sorted(seen_ids) == [1, 3]
-    assert result.per_latency["flappy/latency_0"]["episode_indices"] == [1, 3]
+    assert sorted(seen_ids) == expected_episode_ids
+    assert result.per_latency["flappy/latency_0"]["episode_indices"] == expected_episode_ids
 
 
 def test_runner_merge_results_combines_shards(tmp_path, monkeypatch):
