@@ -20,6 +20,7 @@ def test_translation_flappy_fixed_latency(tmp_path):
         num_episodes=5,
         eval_max_steps=2000,
         latency_steps=2,
+        eval_parallel_envs=8,
         unnorm_key="flappy",
         latency_prompt_map_path=None,
         actions=["noop", "flap"],
@@ -32,7 +33,7 @@ def test_translation_flappy_fixed_latency(tmp_path):
     assert cfg["policy"]["type"] == "starvla"
     assert cfg["policy"]["unnorm_key"] == "flappy"
     assert cfg["evaluation"]["eval_episodes"] == 5
-    assert cfg["evaluation"]["eval_parallel_envs"] == 1
+    assert cfg["evaluation"]["eval_parallel_envs"] == 8
     assert "eval_suites" not in cfg["evaluation"]
     assert cfg["logging"]["video"]["enabled"] is False
     assert cfg["logging"]["save_step_records"] is False
@@ -46,6 +47,7 @@ def test_translation_zero_latency_uses_zero_type(tmp_path):
         num_episodes=1,
         eval_max_steps=100,
         latency_steps=0,
+        eval_parallel_envs=1,
         unnorm_key=None,
         latency_prompt_map_path=None,
         actions=None,
@@ -56,7 +58,16 @@ def test_translation_zero_latency_uses_zero_type(tmp_path):
     assert "unnorm_key" not in cfg["policy"]
 
 
-def _make_cfg(num_episodes=4, latencies=(0, 2)):
+def _make_cfg(num_episodes=4, latencies=(0, 2), eval_parallel_envs=None):
+    env_eval = {
+        "enabled": True,
+        "image_size": 224,
+        "seed": 42,
+        "fixed_episode_seeds": True,
+        "latency": {"values": list(latencies), "prompt_map_path": None},
+    }
+    if eval_parallel_envs is not None:
+        env_eval["eval_parallel_envs"] = eval_parallel_envs
     return OmegaConf.create(
         {
             "seed": 42,
@@ -64,11 +75,7 @@ def _make_cfg(num_episodes=4, latencies=(0, 2)):
                 "task": "flappy",
                 "model_alias": "openvla",
                 "env_eval": {
-                    "enabled": True,
-                    "image_size": 224,
-                    "seed": 42,
-                    "fixed_episode_seeds": True,
-                    "latency": {"values": list(latencies), "prompt_map_path": None},
+                    **env_eval,
                     "mid_train": {
                         "enabled": True,
                         "interval_steps": 100,
@@ -110,6 +117,31 @@ def test_runner_folds_episode_metrics(tmp_path, monkeypatch):
     assert metrics["mean_reward"] == pytest.approx(1.5)
     assert result.aggregate["total_episodes"] == 8
     assert result.aggregate["task"] == "flappy"
+
+
+def test_runner_threads_eval_parallel_envs_from_cfg(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_run_from_config(config, *, write_summary, episode_ids, policy):
+        captured["eval_parallel_envs"] = config["evaluation"]["eval_parallel_envs"]
+        return [
+            EpisodeMetrics(episode_id=i, episode_return=1.0, survival_steps=5) for i in episode_ids
+        ]
+
+    monkeypatch.setattr(runner_mod, "run_from_config", fake_run_from_config)
+    monkeypatch.setattr(runner_mod, "build_live_starvla_policy", lambda **kwargs: object())
+
+    # default (unset) -> 1
+    runner = LatencyBenchRlGamesEvalRunner(cfg=_make_cfg(latencies=(0,)), output_dir=str(tmp_path))
+    runner.run(model=object(), step=1, stage="mid_train", save=False)
+    assert captured["eval_parallel_envs"] == 1
+
+    # set on env_eval -> threaded into the synthesized lb config
+    runner = LatencyBenchRlGamesEvalRunner(
+        cfg=_make_cfg(latencies=(0,), eval_parallel_envs=8), output_dir=str(tmp_path)
+    )
+    runner.run(model=object(), step=1, stage="mid_train", save=False)
+    assert captured["eval_parallel_envs"] == 8
 
 
 def test_runner_shards_episodes_across_ranks(tmp_path, monkeypatch):
