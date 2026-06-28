@@ -41,6 +41,33 @@ def test_translation_flappy_fixed_latency(tmp_path):
     assert cfg["logging"]["save_step_records"] is False
 
 
+@pytest.mark.parametrize(
+    ("env_name", "obs_fps"),
+    [
+        ("demon_attack", 15.0),
+        ("deadly_corridor", 8.75),
+    ],
+)
+def test_translation_frame_skipped_tasks_use_observation_step_latency(tmp_path, env_name, obs_fps):
+    cfg = build_latency_bench_config_for_rl_games(
+        env_name=env_name,
+        seed=42,
+        image_size=224,
+        num_episodes=5,
+        eval_max_steps=2000,
+        latency_steps=2,
+        eval_parallel_envs=1,
+        unnorm_key=env_name,
+        latency_prompt_map_path=str(tmp_path / "latency_prompt_map.json"),
+        actions=None,
+        output_dir=tmp_path,
+    )
+
+    assert cfg["latency"]["type"] == "fixed"
+    assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(2 * 1000.0 / obs_fps)
+    assert cfg["policy"]["latency_prompt_key"] == 2
+
+
 def test_translation_zero_latency_uses_zero_type(tmp_path):
     cfg = build_latency_bench_config_for_rl_games(
         env_name="flappy",

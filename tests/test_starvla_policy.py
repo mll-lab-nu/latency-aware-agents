@@ -629,6 +629,42 @@ def test_starvla_latency_prompt_map_preserves_default_single_frame_selection(mon
     assert output.metadata["unnorm_key"] == "flappy"
 
 
+def test_starvla_latency_prompt_map_prefers_explicit_prompt_key(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    prompt_map_path = tmp_path / "latency_prompt_map.json"
+    prompt_map_path.write_text(
+        json.dumps(
+            {
+                "2": {"latency_raw_frames": 8, "latency_ms": 133.333, "prompt": "starvla label 2"},
+                "8": {"latency_raw_frames": 8, "latency_ms": 133.333, "prompt": "raw frame 8"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = _config(tmp_path, latency_prompt_map_path=str(prompt_map_path))
+    config["policy"]["latency_prompt_key"] = 2
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    output = policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={
+                "latency_raw_frames": 8,
+                "env_raw_rgb_frame_stack": np.zeros((4, 8, 8, 3), dtype=np.uint8),
+            },
+        )
+    )
+
+    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
+    assert example["lang"] == "starvla label 2"
+    assert output.metadata["latency_prompt_key"] == 2
+
+
 def test_starvla_latency_prompt_map_uses_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
