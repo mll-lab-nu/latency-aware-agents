@@ -62,15 +62,31 @@ exit 0
     assert "Remote path: raw/rtxpro6000blackwell/combined/test-run/cross_device" in result.stdout
 
 
-def _write_fake_conda_installation(prefix: Path, conda_bin: Path, calls_path: Path) -> None:
+def _write_fake_conda_installation(
+    prefix: Path,
+    conda_bin: Path,
+    calls_path: Path,
+    *,
+    latency_env_exists: bool = False,
+) -> None:
     conda_bin.parent.mkdir(parents=True, exist_ok=True)
     (prefix / "etc" / "profile.d").mkdir(parents=True, exist_ok=True)
+    env_list = (
+        f"base                  *  {prefix}\nlatency                  {prefix / 'envs' / 'latency'}\n"
+        if latency_env_exists
+        else f"base                  *  {prefix}\n"
+    )
     _write_executable(
         conda_bin,
         f"""#!/usr/bin/env bash
 set -euo pipefail
 if [[ "${{1:-}}" == "info" && "${{2:-}}" == "--base" ]]; then
   printf '%s\\n' "{prefix}"
+  exit 0
+fi
+if [[ "${{1:-}}" == "env" && "${{2:-}}" == "list" ]]; then
+  cat <<'EOF'
+{env_list}EOF
   exit 0
 fi
 if [[ "${{1:-}}" == "tos" ]]; then
@@ -85,6 +101,10 @@ exit 0
         f"""conda() {{
   if [[ "${{1:-}}" == "activate" ]]; then
     printf 'conda activate %s\\n' "${{2:-}}" >> "{calls_path}"
+    return 0
+  fi
+  if [[ "${{1:-}}" == "env" && "${{2:-}}" == "list" ]]; then
+    "{conda_bin}" "$@"
     return 0
   fi
   if [[ "${{1:-}}" == "tos" ]]; then
@@ -103,6 +123,7 @@ def _prepare_install_sh_env(
     *,
     compute_caps: str,
     conda_mode: str = "path",
+    latency_env_exists: bool = False,
 ) -> tuple[dict[str, str], Path]:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -112,10 +133,20 @@ def _prepare_install_sh_env(
 
     if conda_mode == "path":
         fake_conda_bin = fake_bin / "conda"
-        _write_fake_conda_installation(fake_conda_prefix, fake_conda_bin, calls_path)
+        _write_fake_conda_installation(
+            fake_conda_prefix,
+            fake_conda_bin,
+            calls_path,
+            latency_env_exists=latency_env_exists,
+        )
     elif conda_mode == "exe":
         fake_conda_bin = fake_conda_prefix / "bin" / "conda"
-        _write_fake_conda_installation(fake_conda_prefix, fake_conda_bin, calls_path)
+        _write_fake_conda_installation(
+            fake_conda_prefix,
+            fake_conda_bin,
+            calls_path,
+            latency_env_exists=latency_env_exists,
+        )
     elif conda_mode == "missing":
         fake_conda_bin = fake_conda_prefix / "bin" / "conda"
     else:
@@ -194,6 +225,10 @@ if [[ "${{1:-}}" == "info" && "${{2:-}}" == "--base" ]]; then
   printf '%s\\n' "__PREFIX__"
   exit 0
 fi
+if [[ "${{1:-}}" == "env" && "${{2:-}}" == "list" ]]; then
+  printf 'base                  *  __PREFIX__\\n'
+  exit 0
+fi
 if [[ "${{1:-}}" == "tos" ]]; then
   printf "conda: error: argument COMMAND: invalid choice: 'tos'\\n" >&2
   exit 2
@@ -207,6 +242,10 @@ cat > "$prefix/etc/profile.d/conda.sh" <<'EOC'
 conda() {{
   if [[ "${{1:-}}" == "activate" ]]; then
     printf 'conda activate %s\\n' "${{2:-}}" >> "__CALLS__"
+    return 0
+  fi
+  if [[ "${{1:-}}" == "env" && "${{2:-}}" == "list" ]]; then
+    "__PREFIX__/bin/conda" "$@"
     return 0
   fi
   if [[ "${{1:-}}" == "tos" ]]; then
@@ -229,10 +268,16 @@ chmod +x "$output"
 set -euo pipefail
 if [[ "${1:-}" == "scripts/bash_scripts/build_cuda_extensions.sh" ]]; then
   printf 'bash %s\\n' "$*" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
+  printf 'UV_HTTP_TIMEOUT=%s\\n' "${UV_HTTP_TIMEOUT-__unset__}" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
+  printf 'UV_HTTP_CONNECT_TIMEOUT=%s\\n' "${UV_HTTP_CONNECT_TIMEOUT-__unset__}" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
+  printf 'UV_HTTP_RETRIES=%s\\n' "${UV_HTTP_RETRIES-__unset__}" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
   exit 0
 fi
 if [[ "${1:-}" == "starVLA/examples/rl_games/install/bootstrap.sh" ]]; then
   printf 'bash %s\\n' "$*" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
+  printf 'UV_HTTP_TIMEOUT=%s\\n' "${UV_HTTP_TIMEOUT-__unset__}" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
+  printf 'UV_HTTP_CONNECT_TIMEOUT=%s\\n' "${UV_HTTP_CONNECT_TIMEOUT-__unset__}" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
+  printf 'UV_HTTP_RETRIES=%s\\n' "${UV_HTTP_RETRIES-__unset__}" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
   exit 0
 fi
 /bin/bash "$@"
@@ -332,7 +377,34 @@ def test_install_script_selects_cu130_for_compute_cap_10_gpu(tmp_path):
     ) in calls
     assert "python -m pip install -r requirements.txt" in calls
     assert "bash scripts/bash_scripts/build_cuda_extensions.sh" in calls
+    assert "UV_HTTP_TIMEOUT=300" in calls
+    assert "UV_HTTP_CONNECT_TIMEOUT=30" in calls
+    assert "UV_HTTP_RETRIES=10" in calls
     assert "conda install -y -c conda-forge --override-channels go" not in calls
+
+
+def test_install_script_reuses_existing_latency_env(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, calls_path = _prepare_install_sh_env(
+        tmp_path,
+        compute_caps="10.3\n",
+        latency_env_exists=True,
+    )
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "reusing existing conda env: latency" in result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "conda create -n latency" not in calls
+    assert "conda activate latency" in calls
 
 
 def test_install_script_selects_cu130_for_compute_cap_12_gpu(tmp_path):
@@ -523,6 +595,72 @@ exit 0
     assert f"uv pip install --python {fake_bin / 'python'} -r {requirements_path}" in log
 
 
+@pytest.mark.parametrize(
+    "helper_path",
+    [
+        REPO_ROOT / "scripts" / "bash_scripts" / "_pip.sh",
+        REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "_pip.sh",
+    ],
+)
+def test_pip_install_retries_same_command_after_network_failure(tmp_path, helper_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    log_path = tmp_path / "uv.log"
+    state_path = tmp_path / "uv.state"
+    _write_executable(
+        fake_bin / "python",
+        """#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+""",
+    )
+    _write_executable(
+        fake_bin / "sleep",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf 'sleep %s\\n' "$*" >> "{log_path}"
+exit 0
+""",
+    )
+    _write_executable(
+        fake_bin / "uv",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf 'uv %s\\n' "$*" >> "{log_path}"
+if [[ ! -f "{state_path}" ]]; then
+  touch "{state_path}"
+  exit 28
+fi
+exit 0
+""",
+    )
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'source "{helper_path}"\n'
+            "PIP_INSTALL_RETRY_SLEEP_SECONDS=0 "
+            "PYTHON_BIN=python pip_install nvidia-curand==10.4.0.35\n",
+        ],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}/usr/bin:/bin",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    log = log_path.read_text(encoding="utf-8")
+    assert log.count("uv pip install --python") == 2
+    assert log.count("nvidia-curand==10.4.0.35") == 2
+    assert "sleep 0" in log
+    assert "pip install failed on attempt 1/3; retrying" in result.stderr
+
+
 def test_install_script_rejects_unknown_torch_profile(tmp_path):
     script_path = REPO_ROOT / "install.sh"
     env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
@@ -645,7 +783,7 @@ exit 0
         assert syntax.returncode == 0, syntax.stderr
 
     expected_wheel = (
-        "flash_attn-2.8.3+cu12torch2.7cxx11abiFALSE-"
+        "flash_attn-2.8.3.post1+cu12torch2.7cxx11abiFALSE-"
         "cp310-cp310-linux_x86_64.whl"
     )
 
