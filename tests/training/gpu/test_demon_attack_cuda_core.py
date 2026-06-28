@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from helpers import REPO_ROOT
 
 
 def test_demon_attack_rom_resource_matches_supported_md5():
@@ -24,7 +25,7 @@ def test_demon_attack_cule_decodes_ram_reward_lives_and_terminal():
 
     from torch.utils.cpp_extension import load_inline
 
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = REPO_ROOT
     cule_root = repo_root / "third_party" / "cule"
     ext = load_inline(
         name="demon_attack_cule_decode_test",

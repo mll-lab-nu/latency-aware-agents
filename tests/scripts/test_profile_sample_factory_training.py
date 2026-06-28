@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from helpers import REPO_ROOT
 
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "profile_sample_factory_training.py"
+MODULE_PATH = REPO_ROOT / "scripts" / "profile_sample_factory_training.py"
 SPEC = importlib.util.spec_from_file_location("profile_sample_factory_training", MODULE_PATH)
 
 

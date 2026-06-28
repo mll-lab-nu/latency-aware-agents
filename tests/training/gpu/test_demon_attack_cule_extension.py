@@ -2,6 +2,7 @@ from pathlib import Path
 import importlib.util
 
 from training.demon_attack_sf import cule_atari_extension
+from helpers import REPO_ROOT
 
 
 def test_load_cule_atari_extension_uses_torch_pybind11_and_cccl(monkeypatch, tmp_path):
@@ -28,7 +29,7 @@ def test_load_cule_atari_extension_uses_torch_pybind11_and_cccl(monkeypatch, tmp
     finally:
         cule_atari_extension.load_cule_atari_extension.cache_clear()
 
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = REPO_ROOT
     cule_root = repo_root / "third_party" / "cule"
     include_paths = captured["extra_include_paths"]
 
