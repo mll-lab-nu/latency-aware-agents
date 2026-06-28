@@ -35,7 +35,7 @@ from torch import distributed as dist
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.config import load_config
-from latency_bench.eval.config import _apply_eval_latency, _latency_steps_to_ms
+from latency_bench.eval.config import _apply_eval_latency
 from latency_bench.eval.driver import run_from_config
 from latency_bench.policy.starvla import build_live_starvla_policy
 
@@ -50,6 +50,21 @@ BASE_CONFIGS = {
     "demon_attack": REPO_ROOT / "configs" / "base" / "demon_attack.yaml",
     "deadly_corridor": REPO_ROOT / "configs" / "base" / "deadly_corridor.yaml",
 }
+
+
+def _starvla_latency_label_to_ms(config: dict[str, Any], latency_steps: int) -> float:
+    """Convert a StarVLA RL-games latency label to latency_bench milliseconds.
+
+    StarVLA RL-games eval labels are policy/observation-step latencies. The
+    latency_bench fixed-latency scheduler consumes milliseconds, which are later
+    converted to raw env frames. For frame-skipped tasks such as Demon Attack
+    (60 Hz env, 15 Hz observations) and Deadly Corridor (35 Hz env, 8.75 Hz
+    observations), using raw env_fps directly under-applies latency by 4x.
+    """
+    obs_fps = float(config["env"].get("obs_fps", config["env"]["env_fps"]))
+    if obs_fps <= 0:
+        raise ValueError("env.obs_fps must be positive")
+    return int(latency_steps) * 1000.0 / obs_fps
 
 
 class _EvalProgressReporter:
@@ -174,9 +189,9 @@ def build_latency_bench_config_for_rl_games(
 
     config["env"] = {**config["env"], "obs_resize": [int(image_size), int(image_size)]}
 
-    # Single fixed latency for this rollout (frames -> ms via env_fps); reuse the
-    # same zero/fixed mapping the sweep driver uses.
-    latency_ms = _latency_steps_to_ms(config, int(latency_steps))
+    # Single fixed latency for this rollout. The incoming StarVLA label is in
+    # observation/policy steps, not raw environment frames.
+    latency_ms = _starvla_latency_label_to_ms(config, int(latency_steps))
     _apply_eval_latency(config, int(latency_steps), latency_ms)
 
     policy: dict[str, Any] = {
@@ -188,6 +203,7 @@ def build_latency_bench_config_for_rl_games(
         policy["unnorm_key"] = unnorm_key
     if latency_prompt_map_path:
         policy["latency_prompt_map_path"] = str(latency_prompt_map_path)
+        policy["latency_prompt_key"] = int(latency_steps)
     if actions:
         policy["actions"] = list(actions)
     config["policy"] = policy

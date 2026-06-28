@@ -77,6 +77,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         action_resolver: ActionResolver,
         action_refs: Sequence[Any],
         latency_prompt_map: dict[str, Any] | None = None,
+        latency_prompt_key: int | str | None = None,
         obs_resize: tuple[int, int] | None = None,
     ) -> None:
         self._wrapper = wrapper
@@ -90,6 +91,7 @@ class StarVlaPolicyRunner(PolicyRunner):
             for raw_action_id, action_ref in enumerate(action_refs)
         }
         self._latency_prompt_map = latency_prompt_map
+        self._latency_prompt_key = latency_prompt_key
         model_cfg = _normalized_model_cfg_from_wrapper(wrapper)
         self._include_state = _include_state_from_model_cfg(model_cfg)
         self._state_dim = _state_dim_from_model_cfg(model_cfg) if self._include_state else None
@@ -168,6 +170,7 @@ class StarVlaPolicyRunner(PolicyRunner):
             env_name=self._env_name,
             observation_metadata=observation.metadata,
             latency_prompt_map=self._latency_prompt_map,
+            latency_prompt_key=self._latency_prompt_key,
         )
 
         if self._image_mode == "stitch":
@@ -235,6 +238,8 @@ class StarVlaPolicyRunner(PolicyRunner):
             metadata["latency_raw_frames"] = observation.metadata["latency_raw_frames"]
         if "latency_ms" in observation.metadata:
             metadata["latency_ms"] = observation.metadata["latency_ms"]
+        if self._latency_prompt_key is not None:
+            metadata["latency_prompt_key"] = self._latency_prompt_key
         return PolicyOutput(
             action=action,
             raw_output=metadata["action_payload"],
@@ -599,6 +604,7 @@ def _build_starvla_policy(
         if "latency_prompt_map_path" in policy_cfg
         else None
     )
+    latency_prompt_key = policy_cfg.get("latency_prompt_key")
     return StarVlaPolicyRunner(
         wrapper=wrapper,
         checkpoint_path=policy_cfg["checkpoint_path"],
@@ -608,6 +614,7 @@ def _build_starvla_policy(
         action_resolver=action_resolver,
         action_refs=policy_cfg.get("actions", action_resolver.default_action_refs()),
         latency_prompt_map=latency_prompt_map,
+        latency_prompt_key=latency_prompt_key,
         obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
     )
 
@@ -636,6 +643,7 @@ def build_live_starvla_policy(
         if "latency_prompt_map_path" in policy_cfg
         else None
     )
+    latency_prompt_key = policy_cfg.get("latency_prompt_key")
     return StarVlaPolicyRunner(
         wrapper=wrapper,
         checkpoint_path=policy_cfg.get("checkpoint_path", ""),
@@ -645,6 +653,7 @@ def build_live_starvla_policy(
         action_resolver=action_resolver,
         action_refs=policy_cfg.get("actions", action_resolver.default_action_refs()),
         latency_prompt_map=latency_prompt_map,
+        latency_prompt_key=latency_prompt_key,
         obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
     )
 

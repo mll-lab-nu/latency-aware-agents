@@ -16,7 +16,11 @@ def resolve_starvla_prompt(
     env_name: str,
     observation_metadata: dict[str, Any],
     latency_prompt_map: dict[str, Any] | None,
+    latency_prompt_key: int | str | None = None,
 ) -> str:
     if latency_prompt_map is not None:
-        return latency_prompt_map[str(observation_metadata["latency_raw_frames"])]["prompt"]
+        key = observation_metadata.get("latency_prompt_key", latency_prompt_key)
+        if key is None:
+            key = observation_metadata["latency_raw_frames"]
+        return latency_prompt_map[str(key)]["prompt"]
     return BASE_PROMPTS[str(env_name)]
