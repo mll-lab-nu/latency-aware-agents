@@ -5,9 +5,9 @@ import sys
 from pathlib import Path
 
 import pytest
+from helpers import REPO_ROOT
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 OFFICIAL_SEEDS = tuple(range(10, 15))
 FIG_ROOT = REPO_ROOT / "paper" / "latency-sensitive-vla" / "figures" / "3_4_factor_sweeps"
 JITTER_GRID_ROOT = (

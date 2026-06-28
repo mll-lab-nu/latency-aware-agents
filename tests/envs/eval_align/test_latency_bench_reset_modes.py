@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from latency_bench.core.types import Action
+from helpers import REPO_ROOT
 
 
 FRAME_STACK = 4
@@ -172,5 +173,5 @@ def _register_ale(gym) -> None:
 
 
 def _ensure_starvla_on_path() -> None:
-    starvla_root = Path(__file__).resolve().parents[2] / "starVLA"
+    starvla_root = REPO_ROOT / "starVLA"
     sys.path.insert(0, str(starvla_root))

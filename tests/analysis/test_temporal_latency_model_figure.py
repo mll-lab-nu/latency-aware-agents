@@ -6,10 +6,11 @@ from pathlib import Path
 
 from latency_bench.latency.burst_profile import build_bayes_markov_burst_model
 from latency_bench.latency.profile import build_inverse_cdf_distribution
+from helpers import REPO_ROOT
 
 
 FIGURE_SCRIPT = (
-    Path(__file__).resolve().parents[1]
+    REPO_ROOT
     / "paper"
     / "latency-sensitive-vla"
     / "figures"

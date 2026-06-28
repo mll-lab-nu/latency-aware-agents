@@ -10,6 +10,13 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, ActionEvent, LatencyRecord
 
 
+# Repo root, anchored on this file's fixed location (tests/helpers.py). Tests live
+# in mirrored subdirectories at varying depths, so they must NOT compute the repo
+# root via `Path(__file__).parents[N]` (the depth changes when a test is moved).
+# Import REPO_ROOT from here instead.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
 def realtime_profile(bench_overhead_ms: float = 0.0) -> dict[str, float]:
     return {
         "env_observe_ms": 0.0,

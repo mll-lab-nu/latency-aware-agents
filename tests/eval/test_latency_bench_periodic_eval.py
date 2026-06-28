@@ -5,9 +5,9 @@ import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from helpers import REPO_ROOT
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _assert_train_eval_artifacts_disabled(config: dict) -> None:

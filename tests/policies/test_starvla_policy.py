@@ -11,8 +11,8 @@ from latency_bench.core.config import load_config
 from latency_bench.core.types import Observation
 from latency_bench.policy.factory import build_policy
 from latency_bench.data.prompts import BASE_PROMPTS
+from helpers import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 FLAPPY_REALTIME_STARVLA_CONFIGS = (
     "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_15fps_l2_2gpu_warmup200_3ep.yaml",
     "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml",
