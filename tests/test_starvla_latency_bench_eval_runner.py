@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 from omegaconf import OmegaConf
@@ -98,7 +100,7 @@ def _make_cfg(num_episodes=4, latencies=(0, 2), eval_parallel_envs=None):
 
 
 def test_runner_folds_episode_metrics(tmp_path, monkeypatch):
-    def fake_run_from_config(config, *, write_summary, episode_ids, policy):
+    def fake_run_from_config(config, *, write_summary, episode_ids, policy, on_episode_complete=None):
         return [
             EpisodeMetrics(episode_id=i, episode_return=float(i), survival_steps=10 + i)
             for i in episode_ids
@@ -122,7 +124,7 @@ def test_runner_folds_episode_metrics(tmp_path, monkeypatch):
 def test_runner_threads_eval_parallel_envs_from_cfg(tmp_path, monkeypatch):
     captured = {}
 
-    def fake_run_from_config(config, *, write_summary, episode_ids, policy):
+    def fake_run_from_config(config, *, write_summary, episode_ids, policy, on_episode_complete=None):
         captured["eval_parallel_envs"] = config["evaluation"]["eval_parallel_envs"]
         return [
             EpisodeMetrics(episode_id=i, episode_return=1.0, survival_steps=5) for i in episode_ids
@@ -144,10 +146,17 @@ def test_runner_threads_eval_parallel_envs_from_cfg(tmp_path, monkeypatch):
     assert captured["eval_parallel_envs"] == 8
 
 
-def test_runner_shards_episodes_across_ranks(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("shard_rank", "expected_episode_ids"),
+    [
+        (0, [0, 2, 4]),
+        (1, [1, 3]),
+    ],
+)
+def test_runner_shards_episodes_across_ranks(tmp_path, monkeypatch, shard_rank, expected_episode_ids):
     seen_ids: list[int] = []
 
-    def fake_run_from_config(config, *, write_summary, episode_ids, policy):
+    def fake_run_from_config(config, *, write_summary, episode_ids, policy, on_episode_complete=None):
         seen_ids.extend(episode_ids)
         return [
             EpisodeMetrics(episode_id=i, episode_return=1.0, survival_steps=5)
@@ -158,20 +167,26 @@ def test_runner_shards_episodes_across_ranks(tmp_path, monkeypatch):
     monkeypatch.setattr(runner_mod, "build_live_starvla_policy", lambda **kwargs: object())
 
     runner = LatencyBenchRlGamesEvalRunner(
-        cfg=_make_cfg(num_episodes=4, latencies=(0,)), output_dir=str(tmp_path)
+        cfg=_make_cfg(num_episodes=5, latencies=(0,)), output_dir=str(tmp_path)
     )
-    result = runner.run(model=object(), step=1, stage="mid_train", shard_rank=1, shard_count=2, save=False)
+    result = runner.run(
+        model=object(),
+        step=1,
+        stage="mid_train",
+        shard_rank=shard_rank,
+        shard_count=2,
+        save=False,
+    )
 
-    # rank 1 of 2 over episodes [0,1,2,3] -> [1,3]
-    assert sorted(seen_ids) == [1, 3]
-    assert result.per_latency["flappy/latency_0"]["episode_indices"] == [1, 3]
+    assert sorted(seen_ids) == expected_episode_ids
+    assert result.per_latency["flappy/latency_0"]["episode_indices"] == expected_episode_ids
 
 
 def test_runner_merge_results_combines_shards(tmp_path, monkeypatch):
     monkeypatch.setattr(
         runner_mod,
         "run_from_config",
-        lambda config, *, write_summary, episode_ids, policy: [
+        lambda config, *, write_summary, episode_ids, policy, on_episode_complete=None: [
             EpisodeMetrics(episode_id=i, episode_return=float(i), survival_steps=5) for i in episode_ids
         ],
     )
@@ -185,3 +200,141 @@ def test_runner_merge_results_combines_shards(tmp_path, monkeypatch):
     merged = runner.merge_results([shard0, shard1], step=1, stage="mid_train")
     assert merged.per_latency["flappy/latency_0"]["num_episodes"] == 4
     assert merged.per_latency["flappy/latency_0"]["episode_indices"] == [0, 1, 2, 3]
+
+
+def test_runner_prints_single_process_global_episode_progress(tmp_path, monkeypatch, capsys):
+    def fake_run_from_config(config, *, write_summary, episode_ids, policy, on_episode_complete=None):
+        metrics = [
+            EpisodeMetrics(episode_id=i, episode_return=1.0, survival_steps=5)
+            for i in episode_ids
+        ]
+        for metric in metrics:
+            on_episode_complete(metric)
+        return metrics
+
+    monkeypatch.setattr(runner_mod, "run_from_config", fake_run_from_config)
+    monkeypatch.setattr(runner_mod, "build_live_starvla_policy", lambda **kwargs: object())
+
+    runner = LatencyBenchRlGamesEvalRunner(
+        cfg=_make_cfg(num_episodes=2, latencies=(0, 2)), output_dir=str(tmp_path)
+    )
+    runner.run(model=object(), step=100, stage="mid_train", save=False)
+
+    captured = capsys.readouterr()
+    assert "[bench] mid_train step=100 episodes 1/4 done" in captured.err
+    assert "[bench] mid_train step=100 episodes 4/4 done" in captured.err
+
+
+class _FakeDist:
+    def is_available(self):
+        return True
+
+    def is_initialized(self):
+        return True
+
+    def barrier(self):
+        pass
+
+
+def test_runner_distributed_nonzero_rank_writes_progress_without_printing(tmp_path, monkeypatch, capsys):
+    def fake_run_from_config(config, *, write_summary, episode_ids, policy, on_episode_complete=None):
+        metrics = [
+            EpisodeMetrics(episode_id=i, episode_return=1.0, survival_steps=5)
+            for i in episode_ids
+        ]
+        for metric in metrics:
+            on_episode_complete(metric)
+        return metrics
+
+    monkeypatch.setattr(runner_mod, "dist", _FakeDist())
+    monkeypatch.setattr(runner_mod, "run_from_config", fake_run_from_config)
+    monkeypatch.setattr(runner_mod, "build_live_starvla_policy", lambda **kwargs: object())
+
+    runner = LatencyBenchRlGamesEvalRunner(
+        cfg=_make_cfg(num_episodes=4, latencies=(0,)), output_dir=str(tmp_path)
+    )
+    runner.run(
+        model=object(),
+        step=1,
+        stage="mid_train",
+        shard_rank=1,
+        shard_count=2,
+        save=False,
+    )
+
+    captured = capsys.readouterr()
+    assert "[bench]" not in captured.err
+    progress_path = tmp_path / "latency_bench_eval" / "mid_train" / "step_1" / "_progress" / "rank_1.json"
+    assert json.loads(progress_path.read_text(encoding="utf-8")) == {"completed": 2}
+
+
+class _FakeUninitializedDist:
+    def is_available(self):
+        return True
+
+    def is_initialized(self):
+        return False
+
+
+def test_runner_sharded_without_distributed_group_does_not_print_local_progress(tmp_path, monkeypatch, capsys):
+    def fake_run_from_config(config, *, write_summary, episode_ids, policy, on_episode_complete=None):
+        metrics = [
+            EpisodeMetrics(episode_id=i, episode_return=1.0, survival_steps=5)
+            for i in episode_ids
+        ]
+        for metric in metrics:
+            on_episode_complete(metric)
+        return metrics
+
+    monkeypatch.setattr(runner_mod, "dist", _FakeUninitializedDist())
+    monkeypatch.setattr(runner_mod, "run_from_config", fake_run_from_config)
+    monkeypatch.setattr(runner_mod, "build_live_starvla_policy", lambda **kwargs: object())
+
+    runner = LatencyBenchRlGamesEvalRunner(
+        cfg=_make_cfg(num_episodes=4, latencies=(0,)), output_dir=str(tmp_path)
+    )
+    runner.run(
+        model=object(),
+        step=1,
+        stage="mid_train",
+        shard_rank=1,
+        shard_count=2,
+        save=False,
+    )
+
+    captured = capsys.readouterr()
+    assert "[bench]" not in captured.err
+
+
+def test_runner_distributed_rank_zero_prints_global_episode_progress(tmp_path, monkeypatch, capsys):
+    def fake_run_from_config(config, *, write_summary, episode_ids, policy, on_episode_complete=None):
+        progress_dir = tmp_path / "latency_bench_eval" / "mid_train" / "step_1" / "_progress"
+        progress_dir.mkdir(parents=True, exist_ok=True)
+        (progress_dir / "rank_1.json").write_text(json.dumps({"completed": 2}), encoding="utf-8")
+        metrics = [
+            EpisodeMetrics(episode_id=i, episode_return=1.0, survival_steps=5)
+            for i in episode_ids
+        ]
+        for metric in metrics:
+            on_episode_complete(metric)
+        return metrics
+
+    monkeypatch.setattr(runner_mod, "dist", _FakeDist())
+    monkeypatch.setattr(runner_mod, "run_from_config", fake_run_from_config)
+    monkeypatch.setattr(runner_mod, "build_live_starvla_policy", lambda **kwargs: object())
+
+    runner = LatencyBenchRlGamesEvalRunner(
+        cfg=_make_cfg(num_episodes=4, latencies=(0,)), output_dir=str(tmp_path)
+    )
+    runner.run(
+        model=object(),
+        step=1,
+        stage="mid_train",
+        shard_rank=0,
+        shard_count=2,
+        save=False,
+    )
+
+    captured = capsys.readouterr()
+    assert "[bench] mid_train step=1 episodes 4/4 done" in captured.err
+    assert "[bench] mid_train step=1 episodes 2/4 done" not in captured.err

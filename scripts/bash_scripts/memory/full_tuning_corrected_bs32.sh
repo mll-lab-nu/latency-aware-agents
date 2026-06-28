@@ -41,8 +41,17 @@ bash "${REPO_ROOT}/starVLA/commands/memory/train_flappy_openvla_full_tuning_corr
 
 # --- upload checkpoints ---
 # checkpoint 落在 starVLA/results/Checkpoints/<run_id>，run_id=flappy_fix_latency_2_200ep
+RUN_DIR="${REPO_ROOT}/starVLA/results/Checkpoints/flappy_fix_latency_2_200ep_full_tuning_corrected_bs32"
+CHECKPOINT_DIR="${RUN_DIR}/checkpoints"
+compgen -G "${CHECKPOINT_DIR}/steps_*_model.safetensors" > /dev/null
+find "${CHECKPOINT_DIR}" -maxdepth 1 -type d -name "steps_*_state" -exec rm -rf {} +
+
 hf upload latency-sensitive-bench/memory \
-  "${REPO_ROOT}/starVLA/results/Checkpoints/flappy_fix_latency_2_200ep_full_tuning_corrected_bs32" \
+  "${RUN_DIR}" \
   ./flappy_fix_latency_2_200ep_full_tuning_corrected_bs32 \
   --exclude "wandb/**" \
+  --exclude "checkpoints/_initialization/**" \
+  --exclude "checkpoints/*_state/**" \
+  --exclude "**/optimizer.bin" \
+  --exclude "**/*optim_states.pt" \
   --repo-type model
