@@ -13,8 +13,9 @@ from scripts.sweeps.generate_flappy_factor_sweeps import (
     main as generate_flappy_factor_sweeps,
 )
 
+from helpers import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+
 OFFICIAL_SEEDS = tuple(range(10, 15))
 
 

@@ -5,9 +5,9 @@ import subprocess
 from pathlib import Path
 
 import yaml
+from helpers import REPO_ROOT
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_generate_config_script_uses_env_overrides_for_one_distribution(tmp_path):

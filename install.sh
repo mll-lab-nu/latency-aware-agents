@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TORCH_VERSION="2.10.0"
 LATENCY_BENCH_TORCH_PROFILE="${LATENCY_BENCH_TORCH_PROFILE:-auto}"
 MINICONDA_HOME="${HOME}/miniconda3"
 MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
@@ -28,12 +27,6 @@ detect_torch_profile() {
         return
     fi
 
-    if echo "${compute_caps}" | grep -qx "12.0"; then
-        echo "[install] detected GPU compute capability 12.0; selecting cu128" >&2
-        echo "cu128"
-        return
-    fi
-
     if echo "${compute_caps}" | awk -F. '$1 >= 10 {found=1} END {exit found ? 0 : 1}'; then
         echo "[install] detected GPU compute capability >= 10.0; selecting cu130" >&2
         echo "cu130"
@@ -54,6 +47,24 @@ resolve_torch_profile() {
             ;;
         *)
             echo "[install] Unknown LATENCY_BENCH_TORCH_PROFILE='$1'. Expected auto|cu126|cu128|cu130." >&2
+            return 1
+            ;;
+    esac
+}
+
+resolve_torch_specs() {
+    case "$1" in
+        cu130)
+            echo "torch==2.12.1+cu130 torchvision==0.27.1+cu130"
+            ;;
+        cu128)
+            echo "torch==2.10.0+cu128 torchvision==0.25.0+cu128"
+            ;;
+        cu126)
+            echo "torch==2.10.0+cu126 torchvision==0.25.0+cu126"
+            ;;
+        *)
+            echo "[install] Unknown resolved torch profile '$1'. Expected cu126|cu128|cu130." >&2
             return 1
             ;;
     esac
@@ -127,7 +138,7 @@ export STARVLA_TORCH_PROFILE="${SELECTED_TORCH_PROFILE}"
 # starVLA bootstrap (and its parallel env builds) inherit the choice without re-probing.
 export_mirror_env "${SELECTED_TORCH_PROFILE}"
 TORCH_INDEX_URL="${STARVLA_TORCH_INDEX_BASE}/${SELECTED_TORCH_PROFILE}"
-TORCH_SPEC="torch==${TORCH_VERSION}+${SELECTED_TORCH_PROFILE}"
+read -r -a TORCH_SPECS <<< "$(resolve_torch_specs "${SELECTED_TORCH_PROFILE}")"
 echo "[install] torch_profile=${SELECTED_TORCH_PROFILE} index_url=${TORCH_INDEX_URL}"
 
 # Fresh cloud instance bootstrap for the master branch.
@@ -161,7 +172,7 @@ export UV_CACHE_DIR="${UV_CACHE_DIR:-$(conda info --base)/.uv_cache}"
 unset UV_NO_CACHE UV_LINK_MODE
 python -m pip install --upgrade pip
 ensure_uv
-pip_install "${TORCH_SPEC}" --index-url "${TORCH_INDEX_URL}"
+pip_install "${TORCH_SPECS[@]}" --index-url "${TORCH_INDEX_URL}"
 python - <<'PY'
 import torch
 

@@ -6,9 +6,10 @@ import sys
 from pathlib import Path
 
 from latency_bench.utils.io import write_json
+from helpers import REPO_ROOT
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPO_ROOT
 SCRIPT = ROOT / "scripts" / "collect_eval_results.py"
 HEADER = [
     "game",

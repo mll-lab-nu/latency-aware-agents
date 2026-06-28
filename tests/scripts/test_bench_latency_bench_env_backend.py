@@ -4,9 +4,10 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+from helpers import REPO_ROOT
 
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "bench_latency_bench_env_backend.py"
+MODULE_PATH = REPO_ROOT / "scripts" / "bench_latency_bench_env_backend.py"
 SPEC = importlib.util.spec_from_file_location("bench_latency_bench_env_backend", MODULE_PATH)
 assert SPEC is not None
 bench = importlib.util.module_from_spec(SPEC)
