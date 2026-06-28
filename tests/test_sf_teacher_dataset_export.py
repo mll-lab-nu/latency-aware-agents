@@ -94,6 +94,56 @@ def _env_raw_rgb_frame_stack(value: int = 5, *, frames: int = 1, height: int = 2
     )
 
 
+def test_ghost_trail_image_builds_single_causal_composite():
+    from latency_bench.data.ghost_trail import build_ghost_trail_image
+
+    ghost = np.zeros((4, 4, 3), dtype=np.uint8)
+    ghost[1, 1] = [255, 0, 0]
+    current = np.full((4, 4, 3), 10, dtype=np.uint8)
+
+    def segment_red(frame):
+        return frame[..., 0] > 200
+
+    out = build_ghost_trail_image(
+        [ghost, current],
+        [0, 1],
+        segment_fn=segment_red,
+        gamma=1.3,
+        min_alpha=255,
+        scroll_px_per_step=0.0,
+    )
+
+    assert out[1, 1].tolist() == [255, 0, 0]
+    assert out[0, 0].tolist() == [10, 10, 10]
+
+
+def test_export_cli_accepts_flappy_ghost_trail_image_transform():
+    from scripts.rollout_data.export_sf_teacher_dataset import build_parser
+
+    args = build_parser().parse_args(
+        [
+            "--checkpoint-root",
+            "ckpt",
+            "--output-dir",
+            "out",
+            "--max-episodes",
+            "1",
+            "--max-steps-per-episode",
+            "10",
+            "--image-transform",
+            "flappy_ghost_trail",
+            "--ghost-trail-history-frames",
+            "5",
+            "--ghost-trail-gamma",
+            "1.3",
+        ]
+    )
+
+    assert args.image_transform == "flappy_ghost_trail"
+    assert args.ghost_trail_history_frames == 5
+    assert args.ghost_trail_gamma == 1.3
+
+
 def _read_shard_rows(output_dir: Path, split: str) -> list[dict]:
     from latency_bench.data.hf_parquet import iter_episode_rows
 

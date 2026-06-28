@@ -16,6 +16,7 @@ from latency_bench.data.hf_parquet import (
 from latency_bench.data.prompts import BASE_PROMPTS, TIMING_SUFFIX
 from latency_bench.data.action_layouts import action_spec_for_env
 from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1, FILTER_PRESET_NONE
+from latency_bench.data.ghost_trail import GhostTrailConfig
 from latency_bench.data.sf_teacher_config import load_rollout_training_config
 from latency_bench.data.sf_teacher_rollout import collect_teacher_dataset
 from latency_bench.utils.hf import resolve_token
@@ -104,6 +105,7 @@ def export_sample_factory_teacher_dataset(
     hf_config_name: str = "",
     rollout_seed_offset: int = 0,
     probe_only: bool = False,
+    image_transform_config: GhostTrailConfig | None = None,
 ) -> dict[str, Any]:
     """Collect and write a canonical Sample Factory teacher dataset.
 
@@ -128,6 +130,8 @@ def export_sample_factory_teacher_dataset(
         hf_private: Whether the uploaded repository should be private.
         hf_token: Explicit Hugging Face token.
         hf_max_shard_size: Hub upload shard size.
+        image_transform_config: Optional image transform applied during replay
+            before row filtering.
 
     Returns:
         Final metadata written to ``metadata.json``.
@@ -156,6 +160,7 @@ def export_sample_factory_teacher_dataset(
         filter_kwargs=filter_kwargs,
         rollout_seed_offset=int(rollout_seed_offset),
         probe_only=bool(probe_only),
+        image_transform_config=image_transform_config,
     )
     if probe_only:
         # Sharded-probe worker: probe_state.json holds this shard's accepted specs.
