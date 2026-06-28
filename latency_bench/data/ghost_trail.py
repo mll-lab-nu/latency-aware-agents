@@ -237,20 +237,36 @@ def build_flappy_ghost_trail_episode_frames(
     out: dict[int, np.ndarray] = {}
     for idx, step in enumerate(steps):
         start = max(0, idx - history_frames)
-        window_frames = frames[start : idx + 1]
-        window_steps = steps[start : idx + 1]
-        current = np.asarray(window_frames[-1], dtype=np.uint8)
-        occlusion = _make_occlusion_mask(current, float(config.ground_fraction))
-        out[int(step)] = build_ghost_trail_image(
-            window_frames,
-            window_steps,
-            segment_fn=lambda frame: _segment_flappy_bird(frame, ground_fraction=float(config.ground_fraction)),
-            gamma=float(config.gamma),
-            min_alpha=int(config.min_alpha),
-            scroll_px_per_step=float(config.scroll_px_per_step),
-            occlusion_mask=occlusion,
+        out[int(step)] = build_flappy_ghost_trail_window(
+            frames[start : idx + 1],
+            steps[start : idx + 1],
+            config=config,
         )
     return out
+
+
+def build_flappy_ghost_trail_window(
+    frames: Sequence[np.ndarray],
+    steps: Sequence[int],
+    *,
+    config: GhostTrailConfig,
+) -> np.ndarray:
+    """Build one live/eval Flappy ghost-trail image from a causal frame window."""
+    if len(frames) != len(steps):
+        raise ValueError("frames and steps must have the same length")
+    if not frames:
+        raise ValueError("frames must contain at least the current frame")
+    current = np.asarray(frames[-1], dtype=np.uint8)
+    occlusion = _make_occlusion_mask(current, float(config.ground_fraction))
+    return build_ghost_trail_image(
+        frames,
+        steps,
+        segment_fn=lambda frame: _segment_flappy_bird(frame, ground_fraction=float(config.ground_fraction)),
+        gamma=float(config.gamma),
+        min_alpha=int(config.min_alpha),
+        scroll_px_per_step=float(config.scroll_px_per_step),
+        occlusion_mask=occlusion,
+    )
 
 
 def build_episode_image_frames(
