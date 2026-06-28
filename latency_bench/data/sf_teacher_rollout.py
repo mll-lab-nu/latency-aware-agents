@@ -792,6 +792,7 @@ def _replay_accepted_specs(
                             reward=step_result.reward,
                             env_fps=env_fps,
                             obs_fps=obs_fps,
+                            image_transform=image_transform_config.normalized_transform(),
                         )
                         active_episode_rows[slot].append(row)
                     rnn_states[slot] = new_rnn_states[batch_idx]

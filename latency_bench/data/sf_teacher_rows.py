@@ -21,6 +21,7 @@ def teacher_dataset_row(
     reward: Any,
     env_fps: float,
     obs_fps: float,
+    image_transform: str = "raw_rgb",
 ) -> dict[str, Any]:
     """Build one canonical rollout row from a teacher decision.
 
@@ -34,6 +35,8 @@ def teacher_dataset_row(
         reward: Reward returned by the environment step.
         env_fps: Raw environment FPS.
         obs_fps: Observation decision FPS.
+        image_transform: Exported-image transform name used to render prompt
+            context for transformed observations.
 
     Returns:
         Canonical rollout row with environment-specific action fields.
@@ -54,6 +57,7 @@ def teacher_dataset_row(
             latency_ms=latency_ms,
             env_fps=env_fps,
             obs_fps=obs_fps,
+            image_transform=image_transform,
         ),
         "latency_raw_frames": latency_raw_frames,
         "latency_ms": latency_ms,
