@@ -23,10 +23,15 @@ training vs eval_core's cv2.INTER_AREA / BILINEAR).
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from pathlib import Path
+import shutil
+import sys
+import time
 from typing import Any
 
 import numpy as np
+from torch import distributed as dist
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.config import load_config
@@ -45,6 +50,93 @@ BASE_CONFIGS = {
     "demon_attack": REPO_ROOT / "configs" / "base" / "demon_attack.yaml",
     "deadly_corridor": REPO_ROOT / "configs" / "base" / "deadly_corridor.yaml",
 }
+
+
+class _EvalProgressReporter:
+    def __init__(
+        self,
+        *,
+        output_dir: str | Path,
+        stage: str,
+        step: int,
+        total_episode_runs: int,
+        shard_rank: int,
+        shard_count: int,
+    ) -> None:
+        self.stage = stage
+        self.step = int(step)
+        self.total_episode_runs = int(total_episode_runs)
+        self.shard_rank = int(shard_rank)
+        self.shard_count = int(shard_count)
+        self.local_completed = 0
+        self.last_printed = 0
+        self.distributed = (
+            self.shard_count > 1
+            and dist.is_available()
+            and dist.is_initialized()
+        )
+        self.enabled = self.shard_count == 1 or self.distributed
+        self.progress_dir = (
+            Path(output_dir) / "latency_bench_eval" / stage / f"step_{int(step)}" / "_progress"
+        )
+        if self.distributed and self.shard_rank == 0:
+            if self.progress_dir.exists():
+                shutil.rmtree(self.progress_dir)
+            self.progress_dir.mkdir(parents=True, exist_ok=True)
+            for rank in range(self.shard_count):
+                self._write_rank_progress(rank=rank, completed=0)
+        if self.distributed:
+            dist.barrier()
+
+    def on_episode_complete(self, _episode_metrics: Any) -> None:
+        self.local_completed += 1
+        if not self.enabled:
+            return
+        if not self.distributed:
+            self._print(self.local_completed)
+            return
+        self._write_rank_progress(rank=self.shard_rank, completed=self.local_completed)
+        if self.shard_rank == 0:
+            self._print_global_progress()
+
+    def finish(self) -> None:
+        if not self.distributed or self.shard_rank != 0:
+            return
+        while self.last_printed < self.total_episode_runs:
+            completed = self._global_completed()
+            if completed > self.last_printed:
+                self._print(completed)
+            if completed >= self.total_episode_runs:
+                return
+            time.sleep(1.0)
+
+    def _write_rank_progress(self, *, rank: int, completed: int) -> None:
+        self.progress_dir.mkdir(parents=True, exist_ok=True)
+        path = self.progress_dir / f"rank_{int(rank)}.json"
+        tmp_path = self.progress_dir / f"rank_{int(rank)}.json.tmp"
+        tmp_path.write_text(json.dumps({"completed": int(completed)}), encoding="utf-8")
+        tmp_path.replace(path)
+
+    def _global_completed(self) -> int:
+        completed = 0
+        for rank in range(self.shard_count):
+            path = self.progress_dir / f"rank_{rank}.json"
+            completed += int(json.loads(path.read_text(encoding="utf-8"))["completed"])
+        return completed
+
+    def _print_global_progress(self) -> None:
+        completed = self._global_completed()
+        if completed > self.last_printed:
+            self._print(completed)
+
+    def _print(self, completed: int) -> None:
+        self.last_printed = int(completed)
+        print(
+            f"[bench] {self.stage} step={self.step} "
+            f"episodes {int(completed)}/{self.total_episode_runs} done",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def build_latency_bench_config_for_rl_games(
@@ -199,6 +291,17 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
             if getattr(self._task_stage_cfg(task_name, stage), "enabled", True)
             for latency in self._get_latency_values(stage=stage, task=task_name)
         ]
+        progress = _EvalProgressReporter(
+            output_dir=self.output_dir,
+            stage=stage,
+            step=int(step),
+            total_episode_runs=sum(
+                self._num_episodes(stage=stage, task=task_name)
+                for task_name, _latency in rollout_plan
+            ),
+            shard_rank=int(shard_rank),
+            shard_count=max(1, int(shard_count)),
+        )
         for task_name, latency in rollout_plan:
             num_episodes = self._num_episodes(stage=stage, task=task_name)
             episode_indices = [
@@ -234,10 +337,12 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                 write_summary=False,
                 episode_ids=episode_indices,
                 policy=policy,
+                on_episode_complete=progress.on_episode_complete,
             )
             per_latency[f"{task_name}/latency_{latency}"] = self._fold_episode_metrics(
                 metrics_list, latency=int(latency), eval_seed=eval_seed
             )
+        progress.finish()
 
         aggregate = self._aggregate_result(
             per_latency=per_latency,
