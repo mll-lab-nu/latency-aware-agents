@@ -13,7 +13,7 @@ from latency_bench.data.hf_parquet import (
     image_metadata_from_shards,
     write_parquet_splits_from_shards,
 )
-from latency_bench.data.prompts import BASE_PROMPTS, TIMING_SUFFIX
+from latency_bench.data.prompts import BASE_PROMPTS, IMAGE_TRANSFORM_CONTEXTS, TIMING_SUFFIX
 from latency_bench.data.action_layouts import action_spec_for_env
 from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1, FILTER_PRESET_NONE
 from latency_bench.data.ghost_trail import GhostTrailConfig
@@ -180,6 +180,7 @@ def export_sample_factory_teacher_dataset(
         "env_name": config["env_name"],
         "prompt_source": "latency_bench.data.prompts",
         "base_prompt": BASE_PROMPTS[str(config["env_name"])],
+        "image_transform_prompt_contexts": IMAGE_TRANSFORM_CONTEXTS,
         "prompt_timing_suffix": TIMING_SUFFIX,
         "max_episodes": int(max_episodes),
         "max_steps_per_episode": int(max_steps_per_episode),
