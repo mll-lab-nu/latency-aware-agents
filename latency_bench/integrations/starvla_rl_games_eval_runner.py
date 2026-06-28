@@ -292,15 +292,22 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
 
     def _image_transform_config(self, stage: str, task: str | None = None) -> dict[str, Any] | None:
         env_eval = self.cfg.rl_games.env_eval
+        task_cfg = self._cross_task_cfg(task) if task is not None else None
         stage_cfg = self._task_stage_cfg(task, stage)
         image_transform = str(
-            _cfg_get(stage_cfg, "image_transform", _cfg_get(env_eval, "image_transform", "raw_rgb")) or "raw_rgb"
+            _cfg_get(
+                stage_cfg,
+                "image_transform",
+                _cfg_get(task_cfg, "image_transform", _cfg_get(env_eval, "image_transform", "raw_rgb")),
+            )
+            or "raw_rgb"
         ).strip().lower()
         if image_transform in {"", "none", "raw", "raw_rgb"}:
             return None
 
         ghost_cfg = {
             **_plain_mapping(_cfg_get(env_eval, "ghost_trail", None)),
+            **_plain_mapping(_cfg_get(task_cfg, "ghost_trail", None)),
             **_plain_mapping(_cfg_get(stage_cfg, "ghost_trail", None)),
         }
         return {
