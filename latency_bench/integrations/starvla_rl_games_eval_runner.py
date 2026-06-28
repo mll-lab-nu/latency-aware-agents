@@ -29,6 +29,7 @@ import shutil
 import sys
 import time
 from typing import Any
+from collections.abc import Mapping
 
 import numpy as np
 from torch import distributed as dist
@@ -50,6 +51,31 @@ BASE_CONFIGS = {
     "demon_attack": REPO_ROOT / "configs" / "base" / "demon_attack.yaml",
     "deadly_corridor": REPO_ROOT / "configs" / "base" / "deadly_corridor.yaml",
 }
+
+
+def _plain_mapping(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    try:
+        from omegaconf import OmegaConf
+
+        if OmegaConf.is_config(value):
+            converted = OmegaConf.to_container(value, resolve=True)
+            return dict(converted or {}) if isinstance(converted, Mapping) else {}
+    except Exception:
+        pass
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _cfg_get(container: Any, key: str, default_value: Any = None) -> Any:
+    if container is None:
+        return default_value
+    if isinstance(container, Mapping):
+        return container.get(key, default_value)
+    try:
+        return container[key]
+    except (AttributeError, KeyError, TypeError):
+        return getattr(container, key, default_value)
 
 
 def _starvla_latency_label_to_ms(config: dict[str, Any], latency_steps: int) -> float:
@@ -165,6 +191,7 @@ def build_latency_bench_config_for_rl_games(
     eval_parallel_envs: int,
     unnorm_key: str | None,
     latency_prompt_map_path: str | None,
+    image_transform_config: dict[str, Any] | None,
     actions: list[Any] | None,
     output_dir: str | Path,
 ) -> dict[str, Any]:
@@ -188,6 +215,15 @@ def build_latency_bench_config_for_rl_games(
     config.setdefault("backend", {})["run_mode"] = "eval"
 
     config["env"] = {**config["env"], "obs_resize": [int(image_size), int(image_size)]}
+    transform_cfg = dict(image_transform_config or {})
+    image_transform = str(transform_cfg.get("image_transform", "raw_rgb") or "raw_rgb").strip().lower()
+    if image_transform not in {"", "none", "raw", "raw_rgb"}:
+        if image_transform != "flappy_ghost_trail":
+            raise ValueError(f"Unsupported rl_games.env_eval.image_transform={image_transform!r}")
+        if env_name != "flappy":
+            raise ValueError("image_transform=flappy_ghost_trail is only supported for env=flappy")
+        history_frames = max(0, int(transform_cfg.get("history_frames", 5)))
+        config["env"]["frame_stack"] = max(int(config["env"].get("frame_stack", 1) or 1), history_frames + 1)
 
     # Single fixed latency for this rollout. The incoming StarVLA label is in
     # observation/policy steps, not raw environment frames.
@@ -204,6 +240,15 @@ def build_latency_bench_config_for_rl_games(
     if latency_prompt_map_path:
         policy["latency_prompt_map_path"] = str(latency_prompt_map_path)
         policy["latency_prompt_key"] = int(latency_steps)
+    if image_transform not in {"", "none", "raw", "raw_rgb"}:
+        policy["image_transform_config"] = {
+            "image_transform": image_transform,
+            "history_frames": int(transform_cfg.get("history_frames", 5)),
+            "gamma": float(transform_cfg.get("gamma", 1.3)),
+            "min_alpha": int(transform_cfg.get("min_alpha", 35)),
+            "ground_fraction": float(transform_cfg.get("ground_fraction", 0.22)),
+            "scroll_px_per_step": float(transform_cfg.get("scroll_px_per_step", 4.0)),
+        }
     if actions:
         policy["actions"] = list(actions)
     config["policy"] = policy
@@ -244,6 +289,28 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         if stage_cfg is not None and getattr(stage_cfg, "eval_parallel_envs", None) is not None:
             return max(1, int(stage_cfg.eval_parallel_envs))
         return max(1, int(getattr(self.cfg.rl_games.env_eval, "eval_parallel_envs", 1) or 1))
+
+    def _image_transform_config(self, stage: str, task: str | None = None) -> dict[str, Any] | None:
+        env_eval = self.cfg.rl_games.env_eval
+        stage_cfg = self._task_stage_cfg(task, stage)
+        image_transform = str(
+            _cfg_get(stage_cfg, "image_transform", _cfg_get(env_eval, "image_transform", "raw_rgb")) or "raw_rgb"
+        ).strip().lower()
+        if image_transform in {"", "none", "raw", "raw_rgb"}:
+            return None
+
+        ghost_cfg = {
+            **_plain_mapping(_cfg_get(env_eval, "ghost_trail", None)),
+            **_plain_mapping(_cfg_get(stage_cfg, "ghost_trail", None)),
+        }
+        return {
+            "image_transform": image_transform,
+            "history_frames": int(ghost_cfg.get("history_frames", 5)),
+            "gamma": float(ghost_cfg.get("gamma", 1.3)),
+            "min_alpha": int(ghost_cfg.get("min_alpha", 35)),
+            "ground_fraction": float(ghost_cfg.get("ground_fraction", 0.22)),
+            "scroll_px_per_step": float(ghost_cfg.get("scroll_px_per_step", 4.0)),
+        }
 
     def _model_cfg_from_training_cfg(self) -> dict[str, Any]:
         from omegaconf import OmegaConf
@@ -339,6 +406,7 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                 eval_parallel_envs=self._eval_parallel_envs(stage=stage, task=task_name),
                 unnorm_key=getattr(self.cfg.rl_games.env_eval, "unnorm_key", None),
                 latency_prompt_map_path=self._prompt_map_path(task_name),
+                image_transform_config=self._image_transform_config(stage=stage, task=task_name),
                 actions=self._base_actions(task_name),
                 output_dir=output_dir,
             )

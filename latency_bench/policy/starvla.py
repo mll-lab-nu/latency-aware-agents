@@ -13,6 +13,7 @@ from PIL import Image
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput
+from latency_bench.data.ghost_trail import GhostTrailConfig, build_flappy_ghost_trail_window
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.factory import register_policy
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
@@ -79,6 +80,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         latency_prompt_map: dict[str, Any] | None = None,
         latency_prompt_key: int | str | None = None,
         obs_resize: tuple[int, int] | None = None,
+        image_transform_config: Mapping[str, Any] | None = None,
     ) -> None:
         self._wrapper = wrapper
         self._obs_resize = tuple(obs_resize) if obs_resize else None
@@ -92,6 +94,10 @@ class StarVlaPolicyRunner(PolicyRunner):
         }
         self._latency_prompt_map = latency_prompt_map
         self._latency_prompt_key = latency_prompt_key
+        self._image_transform_config = dict(image_transform_config or {"image_transform": "raw_rgb"})
+        self._image_transform = str(
+            self._image_transform_config.get("image_transform", "raw_rgb") or "raw_rgb"
+        ).strip().lower()
         model_cfg = _normalized_model_cfg_from_wrapper(wrapper)
         self._include_state = _include_state_from_model_cfg(model_cfg)
         self._state_dim = _state_dim_from_model_cfg(model_cfg) if self._include_state else None
@@ -158,13 +164,17 @@ class StarVlaPolicyRunner(PolicyRunner):
     def _build_example(self, observation: Observation) -> dict[str, Any]:
         frame_source = observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
         frames = observation_data_to_hwc_uint8_frames(frame_source)  # oldest .. newest
+        transformed = self._transformed_frame(frames=frames, observation=observation)
 
-        # Select the temporal observation window to match training (_pack_sample).
-        if self._image_mode == "single":
-            frames = frames[-1:]
+        if transformed is not None:
+            frames = [transformed]
         else:
-            n = min(self._num_obs_frames, len(frames))
-            frames = frames[-n:]
+            # Select the temporal observation window to match training (_pack_sample).
+            if self._image_mode == "single":
+                frames = frames[-1:]
+            else:
+                n = min(self._num_obs_frames, len(frames))
+                frames = frames[-n:]
 
         prompt = resolve_starvla_prompt(
             env_name=self._env_name,
@@ -174,6 +184,8 @@ class StarVlaPolicyRunner(PolicyRunner):
         )
 
         if self._image_mode == "stitch":
+            if transformed is not None:
+                raise ValueError("image_transform is not compatible with image_mode=stitch")
             # Tile the window into one image; matches _pack_sample's stitch branch
             # (raw frames passed to stitch_frames, which resizes each cell to 224).
             images = [_get_stitch_frames()(frames, grid=self._stitch_grid, size=(224, 224))]
@@ -200,6 +212,35 @@ class StarVlaPolicyRunner(PolicyRunner):
             example["state"] = np.zeros((1, self._state_dim), dtype=np.float32)
         return example
 
+    def _transformed_frame(
+        self,
+        *,
+        frames: Sequence[npt.NDArray[np.uint8]],
+        observation: Observation,
+    ) -> npt.NDArray[np.uint8] | None:
+        if self._image_transform in {"", "none", "raw", "raw_rgb"}:
+            return None
+        if self._image_transform != "flappy_ghost_trail":
+            raise ValueError(f"Unsupported StarVLA image_transform={self._image_transform!r}")
+        if self._env_name != "flappy":
+            raise ValueError("image_transform=flappy_ghost_trail is only supported for env_name=flappy")
+
+        config = GhostTrailConfig(
+            image_transform=self._image_transform,
+            history_frames=int(self._image_transform_config.get("history_frames", 5)),
+            gamma=float(self._image_transform_config.get("gamma", 1.3)),
+            min_alpha=int(self._image_transform_config.get("min_alpha", 35)),
+            ground_fraction=float(self._image_transform_config.get("ground_fraction", 0.22)),
+            scroll_px_per_step=float(self._image_transform_config.get("scroll_px_per_step", 4.0)),
+        )
+        max_frames = max(1, int(config.history_frames) + 1)
+        valid_count = min(len(frames), max(1, int(observation.env_step) + 1), max_frames)
+        window = [np.asarray(frame, dtype=np.uint8) for frame in frames[-valid_count:]]
+        current_step = int(observation.env_step)
+        start_step = current_step - valid_count + 1
+        steps = list(range(start_step, current_step + 1))
+        return build_flappy_ghost_trail_window(window, steps, config=config)
+
     def _policy_output(
         self,
         *,
@@ -223,6 +264,7 @@ class StarVlaPolicyRunner(PolicyRunner):
             "device": self._device,
             "prompt_sha256": sha256_text(example["lang"]),
             "input_frame_count": len(example["image"]),
+            "image_transform": self._image_transform,
             "action_output_type": action_output_type,
             "action_payload": to_jsonable_action_payload(payload),
             "kv_memory_enabled": self._kv_memory_enabled,
@@ -605,6 +647,7 @@ def _build_starvla_policy(
         else None
     )
     latency_prompt_key = policy_cfg.get("latency_prompt_key")
+    image_transform_config = policy_cfg.get("image_transform_config")
     return StarVlaPolicyRunner(
         wrapper=wrapper,
         checkpoint_path=policy_cfg["checkpoint_path"],
@@ -616,6 +659,7 @@ def _build_starvla_policy(
         latency_prompt_map=latency_prompt_map,
         latency_prompt_key=latency_prompt_key,
         obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
+        image_transform_config=image_transform_config,
     )
 
 
@@ -644,6 +688,7 @@ def build_live_starvla_policy(
         else None
     )
     latency_prompt_key = policy_cfg.get("latency_prompt_key")
+    image_transform_config = policy_cfg.get("image_transform_config")
     return StarVlaPolicyRunner(
         wrapper=wrapper,
         checkpoint_path=policy_cfg.get("checkpoint_path", ""),
@@ -655,6 +700,7 @@ def build_live_starvla_policy(
         latency_prompt_map=latency_prompt_map,
         latency_prompt_key=latency_prompt_key,
         obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
+        image_transform_config=image_transform_config,
     )
 
 
