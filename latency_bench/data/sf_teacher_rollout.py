@@ -22,6 +22,7 @@ from latency_bench.data.hf_parquet import (
     episode_row_split_stats,
     write_episode_row_shard,
 )
+from latency_bench.data.ghost_trail import GhostTrailConfig, build_episode_image_frames
 from latency_bench.data.rollout_image_io import RolloutImageWriter, frame_from_env_raw_rgb_info
 from latency_bench.data.rollout_schema import SCHEMA_VERSION
 from latency_bench.data.sf_teacher_rows import teacher_dataset_row
@@ -663,6 +664,7 @@ def _replay_accepted_specs(
     image_writer_workers: int,
     row_buffer_size: int,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
+    image_transform_config: GhostTrailConfig | None = None,
 ) -> list[int] | None:
     """Replay accepted specs with raw RGB export and write episode shards.
 
@@ -680,9 +682,12 @@ def _replay_accepted_specs(
         image_writer_workers: Number of async image writer threads.
         row_buffer_size: Pending image write threshold.
         filter_preset: Filter preset name for train row density control.
+        image_transform_config: Optional causal image transform applied before
+            row filtering. Defaults to raw RGB.
     Returns:
         First observed image resolution, or ``None`` when no spec is replayed.
     """
+    image_transform_config = image_transform_config or GhostTrailConfig()
     specs_to_replay = [
         spec for spec in accepted_specs if int(spec["episode_idx"]) not in completed_episode_indices
     ]
@@ -806,10 +811,12 @@ def _replay_accepted_specs(
                             )
                         else:
                             shard_rows = [dict(row) for row in final_rows]
-                        frames_by_decision_step = {
-                            int(row["decision_step"]): frame
-                            for row, frame in zip(final_rows, active_episode_frames[slot])
-                        }
+                        frames_by_decision_step = build_episode_image_frames(
+                            env_name=env_name,
+                            rows=final_rows,
+                            frames=active_episode_frames[slot],
+                            config=image_transform_config,
+                        )
                         shard_rows = _write_filtered_episode_images(
                             image_writer,
                             shard_rows,
@@ -920,6 +927,7 @@ def collect_teacher_dataset(
     filter_kwargs: dict[str, Any] | None = None,
     rollout_seed_offset: int = 0,
     probe_only: bool = False,
+    image_transform_config: GhostTrailConfig | None = None,
 ) -> dict[str, Any]:
     """Collect a Sample Factory teacher dataset from a checkpoint descriptor.
 
@@ -938,10 +946,13 @@ def collect_teacher_dataset(
         row_buffer_size: Pending image write threshold.
         filter_preset: Filter preset name (``"none"`` or ``"clean_v1"``).
         filter_kwargs: Temporary exporter experiment arguments retained at the public boundary.
+        image_transform_config: Optional causal image transform applied during
+            replay before row filtering.
     Returns:
         Rollout metadata.
     """
     env_name = str(config["env_name"])
+    image_transform_config = image_transform_config or GhostTrailConfig()
     completed_episode_indices = completed_episode_indices_from_shards(output_dir)
     probe_state = _load_probe_state(
         output_dir,
@@ -1018,6 +1029,7 @@ def collect_teacher_dataset(
             image_writer_workers=int(image_writer_workers),
             row_buffer_size=int(row_buffer_size),
             filter_preset=filter_preset,
+            image_transform_config=image_transform_config,
         )
 
     action_spec = action_spec_for_env(env_name)
@@ -1045,7 +1057,10 @@ def collect_teacher_dataset(
         "env_fps": env_fps,
         "obs_fps": obs_fps,
         "obs_stride_raw_frames": int(env_fps / obs_fps),
-        "image_source": "env_raw_rgb",
+        "image_source": "env_raw_rgb"
+        if image_transform_config.normalized_transform() == "raw_rgb"
+        else f"env_raw_rgb_{image_transform_config.normalized_transform()}",
+        "image_transform": image_transform_config.metadata(),
         "image_resolution": image_resolution,
         "replay_num_envs": int(replay_num_envs),
         "train_episodes": split_stats["train_episodes"],
