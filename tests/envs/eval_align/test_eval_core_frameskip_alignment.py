@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from helpers import REPO_ROOT
 
 
 SEED = 12345
@@ -138,6 +139,6 @@ def _register_ale(gym) -> None:
 
 
 def _ensure_starvla_on_path() -> None:
-    starvla_root = Path(__file__).resolve().parents[2] / "starVLA"
+    starvla_root = REPO_ROOT / "starVLA"
     if str(starvla_root) not in sys.path:
         sys.path.insert(0, str(starvla_root))

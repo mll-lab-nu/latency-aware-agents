@@ -6,9 +6,9 @@ import sys
 from pathlib import Path
 
 import pytest
+from helpers import REPO_ROOT
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _write_executable(path: Path, text: str) -> None:
@@ -256,7 +256,7 @@ exit 1
 set -euo pipefail
 if [[ "${1:-}" == "-" ]]; then
   cat >/dev/null
-  printf '[install] torch=2.10.0 cuda=13.0\\n'
+  printf '[install] torch=2.12.1 cuda=13.0\\n'
   exit 0
 fi
 printf 'python %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
@@ -326,10 +326,36 @@ def test_install_script_selects_cu130_for_compute_cap_10_gpu(tmp_path):
     assert "selecting cu130" in result.stderr
     calls = calls_path.read_text(encoding="utf-8")
     assert "conda create -n latency -c conda-forge --override-channels python=3.10 -y" in calls
-    assert "python -m pip install torch==2.10.0+cu130 --index-url https://download.pytorch.org/whl/cu130" in calls
+    assert (
+        "python -m pip install torch==2.12.1+cu130 torchvision==0.27.1+cu130 "
+        "--index-url https://download.pytorch.org/whl/cu130"
+    ) in calls
     assert "python -m pip install -r requirements.txt" in calls
     assert "bash scripts/bash_scripts/build_cuda_extensions.sh" in calls
     assert "conda install -y -c conda-forge --override-channels go" not in calls
+
+
+def test_install_script_selects_cu130_for_compute_cap_12_gpu(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="12.0\n")
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "selecting cu130" in result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert (
+        "python -m pip install torch==2.12.1+cu130 torchvision==0.27.1+cu130 "
+        "--index-url https://download.pytorch.org/whl/cu130"
+    ) in calls
+    assert "torchaudio" not in calls
 
 
 def test_install_script_allows_torch_profile_override(tmp_path):
@@ -349,7 +375,10 @@ def test_install_script_allows_torch_profile_override(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "torch_profile=cu128" in result.stdout
     calls = calls_path.read_text(encoding="utf-8")
-    assert "python -m pip install torch==2.10.0+cu128 --index-url https://download.pytorch.org/whl/cu128" in calls
+    assert (
+        "python -m pip install torch==2.10.0+cu128 torchvision==0.25.0+cu128 "
+        "--index-url https://download.pytorch.org/whl/cu128"
+    ) in calls
 
 
 def _run_mirrors_snippet(snippet: str, env_extra: dict[str, str]) -> str:
@@ -646,6 +675,52 @@ exit 0
         )
         assert result.returncode == 0, result.stderr
         assert expected_wheel in fake_log.read_text(encoding="utf-8")
+
+
+def test_starvla_torch_installer_cu130_uses_torchvision_without_torchaudio(tmp_path):
+    script_path = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "torch.sh"
+    fake_python = tmp_path / "python"
+    fake_log = tmp_path / "python.log"
+    fake_python.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "-" ]]; then
+  cat >/dev/null
+  printf '[install/torch] torch=2.12.1+cu130 cuda=13.0\\n'
+  exit 0
+fi
+printf '%s\\n' "$*" >> "${PYTHON_FAKE_LOG}"
+exit 0
+""",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    env_path = os.pathsep.join(
+        p
+        for p in os.environ.get("PATH", "").split(os.pathsep)
+        if not (p and os.access(os.path.join(p, "uv"), os.X_OK))
+    )
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT / "starVLA",
+        env={
+            **os.environ,
+            "PATH": env_path,
+            "PYTHON_BIN": str(fake_python),
+            "PYTHON_FAKE_LOG": str(fake_log),
+            "STARVLA_TORCH_PROFILE": "cu130",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    log = fake_log.read_text(encoding="utf-8")
+    assert "torch==2.12.1+cu130 torchvision==0.27.1+cu130" in log
+    assert "--index-url https://download.pytorch.org/whl/cu130" in log
+    assert "torchaudio" not in log
 
 
 def test_starvla_install_stack_installs_eval_extra_requirements_after_env_deps(tmp_path):

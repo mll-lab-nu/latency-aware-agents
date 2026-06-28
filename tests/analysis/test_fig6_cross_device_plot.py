@@ -4,10 +4,11 @@ import importlib.util
 from pathlib import Path
 
 import numpy as np
+from helpers import REPO_ROOT
 
 
 RUN_PATH = (
-    Path(__file__).resolve().parents[1]
+    REPO_ROOT
     / "paper"
     / "latency-sensitive-vla"
     / "figures"
