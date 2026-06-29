@@ -93,6 +93,23 @@ def _starvla_latency_label_to_ms(config: dict[str, Any], latency_steps: int) -> 
     return int(latency_steps) * 1000.0 / obs_fps
 
 
+def _apply_starvla_frame_stack_from_model_cfg(
+    config: dict[str, Any],
+    *,
+    model_cfg: Mapping[str, Any],
+    image_transform: str,
+) -> None:
+    if image_transform not in {"", "none", "raw", "raw_rgb"}:
+        return
+    framework_cfg = model_cfg["framework"]
+    if framework_cfg["kv_memory"]["enabled"]:
+        return
+    vla_data = model_cfg["datasets"]["vla_data"]
+    if vla_data["image_mode"] == "single":
+        return
+    config["env"]["frame_stack"] = max(config["env"]["frame_stack"], vla_data["num_obs_frames"])
+
+
 class _EvalProgressReporter:
     def __init__(
         self,
@@ -183,6 +200,7 @@ class _EvalProgressReporter:
 def build_latency_bench_config_for_rl_games(
     *,
     env_name: str,
+    model_cfg: Mapping[str, Any],
     seed: int,
     image_size: int,
     num_episodes: int,
@@ -227,6 +245,7 @@ def build_latency_bench_config_for_rl_games(
             raise ValueError("image_transform=flappy_ghost_trail is only supported for env=flappy")
         history_frames = max(0, int(transform_cfg.get("history_frames", 5)))
         config["env"]["frame_stack"] = max(int(config["env"].get("frame_stack", 1) or 1), history_frames + 1)
+    _apply_starvla_frame_stack_from_model_cfg(config, model_cfg=model_cfg, image_transform=image_transform)
 
     # Single fixed latency for this rollout. The incoming StarVLA label is in
     # observation/policy steps, not raw environment frames.
@@ -456,6 +475,7 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
             output_dir = Path(self.output_dir) / "latency_bench_eval" / stage / f"step_{int(step)}" / task_name / f"latency_{int(latency)}"
             lb_config = build_latency_bench_config_for_rl_games(
                 env_name=task_name,
+                model_cfg=model_cfg,
                 seed=eval_seed,
                 image_size=image_size,
                 num_episodes=num_episodes,

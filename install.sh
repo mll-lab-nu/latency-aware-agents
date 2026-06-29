@@ -131,6 +131,21 @@ persist_conda_shell_init() {
     fi
 }
 
+conda_env_exists() {
+    local env_name="$1"
+    conda env list | awk -v name="${env_name}" '$1 == name {found=1} END {exit found ? 0 : 1}'
+}
+
+ensure_latency_env() {
+    if conda_env_exists latency; then
+        echo "[install] reusing existing conda env: latency" >&2
+    else
+        conda create -n latency -c conda-forge --override-channels python=3.10 -y
+    fi
+
+    conda activate latency
+}
+
 SELECTED_TORCH_PROFILE="$(resolve_torch_profile "${LATENCY_BENCH_TORCH_PROFILE}")"
 export STARVLA_TORCH_PROFILE="${SELECTED_TORCH_PROFILE}"
 # Speed-test mirrors once and route torch + pypi through the fastest provider. Exports
@@ -160,12 +175,15 @@ persist_conda_shell_init
 
 git submodule update --init --recursive
 
-conda create -n latency -c conda-forge --override-channels python=3.10 -y
-
-conda activate latency
+ensure_latency_env
 # Keep uv's cache on the same filesystem as the conda envs so packages are
 # hardlinked into each env (download/disk dedup) instead of silently copied.
 export UV_CACHE_DIR="${UV_CACHE_DIR:-$(conda info --base)/.uv_cache}"
+# Vast/CDN package downloads can stall long enough to exceed uv's default 30s
+# HTTP timeout, especially for NVIDIA CUDA wheels.
+export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}"
+export UV_HTTP_CONNECT_TIMEOUT="${UV_HTTP_CONNECT_TIMEOUT:-30}"
+export UV_HTTP_RETRIES="${UV_HTTP_RETRIES:-10}"
 # Some cloud images (e.g. vast.ai) export UV_NO_CACHE=1 (disables uv's wheel cache, so
 # every env re-downloads the identical multi-GB torch/CUDA stack) and UV_LINK_MODE=copy
 # (defeats the cache->env hardlink dedup). Clear both to restore download/disk dedup.
