@@ -153,6 +153,20 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
 
 @register_env_adapter("deadly_corridor")
 def _build_deadly_corridor_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
+    # StarVLA evals with a multibinary head need the gymnasium MultiBinary env
+    # (matching eval_core) so the model can fire arbitrary button subsets. The
+    # sample_factory factorised env can only emit one button per category and is
+    # kept for teacher (sample_factory) eval/training. Scoped to StarVLA only.
+    action_layout = str(config.get("policy", {}).get("action_layout", "") or "").strip().lower()
+    if _uses_raw_rgb_vla_policy(config) and action_layout == "multibinary_7":
+        from latency_bench.envs.deadly_corridor import DeadlyCorridorVlaEnvAdapter
+
+        return DeadlyCorridorVlaEnvAdapter(
+            config=config,
+            noop_action=None,  # adapter derives an all-zeros multibinary no-op
+            export_env_raw_rgb_frames=_exports_raw_rgb_frames(config),
+        )
+
     from latency_bench.envs.deadly_corridor import DeadlyCorridorEnvAdapter
 
     return DeadlyCorridorEnvAdapter(

@@ -287,4 +287,11 @@ def build_episode_image_frames(
         if str(env_name) != "flappy":
             raise ValueError("image_transform=flappy_ghost_trail is only supported for env_name=flappy")
         return build_flappy_ghost_trail_episode_frames(frames, steps, config=config)
+    if transform == "demon_attack_ghost_trail":
+        if str(env_name) != "demon_attack":
+            raise ValueError("image_transform=demon_attack_ghost_trail is only supported for env_name=demon_attack")
+        # Lazy import: only pull in the cv2-based tracker when this transform is used.
+        from latency_bench.data.ghost_trail_demon import build_demon_attack_ghost_trail_episode_frames
+
+        return build_demon_attack_ghost_trail_episode_frames(frames, steps, config=config)
     raise ValueError(f"Unsupported image_transform={config.image_transform!r}")

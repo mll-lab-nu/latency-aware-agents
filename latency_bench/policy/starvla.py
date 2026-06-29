@@ -79,6 +79,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         action_refs: Sequence[Any],
         latency_prompt_map: dict[str, Any] | None = None,
         latency_prompt_key: int | str | None = None,
+        prompt_mode: str | None = None,
         obs_resize: tuple[int, int] | None = None,
         image_transform_config: Mapping[str, Any] | None = None,
     ) -> None:
@@ -94,6 +95,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         }
         self._latency_prompt_map = latency_prompt_map
         self._latency_prompt_key = latency_prompt_key
+        self._prompt_mode = str(prompt_mode or "default").strip().lower()
         self._image_transform_config = dict(image_transform_config or {"image_transform": "raw_rgb"})
         self._image_transform = str(
             self._image_transform_config.get("image_transform", "raw_rgb") or "raw_rgb"
@@ -181,6 +183,7 @@ class StarVlaPolicyRunner(PolicyRunner):
             observation_metadata=observation.metadata,
             latency_prompt_map=self._latency_prompt_map,
             latency_prompt_key=self._latency_prompt_key,
+            prompt_mode=self._prompt_mode,
         )
 
         if self._image_mode == "stitch":
@@ -255,6 +258,7 @@ class StarVlaPolicyRunner(PolicyRunner):
             payload=payload,
             env_name=self._env_name,
             action_by_raw_id=self._action_by_raw_id,
+            action_output_type=action_output_type,
         )
         metadata = {
             "policy_type": "starvla",
@@ -335,15 +339,52 @@ def decode_starvla_action(
     return indexed_action_from_vector(vector, action_by_raw_id)
 
 
+# Fixed semantic button order the StarVLA multibinary head is trained against.
+# Mirrors starVLA.training.rl_games.eval_core._semantic_to_runtime_multibinary;
+# the env adapter re-orders this to the live ViZDoom button layout.
+DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER = (
+    "MOVE_FORWARD",
+    "MOVE_BACKWARD",
+    "MOVE_LEFT",
+    "MOVE_RIGHT",
+    "TURN_LEFT",
+    "TURN_RIGHT",
+    "ATTACK",
+)
+
+
 def action_from_starvla_payload(
     *,
     payload: npt.NDArray[Any],
     env_name: str,
     action_by_raw_id: Mapping[int, Action],
+    action_output_type: str = "",
 ) -> tuple[Action, dict[str, Any]]:
     if str(env_name) == "demon_attack":
         return demon_attack_action_from_id(int(np.asarray(payload).reshape(-1)[0]))
     if str(env_name) == "deadly_corridor":
+        # Multibinary heads emit an already-thresholded 7-dim button vector in
+        # fixed semantic order; the env adapter re-orders it to the live ViZDoom
+        # button layout. Keep it as-is rather than reinterpreting it as a
+        # [turn, move, strafe, attack] categorical tuple.
+        if str(action_output_type) == "rl_games_deadly_corridor_multibinary":
+            buttons = [int(item) for item in np.asarray(payload).reshape(-1).tolist()]
+            active = [
+                DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER[idx]
+                for idx, pressed in enumerate(buttons)
+                if idx < len(DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER) and pressed
+            ]
+            action_name = "+".join(active) if active else "NOOP"
+            return Action(
+                value=buttons,
+                name=action_name,
+                is_noop=not any(buttons),
+                is_oneshot=False,
+            ), {
+                "decoded_multibinary_buttons": buttons,
+                "action_label": action_name,
+                "action_layout": "deadly_corridor_multibinary_7",
+            }
         return deadly_corridor_action_from_tuple(
             action_value=[int(item) for item in np.asarray(payload).reshape(-1).tolist()],
             metadata={"action_layout": "deadly_corridor_tuple"},
@@ -588,11 +629,27 @@ class LiveStarVlaWrapper:
     built because rl_games decoding ignores un-normalization stats.
     """
 
-    def __init__(self, *, framework: Any, model_cfg: dict[str, Any], env_name: str) -> None:
+    def __init__(
+        self,
+        *,
+        framework: Any,
+        model_cfg: dict[str, Any],
+        env_name: str,
+        action_layout: str = "",
+        multibinary_threshold: float = 0.0,
+    ) -> None:
         self._framework = framework
         self._model_cfg = model_cfg
         self._rl_games_env_name = str(env_name)
         self._decode_rl_games_actions = _load_decode_rl_games_actions()
+        self._action_layout = str(action_layout or "").strip().lower()
+        self._multibinary_threshold = float(multibinary_threshold)
+
+    def _uses_deadly_multibinary(self) -> bool:
+        return (
+            self._rl_games_env_name == "deadly_corridor"
+            and self._action_layout == "multibinary_7"
+        )
 
     def reset_memory(self, slot_id: int | None = None) -> None:
         reset = getattr(self._framework, "reset_memory", None)
@@ -611,6 +668,21 @@ class LiveStarVlaWrapper:
         out = self._framework.predict_action(examples=examples, **kwargs)
         normalized = np.asarray(out["normalized_actions"])  # (B, T, D)
         with _profiler_stage(profiler, "starvla_wrapper_rl_games_decode_ms"):
+            if self._uses_deadly_multibinary():
+                # Independent per-button thresholding (matches eval_core), instead
+                # of the shared argmax semantic_7 decode which can only ever fire a
+                # single button. The result is a 7-dim multibinary vector in fixed
+                # semantic order; DeadlyCorridorVlaEnvAdapter re-orders it to the
+                # live ViZDoom button layout before stepping.
+                buttons = (
+                    np.asarray(normalized, dtype=np.float32)[..., :7]
+                    >= self._multibinary_threshold
+                ).astype(np.int64)
+                return {
+                    "actions": buttons,
+                    "raw_action_scores": normalized,
+                    "action_output_type": "rl_games_deadly_corridor_multibinary",
+                }
             return self._decode_rl_games_actions(
                 normalized_actions=normalized,
                 env_name=self._rl_games_env_name,
@@ -647,6 +719,7 @@ def _build_starvla_policy(
         else None
     )
     latency_prompt_key = policy_cfg.get("latency_prompt_key")
+    prompt_mode = policy_cfg.get("prompt_mode")
     image_transform_config = policy_cfg.get("image_transform_config")
     return StarVlaPolicyRunner(
         wrapper=wrapper,
@@ -658,6 +731,7 @@ def _build_starvla_policy(
         action_refs=policy_cfg.get("actions", action_resolver.default_action_refs()),
         latency_prompt_map=latency_prompt_map,
         latency_prompt_key=latency_prompt_key,
+        prompt_mode=prompt_mode,
         obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
         image_transform_config=image_transform_config,
     )
@@ -681,13 +755,20 @@ def build_live_starvla_policy(
     policy_cfg = config["policy"]
     unnorm_key = policy_cfg["unnorm_key"] if "unnorm_key" in policy_cfg else None
     env_name = config["env"]["name"]
-    wrapper = LiveStarVlaWrapper(framework=framework, model_cfg=model_cfg, env_name=env_name)
+    wrapper = LiveStarVlaWrapper(
+        framework=framework,
+        model_cfg=model_cfg,
+        env_name=env_name,
+        action_layout=str(policy_cfg.get("action_layout", "") or ""),
+        multibinary_threshold=float(policy_cfg.get("multibinary_threshold", 0.0) or 0.0),
+    )
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
         if "latency_prompt_map_path" in policy_cfg
         else None
     )
     latency_prompt_key = policy_cfg.get("latency_prompt_key")
+    prompt_mode = policy_cfg.get("prompt_mode")
     image_transform_config = policy_cfg.get("image_transform_config")
     return StarVlaPolicyRunner(
         wrapper=wrapper,
@@ -699,6 +780,7 @@ def build_live_starvla_policy(
         action_refs=policy_cfg.get("actions", action_resolver.default_action_refs()),
         latency_prompt_map=latency_prompt_map,
         latency_prompt_key=latency_prompt_key,
+        prompt_mode=prompt_mode,
         obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
         image_transform_config=image_transform_config,
     )

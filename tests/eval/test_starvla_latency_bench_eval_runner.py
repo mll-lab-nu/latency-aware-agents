@@ -12,6 +12,7 @@ from latency_bench.integrations.starvla_rl_games_eval_runner import (
     LatencyBenchRlGamesEvalRunner,
     build_latency_bench_config_for_rl_games,
 )
+from latency_bench.policy.starvla_prompts import resolve_starvla_prompt
 
 
 def test_translation_flappy_fixed_latency(tmp_path):
@@ -85,6 +86,23 @@ def test_translation_zero_latency_uses_zero_type(tmp_path):
     assert cfg["latency"]["type"] == "zero"
     assert "fixed_latency_ms" not in cfg["latency"]
     assert "unnorm_key" not in cfg["policy"]
+
+
+def test_resolve_starvla_prompt_latency_neutral_strips_latency_suffix():
+    prompt = (
+        "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. "
+        "Choose the action: NOOP, FLAP. Current action latency is 2 raw frames (66.67 ms). "
+        "The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+    )
+    assert (
+        resolve_starvla_prompt(
+            env_name="flappy",
+            observation_metadata={"latency_raw_frames": 2},
+            latency_prompt_map={"2": {"prompt": prompt}},
+            prompt_mode="latency_neutral",
+        )
+        == "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP."
+    )
 
 
 def _make_cfg(num_episodes=4, latencies=(0, 2), eval_parallel_envs=None):
