@@ -14,9 +14,28 @@ from latency_bench.integrations.starvla_rl_games_eval_runner import (
 )
 
 
+def _model_cfg(
+    *,
+    num_obs_frames: int = 1,
+    image_mode: str = "single",
+    kv_memory_enabled: bool = False,
+) -> dict:
+    return {
+        "framework": {"action_model": {"state_dim": 7}, "kv_memory": {"enabled": kv_memory_enabled}},
+        "datasets": {
+            "vla_data": {
+                "include_state": True,
+                "num_obs_frames": num_obs_frames,
+                "image_mode": image_mode,
+            }
+        },
+    }
+
+
 def test_translation_flappy_fixed_latency(tmp_path):
     cfg = build_latency_bench_config_for_rl_games(
         env_name="flappy",
+        model_cfg=_model_cfg(),
         seed=42,
         image_size=224,
         num_episodes=5,
@@ -25,6 +44,7 @@ def test_translation_flappy_fixed_latency(tmp_path):
         eval_parallel_envs=8,
         unnorm_key="flappy",
         latency_prompt_map_path=None,
+        image_transform_config=None,
         actions=["noop", "flap"],
         output_dir=tmp_path,
     )
@@ -51,6 +71,7 @@ def test_translation_flappy_fixed_latency(tmp_path):
 def test_translation_frame_skipped_tasks_use_observation_step_latency(tmp_path, env_name, obs_fps):
     cfg = build_latency_bench_config_for_rl_games(
         env_name=env_name,
+        model_cfg=_model_cfg(),
         seed=42,
         image_size=224,
         num_episodes=5,
@@ -59,6 +80,7 @@ def test_translation_frame_skipped_tasks_use_observation_step_latency(tmp_path, 
         eval_parallel_envs=1,
         unnorm_key=env_name,
         latency_prompt_map_path=str(tmp_path / "latency_prompt_map.json"),
+        image_transform_config=None,
         actions=None,
         output_dir=tmp_path,
     )
@@ -71,6 +93,7 @@ def test_translation_frame_skipped_tasks_use_observation_step_latency(tmp_path, 
 def test_translation_zero_latency_uses_zero_type(tmp_path):
     cfg = build_latency_bench_config_for_rl_games(
         env_name="flappy",
+        model_cfg=_model_cfg(),
         seed=0,
         image_size=224,
         num_episodes=1,
@@ -79,6 +102,7 @@ def test_translation_zero_latency_uses_zero_type(tmp_path):
         eval_parallel_envs=1,
         unnorm_key=None,
         latency_prompt_map_path=None,
+        image_transform_config=None,
         actions=None,
         output_dir=tmp_path,
     )
@@ -87,7 +111,71 @@ def test_translation_zero_latency_uses_zero_type(tmp_path):
     assert "unnorm_key" not in cfg["policy"]
 
 
-def _make_cfg(num_episodes=4, latencies=(0, 2), eval_parallel_envs=None):
+def test_translation_multiframe_expands_eval_frame_stack(tmp_path):
+    cfg = build_latency_bench_config_for_rl_games(
+        env_name="flappy",
+        model_cfg=_model_cfg(num_obs_frames=8, image_mode="multiframe"),
+        seed=0,
+        image_size=224,
+        num_episodes=1,
+        eval_max_steps=100,
+        latency_steps=0,
+        eval_parallel_envs=1,
+        unnorm_key=None,
+        latency_prompt_map_path=None,
+        image_transform_config=None,
+        actions=None,
+        output_dir=tmp_path,
+    )
+    assert cfg["env"]["frame_stack"] == 8
+
+
+def test_translation_multiframe_keeps_larger_base_frame_stack(tmp_path):
+    cfg = build_latency_bench_config_for_rl_games(
+        env_name="flappy",
+        model_cfg=_model_cfg(num_obs_frames=2, image_mode="multiframe"),
+        seed=0,
+        image_size=224,
+        num_episodes=1,
+        eval_max_steps=100,
+        latency_steps=0,
+        eval_parallel_envs=1,
+        unnorm_key=None,
+        latency_prompt_map_path=None,
+        image_transform_config=None,
+        actions=None,
+        output_dir=tmp_path,
+    )
+    assert cfg["env"]["frame_stack"] == 4
+
+
+def test_translation_kv_memory_does_not_expand_eval_frame_stack(tmp_path):
+    cfg = build_latency_bench_config_for_rl_games(
+        env_name="flappy",
+        model_cfg=_model_cfg(num_obs_frames=8, image_mode="multiframe", kv_memory_enabled=True),
+        seed=0,
+        image_size=224,
+        num_episodes=1,
+        eval_max_steps=100,
+        latency_steps=0,
+        eval_parallel_envs=1,
+        unnorm_key=None,
+        latency_prompt_map_path=None,
+        image_transform_config=None,
+        actions=None,
+        output_dir=tmp_path,
+    )
+    assert cfg["env"]["frame_stack"] == 4
+
+
+def _make_cfg(
+    num_episodes=4,
+    latencies=(0, 2),
+    eval_parallel_envs=None,
+    num_obs_frames=1,
+    image_mode="single",
+    kv_memory_enabled=False,
+):
     env_eval = {
         "enabled": True,
         "image_size": 224,
@@ -120,8 +208,11 @@ def _make_cfg(num_episodes=4, latencies=(0, 2), eval_parallel_envs=None):
                     },
                 },
             },
-            "framework": {"action_model": {"state_dim": 7}, "kv_memory": {"enabled": False}},
-            "datasets": {"vla_data": {"include_state": True, "num_obs_frames": 1, "image_mode": "single"}},
+            **_model_cfg(
+                num_obs_frames=num_obs_frames,
+                image_mode=image_mode,
+                kv_memory_enabled=kv_memory_enabled,
+            ),
         }
     )
 
@@ -171,6 +262,27 @@ def test_runner_threads_eval_parallel_envs_from_cfg(tmp_path, monkeypatch):
     )
     runner.run(model=object(), step=1, stage="mid_train", save=False)
     assert captured["eval_parallel_envs"] == 8
+
+
+def test_runner_threads_multiframe_frame_stack_from_model_cfg(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_run_from_config(config, *, write_summary, episode_ids, policy, on_episode_complete=None):
+        captured["frame_stack"] = config["env"]["frame_stack"]
+        return [
+            EpisodeMetrics(episode_id=i, episode_return=1.0, survival_steps=5) for i in episode_ids
+        ]
+
+    monkeypatch.setattr(runner_mod, "run_from_config", fake_run_from_config)
+    monkeypatch.setattr(runner_mod, "build_live_starvla_policy", lambda **kwargs: object())
+
+    runner = LatencyBenchRlGamesEvalRunner(
+        cfg=_make_cfg(latencies=(0,), num_obs_frames=8, image_mode="multiframe"),
+        output_dir=str(tmp_path),
+    )
+    runner.run(model=object(), step=1, stage="mid_train", save=False)
+
+    assert captured["frame_stack"] == 8
 
 
 @pytest.mark.parametrize(
