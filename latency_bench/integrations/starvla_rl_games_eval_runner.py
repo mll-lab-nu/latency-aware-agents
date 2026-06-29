@@ -194,6 +194,9 @@ def build_latency_bench_config_for_rl_games(
     image_transform_config: dict[str, Any] | None,
     actions: list[Any] | None,
     output_dir: str | Path,
+    prompt_mode: str | None = None,
+    action_layout: str | None = None,
+    multibinary_threshold: float | None = None,
 ) -> dict[str, Any]:
     """Translate one starVLA rl_games (task, latency) eval into a lb config.
 
@@ -240,6 +243,15 @@ def build_latency_bench_config_for_rl_games(
     if latency_prompt_map_path:
         policy["latency_prompt_map_path"] = str(latency_prompt_map_path)
         policy["latency_prompt_key"] = int(latency_steps)
+    if prompt_mode:
+        policy["prompt_mode"] = str(prompt_mode)
+    # Deadly Corridor multibinary head: pass layout + threshold so the live
+    # wrapper threshold-decodes (matching eval_core) and the factory selects the
+    # MultiBinary gymnasium env. Only meaningful for env_name=deadly_corridor.
+    if action_layout:
+        policy["action_layout"] = str(action_layout)
+    if multibinary_threshold is not None:
+        policy["multibinary_threshold"] = float(multibinary_threshold)
     if image_transform not in {"", "none", "raw", "raw_rgb"}:
         policy["image_transform_config"] = {
             "image_transform": image_transform,
@@ -318,6 +330,45 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
             "ground_fraction": float(ghost_cfg.get("ground_fraction", 0.22)),
             "scroll_px_per_step": float(ghost_cfg.get("scroll_px_per_step", 4.0)),
         }
+
+    def _deadly_action_layout(self, task: str | None = None) -> str | None:
+        """Resolve the Deadly Corridor action layout (only meaningful for deadly).
+
+        Source order: rl_games.env_eval.deadly.action_layout, else the deadly
+        entry in cross_task.train_tasks. Returns None for non-deadly tasks so the
+        flag is never passed for flappy/demon.
+        """
+        if task is not None and str(task) != "deadly_corridor":
+            return None
+        deadly_cfg = getattr(self.cfg.rl_games.env_eval, "deadly", None)
+        layout = _cfg_get(deadly_cfg, "action_layout", None)
+        if not layout:
+            cross_cfg = getattr(self.cfg.rl_games, "cross_task", None)
+            train_tasks = getattr(cross_cfg, "train_tasks", None) if cross_cfg is not None else None
+            for entry in (train_tasks or []):
+                if str(_cfg_get(entry, "name", "")) == "deadly_corridor":
+                    layout = _cfg_get(entry, "action_layout", None)
+                    if layout:
+                        break
+        layout = str(layout or "").strip().lower()
+        return layout or None
+
+    def _deadly_multibinary_threshold(self) -> float | None:
+        deadly_cfg = getattr(self.cfg.rl_games.env_eval, "deadly", None)
+        threshold = _cfg_get(deadly_cfg, "multibinary_threshold", None)
+        return None if threshold is None else float(threshold)
+
+    def _prompt_mode(self, stage: str, task: str | None = None) -> str | None:
+        env_eval = self.cfg.rl_games.env_eval
+        task_cfg = self._cross_task_cfg(task) if task is not None else None
+        stage_cfg = self._task_stage_cfg(task, stage)
+        mode = _cfg_get(
+            stage_cfg,
+            "prompt_mode",
+            _cfg_get(task_cfg, "prompt_mode", _cfg_get(env_eval, "prompt_mode", None)),
+        )
+        mode = str(mode or "").strip().lower()
+        return None if mode in {"", "default", "none", "raw"} else mode
 
     def _model_cfg_from_training_cfg(self) -> dict[str, Any]:
         from omegaconf import OmegaConf
@@ -414,8 +465,11 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                 unnorm_key=getattr(self.cfg.rl_games.env_eval, "unnorm_key", None),
                 latency_prompt_map_path=self._prompt_map_path(task_name),
                 image_transform_config=self._image_transform_config(stage=stage, task=task_name),
+                prompt_mode=self._prompt_mode(stage=stage, task=task_name),
                 actions=self._base_actions(task_name),
                 output_dir=output_dir,
+                action_layout=self._deadly_action_layout(task_name),
+                multibinary_threshold=self._deadly_multibinary_threshold(),
             )
             policy = build_live_starvla_policy(
                 framework=model,

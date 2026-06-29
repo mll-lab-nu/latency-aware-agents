@@ -16,6 +16,7 @@ TIMING_SUFFIX = (
 
 IMAGE_TRANSFORM_CONTEXTS = {
     "flappy_ghost_trail": " You can see the past motion of the bird in the image. Use it to make your decision.",
+    "demon_attack_ghost_trail": " You can see the recent motion of the ship, missiles, and demons in the image. Use it to make your decision.",
 }
 
 

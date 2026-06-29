@@ -72,14 +72,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--image-transform",
         type=str,
         default="raw_rgb",
-        choices=["raw_rgb", "flappy_ghost_trail"],
+        choices=["raw_rgb", "flappy_ghost_trail", "demon_attack_ghost_trail"],
         help="Observation image transform applied during replay before row filtering.",
     )
     parser.add_argument(
         "--ghost-trail-history-frames",
         type=int,
         default=5,
-        help="For flappy_ghost_trail, number of past decision-step frames to composite behind the current frame.",
+        help=(
+            "For flappy_ghost_trail, number of past decision-step frames to composite "
+            "behind the current frame. For demon_attack_ghost_trail, the total number "
+            "of consecutive raw frames in the trail window (inclusive of the current "
+            "frame); use 30 to match the validated continuous_30 ablation."
+        ),
     )
     parser.add_argument("--ghost-trail-gamma", type=float, default=1.3)
     parser.add_argument("--ghost-trail-min-alpha", type=int, default=35)

@@ -4,7 +4,18 @@ import json
 from pathlib import Path
 from typing import Any
 
-from latency_bench.data.prompts import BASE_PROMPTS
+from latency_bench.data.prompts import BASE_PROMPTS, render_teacher_prompt
+
+
+def _apply_prompt_mode(prompt: str, prompt_mode: str | None) -> str:
+    mode = str(prompt_mode or "").strip().lower()
+    if mode in {"", "default", "none", "raw"}:
+        return prompt
+    if mode == "latency_neutral":
+        marker = " Current action latency is "
+        head, found, _tail = str(prompt).partition(marker)
+        return head.rstrip() if found else str(prompt)
+    raise ValueError(f"Unsupported prompt_mode={prompt_mode!r}")
 
 
 def load_latency_prompt_map(path: str | Path) -> dict[str, Any]:
@@ -17,10 +28,25 @@ def resolve_starvla_prompt(
     observation_metadata: dict[str, Any],
     latency_prompt_map: dict[str, Any] | None,
     latency_prompt_key: int | str | None = None,
+    prompt_mode: str | None = None,
 ) -> str:
     if latency_prompt_map is not None:
         key = observation_metadata.get("latency_prompt_key", latency_prompt_key)
         if key is None:
             key = observation_metadata["latency_raw_frames"]
-        return latency_prompt_map[str(key)]["prompt"]
-    return BASE_PROMPTS[str(env_name)]
+        entry = latency_prompt_map.get(str(key))
+        if entry is not None:
+            return _apply_prompt_mode(entry["prompt"], prompt_mode)
+    # Map missing or key not found — reconstruct prompt from observation metadata.
+    raw_frames = observation_metadata.get("latency_raw_frames")
+    if raw_frames is not None:
+        prompt = render_teacher_prompt(
+            env_name,
+            latency_raw_frames=int(raw_frames),
+            latency_ms=float(observation_metadata.get("latency_ms", 0.0)),
+            env_fps=float(observation_metadata.get("env_fps", 35.0)),
+            obs_fps=float(observation_metadata.get("obs_fps", 35.0)),
+            image_transform=str(observation_metadata.get("image_transform", "raw_rgb")),
+        )
+        return _apply_prompt_mode(prompt, prompt_mode)
+    return _apply_prompt_mode(BASE_PROMPTS[str(env_name)], prompt_mode)
