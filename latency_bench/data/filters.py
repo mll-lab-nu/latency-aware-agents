@@ -53,6 +53,7 @@ def clean_v1_accepts_episode_summary(
     summary: Mapping[str, Any],
     *,
     max_steps_per_episode: int,
+    demon_episode_threshold: float | None = None,
 ) -> bool:
     """Evaluate the clean_v1 episode-level gate from summary fields.
 
@@ -61,14 +62,17 @@ def clean_v1_accepts_episode_summary(
         summary: Episode summary with length and environment-specific return.
         max_steps_per_episode: Export step cap; Flappy keeps episodes that survive
             at least ``FLAPPY_MIN_LENGTH_FRACTION`` of it.
+        demon_episode_threshold: Override raw-score threshold for demon_attack.
+            When provided, replaces ``DEMON_RAW_SCORE_STRONG_THRESHOLD``.
 
     Returns:
         Whether this episode should count toward the requested dataset size.
     """
+    demon_threshold = DEMON_RAW_SCORE_STRONG_THRESHOLD if demon_episode_threshold is None else demon_episode_threshold
     return {
         "flappy": lambda: summary["episode_length"] >= FLAPPY_MIN_LENGTH_FRACTION * max_steps_per_episode,
         "deadly_corridor": lambda: summary["episode_raw_return"] >= 2200.0,
-        "demon_attack": lambda: summary["episode_raw_return"] >= DEMON_RAW_SCORE_STRONG_THRESHOLD,
+        "demon_attack": lambda: summary["episode_raw_return"] >= demon_threshold,
     }[env_name]()
 
 
@@ -235,6 +239,7 @@ def accepts_episode(
     summary: Mapping[str, Any],
     *,
     max_steps_per_episode: int,
+    filter_kwargs: dict[str, Any] | None = None,
 ) -> bool:
     """Dispatch episode-level gate by filter preset.
 
@@ -243,6 +248,8 @@ def accepts_episode(
         env_name: Canonical benchmark environment name.
         summary: Episode summary with length and environment-specific return.
         max_steps_per_episode: Export step cap used by Flappy's full-length gate.
+        filter_kwargs: Optional overrides forwarded to the preset gate function
+            (e.g. ``demon_episode_threshold`` overrides the hard-coded demon score).
 
     Returns:
         Whether this episode should be accepted.
@@ -251,6 +258,7 @@ def accepts_episode(
         return True
     return clean_v1_accepts_episode_summary(
         env_name, summary, max_steps_per_episode=max_steps_per_episode,
+        **(filter_kwargs or {}),
     )
 
 
