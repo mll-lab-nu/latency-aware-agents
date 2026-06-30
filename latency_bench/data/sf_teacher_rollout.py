@@ -455,6 +455,7 @@ def _probe_accepted_specs(
     deterministic: bool,
     probe_state: dict[str, Any],
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
+    filter_kwargs: dict[str, Any] | None = None,
     rollout_seed_offset: int = 0,
 ) -> None:
     """Probe rollout attempts without raw RGB until enough accepted specs exist.
@@ -472,6 +473,7 @@ def _probe_accepted_specs(
         deterministic: Whether to use deterministic teacher actions.
         probe_state: Mutable probe state persisted for resume.
         filter_preset: Filter preset name for episode-level gating.
+        filter_kwargs: Optional overrides forwarded to the episode gate.
     """
     accepted_specs = probe_state["accepted_specs"]
     rnn_size = runtime["rnn_size"]
@@ -577,6 +579,7 @@ def _probe_accepted_specs(
                             env_name,
                             summary,
                             max_steps_per_episode=int(max_steps_per_episode),
+                            filter_kwargs=filter_kwargs,
                         )
                         if accepted:
                             final_episode_idx = len(accepted_specs)
@@ -987,6 +990,7 @@ def collect_teacher_dataset(
             deterministic=bool(deterministic),
             probe_state=probe_state,
             filter_preset=filter_preset,
+            filter_kwargs=filter_kwargs,
             rollout_seed_offset=int(rollout_seed_offset),
         )
 
