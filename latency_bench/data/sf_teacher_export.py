@@ -77,6 +77,7 @@ def export_sample_factory_teacher_dataset(
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
     hf_config_name: str = "",
+    context_window: int = 1,
 ) -> dict[str, Any]:
     """Collect and write a canonical Sample Factory teacher dataset.
 
@@ -101,6 +102,7 @@ def export_sample_factory_teacher_dataset(
         hf_private: Whether the uploaded repository should be private.
         hf_token: Explicit Hugging Face token.
         hf_max_shard_size: Hub upload shard size.
+        context_window: Total image window length including the current ``image`` field.
 
     Returns:
         Final metadata written to ``metadata.json``.
@@ -127,6 +129,7 @@ def export_sample_factory_teacher_dataset(
         row_buffer_size=int(row_buffer_size),
         filter_preset=str(filter_preset),
         filter_kwargs=filter_kwargs,
+        context_window=int(context_window),
     )
     split_stats = episode_row_split_stats(output_dir)
     shard_image_metadata = image_metadata_from_shards(output_dir)

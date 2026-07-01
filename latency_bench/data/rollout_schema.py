@@ -21,15 +21,7 @@ CANONICAL_ROW_FIELDS = (
 )
 
 
-def rollout_features(action_spec: ActionSpec) -> Features:
-    """Build Hugging Face dataset features for canonical rollout rows.
-
-    Args:
-        action_spec: Environment action spec defining action-specific fields.
-
-    Returns:
-        Hugging Face ``Features`` for one environment's rollout table.
-    """
+def _rollout_feature_map(action_spec: ActionSpec) -> dict[str, Any]:
     feature_map: dict[str, Any] = {
         "image": HFImage(),
         "env_name": Value("string"),
@@ -49,6 +41,32 @@ def rollout_features(action_spec: ActionSpec) -> Features:
     if "action" in action_spec.row_fields:
         feature_map["action"] = HFSequence(Value("float32"))
     feature_map["action_text"] = Value("string")
+    return feature_map
+
+
+def rollout_features(action_spec: ActionSpec) -> Features:
+    """Build Hugging Face dataset features for canonical rollout rows.
+
+    Args:
+        action_spec: Environment action spec defining action-specific fields.
+
+    Returns:
+        Hugging Face ``Features`` for one environment's rollout table.
+    """
+    return Features(_rollout_feature_map(action_spec))
+
+
+def rollout_features_with_context_images(action_spec: ActionSpec) -> Features:
+    """Build rollout features for rows that carry historical context images.
+
+    Args:
+        action_spec: Environment action spec defining action-specific fields.
+
+    Returns:
+        Hugging Face ``Features`` including ``context_images``.
+    """
+    feature_map = _rollout_feature_map(action_spec)
+    feature_map["context_images"] = HFSequence(HFImage())
     return Features(feature_map)
 
 
@@ -62,6 +80,20 @@ def empty_records(action_spec: ActionSpec) -> dict[str, list[Any]]:
         Empty column mapping suitable for ``Dataset.from_dict``.
     """
     return {name: [] for name in rollout_features(action_spec)}
+
+
+def empty_records_with_context_images(action_spec: ActionSpec, include_context_images: bool) -> dict[str, list[Any]]:
+    """Build empty column arrays for single-image or context-image rollout features.
+
+    Args:
+        action_spec: Environment action spec defining action-specific fields.
+        include_context_images: Whether to include the ``context_images`` feature.
+
+    Returns:
+        Empty column mapping suitable for ``Dataset.from_dict``.
+    """
+    features = rollout_features_with_context_images(action_spec) if include_context_images else rollout_features(action_spec)
+    return {name: [] for name in features}
 
 
 def sort_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
