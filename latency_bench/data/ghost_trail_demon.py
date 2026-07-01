@@ -329,6 +329,105 @@ def collect_tracks(frames: Sequence[np.ndarray]) -> list[Track]:
     return tracks
 
 
+@dataclass
+class _FrameCache:
+    """Per-frame data pre-computed once and shared across all sliding windows."""
+    fg_comps: list[tuple]  # (centroid, mask, area, bbox, mean_color) — no frame_idx
+    ship: tuple | None     # (mask, centroid, area, bbox) or None if absent
+
+
+def _cache_frame(frame: np.ndarray) -> _FrameCache:
+    """Pre-compute foreground components and ship presence for one raw frame.
+
+    Equivalent to calling ``foreground_components`` + the ship pass of
+    ``ship_track``, but without committing to a window-relative frame index so
+    the result can be reused for every window that contains this frame.
+    """
+    _require_cv2()
+    frame = np.asarray(frame, dtype=np.uint8)
+    H, W = frame.shape[:2]
+
+    not_black = np.any(frame != 0, axis=-1)
+    rows = np.arange(H)[:, None]
+    in_band = np.broadcast_to((rows >= SCORE_ROW_END) & (rows < GROUND_ROW_START), (H, W))
+    not_ship = ~np.all(frame == np.array(DEMON_ATTACK_SHIP_RGB), axis=-1)
+    fg = not_black & in_band & not_ship
+    num, labels = cv2.connectedComponents(fg.astype(np.uint8), connectivity=8)
+    fg_comps: list[tuple] = []
+    for lab in range(1, num):
+        mask = labels == lab
+        area = int(mask.sum())
+        if area < 1 or area > MAX_FOREGROUND_COMPONENT_AREA:
+            continue
+        ys, xs = np.where(mask)
+        fg_comps.append((
+            (float(xs.mean()), float(ys.mean())),
+            mask,
+            area,
+            (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1),
+            frame[mask].mean(axis=0),
+        ))
+
+    ship_mask = np.all(frame == np.array(DEMON_ATTACK_SHIP_RGB), axis=-1)
+    if ship_mask.any():
+        ys, xs = np.where(ship_mask)
+        ship: tuple | None = (
+            ship_mask,
+            (float(xs.mean()), float(ys.mean())),
+            int(ship_mask.sum()),
+            (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1),
+        )
+    else:
+        ship = None
+
+    return _FrameCache(fg_comps=fg_comps, ship=ship)
+
+
+def _tracks_from_cache(cache_window: list[_FrameCache]) -> list[Track]:
+    """Build tracks from pre-computed per-frame caches with window-relative indices.
+
+    Drop-in replacement for ``collect_tracks`` that avoids re-running
+    ``foreground_components`` and the ship scan for frames already cached.
+    """
+    frame_components = [
+        [
+            Component(frame_idx=i, centroid=c, mask=m, area=a, bbox=b, mean_color=mc)
+            for c, m, a, b, mc in pc.fg_comps
+        ]
+        for i, pc in enumerate(cache_window)
+    ]
+    tracks: list[Track] = []
+
+    ship_history: list[Component] = []
+    for i, pc in enumerate(cache_window):
+        if pc.ship is not None:
+            s_mask, s_centroid, s_area, s_bbox = pc.ship
+            ship_history.append(Component(
+                frame_idx=i,
+                centroid=s_centroid,
+                mask=s_mask,
+                area=s_area,
+                bbox=s_bbox,
+                mean_color=np.array(DEMON_ATTACK_SHIP_RGB, dtype=np.float32),
+            ))
+    if ship_history:
+        tracks.append(Track("ship", ship_history))
+
+    small_tracks = build_tracks(frame_components, bullet_like=True, max_gap=1)
+    for history in small_tracks:
+        kind = classify_bullet_track(history)
+        if kind is not None:
+            tracks.append(Track(kind, history))
+
+    large_tracks = build_tracks(frame_components, bullet_like=False, max_gap=2)
+    current_idx = len(cache_window) - 1
+    for history in large_tracks:
+        if len(history) >= 3 and current_idx - history[-1].frame_idx <= 1:
+            tracks.append(Track("enemy", history))
+
+    return tracks
+
+
 def build_demon_attack_ghost_trail_window(
     frames: Sequence[np.ndarray],
     steps: Sequence[int],
@@ -364,16 +463,25 @@ def build_demon_attack_ghost_trail_episode_frames(
     For each decision step the window is the last ``config.history_frames``
     consecutive raw frames (inclusive of the current frame); for the first
     ``< history_frames`` steps all available past frames in the episode are used.
+
+    Foreground components and ship data are pre-computed once per frame and
+    reused across all windows, reducing ``foreground_components`` calls from
+    O(N * window_len) to O(N).
     """
     if len(frames) != len(steps):
         raise ValueError("frames and steps must have the same length")
     window_len = max(1, int(config.history_frames))
+
+    uint8_frames = [np.asarray(f, dtype=np.uint8) for f in frames]
+    frame_cache = [_cache_frame(f) for f in uint8_frames]
+
     out: dict[int, np.ndarray] = {}
     for idx, step in enumerate(steps):
         start = max(0, idx - window_len + 1)
-        out[int(step)] = build_demon_attack_ghost_trail_window(
-            frames[start : idx + 1],
-            steps[start : idx + 1],
-            config=config,
-        )
+        window_frames = uint8_frames[start : idx + 1]
+        if len(window_frames) == 1:
+            out[int(step)] = window_frames[-1].copy()
+            continue
+        tracks = _tracks_from_cache(frame_cache[start : idx + 1])
+        out[int(step)] = render_tracks(window_frames, tracks, render_all_history=True)
     return out

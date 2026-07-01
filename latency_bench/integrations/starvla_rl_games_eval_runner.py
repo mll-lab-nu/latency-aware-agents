@@ -239,12 +239,18 @@ def build_latency_bench_config_for_rl_games(
     transform_cfg = dict(image_transform_config or {})
     image_transform = str(transform_cfg.get("image_transform", "raw_rgb") or "raw_rgb").strip().lower()
     if image_transform not in {"", "none", "raw", "raw_rgb"}:
-        if image_transform != "flappy_ghost_trail":
+        if image_transform == "flappy_ghost_trail":
+            if env_name != "flappy":
+                raise ValueError("image_transform=flappy_ghost_trail is only supported for env=flappy")
+            history_frames = max(0, int(transform_cfg.get("history_frames", 5)))
+        elif image_transform == "demon_attack_ghost_trail":
+            if env_name != "demon_attack":
+                raise ValueError("image_transform=demon_attack_ghost_trail is only supported for env=demon_attack")
+            history_frames = max(0, int(transform_cfg.get("history_frames", 30)))
+        else:
             raise ValueError(f"Unsupported rl_games.env_eval.image_transform={image_transform!r}")
-        if env_name != "flappy":
-            raise ValueError("image_transform=flappy_ghost_trail is only supported for env=flappy")
-        history_frames = max(0, int(transform_cfg.get("history_frames", 5)))
-        config["env"]["frame_stack"] = max(int(config["env"].get("frame_stack", 1) or 1), history_frames + 1)
+        frame_stack_min = history_frames if image_transform == "demon_attack_ghost_trail" else history_frames + 1
+        config["env"]["frame_stack"] = max(int(config["env"].get("frame_stack", 1) or 1), frame_stack_min)
     _apply_starvla_frame_stack_from_model_cfg(config, model_cfg=model_cfg, image_transform=image_transform)
 
     # Single fixed latency for this rollout. The incoming StarVLA label is in
@@ -274,7 +280,7 @@ def build_latency_bench_config_for_rl_games(
     if image_transform not in {"", "none", "raw", "raw_rgb"}:
         policy["image_transform_config"] = {
             "image_transform": image_transform,
-            "history_frames": int(transform_cfg.get("history_frames", 5)),
+            "history_frames": history_frames,
             "gamma": float(transform_cfg.get("gamma", 1.3)),
             "min_alpha": int(transform_cfg.get("min_alpha", 35)),
             "ground_fraction": float(transform_cfg.get("ground_fraction", 0.22)),
