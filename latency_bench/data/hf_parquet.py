@@ -14,40 +14,68 @@ from PIL import Image
 from tqdm import tqdm
 
 from latency_bench.data.action_layouts import ActionSpec
-from latency_bench.data.rollout_schema import empty_records, rollout_features, sort_rows
+from latency_bench.data.rollout_schema import (
+    empty_records_with_context_images,
+    rollout_features,
+    rollout_features_with_context_images,
+    sort_rows,
+)
+
+
+def _embedded_image(path: str) -> dict[str, Any]:
+    return {"bytes": Path(path).read_bytes(), "path": None}
 
 
 def embed_image_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Embed image file bytes into row dictionaries for HF parquet writing.
 
     Args:
-        rows: Canonical rollout rows whose ``image`` field is a local path.
+        rows: Canonical rollout rows whose ``image`` and optional ``context_images`` fields are local paths.
 
     Returns:
-        Row copies with ``image`` converted to a Hugging Face image struct.
+        Row copies with image path fields converted to Hugging Face image structs.
     """
     embedded_rows = []
     for row in rows:
         embedded = dict(row)
-        embedded["image"] = {"bytes": Path(row["image"]).read_bytes(), "path": None}
+        embedded["image"] = _embedded_image(str(row["image"]))
+        if "context_images" in row:
+            embedded["context_images"] = [_embedded_image(str(path)) for path in row["context_images"]]
         embedded_rows.append(embedded)
     return embedded_rows
 
 
-def dataset_from_rows(rows: Sequence[Mapping[str, Any]], *, action_spec: ActionSpec) -> Dataset:
+def _rows_include_context_images(rows: Sequence[Mapping[str, Any]]) -> bool:
+    return any("context_images" in row for row in rows)
+
+
+def _shards_include_context_images(output_dir: Path) -> bool:
+    return any("context_images" in row for split in ("train", "val") for row in iter_episode_rows(output_dir, split))
+
+
+def dataset_from_rows(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    action_spec: ActionSpec,
+    include_context_images: bool,
+) -> Dataset:
     """Create a Hugging Face dataset from canonical rollout rows.
 
     Args:
         rows: Canonical rollout rows for one environment.
         action_spec: Action spec used to build the dataset features.
+        include_context_images: Whether the dataset schema includes historical context images.
 
     Returns:
         Hugging Face ``Dataset`` with embedded images.
     """
-    features = rollout_features(action_spec)
+    features = rollout_features_with_context_images(action_spec) if include_context_images else rollout_features(action_spec)
     if rows:
         return Dataset.from_list(embed_image_rows(rows), features=features)
-    return Dataset.from_dict(empty_records(action_spec), features=features)
+    return Dataset.from_dict(
+        empty_records_with_context_images(action_spec, include_context_images),
+        features=features,
+    )
 
 
 def write_rows_parquet(
@@ -55,6 +83,7 @@ def write_rows_parquet(
     rows: Sequence[Mapping[str, Any]],
     *,
     action_spec: ActionSpec,
+    include_context_images: bool,
     row_batch_size: int = 256,
     keep_dataset: bool = True,
 ) -> Dataset | None:
@@ -64,6 +93,7 @@ def write_rows_parquet(
         path: Destination parquet path.
         rows: Canonical rollout rows for one split.
         action_spec: Action spec used to build the dataset features.
+        include_context_images: Whether the dataset schema includes historical context images.
         row_batch_size: Number of rows embedded and written per batch.
         keep_dataset: Whether to return an in-memory ``Dataset``.
 
@@ -72,7 +102,7 @@ def write_rows_parquet(
     """
     sorted_rows = sort_rows(rows)
     if not sorted_rows:
-        dataset = dataset_from_rows([], action_spec=action_spec)
+        dataset = dataset_from_rows([], action_spec=action_spec, include_context_images=include_context_images)
         pq.write_table(dataset.data.table, path)
         return dataset if keep_dataset else None
 
@@ -80,7 +110,11 @@ def write_rows_parquet(
     datasets_to_return = []
     try:
         for start in range(0, len(sorted_rows), int(row_batch_size)):
-            dataset = dataset_from_rows(sorted_rows[start : start + int(row_batch_size)], action_spec=action_spec)
+            dataset = dataset_from_rows(
+                sorted_rows[start : start + int(row_batch_size)],
+                action_spec=action_spec,
+                include_context_images=include_context_images,
+            )
             if keep_dataset:
                 datasets_to_return.append(dataset)
             table = dataset.data.table
@@ -119,16 +153,19 @@ def write_parquet_splits(
     """
     datasets.disable_progress_bars()
     output_dir.mkdir(parents=True, exist_ok=True)
+    include_context_images = _rows_include_context_images([*train_rows, *val_rows])
     train_ds = write_rows_parquet(
         output_dir / "train.parquet",
         train_rows,
         action_spec=action_spec,
+        include_context_images=include_context_images,
         keep_dataset=keep_dataset,
     )
     val_ds = write_rows_parquet(
         output_dir / "val.parquet",
         val_rows,
         action_spec=action_spec,
+        include_context_images=include_context_images,
         keep_dataset=keep_dataset,
     )
     if not keep_dataset:
@@ -234,6 +271,7 @@ def _write_parquet_row_batch(
     rows: Sequence[Mapping[str, Any]],
     *,
     action_spec: ActionSpec,
+    include_context_images: bool,
 ) -> Any:
     """Append one row batch to a parquet writer.
 
@@ -242,11 +280,12 @@ def _write_parquet_row_batch(
         path: Temporary parquet path used when creating the writer.
         rows: Canonical rollout rows in the batch.
         action_spec: Action spec used to build the dataset features.
+        include_context_images: Whether the dataset schema includes historical context images.
 
     Returns:
         Open parquet writer after writing the batch.
     """
-    dataset = dataset_from_rows(rows, action_spec=action_spec)
+    dataset = dataset_from_rows(rows, action_spec=action_spec, include_context_images=include_context_images)
     table = dataset.data.table
     if writer is None:
         writer = pq.ParquetWriter(path, table.schema)
@@ -259,6 +298,7 @@ def _write_parquet_split_from_shards(
     split: str,
     *,
     action_spec: ActionSpec,
+    include_context_images: bool,
     row_count: int,
     row_batch_size: int = 256,
 ) -> None:
@@ -268,6 +308,7 @@ def _write_parquet_split_from_shards(
         output_dir: Rollout export directory containing ``episode_rows``.
         split: Split name to materialize.
         action_spec: Action spec used to build the dataset features.
+        include_context_images: Whether the dataset schema includes historical context images.
         row_count: Number of rows for progress reporting.
         row_batch_size: Number of rows embedded and written per batch.
     """
@@ -280,14 +321,26 @@ def _write_parquet_split_from_shards(
         for row in iter_episode_rows(output_dir, split):
             batch.append(row)
             if len(batch) >= int(row_batch_size):
-                writer = _write_parquet_row_batch(writer, tmp_path, batch, action_spec=action_spec)
+                writer = _write_parquet_row_batch(
+                    writer,
+                    tmp_path,
+                    batch,
+                    action_spec=action_spec,
+                    include_context_images=include_context_images,
+                )
                 progress.update(len(batch))
                 batch = []
         if batch:
-            writer = _write_parquet_row_batch(writer, tmp_path, sort_rows(batch), action_spec=action_spec)
+            writer = _write_parquet_row_batch(
+                writer,
+                tmp_path,
+                sort_rows(batch),
+                action_spec=action_spec,
+                include_context_images=include_context_images,
+            )
             progress.update(len(batch))
         if writer is None:
-            dataset = dataset_from_rows([], action_spec=action_spec)
+            dataset = dataset_from_rows([], action_spec=action_spec, include_context_images=include_context_images)
             pq.write_table(dataset.data.table, tmp_path)
     finally:
         if writer is not None:
@@ -315,16 +368,19 @@ def write_parquet_splits_from_shards(
     datasets.disable_progress_bars()
     output_dir.mkdir(parents=True, exist_ok=True)
     stats = episode_row_split_stats(output_dir)
+    include_context_images = _shards_include_context_images(output_dir)
     _write_parquet_split_from_shards(
         output_dir,
         "train",
         action_spec=action_spec,
+        include_context_images=include_context_images,
         row_count=stats["train_rows"],
     )
     _write_parquet_split_from_shards(
         output_dir,
         "val",
         action_spec=action_spec,
+        include_context_images=include_context_images,
         row_count=stats["val_rows"],
     )
     if not keep_dataset:

@@ -50,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--export-image-size", type=str, default="")
     parser.add_argument("--image-writer-workers", type=int, default=0)
     parser.add_argument("--row-buffer-size", type=int, default=8192)
+    parser.add_argument("--context-window", type=int, default=1)
     parser.add_argument("--push-to-hub", action="store_true")
     parser.add_argument("--hf-repo-id", type=str, default="")
     parser.add_argument("--hf-private", action="store_true")
@@ -100,6 +101,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         hf_config_name=str(args.hf_config_name),
         filter_preset=str(args.filter_preset),
         filter_kwargs=filter_kwargs or None,
+        context_window=int(args.context_window),
     )
     print(f"[export] wrote train={metadata['train_rows']} rows val={metadata['val_rows']} rows to {output_dir}")
     return 0

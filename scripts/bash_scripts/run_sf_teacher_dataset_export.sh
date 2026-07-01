@@ -25,6 +25,7 @@ Optional environment variables:
   LATENCY_CONFIG      YAML file with a training-compatible latency: section.
   EXPORT_IMAGE_SIZE   Optional saved image size, e.g. 512,288.
   IMAGE_WRITER_WORKERS Optional async PNG writer threads. Default: exporter default.
+  CONTEXT_WINDOW      Total image window. 1 keeps single-image export; N writes N-1 context_images.
   HF_REPO_ID          If set, upload the export to this Hugging Face dataset repo.
   HF_PRIVATE          Set to 1 to upload as private. Default: 1.
   HF_TOKEN            Hugging Face token used when HF_REPO_ID is set.
@@ -56,6 +57,7 @@ REPLAY_NUM_ENVS="${REPLAY_NUM_ENVS:-16}"
 DEVICE="${DEVICE:-cpu}"
 HF_PRIVATE="${HF_PRIVATE:-0}"
 IMAGE_WRITER_WORKERS="${IMAGE_WRITER_WORKERS:-16}"
+CONTEXT_WINDOW="${CONTEXT_WINDOW:-1}"
 
 CMD=(
     python scripts/rollout_data/export_sf_teacher_dataset.py
@@ -67,6 +69,7 @@ CMD=(
     --num-envs "${NUM_ENVS}"
     --replay-num-envs "${REPLAY_NUM_ENVS}"
     --device "${DEVICE}"
+    --context-window "${CONTEXT_WINDOW}"
 )
 
 if [[ -n "${LATENCY_CONFIG:-}" ]]; then
@@ -115,6 +118,7 @@ fi
 if [[ -n "${IMAGE_WRITER_WORKERS:-}" ]]; then
     printf '    image writer workers: %s\n' "${IMAGE_WRITER_WORKERS}"
 fi
+printf '    context window: %s\n' "${CONTEXT_WINDOW}"
 printf '    filter preset: %s\n' "${FILTER_PRESET:-clean_v1}"
 if [[ -n "${DEMON_EPISODE_THRESHOLD:-}" ]]; then
     printf '    demon threshold: %s\n' "${DEMON_EPISODE_THRESHOLD}"
