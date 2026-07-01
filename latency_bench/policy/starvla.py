@@ -223,10 +223,12 @@ class StarVlaPolicyRunner(PolicyRunner):
     ) -> npt.NDArray[np.uint8] | None:
         if self._image_transform in {"", "none", "raw", "raw_rgb"}:
             return None
-        if self._image_transform != "flappy_ghost_trail":
+        if self._image_transform not in {"flappy_ghost_trail", "demon_attack_ghost_trail"}:
             raise ValueError(f"Unsupported StarVLA image_transform={self._image_transform!r}")
-        if self._env_name != "flappy":
+        if self._image_transform == "flappy_ghost_trail" and self._env_name != "flappy":
             raise ValueError("image_transform=flappy_ghost_trail is only supported for env_name=flappy")
+        if self._image_transform == "demon_attack_ghost_trail" and self._env_name != "demon_attack":
+            raise ValueError("image_transform=demon_attack_ghost_trail is only supported for env_name=demon_attack")
 
         config = GhostTrailConfig(
             image_transform=self._image_transform,
@@ -236,9 +238,20 @@ class StarVlaPolicyRunner(PolicyRunner):
             ground_fraction=float(self._image_transform_config.get("ground_fraction", 0.22)),
             scroll_px_per_step=float(self._image_transform_config.get("scroll_px_per_step", 4.0)),
         )
-        max_frames = max(1, int(config.history_frames) + 1)
-        valid_count = min(len(frames), max(1, int(observation.env_step) + 1), max_frames)
+        if self._image_transform == "demon_attack_ghost_trail":
+            # env_step counts raw ALE frames (buffer updated 4× per decision step).
+            # frames[-0:] == frames, so env_step=0 falls back to the full reset-fill buffer.
+            valid_count = min(len(frames), int(observation.env_step))
+        else:
+            max_frames = max(1, int(config.history_frames) + 1)
+            valid_count = min(len(frames), max(1, int(observation.env_step) + 1), max_frames)
         window = [np.asarray(frame, dtype=np.uint8) for frame in frames[-valid_count:]]
+
+        if self._image_transform == "demon_attack_ghost_trail":
+            from latency_bench.data.ghost_trail_demon import build_demon_attack_ghost_trail_window
+            steps_arg = list(range(len(window)))
+            return build_demon_attack_ghost_trail_window(window, steps_arg, config=config)
+
         current_step = int(observation.env_step)
         start_step = current_step - valid_count + 1
         steps = list(range(start_step, current_step + 1))

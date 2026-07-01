@@ -23,7 +23,7 @@ from latency_bench.data.hf_parquet import (
     write_episode_row_shard,
 )
 from latency_bench.data.ghost_trail import GhostTrailConfig, build_episode_image_frames
-from latency_bench.data.rollout_image_io import RolloutImageWriter, frame_from_env_raw_rgb_info
+from latency_bench.data.rollout_image_io import RolloutImageWriter, frame_from_env_raw_rgb_info, frames_from_env_raw_rgb_info
 from latency_bench.data.rollout_schema import SCHEMA_VERSION
 from latency_bench.data.sf_teacher_rows import teacher_dataset_row
 from latency_bench.data.sf_teacher_drivers import (
@@ -705,12 +705,38 @@ def _replay_accepted_specs(
     spec_cursor = 0
     replayed = 0
 
+    # For demon_attack_ghost_trail: accumulate consecutive raw ALE frames externally.
+    # frame_stack=4 gives 4 new raw frames per driver.step(); extend a deque(maxlen=30)
+    # so each decision step sees the last 30 consecutive raw ALE frames at 60 fps.
+    #
+    # Efficiency: we maintain a parallel deque of _FrameCache objects so that
+    # foreground_components (cv2.connectedComponents) is called exactly once per new
+    # raw frame (4× per decision step) rather than 30× per decision step.
+    _is_demon_ghost_trail = (
+        str(env_name) == "demon_attack"
+        and image_transform_config.normalized_transform() == "demon_attack_ghost_trail"
+    )
+    _ghost_trail_history_len = max(1, int(image_transform_config.history_frames))
+
+    if _is_demon_ghost_trail:
+        from latency_bench.data.ghost_trail_demon import _cache_frame, _tracks_from_cache, render_tracks
+
+    def _ghost_image_from_cache(raw_frames: list, frame_cache: list) -> np.ndarray:
+        window = [np.asarray(f, dtype=np.uint8) for f in raw_frames]
+        if len(window) == 1:
+            return window[-1].copy()
+        tracks = _tracks_from_cache(frame_cache)
+        return render_tracks(window, tracks, render_all_history=True)
+
+    from collections import deque
     active_specs: list[dict[str, Any] | None] = [None for _ in range(driver.slot_count)]
     active_obs: list[Any | None] = [None for _ in range(driver.slot_count)]
     active_image_frames: list[np.ndarray | None] = [None for _ in range(driver.slot_count)]
     active_episode_rows: list[list[dict[str, Any]]] = [[] for _ in range(driver.slot_count)]
     active_episode_frames: list[list[np.ndarray]] = [[] for _ in range(driver.slot_count)]
     active_decision_steps = [0 for _ in range(driver.slot_count)]
+    active_raw_history: list[deque | None] = [None for _ in range(driver.slot_count)]
+    active_frame_cache: list[deque | None] = [None for _ in range(driver.slot_count)]
     rnn_states = torch.zeros([driver.slot_count, rnn_size], dtype=torch.float32, device=device)
     image_writer = RolloutImageWriter(
         max_workers=int(image_writer_workers),
@@ -742,7 +768,12 @@ def _replay_accepted_specs(
                 reset_results = driver.reset_slots(initial_reset_plan)
             for slot, (obs, reset_info) in reset_results.items():
                 active_obs[slot] = obs
-                active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
+                if _is_demon_ghost_trail:
+                    active_raw_history[slot] = deque(maxlen=_ghost_trail_history_len)
+                    active_frame_cache[slot] = deque(maxlen=_ghost_trail_history_len)
+                    active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
+                else:
+                    active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
                 active_episode_rows[slot] = []
                 active_episode_frames[slot] = []
                 active_decision_steps[slot] = 0
@@ -815,12 +846,20 @@ def _replay_accepted_specs(
                             )
                         else:
                             shard_rows = [dict(row) for row in final_rows]
-                        frames_by_decision_step = build_episode_image_frames(
-                            env_name=env_name,
-                            rows=final_rows,
-                            frames=active_episode_frames[slot],
-                            config=image_transform_config,
-                        )
+                        if _is_demon_ghost_trail:
+                            # Frames are pre-built ghost trail images; map directly.
+                            ep_steps = [int(row["decision_step"]) for row in final_rows]
+                            frames_by_decision_step = {
+                                step: frame
+                                for step, frame in zip(ep_steps, active_episode_frames[slot])
+                            }
+                        else:
+                            frames_by_decision_step = build_episode_image_frames(
+                                env_name=env_name,
+                                rows=final_rows,
+                                frames=active_episode_frames[slot],
+                                config=image_transform_config,
+                            )
                         shard_rows = _write_filtered_episode_images(
                             image_writer,
                             shard_rows,
@@ -836,15 +875,33 @@ def _replay_accepted_specs(
                         active_episode_rows[slot] = []
                         active_episode_frames[slot] = []
                         active_decision_steps[slot] = 0
+                        if _is_demon_ghost_trail:
+                            active_raw_history[slot] = None
+                            active_frame_cache[slot] = None
                         rnn_states[slot].zero_()
                     else:
                         if life_loss_boundary:
                             active_obs[slot], reset_info = driver.continue_after_life_loss(slot)
-                            active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
+                            if _is_demon_ghost_trail:
+                                active_raw_history[slot].clear()
+                                active_frame_cache[slot].clear()
+                                active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
+                            else:
+                                active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
                             rnn_states[slot].zero_()
                         else:
                             active_obs[slot] = step_result.next_obs
-                            active_image_frames[slot] = frame_from_env_raw_rgb_info(step_result.info)
+                            if _is_demon_ghost_trail:
+                                new_raw_frames = frames_from_env_raw_rgb_info(step_result.info)
+                                active_raw_history[slot].extend(new_raw_frames)
+                                for f in new_raw_frames:
+                                    active_frame_cache[slot].append(_cache_frame(f))
+                                active_image_frames[slot] = _ghost_image_from_cache(
+                                    list(active_raw_history[slot]),
+                                    list(active_frame_cache[slot]),
+                                )
+                            else:
+                                active_image_frames[slot] = frame_from_env_raw_rgb_info(step_result.info)
                         active_decision_steps[slot] = next_decision_step
 
                 if reset_plan:
@@ -854,7 +911,12 @@ def _replay_accepted_specs(
                         reset_results = driver.reset_slots(reset_plan)
                     for slot, (obs, reset_info) in reset_results.items():
                         active_obs[slot] = obs
-                        active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
+                        if _is_demon_ghost_trail:
+                            active_raw_history[slot] = deque(maxlen=_ghost_trail_history_len)
+                            active_frame_cache[slot] = deque(maxlen=_ghost_trail_history_len)
+                            active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
+                        else:
+                            active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
                         active_episode_rows[slot] = []
                         active_episode_frames[slot] = []
                         active_decision_steps[slot] = 0
