@@ -117,7 +117,6 @@ def record_skipped_task(
     manifest["status"] = "skipped"
     manifest["completed_at"] = now_iso()
     manifest["skip_reason"] = skip_reason
-    manifest["notes"] = skip_reason
     task.output_dir.mkdir(parents=True, exist_ok=True)
     write_json(task.output_dir / "manifest.json", manifest)
     append_manifest(out, manifest)
@@ -247,7 +246,7 @@ def matching_skipped_notes(
             continue
         if record["status"] not in {"skipped", "failed"}:
             continue
-        note = record["skip_reason"] or record["notes"]
+        note = record["skip_reason"] if record["status"] == "skipped" else record["error"]
         if note:
             notes.append(str(note))
     return "; ".join(dict.fromkeys(notes))
@@ -354,14 +353,9 @@ def _remap_protocol_path(value: str, protocol_root: Path) -> str:
 
 
 def _protocol_path_suffix(parts: tuple[str, ...]) -> tuple[str, ...]:
-    for marker in ("cross_device",):
-        for index in range(len(parts) - 1, -1, -1):
-            if parts[index] == marker:
-                return tuple(parts[index + 1 :])
-    for marker in ("runs", "profiles", "generated_configs", "manifests"):
-        if marker in parts:
-            index = parts.index(marker)
-            return tuple(parts[index:])
+    for index in range(len(parts) - 1, -1, -1):
+        if parts[index] == "cross_device":
+            return tuple(parts[index + 1 :])
     return ()
 
 
@@ -388,8 +382,8 @@ def _dedupe_manifest_records(records: list[dict[str, Any]]) -> list[dict[str, An
         skipped_key = (
             *run_key,
             str(record["status"]),
-            str(record["skip_reason"] or record["notes"]),
-            str(record["runtime_env_detected_raw"] or ""),
+            str(record["skip_reason"] if record["status"] == "skipped" else record["error"]),
+            str(record["runtime_env_detected_raw"]),
         )
         non_completed_by_key[skipped_key] = record
     return [*non_completed_by_key.values(), *completed_by_run_key.values()]

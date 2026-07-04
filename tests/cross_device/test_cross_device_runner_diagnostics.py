@@ -23,7 +23,7 @@ def test_finalize_profile_artifacts_writes_hardware_fingerprint(tmp_path, monkey
     assert not (profile_dir / "diagnostics.json").exists()
     profile = json.loads((profile_dir / "profile.json").read_text(encoding="utf-8"))
     assert profile["hardware"] == fingerprint
-    assert profile["diagnostics_path"] == "hardware.json"
+    assert "diagnostics_path" not in profile
 
 
 def test_subprocess_runtime_telemetry_is_nonblocking(tmp_path, monkeypatch):

@@ -47,7 +47,7 @@ def _write_base_config(path: Path) -> None:
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
 
-def _write_profile_manifest(path: Path, *, env_fps: float = 16.0, inference_worker_count: int | None = None) -> None:
+def _write_profile_manifest(path: Path, *, env_fps: float = 16.0, inference_worker_count: int = 1) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "profile_id": "L_A100",
@@ -60,15 +60,12 @@ def _write_profile_manifest(path: Path, *, env_fps: float = 16.0, inference_work
         "trace_path": "e2e_latencies.jsonl",
         "latency_kind": "e2e_latency",
         "inference_trace_path": "infer_latencies.jsonl",
-        "e2e_trace_path": "e2e_latencies.jsonl",
         "distribution_path": "latency_distribution.json",
         "plot_path": "latency_distribution.png",
         "summary": {"mean_ms": 125.0, "mean_effective_frames": 2.0, "n_samples": 3},
         "inference_summary": {"mean_ms": 62.5, "mean_effective_frames": 1.0, "n_samples": 3},
-        "e2e_summary": {"mean_ms": 125.0, "mean_effective_frames": 2.0, "n_samples": 3},
+        "inference_worker_count": inference_worker_count,
     }
-    if inference_worker_count is not None:
-        payload["inference_worker_count"] = inference_worker_count
     path.write_text(
         json.dumps(
             payload,

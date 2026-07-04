@@ -86,8 +86,8 @@ def _build_profile(root: Path, *, device_id: str = "a100", profile_id: str = "L_
 
 def _episode_records(mean_return: float, mean_length: float) -> list[dict]:
     return [
-        {"episode_return_env": mean_return - 5.0, "survival_steps": mean_length - 50.0},
-        {"episode_return_env": mean_return + 5.0, "survival_steps": mean_length + 50.0},
+        {"episode_return_env": mean_return - 5.0, "survival_steps": mean_length - 50.0, "metadata": {}},
+        {"episode_return_env": mean_return + 5.0, "survival_steps": mean_length + 50.0, "metadata": {}},
     ]
 
 
@@ -125,7 +125,8 @@ def _manifest(
         "seed": 0,
         "status": status,
         "skip_reason": skip_reason,
-        "notes": skip_reason,
+        "error": "",
+        "notes": "",
         "runtime_env_detected_raw": "latency",
         "output_dir": str(output_dir),
         "profile_path": "" if profile_path is None else str(profile_path),

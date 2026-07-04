@@ -22,7 +22,6 @@ from latency_bench.cross_device.planning import (
     _build_plan,
     _filtered_spec_for_aggregate,
     _iter_selected_rows,
-    _normalize_stage,
     _output_root,
     _spec_with_cli_overrides,
 )
@@ -137,7 +136,7 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "sim":
         run_stage(args, spec, "sim_same" if args.target is None else "sim_cross")
     else:
-        run_stage(args, spec, _normalize_stage(args.command))
+        run_stage(args, spec, "measure")
 
 
 def _add_selection_flags(parser: argparse.ArgumentParser) -> None:
