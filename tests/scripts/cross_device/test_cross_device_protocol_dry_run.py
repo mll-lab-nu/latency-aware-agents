@@ -123,6 +123,7 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "output_root": str(path.parent / "results"),
         "checkpoint_kind": "best",
         "n_episodes": 1,
+        "sim_worker_count": "auto",
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "runtime_envs": {"baseline": {"conda_env": "latency", "description": "small"}},
@@ -158,6 +159,7 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "output_root": str(path.parent / "results"),
         "checkpoint_kind": "best",
         "n_episodes": 2,
+        "sim_worker_count": "auto",
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "runtime_envs": {
@@ -213,6 +215,7 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "output_root": str(path.parent / "results"),
         "checkpoint_kind": "best",
         "n_episodes": 2,
+        "sim_worker_count": "auto",
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "runtime_envs": {
