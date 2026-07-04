@@ -23,12 +23,11 @@ Tests mirror the source tree. A test lives in the subdirectory that matches the
 | `tests/eval/` | `latency_bench/eval/` (suites, driver, periodic eval, collect/report) |
 | `tests/logging/` | `latency_bench/logging/` (records, trajectory logger, video, pipeline) |
 | `tests/analysis/` | `latency_bench/analysis/` (tables, stats, figures, diagnostics, fits) |
-| `tests/cross_device/` | `latency_bench/cross_device/` (formal cross-device protocol contracts and entrypoints) |
+| `tests/cross_device/` | `latency_bench/cross_device/` (formal cross-device protocol, runner, profiles, contracts, and entrypoints) |
 | `tests/data/` | `latency_bench/data/` (rollout schema/filters/parquet, exporters, sf teacher) |
 | `tests/training/` | `training/` (sample_factory backend, sf-compat shims, episode metrics) |
 | `tests/training/gpu/` | `training/{flappy_sf,demon_attack_sf}` and anything needing a CUDA GPU |
 | `tests/scripts/` | `scripts/` (sweeps, manifest jobs, bash scripts, bench harnesses) |
-| `tests/scripts/cross_device/` | `scripts/cross_device/` (protocol, runner, profiles, backfills) |
 | `tests/integration/` | end-to-end runs (`latency_bench/run.py`) |
 
 When you add a new source module, put its tests in the matching directory (create

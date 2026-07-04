@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import importlib
+import importlib.util
 from pathlib import Path
 
 import yaml
@@ -66,20 +66,8 @@ def _write_protocol_spec(path: Path, base_config: Path) -> None:
     path.write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
 
 
-def test_scripts_cross_device_modules_are_compatibility_aliases():
-    module_pairs = {
-        "scripts.cross_device.models": "latency_bench.cross_device.models",
-        "scripts.cross_device.profile_layout": "latency_bench.cross_device.layout",
-        "scripts.cross_device.instances": "latency_bench.cross_device.instances",
-        "scripts.cross_device.runtime": "latency_bench.cross_device.runtime",
-        "scripts.cross_device.planning": "latency_bench.cross_device.planning",
-        "scripts.cross_device.config": "latency_bench.cross_device.configs",
-        "scripts.cross_device.runner": "latency_bench.cross_device.runner",
-        "scripts.cross_device.profile_cache": "latency_bench.cross_device.sync",
-    }
-
-    for old_name, new_name in module_pairs.items():
-        assert importlib.import_module(old_name) is importlib.import_module(new_name)
+def test_legacy_cross_device_script_modules_are_removed():
+    assert importlib.util.find_spec("scripts.cross_device") is None
 
 
 def test_formal_protocol_entrypoint_runs_doctor_dry_run(tmp_path: Path, capsys):

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 
 def test_profile_cache_is_local_first(tmp_path: Path):
-    from scripts.cross_device.profile_cache import ensure_profile_cached
+    from latency_bench.cross_device.sync import ensure_profile_cached
 
     profile_path = tmp_path / "profiles" / "test_model" / "flappy" / "a100" / "instance_local" / "profile.json"
     profile_path.parent.mkdir(parents=True)
@@ -29,7 +29,7 @@ def test_profile_cache_is_local_first(tmp_path: Path):
 
 
 def test_profile_cache_downloads_missing_profile(tmp_path: Path):
-    from scripts.cross_device.profile_cache import ensure_profile_cached
+    from latency_bench.cross_device.sync import ensure_profile_cached
 
     profile_path = tmp_path / "profiles" / "test_model" / "flappy" / "a100" / "instance_local" / "profile.json"
     calls: list[tuple[str, Path, str, str]] = []
@@ -59,7 +59,7 @@ def test_profile_cache_downloads_missing_profile(tmp_path: Path):
 
 
 def test_profile_cache_downloads_whole_profile_folder_from_hf(tmp_path: Path, monkeypatch):
-    from scripts.cross_device.profile_cache import download_profile_folder_from_hf
+    from latency_bench.cross_device.sync import download_profile_folder_from_hf
 
     remote_dir = "profiles/test_model/flappy/a100/instance_local"
     snapshot_root = tmp_path / "snapshot"
@@ -100,7 +100,7 @@ def test_profile_cache_downloads_whole_profile_folder_from_hf(tmp_path: Path, mo
 
 
 def test_profile_cache_uploads_output_folder_to_hf(tmp_path: Path, monkeypatch):
-    from scripts.cross_device.profile_cache import upload_folder_to_hf
+    from latency_bench.cross_device.sync import upload_folder_to_hf
 
     calls: list[dict[str, object]] = []
 
@@ -131,7 +131,7 @@ def test_profile_cache_uploads_output_folder_to_hf(tmp_path: Path, monkeypatch):
 
 
 def test_upload_folder_forwards_allow_and_ignore_patterns(tmp_path: Path, monkeypatch):
-    from scripts.cross_device.profile_cache import upload_folder_to_hf
+    from latency_bench.cross_device.sync import upload_folder_to_hf
 
     calls: list[dict[str, object]] = []
 
@@ -163,7 +163,7 @@ def test_upload_folder_forwards_allow_and_ignore_patterns(tmp_path: Path, monkey
 
 
 def test_download_results_tree_filters_debug_and_copies_raw(tmp_path: Path, monkeypatch):
-    from scripts.cross_device.profile_cache import RESULTS_DEBUG_IGNORE, download_results_tree
+    from latency_bench.cross_device.sync import RESULTS_DEBUG_IGNORE, download_results_tree
 
     snapshot_root = tmp_path / "snapshot"
     nested = snapshot_root / "raw" / "rtx3090" / "openvla" / "cross_device" / "manifests"
@@ -201,7 +201,7 @@ def test_download_results_tree_filters_debug_and_copies_raw(tmp_path: Path, monk
 
 
 def test_download_results_tree_filters_full_runtime_telemetry_but_keeps_summary():
-    from scripts.cross_device.profile_cache import RESULTS_DEBUG_IGNORE
+    from latency_bench.cross_device.sync import RESULTS_DEBUG_IGNORE
 
     assert "**/runs/**/runtime_telemetry.jsonl" in RESULTS_DEBUG_IGNORE
     assert "**/runs/**/runtime_telemetry_summary.json" not in RESULTS_DEBUG_IGNORE

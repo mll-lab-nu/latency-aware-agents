@@ -4,6 +4,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+from latency_bench.analysis.cross_device_figure_data import _resolve_latency_trace
+from latency_bench.cross_device import runner
+
 
 def _make_task(out: Path, *, with_profile: bool) -> SimpleNamespace:
     output_dir = out / "runs" / "measure" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0"
@@ -25,7 +28,6 @@ def _runtime(alias: str = "openvla") -> SimpleNamespace:
 
 def test_upload_run_results_mirrors_slices_to_raw_prefix(tmp_path: Path, monkeypatch):
     monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(__version__="test", version=SimpleNamespace(cuda=None)))
-    from scripts.cross_device import runner
 
     out = tmp_path / "cross_device"
     task = _make_task(out, with_profile=True)
@@ -53,7 +55,6 @@ def test_upload_run_results_mirrors_slices_to_raw_prefix(tmp_path: Path, monkeyp
 
 def test_upload_run_results_skipped_without_repo(tmp_path: Path, monkeypatch):
     monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(__version__="test", version=SimpleNamespace(cuda=None)))
-    from scripts.cross_device import runner
 
     out = tmp_path / "cross_device"
     task = _make_task(out, with_profile=False)
@@ -67,7 +68,6 @@ def test_upload_run_results_skipped_without_repo(tmp_path: Path, monkeypatch):
 
 def test_upload_run_results_opt_out_env(tmp_path: Path, monkeypatch):
     monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(__version__="test", version=SimpleNamespace(cuda=None)))
-    from scripts.cross_device import runner
 
     out = tmp_path / "cross_device"
     task = _make_task(out, with_profile=False)
@@ -81,8 +81,6 @@ def test_upload_run_results_opt_out_env(tmp_path: Path, monkeypatch):
 
 
 def test_resolve_latency_trace_uses_explicit_profiles_root(tmp_path: Path):
-    from scripts.cross_device.build_figure_data import _resolve_latency_trace
-
     instance_dir = tmp_path / "profiles" / "openvla" / "flappy" / "rtx3090" / "instance_rtx3090"
     instance_dir.mkdir(parents=True)
     (instance_dir / "profile.json").write_text("{}\n", encoding="utf-8")
