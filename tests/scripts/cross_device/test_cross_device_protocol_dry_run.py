@@ -21,7 +21,7 @@ REAL_PROTOCOL = Path("configs/experiments/cross_device_protocol.yaml")
 
 RUNTIME_SPEC = {
     "runtime_envs": {
-        "small_model": {"conda_env": "latency", "description": "small"},
+        "baseline": {"conda_env": "latency", "description": "small"},
         "openvla": {"conda_env": "starvla_rl_games_openvla", "description": "vla"},
     }
 }
@@ -101,7 +101,7 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "env": "Dummy",
         "policy_type": "unknown_policy",
         "model_type": "test_model",
-        "runtime_env": "small_model",
+        "runtime_env": "baseline",
         "env_name": "dummy",
         "fps": 30,
         "target_latency_frames": 1,
@@ -112,7 +112,7 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "env": "Dummy",
         "policy_type": "random",
         "model_type": "test_model",
-        "runtime_env": "small_model",
+        "runtime_env": "baseline",
         "env_name": "dummy",
         "fps": 30,
         "target_latency_frames": 1,
@@ -125,7 +125,7 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "n_episodes": 1,
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
-        "runtime_envs": {"small_model": {"conda_env": "latency", "description": "small"}},
+        "runtime_envs": {"baseline": {"conda_env": "latency", "description": "small"}},
         "devices": [
             {
                 "id": "a100",
@@ -147,7 +147,7 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "env": "Flappy",
         "policy_type": "random",
         "model_type": "test_model",
-        "runtime_env": "small_model",
+        "runtime_env": "baseline",
         "env_name": "flappy",
         "fps": 30,
         "target_latency_frames": 1,
@@ -161,7 +161,7 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "runtime_envs": {
-            "small_model": {"conda_env": "latency", "description": "small"},
+            "baseline": {"conda_env": "latency", "description": "small"},
             "openvla": {"conda_env": "starvla_rl_games_openvla", "description": "vla"},
         },
         "devices": [
@@ -191,7 +191,7 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "env": "Flappy",
         "policy_type": "random",
         "model_type": "test_model",
-        "runtime_env": "small_model",
+        "runtime_env": "baseline",
         "env_name": "flappy",
         "fps": 30,
         "target_latency_frames": 1,
@@ -216,7 +216,7 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "runtime_envs": {
-            "small_model": {"conda_env": "latency", "description": "small"},
+            "baseline": {"conda_env": "latency", "description": "small"},
             "openvla": {"conda_env": "starvla_rl_games_openvla", "description": "vla"},
         },
         "devices": [
@@ -258,6 +258,7 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
 def _run_cli(tmp_path: Path, *args: str, env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
     run_env = os.environ.copy()
     run_env.setdefault("CROSS_DEVICE_RUNTIME_ENV", "latency")
+    run_env.setdefault("CROSS_DEVICE_INSTANCE_ID", "instance_test")
     if env:
         run_env.update(env)
     return subprocess.run(
@@ -278,7 +279,7 @@ def test_runtime_env_detection_maps_conda_envs_and_override(monkeypatch):
     module = _load_protocol_module()
     monkeypatch.delenv("CROSS_DEVICE_RUNTIME_ENV", raising=False)
     monkeypatch.setenv("CONDA_DEFAULT_ENV", "latency")
-    assert module.detect_runtime_env(RUNTIME_SPEC).matched_alias == "small_model"
+    assert module.detect_runtime_env(RUNTIME_SPEC).matched_alias == "baseline"
 
     monkeypatch.setenv("CONDA_DEFAULT_ENV", "starvla_rl_games_openvla")
     assert module.detect_runtime_env(RUNTIME_SPEC).matched_alias == "openvla"
@@ -287,7 +288,7 @@ def test_runtime_env_detection_maps_conda_envs_and_override(monkeypatch):
     monkeypatch.setenv("CONDA_DEFAULT_ENV", "starvla_rl_games_openvla")
     detected = module.detect_runtime_env(RUNTIME_SPEC)
     assert detected.detected_raw == "latency"
-    assert detected.matched_alias == "small_model"
+    assert detected.matched_alias == "baseline"
 
 
 def test_hardware_detection_accepts_full_gpu_model_names_and_multi_gpu_text():
@@ -641,7 +642,7 @@ def test_openvla_smoke_dry_run_uses_isolated_run_id_and_step_cap(tmp_path: Path)
     assert "episodes: 1" in result.stdout
     assert "eval_max_steps: 7" in result.stdout
     assert "smoke_seed_0_n1" in result.stdout
-    assert "profiles_smoke/demon-attack-openvla/demon_attack" in result.stdout
+    assert "profiles_smoke/openvla/demon_attack/a100/instance_test" in result.stdout
     generated = _first_runtime_generated_config(out, "measure")
     config = yaml.safe_load(generated.read_text(encoding="utf-8"))
     assert config["evaluation"]["eval_episodes"] == 1
@@ -789,7 +790,7 @@ def test_doctor_output_reports_runtime_compatible_and_skipped_rows(tmp_path: Pat
     )
 
     assert "Runtime environment:" in result.stdout
-    assert "matched alias: small_model" in result.stdout
+    assert "matched alias: baseline" in result.stdout
     assert "compatible rows: small-policy" in result.stdout
     assert "Skipped rows:" in result.stdout
     assert "vla-policy" in result.stdout
@@ -816,6 +817,7 @@ def test_measure_dedups_duplicate_openvla_rows_across_experiments(tmp_path: Path
         "--runtime-env",
         "openvla",
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
+        check=False,
     )
 
     assert result.stdout.count("policy: vla-policy") == 1
@@ -828,12 +830,12 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
     out = tmp_path / "results"
     _write_base_config(base_config)
     _write_spec(spec, base_config)
-    profile_path = out / "profiles" / "dry-policy" / "flappy" / "L_A100" / "profile.json"
+    profile_path = out / "profiles" / "test_model" / "flappy" / "a100" / "instance_local" / "profile.json"
     _write_profile_manifest(profile_path, env_fps=16.0, inference_worker_count=2)
 
     result = _run_cli(
         tmp_path,
-        "sim-same",
+        "sim",
         "--spec",
         str(spec),
         "--hardware",
@@ -847,6 +849,7 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
         "exp2_same_device_calibration",
         "--max-runs",
         "1",
+        env={"CROSS_DEVICE_INSTANCE_ID": "instance_local"},
     )
 
     assert "-m latency_bench.run" in result.stdout
@@ -857,7 +860,7 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
     assert config["env"]["env_fps"] == 16.0
     assert config["env"]["obs_fps"] == 16.0
     assert config["latency"]["type"] == "profile_sample"
-    assert config["latency"]["profile_path"].endswith("profiles/dry-policy/flappy/L_A100/profile.json")
+    assert config["latency"]["profile_path"].endswith("profiles/test_model/flappy/a100/instance_local/profile.json")
     assert config["latency"]["sampler"] == "profile_default"
     assert config["evaluation"]["eval_latency_values"] is None
     assert config["evaluation"]["eval_parallel_envs"] == 1
@@ -873,12 +876,12 @@ def test_sim_same_dry_run_passes_profile_sampler_to_generated_config(tmp_path: P
     payload = yaml.safe_load(spec.read_text(encoding="utf-8"))
     payload["profile_sampler"] = "iid_inverse_cdf"
     spec.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
-    profile_path = out / "profiles" / "dry-policy" / "flappy" / "L_A100" / "profile.json"
+    profile_path = out / "profiles" / "test_model" / "flappy" / "a100" / "instance_local" / "profile.json"
     _write_profile_manifest(profile_path, env_fps=16.0, inference_worker_count=2)
 
     _run_cli(
         tmp_path,
-        "sim-same",
+        "sim",
         "--spec",
         str(spec),
         "--hardware",
@@ -892,6 +895,7 @@ def test_sim_same_dry_run_passes_profile_sampler_to_generated_config(tmp_path: P
         "exp2_same_device_calibration",
         "--max-runs",
         "1",
+        env={"CROSS_DEVICE_INSTANCE_ID": "instance_local"},
     )
 
     generated = _first_runtime_generated_config(out, "sim_same")
@@ -945,11 +949,11 @@ def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch)
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     current_device = spec["devices"][0]
     runtime = RuntimeSelection(
-        requested="small_model",
+        requested="baseline",
         detected_raw="latency",
-        matched_alias="small_model",
+        matched_alias="baseline",
         matched_conda_env="latency",
-        selected_alias="small_model",
+        selected_alias="baseline",
         allow_all=False,
         allow_mismatch=False,
     )
@@ -985,10 +989,12 @@ def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch)
         profiles_dir,
         current_device,
         runtime,
+        instance_id="instance_local",
+        instance_origin="manual_override",
     )
 
     assert [item.runnable for item in plan] == [True]
-    assert calls == [profiles_dir / "dry-policy" / "flappy" / "L_A100" / "profile.json"]
+    assert calls == [profiles_dir / "test_model" / "flappy" / "a100" / "instance_local" / "profile.json"]
 
 
 def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
@@ -1079,11 +1085,11 @@ def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monke
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     current_device = spec["devices"][0]
     runtime = RuntimeSelection(
-        requested="small_model",
+        requested="baseline",
         detected_raw="latency",
-        matched_alias="small_model",
+        matched_alias="baseline",
         matched_conda_env="latency",
-        selected_alias="small_model",
+        selected_alias="baseline",
         allow_all=False,
         allow_mismatch=False,
     )
@@ -1171,11 +1177,11 @@ def test_measure_run_does_not_forward_n_samples_to_eval_or_profile(tmp_path: Pat
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     current_device = spec["devices"][0]
     runtime = RuntimeSelection(
-        requested="small_model",
+        requested="baseline",
         detected_raw="latency",
-        matched_alias="small_model",
+        matched_alias="baseline",
         matched_conda_env="latency",
-        selected_alias="small_model",
+        selected_alias="baseline",
         allow_all=False,
         allow_mismatch=False,
     )
@@ -1271,11 +1277,11 @@ def test_measure_run_does_not_continue_after_episodes_until_n_samples(tmp_path: 
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     current_device = spec["devices"][0]
     runtime = RuntimeSelection(
-        requested="small_model",
+        requested="baseline",
         detected_raw="latency",
-        matched_alias="small_model",
+        matched_alias="baseline",
         matched_conda_env="latency",
-        selected_alias="small_model",
+        selected_alias="baseline",
         allow_all=False,
         allow_mismatch=False,
     )
@@ -1377,11 +1383,11 @@ def test_measure_run_records_failed_calibration_manifest_without_eval(tmp_path: 
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     current_device = spec["devices"][0]
     runtime = RuntimeSelection(
-        requested="small_model",
+        requested="baseline",
         detected_raw="latency",
-        matched_alias="small_model",
+        matched_alias="baseline",
         matched_conda_env="latency",
-        selected_alias="small_model",
+        selected_alias="baseline",
         allow_all=False,
         allow_mismatch=False,
     )
@@ -1458,10 +1464,10 @@ def test_measure_dry_run_uses_base_config_fps_not_protocol_row_fps(tmp_path: Pat
     row = spec_data["experiments"]["exp2_same_device_calibration"]["rows"][0]
     row.update(
         {
-            "policy": "deadly-corridor-sf-l1",
+            "policy": "deadly-corridor-openvla",
             "env": "Deadly Corridor",
-            "policy_type": "deadly_corridor_sf",
-            "model_type": "sample_factory",
+            "policy_type": "starvla",
+            "model_type": "openvla",
             "env_name": "deadly_corridor",
             "fps": 999,
         }
@@ -1502,9 +1508,9 @@ def test_stage_overrides_can_raise_deadly_corridor_measure_episodes_only(tmp_pat
     row = spec_data["experiments"]["exp2_same_device_calibration"]["rows"][0]
     row.update(
         {
-            "policy": "deadly-corridor-sf-l1",
+            "policy": "deadly-corridor-openvla",
             "env": "Deadly Corridor",
-            "policy_type": "deadly_corridor_sf",
+            "policy_type": "starvla",
             "env_name": "deadly_corridor",
             "fps": 35,
             "stage_overrides": {"measure": {"n_episodes": 1000}},
@@ -1576,12 +1582,14 @@ def test_continue_on_error_runs_later_tasks_and_returns_nonzero_summary(tmp_path
     _write_base_config_with_policy(failing_config, "unknown_policy")
     _write_base_config_with_policy(passing_config, "random")
     _write_two_row_realtime_spec(spec, failing_config, passing_config)
-    _write_profile_manifest(out / "profiles" / "failing-policy" / "dummy" / "L_A100" / "profile.json", env_fps=30.0)
-    _write_profile_manifest(out / "profiles" / "passing-policy" / "dummy" / "L_A100" / "profile.json", env_fps=30.0)
+    _write_profile_manifest(
+        out / "profiles" / "test_model" / "dummy" / "a100" / "instance_test" / "profile.json",
+        env_fps=30.0,
+    )
 
     result = _run_cli(
         tmp_path,
-        "sim-same",
+        "sim",
         "--spec",
         str(spec),
         "--hardware",
@@ -1591,7 +1599,7 @@ def test_continue_on_error_runs_later_tasks_and_returns_nonzero_summary(tmp_path
         "--profiles-dir",
         str(out / "profiles"),
         "--runtime-env",
-        "small_model",
+        "baseline",
         "--continue-on-error",
         env={"CROSS_DEVICE_RUNTIME_ENV": "latency"},
         check=False,
@@ -1621,8 +1629,10 @@ def test_resume_skips_completed_manifest_but_retries_failed_run(tmp_path: Path):
     _write_base_config_with_policy(failing_config, "unknown_policy")
     _write_base_config_with_policy(passing_config, "random")
     _write_two_row_realtime_spec(spec, failing_config, passing_config)
-    _write_profile_manifest(out / "profiles" / "failing-policy" / "dummy" / "L_A100" / "profile.json", env_fps=30.0)
-    _write_profile_manifest(out / "profiles" / "passing-policy" / "dummy" / "L_A100" / "profile.json", env_fps=30.0)
+    _write_profile_manifest(
+        out / "profiles" / "test_model" / "dummy" / "a100" / "instance_test" / "profile.json",
+        env_fps=30.0,
+    )
 
     completed_dir = out / "runs" / "sim_same" / "passing-policy" / "dummy" / "a100" / "best_seed_0_n1"
     completed_dir.mkdir(parents=True)
@@ -1633,7 +1643,7 @@ def test_resume_skips_completed_manifest_but_retries_failed_run(tmp_path: Path):
 
     result = _run_cli(
         tmp_path,
-        "sim-same",
+        "sim",
         "--spec",
         str(spec),
         "--hardware",
@@ -1643,7 +1653,7 @@ def test_resume_skips_completed_manifest_but_retries_failed_run(tmp_path: Path):
         "--profiles-dir",
         str(out / "profiles"),
         "--runtime-env",
-        "small_model",
+        "baseline",
         "--resume",
         "--continue-on-error",
         env={"CROSS_DEVICE_RUNTIME_ENV": "latency"},

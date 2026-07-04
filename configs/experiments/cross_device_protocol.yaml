@@ -10,9 +10,6 @@ seed_set:
   - 0
 
 runtime_envs:
-  small_model:
-    conda_env: latency
-    description: "Sample Factory / small RL models"
   openvla:
     conda_env: starvla_rl_games_openvla
     description: "OpenVLA policies"
@@ -106,33 +103,6 @@ experiments:
   exp2_same_device_calibration:
     panel: b
     rows:
-      - policy: flappy-sf-l1
-        env: Flappy
-        policy_type: flappy_sf
-        model_type: sample_factory
-        runtime_env: small_model
-        env_name: flappy
-        fps: 30
-        target_latency_frames: 1
-        base_config: configs/train/flappy/latency_1/seed_0/latency_bench_eval.yaml
-      - policy: demon-attack-sf-l1
-        env: Demon Attack
-        policy_type: demon_attack_sf
-        model_type: sample_factory
-        runtime_env: small_model
-        env_name: demon_attack
-        fps: 60
-        target_latency_frames: 1
-        base_config: configs/train/demon_attack/latency_1/seed_0/latency_bench_eval.yaml
-      - policy: deadly-corridor-sf-l1
-        env: Deadly Corridor
-        policy_type: deadly_corridor_sf
-        model_type: sample_factory
-        runtime_env: small_model
-        env_name: deadly_corridor
-        fps: 35
-        target_latency_frames: 1
-        base_config: configs/train/deadly_corridor/latency_1/seed_0/latency_bench_eval.yaml
       - policy: openvla-flappy
         env: Flappy
         policy_type: starvla
