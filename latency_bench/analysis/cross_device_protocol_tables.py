@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +9,7 @@ import yaml
 
 from latency_bench.analysis.eval_stats import summarize_eval_run
 from latency_bench.latency.profile import load_profile_manifest
+from scripts.cross_device.profile_layout import slugify
 
 
 EXPERIMENT1_COLUMNS = (
@@ -18,6 +18,7 @@ EXPERIMENT1_COLUMNS = (
     "policy",
     "env",
     "profile_id",
+    "profile_instance_id",
     "hardware",
     "env_fps",
     "inference_mean_ms",
@@ -33,6 +34,7 @@ EXPERIMENT2_COLUMNS = (
     "policy",
     "env",
     "profile_id",
+    "profile_instance_id",
     "hardware",
     "realtime_return",
     "simulated_return_using_L_d",
@@ -54,7 +56,9 @@ EXPERIMENT3_COLUMNS = (
     "env",
     "target_device",
     "target_profile",
+    "target_profile_instance_id",
     "replay_device",
+    "replay_host_instance_id",
     "true_realtime_return_on_d",
     "simulated_return_on_replay_using_L_d",
     "return_abs_error",
@@ -90,40 +94,54 @@ def build_experiment1_rows(
     rows: list[dict[str, Any]] = []
     for experiment_id, experiment, row_spec in _iter_rows(spec, "exp1_latency_profile_summary"):
         for device in _devices(spec):
-            profile_path = _profile_path_for_row(root_path, row_spec, device)
-            manifest = _latest_manifest(
+            matches = _matching_manifests(
                 manifests,
                 stage="measure",
                 experiment_id=experiment_id,
                 row=row_spec,
                 target_device_id=device["id"],
             )
-            if manifest and manifest.get("profile_path"):
+            if not matches:
+                notes = _join_notes(
+                    _missing_note("profile", matches, {}),
+                    _skipped_notes_if_missing(
+                        manifests,
+                        matches=matches,
+                        stage="measure",
+                        experiment_id=experiment_id,
+                        row=row_spec,
+                        target_device_id=device["id"],
+                    ),
+                )
+                out = {
+                    "experiment_id": experiment_id,
+                    "panel": experiment.get("panel"),
+                    "policy": row_spec.get("policy"),
+                    "env": row_spec.get("env"),
+                    "profile_id": device.get("profile_id"),
+                    "profile_instance_id": "",
+                    "hardware": device.get("display_name", device.get("id")),
+                    "notes": notes,
+                }
+                rows.append({key: out.get(key, "") for key in EXPERIMENT1_COLUMNS})
+                continue
+            latest_by_instance = _latest_by_profile_instance(matches)
+            for profile_instance_id, manifest in latest_by_instance.items():
                 profile_path = Path(str(manifest["profile_path"]))
-            summary, profile_metadata, notes = _load_profile_summary(profile_path)
-            notes = _join_notes(
-                notes,
-                _skipped_notes_if_missing(
-                    manifests,
-                    matches=[manifest] if manifest and not notes else [],
-                    stage="measure",
-                    experiment_id=experiment_id,
-                    row=row_spec,
-                    target_device_id=device["id"],
-                ),
-            )
-            out = {
-                "experiment_id": experiment_id,
-                "panel": experiment.get("panel"),
-                "policy": row_spec.get("policy"),
-                "env": row_spec.get("env"),
-                "profile_id": device.get("profile_id"),
-                "hardware": device.get("display_name", device.get("id")),
-                "env_fps": profile_metadata["env_fps"],
-                "notes": notes,
-            }
-            out.update({key: summary.get(key, "") for key in EXPERIMENT1_COLUMNS if key not in out})
-            rows.append({key: out.get(key, "") for key in EXPERIMENT1_COLUMNS})
+                summary, profile_metadata, notes = _load_profile_summary(profile_path)
+                out = {
+                    "experiment_id": experiment_id,
+                    "panel": experiment.get("panel"),
+                    "policy": row_spec.get("policy"),
+                    "env": row_spec.get("env"),
+                    "profile_id": device.get("profile_id"),
+                    "profile_instance_id": profile_instance_id,
+                    "hardware": device.get("display_name", device.get("id")),
+                    "env_fps": profile_metadata["env_fps"],
+                    "notes": notes,
+                }
+                out.update({key: summary.get(key, "") for key in EXPERIMENT1_COLUMNS if key not in out})
+                rows.append({key: out.get(key, "") for key in EXPERIMENT1_COLUMNS})
     return rows
 
 
@@ -139,69 +157,84 @@ def build_experiment2_rows(
     seed_label = _seed_set_label(spec.get("seed_set", []))
     for experiment_id, experiment, row_spec in _iter_rows(spec, "exp2_same_device_calibration"):
         for device in _devices(spec):
-            realtime = _matching_manifests(
+            profile_instances = _profile_instances_for_device(
                 manifests,
-                stage="measure",
                 experiment_id=experiment_id,
                 row=row_spec,
                 target_device_id=device["id"],
+                stages=("measure", "sim_same"),
             )
-            sim = _matching_manifests(
-                manifests,
-                stage="sim_same",
-                experiment_id=experiment_id,
-                row=row_spec,
-                target_device_id=device["id"],
-            )
-            real_summary = _summarize_manifest_runs(realtime)
-            sim_summary = _summarize_manifest_runs(sim)
-            notes = _join_notes(
-                _missing_note("realtime", realtime, real_summary),
-                _skipped_notes_if_missing(
+            if not profile_instances:
+                profile_instances = [None]
+            for profile_instance_id in profile_instances:
+                realtime = _matching_manifests(
                     manifests,
-                    matches=realtime,
                     stage="measure",
                     experiment_id=experiment_id,
                     row=row_spec,
                     target_device_id=device["id"],
-                ),
-                _missing_note("sim-same", sim, sim_summary),
-                _skipped_notes_if_missing(
+                    target_profile_instance_id=profile_instance_id,
+                )
+                sim = _matching_manifests(
                     manifests,
-                    matches=sim,
                     stage="sim_same",
                     experiment_id=experiment_id,
                     row=row_spec,
                     target_device_id=device["id"],
-                ),
-            )
-            errors = _error_fields(
-                real_value=_maybe_number(real_summary.get("mean_return")),
-                sim_value=_maybe_number(sim_summary.get("mean_return")),
-                real_length=_maybe_number(real_summary.get("mean_length")),
-                sim_length=_maybe_number(sim_summary.get("mean_length")),
-            )
-            n_episodes = _available_n_episodes(real_summary, sim_summary)
-            out = {
-                "experiment_id": experiment_id,
-                "panel": experiment.get("panel"),
-                "policy": row_spec.get("policy"),
-                "env": row_spec.get("env"),
-                "profile_id": device.get("profile_id"),
-                "hardware": device.get("display_name", device.get("id")),
-                "realtime_return": real_summary.get("mean_return", ""),
-                "simulated_return_using_L_d": sim_summary.get("mean_return", ""),
-                "return_abs_error": errors["return_abs_error"],
-                "return_rel_error_pct": errors["return_rel_error_pct"],
-                "realtime_length": real_summary.get("mean_length", ""),
-                "sim_length": sim_summary.get("mean_length", ""),
-                "length_abs_error": errors["length_abs_error"],
-                "length_rel_error_pct": errors["length_rel_error_pct"],
-                "n_episodes": n_episodes,
-                "seed_set": seed_label,
-                "notes": notes,
-            }
-            rows.append({key: out.get(key, "") for key in EXPERIMENT2_COLUMNS})
+                    target_profile_instance_id=profile_instance_id,
+                )
+                real_summary = _summarize_manifest_runs(realtime)
+                sim_summary = _summarize_manifest_runs(sim)
+                notes = _join_notes(
+                    _missing_note("realtime", realtime, real_summary),
+                    _skipped_notes_if_missing(
+                        manifests,
+                        matches=realtime,
+                        stage="measure",
+                        experiment_id=experiment_id,
+                        row=row_spec,
+                        target_device_id=device["id"],
+                        target_profile_instance_id=profile_instance_id,
+                    ),
+                    _missing_note("sim-same", sim, sim_summary),
+                    _skipped_notes_if_missing(
+                        manifests,
+                        matches=sim,
+                        stage="sim_same",
+                        experiment_id=experiment_id,
+                        row=row_spec,
+                        target_device_id=device["id"],
+                        target_profile_instance_id=profile_instance_id,
+                    ),
+                )
+                errors = _error_fields(
+                    real_value=_maybe_number(real_summary.get("mean_return")),
+                    sim_value=_maybe_number(sim_summary.get("mean_return")),
+                    real_length=_maybe_number(real_summary.get("mean_length")),
+                    sim_length=_maybe_number(sim_summary.get("mean_length")),
+                )
+                n_episodes = _available_n_episodes(real_summary, sim_summary)
+                out = {
+                    "experiment_id": experiment_id,
+                    "panel": experiment.get("panel"),
+                    "policy": row_spec.get("policy"),
+                    "env": row_spec.get("env"),
+                    "profile_id": device.get("profile_id"),
+                    "profile_instance_id": profile_instance_id or "",
+                    "hardware": device.get("display_name", device.get("id")),
+                    "realtime_return": real_summary.get("mean_return", ""),
+                    "simulated_return_using_L_d": sim_summary.get("mean_return", ""),
+                    "return_abs_error": errors["return_abs_error"],
+                    "return_rel_error_pct": errors["return_rel_error_pct"],
+                    "realtime_length": real_summary.get("mean_length", ""),
+                    "sim_length": sim_summary.get("mean_length", ""),
+                    "length_abs_error": errors["length_abs_error"],
+                    "length_rel_error_pct": errors["length_rel_error_pct"],
+                    "n_episodes": n_episodes,
+                    "seed_set": seed_label,
+                    "notes": notes,
+                }
+                rows.append({key: out.get(key, "") for key in EXPERIMENT2_COLUMNS})
     return rows
 
 
@@ -220,72 +253,101 @@ def build_experiment3_rows(
         for pair in experiment["replay_pairs"]:
             target = devices_by_id[str(pair["target_device"])]
             replay = devices_by_id[str(pair["replay_device"])]
-            true_realtime = _matching_manifests(
+            target_instances = _profile_instances_for_cross_pair(
                 manifests,
-                stage="measure",
-                experiment_id=experiment_id,
-                row=row_spec,
-                target_device_id=target["id"],
-            )
-            true_summary = _summarize_manifest_runs(true_realtime)
-            sim_cross = _matching_manifests(
-                manifests,
-                stage="sim_cross",
                 experiment_id=experiment_id,
                 row=row_spec,
                 target_device_id=target["id"],
                 replay_device_id=replay["id"],
             )
-            sim_summary = _summarize_manifest_runs(sim_cross)
-            errors = _error_fields(
-                real_value=_maybe_number(true_summary.get("mean_return")),
-                sim_value=_maybe_number(sim_summary.get("mean_return")),
-                real_length=_maybe_number(true_summary.get("mean_length")),
-                sim_length=_maybe_number(sim_summary.get("mean_length")),
-            )
-            notes = _join_notes(
-                _missing_note("true realtime", true_realtime, true_summary),
-                _skipped_notes_if_missing(
+            if not target_instances:
+                target_instances = [None]
+            for target_profile_instance_id in target_instances:
+                replay_host_instances = _replay_host_instances_for_cross_pair(
                     manifests,
-                    matches=true_realtime,
-                    stage="measure",
                     experiment_id=experiment_id,
                     row=row_spec,
                     target_device_id=target["id"],
-                ),
-                _missing_note("sim-cross", sim_cross, sim_summary),
-                _skipped_notes_if_missing(
-                    manifests,
-                    matches=sim_cross,
-                    stage="sim_cross",
-                    experiment_id=experiment_id,
-                    row=row_spec,
-                    target_device_id=target["id"],
+                    target_profile_instance_id=target_profile_instance_id,
                     replay_device_id=replay["id"],
-                ),
-            )
-            out = {
-                "experiment_id": experiment_id,
-                "panel": experiment.get("panel"),
-                "policy": row_spec.get("policy"),
-                "env": row_spec.get("env"),
-                "target_device": target.get("display_name", target.get("id")),
-                "target_profile": target.get("profile_id"),
-                "replay_device": replay.get("display_name", replay.get("id")),
-                "true_realtime_return_on_d": true_summary.get("mean_return", ""),
-                "simulated_return_on_replay_using_L_d": sim_summary.get("mean_return", ""),
-                "return_abs_error": errors["return_abs_error"],
-                "return_rel_error_pct": errors["return_rel_error_pct"],
-                "true_realtime_length_on_d": true_summary.get("mean_length", ""),
-                "simulated_length_on_replay_using_L_d": sim_summary.get("mean_length", ""),
-                "length_abs_error": errors["length_abs_error"],
-                "length_rel_error_pct": errors["length_rel_error_pct"],
-                "n_episodes": _available_n_episodes(true_summary, sim_summary),
-                "seed_set": seed_label,
-                "use_in_main_claim": "TRUE",
-                "notes": notes,
-            }
-            rows.append({key: out.get(key, "") for key in EXPERIMENT3_COLUMNS})
+                )
+                if not replay_host_instances:
+                    replay_host_instances = [None]
+                for replay_host_instance_id in replay_host_instances:
+                    true_realtime = _matching_manifests(
+                        manifests,
+                        stage="measure",
+                        experiment_id=experiment_id,
+                        row=row_spec,
+                        target_device_id=target["id"],
+                        target_profile_instance_id=target_profile_instance_id,
+                    )
+                    true_summary = _summarize_manifest_runs(true_realtime)
+                    sim_cross = _matching_manifests(
+                        manifests,
+                        stage="sim_cross",
+                        experiment_id=experiment_id,
+                        row=row_spec,
+                        target_device_id=target["id"],
+                        target_profile_instance_id=target_profile_instance_id,
+                        replay_device_id=replay["id"],
+                        replay_host_instance_id=replay_host_instance_id,
+                    )
+                    sim_summary = _summarize_manifest_runs(sim_cross)
+                    errors = _error_fields(
+                        real_value=_maybe_number(true_summary.get("mean_return")),
+                        sim_value=_maybe_number(sim_summary.get("mean_return")),
+                        real_length=_maybe_number(true_summary.get("mean_length")),
+                        sim_length=_maybe_number(sim_summary.get("mean_length")),
+                    )
+                    notes = _join_notes(
+                        _missing_note("true realtime", true_realtime, true_summary),
+                        _skipped_notes_if_missing(
+                            manifests,
+                            matches=true_realtime,
+                            stage="measure",
+                            experiment_id=experiment_id,
+                            row=row_spec,
+                            target_device_id=target["id"],
+                            target_profile_instance_id=target_profile_instance_id,
+                        ),
+                        _missing_note("sim-cross", sim_cross, sim_summary),
+                        _skipped_notes_if_missing(
+                            manifests,
+                            matches=sim_cross,
+                            stage="sim_cross",
+                            experiment_id=experiment_id,
+                            row=row_spec,
+                            target_device_id=target["id"],
+                            target_profile_instance_id=target_profile_instance_id,
+                            replay_device_id=replay["id"],
+                            replay_host_instance_id=replay_host_instance_id,
+                        ),
+                    )
+                    out = {
+                        "experiment_id": experiment_id,
+                        "panel": experiment.get("panel"),
+                        "policy": row_spec.get("policy"),
+                        "env": row_spec.get("env"),
+                        "target_device": target.get("display_name", target.get("id")),
+                        "target_profile": target.get("profile_id"),
+                        "target_profile_instance_id": target_profile_instance_id or "",
+                        "replay_device": replay.get("display_name", replay.get("id")),
+                        "replay_host_instance_id": replay_host_instance_id or "",
+                        "true_realtime_return_on_d": true_summary.get("mean_return", ""),
+                        "simulated_return_on_replay_using_L_d": sim_summary.get("mean_return", ""),
+                        "return_abs_error": errors["return_abs_error"],
+                        "return_rel_error_pct": errors["return_rel_error_pct"],
+                        "true_realtime_length_on_d": true_summary.get("mean_length", ""),
+                        "simulated_length_on_replay_using_L_d": sim_summary.get("mean_length", ""),
+                        "length_abs_error": errors["length_abs_error"],
+                        "length_rel_error_pct": errors["length_rel_error_pct"],
+                        "n_episodes": _available_n_episodes(true_summary, sim_summary),
+                        "seed_set": seed_label,
+                        "use_in_main_claim": "TRUE",
+                        "notes": notes,
+                    }
+                    rows.append({key: out.get(key, "") for key in EXPERIMENT3_COLUMNS})
     return rows
 
 
@@ -386,7 +448,7 @@ def _protocol_path_suffix(parts: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _dedupe_manifest_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    completed_by_run_key: dict[tuple[str, str, str, str, str, str, str], dict[str, Any]] = {}
+    completed_by_run_key: dict[tuple[str, str, str, str, str, str, str, str, str], dict[str, Any]] = {}
     non_completed_by_key: dict[tuple[str, ...], dict[str, Any]] = {}
     passthrough: list[dict[str, Any]] = []
     for record in records:
@@ -400,7 +462,9 @@ def _dedupe_manifest_records(records: list[dict[str, Any]]) -> list[dict[str, An
             str(record.get("policy")),
             str(record.get("env")),
             str(record.get("target_device_id")),
+            str(record.get("target_profile_instance_id")),
             str(record.get("replay_device_id")),
+            str(record.get("instance_id")),
             str(record.get("seed")),
         )
         if record.get("status") == "completed":
@@ -449,16 +513,6 @@ def _devices_by_id(spec: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {str(device["id"]): device for device in _devices(spec)}
 
 
-def _profile_path_for_row(root: Path, row: dict[str, Any], device: dict[str, Any]) -> Path:
-    return root / "profiles" / slugify(row["policy"]) / slugify(row["env"]) / str(device["profile_id"]) / "profile.json"
-
-
-def slugify(value: Any) -> str:
-    text = str(value).strip().lower()
-    text = re.sub(r"[^a-z0-9._-]+", "_", text)
-    return text.strip("_") or "unknown"
-
-
 def _load_profile_summary(path: Path) -> tuple[dict[str, Any], dict[str, Any], str]:
     if not path.exists():
         raise FileNotFoundError(f"missing profile: {path}")
@@ -474,6 +528,77 @@ def _load_profile_summary(path: Path) -> tuple[dict[str, Any], dict[str, Any], s
     return summary, manifest, ""
 
 
+def _latest_by_profile_instance(manifests: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for manifest in manifests:
+        latest[str(manifest["target_profile_instance_id"])] = manifest
+    return dict(sorted(latest.items()))
+
+
+def _profile_instances_for_device(
+    manifests: list[dict[str, Any]],
+    *,
+    experiment_id: str,
+    row: dict[str, Any],
+    target_device_id: str,
+    stages: tuple[str, ...],
+) -> list[str]:
+    instances = {
+        str(manifest["target_profile_instance_id"])
+        for manifest in manifests
+        if manifest.get("stage") in stages
+        and _manifest_contributes_to(manifest, experiment_id)
+        and manifest.get("policy") == row.get("policy")
+        and manifest.get("env") == row.get("env")
+        and manifest.get("target_device_id") == target_device_id
+    }
+    return sorted(instances)
+
+
+def _profile_instances_for_cross_pair(
+    manifests: list[dict[str, Any]],
+    *,
+    experiment_id: str,
+    row: dict[str, Any],
+    target_device_id: str,
+    replay_device_id: str,
+) -> list[str]:
+    instances = {
+        str(manifest["target_profile_instance_id"])
+        for manifest in manifests
+        if manifest.get("stage") in {"measure", "sim_cross"}
+        and _manifest_contributes_to(manifest, experiment_id)
+        and manifest.get("policy") == row.get("policy")
+        and manifest.get("env") == row.get("env")
+        and manifest.get("target_device_id") == target_device_id
+        and (manifest.get("stage") == "measure" or manifest.get("replay_device_id") == replay_device_id)
+    }
+    return sorted(instances)
+
+
+def _replay_host_instances_for_cross_pair(
+    manifests: list[dict[str, Any]],
+    *,
+    experiment_id: str,
+    row: dict[str, Any],
+    target_device_id: str,
+    target_profile_instance_id: str | None,
+    replay_device_id: str,
+) -> list[str]:
+    instances = {
+        str(manifest["instance_id"])
+        for manifest in manifests
+        if manifest.get("stage") == "sim_cross"
+        and _manifest_contributes_to(manifest, experiment_id)
+        and manifest.get("policy") == row.get("policy")
+        and manifest.get("env") == row.get("env")
+        and manifest.get("target_device_id") == target_device_id
+        and manifest["target_profile_instance_id"] == target_profile_instance_id
+        and manifest.get("replay_device_id") == replay_device_id
+    }
+    return sorted(instances)
+
+
 def _matching_manifests(
     manifests: list[dict[str, Any]],
     *,
@@ -481,7 +606,9 @@ def _matching_manifests(
     experiment_id: str,
     row: dict[str, Any],
     target_device_id: str,
+    target_profile_instance_id: str | None = None,
     replay_device_id: str | None = None,
+    replay_host_instance_id: str | None = None,
 ) -> list[dict[str, Any]]:
     matches: list[dict[str, Any]] = []
     for manifest in manifests:
@@ -493,7 +620,11 @@ def _matching_manifests(
             continue
         if manifest.get("target_device_id") != target_device_id:
             continue
+        if target_profile_instance_id is not None and manifest["target_profile_instance_id"] != target_profile_instance_id:
+            continue
         if replay_device_id is not None and manifest.get("replay_device_id") != replay_device_id:
+            continue
+        if replay_host_instance_id is not None and manifest["instance_id"] != replay_host_instance_id:
             continue
         if manifest.get("status") != "completed":
             continue
@@ -509,7 +640,9 @@ def _skipped_notes_if_missing(
     experiment_id: str,
     row: dict[str, Any],
     target_device_id: str,
+    target_profile_instance_id: str | None = None,
     replay_device_id: str | None = None,
+    replay_host_instance_id: str | None = None,
 ) -> str:
     if matches:
         return ""
@@ -519,7 +652,9 @@ def _skipped_notes_if_missing(
         experiment_id=experiment_id,
         row=row,
         target_device_id=target_device_id,
+        target_profile_instance_id=target_profile_instance_id,
         replay_device_id=replay_device_id,
+        replay_host_instance_id=replay_host_instance_id,
     )
 
 
@@ -530,7 +665,9 @@ def _matching_skipped_notes(
     experiment_id: str,
     row: dict[str, Any],
     target_device_id: str,
+    target_profile_instance_id: str | None = None,
     replay_device_id: str | None = None,
+    replay_host_instance_id: str | None = None,
 ) -> str:
     notes: list[str] = []
     for manifest in manifests:
@@ -542,7 +679,11 @@ def _matching_skipped_notes(
             continue
         if manifest.get("target_device_id") != target_device_id:
             continue
+        if target_profile_instance_id is not None and manifest["target_profile_instance_id"] != target_profile_instance_id:
+            continue
         if replay_device_id is not None and manifest.get("replay_device_id") != replay_device_id:
+            continue
+        if replay_host_instance_id is not None and manifest["instance_id"] != replay_host_instance_id:
             continue
         if manifest.get("status") not in {"skipped", "failed"}:
             continue
@@ -557,24 +698,6 @@ def _manifest_contributes_to(manifest: dict[str, Any], experiment_id: str) -> bo
     if isinstance(experiment_ids, list):
         return experiment_id in {str(item) for item in experiment_ids}
     return manifest.get("experiment_id") == experiment_id
-
-
-def _latest_manifest(
-    manifests: list[dict[str, Any]],
-    *,
-    stage: str,
-    experiment_id: str,
-    row: dict[str, Any],
-    target_device_id: str,
-) -> dict[str, Any] | None:
-    matches = _matching_manifests(
-        manifests,
-        stage=stage,
-        experiment_id=experiment_id,
-        row=row,
-        target_device_id=target_device_id,
-    )
-    return matches[-1] if matches else None
 
 
 def _summarize_manifest_runs(manifests: list[dict[str, Any]]) -> dict[str, Any]:

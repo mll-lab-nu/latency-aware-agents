@@ -20,7 +20,10 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from latency_bench.analysis.cross_device_protocol_tables import load_protocol_manifests, load_protocol_spec, slugify
+from latency_bench.analysis.cross_device_protocol_tables import (
+    load_protocol_manifests,
+    load_protocol_spec,
+)
 from latency_bench.latency.profile import load_latency_samples
 from latency_bench.utils.io import load_jsonl_records, write_csv
 
@@ -31,6 +34,7 @@ FIG_COLUMNS = (
     "policy",
     "env",
     "profile_id",
+    "profile_instance_id",
     "hardware",
     "latency_ms",
     "realtime_return",
@@ -43,8 +47,10 @@ FIG_COLUMNS = (
     "length_rel_error_pct",
     "target_device_d",
     "target_profile",
+    "target_profile_instance_id",
     "target_device_id",
     "replay_device",
+    "replay_host_instance_id",
     "episode_id",
     "episode_return_env",
     "survival_steps",
@@ -62,6 +68,7 @@ TABLE3_COLUMNS = (
     "policy",
     "env",
     "profile_id",
+    "profile_instance_id",
     "hardware",
     "fps",
     "inference_mean_ms",
@@ -76,6 +83,7 @@ _CALIBRATION_PASSTHROUGH = (
     "policy",
     "env",
     "profile_id",
+    "profile_instance_id",
     "hardware",
     "realtime_return",
     "simulated_return_using_L_d",
@@ -94,7 +102,9 @@ _PREDICTION_PASSTHROUGH = (
     "policy",
     "env",
     "target_profile",
+    "target_profile_instance_id",
     "replay_device",
+    "replay_host_instance_id",
     "true_realtime_return_on_d",
     "simulated_return_on_replay_using_L_d",
     "return_abs_error",
@@ -133,29 +143,31 @@ def build_table3_rows(exp1_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
     return rows
 
 
-def _resolve_latency_trace(
-    profiles_root: Path,
-    *,
-    policy: str,
-    env: str,
-    profile_id: str,
-    trace_name: str,
-) -> Path:
-    """Locate a device's latency trace under a flat or nested profiles root.
+def _resolve_latency_trace(profile_manifest: dict[str, Any], *, trace_name: str) -> Path:
+    """Locate a latency trace beside a completed measure manifest's profile."""
+    trace = Path(str(profile_manifest["profile_path"])).parent / trace_name
+    if trace.exists():
+        return trace
+    raise FileNotFoundError(f"missing latency trace: {trace}")
 
-    Tries the canonical flat layout `<profiles_root>/<policy>/<env>/<id>/` first;
-    falls back to globbing so a per-machine HF download root
-    (`.../raw/<device>/instances/<instance>/<runtime>/cross_device/profiles/<policy>/<env>/<id>/`)
-    also resolves.
-    """
-    fixed = profiles_root / slugify(policy) / slugify(env) / profile_id / trace_name
-    if fixed.exists():
-        return fixed
-    pattern = f"**/{slugify(policy)}/{slugify(env)}/{profile_id}/{trace_name}"
-    for match in sorted(profiles_root.glob(pattern)):
-        if match.is_file():
-            return match
-    raise FileNotFoundError(f"missing latency trace: {pattern}")
+
+def _profile_manifest_for_exp1_row(src: dict[str, str], manifests: list[dict[str, Any]]) -> dict[str, Any]:
+    matches = [
+        manifest
+        for manifest in manifests
+        if manifest.get("stage") == "measure"
+        and manifest.get("status") == "completed"
+        and manifest.get("policy") == src["policy"]
+        and manifest.get("env") == src["env"]
+        and manifest.get("target_profile_id") == src["profile_id"]
+        and manifest["target_profile_instance_id"] == src["profile_instance_id"]
+    ]
+    if not matches:
+        raise FileNotFoundError(
+            f"missing measure manifest for {src['policy']} {src['env']} "
+            f"{src['profile_id']} {src['profile_instance_id']}"
+        )
+    return sorted(matches, key=lambda item: str(item.get("completed_at") or item.get("started_at") or ""))[-1]
 
 
 def build_latency_sample_rows(
@@ -163,28 +175,28 @@ def build_latency_sample_rows(
     profiles_root: Path,
     *,
     panel_a_env: str,
+    spec: dict[str, Any] | None,
+    root: Path | None = None,
+    raw_root: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Emit one panel-(a) row per latency sample, read from per-device traces."""
+    """Emit one panel-(a) row per latency sample, read from per-device traces.
+
+    Traces live at `<model>/<env>/<device>/<instance>/`, so the experiment-1 CSV
+    rows (keyed by policy/profile_id) are mapped to model_type/env_name/device_id
+    through the protocol spec. Without a spec there is nothing to resolve.
+    """
     rows: list[dict[str, Any]] = []
+    if spec is None or root is None:
+        return rows
+    manifests = load_protocol_manifests(root, raw_root=raw_root)
     for src in exp1_rows:
         if src.get("env") != panel_a_env:
             continue
         if not src["e2e_mean_ms"]:
             continue
-        e2e_trace = _resolve_latency_trace(
-            profiles_root,
-            policy=src["policy"],
-            env=src["env"],
-            profile_id=str(src["profile_id"]),
-            trace_name="e2e_latencies.jsonl",
-        )
-        inference_trace = _resolve_latency_trace(
-            profiles_root,
-            policy=src["policy"],
-            env=src["env"],
-            profile_id=str(src["profile_id"]),
-            trace_name="infer_latencies.jsonl",
-        )
+        profile_manifest = _profile_manifest_for_exp1_row(src, manifests)
+        e2e_trace = _resolve_latency_trace(profile_manifest, trace_name="e2e_latencies.jsonl")
+        inference_trace = _resolve_latency_trace(profile_manifest, trace_name="infer_latencies.jsonl")
         e2e_records = load_jsonl_records(e2e_trace)
         e2e_samples = [record["latency_ms"] for record in e2e_records]
         for latency_ms in e2e_samples:
@@ -195,6 +207,7 @@ def build_latency_sample_rows(
                     policy=src["policy"],
                     env=src["env"],
                     profile_id=src["profile_id"],
+                    profile_instance_id=src["profile_instance_id"],
                     hardware=src["hardware"],
                     latency_ms=latency_ms,
                 )
@@ -211,6 +224,7 @@ def build_latency_sample_rows(
                     policy=src["policy"],
                     env=src["env"],
                     profile_id=src["profile_id"],
+                    profile_instance_id=src["profile_instance_id"],
                     hardware=src["hardware"],
                     latency_ms=overhead_ms,
                 )
@@ -224,6 +238,7 @@ def build_latency_sample_rows(
                     policy=src["policy"],
                     env=src["env"],
                     profile_id=src["profile_id"],
+                    profile_instance_id=src["profile_instance_id"],
                     hardware=src["hardware"],
                     latency_ms=latency_ms,
                 )
@@ -292,6 +307,7 @@ def build_realtime_episode_return_rows(
                         policy=row_spec["policy"],
                         env=row_spec["env"],
                         profile_id=device["profile_id"],
+                        profile_instance_id=manifest["target_profile_instance_id"],
                         hardware=device["display_name"],
                         target_device_id=device["id"],
                         episode_id=record["episode_id"],
@@ -339,6 +355,7 @@ def build_simulated_episode_return_rows(
                         policy=row_spec["policy"],
                         env=row_spec["env"],
                         profile_id=device["profile_id"],
+                        profile_instance_id=manifest["target_profile_instance_id"],
                         hardware=device["display_name"],
                         target_device_id=device["id"],
                         episode_id=record["episode_id"],
@@ -377,7 +394,14 @@ def build_all(
     exp3 = read_csv(tables_dir / "experiment3_cross_device_prediction.csv")
 
     fig_rows = (
-        build_latency_sample_rows(exp1, profiles_root, panel_a_env=panel_a_env)
+        build_latency_sample_rows(
+            exp1,
+            profiles_root,
+            panel_a_env=panel_a_env,
+            spec=spec,
+            root=root,
+            raw_root=raw_root,
+        )
         + build_calibration_rows(exp2)
         + build_prediction_rows(exp3)
     )
@@ -394,7 +418,7 @@ def build_all(
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Build §4.1 figure/table data.csv from aggregate protocol output.")
     parser.add_argument("--tables-dir", type=Path, required=True, help="Dir with experiment{1,2,3}_*.csv.")
-    parser.add_argument("--profiles-root", type=Path, required=True, help="Root of <policy>/<env>/<profile_id>/{infer,e2e}_latencies.jsonl.")
+    parser.add_argument("--profiles-root", type=Path, required=True, help="Root containing explicit latency trace folders.")
     parser.add_argument("--out-fig", type=Path, required=True, help="Output fig6/data.csv path.")
     parser.add_argument("--out-table", type=Path, required=True, help="Output table3/data.csv path.")
     parser.add_argument("--spec", type=Path, help="Protocol spec used to append per-episode realtime returns.")
