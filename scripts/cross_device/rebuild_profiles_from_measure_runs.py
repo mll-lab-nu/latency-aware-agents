@@ -71,10 +71,7 @@ def discover_targets(*, root: Path, run_dir: Path | None = None) -> list[Rebuild
         records = load_jsonl_records(episode_metrics_path)
         metrics_metadata = records[0]["metadata"]
         profile_id = metrics_metadata["profile_id"]
-        prefix = Path(*parts[:run_index])
-        policy_slug = parts[run_index + 2]
-        env_slug = parts[run_index + 3]
-        profile_path = prefix / "profiles" / policy_slug / env_slug / profile_id / "profile.json"
+        profile_path = Path(json.loads((candidate / "manifest.json").read_text(encoding="utf-8"))["profile_path"])
         existing_profile = load_profile_manifest(profile_path)
         metadata = {
             key: value

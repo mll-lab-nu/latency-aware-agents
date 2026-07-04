@@ -1,7 +1,7 @@
 """Local-first Hugging Face cache for latency profile artifacts.
 
 Profiles are addressed inside the mirrored protocol output root, for example
-`profiles/policy/env/L_A100/profile.json`.
+`profiles/model/env/device/instance/profile.json`.
 """
 from __future__ import annotations
 
@@ -130,7 +130,7 @@ def upload_folder_to_hf(
         repo_type: Hugging Face repo type.
         path_in_repo: Destination folder inside the repo. When set, the folder
             lands at `<path_in_repo>/...` so an upload round-trips with the
-            `profiles/<policy>/<env>/<profile_id>` layout that
+            `profiles/<model>/<env>/<device>/<instance>` layout that
             `ensure_profile_cached` downloads from.
         allow_patterns: Optional glob allow-list forwarded to `upload_folder`.
         ignore_patterns: Optional glob ignore-list forwarded to `upload_folder`.
@@ -216,7 +216,10 @@ def main(argv: list[str] | None = None) -> None:
     upload.add_argument("--folder", type=Path, required=True)
     upload.add_argument("--hf-repo", required=True)
     upload.add_argument("--repo-type", default="dataset")
-    upload.add_argument("--path-in-repo", help="Destination folder inside the repo (e.g. profiles/<policy>/<env>/<profile_id>).")
+    upload.add_argument(
+        "--path-in-repo",
+        help="Destination folder inside the repo (e.g. profiles/<model>/<env>/<device>/<instance>).",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "download":
