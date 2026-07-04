@@ -79,7 +79,7 @@ n=100 下该协议的分辨率下限约 ±10%——低于这个量级的"gap 差
 - 4090/5090 用了正确的连续 e2e 分布——恰好也是 gap<1% 的两台。
 - 注意：4090/5090/l40s 现存 profile 没有 burst model 且 `latency_method=None`，
   现在的 master 代码 `profile_default` 会直接 raise，重跑前必须先用
-  `rebuild_burst_models_from_hf.py` / `backfill_latency_burst_model.py` 重建。
+  `rebuild_profiles_from_measure_runs.py` 或 `backfill_latency_burst_model.py` 重建。
 
 ## 已排除的假设
 

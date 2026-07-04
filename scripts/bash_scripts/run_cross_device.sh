@@ -5,7 +5,6 @@ set -euo pipefail
 #
 # Common usage:
 #   scripts/bash_scripts/run_cross_device.sh profile
-#   scripts/bash_scripts/run_cross_device.sh realtime
 #   scripts/bash_scripts/run_cross_device.sh sim
 #   scripts/bash_scripts/run_cross_device.sh aggregate
 #   DRY_RUN=1 ONLY_POLICY=OpenVLA-Flappy scripts/bash_scripts/run_cross_device.sh profile
@@ -28,7 +27,6 @@ Usage:
 Presets:
   doctor      Check selected rows, runtime, hardware, configs, and profiles.
   profile     Run doctor + measure, then upload local profiles to HF.
-  realtime    Run doctor + realtime baseline.
   sim         Run doctor + sim (same-device; set SIM_TARGET=device/instance for cross-device replay).
   aggregate   Aggregate protocol outputs into tables.
   custom      Use STAGES exactly as provided by the environment.
@@ -67,9 +65,6 @@ case "${PRESET}" in
     profile)
         STAGES=${STAGES:-doctor measure}
         UPLOAD_PROFILES=${UPLOAD_PROFILES:-1}
-        ;;
-    realtime)
-        STAGES=${STAGES:-doctor realtime}
         ;;
     sim)
         STAGES=${STAGES:-doctor sim}
@@ -136,23 +131,19 @@ echo "  hf_profile_repo: ${HF_PROFILE_REPO}"
 for stage in ${STAGES}; do
     case "${stage}" in
         doctor)
-            python -m scripts.cross_device.protocol doctor \
+            python -m latency_bench.cross_device.protocol doctor \
                 "${COMMON_ARGS[@]}" --hardware "${HARDWARE}" --out "${OUT}" --profiles-dir "${PROFILES_DIR}" "${CHECK_ARGS[@]}"
             ;;
         measure)
-            python -m scripts.cross_device.protocol measure \
-                "${COMMON_ARGS[@]}" --hardware "${HARDWARE}" --out "${OUT}" "${EXEC_ARGS[@]}"
-            ;;
-        realtime)
-            python -m scripts.cross_device.protocol realtime \
+            python -m latency_bench.cross_device.protocol measure \
                 "${COMMON_ARGS[@]}" --hardware "${HARDWARE}" --out "${OUT}" "${EXEC_ARGS[@]}"
             ;;
         sim)
-            python -m scripts.cross_device.protocol sim \
+            python -m latency_bench.cross_device.protocol sim \
                 "${COMMON_ARGS[@]}" --hardware "${HARDWARE}" "${SIM_ARGS[@]}" --profiles-dir "${PROFILES_DIR}" --out "${OUT}" "${EXEC_ARGS[@]}"
             ;;
         aggregate)
-            python -m scripts.cross_device.protocol aggregate "${AGG_ARGS[@]}"
+            python -m latency_bench.cross_device.protocol aggregate "${AGG_ARGS[@]}"
             ;;
         *)
             echo "Unknown stage: ${stage}" >&2
@@ -166,7 +157,7 @@ if [[ "${UPLOAD_PROFILES}" == "1" ]]; then
         echo "profile upload: skipped for dry run"
         exit 0
     fi
-    python -m scripts.cross_device.profile_cache upload \
+    python -m latency_bench.cross_device.sync upload \
         --folder "${OUT}" \
         --hf-repo "${HF_PROFILE_REPO}" \
         --repo-type "${HF_PROFILE_REPO_TYPE}"

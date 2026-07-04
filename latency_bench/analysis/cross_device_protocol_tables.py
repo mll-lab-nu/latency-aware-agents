@@ -9,7 +9,7 @@ import yaml
 
 from latency_bench.analysis.eval_stats import summarize_eval_run
 from latency_bench.latency.profile import load_profile_manifest
-from scripts.cross_device.profile_layout import slugify
+from latency_bench.cross_device.layout import slugify
 
 
 EXPERIMENT1_COLUMNS = (
