@@ -6,7 +6,6 @@ whether a profile exists, but dry-runs deliberately avoid network downloads.
 from __future__ import annotations
 
 import argparse
-import os
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -17,7 +16,7 @@ from latency_bench.cross_device.models import (
     RuntimeSelection,
 )
 from latency_bench.cross_device.layout import profile_path as layout_profile_path, slugify
-from latency_bench.cross_device.sync import ensure_profile_cached
+from latency_bench.cross_device.profile_resources import profile_resource_skip_reasons
 from latency_bench.cross_device.runtime import (
     _normalize_name,
     _resolve_runtime_alias,
@@ -287,51 +286,19 @@ def _task_skip_reason(
     if runtime_reason:
         reasons.append(runtime_reason)
 
-    if stage in {"measure", "sim_same"} and task.target_profile_instance_id is None:
-        reasons.append("missing local profile instance: set CROSS_DEVICE_INSTANCE_ID")
-    if stage == "sim_cross" and task.target_profile_instance_id is None:
-        reasons.append(
-            f"missing profile: no instance for target {task.target_device.get('id')}; "
-            "pass --target <device>/<instance>"
+    reasons.extend(
+        profile_resource_skip_reasons(
+            task=task,
+            args=args,
+            stage=stage,
+            profiles_dir=profiles_dir,
+            for_doctor=for_doctor,
         )
-
-    # Dry-run and doctor must stay read-only; real profile-consuming stages may
-    # hydrate a missing profile from the configured Hugging Face repo.
-    if (
-        stage in {"sim_same", "sim_cross"}
-        and task.target_profile_path is not None
-        and not task.target_profile_path.exists()
-        and not for_doctor
-        and not args.dry_run
-    ):
-        hf_profile_repo = os.environ.get("HF_PROFILE_REPO")
-        if hf_profile_repo:
-            _ensure_profile_cached(
-                profile_path=task.target_profile_path,
-                profiles_dir=profiles_dir,
-                hf_repo=hf_profile_repo,
-            )
-    if (
-        stage in {"sim_same", "sim_cross"}
-        and task.target_profile_path is not None
-        and not task.target_profile_path.exists()
-        and not args.dry_run
-    ):
-        reasons.append(f"missing profile: {task.target_profile_path}")
+    )
 
     if reasons:
         return "; ".join(reasons)
     return None
-
-
-def _ensure_profile_cached(*, profile_path: Path, profiles_dir: Path, hf_repo: str) -> Path:
-    return ensure_profile_cached(
-        profile_path=profile_path,
-        profiles_dir=profiles_dir,
-        hf_repo=hf_repo,
-        repo_type=os.environ.get("HF_PROFILE_REPO_TYPE", "dataset"),
-        revision=os.environ.get("HF_PROFILE_REVISION"),
-    )
 
 
 def _runtime_skip_reason(task: ProtocolTask, runtime: RuntimeSelection) -> str | None:
