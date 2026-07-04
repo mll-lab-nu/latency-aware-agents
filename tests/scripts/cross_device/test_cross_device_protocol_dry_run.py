@@ -942,6 +942,7 @@ def test_sim_cross_dry_run_reads_profile_instance_from_target(tmp_path: Path):
 
 
 def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch):
+    profile_resources = importlib.import_module("latency_bench.cross_device.profile_resources")
     planning = importlib.import_module("scripts.cross_device.planning")
     base_config = tmp_path / "base.yaml"
     spec_path = tmp_path / "protocol.yaml"
@@ -982,7 +983,7 @@ def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch)
         return profile_path
 
     monkeypatch.setenv("HF_PROFILE_REPO", "latency-sensitive-bench/profiles")
-    monkeypatch.setattr(planning, "_ensure_profile_cached", ensure_profile_cached)
+    monkeypatch.setattr(profile_resources, "ensure_profile_cached", ensure_profile_cached)
 
     plan = planning._build_plan(
         args,
