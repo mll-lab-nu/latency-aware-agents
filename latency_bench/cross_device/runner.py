@@ -6,23 +6,17 @@ writes generated configs and run manifests for both completed and skipped tasks.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shlex
-import socket
 import subprocess
 import sys
 from collections import Counter
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import torch
-
-from latency_bench.latency.hardware_info import collect_hardware_fingerprint
 from latency_bench.latency.runtime_telemetry import RuntimeTelemetryMonitor
 from latency_bench.latency.profile import attach_hardware_fingerprint
-from latency_bench.utils.io import load_jsonl_records, read_json, write_json, write_jsonl
+from latency_bench.utils.io import read_json, write_json
 from latency_bench.cross_device.configs import (
     _eval_command,
     _generated_config,
@@ -35,34 +29,25 @@ from latency_bench.cross_device.models import (
     ProtocolTask,
     RuntimeSelection,
 )
+from latency_bench.cross_device.manifest import (
+    append_manifest,
+    append_note,
+    build_base_manifest,
+    completed_manifest_exists,
+    failed_run_summary,
+    host_fingerprint,
+    now_iso,
+    print_failed_summary,
+    record_skipped_task,
+)
 from latency_bench.cross_device.planning import _build_plan, _output_root, _profiles_dir_for_args
+from latency_bench.cross_device.sim_workers import (
+    add_sim_worker_manifest_fields,
+    build_sim_worker_plan,
+    run_sim_worker_plan,
+)
 from latency_bench.cross_device.sync import profile_remote_dir, upload_folder_to_hf
 from latency_bench.cross_device.runtime import _stage_hardware, _validate_runtime_safety, detect_runtime_env
-
-
-_HOST_FINGERPRINT: dict[str, Any] | None = None
-
-
-def _host_fingerprint() -> dict[str, Any]:
-    """Return this process's hardware fingerprint, collected once and cached.
-
-    Returns:
-        The fingerprint dict from `collect_hardware_fingerprint`; reused across
-        every manifest in the run so the probes (nvidia-smi/lscpu) run once.
-    """
-    global _HOST_FINGERPRINT
-    if _HOST_FINGERPRINT is None:
-        _HOST_FINGERPRINT = collect_hardware_fingerprint()
-    return _HOST_FINGERPRINT
-
-
-def _runtime_process_metadata() -> dict[str, Any]:
-    return {
-        "python_executable": sys.executable,
-        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
-        "torch_version": torch.__version__,
-        "torch_cuda_version": torch.version.cuda,
-    }
 
 
 def _stage_instance_metadata(stage: str, dry_run: bool) -> tuple[str | None, str | None]:
@@ -72,7 +57,7 @@ def _stage_instance_metadata(stage: str, dry_run: bool) -> tuple[str | None, str
         return None, None
     uploads_raw_results = bool(os.environ.get("HF_PROFILE_REPO")) and not os.environ.get("CROSS_DEVICE_NO_RESULT_UPLOAD")
     if stage in {"measure", "sim_same"} or uploads_raw_results:
-        return resolve_instance_id(_host_fingerprint()), resolve_instance_origin()
+        return resolve_instance_id(host_fingerprint()), resolve_instance_origin()
     return None, None
 
 
@@ -128,7 +113,7 @@ def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> Non
     failures: list[dict[str, str]] = []
     for item in plan:
         if not item.runnable:
-            _record_skipped_task(item.task, spec, detected, runtime, item.skip_reason or "skipped", out)
+            record_skipped_task(item.task, spec, detected, runtime, item.skip_reason or "skipped", out)
             print(f"skipping {item.task.row.get('policy')} {item.task.stage}: {item.skip_reason}")
             continue
         task = item.task
@@ -140,7 +125,7 @@ def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> Non
             )
             _run_task(task, spec, detected, runtime, args, out)
         except Exception as exc:
-            failures.append(_failed_run_summary(task, exc))
+            failures.append(failed_run_summary(task, exc))
             print(
                 "failed "
                 f"stage={task.stage} policy={task.row.get('policy')} env={task.row.get('env')} "
@@ -148,10 +133,10 @@ def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> Non
                 file=sys.stderr,
             )
             if not args.continue_on_error:
-                _print_failed_summary(failures)
+                print_failed_summary(failures)
                 raise
     if failures:
-        _print_failed_summary(failures)
+        print_failed_summary(failures)
         raise SystemExit(1)
 
 
@@ -177,17 +162,17 @@ def _run_task(
         Writes generated config, per-run manifest, global manifest JSONL, and
         launches the eval/profile subprocesses for real runs.
     """
-    if args.resume and _completed_manifest_exists(task.output_dir):
+    if args.resume and completed_manifest_exists(task.output_dir):
         print(f"resume: skipping completed run {task.output_dir}")
         return
 
     eval_cmd = _eval_command(task)
     config = _generated_config(task, spec)
     profile_cmd = None
-    manifest = _base_manifest(task, spec, detected, runtime, eval_cmd, profile_cmd)
-    sim_worker_plan = _sim_worker_plan(task, spec)
+    manifest = build_base_manifest(task, spec, detected, runtime, eval_cmd, profile_cmd)
+    sim_worker_plan = build_sim_worker_plan(task, spec)
     if sim_worker_plan:
-        _add_sim_worker_manifest_fields(manifest, sim_worker_plan)
+        add_sim_worker_manifest_fields(manifest, sim_worker_plan)
     if task.stage == "measure":
         calibration_config_path = _calibration_generated_config_path(task)
         calibration_path = _calibration_output_path(task)
@@ -222,7 +207,7 @@ def _run_task(
         write_json(task.output_dir / "manifest.json", manifest)
         if sim_worker_plan:
             _run_with_runtime_telemetry(
-                lambda: _run_sim_worker_plan(task, sim_worker_plan),
+                lambda: run_sim_worker_plan(task, sim_worker_plan),
                 task.output_dir,
                 manifest,
             )
@@ -232,17 +217,17 @@ def _run_task(
             subprocess.run(profile_cmd, check=True)
             _finalize_profile_artifacts(task, out, manifest)
         manifest["status"] = "completed"
-        manifest["completed_at"] = _now_iso()
+        manifest["completed_at"] = now_iso()
     except Exception as exc:
         manifest["status"] = "failed"
-        manifest["completed_at"] = _now_iso()
+        manifest["completed_at"] = now_iso()
         manifest["error"] = str(exc)
-        manifest["notes"] = _append_note(manifest.get("notes"), str(exc))
+        manifest["notes"] = append_note(manifest.get("notes"), str(exc))
         write_json(task.output_dir / "manifest.json", manifest)
-        _append_manifest(out, manifest)
+        append_manifest(out, manifest)
         raise
     write_json(task.output_dir / "manifest.json", manifest)
-    _append_manifest(out, manifest)
+    append_manifest(out, manifest)
     _upload_run_results(task, out, manifest, detected, runtime)
 
 
@@ -264,129 +249,6 @@ def _run_with_runtime_telemetry(run_fn, output_dir: Path, manifest: dict[str, An
             manifest.update(monitor.stop())
         except Exception as exc:
             manifest["runtime_telemetry_stop_error"] = str(exc)
-
-
-def _sim_worker_plan(task: ProtocolTask, spec: dict[str, Any]) -> list[dict[str, Any]]:
-    if task.stage not in {"sim_same", "sim_cross"}:
-        return []
-    devices = _sim_worker_devices(spec)
-    worker_count = min(len(devices), int(task.n_episodes))
-    if worker_count <= 1:
-        return []
-    ranges = _episode_ranges(int(task.n_episodes), worker_count)
-    plan: list[dict[str, Any]] = []
-    for worker_index, ((episode_start, episode_count), device) in enumerate(zip(ranges, devices[:worker_count])):
-        output_dir = task.output_dir / "workers" / f"worker_{worker_index}"
-        plan.append(
-            {
-                "worker_index": worker_index,
-                "cuda_visible_devices": device,
-                "episode_start": episode_start,
-                "episode_count": episode_count,
-                "output_dir": str(output_dir),
-                "command": shlex.join(_worker_eval_command(task, output_dir, episode_start, episode_count)),
-            }
-        )
-    return plan
-
-
-def _sim_worker_devices(spec: dict[str, Any]) -> list[str]:
-    devices = _visible_cuda_devices()
-    worker_count = spec.get("sim_worker_count", "auto")
-    if str(worker_count).strip().lower() == "auto":
-        return devices
-    return devices[: int(worker_count)]
-
-
-def _visible_cuda_devices() -> list[str]:
-    cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
-    if cuda_visible_devices:
-        return [item.strip() for item in cuda_visible_devices.split(",") if item.strip()]
-    return [str(index) for index in range(torch.cuda.device_count())]
-
-
-def _episode_ranges(n_episodes: int, worker_count: int) -> list[tuple[int, int]]:
-    base_count = n_episodes // worker_count
-    remainder = n_episodes % worker_count
-    ranges = []
-    episode_start = 0
-    for worker_index in range(worker_count):
-        episode_count = base_count + (1 if worker_index < remainder else 0)
-        ranges.append((episode_start, episode_count))
-        episode_start += episode_count
-    return ranges
-
-
-def _worker_eval_command(
-    task: ProtocolTask,
-    output_dir: Path,
-    episode_start: int,
-    episode_count: int,
-) -> list[str]:
-    cmd = _eval_command(task)
-    cmd[cmd.index("--output-dir") + 1] = str(output_dir)
-    cmd.extend(["--episode-start", str(episode_start), "--episode-count", str(episode_count)])
-    return cmd
-
-
-def _add_sim_worker_manifest_fields(
-    manifest: dict[str, Any],
-    sim_worker_plan: list[dict[str, Any]],
-) -> None:
-    manifest["sim_worker_count"] = len(sim_worker_plan)
-    manifest["sim_worker_devices"] = [item["cuda_visible_devices"] for item in sim_worker_plan]
-    manifest["sim_worker_episode_ranges"] = [
-        {
-            "worker_index": item["worker_index"],
-            "episode_start": item["episode_start"],
-            "episode_count": item["episode_count"],
-        }
-        for item in sim_worker_plan
-    ]
-    manifest["sim_worker_commands"] = [item["command"] for item in sim_worker_plan]
-
-
-def _run_sim_worker_plan(task: ProtocolTask, sim_worker_plan: list[dict[str, Any]]) -> None:
-    processes: list[tuple[dict[str, Any], subprocess.Popen]] = []
-    for worker in sim_worker_plan:
-        command = _worker_eval_command(
-            task,
-            Path(worker["output_dir"]),
-            int(worker["episode_start"]),
-            int(worker["episode_count"]),
-        )
-        env = os.environ.copy()
-        env["CUDA_VISIBLE_DEVICES"] = str(worker["cuda_visible_devices"])
-        print(
-            "running sim worker "
-            f"worker={worker['worker_index']} cuda={worker['cuda_visible_devices']} "
-            f"episodes={worker['episode_start']}..{int(worker['episode_start']) + int(worker['episode_count']) - 1} "
-            f"output_dir={worker['output_dir']}"
-        )
-        processes.append((worker, subprocess.Popen(command, env=env)))
-
-    failures: list[tuple[dict[str, Any], int]] = []
-    for worker, process in processes:
-        returncode = process.wait()
-        if returncode != 0:
-            failures.append((worker, returncode))
-    if failures:
-        worker, returncode = failures[0]
-        raise subprocess.CalledProcessError(returncode, str(worker["command"]))
-
-    _merge_sim_worker_episode_metrics(task.output_dir, sim_worker_plan)
-
-
-def _merge_sim_worker_episode_metrics(output_dir: Path, sim_worker_plan: list[dict[str, Any]]) -> None:
-    records = []
-    for worker in sim_worker_plan:
-        metrics_path = Path(worker["output_dir"]) / "episode_metrics.jsonl"
-        for record in load_jsonl_records(metrics_path):
-            record["metadata"]["sim_worker_index"] = worker["worker_index"]
-            record["metadata"]["output_dir"] = str(output_dir)
-            records.append(record)
-    records.sort(key=lambda item: int(item["episode_id"]))
-    write_jsonl(output_dir / "episode_metrics.jsonl", records)
 
 
 def _upload_run_results(
@@ -448,7 +310,7 @@ def _upload_run_results(
         write_json(task.output_dir / "manifest.json", manifest)
     except Exception as exc:
         manifest["results_uploaded"] = False
-        manifest["notes"] = _append_note(manifest.get("notes"), f"results upload failed: {exc}")
+        manifest["notes"] = append_note(manifest.get("notes"), f"results upload failed: {exc}")
 
 
 def _finalize_profile_artifacts(task: ProtocolTask, out: Path, manifest: dict[str, Any]) -> None:
@@ -468,9 +330,9 @@ def _finalize_profile_artifacts(task: ProtocolTask, out: Path, manifest: dict[st
     if profile_dir is None:
         return
     try:
-        attach_hardware_fingerprint(profile_dir, _host_fingerprint())
+        attach_hardware_fingerprint(profile_dir, host_fingerprint())
     except Exception as exc:
-        manifest["notes"] = _append_note(manifest.get("notes"), f"hardware fingerprint failed: {exc}")
+        manifest["notes"] = append_note(manifest.get("notes"), f"hardware fingerprint failed: {exc}")
 
     repo_id = os.environ.get("HF_PROFILE_REPO")
     if not repo_id:
@@ -489,7 +351,7 @@ def _finalize_profile_artifacts(task: ProtocolTask, out: Path, manifest: dict[st
         manifest["hf_path_in_repo"] = remote_dir
     except Exception as exc:
         manifest["hf_uploaded"] = False
-        manifest["notes"] = _append_note(manifest.get("notes"), f"hf upload failed: {exc}")
+        manifest["notes"] = append_note(manifest.get("notes"), f"hf upload failed: {exc}")
 
 
 def _calibration_generated_config_path(task: ProtocolTask) -> Path:
@@ -531,108 +393,6 @@ def _apply_env_fps_calibration(config: dict[str, Any], calibration_path: Path) -
     payload = read_json(calibration_path)
     config["env"]["env_fps"] = float(payload["selected_env_fps"])
     config["env"]["obs_fps"] = float(payload["selected_obs_fps"])
-
-
-def _base_manifest(
-    task: ProtocolTask,
-    spec: dict[str, Any],
-    detected: dict[str, Any],
-    runtime: RuntimeSelection,
-    eval_cmd: list[str],
-    profile_cmd: list[str] | None,
-) -> dict[str, Any]:
-    """Build the run manifest payload shared by completed, failed, and skipped tasks.
-
-    Args:
-        task: Concrete task.
-        spec: Loaded protocol spec.
-        detected: Hardware detection result.
-        runtime: Runtime selection result.
-        eval_cmd: Evaluation command that would run this task.
-        profile_cmd: Profile-building command for measure tasks.
-
-    Returns:
-        A manifest dictionary ready to write after status fields are finalized.
-    """
-    replay_device = task.replay_device
-    gpu_uuid_hash = None
-    if task.instance_origin == "gpu_uuid_hash":
-        gpu_uuid_hash = task.instance_id.removeprefix("instance_")
-    return {
-        "protocol_id": spec.get("protocol_id"),
-        "stage": task.stage,
-        "experiment_id": task.experiment_id,
-        "experiment_ids": task.experiment_ids,
-        "panel": task.panel,
-        "policy": task.row.get("policy"),
-        "env": task.row.get("env"),
-        "policy_type": task.row.get("policy_type"),
-        "model_type": task.row.get("model_type"),
-        "env_name": task.row.get("env_name"),
-        "target_device_id": task.target_device.get("id"),
-        "target_device_display_name": task.target_device.get("display_name"),
-        "target_profile_id": task.target_device.get("profile_id"),
-        "instance_id": task.instance_id,
-        "instance_origin": task.instance_origin,
-        "target_profile_instance_id": task.target_profile_instance_id,
-        "gpu_uuid_hash": gpu_uuid_hash,
-        "replay_device_id": None if replay_device is None else replay_device.get("id"),
-        "replay_device_display_name": None if replay_device is None else replay_device.get("display_name"),
-        "hardware_detected_raw": detected.get("raw"),
-        "hardware_normalized": detected["device"].get("id"),
-        "runtime_env": task.runtime_env_alias,
-        "runtime_conda_env": task.runtime_conda_env,
-        "runtime_env_detected_raw": runtime.detected_raw,
-        "runtime_env_matched_alias": runtime.matched_alias,
-        "profile_path": str(
-            task.target_profile_path or (task.profile_output_dir / "profile.json" if task.profile_output_dir else "")
-        ),
-        "output_dir": str(task.output_dir),
-        "generated_config_path": str(task.generated_config_path),
-        "command": shlex.join(eval_cmd),
-        "profile_command": "" if profile_cmd is None else shlex.join(profile_cmd),
-        "checkpoint_kind": task.checkpoint_kind,
-        "n_episodes": task.n_episodes,
-        "smoke": task.smoke,
-        "smoke_max_steps": task.smoke_max_steps,
-        "seed_set": task.seed_set,
-        "seed": task.seed,
-        "status": "running",
-        "skip_reason": "",
-        "error": "",
-        "started_at": _now_iso(),
-        "completed_at": None,
-        "git_sha": _git_sha(),
-        "hostname": socket.gethostname(),
-        "hardware_fingerprint": _host_fingerprint(),
-        **_runtime_process_metadata(),
-        "notes": "",
-    }
-
-
-def _append_manifest(out: Path, manifest: dict[str, Any]) -> None:
-    path = out / "manifests" / "runs.jsonl"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(manifest, sort_keys=True) + "\n")
-
-
-def _record_skipped_task(
-    task: ProtocolTask,
-    spec: dict[str, Any],
-    detected: dict[str, Any],
-    runtime: RuntimeSelection,
-    skip_reason: str,
-    out: Path,
-) -> None:
-    manifest = _base_manifest(task, spec, detected, runtime, _eval_command(task), None)
-    manifest["status"] = "skipped"
-    manifest["completed_at"] = _now_iso()
-    manifest["skip_reason"] = skip_reason
-    manifest["notes"] = skip_reason
-    task.output_dir.mkdir(parents=True, exist_ok=True)
-    write_json(task.output_dir / "manifest.json", manifest)
-    _append_manifest(out, manifest)
 
 
 def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any]) -> None:
@@ -722,56 +482,3 @@ def _skip_reason_bucket(reason: str) -> str:
     if "hardware mismatch" in reason:
         return "hardware mismatch"
     return "other"
-
-
-def _completed_manifest_exists(output_dir: Path) -> bool:
-    manifest_path = output_dir / "manifest.json"
-    if not manifest_path.exists():
-        return False
-    with manifest_path.open("r", encoding="utf-8") as f:
-        manifest = json.load(f)
-    return manifest.get("status") == "completed"
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _git_sha() -> str | None:
-    try:
-        result = subprocess.run(["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True)
-    except Exception:
-        return None
-    return result.stdout.strip()
-
-
-def _append_note(existing: Any, note: str) -> str:
-    if existing:
-        return f"{existing}; {note}"
-    return note
-
-
-def _failed_run_summary(task: ProtocolTask, exc: BaseException) -> dict[str, str]:
-    return {
-        "stage": str(task.stage),
-        "policy": str(task.row.get("policy")),
-        "env": str(task.row.get("env")),
-        "output_dir": str(task.output_dir),
-        "error": str(exc),
-    }
-
-
-def _print_failed_summary(failures: list[dict[str, str]]) -> None:
-    if not failures:
-        return
-    print("FAILED RUNS:", file=sys.stderr)
-    for failure in failures:
-        print(
-            "  - "
-            f"stage={failure['stage']} "
-            f"policy={failure['policy']} "
-            f"env={failure['env']} "
-            f"output_dir={failure['output_dir']} "
-            f"error={failure['error']}",
-            file=sys.stderr,
-        )
