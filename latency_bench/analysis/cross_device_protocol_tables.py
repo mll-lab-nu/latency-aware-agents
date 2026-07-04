@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import json
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +9,14 @@ import yaml
 from latency_bench.analysis.eval_stats import summarize_eval_run
 from latency_bench.latency.profile import load_profile_manifest
 from latency_bench.cross_device.layout import slugify
+from latency_bench.cross_device.manifest import (
+    load_protocol_manifests,
+    matching_manifests,
+    profile_instances_for_cross_pair,
+    profile_instances_for_device,
+    replay_host_instances_for_cross_pair,
+    skipped_notes_if_missing,
+)
 
 
 EXPERIMENT1_COLUMNS = (
@@ -94,7 +101,7 @@ def build_experiment1_rows(
     rows: list[dict[str, Any]] = []
     for experiment_id, experiment, row_spec in _iter_rows(spec, "exp1_latency_profile_summary"):
         for device in _devices(spec):
-            matches = _matching_manifests(
+            matches = matching_manifests(
                 manifests,
                 stage="measure",
                 experiment_id=experiment_id,
@@ -104,7 +111,7 @@ def build_experiment1_rows(
             if not matches:
                 notes = _join_notes(
                     _missing_note("profile", matches, {}),
-                    _skipped_notes_if_missing(
+                    skipped_notes_if_missing(
                         manifests,
                         matches=matches,
                         stage="measure",
@@ -157,7 +164,7 @@ def build_experiment2_rows(
     seed_label = _seed_set_label(spec.get("seed_set", []))
     for experiment_id, experiment, row_spec in _iter_rows(spec, "exp2_same_device_calibration"):
         for device in _devices(spec):
-            profile_instances = _profile_instances_for_device(
+            profile_instances = profile_instances_for_device(
                 manifests,
                 experiment_id=experiment_id,
                 row=row_spec,
@@ -167,7 +174,7 @@ def build_experiment2_rows(
             if not profile_instances:
                 profile_instances = [None]
             for profile_instance_id in profile_instances:
-                realtime = _matching_manifests(
+                realtime = matching_manifests(
                     manifests,
                     stage="measure",
                     experiment_id=experiment_id,
@@ -175,7 +182,7 @@ def build_experiment2_rows(
                     target_device_id=device["id"],
                     target_profile_instance_id=profile_instance_id,
                 )
-                sim = _matching_manifests(
+                sim = matching_manifests(
                     manifests,
                     stage="sim_same",
                     experiment_id=experiment_id,
@@ -187,7 +194,7 @@ def build_experiment2_rows(
                 sim_summary = _summarize_manifest_runs(sim)
                 notes = _join_notes(
                     _missing_note("realtime", realtime, real_summary),
-                    _skipped_notes_if_missing(
+                    skipped_notes_if_missing(
                         manifests,
                         matches=realtime,
                         stage="measure",
@@ -197,7 +204,7 @@ def build_experiment2_rows(
                         target_profile_instance_id=profile_instance_id,
                     ),
                     _missing_note("sim-same", sim, sim_summary),
-                    _skipped_notes_if_missing(
+                    skipped_notes_if_missing(
                         manifests,
                         matches=sim,
                         stage="sim_same",
@@ -253,7 +260,7 @@ def build_experiment3_rows(
         for pair in experiment["replay_pairs"]:
             target = devices_by_id[str(pair["target_device"])]
             replay = devices_by_id[str(pair["replay_device"])]
-            target_instances = _profile_instances_for_cross_pair(
+            target_instances = profile_instances_for_cross_pair(
                 manifests,
                 experiment_id=experiment_id,
                 row=row_spec,
@@ -263,7 +270,7 @@ def build_experiment3_rows(
             if not target_instances:
                 target_instances = [None]
             for target_profile_instance_id in target_instances:
-                replay_host_instances = _replay_host_instances_for_cross_pair(
+                replay_host_instances = replay_host_instances_for_cross_pair(
                     manifests,
                     experiment_id=experiment_id,
                     row=row_spec,
@@ -274,7 +281,7 @@ def build_experiment3_rows(
                 if not replay_host_instances:
                     replay_host_instances = [None]
                 for replay_host_instance_id in replay_host_instances:
-                    true_realtime = _matching_manifests(
+                    true_realtime = matching_manifests(
                         manifests,
                         stage="measure",
                         experiment_id=experiment_id,
@@ -283,7 +290,7 @@ def build_experiment3_rows(
                         target_profile_instance_id=target_profile_instance_id,
                     )
                     true_summary = _summarize_manifest_runs(true_realtime)
-                    sim_cross = _matching_manifests(
+                    sim_cross = matching_manifests(
                         manifests,
                         stage="sim_cross",
                         experiment_id=experiment_id,
@@ -302,7 +309,7 @@ def build_experiment3_rows(
                     )
                     notes = _join_notes(
                         _missing_note("true realtime", true_realtime, true_summary),
-                        _skipped_notes_if_missing(
+                        skipped_notes_if_missing(
                             manifests,
                             matches=true_realtime,
                             stage="measure",
@@ -312,7 +319,7 @@ def build_experiment3_rows(
                             target_profile_instance_id=target_profile_instance_id,
                         ),
                         _missing_note("sim-cross", sim_cross, sim_summary),
-                        _skipped_notes_if_missing(
+                        skipped_notes_if_missing(
                             manifests,
                             matches=sim_cross,
                             stage="sim_cross",
@@ -375,117 +382,6 @@ def write_protocol_tables(
     return outputs
 
 
-def load_protocol_manifests(root: str | Path, *, raw_root: str | Path | None = None) -> list[dict[str, Any]]:
-    if raw_root is not None:
-        return load_raw_run_manifests(raw_root)
-    return load_run_manifests(root)
-
-
-def load_run_manifests(root: str | Path) -> list[dict[str, Any]]:
-    path = Path(root) / "manifests" / "runs.jsonl"
-    if not path.exists():
-        return []
-    records = _load_manifest_jsonl(path)
-    return _dedupe_manifest_records(records)
-
-
-def load_raw_run_manifests(raw_root: str | Path) -> list[dict[str, Any]]:
-    root = Path(raw_root)
-    if not root.exists():
-        return []
-    records: list[dict[str, Any]] = []
-    manifest_paths = sorted(root.glob("**/cross_device/manifests/runs.jsonl"))
-    for manifest_path in manifest_paths:
-        protocol_root = manifest_path.parents[1]
-        for record in _load_manifest_jsonl(manifest_path):
-            records.append(_remap_manifest_paths(record, protocol_root))
-    return _dedupe_manifest_records(records)
-
-
-def _load_manifest_jsonl(path: Path) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as f:
-        for line_number, line in enumerate(f, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            record = json.loads(stripped)
-            if not isinstance(record, dict):
-                raise ValueError(f"Manifest record must be a JSON object at {path}:{line_number}")
-            records.append(record)
-    return records
-
-
-def _remap_manifest_paths(record: dict[str, Any], protocol_root: Path) -> dict[str, Any]:
-    remapped = dict(record)
-    for key in ("output_dir", "profile_path", "generated_config_path"):
-        value = remapped.get(key)
-        if not value:
-            continue
-        remapped[key] = _remap_protocol_path(str(value), protocol_root)
-    return remapped
-
-
-def _remap_protocol_path(value: str, protocol_root: Path) -> str:
-    path = Path(value)
-    parts = path.parts
-    suffix = _protocol_path_suffix(parts)
-    if not suffix:
-        return value
-    return str(protocol_root.joinpath(*suffix))
-
-
-def _protocol_path_suffix(parts: tuple[str, ...]) -> tuple[str, ...]:
-    for marker in ("cross_device",):
-        for index in range(len(parts) - 1, -1, -1):
-            if parts[index] == marker:
-                return tuple(parts[index + 1 :])
-    for marker in ("runs", "profiles", "generated_configs", "manifests"):
-        if marker in parts:
-            index = parts.index(marker)
-            return tuple(parts[index:])
-    return ()
-
-
-def _dedupe_manifest_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    completed_by_run_key: dict[tuple[str, str, str, str, str, str, str, str, str], dict[str, Any]] = {}
-    non_completed_by_key: dict[tuple[str, ...], dict[str, Any]] = {}
-    passthrough: list[dict[str, Any]] = []
-    for record in records:
-        output_dir = record.get("output_dir")
-        if not output_dir:
-            passthrough.append(record)
-            continue
-        run_key = (
-            str(record.get("stage")),
-            str(record.get("experiment_id")),
-            str(record.get("policy")),
-            str(record.get("env")),
-            str(record.get("target_device_id")),
-            str(record.get("target_profile_instance_id")),
-            str(record.get("replay_device_id")),
-            str(record.get("instance_id")),
-            str(record.get("seed")),
-        )
-        if record.get("status") == "completed":
-            existing = completed_by_run_key.get(run_key)
-            if existing is None or _record_sort_timestamp(record) >= _record_sort_timestamp(existing):
-                completed_by_run_key[run_key] = record
-            continue
-        skipped_key = (
-            *run_key,
-            str(record.get("status")),
-            str(record.get("skip_reason") or record.get("notes") or ""),
-            str(record.get("runtime_env_detected_raw") or ""),
-        )
-        non_completed_by_key[skipped_key] = record
-    return [*passthrough, *non_completed_by_key.values(), *completed_by_run_key.values()]
-
-
-def _record_sort_timestamp(record: dict[str, Any]) -> str:
-    return str(record.get("completed_at") or record.get("started_at") or "")
-
-
 def _write_csv(path: Path, columns: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(columns))
@@ -533,171 +429,6 @@ def _latest_by_profile_instance(manifests: list[dict[str, Any]]) -> dict[str, di
     for manifest in manifests:
         latest[str(manifest["target_profile_instance_id"])] = manifest
     return dict(sorted(latest.items()))
-
-
-def _profile_instances_for_device(
-    manifests: list[dict[str, Any]],
-    *,
-    experiment_id: str,
-    row: dict[str, Any],
-    target_device_id: str,
-    stages: tuple[str, ...],
-) -> list[str]:
-    instances = {
-        str(manifest["target_profile_instance_id"])
-        for manifest in manifests
-        if manifest.get("stage") in stages
-        and _manifest_contributes_to(manifest, experiment_id)
-        and manifest.get("policy") == row.get("policy")
-        and manifest.get("env") == row.get("env")
-        and manifest.get("target_device_id") == target_device_id
-    }
-    return sorted(instances)
-
-
-def _profile_instances_for_cross_pair(
-    manifests: list[dict[str, Any]],
-    *,
-    experiment_id: str,
-    row: dict[str, Any],
-    target_device_id: str,
-    replay_device_id: str,
-) -> list[str]:
-    instances = {
-        str(manifest["target_profile_instance_id"])
-        for manifest in manifests
-        if manifest.get("stage") in {"measure", "sim_cross"}
-        and _manifest_contributes_to(manifest, experiment_id)
-        and manifest.get("policy") == row.get("policy")
-        and manifest.get("env") == row.get("env")
-        and manifest.get("target_device_id") == target_device_id
-        and (manifest.get("stage") == "measure" or manifest.get("replay_device_id") == replay_device_id)
-    }
-    return sorted(instances)
-
-
-def _replay_host_instances_for_cross_pair(
-    manifests: list[dict[str, Any]],
-    *,
-    experiment_id: str,
-    row: dict[str, Any],
-    target_device_id: str,
-    target_profile_instance_id: str | None,
-    replay_device_id: str,
-) -> list[str]:
-    instances = {
-        str(manifest["instance_id"])
-        for manifest in manifests
-        if manifest.get("stage") == "sim_cross"
-        and _manifest_contributes_to(manifest, experiment_id)
-        and manifest.get("policy") == row.get("policy")
-        and manifest.get("env") == row.get("env")
-        and manifest.get("target_device_id") == target_device_id
-        and manifest["target_profile_instance_id"] == target_profile_instance_id
-        and manifest.get("replay_device_id") == replay_device_id
-    }
-    return sorted(instances)
-
-
-def _matching_manifests(
-    manifests: list[dict[str, Any]],
-    *,
-    stage: str,
-    experiment_id: str,
-    row: dict[str, Any],
-    target_device_id: str,
-    target_profile_instance_id: str | None = None,
-    replay_device_id: str | None = None,
-    replay_host_instance_id: str | None = None,
-) -> list[dict[str, Any]]:
-    matches: list[dict[str, Any]] = []
-    for manifest in manifests:
-        if manifest.get("stage") != stage:
-            continue
-        if not _manifest_contributes_to(manifest, experiment_id):
-            continue
-        if manifest.get("policy") != row.get("policy") or manifest.get("env") != row.get("env"):
-            continue
-        if manifest.get("target_device_id") != target_device_id:
-            continue
-        if target_profile_instance_id is not None and manifest["target_profile_instance_id"] != target_profile_instance_id:
-            continue
-        if replay_device_id is not None and manifest.get("replay_device_id") != replay_device_id:
-            continue
-        if replay_host_instance_id is not None and manifest["instance_id"] != replay_host_instance_id:
-            continue
-        if manifest.get("status") != "completed":
-            continue
-        matches.append(manifest)
-    return sorted(matches, key=lambda item: str(item.get("completed_at") or item.get("started_at") or ""))
-
-
-def _skipped_notes_if_missing(
-    manifests: list[dict[str, Any]],
-    *,
-    matches: list[dict[str, Any]],
-    stage: str,
-    experiment_id: str,
-    row: dict[str, Any],
-    target_device_id: str,
-    target_profile_instance_id: str | None = None,
-    replay_device_id: str | None = None,
-    replay_host_instance_id: str | None = None,
-) -> str:
-    if matches:
-        return ""
-    return _matching_skipped_notes(
-        manifests,
-        stage=stage,
-        experiment_id=experiment_id,
-        row=row,
-        target_device_id=target_device_id,
-        target_profile_instance_id=target_profile_instance_id,
-        replay_device_id=replay_device_id,
-        replay_host_instance_id=replay_host_instance_id,
-    )
-
-
-def _matching_skipped_notes(
-    manifests: list[dict[str, Any]],
-    *,
-    stage: str,
-    experiment_id: str,
-    row: dict[str, Any],
-    target_device_id: str,
-    target_profile_instance_id: str | None = None,
-    replay_device_id: str | None = None,
-    replay_host_instance_id: str | None = None,
-) -> str:
-    notes: list[str] = []
-    for manifest in manifests:
-        if manifest.get("stage") != stage:
-            continue
-        if not _manifest_contributes_to(manifest, experiment_id):
-            continue
-        if manifest.get("policy") != row.get("policy") or manifest.get("env") != row.get("env"):
-            continue
-        if manifest.get("target_device_id") != target_device_id:
-            continue
-        if target_profile_instance_id is not None and manifest["target_profile_instance_id"] != target_profile_instance_id:
-            continue
-        if replay_device_id is not None and manifest.get("replay_device_id") != replay_device_id:
-            continue
-        if replay_host_instance_id is not None and manifest["instance_id"] != replay_host_instance_id:
-            continue
-        if manifest.get("status") not in {"skipped", "failed"}:
-            continue
-        note = manifest.get("skip_reason") or manifest.get("notes")
-        if note:
-            notes.append(str(note))
-    return "; ".join(dict.fromkeys(notes))
-
-
-def _manifest_contributes_to(manifest: dict[str, Any], experiment_id: str) -> bool:
-    experiment_ids = manifest.get("experiment_ids")
-    if isinstance(experiment_ids, list):
-        return experiment_id in {str(item) for item in experiment_ids}
-    return manifest.get("experiment_id") == experiment_id
 
 
 def _summarize_manifest_runs(manifests: list[dict[str, Any]]) -> dict[str, Any]:

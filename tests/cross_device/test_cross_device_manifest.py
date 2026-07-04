@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
+from latency_bench.utils.io import write_jsonl
 from latency_bench.cross_device.models import ProtocolTask, RuntimeSelection
 from latency_bench.cross_device import manifest
 
@@ -137,3 +139,133 @@ def test_completed_manifest_exists_only_accepts_completed_status(tmp_path):
 
     (output_dir / "manifest.json").write_text(json.dumps({"status": "completed"}) + "\n", encoding="utf-8")
     assert manifest.completed_manifest_exists(output_dir) is True
+
+
+def _run_record(
+    *,
+    stage: str = "measure",
+    experiment_ids: list[str] | None = None,
+    status: str = "completed",
+    output_dir: Path,
+    profile_path: Path | None = None,
+    completed_at: str = "2026-07-04T00:00:01+00:00",
+    skip_reason: str = "",
+    instance_id: str = "instance_a100",
+    target_profile_instance_id: str = "instance_a100",
+    replay_device_id: str | None = None,
+) -> dict:
+    return {
+        "stage": stage,
+        "experiment_id": "exp2_same_device_calibration",
+        "experiment_ids": experiment_ids or ["exp2_same_device_calibration"],
+        "policy": "OpenVLA",
+        "env": "flappy",
+        "target_device_id": "L_L40S",
+        "target_profile_instance_id": target_profile_instance_id,
+        "replay_device_id": replay_device_id,
+        "instance_id": instance_id,
+        "seed": 7,
+        "status": status,
+        "skip_reason": skip_reason,
+        "notes": skip_reason,
+        "runtime_env_detected_raw": "latency",
+        "output_dir": str(output_dir),
+        "profile_path": "" if profile_path is None else str(profile_path),
+        "generated_config_path": str(output_dir / "config.yaml"),
+        "started_at": "2026-07-04T00:00:00+00:00",
+        "completed_at": completed_at,
+    }
+
+
+def test_load_protocol_manifests_remaps_raw_paths_and_keeps_latest_completed_run(tmp_path):
+    raw_root = tmp_path / "raw"
+    protocol_root = raw_root / "L_L40S" / "combined" / "host_20260704_000000" / "cross_device"
+    old_root = Path("results/cross_device")
+    output_dir = protocol_root / "runs" / "measure" / "OpenVLA" / "flappy" / "L_L40S" / "seed_7"
+    profile_path = protocol_root / "profiles" / "openvla" / "flappy" / "L_L40S" / "instance_a100" / "profile.json"
+    records = [
+        _run_record(
+            output_dir=old_root / output_dir.relative_to(protocol_root),
+            profile_path=old_root / profile_path.relative_to(protocol_root),
+            completed_at="2026-07-04T00:00:01+00:00",
+        ),
+        _run_record(
+            output_dir=old_root / output_dir.relative_to(protocol_root),
+            profile_path=old_root / profile_path.relative_to(protocol_root),
+            completed_at="2026-07-04T00:00:02+00:00",
+        ),
+        _run_record(
+            status="skipped",
+            output_dir=old_root / output_dir.relative_to(protocol_root),
+            profile_path=old_root / profile_path.relative_to(protocol_root),
+            skip_reason="runtime_env mismatch",
+        ),
+    ]
+    write_jsonl(protocol_root / "manifests" / "runs.jsonl", records)
+
+    loaded = manifest.load_protocol_manifests(tmp_path / "standard", raw_root=raw_root)
+
+    completed = [record for record in loaded if record["status"] == "completed"]
+    skipped = [record for record in loaded if record["status"] == "skipped"]
+    assert len(completed) == 1
+    assert completed[0]["completed_at"] == "2026-07-04T00:00:02+00:00"
+    assert completed[0]["output_dir"] == str(output_dir)
+    assert completed[0]["profile_path"] == str(profile_path)
+    assert [record["skip_reason"] for record in skipped] == ["runtime_env mismatch"]
+
+
+def test_manifest_matching_and_instance_queries_use_completed_run_contract(tmp_path):
+    completed = _run_record(
+        stage="sim_cross",
+        experiment_ids=["exp3_cross_device_prediction"],
+        output_dir=tmp_path / "sim_cross",
+        instance_id="instance_replay",
+        replay_device_id="H100",
+    )
+    skipped = _run_record(
+        stage="sim_cross",
+        experiment_ids=["exp3_cross_device_prediction"],
+        status="skipped",
+        output_dir=tmp_path / "sim_cross_skipped",
+        instance_id="instance_replay",
+        replay_device_id="H100",
+        skip_reason="missing profile",
+    )
+    manifests = [skipped, completed]
+    row = {"policy": "OpenVLA", "env": "flappy"}
+
+    assert manifest.matching_manifests(
+        manifests,
+        stage="sim_cross",
+        experiment_id="exp3_cross_device_prediction",
+        row=row,
+        target_device_id="L_L40S",
+        target_profile_instance_id="instance_a100",
+        replay_device_id="H100",
+        replay_host_instance_id="instance_replay",
+    ) == [completed]
+    assert manifest.matching_skipped_notes(
+        manifests,
+        stage="sim_cross",
+        experiment_id="exp3_cross_device_prediction",
+        row=row,
+        target_device_id="L_L40S",
+        target_profile_instance_id="instance_a100",
+        replay_device_id="H100",
+        replay_host_instance_id="instance_replay",
+    ) == "missing profile"
+    assert manifest.profile_instances_for_cross_pair(
+        manifests,
+        experiment_id="exp3_cross_device_prediction",
+        row=row,
+        target_device_id="L_L40S",
+        replay_device_id="H100",
+    ) == ["instance_a100"]
+    assert manifest.replay_host_instances_for_cross_pair(
+        manifests,
+        experiment_id="exp3_cross_device_prediction",
+        row=row,
+        target_device_id="L_L40S",
+        target_profile_instance_id="instance_a100",
+        replay_device_id="H100",
+    ) == ["instance_replay"]
