@@ -262,9 +262,8 @@ def test_build_latency_profile_from_trace_writes_e2e_trace_name(tmp_path: Path):
     assert (output_dir / "infer_latencies.jsonl").exists()
     assert manifest["trace_path"] == "e2e_latencies.jsonl"
     assert manifest["latency_kind"] == "e2e_latency"
-    assert manifest["e2e_trace_path"] == "e2e_latencies.jsonl"
     assert manifest["inference_trace_path"] == "infer_latencies.jsonl"
-    assert manifest["e2e_summary"]["mean_ms"] == pytest.approx(60.0)
+    assert manifest["summary"]["mean_ms"] == pytest.approx(60.0)
     assert manifest["inference_summary"]["mean_ms"] == pytest.approx(15.0)
     assert load_latency_samples(output_dir / "e2e_latencies.jsonl") == [40.0, 80.0]
     assert load_latency_samples(output_dir / "infer_latencies.jsonl") == [10.0, 20.0]

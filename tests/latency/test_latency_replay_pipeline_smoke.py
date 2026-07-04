@@ -47,15 +47,17 @@ def _episode_record(
         "episode_return": episode_return,
         "return_raw": None,
         "survival_steps": episode_length,
-        "mode": mode,
-        "policy_id": "flappy_pi0",
-        "env_id": "FlappyBird-v0",
-        "profile_id": "L_3090",
-        "target_device": "RTX_3090",
-        "replay_host": replay_host,
-        "env_fps": 30.0,
-        "frame_ms": FRAME_MS_30_FPS,
-        "latency_type": latency_type,
+        "metadata": {
+            "mode": mode,
+            "policy_id": "flappy_pi0",
+            "env_id": "FlappyBird-v0",
+            "profile_id": "L_3090",
+            "target_device": "RTX_3090",
+            "replay_host": replay_host,
+            "env_fps": 30.0,
+            "frame_ms": FRAME_MS_30_FPS,
+            "latency_type": latency_type,
+        },
     }
 
 

@@ -420,7 +420,3 @@ def _device_filter_candidates(device: dict[str, Any]) -> list[Any]:
 
 def _output_root(spec: dict[str, Any], out: Path | None) -> Path:
     return Path(out) if out is not None else Path(str(spec.get("output_root", "results/cross_device")))
-
-
-def _normalize_stage(stage: str) -> str:
-    return stage.replace("-", "_")

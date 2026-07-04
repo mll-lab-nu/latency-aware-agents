@@ -429,7 +429,8 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
                 "calibration_command: "
                 f"{shlex.join(_calibration_command(task, spec, calibration_config_path, _calibration_output_path(task)))}"
             )
-            print(f"profile_command: {shlex.join(_profile_command(task, spec, False, config))}")
+            if task.profile_output_dir is not None:
+                print(f"profile_command: {shlex.join(_profile_command(task, spec, False, config))}")
         print(f"eval_max_steps: {config.get('evaluation', {}).get('eval_max_steps', '')}")
     _print_plan_summary("Summary", plan)
 

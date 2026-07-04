@@ -399,7 +399,7 @@ def _load_profile_summary(path: Path) -> tuple[dict[str, Any], dict[str, Any], s
     if not path.exists():
         raise FileNotFoundError(f"missing profile: {path}")
     manifest = load_profile_manifest(path)
-    e2e_summary = manifest["e2e_summary"]
+    e2e_summary = manifest["summary"]
     inference_summary = manifest["inference_summary"]
     summary = {
         "inference_mean_ms": inference_summary["mean_ms"],

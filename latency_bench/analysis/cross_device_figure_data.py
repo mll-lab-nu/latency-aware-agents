@@ -210,11 +210,9 @@ def build_latency_sample_rows(
                     latency_ms=latency_ms,
                 )
             )
-        # Overhead = e2e - inference, recorded per action only when the measure
-        # run had realtime pipeline profiling enabled. Skip when absent so the
-        # frame-quantized legacy traces still build the main figure.
-        overhead_values = [record["bench_overhead_ms"] for record in e2e_records if "bench_overhead_ms" in record]
-        for overhead_ms in overhead_values:
+        # Overhead = e2e - inference, recorded per action by realtime pipeline
+        # profiling (always on for measure runs).
+        for overhead_ms in (record["bench_overhead_ms"] for record in e2e_records):
             rows.append(
                 _fig_row(
                     row_type="overhead_latency_sample",

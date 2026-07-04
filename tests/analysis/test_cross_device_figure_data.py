@@ -128,8 +128,8 @@ def _write_episode_metrics(
     write_jsonl(
         output_dir / "episode_metrics.jsonl",
         [
-            {"episode_id": 0, "episode_return_env": returns[0], "survival_steps": lengths[0]},
-            {"episode_id": 1, "episode_return_env": returns[1], "survival_steps": lengths[1]},
+            {"episode_id": 0, "episode_return_env": returns[0], "survival_steps": lengths[0], "metadata": {}},
+            {"episode_id": 1, "episode_return_env": returns[1], "survival_steps": lengths[1], "metadata": {}},
         ],
     )
 
@@ -140,9 +140,9 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
     _seed_tables(tables_dir)
     # Panel-a traces for the one device that has a profile.
     profile_dir = root / "profiles" / "openvla" / "flappy" / "rtx3090" / "instance_rtx3090"
-    write_latency_samples(
-        [float(i) for i in range(100)],
+    write_jsonl(
         profile_dir / "e2e_latencies.jsonl",
+        [{"latency_ms": float(i), "bench_overhead_ms": float(i) + 5.0} for i in range(100)],
     )
     write_latency_samples(
         [float(i + 100) for i in range(100)],
@@ -189,6 +189,7 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
 
     # Panel a: main figure samples e2e delay; inference samples are kept for the separate diagnostic figure.
     assert len(by_type["e2e_latency_sample"]) == 100
+    assert len(by_type["overhead_latency_sample"]) == 100
     assert len(by_type["inference_latency_sample"]) == 100
     assert {r["hardware"] for r in by_type["e2e_latency_sample"]} == {"RTX 3090"}
     assert by_type["e2e_latency_sample"][0]["panel"] == "a"
@@ -224,7 +225,7 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
     assert {row["target_device_id"] for row in by_type["simulated_episode_return"]} == {"rtx3090"}
     assert {row["hardware"] for row in by_type["simulated_episode_return"]} == {"RTX 3090"}
 
-    assert counts == {"fig_rows": 206, "table_rows": 1}
+    assert counts == {"fig_rows": 306, "table_rows": 1}
 
 
 def test_realtime_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
@@ -305,35 +306,6 @@ def test_profiled_e2e_trace_emits_overhead_samples(tmp_path: Path):
     assert {row["hardware"] for row in overhead} == {"RTX 3090"}
     assert overhead[0]["panel"] == "a"
     assert overhead[0]["latency_ms"] == 5.0  # bench_overhead_ms of sample 0
-
-
-def test_unprofiled_e2e_trace_emits_no_overhead_samples(tmp_path: Path):
-    tables_dir = tmp_path / "tables"
-    root = tmp_path / "cross_device"
-    _seed_tables(tables_dir)
-    # Legacy quantized trace: latency_ms only, no bench_overhead_ms.
-    profile_dir = root / "profiles" / "openvla" / "flappy" / "rtx3090" / "instance_rtx3090"
-    write_latency_samples(
-        [float(i) for i in range(100)],
-        profile_dir / "e2e_latencies.jsonl",
-    )
-    write_latency_samples(
-        [float(i + 100) for i in range(100)],
-        profile_dir / "infer_latencies.jsonl",
-    )
-    (profile_dir / "profile.json").write_text("{}\n", encoding="utf-8")
-    run_dir = root / "runs" / "measure" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
-    write_jsonl(root / "manifests" / "runs.jsonl", [_manifest(run_dir)])
-    exp1_rows = read_csv(tables_dir / "experiment1_latency_profile_summary.csv")
-
-    rows = bfd.build_latency_sample_rows(
-        exp1_rows,
-        root / "profiles",
-        panel_a_env="Flappy",
-        spec=_spec(),
-        root=root,
-    )
-    assert not [row for row in rows if row["row_type"] == "overhead_latency_sample"]
 
 
 def test_build_latency_sample_rows_requires_inference_trace_for_profiled_devices(tmp_path: Path):

@@ -101,8 +101,7 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
     profile = load_profile_manifest(task.target_profile_path)
     _patch_env_from_profile(config, task.target_profile_path)
     config.setdefault("executor", {})["mode"] = "simulated"
-    if "inference_worker_count" in profile:
-        config["executor"]["simulated_worker_capacity"] = profile["inference_worker_count"]
+    config["executor"]["simulated_worker_capacity"] = profile["inference_worker_count"]
     latency = config.setdefault("latency", {})
     latency["type"] = "profile_sample"
     latency["profile_path"] = str(task.target_profile_path)
@@ -142,7 +141,7 @@ def _sim_parallel_envs(spec: dict[str, Any], task: ProtocolTask) -> int:
     row = task.row
     stage_overrides = row.get("stage_overrides", {})
     if isinstance(stage_overrides, dict):
-        stage_cfg = stage_overrides.get(task.stage) or stage_overrides.get(str(task.stage).replace("_", "-"))
+        stage_cfg = stage_overrides.get(task.stage)
         if isinstance(stage_cfg, dict) and stage_cfg.get("sim_parallel_envs") is not None:
             return int(stage_cfg["sim_parallel_envs"])
     if row.get("sim_parallel_envs") is not None:
@@ -236,9 +235,9 @@ def _profile_command(
         "--profile-id",
         str(task.target_device["profile_id"]),
         "--policy-id",
-        str(task.row.get("policy")),
+        str(task.row["policy"]),
         "--env-id",
-        str(task.row.get("env_name", task.row.get("env"))),
+        str(task.row["env_name"]),
         "--target-device",
         str(task.target_device["id"]),
         "--env-fps",
@@ -252,15 +251,4 @@ def _profile_command(
 
 
 def _base_config_path(row: dict[str, Any]) -> Path:
-    """Return the base config path required by one protocol row.
-
-    Args:
-        row: Protocol row containing `base_config`.
-
-    Returns:
-        Path to the row's base YAML config.
-    """
-    value = row.get("base_config")
-    if value is None or str(value).strip().upper().startswith("TODO"):
-        raise FileNotFoundError(f"Missing base_config for {row.get('policy')} / {row.get('env')}: {value}")
-    return Path(str(value))
+    return Path(str(row["base_config"]))
