@@ -20,10 +20,8 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from latency_bench.analysis.cross_device_protocol_tables import (
-    load_protocol_manifests,
-    load_protocol_spec,
-)
+from latency_bench.analysis.cross_device_protocol_tables import load_protocol_spec
+from latency_bench.cross_device.manifest import load_protocol_manifests, manifest_contributes_to
 from latency_bench.latency.profile import load_latency_samples
 from latency_bench.utils.io import load_jsonl_records, write_csv
 
@@ -293,7 +291,7 @@ def build_realtime_episode_return_rows(
                 continue
             if manifest["status"] != "completed":
                 continue
-            if not _manifest_contributes_to(manifest, experiment_id):
+            if not manifest_contributes_to(manifest, experiment_id):
                 continue
             if manifest["policy"] != row_spec["policy"] or manifest["env"] != row_spec["env"]:
                 continue
@@ -341,7 +339,7 @@ def build_simulated_episode_return_rows(
                 continue
             if manifest["status"] != "completed":
                 continue
-            if not _manifest_contributes_to(manifest, experiment_id):
+            if not manifest_contributes_to(manifest, experiment_id):
                 continue
             if manifest["policy"] != row_spec["policy"] or manifest["env"] != row_spec["env"]:
                 continue
@@ -369,13 +367,6 @@ def build_simulated_episode_return_rows(
                     )
                 )
     return rows
-
-
-def _manifest_contributes_to(manifest: dict[str, Any], experiment_id: str) -> bool:
-    experiment_ids = manifest["experiment_ids"]
-    if isinstance(experiment_ids, list):
-        return experiment_id in {str(item) for item in experiment_ids}
-    return manifest["experiment_id"] == experiment_id
 
 
 def build_all(
