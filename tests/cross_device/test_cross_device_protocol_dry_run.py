@@ -11,11 +11,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from scripts.cross_device.models import RuntimeSelection
-from scripts.cross_device.runtime import normalize_hardware_name
+from latency_bench.cross_device.models import RuntimeSelection
+from latency_bench.cross_device.runtime import normalize_hardware_name
 
 
-PROTOCOL_MODULE = "scripts.cross_device.protocol"
+PROTOCOL_MODULE = "latency_bench.cross_device.protocol"
 REAL_PROTOCOL = Path("configs/experiments/cross_device_protocol.yaml")
 
 
@@ -943,7 +943,7 @@ def test_sim_cross_dry_run_reads_profile_instance_from_target(tmp_path: Path):
 
 def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch):
     profile_resources = importlib.import_module("latency_bench.cross_device.profile_resources")
-    planning = importlib.import_module("scripts.cross_device.planning")
+    planning = importlib.import_module("latency_bench.cross_device.planning")
     base_config = tmp_path / "base.yaml"
     spec_path = tmp_path / "protocol.yaml"
     out = tmp_path / "results"
@@ -1079,8 +1079,8 @@ def test_measure_dry_run_ignores_spec_n_samples(tmp_path: Path):
 
 
 def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monkeypatch):
-    planning = importlib.import_module("scripts.cross_device.planning")
-    runner = importlib.import_module("scripts.cross_device.runner")
+    planning = importlib.import_module("latency_bench.cross_device.planning")
+    runner = importlib.import_module("latency_bench.cross_device.runner")
     base_config = tmp_path / "base.yaml"
     spec_path = tmp_path / "protocol.yaml"
     out = tmp_path / "results"
@@ -1171,8 +1171,8 @@ def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monke
 
 
 def test_measure_run_does_not_forward_n_samples_to_eval_or_profile(tmp_path: Path, monkeypatch):
-    planning = importlib.import_module("scripts.cross_device.planning")
-    runner = importlib.import_module("scripts.cross_device.runner")
+    planning = importlib.import_module("latency_bench.cross_device.planning")
+    runner = importlib.import_module("latency_bench.cross_device.runner")
     base_config = tmp_path / "base.yaml"
     spec_path = tmp_path / "protocol.yaml"
     out = tmp_path / "results"
@@ -1271,8 +1271,8 @@ def test_measure_run_does_not_forward_n_samples_to_eval_or_profile(tmp_path: Pat
 
 
 def test_measure_run_does_not_continue_after_episodes_until_n_samples(tmp_path: Path, monkeypatch):
-    planning = importlib.import_module("scripts.cross_device.planning")
-    runner = importlib.import_module("scripts.cross_device.runner")
+    planning = importlib.import_module("latency_bench.cross_device.planning")
+    runner = importlib.import_module("latency_bench.cross_device.runner")
     base_config = tmp_path / "base.yaml"
     spec_path = tmp_path / "protocol.yaml"
     out = tmp_path / "results"
@@ -1377,8 +1377,8 @@ def test_measure_run_does_not_continue_after_episodes_until_n_samples(tmp_path: 
 
 
 def test_measure_run_records_failed_calibration_manifest_without_eval(tmp_path: Path, monkeypatch):
-    planning = importlib.import_module("scripts.cross_device.planning")
-    runner = importlib.import_module("scripts.cross_device.runner")
+    planning = importlib.import_module("latency_bench.cross_device.planning")
+    runner = importlib.import_module("latency_bench.cross_device.runner")
     base_config = tmp_path / "base.yaml"
     spec_path = tmp_path / "protocol.yaml"
     out = tmp_path / "results"

@@ -4,7 +4,7 @@ import json
 import subprocess
 from types import SimpleNamespace
 
-from scripts.cross_device import runner
+from latency_bench.cross_device import runner
 
 
 def test_finalize_profile_artifacts_writes_hardware_fingerprint(tmp_path, monkeypatch):

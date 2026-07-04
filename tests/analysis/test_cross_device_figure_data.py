@@ -7,7 +7,7 @@ import pytest
 
 from latency_bench.latency.profile import write_latency_samples
 from latency_bench.utils.io import read_csv, write_jsonl
-from scripts.cross_device import build_figure_data as bfd
+from latency_bench.analysis import cross_device_figure_data as bfd
 
 
 def _write_csv(path: Path, columns: list[str], rows: list[dict[str, str]]) -> None:
