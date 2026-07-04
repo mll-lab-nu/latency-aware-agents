@@ -8,7 +8,6 @@ import yaml
 
 from latency_bench.analysis.eval_stats import summarize_eval_run
 from latency_bench.latency.profile import load_profile_manifest
-from latency_bench.cross_device.layout import slugify
 from latency_bench.cross_device.manifest import (
     load_protocol_manifests,
     matching_manifests,
