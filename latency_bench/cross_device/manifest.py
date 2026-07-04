@@ -14,7 +14,8 @@ from typing import Any
 import torch
 
 from latency_bench.cross_device.configs import _eval_command
-from latency_bench.cross_device.models import ProtocolTask, RuntimeSelection
+from latency_bench.cross_device.models import ProtocolTask
+from latency_bench.cross_device.runtime import detect_runtime_env_raw
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
 from latency_bench.utils.io import write_json
 
@@ -42,7 +43,6 @@ def build_base_manifest(
     task: ProtocolTask,
     spec: dict[str, Any],
     detected: dict[str, Any],
-    runtime: RuntimeSelection,
     eval_cmd: list[str],
     profile_cmd: list[str] | None,
 ) -> dict[str, Any]:
@@ -72,10 +72,9 @@ def build_base_manifest(
         "replay_device_display_name": None if replay_device is None else replay_device["display_name"],
         "hardware_detected_raw": detected["raw"],
         "hardware_normalized": detected["device"]["id"],
-        "runtime_env": task.runtime_env_alias,
-        "runtime_conda_env": task.runtime_conda_env,
-        "runtime_env_detected_raw": runtime.detected_raw,
-        "runtime_env_matched_alias": runtime.matched_alias,
+        "runtime_env": spec["runtime_env"]["name"],
+        "runtime_conda_env": spec["runtime_env"]["conda_env"],
+        "runtime_env_detected_raw": detect_runtime_env_raw(),
         "profile_path": str(
             task.target_profile_path or (task.profile_output_dir / "profile.json" if task.profile_output_dir else "")
         ),
@@ -113,11 +112,10 @@ def record_skipped_task(
     task: ProtocolTask,
     spec: dict[str, Any],
     detected: dict[str, Any],
-    runtime: RuntimeSelection,
     skip_reason: str,
     out: Path,
 ) -> None:
-    manifest = build_base_manifest(task, spec, detected, runtime, _eval_command(task), None)
+    manifest = build_base_manifest(task, spec, detected, _eval_command(task), None)
     manifest["status"] = "skipped"
     manifest["completed_at"] = now_iso()
     manifest["skip_reason"] = skip_reason

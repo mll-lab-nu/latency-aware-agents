@@ -1,25 +1,13 @@
 """Shared task models for the cross-device protocol.
 
-The models intentionally stay small: they describe planned work and runtime
-selection, while execution policy remains in the planner and runner modules.
+The models intentionally stay small: they describe planned work, while
+execution policy remains in the planner and runner modules.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-
-@dataclass(frozen=True)
-class RuntimeSelection:
-    """Resolved runtime environment state for filtering and safety checks."""
-    requested: str
-    detected_raw: str | None
-    matched_alias: str | None
-    matched_conda_env: str | None
-    selected_alias: str | None
-    allow_all: bool
-    allow_mismatch: bool
 
 
 @dataclass
@@ -43,8 +31,6 @@ class ProtocolTask:
     instance_id: str | None
     instance_origin: str | None
     target_profile_instance_id: str | None
-    runtime_env_alias: str | None
-    runtime_conda_env: str | None
     smoke: bool = False
     smoke_max_steps: int | None = None
 

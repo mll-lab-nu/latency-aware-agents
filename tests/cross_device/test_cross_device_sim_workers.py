@@ -19,7 +19,6 @@ def _task(tmp_path, *, n_episodes: int = 5) -> ProtocolTask:
             "policy_type": "vla",
             "model_type": "openvla",
             "env_name": "flappy",
-            "runtime_env": "openvla",
         },
         target_device={"id": "L_L40S", "display_name": "L40S", "profile_id": "l40s"},
         replay_device=None,
@@ -34,8 +33,6 @@ def _task(tmp_path, *, n_episodes: int = 5) -> ProtocolTask:
         instance_id="instance_abc",
         instance_origin="manual_override",
         target_profile_instance_id="instance_abc",
-        runtime_env_alias="openvla",
-        runtime_conda_env="openvla",
     )
 
 

@@ -9,10 +9,9 @@ env_fps_calibration:
 seed_set:
   - 0
 
-runtime_envs:
-  openvla:
-    conda_env: starvla_rl_games_openvla
-    description: "OpenVLA policies"
+runtime_env:
+  name: openvla
+  conda_env: starvla_rl_games_openvla
 
 devices:
   - id: rtx3090
@@ -76,7 +75,6 @@ experiments:
         env: Flappy
         policy_type: starvla
         model_type: openvla
-        runtime_env: openvla
         env_name: flappy
         fps: 16
         target_latency_frames: 2
@@ -85,7 +83,6 @@ experiments:
         env: Demon Attack
         policy_type: starvla
         model_type: openvla
-        runtime_env: openvla
         env_name: demon_attack
         fps: 60
         target_latency_frames: 2
@@ -94,7 +91,6 @@ experiments:
         env: Deadly Corridor
         policy_type: starvla
         model_type: openvla
-        runtime_env: openvla
         env_name: deadly_corridor
         fps: 35
         target_latency_frames: 2
@@ -107,7 +103,6 @@ experiments:
         env: Flappy
         policy_type: starvla
         model_type: openvla
-        runtime_env: openvla
         env_name: flappy
         fps: 16
         target_latency_frames: 2
@@ -116,7 +111,6 @@ experiments:
         env: Demon Attack
         policy_type: starvla
         model_type: openvla
-        runtime_env: openvla
         env_name: demon_attack
         fps: 60
         target_latency_frames: 2
@@ -125,7 +119,6 @@ experiments:
         env: Deadly Corridor
         policy_type: starvla
         model_type: openvla
-        runtime_env: openvla
         env_name: deadly_corridor
         fps: 35
         target_latency_frames: 2
@@ -138,7 +131,6 @@ experiments:
         env: Flappy
         policy_type: starvla
         model_type: openvla
-        runtime_env: openvla
         env_name: flappy
         fps: 16
         target_latency_frames: 2
@@ -147,7 +139,6 @@ experiments:
         env: Demon Attack
         policy_type: starvla
         model_type: openvla
-        runtime_env: openvla
         env_name: demon_attack
         fps: 60
         target_latency_frames: 2
@@ -156,7 +147,6 @@ experiments:
         env: Deadly Corridor
         policy_type: starvla
         model_type: openvla
-        runtime_env: openvla
         env_name: deadly_corridor
         fps: 35
         target_latency_frames: 2

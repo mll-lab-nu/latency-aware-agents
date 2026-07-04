@@ -28,5 +28,4 @@ python -m latency_bench.cross_device.protocol measure \
   --spec "$SPEC" \
   --hardware auto \
   --only-policy "$POLICY" \
-  --strict-runtime-env \
   --resume

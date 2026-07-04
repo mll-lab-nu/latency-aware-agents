@@ -31,7 +31,6 @@ def _write_protocol_spec(path: Path, base_config: Path) -> None:
         "env": "Flappy",
         "policy_type": "random",
         "model_type": "test_model",
-        "runtime_env": "baseline",
         "env_name": "flappy",
         "fps": 30,
         "target_latency_frames": 1,
@@ -44,7 +43,7 @@ def _write_protocol_spec(path: Path, base_config: Path) -> None:
         "n_episodes": 1,
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
-        "runtime_envs": {"baseline": {"conda_env": "latency", "description": "baseline"}},
+        "runtime_env": {"name": "baseline", "conda_env": "latency"},
         "devices": [
             {
                 "id": "a100",
@@ -85,8 +84,6 @@ def test_formal_protocol_entrypoint_runs_doctor_dry_run(tmp_path: Path, capsys):
             str(spec),
             "--hardware",
             "a100",
-            "--runtime-env",
-            "baseline",
             "--dry-run",
         ]
     )

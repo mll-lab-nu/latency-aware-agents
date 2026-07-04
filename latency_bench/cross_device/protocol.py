@@ -27,9 +27,9 @@ from latency_bench.cross_device.planning import (
 )
 from latency_bench.cross_device.runner import _print_plan_summary, run_stage
 from latency_bench.cross_device.runtime import (
-    _runtime_envs,
     detect_hardware,
-    detect_runtime_env,
+    detect_runtime_env_raw,
+    runtime_env_mismatch,
 )
 
 
@@ -53,7 +53,6 @@ def main(argv: list[str] | None = None) -> None:
     doctor.add_argument("--profiles-dir", type=Path)
     doctor.add_argument("--target")
     doctor.add_argument("--dry-run", action="store_true")
-    _add_runtime_flags(doctor)
     _add_selection_flags(doctor)
     _add_override_flags(doctor)
 
@@ -90,7 +89,6 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Skip auto-downloading per-machine results from HF before aggregating.",
     )
-    _add_runtime_flags(aggregate)
     _add_selection_flags(aggregate)
     _add_override_flags(aggregate)
 
@@ -154,12 +152,6 @@ def _add_override_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--seed-set")
 
 
-def _add_runtime_flags(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--runtime-env", default="auto")
-    parser.add_argument("--strict-runtime-env", action="store_true")
-    parser.add_argument("--allow-runtime-env-mismatch", action="store_true")
-
-
 def _add_execution_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
@@ -168,7 +160,6 @@ def _add_execution_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--smoke-episodes", type=int, default=1)
     parser.add_argument("--smoke-max-steps", type=int)
-    _add_runtime_flags(parser)
     _add_selection_flags(parser)
     _add_override_flags(parser)
 
@@ -184,24 +175,23 @@ def run_doctor(args: argparse.Namespace, spec: dict[str, Any]) -> None:
         Prints selected rows, runtime/hardware mapping, and skip reasons.
     """
     detected = detect_hardware(spec, args.hardware)
-    runtime = detect_runtime_env(spec, args.runtime_env, bool(args.allow_runtime_env_mismatch))
+    mismatch = runtime_env_mismatch(spec)
     cuda_available = bool(torch.cuda.is_available())
     rows = list(_iter_selected_rows(spec, args, include_stage=None))
     output_root = _output_root(spec, getattr(args, "out", None))
     profiles_dir = Path(args.profiles_dir) if args.profiles_dir is not None else output_root / "profiles"
     plans_by_stage = {
-        stage: _build_plan(args, spec, stage, output_root, profiles_dir, detected["device"], runtime, for_doctor=True)
+        stage: _build_plan(args, spec, stage, output_root, profiles_dir, detected["device"], for_doctor=True)
         for stage in ("measure", "sim_same", "sim_cross")
     }
 
+    required = spec["runtime_env"]
     print("Runtime environment:")
-    print(f"  detected: {runtime.detected_raw}")
-    print(f"  matched alias: {runtime.matched_alias}")
-    print("  available runtime_envs:")
-    for alias, env in _runtime_envs(spec).items():
-        print(f"    - {alias}: {env.get('conda_env')} ({env.get('description', '')})")
-    compatible = sorted({row.get("policy") for _eid, _exp, row in rows if row.get("runtime_env") == runtime.matched_alias})
-    print(f"  compatible rows: {', '.join(str(item) for item in compatible) if compatible else 'none'}")
+    print(f"  detected: {detect_runtime_env_raw()}")
+    print(f"  required: {required['name']} ({required['conda_env']})")
+    print(f"  match: {str(mismatch is None).lower()}")
+    if mismatch:
+        print(f"  mismatch: {mismatch}")
     print("Hardware:")
     print(f"  detected: {detected['raw']}")
     print(f"  matched device: {detected['device']['id']}")
@@ -221,8 +211,7 @@ def run_doctor(args: argparse.Namespace, spec: dict[str, Any]) -> None:
         row_config = _row_base_config(row)
         print(
             f"  - experiment={experiment_id} panel={experiment.get('panel')} "
-            f"policy={row.get('policy')} env={row.get('env')} env_fps={row_config['env']['env_fps']} "
-            f"runtime_env={row.get('runtime_env')}"
+            f"policy={row.get('policy')} env={row.get('env')} env_fps={row_config['env']['env_fps']}"
         )
     print("Runnable stages:")
     for stage, plan in plans_by_stage.items():

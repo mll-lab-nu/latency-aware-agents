@@ -5,8 +5,14 @@ import sys
 from pathlib import Path
 
 from latency_bench.utils.io import write_jsonl
-from latency_bench.cross_device.models import ProtocolTask, RuntimeSelection
+from latency_bench.cross_device.models import ProtocolTask
 from latency_bench.cross_device import manifest
+
+
+SPEC = {
+    "protocol_id": "cross-device-v1",
+    "runtime_env": {"name": "openvla", "conda_env": "starvla_rl_games_openvla"},
+}
 
 
 def _task(tmp_path, *, stage: str = "sim_same") -> ProtocolTask:
@@ -22,7 +28,6 @@ def _task(tmp_path, *, stage: str = "sim_same") -> ProtocolTask:
             "policy_type": "vla",
             "model_type": "openvla",
             "env_name": "flappy",
-            "runtime_env": "openvla",
         },
         target_device={"id": "L_L40S", "display_name": "L40S", "profile_id": "l40s"},
         replay_device=None,
@@ -37,20 +42,6 @@ def _task(tmp_path, *, stage: str = "sim_same") -> ProtocolTask:
         instance_id="instance_abc",
         instance_origin="gpu_uuid_hash",
         target_profile_instance_id="instance_abc",
-        runtime_env_alias="openvla",
-        runtime_conda_env="openvla",
-    )
-
-
-def _runtime() -> RuntimeSelection:
-    return RuntimeSelection(
-        requested="auto",
-        detected_raw="openvla",
-        matched_alias="openvla",
-        matched_conda_env="openvla",
-        selected_alias="openvla",
-        allow_all=False,
-        allow_mismatch=False,
     )
 
 
@@ -72,9 +63,8 @@ def test_build_base_manifest_records_protocol_runtime_and_host_metadata(tmp_path
 
     payload = manifest.build_base_manifest(
         task,
-        {"protocol_id": "cross-device-v1"},
+        SPEC,
         {"device": {"id": "L_L40S"}, "raw": {"gpu": "L40S"}},
-        _runtime(),
         ["python", "-m", "latency_bench.run", "--output-dir", str(task.output_dir)],
         None,
     )
@@ -85,7 +75,8 @@ def test_build_base_manifest_records_protocol_runtime_and_host_metadata(tmp_path
     assert payload["target_device_id"] == "L_L40S"
     assert payload["target_profile_instance_id"] == "instance_abc"
     assert payload["gpu_uuid_hash"] == "abc"
-    assert payload["runtime_env_matched_alias"] == "openvla"
+    assert payload["runtime_env"] == "openvla"
+    assert payload["runtime_conda_env"] == "starvla_rl_games_openvla"
     assert payload["hardware_fingerprint"] == {"gpu": {"name": "L40S"}}
     assert payload["cuda_visible_devices"] == "0"
     assert payload["git_sha"] == "abc123"
@@ -112,9 +103,8 @@ def test_record_skipped_task_writes_per_run_and_aggregate_manifests(tmp_path, mo
 
     manifest.record_skipped_task(
         task,
-        {"protocol_id": "cross-device-v1"},
+        SPEC,
         {"device": {"id": "L_L40S"}, "raw": {"gpu": "L40S"}},
-        _runtime(),
         "missing profile",
         out,
     )

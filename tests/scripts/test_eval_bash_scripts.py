@@ -1178,7 +1178,7 @@ def test_cross_device_main_script_documents_single_entrypoint_and_new_protocol_m
     assert "sim)" in script
     assert "STAGES=${STAGES:-doctor sim}" in script
     assert "custom)" in script
-    assert '--runtime-env "${RUNTIME_ENV}"' in script
+    assert "--runtime-env" not in script
     assert "measure" in script
     assert "realtime)" not in script
     assert "protocol realtime" not in script

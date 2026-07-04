@@ -11,7 +11,7 @@ set -euo pipefail
 #
 # Key knobs:
 #   SPEC, OUT, PROFILES_DIR, TABLES_DIR
-#   HARDWARE, RUNTIME_ENV, SIM_TARGET (<device_id>/<instance_id> for cross-device replay)
+#   HARDWARE, SIM_TARGET (<device_id>/<instance_id> for cross-device replay)
 #   STAGES: used only by the custom preset
 #   ONLY_POLICY, ONLY_ENV, ONLY_DEVICE, ONLY_EXPERIMENT, MAX_RUNS
 #   N_EPISODES, SEED_SET, CHECKPOINT_KIND
@@ -86,7 +86,6 @@ OUT=${OUT:-results/cross_device}
 PROFILES_DIR=${PROFILES_DIR:-${OUT}/profiles}
 TABLES_DIR=${TABLES_DIR:-${OUT}/tables}
 HARDWARE=${HARDWARE:-auto}
-RUNTIME_ENV=${RUNTIME_ENV:-auto}
 DRY_RUN=${DRY_RUN:-0}
 RESUME=${RESUME:-1}
 OVERWRITE=${OVERWRITE:-0}
@@ -96,7 +95,7 @@ UPLOAD_PROFILES=${UPLOAD_PROFILES:-0}
 HF_PROFILE_REPO=${HF_PROFILE_REPO:-latency-sensitive-bench/profiles}
 HF_PROFILE_REPO_TYPE=${HF_PROFILE_REPO_TYPE:-dataset}
 
-COMMON_ARGS=(--spec "${SPEC}" --runtime-env "${RUNTIME_ENV}")
+COMMON_ARGS=(--spec "${SPEC}")
 CHECK_ARGS=()
 EXEC_ARGS=()
 SIM_ARGS=()
@@ -125,7 +124,6 @@ echo "  out: ${OUT}"
 echo "  profiles: ${PROFILES_DIR}"
 echo "  preset: ${PRESET}"
 echo "  stages: ${STAGES}"
-echo "  runtime_env: ${RUNTIME_ENV}"
 echo "  hf_profile_repo: ${HF_PROFILE_REPO}"
 
 for stage in ${STAGES}; do

@@ -22,8 +22,8 @@ def _make_task(out: Path, *, with_profile: bool) -> SimpleNamespace:
     return SimpleNamespace(output_dir=output_dir, profile_output_dir=profile_output_dir, instance_id="instance_abcd1234")
 
 
-def _runtime(alias: str = "openvla") -> SimpleNamespace:
-    return SimpleNamespace(matched_alias=alias, selected_alias=None)
+def _spec(alias: str = "openvla") -> dict:
+    return {"runtime_env": {"name": alias, "conda_env": "starvla_rl_games_openvla"}}
 
 
 def test_upload_run_results_mirrors_slices_to_raw_prefix(tmp_path: Path, monkeypatch):
@@ -39,7 +39,7 @@ def test_upload_run_results_mirrors_slices_to_raw_prefix(tmp_path: Path, monkeyp
     monkeypatch.delenv("CROSS_DEVICE_NO_RESULT_UPLOAD", raising=False)
 
     manifest: dict[str, object] = {}
-    runner._upload_run_results(task, out, manifest, {"device": {"id": "rtx3090"}}, _runtime())
+    runner._upload_run_results(task, out, manifest, {"device": {"id": "rtx3090"}}, _spec())
 
     paths = {c["path_in_repo"] for c in calls}
     assert "raw/rtx3090/instances/instance_abcd1234/openvla/cross_device/manifests" in paths
@@ -62,7 +62,7 @@ def test_upload_run_results_skipped_without_repo(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(runner, "upload_folder_to_hf", lambda **kw: calls.append(kw))
     monkeypatch.delenv("HF_PROFILE_REPO", raising=False)
 
-    runner._upload_run_results(task, out, {}, {"device": {"id": "rtx3090"}}, _runtime())
+    runner._upload_run_results(task, out, {}, {"device": {"id": "rtx3090"}}, _spec())
     assert calls == []
 
 
@@ -76,7 +76,7 @@ def test_upload_run_results_opt_out_env(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("HF_PROFILE_REPO", "latency-sensitive-bench/profiles")
     monkeypatch.setenv("CROSS_DEVICE_NO_RESULT_UPLOAD", "1")
 
-    runner._upload_run_results(task, out, {}, {"device": {"id": "rtx3090"}}, _runtime())
+    runner._upload_run_results(task, out, {}, {"device": {"id": "rtx3090"}}, _spec())
     assert calls == []
 
 

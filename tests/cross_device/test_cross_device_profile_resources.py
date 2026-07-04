@@ -18,7 +18,6 @@ def _task(
         "env": "Flappy",
         "model_type": "test_model",
         "env_name": "flappy",
-        "runtime_env": "baseline",
     }
     return ProtocolTask(
         stage=stage,
@@ -39,8 +38,6 @@ def _task(
         instance_id="instance_local",
         instance_origin="manual_override",
         target_profile_instance_id=target_profile_instance_id,
-        runtime_env_alias="baseline",
-        runtime_conda_env="latency",
     )
 
 
