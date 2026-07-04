@@ -228,8 +228,6 @@ def _nvidia_smi_device_name() -> str | None:
 
 
 def _stage_hardware(spec: dict[str, Any], args: argparse.Namespace, stage: str) -> dict[str, Any]:
-    if stage == "sim_cross":
-        return detect_hardware(spec, args.replay_hardware)
     return detect_hardware(spec, args.hardware)
 
 

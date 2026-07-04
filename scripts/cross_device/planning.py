@@ -11,8 +11,12 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from latency_bench.analysis.cross_device_protocol_tables import slugify
-from scripts.cross_device.models import PlannedTask, ProtocolTask, RuntimeSelection
+from scripts.cross_device.models import (
+    PlannedTask,
+    ProtocolTask,
+    RuntimeSelection,
+)
+from scripts.cross_device.profile_layout import profile_path as layout_profile_path, slugify
 from scripts.cross_device.profile_cache import ensure_profile_cached
 from scripts.cross_device.runtime import (
     _normalize_name,
@@ -60,13 +64,24 @@ def _build_plan(
     plan_by_key: dict[tuple[Any, ...], PlannedTask] = {}
     seed_set = _seed_set(spec, args)
     checkpoint_kind = str(args.checkpoint_kind or spec.get("checkpoint_kind", "best"))
+    _, explicit_instance = _parse_target(args)
     for experiment_id, experiment, row in _iter_selected_rows(spec, args, include_stage=stage):
         n_episodes = _n_episodes_for_row_stage(spec, args, row, stage)
-        device_pairs = _device_pairs_for_stage(spec, args, stage, current_device, experiment_id)
+        device_pairs = _device_pairs_for_stage(spec, args, stage, current_device)
         for target_device, replay_device in device_pairs:
             for seed in seed_set:
-                profile_dir = profiles_dir / slugify(row.get("policy")) / slugify(row.get("env")) / str(target_device["profile_id"])
-                profile_path = profile_dir / "profile.json"
+                target_profile_instance_id = instance_id if stage in {"measure", "sim_same"} else explicit_instance
+                profile_path = (
+                    layout_profile_path(
+                        profiles_dir,
+                        model_type=row["model_type"],
+                        env_name=row["env_name"],
+                        device_id=target_device["id"],
+                        instance_id=target_profile_instance_id,
+                    )
+                    if target_profile_instance_id is not None
+                    else None
+                )
                 runtime_alias = str(row.get("runtime_env") or "")
                 runtime_conda = _runtime_conda_env(spec, runtime_alias)
                 task = _make_task(
@@ -83,9 +98,10 @@ def _build_plan(
                     checkpoint_kind=checkpoint_kind,
                     out=out,
                     target_profile_path=profile_path if stage in {"sim_same", "sim_cross"} else None,
-                    profile_output_dir=profile_dir if stage == "measure" else None,
+                    profile_output_dir=profile_path.parent if stage == "measure" and profile_path is not None else None,
                     instance_id=instance_id,
                     instance_origin=instance_origin,
+                    target_profile_instance_id=target_profile_instance_id,
                     runtime_env_alias=runtime_alias or None,
                     runtime_conda_env=runtime_conda,
                     smoke=bool(getattr(args, "smoke", False)),
@@ -119,6 +135,17 @@ def _build_plan(
     return list(plan_by_key.values())
 
 
+def _parse_target(args: argparse.Namespace) -> tuple[str | None, str | None]:
+    """Split `--target <device_id>/<instance_id>` into its two parts."""
+    raw = getattr(args, "target", None)
+    if not raw:
+        return None, None
+    device_token, _, instance_token = str(raw).partition("/")
+    if not device_token or not instance_token:
+        raise SystemExit("--target must be <device_id>/<instance_id>")
+    return device_token, instance_token
+
+
 def _make_task(
     *,
     stage: str,
@@ -137,6 +164,7 @@ def _make_task(
     profile_output_dir: Path | None,
     instance_id: str | None,
     instance_origin: str | None,
+    target_profile_instance_id: str | None,
     runtime_env_alias: str | None,
     runtime_conda_env: str | None,
     smoke: bool = False,
@@ -167,8 +195,8 @@ def _make_task(
     Returns:
         A `ProtocolTask` with run output and generated-config paths assigned.
     """
-    policy_slug = slugify(row.get("policy"))
-    env_slug = slugify(row.get("env"))
+    policy_slug = slugify(row["policy"])
+    env_slug = slugify(row["env"])
     stage_dir = stage
     count_suffix = f"n{n_episodes}"
     run_id = f"smoke_seed_{seed}_{count_suffix}" if smoke else f"{checkpoint_kind}_seed_{seed}_{count_suffix}"
@@ -197,6 +225,7 @@ def _make_task(
         profile_output_dir=profile_output_dir,
         instance_id=instance_id,
         instance_origin=instance_origin,
+        target_profile_instance_id=target_profile_instance_id,
         runtime_env_alias=runtime_env_alias,
         runtime_conda_env=runtime_conda_env,
         smoke=smoke,
@@ -205,46 +234,18 @@ def _make_task(
 
 
 def _dedup_key(task: ProtocolTask) -> tuple[Any, ...]:
-    policy = slugify(task.row.get("policy"))
-    env = slugify(task.row.get("env"))
-    seed_set = tuple(task.seed_set)
-    profile_id = task.target_device.get("profile_id")
     replay_id = task.replay_device.get("id") if task.replay_device else None
-    if task.stage == "measure":
-        return (
-            "measure",
-            policy,
-            env,
-            task.target_device.get("id"),
-            profile_id,
-            task.checkpoint_kind,
-            seed_set,
-            task.seed,
-        )
-    if task.stage == "sim_same":
-        return (
-            "sim_same",
-            policy,
-            env,
-            task.target_device.get("id"),
-            profile_id,
-            task.checkpoint_kind,
-            seed_set,
-            task.seed,
-        )
-    if task.stage == "sim_cross":
-        return (
-            "sim_cross",
-            policy,
-            env,
-            task.target_device.get("id"),
-            replay_id,
-            profile_id,
-            task.checkpoint_kind,
-            seed_set,
-            task.seed,
-        )
-    return (task.stage, policy, env, task.target_device.get("id"), replay_id, task.seed)
+    return (
+        task.stage,
+        slugify(task.row["policy"]),
+        slugify(task.row["env"]),
+        task.target_device.get("id"),
+        replay_id,
+        task.target_profile_instance_id,
+        task.checkpoint_kind,
+        tuple(task.seed_set),
+        task.seed,
+    )
 
 
 def _task_skip_reason(
@@ -281,19 +282,21 @@ def _task_skip_reason(
         reasons.append(f"hardware mismatch: current hardware {current_device.get('id')} not in --only-device")
     if stage == "sim_cross" and not _matches_filter(_device_filter_candidates(task.target_device), only_devices):
         reasons.append(f"hardware mismatch: target hardware {task.target_device.get('id')} not in --only-device")
-    if stage == "sim_cross" and task.replay_device is not None:
-        if str(task.replay_device["id"]) != str(current_device["id"]):
-            reasons.append(
-                "replay hardware mismatch: "
-                f"current hardware {current_device['id']} is not pair replay_device {task.replay_device['id']}"
-            )
 
     runtime_reason = _runtime_skip_reason(task, runtime)
     if runtime_reason:
         reasons.append(runtime_reason)
 
+    if stage in {"measure", "sim_same"} and task.target_profile_instance_id is None:
+        reasons.append("missing local profile instance: set CROSS_DEVICE_INSTANCE_ID")
+    if stage == "sim_cross" and task.target_profile_instance_id is None:
+        reasons.append(
+            f"missing profile: no instance for target {task.target_device.get('id')}; "
+            "pass --target <device>/<instance>"
+        )
+
     # Dry-run and doctor must stay read-only; real profile-consuming stages may
-    # hydrate a missing local profile from the configured Hugging Face repo.
+    # hydrate a missing profile from the configured Hugging Face repo.
     if (
         stage in {"sim_same", "sim_cross"}
         and task.target_profile_path is not None
@@ -401,7 +404,6 @@ def _device_pairs_for_stage(
     args: argparse.Namespace,
     stage: str,
     current_device: dict[str, Any],
-    experiment_id: str,
 ) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
     """Return `(target_device, replay_device)` pairs for one stage.
 
@@ -410,30 +412,25 @@ def _device_pairs_for_stage(
         args: Parsed CLI namespace with device filters.
         stage: Normalized stage name.
         current_device: Device entry for this command's execution host.
-        experiment_id: Experiment whose replay pairs should be expanded.
-
     Returns:
-        A list of device pairs. Non-cross stages use the current device and no
-        replay device; sim-cross uses explicit `replay_pairs` from the spec.
+        A list of device pairs. Local stages use the current device and no replay
+        device; sim-cross replays the `--target` device's profile on this host.
     """
     only_devices = _csv_filter(getattr(args, "only_device", None))
     if stage in {"measure", "sim_same"}:
         if not _matches_filter(_device_filter_candidates(current_device), only_devices):
             return []
         return [(current_device, None)]
+    device_token, _ = _parse_target(args)
+    if device_token is None:
+        return []
     devices_by_id = {str(device["id"]): device for device in _devices(spec)}
-    output = []
-    for pair in _experiment_replay_pairs(spec, experiment_id):
-        target = devices_by_id[str(pair["target_device"])]
-        replay = devices_by_id[str(pair["replay_device"])]
-        if _matches_filter(_device_filter_candidates(target), only_devices):
-            output.append((target, replay))
-    return output
-
-
-def _experiment_replay_pairs(spec: dict[str, Any], experiment_id: str) -> list[dict[str, Any]]:
-    experiment = spec.get("experiments", {}).get(experiment_id, {})
-    return list(experiment["replay_pairs"])
+    if device_token not in devices_by_id:
+        raise SystemExit(f"--target device {device_token!r} not in spec devices: {sorted(devices_by_id)}")
+    target = devices_by_id[device_token]
+    if not _matches_filter(_device_filter_candidates(target), only_devices):
+        return []
+    return [(target, current_device)]
 
 
 def _seed_set(spec: dict[str, Any], args: argparse.Namespace) -> list[int]:

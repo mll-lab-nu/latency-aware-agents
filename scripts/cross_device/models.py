@@ -42,6 +42,7 @@ class ProtocolTask:
     profile_output_dir: Path | None
     instance_id: str | None
     instance_origin: str | None
+    target_profile_instance_id: str | None
     runtime_env_alias: str | None
     runtime_conda_env: str | None
     smoke: bool = False
