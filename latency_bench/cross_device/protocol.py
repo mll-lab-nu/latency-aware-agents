@@ -13,7 +13,8 @@ from typing import Any
 
 import torch
 
-from latency_bench.analysis.cross_device_protocol_tables import load_protocol_spec, write_protocol_tables
+from latency_bench.analysis.cross_device_protocol_tables import write_protocol_tables
+from latency_bench.cross_device.spec import load_protocol_spec
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
 from latency_bench.cross_device.configs import _row_base_config
 from latency_bench.cross_device.sync import download_results_tree
@@ -89,6 +90,7 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Skip auto-downloading per-machine results from HF before aggregating.",
     )
+    aggregate.add_argument("--only-experiment")
     _add_selection_flags(aggregate)
     _add_override_flags(aggregate)
 
@@ -142,7 +144,6 @@ def _add_selection_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--only-policy")
     parser.add_argument("--only-env")
     parser.add_argument("--only-device")
-    parser.add_argument("--only-experiment")
     parser.add_argument("--max-runs", type=int)
 
 
@@ -177,7 +178,7 @@ def run_doctor(args: argparse.Namespace, spec: dict[str, Any]) -> None:
     detected = detect_hardware(spec, args.hardware)
     mismatch = runtime_env_mismatch(spec)
     cuda_available = bool(torch.cuda.is_available())
-    rows = list(_iter_selected_rows(spec, args, include_stage=None))
+    rows = _iter_selected_rows(spec, args)
     output_root = _output_root(spec, getattr(args, "out", None))
     profiles_dir = Path(args.profiles_dir) if args.profiles_dir is not None else output_root / "profiles"
     plans_by_stage = {
@@ -207,12 +208,9 @@ def run_doctor(args: argparse.Namespace, spec: dict[str, Any]) -> None:
     print(f"    ram: {memory.get('total_gib')} GiB")
     print(f"Output root: {output_root}")
     print("Selected rows:")
-    for experiment_id, experiment, row in rows:
+    for row in rows:
         row_config = _row_base_config(row)
-        print(
-            f"  - experiment={experiment_id} panel={experiment.get('panel')} "
-            f"policy={row.get('policy')} env={row.get('env')} env_fps={row_config['env']['env_fps']}"
-        )
+        print(f"  - policy={row.get('policy')} env={row.get('env')} env_fps={row_config['env']['env_fps']}")
     print("Runnable stages:")
     for stage, plan in plans_by_stage.items():
         _print_plan_summary(stage, plan)

@@ -4,8 +4,6 @@ import csv
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from latency_bench.analysis.eval_stats import summarize_eval_run
 from latency_bench.latency.profile import load_profile_manifest
 from latency_bench.cross_device.manifest import (
@@ -78,15 +76,6 @@ EXPERIMENT3_COLUMNS = (
     "use_in_main_claim",
     "notes",
 )
-
-
-def load_protocol_spec(path: str | Path) -> dict[str, Any]:
-    spec_path = Path(path)
-    with spec_path.open("r", encoding="utf-8") as f:
-        spec = yaml.safe_load(f)
-    if not isinstance(spec, dict):
-        raise ValueError(f"Protocol spec must be a mapping: {spec_path}")
-    return spec
 
 
 def build_experiment1_rows(
@@ -390,14 +379,12 @@ def _write_csv(path: Path, columns: tuple[str, ...], rows: list[dict[str, Any]])
 
 def _iter_rows(
     spec: dict[str, Any],
-    experiment_id_filter: str,
+    experiment_id: str,
 ) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
-    experiment = spec["experiments"][experiment_id_filter]
-    rows = experiment["rows"]
-    return [
-        (experiment_id_filter, experiment, row)
-        for row in rows
-    ]
+    experiment = spec.get("experiments", {}).get(experiment_id)
+    if experiment is None:
+        return []
+    return [(experiment_id, experiment, row) for row in spec.get("rows", [])]
 
 
 def _devices(spec: dict[str, Any]) -> list[dict[str, Any]]:

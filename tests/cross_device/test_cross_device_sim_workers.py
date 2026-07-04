@@ -10,9 +10,7 @@ from latency_bench.cross_device import sim_workers
 def _task(tmp_path, *, n_episodes: int = 5) -> ProtocolTask:
     return ProtocolTask(
         stage="sim_same",
-        experiment_id="exp2_same_device_calibration",
         experiment_ids=["exp2_same_device_calibration"],
-        panel="P2",
         row={
             "policy": "OpenVLA",
             "env": "flappy",

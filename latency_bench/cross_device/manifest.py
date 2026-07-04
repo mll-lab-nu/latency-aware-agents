@@ -53,9 +53,7 @@ def build_base_manifest(
     return {
         "protocol_id": spec["protocol_id"],
         "stage": task.stage,
-        "experiment_id": task.experiment_id,
         "experiment_ids": task.experiment_ids,
-        "panel": task.panel,
         "policy": task.row["policy"],
         "env": task.row["env"],
         "policy_type": task.row["policy_type"],
@@ -320,10 +318,7 @@ def replay_host_instances_for_cross_pair(
 
 
 def manifest_contributes_to(record: dict[str, Any], experiment_id: str) -> bool:
-    experiment_ids = record["experiment_ids"]
-    if isinstance(experiment_ids, list):
-        return experiment_id in {str(item) for item in experiment_ids}
-    return record["experiment_id"] == experiment_id
+    return experiment_id in {str(item) for item in record["experiment_ids"]}
 
 
 def _load_manifest_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -371,12 +366,12 @@ def _protocol_path_suffix(parts: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _dedupe_manifest_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    completed_by_run_key: dict[tuple[str, str, str, str, str, str, str, str, str], dict[str, Any]] = {}
-    non_completed_by_key: dict[tuple[str, ...], dict[str, Any]] = {}
+    completed_by_run_key: dict[tuple[Any, ...], dict[str, Any]] = {}
+    non_completed_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
     for record in records:
         run_key = (
             str(record["stage"]),
-            str(record["experiment_id"]),
+            tuple(str(item) for item in record["experiment_ids"]),
             str(record["policy"]),
             str(record["env"]),
             str(record["target_device_id"]),

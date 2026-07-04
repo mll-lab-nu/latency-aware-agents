@@ -21,9 +21,7 @@ def _task(
     }
     return ProtocolTask(
         stage=stage,
-        experiment_id="exp2_same_device_calibration",
         experiment_ids=["exp2_same_device_calibration"],
-        panel="b",
         row=row,
         target_device={"id": "a100"},
         replay_device=None,

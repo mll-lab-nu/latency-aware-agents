@@ -49,14 +49,14 @@ def _build_plan(
     Returns:
         Planned tasks marked runnable or skipped with a concrete reason.
     """
-    plan_by_key: dict[tuple[Any, ...], PlannedTask] = {}
+    plan: list[PlannedTask] = []
     seed_set = _seed_set(spec, args)
     checkpoint_kind = str(args.checkpoint_kind or spec.get("checkpoint_kind", "best"))
+    experiment_ids = list(STAGE_TO_EXPERIMENTS[stage])
     _, explicit_instance = _parse_target(args)
-    for experiment_id, experiment, row in _iter_selected_rows(spec, args, include_stage=stage):
+    for row in _iter_selected_rows(spec, args):
         n_episodes = _n_episodes_for_row_stage(spec, args, row, stage)
-        device_pairs = _device_pairs_for_stage(spec, args, stage, current_device)
-        for target_device, replay_device in device_pairs:
+        for target_device, replay_device in _device_pairs_for_stage(spec, args, stage, current_device):
             for seed in seed_set:
                 target_profile_instance_id = instance_id if stage in {"measure", "sim_same"} else explicit_instance
                 profile_path = (
@@ -72,9 +72,7 @@ def _build_plan(
                 )
                 task = _make_task(
                     stage=stage,
-                    experiment_id=experiment_id,
-                    experiment_ids=[experiment_id],
-                    panel=str(experiment.get("panel", "")),
+                    experiment_ids=experiment_ids,
                     row=row,
                     target_device=target_device,
                     replay_device=replay_device,
@@ -91,7 +89,6 @@ def _build_plan(
                     smoke=bool(getattr(args, "smoke", False)),
                     smoke_max_steps=getattr(args, "smoke_max_steps", None),
                 )
-                key = _dedup_key(task)
                 skip_reason = _task_skip_reason(
                     task=task,
                     args=args,
@@ -100,21 +97,8 @@ def _build_plan(
                     current_device=current_device,
                     for_doctor=for_doctor,
                 )
-                item = PlannedTask(task=task, runnable=skip_reason is None, skip_reason=skip_reason)
-                existing = plan_by_key.get(key)
-                if existing is None:
-                    plan_by_key[key] = item
-                    continue
-                if experiment_id not in existing.task.experiment_ids:
-                    existing.task.experiment_ids.append(experiment_id)
-                if existing.runnable:
-                    continue
-                if item.runnable:
-                    item.task.experiment_ids = existing.task.experiment_ids
-                    plan_by_key[key] = item
-                elif item.skip_reason and existing.skip_reason and item.skip_reason not in existing.skip_reason:
-                    existing.skip_reason = f"{existing.skip_reason}; {item.skip_reason}"
-    return list(plan_by_key.values())
+                plan.append(PlannedTask(task=task, runnable=skip_reason is None, skip_reason=skip_reason))
+    return plan
 
 
 def _parse_target(args: argparse.Namespace) -> tuple[str | None, str | None]:
@@ -131,9 +115,7 @@ def _parse_target(args: argparse.Namespace) -> tuple[str | None, str | None]:
 def _make_task(
     *,
     stage: str,
-    experiment_id: str,
     experiment_ids: list[str],
-    panel: str,
     row: dict[str, Any],
     target_device: dict[str, Any],
     replay_device: dict[str, Any] | None,
@@ -154,9 +136,7 @@ def _make_task(
 
     Args:
         stage: Normalized stage name.
-        experiment_id: Primary experiment that selected this row.
-        experiment_ids: All experiments deduped into this task.
-        panel: Paper/protocol panel label.
+        experiment_ids: Experiments this stage contributes to.
         row: Protocol row containing policy/env/config metadata.
         target_device: Device whose latency profile is measured or replayed.
         replay_device: Host device for cross-device replay, if any.
@@ -187,9 +167,7 @@ def _make_task(
     generated_config_path = out / "generated_configs" / stage_dir / policy_slug / env_slug / device_or_pair / f"{run_id}.yaml"
     return ProtocolTask(
         stage=stage,
-        experiment_id=experiment_id,
         experiment_ids=experiment_ids,
-        panel=panel,
         row=row,
         target_device=target_device,
         replay_device=replay_device,
@@ -206,21 +184,6 @@ def _make_task(
         target_profile_instance_id=target_profile_instance_id,
         smoke=smoke,
         smoke_max_steps=None if smoke_max_steps is None else int(smoke_max_steps),
-    )
-
-
-def _dedup_key(task: ProtocolTask) -> tuple[Any, ...]:
-    replay_id = task.replay_device.get("id") if task.replay_device else None
-    return (
-        task.stage,
-        slugify(task.row["policy"]),
-        slugify(task.row["env"]),
-        task.target_device.get("id"),
-        replay_id,
-        task.target_profile_instance_id,
-        task.checkpoint_kind,
-        tuple(task.seed_set),
-        task.seed,
     )
 
 
@@ -270,39 +233,16 @@ def _task_skip_reason(
     return None
 
 
-def _iter_selected_rows(
-    spec: dict[str, Any],
-    args: argparse.Namespace,
-    *,
-    include_stage: str | None,
-) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
-    """Return protocol rows selected by stage, filters, and runtime selection.
-
-    Args:
-        spec: Loaded protocol spec.
-        args: Parsed CLI namespace with `only_*` and runtime filters.
-        include_stage: Optional normalized stage used to restrict experiments.
-
-    Returns:
-        Tuples of `(experiment_id, experiment_config, row_config)`.
-    """
-    allowed_experiments = None if include_stage is None else set(STAGE_TO_EXPERIMENTS[include_stage])
-    only_experiments = _csv_filter(getattr(args, "only_experiment", None))
+def _iter_selected_rows(spec: dict[str, Any], args: argparse.Namespace) -> list[dict[str, Any]]:
+    """Return protocol rows selected by the `--only-policy`/`--only-env` filters."""
     only_policies = _csv_filter(getattr(args, "only_policy", None))
     only_envs = _csv_filter(getattr(args, "only_env", None))
-    output: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
-    for experiment_id, experiment in spec.get("experiments", {}).items():
-        if allowed_experiments is not None and experiment_id not in allowed_experiments:
-            continue
-        if not _matches_filter(_experiment_filter_candidates(experiment_id), only_experiments):
-            continue
-        for row in experiment.get("rows", []):
-            if not _matches_filter(_policy_filter_candidates(row), only_policies):
-                continue
-            if not _matches_filter(_env_filter_candidates(row), only_envs):
-                continue
-            output.append((experiment_id, experiment, row))
-    return output
+    return [
+        row
+        for row in spec.get("rows", [])
+        if _matches_filter(_policy_filter_candidates(row), only_policies)
+        and _matches_filter(_env_filter_candidates(row), only_envs)
+    ]
 
 
 def _device_pairs_for_stage(
@@ -413,30 +353,16 @@ def _filtered_spec_for_aggregate(spec: dict[str, Any], args: argparse.Namespace)
     """
     updated = deepcopy(spec)
     only_experiments = _csv_filter(getattr(args, "only_experiment", None))
-    only_policies = _csv_filter(getattr(args, "only_policy", None))
-    only_envs = _csv_filter(getattr(args, "only_env", None))
     only_devices = _csv_filter(getattr(args, "only_device", None))
     if only_devices:
         updated["devices"] = [
             device for device in _devices(updated) if _matches_filter(_device_filter_candidates(device), only_devices)
         ]
+    updated["rows"] = _iter_selected_rows(updated, args)
     experiments = updated.get("experiments", {})
-    if isinstance(experiments, dict):
-        for experiment_id in list(experiments):
-            if not _matches_filter(_experiment_filter_candidates(experiment_id), only_experiments):
-                experiments.pop(experiment_id)
-                continue
-            experiment = experiments[experiment_id]
-            if not isinstance(experiment, dict):
-                continue
-            rows = []
-            for row in experiment.get("rows", []):
-                if not _matches_filter(_policy_filter_candidates(row), only_policies):
-                    continue
-                if not _matches_filter(_env_filter_candidates(row), only_envs):
-                    continue
-                rows.append(row)
-            experiment["rows"] = rows
+    for experiment_id in list(experiments):
+        if not _matches_filter([experiment_id], only_experiments):
+            experiments.pop(experiment_id)
     return updated
 
 
@@ -473,10 +399,6 @@ def _policy_filter_candidates(row: dict[str, Any]) -> list[Any]:
 
 def _env_filter_candidates(row: dict[str, Any]) -> list[Any]:
     return [row.get("env"), row.get("env_name")]
-
-
-def _experiment_filter_candidates(experiment_id: str) -> list[Any]:
-    return [experiment_id]
 
 
 def _device_filter_candidates(device: dict[str, Any]) -> list[Any]:

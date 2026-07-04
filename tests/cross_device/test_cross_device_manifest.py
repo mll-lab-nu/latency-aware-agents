@@ -19,9 +19,7 @@ def _task(tmp_path, *, stage: str = "sim_same") -> ProtocolTask:
     profile_path = tmp_path / "profiles" / "profile.json"
     return ProtocolTask(
         stage=stage,
-        experiment_id="exp2_same_device_calibration",
         experiment_ids=["exp2_same_device_calibration"],
-        panel="P2",
         row={
             "policy": "OpenVLA",
             "env": "flappy",
@@ -146,7 +144,6 @@ def _run_record(
 ) -> dict:
     return {
         "stage": stage,
-        "experiment_id": "exp2_same_device_calibration",
         "experiment_ids": experiment_ids or ["exp2_same_device_calibration"],
         "policy": "OpenVLA",
         "env": "flappy",

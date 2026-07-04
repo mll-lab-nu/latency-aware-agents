@@ -52,12 +52,12 @@ def _write_protocol_spec(path: Path, base_config: Path) -> None:
                 "aliases": ["NVIDIA A100"],
             }
         ],
+        "rows": [row],
         "experiments": {
-            "exp1_latency_profile_summary": {"panel": "a", "rows": [dict(row)]},
-            "exp2_same_device_calibration": {"panel": "b", "rows": [dict(row)]},
+            "exp1_latency_profile_summary": {"panel": "a"},
+            "exp2_same_device_calibration": {"panel": "b"},
             "exp3_cross_device_prediction": {
                 "panel": "c",
-                "rows": [dict(row)],
                 "replay_pairs": [{"target_device": "a100", "replay_device": "a100"}],
             },
         },
