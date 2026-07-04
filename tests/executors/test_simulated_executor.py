@@ -380,9 +380,12 @@ def test_raw_frame_latency_source_and_observation_stride_share_raw_timeline():
     assert [call["raw_frame"] for call in latency_source.calls] == [0, 6]
 
 
-def test_policy_observation_receives_sampled_latency_metadata_before_predict():
+def test_policy_observation_does_not_leak_sampled_latency():
+    # Realtime execution cannot know an action's latency before inference runs,
+    # so simulated replay must not reveal it either: leaking the sampled value
+    # changed the StarVLA prompt per step and skewed sim-vs-real returns.
     policy = CapturingPolicyRunner(Action("jump"))
-    executor, _, clock, _ = _executor(
+    executor, _, _, _ = _executor(
         RawFrameLatencySource([3]),
         policy=policy,
         max_steps=4,
@@ -392,11 +395,11 @@ def test_policy_observation_receives_sampled_latency_metadata_before_predict():
     executor.run_episode(episode_id=0, eval_max_steps=4)
 
     assert policy.observations[0].metadata["obs_id"] == 0
-    assert policy.observations[0].metadata["latency_raw_frames"] == 3
-    assert policy.observations[0].metadata["latency_ms"] == 3 * clock.frame_ms
+    assert "latency_ms" not in policy.observations[0].metadata
+    assert "latency_raw_frames" not in policy.observations[0].metadata
     event = executor.action_scheduler.get_applied_events()[0]
     assert event.latency.obs_id == policy.observations[0].metadata["obs_id"]
-    assert event.latency_raw_frames == policy.observations[0].metadata["latency_raw_frames"]
+    assert event.latency_raw_frames == 3
 
 
 def test_single_simulated_executor_adds_slot_id_to_policy_observation_and_latency_context():

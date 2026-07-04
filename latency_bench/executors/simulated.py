@@ -123,8 +123,6 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                             "obs_id": obs_id,
                             "episode_id": episode_id,
                             "slot_id": 0,
-                            "latency_ms": latency_ms,
-                            "latency_raw_frames": latency_sample.latency_raw_frames,
                         }
                     )
                     policy_observation = Observation(

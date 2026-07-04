@@ -381,13 +381,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         }
         latency_sample = slot.latency_source.sample(latency_context)
         metadata = dict(observation.metadata)
-        metadata.update(
-            {
-                "obs_id": obs_id,
-                "latency_ms": latency_sample.latency_ms,
-                "latency_raw_frames": latency_sample.latency_raw_frames,
-            }
-        )
+        metadata.update({"obs_id": obs_id})
         return _PendingPolicyObservation(
             slot=slot,
             observation=Observation(
