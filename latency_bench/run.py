@@ -92,7 +92,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--run-name", type=str)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--checkpoint-kind", choices=["latest", "best"])
-    parser.add_argument("--n-samples", type=int)
     parser.add_argument("--episode-start", type=int)
     parser.add_argument("--episode-count", type=int)
     args = parser.parse_args(argv)
@@ -124,7 +123,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 f"mean_length={float(summary['mean_length']):.1f}"
             )
         return
-    metrics = eval_sweeps.run_eval_sweep_from_config(config, progress=True, n_samples=args.n_samples, episode_ids=episode_ids)
+    metrics = eval_sweeps.run_eval_sweep_from_config(config, progress=True, episode_ids=episode_ids)
     for episode_metrics in metrics:
         eval_latency = episode_metrics.metadata.get("eval_latency_steps")
         latency_fragment = f"eval_latency={eval_latency} " if eval_latency is not None else ""

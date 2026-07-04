@@ -95,7 +95,6 @@ def run_eval_sweep_from_config(
     config: dict[str, Any],
     *,
     progress: bool = False,
-    n_samples: int | None = None,
     episode_ids: Sequence[int] | None = None,
     policy: Any | None = None,
 ) -> list[EpisodeMetrics]:
@@ -127,31 +126,9 @@ def run_eval_sweep_from_config(
                 flush=True,
             )
 
-        def on_episode_progress(
-            _episode_metrics: EpisodeMetrics,
-            completed: int,
-            sample_count: int,
-        ) -> None:
-            if completed <= num_episodes:
-                print(
-                    f"[bench] sweep 1/1 episode {completed}/{num_episodes} samples {sample_count}/{n_samples} done",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                return
-            extra = completed - num_episodes
-            print(
-                f"[bench] sweep 1/1 episode {num_episodes}/{num_episodes} "
-                f"+extra {extra} samples {sample_count}/{n_samples} done",
-                file=sys.stderr,
-                flush=True,
-            )
-
         metrics = run_from_config(
             config,
-            on_episode_complete=on_episode_complete if n_samples is None else None,
-            on_episode_progress=on_episode_progress if n_samples is not None else None,
-            n_samples=n_samples,
+            on_episode_complete=on_episode_complete,
             episode_ids=episode_ids,
             **({"policy": policy} if policy is not None else {}),
         )

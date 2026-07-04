@@ -1190,7 +1190,6 @@ def test_cross_device_main_script_documents_single_entrypoint_and_new_protocol_m
         "ONLY_DEVICE",
         "ONLY_EXPERIMENT",
         "MAX_RUNS",
-        "N_SAMPLES",
         "CONTINUE_ON_ERROR",
     ):
         assert env_var in script
@@ -1250,7 +1249,6 @@ def test_cross_device_profile_preset_expands_to_doctor_measure_and_uploads(tmp_p
             "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
             "PROFILES_DIR": str(profiles_dir),
             "OUT": str(out),
-            "N_SAMPLES": "3",
         },
         capture_output=True,
         text=True,
@@ -1261,7 +1259,6 @@ def test_cross_device_profile_preset_expands_to_doctor_measure_and_uploads(tmp_p
     calls = calls_path.read_text(encoding="utf-8")
     assert "-m scripts.cross_device.protocol doctor" in calls
     assert "-m scripts.cross_device.protocol measure" in calls
-    assert "--n-samples 3" in calls
     assert "-m scripts.cross_device.protocol realtime" not in calls
     assert "-m scripts.cross_device.profile_cache upload" in calls
     assert "-m scripts.cross_device.profile_cache upload-run" not in calls
