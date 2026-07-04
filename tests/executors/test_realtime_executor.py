@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import json
 from dataclasses import dataclass
 
@@ -1200,12 +1201,13 @@ def test_realtime_records_worker_id_once_on_latency_metadata(tmp_path):
 
     executor.run_episode(episode_id=0, eval_max_steps=2)
 
-    latency = logger.latency_records[0]
-    event = logger.action_records[0]
-    assert latency.device == "cuda:1"
-    assert latency.metadata["worker_id"] == 1
-    assert "worker_id" not in event.metadata
-    assert "device" not in event.metadata
+    # Records are flushed to disk (and cleared from memory) at episode end.
+    latency = json.loads((tmp_path / "latencies.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    event = json.loads((tmp_path / "actions.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert latency["device"] == "cuda:1"
+    assert latency["metadata"]["worker_id"] == 1
+    assert "worker_id" not in event["metadata"]
+    assert "device" not in event["metadata"]
 
 
 def test_realtime_records_current_episode_video(tmp_path):
@@ -1348,3 +1350,67 @@ def test_realtime_stress_warmup_does_not_run_episodes(monkeypatch, tmp_path):
 
     assert summary["warmup_mode"] == "stress_policy"
     assert summary["warmup_samples"] == 2
+
+
+def test_gc_paused_until_episode_end_restores_state_and_collects():
+    from latency_bench.executors.realtime.executor import _gc_paused_until_episode_end
+
+    assert gc.isenabled()
+    with _gc_paused_until_episode_end():
+        assert not gc.isenabled()
+    assert gc.isenabled()
+
+
+def test_run_episode_leaves_gc_enabled():
+    pool = ScriptedInferencePool([], num_workers=1)
+    executor = _executor(pool=pool, max_steps=3)
+
+    executor.run_episode(episode_id=0, seed=0, eval_max_steps=3)
+
+    assert gc.isenabled()
+
+
+def test_inference_worker_collect_command_runs_gc_and_keeps_serving(monkeypatch):
+    _patch_worker_dependencies(monkeypatch, SuccessfulWorkerMeasurer)
+    task = RealtimeObservationTask(
+        obs_id=7,
+        observation=Observation(data=object(), env_step=0, sim_time_ms=0.0),
+        submit_env_step=0,
+        submit_time_ms=0.0,
+    )
+    connection = RecordingWorkerConnection(task)
+    connection.commands.insert(0, ("collect", {}))
+    connection.commands.append(("close", {}))
+    collect_calls = []
+    real_collect = gc.collect
+    monkeypatch.setattr(gc, "collect", lambda *args: collect_calls.append(args) or real_collect(*args))
+
+    _inference_worker(
+        connection,
+        {"env": {}, "policy": {}, "latency": {}},
+        worker_id=0,
+        device="cpu",
+        start_method="spawn",
+    )
+
+    assert collect_calls
+    assert [command for command, _payload in connection.sent] == ["ready", "result"]
+
+
+def test_drain_until_idle_broadcasts_collect_to_idle_workers(monkeypatch):
+    monkeypatch.setattr(ProcessInferencePool, "_start_workers", lambda self: None)
+    pool = ProcessInferencePool(config={}, inference_devices=["cuda:0", "cuda:1"])
+
+    class SendRecordingConnection:
+        def __init__(self):
+            self.sent = []
+
+        def send(self, message):
+            self.sent.append(message)
+
+    connections = [SendRecordingConnection(), SendRecordingConnection()]
+    pool._connections = list(connections)
+
+    pool.drain_until_idle()
+
+    assert all(connection.sent == [("collect", {})] for connection in connections)

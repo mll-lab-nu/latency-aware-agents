@@ -17,6 +17,7 @@ from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler, ObservationCadenceDecisionScheduler
 from latency_bench.scheduler.persistence import ActionPersistencePolicy, HoldPolicy, OneFrameThenNoopPolicy
+from latency_bench.utils.io import load_jsonl_records
 
 
 def _zero_sampler() -> ZeroSampler:
@@ -491,7 +492,7 @@ def test_simulated_executor_omits_raw_rgb_frame_stack_from_logged_step_info(tmp_
     logger.flush()
 
     assert "env_raw_rgb_frame_stack" in policy.observations[0].metadata
-    assert "env_raw_rgb_frame_stack" not in logger.step_records[0].info
+    assert "env_raw_rgb_frame_stack" not in load_jsonl_records(tmp_path / "steps.jsonl")[0]["info"]
     row = json.loads((tmp_path / "steps.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert row["info"]["score"] == 5
     assert "env_raw_rgb_frame_stack" not in row["info"]

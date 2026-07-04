@@ -19,6 +19,7 @@ from latency_bench.executors.env_step_backend import SerialEnvStepBackend
 from latency_bench.latency.sample import LatencySample
 from latency_bench.latency.samplers import FixedSampler, LatencySampler, ZeroSampler
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
+from latency_bench.utils.io import load_jsonl_records
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
@@ -662,12 +663,16 @@ def test_batched_executor_global_obs_and_action_ids_are_unique(tmp_path: Path):
             seeds=[1, 2, 3, 4],
             eval_max_steps=3,
         )
-        action_ids = [event.action_id for event in executor.logger.action_records]
-        action_obs_ids = [event.latency.obs_id for event in executor.logger.action_records]
-        latency_obs_ids = [record.obs_id for record in executor.logger.latency_records]
+        # Records are flushed to disk (and cleared from memory) at episode end.
+        action_rows = load_jsonl_records(tmp_path / "actions.jsonl")
+        latency_rows = load_jsonl_records(tmp_path / "latencies.jsonl")
+        action_ids = [row["action_id"] for row in action_rows]
+        action_obs_ids = [row["latency"]["obs_id"] for row in action_rows]
+        latency_obs_ids = [row["obs_id"] for row in latency_rows]
     finally:
         executor.close()
 
+    assert action_ids
     assert len(action_ids) == len(set(action_ids))
     assert len(action_obs_ids) == len(set(action_obs_ids))
     assert sorted(action_obs_ids) == sorted(latency_obs_ids)
@@ -709,8 +714,8 @@ def test_batched_executor_adds_slot_id_to_policy_observation_metadata(tmp_path: 
         },
     ]
     assert [
-        (record.obs_id, record.latency_ms)
-        for record in executor.logger.latency_records
+        (row["obs_id"], row["latency_ms"])
+        for row in load_jsonl_records(tmp_path / "latencies.jsonl")
     ] == [(0, 0.0), (1, 0.0)]
 
 
@@ -823,8 +828,8 @@ def test_batched_executor_keeps_slot_latency_sources_independent(tmp_path: Path)
             eval_max_steps=2,
         )
         values_by_slot: dict[int, set[float]] = {}
-        for record in executor.logger.latency_records:
-            values_by_slot.setdefault(int(record.metadata["slot_id"]), set()).add(record.latency_ms)
+        for row in load_jsonl_records(tmp_path / "latencies.jsonl"):
+            values_by_slot.setdefault(int(row["metadata"]["slot_id"]), set()).add(row["latency_ms"])
     finally:
         executor.close()
 
@@ -972,8 +977,8 @@ def test_batched_executor_omits_raw_rgb_frame_stack_from_logged_step_info(tmp_pa
         executor.close()
 
     assert policy.raw_stack_shapes == [(1, 2, 3, 3), (1, 2, 3, 3)]
-    assert executor.logger.action_records[0].metadata["input_frame_shape"] == [[2, 3, 3]]
-    assert "env_raw_rgb_frame_stack" not in executor.logger.step_records[0].info
+    assert load_jsonl_records(tmp_path / "actions.jsonl")[0]["metadata"]["input_frame_shape"] == [[2, 3, 3]]
+    assert "env_raw_rgb_frame_stack" not in load_jsonl_records(tmp_path / "steps.jsonl")[0]["info"]
     step = json.loads((tmp_path / "steps.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert "env_raw_rgb_frame_stack" not in step["info"]
 

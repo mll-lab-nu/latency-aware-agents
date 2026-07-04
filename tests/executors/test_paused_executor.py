@@ -7,6 +7,7 @@ from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.latency.samplers import FixedSampler
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
+from latency_bench.utils.io import load_jsonl_records
 from executor_mode_helpers import SequencePolicyRunner, make_dummy_parts
 
 
@@ -66,6 +67,7 @@ def test_paused_logs_configured_latency_without_delaying_action(tmp_path: Path):
 
     metrics = executor.run_episode(episode_id=0, eval_max_steps=2)
 
-    assert logger.action_records[0].latency.latency_ms == 0.0
-    assert logger.latency_records[0].latency_ms == 0.0
+    # Records are flushed to disk (and cleared from memory) at episode end.
+    assert load_jsonl_records(tmp_path / "actions.jsonl")[0]["latency"]["latency_ms"] == 0.0
+    assert load_jsonl_records(tmp_path / "latencies.jsonl")[0]["latency_ms"] == 0.0
     assert metrics.mean_latency_ms == 0.0

@@ -11,8 +11,10 @@ import pytest
 
 from latency_bench.core.types import Action, ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
 from latency_bench.logging.latency_traces import e2e_latency_rows
+from latency_bench.logging.realtime_pipeline import realtime_pipeline_profile_rows, realtime_pipeline_summary
 from latency_bench.logging.records import step_record_info, to_jsonable
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
+from latency_bench.utils.io import write_json, write_jsonl
 
 from helpers import realtime_profile as _realtime_profile
 
@@ -340,6 +342,121 @@ def test_e2e_latency_rows_requires_frame_ms_for_applied_actions():
 
     with pytest.raises(KeyError, match="frame_ms"):
         e2e_latency_rows([event])
+
+
+def _episode_records(episode_id: int) -> tuple[list[StepRecord], list[ActionEvent], list[LatencyRecord], EpisodeMetrics]:
+    action = Action(value=episode_id, name="flap")
+    steps: list[StepRecord] = []
+    events: list[ActionEvent] = []
+    latencies: list[LatencyRecord] = []
+    for k in range(3):
+        action_id = episode_id * 10 + k
+        latency = LatencyRecord(obs_id=action_id, latency_ms=30.0 + k, device="cuda:0")
+        events.append(
+            ActionEvent(
+                action_id=action_id,
+                action=action,
+                obs_env_step=k,
+                ready_time_ms=75.0,
+                ready_step_float=3.0,
+                latency=latency,
+                latency_raw_frames=2,
+                ready_raw_frame=k + 2,
+                apply_raw_frame=k + 3,
+                applied=True,
+                metadata={"frame_ms": 100.0 / 3.0, "realtime_profile": _realtime_profile(1.5)},
+            )
+        )
+        steps.append(
+            StepRecord(
+                episode_id=episode_id,
+                env_step=k,
+                sim_time_ms=k * 33.3,
+                active_action=action,
+                reward=1.0,
+                done=False,
+                info={},
+            )
+        )
+        latencies.append(latency)
+    metrics = EpisodeMetrics(
+        episode_id=episode_id,
+        episode_return=1.0,
+        survival_steps=3,
+        mean_latency_ms=31.0,
+        num_actions=3,
+    )
+    return steps, events, latencies, metrics
+
+
+def _log_episode(logger: TrajectoryLogger, episode_id: int):
+    steps, events, latencies, metrics = _episode_records(episode_id)
+    for record in steps:
+        logger.log_step(record)
+    for event, latency in zip(events, latencies):
+        logger.log_action_event(event)
+        logger.log_latency(latency)
+    logger.log_episode_metrics(metrics)
+    return steps, events, latencies, metrics
+
+
+def test_trajectory_logger_incremental_flush_matches_one_shot_reference(tmp_path):
+    incremental_dir = tmp_path / "incremental"
+    logger = _trajectory_logger(incremental_dir)
+    all_steps, all_events, all_latencies, all_metrics = [], [], [], []
+    for episode_id in range(3):
+        steps, events, latencies, metrics = _log_episode(logger, episode_id)
+        all_steps += steps
+        all_events += events
+        all_latencies += latencies
+        all_metrics.append(metrics)
+        assert logger.step_records == []
+        assert logger.action_records == []
+        assert logger.latency_records == []
+    logger.flush()
+
+    reference_dir = tmp_path / "reference"
+    write_jsonl(reference_dir / "steps.jsonl", all_steps)
+    write_jsonl(reference_dir / "actions.jsonl", all_events)
+    write_jsonl(reference_dir / "e2e_latencies.jsonl", e2e_latency_rows(all_events))
+    pipeline_rows = realtime_pipeline_profile_rows(all_events)
+    write_jsonl(reference_dir / "realtime_pipeline_profile.jsonl", pipeline_rows)
+    write_json(reference_dir / "realtime_pipeline_summary.json", realtime_pipeline_summary(pipeline_rows))
+    write_jsonl(reference_dir / "latencies.jsonl", all_latencies)
+    write_jsonl(reference_dir / "infer_latencies.jsonl", all_latencies)
+    write_jsonl(reference_dir / "episode_metrics.jsonl", all_metrics)
+
+    for filename in (
+        "steps.jsonl",
+        "actions.jsonl",
+        "e2e_latencies.jsonl",
+        "realtime_pipeline_profile.jsonl",
+        "realtime_pipeline_summary.json",
+        "latencies.jsonl",
+        "infer_latencies.jsonl",
+        "episode_metrics.jsonl",
+    ):
+        incremental_text = (incremental_dir / filename).read_text(encoding="utf-8")
+        reference_text = (reference_dir / filename).read_text(encoding="utf-8")
+        assert incremental_text == reference_text, filename
+
+
+def test_trajectory_logger_overwrites_stale_files_from_previous_run(tmp_path):
+    stale_logger = _trajectory_logger(tmp_path)
+    _log_episode(stale_logger, 0)
+    _log_episode(stale_logger, 1)
+    stale_logger.flush()
+
+    fresh_logger = _trajectory_logger(tmp_path)
+    _log_episode(fresh_logger, 7)
+    fresh_logger.flush()
+
+    step_rows = [
+        json.loads(line)
+        for line in (tmp_path / "steps.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [row["episode_id"] for row in step_rows] == [7, 7, 7]
+
 
 
 def test_trajectory_logger_does_not_collect_or_write_disabled_records(tmp_path):

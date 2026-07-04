@@ -62,6 +62,12 @@ class ProcessInferencePool:
             drained_completion_count += len(completions)
             if self.in_flight_count:
                 time.sleep(0.001)
+        # Workers run with automatic GC disabled; every worker is idle right
+        # now, so this is the one safe moment to reclaim their cycle garbage.
+        # Pipe ordering guarantees the collect finishes before any later
+        # predict is processed.
+        for connection in self._connections:
+            connection.send(("collect", {}))
         return {
             "pre_episode_in_flight_count": int(busy_before),
             "pre_episode_drained_completion_count": int(drained_completion_count),

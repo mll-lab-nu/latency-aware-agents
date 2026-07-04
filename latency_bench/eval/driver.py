@@ -95,10 +95,7 @@ def _record_realtime_eval_latency_plot(config: dict[str, Any], executor: Any) ->
     if not config["logging"]["save_latency_records"]:
         return
 
-    latency_values = [
-        float(record.latency_ms)
-        for record in executor.logger.latency_records
-    ]
+    latency_values = list(executor.logger.latency_ms_values)
     plot_realtime_eval_latency(
         latency_values,
         Path(config["logging"]["output_dir"]) / "eval_latency_trace.png",
