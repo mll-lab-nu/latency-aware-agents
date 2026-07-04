@@ -103,7 +103,7 @@ def _write_measure_run(root: Path) -> tuple[Path, Path]:
             }
         ],
     )
-    profile_dir = root / "profiles" / "openvla-flappy" / "flappy" / "L_L40S"
+    profile_dir = root / "profiles" / "openvla" / "flappy" / "l40s" / "instance_test"
     profile_dir.mkdir(parents=True, exist_ok=True)
     profile_path = profile_dir / "profile.json"
     profile_path.write_text(
@@ -129,6 +129,10 @@ def _write_measure_run(root: Path) -> tuple[Path, Path]:
             sort_keys=True,
         )
         + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / "manifest.json").write_text(
+        json.dumps({"profile_path": str(profile_path)}, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     return run_dir, profile_path
@@ -201,6 +205,6 @@ def test_rebuild_profiles_uploads_profile_folder_after_apply(tmp_path: Path, mon
             "repo_id": "latency-sensitive-bench/profiles",
             "local_dir": profile_path.parent,
             "repo_type": "dataset",
-            "path_in_repo": "profiles/openvla-flappy/flappy/L_L40S",
+            "path_in_repo": "profiles/openvla/flappy/l40s/instance_test",
         }
     ]

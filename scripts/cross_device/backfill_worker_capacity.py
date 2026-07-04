@@ -54,12 +54,7 @@ def discover_targets(root: Path) -> list[BackfillTarget]:
         if run_index is None:
             continue
         latencies_path = run_dir / "latencies.jsonl"
-        records = load_jsonl_records(metrics_path)
-        profile_id = records[0]["metadata"]["profile_id"]
-        prefix = Path(*parts[:run_index])
-        policy = parts[run_index + 2]
-        env = parts[run_index + 3]
-        profile_path = prefix / "profiles" / policy / env / profile_id / "profile.json"
+        profile_path = Path(read_json(run_dir / "manifest.json")["profile_path"])
         targets.append(
             BackfillTarget(
                 run_dir=run_dir,
@@ -96,11 +91,9 @@ def upload_target(*, root: Path, target: BackfillTarget, repo_id: str, repo_type
 
 def _upload_specs(root: Path, target: BackfillTarget) -> list[tuple[Path, str, list[str]]]:
     raw_run_path = _raw_relative_path(target.run_dir)
-    raw_profile_path = _raw_relative_path(target.profile_path.parent)
-    if raw_run_path is not None and raw_profile_path is not None:
+    if raw_run_path is not None:
         return [
             (target.run_dir, raw_run_path, ["episode_metrics.jsonl"]),
-            (target.profile_path.parent, raw_profile_path, ["profile.json"]),
         ]
 
     manifest = read_json(target.run_dir / "manifest.json")
@@ -111,7 +104,6 @@ def _upload_specs(root: Path, target: BackfillTarget) -> list[tuple[Path, str, l
     return [
         (target.run_dir, (base / run_relative).as_posix(), ["episode_metrics.jsonl"]),
         (target.profile_path.parent, profile_relative.as_posix(), ["profile.json"]),
-        (target.profile_path.parent, (base / profile_relative).as_posix(), ["profile.json"]),
     ]
 
 

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 def test_profile_cache_is_local_first(tmp_path: Path):
     from scripts.cross_device.profile_cache import ensure_profile_cached
 
-    profile_path = tmp_path / "profiles" / "dry-policy" / "flappy" / "L_A100" / "profile.json"
+    profile_path = tmp_path / "profiles" / "test_model" / "flappy" / "a100" / "instance_local" / "profile.json"
     profile_path.parent.mkdir(parents=True)
     profile_path.write_text("{}\n", encoding="utf-8")
 
@@ -31,7 +31,7 @@ def test_profile_cache_is_local_first(tmp_path: Path):
 def test_profile_cache_downloads_missing_profile(tmp_path: Path):
     from scripts.cross_device.profile_cache import ensure_profile_cached
 
-    profile_path = tmp_path / "profiles" / "dry-policy" / "flappy" / "L_A100" / "profile.json"
+    profile_path = tmp_path / "profiles" / "test_model" / "flappy" / "a100" / "instance_local" / "profile.json"
     calls: list[tuple[str, Path, str, str]] = []
 
     def download_profile_folder(*, repo_id: str, local_dir: Path, remote_dir: str, repo_type: str, revision: str | None) -> None:
@@ -52,7 +52,7 @@ def test_profile_cache_downloads_missing_profile(tmp_path: Path):
         (
             "latency-sensitive-bench/profiles",
             profile_path.parent,
-            "profiles/dry-policy/flappy/L_A100",
+            "profiles/test_model/flappy/a100/instance_local",
             "dataset",
         )
     ]
@@ -61,7 +61,7 @@ def test_profile_cache_downloads_missing_profile(tmp_path: Path):
 def test_profile_cache_downloads_whole_profile_folder_from_hf(tmp_path: Path, monkeypatch):
     from scripts.cross_device.profile_cache import download_profile_folder_from_hf
 
-    remote_dir = "profiles/dry-policy/flappy/L_A100"
+    remote_dir = "profiles/test_model/flappy/a100/instance_local"
     snapshot_root = tmp_path / "snapshot"
     remote_profile_dir = snapshot_root / remote_dir
     remote_profile_dir.mkdir(parents=True)
@@ -91,7 +91,7 @@ def test_profile_cache_downloads_whole_profile_folder_from_hf(tmp_path: Path, mo
             "repo_id": "latency-sensitive-bench/profiles",
             "repo_type": "dataset",
             "revision": "main",
-            "allow_patterns": "profiles/dry-policy/flappy/L_A100/*",
+            "allow_patterns": "profiles/test_model/flappy/a100/instance_local/*",
         }
     ]
     assert (local_dir / "profile.json").exists()
@@ -111,13 +111,13 @@ def test_profile_cache_uploads_output_folder_to_hf(tmp_path: Path, monkeypatch):
     monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(HfApi=HfApi))
 
     out = tmp_path / "cross_device"
-    (out / "profiles" / "openvla-flappy" / "flappy" / "L_A100").mkdir(parents=True)
+    (out / "profiles" / "openvla" / "flappy" / "a100" / "instance_local").mkdir(parents=True)
     (out / "runs" / "measure" / "openvla-flappy" / "flappy" / "a100" / "seed_0").mkdir(parents=True)
     upload_folder_to_hf(
         repo_id="latency-sensitive-bench/profiles",
         local_dir=out,
         repo_type="dataset",
-        path_in_repo="profiles/openvla-flappy/flappy/L_A100",
+        path_in_repo="profiles/openvla/flappy/a100/instance_local",
     )
 
     assert calls == [
@@ -125,7 +125,7 @@ def test_profile_cache_uploads_output_folder_to_hf(tmp_path: Path, monkeypatch):
             "repo_id": "latency-sensitive-bench/profiles",
             "repo_type": "dataset",
             "folder_path": str(out),
-            "path_in_repo": "profiles/openvla-flappy/flappy/L_A100",
+            "path_in_repo": "profiles/openvla/flappy/a100/instance_local",
         }
     ]
 

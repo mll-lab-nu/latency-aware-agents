@@ -37,11 +37,7 @@ def discover_targets(root: Path) -> list[BackfillTarget]:
         if run_index is None:
             continue
         records = load_jsonl_records(metrics_path)
-        profile_id = records[0]["metadata"]["profile_id"]
-        prefix = Path(*parts[:run_index])
-        policy = parts[run_index + 2]
-        env = parts[run_index + 3]
-        profile_path = prefix / "profiles" / policy / env / profile_id / "profile.json"
+        profile_path = Path(json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))["profile_path"])
         targets.append(
             BackfillTarget(
                 run_dir=run_dir,
