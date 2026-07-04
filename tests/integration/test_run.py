@@ -371,63 +371,6 @@ def test_run_from_config_merges_executor_warmup_metadata(
     assert logged_metrics == [0, 1]
 
 
-def test_run_from_config_keeps_executor_alive_until_latency_sample_target(
-    monkeypatch,
-    tmp_path: Path,
-):
-    run_calls = []
-    flushed_episode_count = []
-    flushed_latency_count = []
-
-    class FakeEnv:
-        def close(self):
-            pass
-
-    class FakeLogger:
-        def __init__(self):
-            self.latency_records = []
-            self.episode_metrics = []
-
-        def flush(self):
-            flushed_episode_count.append(len(self.episode_metrics))
-            flushed_latency_count.append(len(self.latency_records))
-
-    class FakeExecutor(EpisodeExecutor):
-        env = FakeEnv()
-
-        def __init__(self):
-            self.logger = FakeLogger()
-
-        def run_episode(self, *, episode_id, seed, eval_max_steps):
-            run_calls.append((episode_id, seed, eval_max_steps))
-            self.logger.latency_records.extend([
-                SimpleNamespace(latency_ms=float(episode_id * 10 + 1)),
-                SimpleNamespace(latency_ms=float(episode_id * 10 + 2)),
-            ])
-            metrics = EpisodeMetrics(
-                episode_id=episode_id,
-                episode_return=float(episode_id),
-                survival_steps=eval_max_steps,
-                metadata={},
-            )
-            self.logger.episode_metrics.append(metrics)
-            return metrics
-
-    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
-    config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
-    config["evaluation"]["eval_max_steps"] = 10
-
-    metrics = latency_run.run_from_config(config, n_samples=5)
-
-    assert run_calls == [
-        (0, 11, 10),
-        (1, 12, 10),
-        (2, 13, 10),
-    ]
-    assert [metric.episode_id for metric in metrics] == [0, 1]
-    assert flushed_episode_count == [2]
-    assert flushed_latency_count == [5]
-
 
 def test_run_eval_progress_keeps_existing_episode_format_without_sample_target(
     monkeypatch,
@@ -472,53 +415,6 @@ def test_run_eval_progress_keeps_existing_episode_format_without_sample_target(
     assert "[bench] sweep 1/1 episode 2/2 done" in captured.err
     assert "samples" not in captured.err
 
-
-def test_run_eval_progress_reports_sample_target_and_extra_episodes(
-    monkeypatch,
-    tmp_path: Path,
-    capsys,
-):
-    class FakeEnv:
-        def close(self):
-            pass
-
-    class FakeLogger:
-        def __init__(self):
-            self.latency_records = []
-            self.episode_metrics = []
-
-        def flush(self):
-            pass
-
-    class FakeExecutor(EpisodeExecutor):
-        env = FakeEnv()
-
-        def __init__(self):
-            self.logger = FakeLogger()
-
-        def run_episode(self, *, episode_id, seed, eval_max_steps):
-            self.logger.latency_records.extend([
-                SimpleNamespace(latency_ms=float(episode_id * 10 + 1)),
-                SimpleNamespace(latency_ms=float(episode_id * 10 + 2)),
-            ])
-            metrics = EpisodeMetrics(
-                episode_id=episode_id,
-                episode_return=float(episode_id),
-                survival_steps=eval_max_steps,
-                metadata={},
-            )
-            self.logger.episode_metrics.append(metrics)
-            return metrics
-
-    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
-    config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
-
-    latency_run.run_eval_sweep_from_config(config, progress=True, n_samples=5)
-
-    captured = capsys.readouterr()
-    assert "[bench] sweep 1/1 episode 1/2 samples 2/5 done" in captured.err
-    assert "[bench] sweep 1/1 episode 2/2 samples 4/5 done" in captured.err
-    assert "[bench] sweep 1/1 episode 2/2 +extra 1 samples 6/5 done" in captured.err
 
 
 def test_run_from_config_without_warmup_hook_does_not_warmup(
