@@ -21,28 +21,28 @@ def _write_csv(path: Path, columns: list[str], rows: list[dict[str, str]]) -> No
 def _seed_tables(tables_dir: Path) -> None:
     _write_csv(
         tables_dir / "experiment1_latency_profile_summary.csv",
-        ["experiment_id", "panel", "policy", "env", "profile_id", "hardware", "env_fps",
+        ["experiment_id", "panel", "policy", "env", "profile_id", "profile_instance_id", "hardware", "env_fps",
          "inference_mean_ms", "e2e_mean_ms", "e2e_mean_frames", "n_samples", "notes"],
         [
             {"experiment_id": "exp1", "panel": "a", "policy": "openvla-flappy", "env": "Flappy",
-             "profile_id": "L_3090", "hardware": "RTX 3090", "env_fps": "30",
+             "profile_id": "L_3090", "profile_instance_id": "instance_rtx3090", "hardware": "RTX 3090", "env_fps": "30",
              "inference_mean_ms": "75.0", "e2e_mean_ms": "120.0", "e2e_mean_frames": "3.6",
              "n_samples": "70", "notes": ""},
             # Missing profile row (no mean_ms) -> dropped from table + no trace.
             {"experiment_id": "exp1", "panel": "a", "policy": "openvla-flappy", "env": "Flappy",
-             "profile_id": "L_B200", "hardware": "B200", "env_fps": "",
+             "profile_id": "L_B200", "profile_instance_id": "", "hardware": "B200", "env_fps": "",
              "inference_mean_ms": "", "e2e_mean_ms": "", "e2e_mean_frames": "",
              "n_samples": "", "notes": "missing"},
         ],
     )
     _write_csv(
         tables_dir / "experiment2_same_device_calibration.csv",
-        ["experiment_id", "panel", "policy", "env", "profile_id", "hardware", "realtime_return",
+        ["experiment_id", "panel", "policy", "env", "profile_id", "profile_instance_id", "hardware", "realtime_return",
          "simulated_return_using_L_d", "return_abs_error", "return_rel_error_pct", "realtime_length",
          "sim_length", "length_abs_error", "length_rel_error_pct", "n_episodes", "seed_set", "notes"],
         [
-            {"experiment_id": "exp2", "panel": "b", "policy": "flappy-sf-l1", "env": "Flappy",
-             "profile_id": "L_3090", "hardware": "RTX 3090", "realtime_return": "434.5",
+            {"experiment_id": "exp2", "panel": "b", "policy": "openvla-flappy", "env": "Flappy",
+             "profile_id": "L_3090", "profile_instance_id": "instance_rtx3090", "hardware": "RTX 3090", "realtime_return": "434.5",
              "simulated_return_using_L_d": "444.6", "return_abs_error": "10.0", "return_rel_error_pct": "2.3",
              "realtime_length": "3519", "sim_length": "3600", "length_abs_error": "81", "length_rel_error_pct": "2.2",
              "n_episodes": "10", "seed_set": "0", "notes": ""},
@@ -50,13 +50,15 @@ def _seed_tables(tables_dir: Path) -> None:
     )
     _write_csv(
         tables_dir / "experiment3_cross_device_prediction.csv",
-        ["experiment_id", "panel", "policy", "env", "target_device", "target_profile", "replay_device",
+        ["experiment_id", "panel", "policy", "env", "target_device", "target_profile", "target_profile_instance_id", "replay_device",
+         "replay_host_instance_id",
          "true_realtime_return_on_d", "simulated_return_on_replay_using_L_d", "return_abs_error",
          "return_rel_error_pct", "true_realtime_length_on_d", "simulated_length_on_replay_using_L_d",
          "length_abs_error", "length_rel_error_pct", "n_episodes", "seed_set", "use_in_main_claim", "notes"],
         [
             {"experiment_id": "exp3", "panel": "c", "policy": "openvla-flappy", "env": "Flappy",
-             "target_device": "RTX 3090", "target_profile": "L_3090", "replay_device": "B200",
+             "target_device": "RTX 3090", "target_profile": "L_3090", "target_profile_instance_id": "instance_rtx3090",
+             "replay_device": "B200", "replay_host_instance_id": "instance_b200",
              "true_realtime_return_on_d": "4.47", "simulated_return_on_replay_using_L_d": "3.9",
              "return_abs_error": "0.57", "return_rel_error_pct": "12.75", "true_realtime_length_on_d": "54.8",
              "simulated_length_on_replay_using_L_d": "50.0", "length_abs_error": "4.8", "length_rel_error_pct": "8.7",
@@ -78,8 +80,10 @@ def _spec() -> dict:
             "exp2_same_device_calibration": {
                 "rows": [
                     {
-                        "policy": "flappy-sf-l1",
+                        "policy": "openvla-flappy",
                         "env": "Flappy",
+                        "model_type": "openvla",
+                        "env_name": "flappy",
                     },
                 ],
             },
@@ -97,9 +101,13 @@ def _manifest(output_dir: Path, *, stage: str = "measure") -> dict:
             "exp2_same_device_calibration",
             "exp3_cross_device_prediction",
         ],
-        "policy": "flappy-sf-l1",
+        "policy": "openvla-flappy",
         "env": "Flappy",
         "target_device_id": "rtx3090",
+        "target_profile_id": "L_3090",
+        "instance_id": "instance_rtx3090",
+        "target_profile_instance_id": "instance_rtx3090",
+        "profile_path": str(output_dir.parents[5] / "profiles" / "openvla" / "flappy" / "rtx3090" / "instance_rtx3090" / "profile.json"),
         "output_dir": str(output_dir),
         "n_episodes": 2,
         "seed_set": [0],
@@ -126,21 +134,22 @@ def _write_episode_metrics(
 
 def test_build_all_produces_aligned_schemas(tmp_path: Path):
     tables_dir = tmp_path / "tables"
-    profiles_root = tmp_path / "profiles"
     root = tmp_path / "cross_device"
     _seed_tables(tables_dir)
     # Panel-a traces for the one device that has a profile.
+    profile_dir = root / "profiles" / "openvla" / "flappy" / "rtx3090" / "instance_rtx3090"
     write_latency_samples(
         [float(i) for i in range(100)],
-        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "e2e_latencies.jsonl",
+        profile_dir / "e2e_latencies.jsonl",
     )
     write_latency_samples(
         [float(i + 100) for i in range(100)],
-        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "infer_latencies.jsonl",
+        profile_dir / "infer_latencies.jsonl",
     )
-    run_dir = root / "runs" / "measure" / "flappy-sf-l1" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    (profile_dir / "profile.json").write_text("{}\n", encoding="utf-8")
+    run_dir = root / "runs" / "measure" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
     _write_episode_metrics(run_dir)
-    sim_dir = root / "runs" / "sim_same" / "flappy-sf-l1" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    sim_dir = root / "runs" / "sim_same" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
     _write_episode_metrics(sim_dir, returns=(30.0, 40.0), lengths=(300, 400))
     write_jsonl(root / "manifests" / "runs.jsonl", [_manifest(run_dir), _manifest(sim_dir, stage="sim_same")])
 
@@ -148,7 +157,7 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
     out_table = tmp_path / "table" / "data.csv"
     counts = bfd.build_all(
         tables_dir=tables_dir,
-        profiles_root=profiles_root,
+        profiles_root=root / "profiles",
         out_fig=out_fig,
         out_table=out_table,
         panel_a_env="Flappy",
@@ -167,6 +176,7 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
     assert len(table_rows) == 1
     assert table_rows[0]["fps"] == "30"
     assert table_rows[0]["hardware"] == "RTX 3090"
+    assert table_rows[0]["profile_instance_id"] == "instance_rtx3090"
     assert table_rows[0]["inference_mean_ms"] == "75.0"
     assert table_rows[0]["e2e_mean_ms"] == "120.0"
     assert "p95_ms" not in table_rows[0]
@@ -185,7 +195,7 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
 
     # Panel b: calibration row passthrough.
     assert len(by_type["calibration"]) == 1
-    assert by_type["calibration"][0]["policy"] == "flappy-sf-l1"
+    assert by_type["calibration"][0]["policy"] == "openvla-flappy"
     assert by_type["calibration"][0]["simulated_return_using_L_d"] == "444.6"
 
     # Panel c: target_device -> target_device_d.
@@ -219,7 +229,7 @@ def test_realtime_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
     raw_root = tmp_path / "raw"
     protocol_root = raw_root / "rtx3090" / "openvla" / "cross_device"
     old_root = Path("results/cross_device")
-    run_dir = protocol_root / "runs" / "measure" / "flappy-sf-l1" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    run_dir = protocol_root / "runs" / "measure" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
     _write_episode_metrics(run_dir)
     manifest = _manifest(old_root / run_dir.relative_to(protocol_root))
     write_jsonl(protocol_root / "manifests" / "runs.jsonl", [manifest])
@@ -241,7 +251,7 @@ def test_simulated_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
     raw_root = tmp_path / "raw"
     protocol_root = raw_root / "rtx3090" / "openvla" / "cross_device"
     old_root = Path("results/cross_device")
-    run_dir = protocol_root / "runs" / "sim_same" / "flappy-sf-l1" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    run_dir = protocol_root / "runs" / "sim_same" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
     _write_episode_metrics(run_dir, returns=(30.0, 40.0), lengths=(300, 400))
     manifest = _manifest(old_root / run_dir.relative_to(protocol_root), stage="sim_same")
     write_jsonl(protocol_root / "manifests" / "runs.jsonl", [manifest])
@@ -263,23 +273,30 @@ def test_simulated_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
 
 def test_profiled_e2e_trace_emits_overhead_samples(tmp_path: Path):
     tables_dir = tmp_path / "tables"
-    profiles_root = tmp_path / "profiles"
+    root = tmp_path / "cross_device"
     _seed_tables(tables_dir)
     # Profiled measure run: e2e records carry bench_overhead_ms alongside latency_ms.
+    profile_dir = root / "profiles" / "openvla" / "flappy" / "rtx3090" / "instance_rtx3090"
     write_jsonl(
-        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "e2e_latencies.jsonl",
+        profile_dir / "e2e_latencies.jsonl",
         [{"latency_ms": float(i), "bench_overhead_ms": float(i) + 5.0} for i in range(100)],
     )
     write_latency_samples(
         [float(i + 100) for i in range(100)],
-        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "infer_latencies.jsonl",
+        profile_dir / "infer_latencies.jsonl",
     )
+    (profile_dir / "profile.json").parent.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "profile.json").write_text("{}\n", encoding="utf-8")
+    run_dir = root / "runs" / "measure" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    write_jsonl(root / "manifests" / "runs.jsonl", [_manifest(run_dir)])
     exp1_rows = read_csv(tables_dir / "experiment1_latency_profile_summary.csv")
 
     rows = bfd.build_latency_sample_rows(
         exp1_rows,
-        profiles_root,
+        root / "profiles",
         panel_a_env="Flappy",
+        spec=_spec(),
+        root=root,
     )
     overhead = [row for row in rows if row["row_type"] == "overhead_latency_sample"]
     assert len(overhead) == 100
@@ -290,40 +307,52 @@ def test_profiled_e2e_trace_emits_overhead_samples(tmp_path: Path):
 
 def test_unprofiled_e2e_trace_emits_no_overhead_samples(tmp_path: Path):
     tables_dir = tmp_path / "tables"
-    profiles_root = tmp_path / "profiles"
+    root = tmp_path / "cross_device"
     _seed_tables(tables_dir)
     # Legacy quantized trace: latency_ms only, no bench_overhead_ms.
+    profile_dir = root / "profiles" / "openvla" / "flappy" / "rtx3090" / "instance_rtx3090"
     write_latency_samples(
         [float(i) for i in range(100)],
-        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "e2e_latencies.jsonl",
+        profile_dir / "e2e_latencies.jsonl",
     )
     write_latency_samples(
         [float(i + 100) for i in range(100)],
-        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "infer_latencies.jsonl",
+        profile_dir / "infer_latencies.jsonl",
     )
+    (profile_dir / "profile.json").write_text("{}\n", encoding="utf-8")
+    run_dir = root / "runs" / "measure" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    write_jsonl(root / "manifests" / "runs.jsonl", [_manifest(run_dir)])
     exp1_rows = read_csv(tables_dir / "experiment1_latency_profile_summary.csv")
 
     rows = bfd.build_latency_sample_rows(
         exp1_rows,
-        profiles_root,
+        root / "profiles",
         panel_a_env="Flappy",
+        spec=_spec(),
+        root=root,
     )
     assert not [row for row in rows if row["row_type"] == "overhead_latency_sample"]
 
 
 def test_build_latency_sample_rows_requires_inference_trace_for_profiled_devices(tmp_path: Path):
     tables_dir = tmp_path / "tables"
-    profiles_root = tmp_path / "profiles"
+    root = tmp_path / "cross_device"
     _seed_tables(tables_dir)
+    profile_dir = root / "profiles" / "openvla" / "flappy" / "rtx3090" / "instance_rtx3090"
     write_latency_samples(
         [1.0, 2.0],
-        profiles_root / "openvla-flappy" / "flappy" / "L_3090" / "e2e_latencies.jsonl",
+        profile_dir / "e2e_latencies.jsonl",
     )
+    (profile_dir / "profile.json").write_text("{}\n", encoding="utf-8")
+    run_dir = root / "runs" / "measure" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    write_jsonl(root / "manifests" / "runs.jsonl", [_manifest(run_dir)])
     exp1_rows = read_csv(tables_dir / "experiment1_latency_profile_summary.csv")
 
     with pytest.raises(FileNotFoundError, match="infer_latencies.jsonl"):
         bfd.build_latency_sample_rows(
             exp1_rows,
-            profiles_root,
+            root / "profiles",
             panel_a_env="Flappy",
+            spec=_spec(),
+            root=root,
         )

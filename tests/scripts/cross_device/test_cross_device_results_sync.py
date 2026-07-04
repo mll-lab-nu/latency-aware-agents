@@ -11,7 +11,7 @@ def _make_task(out: Path, *, with_profile: bool) -> SimpleNamespace:
     (output_dir / "episode_metrics.jsonl").write_text("{}\n", encoding="utf-8")
     profile_output_dir = None
     if with_profile:
-        profile_output_dir = out / "profiles" / "openvla-flappy" / "flappy" / "L_3090"
+        profile_output_dir = out / "profiles" / "openvla" / "flappy" / "rtx3090" / "instance_abcd1234"
         profile_output_dir.mkdir(parents=True)
         (profile_output_dir / "profile.json").write_text("{}\n", encoding="utf-8")
     (out / "manifests").mkdir(parents=True)
@@ -45,7 +45,7 @@ def test_upload_run_results_mirrors_slices_to_raw_prefix(tmp_path: Path, monkeyp
         "raw/rtx3090/instances/instance_abcd1234/openvla/cross_device/runs/measure/openvla-flappy/flappy/rtx3090/best_seed_0"
         in paths
     )
-    assert "raw/rtx3090/instances/instance_abcd1234/openvla/cross_device/profiles/openvla-flappy/flappy/L_3090" in paths
+    assert all("/profiles/" not in str(path) for path in paths)
     assert manifest["results_uploaded"] is True
     assert all(c["repo_id"] == "latency-sensitive-bench/profiles" for c in calls)
     assert all(c["repo_type"] == "dataset" for c in calls)
@@ -80,45 +80,16 @@ def test_upload_run_results_opt_out_env(tmp_path: Path, monkeypatch):
     assert calls == []
 
 
-def test_resolve_latency_trace_finds_nested_raw_layout(tmp_path: Path):
-    from scripts.cross_device.build_figure_data import _resolve_latency_trace, slugify
+def test_resolve_latency_trace_uses_explicit_profiles_root(tmp_path: Path):
+    from scripts.cross_device.build_figure_data import _resolve_latency_trace
 
-    nested = (
-        tmp_path
-        / "raw"
-        / "rtx3090"
-        / "openvla"
-        / "cross_device"
-        / "profiles"
-        / slugify("openvla-flappy")
-        / slugify("Flappy")
-        / "L_3090"
-    )
-    nested.mkdir(parents=True)
-    (nested / "e2e_latencies.jsonl").write_text("{}\n", encoding="utf-8")
+    instance_dir = tmp_path / "profiles" / "openvla" / "flappy" / "rtx3090" / "instance_rtx3090"
+    instance_dir.mkdir(parents=True)
+    (instance_dir / "profile.json").write_text("{}\n", encoding="utf-8")
+    (instance_dir / "e2e_latencies.jsonl").write_text("{}\n", encoding="utf-8")
 
     found = _resolve_latency_trace(
-        tmp_path,
-        policy="openvla-flappy",
-        env="Flappy",
-        profile_id="L_3090",
+        {"profile_path": str(instance_dir / "profile.json")},
         trace_name="e2e_latencies.jsonl",
     )
-    assert found == nested / "e2e_latencies.jsonl"
-
-
-def test_resolve_latency_trace_prefers_flat_layout(tmp_path: Path):
-    from scripts.cross_device.build_figure_data import _resolve_latency_trace, slugify
-
-    flat = tmp_path / slugify("openvla-flappy") / slugify("Flappy") / "L_3090"
-    flat.mkdir(parents=True)
-    (flat / "e2e_latencies.jsonl").write_text("{}\n", encoding="utf-8")
-
-    found = _resolve_latency_trace(
-        tmp_path,
-        policy="openvla-flappy",
-        env="Flappy",
-        profile_id="L_3090",
-        trace_name="e2e_latencies.jsonl",
-    )
-    assert found == flat / "e2e_latencies.jsonl"
+    assert found == instance_dir / "e2e_latencies.jsonl"
