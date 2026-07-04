@@ -1171,7 +1171,7 @@ def test_cross_device_main_script_documents_single_entrypoint_and_new_protocol_m
     assert syntax.returncode == 0, syntax.stderr
 
     script = script_path.read_text(encoding="utf-8")
-    assert "python -m scripts.cross_device.protocol" in script
+    assert "python -m latency_bench.cross_device.protocol" in script
     assert "PRESET=${1:-}" in script
     assert "profile)" in script
     assert "STAGES=${STAGES:-doctor measure}" in script
@@ -1180,7 +1180,8 @@ def test_cross_device_main_script_documents_single_entrypoint_and_new_protocol_m
     assert "custom)" in script
     assert '--runtime-env "${RUNTIME_ENV}"' in script
     assert "measure" in script
-    assert "realtime" in script
+    assert "realtime)" not in script
+    assert "protocol realtime" not in script
     assert "protocol sim " in script
     assert "SIM_TARGET" in script
     assert "aggregate" in script
@@ -1257,11 +1258,11 @@ def test_cross_device_profile_preset_expands_to_doctor_measure_and_uploads(tmp_p
 
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
-    assert "-m scripts.cross_device.protocol doctor" in calls
-    assert "-m scripts.cross_device.protocol measure" in calls
-    assert "-m scripts.cross_device.protocol realtime" not in calls
-    assert "-m scripts.cross_device.profile_cache upload" in calls
-    assert "-m scripts.cross_device.profile_cache upload-run" not in calls
+    assert "-m latency_bench.cross_device.protocol doctor" in calls
+    assert "-m latency_bench.cross_device.protocol measure" in calls
+    assert "-m latency_bench.cross_device.protocol realtime" not in calls
+    assert "-m latency_bench.cross_device.sync upload" in calls
+    assert "-m latency_bench.cross_device.sync upload-run" not in calls
     assert f"--folder {out}" in calls
     assert "--hf-repo latency-sensitive-bench/profiles" in calls
     assert "stages: doctor measure" in result.stdout
@@ -1296,9 +1297,9 @@ def test_cross_device_profile_preset_dry_run_does_not_upload(tmp_path):
 
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
-    assert "-m scripts.cross_device.protocol doctor" in calls
-    assert "-m scripts.cross_device.protocol measure" in calls
-    assert "-m scripts.cross_device.profile_cache upload" not in calls
+    assert "-m latency_bench.cross_device.protocol doctor" in calls
+    assert "-m latency_bench.cross_device.protocol measure" in calls
+    assert "-m latency_bench.cross_device.sync upload" not in calls
     assert "profile upload: skipped for dry run" in result.stdout
 
 
@@ -1325,10 +1326,10 @@ def test_cross_device_sim_preset_expands_to_doctor_and_sim_stages(tmp_path):
 
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
-    assert "-m scripts.cross_device.protocol doctor" in calls
-    assert "-m scripts.cross_device.protocol sim" in calls
-    assert "-m scripts.cross_device.protocol measure" not in calls
-    assert "-m scripts.cross_device.profile_cache upload" not in calls
+    assert "-m latency_bench.cross_device.protocol doctor" in calls
+    assert "-m latency_bench.cross_device.protocol sim" in calls
+    assert "-m latency_bench.cross_device.protocol measure" not in calls
+    assert "-m latency_bench.cross_device.sync upload" not in calls
     assert "stages: doctor sim" in result.stdout
 
 
@@ -1390,8 +1391,8 @@ exit 0
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
     assert "conda activate starvla_rl_games_openvla" in calls
-    assert "-m scripts.cross_device.protocol measure" in calls
-    assert "-m scripts.cross_device.protocol sim" in calls
+    assert "-m latency_bench.cross_device.protocol measure" in calls
+    assert "-m latency_bench.cross_device.protocol sim" in calls
     # measure + same-device sim + one cross-device sim per SIM_TARGETS entry.
     assert calls.count("--only-policy openvla-flappy") == 3
     assert "--target rtx3090/instance_remote" in calls
@@ -1440,12 +1441,12 @@ exit 0
 
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
-    assert "-m scripts.cross_device.protocol aggregate" in calls
+    assert "-m latency_bench.cross_device.protocol aggregate" in calls
     assert "--only-policy openvla-flappy" in calls
     assert "--root results/cross_device" in calls
     assert "--out results/cross_device/tables" in calls
     assert "--overwrite" in calls
-    assert "-m scripts.cross_device.build_figure_data" in calls
+    assert "-m latency_bench.analysis.cross_device_figure_data" in calls
     assert "--profiles-root results/cross_device" in calls
     assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/data.csv" in calls
     assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/table3_latency_profiles/data.csv" in calls

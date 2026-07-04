@@ -30,7 +30,7 @@ export POLICY
 export PROFILES_DIR
 
 # Same-device replay: this machine reads its own profile.
-python -m scripts.cross_device.protocol sim \
+python -m latency_bench.cross_device.protocol sim \
   --spec "$SPEC" \
   --hardware auto \
   --only-policy "$POLICY" \
@@ -40,7 +40,7 @@ python -m scripts.cross_device.protocol sim \
 
 # Cross-device replay: one run per explicitly requested target.
 for TARGET in $SIM_TARGETS; do
-  python -m scripts.cross_device.protocol sim \
+  python -m latency_bench.cross_device.protocol sim \
     --spec "$SPEC" \
     --hardware auto \
     --target "$TARGET" \

@@ -27,7 +27,7 @@ PROFILES_DIR=results/cross_device/profiles
 # <device_id>/<instance_id>. Empty = same-device replay only.
 SIM_TARGETS="${SIM_TARGETS:-}"
 
-python -m scripts.cross_device.protocol measure \
+python -m latency_bench.cross_device.protocol measure \
   --spec "$SPEC" \
   --hardware auto \
   --only-policy "$POLICY" \
@@ -35,7 +35,7 @@ python -m scripts.cross_device.protocol measure \
   --resume
 
 # Same-device replay: this machine reads its own profile.
-python -m scripts.cross_device.protocol sim \
+python -m latency_bench.cross_device.protocol sim \
   --spec "$SPEC" \
   --hardware auto \
   --only-policy "$POLICY" \
@@ -45,7 +45,7 @@ python -m scripts.cross_device.protocol sim \
 
 # Cross-device replay: one run per explicitly requested target.
 for TARGET in $SIM_TARGETS; do
-  python -m scripts.cross_device.protocol sim \
+  python -m latency_bench.cross_device.protocol sim \
     --spec "$SPEC" \
     --hardware auto \
     --target "$TARGET" \
