@@ -24,6 +24,9 @@ SPEC=configs/experiments/cross_device_protocol.yaml
 POLICY=openvla-flappy
 PROFILES_DIR=results/cross_device/profiles
 AGGREGATE_PROFILES="${AGGREGATE_PROFILES:-1}"
+# Space-separated cross-device targets to replay on this host, each
+# <device_id>/<instance_id>. Empty = same-device replay only.
+SIM_TARGETS="${SIM_TARGETS:-}"
 export POLICY
 export PROFILES_DIR
 
@@ -31,7 +34,8 @@ if [[ "$AGGREGATE_PROFILES" == "1" ]]; then
   ./aggregate_profiles.sh
 fi
 
-python -m scripts.cross_device.protocol sim-same \
+# Same-device replay: this machine reads its own profile.
+python -m scripts.cross_device.protocol sim \
   --spec "$SPEC" \
   --hardware auto \
   --only-policy "$POLICY" \
@@ -39,18 +43,14 @@ python -m scripts.cross_device.protocol sim-same \
   --profiles-dir "$PROFILES_DIR" \
   --resume
 
-GPU_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)"
-case "$GPU_NAME" in
-  *H200*|*B200*)
-    python -m scripts.cross_device.protocol sim-cross \
-      --spec "$SPEC" \
-      --replay-hardware auto \
-      --only-policy "$POLICY" \
-      --strict-runtime-env \
-      --profiles-dir "$PROFILES_DIR" \
-      --resume
-    ;;
-  *)
-    echo "skip sim-cross: replay host is not H200/B200 ($GPU_NAME)"
-    ;;
-esac
+# Cross-device replay: one run per explicitly requested target.
+for TARGET in $SIM_TARGETS; do
+  python -m scripts.cross_device.protocol sim \
+    --spec "$SPEC" \
+    --hardware auto \
+    --target "$TARGET" \
+    --only-policy "$POLICY" \
+    --strict-runtime-env \
+    --profiles-dir "$PROFILES_DIR" \
+    --resume
+done

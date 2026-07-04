@@ -1176,13 +1176,13 @@ def test_cross_device_main_script_documents_single_entrypoint_and_new_protocol_m
     assert "profile)" in script
     assert "STAGES=${STAGES:-doctor measure}" in script
     assert "sim)" in script
-    assert "STAGES=${STAGES:-doctor sim-same sim-cross}" in script
+    assert "STAGES=${STAGES:-doctor sim}" in script
     assert "custom)" in script
     assert '--runtime-env "${RUNTIME_ENV}"' in script
     assert "measure" in script
     assert "realtime" in script
-    assert "sim-same" in script
-    assert "sim-cross" in script
+    assert "protocol sim " in script
+    assert "SIM_TARGET" in script
     assert "aggregate" in script
     for env_var in (
         "ONLY_ENV",
@@ -1326,22 +1326,28 @@ def test_cross_device_sim_preset_expands_to_doctor_and_sim_stages(tmp_path):
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
     assert "-m scripts.cross_device.protocol doctor" in calls
-    assert "-m scripts.cross_device.protocol sim-same" in calls
-    assert "-m scripts.cross_device.protocol sim-cross" in calls
+    assert "-m scripts.cross_device.protocol sim" in calls
     assert "-m scripts.cross_device.protocol measure" not in calls
     assert "-m scripts.cross_device.profile_cache upload" not in calls
-    assert "stages: doctor sim-same sim-cross" in result.stdout
+    assert "stages: doctor sim" in result.stdout
 
 
-def test_cross_device_start_script_runs_flappy_measure_sim_same_and_h200_sim_cross(tmp_path):
+def test_cross_device_start_script_runs_flappy_measure_and_sim_with_targets(tmp_path):
     script_path = REPO_ROOT / "start.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
+    fake_conda_base = tmp_path / "conda"
+    (fake_conda_base / "etc" / "profile.d").mkdir(parents=True)
+    (fake_conda_base / "etc" / "profile.d" / "conda.sh").write_text("conda() { command conda \"$@\"; }\n", encoding="utf-8")
     calls_path = tmp_path / "calls.log"
     _write_executable(
         fake_bin / "conda",
         f"""#!/usr/bin/env bash
 set -euo pipefail
+if [[ "${{1:-}}" == "info" && "${{2:-}}" == "--base" ]]; then
+  printf '%s\\n' "{fake_conda_base}"
+  exit 0
+fi
 printf 'conda %s\\n' "$*" >> "{calls_path}"
 exit 0
 """,
@@ -1375,7 +1381,7 @@ exit 0
     result = subprocess.run(
         ["bash", str(script_path)],
         cwd=REPO_ROOT,
-        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
+        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}", "SIM_TARGETS": "rtx3090/instance_remote"},
         capture_output=True,
         text=True,
         check=False,
@@ -1385,13 +1391,15 @@ exit 0
     calls = calls_path.read_text(encoding="utf-8")
     assert "conda activate starvla_rl_games_openvla" in calls
     assert "-m scripts.cross_device.protocol measure" in calls
-    assert "-m scripts.cross_device.protocol sim-same" in calls
-    assert "-m scripts.cross_device.protocol sim-cross" in calls
+    assert "-m scripts.cross_device.protocol sim" in calls
+    # measure + same-device sim + one cross-device sim per SIM_TARGETS entry.
     assert calls.count("--only-policy openvla-flappy") == 3
+    assert "--target rtx3090/instance_remote" in calls
     assert "demon-attack-openvla" not in calls
     assert "deadly-corridor-openvla" not in calls
     assert "--profiles-dir results/cross_device/profiles" in calls
-    assert "--replay-hardware auto" in calls
+    assert "--profile-lock" not in calls
+    assert "--replay-hardware" not in calls
     assert "HF_PROFILE_REPO=latency-sensitive-bench/profiles" in calls
     assert "HF_PROFILE_REPO_TYPE=dataset" in calls
     assert "CROSS_DEVICE_RUNTIME_ENV=openvla" in calls

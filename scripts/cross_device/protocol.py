@@ -51,6 +51,7 @@ def main(argv: list[str] | None = None) -> None:
     doctor.add_argument("--hardware", default="auto")
     doctor.add_argument("--out", type=Path)
     doctor.add_argument("--profiles-dir", type=Path)
+    doctor.add_argument("--target")
     doctor.add_argument("--dry-run", action="store_true")
     _add_runtime_flags(doctor)
     _add_selection_flags(doctor)
@@ -62,19 +63,19 @@ def main(argv: list[str] | None = None) -> None:
     measure.add_argument("--out", type=Path)
     _add_execution_flags(measure)
 
-    sim_same = subparsers.add_parser("sim-same", help="Run same-device simulated replay with L_d.")
-    sim_same.add_argument("--spec", type=Path, required=True)
-    sim_same.add_argument("--hardware", default="auto")
-    sim_same.add_argument("--profiles-dir", type=Path, required=True)
-    sim_same.add_argument("--out", type=Path)
-    _add_execution_flags(sim_same)
-
-    sim_cross = subparsers.add_parser("sim-cross", help="Run cross-device simulated replay on this hardware.")
-    sim_cross.add_argument("--spec", type=Path, required=True)
-    sim_cross.add_argument("--replay-hardware", default="auto")
-    sim_cross.add_argument("--profiles-dir", type=Path, required=True)
-    sim_cross.add_argument("--out", type=Path)
-    _add_execution_flags(sim_cross)
+    sim = subparsers.add_parser(
+        "sim",
+        help="Run simulated replay: this machine's own profile by default, or --target <device/instance>.",
+    )
+    sim.add_argument("--spec", type=Path, required=True)
+    sim.add_argument("--hardware", default="auto")
+    sim.add_argument(
+        "--target",
+        help="Replay another machine's profile: <device_id>/<instance_id>. Omit to use this machine.",
+    )
+    sim.add_argument("--profiles-dir", type=Path, required=True)
+    sim.add_argument("--out", type=Path)
+    _add_execution_flags(sim)
 
     aggregate = subparsers.add_parser("aggregate", help="Aggregate protocol outputs into paper tables.")
     aggregate.add_argument("--spec", type=Path, required=True)
@@ -133,6 +134,8 @@ def main(argv: list[str] | None = None) -> None:
         )
         for name, path in outputs.items():
             print(f"{name}: {path}")
+    elif args.command == "sim":
+        run_stage(args, spec, "sim_same" if args.target is None else "sim_cross")
     else:
         run_stage(args, spec, _normalize_stage(args.command))
 

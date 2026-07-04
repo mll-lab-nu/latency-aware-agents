@@ -29,8 +29,12 @@ from scripts.cross_device.config import (
     _profile_command,
     _write_generated_config,
 )
-from scripts.cross_device.instances import resolve_instance_id, resolve_instance_origin
-from scripts.cross_device.models import PlannedTask, ProtocolTask, RuntimeSelection
+from scripts.cross_device.instances import INSTANCE_ID_ENV, resolve_instance_id, resolve_instance_origin
+from scripts.cross_device.models import (
+    PlannedTask,
+    ProtocolTask,
+    RuntimeSelection,
+)
 from scripts.cross_device.planning import _build_plan, _output_root, _profiles_dir_for_args
 from scripts.cross_device.profile_cache import profile_remote_dir, upload_folder_to_hf
 from scripts.cross_device.runtime import _stage_hardware, _validate_runtime_safety, detect_runtime_env
@@ -63,9 +67,11 @@ def _runtime_process_metadata() -> dict[str, Any]:
 
 def _stage_instance_metadata(stage: str, dry_run: bool) -> tuple[str | None, str | None]:
     if dry_run:
+        if os.environ.get(INSTANCE_ID_ENV):
+            return os.environ[INSTANCE_ID_ENV], "manual_override"
         return None, None
     uploads_raw_results = bool(os.environ.get("HF_PROFILE_REPO")) and not os.environ.get("CROSS_DEVICE_NO_RESULT_UPLOAD")
-    if stage == "measure" or uploads_raw_results:
+    if stage in {"measure", "sim_same"} or uploads_raw_results:
         return resolve_instance_id(_host_fingerprint()), resolve_instance_origin()
     return None, None
 
@@ -427,9 +433,6 @@ def _upload_run_results(
         uploads.append((manifests_dir, f"{prefix}/manifests"))
     if task.output_dir.exists():
         uploads.append((task.output_dir, f"{prefix}/{task.output_dir.relative_to(out).as_posix()}"))
-    profile_dir = task.profile_output_dir
-    if profile_dir is not None and profile_dir.exists():
-        uploads.append((profile_dir, f"{prefix}/{profile_dir.relative_to(out).as_posix()}"))
 
     try:
         for local_dir, path_in_repo in uploads:
@@ -571,6 +574,7 @@ def _base_manifest(
         "target_profile_id": task.target_device.get("profile_id"),
         "instance_id": task.instance_id,
         "instance_origin": task.instance_origin,
+        "target_profile_instance_id": task.target_profile_instance_id,
         "gpu_uuid_hash": gpu_uuid_hash,
         "replay_device_id": None if replay_device is None else replay_device.get("id"),
         "replay_device_display_name": None if replay_device is None else replay_device.get("display_name"),
@@ -652,7 +656,8 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
         print(f"env: {task.row.get('env')}")
         print(f"experiment_ids: {','.join(task.experiment_ids)}")
         print(f"target_device: {task.target_device.get('id')}")
-        print(f"target_profile: {task.target_device.get('profile_id')}")
+        print(f"target_profile_id: {task.target_device.get('profile_id')}")
+        print(f"target_profile_instance_id: {task.target_profile_instance_id or ''}")
         print(f"replay_device: {task.replay_device.get('id') if task.replay_device else ''}")
         print(f"runtime_env: {task.runtime_env_alias} ({task.runtime_conda_env})")
         print(f"smoke: {str(task.smoke).lower()}")

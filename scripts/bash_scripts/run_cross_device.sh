@@ -12,7 +12,7 @@ set -euo pipefail
 #
 # Key knobs:
 #   SPEC, OUT, PROFILES_DIR, TABLES_DIR
-#   HARDWARE, REPLAY_HARDWARE, RUNTIME_ENV
+#   HARDWARE, RUNTIME_ENV, SIM_TARGET (<device_id>/<instance_id> for cross-device replay)
 #   STAGES: used only by the custom preset
 #   ONLY_POLICY, ONLY_ENV, ONLY_DEVICE, ONLY_EXPERIMENT, MAX_RUNS
 #   N_EPISODES, SEED_SET, CHECKPOINT_KIND
@@ -29,7 +29,7 @@ Presets:
   doctor      Check selected rows, runtime, hardware, configs, and profiles.
   profile     Run doctor + measure, then upload local profiles to HF.
   realtime    Run doctor + realtime baseline.
-  sim         Run doctor + sim-same + sim-cross.
+  sim         Run doctor + sim (same-device; set SIM_TARGET=device/instance for cross-device replay).
   aggregate   Aggregate protocol outputs into tables.
   custom      Use STAGES exactly as provided by the environment.
 
@@ -72,7 +72,7 @@ case "${PRESET}" in
         STAGES=${STAGES:-doctor realtime}
         ;;
     sim)
-        STAGES=${STAGES:-doctor sim-same sim-cross}
+        STAGES=${STAGES:-doctor sim}
         ;;
     aggregate)
         STAGES=${STAGES:-aggregate}
@@ -91,7 +91,6 @@ OUT=${OUT:-results/cross_device}
 PROFILES_DIR=${PROFILES_DIR:-${OUT}/profiles}
 TABLES_DIR=${TABLES_DIR:-${OUT}/tables}
 HARDWARE=${HARDWARE:-auto}
-REPLAY_HARDWARE=${REPLAY_HARDWARE:-auto}
 RUNTIME_ENV=${RUNTIME_ENV:-auto}
 DRY_RUN=${DRY_RUN:-0}
 RESUME=${RESUME:-1}
@@ -105,6 +104,8 @@ HF_PROFILE_REPO_TYPE=${HF_PROFILE_REPO_TYPE:-dataset}
 COMMON_ARGS=(--spec "${SPEC}" --runtime-env "${RUNTIME_ENV}")
 CHECK_ARGS=()
 EXEC_ARGS=()
+SIM_ARGS=()
+if [[ -n "${SIM_TARGET:-}" ]]; then SIM_ARGS+=(--target "${SIM_TARGET}"); fi
 AGG_ARGS=(--spec "${SPEC}" --root "${OUT}" --out "${TABLES_DIR}")
 
 if [[ -n "${ONLY_POLICY:-}" ]]; then COMMON_ARGS+=(--only-policy "${ONLY_POLICY}"); AGG_ARGS+=(--only-policy "${ONLY_POLICY}"); fi
@@ -146,13 +147,9 @@ for stage in ${STAGES}; do
             python -m scripts.cross_device.protocol realtime \
                 "${COMMON_ARGS[@]}" --hardware "${HARDWARE}" --out "${OUT}" "${EXEC_ARGS[@]}"
             ;;
-        sim-same)
-            python -m scripts.cross_device.protocol sim-same \
-                "${COMMON_ARGS[@]}" --hardware "${HARDWARE}" --profiles-dir "${PROFILES_DIR}" --out "${OUT}" "${EXEC_ARGS[@]}"
-            ;;
-        sim-cross)
-            python -m scripts.cross_device.protocol sim-cross \
-                "${COMMON_ARGS[@]}" --replay-hardware "${REPLAY_HARDWARE}" --profiles-dir "${PROFILES_DIR}" --out "${OUT}" "${EXEC_ARGS[@]}"
+        sim)
+            python -m scripts.cross_device.protocol sim \
+                "${COMMON_ARGS[@]}" --hardware "${HARDWARE}" "${SIM_ARGS[@]}" --profiles-dir "${PROFILES_DIR}" --out "${OUT}" "${EXEC_ARGS[@]}"
             ;;
         aggregate)
             python -m scripts.cross_device.protocol aggregate "${AGG_ARGS[@]}"

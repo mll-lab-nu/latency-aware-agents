@@ -899,6 +899,41 @@ def test_sim_same_dry_run_passes_profile_sampler_to_generated_config(tmp_path: P
     assert config["latency"]["sampler"] == "iid_inverse_cdf"
 
 
+def test_sim_cross_dry_run_reads_profile_instance_from_target(tmp_path: Path):
+    base_config = tmp_path / "base.yaml"
+    spec = tmp_path / "protocol.yaml"
+    out = tmp_path / "results"
+    _write_base_config(base_config)
+    _write_spec(spec, base_config)
+    profile_path = out / "profiles" / "test_model" / "flappy" / "a100" / "instance_remote" / "profile.json"
+    _write_profile_manifest(profile_path, env_fps=16.0)
+
+    result = _run_cli(
+        tmp_path,
+        "sim",
+        "--spec",
+        str(spec),
+        "--hardware",
+        "a100",
+        "--target",
+        "a100/instance_remote",
+        "--profiles-dir",
+        str(out / "profiles"),
+        "--out",
+        str(out),
+        "--dry-run",
+        "--only-experiment",
+        "exp3_cross_device_prediction",
+        "--max-runs",
+        "1",
+    )
+
+    assert "-m latency_bench.run" in result.stdout
+    generated = _first_runtime_generated_config(out, "sim_cross")
+    config = yaml.safe_load(generated.read_text(encoding="utf-8"))
+    assert config["latency"]["profile_path"].endswith("profiles/test_model/flappy/a100/instance_remote/profile.json")
+
+
 def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch):
     planning = importlib.import_module("scripts.cross_device.planning")
     base_config = tmp_path / "base.yaml"
@@ -1681,7 +1716,7 @@ def test_aggregate_dry_run_accepts_raw_root(tmp_path: Path):
     assert not tables.exists()
 
 
-def test_sim_cross_skips_replay_hardware_not_in_explicit_pair(tmp_path: Path):
+def test_sim_cross_target_requires_explicit_instance(tmp_path: Path):
     base_config = tmp_path / "base.yaml"
     spec = tmp_path / "protocol.yaml"
     out = tmp_path / "results"
@@ -1690,11 +1725,13 @@ def test_sim_cross_skips_replay_hardware_not_in_explicit_pair(tmp_path: Path):
 
     result = _run_cli(
         tmp_path,
-        "sim-cross",
+        "sim",
         "--spec",
         str(spec),
-        "--replay-hardware",
+        "--hardware",
         "rtx4090",
+        "--target",
+        "a100",
         "--profiles-dir",
         str(out / "profiles"),
         "--out",
@@ -1703,7 +1740,8 @@ def test_sim_cross_skips_replay_hardware_not_in_explicit_pair(tmp_path: Path):
         "--runtime-env",
         "openvla",
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
+        check=False,
     )
 
-    assert "runnable rows: 0" in result.stdout
-    assert "replay hardware mismatch" in result.stdout
+    assert result.returncode != 0
+    assert "--target must be <device_id>/<instance_id>" in result.stderr
