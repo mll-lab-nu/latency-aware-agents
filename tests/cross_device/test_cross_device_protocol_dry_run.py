@@ -11,20 +11,18 @@ from pathlib import Path
 import pytest
 import yaml
 
-from latency_bench.cross_device.models import RuntimeSelection
-from latency_bench.cross_device.runtime import normalize_hardware_name
+from latency_bench.cross_device.runtime import (
+    detect_runtime_env_raw,
+    normalize_hardware_name,
+    runtime_env_mismatch,
+)
 
 
 PROTOCOL_MODULE = "latency_bench.cross_device.protocol"
 REAL_PROTOCOL = Path("configs/experiments/cross_device_protocol.yaml")
 
 
-RUNTIME_SPEC = {
-    "runtime_envs": {
-        "baseline": {"conda_env": "latency", "description": "small"},
-        "openvla": {"conda_env": "starvla_rl_games_openvla", "description": "vla"},
-    }
-}
+RUNTIME_SPEC = {"runtime_env": {"name": "baseline", "conda_env": "latency"}}
 
 
 def _first_runtime_generated_config(out: Path, stage: str) -> Path:
@@ -101,7 +99,6 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "env": "Dummy",
         "policy_type": "unknown_policy",
         "model_type": "test_model",
-        "runtime_env": "baseline",
         "env_name": "dummy",
         "fps": 30,
         "target_latency_frames": 1,
@@ -112,7 +109,6 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "env": "Dummy",
         "policy_type": "random",
         "model_type": "test_model",
-        "runtime_env": "baseline",
         "env_name": "dummy",
         "fps": 30,
         "target_latency_frames": 1,
@@ -126,7 +122,7 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "sim_worker_count": "auto",
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
-        "runtime_envs": {"baseline": {"conda_env": "latency", "description": "small"}},
+        "runtime_env": {"name": "baseline", "conda_env": "latency"},
         "devices": [
             {
                 "id": "a100",
@@ -148,7 +144,6 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "env": "Flappy",
         "policy_type": "random",
         "model_type": "test_model",
-        "runtime_env": "baseline",
         "env_name": "flappy",
         "fps": 30,
         "target_latency_frames": 1,
@@ -162,10 +157,7 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "sim_worker_count": "auto",
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
-        "runtime_envs": {
-            "baseline": {"conda_env": "latency", "description": "small"},
-            "openvla": {"conda_env": "starvla_rl_games_openvla", "description": "vla"},
-        },
+        "runtime_env": {"name": "baseline", "conda_env": "latency"},
         "devices": [
             {
                 "id": "a100",
@@ -193,7 +185,6 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "env": "Flappy",
         "policy_type": "random",
         "model_type": "test_model",
-        "runtime_env": "baseline",
         "env_name": "flappy",
         "fps": 30,
         "target_latency_frames": 1,
@@ -204,7 +195,6 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "env": "Flappy",
         "policy_type": "random",
         "model_type": "test_model",
-        "runtime_env": "openvla",
         "env_name": "flappy",
         "fps": 30,
         "target_latency_frames": 1,
@@ -218,10 +208,7 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "sim_worker_count": "auto",
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
-        "runtime_envs": {
-            "baseline": {"conda_env": "latency", "description": "small"},
-            "openvla": {"conda_env": "starvla_rl_games_openvla", "description": "vla"},
-        },
+        "runtime_env": {"name": "baseline", "conda_env": "latency"},
         "devices": [
             {
                 "id": "a100",
@@ -274,24 +261,21 @@ def _run_cli(tmp_path: Path, *args: str, env: dict[str, str] | None = None, chec
     )
 
 
-def _load_protocol_module():
-    return importlib.import_module(PROTOCOL_MODULE)
-
-
 def test_runtime_env_detection_maps_conda_envs_and_override(monkeypatch):
-    module = _load_protocol_module()
     monkeypatch.delenv("CROSS_DEVICE_RUNTIME_ENV", raising=False)
     monkeypatch.setenv("CONDA_DEFAULT_ENV", "latency")
-    assert module.detect_runtime_env(RUNTIME_SPEC).matched_alias == "baseline"
+    assert detect_runtime_env_raw() == "latency"
+    assert runtime_env_mismatch(RUNTIME_SPEC) is None
 
     monkeypatch.setenv("CONDA_DEFAULT_ENV", "starvla_rl_games_openvla")
-    assert module.detect_runtime_env(RUNTIME_SPEC).matched_alias == "openvla"
+    mismatch = runtime_env_mismatch(RUNTIME_SPEC)
+    assert mismatch is not None
+    assert "requires baseline (latency)" in mismatch
+    assert "starvla_rl_games_openvla" in mismatch
 
     monkeypatch.setenv("CROSS_DEVICE_RUNTIME_ENV", "latency")
-    monkeypatch.setenv("CONDA_DEFAULT_ENV", "starvla_rl_games_openvla")
-    detected = module.detect_runtime_env(RUNTIME_SPEC)
-    assert detected.detected_raw == "latency"
-    assert detected.matched_alias == "baseline"
+    assert detect_runtime_env_raw() == "latency"
+    assert runtime_env_mismatch(RUNTIME_SPEC) is None
 
 
 def test_hardware_detection_accepts_full_gpu_model_names_and_multi_gpu_text():
@@ -356,14 +340,14 @@ def test_hardware_detection_accepts_full_gpu_model_names_and_multi_gpu_text():
         assert normalize_hardware_name(raw_name, devices)["id"] == expected_id
 
 
-def test_runtime_env_filtering_small_and_openvla_rows(tmp_path: Path):
+def test_runtime_env_mismatch_blocks_execution_but_not_dry_run(tmp_path: Path):
     base_config = tmp_path / "base.yaml"
     spec = tmp_path / "protocol.yaml"
     out = tmp_path / "results"
     _write_base_config(base_config)
-    _write_mixed_spec(spec, base_config)
+    _write_spec(spec, base_config)
 
-    small = _run_cli(
+    mismatched = _run_cli(
         tmp_path,
         "measure",
         "--spec",
@@ -372,15 +356,14 @@ def test_runtime_env_filtering_small_and_openvla_rows(tmp_path: Path):
         "a100",
         "--out",
         str(out),
-        "--dry-run",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency"},
+        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
+        check=False,
     )
-    assert "policy: small-policy" in small.stdout
-    assert "policy: vla-policy" in small.stdout
-    assert "policy: small-policy\n" in small.stdout
-    assert "runtime_env mismatch" in small.stdout
+    assert mismatched.returncode != 0
+    assert "runtime env mismatch" in mismatched.stderr
+    assert "requires baseline (latency)" in mismatched.stderr
 
-    openvla = _run_cli(
+    dry_run = _run_cli(
         tmp_path,
         "measure",
         "--spec",
@@ -392,8 +375,8 @@ def test_runtime_env_filtering_small_and_openvla_rows(tmp_path: Path):
         "--dry-run",
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
-    assert "policy: vla-policy" in openvla.stdout
-    assert "skipped runtime_env mismatch: 1" in openvla.stdout
+    assert "policy: dry-policy" in dry_run.stdout
+    assert "runtime env mismatch" in dry_run.stderr
 
 
 def test_real_openvla_protocol_dry_run_selects_flappy_demon_and_deadly(tmp_path: Path):
@@ -408,8 +391,6 @@ def test_real_openvla_protocol_dry_run_selects_flappy_demon_and_deadly(tmp_path:
         "a100",
         "--out",
         str(out),
-        "--runtime-env",
-        "openvla",
         "--dry-run",
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
@@ -426,11 +407,7 @@ def test_real_protocol_exp2_includes_openvla_calibration_rows():
     spec = yaml.safe_load(REAL_PROTOCOL.read_text(encoding="utf-8"))
 
     rows = spec["experiments"]["exp2_same_device_calibration"]["rows"]
-    openvla_rows = {
-        row["policy"]: row
-        for row in rows
-        if row.get("runtime_env") == "openvla"
-    }
+    openvla_rows = {row["policy"]: row for row in rows}
 
     assert set(openvla_rows) == {
         "openvla-flappy",
@@ -488,8 +465,6 @@ def test_real_openvla_protocol_only_policy_accepts_slug_and_preserves_flappy_pat
         "a100",
         "--out",
         str(out),
-        "--runtime-env",
-        "openvla",
         "--dry-run",
         "--only-policy",
         "openvla-flappy",
@@ -509,8 +484,6 @@ def test_real_openvla_protocol_only_policy_accepts_slug_and_preserves_flappy_pat
         "a100",
         "--out",
         str(out),
-        "--runtime-env",
-        "openvla",
         "--dry-run",
         "--only-policy",
         "demon-attack-openvla",
@@ -533,8 +506,6 @@ def test_real_openvla_protocol_only_env_accepts_raw_and_slug_values(tmp_path: Pa
         "a100",
         "--out",
         str(out),
-        "--runtime-env",
-        "openvla",
         "--dry-run",
         "--only-env",
         "deadly_corridor",
@@ -553,8 +524,6 @@ def test_real_openvla_protocol_only_env_accepts_raw_and_slug_values(tmp_path: Pa
         "a100",
         "--out",
         str(out),
-        "--runtime-env",
-        "openvla",
         "--dry-run",
         "--only-env",
         "Deadly Corridor",
@@ -575,8 +544,6 @@ def test_real_openvla_protocol_max_runs_limits_dry_run_rows(tmp_path: Path):
         "a100",
         "--out",
         str(tmp_path / "results"),
-        "--runtime-env",
-        "openvla",
         "--dry-run",
         "--max-runs",
         "1",
@@ -598,8 +565,6 @@ def test_starvla_openvla_dry_run_uses_starvla_config_metadata(tmp_path: Path):
         "a100",
         "--out",
         str(out),
-        "--runtime-env",
-        "openvla",
         "--dry-run",
         "--only-policy",
         "demon-attack-openvla",
@@ -626,8 +591,6 @@ def test_openvla_smoke_dry_run_uses_isolated_run_id_and_step_cap(tmp_path: Path)
         "a100",
         "--out",
         str(out),
-        "--runtime-env",
-        "openvla",
         "--dry-run",
         "--smoke",
         "--smoke-episodes",
@@ -666,8 +629,6 @@ def test_flappy_starvla_dry_run_uses_starvla_checkpoint_config(tmp_path: Path):
         "a100",
         "--out",
         str(out),
-        "--runtime-env",
-        "openvla",
         "--dry-run",
         "--only-policy",
         "openvla-flappy",
@@ -697,8 +658,6 @@ def test_deadly_openvla_dry_run_writes_config(tmp_path: Path):
         "a100",
         "--out",
         str(out),
-        "--runtime-env",
-        "openvla",
         "--dry-run",
         "--only-policy",
         "deadly-corridor-openvla",
@@ -714,66 +673,7 @@ def test_deadly_openvla_dry_run_writes_config(tmp_path: Path):
     assert "eval_suites" not in config["evaluation"]
 
 
-def test_runtime_env_all_safety_and_strict_mode(tmp_path: Path):
-    base_config = tmp_path / "base.yaml"
-    spec = tmp_path / "protocol.yaml"
-    out = tmp_path / "results"
-    _write_base_config(base_config)
-    _write_mixed_spec(spec, base_config)
-
-    dry_run = _run_cli(
-        tmp_path,
-        "measure",
-        "--spec",
-        str(spec),
-        "--hardware",
-        "a100",
-        "--out",
-        str(out),
-        "--runtime-env",
-        "all",
-        "--dry-run",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency"},
-    )
-    assert "policy: small-policy" in dry_run.stdout
-    assert "policy: vla-policy" in dry_run.stdout
-
-    unsafe = _run_cli(
-        tmp_path,
-        "measure",
-        "--spec",
-        str(spec),
-        "--hardware",
-        "a100",
-        "--out",
-        str(out),
-        "--runtime-env",
-        "all",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency"},
-        check=False,
-    )
-    assert unsafe.returncode != 0
-    assert "--runtime-env all is only allowed" in unsafe.stderr
-
-    strict = _run_cli(
-        tmp_path,
-        "measure",
-        "--spec",
-        str(spec),
-        "--hardware",
-        "a100",
-        "--out",
-        str(out),
-        "--dry-run",
-        "--strict-runtime-env",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency"},
-        check=False,
-    )
-    assert strict.returncode != 0
-    assert "--strict-runtime-env failed" in strict.stderr
-
-
-def test_doctor_output_reports_runtime_compatible_and_skipped_rows(tmp_path: Path):
+def test_doctor_output_reports_runtime_match_and_skipped_rows(tmp_path: Path):
     base_config = tmp_path / "base.yaml"
     spec = tmp_path / "protocol.yaml"
     out = tmp_path / "results"
@@ -793,11 +693,11 @@ def test_doctor_output_reports_runtime_compatible_and_skipped_rows(tmp_path: Pat
     )
 
     assert "Runtime environment:" in result.stdout
-    assert "matched alias: baseline" in result.stdout
-    assert "compatible rows: small-policy" in result.stdout
+    assert "detected: latency" in result.stdout
+    assert "required: baseline (latency)" in result.stdout
+    assert "match: true" in result.stdout
+    assert "Runnable stages:" in result.stdout
     assert "Skipped rows:" in result.stdout
-    assert "vla-policy" in result.stdout
-    assert "runtime_env" in result.stdout
 
 
 def test_measure_dedups_duplicate_openvla_rows_across_experiments(tmp_path: Path):
@@ -817,8 +717,6 @@ def test_measure_dedups_duplicate_openvla_rows_across_experiments(tmp_path: Path
         "--out",
         str(out),
         "--dry-run",
-        "--runtime-env",
-        "openvla",
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
         check=False,
     )
@@ -952,15 +850,6 @@ def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch)
     _write_spec(spec_path, base_config)
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     current_device = spec["devices"][0]
-    runtime = RuntimeSelection(
-        requested="baseline",
-        detected_raw="latency",
-        matched_alias="baseline",
-        matched_conda_env="latency",
-        selected_alias="baseline",
-        allow_all=False,
-        allow_mismatch=False,
-    )
     args = argparse.Namespace(
         checkpoint_kind=None,
         dry_run=False,
@@ -992,7 +881,6 @@ def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch)
         out,
         profiles_dir,
         current_device,
-        runtime,
         instance_id="instance_local",
         instance_origin="manual_override",
     )
@@ -1088,15 +976,6 @@ def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monke
     _write_spec(spec_path, base_config)
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     current_device = spec["devices"][0]
-    runtime = RuntimeSelection(
-        requested="baseline",
-        detected_raw="latency",
-        matched_alias="baseline",
-        matched_conda_env="latency",
-        selected_alias="baseline",
-        allow_all=False,
-        allow_mismatch=False,
-    )
     args = argparse.Namespace(
         checkpoint_kind=None,
         dry_run=False,
@@ -1121,7 +1000,6 @@ def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monke
         out,
         out / "profiles",
         current_device,
-        runtime,
         instance_id="instance_test",
         instance_origin="manual_override",
     )[0].task
@@ -1156,7 +1034,7 @@ def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monke
 
     monkeypatch.setattr(runner.subprocess, "run", fake_run)
 
-    runner._run_task(task, spec, {"raw": "a100", "device": current_device}, runtime, args, out)
+    runner._run_task(task, spec, {"raw": "a100", "device": current_device}, args, out)
 
     assert [command[2] for command in commands] == [
         "latency_bench.experiments.calibrate_env_fps_from_saturated_latency",
@@ -1180,15 +1058,6 @@ def test_measure_run_does_not_forward_n_samples_to_eval_or_profile(tmp_path: Pat
     _write_spec(spec_path, base_config)
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     current_device = spec["devices"][0]
-    runtime = RuntimeSelection(
-        requested="baseline",
-        detected_raw="latency",
-        matched_alias="baseline",
-        matched_conda_env="latency",
-        selected_alias="baseline",
-        allow_all=False,
-        allow_mismatch=False,
-    )
     args = argparse.Namespace(
         checkpoint_kind=None,
         dry_run=False,
@@ -1213,7 +1082,6 @@ def test_measure_run_does_not_forward_n_samples_to_eval_or_profile(tmp_path: Pat
         out,
         out / "profiles",
         current_device,
-        runtime,
         instance_id="instance_test",
         instance_origin="manual_override",
     )[0].task
@@ -1258,7 +1126,7 @@ def test_measure_run_does_not_forward_n_samples_to_eval_or_profile(tmp_path: Pat
 
     monkeypatch.setattr(runner.subprocess, "run", fake_run)
 
-    runner._run_task(task, spec, {"raw": "a100", "device": current_device}, runtime, args, out)
+    runner._run_task(task, spec, {"raw": "a100", "device": current_device}, args, out)
 
     eval_commands = [command for command in commands if "latency_bench.run" in command]
     profile_command = commands[-1]
@@ -1280,15 +1148,6 @@ def test_measure_run_does_not_continue_after_episodes_until_n_samples(tmp_path: 
     _write_spec(spec_path, base_config)
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     current_device = spec["devices"][0]
-    runtime = RuntimeSelection(
-        requested="baseline",
-        detected_raw="latency",
-        matched_alias="baseline",
-        matched_conda_env="latency",
-        selected_alias="baseline",
-        allow_all=False,
-        allow_mismatch=False,
-    )
     args = argparse.Namespace(
         checkpoint_kind=None,
         dry_run=False,
@@ -1313,7 +1172,6 @@ def test_measure_run_does_not_continue_after_episodes_until_n_samples(tmp_path: 
         out,
         out / "profiles",
         current_device,
-        runtime,
         instance_id="instance_test",
         instance_origin="manual_override",
     )[0].task
@@ -1364,7 +1222,7 @@ def test_measure_run_does_not_continue_after_episodes_until_n_samples(tmp_path: 
 
     monkeypatch.setattr(runner.subprocess, "run", fake_run)
 
-    runner._run_task(task, spec, {"raw": "a100", "device": current_device}, runtime, args, out)
+    runner._run_task(task, spec, {"raw": "a100", "device": current_device}, args, out)
 
     eval_commands = [command for command in commands if "latency_bench.run" in command]
     profile_command = commands[-1]
@@ -1386,15 +1244,6 @@ def test_measure_run_records_failed_calibration_manifest_without_eval(tmp_path: 
     _write_spec(spec_path, base_config)
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     current_device = spec["devices"][0]
-    runtime = RuntimeSelection(
-        requested="baseline",
-        detected_raw="latency",
-        matched_alias="baseline",
-        matched_conda_env="latency",
-        selected_alias="baseline",
-        allow_all=False,
-        allow_mismatch=False,
-    )
     args = argparse.Namespace(
         checkpoint_kind=None,
         dry_run=False,
@@ -1419,7 +1268,6 @@ def test_measure_run_records_failed_calibration_manifest_without_eval(tmp_path: 
         out,
         out / "profiles",
         current_device,
-        runtime,
         instance_id="instance_test",
         instance_origin="manual_override",
     )[0].task
@@ -1433,7 +1281,7 @@ def test_measure_run_records_failed_calibration_manifest_without_eval(tmp_path: 
     monkeypatch.setattr(runner.subprocess, "run", fake_run)
 
     with pytest.raises(subprocess.CalledProcessError):
-        runner._run_task(task, spec, {"raw": "a100", "device": current_device}, runtime, args, out)
+        runner._run_task(task, spec, {"raw": "a100", "device": current_device}, args, out)
 
     assert [command[2] for command in commands] == ["latency_bench.experiments.calibrate_env_fps_from_saturated_latency"]
     manifest = json.loads((task.output_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -1602,8 +1450,6 @@ def test_continue_on_error_runs_later_tasks_and_returns_nonzero_summary(tmp_path
         str(out),
         "--profiles-dir",
         str(out / "profiles"),
-        "--runtime-env",
-        "baseline",
         "--continue-on-error",
         env={"CROSS_DEVICE_RUNTIME_ENV": "latency"},
         check=False,
@@ -1656,8 +1502,6 @@ def test_resume_skips_completed_manifest_but_retries_failed_run(tmp_path: Path):
         str(out),
         "--profiles-dir",
         str(out / "profiles"),
-        "--runtime-env",
-        "baseline",
         "--resume",
         "--continue-on-error",
         env={"CROSS_DEVICE_RUNTIME_ENV": "latency"},
@@ -1751,8 +1595,6 @@ def test_sim_cross_target_requires_explicit_instance(tmp_path: Path):
         "--out",
         str(out),
         "--dry-run",
-        "--runtime-env",
-        "openvla",
         env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
         check=False,
     )

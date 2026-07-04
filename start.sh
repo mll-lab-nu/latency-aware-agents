@@ -31,7 +31,6 @@ python -m latency_bench.cross_device.protocol measure \
   --spec "$SPEC" \
   --hardware auto \
   --only-policy "$POLICY" \
-  --strict-runtime-env \
   --resume
 
 # Same-device replay: this machine reads its own profile.
@@ -39,7 +38,6 @@ python -m latency_bench.cross_device.protocol sim \
   --spec "$SPEC" \
   --hardware auto \
   --only-policy "$POLICY" \
-  --strict-runtime-env \
   --profiles-dir "$PROFILES_DIR" \
   --resume
 
@@ -50,7 +48,6 @@ for TARGET in $SIM_TARGETS; do
     --hardware auto \
     --target "$TARGET" \
     --only-policy "$POLICY" \
-    --strict-runtime-env \
     --profiles-dir "$PROFILES_DIR" \
     --resume
 done

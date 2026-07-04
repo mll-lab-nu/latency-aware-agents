@@ -10,19 +10,10 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from latency_bench.cross_device.models import (
-    PlannedTask,
-    ProtocolTask,
-    RuntimeSelection,
-)
+from latency_bench.cross_device.models import PlannedTask, ProtocolTask
 from latency_bench.cross_device.layout import profile_path as layout_profile_path, slugify
 from latency_bench.cross_device.profile_resources import profile_resource_skip_reasons
-from latency_bench.cross_device.runtime import (
-    _normalize_name,
-    _resolve_runtime_alias,
-    _runtime_conda_env,
-    _devices,
-)
+from latency_bench.cross_device.runtime import _normalize_name, _devices
 
 
 STAGE_TO_EXPERIMENTS = {
@@ -39,7 +30,6 @@ def _build_plan(
     out: Path,
     profiles_dir: Path,
     current_device: dict[str, Any],
-    runtime: RuntimeSelection,
     *,
     instance_id: str | None = None,
     instance_origin: str | None = None,
@@ -54,7 +44,6 @@ def _build_plan(
         out: Protocol output root.
         profiles_dir: Local profile cache root.
         current_device: Hardware entry for the machine running this command.
-        runtime: Resolved runtime environment selection.
         for_doctor: When true, report missing profiles without trying HF download.
 
     Returns:
@@ -81,8 +70,6 @@ def _build_plan(
                     if target_profile_instance_id is not None
                     else None
                 )
-                runtime_alias = str(row.get("runtime_env") or "")
-                runtime_conda = _runtime_conda_env(spec, runtime_alias)
                 task = _make_task(
                     stage=stage,
                     experiment_id=experiment_id,
@@ -101,20 +88,16 @@ def _build_plan(
                     instance_id=instance_id,
                     instance_origin=instance_origin,
                     target_profile_instance_id=target_profile_instance_id,
-                    runtime_env_alias=runtime_alias or None,
-                    runtime_conda_env=runtime_conda,
                     smoke=bool(getattr(args, "smoke", False)),
                     smoke_max_steps=getattr(args, "smoke_max_steps", None),
                 )
                 key = _dedup_key(task)
                 skip_reason = _task_skip_reason(
                     task=task,
-                    spec=spec,
                     args=args,
                     stage=stage,
                     profiles_dir=profiles_dir,
                     current_device=current_device,
-                    runtime=runtime,
                     for_doctor=for_doctor,
                 )
                 item = PlannedTask(task=task, runnable=skip_reason is None, skip_reason=skip_reason)
@@ -164,8 +147,6 @@ def _make_task(
     instance_id: str | None,
     instance_origin: str | None,
     target_profile_instance_id: str | None,
-    runtime_env_alias: str | None,
-    runtime_conda_env: str | None,
     smoke: bool = False,
     smoke_max_steps: int | None = None,
 ) -> ProtocolTask:
@@ -186,8 +167,6 @@ def _make_task(
         out: Protocol output root.
         target_profile_path: Target-device profile manifest consumed by realtime and replay stages.
         profile_output_dir: Profile artifact directory produced by measure.
-        runtime_env_alias: Required runtime alias from the protocol row.
-        runtime_conda_env: Conda env name for display and diagnostics.
         smoke: Whether this task is a smoke run.
         smoke_max_steps: Optional max-step cap for smoke evaluation.
 
@@ -225,8 +204,6 @@ def _make_task(
         instance_id=instance_id,
         instance_origin=instance_origin,
         target_profile_instance_id=target_profile_instance_id,
-        runtime_env_alias=runtime_env_alias,
-        runtime_conda_env=runtime_conda_env,
         smoke=smoke,
         smoke_max_steps=None if smoke_max_steps is None else int(smoke_max_steps),
     )
@@ -250,24 +227,20 @@ def _dedup_key(task: ProtocolTask) -> tuple[Any, ...]:
 def _task_skip_reason(
     *,
     task: ProtocolTask,
-    spec: dict[str, Any],
     args: argparse.Namespace,
     stage: str,
     profiles_dir: Path,
     current_device: dict[str, Any],
-    runtime: RuntimeSelection,
     for_doctor: bool,
 ) -> str | None:
     """Return why a planned task cannot run on this invocation.
 
     Args:
         task: Candidate task.
-        spec: Loaded protocol spec.
         args: Parsed CLI namespace.
         stage: Normalized stage name.
         profiles_dir: Local profile cache root for HF profile resolution.
         current_device: Hardware entry for the running machine.
-        runtime: Resolved runtime selection.
         for_doctor: Disables network profile fetches for read-only checks.
 
     Returns:
@@ -282,10 +255,6 @@ def _task_skip_reason(
     if stage == "sim_cross" and not _matches_filter(_device_filter_candidates(task.target_device), only_devices):
         reasons.append(f"hardware mismatch: target hardware {task.target_device.get('id')} not in --only-device")
 
-    runtime_reason = _runtime_skip_reason(task, runtime)
-    if runtime_reason:
-        reasons.append(runtime_reason)
-
     reasons.extend(
         profile_resource_skip_reasons(
             task=task,
@@ -298,33 +267,6 @@ def _task_skip_reason(
 
     if reasons:
         return "; ".join(reasons)
-    return None
-
-
-def _runtime_skip_reason(task: ProtocolTask, runtime: RuntimeSelection) -> str | None:
-    required = task.runtime_env_alias
-    if not required:
-        return "missing runtime_env on protocol row"
-    if runtime.allow_all:
-        if runtime.allow_mismatch:
-            return None
-        if runtime.matched_alias != required:
-            return (
-                "runtime_env mismatch: "
-                f"requires {required} ({task.runtime_conda_env}), "
-                f"current={runtime.detected_raw or 'unknown'}"
-            )
-        return None
-    if runtime.selected_alias != required:
-        return f"runtime_env selection mismatch: selected {runtime.selected_alias}, row requires {required}"
-    if runtime.allow_mismatch:
-        return None
-    if runtime.matched_alias != required:
-        return (
-            "runtime_env mismatch: "
-            f"requires {required} ({task.runtime_conda_env}), "
-            f"current={runtime.detected_raw or 'unknown'}"
-        )
     return None
 
 
@@ -348,7 +290,6 @@ def _iter_selected_rows(
     only_experiments = _csv_filter(getattr(args, "only_experiment", None))
     only_policies = _csv_filter(getattr(args, "only_policy", None))
     only_envs = _csv_filter(getattr(args, "only_env", None))
-    runtime_filter = _runtime_row_filter(spec, getattr(args, "runtime_env", "auto"))
     output: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
     for experiment_id, experiment in spec.get("experiments", {}).items():
         if allowed_experiments is not None and experiment_id not in allowed_experiments:
@@ -356,8 +297,6 @@ def _iter_selected_rows(
         if not _matches_filter(_experiment_filter_candidates(experiment_id), only_experiments):
             continue
         for row in experiment.get("rows", []):
-            if runtime_filter and not _matches_filter(_runtime_filter_candidates(spec, row), runtime_filter):
-                continue
             if not _matches_filter(_policy_filter_candidates(row), only_policies):
                 continue
             if not _matches_filter(_env_filter_candidates(row), only_envs):
@@ -477,7 +416,6 @@ def _filtered_spec_for_aggregate(spec: dict[str, Any], args: argparse.Namespace)
     only_policies = _csv_filter(getattr(args, "only_policy", None))
     only_envs = _csv_filter(getattr(args, "only_env", None))
     only_devices = _csv_filter(getattr(args, "only_device", None))
-    runtime_filter = _runtime_row_filter(updated, getattr(args, "runtime_env", "auto"))
     if only_devices:
         updated["devices"] = [
             device for device in _devices(updated) if _matches_filter(_device_filter_candidates(device), only_devices)
@@ -493,8 +431,6 @@ def _filtered_spec_for_aggregate(spec: dict[str, Any], args: argparse.Namespace)
                 continue
             rows = []
             for row in experiment.get("rows", []):
-                if runtime_filter and not _matches_filter(_runtime_filter_candidates(updated, row), runtime_filter):
-                    continue
                 if not _matches_filter(_policy_filter_candidates(row), only_policies):
                     continue
                 if not _matches_filter(_env_filter_candidates(row), only_envs):
@@ -558,19 +494,6 @@ def _device_filter_candidates(device: dict[str, Any]) -> list[Any]:
         device.get("profile_id"),
         *device.get("aliases", []),
     ]
-
-
-def _runtime_row_filter(spec: dict[str, Any], requested: Any) -> set[str]:
-    value = str(requested or "auto")
-    if value in {"auto", "all"}:
-        return set()
-    alias = _resolve_runtime_alias(spec, value)
-    return {alias or value}
-
-
-def _runtime_filter_candidates(spec: dict[str, Any], row: dict[str, Any]) -> list[Any]:
-    alias = row.get("runtime_env")
-    return [alias, _runtime_conda_env(spec, str(alias)) if alias else None]
 
 
 def _output_root(spec: dict[str, Any], out: Path | None) -> Path:

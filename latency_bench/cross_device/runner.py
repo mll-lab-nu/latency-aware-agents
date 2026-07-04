@@ -24,11 +24,7 @@ from latency_bench.cross_device.configs import (
     _write_generated_config,
 )
 from latency_bench.cross_device.instances import INSTANCE_ID_ENV, resolve_instance_id, resolve_instance_origin
-from latency_bench.cross_device.models import (
-    PlannedTask,
-    ProtocolTask,
-    RuntimeSelection,
-)
+from latency_bench.cross_device.models import PlannedTask, ProtocolTask
 from latency_bench.cross_device.manifest import (
     append_manifest,
     append_note,
@@ -47,7 +43,7 @@ from latency_bench.cross_device.sim_workers import (
     run_sim_worker_plan,
 )
 from latency_bench.cross_device.sync import profile_remote_dir, upload_folder_to_hf
-from latency_bench.cross_device.runtime import _stage_hardware, _validate_runtime_safety, detect_runtime_env
+from latency_bench.cross_device.runtime import _stage_hardware, runtime_env_mismatch
 
 
 def _stage_instance_metadata(stage: str, dry_run: bool) -> tuple[str | None, str | None]:
@@ -75,8 +71,9 @@ def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> Non
     """
     out = _output_root(spec, args.out)
     detected = _stage_hardware(spec, args, stage)
-    runtime = detect_runtime_env(spec, args.runtime_env, bool(args.allow_runtime_env_mismatch))
-    _validate_runtime_safety(args, runtime)
+    mismatch = runtime_env_mismatch(spec)
+    if mismatch and not args.dry_run:
+        raise SystemExit(mismatch)
     profiles_dir = _profiles_dir_for_args(args, out)
     instance_id, instance_origin = _stage_instance_metadata(stage, bool(args.dry_run))
     plan = _build_plan(
@@ -86,34 +83,23 @@ def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> Non
         out,
         profiles_dir,
         detected["device"],
-        runtime,
         instance_id=instance_id,
         instance_origin=instance_origin,
     )
     if args.max_runs is not None:
         plan = plan[: int(args.max_runs)]
-    if args.strict_runtime_env:
-        mismatches = [
-            item
-            for item in plan
-            if item.skip_reason
-            and ("runtime_env mismatch" in item.skip_reason or "runtime_env selection mismatch" in item.skip_reason)
-        ]
-        if mismatches:
-            details = "; ".join(f"{item.task.row.get('policy')}: {item.skip_reason}" for item in mismatches)
-            raise SystemExit(f"--strict-runtime-env failed: {details}")
     if args.dry_run:
+        if mismatch:
+            print(f"WARNING: {mismatch}", file=sys.stderr)
         _print_dry_run_plan(stage, plan, spec)
         return
-    if runtime.allow_mismatch:
-        print("WARNING: --allow-runtime-env-mismatch is set; incompatible runtime_env rows may execute.", file=sys.stderr)
     if not plan:
         print("No protocol runs selected.")
         return
     failures: list[dict[str, str]] = []
     for item in plan:
         if not item.runnable:
-            record_skipped_task(item.task, spec, detected, runtime, item.skip_reason or "skipped", out)
+            record_skipped_task(item.task, spec, detected, item.skip_reason or "skipped", out)
             print(f"skipping {item.task.row.get('policy')} {item.task.stage}: {item.skip_reason}")
             continue
         task = item.task
@@ -123,7 +109,7 @@ def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> Non
                 f"stage={task.stage} policy={task.row.get('policy')} env={task.row.get('env')} "
                 f"output_dir={task.output_dir}"
             )
-            _run_task(task, spec, detected, runtime, args, out)
+            _run_task(task, spec, detected, args, out)
         except Exception as exc:
             failures.append(failed_run_summary(task, exc))
             print(
@@ -144,7 +130,6 @@ def _run_task(
     task: ProtocolTask,
     spec: dict[str, Any],
     detected: dict[str, Any],
-    runtime: RuntimeSelection,
     args: argparse.Namespace,
     out: Path,
 ) -> None:
@@ -154,7 +139,6 @@ def _run_task(
         task: Concrete task from the planner.
         spec: Loaded protocol spec.
         detected: Hardware detection result for manifest metadata.
-        runtime: Runtime detection result for manifest metadata.
         args: Parsed CLI namespace with resume/dry-run/overwrite flags.
         out: Protocol output root used for the aggregate manifest stream.
 
@@ -169,7 +153,7 @@ def _run_task(
     eval_cmd = _eval_command(task)
     config = _generated_config(task, spec)
     profile_cmd = None
-    manifest = build_base_manifest(task, spec, detected, runtime, eval_cmd, profile_cmd)
+    manifest = build_base_manifest(task, spec, detected, eval_cmd, profile_cmd)
     sim_worker_plan = build_sim_worker_plan(task, spec)
     if sim_worker_plan:
         add_sim_worker_manifest_fields(manifest, sim_worker_plan)
@@ -228,7 +212,7 @@ def _run_task(
         raise
     write_json(task.output_dir / "manifest.json", manifest)
     append_manifest(out, manifest)
-    _upload_run_results(task, out, manifest, detected, runtime)
+    _upload_run_results(task, out, manifest, detected, spec)
 
 
 def _run_subprocess_with_runtime_telemetry(cmd: list[str], output_dir: Path, manifest: dict[str, Any]) -> None:
@@ -256,7 +240,7 @@ def _upload_run_results(
     out: Path,
     manifest: dict[str, Any],
     detected: dict[str, Any],
-    runtime: RuntimeSelection,
+    spec: dict[str, Any],
 ) -> None:
     """Mirror this completed run's results to HF for hands-off aggregation.
 
@@ -275,7 +259,7 @@ def _upload_run_results(
         out: Protocol output root (the local `results/cross_device`).
         manifest: Run manifest mutated in place with upload status.
         detected: Hardware detection result (for the device id segment).
-        runtime: Runtime detection result (for the runtime alias segment).
+        spec: Loaded protocol spec (for the runtime alias segment).
     """
     repo_id = os.environ.get("HF_PROFILE_REPO")
     if not repo_id or os.environ.get("CROSS_DEVICE_NO_RESULT_UPLOAD"):
@@ -283,9 +267,7 @@ def _upload_run_results(
     device_id = detected["device"]["id"]
     if task.instance_id is None:
         raise RuntimeError("raw result upload requires task.instance_id")
-    runtime_alias = runtime.matched_alias or runtime.selected_alias
-    if runtime_alias is None:
-        raise RuntimeError("raw result upload requires a runtime alias")
+    runtime_alias = spec["runtime_env"]["name"]
     prefix = f"raw/{device_id}/instances/{task.instance_id}/{runtime_alias}/cross_device"
     repo_type = os.environ.get("HF_PROFILE_REPO_TYPE", "dataset")
 
@@ -419,7 +401,7 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
         print(f"target_profile_id: {task.target_device.get('profile_id')}")
         print(f"target_profile_instance_id: {task.target_profile_instance_id or ''}")
         print(f"replay_device: {task.replay_device.get('id') if task.replay_device else ''}")
-        print(f"runtime_env: {task.runtime_env_alias} ({task.runtime_conda_env})")
+        print(f"runtime_env: {spec['runtime_env']['name']} ({spec['runtime_env']['conda_env']})")
         print(f"smoke: {str(task.smoke).lower()}")
         print(f"episodes: {task.n_episodes}")
         print(f"status: {'runnable' if item.runnable else 'skipped'}")
@@ -471,8 +453,6 @@ def _print_plan_summary(label: str, plan: list[PlannedTask]) -> None:
 
 
 def _skip_reason_bucket(reason: str) -> str:
-    if "runtime_env mismatch" in reason or "runtime_env selection mismatch" in reason:
-        return "runtime_env mismatch"
     if "replay hardware not configured" in reason:
         return "replay hardware not configured"
     if "missing profile" in reason:

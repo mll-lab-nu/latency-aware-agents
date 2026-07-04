@@ -14,8 +14,6 @@ from typing import Any
 
 import torch
 
-from latency_bench.cross_device.models import RuntimeSelection
-
 
 def detect_hardware(spec: dict[str, Any], requested: str = "auto") -> dict[str, Any]:
     """Resolve the hardware entry for this invocation.
@@ -50,43 +48,8 @@ def detect_hardware(spec: dict[str, Any], requested: str = "auto") -> dict[str, 
     _raise_unknown_hardware("; ".join(candidates) if candidates else "<none>", devices)
 
 
-def detect_runtime_env(spec: dict[str, Any], requested: str = "auto", allow_mismatch: bool = False) -> RuntimeSelection:
-    """Resolve the current Python environment to a protocol runtime alias.
-
-    Args:
-        spec: Loaded protocol spec containing `runtime_envs`.
-        requested: Runtime selector from CLI: `auto`, `all`, alias, or conda env.
-        allow_mismatch: Whether execution may proceed despite env mismatch.
-
-    Returns:
-        Runtime selection metadata used for filtering and skip reasons.
-    """
-    detected_raw = _detect_runtime_env_raw()
-    matched_alias = _resolve_runtime_alias(spec, detected_raw) if detected_raw else None
-    matched_conda_env = _runtime_conda_env(spec, matched_alias) if matched_alias else None
-    if requested == "auto":
-        selected_alias = matched_alias
-        allow_all = False
-    elif requested == "all":
-        selected_alias = None
-        allow_all = True
-    else:
-        selected_alias = _resolve_runtime_alias(spec, requested)
-        if selected_alias is None:
-            _raise_unknown_runtime_env(spec, requested)
-        allow_all = False
-    return RuntimeSelection(
-        requested=requested,
-        detected_raw=detected_raw,
-        matched_alias=matched_alias,
-        matched_conda_env=matched_conda_env,
-        selected_alias=selected_alias,
-        allow_all=allow_all,
-        allow_mismatch=allow_mismatch,
-    )
-
-
-def _detect_runtime_env_raw() -> str | None:
+def detect_runtime_env_raw() -> str | None:
+    """Return the current Python environment name, or None when undetectable."""
     override = os.environ.get("CROSS_DEVICE_RUNTIME_ENV")
     if override:
         return override
@@ -103,55 +66,24 @@ def _detect_runtime_env_raw() -> str | None:
             index = parts.index(marker)
             if index + 1 < len(parts):
                 return parts[index + 1]
-    for part in reversed(parts):
-        if part == "latency":
-            return part
     return None
 
 
-def _runtime_envs(spec: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    envs = spec.get("runtime_envs", {})
-    return envs if isinstance(envs, dict) else {}
+def runtime_env_mismatch(spec: dict[str, Any]) -> str | None:
+    """Return a mismatch message, or None when the detected env satisfies the spec.
 
-
-def _resolve_runtime_alias(spec: dict[str, Any], value: str | None) -> str | None:
-    if not value:
+    The spec declares a single `runtime_env` with `name` and `conda_env`; the
+    detected environment may match either spelling.
+    """
+    required = spec["runtime_env"]
+    detected = detect_runtime_env_raw()
+    accepted = {_normalize_name(required["name"]), _normalize_name(required["conda_env"])}
+    if detected and _normalize_name(detected) in accepted:
         return None
-    normalized = _normalize_name(value)
-    for alias, env in _runtime_envs(spec).items():
-        names = [alias, env.get("conda_env")]
-        if any(_normalize_name(name) == normalized for name in names if name):
-            return str(alias)
-    return None
-
-
-def _runtime_conda_env(spec: dict[str, Any], alias: str | None) -> str | None:
-    if alias is None:
-        return None
-    env = _runtime_envs(spec).get(alias)
-    if not isinstance(env, dict):
-        return None
-    value = env.get("conda_env")
-    return None if value is None else str(value)
-
-
-def _raise_unknown_runtime_env(spec: dict[str, Any], value: str) -> None:
-    known = []
-    for alias, env in _runtime_envs(spec).items():
-        known.append(str(alias))
-        if env.get("conda_env"):
-            known.append(str(env["conda_env"]))
-    raise SystemExit(f"Unknown --runtime-env {value!r}. Known runtime envs: {', '.join(sorted(known))}")
-
-
-def _validate_runtime_safety(args: argparse.Namespace, runtime: RuntimeSelection) -> None:
-    if runtime.requested == "all" and not args.dry_run and not runtime.allow_mismatch:
-        raise SystemExit("--runtime-env all is only allowed with --dry-run unless --allow-runtime-env-mismatch is set")
-    if runtime.requested == "auto" and runtime.matched_alias is None and not args.dry_run and not runtime.allow_mismatch:
-        raise SystemExit(
-            "Could not detect a compatible runtime env. Set CROSS_DEVICE_RUNTIME_ENV, "
-            "activate the right conda env, or use --allow-runtime-env-mismatch."
-        )
+    return (
+        f"runtime env mismatch: requires {required['name']} ({required['conda_env']}), "
+        f"detected {detected or 'unknown'}. Activate the right conda env or set CROSS_DEVICE_RUNTIME_ENV."
+    )
 
 
 def normalize_hardware_name(name: str, devices: list[dict[str, Any]]) -> dict[str, Any] | None:
