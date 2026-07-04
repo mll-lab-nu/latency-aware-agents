@@ -67,90 +67,36 @@ devices:
       - RTX PRO 6000
       - NVIDIA RTX PRO 6000 Blackwell Workstation Edition
 
+rows:
+  - policy: openvla-flappy
+    env: Flappy
+    policy_type: starvla
+    model_type: openvla
+    env_name: flappy
+    target_latency_frames: 2
+    base_config: configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml
+  - policy: demon-attack-openvla
+    env: Demon Attack
+    policy_type: starvla
+    model_type: openvla
+    env_name: demon_attack
+    target_latency_frames: 2
+    base_config: configs/experiments/demon_attack/starvla_fixed_l2.yaml
+  - policy: deadly-corridor-openvla
+    env: Deadly Corridor
+    policy_type: starvla
+    model_type: openvla
+    env_name: deadly_corridor
+    target_latency_frames: 2
+    base_config: configs/experiments/deadly_corridor/starvla_single_latency.yaml
+
 experiments:
   exp1_latency_profile_summary:
     panel: a
-    rows:
-      - policy: openvla-flappy
-        env: Flappy
-        policy_type: starvla
-        model_type: openvla
-        env_name: flappy
-        fps: 16
-        target_latency_frames: 2
-        base_config: configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml
-      - policy: demon-attack-openvla
-        env: Demon Attack
-        policy_type: starvla
-        model_type: openvla
-        env_name: demon_attack
-        fps: 60
-        target_latency_frames: 2
-        base_config: configs/experiments/demon_attack/starvla_fixed_l2.yaml
-      - policy: deadly-corridor-openvla
-        env: Deadly Corridor
-        policy_type: starvla
-        model_type: openvla
-        env_name: deadly_corridor
-        fps: 35
-        target_latency_frames: 2
-        base_config: configs/experiments/deadly_corridor/starvla_single_latency.yaml
-
   exp2_same_device_calibration:
     panel: b
-    rows:
-      - policy: openvla-flappy
-        env: Flappy
-        policy_type: starvla
-        model_type: openvla
-        env_name: flappy
-        fps: 16
-        target_latency_frames: 2
-        base_config: configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml
-      - policy: demon-attack-openvla
-        env: Demon Attack
-        policy_type: starvla
-        model_type: openvla
-        env_name: demon_attack
-        fps: 60
-        target_latency_frames: 2
-        base_config: configs/experiments/demon_attack/starvla_fixed_l2.yaml
-      - policy: deadly-corridor-openvla
-        env: Deadly Corridor
-        policy_type: starvla
-        model_type: openvla
-        env_name: deadly_corridor
-        fps: 35
-        target_latency_frames: 2
-        base_config: configs/experiments/deadly_corridor/starvla_single_latency.yaml
-
   exp3_cross_device_prediction:
     panel: c
-    rows:
-      - policy: openvla-flappy
-        env: Flappy
-        policy_type: starvla
-        model_type: openvla
-        env_name: flappy
-        fps: 16
-        target_latency_frames: 2
-        base_config: configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml
-      - policy: demon-attack-openvla
-        env: Demon Attack
-        policy_type: starvla
-        model_type: openvla
-        env_name: demon_attack
-        fps: 60
-        target_latency_frames: 2
-        base_config: configs/experiments/demon_attack/starvla_fixed_l2.yaml
-      - policy: deadly-corridor-openvla
-        env: Deadly Corridor
-        policy_type: starvla
-        model_type: openvla
-        env_name: deadly_corridor
-        fps: 35
-        target_latency_frames: 2
-        base_config: configs/experiments/deadly_corridor/starvla_single_latency.yaml
     replay_pairs:
       - target_device: rtx3090
         replay_device: b200

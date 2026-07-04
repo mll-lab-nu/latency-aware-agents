@@ -100,7 +100,6 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "policy_type": "unknown_policy",
         "model_type": "test_model",
         "env_name": "dummy",
-        "fps": 30,
         "target_latency_frames": 1,
         "base_config": str(first_config),
     }
@@ -110,7 +109,6 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "policy_type": "random",
         "model_type": "test_model",
         "env_name": "dummy",
-        "fps": 30,
         "target_latency_frames": 1,
         "base_config": str(second_config),
     }
@@ -131,8 +129,9 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
                 "aliases": ["NVIDIA A100"],
             }
         ],
+        "rows": [first, second],
         "experiments": {
-            "exp2_same_device_calibration": {"panel": "b", "rows": [first, second]},
+            "exp2_same_device_calibration": {"panel": "b"},
         },
     }
     path.write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
@@ -145,7 +144,6 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "policy_type": "random",
         "model_type": "test_model",
         "env_name": "flappy",
-        "fps": 30,
         "target_latency_frames": 1,
         "base_config": str(base_config),
     }
@@ -166,12 +164,12 @@ def _write_spec(path: Path, base_config: Path) -> None:
                 "aliases": ["NVIDIA A100"],
             }
         ],
+        "rows": [row],
         "experiments": {
-            "exp1_latency_profile_summary": {"panel": "a", "rows": [dict(row)]},
-            "exp2_same_device_calibration": {"panel": "b", "rows": [dict(row)]},
+            "exp1_latency_profile_summary": {"panel": "a"},
+            "exp2_same_device_calibration": {"panel": "b"},
             "exp3_cross_device_prediction": {
                 "panel": "c",
-                "rows": [dict(row)],
                 "replay_pairs": [{"target_device": "a100", "replay_device": "a100"}],
             },
         },
@@ -186,7 +184,6 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "policy_type": "random",
         "model_type": "test_model",
         "env_name": "flappy",
-        "fps": 30,
         "target_latency_frames": 1,
         "base_config": str(base_config),
     }
@@ -196,7 +193,6 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "policy_type": "random",
         "model_type": "test_model",
         "env_name": "flappy",
-        "fps": 30,
         "target_latency_frames": 1,
         "base_config": str(base_config),
     }
@@ -229,12 +225,12 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
                 "aliases": ["NVIDIA GeForce RTX 4090"],
             },
         ],
+        "rows": [small, vla],
         "experiments": {
-            "exp1_latency_profile_summary": {"panel": "a", "rows": [dict(vla)]},
-            "exp2_same_device_calibration": {"panel": "b", "rows": [dict(small)]},
+            "exp1_latency_profile_summary": {"panel": "a"},
+            "exp2_same_device_calibration": {"panel": "b"},
             "exp3_cross_device_prediction": {
                 "panel": "c",
-                "rows": [dict(vla)],
                 "replay_pairs": [
                     {"target_device": "a100", "replay_device": "h200"},
                     {"target_device": "a100", "replay_device": "a100"},
@@ -403,11 +399,10 @@ def test_real_openvla_protocol_dry_run_selects_flappy_demon_and_deadly(tmp_path:
     assert "deadly-corridor-openvla/deadly_corridor" in result.stdout
 
 
-def test_real_protocol_exp2_includes_openvla_calibration_rows():
+def test_real_protocol_rows_cover_flappy_demon_and_deadly():
     spec = yaml.safe_load(REAL_PROTOCOL.read_text(encoding="utf-8"))
 
-    rows = spec["experiments"]["exp2_same_device_calibration"]["rows"]
-    openvla_rows = {row["policy"]: row for row in rows}
+    openvla_rows = {row["policy"]: row for row in spec["rows"]}
 
     assert set(openvla_rows) == {
         "openvla-flappy",
@@ -416,7 +411,6 @@ def test_real_protocol_exp2_includes_openvla_calibration_rows():
     }
     assert openvla_rows["openvla-flappy"]["policy_type"] == "starvla"
     assert openvla_rows["openvla-flappy"]["model_type"] == "openvla"
-    assert openvla_rows["openvla-flappy"]["fps"] == 16
     assert openvla_rows["openvla-flappy"]["base_config"] == (
         "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml"
     )
@@ -700,7 +694,7 @@ def test_doctor_output_reports_runtime_match_and_skipped_rows(tmp_path: Path):
     assert "Skipped rows:" in result.stdout
 
 
-def test_measure_dedups_duplicate_openvla_rows_across_experiments(tmp_path: Path):
+def test_measure_plans_each_row_once_with_static_experiment_ids(tmp_path: Path):
     base_config = tmp_path / "base.yaml"
     spec = tmp_path / "protocol.yaml"
     out = tmp_path / "results"
@@ -717,12 +711,14 @@ def test_measure_dedups_duplicate_openvla_rows_across_experiments(tmp_path: Path
         "--out",
         str(out),
         "--dry-run",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
-        check=False,
     )
 
     assert result.stdout.count("policy: vla-policy") == 1
-    assert "experiment_ids: exp1_latency_profile_summary,exp3_cross_device_prediction" in result.stdout
+    assert result.stdout.count("policy: small-policy") == 1
+    assert (
+        "experiment_ids: exp1_latency_profile_summary,exp2_same_device_calibration,exp3_cross_device_prediction"
+        in result.stdout
+    )
 
 
 def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path: Path):
@@ -746,8 +742,6 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
         "--out",
         str(out),
         "--dry-run",
-        "--only-experiment",
-        "exp2_same_device_calibration",
         "--max-runs",
         "1",
         env={"CROSS_DEVICE_INSTANCE_ID": "instance_local"},
@@ -792,8 +786,6 @@ def test_sim_same_dry_run_passes_profile_sampler_to_generated_config(tmp_path: P
         "--out",
         str(out),
         "--dry-run",
-        "--only-experiment",
-        "exp2_same_device_calibration",
         "--max-runs",
         "1",
         env={"CROSS_DEVICE_INSTANCE_ID": "instance_local"},
@@ -827,8 +819,6 @@ def test_sim_cross_dry_run_reads_profile_instance_from_target(tmp_path: Path):
         "--out",
         str(out),
         "--dry-run",
-        "--only-experiment",
-        "exp3_cross_device_prediction",
         "--max-runs",
         "1",
     )
@@ -858,7 +848,6 @@ def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch)
         n_episodes=None,
         only_device=None,
         only_env=None,
-        only_experiment="exp2_same_device_calibration",
         only_policy=None,
         seed_set=None,
         smoke=False,
@@ -906,8 +895,6 @@ def test_measure_dry_run_prints_eval_and_profile_commands(tmp_path: Path):
         "--out",
         str(out),
         "--dry-run",
-        "--only-experiment",
-        "exp2_same_device_calibration",
         "--max-runs",
         "1",
     )
@@ -951,8 +938,6 @@ def test_measure_dry_run_ignores_spec_n_samples(tmp_path: Path):
         "--out",
         str(out),
         "--dry-run",
-        "--only-experiment",
-        "exp2_same_device_calibration",
         "--max-runs",
         "1",
         "--n-episodes",
@@ -984,7 +969,6 @@ def test_measure_run_calibrates_env_fps_before_formal_eval(tmp_path: Path, monke
         n_episodes=None,
         only_device=None,
         only_env=None,
-        only_experiment="exp2_same_device_calibration",
         only_policy=None,
         overwrite=False,
         resume=False,
@@ -1066,7 +1050,6 @@ def test_measure_run_does_not_forward_n_samples_to_eval_or_profile(tmp_path: Pat
         n_episodes=3,
         only_device=None,
         only_env=None,
-        only_experiment="exp2_same_device_calibration",
         only_policy=None,
         overwrite=False,
         resume=False,
@@ -1156,7 +1139,6 @@ def test_measure_run_does_not_continue_after_episodes_until_n_samples(tmp_path: 
         n_episodes=2,
         only_device=None,
         only_env=None,
-        only_experiment="exp2_same_device_calibration",
         only_policy=None,
         overwrite=False,
         resume=False,
@@ -1252,7 +1234,6 @@ def test_measure_run_records_failed_calibration_manifest_without_eval(tmp_path: 
         n_episodes=None,
         only_device=None,
         only_env=None,
-        only_experiment="exp2_same_device_calibration",
         only_policy=None,
         overwrite=False,
         resume=False,
@@ -1313,7 +1294,7 @@ def test_measure_dry_run_uses_base_config_fps_not_protocol_row_fps(tmp_path: Pat
     base_config.write_text(yaml.safe_dump(base_data, sort_keys=False), encoding="utf-8")
     _write_spec(spec, base_config)
     spec_data = yaml.safe_load(spec.read_text(encoding="utf-8"))
-    row = spec_data["experiments"]["exp2_same_device_calibration"]["rows"][0]
+    row = spec_data["rows"][0]
     row.update(
         {
             "policy": "deadly-corridor-openvla",
@@ -1336,8 +1317,6 @@ def test_measure_dry_run_uses_base_config_fps_not_protocol_row_fps(tmp_path: Pat
         "--out",
         str(out),
         "--dry-run",
-        "--only-experiment",
-        "exp2_same_device_calibration",
         "--max-runs",
         "1",
     )
@@ -1357,7 +1336,7 @@ def test_stage_overrides_can_raise_deadly_corridor_measure_episodes_only(tmp_pat
     _write_spec(spec, base_config)
     spec_data = yaml.safe_load(spec.read_text(encoding="utf-8"))
     spec_data["n_episodes"] = 10
-    row = spec_data["experiments"]["exp2_same_device_calibration"]["rows"][0]
+    row = spec_data["rows"][0]
     row.update(
         {
             "policy": "deadly-corridor-openvla",
@@ -1381,8 +1360,6 @@ def test_stage_overrides_can_raise_deadly_corridor_measure_episodes_only(tmp_pat
         "--out",
         str(measure_out),
         "--dry-run",
-        "--only-experiment",
-        "exp2_same_device_calibration",
         "--max-runs",
         "1",
     )
@@ -1398,7 +1375,7 @@ def test_cli_n_episodes_overrides_stage_overrides(tmp_path: Path):
     _write_base_config(base_config)
     _write_spec(spec, base_config)
     spec_data = yaml.safe_load(spec.read_text(encoding="utf-8"))
-    spec_data["experiments"]["exp2_same_device_calibration"]["rows"][0]["stage_overrides"] = {
+    spec_data["rows"][0]["stage_overrides"] = {
         "measure": {"n_episodes": 1000}
     }
     spec.write_text(yaml.safe_dump(spec_data, sort_keys=False), encoding="utf-8")
@@ -1413,8 +1390,6 @@ def test_cli_n_episodes_overrides_stage_overrides(tmp_path: Path):
         "--out",
         str(out),
         "--dry-run",
-        "--only-experiment",
-        "exp2_same_device_calibration",
         "--max-runs",
         "1",
         "--n-episodes",

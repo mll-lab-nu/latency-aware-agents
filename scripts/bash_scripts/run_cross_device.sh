@@ -105,7 +105,7 @@ AGG_ARGS=(--spec "${SPEC}" --root "${OUT}" --out "${TABLES_DIR}")
 if [[ -n "${ONLY_POLICY:-}" ]]; then COMMON_ARGS+=(--only-policy "${ONLY_POLICY}"); AGG_ARGS+=(--only-policy "${ONLY_POLICY}"); fi
 if [[ -n "${ONLY_ENV:-}" ]]; then COMMON_ARGS+=(--only-env "${ONLY_ENV}"); AGG_ARGS+=(--only-env "${ONLY_ENV}"); fi
 if [[ -n "${ONLY_DEVICE:-}" ]]; then COMMON_ARGS+=(--only-device "${ONLY_DEVICE}"); AGG_ARGS+=(--only-device "${ONLY_DEVICE}"); fi
-if [[ -n "${ONLY_EXPERIMENT:-}" ]]; then COMMON_ARGS+=(--only-experiment "${ONLY_EXPERIMENT}"); AGG_ARGS+=(--only-experiment "${ONLY_EXPERIMENT}"); fi
+if [[ -n "${ONLY_EXPERIMENT:-}" ]]; then AGG_ARGS+=(--only-experiment "${ONLY_EXPERIMENT}"); fi
 if [[ -n "${MAX_RUNS:-}" ]]; then COMMON_ARGS+=(--max-runs "${MAX_RUNS}"); fi
 if [[ -n "${N_EPISODES:-}" ]]; then COMMON_ARGS+=(--n-episodes "${N_EPISODES}"); fi
 if [[ -n "${SEED_SET:-}" ]]; then COMMON_ARGS+=(--seed-set "${SEED_SET}"); fi

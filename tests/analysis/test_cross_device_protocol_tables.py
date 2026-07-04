@@ -47,12 +47,12 @@ def _spec() -> dict:
                 "aliases": ["NVIDIA H200"],
             },
         ],
+        "rows": [row],
         "experiments": {
-            "exp1_latency_profile_summary": {"panel": "a", "rows": [dict(row)]},
-            "exp2_same_device_calibration": {"panel": "b", "rows": [dict(row)]},
+            "exp1_latency_profile_summary": {"panel": "a"},
+            "exp2_same_device_calibration": {"panel": "b"},
             "exp3_cross_device_prediction": {
                 "panel": "c",
-                "rows": [dict(row)],
                 "replay_pairs": [
                     {"target_device": "a100", "replay_device": "h200"},
                     {"target_device": "h200", "replay_device": "a100"},
@@ -114,7 +114,6 @@ def _manifest(
 ) -> dict:
     return {
         "stage": stage,
-        "experiment_id": experiment_id,
         "experiment_ids": experiment_ids if experiment_ids is not None else [experiment_id],
         "policy": "openvla-flappy",
         "env": "Flappy",
@@ -424,11 +423,6 @@ def test_write_protocol_tables_uses_requested_schemas(tmp_path: Path):
     with pytest.raises(FileExistsError, match="Refusing to overwrite"):
         write_protocol_tables(spec=spec, root=tmp_path, out=output_dir)
     write_protocol_tables(spec=spec, root=tmp_path, out=output_dir, overwrite=True)
-
-    malformed = _spec()
-    del malformed["experiments"]
-    with pytest.raises(KeyError, match="experiments"):
-        write_protocol_tables(spec=malformed, root=tmp_path, out=tmp_path / "bad_tables")
 
 
 def test_write_protocol_tables_reads_hf_raw_download_layout(tmp_path: Path):

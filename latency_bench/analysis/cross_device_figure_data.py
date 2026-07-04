@@ -20,8 +20,8 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from latency_bench.analysis.cross_device_protocol_tables import load_protocol_spec
 from latency_bench.cross_device.manifest import load_protocol_manifests, manifest_contributes_to
+from latency_bench.cross_device.spec import load_protocol_spec
 from latency_bench.latency.profile import load_latency_samples
 from latency_bench.utils.io import load_jsonl_records, write_csv
 
@@ -283,9 +283,8 @@ def build_realtime_episode_return_rows(
     manifests = load_protocol_manifests(root, raw_root=raw_root)
     rows: list[dict[str, Any]] = []
     experiment_id = "exp2_same_device_calibration"
-    experiment = spec["experiments"][experiment_id]
     devices_by_id = {str(device["id"]): device for device in spec["devices"]}
-    for row_spec in experiment["rows"]:
+    for row_spec in spec["rows"]:
         for manifest in manifests:
             if manifest["stage"] != "measure":
                 continue
@@ -331,9 +330,8 @@ def build_simulated_episode_return_rows(
     manifests = load_protocol_manifests(root, raw_root=raw_root)
     rows: list[dict[str, Any]] = []
     experiment_id = "exp2_same_device_calibration"
-    experiment = spec["experiments"][experiment_id]
     devices_by_id = {str(device["id"]): device for device in spec["devices"]}
-    for row_spec in experiment["rows"]:
+    for row_spec in spec["rows"]:
         for manifest in manifests:
             if manifest["stage"] != "sim_same":
                 continue

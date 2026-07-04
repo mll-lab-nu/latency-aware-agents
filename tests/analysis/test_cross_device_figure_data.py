@@ -76,17 +76,16 @@ def _spec() -> dict:
                 "profile_id": "L_3090",
             },
         ],
-        "experiments": {
-            "exp2_same_device_calibration": {
-                "rows": [
-                    {
-                        "policy": "openvla-flappy",
-                        "env": "Flappy",
-                        "model_type": "openvla",
-                        "env_name": "flappy",
-                    },
-                ],
+        "rows": [
+            {
+                "policy": "openvla-flappy",
+                "env": "Flappy",
+                "model_type": "openvla",
+                "env_name": "flappy",
             },
+        ],
+        "experiments": {
+            "exp2_same_device_calibration": {"panel": "b"},
         },
     }
 
@@ -95,7 +94,6 @@ def _manifest(output_dir: Path, *, stage: str = "measure") -> dict:
     return {
         "stage": stage,
         "status": "completed",
-        "experiment_id": "exp1_latency_profile_summary",
         "experiment_ids": [
             "exp1_latency_profile_summary",
             "exp2_same_device_calibration",

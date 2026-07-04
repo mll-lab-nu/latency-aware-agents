@@ -14,9 +14,7 @@ from typing import Any
 class ProtocolTask:
     """Concrete unit of protocol work after row/device/seed expansion."""
     stage: str
-    experiment_id: str
     experiment_ids: list[str]
-    panel: str
     row: dict[str, Any]
     target_device: dict[str, Any]
     replay_device: dict[str, Any] | None
