@@ -699,8 +699,6 @@ def test_batched_executor_adds_slot_id_to_policy_observation_metadata(tmp_path: 
             "slot_id": 0,
             "episode_id": 0,
             "obs_id": 0,
-            "latency_ms": 0.0,
-            "latency_raw_frames": 0,
         },
         {
             "env_step": 0,
@@ -709,8 +707,6 @@ def test_batched_executor_adds_slot_id_to_policy_observation_metadata(tmp_path: 
             "slot_id": 1,
             "episode_id": 1,
             "obs_id": 1,
-            "latency_ms": 0.0,
-            "latency_raw_frames": 0,
         },
     ]
     assert [
