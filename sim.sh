@@ -23,16 +23,11 @@ export HF_PROFILE_REPO_TYPE=dataset
 SPEC=configs/experiments/cross_device_protocol.yaml
 POLICY=openvla-flappy
 PROFILES_DIR=results/cross_device/profiles
-AGGREGATE_PROFILES="${AGGREGATE_PROFILES:-1}"
 # Space-separated cross-device targets to replay on this host, each
 # <device_id>/<instance_id>. Empty = same-device replay only.
 SIM_TARGETS="${SIM_TARGETS:-}"
 export POLICY
 export PROFILES_DIR
-
-if [[ "$AGGREGATE_PROFILES" == "1" ]]; then
-  ./aggregate_profiles.sh
-fi
 
 # Same-device replay: this machine reads its own profile.
 python -m scripts.cross_device.protocol sim \
