@@ -14,8 +14,9 @@ from typing import Any
 import torch
 
 from latency_bench.cross_device.configs import _eval_command
-from latency_bench.cross_device.models import ProtocolTask
-from latency_bench.cross_device.runtime import detect_runtime_env_raw
+from latency_bench.cross_device.instances import gpu_uuid_hash_from_instance_id
+from latency_bench.cross_device.planning import ProtocolTask
+from latency_bench.cross_device.spec import detect_runtime_env_raw
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
 from latency_bench.utils.io import write_json
 
@@ -49,7 +50,7 @@ def build_base_manifest(
     replay_device = task.replay_device
     gpu_uuid_hash = None
     if task.instance_origin == "gpu_uuid_hash":
-        gpu_uuid_hash = task.instance_id.removeprefix("instance_")
+        gpu_uuid_hash = gpu_uuid_hash_from_instance_id(task.instance_id)
     return {
         "protocol_id": spec["protocol_id"],
         "stage": task.stage,
@@ -131,35 +132,28 @@ def completed_manifest_exists(output_dir: Path) -> bool:
     return manifest["status"] == "completed"
 
 
-def load_protocol_manifests(root: str | Path, *, raw_root: str | Path | None = None) -> list[dict[str, Any]]:
-    if raw_root is not None:
-        return load_raw_run_manifests(raw_root)
-    return load_run_manifests(root)
+def load_run_manifests(root: str | Path, *, raw_root: str | Path | None = None) -> list[dict[str, Any]]:
+    """Load deduped run manifests from a protocol root or a downloaded raw tree.
 
-
-def load_run_manifests(root: str | Path) -> list[dict[str, Any]]:
-    path = Path(root) / "manifests" / "runs.jsonl"
-    if not path.exists():
-        return []
-    records = _load_manifest_jsonl(path)
-    return _dedupe_manifest_records(records)
-
-
-def load_raw_run_manifests(raw_root: str | Path) -> list[dict[str, Any]]:
-    root = Path(raw_root)
-    if not root.exists():
-        return []
+    With `raw_root`, every `**/cross_device/manifests/runs.jsonl` under it is
+    read and record paths are remapped into that raw tree; otherwise the single
+    `manifests/runs.jsonl` under `root` is read.
+    """
     records: list[dict[str, Any]] = []
-    manifest_paths = sorted(root.glob("**/cross_device/manifests/runs.jsonl"))
-    for manifest_path in manifest_paths:
-        protocol_root = manifest_path.parents[1]
-        for record in _load_manifest_jsonl(manifest_path):
-            records.append(_remap_manifest_paths(record, protocol_root))
+    if raw_root is not None:
+        for manifest_path in sorted(Path(raw_root).glob("**/cross_device/manifests/runs.jsonl")):
+            protocol_root = manifest_path.parents[1]
+            for record in _load_manifest_jsonl(manifest_path):
+                records.append(_remap_manifest_paths(record, protocol_root))
+    else:
+        path = Path(root) / "manifests" / "runs.jsonl"
+        if path.exists():
+            records = _load_manifest_jsonl(path)
     return _dedupe_manifest_records(records)
 
 
-def matching_manifests(
-    manifests: list[dict[str, Any]],
+def _matches(
+    record: dict[str, Any],
     *,
     stage: str,
     experiment_id: str,
@@ -168,83 +162,37 @@ def matching_manifests(
     target_profile_instance_id: str | None = None,
     replay_device_id: str | None = None,
     replay_host_instance_id: str | None = None,
-) -> list[dict[str, Any]]:
-    matches: list[dict[str, Any]] = []
-    for record in manifests:
-        if record["stage"] != stage:
-            continue
-        if not manifest_contributes_to(record, experiment_id):
-            continue
-        if record["policy"] != row["policy"] or record["env"] != row["env"]:
-            continue
-        if record["target_device_id"] != target_device_id:
-            continue
-        if target_profile_instance_id is not None and record["target_profile_instance_id"] != target_profile_instance_id:
-            continue
-        if replay_device_id is not None and record["replay_device_id"] != replay_device_id:
-            continue
-        if replay_host_instance_id is not None and record["instance_id"] != replay_host_instance_id:
-            continue
-        if record["status"] != "completed":
-            continue
-        matches.append(record)
+) -> bool:
+    if record["stage"] != stage:
+        return False
+    if not manifest_contributes_to(record, experiment_id):
+        return False
+    if record["policy"] != row["policy"] or record["env"] != row["env"]:
+        return False
+    if record["target_device_id"] != target_device_id:
+        return False
+    if target_profile_instance_id is not None and record["target_profile_instance_id"] != target_profile_instance_id:
+        return False
+    if replay_device_id is not None and record["replay_device_id"] != replay_device_id:
+        return False
+    if replay_host_instance_id is not None and record["instance_id"] != replay_host_instance_id:
+        return False
+    return True
+
+
+def matching_manifests(manifests: list[dict[str, Any]], **query: Any) -> list[dict[str, Any]]:
+    """Return completed run manifests matching the query, oldest first."""
+    matches = [
+        record for record in manifests if record["status"] == "completed" and _matches(record, **query)
+    ]
     return sorted(matches, key=_record_sort_timestamp)
 
 
-def skipped_notes_if_missing(
-    manifests: list[dict[str, Any]],
-    *,
-    matches: list[dict[str, Any]],
-    stage: str,
-    experiment_id: str,
-    row: dict[str, Any],
-    target_device_id: str,
-    target_profile_instance_id: str | None = None,
-    replay_device_id: str | None = None,
-    replay_host_instance_id: str | None = None,
-) -> str:
-    if matches:
-        return ""
-    return matching_skipped_notes(
-        manifests,
-        stage=stage,
-        experiment_id=experiment_id,
-        row=row,
-        target_device_id=target_device_id,
-        target_profile_instance_id=target_profile_instance_id,
-        replay_device_id=replay_device_id,
-        replay_host_instance_id=replay_host_instance_id,
-    )
-
-
-def matching_skipped_notes(
-    manifests: list[dict[str, Any]],
-    *,
-    stage: str,
-    experiment_id: str,
-    row: dict[str, Any],
-    target_device_id: str,
-    target_profile_instance_id: str | None = None,
-    replay_device_id: str | None = None,
-    replay_host_instance_id: str | None = None,
-) -> str:
+def matching_skipped_notes(manifests: list[dict[str, Any]], **query: Any) -> str:
+    """Join the skip/error reasons of skipped or failed runs matching the query."""
     notes: list[str] = []
     for record in manifests:
-        if record["stage"] != stage:
-            continue
-        if not manifest_contributes_to(record, experiment_id):
-            continue
-        if record["policy"] != row["policy"] or record["env"] != row["env"]:
-            continue
-        if record["target_device_id"] != target_device_id:
-            continue
-        if target_profile_instance_id is not None and record["target_profile_instance_id"] != target_profile_instance_id:
-            continue
-        if replay_device_id is not None and record["replay_device_id"] != replay_device_id:
-            continue
-        if replay_host_instance_id is not None and record["instance_id"] != replay_host_instance_id:
-            continue
-        if record["status"] not in {"skipped", "failed"}:
+        if record["status"] not in {"skipped", "failed"} or not _matches(record, **query):
             continue
         note = record["skip_reason"] if record["status"] == "skipped" else record["error"]
         if note:
@@ -417,29 +365,3 @@ def append_note(existing: Any, note: str) -> str:
     if existing:
         return f"{existing}; {note}"
     return note
-
-
-def failed_run_summary(task: ProtocolTask, exc: BaseException) -> dict[str, str]:
-    return {
-        "stage": str(task.stage),
-        "policy": str(task.row["policy"]),
-        "env": str(task.row["env"]),
-        "output_dir": str(task.output_dir),
-        "error": str(exc),
-    }
-
-
-def print_failed_summary(failures: list[dict[str, str]]) -> None:
-    if not failures:
-        return
-    print("FAILED RUNS:", file=sys.stderr)
-    for failure in failures:
-        print(
-            "  - "
-            f"stage={failure['stage']} "
-            f"policy={failure['policy']} "
-            f"env={failure['env']} "
-            f"output_dir={failure['output_dir']} "
-            f"error={failure['error']}",
-            file=sys.stderr,
-        )

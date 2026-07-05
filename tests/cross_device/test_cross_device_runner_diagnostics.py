@@ -26,7 +26,7 @@ def test_finalize_profile_artifacts_writes_hardware_fingerprint(tmp_path, monkey
     assert "diagnostics_path" not in profile
 
 
-def test_subprocess_runtime_telemetry_is_nonblocking(tmp_path, monkeypatch):
+def test_runtime_telemetry_wraps_run_fn(tmp_path, monkeypatch):
     calls = []
 
     class FakeMonitor:
@@ -41,22 +41,18 @@ def test_subprocess_runtime_telemetry_is_nonblocking(tmp_path, monkeypatch):
             calls.append("stop")
             return {"runtime_telemetry_summary_path": "runtime_telemetry_summary.json"}
 
-    def fake_run(cmd, check):
-        calls.append(("run", cmd, check))
-
     monkeypatch.setattr(runner, "RuntimeTelemetryMonitor", FakeMonitor)
-    monkeypatch.setattr(runner.subprocess, "run", fake_run)
     manifest = {}
 
-    runner._run_subprocess_with_runtime_telemetry(["python", "-V"], tmp_path, manifest)
+    runner._run_with_runtime_telemetry(lambda: calls.append("run"), tmp_path, manifest)
 
-    assert calls == ["start", ("run", ["python", "-V"], True), "stop"]
+    assert calls == ["start", "run", "stop"]
     assert manifest["runtime_telemetry_enabled"] is True
     assert manifest["runtime_telemetry_path"] == "runtime_telemetry.jsonl"
     assert manifest["runtime_telemetry_summary_path"] == "runtime_telemetry_summary.json"
 
 
-def test_subprocess_runtime_telemetry_stop_runs_when_command_fails(tmp_path, monkeypatch):
+def test_runtime_telemetry_stop_runs_when_run_fn_fails(tmp_path, monkeypatch):
     calls = []
 
     class FakeMonitor:
@@ -71,15 +67,14 @@ def test_subprocess_runtime_telemetry_stop_runs_when_command_fails(tmp_path, mon
             calls.append("stop")
             return {"runtime_telemetry_summary_path": "runtime_telemetry_summary.json"}
 
-    def fake_run(cmd, check):
+    def run_fn():
         calls.append("run")
-        raise subprocess.CalledProcessError(2, cmd)
+        raise subprocess.CalledProcessError(2, ["python", "-V"])
 
     monkeypatch.setattr(runner, "RuntimeTelemetryMonitor", FakeMonitor)
-    monkeypatch.setattr(runner.subprocess, "run", fake_run)
 
     try:
-        runner._run_subprocess_with_runtime_telemetry(["python", "-V"], tmp_path, {})
+        runner._run_with_runtime_telemetry(run_fn, tmp_path, {})
     except subprocess.CalledProcessError:
         pass
 

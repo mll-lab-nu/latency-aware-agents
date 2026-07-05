@@ -30,3 +30,7 @@ def resolve_instance_origin() -> str:
 def instance_id_from_gpu_uuid(gpu_uuid: str) -> str:
     digest = hashlib.sha256(gpu_uuid.encode("utf-8")).hexdigest()
     return f"instance_{digest[:8]}"
+
+
+def gpu_uuid_hash_from_instance_id(instance_id: str) -> str:
+    return instance_id.removeprefix("instance_")

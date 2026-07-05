@@ -18,7 +18,6 @@ python -m latency_bench.cross_device.protocol aggregate \
 
 python -m latency_bench.analysis.cross_device_figure_data \
   --tables-dir "$TABLES_DIR" \
-  --profiles-root "$ROOT" \
   --out-fig "$PAPER_ROOT/fig6_cross_device/data.csv" \
   --out-table "$PAPER_ROOT/table3_latency_profiles/data.csv" \
   --spec "$SPEC" \

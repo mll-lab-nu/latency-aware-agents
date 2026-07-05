@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from latency_bench.cross_device.runtime import (
+from latency_bench.cross_device.spec import (
     detect_runtime_env_raw,
     normalize_hardware_name,
     runtime_env_mismatch,
@@ -114,7 +114,7 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "output_root": str(path.parent / "results"),
         "checkpoint_kind": "best",
         "n_episodes": 1,
-        "sim_worker_count": "auto",
+        "sim_parallel_envs": 1,
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "runtime_env": {"name": "baseline", "conda_env": "latency"},
@@ -149,7 +149,7 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "output_root": str(path.parent / "results"),
         "checkpoint_kind": "best",
         "n_episodes": 2,
-        "sim_worker_count": "auto",
+        "sim_parallel_envs": 1,
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "runtime_env": {"name": "baseline", "conda_env": "latency"},
@@ -198,7 +198,7 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "output_root": str(path.parent / "results"),
         "checkpoint_kind": "best",
         "n_episodes": 2,
-        "sim_worker_count": "auto",
+        "sim_parallel_envs": 1,
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "runtime_env": {"name": "baseline", "conda_env": "latency"},
@@ -759,40 +759,6 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
     assert not (out / "runs").exists()
 
 
-def test_sim_same_dry_run_passes_profile_sampler_to_generated_config(tmp_path: Path):
-    base_config = tmp_path / "base.yaml"
-    spec = tmp_path / "protocol.yaml"
-    out = tmp_path / "results"
-    _write_base_config(base_config)
-    _write_spec(spec, base_config)
-    payload = yaml.safe_load(spec.read_text(encoding="utf-8"))
-    payload["profile_sampler"] = "iid_inverse_cdf"
-    spec.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
-    profile_path = out / "profiles" / "test_model" / "flappy" / "a100" / "instance_local" / "profile.json"
-    _write_profile_manifest(profile_path, env_fps=16.0, inference_worker_count=2)
-
-    _run_cli(
-        tmp_path,
-        "sim",
-        "--spec",
-        str(spec),
-        "--hardware",
-        "a100",
-        "--profiles-dir",
-        str(out / "profiles"),
-        "--out",
-        str(out),
-        "--dry-run",
-        "--max-runs",
-        "1",
-        env={"CROSS_DEVICE_INSTANCE_ID": "instance_local"},
-    )
-
-    generated = _first_runtime_generated_config(out, "sim_same")
-    config = yaml.safe_load(generated.read_text(encoding="utf-8"))
-    assert config["latency"]["sampler"] == "iid_inverse_cdf"
-
-
 def test_sim_cross_dry_run_reads_profile_instance_from_target(tmp_path: Path):
     base_config = tmp_path / "base.yaml"
     spec = tmp_path / "protocol.yaml"
@@ -827,7 +793,6 @@ def test_sim_cross_dry_run_reads_profile_instance_from_target(tmp_path: Path):
 
 
 def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch):
-    profile_resources = importlib.import_module("latency_bench.cross_device.profile_resources")
     planning = importlib.import_module("latency_bench.cross_device.planning")
     base_config = tmp_path / "base.yaml"
     spec_path = tmp_path / "protocol.yaml"
@@ -858,7 +823,7 @@ def test_sim_same_uses_hf_profile_cache_before_skip(tmp_path: Path, monkeypatch)
         return profile_path
 
     monkeypatch.setenv("HF_PROFILE_REPO", "latency-sensitive-bench/profiles")
-    monkeypatch.setattr(profile_resources, "ensure_profile_cached", ensure_profile_cached)
+    monkeypatch.setattr(planning, "ensure_profile_cached", ensure_profile_cached)
 
     plan = planning._build_plan(
         args,
@@ -1324,78 +1289,6 @@ def test_measure_dry_run_uses_base_config_fps_not_protocol_row_fps(tmp_path: Pat
     assert config["env"]["env_fps"] == 60
     assert config["env"]["obs_fps"] == 15
     assert "--env-fps 60" in result.stdout
-
-
-def test_stage_overrides_can_raise_deadly_corridor_measure_episodes_only(tmp_path: Path):
-    base_config = tmp_path / "base.yaml"
-    spec = tmp_path / "protocol.yaml"
-    _write_base_config(base_config)
-    _write_spec(spec, base_config)
-    spec_data = yaml.safe_load(spec.read_text(encoding="utf-8"))
-    spec_data["n_episodes"] = 10
-    row = spec_data["rows"][0]
-    row.update(
-        {
-            "policy": "deadly-corridor-openvla",
-            "env": "Deadly Corridor",
-            "policy_type": "starvla",
-            "env_name": "deadly_corridor",
-            "fps": 35,
-            "stage_overrides": {"measure": {"n_episodes": 1000}},
-        }
-    )
-    spec.write_text(yaml.safe_dump(spec_data, sort_keys=False), encoding="utf-8")
-
-    measure_out = tmp_path / "measure_results"
-    _run_cli(
-        tmp_path,
-        "measure",
-        "--spec",
-        str(spec),
-        "--hardware",
-        "a100",
-        "--out",
-        str(measure_out),
-        "--dry-run",
-        "--max-runs",
-        "1",
-    )
-    measure_config = yaml.safe_load(_first_runtime_generated_config(measure_out, "measure").read_text())
-    assert measure_config["evaluation"]["eval_episodes"] == 1000
-    assert "best_seed_0_n1000" in measure_config["logging"]["output_dir"]
-
-
-def test_cli_n_episodes_overrides_stage_overrides(tmp_path: Path):
-    base_config = tmp_path / "base.yaml"
-    spec = tmp_path / "protocol.yaml"
-    out = tmp_path / "results"
-    _write_base_config(base_config)
-    _write_spec(spec, base_config)
-    spec_data = yaml.safe_load(spec.read_text(encoding="utf-8"))
-    spec_data["rows"][0]["stage_overrides"] = {
-        "measure": {"n_episodes": 1000}
-    }
-    spec.write_text(yaml.safe_dump(spec_data, sort_keys=False), encoding="utf-8")
-
-    _run_cli(
-        tmp_path,
-        "measure",
-        "--spec",
-        str(spec),
-        "--hardware",
-        "a100",
-        "--out",
-        str(out),
-        "--dry-run",
-        "--max-runs",
-        "1",
-        "--n-episodes",
-        "20",
-    )
-
-    config = yaml.safe_load(_first_runtime_generated_config(out, "measure").read_text())
-    assert config["evaluation"]["eval_episodes"] == 20
-    assert "best_seed_0_n20" in config["logging"]["output_dir"]
 
 
 def test_continue_on_error_runs_later_tasks_and_returns_nonzero_summary(tmp_path: Path):

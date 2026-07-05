@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from latency_bench.cross_device.models import ProtocolTask
+from latency_bench.cross_device import planning
+from latency_bench.cross_device.planning import ProtocolTask
 
 
 def _task(
@@ -40,8 +41,6 @@ def _task(
 
 
 def test_profile_resources_hydrate_real_sim_before_skip(tmp_path: Path, monkeypatch):
-    from latency_bench.cross_device import profile_resources
-
     profiles_dir = tmp_path / "profiles"
     profile_path = profiles_dir / "test_model" / "flappy" / "a100" / "instance_local" / "profile.json"
     task = _task(tmp_path, target_profile_path=profile_path)
@@ -63,9 +62,9 @@ def test_profile_resources_hydrate_real_sim_before_skip(tmp_path: Path, monkeypa
 
     monkeypatch.setenv("HF_PROFILE_REPO", "latency-sensitive-bench/profiles")
     monkeypatch.setenv("HF_PROFILE_REPO_TYPE", "dataset")
-    monkeypatch.setattr(profile_resources, "ensure_profile_cached", ensure_profile_cached)
+    monkeypatch.setattr(planning, "ensure_profile_cached", ensure_profile_cached)
 
-    reasons = profile_resources.profile_resource_skip_reasons(
+    reasons = planning._profile_resource_skip_reasons(
         task=task,
         args=args,
         stage="sim_same",
@@ -78,8 +77,6 @@ def test_profile_resources_hydrate_real_sim_before_skip(tmp_path: Path, monkeypa
 
 
 def test_profile_resources_keep_dry_run_read_only(tmp_path: Path, monkeypatch):
-    from latency_bench.cross_device import profile_resources
-
     profiles_dir = tmp_path / "profiles"
     profile_path = profiles_dir / "test_model" / "flappy" / "a100" / "instance_local" / "profile.json"
     task = _task(tmp_path, target_profile_path=profile_path)
@@ -90,9 +87,9 @@ def test_profile_resources_keep_dry_run_read_only(tmp_path: Path, monkeypatch):
         calls.append(kwargs["profile_path"])
 
     monkeypatch.setenv("HF_PROFILE_REPO", "latency-sensitive-bench/profiles")
-    monkeypatch.setattr(profile_resources, "ensure_profile_cached", ensure_profile_cached)
+    monkeypatch.setattr(planning, "ensure_profile_cached", ensure_profile_cached)
 
-    reasons = profile_resources.profile_resource_skip_reasons(
+    reasons = planning._profile_resource_skip_reasons(
         task=task,
         args=args,
         stage="sim_same",
@@ -105,8 +102,6 @@ def test_profile_resources_keep_dry_run_read_only(tmp_path: Path, monkeypatch):
 
 
 def test_profile_resources_doctor_reports_missing_without_hydrating(tmp_path: Path, monkeypatch):
-    from latency_bench.cross_device import profile_resources
-
     profiles_dir = tmp_path / "profiles"
     profile_path = profiles_dir / "test_model" / "flappy" / "a100" / "instance_local" / "profile.json"
     task = _task(tmp_path, target_profile_path=profile_path)
@@ -117,9 +112,9 @@ def test_profile_resources_doctor_reports_missing_without_hydrating(tmp_path: Pa
         calls.append(kwargs["profile_path"])
 
     monkeypatch.setenv("HF_PROFILE_REPO", "latency-sensitive-bench/profiles")
-    monkeypatch.setattr(profile_resources, "ensure_profile_cached", ensure_profile_cached)
+    monkeypatch.setattr(planning, "ensure_profile_cached", ensure_profile_cached)
 
-    reasons = profile_resources.profile_resource_skip_reasons(
+    reasons = planning._profile_resource_skip_reasons(
         task=task,
         args=args,
         stage="sim_same",
@@ -132,20 +127,18 @@ def test_profile_resources_doctor_reports_missing_without_hydrating(tmp_path: Pa
 
 
 def test_profile_resources_report_missing_instance_by_stage(tmp_path: Path):
-    from latency_bench.cross_device import profile_resources
-
     args = SimpleNamespace(dry_run=False)
     measure_task = _task(tmp_path, stage="measure", target_profile_instance_id=None)
     sim_cross_task = _task(tmp_path, stage="sim_cross", target_profile_instance_id=None)
 
-    assert profile_resources.profile_resource_skip_reasons(
+    assert planning._profile_resource_skip_reasons(
         task=measure_task,
         args=args,
         stage="measure",
         profiles_dir=tmp_path / "profiles",
         for_doctor=False,
     ) == ["missing local profile instance: set CROSS_DEVICE_INSTANCE_ID"]
-    assert profile_resources.profile_resource_skip_reasons(
+    assert planning._profile_resource_skip_reasons(
         task=sim_cross_task,
         args=args,
         stage="sim_cross",

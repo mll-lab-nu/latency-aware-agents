@@ -24,26 +24,55 @@ from latency_bench.cross_device.configs import (
     _write_generated_config,
 )
 from latency_bench.cross_device.instances import INSTANCE_ID_ENV, resolve_instance_id, resolve_instance_origin
-from latency_bench.cross_device.models import PlannedTask, ProtocolTask
 from latency_bench.cross_device.manifest import (
     append_manifest,
     append_note,
     build_base_manifest,
     completed_manifest_exists,
-    failed_run_summary,
     host_fingerprint,
     now_iso,
-    print_failed_summary,
     record_skipped_task,
 )
-from latency_bench.cross_device.planning import _build_plan, _output_root, _profiles_dir_for_args
+from latency_bench.cross_device.planning import (
+    PlannedTask,
+    ProtocolTask,
+    _build_plan,
+    _output_root,
+    _profiles_dir_for_args,
+)
 from latency_bench.cross_device.sim_workers import (
     add_sim_worker_manifest_fields,
     build_sim_worker_plan,
     run_sim_worker_plan,
 )
-from latency_bench.cross_device.sync import profile_remote_dir, upload_folder_to_hf
-from latency_bench.cross_device.runtime import _stage_hardware, runtime_env_mismatch
+from latency_bench.cross_device.spec import detect_hardware, runtime_env_mismatch
+from latency_bench.cross_device.sync import hf_env, profile_remote_dir, upload_folder_to_hf
+
+
+def failed_run_summary(task: ProtocolTask, exc: BaseException) -> dict[str, str]:
+    return {
+        "stage": str(task.stage),
+        "policy": str(task.row["policy"]),
+        "env": str(task.row["env"]),
+        "output_dir": str(task.output_dir),
+        "error": str(exc),
+    }
+
+
+def print_failed_summary(failures: list[dict[str, str]]) -> None:
+    if not failures:
+        return
+    print("FAILED RUNS:", file=sys.stderr)
+    for failure in failures:
+        print(
+            "  - "
+            f"stage={failure['stage']} "
+            f"policy={failure['policy']} "
+            f"env={failure['env']} "
+            f"output_dir={failure['output_dir']} "
+            f"error={failure['error']}",
+            file=sys.stderr,
+        )
 
 
 def _stage_instance_metadata(stage: str, dry_run: bool) -> tuple[str | None, str | None]:
@@ -51,7 +80,7 @@ def _stage_instance_metadata(stage: str, dry_run: bool) -> tuple[str | None, str
         if os.environ.get(INSTANCE_ID_ENV):
             return os.environ[INSTANCE_ID_ENV], "manual_override"
         return None, None
-    uploads_raw_results = bool(os.environ.get("HF_PROFILE_REPO")) and not os.environ.get("CROSS_DEVICE_NO_RESULT_UPLOAD")
+    uploads_raw_results = hf_env() is not None and not os.environ.get("CROSS_DEVICE_NO_RESULT_UPLOAD")
     if stage in {"measure", "sim_same"} or uploads_raw_results:
         return resolve_instance_id(host_fingerprint()), resolve_instance_origin()
     return None, None
@@ -70,7 +99,7 @@ def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> Non
         unless `--dry-run` is set.
     """
     out = _output_root(spec, args.out)
-    detected = _stage_hardware(spec, args, stage)
+    detected = detect_hardware(spec, args.hardware)
     mismatch = runtime_env_mismatch(spec)
     if mismatch and not args.dry_run:
         raise SystemExit(mismatch)
@@ -154,7 +183,7 @@ def _run_task(
     config = _generated_config(task, spec)
     profile_cmd = None
     manifest = build_base_manifest(task, spec, detected, eval_cmd, profile_cmd)
-    sim_worker_plan = build_sim_worker_plan(task, spec)
+    sim_worker_plan = build_sim_worker_plan(task)
     if sim_worker_plan:
         add_sim_worker_manifest_fields(manifest, sim_worker_plan)
     if task.stage == "measure":
@@ -196,7 +225,11 @@ def _run_task(
                 manifest,
             )
         else:
-            _run_subprocess_with_runtime_telemetry(eval_cmd, task.output_dir, manifest)
+            _run_with_runtime_telemetry(
+                lambda: subprocess.run(eval_cmd, check=True),
+                task.output_dir,
+                manifest,
+            )
         if profile_cmd is not None:
             subprocess.run(profile_cmd, check=True)
             _finalize_profile_artifacts(task, out, manifest)
@@ -213,14 +246,6 @@ def _run_task(
     write_json(task.output_dir / "manifest.json", manifest)
     append_manifest(out, manifest)
     _upload_run_results(task, out, manifest, detected, spec)
-
-
-def _run_subprocess_with_runtime_telemetry(cmd: list[str], output_dir: Path, manifest: dict[str, Any]) -> None:
-    _run_with_runtime_telemetry(
-        lambda: subprocess.run(cmd, check=True),
-        output_dir,
-        manifest,
-    )
 
 
 def _run_with_runtime_telemetry(run_fn, output_dir: Path, manifest: dict[str, Any]) -> None:
@@ -261,15 +286,14 @@ def _upload_run_results(
         detected: Hardware detection result (for the device id segment).
         spec: Loaded protocol spec (for the runtime alias segment).
     """
-    repo_id = os.environ.get("HF_PROFILE_REPO")
-    if not repo_id or os.environ.get("CROSS_DEVICE_NO_RESULT_UPLOAD"):
+    hf = hf_env()
+    if hf is None or os.environ.get("CROSS_DEVICE_NO_RESULT_UPLOAD"):
         return
     device_id = detected["device"]["id"]
     if task.instance_id is None:
         raise RuntimeError("raw result upload requires task.instance_id")
     runtime_alias = spec["runtime_env"]["name"]
     prefix = f"raw/{device_id}/instances/{task.instance_id}/{runtime_alias}/cross_device"
-    repo_type = os.environ.get("HF_PROFILE_REPO_TYPE", "dataset")
 
     uploads: list[tuple[Path, str]] = []
     manifests_dir = out / "manifests"
@@ -281,13 +305,13 @@ def _upload_run_results(
     try:
         for local_dir, path_in_repo in uploads:
             upload_folder_to_hf(
-                repo_id=repo_id,
+                repo_id=hf["repo_id"],
                 local_dir=local_dir,
-                repo_type=repo_type,
+                repo_type=hf["repo_type"],
                 path_in_repo=path_in_repo,
             )
         manifest["results_uploaded"] = True
-        manifest["results_repo"] = repo_id
+        manifest["results_repo"] = hf["repo_id"]
         manifest["results_path_prefix"] = prefix
         write_json(task.output_dir / "manifest.json", manifest)
     except Exception as exc:
@@ -316,20 +340,20 @@ def _finalize_profile_artifacts(task: ProtocolTask, out: Path, manifest: dict[st
     except Exception as exc:
         manifest["notes"] = append_note(manifest.get("notes"), f"hardware fingerprint failed: {exc}")
 
-    repo_id = os.environ.get("HF_PROFILE_REPO")
-    if not repo_id:
+    hf = hf_env()
+    if hf is None:
         manifest["hf_uploaded"] = False
         return
     try:
         remote_dir = profile_remote_dir(profile_path=profile_dir / "profile.json", profiles_dir=out / "profiles")
         upload_folder_to_hf(
-            repo_id=repo_id,
+            repo_id=hf["repo_id"],
             local_dir=profile_dir,
-            repo_type=os.environ.get("HF_PROFILE_REPO_TYPE", "dataset"),
+            repo_type=hf["repo_type"],
             path_in_repo=remote_dir,
         )
         manifest["hf_uploaded"] = True
-        manifest["hf_repo"] = repo_id
+        manifest["hf_repo"] = hf["repo_id"]
         manifest["hf_path_in_repo"] = remote_dir
     except Exception as exc:
         manifest["hf_uploaded"] = False

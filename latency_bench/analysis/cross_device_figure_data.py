@@ -3,13 +3,14 @@
 `paper/.../fig6_cross_device/run.py` and `.../table3_latency_profiles/run.py`
 read flat `data.csv` files. This script regenerates those snapshots from the
 `aggregate` stage outputs (`experiment{1,2,3}_*.csv`) plus the per-device
-`infer_latencies.jsonl` / `e2e_latencies.jsonl` traces, so the figures reproduce end-to-end instead of being
-hand-curated.
+`infer_latencies.jsonl` / `e2e_latencies.jsonl` traces, so the figures reproduce
+end-to-end instead of being hand-curated.
 
 Usage:
     python -m latency_bench.analysis.cross_device_figure_data \
         --tables-dir results/cross_device/tables \
-        --profiles-root results/cross_device/profiles \
+        --spec configs/experiments/cross_device_protocol.yaml \
+        --root results/cross_device \
         --out-fig  paper/.../fig6_cross_device/data.csv \
         --out-table paper/.../table3_latency_profiles/data.csv
 """
@@ -20,7 +21,8 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from latency_bench.cross_device.manifest import load_protocol_manifests, manifest_contributes_to
+from latency_bench.analysis.cross_device_protocol_tables import EXPERIMENT2_COLUMNS, EXPERIMENT3_COLUMNS
+from latency_bench.cross_device.manifest import load_run_manifests, matching_manifests
 from latency_bench.cross_device.spec import load_protocol_spec
 from latency_bench.latency.profile import load_latency_samples
 from latency_bench.utils.io import load_jsonl_records, write_csv
@@ -77,44 +79,12 @@ TABLE3_COLUMNS = (
 )
 
 # Columns shared one-to-one between an experiment CSV and a fig row.
-_CALIBRATION_PASSTHROUGH = (
-    "policy",
-    "env",
-    "profile_id",
-    "profile_instance_id",
-    "hardware",
-    "realtime_return",
-    "simulated_return_using_L_d",
-    "return_abs_error",
-    "return_rel_error_pct",
-    "realtime_length",
-    "sim_length",
-    "length_abs_error",
-    "length_rel_error_pct",
-    "n_episodes",
-    "seed_set",
-    "notes",
+_CALIBRATION_PASSTHROUGH = tuple(
+    column for column in EXPERIMENT2_COLUMNS if column not in ("experiment_id", "panel")
 )
-
-_PREDICTION_PASSTHROUGH = (
-    "policy",
-    "env",
-    "target_profile",
-    "target_profile_instance_id",
-    "replay_device",
-    "replay_host_instance_id",
-    "true_realtime_return_on_d",
-    "simulated_return_on_replay_using_L_d",
-    "return_abs_error",
-    "return_rel_error_pct",
-    "true_realtime_length_on_d",
-    "simulated_length_on_replay_using_L_d",
-    "length_abs_error",
-    "length_rel_error_pct",
-    "use_in_main_claim",
-    "n_episodes",
-    "seed_set",
-    "notes",
+# target_device is mapped to target_device_d separately.
+_PREDICTION_PASSTHROUGH = tuple(
+    column for column in EXPERIMENT3_COLUMNS if column not in ("experiment_id", "panel", "target_device")
 )
 
 
@@ -149,28 +119,8 @@ def _resolve_latency_trace(profile_manifest: dict[str, Any], *, trace_name: str)
     raise FileNotFoundError(f"missing latency trace: {trace}")
 
 
-def _profile_manifest_for_exp1_row(src: dict[str, str], manifests: list[dict[str, Any]]) -> dict[str, Any]:
-    matches = [
-        manifest
-        for manifest in manifests
-        if manifest.get("stage") == "measure"
-        and manifest.get("status") == "completed"
-        and manifest.get("policy") == src["policy"]
-        and manifest.get("env") == src["env"]
-        and manifest.get("target_profile_id") == src["profile_id"]
-        and manifest["target_profile_instance_id"] == src["profile_instance_id"]
-    ]
-    if not matches:
-        raise FileNotFoundError(
-            f"missing measure manifest for {src['policy']} {src['env']} "
-            f"{src['profile_id']} {src['profile_instance_id']}"
-        )
-    return sorted(matches, key=lambda item: str(item.get("completed_at") or item.get("started_at") or ""))[-1]
-
-
 def build_latency_sample_rows(
     exp1_rows: list[dict[str, str]],
-    profiles_root: Path,
     *,
     panel_a_env: str,
     spec: dict[str, Any] | None,
@@ -179,66 +129,55 @@ def build_latency_sample_rows(
 ) -> list[dict[str, Any]]:
     """Emit one panel-(a) row per latency sample, read from per-device traces.
 
-    Traces live at `<model>/<env>/<device>/<instance>/`, so the experiment-1 CSV
-    rows (keyed by policy/profile_id) are mapped to model_type/env_name/device_id
-    through the protocol spec. Without a spec there is nothing to resolve.
+    Traces live beside each measure run's profile, located through the latest
+    completed measure manifest for the exp1 row's device/instance. Without a
+    spec there is nothing to resolve.
     """
     rows: list[dict[str, Any]] = []
     if spec is None or root is None:
         return rows
-    manifests = load_protocol_manifests(root, raw_root=raw_root)
+    manifests = load_run_manifests(root, raw_root=raw_root)
+    devices_by_profile_id = {str(device["profile_id"]): device for device in spec["devices"]}
     for src in exp1_rows:
         if src.get("env") != panel_a_env:
             continue
         if not src["e2e_mean_ms"]:
             continue
-        profile_manifest = _profile_manifest_for_exp1_row(src, manifests)
+        device = devices_by_profile_id[src["profile_id"]]
+        matches = matching_manifests(
+            manifests,
+            stage="measure",
+            experiment_id="exp1_latency_profile_summary",
+            row={"policy": src["policy"], "env": src["env"]},
+            target_device_id=str(device["id"]),
+            target_profile_instance_id=src["profile_instance_id"],
+        )
+        if not matches:
+            raise FileNotFoundError(
+                f"missing measure manifest for {src['policy']} {src['env']} "
+                f"{src['profile_id']} {src['profile_instance_id']}"
+            )
+        profile_manifest = matches[-1]
         e2e_trace = _resolve_latency_trace(profile_manifest, trace_name="e2e_latencies.jsonl")
         inference_trace = _resolve_latency_trace(profile_manifest, trace_name="infer_latencies.jsonl")
         e2e_records = load_jsonl_records(e2e_trace)
-        e2e_samples = [record["latency_ms"] for record in e2e_records]
-        for latency_ms in e2e_samples:
-            rows.append(
-                _fig_row(
-                    row_type="e2e_latency_sample",
-                    panel="a",
-                    policy=src["policy"],
-                    env=src["env"],
-                    profile_id=src["profile_id"],
-                    profile_instance_id=src["profile_instance_id"],
-                    hardware=src["hardware"],
-                    latency_ms=latency_ms,
-                )
-            )
+        identity = {
+            "policy": src["policy"],
+            "env": src["env"],
+            "profile_id": src["profile_id"],
+            "profile_instance_id": src["profile_instance_id"],
+            "hardware": src["hardware"],
+        }
+        for record in e2e_records:
+            rows.append(_fig_row(row_type="e2e_latency_sample", panel="a", latency_ms=record["latency_ms"], **identity))
         # Overhead = e2e - inference, recorded per action by realtime pipeline
         # profiling (always on for measure runs).
-        for overhead_ms in (record["bench_overhead_ms"] for record in e2e_records):
+        for record in e2e_records:
             rows.append(
-                _fig_row(
-                    row_type="overhead_latency_sample",
-                    panel="a",
-                    policy=src["policy"],
-                    env=src["env"],
-                    profile_id=src["profile_id"],
-                    profile_instance_id=src["profile_instance_id"],
-                    hardware=src["hardware"],
-                    latency_ms=overhead_ms,
-                )
+                _fig_row(row_type="overhead_latency_sample", panel="a", latency_ms=record["bench_overhead_ms"], **identity)
             )
-        inference_samples = load_latency_samples(inference_trace)
-        for latency_ms in inference_samples:
-            rows.append(
-                _fig_row(
-                    row_type="inference_latency_sample",
-                    panel="a",
-                    policy=src["policy"],
-                    env=src["env"],
-                    profile_id=src["profile_id"],
-                    profile_instance_id=src["profile_instance_id"],
-                    hardware=src["hardware"],
-                    latency_ms=latency_ms,
-                )
-            )
+        for latency_ms in load_latency_samples(inference_trace):
+            rows.append(_fig_row(row_type="inference_latency_sample", panel="a", latency_ms=latency_ms, **identity))
     return rows
 
 
@@ -271,104 +210,62 @@ def build_prediction_rows(exp3_rows: list[dict[str, str]]) -> list[dict[str, Any
     return rows
 
 
-def build_realtime_episode_return_rows(
+def build_episode_return_rows(
     spec: dict[str, Any],
     *,
+    stage: str,
     root: Path,
     raw_root: Path | None,
 ) -> list[dict[str, Any]]:
-    """Emit one row per realtime measure episode for return-distribution plots."""
-    manifests = load_protocol_manifests(root, raw_root=raw_root)
-    rows: list[dict[str, Any]] = []
-    experiment_id = "exp2_same_device_calibration"
-    devices_by_id = {str(device["id"]): device for device in spec["devices"]}
-    for row_spec in spec["rows"]:
-        for manifest in manifests:
-            if manifest["stage"] != "measure":
-                continue
-            if manifest["status"] != "completed":
-                continue
-            if not manifest_contributes_to(manifest, experiment_id):
-                continue
-            if manifest["policy"] != row_spec["policy"] or manifest["env"] != row_spec["env"]:
-                continue
-            device = devices_by_id[str(manifest["target_device_id"])]
-            metrics_path = Path(str(manifest["output_dir"])) / "episode_metrics.jsonl"
-            for record in load_jsonl_records(metrics_path):
-                rows.append(
-                    _fig_row(
-                        row_type="realtime_episode_return",
-                        panel="return_distribution",
-                        policy=row_spec["policy"],
-                        env=row_spec["env"],
-                        profile_id=device["profile_id"],
-                        profile_instance_id=manifest["target_profile_instance_id"],
-                        hardware=device["display_name"],
-                        target_device_id=device["id"],
-                        episode_id=record["episode_id"],
-                        episode_return_env=record["episode_return_env"],
-                        survival_steps=record["survival_steps"],
-                        realtime_return=record["episode_return_env"],
-                        realtime_length=record["survival_steps"],
-                        n_episodes=manifest["n_episodes"],
-                        seed_set=",".join(str(item) for item in manifest["seed_set"]),
-                        notes=manifest["notes"],
-                    )
-                )
-    return rows
+    """Emit one row per episode of completed `measure` or `sim_same` runs.
 
-
-def build_simulated_episode_return_rows(
-    spec: dict[str, Any],
-    *,
-    root: Path,
-    raw_root: Path | None,
-) -> list[dict[str, Any]]:
-    """Emit one row per same-device simulated replay episode."""
-    manifests = load_protocol_manifests(root, raw_root=raw_root)
+    Used for the return-distribution plots; `measure` runs fill the realtime
+    return/length columns and `sim_same` runs the simulated ones.
+    """
+    manifests = load_run_manifests(root, raw_root=raw_root)
     rows: list[dict[str, Any]] = []
-    experiment_id = "exp2_same_device_calibration"
-    devices_by_id = {str(device["id"]): device for device in spec["devices"]}
+    row_type = "realtime_episode_return" if stage == "measure" else "simulated_episode_return"
     for row_spec in spec["rows"]:
-        for manifest in manifests:
-            if manifest["stage"] != "sim_same":
-                continue
-            if manifest["status"] != "completed":
-                continue
-            if not manifest_contributes_to(manifest, experiment_id):
-                continue
-            if manifest["policy"] != row_spec["policy"] or manifest["env"] != row_spec["env"]:
-                continue
-            device = devices_by_id[str(manifest["target_device_id"])]
-            metrics_path = Path(str(manifest["output_dir"])) / "episode_metrics.jsonl"
-            for record in load_jsonl_records(metrics_path):
-                rows.append(
-                    _fig_row(
-                        row_type="simulated_episode_return",
-                        panel="return_distribution",
-                        policy=row_spec["policy"],
-                        env=row_spec["env"],
-                        profile_id=device["profile_id"],
-                        profile_instance_id=manifest["target_profile_instance_id"],
-                        hardware=device["display_name"],
-                        target_device_id=device["id"],
-                        episode_id=record["episode_id"],
-                        episode_return_env=record["episode_return_env"],
-                        survival_steps=record["survival_steps"],
-                        simulated_return_using_L_d=record["episode_return_env"],
-                        sim_length=record["survival_steps"],
-                        n_episodes=manifest["n_episodes"],
-                        seed_set=",".join(str(item) for item in manifest["seed_set"]),
-                        notes=manifest["notes"],
-                    )
-                )
+        for device in spec["devices"]:
+            matches = matching_manifests(
+                manifests,
+                stage=stage,
+                experiment_id="exp2_same_device_calibration",
+                row=row_spec,
+                target_device_id=str(device["id"]),
+            )
+            for manifest in matches:
+                metrics_path = Path(str(manifest["output_dir"])) / "episode_metrics.jsonl"
+                for record in load_jsonl_records(metrics_path):
+                    values = {
+                        "row_type": row_type,
+                        "panel": "return_distribution",
+                        "policy": row_spec["policy"],
+                        "env": row_spec["env"],
+                        "profile_id": device["profile_id"],
+                        "profile_instance_id": manifest["target_profile_instance_id"],
+                        "hardware": device["display_name"],
+                        "target_device_id": device["id"],
+                        "episode_id": record["episode_id"],
+                        "episode_return_env": record["episode_return_env"],
+                        "survival_steps": record["survival_steps"],
+                        "n_episodes": manifest["n_episodes"],
+                        "seed_set": ",".join(str(item) for item in manifest["seed_set"]),
+                        "notes": manifest["notes"],
+                    }
+                    if stage == "measure":
+                        values["realtime_return"] = record["episode_return_env"]
+                        values["realtime_length"] = record["survival_steps"]
+                    else:
+                        values["simulated_return_using_L_d"] = record["episode_return_env"]
+                        values["sim_length"] = record["survival_steps"]
+                    rows.append(_fig_row(**values))
     return rows
 
 
 def build_all(
     *,
     tables_dir: Path,
-    profiles_root: Path,
     out_fig: Path,
     out_table: Path,
     panel_a_env: str,
@@ -383,7 +280,6 @@ def build_all(
     fig_rows = (
         build_latency_sample_rows(
             exp1,
-            profiles_root,
             panel_a_env=panel_a_env,
             spec=spec,
             root=root,
@@ -393,8 +289,8 @@ def build_all(
         + build_prediction_rows(exp3)
     )
     if spec is not None and root is not None:
-        fig_rows += build_realtime_episode_return_rows(spec, root=root, raw_root=raw_root)
-        fig_rows += build_simulated_episode_return_rows(spec, root=root, raw_root=raw_root)
+        for stage in ("measure", "sim_same"):
+            fig_rows += build_episode_return_rows(spec, stage=stage, root=root, raw_root=raw_root)
     table_rows = build_table3_rows(exp1)
 
     write_csv(out_fig, fig_rows, fieldnames=FIG_COLUMNS)
@@ -405,7 +301,6 @@ def build_all(
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Build §4.1 figure/table data.csv from aggregate protocol output.")
     parser.add_argument("--tables-dir", type=Path, required=True, help="Dir with experiment{1,2,3}_*.csv.")
-    parser.add_argument("--profiles-root", type=Path, required=True, help="Root containing explicit latency trace folders.")
     parser.add_argument("--out-fig", type=Path, required=True, help="Output fig6/data.csv path.")
     parser.add_argument("--out-table", type=Path, required=True, help="Output table3/data.csv path.")
     parser.add_argument("--spec", type=Path, help="Protocol spec used to append per-episode realtime returns.")
@@ -416,7 +311,6 @@ def main(argv: list[str] | None = None) -> None:
 
     counts = build_all(
         tables_dir=args.tables_dir,
-        profiles_root=args.profiles_root,
         out_fig=args.out_fig,
         out_table=args.out_table,
         panel_a_env=args.panel_a_env,

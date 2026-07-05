@@ -80,7 +80,7 @@ def test_upload_run_results_opt_out_env(tmp_path: Path, monkeypatch):
     assert calls == []
 
 
-def test_resolve_latency_trace_uses_explicit_profiles_root(tmp_path: Path):
+def test_resolve_latency_trace_reads_trace_next_to_profile(tmp_path: Path):
     instance_dir = tmp_path / "profiles" / "openvla" / "flappy" / "rtx3090" / "instance_rtx3090"
     instance_dir.mkdir(parents=True)
     (instance_dir / "profile.json").write_text("{}\n", encoding="utf-8")
