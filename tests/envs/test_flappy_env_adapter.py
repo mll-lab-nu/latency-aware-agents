@@ -497,3 +497,48 @@ def test_flappy_gpu_backend_reset_and_step_contract():
         assert "numeric_obs" not in result.info
     finally:
         env.close()
+
+
+def test_flappy_raw_render_is_pure_function_of_seed_and_actions():
+    # The wing-animation cycle and ground scroll used to persist across
+    # reset(), so an env's rendered pixels depended on how many episodes the
+    # instance had already run. That fed different frames to the policy in
+    # measure vs replay runs and skewed sim-vs-real returns.
+    def rollout_frames(env, seed, steps=14):
+        env.reset(seed=seed)
+        frames = []
+        for step in range(steps):
+            stack = np.asarray(env.observe().metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY])
+            frames.append(stack.copy())
+            action = (
+                Action(value=1, name="flap", is_oneshot=True)
+                if step % 5 == 0
+                else Action(value=0, name="noop", is_noop=True)
+            )
+            env.step(action)
+        return frames
+
+    reused = FlappyBirdEnvAdapter(
+        gym_id="FlappyBird-v0",
+        env_fps=30,
+        noop_action=Action(value=0, name="noop", is_noop=True),
+        export_env_raw_rgb_frames=True,
+    )
+    fresh = FlappyBirdEnvAdapter(
+        gym_id="FlappyBird-v0",
+        env_fps=30,
+        noop_action=Action(value=0, name="noop", is_noop=True),
+        export_env_raw_rgb_frames=True,
+    )
+    try:
+        first = rollout_frames(reused, seed=123)
+        rollout_frames(reused, seed=456)  # interleave another episode
+        second = rollout_frames(reused, seed=123)
+        baseline = rollout_frames(fresh, seed=123)
+
+        for step, (a, b, c) in enumerate(zip(first, second, baseline)):
+            np.testing.assert_array_equal(a, b, err_msg=f"reset leaked render state at step {step}")
+            np.testing.assert_array_equal(a, c, err_msg=f"reused env differs from fresh env at step {step}")
+    finally:
+        reused.close()
+        fresh.close()
