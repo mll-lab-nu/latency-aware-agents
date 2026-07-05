@@ -7,12 +7,12 @@ from typing import Any
 from latency_bench.analysis.eval_stats import summarize_eval_run
 from latency_bench.latency.profile import load_profile_manifest
 from latency_bench.cross_device.manifest import (
-    load_protocol_manifests,
+    load_run_manifests,
     matching_manifests,
+    matching_skipped_notes,
     profile_instances_for_cross_pair,
     profile_instances_for_device,
     replay_host_instances_for_cross_pair,
-    skipped_notes_if_missing,
 )
 
 
@@ -85,7 +85,7 @@ def build_experiment1_rows(
     raw_root: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     root_path = Path(root)
-    manifests = load_protocol_manifests(root_path, raw_root=raw_root)
+    manifests = load_run_manifests(root_path, raw_root=raw_root)
     rows: list[dict[str, Any]] = []
     for experiment_id, experiment, row_spec in _iter_rows(spec, "exp1_latency_profile_summary"):
         for device in _devices(spec):
@@ -99,9 +99,8 @@ def build_experiment1_rows(
             if not matches:
                 notes = _join_notes(
                     _missing_note("profile", matches, {}),
-                    skipped_notes_if_missing(
+                    matching_skipped_notes(
                         manifests,
-                        matches=matches,
                         stage="measure",
                         experiment_id=experiment_id,
                         row=row_spec,
@@ -147,7 +146,7 @@ def build_experiment2_rows(
     raw_root: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     root_path = Path(root)
-    manifests = load_protocol_manifests(root_path, raw_root=raw_root)
+    manifests = load_run_manifests(root_path, raw_root=raw_root)
     rows: list[dict[str, Any]] = []
     seed_label = _seed_set_label(spec.get("seed_set", []))
     for experiment_id, experiment, row_spec in _iter_rows(spec, "exp2_same_device_calibration"):
@@ -182,9 +181,10 @@ def build_experiment2_rows(
                 sim_summary = _summarize_manifest_runs(sim)
                 notes = _join_notes(
                     _missing_note("realtime", realtime, real_summary),
-                    skipped_notes_if_missing(
+                    ""
+                    if realtime
+                    else matching_skipped_notes(
                         manifests,
-                        matches=realtime,
                         stage="measure",
                         experiment_id=experiment_id,
                         row=row_spec,
@@ -192,9 +192,10 @@ def build_experiment2_rows(
                         target_profile_instance_id=profile_instance_id,
                     ),
                     _missing_note("sim-same", sim, sim_summary),
-                    skipped_notes_if_missing(
+                    ""
+                    if sim
+                    else matching_skipped_notes(
                         manifests,
-                        matches=sim,
                         stage="sim_same",
                         experiment_id=experiment_id,
                         row=row_spec,
@@ -240,7 +241,7 @@ def build_experiment3_rows(
     raw_root: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     root_path = Path(root)
-    manifests = load_protocol_manifests(root_path, raw_root=raw_root)
+    manifests = load_run_manifests(root_path, raw_root=raw_root)
     rows: list[dict[str, Any]] = []
     seed_label = _seed_set_label(spec.get("seed_set", []))
     for experiment_id, experiment, row_spec in _iter_rows(spec, "exp3_cross_device_prediction"):
@@ -297,9 +298,10 @@ def build_experiment3_rows(
                     )
                     notes = _join_notes(
                         _missing_note("true realtime", true_realtime, true_summary),
-                        skipped_notes_if_missing(
+                        ""
+                        if true_realtime
+                        else matching_skipped_notes(
                             manifests,
-                            matches=true_realtime,
                             stage="measure",
                             experiment_id=experiment_id,
                             row=row_spec,
@@ -307,9 +309,10 @@ def build_experiment3_rows(
                             target_profile_instance_id=target_profile_instance_id,
                         ),
                         _missing_note("sim-cross", sim_cross, sim_summary),
-                        skipped_notes_if_missing(
+                        ""
+                        if sim_cross
+                        else matching_skipped_notes(
                             manifests,
-                            matches=sim_cross,
                             stage="sim_cross",
                             experiment_id=experiment_id,
                             row=row_spec,

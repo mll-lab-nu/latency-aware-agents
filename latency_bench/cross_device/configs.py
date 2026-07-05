@@ -15,7 +15,8 @@ import yaml
 
 from latency_bench.core.config import load_config
 from latency_bench.latency.profile import load_profile_manifest
-from latency_bench.cross_device.models import ProtocolTask
+from latency_bench.cross_device.instances import gpu_uuid_hash_from_instance_id
+from latency_bench.cross_device.planning import ProtocolTask
 
 
 def _generated_config(task: ProtocolTask, spec: dict[str, Any]) -> dict[str, Any]:
@@ -65,21 +66,17 @@ def _row_base_config(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask) -> None:
-    if task.target_profile_path is not None and task.target_profile_path.exists():
-        _patch_env_from_profile(config, task.target_profile_path)
     config.setdefault("executor", {})["mode"] = "realtime"
-    latency = config.setdefault("latency", {})
-    latency.pop("type", None)
-    latency["device"] = latency.get("device") or "cuda:0"
-    latency["sync_cuda"] = latency.get("sync_cuda", True)
-    latency["profile_id"] = task.target_device["profile_id"]
-    latency["target_device"] = task.target_device["id"]
+    latency = {
+        "device": "cuda:0",
+        "sync_cuda": True,
+        "profile_id": task.target_device["profile_id"],
+        "target_device": task.target_device["id"],
+    }
     if task.instance_id is not None:
         latency["instance_id"] = task.instance_id
         latency["instance_origin"] = task.instance_origin
-    latency.pop("fixed_latency_ms", None)
-    latency.pop("profile_path", None)
-    latency.pop("sampler", None)
+    config["latency"] = latency
     evaluation = config.setdefault("evaluation", {})
     # Realtime-vs-replay profiles use serial inference semantics.
     evaluation["eval_parallel_envs"] = 1
@@ -102,53 +99,27 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
     _patch_env_from_profile(config, task.target_profile_path)
     config.setdefault("executor", {})["mode"] = "simulated"
     config["executor"]["simulated_worker_capacity"] = profile["inference_worker_count"]
-    latency = config.setdefault("latency", {})
-    latency["type"] = "profile_sample"
-    latency["profile_path"] = str(task.target_profile_path)
-    latency["seed"] = int(task.seed)
-    latency["sampler"] = spec["profile_sampler"] if "profile_sampler" in spec else "profile_default"
-    latency["profile_id"] = task.target_device["profile_id"]
-    latency["target_device"] = task.target_device["id"]
+    latency = {
+        "type": "profile_sample",
+        "profile_path": str(task.target_profile_path),
+        "seed": int(task.seed),
+        "sampler": "profile_default",
+        "profile_id": task.target_device["profile_id"],
+        "target_device": task.target_device["id"],
+    }
     if task.replay_device is not None:
         latency["replay_host"] = task.replay_device["id"]
-    for key in ("fixed_latency_ms", "mean_latency_ms", "std_latency_ms", "min_latency_ms", "max_latency_ms", "trace_path"):
-        latency.pop(key, None)
+    config["latency"] = latency
     evaluation = config.setdefault("evaluation", {})
     # Simulated replay supports batched multi-env inference (factory routes
     # eval_parallel_envs>1 to the batched executor for simulated mode only).
-    evaluation["eval_parallel_envs"] = _sim_parallel_envs(spec, task)
+    evaluation["eval_parallel_envs"] = int(spec["sim_parallel_envs"])
     evaluation["eval_latency_values"] = None
     evaluation.pop("eval_suites", None)
     logging = config.setdefault("logging", {})
     logging["save_step_records"] = True
     logging["save_action_records"] = True
     logging["save_latency_records"] = True
-
-
-def _sim_parallel_envs(spec: dict[str, Any], task: ProtocolTask) -> int:
-    """Resolve the simulated-replay parallel-env count for a task.
-
-    Precedence: row `stage_overrides.<stage>.sim_parallel_envs` > row
-    `sim_parallel_envs` > spec `sim_parallel_envs` > 1.
-
-    Args:
-        spec: Loaded protocol spec.
-        task: Simulated-replay task (sim_same / sim_cross).
-
-    Returns:
-        Positive integer parallel-env count for `evaluation.eval_parallel_envs`.
-    """
-    row = task.row
-    stage_overrides = row.get("stage_overrides", {})
-    if isinstance(stage_overrides, dict):
-        stage_cfg = stage_overrides.get(task.stage)
-        if isinstance(stage_cfg, dict) and stage_cfg.get("sim_parallel_envs") is not None:
-            return int(stage_cfg["sim_parallel_envs"])
-    if row.get("sim_parallel_envs") is not None:
-        return int(row["sim_parallel_envs"])
-    if spec.get("sim_parallel_envs") is not None:
-        return int(spec["sim_parallel_envs"])
-    return 1
 
 
 def _patch_env_from_profile(config: dict[str, Any], profile_path: Path) -> None:
@@ -213,7 +184,7 @@ def _profile_command(
         metadata["instance_id"] = task.instance_id
         metadata["instance_origin"] = task.instance_origin
         if task.instance_origin == "gpu_uuid_hash":
-            metadata["gpu_uuid_hash"] = task.instance_id.removeprefix("instance_")
+            metadata["gpu_uuid_hash"] = gpu_uuid_hash_from_instance_id(task.instance_id)
     cmd = [
         sys.executable,
         "-m",

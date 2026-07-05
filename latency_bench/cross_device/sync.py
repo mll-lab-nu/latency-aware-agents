@@ -6,12 +6,9 @@ Profiles are addressed inside the mirrored protocol output root, for example
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 from pathlib import Path
-from typing import Callable
-
-
-DownloadProfileFolder = Callable[..., None]
 
 # Debug / bulky artifacts that workers upload (full tree) but the aggregator
 # does not need. Excluded on download so `aggregate` only pulls the slim set it
@@ -32,6 +29,23 @@ RESULTS_DEBUG_IGNORE = [
 ]
 
 
+def hf_env() -> dict[str, str | None] | None:
+    """Read the HF profile-repo configuration from the environment.
+
+    Returns:
+        `{"repo_id", "repo_type", "revision"}`, or None when `HF_PROFILE_REPO`
+        is unset (all HF sync is disabled).
+    """
+    repo_id = os.environ.get("HF_PROFILE_REPO")
+    if not repo_id:
+        return None
+    return {
+        "repo_id": repo_id,
+        "repo_type": os.environ.get("HF_PROFILE_REPO_TYPE", "dataset"),
+        "revision": os.environ.get("HF_PROFILE_REVISION"),
+    }
+
+
 def ensure_profile_cached(
     *,
     profile_path: Path,
@@ -39,7 +53,6 @@ def ensure_profile_cached(
     hf_repo: str,
     repo_type: str = "dataset",
     revision: str | None = None,
-    download_profile_folder: DownloadProfileFolder | None = None,
 ) -> Path:
     """Return a local profile path, downloading the profile folder if needed.
 
@@ -49,15 +62,13 @@ def ensure_profile_cached(
         hf_repo: Hugging Face repo id containing profile folders.
         repo_type: Hugging Face repo type, normally `dataset`.
         revision: Optional Hugging Face revision.
-        download_profile_folder: Injectable downloader used by tests.
 
     Returns:
         The expected local `profile.json` path after local hit or download.
     """
     if profile_path.exists():
         return profile_path
-    downloader = download_profile_folder or download_profile_folder_from_hf
-    downloader(
+    download_profile_folder_from_hf(
         repo_id=hf_repo,
         local_dir=profile_path.parent,
         remote_dir=profile_remote_dir(profile_path=profile_path, profiles_dir=profiles_dir),
@@ -119,8 +130,6 @@ def upload_folder_to_hf(
     local_dir: Path,
     repo_type: str,
     path_in_repo: str | None = None,
-    allow_patterns: list[str] | None = None,
-    ignore_patterns: list[str] | None = None,
 ) -> None:
     """Upload one local artifact folder to Hugging Face.
 
@@ -132,25 +141,18 @@ def upload_folder_to_hf(
             lands at `<path_in_repo>/...` so an upload round-trips with the
             `profiles/<model>/<env>/<device>/<instance>` layout that
             `ensure_profile_cached` downloads from.
-        allow_patterns: Optional glob allow-list forwarded to `upload_folder`.
-        ignore_patterns: Optional glob ignore-list forwarded to `upload_folder`.
 
     Side effects:
         Uploads the folder using `huggingface_hub.HfApi`.
     """
     from huggingface_hub import HfApi
 
-    kwargs: dict[str, object] = {
-        "repo_id": repo_id,
-        "repo_type": repo_type,
-        "folder_path": str(local_dir),
-        "path_in_repo": path_in_repo,
-    }
-    if allow_patterns is not None:
-        kwargs["allow_patterns"] = allow_patterns
-    if ignore_patterns is not None:
-        kwargs["ignore_patterns"] = ignore_patterns
-    HfApi().upload_folder(**kwargs)
+    HfApi().upload_folder(
+        repo_id=repo_id,
+        repo_type=repo_type,
+        folder_path=str(local_dir),
+        path_in_repo=path_in_repo,
+    )
 
 
 def download_results_tree(

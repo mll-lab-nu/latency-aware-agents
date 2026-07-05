@@ -10,14 +10,14 @@ from typing import Any
 import torch
 
 from latency_bench.cross_device.configs import _eval_command
-from latency_bench.cross_device.models import ProtocolTask
+from latency_bench.cross_device.planning import ProtocolTask
 from latency_bench.utils.io import load_jsonl_records, write_jsonl
 
 
-def build_sim_worker_plan(task: ProtocolTask, spec: dict[str, Any]) -> list[dict[str, Any]]:
+def build_sim_worker_plan(task: ProtocolTask) -> list[dict[str, Any]]:
     if task.stage not in {"sim_same", "sim_cross"}:
         return []
-    devices = sim_worker_devices(spec)
+    devices = visible_cuda_devices()
     worker_count = min(len(devices), int(task.n_episodes))
     if worker_count <= 1:
         return []
@@ -36,14 +36,6 @@ def build_sim_worker_plan(task: ProtocolTask, spec: dict[str, Any]) -> list[dict
             }
         )
     return plan
-
-
-def sim_worker_devices(spec: dict[str, Any]) -> list[str]:
-    devices = visible_cuda_devices()
-    worker_count = spec["sim_worker_count"]
-    if str(worker_count).strip().lower() == "auto":
-        return devices
-    return devices[: int(worker_count)]
 
 
 def visible_cuda_devices() -> list[str]:

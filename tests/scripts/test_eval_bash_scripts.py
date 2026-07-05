@@ -1447,7 +1447,7 @@ exit 0
     assert "--out results/cross_device/tables" in calls
     assert "--overwrite" in calls
     assert "-m latency_bench.analysis.cross_device_figure_data" in calls
-    assert "--profiles-root results/cross_device" in calls
+    assert "--profiles-root" not in calls
     assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/data.csv" in calls
     assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/table3_latency_profiles/data.csv" in calls
     assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/run.py" in calls

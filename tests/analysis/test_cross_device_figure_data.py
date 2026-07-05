@@ -159,7 +159,6 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
     out_table = tmp_path / "table" / "data.csv"
     counts = bfd.build_all(
         tables_dir=tables_dir,
-        profiles_root=root / "profiles",
         out_fig=out_fig,
         out_table=out_table,
         panel_a_env="Flappy",
@@ -237,8 +236,9 @@ def test_realtime_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
     manifest = _manifest(old_root / run_dir.relative_to(protocol_root))
     write_jsonl(protocol_root / "manifests" / "runs.jsonl", [manifest])
 
-    rows = bfd.build_realtime_episode_return_rows(
+    rows = bfd.build_episode_return_rows(
         _spec(),
+        stage="measure",
         root=tmp_path / "unused_cross_device",
         raw_root=raw_root,
     )
@@ -259,8 +259,9 @@ def test_simulated_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
     manifest = _manifest(old_root / run_dir.relative_to(protocol_root), stage="sim_same")
     write_jsonl(protocol_root / "manifests" / "runs.jsonl", [manifest])
 
-    rows = bfd.build_simulated_episode_return_rows(
+    rows = bfd.build_episode_return_rows(
         _spec(),
+        stage="sim_same",
         root=tmp_path / "unused_cross_device",
         raw_root=raw_root,
     )
@@ -296,7 +297,6 @@ def test_profiled_e2e_trace_emits_overhead_samples(tmp_path: Path):
 
     rows = bfd.build_latency_sample_rows(
         exp1_rows,
-        root / "profiles",
         panel_a_env="Flappy",
         spec=_spec(),
         root=root,
@@ -325,7 +325,6 @@ def test_build_latency_sample_rows_requires_inference_trace_for_profiled_devices
     with pytest.raises(FileNotFoundError, match="infer_latencies.jsonl"):
         bfd.build_latency_sample_rows(
             exp1_rows,
-            root / "profiles",
             panel_a_env="Flappy",
             spec=_spec(),
             root=root,

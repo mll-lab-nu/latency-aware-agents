@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from latency_bench.cross_device.models import ProtocolTask
+from latency_bench.cross_device.planning import ProtocolTask
 from latency_bench.cross_device import sim_workers
 
 
@@ -38,7 +38,7 @@ def test_build_sim_worker_plan_splits_episodes_across_visible_devices(tmp_path, 
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1,2")
     task = _task(tmp_path, n_episodes=5)
 
-    plan = sim_workers.build_sim_worker_plan(task, {"sim_worker_count": "auto"})
+    plan = sim_workers.build_sim_worker_plan(task)
 
     assert [item["cuda_visible_devices"] for item in plan] == ["0", "1", "2"]
     assert [(item["episode_start"], item["episode_count"]) for item in plan] == [(0, 2), (2, 2), (4, 1)]
@@ -50,7 +50,7 @@ def test_build_sim_worker_plan_splits_episodes_across_visible_devices(tmp_path, 
 def test_build_sim_worker_plan_uses_single_process_for_single_worker(tmp_path, monkeypatch):
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
 
-    assert sim_workers.build_sim_worker_plan(_task(tmp_path), {"sim_worker_count": "auto"}) == []
+    assert sim_workers.build_sim_worker_plan(_task(tmp_path)) == []
 
 
 def test_worker_eval_command_redirects_output_and_episode_window(tmp_path):

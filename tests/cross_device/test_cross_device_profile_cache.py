@@ -5,8 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-def test_profile_cache_is_local_first(tmp_path: Path):
-    from latency_bench.cross_device.sync import ensure_profile_cached
+def test_profile_cache_is_local_first(tmp_path: Path, monkeypatch):
+    from latency_bench.cross_device import sync
 
     profile_path = tmp_path / "profiles" / "test_model" / "flappy" / "a100" / "instance_local" / "profile.json"
     profile_path.parent.mkdir(parents=True)
@@ -17,19 +17,19 @@ def test_profile_cache_is_local_first(tmp_path: Path):
     def download_profile_folder(*, repo_id: str, local_dir: Path, remote_dir: str, repo_type: str, revision: str | None) -> None:
         calls.append((repo_id, local_dir, remote_dir, repo_type))
 
-    resolved = ensure_profile_cached(
+    monkeypatch.setattr(sync, "download_profile_folder_from_hf", download_profile_folder)
+    resolved = sync.ensure_profile_cached(
         profile_path=profile_path,
         profiles_dir=tmp_path / "profiles",
         hf_repo="latency-sensitive-bench/profiles",
-        download_profile_folder=download_profile_folder,
     )
 
     assert resolved == profile_path
     assert calls == []
 
 
-def test_profile_cache_downloads_missing_profile(tmp_path: Path):
-    from latency_bench.cross_device.sync import ensure_profile_cached
+def test_profile_cache_downloads_missing_profile(tmp_path: Path, monkeypatch):
+    from latency_bench.cross_device import sync
 
     profile_path = tmp_path / "profiles" / "test_model" / "flappy" / "a100" / "instance_local" / "profile.json"
     calls: list[tuple[str, Path, str, str]] = []
@@ -39,11 +39,11 @@ def test_profile_cache_downloads_missing_profile(tmp_path: Path):
         local_dir.mkdir(parents=True)
         (local_dir / "profile.json").write_text("{}\n", encoding="utf-8")
 
-    resolved = ensure_profile_cached(
+    monkeypatch.setattr(sync, "download_profile_folder_from_hf", download_profile_folder)
+    resolved = sync.ensure_profile_cached(
         profile_path=profile_path,
         profiles_dir=tmp_path / "profiles",
         hf_repo="latency-sensitive-bench/profiles",
-        download_profile_folder=download_profile_folder,
     )
 
     assert resolved == profile_path
@@ -126,38 +126,6 @@ def test_profile_cache_uploads_output_folder_to_hf(tmp_path: Path, monkeypatch):
             "repo_type": "dataset",
             "folder_path": str(out),
             "path_in_repo": "profiles/openvla/flappy/a100/instance_local",
-        }
-    ]
-
-
-def test_upload_folder_forwards_allow_and_ignore_patterns(tmp_path: Path, monkeypatch):
-    from latency_bench.cross_device.sync import upload_folder_to_hf
-
-    calls: list[dict[str, object]] = []
-
-    class HfApi:
-        def upload_folder(self, **kwargs):
-            calls.append(kwargs)
-
-    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(HfApi=HfApi))
-
-    out = tmp_path / "cross_device"
-    out.mkdir()
-    upload_folder_to_hf(
-        repo_id="latency-sensitive-bench/profiles",
-        local_dir=out,
-        repo_type="dataset",
-        path_in_repo="raw/rtx3090/openvla/cross_device/runs",
-        ignore_patterns=["**/*.png"],
-    )
-
-    assert calls == [
-        {
-            "repo_id": "latency-sensitive-bench/profiles",
-            "repo_type": "dataset",
-            "folder_path": str(out),
-            "path_in_repo": "raw/rtx3090/openvla/cross_device/runs",
-            "ignore_patterns": ["**/*.png"],
         }
     ]
 

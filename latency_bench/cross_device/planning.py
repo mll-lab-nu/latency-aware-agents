@@ -1,4 +1,4 @@
-"""Planning, row selection, and skip logic for cross-device runs.
+"""Task models, planning, row selection, and skip logic for cross-device runs.
 
 The planner converts protocol spec rows into concrete task objects. It may check
 whether a profile exists, but dry-runs deliberately avoid network downloads.
@@ -7,13 +7,12 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from latency_bench.cross_device.models import PlannedTask, ProtocolTask
-from latency_bench.cross_device.layout import profile_path as layout_profile_path, slugify
-from latency_bench.cross_device.profile_resources import profile_resource_skip_reasons
-from latency_bench.cross_device.runtime import _normalize_name, _devices
+from latency_bench.cross_device.spec import _devices, profile_path as layout_profile_path, slugify
+from latency_bench.cross_device.sync import ensure_profile_cached, hf_env
 
 
 STAGE_TO_EXPERIMENTS = {
@@ -21,6 +20,37 @@ STAGE_TO_EXPERIMENTS = {
     "sim_same": ("exp2_same_device_calibration",),
     "sim_cross": ("exp3_cross_device_prediction",),
 }
+
+
+@dataclass
+class ProtocolTask:
+    """Concrete unit of protocol work after row/device/seed expansion."""
+    stage: str
+    experiment_ids: list[str]
+    row: dict[str, Any]
+    target_device: dict[str, Any]
+    replay_device: dict[str, Any] | None
+    seed: int
+    seed_set: list[int]
+    n_episodes: int
+    checkpoint_kind: str
+    output_dir: Path
+    generated_config_path: Path
+    target_profile_path: Path | None
+    profile_output_dir: Path | None
+    instance_id: str | None
+    instance_origin: str | None
+    target_profile_instance_id: str | None
+    smoke: bool = False
+    smoke_max_steps: int | None = None
+
+
+@dataclass
+class PlannedTask:
+    """A protocol task plus the planner decision about whether it can run."""
+    task: ProtocolTask
+    runnable: bool
+    skip_reason: str | None = None
 
 
 def _build_plan(
@@ -52,10 +82,10 @@ def _build_plan(
     plan: list[PlannedTask] = []
     seed_set = _seed_set(spec, args)
     checkpoint_kind = str(args.checkpoint_kind or spec.get("checkpoint_kind", "best"))
+    n_episodes = _n_episodes(spec, args)
     experiment_ids = list(STAGE_TO_EXPERIMENTS[stage])
     _, explicit_instance = _parse_target(args)
     for row in _iter_selected_rows(spec, args):
-        n_episodes = _n_episodes_for_row_stage(spec, args, row, stage)
         for target_device, replay_device in _device_pairs_for_stage(spec, args, stage, current_device):
             for seed in seed_set:
                 target_profile_instance_id = instance_id if stage in {"measure", "sim_same"} else explicit_instance
@@ -132,39 +162,18 @@ def _make_task(
     smoke: bool = False,
     smoke_max_steps: int | None = None,
 ) -> ProtocolTask:
-    """Create output paths and immutable run identity for one task.
-
-    Args:
-        stage: Normalized stage name.
-        experiment_ids: Experiments this stage contributes to.
-        row: Protocol row containing policy/env/config metadata.
-        target_device: Device whose latency profile is measured or replayed.
-        replay_device: Host device for cross-device replay, if any.
-        seed: Evaluation seed.
-        seed_set: Full seed set used in the run identity.
-        n_episodes: Episode count for this task.
-        checkpoint_kind: Checkpoint selector forwarded to evaluation.
-        out: Protocol output root.
-        target_profile_path: Target-device profile manifest consumed by realtime and replay stages.
-        profile_output_dir: Profile artifact directory produced by measure.
-        smoke: Whether this task is a smoke run.
-        smoke_max_steps: Optional max-step cap for smoke evaluation.
-
-    Returns:
-        A `ProtocolTask` with run output and generated-config paths assigned.
-    """
+    """Create output paths and immutable run identity for one task."""
     policy_slug = slugify(row["policy"])
     env_slug = slugify(row["env"])
-    stage_dir = stage
     count_suffix = f"n{n_episodes}"
     run_id = f"smoke_seed_{seed}_{count_suffix}" if smoke else f"{checkpoint_kind}_seed_{seed}_{count_suffix}"
     if stage == "sim_cross" and replay_device is not None:
         device_or_pair = f"{target_device['id']}_replay_{replay_device['id']}"
-        output_dir = out / "runs" / stage_dir / policy_slug / env_slug / str(target_device["id"]) / f"replay_{replay_device['id']}" / run_id
+        output_dir = out / "runs" / stage / policy_slug / env_slug / str(target_device["id"]) / f"replay_{replay_device['id']}" / run_id
     else:
         device_or_pair = str(target_device["id"])
-        output_dir = out / "runs" / stage_dir / policy_slug / env_slug / str(target_device["id"]) / run_id
-    generated_config_path = out / "generated_configs" / stage_dir / policy_slug / env_slug / device_or_pair / f"{run_id}.yaml"
+        output_dir = out / "runs" / stage / policy_slug / env_slug / str(target_device["id"]) / run_id
+    generated_config_path = out / "generated_configs" / stage / policy_slug / env_slug / device_or_pair / f"{run_id}.yaml"
     return ProtocolTask(
         stage=stage,
         experiment_ids=experiment_ids,
@@ -196,19 +205,7 @@ def _task_skip_reason(
     current_device: dict[str, Any],
     for_doctor: bool,
 ) -> str | None:
-    """Return why a planned task cannot run on this invocation.
-
-    Args:
-        task: Candidate task.
-        args: Parsed CLI namespace.
-        stage: Normalized stage name.
-        profiles_dir: Local profile cache root for HF profile resolution.
-        current_device: Hardware entry for the running machine.
-        for_doctor: Disables network profile fetches for read-only checks.
-
-    Returns:
-        A semicolon-separated skip reason, or None when the task is runnable.
-    """
+    """Return why a planned task cannot run on this invocation, or None."""
     reasons: list[str] = []
     only_devices = _csv_filter(getattr(args, "only_device", None))
     if stage in {"measure", "sim_same"} and not _matches_filter(
@@ -219,7 +216,7 @@ def _task_skip_reason(
         reasons.append(f"hardware mismatch: target hardware {task.target_device.get('id')} not in --only-device")
 
     reasons.extend(
-        profile_resource_skip_reasons(
+        _profile_resource_skip_reasons(
             task=task,
             args=args,
             stage=stage,
@@ -233,16 +230,64 @@ def _task_skip_reason(
     return None
 
 
+def _profile_resource_skip_reasons(
+    *,
+    task: ProtocolTask,
+    args: argparse.Namespace,
+    stage: str,
+    profiles_dir: Path,
+    for_doctor: bool,
+) -> list[str]:
+    """Return profile-resource reasons that prevent a planned task from running."""
+    reasons: list[str] = []
+
+    if stage in {"measure", "sim_same"} and task.target_profile_instance_id is None:
+        reasons.append("missing local profile instance: set CROSS_DEVICE_INSTANCE_ID")
+    if stage == "sim_cross" and task.target_profile_instance_id is None:
+        reasons.append(
+            f"missing profile: no instance for target {task.target_device['id']}; "
+            "pass --target <device>/<instance>"
+        )
+
+    if (
+        stage in {"sim_same", "sim_cross"}
+        and task.target_profile_path is not None
+        and not task.target_profile_path.exists()
+        and not for_doctor
+        and not args.dry_run
+    ):
+        hf = hf_env()
+        if hf is not None:
+            ensure_profile_cached(
+                profile_path=task.target_profile_path,
+                profiles_dir=profiles_dir,
+                hf_repo=hf["repo_id"],
+                repo_type=hf["repo_type"],
+                revision=hf["revision"],
+            )
+
+    if (
+        stage in {"sim_same", "sim_cross"}
+        and task.target_profile_path is not None
+        and not task.target_profile_path.exists()
+        and not args.dry_run
+    ):
+        reasons.append(f"missing profile: {task.target_profile_path}")
+
+    return reasons
+
+
 def _iter_selected_rows(spec: dict[str, Any], args: argparse.Namespace) -> list[dict[str, Any]]:
     """Return protocol rows selected by the `--only-policy`/`--only-env` filters."""
+    return [row for row in spec.get("rows", []) if _row_selected(row, args)]
+
+
+def _row_selected(row: dict[str, Any], args: argparse.Namespace) -> bool:
     only_policies = _csv_filter(getattr(args, "only_policy", None))
     only_envs = _csv_filter(getattr(args, "only_env", None))
-    return [
-        row
-        for row in spec.get("rows", [])
-        if _matches_filter(_policy_filter_candidates(row), only_policies)
-        and _matches_filter(_env_filter_candidates(row), only_envs)
-    ]
+    return _matches_filter([row.get("policy"), row.get("policy_type")], only_policies) and _matches_filter(
+        [row.get("env"), row.get("env_name")], only_envs
+    )
 
 
 def _device_pairs_for_stage(
@@ -253,14 +298,8 @@ def _device_pairs_for_stage(
 ) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
     """Return `(target_device, replay_device)` pairs for one stage.
 
-    Args:
-        spec: Loaded protocol spec.
-        args: Parsed CLI namespace with device filters.
-        stage: Normalized stage name.
-        current_device: Device entry for this command's execution host.
-    Returns:
-        A list of device pairs. Local stages use the current device and no replay
-        device; sim-cross replays the `--target` device's profile on this host.
+    Local stages use the current device and no replay device; sim-cross replays
+    the `--target` device's profile on this host.
     """
     only_devices = _csv_filter(getattr(args, "only_device", None))
     if stage in {"measure", "sim_same"}:
@@ -290,6 +329,14 @@ def _seed_set(spec: dict[str, Any], args: argparse.Namespace) -> list[int]:
     return [int(item) for item in items]
 
 
+def _n_episodes(spec: dict[str, Any], args: argparse.Namespace) -> int:
+    if bool(getattr(args, "smoke", False)):
+        return int(getattr(args, "smoke_episodes", 1))
+    if getattr(args, "n_episodes", None) is not None:
+        return int(args.n_episodes)
+    return int(spec.get("n_episodes", 1))
+
+
 def _profiles_dir_for_args(args: argparse.Namespace, out: Path) -> Path:
     raw = getattr(args, "profiles_dir", None)
     if raw is not None:
@@ -299,38 +346,8 @@ def _profiles_dir_for_args(args: argparse.Namespace, out: Path) -> Path:
     return out / "profiles"
 
 
-def _n_episodes_for_row_stage(
-    spec: dict[str, Any],
-    args: argparse.Namespace,
-    row: dict[str, Any],
-    stage: str,
-) -> int:
-    if bool(getattr(args, "smoke", False)):
-        return int(getattr(args, "smoke_episodes", 1))
-    if getattr(args, "n_episodes", None) is not None:
-        return int(args.n_episodes)
-    stage_overrides = row.get("stage_overrides", {})
-    if isinstance(stage_overrides, dict):
-        stage_cfg = stage_overrides.get(stage)
-        if stage_cfg is None:
-            stage_cfg = stage_overrides.get(stage.replace("_", "-"))
-        if isinstance(stage_cfg, dict) and stage_cfg.get("n_episodes") is not None:
-            return int(stage_cfg["n_episodes"])
-    if row.get("n_episodes") is not None:
-        return int(row["n_episodes"])
-    return int(spec.get("n_episodes", 1))
-
-
 def _spec_with_cli_overrides(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
-    """Apply global CLI overrides to a copy of the protocol spec.
-
-    Args:
-        spec: Loaded protocol spec.
-        args: Parsed CLI namespace containing optional overrides.
-
-    Returns:
-        A copied spec with seed, episode, or checkpoint-kind overrides applied.
-    """
+    """Apply global CLI overrides to a copy of the protocol spec (aggregate path)."""
     updated = deepcopy(spec)
     if getattr(args, "seed_set", None) is not None:
         updated["seed_set"] = _seed_set(spec, args)
@@ -342,15 +359,7 @@ def _spec_with_cli_overrides(spec: dict[str, Any], args: argparse.Namespace) -> 
 
 
 def _filtered_spec_for_aggregate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
-    """Filter a copied spec before aggregate table generation.
-
-    Args:
-        spec: Loaded protocol spec.
-        args: Parsed CLI namespace with row/device/runtime filters.
-
-    Returns:
-        A copied spec containing only rows and devices selected for aggregate.
-    """
+    """Filter a copied spec down to the rows/devices/experiments selected for aggregate."""
     updated = deepcopy(spec)
     only_experiments = _csv_filter(getattr(args, "only_experiment", None))
     only_devices = _csv_filter(getattr(args, "only_device", None))
@@ -375,41 +384,19 @@ def _csv_filter(value: str | None) -> set[str]:
 def _matches_filter(candidates: list[Any], filters: set[str]) -> bool:
     if not filters:
         return True
-    candidate_tokens = set()
+    candidate_tokens: set[str] = set()
     for candidate in candidates:
         if candidate is None:
             continue
-        candidate_tokens.update(_filter_token_variants(candidate))
-    filter_tokens = set()
+        candidate_tokens.update({str(candidate), slugify(str(candidate))})
+    filter_tokens: set[str] = set()
     for item in filters:
-        filter_tokens.update(_filter_token_variants(item))
+        filter_tokens.update({str(item), slugify(str(item))})
     return bool(candidate_tokens & filter_tokens)
 
 
-def _filter_token_variants(value: Any) -> set[str]:
-    raw = str(value).strip()
-    if not raw:
-        return set()
-    return {raw, raw.lower(), slugify(raw), _normalize_name(raw)}
-
-
-def _policy_filter_candidates(row: dict[str, Any]) -> list[Any]:
-    return [row.get("policy"), row.get("policy_type")]
-
-
-def _env_filter_candidates(row: dict[str, Any]) -> list[Any]:
-    return [row.get("env"), row.get("env_name")]
-
-
 def _device_filter_candidates(device: dict[str, Any]) -> list[Any]:
-    """Return filter tokens that can identify one hardware entry.
-
-    Args:
-        device: Hardware entry from the protocol spec.
-
-    Returns:
-        Device id, display name, profile id, and aliases.
-    """
+    """Return filter tokens that can identify one hardware entry."""
     return [
         device.get("id"),
         device.get("display_name"),

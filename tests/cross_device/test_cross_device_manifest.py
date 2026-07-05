@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from latency_bench.utils.io import write_jsonl
-from latency_bench.cross_device.models import ProtocolTask
+from latency_bench.cross_device.planning import ProtocolTask
 from latency_bench.cross_device import manifest
 
 
@@ -154,7 +154,7 @@ def _run_record(
         "seed": 7,
         "status": status,
         "skip_reason": skip_reason,
-        "notes": skip_reason,
+        "notes": "",
         "runtime_env_detected_raw": "latency",
         "output_dir": str(output_dir),
         "profile_path": "" if profile_path is None else str(profile_path),
@@ -164,7 +164,7 @@ def _run_record(
     }
 
 
-def test_load_protocol_manifests_remaps_raw_paths_and_keeps_latest_completed_run(tmp_path):
+def test_load_run_manifests_remaps_raw_paths_and_keeps_latest_completed_run(tmp_path):
     raw_root = tmp_path / "raw"
     protocol_root = raw_root / "L_L40S" / "combined" / "host_20260704_000000" / "cross_device"
     old_root = Path("results/cross_device")
@@ -190,7 +190,7 @@ def test_load_protocol_manifests_remaps_raw_paths_and_keeps_latest_completed_run
     ]
     write_jsonl(protocol_root / "manifests" / "runs.jsonl", records)
 
-    loaded = manifest.load_protocol_manifests(tmp_path / "standard", raw_root=raw_root)
+    loaded = manifest.load_run_manifests(tmp_path / "standard", raw_root=raw_root)
 
     completed = [record for record in loaded if record["status"] == "completed"]
     skipped = [record for record in loaded if record["status"] == "skipped"]

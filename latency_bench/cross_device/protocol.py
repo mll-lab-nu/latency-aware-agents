@@ -7,17 +7,21 @@ modules so the CLI stays small.
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 from typing import Any
 
 import torch
 
 from latency_bench.analysis.cross_device_protocol_tables import write_protocol_tables
-from latency_bench.cross_device.spec import load_protocol_spec
+from latency_bench.cross_device.spec import (
+    detect_hardware,
+    detect_runtime_env_raw,
+    load_protocol_spec,
+    runtime_env_mismatch,
+)
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
 from latency_bench.cross_device.configs import _row_base_config
-from latency_bench.cross_device.sync import download_results_tree
+from latency_bench.cross_device.sync import download_results_tree, hf_env
 from latency_bench.cross_device.planning import (
     _build_plan,
     _filtered_spec_for_aggregate,
@@ -26,11 +30,6 @@ from latency_bench.cross_device.planning import (
     _spec_with_cli_overrides,
 )
 from latency_bench.cross_device.runner import _print_plan_summary, run_stage
-from latency_bench.cross_device.runtime import (
-    detect_hardware,
-    detect_runtime_env_raw,
-    runtime_env_mismatch,
-)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -95,19 +94,19 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
     spec = load_protocol_spec(args.spec)
-    spec = _spec_with_cli_overrides(spec, args)
     if args.command == "doctor":
         run_doctor(args, spec)
     elif args.command == "aggregate":
+        spec = _spec_with_cli_overrides(spec, args)
         spec = _filtered_spec_for_aggregate(spec, args)
         raw_root = args.raw_root
-        results_repo = os.environ.get("HF_PROFILE_REPO")
-        will_download = raw_root is None and bool(results_repo) and not args.no_download
+        hf = hf_env()
+        will_download = raw_root is None and hf is not None and not args.no_download
         if args.dry_run:
             if raw_root is not None:
                 print(f"raw_root: {raw_root}")
             elif will_download:
-                print(f"would_download_results: {results_repo} -> {args.root / '_hf_raw'}")
+                print(f"would_download_results: {hf['repo_id']} -> {args.root / '_hf_raw'}")
             for filename in (
                 "experiment1_latency_profile_summary.csv",
                 "experiment2_same_device_calibration.csv",
@@ -116,12 +115,12 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"would_write: {args.out / filename}")
             return
         if will_download:
-            print(f"downloading results from {results_repo} ...")
+            print(f"downloading results from {hf['repo_id']} ...")
             raw_root = download_results_tree(
-                repo_id=results_repo,
-                repo_type=os.environ.get("HF_PROFILE_REPO_TYPE", "dataset"),
+                repo_id=hf["repo_id"],
+                repo_type=hf["repo_type"],
                 local_root=args.root / "_hf_raw",
-                revision=os.environ.get("HF_PROFILE_REVISION"),
+                revision=hf["revision"],
             )
             print(f"raw_root: {raw_root}")
         outputs = write_protocol_tables(
