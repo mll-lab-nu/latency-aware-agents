@@ -143,6 +143,7 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "env_name": "flappy",
         "target_latency_frames": 1,
         "base_config": str(base_config),
+        "sim_env": {"simulator": "gpu", "use_gpu_render": True},
     }
     spec = {
         "protocol_id": "cross_device_latency_v1",
@@ -411,6 +412,7 @@ def test_real_protocol_rows_cover_flappy_demon_and_deadly():
     assert openvla_rows["openvla-flappy"]["base_config"] == (
         "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml"
     )
+    assert openvla_rows["openvla-flappy"]["sim_env"] == {"simulator": "gpu", "use_gpu_render": True}
     assert openvla_rows["demon-attack-openvla"]["policy_type"] == "starvla"
     assert openvla_rows["demon-attack-openvla"]["model_type"] == "openvla"
     assert openvla_rows["demon-attack-openvla"]["base_config"] == (
@@ -635,6 +637,8 @@ def test_flappy_starvla_dry_run_uses_starvla_checkpoint_config(tmp_path: Path):
     assert config["policy"]["checkpoint_path"] == (
         "/mnt/data/latency_data/openvla_flappy_fix_latency_2/checkpoints/steps_5000_pytorch_model.pt"
     )
+    assert config["env"]["use_gpu_render"] is False
+    assert "simulator" not in config["env"]
 
 
 def test_deadly_openvla_dry_run_writes_config(tmp_path: Path):
@@ -751,6 +755,8 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
     assert config["executor"]["simulated_worker_capacity"] == 2
     assert config["env"]["env_fps"] == 16.0
     assert config["env"]["obs_fps"] == 16.0
+    assert config["env"]["simulator"] == "gpu"
+    assert config["env"]["use_gpu_render"] is True
     assert config["latency"]["type"] == "profile_sample"
     assert config["latency"]["profile_path"].endswith("profiles/test_model/flappy/a100/instance_local/profile.json")
     assert config["latency"]["sampler"] == "profile_default"

@@ -74,6 +74,9 @@ rows:
     env_name: flappy
     target_latency_frames: 2
     base_config: configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml
+    sim_env:
+      simulator: gpu
+      use_gpu_render: true
   - policy: demon-attack-openvla
     env: Demon Attack
     policy_type: starvla
