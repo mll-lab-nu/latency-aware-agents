@@ -13,6 +13,7 @@ side is intentionally not wired here.
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -426,6 +427,27 @@ def _tracks_from_cache(cache_window: list[_FrameCache]) -> list[Track]:
             tracks.append(Track("enemy", history))
 
     return tracks
+
+
+class DemonGhostTrailStream:
+    def __init__(self, history_frames: int) -> None:
+        self.raw_frames: deque[np.ndarray] = deque(maxlen=history_frames)
+        self.frame_cache: deque[_FrameCache] = deque(maxlen=history_frames)
+
+    def clear(self) -> None:
+        self.raw_frames.clear()
+        self.frame_cache.clear()
+
+    def append(self, frame: np.ndarray) -> None:
+        self.raw_frames.append(frame)
+        self.frame_cache.append(_cache_frame(frame))
+
+    def render(self) -> np.ndarray:
+        window = [np.asarray(f, dtype=np.uint8) for f in self.raw_frames]
+        if len(window) == 1:
+            return window[-1].copy()
+        tracks = _tracks_from_cache(list(self.frame_cache))
+        return render_tracks(window, tracks, render_all_history=True)
 
 
 def build_demon_attack_ghost_trail_window(
