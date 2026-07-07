@@ -27,12 +27,10 @@ from latency_bench.core.types import (
     Observation,
     OrderingPolicy,
     PolicyOutput,
-    StepRecord,
 )
 from latency_bench.latency.hardware_info import safe_set, torch_backend_flags
 from latency_bench.latency.measurement import RuntimeLatencyMeasurer
-from latency_bench.logging.metrics import active_action_step_info
-from latency_bench.logging.records import step_record_info
+from latency_bench.logging.records import build_step_record
 from latency_bench.logging.realtime_pipeline import PipelineProfile, REALTIME_PROFILE_METADATA_KEY
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
@@ -490,40 +488,31 @@ def _env_loop_worker(
             episode_done = bool(result.done or result.truncated)
             if video_recorder is not None and not episode_done:
                 video_recorder.record_frame(env.render_game_frame())
-            step_info = step_record_info(result.info)
-            step_info.update(
-                {
-                    "scheduled_time_ms": scheduled_time_ms,
-                    "wall_elapsed_ms": wall_elapsed_ms,
-                    "frame_time_ms": clock.frame_ms,
-                    "wall_clock_lag_ms": wall_clock_lag_ms,
-                    "observation_submitted": False,
-                    "observation_dropped": False,
-                    "in_flight_count": None,
-                    "idle_worker_count": None,
-                }
-            )
-            step_info.update(
-                active_action_step_info(
-                    active_event=action_scheduler.latest_applied_event,
-                    env_step=env_step,
-                    scheduled_time_ms=scheduled_time_ms,
-                    frame_ms=clock.frame_ms,
-                    latency_type="measured",
-                    profile_metadata={},
-                )
-            )
             connection.send((
                 "step",
                 {
-                    "record": StepRecord(
+                    "record": build_step_record(
                         episode_id=episode_id,
                         env_step=env_step,
-                        sim_time_ms=scheduled_time_ms,
+                        scheduled_time_ms=scheduled_time_ms,
                         active_action=active_action,
-                        reward=float(result.reward),
+                        reward=result.reward,
                         done=episode_done,
-                        info=step_info,
+                        info=result.info,
+                        active_event=action_scheduler.latest_applied_event,
+                        frame_ms=clock.frame_ms,
+                        latency_type="measured",
+                        profile_metadata={},
+                        pre_active_info={
+                            "scheduled_time_ms": scheduled_time_ms,
+                            "wall_elapsed_ms": wall_elapsed_ms,
+                            "frame_time_ms": clock.frame_ms,
+                            "wall_clock_lag_ms": wall_clock_lag_ms,
+                            "observation_submitted": False,
+                            "observation_dropped": False,
+                            "in_flight_count": None,
+                            "idle_worker_count": None,
+                        },
                     )
                 },
             ))
