@@ -2,7 +2,7 @@ protocol_id: cross_device_latency_v1
 output_root: results/cross_device
 checkpoint_kind: best
 n_episodes: 100
-sim_parallel_envs: 1
+sim_parallel_envs: 8
 env_fps_calibration:
   worker_utilization_cap: 0.8
 seed_set:
