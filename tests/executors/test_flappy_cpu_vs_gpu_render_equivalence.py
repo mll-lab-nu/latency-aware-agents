@@ -178,6 +178,53 @@ def test_flappy_cpu_adapter_matches_gpu_batched_backend_raw_stack_and_dynamics(t
         cpu.close()
 
 
+def test_flappy_gpu_batched_backend_slot_reuse_reset_matches_cpu(tmp_path):
+    # The cross-device sim run assigns a new episode to a freed slot, so the
+    # backend's reset must rewind ALL render state. The GPU backend used to
+    # restore the pre-reset ground scroll to mirror a since-fixed env leak,
+    # which made every reused slot's pixels diverge from the (pure) CPU
+    # adapter — and from the real measure run — after the first episode.
+    pytest.importorskip("torch")
+    from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
+
+    slot_ids = [0, 1]
+    config = _gpu_backend_config(str(tmp_path), frame_stack=4)
+    cpu = _cpu_serial_backend(len(slot_ids), frame_stack=4)
+    gpu = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=len(slot_ids))
+    # 7 steps, not a multiple of 6: the ground scrolls 4px per step and the
+    # base texture repeats every 24px, so a multiple-of-6-step episode parks
+    # the leaked scroll on a render-identical phase and hides the bug.
+    action_plan = [
+        {0: _noop(), 1: _flap()},
+        {0: _flap(), 1: _noop()},
+        {0: _flap(), 1: _flap()},
+        {0: _noop(), 1: _noop()},
+        {0: _flap(), 1: _flap()},
+        {0: _noop(), 1: _flap()},
+        {0: _flap(), 1: _noop()},
+    ]
+
+    def _run_episode(episode_id: int, seeds: list[int]) -> None:
+        for slot_id, seed in zip(slot_ids, seeds):
+            cpu.reset_slot(slot_id, episode_id=episode_id, seed=seed)
+            gpu.reset_slot(slot_id, episode_id=episode_id, seed=seed)
+        _assert_raw_stacks_equal(cpu, gpu, slot_ids)
+        for actions_by_slot in action_plan:
+            cpu_responses = cpu.step_slots(actions_by_slot)
+            gpu.step_slots(actions_by_slot)
+            for slot_id, response in cpu_responses.items():
+                assert response.result.done is False and response.result.truncated is False
+            _assert_raw_stacks_equal(cpu, gpu, slot_ids)
+
+    try:
+        _run_episode(episode_id=0, seeds=[101, 202])
+        # Reusing the same slots for the next episode is where the leak lived.
+        _run_episode(episode_id=1, seeds=[303, 404])
+    finally:
+        gpu.close()
+        cpu.close()
+
+
 def test_flappy_gpu_batched_backend_requires_simulator(tmp_path):
     pytest.importorskip("torch")
     from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
@@ -210,13 +257,23 @@ def _metrics_contract(metrics: list[Any]) -> list[tuple[Any, ...]]:
     ]
 
 
-def test_flappy_cpu_serial_executor_matches_gpu_batched_executor_episode_metrics(tmp_path):
+@pytest.mark.parametrize(
+    ("eval_episodes", "eval_parallel_envs"),
+    [
+        (3, 3),
+        # More episodes than slots exercises the slot-reuse dispatch path.
+        (5, 2),
+    ],
+)
+def test_flappy_cpu_serial_executor_matches_gpu_batched_executor_episode_metrics(
+    tmp_path, eval_episodes, eval_parallel_envs
+):
     pytest.importorskip("torch")
 
     cpu_config = _gpu_backend_config(str(tmp_path / "cpu"), frame_stack=4)
     cpu_config["policy"] = {"type": "constant", "action": "flap", "actions": ["noop", "flap"]}
-    cpu_config["evaluation"]["eval_episodes"] = 3
-    cpu_config["evaluation"]["eval_parallel_envs"] = 3
+    cpu_config["evaluation"]["eval_episodes"] = eval_episodes
+    cpu_config["evaluation"]["eval_parallel_envs"] = eval_parallel_envs
     cpu_config["env"]["use_gpu_render"] = False
     cpu_config["evaluation"]["latency_bench_env_backend"] = "serial"
 
@@ -228,8 +285,8 @@ def test_flappy_cpu_serial_executor_matches_gpu_batched_executor_episode_metrics
     cpu_executor = build_executor(cpu_config)
     gpu_executor = build_executor(gpu_config)
     try:
-        episode_ids = [0, 1, 2]
-        seeds = [11, 22, 33]
+        episode_ids = list(range(eval_episodes))
+        seeds = [11 * (index + 1) for index in range(eval_episodes)]
         cpu_metrics = cpu_executor.run_episodes(episode_ids=episode_ids, seeds=seeds, eval_max_steps=6)
         gpu_metrics = gpu_executor.run_episodes(episode_ids=episode_ids, seeds=seeds, eval_max_steps=6)
     finally:
