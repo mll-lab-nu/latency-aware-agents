@@ -178,17 +178,31 @@ def test_flappy_cpu_adapter_matches_gpu_batched_backend_raw_stack_and_dynamics(t
         cpu.close()
 
 
-def test_flappy_gpu_batched_backend_slot_reuse_reset_matches_cpu(tmp_path):
+@pytest.mark.parametrize(
+    "simulator",
+    [
+        "cpu",
+        pytest.param("gpu", marks=pytest.mark.gpu),
+    ],
+)
+def test_flappy_gpu_batched_backend_slot_reuse_reset_matches_cpu(tmp_path, simulator):
     # The cross-device sim run assigns a new episode to a freed slot, so the
     # backend's reset must rewind ALL render state. The GPU backend used to
     # restore the pre-reset ground scroll to mirror a since-fixed env leak,
     # which made every reused slot's pixels diverge from the (pure) CPU
     # adapter — and from the real measure run — after the first episode.
-    pytest.importorskip("torch")
+    # The "gpu" variant runs the CUDA core + CUDA renderer (the cross-device
+    # sim configuration) against the same pygame oracle.
+    torch = pytest.importorskip("torch")
+    if simulator == "gpu" and not torch.cuda.is_available():
+        pytest.skip("CUDA simulator variant needs a GPU")
     from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
 
     slot_ids = [0, 1]
     config = _gpu_backend_config(str(tmp_path), frame_stack=4)
+    config["env"]["simulator"] = simulator
+    if simulator == "gpu":
+        config["env"]["gpu_render_device"] = "cuda"
     cpu = _cpu_serial_backend(len(slot_ids), frame_stack=4)
     gpu = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=len(slot_ids))
     # 7 steps, not a multiple of 6: the ground scrolls 4px per step and the
