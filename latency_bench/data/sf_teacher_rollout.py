@@ -310,28 +310,103 @@ def _filter_report_from_probe_state(
     return report
 
 
+def _context_decision_steps(
+    decision_step: int,
+    context_window: int,
+    available_decision_steps: Sequence[int],
+) -> list[int]:
+    """Build historical decision steps from the current contiguous replay segment.
+
+    Args:
+        decision_step: Current decision step.
+        context_window: Total image window length including the current ``image`` field.
+        available_decision_steps: Materialized decision steps ordered from oldest to newest.
+
+    Returns:
+        Historical decision steps ordered from oldest to newest.
+    """
+    current_index = available_decision_steps.index(decision_step)
+    segment_start_index = current_index
+    while segment_start_index > 0:
+        current_step = available_decision_steps[segment_start_index]
+        previous_step = available_decision_steps[segment_start_index - 1]
+        if previous_step != current_step - 1:
+            break
+        segment_start_index -= 1
+
+    context_steps: list[int] = []
+    cursor = current_index - 1
+    while cursor >= segment_start_index and len(context_steps) < context_window - 1:
+        context_steps.append(available_decision_steps[cursor])
+        cursor -= 1
+
+    first_segment_step = available_decision_steps[segment_start_index]
+    while len(context_steps) < context_window - 1:
+        context_steps.append(first_segment_step)
+
+    return list(reversed(context_steps))
+
+
+def _image_path_for_decision_step(row: Mapping[str, Any], decision_step: int) -> Path:
+    return Path(str(row["image"])).with_name(f"decision_step_{int(decision_step):06d}.png")
+
+
 def _write_filtered_episode_images(
     image_writer: RolloutImageWriter,
     rows: list[dict[str, Any]],
     frames_by_decision_step: Mapping[int, np.ndarray],
+    *,
+    context_window: int,
 ) -> list[dict[str, Any]]:
-    """Write images for rows selected by split-specific row filtering.
+    """Write current and optional historical images for filtered rollout rows.
 
     Args:
         image_writer: Image writer shared by the rollout run.
         rows: Final rows selected for materialization.
         frames_by_decision_step: Captured frames keyed by decision step.
+        context_window: Total image window length including the current ``image`` field.
 
     Returns:
         Row copies with image paths written to disk.
     """
+    if not rows:
+        return []
+    available_decision_steps = sorted(frames_by_decision_step)
+    required_steps: set[int] = set()
+    for row in rows:
+        decision_step = int(row["decision_step"])
+        required_steps.add(decision_step)
+        if int(context_window) > 1:
+            required_steps.update(
+                _context_decision_steps(
+                    decision_step,
+                    int(context_window),
+                    available_decision_steps,
+                )
+            )
+
+    written_paths_by_step: dict[int, str] = {}
+    first_row = rows[0]
+    for decision_step in sorted(required_steps):
+        image_path = _image_path_for_decision_step(first_row, decision_step)
+        written_paths_by_step[decision_step] = image_writer.write(frames_by_decision_step[decision_step], image_path)
+    image_writer.flush()
+
     written_rows = []
     for row in rows:
         written = dict(row)
-        image_path = Path(written["image"])
-        written["image"] = image_writer.write(frames_by_decision_step[int(written["decision_step"])], image_path)
+        decision_step = int(written["decision_step"])
+        written["image"] = written_paths_by_step[decision_step]
+        if int(context_window) > 1:
+            written["context_images"] = [
+                written_paths_by_step[context_step]
+                for context_step in _context_decision_steps(
+                    decision_step,
+                    int(context_window),
+                    available_decision_steps,
+                )
+            ]
         written_rows.append(written)
-    image_writer.flush()
     return written_rows
 
 
@@ -667,6 +742,7 @@ def _replay_accepted_specs(
     image_writer_workers: int,
     row_buffer_size: int,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
+    context_window: int = 1,
     image_transform_config: GhostTrailConfig | None = None,
 ) -> list[int] | None:
     """Replay accepted specs with raw RGB export and write episode shards.
@@ -685,6 +761,7 @@ def _replay_accepted_specs(
         image_writer_workers: Number of async image writer threads.
         row_buffer_size: Pending image write threshold.
         filter_preset: Filter preset name for train row density control.
+        context_window: Total image window length including the current ``image`` field.
         image_transform_config: Optional causal image transform applied before
             row filtering. Defaults to raw RGB.
     Returns:
@@ -864,6 +941,7 @@ def _replay_accepted_specs(
                             image_writer,
                             shard_rows,
                             frames_by_decision_step,
+                            context_window=int(context_window),
                         )
                         write_episode_row_shard(output_dir, shard_rows)
                         progress.update(1)
@@ -991,6 +1069,7 @@ def collect_teacher_dataset(
     row_buffer_size: int,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
+    context_window: int = 1,
     rollout_seed_offset: int = 0,
     probe_only: bool = False,
     image_transform_config: GhostTrailConfig | None = None,
@@ -1012,6 +1091,7 @@ def collect_teacher_dataset(
         row_buffer_size: Pending image write threshold.
         filter_preset: Filter preset name (``"none"`` or ``"clean_v1"``).
         filter_kwargs: Temporary exporter experiment arguments retained at the public boundary.
+        context_window: Total image window length including the current ``image`` field.
         image_transform_config: Optional causal image transform applied during
             replay before row filtering.
     Returns:
@@ -1096,6 +1176,7 @@ def collect_teacher_dataset(
             image_writer_workers=int(image_writer_workers),
             row_buffer_size=int(row_buffer_size),
             filter_preset=filter_preset,
+            context_window=int(context_window),
             image_transform_config=image_transform_config,
         )
 
@@ -1129,6 +1210,8 @@ def collect_teacher_dataset(
         else f"env_raw_rgb_{image_transform_config.normalized_transform()}",
         "image_transform": image_transform_config.metadata(),
         "image_resolution": image_resolution,
+        "context_window": int(context_window),
+        "context_image_count": max(0, int(context_window) - 1),
         "replay_num_envs": int(replay_num_envs),
         "train_episodes": split_stats["train_episodes"],
         "val_episodes": split_stats["val_episodes"],

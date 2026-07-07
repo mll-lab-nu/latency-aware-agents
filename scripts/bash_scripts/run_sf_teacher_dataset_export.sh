@@ -31,6 +31,7 @@ Optional environment variables:
   GHOST_TRAIL_SCROLL_PX_PER_STEP  For flappy_ghost_trail, Flappy world-scroll pixels per decision step. Default: 4.0.
   GHOST_TRAIL_GROUND_FRACTION  For flappy_ghost_trail, bottom-frame occlusion band. Default: 0.22.
   IMAGE_WRITER_WORKERS Optional async PNG writer threads. Default: exporter default.
+  CONTEXT_WINDOW      Total image window. 1 keeps single-image export; N writes N-1 context_images.
   HF_REPO_ID          If set, upload the export to this Hugging Face dataset repo.
   HF_PRIVATE          Set to 1 to upload as private. Default: 1.
   HF_TOKEN            Hugging Face token used when HF_REPO_ID is set.
@@ -62,6 +63,7 @@ REPLAY_NUM_ENVS="${REPLAY_NUM_ENVS:-16}"
 DEVICE="${DEVICE:-cpu}"
 HF_PRIVATE="${HF_PRIVATE:-0}"
 IMAGE_WRITER_WORKERS="${IMAGE_WRITER_WORKERS:-16}"
+CONTEXT_WINDOW="${CONTEXT_WINDOW:-1}"
 IMAGE_TRANSFORM="${IMAGE_TRANSFORM:-raw_rgb}"
 GHOST_TRAIL_HISTORY_FRAMES="${GHOST_TRAIL_HISTORY_FRAMES:-5}"
 GHOST_TRAIL_GAMMA="${GHOST_TRAIL_GAMMA:-1.3}"
@@ -79,6 +81,7 @@ CMD=(
     --num-envs "${NUM_ENVS}"
     --replay-num-envs "${REPLAY_NUM_ENVS}"
     --device "${DEVICE}"
+    --context-window "${CONTEXT_WINDOW}"
     --image-transform "${IMAGE_TRANSFORM}"
 )
 
@@ -146,6 +149,7 @@ fi
 if [[ -n "${IMAGE_WRITER_WORKERS:-}" ]]; then
     printf '    image writer workers: %s\n' "${IMAGE_WRITER_WORKERS}"
 fi
+printf '    context window: %s\n' "${CONTEXT_WINDOW}"
 printf '    filter preset: %s\n' "${FILTER_PRESET:-clean_v1}"
 if [[ -n "${DEMON_EPISODE_THRESHOLD:-}" ]]; then
     printf '    demon threshold: %s\n' "${DEMON_EPISODE_THRESHOLD}"
