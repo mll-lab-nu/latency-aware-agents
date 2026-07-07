@@ -18,7 +18,7 @@ from latency_bench.cross_device.instances import gpu_uuid_hash_from_instance_id
 from latency_bench.cross_device.planning import ProtocolTask
 from latency_bench.cross_device.spec import detect_runtime_env_raw
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
-from latency_bench.utils.io import write_json
+from latency_bench.utils.io import load_jsonl_records, write_json
 
 
 _HOST_FINGERPRINT: dict[str, Any] | None = None
@@ -143,12 +143,12 @@ def load_run_manifests(root: str | Path, *, raw_root: str | Path | None = None) 
     if raw_root is not None:
         for manifest_path in sorted(Path(raw_root).glob("**/cross_device/manifests/runs.jsonl")):
             protocol_root = manifest_path.parents[1]
-            for record in _load_manifest_jsonl(manifest_path):
+            for record in load_jsonl_records(manifest_path):
                 records.append(_remap_manifest_paths(record, protocol_root))
     else:
         path = Path(root) / "manifests" / "runs.jsonl"
         if path.exists():
-            records = _load_manifest_jsonl(path)
+            records = load_jsonl_records(path)
     return _dedupe_manifest_records(records)
 
 
@@ -266,20 +266,6 @@ def replay_host_instances_for_cross_pair(
 
 def manifest_contributes_to(record: dict[str, Any], experiment_id: str) -> bool:
     return experiment_id in {str(item) for item in record["experiment_ids"]}
-
-
-def _load_manifest_jsonl(path: Path) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as f:
-        for line_number, line in enumerate(f, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            record = json.loads(stripped)
-            if not isinstance(record, dict):
-                raise ValueError(f"Manifest record must be a JSON object at {path}:{line_number}")
-            records.append(record)
-    return records
 
 
 def _remap_manifest_paths(record: dict[str, Any], protocol_root: Path) -> dict[str, Any]:

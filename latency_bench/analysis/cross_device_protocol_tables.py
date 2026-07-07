@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +13,7 @@ from latency_bench.cross_device.manifest import (
     profile_instances_for_device,
     replay_host_instances_for_cross_pair,
 )
+from latency_bench.utils.io import write_csv
 
 
 EXPERIMENT1_COLUMNS = (
@@ -367,17 +367,10 @@ def write_protocol_tables(
     if existing and not overwrite:
         raise FileExistsError(f"Refusing to overwrite existing table files without --overwrite: {existing}")
     out_path.mkdir(parents=True, exist_ok=True)
-    _write_csv(outputs["experiment1"], EXPERIMENT1_COLUMNS, build_experiment1_rows(spec, root, raw_root=raw_root))
-    _write_csv(outputs["experiment2"], EXPERIMENT2_COLUMNS, build_experiment2_rows(spec, root, raw_root=raw_root))
-    _write_csv(outputs["experiment3"], EXPERIMENT3_COLUMNS, build_experiment3_rows(spec, root, raw_root=raw_root))
+    write_csv(outputs["experiment1"], build_experiment1_rows(spec, root, raw_root=raw_root), EXPERIMENT1_COLUMNS)
+    write_csv(outputs["experiment2"], build_experiment2_rows(spec, root, raw_root=raw_root), EXPERIMENT2_COLUMNS)
+    write_csv(outputs["experiment3"], build_experiment3_rows(spec, root, raw_root=raw_root), EXPERIMENT3_COLUMNS)
     return outputs
-
-
-def _write_csv(path: Path, columns: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(columns))
-        writer.writeheader()
-        writer.writerows(rows)
 
 
 def _iter_rows(
