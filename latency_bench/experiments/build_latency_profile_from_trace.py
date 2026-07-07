@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import shutil
 from pathlib import Path
@@ -9,7 +8,7 @@ from typing import Any
 
 from latency_bench.analysis.utils import write_latency_distribution_plot
 from latency_bench.analysis.profile_stats import compute_latency_profile_summary
-from latency_bench.utils.io import load_jsonl_records, write_json
+from latency_bench.utils.io import load_jsonl_records, write_csv, write_json, write_jsonl
 from latency_bench.utils.stats import autocorrelation, mean, percentile_linear, series_stats
 from latency_bench.latency.burst_profile import (
     build_bayes_markov_burst_model,
@@ -77,7 +76,7 @@ def build_profile_from_trace(
     save_latency_distribution(distribution, paths["distribution"])
     write_latency_distribution_plot(samples_ms, paths["plot"])
     write_json(paths["summary_json"], summary)
-    _write_summary_csv(summary, paths["summary_csv"])
+    write_csv(paths["summary_csv"], [summary], summary.keys())
 
     manifest = {
         "profile_id": profile_id,
@@ -106,7 +105,7 @@ def build_profile_from_trace(
         action_records = load_jsonl_records(actions)
         burst_samples = build_bayes_markov_burst_samples(action_records, metrics_records)
         burst_model = build_bayes_markov_burst_model(burst_samples)
-        _write_jsonl(paths["burst_samples"], burst_samples)
+        write_jsonl(paths["burst_samples"], burst_samples)
         write_json(paths["burst_model"], burst_model)
         manifest["latency_method"] = "temporal"
         manifest["sample_model_type"] = burst_model["model_type"]
@@ -178,20 +177,6 @@ def main(argv: list[str] | None = None) -> None:
         steps=args.steps,
         overwrite=args.overwrite,
     )
-
-
-def _write_summary_csv(summary: dict[str, Any], path: Path) -> None:
-    with path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(summary.keys()))
-        writer.writeheader()
-        writer.writerow(summary)
-
-
-def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        for record in records:
-            f.write(json.dumps(record, sort_keys=True) + "\n")
 
 
 # Per-episode metadata counters summed across the trace into the control summary.

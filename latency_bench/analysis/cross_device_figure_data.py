@@ -17,7 +17,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +24,7 @@ from latency_bench.analysis.cross_device_protocol_tables import EXPERIMENT2_COLU
 from latency_bench.cross_device.manifest import load_run_manifests, matching_manifests
 from latency_bench.cross_device.spec import load_protocol_spec
 from latency_bench.latency.profile import load_latency_samples
-from latency_bench.utils.io import load_jsonl_records, write_csv
+from latency_bench.utils.io import load_jsonl_records, read_csv, write_csv
 
 
 FIG_COLUMNS = (
@@ -86,11 +85,6 @@ _CALIBRATION_PASSTHROUGH = tuple(
 _PREDICTION_PASSTHROUGH = tuple(
     column for column in EXPERIMENT3_COLUMNS if column not in ("experiment_id", "panel", "target_device")
 )
-
-
-def read_csv(path: Path) -> list[dict[str, str]]:
-    with path.open(newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
 
 
 def _fig_row(**values: Any) -> dict[str, Any]:
