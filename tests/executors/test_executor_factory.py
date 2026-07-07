@@ -456,6 +456,70 @@ def test_latency_bench_env_backend_auto_selects_flappy_gpu_batched_backend(tmp_p
     assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "flappy_gpu_batched"
 
 
+def test_latency_bench_env_backend_auto_selects_flappy_gpu_batched_for_starvla_without_gpu_render(tmp_path):
+    from latency_bench.executors.factory import _resolve_latency_bench_env_backend
+
+    config = _config(output_dir=str(tmp_path))
+    config["evaluation"]["eval_parallel_envs"] = 2
+    config["evaluation"]["latency_bench_env_backend"] = "auto"
+    config["env"]["name"] = "flappy"
+    config["env"]["use_gpu_render"] = False
+    config["policy"]["type"] = "starvla"
+
+    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "flappy_gpu_batched"
+
+
+def test_realtime_flappy_starvla_ignores_env_backend_selection_and_keeps_cpu_render(monkeypatch, tmp_path):
+    """Realtime semantics: the env steps at its own fixed cadence in a dedicated
+    process and must never share resources with policy inference. The batched
+    GPU backend auto-selection is simulated-only; realtime must not consult it
+    and must keep the CPU (pygame) render adapter from its config."""
+    from latency_bench.envs.flappy import FlappyBirdEnvAdapter
+
+    monkeypatch.setattr(executor_factory, "_resolve_realtime_inference_devices", lambda: ["cuda:0"])
+
+    def _fail_if_consulted(*args, **kwargs):
+        raise AssertionError("realtime build must never consult latency_bench_env_backend selection")
+
+    monkeypatch.setattr(executor_factory, "_resolve_latency_bench_env_backend", _fail_if_consulted)
+
+    config = _config(mode="realtime", output_dir=str(tmp_path))
+    config["env"] = {
+        "name": "flappy",
+        "gym_id": "FlappyBird-v0",
+        "env_fps": 30,
+        "obs_fps": 30,
+        "noop_action": "noop",
+        "action_map": {"noop": 0, "flap": 1},
+        "oneshot_actions": ["flap"],
+        "obs_resize": [84, 84],
+        "frame_stack": 1,
+        "use_gpu_render": False,
+    }
+    config["policy"] = {"type": "starvla", "actions": ["noop", "flap"]}
+
+    executor = build_executor(config)
+    try:
+        assert isinstance(executor, RealtimeLatencyExecutor)
+        assert isinstance(executor.env, FlappyBirdEnvAdapter)
+        assert executor.env.use_gpu_render is False
+    finally:
+        executor.env.close()
+
+
+def test_latency_bench_env_backend_auto_keeps_serial_for_flappy_sf_without_gpu_render(tmp_path):
+    from latency_bench.executors.factory import _resolve_latency_bench_env_backend
+
+    config = _config(output_dir=str(tmp_path))
+    config["evaluation"]["eval_parallel_envs"] = 2
+    config["evaluation"]["latency_bench_env_backend"] = "auto"
+    config["env"]["name"] = "flappy"
+    config["env"]["use_gpu_render"] = False
+    config["policy"]["type"] = "flappy_sf"
+
+    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "serial"
+
+
 @pytest.mark.parametrize("mode", ["paused", "realtime"])
 def test_non_simulated_modes_reject_parallel_eval(tmp_path, mode):
     config = _config(mode=mode, output_dir=str(tmp_path))
