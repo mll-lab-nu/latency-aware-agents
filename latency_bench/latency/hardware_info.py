@@ -378,3 +378,13 @@ def _slug(key: str) -> str:
         .replace(" ", "_")
         .replace("/", "_")
     )
+
+
+def visible_cuda_device_count() -> int:
+    import torch
+
+    visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if visible_devices is None:
+        return int(torch.cuda.device_count())
+    stripped = visible_devices.strip()
+    return 0 if stripped in {"", "-1"} else len([item for item in stripped.split(",") if item.strip()])

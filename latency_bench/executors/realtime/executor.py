@@ -24,7 +24,7 @@ from latency_bench.core.types import (
 )
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors.base import EpisodeExecutor
-from latency_bench.executors.env_step_backend import _resolve_start_method
+from latency_bench.executors.env_step_backend import resolve_start_method
 from latency_bench.executors import realtime_warmup
 from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
@@ -430,7 +430,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         eval_max_steps: int,
     ) -> EpisodeMetrics:
         pre_episode_drain = pool.drain_until_idle()
-        ctx = mp.get_context(_resolve_start_method())
+        ctx = mp.get_context(resolve_start_method())
         parent_conn, child_conn = ctx.Pipe()
         process = ctx.Process(
             target=_env_loop_worker,

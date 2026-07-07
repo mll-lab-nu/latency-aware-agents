@@ -252,15 +252,11 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
         return self._raw_rgb_buffer
 
     def _raw_rgb_output_buffer(self, batch: BatchedFlappyRenderState) -> torch.Tensor:
-        expected_shape = (int(batch.batch_size), int(batch.screen_height), int(batch.screen_width), 3)
-        expected_device = self.render_device if self.renderer is None else self.renderer.device
-        if (
-            self._raw_rgb_buffer is None
-            or tuple(self._raw_rgb_buffer.shape) != expected_shape
-            or self._raw_rgb_buffer.device != expected_device
-        ):
-            self._raw_rgb_buffer = torch.empty(expected_shape, dtype=torch.uint8, device=expected_device)
-        return self._raw_rgb_buffer
+        return self._raw_rgb_output_buffer_for_shape(
+            batch_size=batch.batch_size,
+            screen_height=batch.screen_height,
+            screen_width=batch.screen_width,
+        )
 
     def _terminal_infos(self, step_result: Any, slot_ids: Sequence[int]) -> dict[int, dict[str, Any]]:
         return {

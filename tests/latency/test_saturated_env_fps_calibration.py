@@ -40,7 +40,7 @@ def test_calibrate_env_fps_from_saturated_latency_uses_probe_samples(tmp_path, m
         }
 
     monkeypatch.setattr(module, "_run_spawned_latency_probe", fake_probe)
-    monkeypatch.setattr(module, "_visible_cuda_device_count", lambda: 2)
+    monkeypatch.setattr(module, "visible_cuda_device_count", lambda: 2)
 
     payload = module.calibrate_env_fps_from_saturated_latency(
         config_path=config_path,

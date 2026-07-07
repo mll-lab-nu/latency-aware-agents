@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
@@ -208,16 +207,11 @@ def _stack_numpy_values(values: Sequence[Any]) -> np.ndarray | None:
     return np.stack(arrays, axis=0)
 
 
-def _checkpoint_state_dict_from_path(path: str | Path, device: torch.device) -> dict[str, Any]:
-    checkpoint = trusted_torch_load(path, device)
-    return checkpoint
-
-
 def _load_sf_policy_state_dict(cfg, actor_critic, device: torch.device, checkpoint_path: str | None) -> dict[str, Any]:
     from sample_factory.algo.learning.learner import Learner
 
     if checkpoint_path:
-        checkpoint_dict = _checkpoint_state_dict_from_path(checkpoint_path, device)
+        checkpoint_dict = trusted_torch_load(checkpoint_path, device)
         actor_critic.load_state_dict(checkpoint_dict["model"])
         return checkpoint_dict
 
@@ -258,6 +252,23 @@ def validate_sample_factory_obs_shape(
             f"{tuple(expected_shape)}, got {actual_shape}. Check env.obs_resize/env.obs_mode "
             "and retrain checkpoints when channel count or resize changes."
         )
+
+
+class SampleFactoryIntegrationModule:
+    """Adapts a training-side integration module to the runner's interface."""
+
+    def __init__(self, module, register_attr: str):
+        self.module = module
+        self._register_attr = register_attr
+
+    def register_components(self):
+        getattr(self.module, self._register_attr)()
+
+    def build_sf_cfg_from_config(self, config: dict[str, Any]):
+        return self.module.parse_cfg(self.module.build_cli_args_from_config(config))
+
+    def make_reference_env(self, cfg):
+        return self.module.make_reference_env(cfg)
 
 
 class SampleFactoryPolicyRunner(PolicyRunner):

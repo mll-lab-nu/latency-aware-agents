@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import torch
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -21,6 +20,7 @@ from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExe
 from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
+from latency_bench.latency.hardware_info import visible_cuda_device_count
 from latency_bench.latency.samplers import (
     BATCHED_SIMULATED_METHODS,
     LatencySampler,
@@ -289,12 +289,7 @@ def _build_realtime_executor(
 
 
 def _resolve_realtime_inference_devices() -> list[str]:
-    visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
-    if visible_devices is None:
-        device_count = torch.cuda.device_count()
-    else:
-        stripped = visible_devices.strip()
-        device_count = 0 if stripped in {"", "-1"} else len([item for item in stripped.split(",") if item.strip()])
+    device_count = visible_cuda_device_count()
     if device_count == 0:
         raise RuntimeError("realtime inference requires at least one visible CUDA device")
     return [f"cuda:{idx}" for idx in range(device_count)]

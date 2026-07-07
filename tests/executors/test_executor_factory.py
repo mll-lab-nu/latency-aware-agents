@@ -557,8 +557,10 @@ def test_realtime_devices_follow_cuda_visible_devices(monkeypatch):
 
 
 def test_realtime_devices_follow_torch_visible_count_when_env_is_unset(monkeypatch):
+    import torch
+
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
-    monkeypatch.setattr(executor_factory.torch.cuda, "device_count", lambda: 2)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
 
     assert executor_factory._resolve_realtime_inference_devices() == ["cuda:0", "cuda:1"]
 
