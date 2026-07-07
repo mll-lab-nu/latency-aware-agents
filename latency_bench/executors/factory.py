@@ -11,7 +11,7 @@ from gymnasium.spaces import Discrete, MultiDiscrete, Tuple
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import ActionHoldPolicy, ExecutorMode, OrderingPolicy
+from latency_bench.core.types import ExecutorMode
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import build_env_adapter
 from latency_bench.executors.base import Executor
@@ -41,11 +41,7 @@ from latency_bench.scheduler.decision import (
     DecisionScheduler,
     ObservationCadenceDecisionScheduler,
 )
-from latency_bench.scheduler.persistence import (
-    ActionPersistencePolicy,
-    HoldPolicy,
-    OneFrameThenNoopPolicy,
-)
+from latency_bench.scheduler.factory import build_action_scheduler
 
 
 class ExecutorBuilder(Protocol):
@@ -70,7 +66,6 @@ _LATENCY_BENCH_ENV_BACKENDS = {
 _ENV_BACKEND_DEBUG_ENV = "LATENCY_BENCH_ENV_BACKEND"
 _AUTO_SUBPROC_ENV_NAMES = {"deadly_corridor"}
 _AUTO_FLAPPY_GPU_BATCHED_POLICY_TYPES = {"flappy_sf", "starvla"}
-_SCHEDULER_ALLOWED_KEYS = frozenset({"ordering_policy", "hold_policy"})
 
 
 def register_executor(mode: ExecutorMode | str) -> Callable[[ExecutorBuilder], ExecutorBuilder]:
@@ -150,19 +145,11 @@ class _CommonExecutorComponents:
 
 def _build_common_executor_components(config: dict[str, Any]) -> _CommonExecutorComponents:
     """Build the executor dependencies that are identical across the single-episode modes."""
-    scheduler_cfg = config["scheduler"]
     action_resolver = ActionResolver(config["env"])
     env = build_env_adapter(config, action_resolver.noop_action)
-    noop_action = env.noop_action
     clock = _build_clock(config)
     decision_scheduler = _build_decision_scheduler(clock)
-    persistence_policy = _build_persistence_policy(scheduler_cfg, clock=clock)
-    action_scheduler = ActionScheduler(
-        clock=clock,
-        noop_action=noop_action,
-        persistence_policy=persistence_policy,
-        ordering_policy=_build_ordering_policy(scheduler_cfg),
-    )
+    action_scheduler = build_action_scheduler(config["scheduler"], clock=clock, noop_action=env.noop_action)
     logger = _build_trajectory_logger(config)
     return _CommonExecutorComponents(
         action_resolver=action_resolver,
@@ -280,12 +267,7 @@ def _build_batched_simulated_executor(
             )
         decision_scheduler = _build_decision_scheduler(clock)
         action_schedulers = [
-            ActionScheduler(
-                clock=clock,
-                noop_action=env.noop_action,
-                persistence_policy=_build_persistence_policy(scheduler_cfg, clock=clock),
-                ordering_policy=_build_ordering_policy(scheduler_cfg),
-            )
+            build_action_scheduler(scheduler_cfg, clock=clock, noop_action=env.noop_action)
             for env in env_backend.slot_handles
         ]
         logger = _build_trajectory_logger(config)
@@ -410,62 +392,8 @@ def _build_latency_source(latency_cfg: dict[str, Any], clock: EnvClock) -> Laten
     return build_sampler(latency_cfg, clock=clock, seed=latency_cfg.get("seed"))
 
 
-def _build_ordering_policy(scheduler_cfg: dict[str, Any]) -> OrderingPolicy:
-    _raise_if_unsupported_scheduler_fields(scheduler_cfg)
-    ordering_policy = scheduler_cfg.get("ordering_policy", OrderingPolicy.ISSUE_ORDER_FIFO.value)
-    return _normalize_ordering_policy(ordering_policy, field_name="scheduler.ordering_policy")
-
-
 def _simulated_worker_capacity(config: dict[str, Any]) -> int | None:
     return config["executor"].get("simulated_worker_capacity")
-
-
-def _normalize_ordering_policy(value: Any, *, field_name: str) -> OrderingPolicy:
-    normalized = str(value).strip().lower()
-    try:
-        return OrderingPolicy(normalized)
-    except ValueError as exc:
-        raise ValueError(f"{field_name} must be one of ['issue_order_fifo', 'latest_ready']") from exc
-
-
-def _build_persistence_policy(
-    scheduler_cfg: dict[str, Any],
-    *,
-    clock: EnvClock | None = None,
-) -> ActionPersistencePolicy:
-    mode = _resolve_hold_policy_mode(scheduler_cfg)
-    if mode == ActionHoldPolicy.ONE_FRAME_THEN_NOOP:
-        return OneFrameThenNoopPolicy()
-    if mode == ActionHoldPolicy.HOLD:
-        if clock is None:
-            raise ValueError("clock is required for hold policy")
-        return HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames)
-    raise ValueError(f"Unsupported hold policy: {mode.value}")
-
-
-def _resolve_hold_policy_mode(scheduler_cfg: dict[str, Any]) -> ActionHoldPolicy:
-    _raise_if_unsupported_scheduler_fields(scheduler_cfg)
-    hold_policy = scheduler_cfg.get("hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value)
-    return _normalize_hold_policy(hold_policy, field_name="scheduler.hold_policy")
-
-
-def _raise_if_unsupported_scheduler_fields(scheduler_cfg: dict[str, Any]) -> None:
-    if set(scheduler_cfg) - _SCHEDULER_ALLOWED_KEYS:
-        raise ValueError(
-            "scheduler contains unsupported fields; use only "
-            "['hold_policy', 'ordering_policy']"
-        )
-
-
-def _normalize_hold_policy(value: Any, *, field_name: str) -> ActionHoldPolicy:
-    normalized = str(value).strip().lower()
-    try:
-        return ActionHoldPolicy(normalized)
-    except ValueError as exc:
-        raise ValueError(
-            f"{field_name} must be one of "
-            "['one_frame_then_noop', 'hold']"
-        ) from exc
 
 
 def _eval_parallel_envs(config: dict[str, Any]) -> int:
