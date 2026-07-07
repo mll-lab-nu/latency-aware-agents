@@ -163,7 +163,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
             active_action = self.action_scheduler.update(raw_frame, current_time_ms)
             result = self.env.step(active_action)
             soft_reset = bool(result.info.get("soft_reset")) if isinstance(result.info, dict) else False
-            episode_done = result.done or result.truncated and not soft_reset
+            episode_done = bool(result.done or result.truncated) and not soft_reset
             if self.video_recorder is not None and not episode_done:
                 self.video_recorder.record_frame(self.env.render_game_frame())
             pre_active_info = None
