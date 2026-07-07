@@ -10,6 +10,7 @@ from gymnasium.spaces import Box, Tuple
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.utils.array import looks_chw
+from training.common.raw_rgb_export import RawRgbFrameStackBuffer
 
 
 def _noop_action_from_space(space) -> Any:
@@ -173,7 +174,7 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         self._last_info: dict[str, Any] = {}
         self._last_frame: Any = None
         self._observed_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
-        self._raw_rgb_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
+        self._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=self.frame_stack)
 
     def reset(self, seed: int | None = None) -> Observation:
         self.env_step = 0
@@ -234,34 +235,11 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
             metadata=metadata,
         )
 
-    def render_frame(self) -> Any:
-        return self._last_frame
-
     def render_game_frame(self) -> np.ndarray:
         return np.transpose(self.gym_env.unwrapped.game.get_state().screen_buffer, (1, 2, 0))
 
-    def get_state_info(self) -> dict[str, Any]:
-        info = dict(self._last_info)
-        info.update(
-            {
-                "env_step": self.env_step,
-                "sim_time_ms": self.env_step * self.frame_ms,
-                "observation": "vizdoom_frame_v1",
-            }
-        )
-        return info
-
     def close(self) -> None:
         self.gym_env.close()
-
-    def _make_observation(self, info: dict[str, Any]) -> Observation:
-        metadata = self._metadata(info)
-        return Observation(
-            data=self._last_frame,
-            env_step=self.env_step,
-            sim_time_ms=self.env_step * self.frame_ms,
-            metadata=metadata,
-        )
 
     def _reset_frame_stack(self, frame: Any) -> None:
         self._observed_frames.clear()
@@ -269,18 +247,6 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
 
     def _append_frame(self, frame: Any) -> None:
         self._observed_frames.append(_single_frame_data(frame))
-
-    def _reset_raw_rgb_frame_stack(self) -> None:
-        frame = self.render_game_frame()
-        self._raw_rgb_frames.clear()
-        for _index in range(self.frame_stack):
-            self._raw_rgb_frames.append(frame.copy())
-
-    def _append_raw_rgb_frame(self) -> None:
-        self._raw_rgb_frames.append(self.render_game_frame())
-
-    def _raw_rgb_frame_stack(self) -> np.ndarray:
-        return np.stack(tuple(self._raw_rgb_frames), axis=0)
 
     def _policy_frame_stack(self) -> np.ndarray:
         frames = list(self._observed_frames)
@@ -413,19 +379,16 @@ class DeadlyCorridorVlaEnvAdapter(EnvAdapter):
         self.env_step = 0
         self._last_info: dict[str, Any] = {}
         self._last_frame: Any = None
-        self._observed_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
-        self._raw_rgb_frames: deque[np.ndarray] = deque(maxlen=self.frame_stack)
+        self._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=self.frame_stack)
 
     def reset(self, seed: int | None = None) -> Observation:
         self.env_step = 0
-        self._observed_frames.clear()
         try:
             obs, info = self.gym_env.reset(seed=seed)
         except TypeError:
             obs, info = self.gym_env.reset()
         self._last_frame = obs
         self._last_info = dict(info or {})
-        self._reset_frame_stack(obs)
         if self.export_env_raw_rgb_frames:
             self._reset_raw_rgb_frame_stack()
         return self._make_observation(info=self._last_info)
@@ -449,7 +412,6 @@ class DeadlyCorridorVlaEnvAdapter(EnvAdapter):
         self.env_step += 1
         self._last_frame = obs
         self._last_info = dict(info or {})
-        self._append_frame(obs)
         if self.export_env_raw_rgb_frames and not bool(terminated or truncated):
             self._append_raw_rgb_frame()
         observation = self._make_observation(info=self._last_info)
@@ -471,51 +433,9 @@ class DeadlyCorridorVlaEnvAdapter(EnvAdapter):
             info=step_info,
         )
 
-    def render_frame(self) -> Any:
-        return self._last_frame
-
     def render_game_frame(self) -> np.ndarray:
         frame = self.gym_env.render()
         return np.asarray(frame, dtype=np.uint8)
 
-    def get_state_info(self) -> dict[str, Any]:
-        info = dict(self._last_info)
-        info.update(
-            {
-                "env_step": self.env_step,
-                "sim_time_ms": self.env_step * self.frame_ms,
-                "observation": self.OBSERVATION_TYPE,
-            }
-        )
-        return info
-
     def close(self) -> None:
         self.gym_env.close()
-
-    def _make_observation(self, info: dict[str, Any]) -> Observation:
-        metadata = self._metadata(info)
-        return Observation(
-            data=self._last_frame,
-            env_step=self.env_step,
-            sim_time_ms=self.env_step * self.frame_ms,
-            metadata=metadata,
-        )
-
-    def _reset_frame_stack(self, frame: Any) -> None:
-        self._observed_frames.clear()
-        self._append_frame(frame)
-
-    def _append_frame(self, frame: Any) -> None:
-        self._observed_frames.append(_single_frame_data(frame))
-
-    def _reset_raw_rgb_frame_stack(self) -> None:
-        frame = self.render_game_frame()
-        self._raw_rgb_frames.clear()
-        for _index in range(self.frame_stack):
-            self._raw_rgb_frames.append(frame.copy())
-
-    def _append_raw_rgb_frame(self) -> None:
-        self._raw_rgb_frames.append(self.render_game_frame())
-
-    def _raw_rgb_frame_stack(self) -> np.ndarray:
-        return np.stack(tuple(self._raw_rgb_frames), axis=0)
