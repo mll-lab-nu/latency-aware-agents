@@ -15,7 +15,7 @@ from latency_bench.executors.env_step_backend import (
     EnvStepBackend,
     SerialEnvStepBackend,
     SubprocEnvStepBackend,
-    _env_action_space,
+    env_action_space,
 )
 
 ENV_BACKEND_DEBUG_ENV = "LATENCY_BENCH_ENV_BACKEND"
@@ -113,7 +113,7 @@ def auto_latency_bench_env_backend(config: dict[str, Any]) -> str:
 
 def raise_if_unsupported_batched_action_space(envs: list[EnvAdapter]) -> None:
     for env in envs:
-        action_space = _env_action_space(env)
+        action_space = env_action_space(env)
         if action_space is None or isinstance(action_space, Discrete):
             continue
         if isinstance(action_space, Tuple):
