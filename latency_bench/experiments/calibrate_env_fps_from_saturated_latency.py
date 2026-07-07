@@ -13,6 +13,7 @@ from typing import Any
 from latency_bench.core.config import load_config
 from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.latency.env_fps_calibration import select_env_fps_from_latency_samples
+from latency_bench.latency.hardware_info import visible_cuda_device_count
 
 
 DEFAULT_SAMPLES = 120
@@ -41,7 +42,7 @@ def calibrate_env_fps_from_saturated_latency(
         target_latency_frames=target_latency_frames,
         base_env_fps=float(config["env"]["env_fps"]),
         base_obs_fps=float(config["env"]["obs_fps"]),
-        device_count=_visible_cuda_device_count(),
+        device_count=visible_cuda_device_count(),
         worker_utilization_cap=worker_utilization_cap,
     )
     payload: dict[str, Any] = {
@@ -184,15 +185,6 @@ def _summary(values: list[float]) -> dict[str, float | int]:
         "max": ordered[-1],
     }
 
-
-def _visible_cuda_device_count() -> int:
-    import torch
-
-    visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
-    if visible_devices is None:
-        return int(torch.cuda.device_count())
-    stripped = visible_devices.strip()
-    return 0 if stripped in {"", "-1"} else len([item for item in stripped.split(",") if item.strip()])
 
 
 def main(argv: list[str] | None = None) -> None:

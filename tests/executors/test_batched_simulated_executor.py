@@ -1073,11 +1073,11 @@ def test_subproc_backend_prefers_fork_start_method_by_default(monkeypatch):
     if "fork" not in mp.get_all_start_methods():
         pytest.skip("fork start method is not available")
 
-    from latency_bench.executors.env_step_backend import START_METHOD_ENV, _resolve_start_method
+    from latency_bench.executors.env_step_backend import START_METHOD_ENV, resolve_start_method
 
     monkeypatch.delenv(START_METHOD_ENV, raising=False)
 
-    assert _resolve_start_method() == "fork"
+    assert resolve_start_method() == "fork"
 
 
 def test_subproc_backend_completes_exact_episode_ids_and_uses_child_pids(tmp_path: Path):

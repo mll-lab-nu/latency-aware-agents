@@ -190,7 +190,7 @@ class SubprocEnvStepBackend:
         self.config = config
         self.noop_action = noop_action
         self.timeout_sec = _worker_timeout_sec() if timeout_sec is None else float(timeout_sec)
-        self.start_method = _resolve_start_method(start_method)
+        self.start_method = resolve_start_method(start_method)
         self._ctx = mp.get_context(self.start_method)
         self._connections: list[Any] = []
         self._processes: list[mp.Process] = []
@@ -489,7 +489,7 @@ def _worker_timeout_sec() -> float:
     return timeout_sec
 
 
-def _resolve_start_method(start_method: str | None = None) -> str:
+def resolve_start_method(start_method: str | None = None) -> str:
     available = mp.get_all_start_methods()
 
     requested = start_method or os.environ.get(START_METHOD_ENV)
