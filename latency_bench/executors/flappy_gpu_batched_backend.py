@@ -374,14 +374,7 @@ class FlappyGpuBatchedEnvStepBackend:
         seeds: Sequence[int | None],
     ) -> tuple[np.ndarray, list[dict[str, Any]]]:
         indices = [int(slot_id) for slot_id in slot_ids]
-        previous_ground_x = self.core.ground_x[indices]
-        if isinstance(previous_ground_x, torch.Tensor):
-            previous_ground_x = previous_ground_x.clone()
-        else:
-            previous_ground_x = previous_ground_x.copy()
-        numeric_obs, infos = self.core.reset_batch(seeds=seeds, indices=indices)
-        self.core.ground_x[indices] = previous_ground_x
-        return numeric_obs, infos
+        return self.core.reset_batch(seeds=seeds, indices=indices)
 
     def _observe_slot(self, slot_id: int) -> Observation:
         metadata = self._observation_metadata(
