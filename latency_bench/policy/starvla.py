@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import sys
-import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -12,7 +11,9 @@ import numpy.typing as npt
 from PIL import Image
 
 from latency_bench.core.actions import ActionResolver
+from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput
+from latency_bench.data.ghost_trail import GhostTrailConfig, build_flappy_ghost_trail_window
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.factory import register_policy
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
@@ -77,7 +78,10 @@ class StarVlaPolicyRunner(PolicyRunner):
         action_resolver: ActionResolver,
         action_refs: Sequence[Any],
         latency_prompt_map: dict[str, Any] | None = None,
+        latency_prompt_key: int | str | None = None,
+        prompt_mode: str | None = None,
         obs_resize: tuple[int, int] | None = None,
+        image_transform_config: Mapping[str, Any] | None = None,
     ) -> None:
         self._wrapper = wrapper
         self._obs_resize = tuple(obs_resize) if obs_resize else None
@@ -90,6 +94,12 @@ class StarVlaPolicyRunner(PolicyRunner):
             for raw_action_id, action_ref in enumerate(action_refs)
         }
         self._latency_prompt_map = latency_prompt_map
+        self._latency_prompt_key = latency_prompt_key
+        self._prompt_mode = str(prompt_mode or "default").strip().lower()
+        self._image_transform_config = dict(image_transform_config or {"image_transform": "raw_rgb"})
+        self._image_transform = str(
+            self._image_transform_config.get("image_transform", "raw_rgb") or "raw_rgb"
+        ).strip().lower()
         model_cfg = _normalized_model_cfg_from_wrapper(wrapper)
         self._include_state = _include_state_from_model_cfg(model_cfg)
         self._state_dim = _state_dim_from_model_cfg(model_cfg) if self._include_state else None
@@ -97,6 +107,9 @@ class StarVlaPolicyRunner(PolicyRunner):
         self._num_obs_frames = int(vla_data.get("num_obs_frames", 1) or 1)
         self._image_mode = str(vla_data.get("image_mode", "single"))
         self._stitch_grid = tuple(vla_data.get("stitch_grid", [2, 2]))
+        framework_cfg = model_cfg["framework"]
+        kv_cfg = framework_cfg["kv_memory"] if "kv_memory" in framework_cfg else {}
+        self._kv_memory_enabled = bool(kv_cfg["enabled"]) if "enabled" in kv_cfg else False
 
     def reset_state(self, slot_id: int | None = None) -> None:
         # Clears the model's per-slot KV memory at episode boundaries (req3).
@@ -108,41 +121,25 @@ class StarVlaPolicyRunner(PolicyRunner):
     def predict(self, observation: Observation) -> PolicyOutput:
         return self.predict_batch([observation])[0]
 
-    def predict_with_timing(self, observation: Observation) -> tuple[PolicyOutput, dict[str, float]]:
-        build_start = time.perf_counter()
-        example = self._build_example(observation)
-        build_ms = (time.perf_counter() - build_start) * 1000.0
-
-        wrapper_start = time.perf_counter()
-        prediction = self._wrapper.predict_action(examples=[example], unnorm_key=self._unnorm_key)
-        wrapper_ms = (time.perf_counter() - wrapper_start) * 1000.0
-
-        decode_start = time.perf_counter()
-        output = self._decode_prediction(
-            prediction=prediction,
-            index=0,
-            observation=observation,
-            example=example,
-        )
-        decode_ms = (time.perf_counter() - decode_start) * 1000.0
-        return output, {
-            "policy_build_example_ms": build_ms,
-            "policy_wrapper_predict_action_ms": wrapper_ms,
-            "policy_decode_ms": decode_ms,
-        }
-
     def predict_batch(self, observations: Sequence[Observation]) -> list[PolicyOutput]:
-        examples = [self._build_example(observation) for observation in observations]
-        prediction = self._wrapper.predict_action(examples=examples, unnorm_key=self._unnorm_key)
-        return [
-            self._decode_prediction(
-                prediction=prediction,
-                index=index,
-                observation=observation,
-                example=example,
+        profiler = current_profiler()
+        with profiler.time("policy_build_example_ms"):
+            examples = [self._build_example(observation) for observation in observations]
+        with profiler.time("policy_wrapper_predict_action_ms"):
+            prediction = self._wrapper.predict_action(
+                examples=examples, unnorm_key=self._unnorm_key, profiler=profiler
             )
-            for index, (observation, example) in enumerate(zip(observations, examples))
-        ]
+        with profiler.time("policy_decode_ms"):
+            outputs = [
+                self._decode_prediction(
+                    prediction=prediction,
+                    index=index,
+                    observation=observation,
+                    example=example,
+                )
+                for index, (observation, example) in enumerate(zip(observations, examples))
+            ]
+        return outputs
 
     def _decode_prediction(
         self,
@@ -169,21 +166,29 @@ class StarVlaPolicyRunner(PolicyRunner):
     def _build_example(self, observation: Observation) -> dict[str, Any]:
         frame_source = observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
         frames = observation_data_to_hwc_uint8_frames(frame_source)  # oldest .. newest
+        transformed = self._transformed_frame(frames=frames, observation=observation)
 
-        # Select the temporal observation window to match training (_pack_sample).
-        if self._image_mode == "single":
-            frames = frames[-1:]
+        if transformed is not None:
+            frames = [transformed]
         else:
-            n = min(self._num_obs_frames, len(frames))
-            frames = frames[-n:]
+            # Select the temporal observation window to match training (_pack_sample).
+            if self._image_mode == "single":
+                frames = frames[-1:]
+            else:
+                n = min(self._num_obs_frames, len(frames))
+                frames = frames[-n:]
 
         prompt = resolve_starvla_prompt(
             env_name=self._env_name,
             observation_metadata=observation.metadata,
             latency_prompt_map=self._latency_prompt_map,
+            latency_prompt_key=self._latency_prompt_key,
+            prompt_mode=self._prompt_mode,
         )
 
         if self._image_mode == "stitch":
+            if transformed is not None:
+                raise ValueError("image_transform is not compatible with image_mode=stitch")
             # Tile the window into one image; matches _pack_sample's stitch branch
             # (raw frames passed to stitch_frames, which resizes each cell to 224).
             images = [_get_stitch_frames()(frames, grid=self._stitch_grid, size=(224, 224))]
@@ -202,12 +207,55 @@ class StarVlaPolicyRunner(PolicyRunner):
             "image": images,
             "lang": prompt,
         }
-        slot_id = observation.metadata.get("slot_id")
-        if slot_id is not None:
-            example["slot_id"] = slot_id
+        if self._kv_memory_enabled:
+            example["slot_id"] = observation.metadata["slot_id"]
+        elif "slot_id" in observation.metadata:
+            example["slot_id"] = observation.metadata["slot_id"]
         if self._include_state:
             example["state"] = np.zeros((1, self._state_dim), dtype=np.float32)
         return example
+
+    def _transformed_frame(
+        self,
+        *,
+        frames: Sequence[npt.NDArray[np.uint8]],
+        observation: Observation,
+    ) -> npt.NDArray[np.uint8] | None:
+        if self._image_transform in {"", "none", "raw", "raw_rgb"}:
+            return None
+        if self._image_transform not in {"flappy_ghost_trail", "demon_attack_ghost_trail"}:
+            raise ValueError(f"Unsupported StarVLA image_transform={self._image_transform!r}")
+        if self._image_transform == "flappy_ghost_trail" and self._env_name != "flappy":
+            raise ValueError("image_transform=flappy_ghost_trail is only supported for env_name=flappy")
+        if self._image_transform == "demon_attack_ghost_trail" and self._env_name != "demon_attack":
+            raise ValueError("image_transform=demon_attack_ghost_trail is only supported for env_name=demon_attack")
+
+        config = GhostTrailConfig(
+            image_transform=self._image_transform,
+            history_frames=int(self._image_transform_config.get("history_frames", 5)),
+            gamma=float(self._image_transform_config.get("gamma", 1.3)),
+            min_alpha=int(self._image_transform_config.get("min_alpha", 35)),
+            ground_fraction=float(self._image_transform_config.get("ground_fraction", 0.22)),
+            scroll_px_per_step=float(self._image_transform_config.get("scroll_px_per_step", 4.0)),
+        )
+        if self._image_transform == "demon_attack_ghost_trail":
+            # env_step counts raw ALE frames (buffer updated 4× per decision step).
+            # frames[-0:] == frames, so env_step=0 falls back to the full reset-fill buffer.
+            valid_count = min(len(frames), int(observation.env_step))
+        else:
+            max_frames = max(1, int(config.history_frames) + 1)
+            valid_count = min(len(frames), max(1, int(observation.env_step) + 1), max_frames)
+        window = [np.asarray(frame, dtype=np.uint8) for frame in frames[-valid_count:]]
+
+        if self._image_transform == "demon_attack_ghost_trail":
+            from latency_bench.data.ghost_trail_demon import build_demon_attack_ghost_trail_window
+            steps_arg = list(range(len(window)))
+            return build_demon_attack_ghost_trail_window(window, steps_arg, config=config)
+
+        current_step = int(observation.env_step)
+        start_step = current_step - valid_count + 1
+        steps = list(range(start_step, current_step + 1))
+        return build_flappy_ghost_trail_window(window, steps, config=config)
 
     def _policy_output(
         self,
@@ -223,6 +271,7 @@ class StarVlaPolicyRunner(PolicyRunner):
             payload=payload,
             env_name=self._env_name,
             action_by_raw_id=self._action_by_raw_id,
+            action_output_type=action_output_type,
         )
         metadata = {
             "policy_type": "starvla",
@@ -232,10 +281,14 @@ class StarVlaPolicyRunner(PolicyRunner):
             "device": self._device,
             "prompt_sha256": sha256_text(example["lang"]),
             "input_frame_count": len(example["image"]),
+            "image_transform": self._image_transform,
             "action_output_type": action_output_type,
             "action_payload": to_jsonable_action_payload(payload),
+            "kv_memory_enabled": self._kv_memory_enabled,
             **action_metadata,
         }
+        if "slot_id" in example:
+            metadata["slot_id"] = example["slot_id"]
         if raw_action_scores is not None:
             metadata["raw_action_scores"] = [
                 float(item) for item in np.asarray(raw_action_scores, dtype=np.float32).tolist()
@@ -244,6 +297,8 @@ class StarVlaPolicyRunner(PolicyRunner):
             metadata["latency_raw_frames"] = observation.metadata["latency_raw_frames"]
         if "latency_ms" in observation.metadata:
             metadata["latency_ms"] = observation.metadata["latency_ms"]
+        if self._latency_prompt_key is not None:
+            metadata["latency_prompt_key"] = self._latency_prompt_key
         return PolicyOutput(
             action=action,
             raw_output=metadata["action_payload"],
@@ -297,15 +352,52 @@ def decode_starvla_action(
     return indexed_action_from_vector(vector, action_by_raw_id)
 
 
+# Fixed semantic button order the StarVLA multibinary head is trained against.
+# Mirrors starVLA.training.rl_games.eval_core._semantic_to_runtime_multibinary;
+# the env adapter re-orders this to the live ViZDoom button layout.
+DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER = (
+    "MOVE_FORWARD",
+    "MOVE_BACKWARD",
+    "MOVE_LEFT",
+    "MOVE_RIGHT",
+    "TURN_LEFT",
+    "TURN_RIGHT",
+    "ATTACK",
+)
+
+
 def action_from_starvla_payload(
     *,
     payload: npt.NDArray[Any],
     env_name: str,
     action_by_raw_id: Mapping[int, Action],
+    action_output_type: str = "",
 ) -> tuple[Action, dict[str, Any]]:
     if str(env_name) == "demon_attack":
         return demon_attack_action_from_id(int(np.asarray(payload).reshape(-1)[0]))
     if str(env_name) == "deadly_corridor":
+        # Multibinary heads emit an already-thresholded 7-dim button vector in
+        # fixed semantic order; the env adapter re-orders it to the live ViZDoom
+        # button layout. Keep it as-is rather than reinterpreting it as a
+        # [turn, move, strafe, attack] categorical tuple.
+        if str(action_output_type) == "rl_games_deadly_corridor_multibinary":
+            buttons = [int(item) for item in np.asarray(payload).reshape(-1).tolist()]
+            active = [
+                DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER[idx]
+                for idx, pressed in enumerate(buttons)
+                if idx < len(DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER) and pressed
+            ]
+            action_name = "+".join(active) if active else "NOOP"
+            return Action(
+                value=buttons,
+                name=action_name,
+                is_noop=not any(buttons),
+                is_oneshot=False,
+            ), {
+                "decoded_multibinary_buttons": buttons,
+                "action_label": action_name,
+                "action_layout": "deadly_corridor_multibinary_7",
+            }
         return deadly_corridor_action_from_tuple(
             action_value=[int(item) for item in np.asarray(payload).reshape(-1).tolist()],
             metadata={"action_layout": "deadly_corridor_tuple"},
@@ -525,6 +617,91 @@ def _load_policy_wrapper_class() -> Any:
     return PolicyServerWrapper
 
 
+def _profiler_stage(profiler: Any, name: str) -> Any:
+    from contextlib import nullcontext
+
+    return profiler.time(name) if profiler is not None else nullcontext()
+
+
+def _load_decode_rl_games_actions() -> Any:
+    _ensure_starvla_path()
+    from deployment.model_server.rl_games_action_decode import decode_rl_games_actions
+
+    return decode_rl_games_actions
+
+
+class LiveStarVlaWrapper:
+    """In-process stand-in for ``PolicyServerWrapper`` over a *live* framework.
+
+    During training the trainer already holds the model in memory
+    (``accelerator.unwrap_model(self.model)`` — the same object eval_core calls).
+    This wrapper exposes only the rl_games-mode surface ``StarVlaPolicyRunner``
+    uses — ``predict_action`` (framework forward + rl_games decode),
+    ``reset_memory`` passthrough, and the ``_model_cfg`` attribute — so no
+    checkpoint reload is needed. The disk-backed ``PolicyNormProcessor`` is never
+    built because rl_games decoding ignores un-normalization stats.
+    """
+
+    def __init__(
+        self,
+        *,
+        framework: Any,
+        model_cfg: dict[str, Any],
+        env_name: str,
+        action_layout: str = "",
+        multibinary_threshold: float = 0.0,
+    ) -> None:
+        self._framework = framework
+        self._model_cfg = model_cfg
+        self._rl_games_env_name = str(env_name)
+        self._decode_rl_games_actions = _load_decode_rl_games_actions()
+        self._action_layout = str(action_layout or "").strip().lower()
+        self._multibinary_threshold = float(multibinary_threshold)
+
+    def _uses_deadly_multibinary(self) -> bool:
+        return (
+            self._rl_games_env_name == "deadly_corridor"
+            and self._action_layout == "multibinary_7"
+        )
+
+    def reset_memory(self, slot_id: int | None = None) -> None:
+        reset = getattr(self._framework, "reset_memory", None)
+        if callable(reset):
+            reset(slot_id)
+
+    def predict_action(
+        self,
+        examples: list[dict[str, Any]],
+        unnorm_key: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        # unnorm_key is unused in rl_games mode; kept for interface parity.
+        del unnorm_key
+        profiler = kwargs["profiler"] if "profiler" in kwargs else None
+        out = self._framework.predict_action(examples=examples, **kwargs)
+        normalized = np.asarray(out["normalized_actions"])  # (B, T, D)
+        with _profiler_stage(profiler, "starvla_wrapper_rl_games_decode_ms"):
+            if self._uses_deadly_multibinary():
+                # Independent per-button thresholding (matches eval_core), instead
+                # of the shared argmax semantic_7 decode which can only ever fire a
+                # single button. The result is a 7-dim multibinary vector in fixed
+                # semantic order; DeadlyCorridorVlaEnvAdapter re-orders it to the
+                # live ViZDoom button layout before stepping.
+                buttons = (
+                    np.asarray(normalized, dtype=np.float32)[..., :7]
+                    >= self._multibinary_threshold
+                ).astype(np.int64)
+                return {
+                    "actions": buttons,
+                    "raw_action_scores": normalized,
+                    "action_output_type": "rl_games_deadly_corridor_multibinary",
+                }
+            return self._decode_rl_games_actions(
+                normalized_actions=normalized,
+                env_name=self._rl_games_env_name,
+            )
+
+
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -554,6 +731,9 @@ def _build_starvla_policy(
         if "latency_prompt_map_path" in policy_cfg
         else None
     )
+    latency_prompt_key = policy_cfg.get("latency_prompt_key")
+    prompt_mode = policy_cfg.get("prompt_mode")
+    image_transform_config = policy_cfg.get("image_transform_config")
     return StarVlaPolicyRunner(
         wrapper=wrapper,
         checkpoint_path=policy_cfg["checkpoint_path"],
@@ -563,12 +743,66 @@ def _build_starvla_policy(
         action_resolver=action_resolver,
         action_refs=policy_cfg.get("actions", action_resolver.default_action_refs()),
         latency_prompt_map=latency_prompt_map,
+        latency_prompt_key=latency_prompt_key,
+        prompt_mode=prompt_mode,
         obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
+        image_transform_config=image_transform_config,
+    )
+
+
+def build_live_starvla_policy(
+    *,
+    framework: Any,
+    model_cfg: dict[str, Any],
+    config: dict[str, Any],
+    action_resolver: ActionResolver,
+) -> StarVlaPolicyRunner:
+    """Build a StarVLA policy around a *live* in-memory framework (no reload).
+
+    Mirrors ``_build_starvla_policy`` but swaps the ckpt-loading
+    ``PolicyServerWrapper`` for :class:`LiveStarVlaWrapper`, so the trainer's
+    resident model is evaluated directly. ``model_cfg`` is the in-memory model
+    config (e.g. ``read_mode_config`` output) the wrapper would otherwise read
+    from disk.
+    """
+    policy_cfg = config["policy"]
+    unnorm_key = policy_cfg["unnorm_key"] if "unnorm_key" in policy_cfg else None
+    env_name = config["env"]["name"]
+    wrapper = LiveStarVlaWrapper(
+        framework=framework,
+        model_cfg=model_cfg,
+        env_name=env_name,
+        action_layout=str(policy_cfg.get("action_layout", "") or ""),
+        multibinary_threshold=float(policy_cfg.get("multibinary_threshold", 0.0) or 0.0),
+    )
+    latency_prompt_map = (
+        load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
+        if "latency_prompt_map_path" in policy_cfg
+        else None
+    )
+    latency_prompt_key = policy_cfg.get("latency_prompt_key")
+    prompt_mode = policy_cfg.get("prompt_mode")
+    image_transform_config = policy_cfg.get("image_transform_config")
+    return StarVlaPolicyRunner(
+        wrapper=wrapper,
+        checkpoint_path=policy_cfg.get("checkpoint_path", ""),
+        device=policy_cfg.get("device", "cuda"),
+        unnorm_key=unnorm_key,
+        env_name=env_name,
+        action_resolver=action_resolver,
+        action_refs=policy_cfg.get("actions", action_resolver.default_action_refs()),
+        latency_prompt_map=latency_prompt_map,
+        latency_prompt_key=latency_prompt_key,
+        prompt_mode=prompt_mode,
+        obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
+        image_transform_config=image_transform_config,
     )
 
 
 __all__ = [
+    "LiveStarVlaWrapper",
     "StarVlaPolicyRunner",
+    "build_live_starvla_policy",
     "decode_starvla_action",
     "observation_data_to_hwc_uint8_frames",
 ]

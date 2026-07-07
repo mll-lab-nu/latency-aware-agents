@@ -24,6 +24,12 @@ Optional environment variables:
   DEVICE              Sample Factory device override. Default: cpu.
   LATENCY_CONFIG      YAML file with a training-compatible latency: section.
   EXPORT_IMAGE_SIZE   Optional saved image size, e.g. 512,288.
+  IMAGE_TRANSFORM     Observation image transform: raw_rgb, flappy_ghost_trail, or demon_attack_ghost_trail. Default: raw_rgb.
+  GHOST_TRAIL_HISTORY_FRAMES  flappy_ghost_trail: past decision-step frames (default 5). demon_attack_ghost_trail: total consecutive raw frames in the trail window (use 30 for the validated continuous_30 ablation).
+  GHOST_TRAIL_GAMMA   For flappy_ghost_trail, alpha decay gamma. Default: 1.3.
+  GHOST_TRAIL_MIN_ALPHA  For flappy_ghost_trail, oldest ghost opacity floor. Default: 35.
+  GHOST_TRAIL_SCROLL_PX_PER_STEP  For flappy_ghost_trail, Flappy world-scroll pixels per decision step. Default: 4.0.
+  GHOST_TRAIL_GROUND_FRACTION  For flappy_ghost_trail, bottom-frame occlusion band. Default: 0.22.
   IMAGE_WRITER_WORKERS Optional async PNG writer threads. Default: exporter default.
   CONTEXT_WINDOW      Total image window. 1 keeps single-image export; N writes N-1 context_images.
   HF_REPO_ID          If set, upload the export to this Hugging Face dataset repo.
@@ -58,6 +64,12 @@ DEVICE="${DEVICE:-cpu}"
 HF_PRIVATE="${HF_PRIVATE:-0}"
 IMAGE_WRITER_WORKERS="${IMAGE_WRITER_WORKERS:-16}"
 CONTEXT_WINDOW="${CONTEXT_WINDOW:-1}"
+IMAGE_TRANSFORM="${IMAGE_TRANSFORM:-raw_rgb}"
+GHOST_TRAIL_HISTORY_FRAMES="${GHOST_TRAIL_HISTORY_FRAMES:-5}"
+GHOST_TRAIL_GAMMA="${GHOST_TRAIL_GAMMA:-1.3}"
+GHOST_TRAIL_MIN_ALPHA="${GHOST_TRAIL_MIN_ALPHA:-35}"
+GHOST_TRAIL_SCROLL_PX_PER_STEP="${GHOST_TRAIL_SCROLL_PX_PER_STEP:-4.0}"
+GHOST_TRAIL_GROUND_FRACTION="${GHOST_TRAIL_GROUND_FRACTION:-0.22}"
 
 CMD=(
     python scripts/rollout_data/export_sf_teacher_dataset.py
@@ -70,7 +82,18 @@ CMD=(
     --replay-num-envs "${REPLAY_NUM_ENVS}"
     --device "${DEVICE}"
     --context-window "${CONTEXT_WINDOW}"
+    --image-transform "${IMAGE_TRANSFORM}"
 )
+
+if [[ "${IMAGE_TRANSFORM}" == "flappy_ghost_trail" || "${IMAGE_TRANSFORM}" == "demon_attack_ghost_trail" ]]; then
+    CMD+=(
+        --ghost-trail-history-frames "${GHOST_TRAIL_HISTORY_FRAMES}"
+        --ghost-trail-gamma "${GHOST_TRAIL_GAMMA}"
+        --ghost-trail-min-alpha "${GHOST_TRAIL_MIN_ALPHA}"
+        --ghost-trail-scroll-px-per-step "${GHOST_TRAIL_SCROLL_PX_PER_STEP}"
+        --ghost-trail-ground-fraction "${GHOST_TRAIL_GROUND_FRACTION}"
+    )
+fi
 
 if [[ -n "${LATENCY_CONFIG:-}" ]]; then
     CMD+=(--latency-config "${LATENCY_CONFIG}")
@@ -107,6 +130,14 @@ printf '    checkpoint: %s\n' "${CHECKPOINT_ROOT}"
 printf '    output:     %s\n' "${OUTPUT_DIR}"
 printf '    probe envs: %s\n' "${NUM_ENVS}"
 printf '    replay envs: %s\n' "${REPLAY_NUM_ENVS}"
+printf '    image transform: %s\n' "${IMAGE_TRANSFORM}"
+if [[ "${IMAGE_TRANSFORM}" == "flappy_ghost_trail" || "${IMAGE_TRANSFORM}" == "demon_attack_ghost_trail" ]]; then
+    printf '    ghost history frames: %s\n' "${GHOST_TRAIL_HISTORY_FRAMES}"
+    printf '    ghost gamma: %s\n' "${GHOST_TRAIL_GAMMA}"
+    printf '    ghost min alpha: %s\n' "${GHOST_TRAIL_MIN_ALPHA}"
+    printf '    ghost scroll px/step: %s\n' "${GHOST_TRAIL_SCROLL_PX_PER_STEP}"
+    printf '    ghost ground fraction: %s\n' "${GHOST_TRAIL_GROUND_FRACTION}"
+fi
 if [[ -n "${LATENCY_CONFIG:-}" ]]; then
     printf '    latency:    %s\n' "${LATENCY_CONFIG}"
 else

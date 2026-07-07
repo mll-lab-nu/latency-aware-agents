@@ -44,9 +44,17 @@ def write_json(path: str | Path, obj: Any) -> None:
 
 
 def write_jsonl(path: str | Path, records: Any) -> None:
+    _write_jsonl_records(path, records, mode="w")
+
+
+def append_jsonl(path: str | Path, records: Any) -> None:
+    _write_jsonl_records(path, records, mode="a")
+
+
+def _write_jsonl_records(path: str | Path, records: Any, *, mode: str) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
+    with path.open(mode, encoding="utf-8") as f:
         f.writelines(
             json.dumps(to_jsonable(record), sort_keys=True, ensure_ascii=False) + "\n"
             for record in records

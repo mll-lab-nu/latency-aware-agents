@@ -15,7 +15,7 @@ env:
   obs_resize: [224, 224]
   terminal_on_life_loss: false
   clip_reward: false
-  fire_reset: false
+  reset_mode: noop
 
 policy:
   type: starvla
@@ -36,7 +36,8 @@ latency:
 
 evaluation:
   eval_episodes: 20
-  eval_parallel_envs: 1
+  eval_parallel_envs: 4
+  latency_bench_env_backend: subproc
   eval_max_steps: 14400
   eval_suites:
     fixed:
@@ -46,5 +47,9 @@ evaluation:
 
 logging:
   output_dir: outputs/starvla_openvla_demon_attack_fix_latency_0_200ep
+  simulated_pipeline_profile: true
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false
   video:
     enabled: false

@@ -13,9 +13,7 @@ def attach_hardware_fingerprint(profile_dir: str | Path, fingerprint: Mapping[st
 
     The fingerprint is the single source of truth for a profile's hardware/runtime
     provenance. It is written to `hardware.json`; when `profile.json` exists, the same
-    payload is merged into `profile["hardware"]`. `profile["diagnostics_path"]` is kept
-    as a backward-compatible pointer to `hardware.json` (the diagnostics payload *is* the
-    hardware fingerprint — there is no separate `diagnostics.json`).
+    payload is merged into `profile["hardware"]`.
 
     Returns the path to the written `hardware.json`.
     """
@@ -26,7 +24,6 @@ def attach_hardware_fingerprint(profile_dir: str | Path, fingerprint: Mapping[st
     if profile_path.exists():
         profile = load_profile_manifest(profile_path)
         profile["hardware"] = dict(fingerprint)
-        profile["diagnostics_path"] = hardware_path.name
         save_profile_manifest(profile, profile_path)
     return hardware_path
 

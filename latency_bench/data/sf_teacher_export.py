@@ -13,9 +13,10 @@ from latency_bench.data.hf_parquet import (
     image_metadata_from_shards,
     write_parquet_splits_from_shards,
 )
-from latency_bench.data.prompts import BASE_PROMPTS, TIMING_SUFFIX
+from latency_bench.data.prompts import BASE_PROMPTS, IMAGE_TRANSFORM_CONTEXTS, TIMING_SUFFIX
 from latency_bench.data.action_layouts import action_spec_for_env
 from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1, FILTER_PRESET_NONE
+from latency_bench.data.ghost_trail import GhostTrailConfig
 from latency_bench.data.sf_teacher_config import load_rollout_training_config
 from latency_bench.data.sf_teacher_rollout import collect_teacher_dataset
 from latency_bench.utils.hf import resolve_token
@@ -52,6 +53,31 @@ def push_dataset_to_hub(
     dataset_dict.push_to_hub(**push_kwargs)
 
 
+def _load_written_parquet_splits(output_dir: Path) -> Any:
+    """Load on-disk train/val parquet memory-mapped for a low-RAM hub push.
+
+    The parquet files embed image bytes. Reading them fully into memory
+    (``pq.read_table``) and then pushing rebuilds the whole image-embedded dataset in RAM,
+    which OOMs on large datasets. ``Dataset.from_parquet`` memory-maps the Arrow data from
+    disk so the push streams shard-by-shard with bounded memory. Features (incl. the
+    embedded Image column) are restored from the parquet's Hugging Face metadata.
+
+    Args:
+        output_dir: Directory containing ``train.parquet`` and ``val.parquet``.
+
+    Returns:
+        A ``DatasetDict`` with memory-mapped ``train``/``val`` splits.
+    """
+    from datasets import Dataset, DatasetDict
+
+    return DatasetDict(
+        {
+            "train": Dataset.from_parquet(str(output_dir / "train.parquet")),
+            "val": Dataset.from_parquet(str(output_dir / "val.parquet")),
+        }
+    )
+
+
 def export_sample_factory_teacher_dataset(
     *,
     checkpoint_root: str | Path,
@@ -78,6 +104,9 @@ def export_sample_factory_teacher_dataset(
     filter_kwargs: dict[str, Any] | None = None,
     hf_config_name: str = "",
     context_window: int = 1,
+    rollout_seed_offset: int = 0,
+    probe_only: bool = False,
+    image_transform_config: GhostTrailConfig | None = None,
 ) -> dict[str, Any]:
     """Collect and write a canonical Sample Factory teacher dataset.
 
@@ -103,6 +132,8 @@ def export_sample_factory_teacher_dataset(
         hf_token: Explicit Hugging Face token.
         hf_max_shard_size: Hub upload shard size.
         context_window: Total image window length including the current ``image`` field.
+        image_transform_config: Optional image transform applied during replay
+            before row filtering.
 
     Returns:
         Final metadata written to ``metadata.json``.
@@ -130,13 +161,21 @@ def export_sample_factory_teacher_dataset(
         filter_preset=str(filter_preset),
         filter_kwargs=filter_kwargs,
         context_window=int(context_window),
+        rollout_seed_offset=int(rollout_seed_offset),
+        probe_only=bool(probe_only),
+        image_transform_config=image_transform_config,
     )
+    if probe_only:
+        # Sharded-probe worker: probe_state.json holds this shard's accepted specs.
+        # Skip parquet/image materialization and hub upload; the merge + replay step
+        # handles the combined dataset.
+        return rollout_metadata
     split_stats = episode_row_split_stats(output_dir)
     shard_image_metadata = image_metadata_from_shards(output_dir)
-    dataset_dict = write_parquet_splits_from_shards(
+    write_parquet_splits_from_shards(
         output_dir,
         action_spec=action_spec_for_env(str(config["env_name"])),
-        keep_dataset=bool(push_to_hub),
+        keep_dataset=False,
     )
     metadata = {
         **config_metadata,
@@ -144,6 +183,7 @@ def export_sample_factory_teacher_dataset(
         "env_name": config["env_name"],
         "prompt_source": "latency_bench.data.prompts",
         "base_prompt": BASE_PROMPTS[str(config["env_name"])],
+        "image_transform_prompt_contexts": IMAGE_TRANSFORM_CONTEXTS,
         "prompt_timing_suffix": TIMING_SUFFIX,
         "max_episodes": int(max_episodes),
         "max_steps_per_episode": int(max_steps_per_episode),
@@ -175,8 +215,12 @@ def export_sample_factory_teacher_dataset(
     cleanup_rollout_intermediates(output_dir)
 
     if push_to_hub:
+        # Load the just-written parquet memory-mapped for the push. Building the
+        # DatasetDict via pq.read_table (the old keep_dataset path) pulls the whole
+        # image-embedded dataset into RAM and OOMs on large datasets; from_parquet
+        # memory-maps the Arrow data so push_to_hub streams shard-by-shard.
         push_dataset_to_hub(
-            dataset_dict,
+            _load_written_parquet_splits(output_dir),
             repo_id=str(hf_repo_id),
             private=bool(hf_private),
             token=resolve_token(str(hf_token)),

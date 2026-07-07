@@ -9,16 +9,15 @@ ROOT=results/cross_device
 TABLES_DIR=results/cross_device/tables
 PAPER_ROOT=paper/latency-sensitive-vla/figures/4_1_cross_device_sim
 
-python -m scripts.cross_device.protocol aggregate \
+python -m latency_bench.cross_device.protocol aggregate \
   --spec "$SPEC" \
   --root "$ROOT" \
   --out "$TABLES_DIR" \
   --only-policy openvla-flappy \
   --overwrite
 
-python -m scripts.cross_device.build_figure_data \
+python -m latency_bench.analysis.cross_device_figure_data \
   --tables-dir "$TABLES_DIR" \
-  --profiles-root "$ROOT" \
   --out-fig "$PAPER_ROOT/fig6_cross_device/data.csv" \
   --out-table "$PAPER_ROOT/table3_latency_profiles/data.csv" \
   --spec "$SPEC" \

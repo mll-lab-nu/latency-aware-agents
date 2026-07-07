@@ -10,6 +10,7 @@ from typing import Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from latency_bench.data.ghost_trail import GhostTrailConfig
 from latency_bench.data.sf_teacher_export import export_sample_factory_teacher_dataset
 
 
@@ -57,9 +58,39 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hf-token", type=str, default="")
     parser.add_argument("--hf-max-shard-size", type=str, default="500MB")
     parser.add_argument("--hf-config-name", type=str, default="")
-    parser.add_argument("--filter-preset", type=str, default="clean_v1", choices=["none", "clean_v1"])
+    parser.add_argument(
+        "--filter-preset", type=str, default="clean_v1", choices=["none", "clean_v1", "contiguous_v1"]
+    )
     parser.add_argument("--demon-episode-threshold", type=float, default=None,
                         help="Override Demon Attack episode-level clipped return threshold.")
+    parser.add_argument("--rollout-seed-offset", type=int, default=0,
+                        help="Offset added to the probe reset base seed so sharded probe workers "
+                             "explore disjoint episodes. Default 0 reproduces single-process behavior.")
+    parser.add_argument("--probe-only", action="store_true",
+                        help="Run only the probe phase and persist probe_state.json (no replay/parquet). "
+                             "Used by sharded probe workers; merge + single-process replay materialize the dataset.")
+    parser.add_argument(
+        "--image-transform",
+        type=str,
+        default="raw_rgb",
+        choices=["raw_rgb", "flappy_ghost_trail", "demon_attack_ghost_trail"],
+        help="Observation image transform applied during replay before row filtering.",
+    )
+    parser.add_argument(
+        "--ghost-trail-history-frames",
+        type=int,
+        default=5,
+        help=(
+            "For flappy_ghost_trail, number of past decision-step frames to composite "
+            "behind the current frame. For demon_attack_ghost_trail, the total number "
+            "of consecutive raw frames in the trail window (inclusive of the current "
+            "frame); use 30 to match the validated continuous_30 ablation."
+        ),
+    )
+    parser.add_argument("--ghost-trail-gamma", type=float, default=1.3)
+    parser.add_argument("--ghost-trail-min-alpha", type=int, default=35)
+    parser.add_argument("--ghost-trail-ground-fraction", type=float, default=0.22)
+    parser.add_argument("--ghost-trail-scroll-px-per-step", type=float, default=4.0)
     return parser
 
 
@@ -102,8 +133,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         filter_preset=str(args.filter_preset),
         filter_kwargs=filter_kwargs or None,
         context_window=int(args.context_window),
+        rollout_seed_offset=int(args.rollout_seed_offset),
+        probe_only=bool(args.probe_only),
+        image_transform_config=GhostTrailConfig(
+            image_transform=str(args.image_transform),
+            history_frames=int(args.ghost_trail_history_frames),
+            gamma=float(args.ghost_trail_gamma),
+            min_alpha=int(args.ghost_trail_min_alpha),
+            ground_fraction=float(args.ghost_trail_ground_fraction),
+            scroll_px_per_step=float(args.ghost_trail_scroll_px_per_step),
+        ),
     )
-    print(f"[export] wrote train={metadata['train_rows']} rows val={metadata['val_rows']} rows to {output_dir}")
+    if metadata.get("probe_only"):
+        print(f"[probe-only] wrote {metadata.get('accepted_episodes')} accepted specs to {output_dir}")
+    else:
+        print(f"[export] wrote train={metadata['train_rows']} rows val={metadata['val_rows']} rows to {output_dir}")
     return 0
 
 
