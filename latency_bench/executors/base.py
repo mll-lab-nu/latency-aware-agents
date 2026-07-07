@@ -5,9 +5,6 @@ Executors split into two families that share the same lifecycle contract
 
 - :class:`EpisodeExecutor` runs one episode at a time via ``run_episode``.
 - :class:`BatchedExecutor` runs many episodes concurrently via ``run_episodes``.
-
-``run_warmup`` remains an optional, executor-specific capability detected by
-presence at the call site rather than declared here.
 """
 
 from __future__ import annotations
@@ -25,6 +22,10 @@ class Executor(ABC):
     """Base for all latency executors."""
     env: Any
     logger: TrajectoryLogger | None
+
+    def run_warmup(self) -> dict[str, Any]:
+        """Warm up before evaluation; returns metadata merged into episode metrics."""
+        return {}
 
     def close(self) -> None:
         self.env.close()
