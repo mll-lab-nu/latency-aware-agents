@@ -97,6 +97,8 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
         raise ValueError("Simulated replay task requires a profile_path")
     profile = load_profile_manifest(task.target_profile_path)
     _patch_env_from_profile(config, task.target_profile_path)
+    if "sim_env" in task.row:
+        config["env"].update(task.row["sim_env"])
     config.setdefault("executor", {})["mode"] = "simulated"
     config["executor"]["simulated_worker_capacity"] = profile["inference_worker_count"]
     latency = {
