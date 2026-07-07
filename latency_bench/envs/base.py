@@ -39,6 +39,15 @@ class EnvAdapter(ABC):
             metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
         return metadata
 
+    def _make_observation(self, info: dict[str, Any]) -> Observation:
+        metadata = self._metadata(info)
+        return Observation(
+            data=self._last_frame,
+            env_step=self.env_step,
+            sim_time_ms=self.env_step * self.frame_ms,
+            metadata=metadata,
+        )
+
     def observe(self) -> Observation:
         info = self.get_state_info()
         frame = self.render_frame()
@@ -50,7 +59,16 @@ class EnvAdapter(ABC):
         )
 
     def render_frame(self) -> Any:
-        return None
+        return self._last_frame
+
+    def _reset_raw_rgb_frame_stack(self) -> None:
+        self._raw_rgb_frames.reset(self.render_game_frame())
+
+    def _append_raw_rgb_frame(self) -> None:
+        self._raw_rgb_frames.append(self.render_game_frame())
+
+    def _raw_rgb_frame_stack(self) -> np.ndarray:
+        return self._raw_rgb_frames.stack()
 
     def render_game_frame(self) -> Any:
         """Return the raw RGB game image used for human video visualization.
@@ -62,7 +80,15 @@ class EnvAdapter(ABC):
         raise NotImplementedError
 
     def get_state_info(self) -> dict[str, Any]:
-        return {}
+        info = dict(self._last_info)
+        info.update(
+            {
+                "env_step": self.env_step,
+                "sim_time_ms": self.env_step * self.frame_ms,
+                "observation": self.OBSERVATION_TYPE,
+            }
+        )
+        return info
 
     def close(self) -> None:
         return None

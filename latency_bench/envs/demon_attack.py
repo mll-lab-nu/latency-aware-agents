@@ -153,22 +153,8 @@ class DemonAttackEnvAdapter(EnvAdapter):
             metadata=metadata,
         )
 
-    def render_frame(self) -> Any:
-        return self._last_frame
-
     def render_game_frame(self) -> np.ndarray:
         return self.gym_env.unwrapped.ale.getScreenRGB()
-
-    def get_state_info(self) -> dict[str, Any]:
-        info = dict(self._last_info)
-        info.update(
-            {
-                "env_step": self.env_step,
-                "sim_time_ms": self.env_step * self.frame_ms,
-                "observation": "atari_frame_v1",
-            }
-        )
-        return info
 
     def close(self) -> None:
         self.gym_env.close()
@@ -178,30 +164,12 @@ class DemonAttackEnvAdapter(EnvAdapter):
         _validate_expected_action_meanings(env, self._expected_action_meanings)
         return env
 
-    def _make_observation(self, info: dict[str, Any]) -> Observation:
-        metadata = self._metadata(info)
-        return Observation(
-            data=self._last_frame,
-            env_step=self.env_step,
-            sim_time_ms=self.env_step * self.frame_ms,
-            metadata=metadata,
-        )
-
     def _reset_frame_stack(self, frame: Any) -> None:
         self._observed_frames.clear()
         self._append_frame(frame)
 
     def _append_frame(self, frame: Any) -> None:
         self._observed_frames.append(np.asarray(frame, dtype=np.uint8))
-
-    def _reset_raw_rgb_frame_stack(self) -> None:
-        self._raw_rgb_frames.reset(self.render_game_frame())
-
-    def _append_raw_rgb_frame(self) -> None:
-        self._raw_rgb_frames.append(self.render_game_frame())
-
-    def _raw_rgb_frame_stack(self) -> np.ndarray:
-        return self._raw_rgb_frames.stack()
 
     def _policy_frame_stack(self) -> np.ndarray:
         frames = list(self._observed_frames)

@@ -6,6 +6,7 @@ import numpy as np
 
 from latency_bench.core.types import Action
 from latency_bench.envs.deadly_corridor import DeadlyCorridorEnvAdapter
+from training.common.raw_rgb_export import RawRgbFrameStackBuffer
 
 
 class ScriptedVizdoomGame:
@@ -59,7 +60,7 @@ def test_deadly_corridor_reset_reseeds_initialized_vizdoom_game_before_episode()
     adapter._last_info = {}
     adapter._last_frame = None
     adapter._observed_frames = deque(maxlen=4)
-    adapter._raw_rgb_frames = deque(maxlen=4)
+    adapter._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=4)
 
     adapter.reset(seed=17)
 
@@ -79,7 +80,7 @@ def test_deadly_corridor_observe_stacks_raw_frames_between_policy_observations()
     adapter._last_info = {}
     adapter._last_frame = None
     adapter._observed_frames = deque(maxlen=2)
-    adapter._raw_rgb_frames = deque(maxlen=2)
+    adapter._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=2)
 
     adapter.reset(seed=None)
     first_policy_observation = adapter.observe()
