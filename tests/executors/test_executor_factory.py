@@ -328,9 +328,9 @@ def test_simulated_parallel_builds_batched_executor_for_distribution_latency(tmp
 
 
 def test_seeded_stochastic_latency_source_factory_derives_episode_streams():
-    from latency_bench.executors.factory import _build_episode_latency_source_factory
+    from latency_bench.latency.samplers import build_episode_sampler_factory
 
-    factory = _build_episode_latency_source_factory(
+    factory = build_episode_sampler_factory(
         {
             "type": "normal_distribution",
             "mean_latency_ms": 10.0,

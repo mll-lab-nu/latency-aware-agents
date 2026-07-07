@@ -11,7 +11,6 @@ from gymnasium.spaces import Discrete, MultiDiscrete, Tuple
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.latency_distribution import derive_latency_seed
 from latency_bench.core.types import ActionHoldPolicy, ExecutorMode, OrderingPolicy
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import build_env_adapter
@@ -26,8 +25,10 @@ from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.latency.samplers import (
+    BATCHED_SIMULATED_METHODS,
     LatencySampler,
     ZeroSampler,
+    build_episode_sampler_factory,
     build_sampler,
     resolve_latency_method,
 )
@@ -186,7 +187,7 @@ def _build_simulated_executor(
     if (
         eval_parallel_envs > 1
         and num_episodes > 0
-        and _supports_phase_3b_batched_latency(config.get("latency", {}))
+        and resolve_latency_method(config.get("latency", {})) in BATCHED_SIMULATED_METHODS
     ):
         return _build_batched_simulated_executor(
             config, max_parallel_envs=min(eval_parallel_envs, num_episodes), policy=policy
@@ -210,7 +211,7 @@ def _build_single_simulated_executor(
     c = _build_common_executor_components(config)
     policy = _resolve_policy(config, c.action_resolver, policy)
     latency_source = _build_latency_source(config["latency"], c.clock)
-    episode_latency_source_factory = _build_episode_latency_source_factory(config["latency"], c.clock)
+    episode_latency_source_factory = build_episode_sampler_factory(config["latency"], c.clock)
     return SimulatedLatencyExecutor(
         env=c.env,
         policy=policy,
@@ -288,7 +289,7 @@ def _build_batched_simulated_executor(
             for env in env_backend.slot_handles
         ]
         logger = _build_trajectory_logger(config)
-        episode_latency_source_factory = _build_episode_latency_source_factory(config["latency"], clock)
+        episode_latency_source_factory = build_episode_sampler_factory(config["latency"], clock)
         return BatchedSimulatedLatencyExecutor(
             env_backend=env_backend,
             policy=policy,
@@ -409,26 +410,6 @@ def _build_latency_source(latency_cfg: dict[str, Any], clock: EnvClock) -> Laten
     return build_sampler(latency_cfg, clock=clock, seed=latency_cfg.get("seed"))
 
 
-_SEEDED_STOCHASTIC_METHODS = {"normal", "uniform", "iid", "temporal", "profile_default"}
-
-
-def _build_episode_latency_source_factory(
-    latency_cfg: dict[str, Any],
-    clock: EnvClock,
-) -> Callable[[int], LatencySampler] | None:
-    if resolve_latency_method(latency_cfg) not in _SEEDED_STOCHASTIC_METHODS:
-        return None
-    if "seed" not in latency_cfg:
-        return None
-
-    def build_for_episode(episode_id: int) -> LatencySampler:
-        episode_latency_cfg = dict(latency_cfg)
-        episode_latency_cfg["seed"] = derive_latency_seed(latency_cfg["seed"], episode_idx=episode_id)
-        return _build_latency_source(episode_latency_cfg, clock)
-
-    return build_for_episode
-
-
 def _build_ordering_policy(scheduler_cfg: dict[str, Any]) -> OrderingPolicy:
     _raise_if_unsupported_scheduler_fields(scheduler_cfg)
     ordering_policy = scheduler_cfg.get("ordering_policy", OrderingPolicy.ISSUE_ORDER_FIFO.value)
@@ -533,18 +514,6 @@ def _auto_latency_bench_env_backend(config: dict[str, Any]) -> str:
     if env_name in _AUTO_SUBPROC_ENV_NAMES:
         return "subproc"
     return "serial"
-
-
-def _supports_phase_3b_batched_latency(latency_cfg: dict[str, Any]) -> bool:
-    return resolve_latency_method(latency_cfg) in {
-        "zero",
-        "fixed",
-        "normal",
-        "uniform",
-        "iid",
-        "temporal",
-        "profile_default",
-    }
 
 
 def _raise_if_unsupported_batched_action_space(envs: list[EnvAdapter]) -> None:
