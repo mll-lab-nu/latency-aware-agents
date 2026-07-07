@@ -6,13 +6,12 @@ from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors.base import EpisodeExecutor
 from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
-    active_action_step_info,
     apply_latency_raw_fields,
     apply_latency_record_raw_fields,
     compute_episode_metrics,
     episode_raw_fact_metadata,
 )
-from latency_bench.logging.records import step_record_info
+from latency_bench.logging.records import build_step_record
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
@@ -124,25 +123,18 @@ class PausedLatencyExecutor(EpisodeExecutor):
             episode_done = result.done or result.truncated
             if self.video_recorder is not None and not episode_done:
                 self.video_recorder.record_frame(self.env.render_game_frame())
-            step_info = step_record_info(result.info)
-            step_info.update(
-                active_action_step_info(
-                    active_event=self.action_scheduler.latest_applied_event,
-                    env_step=env_step,
-                    scheduled_time_ms=current_time_ms,
-                    frame_ms=self.clock.frame_ms,
-                    latency_type=latency_type,
-                    profile_metadata={},
-                )
-            )
-            record = StepRecord(
+            record = build_step_record(
                 episode_id=episode_id,
                 env_step=env_step,
-                sim_time_ms=current_time_ms,
+                scheduled_time_ms=current_time_ms,
                 active_action=active_action,
-                reward=float(result.reward),
+                reward=result.reward,
                 done=episode_done,
-                info=step_info,
+                info=result.info,
+                active_event=self.action_scheduler.latest_applied_event,
+                frame_ms=self.clock.frame_ms,
+                latency_type=latency_type,
+                profile_metadata={},
             )
             step_records.append(record)
             if self.logger is not None:
