@@ -14,6 +14,7 @@ from training.common.utils import seed_everything
 from latency_bench.core.types import EpisodeMetrics, ExecutorMode
 from latency_bench.eval.config import _episode_seed, _eval_episodes, _eval_max_steps
 from latency_bench.eval.reporting import _write_non_sweep_summary
+from latency_bench.executors.base import BatchedExecutor
 from latency_bench.executors.factory import build_executor
 from latency_bench.executors.realtime_warmup import plot_realtime_eval_latency
 from latency_bench.logging.action_trace_replay import record_videos_from_action_trace
@@ -41,10 +42,8 @@ def run_from_config(
     executor = build_executor(config, **({"policy": policy} if policy is not None else {}))
     metrics = []
     try:
-        run_warmup = getattr(executor, "run_warmup", None)
-        warmup_metadata = run_warmup() if callable(run_warmup) else {}
-        run_episodes = getattr(executor, "run_episodes", None)
-        if callable(run_episodes):
+        warmup_metadata = executor.run_warmup()
+        if isinstance(executor, BatchedExecutor):
             run_episodes_kwargs: dict[str, Any] = {
                 "episode_ids": selected_episode_ids,
                 "seeds": [_episode_seed(config, episode_id) for episode_id in selected_episode_ids],
@@ -52,7 +51,7 @@ def run_from_config(
             }
             if on_episode_complete is not None:
                 run_episodes_kwargs["on_episode_complete"] = on_episode_complete
-            metrics = list(run_episodes(**run_episodes_kwargs))
+            metrics = list(executor.run_episodes(**run_episodes_kwargs))
         else:
             for episode_id in selected_episode_ids:
                 episode_metrics = executor.run_episode(
