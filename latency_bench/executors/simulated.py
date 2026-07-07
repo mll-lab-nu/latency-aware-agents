@@ -9,7 +9,6 @@ from latency_bench.executors._simulated_timeline import SimulatedWorkerCapacity
 from latency_bench.executors.base import EpisodeExecutor
 from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
-    active_action_step_info,
     apply_latency_raw_fields,
     apply_latency_record_raw_fields,
     compute_episode_metrics,
@@ -17,7 +16,7 @@ from latency_bench.logging.metrics import (
     latency_type_from_source,
     profile_metadata_from_source,
 )
-from latency_bench.logging.records import step_record_info
+from latency_bench.logging.records import build_step_record
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
@@ -187,34 +186,27 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
             episode_done = result.done or result.truncated and not soft_reset
             if self.video_recorder is not None and not episode_done:
                 self.video_recorder.record_frame(self.env.render_game_frame())
-            step_info = step_record_info(result.info)
+            pre_active_info = None
             if self.simulated_worker_capacity is not None:
-                step_info.update(
-                    {
-                        "observation_submitted": observation_submitted,
-                        "observation_dropped": observation_dropped,
-                        "in_flight_count": worker_capacity.in_flight_count,
-                        "idle_worker_count": worker_capacity.idle_worker_count,
-                    }
-                )
-            step_info.update(
-                active_action_step_info(
-                    active_event=self.action_scheduler.latest_applied_event,
-                    env_step=raw_frame,
-                    scheduled_time_ms=current_time_ms,
-                    frame_ms=self.clock.frame_ms,
-                    latency_type=latency_type,
-                    profile_metadata=profile_metadata_from_source(self.latency_source),
-                )
-            )
-            record = StepRecord(
+                pre_active_info = {
+                    "observation_submitted": observation_submitted,
+                    "observation_dropped": observation_dropped,
+                    "in_flight_count": worker_capacity.in_flight_count,
+                    "idle_worker_count": worker_capacity.idle_worker_count,
+                }
+            record = build_step_record(
                 episode_id=episode_id,
                 env_step=raw_frame,
-                sim_time_ms=current_time_ms,
+                scheduled_time_ms=current_time_ms,
                 active_action=active_action,
-                reward=float(result.reward),
+                reward=result.reward,
                 done=episode_done,
-                info=step_info,
+                info=result.info,
+                active_event=self.action_scheduler.latest_applied_event,
+                frame_ms=self.clock.frame_ms,
+                latency_type=latency_type,
+                profile_metadata=profile_metadata_from_source(self.latency_source),
+                pre_active_info=pre_active_info,
             )
             step_records.append(record)
             if self.logger is not None:

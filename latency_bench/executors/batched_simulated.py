@@ -15,7 +15,6 @@ from latency_bench.executors.env_step_backend import EnvStepBackend
 from latency_bench.latency.sample import LatencySample
 from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
-    active_action_step_info,
     apply_latency_raw_fields,
     apply_latency_record_raw_fields,
     compute_episode_metrics,
@@ -24,7 +23,7 @@ from latency_bench.logging.metrics import (
     latency_type_from_source,
     profile_metadata_from_source,
 )
-from latency_bench.logging.records import step_record_info
+from latency_bench.logging.records import build_step_record
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
@@ -58,14 +57,15 @@ class _EpisodeBuffers:
             self.game_score = float(info["game_score"])
         if "score" in info:
             self.game_score = float(info["score"])
-        for key in ("return_raw", "raw_return", "episodic_raw_return", "episode/raw_return"):
-            if key in info and info[key] is not None:
-                self.return_raw = float(info[key])
+        self._update_return_raw(info)
         extra_stats = info["episode_extra_stats"] if "episode_extra_stats" in info else None
         if isinstance(extra_stats, dict):
-            for key in ("return_raw", "raw_return", "episodic_raw_return", "episode/raw_return"):
-                if key in extra_stats and extra_stats[key] is not None:
-                    self.return_raw = float(extra_stats[key])
+            self._update_return_raw(extra_stats)
+
+    def _update_return_raw(self, stats: dict) -> None:
+        for key in ("return_raw", "raw_return", "episodic_raw_return", "episode/raw_return"):
+            if key in stats and stats[key] is not None:
+                self.return_raw = float(stats[key])
 
 
 @dataclass
@@ -160,8 +160,6 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         self._next_action_id = 0
         self.started_episodes = 0
         self.completed_episodes = 0
-        self.active_slots = 0
-        self.slot_episode_id: list[int | None] = [None for _slot in self.slots]
         self._completed_metrics: dict[int, EpisodeMetrics] = {}
         self._completed_buffers: dict[int, _EpisodeBuffers] = {}
         self._episode_log_order: list[int] = []
@@ -293,29 +291,21 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                 soft_reset = bool(result.info.get("soft_reset")) if isinstance(result.info, dict) else False
                 episode_done = bool(result.done or result.truncated) and not soft_reset
                 if slot.buffers.step_records is not None:
-                    latency_type = latency_type_from_source(slot.latency_source)
-                    step_info = step_record_info(result.info)
-                    step_info.update(
-                        active_action_step_info(
-                            active_event=slot.action_scheduler.latest_applied_event,
-                            env_step=slot.env_step,
-                            scheduled_time_ms=current_time_ms,
-                            frame_ms=self.clock.frame_ms,
-                            latency_type=latency_type,
-                            profile_metadata=profile_metadata_from_source(slot.latency_source),
-                        )
-                    )
-                    record = StepRecord(
+                    record = build_step_record(
                         episode_id=int(slot.episode_id),
                         env_step=slot.env_step,
-                        sim_time_ms=current_time_ms,
+                        scheduled_time_ms=current_time_ms,
                         active_action=active_action,
-                        reward=float(result.reward),
+                        reward=result.reward,
                         done=episode_done,
-                        info=step_info,
+                        info=result.info,
+                        active_event=slot.action_scheduler.latest_applied_event,
+                        frame_ms=self.clock.frame_ms,
+                        latency_type=latency_type_from_source(slot.latency_source),
+                        profile_metadata=profile_metadata_from_source(slot.latency_source),
                     )
                     slot.buffers.step_records.append(record)
-                    slot.buffers.record_step(reward=float(result.reward), info=step_info)
+                    slot.buffers.record_step(reward=float(result.reward), info=record.info)
                 else:
                     slot.buffers.record_step(reward=float(result.reward), info=result.info)
                 if self.simulated_worker_capacity is not None and slot.buffers.step_records is not None:
@@ -397,8 +387,6 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
     def _reset_run_state(self, episode_ids: Sequence[int]) -> None:
         self.started_episodes = 0
         self.completed_episodes = 0
-        self.active_slots = 0
-        self.slot_episode_id = [None for _slot in self.slots]
         self._pipeline_profile_rows.clear()
         self._completed_metrics.clear()
         self._completed_buffers.clear()
@@ -430,9 +418,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot.worker_capacity.reset()
         self.policy.reset_state(slot_id=slot.slot_id)
         self.env_backend.reset_slot(slot.slot_id, episode_id=episode_id, seed=seed)
-        self.slot_episode_id[slot.slot_id] = int(episode_id)
         self.started_episodes += 1
-        self.active_slots = sum(1 for item in self.slots if item.active)
 
     def _complete_slot(
         self,
@@ -480,8 +466,6 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot.buffers = self._new_episode_buffers()
         slot.action_scheduler.reset()
         slot.worker_capacity.reset()
-        self.slot_episode_id[slot.slot_id] = None
-        self.active_slots = sum(1 for item in self.slots if item.active)
         self._flush_completed_in_episode_order()
         if on_episode_complete is not None:
             on_episode_complete(metrics)
