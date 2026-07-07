@@ -205,6 +205,7 @@ def test_latency_config_override_is_explicit_rollout_override(tmp_path):
     [
         ("latency_flappy", "flappy_sf_same_latency_l1_seed0", 1000.0 / 30.0),
         ("latency_demon_attack", "demon_attack_sf_same_latency_l1_seed0", 4 * 1000.0 / 60.0),
+        ("latency_demon_attack", "demon_attack_sf_same_latency_l2_seed0", 8 * 1000.0 / 60.0),
         ("doom_deadly_corridor", "deadly_corridor_sf_same_latency_l1_seed0", 4 * 1000.0 / 35.0),
     ],
 )
@@ -1231,6 +1232,52 @@ def test_write_filtered_episode_images_preserves_empty_filtered_episode(tmp_path
     rows = _write_filtered_episode_images(image_writer, [], {}, context_window=5)
 
     assert rows == []
+
+
+def test_write_filtered_episode_images_resets_context_after_decision_step_gap(tmp_path):
+    from PIL import Image
+    from latency_bench.data.rollout_image_io import RolloutImageWriter
+    from latency_bench.data.sf_teacher_rollout import _write_filtered_episode_images
+
+    image_writer = RolloutImageWriter(max_workers=0, row_buffer_size=1, export_image_size=None)
+    rows = [
+        {
+            "image": str(tmp_path / "images" / "train" / "episode_000000" / f"decision_step_{step:06d}.png"),
+            "decision_step": step,
+        }
+        for step in [0, 1, 4, 5]
+    ]
+    frames_by_decision_step = {
+        step: np.full((2, 2, 3), step * 10, dtype=np.uint8)
+        for step in [0, 1, 4, 5]
+    }
+
+    written_rows = _write_filtered_episode_images(
+        image_writer,
+        rows,
+        frames_by_decision_step,
+        context_window=4,
+    )
+
+    context_values = [
+        [
+            np.asarray(Image.open(path))[0, 0, 0].item()
+            for path in row["context_images"]
+        ]
+        for row in written_rows
+    ]
+    current_values = [
+        np.asarray(Image.open(row["image"]))[0, 0, 0].item()
+        for row in written_rows
+    ]
+
+    assert context_values == [
+        [0, 0, 0],
+        [0, 0, 0],
+        [40, 40, 40],
+        [40, 40, 40],
+    ]
+    assert current_values == [0, 10, 40, 50]
 
 
 def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tmp_path):
