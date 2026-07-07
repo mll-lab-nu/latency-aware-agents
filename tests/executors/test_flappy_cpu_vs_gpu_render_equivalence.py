@@ -178,6 +178,20 @@ def test_flappy_cpu_adapter_matches_gpu_batched_backend_raw_stack_and_dynamics(t
         cpu.close()
 
 
+def test_flappy_gpu_batched_backend_defaults_to_cpu_simulator(tmp_path):
+    pytest.importorskip("torch")
+    from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore
+    from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
+
+    config = _gpu_backend_config(str(tmp_path), frame_stack=1)
+    del config["env"]["simulator"]
+    backend = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=1)
+    try:
+        assert isinstance(backend.core, BatchedFlappyBirdCore)
+    finally:
+        backend.close()
+
+
 def _f32(value: Any) -> Any:
     value = np.float32(value)
     return None if np.isnan(value) else value

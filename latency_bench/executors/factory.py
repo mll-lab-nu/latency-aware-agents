@@ -516,6 +516,14 @@ def _auto_latency_bench_env_backend(config: dict[str, Any]) -> str:
     env_cfg = config.get("env", {})
     env_name = str(env_cfg.get("name", "")).strip().lower()
     policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
+    if env_name == "flappy" and policy_type == "starvla":
+        # starvla consumes only the native raw RGB stack, which is bit-exact
+        # between the pygame and torch render paths
+        # (tests/executors/test_flappy_cpu_vs_gpu_render_equivalence.py), so
+        # batched GPU render is safe regardless of env.use_gpu_render. Other
+        # policies (flappy_sf) consume obs.data, whose resize provenance
+        # differs between the two paths, and keep the use_gpu_render gate.
+        return "flappy_gpu_batched"
     if (
         env_name == "flappy"
         and policy_type in _AUTO_FLAPPY_GPU_BATCHED_POLICY_TYPES
