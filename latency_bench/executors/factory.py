@@ -1,26 +1,23 @@
 from __future__ import annotations
 
 import os
-import numpy as np
 import torch
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
-
-from gymnasium.spaces import Discrete, MultiDiscrete, Tuple
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ExecutorMode
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import build_env_adapter
+from latency_bench.executors.backend_selection import (
+    build_env_step_backend,
+    raise_if_unsupported_batched_action_space,
+    resolve_latency_bench_env_backend,
+)
 from latency_bench.executors.base import Executor
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
-from latency_bench.executors.env_step_backend import (
-    SerialEnvStepBackend,
-    SubprocEnvStepBackend,
-    _env_action_space,
-)
 from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
@@ -56,16 +53,6 @@ class ExecutorBuilder(Protocol):
         ...
 
 _EXECUTOR_BUILDERS: dict[ExecutorMode, ExecutorBuilder] = {}
-_LATENCY_BENCH_ENV_BACKENDS = {
-    "serial",
-    "subproc",
-    "flappy_gpu_batched",
-    "demon_attack_gpu_batched",
-    "auto",
-}
-_ENV_BACKEND_DEBUG_ENV = "LATENCY_BENCH_ENV_BACKEND"
-_AUTO_SUBPROC_ENV_NAMES = {"deadly_corridor"}
-_AUTO_FLAPPY_GPU_BATCHED_POLICY_TYPES = {"flappy_sf", "starvla"}
 
 
 def register_executor(mode: ExecutorMode | str) -> Callable[[ExecutorBuilder], ExecutorBuilder]:
@@ -225,38 +212,15 @@ def _build_batched_simulated_executor(
         raise ValueError("max_parallel_envs must be positive")
 
     action_resolver = ActionResolver(config["env"])
-    envs: list[EnvAdapter] = []
-    env_backend = None
+    backend_name = resolve_latency_bench_env_backend(config, eval_parallel_envs=max_parallel_envs)
+    env_backend = build_env_step_backend(
+        backend_name,
+        config=config,
+        noop_action=action_resolver.noop_action,
+        num_slots=int(max_parallel_envs),
+    )
     try:
-        backend_name = _resolve_latency_bench_env_backend(config, eval_parallel_envs=max_parallel_envs)
-        if backend_name == "subproc":
-            env_backend = SubprocEnvStepBackend(
-                config=config,
-                noop_action=action_resolver.noop_action,
-                num_slots=int(max_parallel_envs),
-            )
-        elif backend_name == "flappy_gpu_batched":
-            from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
-
-            env_backend = FlappyGpuBatchedEnvStepBackend(
-                config=config,
-                noop_action=action_resolver.noop_action,
-                num_slots=int(max_parallel_envs),
-            )
-        elif backend_name == "demon_attack_gpu_batched":
-            from latency_bench.executors.demon_attack_gpu_batched_backend import DemonAttackGpuBatchedEnvStepBackend
-
-            env_backend = DemonAttackGpuBatchedEnvStepBackend(
-                config=config,
-                noop_action=action_resolver.noop_action,
-                num_slots=int(max_parallel_envs),
-            )
-        else:
-            for _slot in range(int(max_parallel_envs)):
-                envs.append(build_env_adapter(config, action_resolver.noop_action))
-            env_backend = SerialEnvStepBackend(envs)
-
-        _raise_if_unsupported_batched_action_space(env_backend.slot_handles)
+        raise_if_unsupported_batched_action_space(env_backend.slot_handles)
 
         clock = _build_clock(config)
         policy = _resolve_policy(config, action_resolver, policy)
@@ -285,11 +249,7 @@ def _build_batched_simulated_executor(
             profile_pipeline=bool(config.get("logging", {}).get("simulated_pipeline_profile", False)),
         )
     except Exception:
-        if env_backend is not None:
-            env_backend.close()
-        else:
-            for env in envs:
-                env.close()
+        env_backend.close()
         raise
 
 
@@ -404,62 +364,3 @@ def _eval_parallel_envs(config: dict[str, Any]) -> int:
     return eval_parallel_envs
 
 
-def _resolve_latency_bench_env_backend(config: dict[str, Any], *, eval_parallel_envs: int) -> str:
-    configured = os.environ.get(_ENV_BACKEND_DEBUG_ENV)
-    if configured is None:
-        configured = config.get("evaluation", {}).get("latency_bench_env_backend", "auto")
-    backend = str(configured).strip().lower()
-    if backend not in _LATENCY_BENCH_ENV_BACKENDS:
-        raise ValueError(
-            "evaluation.latency_bench_env_backend must be one of "
-            f"{sorted(_LATENCY_BENCH_ENV_BACKENDS)}; got {configured!r}"
-        )
-    if int(eval_parallel_envs) <= 1:
-        return "serial"
-    if backend == "auto":
-        return _auto_latency_bench_env_backend(config)
-    return backend
-
-
-def _auto_latency_bench_env_backend(config: dict[str, Any]) -> str:
-    env_cfg = config.get("env", {})
-    env_name = str(env_cfg.get("name", "")).strip().lower()
-    policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
-    if env_name == "flappy" and policy_type == "starvla":
-        # starvla consumes only the native raw RGB stack, which is bit-exact
-        # between the pygame and torch render paths
-        # (tests/executors/test_flappy_cpu_vs_gpu_render_equivalence.py), so
-        # batched GPU render is safe regardless of env.use_gpu_render. Other
-        # policies (flappy_sf) consume obs.data, whose resize provenance
-        # differs between the two paths, and keep the use_gpu_render gate.
-        return "flappy_gpu_batched"
-    if (
-        env_name == "flappy"
-        and policy_type in _AUTO_FLAPPY_GPU_BATCHED_POLICY_TYPES
-        and bool(env_cfg.get("use_gpu_render", False))
-    ):
-        return "flappy_gpu_batched"
-    if env_name in _AUTO_SUBPROC_ENV_NAMES:
-        return "subproc"
-    return "serial"
-
-
-def _raise_if_unsupported_batched_action_space(envs: list[EnvAdapter]) -> None:
-    for env in envs:
-        action_space = _env_action_space(env)
-        if action_space is None or isinstance(action_space, Discrete):
-            continue
-        if isinstance(action_space, Tuple):
-            if all(isinstance(subspace, Discrete) for subspace in action_space.spaces):
-                continue
-            raise ValueError(
-                "evaluation.eval_parallel_envs > 1 supports only flat Tuple(Discrete, ...) action spaces; "
-                f"got unsupported or nested Tuple action space {action_space!r}"
-            )
-        if isinstance(action_space, MultiDiscrete):
-            if np.asarray(action_space.nvec).ndim == 1:
-                continue
-            raise ValueError(
-                "evaluation.eval_parallel_envs > 1 supports only one-dimensional MultiDiscrete action spaces; "
-                f"got nvec={action_space.nvec!r}"
-            )

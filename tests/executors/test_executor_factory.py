@@ -407,7 +407,7 @@ def test_simulated_parallel_explicit_subproc_builds_subproc_backend(tmp_path):
 
 
 def test_latency_bench_env_backend_auto_selects_serial_for_demon_attack_timing_eval(tmp_path):
-    from latency_bench.executors.factory import _resolve_latency_bench_env_backend
+    from latency_bench.executors.backend_selection import resolve_latency_bench_env_backend
 
     config = _config(output_dir=str(tmp_path))
     config["evaluation"]["eval_parallel_envs"] = 2
@@ -418,33 +418,33 @@ def test_latency_bench_env_backend_auto_selects_serial_for_demon_attack_timing_e
     config["logging"]["save_action_records"] = False
     config["logging"]["save_latency_records"] = False
 
-    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "serial"
+    assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "serial"
 
 
 def test_latency_bench_env_backend_defaults_to_auto_for_parallel_cpu_bound_envs(tmp_path):
-    from latency_bench.executors.factory import _resolve_latency_bench_env_backend
+    from latency_bench.executors.backend_selection import resolve_latency_bench_env_backend
 
     config = _config(output_dir=str(tmp_path))
     config["evaluation"]["eval_parallel_envs"] = 2
     config["evaluation"].pop("latency_bench_env_backend", None)
     config["env"]["name"] = "deadly_corridor"
 
-    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "subproc"
+    assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "subproc"
 
 
 def test_latency_bench_env_backend_accepts_explicit_demon_attack_gpu_batched(tmp_path):
-    from latency_bench.executors.factory import _resolve_latency_bench_env_backend
+    from latency_bench.executors.backend_selection import resolve_latency_bench_env_backend
 
     config = _config(output_dir=str(tmp_path))
     config["evaluation"]["eval_parallel_envs"] = 2
     config["evaluation"]["latency_bench_env_backend"] = "demon_attack_gpu_batched"
     config["env"]["name"] = "demon_attack"
 
-    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "demon_attack_gpu_batched"
+    assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "demon_attack_gpu_batched"
 
 
 def test_latency_bench_env_backend_auto_selects_flappy_gpu_batched_backend(tmp_path):
-    from latency_bench.executors.factory import _resolve_latency_bench_env_backend
+    from latency_bench.executors.backend_selection import resolve_latency_bench_env_backend
 
     config = _config(output_dir=str(tmp_path))
     config["evaluation"]["eval_parallel_envs"] = 2
@@ -453,11 +453,11 @@ def test_latency_bench_env_backend_auto_selects_flappy_gpu_batched_backend(tmp_p
     config["env"]["use_gpu_render"] = True
     config["policy"]["type"] = "flappy_sf"
 
-    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "flappy_gpu_batched"
+    assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "flappy_gpu_batched"
 
 
 def test_latency_bench_env_backend_auto_selects_flappy_gpu_batched_for_starvla_without_gpu_render(tmp_path):
-    from latency_bench.executors.factory import _resolve_latency_bench_env_backend
+    from latency_bench.executors.backend_selection import resolve_latency_bench_env_backend
 
     config = _config(output_dir=str(tmp_path))
     config["evaluation"]["eval_parallel_envs"] = 2
@@ -466,7 +466,7 @@ def test_latency_bench_env_backend_auto_selects_flappy_gpu_batched_for_starvla_w
     config["env"]["use_gpu_render"] = False
     config["policy"]["type"] = "starvla"
 
-    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "flappy_gpu_batched"
+    assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "flappy_gpu_batched"
 
 
 def test_realtime_flappy_starvla_ignores_env_backend_selection_and_keeps_cpu_render(monkeypatch, tmp_path):
@@ -481,7 +481,7 @@ def test_realtime_flappy_starvla_ignores_env_backend_selection_and_keeps_cpu_ren
     def _fail_if_consulted(*args, **kwargs):
         raise AssertionError("realtime build must never consult latency_bench_env_backend selection")
 
-    monkeypatch.setattr(executor_factory, "_resolve_latency_bench_env_backend", _fail_if_consulted)
+    monkeypatch.setattr(executor_factory, "resolve_latency_bench_env_backend", _fail_if_consulted)
 
     config = _config(mode="realtime", output_dir=str(tmp_path))
     config["env"] = {
@@ -508,7 +508,7 @@ def test_realtime_flappy_starvla_ignores_env_backend_selection_and_keeps_cpu_ren
 
 
 def test_latency_bench_env_backend_auto_keeps_serial_for_flappy_sf_without_gpu_render(tmp_path):
-    from latency_bench.executors.factory import _resolve_latency_bench_env_backend
+    from latency_bench.executors.backend_selection import resolve_latency_bench_env_backend
 
     config = _config(output_dir=str(tmp_path))
     config["evaluation"]["eval_parallel_envs"] = 2
@@ -517,7 +517,7 @@ def test_latency_bench_env_backend_auto_keeps_serial_for_flappy_sf_without_gpu_r
     config["env"]["use_gpu_render"] = False
     config["policy"]["type"] = "flappy_sf"
 
-    assert _resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "serial"
+    assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "serial"
 
 
 @pytest.mark.parametrize("mode", ["paused", "realtime"])
