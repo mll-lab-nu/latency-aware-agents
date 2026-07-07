@@ -30,7 +30,6 @@ from latency_bench.latency.samplers import (
     resolve_latency_method,
 )
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
-from latency_bench.logging.video import EpisodeVideoRecorder
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.factory import build_policy
 from latency_bench.scheduler.action_queue import ActionScheduler
@@ -46,8 +45,6 @@ class ExecutorBuilder(Protocol):
         self,
         config: dict[str, Any],
         *,
-        video_recorder: EpisodeVideoRecorder | None = None,
-        video_episode_metadata: dict[int, dict] | None = None,
         policy: PolicyRunner | None = None,
     ) -> Any:
         ...
@@ -70,8 +67,6 @@ def register_executor(mode: ExecutorMode | str) -> Callable[[ExecutorBuilder], E
 def build_executor(
     config: dict[str, Any],
     *,
-    video_recorder: EpisodeVideoRecorder | None = None,
-    video_episode_metadata: dict[int, dict] | None = None,
     policy: PolicyRunner | None = None,
 ) -> Executor:
     executor_cfg = config["executor"]
@@ -89,12 +84,7 @@ def build_executor(
             f"executor.mode '{mode.value}' is recognized but not implemented. "
             f"Registered executor modes: {registered}"
         )
-    return builder(
-        config,
-        video_recorder=video_recorder,
-        video_episode_metadata=video_episode_metadata,
-        policy=policy,
-    )
+    return builder(config, policy=policy)
 
 
 def _resolve_policy(
@@ -152,8 +142,6 @@ def _build_common_executor_components(config: dict[str, Any]) -> _CommonExecutor
 def _build_simulated_executor(
     config: dict[str, Any],
     *,
-    video_recorder: EpisodeVideoRecorder | None = None,
-    video_episode_metadata: dict[int, dict] | None = None,
     policy: PolicyRunner | None = None,
 ) -> SimulatedLatencyExecutor | BatchedSimulatedLatencyExecutor:
     eval_parallel_envs = _eval_parallel_envs(config)
@@ -167,19 +155,12 @@ def _build_simulated_executor(
             config, max_parallel_envs=min(eval_parallel_envs, num_episodes), policy=policy
         )
 
-    return _build_single_simulated_executor(
-        config,
-        video_recorder=video_recorder,
-        video_episode_metadata=video_episode_metadata,
-        policy=policy,
-    )
+    return _build_single_simulated_executor(config, policy=policy)
 
 
 def _build_single_simulated_executor(
     config: dict[str, Any],
     *,
-    video_recorder: EpisodeVideoRecorder | None = None,
-    video_episode_metadata: dict[int, dict] | None = None,
     policy: PolicyRunner | None = None,
 ) -> SimulatedLatencyExecutor:
     c = _build_common_executor_components(config)
@@ -194,8 +175,6 @@ def _build_single_simulated_executor(
         action_scheduler=c.action_scheduler,
         clock=c.clock,
         logger=c.logger,
-        video_recorder=video_recorder,
-        video_episode_metadata=video_episode_metadata,
         episode_latency_source_factory=episode_latency_source_factory,
         simulated_worker_capacity=_simulated_worker_capacity(config),
     )
@@ -257,8 +236,6 @@ def _build_batched_simulated_executor(
 def _build_paused_executor(
     config: dict[str, Any],
     *,
-    video_recorder: EpisodeVideoRecorder | None = None,
-    video_episode_metadata: dict[int, dict] | None = None,
     policy: PolicyRunner | None = None,
 ) -> PausedLatencyExecutor:
     latency_cfg = config["latency"]
@@ -274,8 +251,6 @@ def _build_paused_executor(
         action_scheduler=c.action_scheduler,
         clock=c.clock,
         logger=c.logger,
-        video_recorder=video_recorder,
-        video_episode_metadata=video_episode_metadata,
     )
 
 
@@ -283,8 +258,6 @@ def _build_paused_executor(
 def _build_realtime_executor(
     config: dict[str, Any],
     *,
-    video_recorder: EpisodeVideoRecorder | None = None,
-    video_episode_metadata: dict[int, dict] | None = None,
     policy: PolicyRunner | None = None,
 ) -> RealtimeLatencyExecutor:
     if policy is not None:
@@ -310,7 +283,6 @@ def _build_realtime_executor(
         config=config,
         inference_devices=inference_devices,
         use_env_process=True,
-        video_recorder=video_recorder,
         video_output_dir=video_output_dir,
         video_fps=c.clock.env_fps,
     )
