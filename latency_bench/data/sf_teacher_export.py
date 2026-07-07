@@ -103,6 +103,7 @@ def export_sample_factory_teacher_dataset(
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
     hf_config_name: str = "",
+    context_window: int = 1,
     rollout_seed_offset: int = 0,
     probe_only: bool = False,
     image_transform_config: GhostTrailConfig | None = None,
@@ -130,6 +131,7 @@ def export_sample_factory_teacher_dataset(
         hf_private: Whether the uploaded repository should be private.
         hf_token: Explicit Hugging Face token.
         hf_max_shard_size: Hub upload shard size.
+        context_window: Total image window length including the current ``image`` field.
         image_transform_config: Optional image transform applied during replay
             before row filtering.
 
@@ -158,6 +160,7 @@ def export_sample_factory_teacher_dataset(
         row_buffer_size=int(row_buffer_size),
         filter_preset=str(filter_preset),
         filter_kwargs=filter_kwargs,
+        context_window=int(context_window),
         rollout_seed_offset=int(rollout_seed_offset),
         probe_only=bool(probe_only),
         image_transform_config=image_transform_config,

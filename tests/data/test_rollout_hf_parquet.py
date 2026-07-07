@@ -41,6 +41,7 @@ def test_hf_parquet_writes_canonical_columns_only(tmp_path):
     assert "latency" not in table.column_names
     assert "done" not in table.column_names
     assert "t" not in table.column_names
+    assert "context_images" not in table.column_names
     assert table.to_pylist()[0]["image"]["bytes"].startswith(b"\x89PNG\r\n\x1a\n")
 
 
@@ -75,3 +76,43 @@ def test_hf_parquet_shards_sort_by_decision_step(tmp_path):
 
     table = pq.read_table(output_dir / "train.parquet")
     assert [row["decision_step"] for row in table.to_pylist()] == [0, 1]
+
+
+def test_hf_parquet_embeds_context_images_when_rows_provide_them(tmp_path):
+    from latency_bench.data.action_layouts import action_spec_for_env
+    from latency_bench.data.hf_parquet import write_parquet_splits
+
+    image_path = tmp_path / "image.png"
+    context_paths = [tmp_path / f"context_{idx}.png" for idx in range(3)]
+    save_test_image(image_path, 9)
+    for idx, context_path in enumerate(context_paths):
+        save_test_image(context_path, idx + 1)
+    row = {
+        "image": str(image_path),
+        "context_images": [str(path) for path in context_paths],
+        "env_name": "flappy",
+        "episode_idx": 0,
+        "decision_step": 0,
+        "split": "train",
+        "seed": 11,
+        "prompt": "pick action",
+        "latency_raw_frames": 2,
+        "latency_ms": 66.0,
+        "raw_reward": 1.5,
+        "action_id": 1,
+        "action": [0.0, 1.0],
+        "action_text": "FLAP",
+    }
+
+    write_parquet_splits(
+        tmp_path / "export",
+        [row],
+        [],
+        action_spec=action_spec_for_env("flappy"),
+    )
+
+    table = pq.read_table(tmp_path / "export" / "train.parquet")
+    exported = table.to_pylist()[0]
+    assert "context_images" in table.column_names
+    assert len(exported["context_images"]) == 3
+    assert exported["context_images"][0]["bytes"].startswith(b"\x89PNG\r\n\x1a\n")
