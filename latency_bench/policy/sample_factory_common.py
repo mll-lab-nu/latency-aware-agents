@@ -208,16 +208,6 @@ def _stack_numpy_values(values: Sequence[Any]) -> np.ndarray | None:
     return np.stack(arrays, axis=0)
 
 
-def _extract_action_mask(observation: Observation, device: torch.device):
-    metadata = getattr(observation, "metadata", None)
-    if not isinstance(metadata, Mapping):
-        return None
-    action_mask = metadata.get("action_mask")
-    if action_mask is None:
-        return None
-    return torch.as_tensor(action_mask, device=device).unsqueeze(0)
-
-
 def _checkpoint_state_dict_from_path(path: str | Path, device: torch.device) -> dict[str, Any]:
     checkpoint = trusted_torch_load(path, device)
     return checkpoint

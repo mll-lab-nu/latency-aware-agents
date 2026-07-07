@@ -81,7 +81,6 @@ class RealtimePolicyCompletion:
     worker_id: int
     device: str
     profile: PipelineProfile | None = None
-    error: BaseException | None = None
 
 
 @dataclass
@@ -93,7 +92,6 @@ class RealtimePolicyResult:
     completion_time_ms: float
     latency_record: LatencyRecord
     profile: PipelineProfile | None = None
-    error: BaseException | None = None
 
 
 @dataclass
