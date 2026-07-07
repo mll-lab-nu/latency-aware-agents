@@ -95,6 +95,75 @@ def _env_raw_rgb_frame_stack(value: int = 5, *, frames: int = 1, height: int = 2
     )
 
 
+def test_ghost_trail_image_builds_single_causal_composite():
+    from latency_bench.data.ghost_trail import build_ghost_trail_image
+
+    ghost = np.zeros((4, 4, 3), dtype=np.uint8)
+    ghost[1, 1] = [255, 0, 0]
+    current = np.full((4, 4, 3), 10, dtype=np.uint8)
+
+    def segment_red(frame):
+        return frame[..., 0] > 200
+
+    out = build_ghost_trail_image(
+        [ghost, current],
+        [0, 1],
+        segment_fn=segment_red,
+        gamma=1.3,
+        min_alpha=255,
+        scroll_px_per_step=0.0,
+    )
+
+    assert out[1, 1].tolist() == [255, 0, 0]
+    assert out[0, 0].tolist() == [10, 10, 10]
+
+
+def test_export_cli_accepts_flappy_ghost_trail_image_transform():
+    from scripts.rollout_data.export_sf_teacher_dataset import build_parser
+
+    args = build_parser().parse_args(
+        [
+            "--checkpoint-root",
+            "ckpt",
+            "--output-dir",
+            "out",
+            "--max-episodes",
+            "1",
+            "--max-steps-per-episode",
+            "10",
+            "--image-transform",
+            "flappy_ghost_trail",
+            "--ghost-trail-history-frames",
+            "5",
+            "--ghost-trail-gamma",
+            "1.3",
+        ]
+    )
+
+    assert args.image_transform == "flappy_ghost_trail"
+    assert args.ghost_trail_history_frames == 5
+    assert args.ghost_trail_gamma == 1.3
+
+
+def test_flappy_ghost_trail_prompt_context_precedes_latency_text():
+    from latency_bench.data.prompts import BASE_PROMPTS, render_teacher_prompt
+
+    prompt = render_teacher_prompt(
+        "flappy",
+        latency_raw_frames=2,
+        latency_ms=66.67,
+        env_fps=30.0,
+        obs_fps=30.0,
+        image_transform="flappy_ghost_trail",
+    )
+
+    ghost_text = "You can see the past motion of the bird in the image. Use it to make your decision."
+    latency_text = "Current action latency is"
+    assert prompt.startswith(BASE_PROMPTS["flappy"])
+    assert ghost_text in prompt
+    assert prompt.index(ghost_text) < prompt.index(latency_text)
+
+
 def _read_shard_rows(output_dir: Path, split: str) -> list[dict]:
     from latency_bench.data.hf_parquet import iter_episode_rows
 
@@ -502,6 +571,7 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
     assert train_rows[0]["action_id"] == 1
     assert Path(train_rows[0]["image"]).exists()
     assert "image_stack" not in train_rows[0]
+    assert "context_images" not in train_rows[0]
     assert train_rows[0]["env_name"] == "flappy"
     assert train_rows[0]["decision_step"] == 0
     assert train_rows[0]["raw_reward"] == 1.5
@@ -1219,8 +1289,20 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
     assert metadata["image_source"] == "env_raw_rgb"
     assert metadata["image_resolution"] == [6, 5, 3]
     assert "image_stack" not in train_rows[0]
+    assert "context_images" not in train_rows[0]
     assert image.size == (5, 6)
     assert np.asarray(image)[0, 0].tolist() == [40, 41, 42]
+
+
+def test_write_filtered_episode_images_preserves_empty_filtered_episode(tmp_path):
+    from latency_bench.data.rollout_image_io import RolloutImageWriter
+    from latency_bench.data.sf_teacher_rollout import _write_filtered_episode_images
+
+    image_writer = RolloutImageWriter(max_workers=0, row_buffer_size=1, export_image_size=None)
+
+    rows = _write_filtered_episode_images(image_writer, [], {}, context_window=5)
+
+    assert rows == []
 
 
 def test_write_filtered_episode_images_resets_context_after_decision_step_gap(tmp_path):
@@ -1267,6 +1349,133 @@ def test_write_filtered_episode_images_resets_context_after_decision_step_gap(tm
         [40, 40, 40],
     ]
     assert current_values == [0, 10, 40, 50]
+
+
+def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tmp_path):
+    import torch
+    from PIL import Image
+    from latency_bench.data import sf_teacher_rollout as exporter
+
+    class FakeProgress:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def update(self, value):
+            pass
+
+        def set_postfix(self, **kwargs):
+            pass
+
+    class FakeActorCritic:
+        def __call__(self, normalized_obs, rnn_states):
+            batch_size = int(normalized_obs["obs"].shape[0])
+            return {
+                "actions": torch.full((batch_size, 1), 1, dtype=torch.int64),
+                "new_rnn_states": torch.ones_like(rnn_states),
+            }
+
+    class FakeEnv:
+        action_space = object()
+
+        def __init__(self):
+            self.step_count = 0
+
+        def reset(self, seed=None):
+            self.step_count = 0
+            obs = {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)}
+            return obs, [{"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(10, frames=1)}]
+
+        def step(self, action):
+            self.step_count += 1
+            obs = {"obs": np.ones((1, 12, 2, 2), dtype=np.uint8)}
+            next_value = 10 * (self.step_count + 1)
+            return (
+                obs,
+                np.asarray([1.5], dtype=np.float32),
+                np.asarray([self.step_count >= 4], dtype=np.bool_),
+                np.asarray([False], dtype=np.bool_),
+                [
+                    {
+                        "latency_raw_frames": 2,
+                        "latency_ms": 66.0,
+                        "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(next_value, frames=1),
+                    }
+                ],
+            )
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(
+        exporter,
+        "build_sample_factory_rollout_cfg",
+        lambda config: (object(), SimpleNamespace(frame_stack=1, env_fps=30.0, obs_fps=15.0, seed=0)),
+    )
+    monkeypatch.setattr(
+        exporter,
+        "build_env_and_policy",
+        lambda module, cfg, config, num_envs: {
+            "envs": [FakeEnv()],
+            "env_info": object(),
+            "actor_critic": FakeActorCritic(),
+            "device": torch.device("cpu"),
+            "prepare_and_normalize_obs": lambda actor_critic, obs_batch: obs_batch,
+            "argmax_actions": lambda action_distribution: action_distribution,
+            "preprocess_actions": lambda env_info, actions: np.asarray([1], dtype=np.int64),
+            "unsqueeze_tensor": lambda value, dim: value.unsqueeze(dim),
+            "rnn_size": 1,
+            "checkpoint": {"train_step": 123},
+        },
+    )
+    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(exporter, "tqdm", FakeProgress)
+    output_dir = tmp_path / "export"
+
+    metadata = exporter.collect_teacher_dataset(
+        {"env_name": "flappy"},
+        output_dir=output_dir,
+        max_episodes=1,
+        max_steps_per_episode=4,
+        val_fraction=0.0,
+        split_seed=0,
+        num_envs=1,
+        deterministic=False,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+        filter_preset="none",
+        context_window=4,
+    )
+    train_rows = _read_shard_rows(output_dir, "train")
+
+    assert metadata["context_window"] == 4
+    assert metadata["context_image_count"] == 3
+    assert [len(row["context_images"]) for row in train_rows] == [3, 3, 3, 3]
+    assert "image_stack" not in train_rows[0]
+
+    context_values = []
+    current_values = []
+    for row in train_rows:
+        context_values.append([
+            np.asarray(Image.open(path))[0, 0, 0].item()
+            for path in row["context_images"]
+        ])
+        current_values.append(np.asarray(Image.open(row["image"]))[0, 0, 0].item())
+
+    assert context_values == [
+        [10, 10, 10],
+        [10, 10, 10],
+        [10, 10, 20],
+        [10, 20, 30],
+    ]
+    assert current_values == [10, 20, 30, 40]
 
 
 def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkeypatch, tmp_path):
@@ -2077,6 +2286,7 @@ def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
     assert len(dataset_dict["val"]) == 0
     assert "image" in dataset_dict["train"].column_names
     assert "image_stack" not in dataset_dict["train"].column_names
+    assert "context_images" not in dataset_dict["train"].column_names
 
 
 def test_write_parquet_splits_embeds_image_bytes(tmp_path):
@@ -2110,6 +2320,7 @@ def test_write_parquet_splits_embeds_image_bytes(tmp_path):
     table = pq.read_table(output_dir / "train.parquet")
     image = table.to_pylist()[0]["image"]
     assert "image_stack" not in table.column_names
+    assert "context_images" not in table.column_names
     assert image["path"] is None
     assert image["bytes"].startswith(b"\x89PNG\r\n\x1a\n")
 
