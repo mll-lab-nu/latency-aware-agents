@@ -3,14 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
+from latency_bench.core.types import ActionEvent, EpisodeMetrics, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
-from latency_bench.executors._simulated_timeline import SimulatedWorkerCapacity
+from latency_bench.executors._simulated_timeline import SimulatedWorkerCapacity, build_simulated_action_event
 from latency_bench.executors.base import EpisodeExecutor
 from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
-    apply_latency_raw_fields,
-    apply_latency_record_raw_fields,
     compute_episode_metrics,
     episode_raw_fact_metadata,
     latency_type_from_source,
@@ -134,35 +132,17 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                     ready_raw_frame = raw_frame + latency_sample.action_ready_raw_frames
                     ready_time_ms = self.clock.step_to_time_ms(ready_raw_frame)
                     worker_capacity.submit(raw_frame + latency_sample.worker_service_raw_frames)
-                    latency_record = LatencyRecord(
-                        obs_id=obs_id,
-                        latency_ms=latency_ms,
-                    )
                     profile_metadata = profile_metadata_from_source(self.latency_source)
-                    apply_latency_record_raw_fields(
-                        record=latency_record,
-                        latency_type=latency_type,
-                        profile_metadata=profile_metadata,
-                    )
-                    event_metadata = dict(policy_output.metadata)
-                    event_metadata["frame_ms"] = self.clock.frame_ms
-                    event_metadata["worker_service_ms"] = latency_sample.worker_service_ms
-                    event_metadata["worker_service_raw_frames"] = latency_sample.worker_service_raw_frames
-                    event = ActionEvent(
+                    latency_record, event = build_simulated_action_event(
                         action_id=self._next_action_id,
-                        action=policy_output.action,
-                        obs_env_step=raw_frame,
-                        ready_time_ms=ready_time_ms,
-                        ready_step_float=float(ready_raw_frame),
-                        latency=latency_record,
-                        latency_raw_frames=latency_sample.action_ready_raw_frames,
+                        obs_id=obs_id,
+                        policy_output=policy_output,
+                        raw_frame=raw_frame,
                         ready_raw_frame=ready_raw_frame,
-                        metadata=event_metadata,
-                    )
-                    apply_latency_raw_fields(
-                        event=event,
-                        latency_type=latency_type,
+                        ready_time_ms=ready_time_ms,
+                        latency_sample=latency_sample,
                         frame_ms=self.clock.frame_ms,
+                        latency_type=latency_type,
                         profile_metadata=profile_metadata,
                     )
                     self._next_action_id += 1
