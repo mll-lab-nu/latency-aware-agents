@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TORCH_VERSION="2.10.0"
 LATENCY_BENCH_TORCH_PROFILE="${LATENCY_BENCH_TORCH_PROFILE:-auto}"
 MINICONDA_HOME="${HOME}/miniconda3"
 MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
@@ -10,6 +9,8 @@ CONDA_SH_PATH=""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/bash_scripts/_pip.sh
 source "${SCRIPT_DIR}/scripts/bash_scripts/_pip.sh"
+# shellcheck source=scripts/bash_scripts/_mirrors.sh
+source "${SCRIPT_DIR}/scripts/bash_scripts/_mirrors.sh"
 
 detect_torch_profile() {
     if ! command -v nvidia-smi >/dev/null 2>&1; then
@@ -51,16 +52,20 @@ resolve_torch_profile() {
     esac
 }
 
-torch_index_url() {
+resolve_torch_specs() {
     case "$1" in
-        cu126)
-            echo "https://download.pytorch.org/whl/cu126"
+        cu130)
+            echo "torch==2.12.1+cu130 torchvision==0.27.1+cu130"
             ;;
         cu128)
-            echo "https://download.pytorch.org/whl/cu128"
+            echo "torch==2.10.0+cu128 torchvision==0.25.0+cu128"
             ;;
-        cu130)
-            echo "https://download.pytorch.org/whl/cu130"
+        cu126)
+            echo "torch==2.10.0+cu126 torchvision==0.25.0+cu126"
+            ;;
+        *)
+            echo "[install] Unknown resolved torch profile '$1'. Expected cu126|cu128|cu130." >&2
+            return 1
             ;;
     esac
 }
@@ -126,8 +131,29 @@ persist_conda_shell_init() {
     fi
 }
 
+conda_env_exists() {
+    local env_name="$1"
+    conda env list | awk -v name="${env_name}" '$1 == name {found=1} END {exit found ? 0 : 1}'
+}
+
+ensure_latency_env() {
+    if conda_env_exists latency; then
+        echo "[install] reusing existing conda env: latency" >&2
+    else
+        conda create -n latency -c conda-forge --override-channels python=3.10 -y
+    fi
+
+    conda activate latency
+}
+
 SELECTED_TORCH_PROFILE="$(resolve_torch_profile "${LATENCY_BENCH_TORCH_PROFILE}")"
-TORCH_INDEX_URL="$(torch_index_url "${SELECTED_TORCH_PROFILE}")"
+export STARVLA_TORCH_PROFILE="${SELECTED_TORCH_PROFILE}"
+# Speed-test mirrors once and route torch + pypi through the fastest provider. Exports
+# STARVLA_TORCH_INDEX_BASE / PIP_INDEX_URL / UV_* so the requirements install and the
+# starVLA bootstrap (and its parallel env builds) inherit the choice without re-probing.
+export_mirror_env "${SELECTED_TORCH_PROFILE}"
+TORCH_INDEX_URL="${STARVLA_TORCH_INDEX_BASE}/${SELECTED_TORCH_PROFILE}"
+read -r -a TORCH_SPECS <<< "$(resolve_torch_specs "${SELECTED_TORCH_PROFILE}")"
 echo "[install] torch_profile=${SELECTED_TORCH_PROFILE} index_url=${TORCH_INDEX_URL}"
 
 # Fresh cloud instance bootstrap for the master branch.
@@ -149,15 +175,22 @@ persist_conda_shell_init
 
 git submodule update --init --recursive
 
-conda create -n latency -c conda-forge --override-channels python=3.10 -y
-
-conda activate latency
+ensure_latency_env
 # Keep uv's cache on the same filesystem as the conda envs so packages are
 # hardlinked into each env (download/disk dedup) instead of silently copied.
 export UV_CACHE_DIR="${UV_CACHE_DIR:-$(conda info --base)/.uv_cache}"
+# Vast/CDN package downloads can stall long enough to exceed uv's default 30s
+# HTTP timeout, especially for NVIDIA CUDA wheels.
+export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}"
+export UV_HTTP_CONNECT_TIMEOUT="${UV_HTTP_CONNECT_TIMEOUT:-30}"
+export UV_HTTP_RETRIES="${UV_HTTP_RETRIES:-10}"
+# Some cloud images (e.g. vast.ai) export UV_NO_CACHE=1 (disables uv's wheel cache, so
+# every env re-downloads the identical multi-GB torch/CUDA stack) and UV_LINK_MODE=copy
+# (defeats the cache->env hardlink dedup). Clear both to restore download/disk dedup.
+unset UV_NO_CACHE UV_LINK_MODE
 python -m pip install --upgrade pip
 ensure_uv
-pip_install "torch==${TORCH_VERSION}" --index-url "${TORCH_INDEX_URL}"
+pip_install "${TORCH_SPECS[@]}" --index-url "${TORCH_INDEX_URL}"
 python - <<'PY'
 import torch
 

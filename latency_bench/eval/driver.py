@@ -26,9 +26,8 @@ def run_from_config(
     *,
     write_summary: bool = True,
     on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
-    on_episode_progress: Callable[[EpisodeMetrics, int, int], None] | None = None,
-    n_samples: int | None = None,
     episode_ids: Sequence[int] | None = None,
+    policy: Any | None = None,
 ) -> list[EpisodeMetrics]:
     experiment_cfg = config["experiment"]
     policy_cfg = config["policy"]
@@ -37,16 +36,15 @@ def run_from_config(
     eval_max_steps = _eval_max_steps(config)
     configured_num_episodes = _eval_episodes(config)
     selected_episode_ids = list(range(configured_num_episodes)) if episode_ids is None else list(episode_ids)
-    num_episodes = len(selected_episode_ids)
     seed_everything(seed)
 
-    executor = build_executor(config)
+    executor = build_executor(config, **({"policy": policy} if policy is not None else {}))
     metrics = []
     try:
         run_warmup = getattr(executor, "run_warmup", None)
         warmup_metadata = run_warmup() if callable(run_warmup) else {}
         run_episodes = getattr(executor, "run_episodes", None)
-        if callable(run_episodes) and n_samples is None:
+        if callable(run_episodes):
             run_episodes_kwargs: dict[str, Any] = {
                 "episode_ids": selected_episode_ids,
                 "seeds": [_episode_seed(config, episode_id) for episode_id in selected_episode_ids],
@@ -56,31 +54,16 @@ def run_from_config(
                 run_episodes_kwargs["on_episode_complete"] = on_episode_complete
             metrics = list(run_episodes(**run_episodes_kwargs))
         else:
-            next_extra_episode_id = selected_episode_ids[-1] + 1 if selected_episode_ids else 0
-            while len(metrics) < num_episodes or (
-                n_samples is not None and len(executor.logger.latency_records) < n_samples
-            ):
-                if len(metrics) < num_episodes:
-                    episode_id = selected_episode_ids[len(metrics)]
-                else:
-                    episode_id = next_extra_episode_id
-                    next_extra_episode_id += 1
+            for episode_id in selected_episode_ids:
                 episode_metrics = executor.run_episode(
                     episode_id=episode_id,
                     seed=_episode_seed(config, episode_id),
                     eval_max_steps=eval_max_steps,
                 )
                 metrics.append(episode_metrics)
-                if on_episode_complete is not None and len(metrics) <= num_episodes:
+                if on_episode_complete is not None:
                     on_episode_complete(episode_metrics)
-                if on_episode_progress is not None:
-                    sample_count = len(executor.logger.latency_records)
-                    on_episode_progress(episode_metrics, len(metrics), sample_count)
         metrics.sort(key=lambda item: int(item.episode_id))
-        metrics = metrics[:num_episodes]
-        if n_samples is not None:
-            executor.logger.latency_records = executor.logger.latency_records[:n_samples]
-            executor.logger.episode_metrics = executor.logger.episode_metrics[:num_episodes]
         for episode_metrics in metrics:
             for key, value in _evaluation_raw_fact_metadata(config, int(episode_metrics.episode_id)).items():
                 if episode_metrics.metadata.get(key) is None:
@@ -112,10 +95,7 @@ def _record_realtime_eval_latency_plot(config: dict[str, Any], executor: Any) ->
     if not config["logging"]["save_latency_records"]:
         return
 
-    latency_values = [
-        float(record.latency_ms)
-        for record in executor.logger.latency_records
-    ]
+    latency_values = list(executor.logger.latency_ms_values)
     plot_realtime_eval_latency(
         latency_values,
         Path(config["logging"]["output_dir"]) / "eval_latency_trace.png",

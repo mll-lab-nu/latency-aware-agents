@@ -7,6 +7,7 @@ side (pool, coordinator, executor) lives in sibling modules.
 """
 from __future__ import annotations
 
+import gc
 import os
 import sys
 import time
@@ -17,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from latency_bench.core.clock import EnvClock
+from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.core.types import (
     Action,
     ActionEvent,
@@ -180,6 +182,7 @@ def _worker_runtime_metadata(worker_id: int, start_method: str) -> dict[str, Any
 
 
 def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, device: str, start_method: str) -> None:
+    gc_was_enabled = gc.isenabled()
     try:
         from latency_bench.core.actions import ActionResolver
         from latency_bench.policy.factory import build_policy
@@ -197,6 +200,10 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
         )
         attachment_cache = ObservationAttachmentCache(blocks={})
         observation_localizer = ObservationLocalizer()
+        # The policy's object graph is permanent; freeze it out of GC scans and
+        # stop automatic collections so gen-2 pauses can't delay a result send.
+        gc.freeze()
+        gc.disable()
         connection.send(("ready", {"worker_id": int(worker_id), "device": device}))
 
         def predict_from_attached_observation(attached_observation, profile):
@@ -204,19 +211,18 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
             local_observation = observation_localizer.localize(attached_observation.observation)
             if profile is not None:
                 profile.worker_observation_localize_ms = _profile_now_ms() - localize_start_ms
-            if hasattr(policy, "predict_with_timing"):
-                policy_output, timings = policy.predict_with_timing(local_observation)
-                if profile is not None:
-                    profile.policy_build_example_ms = timings["policy_build_example_ms"]
-                    profile.policy_wrapper_predict_action_ms = timings["policy_wrapper_predict_action_ms"]
-                    profile.policy_decode_ms = timings["policy_decode_ms"]
-                return policy_output
-            predict_start_ms = _profile_now_ms()
-            policy_output = policy.predict(local_observation)
+            # sync_cuda=False: the realtime path measures end-to-end wall-clock
+            # latency, so a CUDA sync inside predict would perturb the measurement.
+            profiler = StageProfiler(enabled=profile is not None, sync_cuda=False)
+            with profiler_scope(profiler):
+                policy_output = policy.predict(local_observation)
             if profile is not None:
-                profile.policy_build_example_ms = 0.0
-                profile.policy_wrapper_predict_action_ms = _profile_now_ms() - predict_start_ms
-                profile.policy_decode_ms = 0.0
+                timings = profiler.timings
+                profile.policy_build_example_ms = timings.get("policy_build_example_ms", 0.0)
+                profile.policy_wrapper_predict_action_ms = timings.get(
+                    "policy_wrapper_predict_action_ms", 0.0
+                )
+                profile.policy_decode_ms = timings.get("policy_decode_ms", 0.0)
             return policy_output
 
         while True:
@@ -226,6 +232,11 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
             if command == "close":
                 attachment_cache.close()
                 return
+            if command == "collect":
+                # Sent by the pool only while every worker is idle (post-drain,
+                # pre-episode), so this pause can never delay an inference.
+                gc.collect()
+                continue
             if command == "predict":
                 task = payload["task"]
                 attach_start_ms = _profile_now_ms()
@@ -270,6 +281,12 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
             connection.send(("error", {"traceback": traceback.format_exc()}))
         except (BrokenPipeError, EOFError, OSError):
             return
+    finally:
+        # The real worker process exits with this function; restoring GC state
+        # only matters for in-process callers (tests).
+        gc.unfreeze()
+        if gc_was_enabled:
+            gc.enable()
 
 
 # --- env-loop worker ----------------------------------------------------------
@@ -344,11 +361,16 @@ def _env_loop_worker(
     video_output_dir: str | None,
     video_fps: float | None,
 ) -> None:
+    gc_was_enabled = gc.isenabled()
     try:
         from latency_bench.core.actions import ActionResolver
         from latency_bench.envs.factory import build_env_adapter
         from latency_bench.logging.video import EpisodeVideoRecorder
         from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
+
+        # This process lives for exactly one episode; a GC pause here misses
+        # frame deadlines, and the heap is reclaimed at process exit anyway.
+        gc.disable()
 
         runtime_config = config or {}
         profile_enabled = bool(runtime_config.get("logging", {}).get("realtime_pipeline_profile", False))
@@ -535,3 +557,8 @@ def _env_loop_worker(
             except BaseException:
                 pass
         connection.send(("error", {"traceback": error_traceback}))
+    finally:
+        # The real env process exits with this function; restoring GC state
+        # only matters for in-process callers (tests).
+        if gc_was_enabled:
+            gc.enable()

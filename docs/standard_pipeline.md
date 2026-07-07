@@ -12,7 +12,9 @@ conda install -c nvidia cuda-toolkit=12.8 -y
 pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 \
   --index-url https://download.pytorch.org/whl/cu128
   
-pip install "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
+# Installs a flash-attn wheel matched to the active torch/CUDA/Python/ABI
+# (source-build fallback when no prebuilt wheel matches, e.g. torch 2.10 / cu13).
+bash starVLA/examples/rl_games/install/flash_attn.sh
 
 python -m pip install -r requirements_starvla_eval_extra.txt
 

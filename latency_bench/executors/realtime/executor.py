@@ -7,10 +7,12 @@ per-path code is just the two genuinely different control loops.
 """
 from __future__ import annotations
 
+import gc
 import multiprocessing as mp
 import sys
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -48,6 +50,27 @@ from latency_bench.executors.realtime.workers import (
     _profile_now_ms,
 )
 from latency_bench.executors.realtime.shared_observation import ObservationSlotPool
+
+
+@contextmanager
+def _gc_paused_until_episode_end():
+    """Keep automatic GC out of the paced loop.
+
+    Gen-2 collections pause the whole process for a time proportional to the
+    live-object count, which is long enough to delay action delivery by whole
+    frames. Collection instead happens here, at the episode boundary, where
+    there is no wall-clock constraint; freezing the survivors keeps them out
+    of future scans.
+    """
+    was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        gc.collect()
+        gc.freeze()
+        if was_enabled:
+            gc.enable()
 
 
 @dataclass
@@ -111,21 +134,26 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         eval_max_steps: int = 10000,
     ) -> EpisodeMetrics:
         pool = self._ensure_inference_pool()
-        if self.use_env_process:
-            return self._run_episode_with_env_process(
+        with _gc_paused_until_episode_end():
+            if self.use_env_process:
+                return self._run_episode_with_env_process(
+                    pool=pool,
+                    episode_id=episode_id,
+                    seed=seed,
+                    eval_max_steps=eval_max_steps,
+                )
+            return self._run_episode_local_env(
                 pool=pool,
                 episode_id=episode_id,
                 seed=seed,
                 eval_max_steps=eval_max_steps,
             )
-        return self._run_episode_local_env(
-            pool=pool,
-            episode_id=episode_id,
-            seed=seed,
-            eval_max_steps=eval_max_steps,
-        )
 
     def run_warmup(self) -> dict[str, Any]:
+        with _gc_paused_until_episode_end():
+            return self._run_warmup_impl()
+
+    def _run_warmup_impl(self) -> dict[str, Any]:
         pool = self._ensure_inference_pool()
         latency_records = []
         profiles = []

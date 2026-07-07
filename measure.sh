@@ -24,9 +24,8 @@ SPEC=configs/experiments/cross_device_protocol.yaml
 POLICY=openvla-flappy
 PROFILES_DIR=results/cross_device/profiles
 
-python -m scripts.cross_device.protocol measure \
+python -m latency_bench.cross_device.protocol measure \
   --spec "$SPEC" \
   --hardware auto \
   --only-policy "$POLICY" \
-  --strict-runtime-env \
   --resume

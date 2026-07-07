@@ -55,6 +55,7 @@ def _write_checkpoint_config(path: Path, **overrides) -> Path:
         "obs_fps": 15.0,
         "screen_size": 84,
         "noop_max": 30,
+        "reset_mode": "fire",
         "frame_stack": 6,
         "terminal_on_life_loss": True,
         "clip_reward": True,
@@ -91,6 +92,75 @@ def _env_raw_rgb_frame_stack(value: int = 5, *, frames: int = 1, height: int = 2
         [np.full((height, width, 3), int(value) + idx, dtype=np.uint8) for idx in range(int(frames))],
         axis=0,
     )
+
+
+def test_ghost_trail_image_builds_single_causal_composite():
+    from latency_bench.data.ghost_trail import build_ghost_trail_image
+
+    ghost = np.zeros((4, 4, 3), dtype=np.uint8)
+    ghost[1, 1] = [255, 0, 0]
+    current = np.full((4, 4, 3), 10, dtype=np.uint8)
+
+    def segment_red(frame):
+        return frame[..., 0] > 200
+
+    out = build_ghost_trail_image(
+        [ghost, current],
+        [0, 1],
+        segment_fn=segment_red,
+        gamma=1.3,
+        min_alpha=255,
+        scroll_px_per_step=0.0,
+    )
+
+    assert out[1, 1].tolist() == [255, 0, 0]
+    assert out[0, 0].tolist() == [10, 10, 10]
+
+
+def test_export_cli_accepts_flappy_ghost_trail_image_transform():
+    from scripts.rollout_data.export_sf_teacher_dataset import build_parser
+
+    args = build_parser().parse_args(
+        [
+            "--checkpoint-root",
+            "ckpt",
+            "--output-dir",
+            "out",
+            "--max-episodes",
+            "1",
+            "--max-steps-per-episode",
+            "10",
+            "--image-transform",
+            "flappy_ghost_trail",
+            "--ghost-trail-history-frames",
+            "5",
+            "--ghost-trail-gamma",
+            "1.3",
+        ]
+    )
+
+    assert args.image_transform == "flappy_ghost_trail"
+    assert args.ghost_trail_history_frames == 5
+    assert args.ghost_trail_gamma == 1.3
+
+
+def test_flappy_ghost_trail_prompt_context_precedes_latency_text():
+    from latency_bench.data.prompts import BASE_PROMPTS, render_teacher_prompt
+
+    prompt = render_teacher_prompt(
+        "flappy",
+        latency_raw_frames=2,
+        latency_ms=66.67,
+        env_fps=30.0,
+        obs_fps=30.0,
+        image_transform="flappy_ghost_trail",
+    )
+
+    ghost_text = "You can see the past motion of the bird in the image. Use it to make your decision."
+    latency_text = "Current action latency is"
+    assert prompt.startswith(BASE_PROMPTS["flappy"])
+    assert ghost_text in prompt
+    assert prompt.index(ghost_text) < prompt.index(latency_text)
 
 
 def _read_shard_rows(output_dir: Path, split: str) -> list[dict]:
@@ -2527,3 +2597,181 @@ def test_prepare_starvla_lerobot_dataset_uploads_converted_root(monkeypatch, tmp
             },
         ),
     ]
+
+
+def test_merge_probe_states_reindexes_dedupes_and_assigns_splits():
+    from latency_bench.data.sf_teacher_rollout import merge_probe_states, _build_episode_plan
+
+    def spec(seed, length):
+        return {
+            "attempt_idx": seed,
+            "episode_idx": 999,
+            "episode_length": length,
+            "episode_score": float(length),
+            "seed": seed,
+            "split": "_attempts",
+        }
+
+    shard0 = {
+        "accepted_specs": [spec(0, 5040), spec(1, 6000), spec(2, 7000)],
+        "attempted_episodes": 100,
+        "rejected_episodes": 97,
+        "next_attempt_idx": 100,
+        "runtime_metadata": {"env_fps": 30.0, "obs_fps": 30.0, "frame_stack": 1, "checkpoint_train_step": 7},
+    }
+    shard1 = {
+        "accepted_specs": [spec(1, 6000), spec(100_000_000, 5500), spec(100_000_001, 5800)],
+        "attempted_episodes": 90,
+        "rejected_episodes": 88,
+        "next_attempt_idx": 90,
+    }
+
+    merged = merge_probe_states([shard0, shard1], max_episodes=4, val_fraction=0.5, split_seed=0)
+    specs = merged["accepted_specs"]
+
+    # Contiguous reindex and deterministic dedupe-by-seed in shard order (seed 1 dropped from shard1).
+    assert [s["episode_idx"] for s in specs] == [0, 1, 2, 3]
+    assert [s["seed"] for s in specs] == [0, 1, 2, 100_000_000]
+    # Original per-episode payload (length/return) preserved.
+    assert specs[1]["episode_length"] == 6000
+    assert specs[3]["episode_score"] == 5500.0
+    # Splits come from the same plan the single-process probe uses.
+    plan = {
+        p["episode_idx"]: p["split"]
+        for p in _build_episode_plan(max_episodes=4, val_fraction=0.5, split_seed=0, base_seed=0)
+    }
+    assert {s["episode_idx"]: s["split"] for s in specs} == plan
+    assert sum(1 for s in specs if s["split"] == "val") == round(4 * 0.5)
+    # Counters summed; runtime_metadata carried from the first shard that has it.
+    assert merged["attempted_episodes"] == 190
+    assert merged["rejected_episodes"] == 185
+    assert merged["runtime_metadata"]["checkpoint_train_step"] == 7
+    # Deterministic given the same inputs.
+    again = merge_probe_states([shard0, shard1], max_episodes=4, val_fraction=0.5, split_seed=0)
+    assert again["accepted_specs"] == specs
+
+
+def test_merge_probe_states_raises_when_insufficient():
+    from latency_bench.data.sf_teacher_rollout import merge_probe_states
+
+    shard = {
+        "accepted_specs": [{"seed": 0, "episode_length": 5040, "episode_idx": 0, "split": "_attempts", "attempt_idx": 0}],
+        "attempted_episodes": 1,
+        "rejected_episodes": 0,
+        "next_attempt_idx": 1,
+    }
+    with pytest.raises(ValueError):
+        merge_probe_states([shard], max_episodes=5, val_fraction=0.0, split_seed=0)
+
+
+def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkeypatch, tmp_path):
+    import torch
+    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.data.sf_teacher_rollout import completed_episode_indices_from_shards
+
+    class FakeActorCritic:
+        def __call__(self, normalized_obs, rnn_states):
+            batch_size = int(normalized_obs["obs"].shape[0])
+            return {
+                "actions": torch.full((batch_size, 1), 99, dtype=torch.int64),
+                "new_rnn_states": torch.ones_like(rnn_states),
+            }
+
+    class FakeEnv:
+        def __init__(self):
+            self.action_space = object()
+            self.reset_seeds: list[int] = []
+
+        def reset(self, seed=None):
+            self.reset_seeds.append(seed)
+            return np.zeros((3, 2, 2), dtype=np.uint8), [
+                {"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(5)}
+            ]
+
+        def step(self, action):
+            return (
+                np.zeros((3, 2, 2), dtype=np.uint8),
+                np.float32(1.5),
+                np.bool_(True),
+                np.bool_(False),
+                [{"latency_raw_frames": 2, "latency_ms": 66.0, "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(6)}],
+            )
+
+        def close(self):
+            return None
+
+    fake_env = FakeEnv()
+    fake_cfg = SimpleNamespace(frame_stack=1, env_fps=30.0, obs_fps=15.0, seed=11)
+    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(
+        exporter,
+        "build_env_and_policy",
+        lambda module, cfg, config, num_envs: {
+            "envs": [fake_env],
+            "env_info": object(),
+            "actor_critic": FakeActorCritic(),
+            "device": torch.device("cpu"),
+            "prepare_and_normalize_obs": lambda actor_critic, obs_batch: obs_batch,
+            "argmax_actions": lambda action_distribution: action_distribution,
+            "preprocess_actions": lambda env_info, actions: np.asarray([99], dtype=np.int64),
+            "unsqueeze_tensor": lambda value, dim: value.unsqueeze(dim),
+            "rnn_size": 1,
+            "checkpoint": {"train_step": 123},
+        },
+    )
+    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+
+    output_dir = tmp_path / "shard"
+    result = exporter.collect_teacher_dataset(
+        {"env_name": "flappy"},
+        output_dir=output_dir,
+        max_episodes=1,
+        max_steps_per_episode=1,
+        val_fraction=0.0,
+        split_seed=0,
+        num_envs=1,
+        deterministic=False,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+        rollout_seed_offset=1000,
+        probe_only=True,
+    )
+
+    # Probe-only returns its marker and writes the resume state, but does not replay.
+    assert result["probe_only"] is True
+    assert result["accepted_episodes"] == 1
+    state = json.loads((output_dir / "probe_state.json").read_text(encoding="utf-8"))
+    assert len(state["accepted_specs"]) == 1
+    # Reset seed carries the rollout_seed_offset (base_seed cfg.seed=11 + offset 1000).
+    assert state["accepted_specs"][0]["seed"] == 11 + 1000
+    assert fake_env.reset_seeds[0] == 11 + 1000
+    # No episode row shards were materialized (replay skipped).
+    assert completed_episode_indices_from_shards(output_dir) == set()
+
+
+def test_load_written_parquet_splits_restores_image_feature_memory_mapped(tmp_path):
+    # Locks the push OOM fix: the hub push must load the on-disk parquet (memory-mapped,
+    # Image feature restored from parquet metadata) instead of pulling the whole
+    # image-embedded dataset into RAM via pq.read_table.
+    from datasets import Dataset, Features, Image, Value
+
+    from latency_bench.data.sf_teacher_export import _load_written_parquet_splits
+
+    feats = Features({"image": Image(), "decision_step": Value("int64")})
+    frame = np.zeros((2, 2, 3), dtype=np.uint8)
+    Dataset.from_dict({"image": [frame, frame], "decision_step": [0, 1]}, features=feats).to_parquet(
+        str(tmp_path / "train.parquet")
+    )
+    Dataset.from_dict({"image": [frame], "decision_step": [0]}, features=feats).to_parquet(
+        str(tmp_path / "val.parquet")
+    )
+
+    dd = _load_written_parquet_splits(tmp_path)
+    assert set(dd) == {"train", "val"}
+    assert dd["train"].num_rows == 2
+    assert dd["val"].num_rows == 1
+    # Image feature round-trips, so push_to_hub re-embeds image bytes correctly.
+    assert isinstance(dd["train"].features["image"], Image)
+    assert dd["train"][0]["image"].size == (2, 2)

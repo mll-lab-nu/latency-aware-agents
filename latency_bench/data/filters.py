@@ -9,9 +9,13 @@ import numpy as np
 
 
 FILTER_PRESET_CLEAN_V1 = "clean_v1"
+FILTER_PRESET_CONTIGUOUS_V1 = "contiguous_v1"
 FILTER_PRESET_NONE = "none"
 FLAPPY_CONTEXT_WINDOW = 2
 FLAPPY_BACKGROUND_KEEP_PROB = 0.2
+# Keep a Flappy episode once the bird survives at least this fraction of the step
+# cap, rather than requiring a full-length run.
+FLAPPY_MIN_LENGTH_FRACTION = 0.7
 DEMON_CONTEXT_WINDOW = 8
 DEMON_SURVIVAL_ANCHOR_STRIDE = 16
 DEMON_BACKGROUND_KEEP_PROB = 0.5
@@ -49,21 +53,26 @@ def clean_v1_accepts_episode_summary(
     summary: Mapping[str, Any],
     *,
     max_steps_per_episode: int,
+    demon_episode_threshold: float | None = None,
 ) -> bool:
     """Evaluate the clean_v1 episode-level gate from summary fields.
 
     Args:
         env_name: Canonical benchmark environment name.
         summary: Episode summary with length and environment-specific return.
-        max_steps_per_episode: Export step cap used by Flappy's full-length gate.
+        max_steps_per_episode: Export step cap; Flappy keeps episodes that survive
+            at least ``FLAPPY_MIN_LENGTH_FRACTION`` of it.
+        demon_episode_threshold: Override raw-score threshold for demon_attack.
+            When provided, replaces ``DEMON_RAW_SCORE_STRONG_THRESHOLD``.
 
     Returns:
         Whether this episode should count toward the requested dataset size.
     """
+    demon_threshold = DEMON_RAW_SCORE_STRONG_THRESHOLD if demon_episode_threshold is None else demon_episode_threshold
     return {
-        "flappy": lambda: summary["episode_length"] >= max_steps_per_episode,
+        "flappy": lambda: summary["episode_length"] >= FLAPPY_MIN_LENGTH_FRACTION * max_steps_per_episode,
         "deadly_corridor": lambda: summary["episode_raw_return"] >= 2200.0,
-        "demon_attack": lambda: summary["episode_raw_return"] >= DEMON_RAW_SCORE_STRONG_THRESHOLD,
+        "demon_attack": lambda: summary["episode_raw_return"] >= demon_threshold,
     }[env_name]()
 
 
@@ -173,6 +182,38 @@ def _copy_all_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def density_weights_clean_v1(env_name: str, rows: Sequence[Mapping[str, Any]]) -> list[float]:
+    """Per-row loss weights replicating clean_v1's event balancing without deleting rows.
+
+    contiguous_v1 keeps every decision row so KV-memory rollouts stay frame-adjacent;
+    density control then moves from row deletion to per-row loss weighting. Event and
+    context rows get weight 1.0; background rows get the clean_v1 keep probability, so a
+    contiguous rollout reproduces clean_v1's expected density in expectation. Deadly
+    Corridor keeps every row at weight 1.0 (matching its clean_v1 row pass-through).
+
+    Args:
+        env_name: Canonical benchmark environment name.
+        rows: Episode rows at the export (observation) cadence, in order.
+
+    Returns:
+        One weight per row, aligned to ``rows``.
+    """
+    count = len(rows)
+    if env_name == "flappy":
+        event_steps = {row["decision_step"] for row in rows if row["action_text"] == "FLAP"}
+        kept = _rows_near_steps(rows, event_steps, window=FLAPPY_CONTEXT_WINDOW)
+        return [1.0 if idx in kept else FLAPPY_BACKGROUND_KEEP_PROB for idx in range(count)]
+    if env_name == "demon_attack":
+        event_steps = {row["decision_step"] for row in rows if row["raw_reward"] > 0.0}
+        kept = _rows_near_steps(rows, event_steps, window=DEMON_CONTEXT_WINDOW)
+        kept |= {
+            idx for idx, row in enumerate(rows)
+            if row["decision_step"] % DEMON_SURVIVAL_ANCHOR_STRIDE == 0
+        }
+        return [1.0 if idx in kept else DEMON_BACKGROUND_KEEP_PROB for idx in range(count)]
+    return [1.0] * count
+
+
 def filter_train_rows_clean_v1(env_name: str, rows: Sequence[Mapping[str, Any]], *, seed: int) -> list[dict[str, Any]]:
     """Apply clean_v1 train-only row density filtering.
 
@@ -198,6 +239,7 @@ def accepts_episode(
     summary: Mapping[str, Any],
     *,
     max_steps_per_episode: int,
+    filter_kwargs: dict[str, Any] | None = None,
 ) -> bool:
     """Dispatch episode-level gate by filter preset.
 
@@ -206,6 +248,8 @@ def accepts_episode(
         env_name: Canonical benchmark environment name.
         summary: Episode summary with length and environment-specific return.
         max_steps_per_episode: Export step cap used by Flappy's full-length gate.
+        filter_kwargs: Optional overrides forwarded to the preset gate function
+            (e.g. ``demon_episode_threshold`` overrides the hard-coded demon score).
 
     Returns:
         Whether this episode should be accepted.
@@ -214,6 +258,7 @@ def accepts_episode(
         return True
     return clean_v1_accepts_episode_summary(
         env_name, summary, max_steps_per_episode=max_steps_per_episode,
+        **(filter_kwargs or {}),
     )
 
 
@@ -235,6 +280,9 @@ def filter_train_rows(
     Returns:
         Filtered row copies.
     """
-    if filter_preset == FILTER_PRESET_NONE:
+    if filter_preset in (FILTER_PRESET_NONE, FILTER_PRESET_CONTIGUOUS_V1):
+        # contiguous_v1 keeps every decision row so KV-memory rollouts stay
+        # contiguous; density/quality control moves to the episode gate and to
+        # rollout-endpoint weighting in the training sampler.
         return _copy_all_rows(rows)
     return filter_train_rows_clean_v1(env_name, rows, seed=seed)

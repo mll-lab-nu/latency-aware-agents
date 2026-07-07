@@ -96,8 +96,6 @@ def build_profile_from_trace(
     if inference_summary is not None:
         manifest["inference_trace_path"] = paths["inference_trace"].name
         manifest["inference_summary"] = inference_summary
-        manifest["e2e_trace_path"] = paths["trace"].name
-        manifest["e2e_summary"] = summary
     metrics_records = None
     if episode_metrics is not None:
         metrics_records = load_jsonl_records(episode_metrics)

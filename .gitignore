@@ -17,7 +17,7 @@ results_old/
 results_old
 teacher_datasets/
 checkpoints/
-
+checkpoints_*/
 logs/
 configs/train
 

@@ -1,0 +1,45 @@
+__base__:
+  - ../../base/flappy.yaml
+
+experiment:
+  name: openvla_flappy_fixed_l2_200ep_full_tuning_corrected
+  seed: 42
+
+executor:
+  mode: simulated
+
+env:
+  env_fps: 30
+  obs_fps: 30
+  frame_stack: 1
+  obs_resize: [224, 224]
+
+policy:
+  type: starvla
+  checkpoint_path: results/Checkpoints/openvla_flappy_fixed_l2_200ep_full_tuning_corrected/final_model
+  device: cuda
+  unnorm_key: new_embodiment
+  latency_prompt_map_path: /mnt/data/latency_data/playground/Datasets/rl_games/flappy_train/latency_prompt_map.json
+  actions:
+    - noop
+    - flap
+
+latency:
+  type: fixed
+  fixed_latency_ms: 66.66666666666667
+
+evaluation:
+  eval_episodes: 50
+  eval_parallel_envs: 4
+  eval_max_steps: 3600
+  eval_suites:
+    fixed:
+      - [2]
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/openvla_flappy_fixed_l2_200ep_full_tuning_corrected
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false

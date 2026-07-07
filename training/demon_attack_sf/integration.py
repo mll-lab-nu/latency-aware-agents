@@ -134,6 +134,7 @@ def make_demon_attack_sf_env(
         env_id=cfg.env_id,
         screen_size=cfg.screen_size,
         noop_max=cfg.noop_max,
+        reset_mode=cfg.reset_mode,
         terminal_on_life_loss=cfg.terminal_on_life_loss,
         clip_reward=False,
         repeat_action_probability=cfg.repeat_action_probability,
@@ -200,6 +201,8 @@ def _validate_demon_attack_gpu_training_cfg(cfg) -> None:
         raise ValueError("Demon Attack simulator=gpu supports repeat_action_probability=0.0")
     if cfg.full_action_space:
         raise ValueError("Demon Attack simulator=gpu supports full_action_space=False")
+    if cfg.reset_mode != "fire":
+        raise ValueError("Demon Attack simulator=gpu supports reset_mode=fire")
 
 
 def _sample_factory_env_config(env_config):
@@ -255,6 +258,7 @@ def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--obs-fps", dest="obs_fps", type=float, default=15)
     parser.add_argument("--screen_size", type=int, default=84)
     parser.add_argument("--noop_max", type=int, default=30)
+    parser.add_argument("--reset-mode", dest="reset_mode", type=str, default="fire", choices=["raw", "noop", "fire"])
     parser.add_argument("--frame_stack", type=int, default=1)
     parser.add_argument("--terminal_on_life_loss", type=str2bool, default=False)
     parser.add_argument("--clip_reward", type=str2bool, default=True)
@@ -339,6 +343,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--obs-fps", env_cfg["obs_fps"])
     append_cli_arg(args, "--screen_size", env_cfg["screen_size"])
     append_cli_arg(args, "--noop_max", env_cfg["noop_max"])
+    append_cli_arg(args, "--reset-mode", env_cfg["reset_mode"])
     append_cli_arg(args, "--frame_stack", env_cfg["frame_stack"])
     append_cli_arg(args, "--terminal_on_life_loss", env_cfg["terminal_on_life_loss"])
     append_cli_arg(args, "--clip_reward", env_cfg["clip_reward"])

@@ -11,9 +11,9 @@ import numpy as np
 from latency_bench.utils.io import load_jsonl_records
 
 
-EPISODE_METRICS_CANDIDATES = ("episode_metrics.jsonl", "metrics.jsonl", "episodes.jsonl")
-LATENCY_RECORD_CANDIDATES = ("latencies.jsonl", "latency_records.jsonl")
-ACTION_RECORD_CANDIDATES = ("actions.jsonl", "action_records.jsonl")
+EPISODE_METRICS_CANDIDATES = ("episode_metrics.jsonl",)
+LATENCY_RECORD_CANDIDATES = ("latencies.jsonl",)
+ACTION_RECORD_CANDIDATES = ("actions.jsonl",)
 
 DEFAULT_LENGTH_FIELD = "survival_steps"
 METADATA_KEYS = (
@@ -104,14 +104,8 @@ def _summarize_metadata(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _metadata_values(records: Sequence[dict[str, Any]], key: str) -> list[Any]:
-    values: list[Any] = []
-    for record in records:
-        value = record.get(key)
-        if value is None and isinstance(record.get("metadata"), dict):
-            value = record["metadata"].get(key)
-        if value is not None:
-            values.append(value)
-    return values
+    values = (record["metadata"].get(key) for record in records)
+    return [value for value in values if value is not None]
 
 
 def _collapse_unique_values(values: Sequence[Any]) -> Any:

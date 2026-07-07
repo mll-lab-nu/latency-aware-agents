@@ -22,7 +22,8 @@ from latency_bench.data.hf_parquet import (
     episode_row_split_stats,
     write_episode_row_shard,
 )
-from latency_bench.data.rollout_image_io import RolloutImageWriter, frame_from_env_raw_rgb_info
+from latency_bench.data.ghost_trail import GhostTrailConfig, build_episode_image_frames
+from latency_bench.data.rollout_image_io import RolloutImageWriter, frame_from_env_raw_rgb_info, frames_from_env_raw_rgb_info
 from latency_bench.data.rollout_schema import SCHEMA_VERSION
 from latency_bench.data.sf_teacher_rows import teacher_dataset_row
 from latency_bench.data.sf_teacher_drivers import (
@@ -196,6 +197,78 @@ def _write_probe_state(output_dir: Path, state: Mapping[str, Any]) -> None:
     tmp_path = state_path.with_name(f"{state_path.name}.tmp")
     tmp_path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     tmp_path.replace(state_path)
+
+
+def merge_probe_states(
+    shard_states: Sequence[Mapping[str, Any]],
+    *,
+    max_episodes: int,
+    val_fraction: float,
+    split_seed: int,
+) -> dict[str, Any]:
+    """Merge sharded probe states into one resume state for single-process replay.
+
+    Each shard explored a disjoint reset-seed range (see ``rollout_seed_offset``) and
+    persisted its own accepted specs. The merged state takes the first ``max_episodes``
+    accepted specs in deterministic shard order, dedupes by reset seed, and reassigns
+    contiguous ``episode_idx`` plus train/val split via the same plan the single-process
+    probe uses (``_build_episode_plan``) — so the downstream replay path is identical to a
+    normal resume. Each spec keeps its original reset seed so replay reproduces the episode.
+
+    Args:
+        shard_states: Probe states (parsed ``probe_state.json``) from each shard, in the
+            shard order that defines the deterministic merge order.
+        max_episodes: Number of episodes the merged dataset must contain.
+        val_fraction: Fraction assigned to validation (same plan as the probe).
+        split_seed: RNG seed for split assignment (same plan as the probe).
+
+    Returns:
+        A merged probe state with exactly ``max_episodes`` accepted specs, ready to write
+        to the final ``output_dir`` so ``collect_teacher_dataset`` skips probing and replays.
+    """
+    merged_specs: list[dict[str, Any]] = []
+    seen_seeds: set[int] = set()
+    for state in shard_states:
+        for spec in state.get("accepted_specs", []):
+            seed = int(spec["seed"])
+            if seed in seen_seeds:
+                continue
+            seen_seeds.add(seed)
+            merged_specs.append(dict(spec))
+
+    if len(merged_specs) < int(max_episodes):
+        raise ValueError(
+            f"sharded probe collected {len(merged_specs)} accepted episodes, "
+            f"fewer than max_episodes={int(max_episodes)}; increase per-shard quota."
+        )
+
+    final_splits = {
+        int(plan_spec["episode_idx"]): str(plan_spec["split"])
+        for plan_spec in _build_episode_plan(
+            max_episodes=int(max_episodes),
+            val_fraction=float(val_fraction),
+            split_seed=int(split_seed),
+            base_seed=0,
+        )
+    }
+
+    accepted_specs: list[dict[str, Any]] = []
+    for episode_idx, spec in enumerate(merged_specs[: int(max_episodes)]):
+        finalized = dict(spec)
+        finalized["episode_idx"] = int(episode_idx)
+        finalized["split"] = final_splits[int(episode_idx)]
+        accepted_specs.append(finalized)
+
+    merged = _new_probe_state()
+    merged["accepted_specs"] = accepted_specs
+    merged["attempted_episodes"] = sum(int(s.get("attempted_episodes", 0)) for s in shard_states)
+    merged["rejected_episodes"] = sum(int(s.get("rejected_episodes", 0)) for s in shard_states)
+    merged["next_attempt_idx"] = sum(int(s.get("next_attempt_idx", 0)) for s in shard_states)
+    for state in shard_states:
+        if "runtime_metadata" in state:
+            merged["runtime_metadata"] = dict(state["runtime_metadata"])
+            break
+    return merged
 
 
 def _filter_report_from_probe_state(
@@ -436,6 +509,13 @@ def _rollout_step_flags(
     return life_loss_boundary, true_episode_end
 
 
+# Persist the probe resume state on every acceptance (rare, <= max_episodes) but only
+# every N rejections. Once the per-step device syncs are gone, episodes complete very
+# frequently, and serializing the whole state to disk per completion dominates. The final
+# state is flushed once the probe loop ends, so a clean run's persisted state is identical.
+PROBE_STATE_WRITE_EVERY = 256
+
+
 def _probe_accepted_specs(
     runtime: Mapping[str, Any],
     driver: SerialTeacherRolloutDriver | BatchedTeacherRolloutDriver,
@@ -450,6 +530,8 @@ def _probe_accepted_specs(
     deterministic: bool,
     probe_state: dict[str, Any],
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
+    filter_kwargs: dict[str, Any] | None = None,
+    rollout_seed_offset: int = 0,
 ) -> None:
     """Probe rollout attempts without raw RGB until enough accepted specs exist.
 
@@ -466,6 +548,7 @@ def _probe_accepted_specs(
         deterministic: Whether to use deterministic teacher actions.
         probe_state: Mutable probe state persisted for resume.
         filter_preset: Filter preset name for episode-level gating.
+        filter_kwargs: Optional overrides forwarded to the episode gate.
     """
     accepted_specs = probe_state["accepted_specs"]
     rnn_size = runtime["rnn_size"]
@@ -492,7 +575,7 @@ def _probe_accepted_specs(
         next_attempt_idx = int(probe_state["next_attempt_idx"])
         initial_reset_plan: dict[int, int] = {}
         for slot in range(driver.slot_count):
-            spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed))
+            spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed) + int(rollout_seed_offset))
             next_attempt_idx += 1
             active_specs[slot] = spec
             initial_reset_plan[slot] = int(spec["seed"])
@@ -526,6 +609,12 @@ def _probe_accepted_specs(
                 reset_plan: dict[int, int] = {}
                 target_reached = False
 
+                # Scatter the new recurrent states for every active slot in one
+                # batched assignment instead of one tiny GPU write per slot. Slots
+                # that finish/reset below still get .zero_()'d afterwards, exactly
+                # as when each row was written individually.
+                rnn_states[active_slots] = new_rnn_states
+
                 for batch_idx, slot in enumerate(active_slots):
                     if len(accepted_specs) >= int(max_episodes):
                         active_specs[slot] = None
@@ -545,7 +634,6 @@ def _probe_accepted_specs(
                     else:
                         active_episode_raw_returns[slot] += float(_to_python_action(step_result.reward))
 
-                    rnn_states[slot] = new_rnn_states[batch_idx]
                     next_decision_step = int(active_decision_steps[slot]) + 1
                     life_loss_boundary, episode_done = _rollout_step_flags(
                         env_name,
@@ -566,6 +654,7 @@ def _probe_accepted_specs(
                             env_name,
                             summary,
                             max_steps_per_episode=int(max_steps_per_episode),
+                            filter_kwargs=filter_kwargs,
                         )
                         if accepted:
                             final_episode_idx = len(accepted_specs)
@@ -586,7 +675,7 @@ def _probe_accepted_specs(
                         else:
                             probe_state["rejected_episodes"] += 1
                         if len(accepted_specs) < int(max_episodes):
-                            next_spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed))
+                            next_spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed) + int(rollout_seed_offset))
                             next_attempt_idx += 1
                             active_specs[slot] = next_spec
                             reset_plan[slot] = int(next_spec["seed"])
@@ -599,7 +688,8 @@ def _probe_accepted_specs(
                             active_decision_steps[slot] = 0
                             rnn_states[slot].zero_()
                         probe_state["next_attempt_idx"] = next_attempt_idx
-                        _write_probe_state(output_dir, probe_state)
+                        if accepted or int(probe_state["attempted_episodes"]) % PROBE_STATE_WRITE_EVERY == 0:
+                            _write_probe_state(output_dir, probe_state)
                         _update_probe_progress(
                             progress,
                             probe_state,
@@ -630,6 +720,9 @@ def _probe_accepted_specs(
                 else:
                     if isinstance(driver, BatchedTeacherRolloutDriver):
                         driver.sync_active([spec is not None for spec in active_specs])
+        # Flush the final probe state once the loop ends so a clean run persists the
+        # exact same accepted_specs/counters as writing on every completion did.
+        _write_probe_state(output_dir, probe_state)
     finally:
         driver.close()
 
@@ -650,6 +743,7 @@ def _replay_accepted_specs(
     row_buffer_size: int,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     context_window: int = 1,
+    image_transform_config: GhostTrailConfig | None = None,
 ) -> list[int] | None:
     """Replay accepted specs with raw RGB export and write episode shards.
 
@@ -668,9 +762,12 @@ def _replay_accepted_specs(
         row_buffer_size: Pending image write threshold.
         filter_preset: Filter preset name for train row density control.
         context_window: Total image window length including the current ``image`` field.
+        image_transform_config: Optional causal image transform applied before
+            row filtering. Defaults to raw RGB.
     Returns:
         First observed image resolution, or ``None`` when no spec is replayed.
     """
+    image_transform_config = image_transform_config or GhostTrailConfig()
     specs_to_replay = [
         spec for spec in accepted_specs if int(spec["episode_idx"]) not in completed_episode_indices
     ]
@@ -685,12 +782,38 @@ def _replay_accepted_specs(
     spec_cursor = 0
     replayed = 0
 
+    # For demon_attack_ghost_trail: accumulate consecutive raw ALE frames externally.
+    # frame_stack=4 gives 4 new raw frames per driver.step(); extend a deque(maxlen=30)
+    # so each decision step sees the last 30 consecutive raw ALE frames at 60 fps.
+    #
+    # Efficiency: we maintain a parallel deque of _FrameCache objects so that
+    # foreground_components (cv2.connectedComponents) is called exactly once per new
+    # raw frame (4× per decision step) rather than 30× per decision step.
+    _is_demon_ghost_trail = (
+        str(env_name) == "demon_attack"
+        and image_transform_config.normalized_transform() == "demon_attack_ghost_trail"
+    )
+    _ghost_trail_history_len = max(1, int(image_transform_config.history_frames))
+
+    if _is_demon_ghost_trail:
+        from latency_bench.data.ghost_trail_demon import _cache_frame, _tracks_from_cache, render_tracks
+
+    def _ghost_image_from_cache(raw_frames: list, frame_cache: list) -> np.ndarray:
+        window = [np.asarray(f, dtype=np.uint8) for f in raw_frames]
+        if len(window) == 1:
+            return window[-1].copy()
+        tracks = _tracks_from_cache(frame_cache)
+        return render_tracks(window, tracks, render_all_history=True)
+
+    from collections import deque
     active_specs: list[dict[str, Any] | None] = [None for _ in range(driver.slot_count)]
     active_obs: list[Any | None] = [None for _ in range(driver.slot_count)]
     active_image_frames: list[np.ndarray | None] = [None for _ in range(driver.slot_count)]
     active_episode_rows: list[list[dict[str, Any]]] = [[] for _ in range(driver.slot_count)]
     active_episode_frames: list[list[np.ndarray]] = [[] for _ in range(driver.slot_count)]
     active_decision_steps = [0 for _ in range(driver.slot_count)]
+    active_raw_history: list[deque | None] = [None for _ in range(driver.slot_count)]
+    active_frame_cache: list[deque | None] = [None for _ in range(driver.slot_count)]
     rnn_states = torch.zeros([driver.slot_count, rnn_size], dtype=torch.float32, device=device)
     image_writer = RolloutImageWriter(
         max_workers=int(image_writer_workers),
@@ -722,7 +845,12 @@ def _replay_accepted_specs(
                 reset_results = driver.reset_slots(initial_reset_plan)
             for slot, (obs, reset_info) in reset_results.items():
                 active_obs[slot] = obs
-                active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
+                if _is_demon_ghost_trail:
+                    active_raw_history[slot] = deque(maxlen=_ghost_trail_history_len)
+                    active_frame_cache[slot] = deque(maxlen=_ghost_trail_history_len)
+                    active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
+                else:
+                    active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
                 active_episode_rows[slot] = []
                 active_episode_frames[slot] = []
                 active_decision_steps[slot] = 0
@@ -775,6 +903,7 @@ def _replay_accepted_specs(
                             reward=step_result.reward,
                             env_fps=env_fps,
                             obs_fps=obs_fps,
+                            image_transform=image_transform_config.normalized_transform(),
                         )
                         active_episode_rows[slot].append(row)
                     rnn_states[slot] = new_rnn_states[batch_idx]
@@ -794,10 +923,20 @@ def _replay_accepted_specs(
                             )
                         else:
                             shard_rows = [dict(row) for row in final_rows]
-                        frames_by_decision_step = {
-                            int(row["decision_step"]): frame
-                            for row, frame in zip(final_rows, active_episode_frames[slot])
-                        }
+                        if _is_demon_ghost_trail:
+                            # Frames are pre-built ghost trail images; map directly.
+                            ep_steps = [int(row["decision_step"]) for row in final_rows]
+                            frames_by_decision_step = {
+                                step: frame
+                                for step, frame in zip(ep_steps, active_episode_frames[slot])
+                            }
+                        else:
+                            frames_by_decision_step = build_episode_image_frames(
+                                env_name=env_name,
+                                rows=final_rows,
+                                frames=active_episode_frames[slot],
+                                config=image_transform_config,
+                            )
                         shard_rows = _write_filtered_episode_images(
                             image_writer,
                             shard_rows,
@@ -814,15 +953,33 @@ def _replay_accepted_specs(
                         active_episode_rows[slot] = []
                         active_episode_frames[slot] = []
                         active_decision_steps[slot] = 0
+                        if _is_demon_ghost_trail:
+                            active_raw_history[slot] = None
+                            active_frame_cache[slot] = None
                         rnn_states[slot].zero_()
                     else:
                         if life_loss_boundary:
                             active_obs[slot], reset_info = driver.continue_after_life_loss(slot)
-                            active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
+                            if _is_demon_ghost_trail:
+                                active_raw_history[slot].clear()
+                                active_frame_cache[slot].clear()
+                                active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
+                            else:
+                                active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
                             rnn_states[slot].zero_()
                         else:
                             active_obs[slot] = step_result.next_obs
-                            active_image_frames[slot] = frame_from_env_raw_rgb_info(step_result.info)
+                            if _is_demon_ghost_trail:
+                                new_raw_frames = frames_from_env_raw_rgb_info(step_result.info)
+                                active_raw_history[slot].extend(new_raw_frames)
+                                for f in new_raw_frames:
+                                    active_frame_cache[slot].append(_cache_frame(f))
+                                active_image_frames[slot] = _ghost_image_from_cache(
+                                    list(active_raw_history[slot]),
+                                    list(active_frame_cache[slot]),
+                                )
+                            else:
+                                active_image_frames[slot] = frame_from_env_raw_rgb_info(step_result.info)
                         active_decision_steps[slot] = next_decision_step
 
                 if reset_plan:
@@ -832,7 +989,12 @@ def _replay_accepted_specs(
                         reset_results = driver.reset_slots(reset_plan)
                     for slot, (obs, reset_info) in reset_results.items():
                         active_obs[slot] = obs
-                        active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
+                        if _is_demon_ghost_trail:
+                            active_raw_history[slot] = deque(maxlen=_ghost_trail_history_len)
+                            active_frame_cache[slot] = deque(maxlen=_ghost_trail_history_len)
+                            active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
+                        else:
+                            active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info)
                         active_episode_rows[slot] = []
                         active_episode_frames[slot] = []
                         active_decision_steps[slot] = 0
@@ -908,6 +1070,9 @@ def collect_teacher_dataset(
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
     context_window: int = 1,
+    rollout_seed_offset: int = 0,
+    probe_only: bool = False,
+    image_transform_config: GhostTrailConfig | None = None,
 ) -> dict[str, Any]:
     """Collect a Sample Factory teacher dataset from a checkpoint descriptor.
 
@@ -927,10 +1092,13 @@ def collect_teacher_dataset(
         filter_preset: Filter preset name (``"none"`` or ``"clean_v1"``).
         filter_kwargs: Temporary exporter experiment arguments retained at the public boundary.
         context_window: Total image window length including the current ``image`` field.
+        image_transform_config: Optional causal image transform applied during
+            replay before row filtering.
     Returns:
         Rollout metadata.
     """
     env_name = str(config["env_name"])
+    image_transform_config = image_transform_config or GhostTrailConfig()
     completed_episode_indices = completed_episode_indices_from_shards(output_dir)
     probe_state = _load_probe_state(
         output_dir,
@@ -964,7 +1132,21 @@ def collect_teacher_dataset(
             deterministic=bool(deterministic),
             probe_state=probe_state,
             filter_preset=filter_preset,
+            filter_kwargs=filter_kwargs,
+            rollout_seed_offset=int(rollout_seed_offset),
         )
+
+    if probe_only:
+        # Sharded-probe worker mode: the accepted_specs (with their reset seeds) are now
+        # persisted in probe_state.json; skip replay/image writing. A separate merge step
+        # combines shards and the single-process replay path materializes the dataset.
+        return {
+            "probe_only": True,
+            "env_name": env_name,
+            "accepted_episodes": len(probe_state["accepted_specs"]),
+            "rollout_seed_offset": int(rollout_seed_offset),
+            "filter_preset": filter_preset,
+        }
 
     accepted_specs = probe_state["accepted_specs"]
     completed_episode_indices = completed_episode_indices_from_shards(output_dir)
@@ -995,6 +1177,7 @@ def collect_teacher_dataset(
             row_buffer_size=int(row_buffer_size),
             filter_preset=filter_preset,
             context_window=int(context_window),
+            image_transform_config=image_transform_config,
         )
 
     action_spec = action_spec_for_env(env_name)
@@ -1022,7 +1205,10 @@ def collect_teacher_dataset(
         "env_fps": env_fps,
         "obs_fps": obs_fps,
         "obs_stride_raw_frames": int(env_fps / obs_fps),
-        "image_source": "env_raw_rgb",
+        "image_source": "env_raw_rgb"
+        if image_transform_config.normalized_transform() == "raw_rgb"
+        else f"env_raw_rgb_{image_transform_config.normalized_transform()}",
+        "image_transform": image_transform_config.metadata(),
         "image_resolution": image_resolution,
         "context_window": int(context_window),
         "context_image_count": max(0, int(context_window) - 1),

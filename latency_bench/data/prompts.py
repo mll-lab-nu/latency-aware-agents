@@ -14,6 +14,11 @@ TIMING_SUFFIX = (
     "Choose the best next action."
 )
 
+IMAGE_TRANSFORM_CONTEXTS = {
+    "flappy_ghost_trail": " You can see the past motion of the bird in the image. Use it to make your decision.",
+    "demon_attack_ghost_trail": " You can see the recent motion of the ship, missiles, and demons in the image. Use it to make your decision.",
+}
+
 
 def render_teacher_prompt(
     env_name: str,
@@ -22,6 +27,7 @@ def render_teacher_prompt(
     latency_ms: float,
     env_fps: float,
     obs_fps: float,
+    image_transform: str = "raw_rgb",
 ) -> str:
     """Render the prompt stored on each rollout decision row.
 
@@ -31,12 +37,15 @@ def render_teacher_prompt(
         latency_ms: Action latency in milliseconds.
         env_fps: Raw environment frame rate.
         obs_fps: Observation decision rate.
+        image_transform: Optional exported-image transform name. Some transforms
+            add visual context that should be reflected in the prompt.
 
     Returns:
         Base environment prompt with timing context appended.
     """
 
-    return BASE_PROMPTS[str(env_name)] + TIMING_SUFFIX.format(
+    transform_context = IMAGE_TRANSFORM_CONTEXTS.get(str(image_transform).strip().lower(), "")
+    return BASE_PROMPTS[str(env_name)] + transform_context + TIMING_SUFFIX.format(
         latency_raw_frames=int(latency_raw_frames),
         latency_ms=float(latency_ms),
         env_fps=float(env_fps),
