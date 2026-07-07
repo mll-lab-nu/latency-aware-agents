@@ -1,23 +1,25 @@
 from __future__ import annotations
 
-import os
-import time
 from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any
 
-import gymnasium as gym
 import numpy as np
 import torch
 
 from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore
 from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState
 from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer
-from latency_bench.core.types import Action, Observation, StepResult
-from latency_bench.executors.env_step_backend import EnvStepResponse, RemoteEnvSlotHandle
+from latency_bench.core.types import Action, Observation
 from latency_bench.envs.flappy import (
     FlappyObservationConfig,
     FlappyTorchObservationPipeline,
+)
+from latency_bench.executors.gpu_batched_env_step_backend import (
+    GpuBatchedEnvStepBackendBase,
+    SlotStepOutcome,
+    config_policy_type,
+    uses_starvla_policy,
 )
 from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_render_device
@@ -25,7 +27,7 @@ from training.flappy_sf.flappy_cuda_extension import CudaFlappyRenderer
 from training.flappy_sf.gpu_core import CudaFlappyBirdCore
 
 
-class FlappyGpuBatchedEnvStepBackend:
+class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
     """Batch Flappy physics and Torch rendering behind latency_bench's scheduler.
 
     This backend deliberately does not use training.flappy_sf.batched_gpu_env:
@@ -34,18 +36,15 @@ class FlappyGpuBatchedEnvStepBackend:
     one raw frame per slot and returns observations with the same contract as
     FlappyBirdEnvAdapter(use_gpu_render=True).
     """
+    backend_name = "flappy_gpu_batched"
 
     def __init__(self, *, config: dict[str, Any], noop_action: Action, num_slots: int):
-        self.config = config
-        self.noop_action = noop_action
-        self._num_slots = int(num_slots)
+        super().__init__(config=config, noop_action=noop_action, num_slots=num_slots, num_actions=2)
         env_cfg = config["env"]
-        self._env_fps = float(env_cfg["env_fps"])
-        self._frame_ms = 1000.0 / self._env_fps
         self.frame_stack = int(env_cfg.get("frame_stack", 1) or 1)
         self.policy_observation_layout = self._policy_observation_layout(config)
         self._returns_torch_chw_observations = self.policy_observation_layout == "chw"
-        self.export_env_raw_rgb_frames = self._uses_raw_rgb_vla_policy(config)
+        self.export_env_raw_rgb_frames = uses_starvla_policy(config)
         self._updates_raw_rgb_on_step = self.export_env_raw_rgb_frames
         self.obs_resize = tuple(int(value) for value in env_cfg["obs_resize"])
         self.render_device = resolve_gpu_render_device(str(env_cfg.get("gpu_render_device", "auto")))
@@ -93,21 +92,7 @@ class FlappyGpuBatchedEnvStepBackend:
             for _slot in range(self._num_slots)
         ]
         self._last_numeric_obs: list[Any] = [None for _slot in range(self._num_slots)]
-        self._last_infos: list[dict[str, Any]] = [{} for _slot in range(self._num_slots)]
-        self._env_steps = np.zeros(self._num_slots, dtype=np.int64)
         self._last_frame_skips = np.zeros(self._num_slots, dtype=np.int64)
-        self.slot_handles = [
-            RemoteEnvSlotHandle(
-                slot_id=slot_id,
-                env_fps=self._env_fps,
-                noop_action=noop_action,
-                action_space=gym.spaces.Discrete(2),
-            )
-            for slot_id in range(self._num_slots)
-        ]
-        self.last_reset_metadata_by_slot: dict[int, dict[str, Any]] = {}
-        self.last_step_metadata_by_slot: dict[int, dict[str, Any]] = {}
-        self.closed = False
         self.gpu_render_profiler = _GpuRenderProfiler(
             enabled=bool(env_cfg.get("gpu_render_profile", False)),
             interval=int(env_cfg.get("gpu_render_profile_interval", 1000) or 1000),
@@ -117,21 +102,7 @@ class FlappyGpuBatchedEnvStepBackend:
             env_id=0,
         )
 
-    @property
-    def num_slots(self) -> int:
-        return self._num_slots
-
-    @property
-    def env_fps(self) -> float:
-        return self._env_fps
-
-    def worker_pids(self) -> list[int]:
-        return []
-
-    def reset_slot(self, slot_id: int, *, episode_id: int, seed: int | None) -> Observation:
-        self._raise_if_closed()
-        slot_id = int(slot_id)
-        start = time.perf_counter()
+    def _reset_slot_observation(self, slot_id: int, *, seed: int | None) -> Observation:
         numeric_obs, infos = self._reset_core_slots([slot_id], seeds=[seed])
         info = self._with_numeric_obs(infos[slot_id], numeric_obs[slot_id])
         frames = self._render_observation_frames_for_reset([slot_id])
@@ -141,43 +112,17 @@ class FlappyGpuBatchedEnvStepBackend:
         self._last_frames[slot_id] = frames[slot_id]
         self._last_numeric_obs[slot_id] = numeric_obs[slot_id]
         self._last_infos[slot_id] = info
-        observation = self._make_observation(slot_id, numeric_obs=numeric_obs[slot_id], info=info)
-        metadata = {
-            "backend": "flappy_gpu_batched",
-            "slot_id": slot_id,
-            "episode_id": int(episode_id),
-            "worker_pid": os.getpid(),
-            "worker_reset_wall_sec": time.perf_counter() - start,
-        }
-        self.last_reset_metadata_by_slot[slot_id] = metadata
-        self.slot_handles[slot_id].update_observation(observation, metadata)
-        return observation
+        return self._make_observation(slot_id, numeric_obs=numeric_obs[slot_id], info=info)
 
-    def observe_slots(self, slot_ids: Sequence[int]) -> dict[int, Observation]:
-        self._raise_if_closed()
-        slot_ids = [int(slot_id) for slot_id in slot_ids]
+    def _observe_slot_observations(self, slot_ids: list[int]) -> dict[int, Observation]:
         frames = self._render_observation_frames_for_observe(slot_ids)
         observations: dict[int, Observation] = {}
         for slot_id in slot_ids:
             self._last_frames[slot_id] = frames[slot_id]
-            observation = self._observe_slot(slot_id)
-            self.slot_handles[slot_id].update_observation(observation, None)
-            observations[slot_id] = observation
+            observations[slot_id] = self._observe_slot(slot_id)
         return observations
 
-    def step_slots(self, actions_by_slot: Mapping[int, Action]) -> dict[int, EnvStepResponse]:
-        self._raise_if_closed()
-        start = time.perf_counter()
-        slot_ids = [int(slot_id) for slot_id in actions_by_slot]
-        actions = np.zeros(self._num_slots, dtype=np.int64)
-        active_mask = np.zeros(self._num_slots, dtype=np.bool_)
-        action_names: dict[int, str | None] = {}
-        for slot_id, action in actions_by_slot.items():
-            slot_id = int(slot_id)
-            actions[slot_id] = int(action.value)
-            active_mask[slot_id] = True
-            action_names[slot_id] = action.name
-
+    def _step_cores(self, slot_ids: list[int], *, actions: np.ndarray, active_mask: np.ndarray) -> Any:
         with self.gpu_render_profiler.time("env_step_s"):
             step_result = self.core.step_batch(actions, active_mask=active_mask)
 
@@ -187,48 +132,22 @@ class FlappyGpuBatchedEnvStepBackend:
         if self._updates_raw_rgb_on_step:
             self._render_raw_rgb_for_step_metadata(done_mask=done_mask, active_mask=active_mask)
         self.gpu_render_profiler.observe_step()
+        return step_result, terminal_infos
 
-        responses: dict[int, EnvStepResponse] = {}
-        for slot_id in slot_ids:
-            self._env_steps[slot_id] += 1
-            info = terminal_infos[slot_id]
-            numeric_obs = step_result.observations[slot_id]
-            self._last_numeric_obs[slot_id] = numeric_obs
-            self._last_infos[slot_id] = info
+    def _slot_step_outcome(self, state: Any, slot_id: int) -> SlotStepOutcome:
+        step_result, terminal_infos = state
+        info = terminal_infos[slot_id]
+        self._last_numeric_obs[slot_id] = step_result.observations[slot_id]
+        self._last_infos[slot_id] = info
 
-            step_info = dict(info)
-            step_info.pop("numeric_obs", None)
-            step_info.update(
-                {
-                    "env_step": int(self._env_steps[slot_id]),
-                    "sim_time_ms": int(self._env_steps[slot_id]) * self._frame_ms,
-                    "applied_action": int(actions[slot_id]),
-                    "applied_action_name": action_names[slot_id],
-                }
-            )
-            result = StepResult(
-                observation=None,
-                reward=float(np.float32(step_result.rewards[slot_id])),
-                done=bool(step_result.terminated[slot_id]),
-                truncated=bool(step_result.truncated[slot_id]),
-                info=step_info,
-            )
-            metadata = {
-                "backend": "flappy_gpu_batched",
-                "slot_id": slot_id,
-                "worker_pid": os.getpid(),
-                "worker_step_wall_sec": time.perf_counter() - start,
-            }
-            self.last_step_metadata_by_slot[slot_id] = metadata
-            responses[slot_id] = EnvStepResponse(
-                result=result,
-                worker_pid=os.getpid(),
-                metadata=metadata,
-            )
-        return responses
-
-    def close(self) -> None:
-        self.closed = True
+        step_info = dict(info)
+        step_info.pop("numeric_obs", None)
+        return SlotStepOutcome(
+            reward=float(np.float32(step_result.rewards[slot_id])),
+            done=bool(step_result.terminated[slot_id]),
+            truncated=bool(step_result.truncated[slot_id]),
+            info=step_info,
+        )
 
     def _render_observation_frames_for_reset(self, slot_ids: Sequence[int]) -> list[np.ndarray]:
         with self.gpu_render_profiler.time("reset_obs_total_s"):
@@ -438,13 +357,7 @@ class FlappyGpuBatchedEnvStepBackend:
 
     @staticmethod
     def _policy_observation_layout(config: dict[str, Any]) -> str:
-        policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
-        return "chw" if policy_type == "flappy_sf" else "hwc"
-
-    @staticmethod
-    def _uses_raw_rgb_vla_policy(config: dict[str, Any]) -> bool:
-        policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
-        return policy_type == "starvla"
+        return "chw" if config_policy_type(config) == "flappy_sf" else "hwc"
 
     @staticmethod
     def _nchw_to_hwc_frames(obs: torch.Tensor) -> list[np.ndarray]:
@@ -486,7 +399,3 @@ class FlappyGpuBatchedEnvStepBackend:
         out = dict(info or {})
         out["numeric_obs"] = numeric_obs
         return out
-
-    def _raise_if_closed(self) -> None:
-        if self.closed:
-            raise RuntimeError("env step backend is closed")

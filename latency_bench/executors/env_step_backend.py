@@ -400,7 +400,7 @@ def _env_worker(connection: Any, config: dict[str, Any], noop_action: Action, sl
                 "worker_pid": worker_pid,
                 "env_fps": env.env_fps,
                 "noop_action": env.noop_action,
-                "action_space": _env_action_space(env),
+                "action_space": env_action_space(env),
             },
         ))
 
@@ -519,7 +519,7 @@ def _resolve_start_method(start_method: str | None = None) -> str:
     raise RuntimeError(f"no safe multiprocessing start method is available; available={available}")
 
 
-def _env_action_space(env: EnvAdapter) -> Any:
+def env_action_space(env: EnvAdapter) -> Any:
     for owner in (env, getattr(env, "gym_env", None), getattr(env, "sf_env", None)):
         if owner is None:
             continue
