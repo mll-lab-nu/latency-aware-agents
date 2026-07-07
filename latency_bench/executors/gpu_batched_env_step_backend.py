@@ -64,7 +64,6 @@ class GpuBatchedEnvStepBackendBase(ABC):
             )
             for slot_id in range(self._num_slots)
         ]
-        self.last_reset_metadata_by_slot: dict[int, dict[str, Any]] = {}
         self.last_step_metadata_by_slot: dict[int, dict[str, Any]] = {}
         self.closed = False
 
@@ -91,7 +90,6 @@ class GpuBatchedEnvStepBackendBase(ABC):
             "worker_pid": os.getpid(),
             "worker_reset_wall_sec": time.perf_counter() - start,
         }
-        self.last_reset_metadata_by_slot[slot_id] = metadata
         self.slot_handles[slot_id].update_observation(observation, metadata)
         return observation
 

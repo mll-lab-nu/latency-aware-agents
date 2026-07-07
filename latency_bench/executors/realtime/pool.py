@@ -49,9 +49,6 @@ class ProcessInferencePool:
     def worker_count(self) -> int:
         return len(self.inference_devices)
 
-    def reset_episode(self) -> None:
-        self.drain_until_idle()
-
     def drain_until_idle(self) -> dict[str, float | int]:
         self._raise_if_closed()
         busy_before = self.in_flight_count
@@ -171,7 +168,6 @@ class ProcessInferencePool:
                             worker_id=worker_id,
                             device=self.inference_devices[worker_id],
                             profile=profile,
-                            error=result.error,
                         )
                     )
                 elif tag == "error":
@@ -190,14 +186,6 @@ class _RealtimeResultCoordinator:
         self.issue_order: list[int] = []
         self.result_buffer: dict[int, RealtimePolicyCompletion] = {}
         self.ignored_obs_ids: set[int] = set()
-        self.ignored_late_result_count = 0
-        self.discarded_ready_result_count = 0
-        self.fifo_blocked_count = 0
-
-    def reset(self) -> None:
-        self.issue_order.clear()
-        self.result_buffer.clear()
-        self.ignored_obs_ids.clear()
         self.ignored_late_result_count = 0
         self.discarded_ready_result_count = 0
         self.fifo_blocked_count = 0

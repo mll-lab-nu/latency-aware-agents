@@ -32,7 +32,6 @@ class EnvStepResponse:
 
 class EnvStepBackend(Protocol):
     slot_handles: Sequence[EnvAdapter]
-    last_reset_metadata_by_slot: dict[int, dict[str, Any]]
     last_step_metadata_by_slot: dict[int, dict[str, Any]]
     closed: bool
 
@@ -117,7 +116,6 @@ class SerialEnvStepBackend:
         self.slot_handles = list(envs)
         if not self.slot_handles:
             raise ValueError("SerialEnvStepBackend requires at least one env slot")
-        self.last_reset_metadata_by_slot: dict[int, dict[str, Any]] = {}
         self.last_step_metadata_by_slot: dict[int, dict[str, Any]] = {}
         self.closed = False
 
@@ -135,16 +133,7 @@ class SerialEnvStepBackend:
     def reset_slot(self, slot_id: int, *, episode_id: int, seed: int | None) -> Observation:
         self._raise_if_closed()
         env = self.slot_handles[int(slot_id)]
-        start = time.perf_counter()
         observation = env.reset(seed=seed)
-        metadata = {
-            "backend": "serial",
-            "slot_id": int(slot_id),
-            "episode_id": int(episode_id),
-            "worker_pid": os.getpid(),
-            "worker_reset_wall_sec": time.perf_counter() - start,
-        }
-        self.last_reset_metadata_by_slot[int(slot_id)] = metadata
         return observation
 
     def observe_slots(self, slot_ids: Sequence[int]) -> dict[int, Observation]:
@@ -206,7 +195,6 @@ class SubprocEnvStepBackend:
         self._connections: list[Any] = []
         self._processes: list[mp.Process] = []
         self.slot_handles: list[RemoteEnvSlotHandle] = []
-        self.last_reset_metadata_by_slot: dict[int, dict[str, Any]] = {}
         self.last_step_metadata_by_slot: dict[int, dict[str, Any]] = {}
         self.closed = False
         self._start_workers(int(num_slots))
@@ -231,7 +219,6 @@ class SubprocEnvStepBackend:
         metadata = dict(payload.get("metadata", {}))
         handle = self.slot_handles[slot_id]
         handle.update_observation(observation, metadata)
-        self.last_reset_metadata_by_slot[slot_id] = metadata
         return observation
 
     def observe_slots(self, slot_ids: Sequence[int]) -> dict[int, Observation]:

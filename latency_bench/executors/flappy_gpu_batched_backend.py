@@ -231,8 +231,6 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
                 background=batch.background,
             )
             self.renderer = TorchFlappyRenderer(assets, device=self.render_device)
-        with self.gpu_render_profiler.time("state_batch_from_states_s"):
-            pass
         with self.gpu_render_profiler.time("render_into_s"):
             return self.renderer.render_into(batch, self._raw_rgb_output_buffer(batch))
 

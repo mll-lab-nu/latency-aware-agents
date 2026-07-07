@@ -79,11 +79,6 @@ class ScriptedInferencePool:
     def worker_count(self) -> int:
         return self.num_workers
 
-    def reset_episode(self) -> None:
-        self.submitted.clear()
-        self._busy_worker_ids.clear()
-        self._pending.clear()
-
     def drain_until_idle(self) -> dict[str, float | int]:
         self.submitted.clear()
         self._busy_worker_ids.clear()
@@ -301,10 +296,6 @@ class DrainBeforeSubmitPool:
     @property
     def worker_count(self) -> int:
         return 1
-
-    def reset_episode(self) -> None:
-        self.drained = False
-        self.submitted.clear()
 
     def drain_until_idle(self) -> dict[str, float | int]:
         return {
