@@ -7,6 +7,7 @@ from statistics import NormalDist
 from typing import Any, Callable
 
 from latency_bench.core.clock import EnvClock
+from latency_bench.core.latency_distribution import derive_latency_seed
 from latency_bench.latency.inverse_cdf import sample_inverse_cdf
 from latency_bench.latency.profile import load_profile_manifest
 from latency_bench.latency.sample import LatencySample
@@ -344,6 +345,35 @@ def build_sampler(latency_cfg: dict[str, Any], *, clock: EnvClock, seed: int | N
         if profile is None:
             sampler.latency_type = "mixed_normal_distribution" if method == "normal" else "mixed_uniform_distribution"
     return sampler
+
+
+# Capability sets over the method names above (plus the virtual
+# ``profile_default``, which resolves to a concrete method only once the
+# profile manifest is loaded and therefore has no registered builder).
+SEEDED_STOCHASTIC_METHODS = frozenset({"normal", "uniform", "iid", "temporal", "profile_default"})
+BATCHED_SIMULATED_METHODS = frozenset({"zero", "fixed"}) | SEEDED_STOCHASTIC_METHODS
+
+
+def build_episode_sampler_factory(
+    latency_cfg: dict[str, Any],
+    clock: EnvClock,
+) -> Callable[[int], LatencySampler] | None:
+    """Return a per-episode sampler builder deriving a stream seed per episode.
+
+    Only seeded stochastic methods with an explicit ``seed`` get per-episode
+    streams; other configs return ``None`` and reuse the shared sampler.
+    """
+    if resolve_latency_method(latency_cfg) not in SEEDED_STOCHASTIC_METHODS:
+        return None
+    if "seed" not in latency_cfg:
+        return None
+
+    def build_for_episode(episode_id: int) -> LatencySampler:
+        episode_latency_cfg = dict(latency_cfg)
+        episode_latency_cfg["seed"] = derive_latency_seed(latency_cfg["seed"], episode_idx=episode_id)
+        return build_sampler(episode_latency_cfg, clock=clock, seed=episode_latency_cfg.get("seed"))
+
+    return build_for_episode
 
 
 @register_sampler("zero")
