@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 import torch
@@ -237,17 +237,41 @@ def _filter_report_from_probe_state(
     return report
 
 
-def _context_decision_steps(decision_step: int, context_window: int) -> list[int]:
-    """Build historical decision steps for one row, padded with the episode's first step.
+def _context_decision_steps(
+    decision_step: int,
+    context_window: int,
+    available_decision_steps: Sequence[int],
+) -> list[int]:
+    """Build historical decision steps from the current contiguous replay segment.
 
     Args:
         decision_step: Current decision step.
         context_window: Total image window length including the current ``image`` field.
+        available_decision_steps: Materialized decision steps ordered from oldest to newest.
 
     Returns:
         Historical decision steps ordered from oldest to newest.
     """
-    return [max(0, int(decision_step) - offset) for offset in range(int(context_window) - 1, 0, -1)]
+    current_index = available_decision_steps.index(decision_step)
+    segment_start_index = current_index
+    while segment_start_index > 0:
+        current_step = available_decision_steps[segment_start_index]
+        previous_step = available_decision_steps[segment_start_index - 1]
+        if previous_step != current_step - 1:
+            break
+        segment_start_index -= 1
+
+    context_steps: list[int] = []
+    cursor = current_index - 1
+    while cursor >= segment_start_index and len(context_steps) < context_window - 1:
+        context_steps.append(available_decision_steps[cursor])
+        cursor -= 1
+
+    first_segment_step = available_decision_steps[segment_start_index]
+    while len(context_steps) < context_window - 1:
+        context_steps.append(first_segment_step)
+
+    return list(reversed(context_steps))
 
 
 def _image_path_for_decision_step(row: Mapping[str, Any], decision_step: int) -> Path:
@@ -274,11 +298,19 @@ def _write_filtered_episode_images(
     """
     if not rows:
         return []
+    available_decision_steps = sorted(frames_by_decision_step)
     required_steps: set[int] = set()
     for row in rows:
         decision_step = int(row["decision_step"])
         required_steps.add(decision_step)
-        required_steps.update(_context_decision_steps(decision_step, int(context_window)))
+        if int(context_window) > 1:
+            required_steps.update(
+                _context_decision_steps(
+                    decision_step,
+                    int(context_window),
+                    available_decision_steps,
+                )
+            )
 
     written_paths_by_step: dict[int, str] = {}
     first_row = rows[0]
@@ -295,7 +327,11 @@ def _write_filtered_episode_images(
         if int(context_window) > 1:
             written["context_images"] = [
                 written_paths_by_step[context_step]
-                for context_step in _context_decision_steps(decision_step, int(context_window))
+                for context_step in _context_decision_steps(
+                    decision_step,
+                    int(context_window),
+                    available_decision_steps,
+                )
             ]
         written_rows.append(written)
     return written_rows
