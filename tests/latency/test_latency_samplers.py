@@ -116,6 +116,7 @@ def _constant_excursions(
     level_ms: float,
     ready_delta_ms: float = 0.0,
     sigma_ms: float = 0.0,
+    gap_draws: float = 1.0,
 ) -> dict:
     return {
         "count": 5,
@@ -124,7 +125,7 @@ def _constant_excursions(
         "duration_level_spearman_rho": 0.0,
         "within_excursion_sigma_ms": sigma_ms,
         "ready_delta_ms": _constant_inverse_cdf(ready_delta_ms),
-        "start_counts": {"start": 1000, "hold": 0},
+        "gap_draws": _constant_inverse_cdf(gap_draws),
     }
 
 
@@ -133,11 +134,12 @@ def _hand_model(
     excursions: dict | None,
     burst_emission: dict | None,
     enter_burst_count: int = 1000,
+    dwell: float = 1.0,
 ) -> dict:
     return {
-        "schema_version": 7,
+        "schema_version": 8,
         "model_type": "hidden_regime",
-        "reset_scope": "episode",
+        "reset_scope": "session",
         "spike_threshold_ms": 50.0,
         "regime_transition_counts": {
             "calm": {"calm": 1000 - enter_burst_count, "burst": enter_burst_count},
@@ -145,6 +147,7 @@ def _hand_model(
         },
         "regime_step_counts": {"calm": 1000, "burst": 1000},
         "burst_dwell_lengths": [],
+        "burst_dwell_distribution": _constant_inverse_cdf(dwell),
         "emission_distributions_by_regime": {
             "calm": _constant_joint_emission(40.0),
             "burst": burst_emission,
@@ -298,13 +301,14 @@ def test_hidden_regime_sampler_excursion_emits_duration_consecutive_draws():
 
 
 def test_hidden_regime_sampler_back_to_back_excursions_never_fuse():
-    # Chain in burst nearly every draw and start prob ~1: without the
-    # maximality separator two excursions would fuse into one longer observed
+    # Chain permanently in burst with a fitted gap of 1: without the >=1
+    # inter-excursion gap two excursions would fuse into one longer observed
     # run. Every above-threshold run must still be exactly the fitted D=4.
     model = _hand_model(
         excursions=_constant_excursions(duration=4.0, level_ms=100.0),
         burst_emission=_constant_joint_emission(45.0),
         enter_burst_count=1000,
+        dwell=1000.0,
     )
     sampler = HiddenRegimeSampler(model, clock=_clock(), seed=5)
     values = [sampler.sample({"episode_id": 0}).worker_service_ms for _ in range(400)]
@@ -321,17 +325,36 @@ def test_hidden_regime_sampler_back_to_back_excursions_never_fuse():
     assert set(runs) == {4}
 
 
-def test_hidden_regime_sampler_episode_reset_cancels_in_flight_excursion():
+def test_hidden_regime_sampler_episode_change_preserves_in_flight_excursion():
+    # The regime is machine state: an env reset does not interrupt a slow
+    # condition, so the 6-draw excursion started in episode 0 keeps emitting
+    # through the episode boundary and only then falls back to calm.
     model = _hand_model(
         excursions=_constant_excursions(duration=6.0, level_ms=100.0),
         burst_emission=None,
     )
     sampler = HiddenRegimeSampler(model, clock=_clock(), seed=0)
     draws = [sampler.sample({"episode_id": 0}).worker_service_ms for _ in range(3)]
-    # Draw 1 is the forced-calm reset draw; the chain then enters burst
-    # (enter prob ~1) and starts the 6-draw excursion.
+    # Draw 1 is the sampler's very first draw (chain starts calm); the chain
+    # then enters burst (enter prob ~1) and starts the 6-draw excursion.
     assert draws == pytest.approx([40.0, 100.0, 100.0])
-    assert sampler.sample({"episode_id": 1}).worker_service_ms == pytest.approx(40.0)
+    # The remaining four excursion draws keep emitting in episode 1.
+    continued = [sampler.sample({"episode_id": 1}).worker_service_ms for _ in range(4)]
+    assert continued == pytest.approx([100.0, 100.0, 100.0, 100.0])
+
+
+def test_hidden_regime_sampler_episode_change_preserves_burst_regime():
+    # A long fitted dwell: once the chain is in burst it must stay there
+    # across an episode boundary instead of resetting to calm.
+    model = _hand_model(
+        excursions=None,
+        burst_emission=_constant_joint_emission(48.0),
+        dwell=1000.0,
+    )
+    sampler = HiddenRegimeSampler(model, clock=_clock(), seed=0)
+    values = [sampler.sample({"episode_id": 0}).worker_service_ms for _ in range(2)]
+    assert values == pytest.approx([40.0, 48.0])
+    assert sampler.sample({"episode_id": 1}).worker_service_ms == pytest.approx(48.0)
 
 
 def test_hidden_regime_sampler_without_excursions_never_exceeds_threshold():
