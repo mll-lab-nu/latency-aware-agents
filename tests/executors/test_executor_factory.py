@@ -14,7 +14,7 @@ from latency_bench.executors.realtime import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.experiments.run_simulated_latency import build_executor as build_legacy_executor
 from latency_bench.run import run_from_config
-from latency_bench.latency.burst_profile import build_bayes_markov_burst_model
+from latency_bench.latency.burst_profile import build_hidden_regime_burst_model
 from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
 from latency_bench.core.clock import EnvClock
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
@@ -93,7 +93,7 @@ def _write_latency_profile(tmp_path) -> str:
         for index, frames in enumerate([1, 2, 3])
     ]
     (profile_dir / "latency_burst_model.json").write_text(
-        json.dumps(build_bayes_markov_burst_model(burst_samples), indent=2, sort_keys=True) + "\n",
+        json.dumps(build_hidden_regime_burst_model(burst_samples), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     save_profile_manifest(
@@ -108,9 +108,8 @@ def _write_latency_profile(tmp_path) -> str:
             "trace_path": "latencies.jsonl",
             "distribution_path": "latency_distribution.json",
             "latency_method": "temporal",
-            "sample_model_type": "bayes_markov",
+            "sample_model_type": "hidden_regime",
             "burst_model_path": "latency_burst_model.json",
-            "burst_state_key": "worker_service_ms_bin",
             "summary": {},
         },
         profile_dir / "profile.json",

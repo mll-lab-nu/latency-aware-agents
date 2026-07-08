@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import math
-from collections import Counter, defaultdict
-from typing import Any, Callable, Iterator
+from collections import defaultdict
+from statistics import median
+from typing import Any, Iterator
 
 from latency_bench.utils.stats import percentile_linear
 
@@ -15,21 +16,29 @@ WORKER_SERVICE_STAGE_KEYS = (
 
 
 # ---------------------------------------------------------------------------
-# Bayesian Markov burst model: states keyed on worker-service ms bins.
+# Hidden-regime burst model: a two-state (calm/burst) hidden Markov chain over
+# worker-service latency.
 #
-# The Markov state is the worker-service bin, because this is the signal that
-# drives realtime worker occupancy and observation drops. The fitted joint
-# emission distribution carries both action-ready delay and worker-service time
-# so control staleness and worker occupancy stay correlated without replaying
-# traces.
+# Real latency spikes arrive in clusters with normal-valued samples in
+# between, so a chain keyed on the latency value itself forgets it is inside a
+# burst as soon as one normal sample lands. The hidden regime carries that
+# memory. Fitting is a deterministic labeling pass (no EM): samples above
+# ``SPIKE_MEDIAN_MULTIPLIER x median`` are spikes, spikes within
+# ``BURST_MERGE_GAP_RECORDS`` of each other belong to one burst, and every
+# record from a burst's first to last spike (including the interleaved normal
+# ones) is labeled burst. The fitted joint emission distribution per regime
+# carries both action-ready delay and worker-service time so control staleness
+# and worker occupancy stay correlated.
 # ---------------------------------------------------------------------------
 
 
 LATENCY_MS_BIN_WIDTH = 1.0
 EMISSION_QUANTILE_LEVELS = tuple(index / 100.0 for index in range(101))
+SPIKE_MEDIAN_MULTIPLIER = 1.25
+BURST_MERGE_GAP_RECORDS = 30
 
 
-def build_bayes_markov_burst_samples(
+def build_burst_samples(
     action_records: list[dict[str, Any]],
     episode_metrics_records: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -54,84 +63,71 @@ def build_bayes_markov_burst_samples(
     return samples
 
 
-def build_bayes_markov_burst_model(samples: list[dict[str, Any]]) -> dict[str, Any]:
-    initial_state_counts: Counter[str] = Counter()
-    transition_counts: dict[str, Counter[str]] = defaultdict(Counter)
-    run_lengths_by_state: dict[str, list[int]] = defaultdict(list)
-    state_counts: Counter[str] = Counter()
-    emission_samples_by_state: dict[str, list[dict[str, float]]] = defaultdict(list)
+def build_hidden_regime_burst_model(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    spike_threshold_ms = SPIKE_MEDIAN_MULTIPLIER * median(
+        float(sample["worker_service_ms"]) for sample in samples
+    )
 
     samples_by_episode: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for sample in samples:
         samples_by_episode[int(sample["episode_id"])].append(sample)
-        state = _worker_service_state(sample)
-        state_counts[state] += 1
-        emission_samples_by_state[state].append(
-            {
-                "action_ready_ms": float(sample["action_ready_ms"]),
-                "worker_service_ms": float(sample["worker_service_ms"]),
-            }
-        )
+
+    transition_counts = {"calm": {"calm": 0, "burst": 0}, "burst": {"calm": 0, "burst": 0}}
+    regime_step_counts = {"calm": 0, "burst": 0}
+    burst_dwell_lengths: list[int] = []
+    emission_samples_by_regime: dict[str, list[dict[str, float]]] = {"calm": [], "burst": []}
 
     for episode_id in sorted(samples_by_episode):
         episode_samples = sorted(samples_by_episode[episode_id], key=lambda item: int(item["sample_index"]))
-        states = [_worker_service_state(sample) for sample in episode_samples]
-        initial_state_counts[states[0]] += 1
-        for index in range(len(states) - 1):
-            transition_counts[states[index]][states[index + 1]] += 1
-        for state, run_length in _runs_by_key(episode_samples, _worker_service_state):
-            run_lengths_by_state[state].append(run_length)
+        regimes = _label_regimes(episode_samples, spike_threshold_ms)
+        for sample, regime in zip(episode_samples, regimes):
+            regime_step_counts[regime] += 1
+            emission_samples_by_regime[regime].append(
+                {
+                    "action_ready_ms": float(sample["action_ready_ms"]),
+                    "worker_service_ms": float(sample["worker_service_ms"]),
+                }
+            )
+        for index in range(len(regimes) - 1):
+            transition_counts[regimes[index]][regimes[index + 1]] += 1
+        length = 0
+        for regime in regimes + ["calm"]:
+            if regime == "burst":
+                length += 1
+            elif length:
+                burst_dwell_lengths.append(length)
+                length = 0
 
     return {
-        "schema_version": 5,
-        "model_type": "bayes_markov",
+        "schema_version": 6,
+        "model_type": "hidden_regime",
         "reset_scope": "episode",
-        "state_key": "worker_service_ms_bin",
-        "bin_width_ms": LATENCY_MS_BIN_WIDTH,
-        "initial_state_counts": dict(sorted(initial_state_counts.items())),
-        "initial_state_probs": _probs(initial_state_counts),
-        "transition_counts": {
-            state: dict(sorted(counts.items()))
-            for state, counts in sorted(transition_counts.items())
+        "spike_threshold_ms": spike_threshold_ms,
+        "spike_median_multiplier": SPIKE_MEDIAN_MULTIPLIER,
+        "burst_merge_gap_records": BURST_MERGE_GAP_RECORDS,
+        "regime_transition_counts": transition_counts,
+        "regime_step_counts": regime_step_counts,
+        "burst_dwell_lengths": sorted(burst_dwell_lengths),
+        "emission_distributions_by_regime": {
+            regime: (_fit_joint_emission_distribution(values) if values else None)
+            for regime, values in emission_samples_by_regime.items()
         },
-        "transition_probs": {
-            state: _probs(counts)
-            for state, counts in sorted(transition_counts.items())
-        },
-        "run_lengths_by_state": {
-            state: sorted(lengths)
-            for state, lengths in sorted(run_lengths_by_state.items())
-        },
-        "emission_distributions_by_state": {
-            state: _fit_joint_emission_distribution(values)
-            for state, values in sorted(emission_samples_by_state.items())
-        },
-        "state_counts": dict(sorted(state_counts.items())),
-        "terminal_transition_policy": "initial",
     }
 
 
-def _worker_service_state(sample: dict[str, Any]) -> str:
-    return str(int(sample["worker_service_ms_bin"]))
-
-
-def _runs_by_key(
-    samples: list[dict[str, Any]],
-    state_fn: Callable[[dict[str, Any]], str],
-) -> list[tuple[str, int]]:
-    runs: list[tuple[str, int]] = []
-    current_state = state_fn(samples[0])
-    current_length = 0
-    for sample in samples:
-        state = state_fn(sample)
-        if state == current_state:
-            current_length += 1
+def _label_regimes(episode_samples: list[dict[str, Any]], spike_threshold_ms: float) -> list[str]:
+    regimes = ["calm"] * len(episode_samples)
+    last_spike_index: int | None = None
+    for index, sample in enumerate(episode_samples):
+        if float(sample["worker_service_ms"]) <= spike_threshold_ms:
+            continue
+        if last_spike_index is not None and index - last_spike_index <= BURST_MERGE_GAP_RECORDS:
+            start = last_spike_index
         else:
-            runs.append((current_state, current_length))
-            current_state = state
-            current_length = 1
-    runs.append((current_state, current_length))
-    return runs
+            start = index
+        regimes[start:index + 1] = ["burst"] * (index + 1 - start)
+        last_spike_index = index
+    return regimes
 
 
 def _worker_service_ms(record: dict[str, Any]) -> float:
@@ -232,9 +228,3 @@ def _action_records_with_episode_ids(
         )
 
 
-def _probs(counts: Counter[str]) -> dict[str, float]:
-    total = sum(int(value) for value in counts.values())
-    return {
-        state: int(count) / total
-        for state, count in sorted(counts.items())
-    }

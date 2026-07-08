@@ -4,7 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-from latency_bench.latency.burst_profile import build_bayes_markov_burst_model
+from latency_bench.latency.burst_profile import build_hidden_regime_burst_model
 from latency_bench.latency.profile import build_inverse_cdf_distribution
 from helpers import REPO_ROOT
 
@@ -41,7 +41,7 @@ def test_temporal_latency_model_figure_generates_outputs(tmp_path: Path):
         encoding="utf-8",
     )
     (profile_dir / "latency_burst_model.json").write_text(
-        json.dumps(build_bayes_markov_burst_model(samples), indent=2, sort_keys=True) + "\n",
+        json.dumps(build_hidden_regime_burst_model(samples), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     (profile_dir / "latency_distribution.json").write_text(
@@ -62,10 +62,9 @@ def test_temporal_latency_model_figure_generates_outputs(tmp_path: Path):
                 "latency_kind": "e2e_latency",
                 "distribution_path": "latency_distribution.json",
                 "latency_method": "temporal",
-                "sample_model_type": "bayes_markov",
+                "sample_model_type": "hidden_regime",
                 "burst_samples_path": "latency_burst_samples.jsonl",
                 "burst_model_path": "latency_burst_model.json",
-                "burst_state_key": "worker_service_ms_bin",
                 "summary": {},
             },
             sort_keys=True,
