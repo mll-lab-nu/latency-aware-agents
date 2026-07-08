@@ -48,7 +48,17 @@ WORKER_SERVICE_STAGE_KEYS = (
 
 
 LATENCY_MS_BIN_WIDTH = 1.0
-EMISSION_QUANTILE_LEVELS = tuple(index / 100.0 for index in range(101))
+# A uniform 1% grid smears its outermost bins: with p99=45ms and max=98ms,
+# linear interpolation spreads a full 1% of mass evenly over 45-98ms where
+# the device really puts 0.06% — fabricated tail latency that crosses frame
+# deadlines. Densified tail levels keep the fitted CDF faithful out to the
+# extremes; the tables are self-describing, so samplers need no change.
+EMISSION_QUANTILE_LEVELS = tuple(sorted(
+    {index / 100.0 for index in range(101)}
+    | {index / 1000.0 for index in range(1, 10)}
+    | {(990 + index) / 1000.0 for index in range(1, 10)}
+    | {0.0001, 0.0005, 0.9995, 0.9999}
+))
 SPIKE_MEDIAN_MULTIPLIER = 1.25
 BURST_MERGE_GAP_RECORDS = 30
 

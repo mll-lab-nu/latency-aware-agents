@@ -240,6 +240,22 @@ def test_hidden_regime_model_fits_cross_episode_degradation_as_one_dwell():
     assert excursions["gap_draws"]["latency_ms"][-1] == pytest.approx(1.0)
 
 
+def test_emission_quantile_grid_resolves_rare_tail():
+    # 999/1000 draws take 41ms and one takes 100ms (fast service, one late
+    # delivery). A uniform 1% grid would smear a full percent of mass evenly
+    # from 41ms to 100ms; the densified tail pins p99.9 next to the bulk
+    # while p100 still reaches the outlier.
+    samples = [
+        _model_sample(0, index, 41.0 if index < 999 else 100.0, 40.0)
+        for index in range(1000)
+    ]
+    model = build_hidden_regime_burst_model(samples)
+    table = model["emission_distributions_by_regime"]["calm"]["action_ready_ms"]
+
+    assert table["latency_ms"][table["quantile_levels"].index(0.999)] == pytest.approx(41.059)
+    assert table["latency_ms"][-1] == pytest.approx(100.0)
+
+
 def test_build_burst_samples_uses_all_completed_worker_service_records():
     action_records = [
         _action_record(action_id=10, obs_env_step=4, ready_raw_frame=6, latency_ms=25.0, applied=True, dropped=False),
