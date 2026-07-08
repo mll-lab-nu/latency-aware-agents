@@ -114,7 +114,7 @@ class UniformSampler(LatencySampler):
 
 
 # ---------------------------------------------------------------------------
-# Profile methods: iid (inverse-CDF) + temporal (Bayesian Markov)
+# Profile methods: iid (inverse-CDF) + temporal (hidden-regime burst chain)
 # ---------------------------------------------------------------------------
 
 
@@ -138,101 +138,66 @@ class IidInverseCdfSampler(LatencySampler):
 _STANDARD_NORMAL = NormalDist()
 
 
-class BayesMarkovSampler(LatencySampler):
-    """Bayesian Markov chain over worker-service latency ms bins.
+class HiddenRegimeSampler(LatencySampler):
+    """Two-regime (calm/burst) hidden-Markov chain over worker-service latency.
 
-    The state is the worker-service latency bin. The chain advances once per
-    submitted observation; initial/transition distributions are drawn per episode
-    from the Dirichlet posterior over recorded counts, and each state's fitted
-    joint emission distribution produces ``(action_ready_ms, worker_service_ms)``.
-    Drops stay emergent in the simulator through worker-service occupancy.
-
-    With ``transition_alpha``/``initial_alpha`` -> 0 and ``emission_bootstrap`` off,
-    this degrades to a plain empirical Markov chain over the worker-service states.
+    Real latency spikes arrive in clusters with normal-valued samples in
+    between, so a chain keyed on the latency value itself forgets it is inside
+    a burst after one normal draw; the hidden regime carries that memory. The
+    chain advances once per submitted observation. Per episode, the two
+    transition probabilities are drawn from their Jeffreys Beta posterior over
+    recorded counts, and each regime's fitted joint emission distribution
+    produces a fresh ``(action_ready_ms, worker_service_ms)``. Drops stay
+    emergent in the simulator through worker-service occupancy.
     """
     latency_type = "profile_sample"
 
-    def __init__(
-        self,
-        model: dict[str, Any],
-        *,
-        clock: EnvClock,
-        seed: int | None = None,
-        transition_alpha: float = 0.01,
-        initial_alpha: float = 0.01,
-        emission_bootstrap: bool = True,
-        semi_markov_dwell: bool = False,
-        transition_mode: str = "posterior_sample",
-    ):
+    def __init__(self, model: dict[str, Any], *, clock: EnvClock, seed: int | None = None):
         self.model = model
         self.clock = clock
         self.rng = random.Random(seed)
-        self.transition_alpha = float(transition_alpha)
-        self.initial_alpha = float(initial_alpha)
-        self.emission_bootstrap = bool(emission_bootstrap)
-        self.semi_markov_dwell = bool(semi_markov_dwell)
-        self.transition_mode = transition_mode
-        self.states = sorted(model["state_counts"], key=lambda state: int(state))
+        self.emissions = model["emission_distributions_by_regime"]
         self.current_episode_id: int | None = None
-        self.current_state: str | None = None
-        self.remaining_run_length = 0
-        self._episode_initial: dict[str, float] | None = None
-        self._episode_transition: dict[str, dict[str, float]] | None = None
+        self.regime = "calm"
+        self._enter_burst_prob = 0.0
+        self._exit_burst_prob = 1.0
 
     def sample(self, context: dict[str, Any] | None = None) -> LatencySample:
         episode_id = int(context["episode_id"])
         if episode_id != self.current_episode_id:
             self.current_episode_id = episode_id
-            self._episode_initial = self._resolve_distribution(
-                self.model["initial_state_counts"], self.initial_alpha
-            )
-            self._episode_transition = {
-                state: self._resolve_transition_distribution(state)
-                for state in self.states
-            }
-            self.current_state = _sample_probs(self.rng, self._episode_initial)
-            self.remaining_run_length = self._sample_run_length(self.current_state)
-        elif self.remaining_run_length <= 0:
-            self.current_state = _sample_probs(self.rng, self._episode_transition[self.current_state])
-            self.remaining_run_length = self._sample_run_length(self.current_state)
+            self.regime = "calm"
+            self._enter_burst_prob = self._episode_transition_prob("calm", "burst")
+            self._exit_burst_prob = self._episode_transition_prob("burst", "calm")
+        elif self.regime == "calm":
+            if self.rng.random() < self._enter_burst_prob:
+                self.regime = "burst"
+        elif self.rng.random() < self._exit_burst_prob:
+            self.regime = "calm"
 
-        state = self.current_state
-        self.remaining_run_length -= 1
-        record = self._sample_emission(state)
+        record = self._sample_emission(self.regime)
         action_ready_ms = float(record["action_ready_ms"])
         worker_service_ms = float(record["worker_service_ms"])
-        action_ready_raw_frames = self.clock.latency_ms_to_raw_frames(action_ready_ms)
-        worker_service_raw_frames = self.clock.latency_ms_to_raw_frames(worker_service_ms)
         return LatencySample.from_action_ready(
-            action_ready_raw_frames=action_ready_raw_frames,
-            worker_service_raw_frames=worker_service_raw_frames,
+            action_ready_raw_frames=self.clock.latency_ms_to_raw_frames(action_ready_ms),
+            worker_service_raw_frames=self.clock.latency_ms_to_raw_frames(worker_service_ms),
             worker_service_ms=worker_service_ms,
             latency_ms=action_ready_ms,
             clock=self.clock,
         )
 
-    def _resolve_distribution(self, counts: dict[str, Any], alpha: float) -> dict[str, float]:
-        concentration = {state: float(counts.get(state, 0)) + alpha for state in self.states}
-        if self.transition_mode == "posterior_predictive":
-            total = sum(concentration.values())
-            return {state: value / total for state, value in concentration.items()}
-        return _dirichlet_sample(self.rng, concentration)
+    def _episode_transition_prob(self, source: str, target: str) -> float:
+        if self.emissions.get("burst") is None:
+            # No burst was ever observed: stay calm instead of hallucinating
+            # spikes we have no emission distribution for.
+            return 0.0 if target == "burst" else 1.0
+        counts = self.model["regime_transition_counts"][source]
+        switch = self.rng.gammavariate(float(counts[target]) + 0.5, 1.0)
+        stay = self.rng.gammavariate(float(counts[source]) + 0.5, 1.0)
+        return switch / (switch + stay)
 
-    def _resolve_transition_distribution(self, state: str) -> dict[str, float]:
-        transition_counts = self.model["transition_counts"]
-        if state in transition_counts:
-            return self._resolve_distribution(transition_counts[state], self.transition_alpha)
-        return {
-            "initial": self._episode_initial,
-        }[self.model["terminal_transition_policy"]]
-
-    def _sample_run_length(self, state: str) -> int:
-        if not self.semi_markov_dwell:
-            return 1
-        return int(self.rng.choice(self.model["run_lengths_by_state"][state]))
-
-    def _sample_emission(self, state: str) -> dict[str, Any]:
-        distribution = self.model["emission_distributions_by_state"][state]
+    def _sample_emission(self, regime: str) -> dict[str, Any]:
+        distribution = self.emissions[regime]
         rho = max(-0.999999, min(0.999999, float(distribution["spearman_rho"])))
         z_action_ready = self.rng.normalvariate(0.0, 1.0)
         z_worker = rho * z_action_ready + math.sqrt(1.0 - rho * rho) * self.rng.normalvariate(0.0, 1.0)
@@ -275,29 +240,6 @@ class PerEpisodeSampler(LatencySampler):
             self._episode_id = episode_id
             self._sample = self.inner.sample(context)
         return self._sample
-
-
-def _dirichlet_sample(rng: random.Random, concentration: dict[str, float]) -> dict[str, float]:
-    weights = {
-        state: (rng.gammavariate(value, 1.0) if value > 0 else 0.0)
-        for state, value in concentration.items()
-    }
-    total = sum(weights.values())
-    if total <= 0:
-        uniform = 1.0 / len(weights)
-        return {state: uniform for state in weights}
-    return {state: value / total for state, value in weights.items()}
-
-
-def _sample_probs(rng: random.Random, probs: dict[str, float]) -> str:
-    draw = rng.random()
-    cumulative = 0.0
-    state = ""
-    for state, prob in probs.items():
-        cumulative += prob
-        if draw < cumulative:
-            return state
-    return state
 
 
 # ---------------------------------------------------------------------------
@@ -428,21 +370,17 @@ def _build_iid(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
     return IidInverseCdfSampler(read_json(distribution_path), clock=clock, seed=seed)
 
 
-_BAYES_MARKOV_KEYS = (
-    "transition_alpha",
-    "initial_alpha",
-    "emission_bootstrap",
-    "semi_markov_dwell",
-    "transition_mode",
-)
-
-
 @register_sampler("temporal")
 def _build_temporal(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
     model_path = _profile_relative_path(profile_path, profile["burst_model_path"])
     model = read_json(model_path)
-    kwargs = {key: cfg[key] for key in _BAYES_MARKOV_KEYS if key in cfg}
-    return BayesMarkovSampler(model, clock=clock, seed=seed, **kwargs)
+    if model.get("model_type") != "hidden_regime":
+        raise ValueError(
+            f"Unsupported temporal burst model type {model.get('model_type')!r} at {model_path}; "
+            "rebuild the profile from its measure artifacts with "
+            "latency_bench.experiments.build_latency_profile_from_trace."
+        )
+    return HiddenRegimeSampler(model, clock=clock, seed=seed)
 
 
 # ---------------------------------------------------------------------------

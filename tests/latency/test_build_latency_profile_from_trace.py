@@ -182,20 +182,26 @@ def test_build_latency_profile_from_trace_writes_latency_burst_model(tmp_path: P
 
     assert (output_dir / "latency_burst_samples.jsonl").exists()
     assert (output_dir / "latency_burst_model.json").exists()
-    assert manifest["sample_model_type"] == "bayes_markov"
+    assert manifest["sample_model_type"] == "hidden_regime"
     assert manifest["burst_samples_path"] == "latency_burst_samples.jsonl"
     assert manifest["burst_model_path"] == "latency_burst_model.json"
-    assert manifest["burst_state_key"] == "worker_service_ms_bin"
     burst_samples = load_jsonl_records(output_dir / "latency_burst_samples.jsonl")
     assert [sample["action_ready_ms"] for sample in burst_samples] == [40.0, 40.0, 80.0]
     assert [sample["worker_service_ms_bin"] for sample in burst_samples] == [10, 11, 50]
     assert [sample["worker_service_ms"] for sample in burst_samples] == [10.0, 11.0, 50.0]
     burst_model = json.loads((output_dir / "latency_burst_model.json").read_text(encoding="utf-8"))
-    assert burst_model["schema_version"] == 5
-    assert burst_model["state_key"] == "worker_service_ms_bin"
-    assert burst_model["initial_state_counts"] == {"10": 1}
-    assert burst_model["transition_counts"] == {"10": {"11": 1}, "11": {"50": 1}}
-    assert burst_model["run_lengths_by_state"] == {"10": [1], "11": [1], "50": [1]}
+    assert burst_model["schema_version"] == 6
+    assert burst_model["model_type"] == "hidden_regime"
+    # Median worker-service is 11ms -> spike threshold 13.75ms -> the 50ms
+    # record is a length-1 burst.
+    assert burst_model["spike_threshold_ms"] == pytest.approx(13.75)
+    assert burst_model["regime_step_counts"] == {"calm": 2, "burst": 1}
+    assert burst_model["regime_transition_counts"] == {
+        "calm": {"calm": 1, "burst": 1},
+        "burst": {"calm": 0, "burst": 0},
+    }
+    assert burst_model["burst_dwell_lengths"] == [1]
+    assert manifest["temporal_summary"]["burst_regime"]["burst_count"] == 1
 
 
 def test_build_latency_profile_from_trace_requires_overwrite_for_existing_artifacts(tmp_path: Path):

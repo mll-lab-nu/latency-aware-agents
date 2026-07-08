@@ -11,8 +11,8 @@ from latency_bench.analysis.profile_stats import compute_latency_profile_summary
 from latency_bench.utils.io import load_jsonl_records, write_csv, write_json, write_jsonl
 from latency_bench.utils.stats import autocorrelation, mean, percentile_linear, series_stats
 from latency_bench.latency.burst_profile import (
-    build_bayes_markov_burst_model,
-    build_bayes_markov_burst_samples,
+    build_burst_samples,
+    build_hidden_regime_burst_model,
 )
 from latency_bench.latency.profile import (
     build_inverse_cdf_distribution,
@@ -103,22 +103,21 @@ def build_profile_from_trace(
             manifest["control_summary"] = _control_summary(metrics_records)
     if actions is not None:
         action_records = load_jsonl_records(actions)
-        burst_samples = build_bayes_markov_burst_samples(action_records, metrics_records)
-        burst_model = build_bayes_markov_burst_model(burst_samples)
+        burst_samples = build_burst_samples(action_records, metrics_records)
+        burst_model = build_hidden_regime_burst_model(burst_samples)
         write_jsonl(paths["burst_samples"], burst_samples)
         write_json(paths["burst_model"], burst_model)
         manifest["latency_method"] = "temporal"
         manifest["sample_model_type"] = burst_model["model_type"]
         manifest["burst_samples_path"] = paths["burst_samples"].name
         manifest["burst_model_path"] = paths["burst_model"].name
-        manifest["burst_state_key"] = burst_model["state_key"]
         if metrics_records is not None:
             manifest["worker_capacity_summary"] = _worker_capacity_summary(
                 burst_samples=burst_samples,
                 env_fps=env_fps,
                 inference_worker_count=manifest["inference_worker_count"],
             )
-        manifest["temporal_summary"] = _temporal_summary(burst_samples)
+        manifest["temporal_summary"] = _temporal_summary(burst_samples, burst_model)
     raw_artifacts = _raw_artifacts(
         episode_metrics=episode_metrics,
         actions=actions,
@@ -232,12 +231,19 @@ def _worker_capacity_summary(
     }
 
 
-def _temporal_summary(burst_samples: list[dict[str, Any]]) -> dict[str, Any]:
+def _temporal_summary(burst_samples: list[dict[str, Any]], burst_model: dict[str, Any]) -> dict[str, Any]:
     action_ready_values = [float(sample["action_ready_ms"]) for sample in burst_samples]
     worker_service_values = [float(sample["worker_service_ms"]) for sample in burst_samples]
+    dwell_lengths = [float(length) for length in burst_model["burst_dwell_lengths"]]
     return {
         "action_ready_ms": _series_temporal_summary(action_ready_values),
         "worker_service_ms": _series_temporal_summary(worker_service_values),
+        "burst_regime": {
+            "spike_threshold_ms": burst_model["spike_threshold_ms"],
+            "burst_count": len(dwell_lengths),
+            "regime_step_counts": burst_model["regime_step_counts"],
+            "burst_dwell_lengths": series_stats(dwell_lengths) if dwell_lengths else None,
+        },
     }
 
 
