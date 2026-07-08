@@ -9,6 +9,7 @@ import torch
 from gymnasium.utils import seeding
 
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
+from training.common.utils import batch_indices
 from training.demon_attack_sf.cule_atari_extension import load_cule_atari_extension
 
 
@@ -502,11 +503,7 @@ class CudaDemonAttackCore:
         )
 
     def _indices(self, indices: Sequence[int] | np.ndarray | torch.Tensor | None) -> list[int]:
-        if indices is None:
-            return list(range(self.batch_size))
-        if isinstance(indices, torch.Tensor):
-            return [int(item) for item in indices.reshape(-1).detach().cpu().tolist()]
-        return [int(item) for item in np.asarray(indices).reshape(-1).tolist()]
+        return batch_indices(indices, batch_size=self.batch_size)
 
     def _set_reset_seeds(self, seeds: Sequence[int | None] | int | None, indices: Sequence[int]) -> torch.Tensor:
         index_t = torch.as_tensor(indices, dtype=torch.int64, device=self.device)

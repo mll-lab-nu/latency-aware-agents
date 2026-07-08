@@ -18,6 +18,7 @@ from flappy_bird_gymnasium.envs.constants import (
     PLAYER_ROT_THR,
 )
 from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState
+from training.common.utils import batch_indices, seed_values
 from training.flappy_sf.flappy_cuda_extension import load_flappy_cuda_extension
 
 
@@ -127,19 +128,11 @@ class CudaFlappyBirdCore:
         )
 
     def _indices(self, indices: Sequence[int] | np.ndarray | torch.Tensor | None) -> list[int]:
-        if indices is None:
-            return list(range(self.batch_size))
-        if isinstance(indices, torch.Tensor):
-            return [int(item) for item in indices.reshape(-1).detach().cpu().tolist()]
-        return [int(item) for item in np.asarray(indices).reshape(-1).tolist()]
+        return batch_indices(indices, batch_size=self.batch_size)
 
     @staticmethod
     def _seed_values(seeds: Sequence[int | None] | int | None, count: int) -> list[int | None]:
-        if seeds is None:
-            return [None] * count
-        if isinstance(seeds, (int, np.integer)):
-            return [int(seeds)] * count
-        return [None if item is None else int(item) for item in list(seeds)]
+        return seed_values(seeds, count)
 
     def reset_batch(
         self,
@@ -198,11 +191,11 @@ class CudaFlappyBirdCore:
         infos = [{"score": int(scores[agent_idx])} for agent_idx in range(self.batch_size)]
         return observations, infos
 
-    def step_batch_tensors(
+    def _ext_flappy_step(
         self,
         actions: Sequence[int] | np.ndarray | torch.Tensor,
-        active_mask: Sequence[bool] | np.ndarray | torch.Tensor | None = None,
-    ) -> TensorFlappyStepResult:
+        active_mask: Sequence[bool] | np.ndarray | torch.Tensor | None,
+    ) -> None:
         action_t = torch.as_tensor(actions, dtype=torch.int64, device=self.device).reshape(-1).contiguous()
         active_t = (
             torch.ones(self.batch_size, dtype=torch.bool, device=self.device)
@@ -235,6 +228,13 @@ class CudaFlappyBirdCore:
             int(self.screen_height),
             int(self._base_shift),
         )
+
+    def step_batch_tensors(
+        self,
+        actions: Sequence[int] | np.ndarray | torch.Tensor,
+        active_mask: Sequence[bool] | np.ndarray | torch.Tensor | None = None,
+    ) -> TensorFlappyStepResult:
+        self._ext_flappy_step(actions, active_mask)
         self._reset_offscreen_pipes()
         return TensorFlappyStepResult(
             rewards=self._rewards,
@@ -248,38 +248,7 @@ class CudaFlappyBirdCore:
         actions: Sequence[int] | np.ndarray | torch.Tensor,
         active_mask: Sequence[bool] | np.ndarray | torch.Tensor | None = None,
     ) -> NumpyFlappyStepResult:
-        action_t = torch.as_tensor(actions, dtype=torch.int64, device=self.device).reshape(-1).contiguous()
-        active_t = (
-            torch.ones(self.batch_size, dtype=torch.bool, device=self.device)
-            if active_mask is None
-            else torch.as_tensor(active_mask, dtype=torch.bool, device=self.device).reshape(-1).contiguous()
-        )
-        self.ext.flappy_step(
-            self.player_x,
-            self.player_y,
-            self.player_vel_y,
-            self.player_rot,
-            self.player_idx,
-            self._player_idx_cycle_pos,
-            self.loop_iter,
-            self.score,
-            self.score_limit,
-            self.ground_x,
-            self.ground_y,
-            self.upper_pipe_xy,
-            self.lower_pipe_xy,
-            action_t,
-            active_t,
-            self._rewards,
-            self._terminated,
-            self._truncated,
-            self._offscreen,
-            self._packed_step,
-            int(self.batch_size),
-            int(self.screen_width),
-            int(self.screen_height),
-            int(self._base_shift),
-        )
+        self._ext_flappy_step(actions, active_mask)
         packed = self._packed_step.detach().cpu().numpy()
         self._reset_offscreen_pipes_from_numpy(packed[:, 4:7])
         return NumpyFlappyStepResult(

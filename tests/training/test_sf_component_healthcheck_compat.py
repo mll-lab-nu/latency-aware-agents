@@ -27,7 +27,7 @@ def _component(object_id: str, *, alive: bool = True):
 
 
 def test_component_healthcheck_patch_enables_only_selected_env():
-    from training.common.sf_component_healthcheck_compat import _is_enabled_for_sample_factory_env
+    from training.common.sf_compat import is_enabled_for_sample_factory_env as _is_enabled_for_sample_factory_env
 
     enabled_env_names = {"doom_deadly_corridor"}
     deadly_runner = SimpleNamespace(cfg=SimpleNamespace(env="doom_deadly_corridor"))

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import inspect
 import time
-from importlib import metadata
 from typing import Any
 
+from training.common.sf_compat import (
+    is_enabled_for_sample_factory_env,
+    validate_sample_factory_version,
+    validate_signature,
+)
 
-SUPPORTED_SAMPLE_FACTORY_VERSION = "2.1.1"
 
 _PATCHED_ATTR = "_latency_bench_component_healthcheck_patched"
 _ENABLED_ENV_NAMES_ATTR = "_latency_bench_component_healthcheck_env_names"
@@ -23,36 +25,14 @@ def ensure_sample_factory_component_healthcheck_installed(*, env_name: str) -> b
     except ImportError:
         return False
 
-    _validate_sample_factory_version(sample_factory)
+    validate_sample_factory_version(sample_factory, compat_label="component healthcheck compat")
     _patch_runner_check_heartbeat(Runner, env_name)
     return True
 
 
-def _validate_sample_factory_version(sample_factory_module: Any) -> None:
-    try:
-        installed_version = metadata.version("sample-factory")
-    except metadata.PackageNotFoundError:
-        installed_version = str(getattr(sample_factory_module, "__version__", "") or "")
-
-    if installed_version != SUPPORTED_SAMPLE_FACTORY_VERSION:
-        raise RuntimeError(
-            "Unsupported Sample Factory version for component healthcheck compat: "
-            f"expected {SUPPORTED_SAMPLE_FACTORY_VERSION}, got {installed_version or 'unknown'}"
-        )
-
-
-def _validate_signature(callable_obj: Any, *, expected_params: tuple[str, ...], label: str) -> None:
-    signature = inspect.signature(callable_obj)
-    actual_params = tuple(signature.parameters)
-    if actual_params != expected_params:
-        raise RuntimeError(
-            f"Sample Factory {label} signature changed: expected {expected_params}, got {actual_params}"
-        )
-
-
 def _patch_runner_check_heartbeat(Runner: Any, env_name: str) -> None:
     current = Runner._check_heartbeat
-    _validate_signature(
+    validate_signature(
         current,
         expected_params=_EXPECTED_CHECK_HEARTBEAT_PARAMS,
         label="Runner._check_heartbeat",
@@ -67,7 +47,7 @@ def _patch_runner_check_heartbeat(Runner: Any, env_name: str) -> None:
 
     def check_heartbeat_fail_fast(self):
         original_check_heartbeat(self)
-        if self.stopped or not _is_enabled_for_sample_factory_env(self, enabled_env_names):
+        if self.stopped or not is_enabled_for_sample_factory_env(self, enabled_env_names):
             return
 
         failure_reason = _critical_component_failure_reason(self, current_time=time.time())
@@ -120,25 +100,3 @@ def _critical_components(runner: Any) -> list[Any]:
         seen.add(object_id)
         unique_components.append(component)
     return unique_components
-
-
-def _is_enabled_for_sample_factory_env(obj: Any, enabled_env_names: set[str]) -> bool:
-    cfg = getattr(obj, "cfg", None)
-    env_name = _cfg_value(cfg, "env")
-    if env_name is None:
-        env_name = _cfg_value(cfg, "env_name")
-    if env_name is None:
-        env_name = _cfg_value(cfg, "full_env_name")
-    return env_name in enabled_env_names
-
-
-def _cfg_value(cfg: Any, key: str) -> str | None:
-    if cfg is None:
-        return None
-    if isinstance(cfg, dict):
-        value = cfg.get(key)
-    else:
-        value = getattr(cfg, key, None)
-    if value is None:
-        return None
-    return str(value)

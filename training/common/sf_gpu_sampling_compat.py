@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import inspect
-from importlib import metadata
 from typing import Any
 
 import torch
 
+from training.common.sf_compat import validate_sample_factory_version, validate_signature
 
-SUPPORTED_SAMPLE_FACTORY_VERSION = "2.1.1"
 
 _PATCHED_ATTR = "_latency_bench_gpu_sampling_patched"
 _ENABLED_ENV_NAMES_ATTR = "_latency_bench_gpu_sampling_env_names"
@@ -24,36 +22,14 @@ def ensure_sample_factory_gpu_sampling_compat_installed(*, env_name: str) -> boo
     except ImportError:
         return False
 
-    _validate_sample_factory_version(sample_factory)
+    validate_sample_factory_version(sample_factory, compat_label="GPU sampling compat")
     _patch_batched_advance_rollouts(BatchedVectorEnvRunner, env_name)
     return True
 
 
-def _validate_sample_factory_version(sample_factory_module: Any) -> None:
-    try:
-        installed_version = metadata.version("sample-factory")
-    except metadata.PackageNotFoundError:
-        installed_version = str(sample_factory_module.__version__ or "")
-
-    if installed_version != SUPPORTED_SAMPLE_FACTORY_VERSION:
-        raise RuntimeError(
-            "Unsupported Sample Factory version for GPU sampling compat: "
-            f"expected {SUPPORTED_SAMPLE_FACTORY_VERSION}, got {installed_version or 'unknown'}"
-        )
-
-
-def _validate_signature(callable_obj: Any, *, expected_params: tuple[str, ...], label: str) -> None:
-    signature = inspect.signature(callable_obj)
-    actual_params = tuple(signature.parameters)
-    if actual_params != expected_params:
-        raise RuntimeError(
-            f"Sample Factory {label} signature changed: expected {expected_params}, got {actual_params}"
-        )
-
-
 def _patch_batched_advance_rollouts(BatchedVectorEnvRunner: Any, env_name: str) -> None:
     current = BatchedVectorEnvRunner.advance_rollouts
-    _validate_signature(
+    validate_signature(
         current,
         expected_params=_EXPECTED_ADVANCE_ROLLOUTS_PARAMS,
         label="BatchedVectorEnvRunner.advance_rollouts",

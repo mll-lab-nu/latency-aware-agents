@@ -15,6 +15,8 @@ from latency_bench.core.latency_distribution import (
     make_latency_distribution_sampler,
 )
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
+from training.common.latency_config import build_latency_info
+from training.common.utils import batch_indices, seed_values
 from training.flappy_sf.flappy_cuda_extension import load_flappy_cuda_extension
 
 
@@ -466,26 +468,19 @@ class CudaLatencyScheduler:
         return info
 
     def _latency_info(self, agent_idx: int, latency_value: int) -> dict[str, Any]:
-        latency_raw_frames = int(latency_value)
-        info = {
-            "episode_idx": int(self.episode_idx[agent_idx].item()),
-            "decision_step_idx": int(self.decision_step_idx[agent_idx].item()),
-            "env_step_idx": int(self.env_step_idx[agent_idx].item()),
-            "raw_frame": int(self.env_step_idx[agent_idx].item()),
-            "applied_action": int(self.current_applied_action[agent_idx].item()),
-            "pending_action_count": int(self.pending_count[agent_idx].item()),
-            "latency_raw_frames": latency_raw_frames,
-            "latency_ms": float(latency_raw_frames) * self.clock.frame_ms,
-            "env_fps": float(self.clock.env_fps),
-            "obs_fps": float(self.clock.obs_fps),
-            "obs_stride_raw_frames": int(self.clock.obs_stride_raw_frames),
-            "hold_policy": self.hold_policy.value,
-            "ordering_policy": self.ordering_policy.value,
-        }
-        if self.latency_distribution_spec is not None:
-            info["latency_distribution"] = self.latency_distribution_spec.to_dict()
-            info["latency_distribution_label"] = str(self.latency_distribution_label)
-        return info
+        return build_latency_info(
+            episode_idx=self.episode_idx[agent_idx].item(),
+            decision_step_idx=self.decision_step_idx[agent_idx].item(),
+            env_step_idx=self.env_step_idx[agent_idx].item(),
+            applied_action=int(self.current_applied_action[agent_idx].item()),
+            pending_action_count=self.pending_count[agent_idx].item(),
+            latency_raw_frames=int(latency_value),
+            clock=self.clock,
+            hold_policy=self.hold_policy,
+            ordering_policy=self.ordering_policy,
+            latency_distribution_spec=self.latency_distribution_spec,
+            latency_distribution_label=self.latency_distribution_label,
+        )
 
     def _reset_latency_rng_states(self, target_indices: Sequence[int], *, episode_offset: int = 0) -> None:
         if self.latency_distribution_spec is None:
@@ -531,16 +526,8 @@ class CudaLatencyScheduler:
         return 0
 
     def _indices(self, indices: Sequence[int] | np.ndarray | torch.Tensor | None) -> list[int]:
-        if indices is None:
-            return list(range(self.batch_size))
-        if isinstance(indices, torch.Tensor):
-            return [int(item) for item in indices.reshape(-1).detach().cpu().tolist()]
-        return [int(item) for item in np.asarray(indices).reshape(-1).tolist()]
+        return batch_indices(indices, batch_size=self.batch_size)
 
     @staticmethod
     def _seed_values(seeds: Sequence[int | None] | int | None, count: int) -> list[int | None]:
-        if seeds is None:
-            return [None] * count
-        if isinstance(seeds, (int, np.integer)):
-            return [int(seeds)] * count
-        return [None if item is None else int(item) for item in list(seeds)]
+        return seed_values(seeds, count)

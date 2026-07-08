@@ -21,6 +21,7 @@ from latency_bench.core.types import Action, ActionEvent, ActionHoldPolicy, Late
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 from training.atari_episode_stats import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
+from training.common.latency_config import build_latency_info
 from training.common.episode_metrics import append_episode_metrics_event
 
 
@@ -126,26 +127,19 @@ class ActionLatencyWrapper(gym.Wrapper):
         return int(self.fixed_latency_raw_frames)
 
     def _latency_info(self, latency_value: int) -> dict[str, Any]:
-        latency_raw_frames = int(latency_value)
-        info = {
-            "episode_idx": int(self.episode_idx),
-            "decision_step_idx": int(self.decision_step_idx),
-            "env_step_idx": int(self.env_step_idx),
-            "raw_frame": int(self.env_step_idx),
-            "applied_action": clone_action(self.current_applied_action),
-            "pending_action_count": int(len(self.action_scheduler.get_pending_events())),
-            "latency_raw_frames": latency_raw_frames,
-            "latency_ms": float(latency_raw_frames) * self.clock.frame_ms,
-            "env_fps": float(self.clock.env_fps),
-            "obs_fps": float(self.clock.obs_fps),
-            "obs_stride_raw_frames": int(self.clock.obs_stride_raw_frames),
-            "hold_policy": self.hold_policy.value,
-            "ordering_policy": self.ordering_policy.value,
-        }
-        if self.latency_distribution_spec is not None:
-            info["latency_distribution"] = self.latency_distribution_spec.to_dict()
-            info["latency_distribution_label"] = str(self.latency_distribution_label)
-        return info
+        return build_latency_info(
+            episode_idx=self.episode_idx,
+            decision_step_idx=self.decision_step_idx,
+            env_step_idx=self.env_step_idx,
+            applied_action=clone_action(self.current_applied_action),
+            pending_action_count=len(self.action_scheduler.get_pending_events()),
+            latency_raw_frames=int(latency_value),
+            clock=self.clock,
+            hold_policy=self.hold_policy,
+            ordering_policy=self.ordering_policy,
+            latency_distribution_spec=self.latency_distribution_spec,
+            latency_distribution_label=self.latency_distribution_label,
+        )
 
     def _reset_latency_distribution_sampler(self) -> None:
         if self.latency_distribution_spec is None:

@@ -7,6 +7,7 @@ import numpy as np
 
 from training.atari_episode_stats import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
 from training.common.episode_metrics import append_episode_metrics_event
+from training.common.utils import batch_indices
 
 
 class BatchedEpisodeMetrics:
@@ -250,6 +251,4 @@ class BatchedEpisodeMetrics:
         return stats
 
     def _indices(self, indices: Sequence[int] | np.ndarray | None) -> list[int]:
-        if indices is None:
-            return list(range(self.batch_size))
-        return [int(item) for item in np.asarray(indices).reshape(-1).tolist()]
+        return batch_indices(indices, batch_size=self.batch_size)
