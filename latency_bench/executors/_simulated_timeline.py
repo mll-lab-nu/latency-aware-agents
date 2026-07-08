@@ -3,11 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from latency_bench.core.types import ActionEvent, LatencyRecord, PolicyOutput
+from latency_bench.core.types import ActionEvent, LatencyRecord, OrderingPolicy, PolicyOutput
 from latency_bench.latency.sample import LatencySample
 from latency_bench.logging.metrics import apply_latency_raw_fields, apply_latency_record_raw_fields
+from latency_bench.scheduler.result_coordinator import ResultCoordinator
 
-__all__ = ["LatencySample", "SimulatedWorkerCapacity", "build_simulated_action_event"]
+__all__ = [
+    "LatencySample",
+    "SimulatedResultTimeline",
+    "SimulatedWorkerCapacity",
+    "build_simulated_action_event",
+]
 
 
 def build_simulated_action_event(
@@ -65,6 +71,59 @@ def build_simulated_action_event(
         profile_metadata=profile_metadata,
     )
     return latency_record, event
+
+
+class SimulatedResultTimeline:
+    """Delivers sampled-latency action events through the shared ResultCoordinator.
+
+    Events wait here until the sim clock reaches their ready frame and then
+    "arrive" exactly like realtime results arriving on the wall clock, so both
+    executor families share one implementation of the out-of-order semantics
+    (a late result older than an already-released one is voided, not applied).
+    """
+
+    def __init__(self, *, ordering_policy: OrderingPolicy):
+        self.ordering_policy = OrderingPolicy(ordering_policy)
+        self.coordinator: ResultCoordinator[ActionEvent] = ResultCoordinator(ordering_policy=ordering_policy)
+        self._pending: list[tuple[int, int, ActionEvent]] = []
+
+    def reset(self) -> None:
+        self.coordinator = ResultCoordinator(ordering_policy=self.ordering_policy)
+        self._pending.clear()
+
+    def submit(self, *, obs_id: int, ready_raw_frame: int, event: ActionEvent) -> None:
+        self.coordinator.mark_submitted(obs_id)
+        self._pending.append((int(ready_raw_frame), int(obs_id), event))
+
+    def release_arrived(self, raw_frame: int | None) -> tuple[list[ActionEvent], list[ActionEvent]]:
+        """Return (released, dropped) among events whose ready frame has arrived.
+
+        raw_frame None drains everything, mirroring the realtime executor's
+        post-episode drain of still-in-flight results.
+        """
+        arrived = sorted(
+            item for item in self._pending if raw_frame is None or item[0] <= int(raw_frame)
+        )
+        if not arrived:
+            return [], []
+        self._pending = [
+            item for item in self._pending if raw_frame is not None and item[0] > int(raw_frame)
+        ]
+        dropped: list[ActionEvent] = []
+        for _, obs_id, event in arrived:
+            for ignored in self.coordinator.add_completion(obs_id, event):
+                _mark_event_dropped(ignored, reason="ignored_late_result")
+                dropped.append(ignored)
+        released, discarded = self.coordinator.release_ready()
+        for event in discarded:
+            _mark_event_dropped(event, reason="latest_ready_discarded")
+            dropped.append(event)
+        return released, dropped
+
+
+def _mark_event_dropped(event: ActionEvent, *, reason: str) -> None:
+    event.dropped = True
+    event.metadata["discard_reason"] = reason
 
 
 @dataclass

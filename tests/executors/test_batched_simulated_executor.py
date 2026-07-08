@@ -11,7 +11,7 @@ import pytest
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.timing import current_profiler
-from latency_bench.core.types import Action, Observation, PolicyOutput, StepResult
+from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
@@ -393,6 +393,7 @@ def _executor(
     policy: PolicyRunner | None = None,
     latency_sources: list[LatencySampler] | None = None,
     simulated_worker_capacity: int | None = None,
+    ordering_policy: OrderingPolicy = OrderingPolicy.ISSUE_ORDER_FIFO,
 ) -> tuple[BatchedSimulatedLatencyExecutor, list[DummyEnvAdapter]]:
     noop = Action("noop", name="noop", is_noop=True)
     envs = [
@@ -415,6 +416,7 @@ def _executor(
             clock=clock,
             noop_action=env.noop_action,
             persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+            ordering_policy=ordering_policy,
         )
         for env in envs
     ]
@@ -762,6 +764,36 @@ def test_batched_executor_keeps_slot_action_queues_independent(tmp_path: Path):
 
     assert envs[0].applied_actions[0].value == "jump"
     assert [action.value for action in envs[1].applied_actions[:2]] == ["noop", "noop"]
+
+
+def test_batched_executor_ignores_late_stale_result_like_realtime(tmp_path: Path):
+    # obs at frame 0 takes 5 frames, obs at frame 1 takes 2. Releasing the newer
+    # result at frame 3 permanently voids the older in-flight one, so when it
+    # matures alone at frame 5 it must be dropped, never applied over the newer
+    # action -- the same rule the realtime result coordinator enforces.
+    class TwoObservationScheduler:
+        def should_observe(self, env_step: int, sim_time_ms: float) -> bool:
+            return int(env_step) in {0, 1}
+
+    executor, envs = _executor(
+        tmp_path,
+        num_slots=1,
+        env_max_steps=8,
+        policy=TupleActionPolicy(),
+        latency_sources=[RawFrameLatencySource([5, 2])],
+        ordering_policy=OrderingPolicy.LATEST_READY,
+    )
+    executor.decision_scheduler = TwoObservationScheduler()
+
+    try:
+        metrics = executor.run_episodes(episode_ids=[0], seeds=[0], eval_max_steps=8)
+    finally:
+        executor.close()
+
+    applied_values = [action.value for action in envs[0].applied_actions]
+    assert (0, 1) in applied_values
+    assert (0, 0) not in applied_values
+    assert metrics[0].num_dropped_actions == 1
 
 
 def test_batched_executor_soft_reset_continues_same_episode_and_clears_slot_latency_state(tmp_path: Path):

@@ -9,7 +9,11 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
-from latency_bench.executors._simulated_timeline import SimulatedWorkerCapacity, build_simulated_action_event
+from latency_bench.executors._simulated_timeline import (
+    SimulatedResultTimeline,
+    SimulatedWorkerCapacity,
+    build_simulated_action_event,
+)
 from latency_bench.executors.base import BatchedExecutor
 from latency_bench.executors.env_step_backend import EnvStepBackend
 from latency_bench.latency.sample import LatencySample
@@ -72,6 +76,7 @@ class _SlotState:
     env: EnvAdapter
     latency_source: LatencySampler
     action_scheduler: ActionScheduler
+    result_timeline: SimulatedResultTimeline
     active: bool = False
     episode_id: int | None = None
     episode_seed: int | None = None
@@ -146,6 +151,9 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                 env=self.envs[slot_id],
                 latency_source=latency_sources[slot_id],
                 action_scheduler=action_schedulers[slot_id],
+                result_timeline=SimulatedResultTimeline(
+                    ordering_policy=action_schedulers[slot_id].ordering_policy
+                ),
                 buffers=self._new_episode_buffers(),
                 worker_capacity=SimulatedWorkerCapacity(
                     capacity=simulated_worker_capacity,
@@ -274,6 +282,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             actions_by_slot = {}
             for slot in active_slots:
                 current_time_ms = self.clock.step_to_time_ms(slot.env_step)
+                self._deliver_arrived_results(slot, raw_frame=slot.env_step)
                 active_action = slot.action_scheduler.update(slot.env_step, current_time_ms)
                 actions_by_slot[slot.slot_id] = active_action
 
@@ -317,6 +326,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                 if soft_reset:
                     slot.buffers.num_dropped_actions += slot.action_scheduler.dropped_events_count
                     slot.action_scheduler.reset()
+                    slot.result_timeline.reset()
                     self.policy.reset_state(slot_id=slot.slot_id)
                     slot.worker_capacity.reset()
                     slot.recent_drop_count = 0
@@ -398,10 +408,17 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             slot.recent_drop_count = 0
             slot.buffers = self._new_episode_buffers()
             slot.action_scheduler.reset()
+            slot.result_timeline.reset()
             slot.worker_capacity.reset()
 
     def _active_slots(self) -> list[_SlotState]:
         return [slot for slot in self.slots if slot.active]
+
+    def _deliver_arrived_results(self, slot: _SlotState, *, raw_frame: int | None) -> None:
+        released, dropped = slot.result_timeline.release_arrived(raw_frame)
+        slot.buffers.num_dropped_actions += len(dropped)
+        for event in released:
+            slot.action_scheduler.enqueue(event)
 
     def _start_slot(self, slot: _SlotState, *, episode_id: int, seed: int | None) -> None:
         if self.episode_latency_source_factory is not None:
@@ -413,6 +430,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot.recent_drop_count = 0
         slot.buffers = self._new_episode_buffers()
         slot.action_scheduler.reset()
+        slot.result_timeline.reset()
         slot.worker_capacity.reset()
         self.policy.reset_state(slot_id=slot.slot_id)
         self.env_backend.reset_slot(slot.slot_id, episode_id=episode_id, seed=seed)
@@ -427,6 +445,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         if not slot.active or slot.episode_id is None:
             return
         episode_id = int(slot.episode_id)
+        self._deliver_arrived_results(slot, raw_frame=None)
         slot.buffers.num_dropped_actions += slot.action_scheduler.dropped_events_count
         metrics = self._compute_episode_metrics(
             episode_id=episode_id,
@@ -463,6 +482,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot.recent_drop_count = 0
         slot.buffers = self._new_episode_buffers()
         slot.action_scheduler.reset()
+        slot.result_timeline.reset()
         slot.worker_capacity.reset()
         self._flush_completed_in_episode_order()
         if on_episode_complete is not None:
@@ -503,7 +523,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             extra_event_metadata=slot_metadata,
         )
         self._next_action_id += 1
-        slot.action_scheduler.enqueue(event)
+        slot.result_timeline.submit(obs_id=obs_id, ready_raw_frame=ready_raw_frame, event=event)
         slot.buffers.submitted_observation_frames += 1
         slot.recent_drop_count = 0
         slot.buffers.num_actions += 1

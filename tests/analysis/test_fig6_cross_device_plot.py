@@ -25,14 +25,17 @@ def _load_fig6_module():
     return module
 
 
-def test_ci95_errors_are_relative_to_panel_b_center_point():
+def test_paired_diff_ci95_pairs_by_episode_id():
     fig6 = _load_fig6_module()
 
-    lower, upper = fig6.ci95_errors([10.0, 20.0], center=15.0)
+    # Episode 2 exists only on the realtime side and must be excluded from pairing.
+    diff_mean, half_width = fig6.paired_diff_ci95(
+        {0: 10.0, 1: 20.0, 2: 99.0},
+        {0: 30.0, 1: 50.0},
+    )
 
-    expected = 1.96 * np.std([10.0, 20.0], ddof=1) / np.sqrt(2)
-    assert lower == expected
-    assert upper == expected
+    assert diff_mean == 25.0
+    assert half_width == 1.96 * np.std([20.0, 30.0], ddof=1) / np.sqrt(2)
 
 
 def test_panel_b_ci_inputs_use_realtime_and_simulated_episode_rows():
@@ -43,6 +46,7 @@ def test_panel_b_ci_inputs_use_realtime_and_simulated_episode_rows():
             "policy": "openvla-flappy",
             "env": "Flappy",
             "hardware": "RTX 3090",
+            "episode_id": "0",
             "episode_return_env": "10.0",
         },
         {
@@ -50,6 +54,7 @@ def test_panel_b_ci_inputs_use_realtime_and_simulated_episode_rows():
             "policy": "openvla-flappy",
             "env": "Flappy",
             "hardware": "RTX 3090",
+            "episode_id": "1",
             "episode_return_env": "20.0",
         },
         {
@@ -57,6 +62,7 @@ def test_panel_b_ci_inputs_use_realtime_and_simulated_episode_rows():
             "policy": "openvla-flappy",
             "env": "Flappy",
             "hardware": "RTX 3090",
+            "episode_id": "0",
             "episode_return_env": "30.0",
         },
         {
@@ -64,11 +70,12 @@ def test_panel_b_ci_inputs_use_realtime_and_simulated_episode_rows():
             "policy": "openvla-flappy",
             "env": "Flappy",
             "hardware": "RTX 3090",
+            "episode_id": "1",
             "episode_return_env": "50.0",
         },
     ]
 
     realtime, simulated = fig6.panel_b_episode_returns(rows)
 
-    assert realtime == {"RTX 3090": [10.0, 20.0]}
-    assert simulated == {"RTX 3090": [30.0, 50.0]}
+    assert realtime == {"RTX 3090": {0: 10.0, 1: 20.0}}
+    assert simulated == {"RTX 3090": {0: 30.0, 1: 50.0}}
