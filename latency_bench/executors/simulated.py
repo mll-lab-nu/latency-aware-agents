@@ -5,7 +5,11 @@ from collections.abc import Callable
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
-from latency_bench.executors._simulated_timeline import SimulatedWorkerCapacity, build_simulated_action_event
+from latency_bench.executors._simulated_timeline import (
+    SimulatedResultTimeline,
+    SimulatedWorkerCapacity,
+    build_simulated_action_event,
+)
 from latency_bench.executors.base import EpisodeExecutor
 from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
@@ -71,6 +75,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         step_records: list[StepRecord] = []
         action_events: list[ActionEvent] = []
         latency_values_ms: list[float] = []
+        result_timeline = SimulatedResultTimeline(ordering_policy=self.action_scheduler.ordering_policy)
         worker_capacity = SimulatedWorkerCapacity(
             capacity=self.simulated_worker_capacity,
             busy_until_raw_frames=[],
@@ -146,20 +151,22 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                         profile_metadata=profile_metadata,
                     )
                     self._next_action_id += 1
-                    self.action_scheduler.enqueue(event)
+                    result_timeline.submit(obs_id=obs_id, ready_raw_frame=ready_raw_frame, event=event)
                     action_events.append(event)
                     latency_values_ms.append(latency_ms)
                     submitted_observation_frames += 1
                     observation_submitted = True
                     recent_drop_count = 0
                     if self.logger is not None:
-                        self.logger.log_action_event(event)
                         self.logger.log_latency(latency_record)
                 else:
                     dropped_observation_count += 1
                     observation_dropped = True
                     recent_drop_count += 1
 
+            released_events, _ = result_timeline.release_arrived(raw_frame)
+            for released_event in released_events:
+                self.action_scheduler.enqueue(released_event)
             active_action = self.action_scheduler.update(raw_frame, current_time_ms)
             result = self.env.step(active_action)
             soft_reset = bool(result.info.get("soft_reset")) if isinstance(result.info, dict) else False
@@ -193,6 +200,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                 self.logger.log_step(record)
             if soft_reset:
                 self.action_scheduler.reset()
+                result_timeline.reset()
                 self.policy.reset_state(slot_id=0)
                 worker_capacity.reset()
                 recent_drop_count = 0
@@ -201,6 +209,12 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
             if episode_done:
                 break
 
+        final_released, _ = result_timeline.release_arrived(None)
+        for released_event in final_released:
+            self.action_scheduler.enqueue(released_event)
+        if self.logger is not None:
+            for event in action_events:
+                self.logger.log_action_event(event)
         if self.simulated_worker_capacity is not None:
             episode_metadata.update(
                 {

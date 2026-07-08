@@ -578,6 +578,26 @@ def test_fifo_raw_frame_blocking_waits_for_head_of_line_ready():
     assert [event.apply_raw_frame for event in applied] == [10, 11]
 
 
+def test_late_stale_result_is_ignored_not_applied():
+    # obs0's 5-frame result is still in flight when obs1's 2-frame result gets
+    # released at frame 3; that release permanently voids obs0, so when its
+    # result matures alone at frame 5 it is dropped instead of rolling the
+    # active action back -- the same rule the realtime coordinator enforces.
+    executor, env, _, noop = _executor(
+        RawFrameLatencySource([5, 2]),
+        policy=CountingPolicyRunner(),
+        max_steps=8,
+        decision_scheduler=SelectedRawFrameDecisionScheduler({0, 1}),
+        persistence_policy=HoldPolicy(duration_raw_frames=100),
+    )
+
+    metrics = executor.run_episode(episode_id=0, eval_max_steps=8)
+
+    assert [action.value for action in env.applied_actions] == [noop.value] * 3 + ["a1"] * 5
+    assert [event.action.value for event in executor.action_scheduler.get_applied_events()] == ["a1"]
+    assert metrics.num_dropped_actions == 1
+
+
 def test_fixed_two_frame_latency_applies_at_t_plus_two():
     clock = EnvClock(env_fps=30, obs_fps=30)
     executor, env, _, noop = _executor(FixedSampler(clock.frame_ms * 2, clock=clock), max_steps=4)

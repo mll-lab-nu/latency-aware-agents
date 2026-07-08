@@ -40,7 +40,8 @@ from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
-from latency_bench.executors.realtime.pool import ProcessInferencePool, _RealtimeResultCoordinator
+from latency_bench.scheduler.result_coordinator import ResultCoordinator
+from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.realtime.workers import (
     RealtimeObservationTask,
     RealtimePolicyCompletion,
@@ -244,7 +245,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         episode_id: int,
         seed: int | None,
         acc: _EpisodeAccumulators,
-        coordinator: _RealtimeResultCoordinator,
+        coordinator: ResultCoordinator[RealtimePolicyCompletion],
         pool: Any,
         pre_episode_drain: dict[str, float | int] | None,
         enqueue_released_actions: bool,
@@ -310,7 +311,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         if self.video_recorder is not None:
             self.video_recorder.start_episode(episode_id=episode_id, metadata={})
             self.video_recorder.record_frame(self.env.render_game_frame())
-        coordinator = _RealtimeResultCoordinator(ordering_policy=self.action_scheduler.ordering_policy)
+        coordinator = ResultCoordinator(ordering_policy=self.action_scheduler.ordering_policy)
         self._episode_start_s = self.time_fn()
 
         acc = _EpisodeAccumulators()
@@ -351,7 +352,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                         task.profile.parent_observation_handle_ms = (
                             _profile_now_ms() - task.profile.parent_observation_handle_start_ms
                         )
-                    coordinator.mark_submitted(task)
+                    coordinator.mark_submitted(int(task.obs_id))
                     acc.submitted_observation_frames += 1
                     observation_submitted = True
                 else:
@@ -448,7 +449,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         process.start()
         child_conn.close()
 
-        coordinator = _RealtimeResultCoordinator(ordering_policy=self.action_scheduler.ordering_policy)
+        coordinator = ResultCoordinator(ordering_policy=self.action_scheduler.ordering_policy)
         self._episode_start_s = self.time_fn()
         acc = _EpisodeAccumulators()
         action_event_index: dict[int, int] = {}
@@ -519,7 +520,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                             task.profile.parent_observation_handle_ms = (
                                 _profile_now_ms() - task.profile.parent_observation_handle_start_ms
                             )
-                        coordinator.mark_submitted(task)
+                        coordinator.mark_submitted(int(task.obs_id))
                         acc.submitted_observation_frames += 1
                         pending_step_info[int(task.submit_env_step)] = {
                             "observation_submitted": True,
@@ -623,7 +624,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         self,
         *,
         pool: Any,
-        coordinator: _RealtimeResultCoordinator,
+        coordinator: ResultCoordinator[RealtimePolicyCompletion],
         now_ms: float,
         action_events: list[ActionEvent],
         latency_values_ms: list[float],
@@ -634,7 +635,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         for completion in pool.drain_completed(now_ms):
             if release_observation is not None:
                 release_observation(completion.task.shared_obs_id)
-            ignored = coordinator.add_completion(completion)
+            ignored = coordinator.add_completion(int(completion.task.obs_id), completion)
             for ignored_completion in ignored:
                 self._record_completion_event(
                     completion=ignored_completion,
