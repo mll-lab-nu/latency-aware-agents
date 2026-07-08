@@ -106,11 +106,15 @@ def test_hidden_regime_burst_persists_within_an_episode():
     assert longest_run >= 3
 
 
-def test_hidden_regime_episode_start_resets_to_calm():
+def test_hidden_regime_episode_start_carries_regime_across_boundaries():
+    # One draw per episode: the machine chain keeps evolving across episode
+    # boundaries, so degraded 120ms draws must reach episode starts instead of
+    # every episode being forced back to calm.
     values = [40.0] * 4 + [120.0] * 4
     sampler = HiddenRegimeSampler(_model(values), clock=_clock(), seed=0)
     first_draws = [sampler.sample({"episode_id": episode_id}).worker_service_ms for episode_id in range(100)]
-    assert first_draws == pytest.approx([40.0] * 100)
+    assert 120.0 in first_draws
+    assert 40.0 in first_draws
 
 
 def test_hidden_regime_is_deterministic_with_seed():

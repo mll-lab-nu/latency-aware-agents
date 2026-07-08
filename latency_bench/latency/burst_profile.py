@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from collections import defaultdict
 from statistics import median
 from typing import Any, Iterator
 
@@ -27,6 +26,12 @@ WORKER_SERVICE_STAGE_KEYS = (
 # ``BURST_MERGE_GAP_RECORDS`` of each other belong to one burst, and every
 # record from a burst's first to last spike (including the interleaved normal
 # ones) is labeled burst.
+#
+# The regime is machine state, not episode state: a degraded machine stays
+# degraded through env resets (observed as one slow condition spanning tens of
+# consecutive episodes). Labeling therefore treats the whole sample stream as
+# one machine timeline — bursts, excursions, and transitions bridge episode
+# boundaries — and the sampler carries the regime across episode resets.
 #
 # Within a burst, each maximal run of consecutive above-threshold samples is
 # one excursion, described by two continuous latent parameters: its duration
@@ -78,74 +83,84 @@ def build_hidden_regime_burst_model(samples: list[dict[str, Any]]) -> dict[str, 
         float(sample["worker_service_ms"]) for sample in samples
     )
 
-    samples_by_episode: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for sample in samples:
-        samples_by_episode[int(sample["episode_id"])].append(sample)
+    ordered_samples = sorted(
+        samples, key=lambda item: (int(item["episode_id"]), int(item["sample_index"]))
+    )
+    regimes = _label_regimes(ordered_samples, spike_threshold_ms)
 
     transition_counts = {"calm": {"calm": 0, "burst": 0}, "burst": {"calm": 0, "burst": 0}}
     regime_step_counts = {"calm": 0, "burst": 0}
     burst_dwell_lengths: list[int] = []
     emission_samples_by_regime: dict[str, list[dict[str, float]]] = {"calm": [], "burst": []}
     excursion_runs: list[list[dict[str, Any]]] = []
-    burst_hold_count = 0
+    excursion_gaps: list[int] = []
+    pending_gap: int | None = None
 
-    for episode_id in sorted(samples_by_episode):
-        episode_samples = sorted(samples_by_episode[episode_id], key=lambda item: int(item["sample_index"]))
-        regimes = _label_regimes(episode_samples, spike_threshold_ms)
-        active_run: list[dict[str, Any]] = []
-        for sample, regime in zip(episode_samples, regimes):
-            regime_step_counts[regime] += 1
-            if float(sample["worker_service_ms"]) > spike_threshold_ms:
-                active_run.append(sample)
-                continue
-            follows_excursion = bool(active_run)
-            if active_run:
-                excursion_runs.append(active_run)
-                active_run = []
-            emission_samples_by_regime[regime].append(
-                {
-                    "action_ready_ms": float(sample["action_ready_ms"]),
-                    "worker_service_ms": float(sample["worker_service_ms"]),
-                }
-            )
-            # Excursions are maximal runs, so the record right after one is
-            # sub-threshold by construction — a separator, not a Bernoulli
-            # trial for starting the next excursion.
-            if regime == "burst" and not follows_excursion:
-                burst_hold_count += 1
+    active_run: list[dict[str, Any]] = []
+    for sample, regime in zip(ordered_samples, regimes):
+        regime_step_counts[regime] += 1
+        if float(sample["worker_service_ms"]) > spike_threshold_ms:
+            # A gap is the sub-threshold stretch between two excursions of
+            # the SAME burst (>= 1 by maximality); it carries the fitted
+            # within-burst spike density.
+            if pending_gap:
+                excursion_gaps.append(pending_gap)
+            pending_gap = None
+            active_run.append(sample)
+            continue
         if active_run:
             excursion_runs.append(active_run)
-        for index in range(len(regimes) - 1):
-            transition_counts[regimes[index]][regimes[index + 1]] += 1
-        length = 0
-        for regime in regimes + ["calm"]:
-            if regime == "burst":
-                length += 1
-            elif length:
-                burst_dwell_lengths.append(length)
-                length = 0
+            active_run = []
+            pending_gap = 0
+        if pending_gap is not None:
+            pending_gap = pending_gap + 1 if regime == "burst" else None
+        emission_samples_by_regime[regime].append(
+            {
+                "action_ready_ms": float(sample["action_ready_ms"]),
+                "worker_service_ms": float(sample["worker_service_ms"]),
+            }
+        )
+    if active_run:
+        excursion_runs.append(active_run)
+    for index in range(len(regimes) - 1):
+        transition_counts[regimes[index]][regimes[index + 1]] += 1
+    length = 0
+    for regime in regimes + ["calm"]:
+        if regime == "burst":
+            length += 1
+        elif length:
+            burst_dwell_lengths.append(length)
+            length = 0
 
     return {
-        "schema_version": 7,
+        "schema_version": 8,
         "model_type": "hidden_regime",
-        "reset_scope": "episode",
+        "reset_scope": "session",
         "spike_threshold_ms": spike_threshold_ms,
         "spike_median_multiplier": SPIKE_MEDIAN_MULTIPLIER,
         "burst_merge_gap_records": BURST_MERGE_GAP_RECORDS,
         "regime_transition_counts": transition_counts,
         "regime_step_counts": regime_step_counts,
         "burst_dwell_lengths": sorted(burst_dwell_lengths),
+        # Burst dwell is a fitted continuous duration, sampled fresh at each
+        # burst entry. A geometric (per-draw exit) dwell rejects the observed
+        # mixture of draw-scale blips and minutes-long degradations.
+        "burst_dwell_distribution": (
+            _fit_inverse_cdf([float(length) for length in burst_dwell_lengths])
+            if burst_dwell_lengths
+            else None
+        ),
         "emission_distributions_by_regime": {
             regime: (_fit_joint_emission_distribution(values) if values else None)
             for regime, values in emission_samples_by_regime.items()
         },
-        "excursions": _fit_excursion_model(excursion_runs, burst_hold_count),
+        "excursions": _fit_excursion_model(excursion_runs, excursion_gaps),
     }
 
 
 def _fit_excursion_model(
     excursion_runs: list[list[dict[str, Any]]],
-    burst_hold_count: int,
+    excursion_gaps: list[int],
 ) -> dict[str, Any] | None:
     if not excursion_runs:
         return None
@@ -177,14 +192,18 @@ def _fit_excursion_model(
             math.sqrt(residual_square_sum / residual_dof) if residual_dof else 0.0
         ),
         "ready_delta_ms": _fit_inverse_cdf(ready_deltas),
-        "start_counts": {"start": len(excursion_runs), "hold": burst_hold_count},
+        "gap_draws": (
+            _fit_inverse_cdf([float(gap) for gap in excursion_gaps])
+            if excursion_gaps
+            else None
+        ),
     }
 
 
-def _label_regimes(episode_samples: list[dict[str, Any]], spike_threshold_ms: float) -> list[str]:
-    regimes = ["calm"] * len(episode_samples)
+def _label_regimes(stream_samples: list[dict[str, Any]], spike_threshold_ms: float) -> list[str]:
+    regimes = ["calm"] * len(stream_samples)
     last_spike_index: int | None = None
-    for index, sample in enumerate(episode_samples):
+    for index, sample in enumerate(stream_samples):
         if float(sample["worker_service_ms"]) <= spike_threshold_ms:
             continue
         if last_spike_index is not None and index - last_spike_index <= BURST_MERGE_GAP_RECORDS:

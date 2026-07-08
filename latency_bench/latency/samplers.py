@@ -144,15 +144,28 @@ class HiddenRegimeSampler(LatencySampler):
     Real latency spikes arrive in clusters with normal-valued samples in
     between, so a chain keyed on the latency value itself forgets it is inside
     a burst after one normal draw; the hidden regime carries that memory. The
-    chain advances once per submitted observation. Per episode, the two
-    transition probabilities are drawn from their Jeffreys Beta posterior over
-    recorded counts, and each regime's fitted joint emission distribution
-    produces a fresh ``(action_ready_ms, worker_service_ms)``.
+    chain advances once per submitted observation. Per episode, the burst
+    entry probability is drawn from its Jeffreys Beta posterior over recorded
+    counts; on entry the burst's dwell (in draws) is sampled fresh from the
+    fitted dwell distribution — real dwells mix draw-scale blips with
+    minutes-long degradations, which a geometric per-draw exit cannot produce.
+    Each regime's fitted joint emission distribution produces a fresh
+    ``(action_ready_ms, worker_service_ms)``.
 
-    Above-threshold latency is emitted through excursions: on a burst draw the
-    sampler starts one with the fitted per-episode start probability, samples a
-    fresh (duration, level) pair from the fitted joint distribution, then emits
-    that many consecutive draws around the level. An in-flight excursion runs
+    The regime is machine state, not episode state: a degraded machine stays
+    degraded through env resets (real traces show one slow condition spanning
+    tens of consecutive episodes). An episode boundary therefore only
+    refreshes the posterior parameter draws — the chain state and any
+    in-flight excursion persist across it.
+
+    Above-threshold latency is emitted through excursions. A fitted dwell runs
+    from a burst's first spike to its last, so entry starts an excursion
+    outright; when one finishes, the sub-threshold stretch until the next is
+    sampled fresh from the fitted inter-excursion gap distribution (>= 1 draw
+    by maximality, so consecutive excursions never fuse; clipped so the last
+    excursion lands on the dwell's final draw). Each excursion samples a fresh
+    (duration, level) pair from the fitted joint distribution, then emits that
+    many consecutive draws around the level. An in-flight excursion runs
     to completion even if the outer chain leaves burst mid-way, preserving the
     duration semantics; sustained plateaus and isolated spikes are just
     different regions of the (duration, level) density, not model classes.
@@ -169,26 +182,29 @@ class HiddenRegimeSampler(LatencySampler):
         self.current_episode_id: int | None = None
         self.regime = "calm"
         self._enter_burst_prob = 0.0
-        self._exit_burst_prob = 1.0
-        self._excursion_start_prob = 0.0
+        self._burst_remaining = 0
         self._excursion_remaining = 0
         self._excursion_level_ms = 0.0
-        self._excursion_separator_pending = False
+        self._excursion_gap_remaining = 0.0
 
     def sample(self, context: dict[str, Any] | None = None) -> LatencySample:
         episode_id = int(context["episode_id"])
+        first_draw = self.current_episode_id is None
         if episode_id != self.current_episode_id:
             self.current_episode_id = episode_id
-            self.regime = "calm"
-            self._excursion_remaining = 0
-            self._excursion_separator_pending = False
             self._enter_burst_prob = self._episode_transition_prob("calm", "burst")
-            self._exit_burst_prob = self._episode_transition_prob("burst", "calm")
-            self._excursion_start_prob = self._episode_excursion_start_prob()
+        if first_draw:
+            pass
         elif self.regime == "calm":
             if self.rng.random() < self._enter_burst_prob:
                 self.regime = "burst"
-        elif self.rng.random() < self._exit_burst_prob:
+                self._burst_remaining = self._sample_burst_dwell() - 1
+                # A fitted dwell runs from a burst's first spike to its last,
+                # so entry itself is a spike: an excursion starts outright.
+                self._excursion_gap_remaining = 0.0
+        elif self._burst_remaining > 0:
+            self._burst_remaining -= 1
+        else:
             self.regime = "calm"
 
         record = self._next_emission()
@@ -212,29 +228,38 @@ class HiddenRegimeSampler(LatencySampler):
         stay = self.rng.gammavariate(float(counts[source]) + 0.5, 1.0)
         return switch / (switch + stay)
 
-    def _episode_excursion_start_prob(self) -> float:
-        if self.excursions is None:
-            return 0.0
-        counts = self.excursions["start_counts"]
-        start = self.rng.gammavariate(float(counts["start"]) + 0.5, 1.0)
-        hold = self.rng.gammavariate(float(counts["hold"]) + 0.5, 1.0)
-        return start / (start + hold)
+    def _sample_burst_dwell(self) -> int:
+        dwell = self.model["burst_dwell_distribution"]
+        return max(1, round(sample_inverse_cdf(
+            self.rng, dwell["quantile_levels"], dwell["latency_ms"]
+        )))
+
+    def _sample_excursion_gap(self) -> float:
+        gaps = self.excursions.get("gap_draws")
+        if gaps is None:
+            # Every observed burst was a single excursion: nothing interior
+            # ever follows.
+            return math.inf
+        gap = max(1, round(sample_inverse_cdf(
+            self.rng, gaps["quantile_levels"], gaps["latency_ms"]
+        )))
+        # The dwell ends on the burst's last spike: clip a gap that would
+        # overrun it so the final excursion lands on the dwell's last draw.
+        if self.regime == "burst" and self._burst_remaining > 1:
+            return float(min(gap, self._burst_remaining - 1))
+        return float(gap)
 
     def _next_emission(self) -> dict[str, Any]:
         if self._excursion_remaining > 0:
             return self._emit_excursion_draw()
-        if self._excursion_separator_pending:
-            # Fitted durations are maximal above-threshold runs, so two
-            # excursions never touch: the draw right after one is always
-            # sub-threshold.
-            self._excursion_separator_pending = False
-            if self.regime == "burst" and self.emissions.get("burst") is not None:
-                return self._sample_emission("burst")
-            return self._sample_emission("calm")
-        if self.regime == "burst" and self.excursions is not None and (
-            self.emissions.get("burst") is None
-            or self.rng.random() < self._excursion_start_prob
-        ):
+        if self.regime == "burst" and self.excursions is not None:
+            if self._excursion_gap_remaining > 0:
+                # Sub-threshold stretch between two excursions (>= 1 draw by
+                # maximality, so consecutive excursions never fuse).
+                self._excursion_gap_remaining -= 1
+                if self.emissions.get("burst") is not None:
+                    return self._sample_emission("burst")
+                return self._sample_emission("calm")
             self._start_excursion()
             return self._emit_excursion_draw()
         return self._sample_emission(self.regime)
@@ -261,7 +286,7 @@ class HiddenRegimeSampler(LatencySampler):
     def _emit_excursion_draw(self) -> dict[str, Any]:
         self._excursion_remaining -= 1
         if self._excursion_remaining == 0:
-            self._excursion_separator_pending = True
+            self._excursion_gap_remaining = self._sample_excursion_gap()
         sigma_ms = float(self.excursions["within_excursion_sigma_ms"])
         worker_service_ms = self._excursion_level_ms + (
             self.rng.normalvariate(0.0, sigma_ms) if sigma_ms > 0.0 else 0.0
@@ -460,9 +485,10 @@ def _build_iid(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
 def _build_temporal(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
     model_path = _profile_relative_path(profile_path, profile["burst_model_path"])
     model = read_json(model_path)
-    if model.get("model_type") != "hidden_regime" or "excursions" not in model:
+    if model.get("model_type") != "hidden_regime" or model.get("reset_scope") != "session":
         raise ValueError(
             f"Unsupported temporal burst model (model_type={model.get('model_type')!r}, "
+            f"reset_scope={model.get('reset_scope')!r}, "
             f"schema_version={model.get('schema_version')!r}) at {model_path}; "
             "rebuild the profile from its measure artifacts with "
             "latency_bench.experiments.build_latency_profile_from_trace."

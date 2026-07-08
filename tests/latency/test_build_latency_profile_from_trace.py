@@ -190,7 +190,7 @@ def test_build_latency_profile_from_trace_writes_latency_burst_model(tmp_path: P
     assert [sample["worker_service_ms_bin"] for sample in burst_samples] == [10, 11, 50]
     assert [sample["worker_service_ms"] for sample in burst_samples] == [10.0, 11.0, 50.0]
     burst_model = json.loads((output_dir / "latency_burst_model.json").read_text(encoding="utf-8"))
-    assert burst_model["schema_version"] == 7
+    assert burst_model["schema_version"] == 8
     assert burst_model["model_type"] == "hidden_regime"
     # Median worker-service is 11ms -> spike threshold 13.75ms -> the 50ms
     # record is a length-1 burst.
