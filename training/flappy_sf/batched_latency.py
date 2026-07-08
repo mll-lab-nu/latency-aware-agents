@@ -14,6 +14,8 @@ from latency_bench.core.latency_distribution import (
     make_latency_distribution_sampler,
 )
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
+from training.common.latency_config import build_latency_info
+from training.common.utils import batch_indices, seed_values
 
 
 @dataclass
@@ -274,35 +276,22 @@ class BatchedFlappyLatencyScheduler:
         )
 
     def _latency_info(self, agent_idx: int, latency_value: int) -> dict[str, Any]:
-        latency_raw_frames = int(latency_value)
-        info: dict[str, Any] = {
-            "episode_idx": int(self.episode_idx[agent_idx]),
-            "decision_step_idx": int(self.decision_step_idx[agent_idx]),
-            "env_step_idx": int(self.env_step_idx[agent_idx]),
-            "raw_frame": int(self.env_step_idx[agent_idx]),
-            "applied_action": int(self.current_applied_action[agent_idx]),
-            "pending_action_count": int(self.pending_count[agent_idx]),
-            "latency_raw_frames": latency_raw_frames,
-            "latency_ms": float(latency_raw_frames) * self.clock.frame_ms,
-            "env_fps": float(self.clock.env_fps),
-            "obs_fps": float(self.clock.obs_fps),
-            "obs_stride_raw_frames": int(self.clock.obs_stride_raw_frames),
-            "hold_policy": self.hold_policy.value,
-            "ordering_policy": self.ordering_policy.value,
-        }
-        if self.latency_distribution_spec is not None:
-            info["latency_distribution"] = self.latency_distribution_spec.to_dict()
-            info["latency_distribution_label"] = str(self.latency_distribution_label)
-        return info
+        return build_latency_info(
+            episode_idx=self.episode_idx[agent_idx],
+            decision_step_idx=self.decision_step_idx[agent_idx],
+            env_step_idx=self.env_step_idx[agent_idx],
+            applied_action=int(self.current_applied_action[agent_idx]),
+            pending_action_count=self.pending_count[agent_idx],
+            latency_raw_frames=int(latency_value),
+            clock=self.clock,
+            hold_policy=self.hold_policy,
+            ordering_policy=self.ordering_policy,
+            latency_distribution_spec=self.latency_distribution_spec,
+            latency_distribution_label=self.latency_distribution_label,
+        )
 
     def _indices(self, indices: Sequence[int] | np.ndarray | None) -> list[int]:
-        if indices is None:
-            return list(range(self.batch_size))
-        return [int(item) for item in np.asarray(indices).reshape(-1).tolist()]
+        return batch_indices(indices, batch_size=self.batch_size)
 
     def _seed_values(self, seeds: Sequence[int | None] | int | None, count: int) -> list[int | None]:
-        if seeds is None:
-            return [None] * count
-        if isinstance(seeds, (int, np.integer)):
-            return [int(seeds)] * count
-        return [None if item is None else int(item) for item in list(seeds)]
+        return seed_values(seeds, count)

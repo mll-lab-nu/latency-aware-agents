@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
 
@@ -24,6 +23,7 @@ from training.common.episode_metrics import (
     episode_metrics_path_from_cfg,
     start_episode_metrics_aggregator,
     stop_episode_metrics_aggregator,
+    unlink_stale_episode_metrics_file,
 )
 from training.common.latency_wrapper import (
     ActionLatencyWrapper,
@@ -239,10 +239,7 @@ def _prepare_gpu_episode_metrics_file(cfg) -> None:
     path = cfg.episode_metrics_path or episode_metrics_path_from_cfg(cfg)
     if not path:
         return
-    path_obj = Path(path).expanduser()
-    restart_behavior = cfg.restart_behavior.lower()
-    if restart_behavior != "resume" and path_obj.exists():
-        path_obj.unlink()
+    unlink_stale_episode_metrics_file(path, cfg.restart_behavior)
 
 
 def _start_episode_metrics_for_training(cfg):

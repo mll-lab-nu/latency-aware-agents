@@ -44,6 +44,42 @@ def latency_ms_to_raw_frame_value(latency_ms: Any, *, env_fps: float) -> float:
     return float(latency_ms) * float(env_fps) / 1000.0
 
 
+def build_latency_info(
+    *,
+    episode_idx: Any,
+    decision_step_idx: Any,
+    env_step_idx: Any,
+    applied_action: Any,
+    pending_action_count: Any,
+    latency_raw_frames: int,
+    clock: Any,
+    hold_policy: Any,
+    ordering_policy: Any,
+    latency_distribution_spec: LatencyDistributionSpec | None,
+    latency_distribution_label: Any,
+) -> dict[str, Any]:
+    latency_raw_frames = int(latency_raw_frames)
+    info: dict[str, Any] = {
+        "episode_idx": int(episode_idx),
+        "decision_step_idx": int(decision_step_idx),
+        "env_step_idx": int(env_step_idx),
+        "raw_frame": int(env_step_idx),
+        "applied_action": applied_action,
+        "pending_action_count": int(pending_action_count),
+        "latency_raw_frames": latency_raw_frames,
+        "latency_ms": float(latency_raw_frames) * clock.frame_ms,
+        "env_fps": float(clock.env_fps),
+        "obs_fps": float(clock.obs_fps),
+        "obs_stride_raw_frames": int(clock.obs_stride_raw_frames),
+        "hold_policy": hold_policy.value,
+        "ordering_policy": ordering_policy.value,
+    }
+    if latency_distribution_spec is not None:
+        info["latency_distribution"] = latency_distribution_spec.to_dict()
+        info["latency_distribution_label"] = str(latency_distribution_label)
+    return info
+
+
 def sample_factory_latency_params_from_flat_config(cfg: Any, *, env_fps: float) -> SampleFactoryLatencyParams:
     latency_type = LatencySourceType(str(getattr(cfg, "latency_type")))
     if latency_type == LatencySourceType.ZERO:

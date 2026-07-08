@@ -55,7 +55,7 @@ def _patch_non_batched_sample_factory_atari_episode_stats() -> None:
         if not done or true_episode_end:
             report = original_record_env_step(self, reward, terminated, truncated, info, rollout_step)
             if done and true_episode_end:
-                _apply_raw_full_game_return_to_report(report, info, EPISODIC)
+                apply_raw_full_game_return_to_report(report, info, EPISODIC)
             return report
 
         episode_reward = self.last_episode_reward
@@ -120,7 +120,7 @@ def _episode_extra_stats_for_agent(value: Any, agent_idx: int) -> dict[str, Any]
     return agent_stats
 
 
-def _batched_info_for_agent(infos: Any, agent_idx: int) -> dict[str, Any]:
+def batched_info_for_agent(infos: Any, agent_idx: int) -> dict[str, Any]:
     if isinstance(infos, (list, tuple)):
         if agent_idx < len(infos) and isinstance(infos[agent_idx], dict):
             return infos[agent_idx]
@@ -166,7 +166,7 @@ def _numeric_scalar(value: Any) -> float | None:
     return None
 
 
-def _flatten_numeric_episode_extra_stats(value: Any, prefix: str = "") -> dict[str, float]:
+def flatten_numeric_episode_extra_stats(value: Any, prefix: str = "") -> dict[str, float]:
     if not isinstance(value, dict):
         numeric_value = _numeric_scalar(value)
         if prefix and numeric_value is not None:
@@ -177,11 +177,11 @@ def _flatten_numeric_episode_extra_stats(value: Any, prefix: str = "") -> dict[s
     for key, item in value.items():
         key_str = str(key)
         next_prefix = f"{prefix}/{key_str}" if prefix else key_str
-        flattened.update(_flatten_numeric_episode_extra_stats(item, next_prefix))
+        flattened.update(flatten_numeric_episode_extra_stats(item, next_prefix))
     return flattened
 
 
-def _raw_full_game_return_from_info(info: Any) -> float | None:
+def raw_full_game_return_from_info(info: Any) -> float | None:
     if not isinstance(info, dict):
         return None
 
@@ -190,7 +190,7 @@ def _raw_full_game_return_from_info(info: Any) -> float | None:
         if value is not None:
             return value
 
-    extra_stats = _flatten_numeric_episode_extra_stats(info.get("episode_extra_stats") or {})
+    extra_stats = flatten_numeric_episode_extra_stats(info.get("episode_extra_stats") or {})
     for key in ("episode/raw_return", "episode/return", "raw_return", "return"):
         value = extra_stats.get(key)
         if value is not None:
@@ -198,38 +198,38 @@ def _raw_full_game_return_from_info(info: Any) -> float | None:
     return None
 
 
-def _apply_raw_full_game_return_to_report(report: Any, info: Any, episodic_key: str) -> None:
+def apply_raw_full_game_return_to_report(report: Any, info: Any, episodic_key: str) -> None:
     if not isinstance(report, dict):
         return
     episodic_stats = report.get(episodic_key)
     if not isinstance(episodic_stats, dict):
         return
-    raw_return = _raw_full_game_return_from_info(info)
+    raw_return = raw_full_game_return_from_info(info)
     if raw_return is not None:
         episodic_stats["reward"] = float(raw_return)
 
 
-def _episode_extra_stats_for_finished_agents(infos: Any, finished_agents: list[int]) -> dict[str, np.ndarray]:
+def episode_extra_stats_for_finished_agents(infos: Any, finished_agents: list[int]) -> dict[str, np.ndarray]:
     collected: dict[str, list[float]] = {}
     for agent_idx in finished_agents:
-        info = _batched_info_for_agent(infos, int(agent_idx))
-        extra_stats = _flatten_numeric_episode_extra_stats(info.get("episode_extra_stats") or {})
+        info = batched_info_for_agent(infos, int(agent_idx))
+        extra_stats = flatten_numeric_episode_extra_stats(info.get("episode_extra_stats") or {})
         for key, value in extra_stats.items():
             collected.setdefault(key, []).append(value)
     return {key: np.asarray(values, dtype=np.float64) for key, values in collected.items()}
 
 
-def _raw_full_game_returns_for_finished_agents(infos: Any, finished_agents: list[int]) -> np.ndarray | None:
+def raw_full_game_returns_for_finished_agents(infos: Any, finished_agents: list[int]) -> np.ndarray | None:
     raw_returns: list[float] = []
     for agent_idx in finished_agents:
-        raw_return = _raw_full_game_return_from_info(_batched_info_for_agent(infos, int(agent_idx)))
+        raw_return = raw_full_game_return_from_info(batched_info_for_agent(infos, int(agent_idx)))
         if raw_return is None:
             return None
         raw_returns.append(float(raw_return))
     return np.asarray(raw_returns, dtype=np.float64)
 
 
-def _is_true_batched_episode_end(info: dict[str, Any]) -> bool:
+def is_true_batched_episode_end(info: dict[str, Any]) -> bool:
     if TRUE_EPISODE_END_INFO_KEY in info:
         return bool(info[TRUE_EPISODE_END_INFO_KEY])
     truncated = bool(info.get("TimeLimit.truncated", False))
@@ -259,15 +259,15 @@ def _patch_batched_sample_factory_atari_episode_stats() -> None:
 
         report_dones = dones_orig.clone()
         for agent_idx in dones_cpu.nonzero(as_tuple=True)[0].tolist():
-            info = _batched_info_for_agent(infos, int(agent_idx))
-            if not _is_true_batched_episode_end(info):
+            info = batched_info_for_agent(infos, int(agent_idx))
+            if not is_true_batched_episode_end(info):
                 report_dones[agent_idx] = False
 
         reports = original_process_env_step(self, rewards, report_dones, infos)
         if reports:
             finished_agents = [int(agent_idx) for agent_idx in report_dones.cpu().nonzero(as_tuple=True)[0].tolist()]
-            raw_returns = _raw_full_game_returns_for_finished_agents(infos, finished_agents)
-            extra_stats = _episode_extra_stats_for_finished_agents(infos, finished_agents)
+            raw_returns = raw_full_game_returns_for_finished_agents(infos, finished_agents)
+            extra_stats = episode_extra_stats_for_finished_agents(infos, finished_agents)
             for report in reports:
                 episodic_stats = report.get(EPISODIC)
                 if isinstance(episodic_stats, dict):

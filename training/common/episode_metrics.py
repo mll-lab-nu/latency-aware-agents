@@ -183,16 +183,22 @@ def episode_metrics_path_from_cfg(cfg: Any) -> str:
     return str(Path(str(train_dir)).expanduser() / str(experiment) / "episode_metrics.jsonl")
 
 
+def unlink_stale_episode_metrics_file(path: Any, restart_behavior: Any) -> Path:
+    path_obj = Path(path).expanduser()
+    if str(restart_behavior).lower() != "resume" and path_obj.exists():
+        path_obj.unlink()
+    return path_obj
+
+
 def start_episode_metrics_aggregator(cfg: Any):
     if os.environ.get("LATENCY_BENCH_DISABLE_EPISODE_METRICS_AGGREGATOR") == "1":
         return None, None
     path = getattr(cfg, "episode_metrics_path", None) or episode_metrics_path_from_cfg(cfg)
     if not path:
         return None, None
-    path_obj = Path(path).expanduser()
-    restart_behavior = str(getattr(cfg, "restart_behavior", "overwrite") or "overwrite").lower()
-    if restart_behavior != "resume" and path_obj.exists():
-        path_obj.unlink()
+    path_obj = unlink_stale_episode_metrics_file(
+        path, str(getattr(cfg, "restart_behavior", "overwrite") or "overwrite")
+    )
     aggregator = EpisodeMetricsAggregator(path=path_obj, rolling_window=int(getattr(cfg, "stats_avg", 100) or 100))
     stop_event = threading.Event()
     thread = threading.Thread(

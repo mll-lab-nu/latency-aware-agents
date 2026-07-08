@@ -302,9 +302,10 @@ def test_signature_change_fails_fast(monkeypatch):
 
 def test_unsupported_sample_factory_version_fails_fast(monkeypatch):
     _install_fake_sample_factory(monkeypatch)
+    from training.common import sf_compat
     from training.common import sf_raw_reward_stats_compat as compat
 
-    monkeypatch.setattr(compat.metadata, "version", lambda package_name: "9.9.9")
+    monkeypatch.setattr(sf_compat.metadata, "version", lambda package_name: "9.9.9")
 
     with pytest.raises(RuntimeError, match="Unsupported Sample Factory version"):
         compat.ensure_sample_factory_raw_reward_console_stats_installed(env_name="latency_demon_attack")
