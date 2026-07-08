@@ -140,9 +140,6 @@ class CudaLatencyScheduler:
         self._decision_queued_actions = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
         self._decision_timeout = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
         self._raw_actions = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
-        self._selected_actions = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
-        self._rows = torch.arange(self.batch_size, dtype=torch.int64, device=self.device)
-        self._offsets = torch.arange(self.queue_capacity, dtype=torch.int64, device=self.device)
         reset_latency = 0 if self.latency_distribution_spec is not None else int(self.fixed_latency_raw_frames)
         self._latency_raw_frames_cpu = np.full(self.batch_size, reset_latency, dtype=np.int64)
 
@@ -467,47 +464,6 @@ class CudaLatencyScheduler:
             info["latency_distribution"] = self.latency_distribution_spec.to_dict()
             info["latency_distribution_label"] = str(self.latency_distribution_label)
         return info
-
-    def _select_ready_actions(self, active: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        if self.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO:
-            return self._select_ready_fifo(active)
-        return self._select_latest_ready(active)
-
-    def _select_ready_fifo(self, active: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        has_pending = self.pending_count > 0
-        selected = active & has_pending & (
-            self.pending_ready_raw_frames[self._rows, self.pending_head] <= self.env_step_idx
-        )
-        self._selected_actions.zero_()
-        self._selected_actions[selected] = self.pending_actions[self._rows[selected], self.pending_head[selected]]
-        self.pending_head[selected] = (self.pending_head[selected] + 1) % self.queue_capacity
-        self.pending_count[selected] -= 1
-        return selected, self._selected_actions
-
-    def _select_latest_ready(self, active: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        positions = (self.pending_head[:, None] + self._offsets[None, :]) % self.queue_capacity
-        valid = self._offsets[None, :] < self.pending_count[:, None]
-        ready = active[:, None] & valid & (self.pending_ready_raw_frames[self._rows[:, None], positions] <= self.env_step_idx[:, None])
-        selected = torch.any(ready, dim=1)
-        selected_offsets = torch.max(
-            torch.where(ready, self._offsets[None, :], torch.full_like(self._offsets[None, :], -1)),
-            dim=1,
-        ).values
-        selected_positions = (self.pending_head + torch.clamp_min(selected_offsets, 0)) % self.queue_capacity
-        self._selected_actions.zero_()
-        self._selected_actions[selected] = self.pending_actions[self._rows[selected], selected_positions[selected]]
-
-        keep = valid & ~ready
-        keep_counts = torch.sum(keep, dim=1).to(torch.int64)
-        order_key = torch.where(keep, self._offsets[None, :], self.queue_capacity + self._offsets[None, :])
-        order = torch.argsort(order_key, dim=1)
-        compact_positions = torch.gather(positions, 1, order)
-        self.pending_actions[:, :] = torch.gather(self.pending_actions, 1, compact_positions)
-        self.pending_ready_raw_frames[:, :] = torch.gather(self.pending_ready_raw_frames, 1, compact_positions)
-        self.pending_action_ids[:, :] = torch.gather(self.pending_action_ids, 1, compact_positions)
-        self.pending_head[:] = 0
-        self.pending_count[selected] = keep_counts[selected]
-        return selected, self._selected_actions
 
     def _latency_info(self, agent_idx: int, latency_value: int) -> dict[str, Any]:
         latency_raw_frames = int(latency_value)

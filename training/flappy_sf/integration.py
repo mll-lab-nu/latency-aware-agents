@@ -341,11 +341,10 @@ def make_flappy_sf_env(
         )
         final_obs_shape = _flappy_final_obs_shape(env.observation_space)
         log_flappy_sf_resolved_config(cfg, final_obs_shape)
-        representative_env = env.sub_envs[0] if getattr(env, "sub_envs", None) else env
         _maybe_log_flappy_timelimit_diagnostics(
             cfg,
             env=env,
-            representative_env=representative_env,
+            representative_env=env,
             final_obs_shape=final_obs_shape,
             env_config=env_config,
         )

@@ -251,41 +251,6 @@ class BatchedFlappyLatencyScheduler:
         self.pending_count[selected] = keep_counts[selected]
         return selected, actions
 
-    def _select_event(self, agent_idx: int) -> dict[str, int] | None:
-        if self.pending_count[agent_idx] <= 0:
-            return None
-        current_step = int(self.env_step_idx[agent_idx])
-        positions = (int(self.pending_head[agent_idx]) + np.arange(int(self.pending_count[agent_idx]))) % self.pending_actions.shape[1]
-        if self.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO:
-            position = int(positions[0])
-            if int(self.pending_ready_raw_frames[agent_idx, position]) <= current_step:
-                event = self._event_at(agent_idx, position)
-                self.pending_head[agent_idx] = (self.pending_head[agent_idx] + 1) % self.pending_actions.shape[1]
-                self.pending_count[agent_idx] -= 1
-                return event
-            return None
-        ready_mask = self.pending_ready_raw_frames[agent_idx, positions] <= current_step
-        if not np.any(ready_mask):
-            return None
-        selected_position = int(positions[np.flatnonzero(ready_mask)[-1]])
-        selected = self._event_at(agent_idx, selected_position)
-        not_ready_positions = positions[~ready_mask]
-        count = int(not_ready_positions.shape[0])
-        self.pending_actions[agent_idx, :count] = self.pending_actions[agent_idx, not_ready_positions]
-        self.pending_ready_raw_frames[agent_idx, :count] = self.pending_ready_raw_frames[agent_idx, not_ready_positions]
-        self.pending_action_ids[agent_idx, :count] = self.pending_action_ids[agent_idx, not_ready_positions]
-        self.pending_head[agent_idx] = 0
-        self.pending_count[agent_idx] = count
-        return selected
-
-    def _event_at(self, agent_idx: int, position: int) -> dict[str, int]:
-        return {
-            "action_id": int(self.pending_action_ids[agent_idx, position]),
-            "obs_id": int(self.decision_step_idx[agent_idx]),
-            "action": int(self.pending_actions[agent_idx, position]),
-            "ready_raw_frame": int(self.pending_ready_raw_frames[agent_idx, position]),
-        }
-
     def _next_latency_raw_frames(self, agent_idx: int) -> int:
         if self.latency_distribution_spec is not None:
             if self.sample_distribution_per_episode:

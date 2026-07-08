@@ -22,11 +22,6 @@ from training.common.latency_config import (
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
-from training.common.latency_wrapper import (
-    ActionLatencyWrapper,
-    EpisodeMetricsWrapper,
-    RewardTraceWrapper,
-)
 from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_render_device
@@ -99,7 +94,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         )
 
         self.uses_batched_core = True
-        self.sub_envs: list[gym.Env] = []
         self.action_space = Discrete(2)
         score_limit = getattr(self.cfg, "score_limit", None)
         resolved_score_limit = None if score_limit in (None, "", 0, -1) else int(score_limit)
@@ -216,68 +210,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
 
     def _sub_env_id(self, agent_idx: int) -> int:
         return self._env_id * self.num_agents + int(agent_idx)
-
-    def _make_sub_env(self, agent_idx: int) -> gym.Env:
-        kwargs: dict[str, Any] = {
-            "use_lidar": bool(getattr(self.cfg, "use_lidar", False)),
-            "normalize_obs": bool(getattr(self.cfg, "normalize_obs", True)),
-            "audio_on": bool(getattr(self.cfg, "audio_on", False)),
-            "pipe_gap": int(getattr(self.cfg, "pipe_gap", 100)),
-            "bird_color": getattr(self.cfg, "bird_color", "yellow"),
-            "pipe_color": getattr(self.cfg, "pipe_color", "green"),
-            "background": getattr(self.cfg, "background", "day"),
-            "debug": bool(getattr(self.cfg, "debug", False)),
-            "render_mode": None,
-        }
-        screen_size = getattr(self.cfg, "screen_size", None)
-        if screen_size not in (None, ""):
-            raise ValueError(
-                "screen_size is not supported for Flappy Sample Factory; "
-                "use env.obs_resize to resize observations without changing env geometry"
-            )
-        score_limit = getattr(self.cfg, "score_limit", None)
-        if score_limit not in (None, "", 0, -1):
-            kwargs["score_limit"] = int(score_limit)
-
-        env = gym.make(getattr(self.cfg, "gym_id", "FlappyBird-v0"), **kwargs)
-        max_episode_steps = int(getattr(self.cfg, "max_episode_steps", 0) or 0)
-        if max_episode_steps > 0:
-            env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
-        env = RewardTraceWrapper(env)
-
-        sub_seed = self._sub_seed(agent_idx)
-        latency_seed = sample_factory_latency_seed_from_flat_config(
-            self.cfg,
-            fallback_seed=sub_seed,
-            worker_index=self._worker_index,
-            vector_index=self._vector_index,
-            env_id=self._sub_env_id(agent_idx),
-        )
-        latency_params = sample_factory_latency_params_from_flat_config(self.cfg, env_fps=self.clock.env_fps)
-        env = ActionLatencyWrapper(
-            env,
-            fixed_latency_raw_frames=latency_params.fixed_latency_raw_frames,
-            env_fps=self.clock.env_fps,
-            obs_fps=self.clock.obs_fps,
-            hold_policy=getattr(self.cfg, "hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value),
-            ordering_policy=getattr(self.cfg, "ordering_policy", OrderingPolicy.LATEST_READY.value),
-            latency_distribution_spec=latency_params.latency_distribution_spec,
-            sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
-            seed=latency_seed,
-            env_reset_seed_base=sub_seed + 104729,
-            add_latency_info=bool(getattr(self.cfg, "add_latency_info", False)),
-            max_pending_actions=getattr(self.cfg, "max_pending_actions", None),
-        )
-        env = EpisodeMetricsWrapper(
-            env,
-            frames_per_decision=self.clock.obs_stride_raw_frames,
-            metrics_path=str(getattr(self.cfg, "episode_metrics_path", "") or ""),
-            worker_index=self._worker_index,
-            vector_index=self._vector_index,
-            env_id=self._sub_env_id(agent_idx),
-            issued_action_labels={0: "noop", 1: "flap"},
-        )
-        return env
 
     def reset(self, **kwargs):
         seed = kwargs.pop("seed", None)
@@ -651,8 +583,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 background=batch.background,
             )
             self.renderer = TorchFlappyRenderer(assets, device=self.render_device)
-        with self.gpu_render_profiler.time("state_batch_from_states_s"):
-            pass
         with self.gpu_render_profiler.time("render_into_s"):
             return self.renderer.render_into(batch, self._raw_rgb_output_buffer(batch))
 
@@ -746,7 +676,3 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             return score.detach().cpu().numpy().copy()
         return score.copy()
 
-    def close(self):
-        for env in self.sub_envs:
-            env.close()
-        super().close()
