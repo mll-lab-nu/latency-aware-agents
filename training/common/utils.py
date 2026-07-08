@@ -7,23 +7,6 @@ from typing import Any
 import numpy as np
 
 
-def parse_int_list(value: str | list[int] | tuple[int, ...]) -> list[int]:
-    if isinstance(value, (list, tuple)):
-        return [int(item) for item in value]
-    text = str(value).strip()
-    if not text:
-        return []
-    return [int(item.strip()) for item in text.split(",") if item.strip()]
-
-
-def list_to_csv(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    if isinstance(value, (list, tuple)):
-        return ",".join(str(item) for item in value)
-    return str(value)
-
-
 def str2bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value

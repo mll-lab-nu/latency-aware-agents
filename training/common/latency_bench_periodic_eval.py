@@ -122,9 +122,6 @@ class LatencyBenchEvalJob:
     env_steps: int
     phase: str
 
-    def is_done(self) -> bool:
-        return self.process.exitcode is not None
-
     def wait(self) -> None:
         self.process.join()
 

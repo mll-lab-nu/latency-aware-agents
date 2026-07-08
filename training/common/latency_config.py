@@ -44,10 +44,6 @@ def latency_ms_to_raw_frame_value(latency_ms: Any, *, env_fps: float) -> float:
     return float(latency_ms) * float(env_fps) / 1000.0
 
 
-def raw_frames_to_latency_ms(raw_frames: Any, *, env_fps: float) -> float:
-    return float(raw_frames) * 1000.0 / float(env_fps)
-
-
 def sample_factory_latency_params_from_flat_config(cfg: Any, *, env_fps: float) -> SampleFactoryLatencyParams:
     latency_type = LatencySourceType(str(getattr(cfg, "latency_type")))
     if latency_type == LatencySourceType.ZERO:
