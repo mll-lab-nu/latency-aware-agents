@@ -147,8 +147,16 @@ class HiddenRegimeSampler(LatencySampler):
     chain advances once per submitted observation. Per episode, the two
     transition probabilities are drawn from their Jeffreys Beta posterior over
     recorded counts, and each regime's fitted joint emission distribution
-    produces a fresh ``(action_ready_ms, worker_service_ms)``. Drops stay
-    emergent in the simulator through worker-service occupancy.
+    produces a fresh ``(action_ready_ms, worker_service_ms)``.
+
+    Above-threshold latency is emitted through excursions: on a burst draw the
+    sampler starts one with the fitted per-episode start probability, samples a
+    fresh (duration, level) pair from the fitted joint distribution, then emits
+    that many consecutive draws around the level. An in-flight excursion runs
+    to completion even if the outer chain leaves burst mid-way, preserving the
+    duration semantics; sustained plateaus and isolated spikes are just
+    different regions of the (duration, level) density, not model classes.
+    Drops stay emergent in the simulator through worker-service occupancy.
     """
     latency_type = "profile_sample"
 
@@ -157,25 +165,33 @@ class HiddenRegimeSampler(LatencySampler):
         self.clock = clock
         self.rng = random.Random(seed)
         self.emissions = model["emission_distributions_by_regime"]
+        self.excursions = model.get("excursions")
         self.current_episode_id: int | None = None
         self.regime = "calm"
         self._enter_burst_prob = 0.0
         self._exit_burst_prob = 1.0
+        self._excursion_start_prob = 0.0
+        self._excursion_remaining = 0
+        self._excursion_level_ms = 0.0
+        self._excursion_separator_pending = False
 
     def sample(self, context: dict[str, Any] | None = None) -> LatencySample:
         episode_id = int(context["episode_id"])
         if episode_id != self.current_episode_id:
             self.current_episode_id = episode_id
             self.regime = "calm"
+            self._excursion_remaining = 0
+            self._excursion_separator_pending = False
             self._enter_burst_prob = self._episode_transition_prob("calm", "burst")
             self._exit_burst_prob = self._episode_transition_prob("burst", "calm")
+            self._excursion_start_prob = self._episode_excursion_start_prob()
         elif self.regime == "calm":
             if self.rng.random() < self._enter_burst_prob:
                 self.regime = "burst"
         elif self.rng.random() < self._exit_burst_prob:
             self.regime = "calm"
 
-        record = self._sample_emission(self.regime)
+        record = self._next_emission()
         action_ready_ms = float(record["action_ready_ms"])
         worker_service_ms = float(record["worker_service_ms"])
         return LatencySample.from_action_ready(
@@ -187,7 +203,7 @@ class HiddenRegimeSampler(LatencySampler):
         )
 
     def _episode_transition_prob(self, source: str, target: str) -> float:
-        if self.emissions.get("burst") is None:
+        if self.emissions.get("burst") is None and self.excursions is None:
             # No burst was ever observed: stay calm instead of hallucinating
             # spikes we have no emission distribution for.
             return 0.0 if target == "burst" else 1.0
@@ -195,6 +211,76 @@ class HiddenRegimeSampler(LatencySampler):
         switch = self.rng.gammavariate(float(counts[target]) + 0.5, 1.0)
         stay = self.rng.gammavariate(float(counts[source]) + 0.5, 1.0)
         return switch / (switch + stay)
+
+    def _episode_excursion_start_prob(self) -> float:
+        if self.excursions is None:
+            return 0.0
+        counts = self.excursions["start_counts"]
+        start = self.rng.gammavariate(float(counts["start"]) + 0.5, 1.0)
+        hold = self.rng.gammavariate(float(counts["hold"]) + 0.5, 1.0)
+        return start / (start + hold)
+
+    def _next_emission(self) -> dict[str, Any]:
+        if self._excursion_remaining > 0:
+            return self._emit_excursion_draw()
+        if self._excursion_separator_pending:
+            # Fitted durations are maximal above-threshold runs, so two
+            # excursions never touch: the draw right after one is always
+            # sub-threshold.
+            self._excursion_separator_pending = False
+            if self.regime == "burst" and self.emissions.get("burst") is not None:
+                return self._sample_emission("burst")
+            return self._sample_emission("calm")
+        if self.regime == "burst" and self.excursions is not None and (
+            self.emissions.get("burst") is None
+            or self.rng.random() < self._excursion_start_prob
+        ):
+            self._start_excursion()
+            return self._emit_excursion_draw()
+        return self._sample_emission(self.regime)
+
+    def _start_excursion(self) -> None:
+        rho = max(-0.999999, min(0.999999, float(self.excursions["duration_level_spearman_rho"])))
+        z_duration = self.rng.normalvariate(0.0, 1.0)
+        z_level = rho * z_duration + math.sqrt(1.0 - rho * rho) * self.rng.normalvariate(0.0, 1.0)
+        duration = sample_inverse_cdf(
+            self.rng,
+            self.excursions["duration_draws"]["quantile_levels"],
+            self.excursions["duration_draws"]["latency_ms"],
+            quantile=_STANDARD_NORMAL.cdf(z_duration),
+        )
+        level_ms = sample_inverse_cdf(
+            self.rng,
+            self.excursions["level_ms"]["quantile_levels"],
+            self.excursions["level_ms"]["latency_ms"],
+            quantile=_STANDARD_NORMAL.cdf(z_level),
+        )
+        self._excursion_remaining = max(1, round(duration))
+        self._excursion_level_ms = float(level_ms)
+
+    def _emit_excursion_draw(self) -> dict[str, Any]:
+        self._excursion_remaining -= 1
+        if self._excursion_remaining == 0:
+            self._excursion_separator_pending = True
+        sigma_ms = float(self.excursions["within_excursion_sigma_ms"])
+        worker_service_ms = self._excursion_level_ms + (
+            self.rng.normalvariate(0.0, sigma_ms) if sigma_ms > 0.0 else 0.0
+        )
+        # An excursion is above-threshold by construction; keep the rare noise
+        # draw below it from breaking the run.
+        worker_service_ms = max(
+            worker_service_ms,
+            math.nextafter(float(self.model["spike_threshold_ms"]), math.inf),
+        )
+        ready_delta_ms = sample_inverse_cdf(
+            self.rng,
+            self.excursions["ready_delta_ms"]["quantile_levels"],
+            self.excursions["ready_delta_ms"]["latency_ms"],
+        )
+        return {
+            "action_ready_ms": worker_service_ms + ready_delta_ms,
+            "worker_service_ms": worker_service_ms,
+        }
 
     def _sample_emission(self, regime: str) -> dict[str, Any]:
         distribution = self.emissions[regime]
@@ -374,9 +460,10 @@ def _build_iid(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
 def _build_temporal(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
     model_path = _profile_relative_path(profile_path, profile["burst_model_path"])
     model = read_json(model_path)
-    if model.get("model_type") != "hidden_regime":
+    if model.get("model_type") != "hidden_regime" or "excursions" not in model:
         raise ValueError(
-            f"Unsupported temporal burst model type {model.get('model_type')!r} at {model_path}; "
+            f"Unsupported temporal burst model (model_type={model.get('model_type')!r}, "
+            f"schema_version={model.get('schema_version')!r}) at {model_path}; "
             "rebuild the profile from its measure artifacts with "
             "latency_bench.experiments.build_latency_profile_from_trace."
         )

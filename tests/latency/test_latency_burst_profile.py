@@ -71,7 +71,7 @@ def test_hidden_regime_model_labels_first_to_last_spike_as_one_burst():
     values = [42.0] * 10 + [116.0, 42.0, 42.0, 116.0, 42.0, 42.0, 116.0] + [42.0] * 10
     model = build_hidden_regime_burst_model(_episode(0, values))
 
-    assert model["schema_version"] == 6
+    assert model["schema_version"] == 7
     assert model["model_type"] == "hidden_regime"
     assert model["reset_scope"] == "episode"
     assert model["spike_threshold_ms"] == pytest.approx(52.5)
@@ -82,13 +82,22 @@ def test_hidden_regime_model_labels_first_to_last_spike_as_one_burst():
         "burst": {"calm": 1, "burst": 6},
     }
     burst_emission = model["emission_distributions_by_regime"]["burst"]
-    assert burst_emission["count"] == 7
-    # Burst emission is a mixture of the spikes and the interleaved normals.
+    # Above-threshold records belong to excursions; the burst emission keeps
+    # only the interleaved normals.
+    assert burst_emission["count"] == 4
     assert burst_emission["worker_service_ms"]["latency_ms"][0] == pytest.approx(42.0)
-    assert burst_emission["worker_service_ms"]["latency_ms"][-1] == pytest.approx(116.0)
+    assert burst_emission["worker_service_ms"]["latency_ms"][-1] == pytest.approx(42.0)
     calm_emission = model["emission_distributions_by_regime"]["calm"]
     assert calm_emission["count"] == 20
     assert calm_emission["worker_service_ms"]["latency_ms"][-1] == pytest.approx(42.0)
+    excursions = model["excursions"]
+    assert excursions["count"] == 3
+    assert excursions["duration_draws"]["latency_ms"][0] == pytest.approx(1.0)
+    assert excursions["duration_draws"]["latency_ms"][-1] == pytest.approx(1.0)
+    assert excursions["level_ms"]["latency_ms"][0] == pytest.approx(116.0)
+    # Of the four interleaved normals, the one right after each excursion is a
+    # separator (excursions are maximal runs), leaving two start trials.
+    assert excursions["start_counts"] == {"start": 3, "hold": 2}
 
 
 def test_hidden_regime_model_isolated_spike_is_a_length_one_burst():
@@ -99,6 +108,14 @@ def test_hidden_regime_model_isolated_spike_is_a_length_one_burst():
     assert model["regime_step_counts"] == {"calm": 40, "burst": 1}
     assert model["regime_transition_counts"]["calm"] == {"calm": 38, "burst": 1}
     assert model["regime_transition_counts"]["burst"] == {"calm": 1, "burst": 0}
+    # The burst's only record is the spike itself, so it all lives in the
+    # excursion model and the burst emission has no records left.
+    assert model["emission_distributions_by_regime"]["burst"] is None
+    excursions = model["excursions"]
+    assert excursions["count"] == 1
+    assert excursions["level_ms"]["latency_ms"][0] == pytest.approx(70.0)
+    assert excursions["within_excursion_sigma_ms"] == 0.0
+    assert excursions["start_counts"] == {"start": 1, "hold": 0}
 
 
 def test_hidden_regime_model_splits_spikes_beyond_merge_gap():
@@ -134,6 +151,59 @@ def test_hidden_regime_model_clean_trace_has_no_burst():
     }
     assert model["emission_distributions_by_regime"]["burst"] is None
     assert model["emission_distributions_by_regime"]["calm"]["count"] == 4
+    assert model["excursions"] is None
+
+
+def test_hidden_regime_model_extracts_excursions_as_duration_level_pairs():
+    # One isolated high spike, then (beyond the merge gap) a mild 6-draw
+    # plateau followed by two normals and another spike inside the same burst.
+    # Excursions: (D=1, L=150), (D=6, L=56), (D=1, L=130).
+    values = (
+        [42.0] * 10
+        + [150.0]
+        + [42.0] * 40
+        + [55.0, 56.0, 57.0, 55.0, 56.0, 57.0]
+        + [42.0, 42.0]
+        + [130.0]
+        + [42.0] * 10
+    )
+    model = build_hidden_regime_burst_model(_episode(0, values))
+
+    assert model["spike_threshold_ms"] == pytest.approx(52.5)
+    assert model["burst_dwell_lengths"] == [1, 9]
+    excursions = model["excursions"]
+    assert excursions["count"] == 3
+    assert excursions["duration_draws"]["latency_ms"][0] == pytest.approx(1.0)
+    assert excursions["duration_draws"]["latency_ms"][-1] == pytest.approx(6.0)
+    assert excursions["level_ms"]["latency_ms"][0] == pytest.approx(56.0)
+    assert excursions["level_ms"]["latency_ms"][-1] == pytest.approx(150.0)
+    # Long excursions are the mild ones in this trace: negative rank correlation.
+    assert excursions["duration_level_spearman_rho"] == pytest.approx(-0.866, abs=1e-3)
+    # Pooled residual sigma comes from the single D>=2 run: residuals
+    # [-1, 0, 1, -1, 0, 1] around 56 -> sqrt(4/5).
+    assert excursions["within_excursion_sigma_ms"] == pytest.approx((4.0 / 5.0) ** 0.5)
+    # _episode() builds action_ready = worker_service + 1.
+    assert excursions["ready_delta_ms"]["latency_ms"][0] == pytest.approx(1.0)
+    assert excursions["ready_delta_ms"]["latency_ms"][-1] == pytest.approx(1.0)
+    # The first normal after the plateau is a separator; only the second is a
+    # start trial.
+    assert excursions["start_counts"] == {"start": 3, "hold": 1}
+    # The burst emission keeps only the two interleaved normals.
+    burst_emission = model["emission_distributions_by_regime"]["burst"]
+    assert burst_emission["count"] == 2
+    assert burst_emission["worker_service_ms"]["latency_ms"][-1] == pytest.approx(42.0)
+
+
+def test_hidden_regime_model_does_not_bridge_excursions_across_episodes():
+    # Episode 0 ends above threshold and episode 1 starts above threshold:
+    # two D=1 excursions, never one D=2.
+    model = build_hidden_regime_burst_model(
+        _episode(0, [42.0] * 5 + [70.0]) + _episode(1, [70.0] + [42.0] * 5, start_index=6)
+    )
+
+    excursions = model["excursions"]
+    assert excursions["count"] == 2
+    assert excursions["duration_draws"]["latency_ms"][-1] == pytest.approx(1.0)
 
 
 def test_build_burst_samples_uses_all_completed_worker_service_records():

@@ -91,6 +91,68 @@ def _write_latency_profile(
     return profile_dir
 
 
+def _constant_inverse_cdf(value: float) -> dict:
+    return {
+        "distribution_type": "inverse_cdf",
+        "quantile_levels": [0.0, 1.0],
+        "latency_ms": [value, value],
+    }
+
+
+def _constant_joint_emission(worker_service_ms: float, action_ready_ms: float | None = None) -> dict:
+    return {
+        "count": 10,
+        "action_ready_ms": _constant_inverse_cdf(
+            worker_service_ms if action_ready_ms is None else action_ready_ms
+        ),
+        "worker_service_ms": _constant_inverse_cdf(worker_service_ms),
+        "spearman_rho": 0.0,
+    }
+
+
+def _constant_excursions(
+    *,
+    duration: float,
+    level_ms: float,
+    ready_delta_ms: float = 0.0,
+    sigma_ms: float = 0.0,
+) -> dict:
+    return {
+        "count": 5,
+        "duration_draws": _constant_inverse_cdf(duration),
+        "level_ms": _constant_inverse_cdf(level_ms),
+        "duration_level_spearman_rho": 0.0,
+        "within_excursion_sigma_ms": sigma_ms,
+        "ready_delta_ms": _constant_inverse_cdf(ready_delta_ms),
+        "start_counts": {"start": 1000, "hold": 0},
+    }
+
+
+def _hand_model(
+    *,
+    excursions: dict | None,
+    burst_emission: dict | None,
+    enter_burst_count: int = 1000,
+) -> dict:
+    return {
+        "schema_version": 7,
+        "model_type": "hidden_regime",
+        "reset_scope": "episode",
+        "spike_threshold_ms": 50.0,
+        "regime_transition_counts": {
+            "calm": {"calm": 1000 - enter_burst_count, "burst": enter_burst_count},
+            "burst": {"calm": 1000, "burst": 0},
+        },
+        "regime_step_counts": {"calm": 1000, "burst": 1000},
+        "burst_dwell_lengths": [],
+        "emission_distributions_by_regime": {
+            "calm": _constant_joint_emission(40.0),
+            "burst": burst_emission,
+        },
+        "excursions": excursions,
+    }
+
+
 def test_zero_sampler_returns_zero():
     assert ZeroSampler(clock=_clock()).sample().latency_ms == 0.0
 
@@ -203,6 +265,85 @@ def test_profile_sampler_is_deterministic_with_seed(tmp_path: Path):
     assert [first.sample({"episode_id": 0}) for _ in range(20)] == [
         second.sample({"episode_id": 0}) for _ in range(20)
     ]
+
+
+def test_hidden_regime_sampler_excursion_emits_duration_consecutive_draws():
+    # Sparse burst entries (~1/26) with a fixed (D=4, L=100) excursion model:
+    # every above-threshold run must be exactly 4 consecutive draws at the
+    # level, with action_ready = level + ready_delta, even though the outer
+    # chain leaves burst (exit prob ~1) long before the excursion finishes.
+    model = _hand_model(
+        excursions=_constant_excursions(duration=4.0, level_ms=100.0, ready_delta_ms=7.0),
+        burst_emission=None,
+        enter_burst_count=40,
+    )
+    sampler = HiddenRegimeSampler(model, clock=_clock(), seed=3)
+    draws = [sampler.sample({"episode_id": 0}) for _ in range(200)]
+
+    runs: list[int] = []
+    run = 0
+    for draw in draws:
+        if draw.worker_service_ms > 50.0:
+            assert draw.worker_service_ms == pytest.approx(100.0)
+            assert draw.latency_ms == pytest.approx(107.0)
+            run += 1
+        else:
+            assert draw.worker_service_ms == pytest.approx(40.0)
+            if run:
+                runs.append(run)
+                run = 0
+    # A trailing run cut by the 200-draw window is dropped, not asserted on.
+    assert runs
+    assert set(runs) == {4}
+
+
+def test_hidden_regime_sampler_back_to_back_excursions_never_fuse():
+    # Chain in burst nearly every draw and start prob ~1: without the
+    # maximality separator two excursions would fuse into one longer observed
+    # run. Every above-threshold run must still be exactly the fitted D=4.
+    model = _hand_model(
+        excursions=_constant_excursions(duration=4.0, level_ms=100.0),
+        burst_emission=_constant_joint_emission(45.0),
+        enter_burst_count=1000,
+    )
+    sampler = HiddenRegimeSampler(model, clock=_clock(), seed=5)
+    values = [sampler.sample({"episode_id": 0}).worker_service_ms for _ in range(400)]
+
+    runs: list[int] = []
+    run = 0
+    for value in values:
+        if value > 50.0:
+            run += 1
+        elif run:
+            runs.append(run)
+            run = 0
+    assert runs
+    assert set(runs) == {4}
+
+
+def test_hidden_regime_sampler_episode_reset_cancels_in_flight_excursion():
+    model = _hand_model(
+        excursions=_constant_excursions(duration=6.0, level_ms=100.0),
+        burst_emission=None,
+    )
+    sampler = HiddenRegimeSampler(model, clock=_clock(), seed=0)
+    draws = [sampler.sample({"episode_id": 0}).worker_service_ms for _ in range(3)]
+    # Draw 1 is the forced-calm reset draw; the chain then enters burst
+    # (enter prob ~1) and starts the 6-draw excursion.
+    assert draws == pytest.approx([40.0, 100.0, 100.0])
+    assert sampler.sample({"episode_id": 1}).worker_service_ms == pytest.approx(40.0)
+
+
+def test_hidden_regime_sampler_without_excursions_never_exceeds_threshold():
+    # A device whose burst records were all sub-threshold interleaved normals:
+    # burst emission exists but there are no excursions to start.
+    model = _hand_model(
+        excursions=None,
+        burst_emission=_constant_joint_emission(48.0),
+    )
+    sampler = HiddenRegimeSampler(model, clock=_clock(), seed=7)
+    values = {sampler.sample({"episode_id": 0}).worker_service_ms for _ in range(200)}
+    assert values == {40.0, 48.0}
 
 
 def test_hidden_regime_spikeless_profile_is_constant(tmp_path: Path):
