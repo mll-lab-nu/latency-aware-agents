@@ -17,7 +17,7 @@ WORKER_SERVICE_STAGE_KEYS = (
 
 # ---------------------------------------------------------------------------
 # Hidden-regime burst model: a two-state (calm/burst) hidden Markov chain over
-# worker-service latency.
+# worker-service latency, with excursions modeled as objects inside bursts.
 #
 # Real latency spikes arrive in clusters with normal-valued samples in
 # between, so a chain keyed on the latency value itself forgets it is inside a
@@ -26,9 +26,19 @@ WORKER_SERVICE_STAGE_KEYS = (
 # ``SPIKE_MEDIAN_MULTIPLIER x median`` are spikes, spikes within
 # ``BURST_MERGE_GAP_RECORDS`` of each other belong to one burst, and every
 # record from a burst's first to last spike (including the interleaved normal
-# ones) is labeled burst. The fitted joint emission distribution per regime
-# carries both action-ready delay and worker-service time so control staleness
-# and worker occupancy stay correlated.
+# ones) is labeled burst.
+#
+# Within a burst, each maximal run of consecutive above-threshold samples is
+# one excursion, described by two continuous latent parameters: its duration
+# in draws and its level (mean worker-service time). Drawing each spike iid
+# from a pooled distribution can produce isolated spikes but never a sustained
+# plateau (a 16-draw all-elevated run has probability p^16), while real
+# devices show both shapes; the fitted joint (duration, level) distribution
+# carries whatever mass the device actually exhibits — tall-and-short,
+# mild-and-long, or anything else — without any discrete spike/plateau
+# taxonomy or setup-specific boundary. The fitted joint emission distribution
+# per regime carries both action-ready delay and worker-service time so
+# control staleness and worker occupancy stay correlated.
 # ---------------------------------------------------------------------------
 
 
@@ -76,18 +86,35 @@ def build_hidden_regime_burst_model(samples: list[dict[str, Any]]) -> dict[str, 
     regime_step_counts = {"calm": 0, "burst": 0}
     burst_dwell_lengths: list[int] = []
     emission_samples_by_regime: dict[str, list[dict[str, float]]] = {"calm": [], "burst": []}
+    excursion_runs: list[list[dict[str, Any]]] = []
+    burst_hold_count = 0
 
     for episode_id in sorted(samples_by_episode):
         episode_samples = sorted(samples_by_episode[episode_id], key=lambda item: int(item["sample_index"]))
         regimes = _label_regimes(episode_samples, spike_threshold_ms)
+        active_run: list[dict[str, Any]] = []
         for sample, regime in zip(episode_samples, regimes):
             regime_step_counts[regime] += 1
+            if float(sample["worker_service_ms"]) > spike_threshold_ms:
+                active_run.append(sample)
+                continue
+            follows_excursion = bool(active_run)
+            if active_run:
+                excursion_runs.append(active_run)
+                active_run = []
             emission_samples_by_regime[regime].append(
                 {
                     "action_ready_ms": float(sample["action_ready_ms"]),
                     "worker_service_ms": float(sample["worker_service_ms"]),
                 }
             )
+            # Excursions are maximal runs, so the record right after one is
+            # sub-threshold by construction — a separator, not a Bernoulli
+            # trial for starting the next excursion.
+            if regime == "burst" and not follows_excursion:
+                burst_hold_count += 1
+        if active_run:
+            excursion_runs.append(active_run)
         for index in range(len(regimes) - 1):
             transition_counts[regimes[index]][regimes[index + 1]] += 1
         length = 0
@@ -99,7 +126,7 @@ def build_hidden_regime_burst_model(samples: list[dict[str, Any]]) -> dict[str, 
                 length = 0
 
     return {
-        "schema_version": 6,
+        "schema_version": 7,
         "model_type": "hidden_regime",
         "reset_scope": "episode",
         "spike_threshold_ms": spike_threshold_ms,
@@ -112,6 +139,45 @@ def build_hidden_regime_burst_model(samples: list[dict[str, Any]]) -> dict[str, 
             regime: (_fit_joint_emission_distribution(values) if values else None)
             for regime, values in emission_samples_by_regime.items()
         },
+        "excursions": _fit_excursion_model(excursion_runs, burst_hold_count),
+    }
+
+
+def _fit_excursion_model(
+    excursion_runs: list[list[dict[str, Any]]],
+    burst_hold_count: int,
+) -> dict[str, Any] | None:
+    if not excursion_runs:
+        return None
+    durations = [float(len(run)) for run in excursion_runs]
+    levels = [
+        sum(float(sample["worker_service_ms"]) for sample in run) / len(run)
+        for run in excursion_runs
+    ]
+    ready_deltas = [
+        float(sample["action_ready_ms"]) - float(sample["worker_service_ms"])
+        for run in excursion_runs
+        for sample in run
+    ]
+    residual_square_sum = 0.0
+    residual_dof = 0
+    for run, level in zip(excursion_runs, levels):
+        if len(run) < 2:
+            continue
+        residual_square_sum += sum(
+            (float(sample["worker_service_ms"]) - level) ** 2 for sample in run
+        )
+        residual_dof += len(run) - 1
+    return {
+        "count": len(excursion_runs),
+        "duration_draws": _fit_inverse_cdf(durations),
+        "level_ms": _fit_inverse_cdf(levels),
+        "duration_level_spearman_rho": _spearman_rho(durations, levels),
+        "within_excursion_sigma_ms": (
+            math.sqrt(residual_square_sum / residual_dof) if residual_dof else 0.0
+        ),
+        "ready_delta_ms": _fit_inverse_cdf(ready_deltas),
+        "start_counts": {"start": len(excursion_runs), "hold": burst_hold_count},
     }
 
 
