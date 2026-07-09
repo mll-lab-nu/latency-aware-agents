@@ -685,6 +685,60 @@ def test_parallel_simulated_profile_sample_builds_batched_executor(tmp_path):
         executor.close()
 
 
+def test_temporal_latency_source_gets_no_per_episode_streams(tmp_path):
+    from latency_bench.latency.samplers import HiddenRegimeSampler, build_episode_sampler_factory
+
+    profile_dir = _write_latency_profile(tmp_path)
+    latency_cfg = {
+        "type": "profile_sample",
+        "profile_path": profile_dir,
+        "seed": 0,
+    }
+
+    # The hidden regime is session-scoped machine state: a per-episode stream
+    # would rebuild the sampler at every reset and heal a degraded machine.
+    assert build_episode_sampler_factory(latency_cfg, EnvClock(env_fps=30.0, obs_fps=30.0)) is None
+
+    config = _config(output_dir=str(tmp_path))
+    config["latency"] = dict(latency_cfg)
+    executor = build_executor(config)
+    try:
+        assert executor.episode_latency_source_factory is None
+        assert isinstance(executor.latency_source, HiddenRegimeSampler)
+    finally:
+        executor.env.close()
+
+
+def test_parallel_simulated_temporal_shares_one_machine_timeline(tmp_path):
+    from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
+    from latency_bench.latency.samplers import HiddenRegimeSampler
+
+    profile_dir = _write_latency_profile(tmp_path)
+    config = _config(output_dir=str(tmp_path))
+    config["evaluation"]["eval_episodes"] = 3
+    config["evaluation"]["eval_parallel_envs"] = 3
+    config["env"]["name"] = "tuple_action_parallel_test"
+    config["env"]["noop_action"] = (0, 0)
+    config["env"]["action_map"] = {"noop": (0, 0), "jump": (1, 0)}
+    config["policy"]["action"] = "jump"
+    config["latency"] = {
+        "type": "profile_sample",
+        "profile_path": profile_dir,
+        "seed": 0,
+    }
+
+    executor = build_executor(config)
+
+    try:
+        assert isinstance(executor, BatchedSimulatedLatencyExecutor)
+        assert executor.episode_latency_source_factory is None
+        sources = {id(slot.latency_source) for slot in executor.slots}
+        assert len(sources) == 1
+        assert isinstance(executor.slots[0].latency_source, HiddenRegimeSampler)
+    finally:
+        executor.close()
+
+
 def test_parallel_simulated_nested_tuple_action_space_still_fails_fast(tmp_path):
     config = _config(output_dir=str(tmp_path))
     config["evaluation"]["eval_episodes"] = 2

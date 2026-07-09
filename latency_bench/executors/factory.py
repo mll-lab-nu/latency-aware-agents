@@ -27,6 +27,7 @@ from latency_bench.latency.samplers import (
     ZeroSampler,
     build_episode_sampler_factory,
     build_sampler,
+    resolve_concrete_latency_method,
     resolve_latency_method,
 )
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
@@ -215,11 +216,21 @@ def _build_batched_simulated_executor(
         ]
         logger = _build_trajectory_logger(config)
         episode_latency_source_factory = build_episode_sampler_factory(config["latency"], clock)
+        if resolve_concrete_latency_method(config["latency"]) == "temporal":
+            # The hidden regime is session-scoped machine state and a dwell is
+            # a draw budget that spans episodes however draws interleave, so
+            # one machine timeline serves every slot.
+            shared_latency_source = _build_latency_source(config["latency"], clock)
+            latency_sources: list[LatencySampler] = [
+                shared_latency_source for _env in env_backend.slot_handles
+            ]
+        else:
+            latency_sources = [_build_latency_source(config["latency"], clock) for _env in env_backend.slot_handles]
         return BatchedSimulatedLatencyExecutor(
             env_backend=env_backend,
             policy=policy,
             decision_scheduler=decision_scheduler,
-            latency_sources=[_build_latency_source(config["latency"], clock) for _env in env_backend.slot_handles],
+            latency_sources=latency_sources,
             action_schedulers=action_schedulers,
             clock=clock,
             logger=logger,

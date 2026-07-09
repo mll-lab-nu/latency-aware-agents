@@ -407,6 +407,17 @@ SEEDED_STOCHASTIC_METHODS = frozenset({"normal", "uniform", "iid", "temporal", "
 BATCHED_SIMULATED_METHODS = frozenset({"zero", "fixed"}) | SEEDED_STOCHASTIC_METHODS
 
 
+def resolve_concrete_latency_method(latency_cfg: dict[str, Any]) -> str:
+    """Resolve the concrete method name, loading the profile manifest when the
+    config defers to ``profile_default``."""
+    cfg = _normalize_latency_cfg(latency_cfg)
+    method = cfg["method"]
+    if method != "profile_default":
+        return method
+    profile, _ = _maybe_load_profile(cfg)
+    return _resolve_method(cfg, profile)
+
+
 def build_episode_sampler_factory(
     latency_cfg: dict[str, Any],
     clock: EnvClock,
@@ -414,11 +425,15 @@ def build_episode_sampler_factory(
     """Return a per-episode sampler builder deriving a stream seed per episode.
 
     Only seeded stochastic methods with an explicit ``seed`` get per-episode
-    streams; other configs return ``None`` and reuse the shared sampler.
+    streams; other configs return ``None`` and reuse the shared sampler. The
+    temporal sampler never gets one: its hidden regime is session-scoped
+    machine state that must survive episode boundaries, and rebuilding it per
+    episode would silently reset a degraded machine at every env reset.
     """
-    if resolve_latency_method(latency_cfg) not in SEEDED_STOCHASTIC_METHODS:
-        return None
     if "seed" not in latency_cfg:
+        return None
+    method = resolve_concrete_latency_method(latency_cfg)
+    if method == "temporal" or method not in SEEDED_STOCHASTIC_METHODS:
         return None
 
     def build_for_episode(episode_id: int) -> LatencySampler:
