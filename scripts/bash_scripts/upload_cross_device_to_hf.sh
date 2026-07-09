@@ -10,7 +10,6 @@ HUGGINGFACE_HUB_TOKEN=${HUGGINGFACE_HUB_TOKEN:-}
 HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN:-}
 HF_TOKEN_FILE=${HF_TOKEN_FILE:-}
 DEVICE=${DEVICE:-auto}
-RUNTIME=${RUNTIME:-combined}
 REMOTE_PREFIX=${REMOTE_PREFIX:-raw}
 RUN_TAG=${RUN_TAG:-}
 DRY_RUN=${DRY_RUN:-0}
@@ -126,7 +125,7 @@ DEVICE_SLUG="$(detect_device_slug)"
 if [[ -z "${RUN_TAG}" ]]; then
     RUN_TAG="$(hostname)_$(date +%Y%m%d_%H%M%S)"
 fi
-REMOTE_PATH="${REMOTE_PREFIX}/${DEVICE_SLUG}/${RUNTIME}/${RUN_TAG}/cross_device"
+REMOTE_PATH="${REMOTE_PREFIX}/${DEVICE_SLUG}/instances/${RUN_TAG}/cross_device"
 HF_CLI="$(find_hf_cli)"
 RESOLVED_HF_TOKEN="$(resolve_hf_token)"
 if [[ -n "${RESOLVED_HF_TOKEN}" ]]; then
@@ -145,7 +144,6 @@ else
     echo "HF token: not provided; relying on existing hf login/cache"
 fi
 echo "Device: ${DEVICE_SLUG}"
-echo "Runtime label: ${RUNTIME}"
 echo "Remote path: ${REMOTE_PATH}"
 echo "DRY_RUN: ${DRY_RUN}"
 if command -v nvidia-smi >/dev/null 2>&1; then

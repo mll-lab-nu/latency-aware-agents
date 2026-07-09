@@ -318,15 +318,14 @@ def test_real_openvla_protocol_dry_run_selects_flappy_demon_and_deadly(tmp_path:
         "--out",
         str(out),
         "--dry-run",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     assert "policy: openvla-flappy" in result.stdout
     assert "policy: demon-attack-openvla" in result.stdout
     assert "policy: deadly-corridor-openvla" in result.stdout
-    assert "openvla-flappy/flappy" in result.stdout
-    assert "demon-attack-openvla/demon_attack" in result.stdout
-    assert "deadly-corridor-openvla/deadly_corridor" in result.stdout
+    assert "runs/measure/openvla-flappy/" in result.stdout
+    assert "runs/measure/demon-attack-openvla/" in result.stdout
+    assert "runs/measure/deadly-corridor-openvla/" in result.stdout
 
 
 def test_real_protocol_rows_cover_flappy_demon_and_deadly():
@@ -344,7 +343,7 @@ def test_real_protocol_rows_cover_flappy_demon_and_deadly():
     assert openvla_rows["openvla-flappy"]["base_config"] == (
         "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml"
     )
-    assert openvla_rows["openvla-flappy"]["sim_env"] == {"simulator": "gpu", "use_gpu_render": True}
+    assert openvla_rows["openvla-flappy"]["sim_env"] == {"simulator": "cpu", "use_gpu_render": False}
     assert openvla_rows["demon-attack-openvla"]["policy_type"] == "starvla"
     assert openvla_rows["demon-attack-openvla"]["model_type"] == "openvla"
     assert openvla_rows["demon-attack-openvla"]["base_config"] == (
@@ -393,12 +392,11 @@ def test_real_openvla_protocol_only_policy_accepts_slug_and_preserves_flappy_pat
         "--dry-run",
         "--only-policy",
         "openvla-flappy",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
     assert "policy: openvla-flappy" in flappy.stdout
     assert "policy: demon-attack-openvla" not in flappy.stdout
     assert "policy: deadly-corridor-openvla" not in flappy.stdout
-    assert "openvla-flappy/flappy" in flappy.stdout
+    assert "runs/measure/openvla-flappy/" in flappy.stdout
 
     demon = _run_cli(
         tmp_path,
@@ -1242,7 +1240,6 @@ def test_continue_on_error_runs_later_tasks_and_returns_nonzero_summary(tmp_path
         "--profiles-dir",
         str(out / "profiles"),
         "--continue-on-error",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency"},
         check=False,
     )
 
@@ -1275,10 +1272,10 @@ def test_resume_skips_completed_manifest_but_retries_failed_run(tmp_path: Path):
         env_fps=30.0,
     )
 
-    completed_dir = out / "runs" / "sim_same" / "passing-policy" / "dummy" / "a100" / "best_seed_0_n1"
+    completed_dir = out / "runs" / "sim_same" / "passing-policy" / "best_seed_0_n1"
     completed_dir.mkdir(parents=True)
     (completed_dir / "manifest.json").write_text('{"status": "completed"}\n', encoding="utf-8")
-    failed_dir = out / "runs" / "sim_same" / "failing-policy" / "dummy" / "a100" / "best_seed_0_n1"
+    failed_dir = out / "runs" / "sim_same" / "failing-policy" / "best_seed_0_n1"
     failed_dir.mkdir(parents=True)
     (failed_dir / "manifest.json").write_text('{"status": "failed", "error": "old"}\n', encoding="utf-8")
 
@@ -1295,7 +1292,6 @@ def test_resume_skips_completed_manifest_but_retries_failed_run(tmp_path: Path):
         str(out / "profiles"),
         "--resume",
         "--continue-on-error",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency"},
         check=False,
     )
 
@@ -1386,7 +1382,6 @@ def test_sim_cross_target_requires_explicit_instance(tmp_path: Path):
         "--out",
         str(out),
         "--dry-run",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
         check=False,
     )
 

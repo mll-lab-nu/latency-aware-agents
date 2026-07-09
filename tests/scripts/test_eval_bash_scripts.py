@@ -59,7 +59,7 @@ exit 0
 
     assert result.returncode == 0, result.stderr
     assert "Device: rtxpro6000blackwell" in result.stdout
-    assert "Remote path: raw/rtxpro6000blackwell/combined/test-run/cross_device" in result.stdout
+    assert "Remote path: raw/rtxpro6000blackwell/instances/test-run/cross_device" in result.stdout
 
 
 def _write_fake_conda_installation(
@@ -1237,7 +1237,7 @@ def test_cross_device_profile_preset_expands_to_doctor_measure_and_uploads(tmp_p
     profile_path = profiles_dir / "openvla-flappy" / "flappy" / "L_A100" / "profile.json"
     profile_path.parent.mkdir(parents=True)
     profile_path.write_text("{}\n", encoding="utf-8")
-    run_manifest = out / "runs" / "measure" / "openvla-flappy" / "flappy" / "a100" / "seed_0" / "manifest.json"
+    run_manifest = out / "runs" / "measure" / "openvla-flappy" / "seed_0" / "manifest.json"
     run_manifest.parent.mkdir(parents=True)
     run_manifest.write_text("{}\n", encoding="utf-8")
     _write_fake_cross_device_python(fake_bin, calls_path)

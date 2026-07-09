@@ -1,6 +1,6 @@
 # Cross-Device 协议 sim2real gap 诊断报告
 
-诊断时间：2026-07-04。数据来源：`results/cross_device/_hf_raw/raw/<device>/openvla/cross_device/`
+诊断时间：2026-07-04。数据来源：`results/cross_device/_hf_raw/raw/<device>/instances/<instance_id>/cross_device/`
 （exp2 同机 sim-vs-realtime，openvla-flappy，n=100 episodes/侧）。
 
 ## 结论 1：大部分"gap"其实是评测噪声，不是模拟误差

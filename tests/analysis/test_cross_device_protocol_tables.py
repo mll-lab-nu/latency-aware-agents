@@ -127,7 +127,6 @@ def _manifest(
         "skip_reason": skip_reason,
         "error": "",
         "notes": "",
-        "runtime_env_detected_raw": "latency",
         "output_dir": str(output_dir),
         "profile_path": "" if profile_path is None else str(profile_path),
         "generated_config_path": str(output_dir / "config.yaml"),
@@ -140,17 +139,15 @@ def _write_fixture(root: Path) -> None:
     profile_path = _build_profile(root)
     h200_profile_path = _build_profile(root, device_id="h200", profile_id="L_H200")
     # measure on a device IS its realtime run: episode_metrics here = realtime return.
-    measure_a100 = root / "runs" / "measure" / "openvla-flappy" / "flappy" / "a100" / "seed_0"
-    measure_h200 = root / "runs" / "measure" / "openvla-flappy" / "flappy" / "h200" / "seed_0"
-    sim_same = root / "runs" / "sim_same" / "openvla-flappy" / "flappy" / "a100" / "seed_0"
+    measure_a100 = root / "runs" / "measure" / "openvla-flappy" / "seed_0"
+    measure_h200 = root / "runs" / "measure" / "openvla-flappy" / "seed_0_h200"
+    sim_same = root / "runs" / "sim_same" / "openvla-flappy" / "seed_0"
     sim_cross = (
         root
         / "runs"
         / "sim_cross"
         / "openvla-flappy"
-        / "flappy"
         / "a100"
-        / "replay_h200"
         / "seed_0"
     )
     write_jsonl(measure_a100 / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
@@ -193,9 +190,9 @@ def _write_fixture(root: Path) -> None:
 def _write_raw_download_fixture(protocol_root: Path, *, include_skipped_duplicates: bool = False) -> None:
     profile_path = _build_profile(protocol_root)
     h200_profile_path = _build_profile(protocol_root, device_id="h200", profile_id="L_H200")
-    measure_a100 = protocol_root / "runs" / "measure" / "openvla-flappy" / "flappy" / "a100" / "seed_0"
-    measure_h200 = protocol_root / "runs" / "measure" / "openvla-flappy" / "flappy" / "h200" / "seed_0"
-    sim_same = protocol_root / "runs" / "sim_same" / "openvla-flappy" / "flappy" / "a100" / "seed_0"
+    measure_a100 = protocol_root / "runs" / "measure" / "openvla-flappy" / "seed_0"
+    measure_h200 = protocol_root / "runs" / "measure" / "openvla-flappy" / "seed_0_h200"
+    sim_same = protocol_root / "runs" / "sim_same" / "openvla-flappy" / "seed_0"
     old_root = Path("results/cross_device")
     write_jsonl(measure_a100 / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
     write_jsonl(sim_same / "episode_metrics.jsonl", _episode_records(110.0, 1100.0))
@@ -233,7 +230,7 @@ def _write_raw_download_fixture(protocol_root: Path, *, include_skipped_duplicat
                     target_device_id="a100",
                     output_dir=old_root / measure_a100.relative_to(protocol_root),
                     status="skipped",
-                    skip_reason="runtime_env selection mismatch: selected openvla, row requires latency",
+                    skip_reason="missing profile",
                 ),
                 _manifest(
                     stage="sim_same",
@@ -241,7 +238,7 @@ def _write_raw_download_fixture(protocol_root: Path, *, include_skipped_duplicat
                     target_device_id="a100",
                     output_dir=old_root / sim_same.relative_to(protocol_root),
                     status="skipped",
-                    skip_reason="runtime_env selection mismatch: selected openvla, row requires latency",
+                    skip_reason="missing profile",
                 ),
             ]
         )
@@ -279,7 +276,7 @@ def test_profile_summary_mapping_and_exact_error_formulas(tmp_path: Path):
 def test_experiment1_requires_profile_env_fps(tmp_path: Path):
     spec = _spec()
     profile_path = _build_profile(tmp_path)
-    measure_a100 = tmp_path / "runs" / "measure" / "openvla-flappy" / "flappy" / "a100" / "seed_0"
+    measure_a100 = tmp_path / "runs" / "measure" / "openvla-flappy" / "seed_0"
     write_jsonl(measure_a100 / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
     write_jsonl(
         tmp_path / "manifests" / "runs.jsonl",
@@ -304,7 +301,7 @@ def test_experiment1_requires_profile_env_fps(tmp_path: Path):
 def test_experiment1_requires_inference_and_e2e_profile_summaries(tmp_path: Path):
     spec = _spec()
     profile_path = _build_profile(tmp_path)
-    measure_a100 = tmp_path / "runs" / "measure" / "openvla-flappy" / "flappy" / "a100" / "seed_0"
+    measure_a100 = tmp_path / "runs" / "measure" / "openvla-flappy" / "seed_0"
     write_jsonl(measure_a100 / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
     write_jsonl(
         tmp_path / "manifests" / "runs.jsonl",
@@ -355,10 +352,10 @@ def test_same_device_rows_do_not_merge_instances_with_same_hardware_class(tmp_pa
     second_profile_dir.mkdir(parents=True)
     second_profile.rename(second_profile_dir / "profile.json")
 
-    measure_first = tmp_path / "runs" / "measure" / "openvla-flappy" / "flappy" / "a100" / "first"
-    measure_second = tmp_path / "runs" / "measure" / "openvla-flappy" / "flappy" / "a100" / "second"
-    sim_first = tmp_path / "runs" / "sim_same" / "openvla-flappy" / "flappy" / "a100" / "first"
-    sim_second = tmp_path / "runs" / "sim_same" / "openvla-flappy" / "flappy" / "a100" / "second"
+    measure_first = tmp_path / "runs" / "measure" / "openvla-flappy" / "first"
+    measure_second = tmp_path / "runs" / "measure" / "openvla-flappy" / "second"
+    sim_first = tmp_path / "runs" / "sim_same" / "openvla-flappy" / "first"
+    sim_second = tmp_path / "runs" / "sim_same" / "openvla-flappy" / "second"
     write_jsonl(measure_first / "episode_metrics.jsonl", _episode_records(100.0, 1000.0))
     write_jsonl(measure_second / "episode_metrics.jsonl", _episode_records(200.0, 2000.0))
     write_jsonl(sim_first / "episode_metrics.jsonl", _episode_records(110.0, 1100.0))
@@ -429,7 +426,7 @@ def test_write_protocol_tables_uses_requested_schemas(tmp_path: Path):
 def test_write_protocol_tables_reads_hf_raw_download_layout(tmp_path: Path):
     spec = _spec()
     raw_root = tmp_path / "results" / "raw" / "raw"
-    protocol_root = raw_root / "a100" / "combined" / "host_20260101_000000" / "cross_device"
+    protocol_root = raw_root / "a100" / "instances" / "instance_a100" / "cross_device"
     standard_root = tmp_path / "results" / "cross_device"
     output_dir = standard_root / "tables"
     _write_raw_download_fixture(protocol_root)
@@ -454,7 +451,7 @@ def test_write_protocol_tables_reads_hf_raw_download_layout(tmp_path: Path):
 def test_write_protocol_tables_reads_direct_results_raw_layout(tmp_path: Path):
     spec = _spec()
     raw_root = tmp_path / "results" / "raw"
-    protocol_root = raw_root / "a100" / "combined" / "host_20260101_000000" / "cross_device"
+    protocol_root = raw_root / "a100" / "instances" / "instance_a100" / "cross_device"
     standard_root = tmp_path / "results" / "cross_device"
     output_dir = standard_root / "tables"
     _write_raw_download_fixture(protocol_root)
@@ -471,7 +468,7 @@ def test_write_protocol_tables_reads_direct_results_raw_layout(tmp_path: Path):
 def test_completed_manifest_wins_over_later_skipped_duplicate(tmp_path: Path):
     spec = _spec()
     raw_root = tmp_path / "results" / "raw"
-    protocol_root = raw_root / "a100" / "combined" / "host_20260101_000000" / "cross_device"
+    protocol_root = raw_root / "a100" / "instances" / "instance_a100" / "cross_device"
     standard_root = tmp_path / "results" / "cross_device"
     _write_raw_download_fixture(protocol_root, include_skipped_duplicates=True)
 
@@ -480,12 +477,12 @@ def test_completed_manifest_wins_over_later_skipped_duplicate(tmp_path: Path):
     a100_calibration = next(row for row in exp2 if row["hardware"] == "A100")
     assert float(a100_calibration["realtime_return"]) == pytest.approx(100.0)
     assert float(a100_calibration["simulated_return_using_L_d"]) == pytest.approx(110.0)
-    assert "runtime_env selection mismatch" not in a100_calibration["notes"]
+    assert "missing profile" not in a100_calibration["notes"]
 
 
 def test_aggregate_notes_include_skipped_manifest_reasons(tmp_path: Path):
     spec = _spec()
-    sim_same = tmp_path / "runs" / "sim_same" / "openvla-flappy" / "flappy" / "a100" / "seed_0"
+    sim_same = tmp_path / "runs" / "sim_same" / "openvla-flappy" / "seed_0"
     manifests = [
         _manifest(
             stage="sim_same",
@@ -493,7 +490,7 @@ def test_aggregate_notes_include_skipped_manifest_reasons(tmp_path: Path):
             target_device_id="a100",
             output_dir=sim_same,
             status="skipped",
-            skip_reason="runtime_env mismatch: requires latency",
+            skip_reason="missing profile",
         )
     ]
     write_jsonl(tmp_path / "manifests" / "runs.jsonl", manifests)
@@ -503,4 +500,4 @@ def test_aggregate_notes_include_skipped_manifest_reasons(tmp_path: Path):
 
     assert a100["realtime_return"] == ""
     assert "missing realtime run" in a100["notes"]
-    assert "runtime_env mismatch" in a100["notes"]
+    assert "missing profile" in a100["notes"]

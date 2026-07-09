@@ -169,7 +169,7 @@ def download_results_tree(
     files (`sample_batches/`, warmup `*.png`, etc.) that workers upload.
 
     Args:
-        repo_id: Hugging Face repo id holding the `raw/<device>/instances/<instance>/<runtime>/...` trees.
+        repo_id: Hugging Face repo id holding the `raw/<device>/instances/<instance>/...` trees.
         repo_type: Hugging Face repo type, normally `dataset`.
         local_root: Local directory to receive the downloaded `raw/` tree.
         revision: Optional Hugging Face revision.

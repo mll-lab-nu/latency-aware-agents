@@ -152,7 +152,6 @@ def _run_record(
         "status": status,
         "skip_reason": skip_reason,
         "notes": "",
-        "runtime_env_detected_raw": "latency",
         "output_dir": str(output_dir),
         "profile_path": "" if profile_path is None else str(profile_path),
         "generated_config_path": str(output_dir / "config.yaml"),
@@ -163,9 +162,9 @@ def _run_record(
 
 def test_load_run_manifests_remaps_raw_paths_and_keeps_latest_completed_run(tmp_path):
     raw_root = tmp_path / "raw"
-    protocol_root = raw_root / "L_L40S" / "combined" / "host_20260704_000000" / "cross_device"
+    protocol_root = raw_root / "L_L40S" / "instances" / "instance_a100" / "cross_device"
     old_root = Path("results/cross_device")
-    output_dir = protocol_root / "runs" / "measure" / "OpenVLA" / "flappy" / "L_L40S" / "seed_7"
+    output_dir = protocol_root / "runs" / "measure" / "OpenVLA" / "seed_7"
     profile_path = protocol_root / "profiles" / "openvla" / "flappy" / "L_L40S" / "instance_a100" / "profile.json"
     records = [
         _run_record(
@@ -182,7 +181,7 @@ def test_load_run_manifests_remaps_raw_paths_and_keeps_latest_completed_run(tmp_
             status="skipped",
             output_dir=old_root / output_dir.relative_to(protocol_root),
             profile_path=old_root / profile_path.relative_to(protocol_root),
-            skip_reason="runtime_env mismatch",
+            skip_reason="missing profile",
         ),
     ]
     write_jsonl(protocol_root / "manifests" / "runs.jsonl", records)
@@ -195,7 +194,7 @@ def test_load_run_manifests_remaps_raw_paths_and_keeps_latest_completed_run(tmp_
     assert completed[0]["completed_at"] == "2026-07-04T00:00:02+00:00"
     assert completed[0]["output_dir"] == str(output_dir)
     assert completed[0]["profile_path"] == str(profile_path)
-    assert [record["skip_reason"] for record in skipped] == ["runtime_env mismatch"]
+    assert [record["skip_reason"] for record in skipped] == ["missing profile"]
 
 
 def test_manifest_matching_and_instance_queries_use_completed_run_contract(tmp_path):

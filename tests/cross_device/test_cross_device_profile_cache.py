@@ -112,7 +112,7 @@ def test_profile_cache_uploads_output_folder_to_hf(tmp_path: Path, monkeypatch):
 
     out = tmp_path / "cross_device"
     (out / "profiles" / "openvla" / "flappy" / "a100" / "instance_local").mkdir(parents=True)
-    (out / "runs" / "measure" / "openvla-flappy" / "flappy" / "a100" / "seed_0").mkdir(parents=True)
+    (out / "runs" / "measure" / "openvla-flappy" / "seed_0").mkdir(parents=True)
     upload_folder_to_hf(
         repo_id="latency-sensitive-bench/profiles",
         local_dir=out,
@@ -134,7 +134,7 @@ def test_download_results_tree_filters_debug_and_copies_raw(tmp_path: Path, monk
     from latency_bench.cross_device.sync import RESULTS_DEBUG_IGNORE, download_results_tree
 
     snapshot_root = tmp_path / "snapshot"
-    nested = snapshot_root / "raw" / "rtx3090" / "openvla" / "cross_device" / "manifests"
+    nested = snapshot_root / "raw" / "rtx3090" / "instances" / "instance_rtx3090" / "cross_device" / "manifests"
     nested.mkdir(parents=True)
     (nested / "runs.jsonl").write_text("{}\n", encoding="utf-8")
 
@@ -164,7 +164,7 @@ def test_download_results_tree_filters_debug_and_copies_raw(tmp_path: Path, monk
             "ignore_patterns": RESULTS_DEBUG_IGNORE,
         }
     ]
-    copied = local_root / "raw" / "rtx3090" / "openvla" / "cross_device" / "manifests" / "runs.jsonl"
+    copied = local_root / "raw" / "rtx3090" / "instances" / "instance_rtx3090" / "cross_device" / "manifests" / "runs.jsonl"
     assert copied.exists()
 
 
