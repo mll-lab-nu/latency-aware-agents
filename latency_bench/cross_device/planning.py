@@ -164,16 +164,15 @@ def _make_task(
 ) -> ProtocolTask:
     """Create output paths and immutable run identity for one task."""
     policy_slug = slugify(row["policy"])
-    env_slug = slugify(row["env"])
     count_suffix = f"n{n_episodes}"
     run_id = f"smoke_seed_{seed}_{count_suffix}" if smoke else f"{checkpoint_kind}_seed_{seed}_{count_suffix}"
     if stage == "sim_cross" and replay_device is not None:
-        device_or_pair = f"{target_device['id']}_replay_{replay_device['id']}"
-        output_dir = out / "runs" / stage / policy_slug / env_slug / str(target_device["id"]) / f"replay_{replay_device['id']}" / run_id
+        device_path = Path(str(target_device["id"]))
+        output_dir = out / "runs" / stage / policy_slug / device_path / run_id
+        generated_config_path = out / "generated_configs" / stage / policy_slug / device_path / f"{run_id}.yaml"
     else:
-        device_or_pair = str(target_device["id"])
-        output_dir = out / "runs" / stage / policy_slug / env_slug / str(target_device["id"]) / run_id
-    generated_config_path = out / "generated_configs" / stage / policy_slug / env_slug / device_or_pair / f"{run_id}.yaml"
+        output_dir = out / "runs" / stage / policy_slug / run_id
+        generated_config_path = out / "generated_configs" / stage / policy_slug / f"{run_id}.yaml"
     return ProtocolTask(
         stage=stage,
         experiment_ids=experiment_ids,

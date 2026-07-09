@@ -107,8 +107,7 @@ def _manifest(output_dir: Path, *, stage: str = "measure") -> dict:
         "target_profile_instance_id": "instance_rtx3090",
         "replay_device_id": None,
         "seed": 0,
-        "runtime_env_detected_raw": "latency",
-        "profile_path": str(output_dir.parents[5] / "profiles" / "openvla" / "flappy" / "rtx3090" / "instance_rtx3090" / "profile.json"),
+        "profile_path": str(output_dir.parents[3] / "profiles" / "openvla" / "flappy" / "rtx3090" / "instance_rtx3090" / "profile.json"),
         "output_dir": str(output_dir),
         "generated_config_path": str(output_dir / "config.yaml"),
         "n_episodes": 2,
@@ -149,9 +148,9 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
         profile_dir / "infer_latencies.jsonl",
     )
     (profile_dir / "profile.json").write_text("{}\n", encoding="utf-8")
-    run_dir = root / "runs" / "measure" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    run_dir = root / "runs" / "measure" / "openvla-flappy" / "best_seed_0_n2"
     _write_episode_metrics(run_dir)
-    sim_dir = root / "runs" / "sim_same" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    sim_dir = root / "runs" / "sim_same" / "openvla-flappy" / "best_seed_0_n2"
     _write_episode_metrics(sim_dir, returns=(30.0, 40.0), lengths=(300, 400))
     write_jsonl(root / "manifests" / "runs.jsonl", [_manifest(run_dir), _manifest(sim_dir, stage="sim_same")])
 
@@ -229,9 +228,9 @@ def test_build_all_produces_aligned_schemas(tmp_path: Path):
 
 def test_realtime_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
     raw_root = tmp_path / "raw"
-    protocol_root = raw_root / "rtx3090" / "openvla" / "cross_device"
+    protocol_root = raw_root / "rtx3090" / "instances" / "instance_rtx3090" / "cross_device"
     old_root = Path("results/cross_device")
-    run_dir = protocol_root / "runs" / "measure" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    run_dir = protocol_root / "runs" / "measure" / "openvla-flappy" / "best_seed_0_n2"
     _write_episode_metrics(run_dir)
     manifest = _manifest(old_root / run_dir.relative_to(protocol_root))
     write_jsonl(protocol_root / "manifests" / "runs.jsonl", [manifest])
@@ -252,9 +251,9 @@ def test_realtime_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
 
 def test_simulated_episode_return_rows_read_hf_raw_layout(tmp_path: Path):
     raw_root = tmp_path / "raw"
-    protocol_root = raw_root / "rtx3090" / "openvla" / "cross_device"
+    protocol_root = raw_root / "rtx3090" / "instances" / "instance_rtx3090" / "cross_device"
     old_root = Path("results/cross_device")
-    run_dir = protocol_root / "runs" / "sim_same" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    run_dir = protocol_root / "runs" / "sim_same" / "openvla-flappy" / "best_seed_0_n2"
     _write_episode_metrics(run_dir, returns=(30.0, 40.0), lengths=(300, 400))
     manifest = _manifest(old_root / run_dir.relative_to(protocol_root), stage="sim_same")
     write_jsonl(protocol_root / "manifests" / "runs.jsonl", [manifest])
@@ -291,7 +290,7 @@ def test_profiled_e2e_trace_emits_overhead_samples(tmp_path: Path):
     )
     (profile_dir / "profile.json").parent.mkdir(parents=True, exist_ok=True)
     (profile_dir / "profile.json").write_text("{}\n", encoding="utf-8")
-    run_dir = root / "runs" / "measure" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    run_dir = root / "runs" / "measure" / "openvla-flappy" / "best_seed_0_n2"
     write_jsonl(root / "manifests" / "runs.jsonl", [_manifest(run_dir)])
     exp1_rows = read_csv(tables_dir / "experiment1_latency_profile_summary.csv")
 
@@ -318,7 +317,7 @@ def test_build_latency_sample_rows_requires_inference_trace_for_profiled_devices
         profile_dir / "e2e_latencies.jsonl",
     )
     (profile_dir / "profile.json").write_text("{}\n", encoding="utf-8")
-    run_dir = root / "runs" / "measure" / "openvla-flappy" / "flappy" / "rtx3090" / "best_seed_0_n2"
+    run_dir = root / "runs" / "measure" / "openvla-flappy" / "best_seed_0_n2"
     write_jsonl(root / "manifests" / "runs.jsonl", [_manifest(run_dir)])
     exp1_rows = read_csv(tables_dir / "experiment1_latency_profile_summary.csv")
 

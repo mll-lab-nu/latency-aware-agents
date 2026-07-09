@@ -221,7 +221,7 @@ def _run_task(
         raise
     write_json(task.output_dir / "manifest.json", manifest)
     append_manifest(out, manifest)
-    _upload_run_results(task, out, manifest, detected, spec)
+    _upload_run_results(task, out, manifest, detected)
 
 
 def _run_with_runtime_telemetry(run_fn, output_dir: Path, manifest: dict[str, Any]) -> None:
@@ -241,12 +241,11 @@ def _upload_run_results(
     out: Path,
     manifest: dict[str, Any],
     detected: dict[str, Any],
-    spec: dict[str, Any],
 ) -> None:
     """Mirror this completed run's results to HF for hands-off aggregation.
 
     Uploads (full, including debug) this machine's slice of the protocol output
-    to `raw/<device_id>/instances/<instance_id>/<runtime_alias>/cross_device/...`
+    to `raw/<device_id>/instances/<instance_id>/cross_device/...`
     so an aggregating host can pull every machine's manifests + run dirs +
     profiles via `aggregate` auto-download. The download side filters debug
     artifacts back out.
@@ -260,7 +259,6 @@ def _upload_run_results(
         out: Protocol output root (the local `results/cross_device`).
         manifest: Run manifest mutated in place with upload status.
         detected: Hardware detection result (for the device id segment).
-        spec: Loaded protocol spec (for the runtime alias segment).
     """
     hf = hf_env()
     if hf is None or os.environ.get("CROSS_DEVICE_NO_RESULT_UPLOAD"):
@@ -268,8 +266,7 @@ def _upload_run_results(
     device_id = detected["device"]["id"]
     if task.instance_id is None:
         raise RuntimeError("raw result upload requires task.instance_id")
-    runtime_alias = spec["runtime_env"]["name"]
-    prefix = f"raw/{device_id}/instances/{task.instance_id}/{runtime_alias}/cross_device"
+    prefix = f"raw/{device_id}/instances/{task.instance_id}/cross_device"
 
     uploads: list[tuple[Path, str]] = []
     manifests_dir = out / "manifests"

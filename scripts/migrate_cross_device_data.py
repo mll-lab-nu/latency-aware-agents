@@ -16,7 +16,7 @@ re-uploaded. It converts data written by the pre-instance-id protocol code:
    `gpu_uuid_hash`/`target_profile_instance_id`; copy skipped `notes` into
    `skip_reason`; rewrite `profile_path` to the new profile layout.
 4. raw tree: move `raw/<device>/<runtime>/cross_device/**` to
-   `raw/<device>/instances/<instance_id>/<runtime>/cross_device/**`.
+   `raw/<device>/instances/<instance_id>/cross_device/**`.
 
 No record in the existing data carries a GPU UUID, so every device needs an
 explicit `--instance-map <device_id>=<instance_id>` entry.
