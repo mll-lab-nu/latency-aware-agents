@@ -11,7 +11,6 @@ from latency_bench.cross_device import manifest
 
 SPEC = {
     "protocol_id": "cross-device-v1",
-    "runtime_env": {"name": "openvla", "conda_env": "starvla_rl_games_openvla"},
 }
 
 
@@ -43,7 +42,7 @@ def _task(tmp_path, *, stage: str = "sim_same") -> ProtocolTask:
     )
 
 
-def test_build_base_manifest_records_protocol_runtime_and_host_metadata(tmp_path, monkeypatch):
+def test_build_base_manifest_records_host_metadata(tmp_path, monkeypatch):
     monkeypatch.setattr(manifest, "now_iso", lambda: "2026-07-04T00:00:00+00:00")
     monkeypatch.setattr(manifest, "git_sha", lambda: "abc123")
     monkeypatch.setattr(manifest, "host_fingerprint", lambda: {"gpu": {"name": "L40S"}})
@@ -73,8 +72,6 @@ def test_build_base_manifest_records_protocol_runtime_and_host_metadata(tmp_path
     assert payload["target_device_id"] == "L_L40S"
     assert payload["target_profile_instance_id"] == "instance_abc"
     assert payload["gpu_uuid_hash"] == "abc"
-    assert payload["runtime_env"] == "openvla"
-    assert payload["runtime_conda_env"] == "starvla_rl_games_openvla"
     assert payload["hardware_fingerprint"] == {"gpu": {"name": "L40S"}}
     assert payload["cuda_visible_devices"] == "0"
     assert payload["git_sha"] == "abc123"

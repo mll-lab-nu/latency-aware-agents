@@ -16,7 +16,6 @@ import torch
 from latency_bench.cross_device.configs import _eval_command
 from latency_bench.cross_device.instances import gpu_uuid_hash_from_instance_id
 from latency_bench.cross_device.planning import ProtocolTask
-from latency_bench.cross_device.spec import detect_runtime_env_raw
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
 from latency_bench.utils.io import load_jsonl_records, write_json
 
@@ -71,9 +70,6 @@ def build_base_manifest(
         "replay_device_display_name": None if replay_device is None else replay_device["display_name"],
         "hardware_detected_raw": detected["raw"],
         "hardware_normalized": detected["device"]["id"],
-        "runtime_env": spec["runtime_env"]["name"],
-        "runtime_conda_env": spec["runtime_env"]["conda_env"],
-        "runtime_env_detected_raw": detect_runtime_env_raw(),
         "profile_path": str(
             task.target_profile_path or (task.profile_output_dir / "profile.json" if task.profile_output_dir else "")
         ),
@@ -317,7 +313,6 @@ def _dedupe_manifest_records(records: list[dict[str, Any]]) -> list[dict[str, An
             *run_key,
             str(record["status"]),
             str(record["skip_reason"] if record["status"] == "skipped" else record["error"]),
-            str(record["runtime_env_detected_raw"]),
         )
         non_completed_by_key[skipped_key] = record
     return [*non_completed_by_key.values(), *completed_by_run_key.values()]

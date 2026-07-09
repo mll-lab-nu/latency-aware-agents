@@ -1364,8 +1364,8 @@ printf 'NVIDIA H200\\n'
         fake_bin / "python",
         f"""#!/usr/bin/env bash
 set -euo pipefail
-printf 'HF_PROFILE_REPO=%s HF_PROFILE_REPO_TYPE=%s CROSS_DEVICE_RUNTIME_ENV=%s :: %s\\n' \
-  "${{HF_PROFILE_REPO:-}}" "${{HF_PROFILE_REPO_TYPE:-}}" "${{CROSS_DEVICE_RUNTIME_ENV:-}}" "$*" >> "{calls_path}"
+printf 'HF_PROFILE_REPO=%s HF_PROFILE_REPO_TYPE=%s :: %s\\n' \
+  "${{HF_PROFILE_REPO:-}}" "${{HF_PROFILE_REPO_TYPE:-}}" "$*" >> "{calls_path}"
 exit 0
 """,
     )
@@ -1403,7 +1403,6 @@ exit 0
     assert "--replay-hardware" not in calls
     assert "HF_PROFILE_REPO=latency-sensitive-bench/profiles" in calls
     assert "HF_PROFILE_REPO_TYPE=dataset" in calls
-    assert "CROSS_DEVICE_RUNTIME_ENV=openvla" in calls
 
 
 def test_cross_device_aggregate_script_builds_openvla_flappy_paper_outputs(tmp_path):

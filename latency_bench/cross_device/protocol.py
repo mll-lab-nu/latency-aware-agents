@@ -1,7 +1,7 @@
 """Command line interface for the cross-device latency protocol.
 
 This module owns argument parsing and high-level subcommand dispatch. The actual
-planning, config patching, runtime detection, and execution live in sibling
+planning, config patching, hardware detection, and execution live in sibling
 modules so the CLI stays small.
 """
 from __future__ import annotations
@@ -15,9 +15,7 @@ import torch
 from latency_bench.analysis.cross_device_protocol_tables import write_protocol_tables
 from latency_bench.cross_device.spec import (
     detect_hardware,
-    detect_runtime_env_raw,
     load_protocol_spec,
-    runtime_env_mismatch,
 )
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
 from latency_bench.cross_device.configs import _row_base_config
@@ -167,14 +165,13 @@ def run_doctor(args: argparse.Namespace, spec: dict[str, Any]) -> None:
     """Print local readiness for all protocol stages without running models.
 
     Args:
-        args: Parsed CLI namespace, including hardware/runtime filters.
+        args: Parsed CLI namespace, including hardware filters.
         spec: Loaded cross-device protocol spec.
 
     Side effects:
-        Prints selected rows, runtime/hardware mapping, and skip reasons.
+        Prints selected rows, hardware mapping, and skip reasons.
     """
     detected = detect_hardware(spec, args.hardware)
-    mismatch = runtime_env_mismatch(spec)
     cuda_available = bool(torch.cuda.is_available())
     rows = _iter_selected_rows(spec, args)
     output_root = _output_root(spec, getattr(args, "out", None))
@@ -184,13 +181,6 @@ def run_doctor(args: argparse.Namespace, spec: dict[str, Any]) -> None:
         for stage in ("measure", "sim_same", "sim_cross")
     }
 
-    required = spec["runtime_env"]
-    print("Runtime environment:")
-    print(f"  detected: {detect_runtime_env_raw()}")
-    print(f"  required: {required['name']} ({required['conda_env']})")
-    print(f"  match: {str(mismatch is None).lower()}")
-    if mismatch:
-        print(f"  mismatch: {mismatch}")
     print("Hardware:")
     print(f"  detected: {detected['raw']}")
     print(f"  matched device: {detected['device']['id']}")

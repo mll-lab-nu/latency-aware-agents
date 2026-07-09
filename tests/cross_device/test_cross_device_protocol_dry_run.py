@@ -11,19 +11,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from latency_bench.cross_device.spec import (
-    detect_runtime_env_raw,
-    normalize_hardware_name,
-    runtime_env_mismatch,
-)
+from latency_bench.cross_device.spec import normalize_hardware_name
 
 
 PROTOCOL_MODULE = "latency_bench.cross_device.protocol"
 REAL_PROTOCOL = Path("configs/experiments/cross_device_protocol.yaml")
-
-
-RUNTIME_SPEC = {"runtime_env": {"name": "baseline", "conda_env": "latency"}}
-
 
 def _first_runtime_generated_config(out: Path, stage: str) -> Path:
     return next(
@@ -117,7 +109,6 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "sim_parallel_envs": 1,
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
-        "runtime_env": {"name": "baseline", "conda_env": "latency"},
         "devices": [
             {
                 "id": "a100",
@@ -153,7 +144,6 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "sim_parallel_envs": 1,
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
-        "runtime_env": {"name": "baseline", "conda_env": "latency"},
         "devices": [
             {
                 "id": "a100",
@@ -202,7 +192,6 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "sim_parallel_envs": 1,
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
-        "runtime_env": {"name": "baseline", "conda_env": "latency"},
         "devices": [
             {
                 "id": "a100",
@@ -241,7 +230,6 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
 
 def _run_cli(tmp_path: Path, *args: str, env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
     run_env = os.environ.copy()
-    run_env.setdefault("CROSS_DEVICE_RUNTIME_ENV", "latency")
     run_env.setdefault("CROSS_DEVICE_INSTANCE_ID", "instance_test")
     if env:
         run_env.update(env)
@@ -253,23 +241,6 @@ def _run_cli(tmp_path: Path, *args: str, env: dict[str, str] | None = None, chec
         text=True,
         env=run_env,
     )
-
-
-def test_runtime_env_detection_maps_conda_envs_and_override(monkeypatch):
-    monkeypatch.delenv("CROSS_DEVICE_RUNTIME_ENV", raising=False)
-    monkeypatch.setenv("CONDA_DEFAULT_ENV", "latency")
-    assert detect_runtime_env_raw() == "latency"
-    assert runtime_env_mismatch(RUNTIME_SPEC) is None
-
-    monkeypatch.setenv("CONDA_DEFAULT_ENV", "starvla_rl_games_openvla")
-    mismatch = runtime_env_mismatch(RUNTIME_SPEC)
-    assert mismatch is not None
-    assert "requires baseline (latency)" in mismatch
-    assert "starvla_rl_games_openvla" in mismatch
-
-    monkeypatch.setenv("CROSS_DEVICE_RUNTIME_ENV", "latency")
-    assert detect_runtime_env_raw() == "latency"
-    assert runtime_env_mismatch(RUNTIME_SPEC) is None
 
 
 def test_hardware_detection_accepts_full_gpu_model_names_and_multi_gpu_text():
@@ -332,45 +303,6 @@ def test_hardware_detection_accepts_full_gpu_model_names_and_multi_gpu_text():
     }
     for raw_name, expected_id in cases.items():
         assert normalize_hardware_name(raw_name, devices)["id"] == expected_id
-
-
-def test_runtime_env_mismatch_blocks_execution_but_not_dry_run(tmp_path: Path):
-    base_config = tmp_path / "base.yaml"
-    spec = tmp_path / "protocol.yaml"
-    out = tmp_path / "results"
-    _write_base_config(base_config)
-    _write_spec(spec, base_config)
-
-    mismatched = _run_cli(
-        tmp_path,
-        "measure",
-        "--spec",
-        str(spec),
-        "--hardware",
-        "a100",
-        "--out",
-        str(out),
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
-        check=False,
-    )
-    assert mismatched.returncode != 0
-    assert "runtime env mismatch" in mismatched.stderr
-    assert "requires baseline (latency)" in mismatched.stderr
-
-    dry_run = _run_cli(
-        tmp_path,
-        "measure",
-        "--spec",
-        str(spec),
-        "--hardware",
-        "a100",
-        "--out",
-        str(out),
-        "--dry-run",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
-    )
-    assert "policy: dry-policy" in dry_run.stdout
-    assert "runtime env mismatch" in dry_run.stderr
 
 
 def test_real_openvla_protocol_dry_run_selects_flappy_demon_and_deadly(tmp_path: Path):
@@ -480,7 +412,6 @@ def test_real_openvla_protocol_only_policy_accepts_slug_and_preserves_flappy_pat
         "--dry-run",
         "--only-policy",
         "demon-attack-openvla",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
     assert "policy: openvla-flappy" not in demon.stdout
     assert "policy: demon-attack-openvla" in demon.stdout
@@ -502,7 +433,6 @@ def test_real_openvla_protocol_only_env_accepts_raw_and_slug_values(tmp_path: Pa
         "--dry-run",
         "--only-env",
         "deadly_corridor",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
     assert "policy: deadly-corridor-openvla" in slug.stdout
     assert "policy: openvla-flappy" not in slug.stdout
@@ -520,7 +450,6 @@ def test_real_openvla_protocol_only_env_accepts_raw_and_slug_values(tmp_path: Pa
         "--dry-run",
         "--only-env",
         "Deadly Corridor",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
     assert "policy: deadly-corridor-openvla" in raw.stdout
     assert "policy: openvla-flappy" not in raw.stdout
@@ -540,7 +469,6 @@ def test_real_openvla_protocol_max_runs_limits_dry_run_rows(tmp_path: Path):
         "--dry-run",
         "--max-runs",
         "1",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     assert result.stdout.count("policy: ") == 1
@@ -561,7 +489,6 @@ def test_starvla_openvla_dry_run_uses_starvla_config_metadata(tmp_path: Path):
         "--dry-run",
         "--only-policy",
         "demon-attack-openvla",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     generated = _first_runtime_generated_config(out, "measure")
@@ -594,7 +521,6 @@ def test_openvla_smoke_dry_run_uses_isolated_run_id_and_step_cap(tmp_path: Path)
         "demon-attack-openvla",
         "--max-runs",
         "1",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     assert "smoke: true" in result.stdout
@@ -627,7 +553,6 @@ def test_flappy_starvla_dry_run_uses_starvla_checkpoint_config(tmp_path: Path):
         "openvla-flappy",
         "--max-runs",
         "1",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     generated = _first_runtime_generated_config(out, "measure")
@@ -658,7 +583,6 @@ def test_deadly_openvla_dry_run_writes_config(tmp_path: Path):
         "deadly-corridor-openvla",
         "--max-runs",
         "1",
-        env={"CROSS_DEVICE_RUNTIME_ENV": "starvla_rl_games_openvla"},
     )
 
     generated = _first_runtime_generated_config(out, "measure")
@@ -684,13 +608,9 @@ def test_doctor_output_reports_runtime_match_and_skipped_rows(tmp_path: Path):
         "a100",
         "--out",
         str(out),
-        env={"CROSS_DEVICE_RUNTIME_ENV": "latency"},
     )
 
-    assert "Runtime environment:" in result.stdout
-    assert "detected: latency" in result.stdout
-    assert "required: baseline (latency)" in result.stdout
-    assert "match: true" in result.stdout
+    assert "Hardware:" in result.stdout
     assert "Runnable stages:" in result.stdout
     assert "Skipped rows:" in result.stdout
 
