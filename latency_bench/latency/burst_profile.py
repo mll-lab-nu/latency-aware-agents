@@ -4,8 +4,6 @@ import math
 from statistics import median
 from typing import Any, Iterator
 
-from latency_bench.utils.stats import percentile_linear
-
 
 WORKER_SERVICE_STAGE_KEYS = (
     "parent_to_worker_ipc_ms",
@@ -254,13 +252,30 @@ def _fit_joint_emission_distribution(samples: list[dict[str, float]]) -> dict[st
 
 
 def _fit_inverse_cdf(values: list[float]) -> dict[str, Any]:
+    # Samples sit at Hazen plotting positions ((i + 0.5) / n) rather than on
+    # the [0, 1] endpoints: endpoint pinning gives the extreme order statistic
+    # essentially zero quantile mass, which for a small heavy-tailed sample
+    # (45 burst dwells, one 2631-draw degradation) smears the observed extreme
+    # into fabricated mid-range values and shrinks the resampled mean by a
+    # third. With positions clamped past (n - 0.5) / n, each sample keeps its
+    # 1/n share and the maximum stays a real plateau.
+    ordered = sorted(values)
+    n = len(ordered)
+
+    def _inverse(level: float) -> float:
+        position = level * n - 0.5
+        if position <= 0.0:
+            return ordered[0]
+        if position >= n - 1.0:
+            return ordered[-1]
+        index = int(position)
+        fraction = position - index
+        return ordered[index] + fraction * (ordered[index + 1] - ordered[index])
+
     return {
         "distribution_type": "inverse_cdf",
         "quantile_levels": list(EMISSION_QUANTILE_LEVELS),
-        "latency_ms": [
-            percentile_linear(values, level * 100.0)
-            for level in EMISSION_QUANTILE_LEVELS
-        ],
+        "latency_ms": [_inverse(level) for level in EMISSION_QUANTILE_LEVELS],
     }
 
 
