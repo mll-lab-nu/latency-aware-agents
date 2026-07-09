@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from latency_bench.latency.burst_profile import (
+    _fit_inverse_cdf,
     build_burst_samples,
     build_hidden_regime_burst_model,
 )
@@ -243,8 +244,9 @@ def test_hidden_regime_model_fits_cross_episode_degradation_as_one_dwell():
 def test_emission_quantile_grid_resolves_rare_tail():
     # 999/1000 draws take 41ms and one takes 100ms (fast service, one late
     # delivery). A uniform 1% grid would smear a full percent of mass evenly
-    # from 41ms to 100ms; the densified tail pins p99.9 next to the bulk
-    # while p100 still reaches the outlier.
+    # from 41ms to 100ms; the densified tail keeps the bulk pinned at 41ms
+    # through p99.8 while the outlier owns its 1/1000 share: a 100ms plateau
+    # above the last plotting position (999.5 / 1000).
     samples = [
         _model_sample(0, index, 41.0 if index < 999 else 100.0, 40.0)
         for index in range(1000)
@@ -252,8 +254,43 @@ def test_emission_quantile_grid_resolves_rare_tail():
     model = build_hidden_regime_burst_model(samples)
     table = model["emission_distributions_by_regime"]["calm"]["action_ready_ms"]
 
-    assert table["latency_ms"][table["quantile_levels"].index(0.999)] == pytest.approx(41.059)
+    assert table["latency_ms"][table["quantile_levels"].index(0.998)] == pytest.approx(41.0)
+    assert table["latency_ms"][table["quantile_levels"].index(0.9995)] == pytest.approx(100.0)
     assert table["latency_ms"][-1] == pytest.approx(100.0)
+
+
+def _table_mean(table: dict) -> float:
+    levels = table["quantile_levels"]
+    values = table["latency_ms"]
+    return sum(
+        (levels[i + 1] - levels[i]) * (values[i] + values[i + 1]) / 2.0
+        for i in range(len(levels) - 1)
+    )
+
+
+def test_fit_inverse_cdf_preserves_heavy_tail_mass():
+    # The A100 dwell shape: 44 short bursts and one 2631-draw degradation.
+    # Each observed sample carries 1/45 of the probability mass, so the
+    # table's integral must sit at the sample mean; pinning the maximum on
+    # the q=1.0 endpoint instead smears its mass down the 34->2631 ramp and
+    # the resampled mean collapses to ~2/3 of the observed one.
+    values = [34.0] * 44 + [2631.0]
+    table = _fit_inverse_cdf(values)
+
+    sample_mean = sum(values) / len(values)
+    assert _table_mean(table) == pytest.approx(sample_mean, rel=0.05)
+
+
+def test_fit_inverse_cdf_gives_the_maximum_its_own_quantile_mass():
+    # Above the last plotting position ((n - 0.5) / n) the inverse CDF is the
+    # largest observed sample, so the rarest event keeps a real plateau
+    # instead of being reachable only in the limit u -> 1.
+    values = [34.0] * 44 + [2631.0]
+    table = _fit_inverse_cdf(values)
+
+    for level, value in zip(table["quantile_levels"], table["latency_ms"]):
+        if level >= (len(values) - 0.5) / len(values):
+            assert value == pytest.approx(2631.0)
 
 
 def test_build_burst_samples_uses_all_completed_worker_service_records():
