@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import time
+from collections import deque
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import ActionEvent, EpisodeMetrics, Observation, StepRecord
+from latency_bench.core.types import ActionEvent, EpisodeMetrics, Observation, PolicyOutput, StepRecord
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors._simulated_timeline import (
+    LatencySample,
     SimulatedResultTimeline,
     SimulatedWorkerCapacity,
     build_simulated_action_event,
 )
 from latency_bench.executors.base import EpisodeExecutor
+from latency_bench.executors.realtime.workers import RealtimeObservationTask
 from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
     compute_episode_metrics,
@@ -25,11 +30,37 @@ from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
 
 
+@dataclass
+class _PendingInference:
+    """An observation whose forward pass is still on an inference worker.
+
+    Everything virtual is fixed at submission (the latency sample decides all
+    timestamps); only the action value is outstanding, so wall-clock result
+    order cannot leave a trace in the outputs.
+    """
+
+    obs_id: int
+    action_id: int
+    raw_frame: int
+    ready_raw_frame: int
+    ready_time_ms: float
+    latency_sample: LatencySample
+
+
 class SimulatedLatencyExecutor(EpisodeExecutor):
+    """Virtual-clock executor; sampled latency decides every timestamp.
+
+    With ``inference_pool`` set, forward passes run batch-1 on per-GPU worker
+    processes (the same pool the realtime executor uses) while the episode
+    stream stays serial — mirroring how a measure run's machine serves one
+    env with several inference workers. Policy state then lives in the
+    workers, exactly like realtime: per-episode ``reset_state`` is not sent.
+    """
+
     def __init__(
         self,
         env: EnvAdapter,
-        policy: PolicyRunner,
+        policy: PolicyRunner | None,
         decision_scheduler: DecisionScheduler,
         latency_source: LatencySampler,
         action_scheduler: ActionScheduler,
@@ -39,6 +70,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         video_episode_metadata: dict[int, dict] | None = None,
         episode_latency_source_factory: Callable[[int], LatencySampler] | None = None,
         simulated_worker_capacity: int | None = None,
+        inference_pool=None,
     ):
         self.env = env
         self.policy = policy
@@ -51,8 +83,14 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         self.video_episode_metadata = video_episode_metadata
         self.episode_latency_source_factory = episode_latency_source_factory
         self.simulated_worker_capacity = simulated_worker_capacity
+        self.inference_pool = inference_pool
         self._next_obs_id = 0
         self._next_action_id = 0
+
+    def close(self) -> None:
+        if self.inference_pool is not None:
+            self.inference_pool.close()
+        super().close()
 
     def run_episode(
         self,
@@ -63,7 +101,10 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         if self.episode_latency_source_factory is not None:
             self.latency_source = self.episode_latency_source_factory(episode_id)
         self.action_scheduler.reset()
-        self.policy.reset_state(slot_id=0)
+        if self.inference_pool is not None:
+            self.inference_pool.drain_until_idle()
+        else:
+            self.policy.reset_state(slot_id=0)
         self.env.reset(seed=seed)
         if self.video_recorder is not None:
             self.video_recorder.start_episode(
@@ -83,6 +124,54 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         submitted_observation_frames = 0
         dropped_observation_count = 0
         latency_type = latency_type_from_source(self.latency_source)
+        pool = self.inference_pool
+        pending_inferences: deque[_PendingInference] = deque()
+        pending_results: dict[int, PolicyOutput] = {}
+        submit_queue: deque[RealtimeObservationTask] = deque()
+
+        def fuse_ready_prefix() -> None:
+            # Fuse strictly in observation order so action/latency records land
+            # in the same order the inline path writes them.
+            while pending_inferences and pending_inferences[0].obs_id in pending_results:
+                item = pending_inferences.popleft()
+                policy_output = pending_results.pop(item.obs_id)
+                latency_record, event = build_simulated_action_event(
+                    action_id=item.action_id,
+                    obs_id=item.obs_id,
+                    policy_output=policy_output,
+                    raw_frame=item.raw_frame,
+                    ready_raw_frame=item.ready_raw_frame,
+                    ready_time_ms=item.ready_time_ms,
+                    latency_sample=item.latency_sample,
+                    frame_ms=self.clock.frame_ms,
+                    latency_type=latency_type,
+                    profile_metadata=profile_metadata_from_source(self.latency_source),
+                )
+                result_timeline.attach_event(
+                    obs_id=item.obs_id, ready_raw_frame=item.ready_raw_frame, event=event
+                )
+                action_events.append(event)
+                latency_values_ms.append(item.latency_sample.latency_ms)
+                if self.logger is not None:
+                    self.logger.log_latency(latency_record)
+
+        def wait_for_events_due(due_raw_frame: int | None) -> None:
+            # Virtual time out-waits the wall clock: nothing advances past a
+            # ready frame whose action value is still on a worker, so a slow
+            # forward pass changes when we wait, never what we compute.
+            while True:
+                for completion in pool.drain_completed(0.0):
+                    pending_results[completion.task.obs_id] = completion.policy_output
+                while submit_queue and pool.submit(submit_queue[0]):
+                    submit_queue.popleft()
+                fuse_ready_prefix()
+                if not pending_inferences:
+                    return
+                if due_raw_frame is not None and all(
+                    item.ready_raw_frame > due_raw_frame for item in pending_inferences
+                ):
+                    return
+                time.sleep(0.0005)
         episode_metadata = episode_raw_fact_metadata(
             mode="simulated",
             episode_seed=seed,
@@ -133,37 +222,63 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                         sim_time_ms=observation.sim_time_ms,
                         metadata=policy_metadata,
                     )
-                    policy_output = self.policy.predict(policy_observation)
                     ready_raw_frame = raw_frame + latency_sample.action_ready_raw_frames
                     ready_time_ms = self.clock.step_to_time_ms(ready_raw_frame)
                     worker_capacity.submit(raw_frame + latency_sample.worker_service_raw_frames)
-                    profile_metadata = profile_metadata_from_source(self.latency_source)
-                    latency_record, event = build_simulated_action_event(
-                        action_id=self._next_action_id,
-                        obs_id=obs_id,
-                        policy_output=policy_output,
-                        raw_frame=raw_frame,
-                        ready_raw_frame=ready_raw_frame,
-                        ready_time_ms=ready_time_ms,
-                        latency_sample=latency_sample,
-                        frame_ms=self.clock.frame_ms,
-                        latency_type=latency_type,
-                        profile_metadata=profile_metadata,
-                    )
+                    action_id = self._next_action_id
                     self._next_action_id += 1
-                    result_timeline.submit(obs_id=obs_id, ready_raw_frame=ready_raw_frame, event=event)
-                    action_events.append(event)
-                    latency_values_ms.append(latency_ms)
+                    if pool is None:
+                        policy_output = self.policy.predict(policy_observation)
+                        latency_record, event = build_simulated_action_event(
+                            action_id=action_id,
+                            obs_id=obs_id,
+                            policy_output=policy_output,
+                            raw_frame=raw_frame,
+                            ready_raw_frame=ready_raw_frame,
+                            ready_time_ms=ready_time_ms,
+                            latency_sample=latency_sample,
+                            frame_ms=self.clock.frame_ms,
+                            latency_type=latency_type,
+                            profile_metadata=profile_metadata_from_source(self.latency_source),
+                        )
+                        result_timeline.submit(obs_id=obs_id, ready_raw_frame=ready_raw_frame, event=event)
+                        action_events.append(event)
+                        latency_values_ms.append(latency_ms)
+                        if self.logger is not None:
+                            self.logger.log_latency(latency_record)
+                    else:
+                        # The observation must be on the coordinator's books at
+                        # its submission frame so a newer release can void it
+                        # while its forward pass is still in flight.
+                        result_timeline.mark_submitted(obs_id=obs_id)
+                        task = RealtimeObservationTask(
+                            obs_id=obs_id,
+                            observation=policy_observation,
+                            submit_env_step=raw_frame,
+                            submit_time_ms=current_time_ms,
+                        )
+                        if not pool.submit(task):
+                            submit_queue.append(task)
+                        pending_inferences.append(
+                            _PendingInference(
+                                obs_id=obs_id,
+                                action_id=action_id,
+                                raw_frame=raw_frame,
+                                ready_raw_frame=ready_raw_frame,
+                                ready_time_ms=ready_time_ms,
+                                latency_sample=latency_sample,
+                            )
+                        )
                     submitted_observation_frames += 1
                     observation_submitted = True
                     recent_drop_count = 0
-                    if self.logger is not None:
-                        self.logger.log_latency(latency_record)
                 else:
                     dropped_observation_count += 1
                     observation_dropped = True
                     recent_drop_count += 1
 
+            if pool is not None:
+                wait_for_events_due(raw_frame)
             released_events, _ = result_timeline.release_arrived(raw_frame)
             for released_event in released_events:
                 self.action_scheduler.enqueue(released_event)
@@ -199,9 +314,14 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
             if self.logger is not None:
                 self.logger.log_step(record)
             if soft_reset:
+                if pool is not None:
+                    # Fuse every in-flight forward first so the reset discards
+                    # the same parked events the inline path would discard.
+                    wait_for_events_due(None)
                 self.action_scheduler.reset()
                 result_timeline.reset()
-                self.policy.reset_state(slot_id=0)
+                if pool is None:
+                    self.policy.reset_state(slot_id=0)
                 worker_capacity.reset()
                 recent_drop_count = 0
 
@@ -209,6 +329,8 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
             if episode_done:
                 break
 
+        if pool is not None:
+            wait_for_events_due(None)
         final_released, _ = result_timeline.release_arrived(None)
         for released_event in final_released:
             self.action_scheduler.enqueue(released_event)
@@ -226,6 +348,8 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                     "idle_worker_count": worker_capacity.idle_worker_count,
                 }
             )
+        if pool is not None:
+            episode_metadata["sim_inference_pool_workers"] = pool.worker_count
         metrics = compute_episode_metrics(
             episode_id=episode_id,
             step_records=step_records,

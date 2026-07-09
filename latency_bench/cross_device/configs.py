@@ -101,6 +101,10 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
         config["env"].update(task.row["sim_env"])
     config.setdefault("executor", {})["mode"] = "simulated"
     config["executor"]["simulated_worker_capacity"] = profile["inference_worker_count"]
+    # One serial episode stream (one latency session, like measure) with the
+    # forward passes served batch-1 by per-GPU worker processes; the sampled
+    # latency owns every virtual timestamp, so the pool only buys wall clock.
+    config["executor"]["simulated_inference_pool"] = True
     latency = {
         "type": "profile_sample",
         "profile_path": str(task.target_profile_path),
