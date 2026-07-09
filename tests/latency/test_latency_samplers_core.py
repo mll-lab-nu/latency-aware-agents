@@ -17,6 +17,7 @@ def _model_sample(episode_id: int, sample_index: int, action_ready_ms: float, wo
     return {
         "episode_id": episode_id,
         "sample_index": sample_index,
+        "worker_id": 0,
         "action_ready_ms": action_ready_ms,
         "worker_service_ms": worker_service_ms,
         "worker_service_ms_bin": int(worker_service_ms // 1.0),
@@ -65,7 +66,7 @@ def test_from_action_ready_derives_latency_ms_from_action_ready():
 def test_iid_inverse_cdf_matches_golden_numbers():
     clock = _clock()
     sampler = IidInverseCdfSampler(build_inverse_cdf_distribution([10.0, 20.0, 30.0]), clock=clock, seed=0)
-    values = [sampler.sample({"episode_id": 0}).latency_ms for _ in range(3)]
+    values = [sampler.sample({"episode_id": 0, "worker_slot": 0}).latency_ms for _ in range(3)]
     assert values == pytest.approx([26.888437030500963, 25.15908805880605, 18.4114316166169])
 
 
@@ -73,7 +74,7 @@ def test_hidden_regime_clean_model_stays_calm_and_constant():
     # No spike in the trace -> burst emission is None -> the sampler must never
     # leave calm, and a constant calm emission stays constant.
     sampler = HiddenRegimeSampler(_model([40.0] * 8), clock=_clock(), seed=0)
-    drawn = [sampler.sample({"episode_id": 0}) for _ in range(50)]
+    drawn = [sampler.sample({"episode_id": 0, "worker_slot": 0}) for _ in range(50)]
     assert {s.latency_ms for s in drawn} == {40.0}
     assert {s.worker_service_raw_frames for s in drawn} == {1}
 
@@ -83,7 +84,7 @@ def test_hidden_regime_emits_burst_values_at_fitted_rate():
     # generated sequences must mix both regimes' values.
     values = [40.0] * 40 + [120.0, 120.0, 120.0, 120.0] + [40.0] * 40
     sampler = HiddenRegimeSampler(_model(values), clock=_clock(), seed=3)
-    drawn = [sampler.sample({"episode_id": episode_id}).worker_service_ms for episode_id in range(200) for _ in range(84)]
+    drawn = [sampler.sample({"episode_id": episode_id, "worker_slot": 0}).worker_service_ms for episode_id in range(200) for _ in range(84)]
     burst_share = sum(1 for value in drawn if value == 120.0) / len(drawn)
     assert 0.01 < burst_share < 0.20  # fitted share is 4/84 with posterior spread
 
@@ -98,7 +99,7 @@ def test_hidden_regime_burst_persists_within_an_episode():
     for episode_id in range(300):
         run = 0
         for _ in range(150):
-            if sampler.sample({"episode_id": episode_id}).worker_service_ms == 120.0:
+            if sampler.sample({"episode_id": episode_id, "worker_slot": 0}).worker_service_ms == 120.0:
                 run += 1
                 longest_run = max(longest_run, run)
             else:
@@ -112,7 +113,7 @@ def test_hidden_regime_episode_start_carries_regime_across_boundaries():
     # every episode being forced back to calm.
     values = [40.0] * 4 + [120.0] * 4
     sampler = HiddenRegimeSampler(_model(values), clock=_clock(), seed=0)
-    first_draws = [sampler.sample({"episode_id": episode_id}).worker_service_ms for episode_id in range(100)]
+    first_draws = [sampler.sample({"episode_id": episode_id, "worker_slot": 0}).worker_service_ms for episode_id in range(100)]
     assert 120.0 in first_draws
     assert 40.0 in first_draws
 
@@ -121,14 +122,14 @@ def test_hidden_regime_is_deterministic_with_seed():
     values = [40.0] * 20 + [120.0, 40.0, 120.0] + [40.0] * 20
     first = HiddenRegimeSampler(_model(values), clock=_clock(), seed=7)
     second = HiddenRegimeSampler(_model(values), clock=_clock(), seed=7)
-    assert [first.sample({"episode_id": 0}) for _ in range(50)] == [
-        second.sample({"episode_id": 0}) for _ in range(50)
+    assert [first.sample({"episode_id": 0, "worker_slot": 0}) for _ in range(50)] == [
+        second.sample({"episode_id": 0, "worker_slot": 0}) for _ in range(50)
     ]
 
 
 def test_hidden_regime_quantizes_worker_service_ms_on_current_clock():
     sampler = HiddenRegimeSampler(_model([75.0], action_ready_offset=-35.0), clock=_clock(), seed=0)
-    sample = sampler.sample({"episode_id": 0})
+    sample = sampler.sample({"episode_id": 0, "worker_slot": 0})
     assert sample.latency_ms == 40.0
     assert sample.worker_service_ms == 75.0
     assert sample.action_ready_raw_frames == 1
@@ -140,3 +141,50 @@ def test_fixed_sampler_returns_constant():
     sampler = FixedSampler(42.5, clock=clock)
     assert sampler.sample().latency_ms == 42.5
     assert sampler.latency_type == "fixed"
+
+def test_hidden_regime_burst_is_a_worker_state_not_a_merged_pattern():
+    # Fit the A100 failure shape: worker 0 constantly slow inside the dwell
+    # while worker 1 stays fast, so the merged stream alternates 80/44. When a
+    # sampled burst plays back, the slot that entered must carry the slowness
+    # on essentially every serve and the other slot must stay sub-threshold.
+    # Spreading the merged ~50% alternation iid over both slots (so neither
+    # worker ever saturates) is exactly the bug this guards against.
+    values = [42.0] * 20 + [80.0, 44.0] * 10 + [42.0] * 20
+    workers = ([0, 1] * 10) + ([0, 1] * 10) + ([0, 1] * 10)
+    samples = [
+        {
+            "episode_id": 0,
+            "sample_index": index,
+            "worker_id": worker,
+            "action_ready_ms": value + 1.0,
+            "worker_service_ms": value,
+            "worker_service_ms_bin": int(value),
+        }
+        for index, (value, worker) in enumerate(zip(values, workers))
+    ]
+    model = build_hidden_regime_burst_model(samples)
+    threshold = model["spike_threshold_ms"]
+    sampler = HiddenRegimeSampler(model, clock=_clock(), seed=2)
+
+    for attempt in range(50000):
+        slot = attempt % 2
+        sampler.sample({"episode_id": attempt // 100, "worker_slot": slot})
+        if sampler.regime == "burst":
+            entry_slot = slot
+            break
+    else:
+        pytest.fail("sampler never entered burst")
+
+    spikes_by_slot = {entry_slot: [], 1 - entry_slot: []}
+    draw = attempt
+    while sampler.regime == "burst":
+        draw += 1
+        slot = draw % 2
+        value = sampler.sample({"episode_id": draw // 100, "worker_slot": slot})
+        spikes_by_slot[slot].append(value.worker_service_ms > threshold)
+
+    hot = spikes_by_slot[entry_slot]
+    cold = spikes_by_slot[1 - entry_slot]
+    assert len(hot) >= 8 and len(cold) >= 8
+    assert sum(hot) / len(hot) > 0.85
+    assert not any(cold)

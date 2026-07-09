@@ -235,7 +235,6 @@ def _temporal_summary(burst_samples: list[dict[str, Any]], burst_model: dict[str
     action_ready_values = [float(sample["action_ready_ms"]) for sample in burst_samples]
     worker_service_values = [float(sample["worker_service_ms"]) for sample in burst_samples]
     dwell_lengths = [float(length) for length in burst_model["burst_dwell_lengths"]]
-    excursions = burst_model["excursions"]
     return {
         "action_ready_ms": _series_temporal_summary(action_ready_values),
         "worker_service_ms": _series_temporal_summary(worker_service_values),
@@ -244,13 +243,18 @@ def _temporal_summary(burst_samples: list[dict[str, Any]], burst_model: dict[str
             "burst_count": len(dwell_lengths),
             "regime_step_counts": burst_model["regime_step_counts"],
             "burst_dwell_lengths": series_stats(dwell_lengths) if dwell_lengths else None,
-            "excursions": None if excursions is None else {
-                "count": excursions["count"],
-                "duration_draws": series_stats(excursions["duration_draws"]["latency_ms"]),
-                "level_ms": series_stats(excursions["level_ms"]["latency_ms"]),
-                "duration_level_spearman_rho": excursions["duration_level_spearman_rho"],
-                "within_excursion_sigma_ms": excursions["within_excursion_sigma_ms"],
-            },
+            "rank_processes": [
+                {
+                    "draw_count": process["draw_count"],
+                    "spike_count": process["spike_count"],
+                    "severity": series_stats(process["severity"]["latency_ms"]),
+                    "level_ms": (
+                        None if process["level_ms"] is None
+                        else series_stats(process["level_ms"]["latency_ms"])
+                    ),
+                }
+                for process in burst_model["burst_rank_processes"]
+            ],
         },
     }
 
