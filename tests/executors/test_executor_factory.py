@@ -165,6 +165,59 @@ def test_simulated_mode_builds_simulated_executor(tmp_path):
         executor.env.close()
 
 
+def test_simulated_inference_pool_falls_back_inline_without_cuda(tmp_path, monkeypatch):
+    monkeypatch.setattr(executor_factory, "visible_cuda_device_count", lambda: 0)
+    config = _config(output_dir=str(tmp_path))
+    config["executor"]["simulated_inference_pool"] = True
+
+    executor = build_executor(config)
+    try:
+        assert executor.inference_pool is None
+        assert executor.policy is not None
+    finally:
+        executor.close()
+
+
+def test_simulated_inference_pool_builds_pool_and_no_parent_policy(tmp_path, monkeypatch):
+    created = {}
+
+    class FakePool:
+        def __init__(self, *, config, inference_devices):
+            created["devices"] = list(inference_devices)
+
+        def close(self):
+            created["closed"] = True
+
+    def _fail_build_policy(*args, **kwargs):
+        raise AssertionError("the parent process must not load the policy in pool mode")
+
+    monkeypatch.setattr(executor_factory, "ProcessInferencePool", FakePool)
+    monkeypatch.setattr(executor_factory, "visible_cuda_device_count", lambda: 2)
+    monkeypatch.setattr(executor_factory, "build_policy", _fail_build_policy)
+    config = _config(output_dir=str(tmp_path))
+    config["executor"]["simulated_inference_pool"] = True
+    config["policy"]["device"] = "cuda"
+
+    executor = build_executor(config)
+    try:
+        assert isinstance(executor.inference_pool, FakePool)
+        assert created["devices"] == ["cuda:0", "cuda:1"]
+        assert executor.policy is None
+    finally:
+        executor.close()
+    assert created.get("closed") is True
+
+
+def test_simulated_inference_pool_rejects_injected_policy(tmp_path, monkeypatch):
+    monkeypatch.setattr(executor_factory, "visible_cuda_device_count", lambda: 2)
+    config = _config(output_dir=str(tmp_path))
+    config["executor"]["simulated_inference_pool"] = True
+    config["policy"]["device"] = "cuda"
+
+    with pytest.raises(ValueError, match="cannot cross the process boundary"):
+        build_executor(config, policy=object())
+
+
 def test_build_executor_uses_injected_policy_and_skips_build_policy(tmp_path, monkeypatch):
     # The in-process eval path injects a live policy; build_policy must not run.
     def _fail_build_policy(*args, **kwargs):

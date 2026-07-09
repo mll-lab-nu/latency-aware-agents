@@ -19,6 +19,7 @@ from latency_bench.executors.base import Executor
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
 from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime import RealtimeLatencyExecutor
+from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.latency.hardware_info import visible_cuda_device_count
 from latency_bench.latency.samplers import (
@@ -165,7 +166,19 @@ def _build_single_simulated_executor(
     policy: PolicyRunner | None = None,
 ) -> SimulatedLatencyExecutor:
     c = _build_common_executor_components(config)
-    policy = _resolve_policy(config, c.action_resolver, policy)
+    inference_pool = None
+    if _simulated_inference_pool_enabled(config):
+        if policy is not None:
+            raise ValueError(
+                "executor.simulated_inference_pool builds its policy inside subprocess "
+                "workers; an injected in-process policy cannot cross the process boundary"
+            )
+        inference_pool = ProcessInferencePool(
+            config=config,
+            inference_devices=_resolve_realtime_inference_devices(),
+        )
+    else:
+        policy = _resolve_policy(config, c.action_resolver, policy)
     latency_source = _build_latency_source(config["latency"], c.clock)
     episode_latency_source_factory = build_episode_sampler_factory(config["latency"], c.clock)
     return SimulatedLatencyExecutor(
@@ -178,7 +191,19 @@ def _build_single_simulated_executor(
         logger=c.logger,
         episode_latency_source_factory=episode_latency_source_factory,
         simulated_worker_capacity=_simulated_worker_capacity(config),
+        inference_pool=inference_pool,
     )
+
+
+def _simulated_inference_pool_enabled(config: dict[str, Any]) -> bool:
+    # The pool exists to move CUDA forward passes off-process; inline is
+    # draw-for-draw identical, so CPU-only hosts and non-CUDA policies
+    # (dry runs, dummy/random test policies) skip the worker spawn entirely.
+    if not config["executor"].get("simulated_inference_pool"):
+        return False
+    if not str(config.get("policy", {}).get("device", "")).startswith("cuda"):
+        return False
+    return visible_cuda_device_count() > 0
 
 
 def _build_batched_simulated_executor(

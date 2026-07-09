@@ -40,11 +40,6 @@ from latency_bench.cross_device.planning import (
     _output_root,
     _profiles_dir_for_args,
 )
-from latency_bench.cross_device.sim_workers import (
-    add_sim_worker_manifest_fields,
-    build_sim_worker_plan,
-    run_sim_worker_plan,
-)
 from latency_bench.cross_device.spec import detect_hardware, runtime_env_mismatch
 from latency_bench.cross_device.sync import hf_env, profile_remote_dir, upload_folder_to_hf
 
@@ -183,9 +178,6 @@ def _run_task(
     config = _generated_config(task, spec)
     profile_cmd = None
     manifest = build_base_manifest(task, spec, detected, eval_cmd, profile_cmd)
-    sim_worker_plan = build_sim_worker_plan(task)
-    if sim_worker_plan:
-        add_sim_worker_manifest_fields(manifest, sim_worker_plan)
     if task.stage == "measure":
         calibration_config_path = _calibration_generated_config_path(task)
         calibration_path = _calibration_output_path(task)
@@ -199,11 +191,7 @@ def _run_task(
             _write_generated_config(calibration_config_path, config)
             profile_cmd = _profile_command(task, spec, args.overwrite, config)
         print(f"generated_config: {task.generated_config_path}")
-        if sim_worker_plan:
-            for worker in sim_worker_plan:
-                print(str(worker["command"]))
-        else:
-            print(shlex.join(eval_cmd))
+        print(shlex.join(eval_cmd))
         if profile_cmd is not None:
             print(shlex.join(profile_cmd))
         return
@@ -218,18 +206,11 @@ def _run_task(
             manifest["profile_command"] = shlex.join(profile_cmd)
         _write_generated_config(task.generated_config_path, config)
         write_json(task.output_dir / "manifest.json", manifest)
-        if sim_worker_plan:
-            _run_with_runtime_telemetry(
-                lambda: run_sim_worker_plan(task, sim_worker_plan),
-                task.output_dir,
-                manifest,
-            )
-        else:
-            _run_with_runtime_telemetry(
-                lambda: subprocess.run(eval_cmd, check=True),
-                task.output_dir,
-                manifest,
-            )
+        _run_with_runtime_telemetry(
+            lambda: subprocess.run(eval_cmd, check=True),
+            task.output_dir,
+            manifest,
+        )
         if profile_cmd is not None:
             subprocess.run(profile_cmd, check=True)
             _finalize_profile_artifacts(task, out, manifest)

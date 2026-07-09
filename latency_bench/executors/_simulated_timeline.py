@@ -92,7 +92,18 @@ class SimulatedResultTimeline:
         self._pending.clear()
 
     def submit(self, *, obs_id: int, ready_raw_frame: int, event: ActionEvent) -> None:
+        self.mark_submitted(obs_id=obs_id)
+        self.attach_event(obs_id=obs_id, ready_raw_frame=ready_raw_frame, event=event)
+
+    def mark_submitted(self, *, obs_id: int) -> None:
+        # Must happen at the submission frame even when the event body is not
+        # built yet (pooled inference): latest_ready voids every OLDER marked
+        # observation when a newer one releases, so an observation whose
+        # forward pass is still in flight has to already be on the books to be
+        # voidable — deferring the mark would let its stale action apply.
         self.coordinator.mark_submitted(obs_id)
+
+    def attach_event(self, *, obs_id: int, ready_raw_frame: int, event: ActionEvent) -> None:
         self._pending.append((int(ready_raw_frame), int(obs_id), event))
 
     def release_arrived(self, raw_frame: int | None) -> tuple[list[ActionEvent], list[ActionEvent]]:
