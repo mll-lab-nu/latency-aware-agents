@@ -8,10 +8,6 @@ env_fps_calibration:
 seed_set:
   - 0
 
-runtime_env:
-  name: openvla
-  conda_env: starvla_rl_games_openvla
-
 devices:
   - id: rtx3090
     display_name: RTX 3090

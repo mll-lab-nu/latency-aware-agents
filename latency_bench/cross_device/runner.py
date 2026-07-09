@@ -40,7 +40,7 @@ from latency_bench.cross_device.planning import (
     _output_root,
     _profiles_dir_for_args,
 )
-from latency_bench.cross_device.spec import detect_hardware, runtime_env_mismatch
+from latency_bench.cross_device.spec import detect_hardware
 from latency_bench.cross_device.sync import hf_env, profile_remote_dir, upload_folder_to_hf
 
 
@@ -95,9 +95,6 @@ def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> Non
     """
     out = _output_root(spec, args.out)
     detected = detect_hardware(spec, args.hardware)
-    mismatch = runtime_env_mismatch(spec)
-    if mismatch and not args.dry_run:
-        raise SystemExit(mismatch)
     profiles_dir = _profiles_dir_for_args(args, out)
     instance_id, instance_origin = _stage_instance_metadata(stage, bool(args.dry_run))
     plan = _build_plan(
@@ -113,8 +110,6 @@ def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> Non
     if args.max_runs is not None:
         plan = plan[: int(args.max_runs)]
     if args.dry_run:
-        if mismatch:
-            print(f"WARNING: {mismatch}", file=sys.stderr)
         _print_dry_run_plan(stage, plan, spec)
         return
     if not plan:
@@ -406,7 +401,6 @@ def _print_dry_run_plan(stage: str, plan: list[PlannedTask], spec: dict[str, Any
         print(f"target_profile_id: {task.target_device.get('profile_id')}")
         print(f"target_profile_instance_id: {task.target_profile_instance_id or ''}")
         print(f"replay_device: {task.replay_device.get('id') if task.replay_device else ''}")
-        print(f"runtime_env: {spec['runtime_env']['name']} ({spec['runtime_env']['conda_env']})")
         print(f"smoke: {str(task.smoke).lower()}")
         print(f"episodes: {task.n_episodes}")
         print(f"status: {'runnable' if item.runnable else 'skipped'}")

@@ -43,7 +43,6 @@ def _write_protocol_spec(path: Path, base_config: Path) -> None:
         "n_episodes": 1,
         "seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
-        "runtime_env": {"name": "baseline", "conda_env": "latency"},
         "devices": [
             {
                 "id": "a100",
@@ -89,6 +88,5 @@ def test_formal_protocol_entrypoint_runs_doctor_dry_run(tmp_path: Path, capsys):
     )
 
     out = capsys.readouterr().out
-    assert "Runtime environment:" in out
     assert "matched device: a100" in out
     assert "policy=entry-policy" in out

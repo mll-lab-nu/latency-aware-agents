@@ -1,15 +1,14 @@
-"""Protocol spec loading plus hardware/runtime detection for cross-device runs.
+"""Protocol spec loading plus hardware detection for cross-device runs.
 
 The spec defines the protocol rows once at top level; experiments only carry
 their panel label and, for cross-device prediction, the replay pairs. This
-module also maps the current machine and Python environment onto spec entries.
+module also maps the current machine onto spec entries.
 """
 from __future__ import annotations
 
 import os
 import re
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -91,46 +90,6 @@ def detect_hardware(spec: dict[str, Any], requested: str = "auto") -> dict[str, 
         if device is not None:
             return {"raw": candidate, "device": device}
     _raise_unknown_hardware("; ".join(candidates) if candidates else "<none>", devices)
-
-
-def detect_runtime_env_raw() -> str | None:
-    """Return the current Python environment name, or None when undetectable."""
-    override = os.environ.get("CROSS_DEVICE_RUNTIME_ENV")
-    if override:
-        return override
-    conda_env = os.environ.get("CONDA_DEFAULT_ENV")
-    if conda_env:
-        return conda_env
-    virtual_env = os.environ.get("VIRTUAL_ENV")
-    if virtual_env:
-        return Path(virtual_env).name
-    executable = Path(sys.executable)
-    parts = executable.parts
-    for marker in ("envs", "env"):
-        if marker in parts:
-            index = parts.index(marker)
-            if index + 1 < len(parts):
-                return parts[index + 1]
-    return None
-
-
-def runtime_env_mismatch(spec: dict[str, Any]) -> str | None:
-    """Return a mismatch message, or None when the detected env satisfies the spec.
-
-    The spec declares a single `runtime_env` with `name` and `conda_env`; the
-    detected environment may match either spelling.
-    """
-    required = spec["runtime_env"]
-    detected = detect_runtime_env_raw()
-    accepted = {_normalize_name(required["name"]), _normalize_name(required["conda_env"])}
-    if detected and _normalize_name(detected) in accepted:
-        return None
-    return (
-        f"runtime env mismatch: requires {required['name']} ({required['conda_env']}), "
-        f"detected {detected or 'unknown'}. Activate the right conda env or set CROSS_DEVICE_RUNTIME_ENV."
-    )
-
-
 def normalize_hardware_name(name: str, devices: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Match raw GPU text to a device entry from the protocol spec.
 

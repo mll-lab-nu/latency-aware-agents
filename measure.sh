@@ -16,7 +16,6 @@ else
   conda activate starvla_rl_games_openvla
 fi
 
-export CROSS_DEVICE_RUNTIME_ENV=openvla
 export HF_PROFILE_REPO=latency-sensitive-bench/profiles
 export HF_PROFILE_REPO_TYPE=dataset
 
