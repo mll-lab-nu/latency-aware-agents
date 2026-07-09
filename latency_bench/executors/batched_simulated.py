@@ -84,7 +84,7 @@ class _SlotState:
     recent_drop_count: int = 0
     buffers: _EpisodeBuffers = field(default_factory=_EpisodeBuffers)
     worker_capacity: SimulatedWorkerCapacity = field(
-        default_factory=lambda: SimulatedWorkerCapacity(capacity=None, busy_until_raw_frames=[])
+        default_factory=lambda: SimulatedWorkerCapacity(capacity=None, busy_until_by_worker={})
     )
 
 
@@ -94,6 +94,7 @@ class _PendingPolicyObservation:
     observation: Observation
     obs_id: int
     latency_sample: LatencySample
+    worker_slot: int
 
 
 class _BatchedEnvCollection:
@@ -157,7 +158,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                 buffers=self._new_episode_buffers(),
                 worker_capacity=SimulatedWorkerCapacity(
                     capacity=simulated_worker_capacity,
-                    busy_until_raw_frames=[],
+                    busy_until_by_worker={},
                 ),
             )
             for slot_id in range(slot_count)
@@ -277,6 +278,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                         policy_output,
                         obs_id=pending.obs_id,
                         latency_sample=pending.latency_sample,
+                        worker_slot=pending.worker_slot,
                     )
 
             actions_by_slot = {}
@@ -365,6 +367,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         self._next_obs_id += 1
         raw_frame = int(slot.env_step)
         current_time_ms = self.clock.step_to_time_ms(raw_frame)
+        worker_slot = slot.worker_capacity.assign_worker()
         latency_context = {
             "observation": observation,
             "obs_id": obs_id,
@@ -373,6 +376,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             "sim_time_ms": current_time_ms,
             "episode_id": slot.episode_id,
             "slot_id": slot.slot_id,
+            "worker_slot": worker_slot,
             "recent_drop_count": slot.recent_drop_count,
             "in_flight_count": slot.worker_capacity.in_flight_count,
             "idle_worker_count": slot.worker_capacity.idle_worker_count,
@@ -390,6 +394,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             ),
             obs_id=obs_id,
             latency_sample=latency_sample,
+            worker_slot=worker_slot,
         )
 
     def _reset_run_state(self, episode_ids: Sequence[int]) -> None:
@@ -496,17 +501,19 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         *,
         obs_id: int,
         latency_sample: LatencySample,
+        worker_slot: int,
     ) -> None:
         raw_frame = int(slot.env_step)
         latency_ms = latency_sample.latency_ms
         ready_raw_frame = raw_frame + latency_sample.action_ready_raw_frames
         ready_time_ms = self.clock.step_to_time_ms(ready_raw_frame)
-        slot.worker_capacity.submit(raw_frame + latency_sample.worker_service_raw_frames)
+        slot.worker_capacity.submit(worker_slot, raw_frame + latency_sample.worker_service_raw_frames)
         latency_type = latency_type_from_source(slot.latency_source)
         profile_metadata = profile_metadata_from_source(slot.latency_source)
         slot_metadata = {
             "episode_id": int(slot.episode_id),
             "slot_id": int(slot.slot_id),
+            "worker_id": int(worker_slot),
         }
         latency_record, event = build_simulated_action_event(
             action_id=self._next_action_id,

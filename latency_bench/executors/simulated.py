@@ -45,6 +45,7 @@ class _PendingInference:
     ready_raw_frame: int
     ready_time_ms: float
     latency_sample: LatencySample
+    worker_slot: int
 
 
 class SimulatedLatencyExecutor(EpisodeExecutor):
@@ -119,7 +120,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         result_timeline = SimulatedResultTimeline(ordering_policy=self.action_scheduler.ordering_policy)
         worker_capacity = SimulatedWorkerCapacity(
             capacity=self.simulated_worker_capacity,
-            busy_until_raw_frames=[],
+            busy_until_by_worker={},
         )
         submitted_observation_frames = 0
         dropped_observation_count = 0
@@ -146,6 +147,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                     frame_ms=self.clock.frame_ms,
                     latency_type=latency_type,
                     profile_metadata=profile_metadata_from_source(self.latency_source),
+                    latency_record_metadata={"worker_id": int(item.worker_slot)},
                 )
                 result_timeline.attach_event(
                     obs_id=item.obs_id, ready_raw_frame=item.ready_raw_frame, event=event
@@ -194,6 +196,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                 obs_id = self._next_obs_id
                 self._next_obs_id += 1
                 if worker_capacity.can_submit():
+                    worker_slot = worker_capacity.assign_worker()
                     latency_context = {
                         "observation": observation,
                         "obs_id": obs_id,
@@ -202,6 +205,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                         "sim_time_ms": current_time_ms,
                         "episode_id": episode_id,
                         "slot_id": 0,
+                        "worker_slot": worker_slot,
                         "recent_drop_count": recent_drop_count,
                         "in_flight_count": worker_capacity.in_flight_count,
                         "idle_worker_count": worker_capacity.idle_worker_count,
@@ -224,7 +228,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                     )
                     ready_raw_frame = raw_frame + latency_sample.action_ready_raw_frames
                     ready_time_ms = self.clock.step_to_time_ms(ready_raw_frame)
-                    worker_capacity.submit(raw_frame + latency_sample.worker_service_raw_frames)
+                    worker_capacity.submit(worker_slot, raw_frame + latency_sample.worker_service_raw_frames)
                     action_id = self._next_action_id
                     self._next_action_id += 1
                     if pool is None:
@@ -240,6 +244,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                             frame_ms=self.clock.frame_ms,
                             latency_type=latency_type,
                             profile_metadata=profile_metadata_from_source(self.latency_source),
+                            latency_record_metadata={"worker_id": int(worker_slot)},
                         )
                         result_timeline.submit(obs_id=obs_id, ready_raw_frame=ready_raw_frame, event=event)
                         action_events.append(event)
@@ -267,6 +272,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                                 ready_raw_frame=ready_raw_frame,
                                 ready_time_ms=ready_time_ms,
                                 latency_sample=latency_sample,
+                                worker_slot=worker_slot,
                             )
                         )
                     submitted_observation_frames += 1

@@ -62,7 +62,7 @@ def _write_actions(path: Path) -> None:
             "latency_raw_frames": 1,
             "applied": True,
             "dropped": False,
-            "latency": {"latency_ms": 10.0},
+            "latency": {"latency_ms": 10.0, "metadata": {"worker_id": 0}},
             "metadata": {"frame_ms": 40.0, "realtime_profile": _ZERO_IPC_PROFILE},
         },
         {
@@ -74,7 +74,7 @@ def _write_actions(path: Path) -> None:
             "latency_raw_frames": 1,
             "applied": True,
             "dropped": False,
-            "latency": {"latency_ms": 11.0},
+            "latency": {"latency_ms": 11.0, "metadata": {"worker_id": 1}},
             "metadata": {"frame_ms": 40.0, "realtime_profile": _ZERO_IPC_PROFILE},
         },
         {
@@ -86,7 +86,7 @@ def _write_actions(path: Path) -> None:
             "latency_raw_frames": 2,
             "applied": True,
             "dropped": False,
-            "latency": {"latency_ms": 50.0},
+            "latency": {"latency_ms": 50.0, "metadata": {"worker_id": 0}},
             "metadata": {"frame_ms": 40.0, "realtime_profile": _ZERO_IPC_PROFILE},
         },
     ]
@@ -190,7 +190,7 @@ def test_build_latency_profile_from_trace_writes_latency_burst_model(tmp_path: P
     assert [sample["worker_service_ms_bin"] for sample in burst_samples] == [10, 11, 50]
     assert [sample["worker_service_ms"] for sample in burst_samples] == [10.0, 11.0, 50.0]
     burst_model = json.loads((output_dir / "latency_burst_model.json").read_text(encoding="utf-8"))
-    assert burst_model["schema_version"] == 8
+    assert burst_model["schema_version"] == 9
     assert burst_model["model_type"] == "hidden_regime"
     # Median worker-service is 11ms -> spike threshold 13.75ms -> the 50ms
     # record is a length-1 burst.
@@ -201,12 +201,14 @@ def test_build_latency_profile_from_trace_writes_latency_burst_model(tmp_path: P
         "burst": {"calm": 0, "burst": 0},
     }
     assert burst_model["burst_dwell_lengths"] == [1]
-    assert burst_model["excursions"]["count"] == 1
-    assert burst_model["excursions"]["level_ms"]["latency_ms"][0] == pytest.approx(50.0)
+    process = burst_model["burst_rank_processes"][0]
+    assert process["severity"]["latency_ms"][0] == pytest.approx(1.0)
+    assert process["level_ms"]["latency_ms"][0] == pytest.approx(50.0)
     assert manifest["temporal_summary"]["burst_regime"]["burst_count"] == 1
-    excursion_summary = manifest["temporal_summary"]["burst_regime"]["excursions"]
-    assert excursion_summary["count"] == 1
-    assert excursion_summary["level_ms"]["mean"] == pytest.approx(50.0)
+    rank_summaries = manifest["temporal_summary"]["burst_regime"]["rank_processes"]
+    assert len(rank_summaries) == 1
+    assert rank_summaries[0]["severity"]["mean"] == pytest.approx(1.0)
+    assert rank_summaries[0]["level_ms"]["mean"] == pytest.approx(50.0)
 
 
 def test_build_latency_profile_from_trace_requires_overwrite_for_existing_artifacts(tmp_path: Path):

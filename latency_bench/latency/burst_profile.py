@@ -31,17 +31,48 @@ WORKER_SERVICE_STAGE_KEYS = (
 # one machine timeline — bursts, excursions, and transitions bridge episode
 # boundaries — and the sampler carries the regime across episode resets.
 #
-# Within a burst, each maximal run of consecutive above-threshold samples is
-# one excursion, described by two continuous latent parameters: its duration
-# in draws and its level (mean worker-service time). Drawing each spike iid
-# from a pooled distribution can produce isolated spikes but never a sustained
-# plateau (a 16-draw all-elevated run has probability p^16), while real
-# devices show both shapes; the fitted joint (duration, level) distribution
-# carries whatever mass the device actually exhibits — tall-and-short,
-# mild-and-long, or anything else — without any discrete spike/plateau
-# taxonomy or setup-specific boundary. The fitted joint emission distribution
-# per regime carries both action-ready delay and worker-service time so
-# control staleness and worker occupancy stay correlated.
+# Within a burst, structure is fitted per WORKER, not on the merged stream.
+# Real degradations are worker states: one slow GPU serving every other
+# request makes the merged stream alternate spike/normal, so merged-stream
+# excursions fit the interleaving artifact (durations ~1) instead of the
+# constant-slow worker underneath — and a sampler replaying that artifact
+# spreads the slow draws iid across workers, so no single worker saturates
+# and the real failure mode (one worker at utilization > 1 dropping half the
+# observations) never reproduces. Inside each dwell, workers are ranked by
+# severity (in-dwell spike rate — an order statistic, no boundary), and each
+# rank pools its own excursion structure and sub-threshold emission across
+# dwells: rank-1 carries the degraded worker's near-constant slowness, lower
+# ranks carry whatever mild elevation the remaining workers actually showed.
+# A binary "participating worker set" cannot express the observed continuum
+# (100%/0% single-worker events, 89%/7% degradations, 48%/35% host-wide
+# wobble) without a classification boundary; ranks express it directly.
+#
+# How severe a degradation is belongs to the DWELL, not to any sub-stretch of
+# it: observed dwells range from constant-slow (every serve above threshold)
+# to mild wobble (a third of serves), and pooling their internal run/gap
+# structure regresses every generated dwell to the average severity — the
+# constant-slow shape that saturates a worker then never reproduces. Each
+# rank therefore carries two per-dwell continuous latents, both drawn once at
+# dwell entry: its severity (that rank's above-threshold fraction of serves
+# in the dwell) and its level (the dwell's mean above-threshold service).
+# Within the dwell each serve is then above threshold with probability
+# severity, emitting level plus a draw from the fitted asymmetric residual
+# distribution (spike values hug their dwell level with a long right tail; a
+# symmetric sigma would leak mass across the frame-boundary below). Run-length
+# closure on all fitted devices shows no within-dwell autocorrelation beyond
+# what severity carries, so the serve order is memoryless by evidence, not
+# assumption; plateaus are dwells whose severity sits near one, not a model
+# class. Severity is NOT independent of dwell length: on every fitted device
+# the host-wide events are short blips while the long degradations belong to
+# a single worker, so lower ranks' severities fall sharply with dwell length
+# (sampling them independently hands a long degradation's healthy worker a
+# blip's severity and over-generates the fitted in-dwell spike mass 1.4-2x on
+# every device). Each rank therefore carries a fitted dwell-length/severity
+# Spearman rho, applied through the same Gaussian-copula draw the emission
+# joints use. Severity–level and cross-rank severity dependencies tested
+# absent, so those latents sample independently. The fitted joint emission
+# distribution per regime carries both action-ready delay and worker-service
+# time so control staleness and worker occupancy stay correlated.
 # ---------------------------------------------------------------------------
 
 
@@ -78,6 +109,7 @@ def build_burst_samples(
                 "ready_raw_frame": int(record["ready_raw_frame"]),
                 "applied": bool(record["applied"]),
                 "dropped": bool(record["dropped"]),
+                "worker_id": int(record["latency"]["metadata"]["worker_id"]),
                 "action_ready_ms": action_ready_ms,
                 "worker_service_ms_bin": _latency_ms_bin(worker_service_ms),
                 "worker_service_ms": worker_service_ms,
@@ -98,55 +130,40 @@ def build_hidden_regime_burst_model(samples: list[dict[str, Any]]) -> dict[str, 
 
     transition_counts = {"calm": {"calm": 0, "burst": 0}, "burst": {"calm": 0, "burst": 0}}
     regime_step_counts = {"calm": 0, "burst": 0}
-    burst_dwell_lengths: list[int] = []
-    emission_samples_by_regime: dict[str, list[dict[str, float]]] = {"calm": [], "burst": []}
-    excursion_runs: list[list[dict[str, Any]]] = []
-    excursion_gaps: list[int] = []
-    pending_gap: int | None = None
-
-    active_run: list[dict[str, Any]] = []
+    calm_emission_samples: list[dict[str, float]] = []
     for sample, regime in zip(ordered_samples, regimes):
         regime_step_counts[regime] += 1
-        if float(sample["worker_service_ms"]) > spike_threshold_ms:
-            # A gap is the sub-threshold stretch between two excursions of
-            # the SAME burst (>= 1 by maximality); it carries the fitted
-            # within-burst spike density.
-            if pending_gap:
-                excursion_gaps.append(pending_gap)
-            pending_gap = None
-            active_run.append(sample)
-            continue
-        if active_run:
-            excursion_runs.append(active_run)
-            active_run = []
-            pending_gap = 0
-        if pending_gap is not None:
-            pending_gap = pending_gap + 1 if regime == "burst" else None
-        emission_samples_by_regime[regime].append(
-            {
-                "action_ready_ms": float(sample["action_ready_ms"]),
-                "worker_service_ms": float(sample["worker_service_ms"]),
-            }
-        )
-    if active_run:
-        excursion_runs.append(active_run)
+        if regime == "calm":
+            calm_emission_samples.append(
+                {
+                    "action_ready_ms": float(sample["action_ready_ms"]),
+                    "worker_service_ms": float(sample["worker_service_ms"]),
+                }
+            )
     for index in range(len(regimes) - 1):
         transition_counts[regimes[index]][regimes[index + 1]] += 1
-    length = 0
-    for regime in regimes + ["calm"]:
-        if regime == "burst":
-            length += 1
-        elif length:
-            burst_dwell_lengths.append(length)
-            length = 0
+    dwells: list[tuple[int, int]] = []
+    start: int | None = None
+    for index, regime in enumerate(regimes + ["calm"]):
+        if regime == "burst" and start is None:
+            start = index
+        elif regime != "burst" and start is not None:
+            dwells.append((start, index - 1))
+            start = None
+    burst_dwell_lengths = [end - begin + 1 for begin, end in dwells]
+
+    rank_processes, ready_deltas = _fit_rank_processes(
+        ordered_samples, dwells, spike_threshold_ms
+    )
 
     return {
-        "schema_version": 8,
+        "schema_version": 9,
         "model_type": "hidden_regime",
         "reset_scope": "session",
         "spike_threshold_ms": spike_threshold_ms,
         "spike_median_multiplier": SPIKE_MEDIAN_MULTIPLIER,
         "burst_merge_gap_records": BURST_MERGE_GAP_RECORDS,
+        "worker_count": len({int(sample["worker_id"]) for sample in ordered_samples}),
         "regime_transition_counts": transition_counts,
         "regime_step_counts": regime_step_counts,
         "burst_dwell_lengths": sorted(burst_dwell_lengths),
@@ -159,53 +176,112 @@ def build_hidden_regime_burst_model(samples: list[dict[str, Any]]) -> dict[str, 
             else None
         ),
         "emission_distributions_by_regime": {
-            regime: (_fit_joint_emission_distribution(values) if values else None)
-            for regime, values in emission_samples_by_regime.items()
+            "calm": (
+                _fit_joint_emission_distribution(calm_emission_samples)
+                if calm_emission_samples
+                else None
+            ),
         },
-        "excursions": _fit_excursion_model(excursion_runs, excursion_gaps),
+        "burst_rank_processes": rank_processes,
+        "ready_delta_ms": _fit_inverse_cdf(ready_deltas) if ready_deltas else None,
     }
 
 
-def _fit_excursion_model(
-    excursion_runs: list[list[dict[str, Any]]],
-    excursion_gaps: list[int],
-) -> dict[str, Any] | None:
-    if not excursion_runs:
-        return None
-    durations = [float(len(run)) for run in excursion_runs]
-    levels = [
-        sum(float(sample["worker_service_ms"]) for sample in run) / len(run)
-        for run in excursion_runs
+def _fit_rank_processes(
+    ordered_samples: list[dict[str, Any]],
+    dwells: list[tuple[int, int]],
+    spike_threshold_ms: float,
+) -> tuple[list[dict[str, Any]], list[float]]:
+    """Pool each severity rank's per-dwell latents across dwells.
+
+    Ranking is per dwell: workers present in the dwell ordered by in-dwell
+    spike rate (ties by spike count, then worker id). Rank r's pool therefore
+    only collects from dwells where at least r + 1 workers served — a 1-draw
+    blip contributes to rank 0 alone. Each dwell contributes one severity
+    (and, when it spiked, one level plus that dwell's spike residuals) to its
+    rank's pools.
+    """
+    rank_severities: list[list[float]] = []
+    rank_dwell_lengths: list[list[float]] = []
+    rank_levels: list[list[float]] = []
+    rank_residuals: list[list[float]] = []
+    rank_emissions: list[list[dict[str, float]]] = []
+    rank_draw_counts: list[int] = []
+    rank_spike_counts: list[int] = []
+    ready_deltas: list[float] = []
+
+    for begin, end in dwells:
+        by_worker: dict[int, list[dict[str, Any]]] = {}
+        for sample in ordered_samples[begin:end + 1]:
+            by_worker.setdefault(int(sample["worker_id"]), []).append(sample)
+
+        def _severity(worker: int) -> tuple[float, int, int]:
+            stream = by_worker[worker]
+            spikes = sum(
+                1 for item in stream if float(item["worker_service_ms"]) > spike_threshold_ms
+            )
+            return (-spikes / len(stream), -spikes, worker)
+
+        for rank, worker in enumerate(sorted(by_worker, key=_severity)):
+            while len(rank_severities) <= rank:
+                rank_severities.append([])
+                rank_dwell_lengths.append([])
+                rank_levels.append([])
+                rank_residuals.append([])
+                rank_emissions.append([])
+                rank_draw_counts.append(0)
+                rank_spike_counts.append(0)
+            stream = by_worker[worker]
+            spikes = [
+                sample for sample in stream
+                if float(sample["worker_service_ms"]) > spike_threshold_ms
+            ]
+            rank_draw_counts[rank] += len(stream)
+            rank_spike_counts[rank] += len(spikes)
+            rank_severities[rank].append(len(spikes) / len(stream))
+            rank_dwell_lengths[rank].append(float(end - begin + 1))
+            if spikes:
+                level = sum(float(s["worker_service_ms"]) for s in spikes) / len(spikes)
+                rank_levels[rank].append(level)
+                rank_residuals[rank].extend(
+                    float(s["worker_service_ms"]) - level for s in spikes
+                )
+                ready_deltas.extend(
+                    float(s["action_ready_ms"]) - float(s["worker_service_ms"])
+                    for s in spikes
+                )
+            rank_emissions[rank].extend(
+                {
+                    "action_ready_ms": float(sample["action_ready_ms"]),
+                    "worker_service_ms": float(sample["worker_service_ms"]),
+                }
+                for sample in stream
+                if float(sample["worker_service_ms"]) <= spike_threshold_ms
+            )
+
+    rank_processes = [
+        {
+            "draw_count": rank_draw_counts[rank],
+            "spike_count": rank_spike_counts[rank],
+            "severity": _fit_inverse_cdf(rank_severities[rank]),
+            "dwell_length_spearman_rho": _spearman_rho(
+                rank_dwell_lengths[rank], rank_severities[rank]
+            ),
+            "level_ms": (
+                _fit_inverse_cdf(rank_levels[rank]) if rank_levels[rank] else None
+            ),
+            "level_residual_ms": (
+                _fit_inverse_cdf(rank_residuals[rank]) if rank_residuals[rank] else None
+            ),
+            "emission": (
+                _fit_joint_emission_distribution(rank_emissions[rank])
+                if rank_emissions[rank]
+                else None
+            ),
+        }
+        for rank in range(len(rank_severities))
     ]
-    ready_deltas = [
-        float(sample["action_ready_ms"]) - float(sample["worker_service_ms"])
-        for run in excursion_runs
-        for sample in run
-    ]
-    residual_square_sum = 0.0
-    residual_dof = 0
-    for run, level in zip(excursion_runs, levels):
-        if len(run) < 2:
-            continue
-        residual_square_sum += sum(
-            (float(sample["worker_service_ms"]) - level) ** 2 for sample in run
-        )
-        residual_dof += len(run) - 1
-    return {
-        "count": len(excursion_runs),
-        "duration_draws": _fit_inverse_cdf(durations),
-        "level_ms": _fit_inverse_cdf(levels),
-        "duration_level_spearman_rho": _spearman_rho(durations, levels),
-        "within_excursion_sigma_ms": (
-            math.sqrt(residual_square_sum / residual_dof) if residual_dof else 0.0
-        ),
-        "ready_delta_ms": _fit_inverse_cdf(ready_deltas),
-        "gap_draws": (
-            _fit_inverse_cdf([float(gap) for gap in excursion_gaps])
-            if excursion_gaps
-            else None
-        ),
-    }
+    return rank_processes, ready_deltas
 
 
 def _label_regimes(stream_samples: list[dict[str, Any]], spike_threshold_ms: float) -> list[str]:

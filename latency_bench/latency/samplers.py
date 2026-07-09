@@ -149,26 +149,34 @@ class HiddenRegimeSampler(LatencySampler):
     counts; on entry the burst's dwell (in draws) is sampled fresh from the
     fitted dwell distribution — real dwells mix draw-scale blips with
     minutes-long degradations, which a geometric per-draw exit cannot produce.
-    Each regime's fitted joint emission distribution produces a fresh
-    ``(action_ready_ms, worker_service_ms)``.
 
     The regime is machine state, not episode state: a degraded machine stays
     degraded through env resets (real traces show one slow condition spanning
     tens of consecutive episodes). An episode boundary therefore only
-    refreshes the posterior parameter draws — the chain state and any
-    in-flight excursion persist across it.
+    refreshes the posterior parameter draws — the chain state persists.
 
-    Above-threshold latency is emitted through excursions. A fitted dwell runs
-    from a burst's first spike to its last, so entry starts an excursion
-    outright; when one finishes, the sub-threshold stretch until the next is
-    sampled fresh from the fitted inter-excursion gap distribution (>= 1 draw
-    by maximality, so consecutive excursions never fuse; clipped so the last
-    excursion lands on the dwell's final draw). Each excursion samples a fresh
-    (duration, level) pair from the fitted joint distribution, then emits that
-    many consecutive draws around the level. An in-flight excursion runs
-    to completion even if the outer chain leaves burst mid-way, preserving the
-    duration semantics; sustained plateaus and isolated spikes are just
-    different regions of the (duration, level) density, not model classes.
+    Within a dwell, emission is per worker slot. Real degradations are worker
+    states — one slow GPU serving every other request makes the merged stream
+    alternate spike/calm — so replaying the merged pattern iid over slots
+    spreads the slowness across workers and no single worker saturates; the
+    real failure mode (a slow worker at utilization > 1 shedding half the
+    observations) then never reproduces. At entry the serving slot takes the
+    top severity rank (a dwell starts at its first spike, which belongs to
+    the most degraded worker); any other slot draws one of the remaining
+    ranks uniformly the first time it serves inside the dwell. Each slot then
+    draws its rank's two per-dwell latents once — severity (its fraction of
+    above-threshold serves for this whole dwell) and level (this dwell's mean
+    above-threshold service) — and every serve inside the dwell is above
+    threshold with probability severity, emitting level plus a fitted
+    asymmetric residual; severity is a dwell property, so it holds until the
+    dwell ends and dies with it. Severity is drawn jointly with the dwell's
+    length through the fitted Gaussian-copula rho: on every fitted device the
+    host-wide events are short blips while long degradations belong to one
+    worker, so an independent draw would hand a long degradation's healthy
+    worker a blip's severity. Run-length closure on the fitted devices
+    shows no within-dwell autocorrelation beyond severity, so the serve order
+    is memoryless by evidence; constant-slow degradations and isolated blips
+    are just severities near one on long and short dwells, not model classes.
     Drops stay emergent in the simulator through worker-service occupancy.
     """
     latency_type = "profile_sample"
@@ -178,17 +186,19 @@ class HiddenRegimeSampler(LatencySampler):
         self.clock = clock
         self.rng = random.Random(seed)
         self.emissions = model["emission_distributions_by_regime"]
-        self.excursions = model.get("excursions")
+        self.rank_processes = model.get("burst_rank_processes") or []
+        self.ready_delta = model.get("ready_delta_ms")
         self.current_episode_id: int | None = None
         self.regime = "calm"
         self._enter_burst_prob = 0.0
         self._burst_remaining = 0
-        self._excursion_remaining = 0
-        self._excursion_level_ms = 0.0
-        self._excursion_gap_remaining = 0.0
+        self._dwell_z = 0.0
+        self._unassigned_ranks: list[int] = []
+        self._slot_states: dict[int, dict[str, Any]] = {}
 
     def sample(self, context: dict[str, Any] | None = None) -> LatencySample:
         episode_id = int(context["episode_id"])
+        worker_slot = int(context["worker_slot"])
         first_draw = self.current_episode_id is None
         if episode_id != self.current_episode_id:
             self.current_episode_id = episode_id
@@ -199,15 +209,15 @@ class HiddenRegimeSampler(LatencySampler):
             if self.rng.random() < self._enter_burst_prob:
                 self.regime = "burst"
                 self._burst_remaining = self._sample_burst_dwell() - 1
-                # A fitted dwell runs from a burst's first spike to its last,
-                # so entry itself is a spike: an excursion starts outright.
-                self._excursion_gap_remaining = 0.0
+                self._begin_dwell(entry_slot=worker_slot)
         elif self._burst_remaining > 0:
             self._burst_remaining -= 1
         else:
             self.regime = "calm"
+            self._slot_states.clear()
+            self._unassigned_ranks = []
 
-        record = self._next_emission()
+        record = self._next_emission(worker_slot)
         action_ready_ms = float(record["action_ready_ms"])
         worker_service_ms = float(record["worker_service_ms"])
         return LatencySample.from_action_ready(
@@ -219,7 +229,7 @@ class HiddenRegimeSampler(LatencySampler):
         )
 
     def _episode_transition_prob(self, source: str, target: str) -> float:
-        if self.emissions.get("burst") is None and self.excursions is None:
+        if not self.rank_processes:
             # No burst was ever observed: stay calm instead of hallucinating
             # spikes we have no emission distribution for.
             return 0.0 if target == "burst" else 1.0
@@ -230,85 +240,96 @@ class HiddenRegimeSampler(LatencySampler):
 
     def _sample_burst_dwell(self) -> int:
         dwell = self.model["burst_dwell_distribution"]
+        quantile = self.rng.random()
+        # The dwell's length quantile seeds the severity copula draws of this
+        # dwell's slot states.
+        self._dwell_z = _STANDARD_NORMAL.inv_cdf(min(max(quantile, 1e-12), 1.0 - 1e-12))
         return max(1, round(sample_inverse_cdf(
-            self.rng, dwell["quantile_levels"], dwell["latency_ms"]
+            self.rng, dwell["quantile_levels"], dwell["latency_ms"], quantile=quantile
         )))
 
-    def _sample_excursion_gap(self) -> float:
-        gaps = self.excursions.get("gap_draws")
-        if gaps is None:
-            # Every observed burst was a single excursion: nothing interior
-            # ever follows.
-            return math.inf
-        gap = max(1, round(sample_inverse_cdf(
-            self.rng, gaps["quantile_levels"], gaps["latency_ms"]
-        )))
-        # The dwell ends on the burst's last spike: clip a gap that would
-        # overrun it so the final excursion lands on the dwell's last draw.
-        if self.regime == "burst" and self._burst_remaining > 1:
-            return float(min(gap, self._burst_remaining - 1))
-        return float(gap)
+    def _begin_dwell(self, *, entry_slot: int) -> None:
+        self._slot_states = {entry_slot: self._new_slot_state(0)}
+        self._unassigned_ranks = list(range(1, len(self.rank_processes)))
 
-    def _next_emission(self) -> dict[str, Any]:
-        if self._excursion_remaining > 0:
-            return self._emit_excursion_draw()
-        if self.regime == "burst" and self.excursions is not None:
-            if self._excursion_gap_remaining > 0:
-                # Sub-threshold stretch between two excursions (>= 1 draw by
-                # maximality, so consecutive excursions never fuse).
-                self._excursion_gap_remaining -= 1
-                if self.emissions.get("burst") is not None:
-                    return self._sample_emission("burst")
-                return self._sample_emission("calm")
-            self._start_excursion()
-            return self._emit_excursion_draw()
-        return self._sample_emission(self.regime)
-
-    def _start_excursion(self) -> None:
-        rho = max(-0.999999, min(0.999999, float(self.excursions["duration_level_spearman_rho"])))
-        z_duration = self.rng.normalvariate(0.0, 1.0)
-        z_level = rho * z_duration + math.sqrt(1.0 - rho * rho) * self.rng.normalvariate(0.0, 1.0)
-        duration = sample_inverse_cdf(
+    def _new_slot_state(self, rank: int | None) -> dict[str, Any]:
+        if rank is None:
+            # More serving slots than fitted workers: nothing was ever
+            # observed for such a slot, so it stays calm through the dwell.
+            return {"rank": None, "severity": 0.0, "level": 0.0}
+        process = self.rank_processes[rank]
+        rho = max(-0.999999, min(0.999999, float(process["dwell_length_spearman_rho"])))
+        z_severity = rho * self._dwell_z + math.sqrt(1.0 - rho * rho) * self.rng.normalvariate(0.0, 1.0)
+        severity = sample_inverse_cdf(
             self.rng,
-            self.excursions["duration_draws"]["quantile_levels"],
-            self.excursions["duration_draws"]["latency_ms"],
-            quantile=_STANDARD_NORMAL.cdf(z_duration),
+            process["severity"]["quantile_levels"],
+            process["severity"]["latency_ms"],
+            quantile=_STANDARD_NORMAL.cdf(z_severity),
         )
-        level_ms = sample_inverse_cdf(
-            self.rng,
-            self.excursions["level_ms"]["quantile_levels"],
-            self.excursions["level_ms"]["latency_ms"],
-            quantile=_STANDARD_NORMAL.cdf(z_level),
-        )
-        self._excursion_remaining = max(1, round(duration))
-        self._excursion_level_ms = float(level_ms)
+        level = process.get("level_ms")
+        return {
+            "rank": rank,
+            "severity": float(severity),
+            "level": (
+                sample_inverse_cdf(
+                    self.rng, level["quantile_levels"], level["latency_ms"]
+                )
+                if level is not None
+                else 0.0
+            ),
+        }
 
-    def _emit_excursion_draw(self) -> dict[str, Any]:
-        self._excursion_remaining -= 1
-        if self._excursion_remaining == 0:
-            self._excursion_gap_remaining = self._sample_excursion_gap()
-        sigma_ms = float(self.excursions["within_excursion_sigma_ms"])
-        worker_service_ms = self._excursion_level_ms + (
-            self.rng.normalvariate(0.0, sigma_ms) if sigma_ms > 0.0 else 0.0
+    def _slot_state(self, worker_slot: int) -> dict[str, Any]:
+        state = self._slot_states.get(worker_slot)
+        if state is None:
+            if self._unassigned_ranks:
+                index = self.rng.randrange(len(self._unassigned_ranks))
+                rank = self._unassigned_ranks.pop(index)
+            else:
+                rank = None
+            state = self._new_slot_state(rank)
+            self._slot_states[worker_slot] = state
+        return state
+
+    def _next_emission(self, worker_slot: int) -> dict[str, Any]:
+        if self.regime != "burst" or not self.rank_processes:
+            return self._sample_emission(self.emissions["calm"])
+        state = self._slot_state(worker_slot)
+        if state["rank"] is not None and self.rng.random() < state["severity"]:
+            return self._emit_spike(state)
+        rank = state["rank"]
+        if rank is not None:
+            emission = self.rank_processes[rank].get("emission")
+            if emission is not None:
+                return self._sample_emission(emission)
+        return self._sample_emission(self.emissions["calm"])
+
+    def _emit_spike(self, state: dict[str, Any]) -> dict[str, Any]:
+        residual = self.rank_processes[state["rank"]].get("level_residual_ms")
+        worker_service_ms = state["level"] + (
+            sample_inverse_cdf(
+                self.rng, residual["quantile_levels"], residual["latency_ms"]
+            )
+            if residual is not None
+            else 0.0
         )
-        # An excursion is above-threshold by construction; keep the rare noise
-        # draw below it from breaking the run.
+        # A spike is above-threshold by construction; keep a residual drawn
+        # from a hotter dwell's pool from dipping a mild level below it.
         worker_service_ms = max(
             worker_service_ms,
             math.nextafter(float(self.model["spike_threshold_ms"]), math.inf),
         )
         ready_delta_ms = sample_inverse_cdf(
             self.rng,
-            self.excursions["ready_delta_ms"]["quantile_levels"],
-            self.excursions["ready_delta_ms"]["latency_ms"],
+            self.ready_delta["quantile_levels"],
+            self.ready_delta["latency_ms"],
         )
         return {
             "action_ready_ms": worker_service_ms + ready_delta_ms,
             "worker_service_ms": worker_service_ms,
         }
 
-    def _sample_emission(self, regime: str) -> dict[str, Any]:
-        distribution = self.emissions[regime]
+    def _sample_emission(self, distribution: dict[str, Any]) -> dict[str, Any]:
         rho = max(-0.999999, min(0.999999, float(distribution["spearman_rho"])))
         z_action_ready = self.rng.normalvariate(0.0, 1.0)
         z_worker = rho * z_action_ready + math.sqrt(1.0 - rho * rho) * self.rng.normalvariate(0.0, 1.0)
@@ -500,7 +521,11 @@ def _build_iid(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
 def _build_temporal(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
     model_path = _profile_relative_path(profile_path, profile["burst_model_path"])
     model = read_json(model_path)
-    if model.get("model_type") != "hidden_regime" or model.get("reset_scope") != "session":
+    if (
+        model.get("model_type") != "hidden_regime"
+        or model.get("reset_scope") != "session"
+        or model.get("schema_version") != 9
+    ):
         raise ValueError(
             f"Unsupported temporal burst model (model_type={model.get('model_type')!r}, "
             f"reset_scope={model.get('reset_scope')!r}, "

@@ -139,33 +139,46 @@ def _mark_event_dropped(event: ActionEvent, *, reason: str) -> None:
 
 @dataclass
 class SimulatedWorkerCapacity:
+    """Worker occupancy with per-worker identity.
+
+    Workers are individuals, not an anonymous pool: real degradations are
+    per-worker states, so the latency model needs to know WHICH worker serves
+    each request. Assignment mirrors ProcessInferencePool.submit — the
+    lowest-indexed idle worker takes the task — so the simulated request↔worker
+    interleaving matches the realtime executor's.
+    """
+
     capacity: int | None
-    busy_until_raw_frames: list[int]
+    busy_until_by_worker: dict[int, int]
 
     def release_ready(self, raw_frame: int) -> None:
-        if self.capacity is not None:
-            self.busy_until_raw_frames = [
-                ready_raw_frame
-                for ready_raw_frame in self.busy_until_raw_frames
-                if ready_raw_frame > raw_frame
-            ]
+        self.busy_until_by_worker = {
+            worker: ready_raw_frame
+            for worker, ready_raw_frame in self.busy_until_by_worker.items()
+            if ready_raw_frame > raw_frame
+        }
 
     def can_submit(self) -> bool:
-        return self.capacity is None or len(self.busy_until_raw_frames) < self.capacity
+        return self.capacity is None or len(self.busy_until_by_worker) < self.capacity
 
-    def submit(self, ready_raw_frame: int) -> None:
-        if self.capacity is not None:
-            self.busy_until_raw_frames.append(int(ready_raw_frame))
+    def assign_worker(self) -> int:
+        worker = 0
+        while worker in self.busy_until_by_worker:
+            worker += 1
+        return worker
+
+    def submit(self, worker: int, ready_raw_frame: int) -> None:
+        self.busy_until_by_worker[int(worker)] = int(ready_raw_frame)
 
     def reset(self) -> None:
-        self.busy_until_raw_frames.clear()
+        self.busy_until_by_worker.clear()
 
     @property
     def in_flight_count(self) -> int:
-        return len(self.busy_until_raw_frames)
+        return len(self.busy_until_by_worker)
 
     @property
     def idle_worker_count(self) -> int | None:
         if self.capacity is None:
             return None
-        return self.capacity - len(self.busy_until_raw_frames)
+        return self.capacity - len(self.busy_until_by_worker)
