@@ -19,7 +19,7 @@ from latency_bench.core.latency_distribution import (
 )
 from latency_bench.core.types import Action, ActionEvent, ActionHoldPolicy, LatencyRecord, OrderingPolicy
 from latency_bench.scheduler.action_queue import ActionScheduler
-from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
+from latency_bench.scheduler.factory import build_persistence_policy
 from training.atari_episode_stats import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
 from training.common.latency_config import build_latency_info
 from training.common.episode_metrics import append_episode_metrics_event
@@ -84,20 +84,12 @@ class ActionLatencyWrapper(gym.Wrapper):
 
         self.noop_action = noop_action_from_space(env.action_space)
         self.clock = EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
-        self.hold_policy = (
-            hold_policy
-            if isinstance(hold_policy, ActionHoldPolicy)
-            else ActionHoldPolicy(str(hold_policy).strip().lower())
-        )
-        self.ordering_policy = (
-            ordering_policy
-            if isinstance(ordering_policy, OrderingPolicy)
-            else OrderingPolicy(str(ordering_policy).strip().lower())
-        )
+        self.hold_policy = ActionHoldPolicy(hold_policy)
+        self.ordering_policy = OrderingPolicy(ordering_policy)
         self.action_scheduler = ActionScheduler(
             clock=self.clock,
             noop_action=Action(value=clone_action(self.noop_action), name="noop", is_noop=True),
-            persistence_policy=self._make_persistence_policy(),
+            persistence_policy=build_persistence_policy(self.hold_policy, clock=self.clock),
             ordering_policy=self.ordering_policy,
         )
         self.base_latency_seed = int(seed)
@@ -109,13 +101,6 @@ class ActionLatencyWrapper(gym.Wrapper):
         self.env_step_idx = 0
         self.decision_step_idx = 0
         self._next_action_id = 0
-
-    def _make_persistence_policy(self):
-        if self.hold_policy == ActionHoldPolicy.ONE_FRAME_THEN_NOOP:
-            return OneFrameThenNoopPolicy()
-        if self.hold_policy == ActionHoldPolicy.HOLD:
-            return HoldPolicy(duration_raw_frames=self.clock.obs_stride_raw_frames)
-        raise ValueError(f"Unsupported hold policy: {self.hold_policy}")
 
     def _next_latency_raw_frames(self) -> int:
         if self.latency_distribution_spec is not None:

@@ -11,7 +11,7 @@ class ActionScheduler:
         clock: EnvClock,
         noop_action: Action,
         persistence_policy: ActionPersistencePolicy,
-        ordering_policy: OrderingPolicy = OrderingPolicy.ISSUE_ORDER_FIFO,
+        ordering_policy: OrderingPolicy,
     ):
         self.clock = clock
         self.noop_action = noop_action
@@ -28,9 +28,7 @@ class ActionScheduler:
         self._applied_events.clear()
         self._dropped_events_count = 0
         self._current_action = self.noop_action
-        reset = getattr(self.persistence_policy, "reset", None)
-        if reset is not None:
-            reset()
+        self.persistence_policy.reset()
 
     def enqueue(self, event: ActionEvent) -> None:
         self._pending_events.append(event)
@@ -44,7 +42,7 @@ class ActionScheduler:
                 if self._is_ready(head, current_step, current_time_ms):
                     selected = head
                     self._pending_events = self._pending_events[1:]
-            elif self.ordering_policy == OrderingPolicy.LATEST_READY:
+            else:
                 ready = [
                     event
                     for event in self._pending_events
@@ -62,12 +60,9 @@ class ActionScheduler:
                     for event in ready[:-1]:
                         self._mark_dropped(event)
                     self._pending_events = not_ready
-            else:
-                raise ValueError(f"Unsupported ordering policy: {self.ordering_policy}")
-
         if selected is not None:
             selected.applied = True
-            selected.apply_raw_frame = int(current_step)
+            selected.apply_raw_frame = current_step
             self._current_action = selected.action
             self._applied_events.append(selected)
             self.persistence_policy.on_action_applied(selected.action)
@@ -99,7 +94,7 @@ class ActionScheduler:
 
     def _is_ready(self, event: ActionEvent, current_step: int, current_time_ms: float) -> bool:
         if event.ready_raw_frame is not None:
-            return int(event.ready_raw_frame) <= int(current_step)
+            return event.ready_raw_frame <= current_step
         return event.ready_time_ms <= current_time_ms + self.ready_time_epsilon_ms
 
     def _mark_dropped(self, event: ActionEvent) -> None:

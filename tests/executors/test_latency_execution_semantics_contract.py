@@ -51,12 +51,13 @@ def test_issue_order_fifo_blocks_later_ready_action_contract():
     assert scheduler.update(11, clock.step_to_time_ms(11)) is second
 
 
-def test_latest_ready_is_explicit_ablation_not_default_contract():
+def test_fifo_contract_is_requested_explicitly():
     clock = EnvClock(env_fps=30, obs_fps=30)
     scheduler = ActionScheduler(
         clock,
         Action("noop", is_noop=True),
         HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     assert scheduler.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO
 

@@ -692,6 +692,7 @@ def test_soft_reset_continues_same_episode_and_clears_latency_state():
             clock=clock,
             noop_action=noop,
             persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+            ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
         ),
         clock=clock,
     )

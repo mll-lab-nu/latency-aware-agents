@@ -935,6 +935,7 @@ def test_env_action_drain_releases_observations_with_explicit_callback() -> None
         clock=clock,
         noop_action=Action("noop", name="noop", is_noop=True),
         persistence_policy=HoldPolicy(duration_raw_frames=1),
+        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     released: list[int] = []
     pipe = QueuedEnvMessagePipe([("release_observation", {"obs_id": 9})])

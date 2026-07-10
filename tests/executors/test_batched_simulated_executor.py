@@ -526,6 +526,7 @@ def _subproc_executor(
             clock=clock,
             noop_action=env.noop_action,
             persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+            ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
         )
         for env in backend.slot_handles
     ]
@@ -583,6 +584,7 @@ def _tuple_executor(
             clock=clock,
             noop_action=env.noop_action,
             persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+            ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
         )
         for env in envs
     ]
@@ -812,6 +814,7 @@ def test_batched_executor_soft_reset_continues_same_episode_and_clears_slot_late
                 clock=clock,
                 noop_action=noop,
                 persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+                ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
             )
         ],
         clock=clock,
@@ -947,6 +950,7 @@ def test_batched_executor_no_trace_does_not_retain_hot_path_records(tmp_path: Pa
                 clock=clock,
                 noop_action=env.noop_action,
                 persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+                ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
             )
             for env in envs
         ],

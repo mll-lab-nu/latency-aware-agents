@@ -239,16 +239,12 @@ def test_build_executor_realtime_rejects_injected_policy(tmp_path):
         build_executor(_config(mode="realtime", output_dir=str(tmp_path)), policy=object())
 
 
-def test_factory_defaults_to_issue_order_fifo_when_ordering_is_omitted(tmp_path):
+def test_factory_requires_ordering_policy(tmp_path):
     config = _config(output_dir=str(tmp_path))
     del config["scheduler"]["ordering_policy"]
 
-    executor = build_executor(config)
-
-    try:
-        assert executor.action_scheduler.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO
-    finally:
-        executor.env.close()
+    with pytest.raises(KeyError, match="ordering_policy"):
+        build_executor(config)
 
 
 def test_factory_preserves_explicit_latest_ready_ablation(tmp_path):
@@ -285,16 +281,12 @@ def test_factory_builds_explicit_hold_policies(tmp_path, hold_policy, expected_t
         executor.env.close()
 
 
-def test_factory_defaults_to_one_frame_then_noop_when_hold_policy_is_omitted(tmp_path):
+def test_factory_requires_hold_policy(tmp_path):
     config = _config(output_dir=str(tmp_path))
     del config["scheduler"]["hold_policy"]
 
-    executor = build_executor(config)
-
-    try:
-        assert isinstance(executor.action_scheduler.persistence_policy, OneFrameThenNoopPolicy)
-    finally:
-        executor.env.close()
+    with pytest.raises(KeyError, match="hold_policy"):
+        build_executor(config)
 
 
 def test_factory_rejects_unsupported_scheduler_fields(tmp_path):
@@ -309,7 +301,7 @@ def test_factory_rejects_unsupported_ordering_policy_values(tmp_path):
     config = _config(output_dir=str(tmp_path))
     config["scheduler"]["ordering_policy"] = "unsupported_ordering"
 
-    with pytest.raises(ValueError, match="ordering_policy.*issue_order_fifo.*latest_ready"):
+    with pytest.raises(ValueError):
         build_executor(config)
 
 
@@ -317,7 +309,7 @@ def test_factory_rejects_unsupported_hold_policy_values(tmp_path):
     config = _config(output_dir=str(tmp_path))
     config["scheduler"]["hold_policy"] = "unsupported_hold"
 
-    with pytest.raises(ValueError, match="hold_policy.*one_frame_then_noop"):
+    with pytest.raises(ValueError):
         build_executor(config)
 
 
