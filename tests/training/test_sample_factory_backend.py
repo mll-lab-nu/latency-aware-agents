@@ -23,7 +23,6 @@ from training.common.config_adapter import (
     apply_runtime_logging_config,
     apply_training_overrides,
     build_common_sf_args,
-    load_training_config,
 )
 
 
@@ -126,7 +125,7 @@ class _RawRewardTraceEnv(gym.Env):
 
 
 def test_sample_factory_training_configs_load():
-    cfg = load_training_config("configs/experiments/demon_attack/sf_fixed_latency_4.yaml")
+    cfg = load_config("configs/experiments/demon_attack/sf_fixed_latency_4.yaml")
     assert cfg["backend"]["type"] == "sample_factory"
     assert cfg["env"]["name"] == "demon_attack"
     assert cfg["latency"]["type"] == "fixed"

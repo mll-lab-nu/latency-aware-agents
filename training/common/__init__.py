@@ -3,7 +3,6 @@ from __future__ import annotations
 from training.common.config_adapter import (
     apply_training_overrides,
     import_integration_module,
-    load_training_config,
 )
 from training.common.checkpoints import (
     CheckpointEvalLease,
@@ -37,7 +36,6 @@ __all__ = [
     "import_integration_module",
     "init_learner_process_with_checkpoint_io_patch",
     "load_sample_factory_checkpoint_from_paths",
-    "load_training_config",
     "mark_checkpoint_for_eval_retention",
     "patch_sample_factory_checkpoint_loader",
     "read_checkpoint_backend_type",

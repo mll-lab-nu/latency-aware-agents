@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from latency_bench.core.config import load_config
-from training.common.config_adapter import load_training_config
 
 
 def _flappy_gpu_cfg(**overrides):

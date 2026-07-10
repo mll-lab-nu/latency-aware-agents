@@ -3,10 +3,10 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
+from latency_bench.core.config import load_config
 from training.common import (
     apply_training_overrides,
     import_integration_module,
-    load_training_config,
 )
 
 
@@ -25,7 +25,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--output-dir", type=str)
     args = parser.parse_args(argv)
 
-    config = load_training_config(args.config)
+    config = load_config(args.config)
     config = apply_training_overrides(
         config,
         run_name=args.run_name,

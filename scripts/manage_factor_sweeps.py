@@ -11,7 +11,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.experiment_runner.job_manifest import load_manifest, train_config_from_command
-from training.common.config_adapter import load_training_config
+from latency_bench.core.config import load_config
 
 
 STATUS_COLUMNS = (
@@ -36,7 +36,7 @@ def collect_status_rows(
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for train_command, train_config in _iter_train_commands(Path(generated_root)):
-        config = load_training_config(train_config)
+        config = load_config(train_config)
         rows.append(
             _status_row(
                 config,
@@ -185,7 +185,7 @@ def repair_train(
     wandb_entity: str | None = None,
 ) -> None:
     row = _select_repair_row(rows, train_config=train_config, wandb_name=wandb_name)
-    config = load_training_config(row["train_config"])
+    config = load_config(row["train_config"])
     experiment = str(config["experiment"]["name"])
     experiment_dir = Path(str(config["backend"]["train_dir"])).expanduser() / experiment
     output_dir = Path(str(config["logging"]["output_dir"])).expanduser()
