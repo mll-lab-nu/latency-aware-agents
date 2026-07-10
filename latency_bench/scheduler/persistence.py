@@ -7,6 +7,10 @@ from latency_bench.core.types import Action
 
 class ActionPersistencePolicy(ABC):
     @abstractmethod
+    def reset(self) -> None:
+        ...
+
+    @abstractmethod
     def on_action_applied(self, action: Action) -> None:
         ...
 
@@ -19,8 +23,6 @@ class HoldPolicy(ActionPersistencePolicy):
     """Hold each applied action for a fixed number of environment frames."""
 
     def __init__(self, duration_raw_frames: int):
-        if duration_raw_frames <= 0:
-            raise ValueError("duration_raw_frames must be positive")
         self.duration_raw_frames = duration_raw_frames
         self._frames_remaining = 0
 

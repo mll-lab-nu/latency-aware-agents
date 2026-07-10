@@ -475,9 +475,10 @@ utilization <= 0.7 或 utilization <= 0.8
 
 Ordering policy 决定多个 inference result 完成顺序和 apply 顺序不一致时如何处理。
 
-### 14.1 Default: issue-order FIFO
+### 14.1 Benchmark policy: issue-order FIFO
 
-默认 benchmark policy 是 issue-order FIFO。
+Benchmark config 必须显式选择 issue-order FIFO；省略
+`scheduler.ordering_policy` 会直接报错。
 
 如果 `obs_1` 先于 `obs_2` 被发出，则 `a_2` 不能先于 `a_1` 被 apply，即使 `a_2` 更早完成。
 
@@ -680,7 +681,7 @@ obs_stride_raw_frames
 
 ### 20.4 Action ordering invariants
 
-1. 默认 policy 是 issue-order FIFO。
+1. benchmark config 显式选择 issue-order FIFO。
 2. latest-ready 只能作为显式配置的 ablation。
 3. timeout 可以 unblock FIFO。
 4. dropped/skipped actions 必须被记录。

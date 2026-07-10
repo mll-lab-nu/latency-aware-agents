@@ -479,9 +479,10 @@ The P95/P99 inference time should be preferred over the mean inference time.
 
 The ordering policy decides what happens when inference completion order differs from observation issue order.
 
-### 14.1 Default: issue-order FIFO
+### 14.1 Benchmark policy: issue-order FIFO
 
-The default benchmark policy is issue-order FIFO.
+Benchmark configs must explicitly select issue-order FIFO; omitting
+`scheduler.ordering_policy` is an error.
 
 If `obs_1` is issued before `obs_2`, then `a_2` cannot be applied before `a_1`, even if `a_2` finishes first.
 
@@ -686,7 +687,7 @@ Any implementation that claims to follow this document must satisfy the followin
 
 ### 20.4 Action ordering invariants
 
-1. the default policy is issue-order FIFO.
+1. benchmark configs explicitly select issue-order FIFO.
 2. latest-ready is only used as an explicitly configured ablation.
 3. timeout may unblock FIFO ordering.
 4. dropped/skipped actions must be logged.

@@ -22,39 +22,26 @@ def build_action_scheduler(
     clock: EnvClock,
     noop_action: Action,
 ) -> ActionScheduler:
+    _raise_if_unsupported_scheduler_fields(scheduler_cfg)
     return ActionScheduler(
         clock=clock,
         noop_action=noop_action,
-        persistence_policy=build_persistence_policy(scheduler_cfg, clock=clock),
-        ordering_policy=build_ordering_policy(scheduler_cfg),
+        persistence_policy=build_persistence_policy(
+            ActionHoldPolicy(scheduler_cfg["hold_policy"]),
+            clock=clock,
+        ),
+        ordering_policy=OrderingPolicy(scheduler_cfg["ordering_policy"]),
     )
 
 
-def build_ordering_policy(scheduler_cfg: dict[str, Any]) -> OrderingPolicy:
-    _raise_if_unsupported_scheduler_fields(scheduler_cfg)
-    ordering_policy = scheduler_cfg.get("ordering_policy", OrderingPolicy.ISSUE_ORDER_FIFO.value)
-    return _normalize_ordering_policy(ordering_policy, field_name="scheduler.ordering_policy")
-
-
 def build_persistence_policy(
-    scheduler_cfg: dict[str, Any],
+    hold_policy: ActionHoldPolicy,
     *,
-    clock: EnvClock | None = None,
+    clock: EnvClock,
 ) -> ActionPersistencePolicy:
-    mode = _resolve_hold_policy_mode(scheduler_cfg)
-    if mode == ActionHoldPolicy.ONE_FRAME_THEN_NOOP:
-        return OneFrameThenNoopPolicy()
-    if mode == ActionHoldPolicy.HOLD:
-        if clock is None:
-            raise ValueError("clock is required for hold policy")
+    if hold_policy == ActionHoldPolicy.HOLD:
         return HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames)
-    raise ValueError(f"Unsupported hold policy: {mode.value}")
-
-
-def _resolve_hold_policy_mode(scheduler_cfg: dict[str, Any]) -> ActionHoldPolicy:
-    _raise_if_unsupported_scheduler_fields(scheduler_cfg)
-    hold_policy = scheduler_cfg.get("hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value)
-    return _normalize_hold_policy(hold_policy, field_name="scheduler.hold_policy")
+    return OneFrameThenNoopPolicy()
 
 
 def _raise_if_unsupported_scheduler_fields(scheduler_cfg: dict[str, Any]) -> None:
@@ -63,22 +50,3 @@ def _raise_if_unsupported_scheduler_fields(scheduler_cfg: dict[str, Any]) -> Non
             "scheduler contains unsupported fields; use only "
             "['hold_policy', 'ordering_policy']"
         )
-
-
-def _normalize_ordering_policy(value: Any, *, field_name: str) -> OrderingPolicy:
-    normalized = str(value).strip().lower()
-    try:
-        return OrderingPolicy(normalized)
-    except ValueError as exc:
-        raise ValueError(f"{field_name} must be one of ['issue_order_fifo', 'latest_ready']") from exc
-
-
-def _normalize_hold_policy(value: Any, *, field_name: str) -> ActionHoldPolicy:
-    normalized = str(value).strip().lower()
-    try:
-        return ActionHoldPolicy(normalized)
-    except ValueError as exc:
-        raise ValueError(
-            f"{field_name} must be one of "
-            "['one_frame_then_noop', 'hold']"
-        ) from exc

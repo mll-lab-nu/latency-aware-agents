@@ -22,10 +22,8 @@ from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.core.types import (
     Action,
     ActionEvent,
-    ActionHoldPolicy,
     LatencyRecord,
     Observation,
-    OrderingPolicy,
     PolicyOutput,
 )
 from latency_bench.latency.hardware_info import safe_set, torch_backend_flags
@@ -33,7 +31,7 @@ from latency_bench.latency.measurement import RuntimeLatencyMeasurer
 from latency_bench.logging.records import build_step_record
 from latency_bench.logging.realtime_pipeline import PipelineProfile, REALTIME_PROFILE_METADATA_KEY
 from latency_bench.scheduler.action_queue import ActionScheduler
-from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
+from latency_bench.scheduler.factory import build_action_scheduler
 from latency_bench.executors.realtime.shared_observation import (
     ObservationAttachmentCache,
     ObservationLocalizer,
@@ -341,13 +339,6 @@ def _drain_env_actions_until_wall_time(
         return False
 
 
-def _build_realtime_persistence_policy(scheduler_cfg: dict[str, Any], clock: EnvClock):
-    mode = ActionHoldPolicy(str(scheduler_cfg.get("hold_policy", ActionHoldPolicy.ONE_FRAME_THEN_NOOP.value)))
-    if mode == ActionHoldPolicy.HOLD:
-        return HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames)
-    return OneFrameThenNoopPolicy()
-
-
 def _env_loop_worker(
     connection: Any,
     config: dict[str, Any] | None,
@@ -376,11 +367,10 @@ def _env_loop_worker(
             env_fps=float(runtime_config["env"]["env_fps"]),
             obs_fps=float(runtime_config["env"]["obs_fps"]),
         )
-        action_scheduler = ActionScheduler(
+        action_scheduler = build_action_scheduler(
+            runtime_config["scheduler"],
             clock=clock,
             noop_action=env.noop_action,
-            persistence_policy=_build_realtime_persistence_policy(runtime_config.get("scheduler", {}), clock),
-            ordering_policy=OrderingPolicy(str(runtime_config.get("scheduler", {}).get("ordering_policy", "issue_order_fifo"))),
         )
         decision_scheduler = ObservationCadenceDecisionScheduler(clock)
         env.reset(seed=seed)

@@ -12,23 +12,15 @@ def test_fixed_two_frame_latency_action_applies_at_correct_step():
     clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     action = Action("jump")
-    scheduler = ActionScheduler(clock, noop, HoldPolicy(duration_raw_frames=100))
+    scheduler = ActionScheduler(
+        clock, noop, HoldPolicy(duration_raw_frames=100), OrderingPolicy.ISSUE_ORDER_FIFO
+    )
     scheduler.enqueue(_event(0, action, ready_step=2, clock=clock))
 
     assert scheduler.update(0, clock.step_to_time_ms(0)) is noop
     assert scheduler.update(1, clock.step_to_time_ms(1)) is noop
     assert scheduler.update(2, clock.step_to_time_ms(2)) is action
     assert scheduler.get_applied_events()[0].apply_raw_frame == 2
-
-
-def test_default_mode_is_issue_order_fifo():
-    scheduler = ActionScheduler(
-        EnvClock(env_fps=30, obs_fps=30),
-        Action("noop", is_noop=True),
-        HoldPolicy(duration_raw_frames=100),
-    )
-
-    assert scheduler.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO
 
 
 def test_one_frame_latency_ready_on_float_boundary_applies_at_next_step():
@@ -49,7 +41,9 @@ def test_one_frame_latency_ready_on_float_boundary_applies_at_next_step():
             latency_ms=clock.frame_ms,
         ),
     )
-    scheduler = ActionScheduler(clock, noop, HoldPolicy(duration_raw_frames=100))
+    scheduler = ActionScheduler(
+        clock, noop, HoldPolicy(duration_raw_frames=100), OrderingPolicy.ISSUE_ORDER_FIFO
+    )
     scheduler.enqueue(event)
 
     assert ready_time_ms > clock.step_to_time_ms(ready_step)
@@ -146,7 +140,9 @@ def test_applied_event_incremental_access_does_not_require_full_copy():
     noop = Action("noop", is_noop=True)
     first = Action("first")
     second = Action("second")
-    scheduler = ActionScheduler(clock, noop, HoldPolicy(duration_raw_frames=100))
+    scheduler = ActionScheduler(
+        clock, noop, HoldPolicy(duration_raw_frames=100), OrderingPolicy.ISSUE_ORDER_FIFO
+    )
     scheduler.enqueue(_event(0, first, ready_step=0, clock=clock))
     scheduler.enqueue(_event(1, second, ready_step=1, clock=clock))
 
@@ -169,7 +165,9 @@ def test_persistence_policy_controls_active_action():
     clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     oneshot = Action("flap", is_oneshot=True)
-    scheduler = ActionScheduler(clock, noop, OneFrameThenNoopPolicy())
+    scheduler = ActionScheduler(
+        clock, noop, OneFrameThenNoopPolicy(), OrderingPolicy.ISSUE_ORDER_FIFO
+    )
     scheduler.enqueue(_event(0, oneshot, ready_step=0, clock=clock))
 
     assert scheduler.update(0, clock.step_to_time_ms(0)) is oneshot
@@ -180,7 +178,9 @@ def test_reset_clears_pending_and_active_action():
     clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
     action = Action("jump")
-    scheduler = ActionScheduler(clock, noop, HoldPolicy(duration_raw_frames=100))
+    scheduler = ActionScheduler(
+        clock, noop, HoldPolicy(duration_raw_frames=100), OrderingPolicy.ISSUE_ORDER_FIFO
+    )
     scheduler.enqueue(_event(0, action, ready_step=0, clock=clock))
     assert scheduler.update(0, clock.step_to_time_ms(0)) is action
 

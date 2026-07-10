@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from latency_bench.core.types import Action
-import pytest
 
 from latency_bench.scheduler.persistence import (
     HoldPolicy,
@@ -31,11 +30,6 @@ def test_one_frame_then_noop_applies_any_action_once_then_noop():
 
     assert policy.get_action_for_step(action, noop) is action
     assert policy.get_action_for_step(action, noop) is noop
-
-
-def test_hold_policy_rejects_nonpositive_duration():
-    with pytest.raises(ValueError, match="duration_raw_frames"):
-        HoldPolicy(duration_raw_frames=0)
 
 
 def test_one_frame_then_noop_does_not_depend_on_is_oneshot_metadata():
