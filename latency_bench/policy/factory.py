@@ -1,65 +1,35 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner, RandomPolicyRunner
 
-
-PolicyBuilder = Callable[[dict[str, Any], ActionResolver], PolicyRunner]
-
-_POLICY_BUILDERS: dict[str, PolicyBuilder] = {}
-
-
-def register_policy(policy_type: str) -> Callable[[PolicyBuilder], PolicyBuilder]:
-    normalized_type = _normalize_policy_type(policy_type)
-
-    def decorator(builder: PolicyBuilder) -> PolicyBuilder:
-        if normalized_type in _POLICY_BUILDERS:
-            raise ValueError(f"Policy already registered: {normalized_type}")
-        _POLICY_BUILDERS[normalized_type] = builder
-        return builder
-
-    return decorator
+_SAMPLE_FACTORY_POLICY_TYPES = {
+    "flappy_sf",
+    "demon_attack_sf",
+    "deadly_corridor_sf",
+}
 
 
 def build_policy(config: dict[str, Any], action_resolver: ActionResolver) -> PolicyRunner:
     policy_cfg = config["policy"]
-    policy_type = _normalize_policy_type(policy_cfg["type"])
-    builder = _POLICY_BUILDERS.get(policy_type)
-    if builder is None:
-        _lazy_import_policy(policy_type)
-        builder = _POLICY_BUILDERS.get(policy_type)
-    if builder is None:
-        registered = ", ".join(get_registered_policy_types()) or "<none>"
-        raise ValueError(f"Unsupported policy.type: {policy_type}. Registered policies: {registered}")
-    return builder(config, action_resolver)
+    policy_type = policy_cfg["type"]
+    if policy_type == "random":
+        return _build_random_policy(config, action_resolver)
+    if policy_type == "constant":
+        return _build_constant_policy(config, action_resolver)
+    if policy_type in _SAMPLE_FACTORY_POLICY_TYPES:
+        from latency_bench.policy.sample_factory import build_sample_factory_policy
 
-
-def get_registered_policy_types() -> list[str]:
-    return sorted(_POLICY_BUILDERS)
-
-
-def _normalize_policy_type(policy_type: str) -> str:
-    normalized = str(policy_type).strip().lower()
-    if not normalized:
-        raise ValueError("policy.type cannot be empty")
-    return normalized
-
-
-def _lazy_import_policy(policy_type: str) -> None:
-    if policy_type == "flappy_sf":
-        from latency_bench.policy import flappy_sf  # noqa: F401
-    if policy_type == "demon_attack_sf":
-        from latency_bench.policy import demon_attack_sf  # noqa: F401
-    if policy_type == "deadly_corridor_sf":
-        from latency_bench.policy import deadly_corridor_sf  # noqa: F401
+        return build_sample_factory_policy(config, action_resolver, policy_type=policy_type)
     if policy_type == "starvla":
-        from latency_bench.policy import starvla  # noqa: F401
+        from latency_bench.policy.starvla import build_starvla_policy
+
+        return build_starvla_policy(config, action_resolver)
+    raise ValueError(f"Unsupported policy.type: {policy_type}")
 
 
-@register_policy("random")
 def _build_random_policy(config: dict[str, Any], action_resolver: ActionResolver) -> PolicyRunner:
     policy_cfg = config["policy"]
     action_refs = policy_cfg.get("actions", action_resolver.default_action_refs())
@@ -67,7 +37,6 @@ def _build_random_policy(config: dict[str, Any], action_resolver: ActionResolver
     return RandomPolicyRunner(actions=actions, seed=config.get("experiment", {}).get("seed"))
 
 
-@register_policy("constant")
 def _build_constant_policy(config: dict[str, Any], action_resolver: ActionResolver) -> PolicyRunner:
     policy_cfg = config["policy"]
     default_action_refs = policy_cfg.get("actions", action_resolver.default_action_refs())

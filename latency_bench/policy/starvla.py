@@ -15,7 +15,6 @@ from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.data.ghost_trail import GhostTrailConfig, build_flappy_ghost_trail_window
 from latency_bench.policy.base import PolicyRunner
-from latency_bench.policy.factory import register_policy
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
 
 
@@ -710,8 +709,7 @@ def sha256_array(value: npt.NDArray[Any]) -> str:
     return hashlib.sha256(np.ascontiguousarray(value).tobytes()).hexdigest()
 
 
-@register_policy("starvla")
-def _build_starvla_policy(
+def build_starvla_policy(
     config: dict[str, Any],
     action_resolver: ActionResolver,
 ) -> PolicyRunner:
@@ -759,7 +757,7 @@ def build_live_starvla_policy(
 ) -> StarVlaPolicyRunner:
     """Build a StarVLA policy around a *live* in-memory framework (no reload).
 
-    Mirrors ``_build_starvla_policy`` but swaps the ckpt-loading
+    Mirrors ``build_starvla_policy`` but swaps the ckpt-loading
     ``PolicyServerWrapper`` for :class:`LiveStarVlaWrapper`, so the trainer's
     resident model is evaluated directly. ``model_cfg`` is the in-memory model
     config (e.g. ``read_mode_config`` output) the wrapper would otherwise read
@@ -803,6 +801,7 @@ __all__ = [
     "LiveStarVlaWrapper",
     "StarVlaPolicyRunner",
     "build_live_starvla_policy",
+    "build_starvla_policy",
     "decode_starvla_action",
     "observation_data_to_hwc_uint8_frames",
 ]
