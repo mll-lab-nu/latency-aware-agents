@@ -11,7 +11,7 @@ from latency_bench.envs.flappy import FlappyBirdEnvAdapter
 from latency_bench.executors.env_step_backend import SerialEnvStepBackend
 from latency_bench.executors.factory import build_executor
 from latency_bench.executors.backend_selection import auto_latency_bench_env_backend
-from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 def _noop() -> Action:

@@ -10,7 +10,7 @@ from gymnasium.spaces import Box, Tuple
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.utils.array import looks_chw
-from training.common.raw_rgb_export import RawRgbFrameStackBuffer
+from latency_bench.envs.raw_rgb import RawRgbFrameStackBuffer
 
 
 def _noop_action_from_space(space) -> Any:

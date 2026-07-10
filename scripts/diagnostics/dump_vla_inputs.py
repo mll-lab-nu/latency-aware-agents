@@ -34,8 +34,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from latency_bench.core.types import Observation
+from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.policy.starvla import (
-    ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
     StarVlaPolicyRunner,
     _get_stitch_frames,
 )

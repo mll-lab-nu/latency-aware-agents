@@ -14,13 +14,13 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.data.ghost_trail import GhostTrailConfig, build_flappy_ghost_trail_window
+from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STARVLA_ROOT = REPO_ROOT / "starVLA"
-ENV_RAW_RGB_FRAME_STACK_INFO_KEY = "env_raw_rgb_frame_stack"
 STATEFUL_STARVLA_MODEL_IDS: tuple[str, ...] = (
     "pi0",
     "pi-0",

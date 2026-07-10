@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 
 from latency_bench.core.types import Action, Observation, StepResult
-from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 class EnvAdapter(ABC):

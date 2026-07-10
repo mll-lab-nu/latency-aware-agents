@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from latency_bench.core.types import Action
-from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 FRAME_STACK = 4

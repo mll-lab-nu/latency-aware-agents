@@ -9,7 +9,7 @@ from typing import Any, Mapping
 import numpy as np
 from PIL import Image
 
-from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 from latency_bench.utils.array import to_numpy
 

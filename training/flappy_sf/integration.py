@@ -36,7 +36,7 @@ from training.common.latency_wrapper import (
     EpisodeMetricsWrapper,
     RewardTraceWrapper,
 )
-from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from training.common.sf_episode_extra_stats_compat import (
     ensure_sample_factory_episode_extra_stats_installed,
 )

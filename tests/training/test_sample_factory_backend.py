@@ -291,7 +291,7 @@ def test_flappy_sf_resize_preserves_uint8_rgb():
 
 
 def test_flappy_image_obs_wrapper_reports_raw_rgb_before_resize():
-    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
     from training.flappy_sf.integration import FlappyImageObsWrapper
 
     wrapped = FlappyImageObsWrapper(
@@ -308,7 +308,7 @@ def test_flappy_image_obs_wrapper_reports_raw_rgb_before_resize():
 
 
 def test_flappy_image_obs_wrapper_keeps_training_info_clean_by_default():
-    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
     from training.flappy_sf.integration import FlappyImageObsWrapper
 
     wrapped = FlappyImageObsWrapper(_RenderedRgbEnv(shape=(6, 5, 3)), obs_resize=(2, 2))
@@ -319,7 +319,7 @@ def test_flappy_image_obs_wrapper_keeps_training_info_clean_by_default():
 
 
 def test_flappy_frame_stack_export_advances_raw_rgb_stack_oldest_to_newest():
-    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
     from training.flappy_sf.integration import FlappyFrameStackWrapper, FlappyImageObsWrapper
 
     class StepRenderedEnv(_RenderedRgbEnv):
@@ -1762,7 +1762,8 @@ def test_doom_frame_stack_wrapper_returns_stable_observation_snapshots():
 def test_doom_raw_rgb_frame_stack_wrapper_reports_screen_buffer_without_changing_observation():
     from gymnasium.spaces import Box, Discrete
 
-    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackInfoWrapper
+    from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from training.common.raw_rgb_export import RawRgbFrameStackInfoWrapper
 
     class FakeState:
         def __init__(self, value):
@@ -1812,7 +1813,8 @@ def test_doom_raw_rgb_frame_stack_wrapper_reports_screen_buffer_without_changing
 def test_raw_rgb_frame_stack_wrapper_keeps_last_stack_on_terminal_step():
     from gymnasium.spaces import Box, Discrete
 
-    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackInfoWrapper
+    from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from training.common.raw_rgb_export import RawRgbFrameStackInfoWrapper
 
     class FakeState:
         def __init__(self):
