@@ -53,7 +53,7 @@ def test_translation_flappy_fixed_latency(tmp_path):
     )
     assert cfg["executor"]["mode"] == "simulated"
     assert cfg["env"]["obs_resize"] == [224, 224]
-    assert cfg["latency"]["type"] == "fixed"
+    assert cfg["latency"]["method"] == "fixed"
     assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(2 * 1000.0 / 30.0)
     assert cfg["policy"]["type"] == "starvla"
     assert cfg["policy"]["unnorm_key"] == "flappy"
@@ -88,7 +88,7 @@ def test_translation_frame_skipped_tasks_use_observation_step_latency(tmp_path, 
         output_dir=tmp_path,
     )
 
-    assert cfg["latency"]["type"] == "fixed"
+    assert cfg["latency"]["method"] == "fixed"
     assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(2 * 1000.0 / obs_fps)
     assert cfg["policy"]["latency_prompt_key"] == 2
 
@@ -109,7 +109,7 @@ def test_translation_zero_latency_uses_zero_type(tmp_path):
         actions=None,
         output_dir=tmp_path,
     )
-    assert cfg["latency"]["type"] == "zero"
+    assert cfg["latency"]["method"] == "zero"
     assert "fixed_latency_ms" not in cfg["latency"]
     assert "unnorm_key" not in cfg["policy"]
 

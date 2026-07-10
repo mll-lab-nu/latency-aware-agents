@@ -5,6 +5,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from latency_bench.latency.config import latency_type_from_config
+
 ENV_INTEGRATIONS = {
     "deadly_corridor": "training.deadly_corridor_sf.integration",
     "demon_attack": "training.demon_attack_sf.integration",
@@ -273,7 +275,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         if field in training_cfg:
             append_cli_arg(args, f"--{field}", training_cfg.get(field))
 
-    append_cli_arg(args, "--latency-type", latency_cfg.get("type"))
+    append_cli_arg(args, "--latency-type", latency_type_from_config(latency_cfg))
     append_cli_arg(args, "--fixed-latency-ms", latency_cfg.get("fixed_latency_ms"))
     append_cli_arg(args, "--mean-latency-ms", latency_cfg.get("mean_latency_ms"))
     append_cli_arg(args, "--std-latency-ms", latency_cfg.get("std_latency_ms"))

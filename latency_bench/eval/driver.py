@@ -17,6 +17,7 @@ from latency_bench.eval.reporting import _write_non_sweep_summary
 from latency_bench.executors.base import BatchedExecutor
 from latency_bench.executors.factory import build_executor
 from latency_bench.executors.realtime_warmup import plot_realtime_eval_latency
+from latency_bench.latency.config import latency_type_from_config
 from latency_bench.logging.action_trace_replay import record_videos_from_action_trace
 from latency_bench.logging.video import select_episode_return_stratified
 
@@ -136,7 +137,7 @@ def _evaluation_raw_fact_metadata(config: dict[str, Any], episode_id: int) -> di
     obs_fps = float(env_cfg["obs_fps"]) if "obs_fps" in env_cfg else None
     frame_ms = None if env_fps is None or env_fps <= 0 else 1000.0 / env_fps
     executor_mode = str(executor_cfg.get("mode", "")).strip().lower()
-    latency_type = str(latency_cfg.get("type", "")).strip().lower()
+    latency_type = latency_type_from_config(latency_cfg)
     if executor_mode == "paused":
         latency_type = "zero"
     elif executor_mode == "realtime":

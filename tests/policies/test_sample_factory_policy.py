@@ -1076,7 +1076,7 @@ def test_latency_bench_run_with_batched_sample_factory_discrete_policy_completes
             },
         },
         "latency": {
-            "type": "zero",
+            "method": "zero",
         },
         "scheduler": {
             "hold_policy": "one_frame_then_noop",
@@ -1147,7 +1147,7 @@ def test_latency_bench_run_with_batched_deadly_tuple_policy_completes_exact_epis
             "noop_action": [0, 0, 0, 0],
         },
         "latency": {
-            "type": "zero",
+            "method": "zero",
         },
         "scheduler": {
             "hold_policy": "hold",

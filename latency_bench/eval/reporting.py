@@ -17,6 +17,7 @@ from latency_bench.eval.config import (
     _eval_latency_values,
     _infer_latency_steps,
 )
+from latency_bench.latency.config import latency_type_from_config
 from latency_bench.logging.summary import build_queue_eval_summary, write_queue_eval_summary
 from latency_bench.logging.wandb_eval import eval_scalar_payload, normalize_wandb_tags
 
@@ -64,10 +65,7 @@ def _summary_latency_label(config: dict[str, Any]) -> int | str | None:
     if latency_steps is not None:
         return latency_steps
 
-    latency_type = str(config.get("latency", {}).get("type", "")).strip().lower()
-    if latency_type:
-        return latency_type
-    return None
+    return latency_type_from_config(config["latency"])
 
 
 def _summary_payloads_for_printing(

@@ -37,7 +37,7 @@ def _config(env_name: str = "dummy", output_dir: str = "outputs/factory_test") -
             },
         },
         "latency": {
-            "type": "zero",
+            "method": "zero",
         },
         "scheduler": {
             "hold_policy": "one_frame_then_noop",

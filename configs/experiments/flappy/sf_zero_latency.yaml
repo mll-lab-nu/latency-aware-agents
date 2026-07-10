@@ -9,7 +9,7 @@ backend:
   run_mode: train
 
 latency:
-  type: zero
+  method: zero
   add_latency_info: false
 
 logging:

@@ -33,7 +33,7 @@ env:
     noop: noop
     jump: jump
 latency:
-  type: zero
+  method: zero
 scheduler:
   hold_policy: one_frame_then_noop
   ordering_policy: latest_ready
@@ -71,7 +71,7 @@ env:
     noop: noop
     jump: jump
 latency:
-  type: zero
+  method: zero
 scheduler:
   hold_policy: one_frame_then_noop
   ordering_policy: latest_ready
@@ -116,6 +116,7 @@ env:
     noop: noop
     jump: jump
 latency:
+  method: zero
   device: cpu
   sync_cuda: false
 scheduler:
@@ -157,7 +158,7 @@ def _run_config(policy_type: str, tmp_path: Path, seed: int = 7, num_episodes: i
             },
         },
         "latency": {
-            "type": "zero",
+            "method": "zero",
         },
         "scheduler": {
             "hold_policy": "one_frame_then_noop",
@@ -557,7 +558,7 @@ env:
   env_fps: 60
   obs_fps: 15
 latency:
-  type: fixed
+  method: fixed
 scheduler:
   hold_policy: hold
   ordering_policy: latest_ready
@@ -717,7 +718,7 @@ env:
   env_fps: 60
   obs_fps: 15
 latency:
-  type: fixed
+  method: fixed
 scheduler:
   hold_policy: hold
   ordering_policy: latest_ready

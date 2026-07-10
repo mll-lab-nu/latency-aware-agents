@@ -19,7 +19,7 @@ def test_generated_sim_config_separates_eval_and_latency_seeds(tmp_path, monkeyp
     monkeypatch.setattr(
         configs,
         "load_profile_manifest",
-        lambda path: {"inference_worker_count": 2},
+        lambda path: {"inference_worker_count": 2, "latency_method": "temporal"},
     )
     monkeypatch.setattr(configs, "_patch_env_from_profile", lambda config, path: None)
     task = SimpleNamespace(

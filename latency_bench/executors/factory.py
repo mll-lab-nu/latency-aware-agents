@@ -21,15 +21,16 @@ from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
+from latency_bench.latency.config import (
+    BATCHED_SIMULATED_METHODS,
+    resolve_latency_method,
+)
 from latency_bench.latency.hardware_info import visible_cuda_device_count
 from latency_bench.latency.samplers import (
-    BATCHED_SIMULATED_METHODS,
     LatencySampler,
     ZeroSampler,
     build_episode_sampler_factory,
     build_sampler,
-    resolve_concrete_latency_method,
-    resolve_latency_method,
 )
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.base import PolicyRunner
@@ -241,7 +242,7 @@ def _build_batched_simulated_executor(
         ]
         logger = _build_trajectory_logger(config)
         episode_latency_source_factory = build_episode_sampler_factory(config["latency"], clock)
-        if resolve_concrete_latency_method(config["latency"]) == "temporal":
+        if resolve_latency_method(config["latency"]) == "temporal":
             # The hidden regime is session-scoped machine state and a dwell is
             # a draw budget that spans episodes however draws interleave, so
             # one machine timeline serves every slot.
@@ -276,7 +277,7 @@ def _build_paused_executor(
 ) -> PausedLatencyExecutor:
     latency_cfg = config["latency"]
     if resolve_latency_method(latency_cfg) != "zero":
-        raise ValueError("paused executor supports only latency.type=zero")
+        raise ValueError("paused executor supports only latency.method=zero")
 
     c = _build_common_executor_components(config)
     return PausedLatencyExecutor(
@@ -352,7 +353,7 @@ def _build_decision_scheduler(clock: EnvClock) -> DecisionScheduler:
 
 
 def _build_latency_source(latency_cfg: dict[str, Any], clock: EnvClock) -> LatencySampler:
-    return build_sampler(latency_cfg, clock=clock, seed=latency_cfg.get("seed"))
+    return build_sampler(latency_cfg, clock=clock)
 
 
 def _simulated_worker_capacity(config: dict[str, Any]) -> int | None:
@@ -365,4 +366,3 @@ def _eval_parallel_envs(config: dict[str, Any]) -> int:
     if eval_parallel_envs <= 0:
         raise ValueError("evaluation.eval_parallel_envs must be positive")
     return eval_parallel_envs
-

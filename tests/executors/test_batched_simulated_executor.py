@@ -467,7 +467,7 @@ def _subproc_config(
             },
         },
         "latency": {
-            "type": "zero",
+            "method": "zero",
         },
         "scheduler": {
             "hold_policy": "one_frame_then_noop",

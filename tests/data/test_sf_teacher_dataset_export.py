@@ -211,13 +211,13 @@ class _FakeProgress:
 def test_config_loader_resolves_training_config_inheritance(tmp_path):
     base = tmp_path / "base.yaml"
     child = tmp_path / "child.yaml"
-    base.write_text("env:\n  name: flappy\nlatency:\n  type: zero\n", encoding="utf-8")
-    child.write_text("__base__: base.yaml\nlatency:\n  type: fixed\n  fixed_latency_ms: 50\n", encoding="utf-8")
+    base.write_text("env:\n  name: flappy\nlatency:\n  method: zero\n", encoding="utf-8")
+    child.write_text("__base__: base.yaml\nlatency:\n  method: fixed\n  fixed_latency_ms: 50\n", encoding="utf-8")
 
     config = load_config(child)
 
     assert config["env"]["name"] == "flappy"
-    assert config["latency"] == {"type": "fixed", "fixed_latency_ms": 50}
+    assert config["latency"] == {"method": "fixed", "fixed_latency_ms": 50}
 
 
 def test_rollout_config_reads_checkpoint_config_without_rebuilding_nested_training_config(tmp_path):
@@ -248,7 +248,7 @@ def test_latency_config_override_is_explicit_rollout_override(tmp_path):
         yaml.safe_dump(
             {
                 "latency": {
-                    "type": "uniform_distribution",
+                    "method": "uniform",
                     "min_latency_ms": 10.0,
                     "max_latency_ms": 80.0,
                     "seed": 123,
@@ -262,7 +262,7 @@ def test_latency_config_override_is_explicit_rollout_override(tmp_path):
 
     assert descriptor["flat_cfg"]["frame_stack"] == 6
     assert descriptor["latency_override"] == {
-        "type": "uniform_distribution",
+        "method": "uniform",
         "min_latency_ms": 10.0,
         "max_latency_ms": 80.0,
         "seed": 123,
@@ -304,7 +304,7 @@ def test_rollout_config_infers_legacy_same_latency_checkpoint_fixed_latency(
     descriptor, metadata = load_rollout_training_config(experiment_dir)
 
     assert descriptor["latency_override"] == {
-        "type": "fixed",
+        "method": "fixed",
         "fixed_latency_ms": expected_ms,
         "add_latency_info": False,
     }
@@ -329,13 +329,13 @@ def test_explicit_latency_config_takes_precedence_over_legacy_checkpoint_name(tm
     )
     override_path = tmp_path / "latency_override.yaml"
     override_path.write_text(
-        yaml.safe_dump({"latency": {"type": "fixed", "fixed_latency_ms": 99.0}}),
+        yaml.safe_dump({"latency": {"method": "fixed", "fixed_latency_ms": 99.0}}),
         encoding="utf-8",
     )
 
     descriptor, metadata = load_rollout_training_config(experiment_dir, latency_config_path=override_path)
 
-    assert descriptor["latency_override"] == {"type": "fixed", "fixed_latency_ms": 99.0}
+    assert descriptor["latency_override"] == {"method": "fixed", "fixed_latency_ms": 99.0}
     assert metadata["latency_source"] == str(override_path.resolve())
 
 

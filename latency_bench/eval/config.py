@@ -85,9 +85,8 @@ def _latency_steps_from_config(config: dict[str, Any]) -> int | None:
     executor_mode = str(config.get("executor", {}).get("mode", "")).strip().lower()
     if executor_mode == "realtime":
         return None
-    latency_cfg = config.get("latency", {})
-    latency_type = str(latency_cfg.get("type", "")).strip().lower()
-    if latency_type == "zero":
+    latency_cfg = config["latency"]
+    if latency_cfg["method"] == "zero":
         return 0
 
     if "fixed_latency_ms" not in latency_cfg:
@@ -121,8 +120,8 @@ def _latency_steps_to_ms(config: dict[str, Any], latency_steps: int) -> float:
 def _apply_eval_latency(config: dict[str, Any], latency_steps: int, latency_ms: float) -> None:
     latency_cfg = config.setdefault("latency", {})
     if int(latency_steps) == 0:
-        latency_cfg["type"] = "zero"
+        latency_cfg["method"] = "zero"
         latency_cfg.pop("fixed_latency_ms", None)
         return
-    latency_cfg["type"] = "fixed"
+    latency_cfg["method"] = "fixed"
     latency_cfg["fixed_latency_ms"] = float(latency_ms)

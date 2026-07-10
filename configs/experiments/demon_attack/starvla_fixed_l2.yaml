@@ -29,7 +29,7 @@ policy:
     - LEFTFIRE
 
 latency:
-  type: fixed
+  method: fixed
   fixed_latency_ms: 33.333333333333336
 
 evaluation:

@@ -307,38 +307,20 @@ Simulated mode 的关键目标：
 
 ## 11. Latency source semantics
 
-Latency source 必须显式声明单位。
-
-支持单位：
-
-```text
-raw_frames
-ms
-```
-
-如果 latency source 直接返回 `raw_frames`，返回值必须是非负整数。
-
-不允许使用含糊的 `frames`，除非上下文明确写成 `raw_frames` 或 `obs_frames`。
+运行配置通过唯一的 `latency.method` 选择采样方式。合成采样方式统一使用毫秒参数，
+executor 根据 `env.env_fps` 把每次采样转换为 raw frames。
 
 ### 11.1 Fixed latency
 
 ```yaml
 latency:
-  source: fixed
-  unit: raw_frames
-  value: 3
+  method: fixed
+  fixed_latency_ms: 100.0
 ```
 
-表示每个 action 都在 observation 发出后 3 个 raw frames ready。
+表示每个 action 都在 observation 发出 100ms 后 ready。
 
 ### 11.2 Millisecond latency
-
-```yaml
-latency:
-  source: fixed
-  unit: ms
-  value: 100.0
-```
 
 转换规则：
 
@@ -358,58 +340,39 @@ latency_raw_frames = ceil(100 / 1000 * 60) = 6
 
 ```yaml
 latency:
-  source: normal
-  unit: raw_frames
-  mean: 3.0
-  std: 1.0
-  min: 0
-  max: 10
+  method: normal
+  mean_latency_ms: 100.0
+  std_latency_ms: 20.0
+  min_latency_ms: 0.0
+  max_latency_ms: 200.0
 ```
 
 采样流程：
 
 ```text
-sample float -> clamp to [min, max] -> convert to integer raw frames
+sample milliseconds -> clamp -> ceil to raw frames
 ```
-
-整数转换策略必须固定，例如：
-
-```text
-round_half_up
-```
-
-或：
-
-```text
-ceil
-```
-
-具体使用哪种策略必须写入 config/log。
 
 ### 11.4 Uniform latency
 
 ```yaml
 latency:
-  source: uniform
-  unit: raw_frames
-  min: 0
-  max: 10
+  method: uniform
+  min_latency_ms: 50.0
+  max_latency_ms: 150.0
 ```
-
-同样需要定义整数转换策略。
 
 ### 11.5 Profile-sampled latency
 
 ```yaml
 latency:
-  source: profile_sample
+  method: temporal  # iid | temporal
   profile_path: path/to/profile.json
   seed: 0
 ```
 
-Profile sampling 从 profile 的 inverse-CDF distribution 中采样 latency。
-profile 仍可保存原始 `latencies.jsonl` 供 analysis 使用，但 simulated
-execution 不再按顺序 replay 这条 trace。
+`iid` 从 profile 的 inverse-CDF distribution 独立采样；`temporal` 使用 profile
+中拟合的 hidden-regime burst model。两者都不再从旧 sampler 名称推断行为。
 
 Profile sampling 必须记录：
 
@@ -730,22 +693,18 @@ obs_stride_raw_frames
 
 ```yaml
 executor:
-  mode: realtime  # paused | simulated | realtime
-  inference_devices: [cuda:0, cuda:1, cuda:2, cuda:3]
+  mode: simulated  # paused | simulated | realtime
 
-clock:
+env:
   env_fps: 60
   obs_fps: 10
 
 latency:
-  source: fixed  # fixed | normal | uniform | profile_sample
-  unit: raw_frames  # raw_frames | ms
-  value: 3
-  rounding: ceil
+  method: fixed  # zero | fixed | normal | uniform | iid | temporal
+  fixed_latency_ms: 50.0
 
-action:
-  hold_policy: one_frame_then_noop  # one_frame_then_noop | hold
-  default_action: noop
+scheduler:
+  hold_policy: one_frame_then_noop
   ordering_policy: issue_order_fifo  # issue_order_fifo | latest_ready
 
 ```

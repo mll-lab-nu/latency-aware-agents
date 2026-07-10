@@ -32,7 +32,7 @@ policy:
     - flap
 
 latency:
-  type: fixed
+  method: fixed
   fixed_latency_ms: 66.66666666666667
 
 evaluation:

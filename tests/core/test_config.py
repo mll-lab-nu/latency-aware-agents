@@ -20,7 +20,7 @@ env:
   obs_fps: 10
   noop_action: noop
 latency:
-  type: zero
+  method: zero
 scheduler:
   hold_policy: hold
   ordering_policy: latest_ready
@@ -33,13 +33,13 @@ logging:
 
 def test_merge_dicts_overrides_nested_values():
     merged = merge_dicts(
-        {"env": {"env_fps": 30, "name": "base"}, "latency": {"type": "zero"}},
+        {"env": {"env_fps": 30, "name": "base"}, "latency": {"method": "zero"}},
         {"env": {"env_fps": 60}},
     )
 
     assert merged["env"]["name"] == "base"
     assert merged["env"]["env_fps"] == 60
-    assert merged["latency"]["type"] == "zero"
+    assert merged["latency"]["method"] == "zero"
 
 
 def test_scheduler_public_core_types_are_clean():

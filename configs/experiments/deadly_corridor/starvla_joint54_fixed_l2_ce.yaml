@@ -33,7 +33,7 @@ policy:
     - 0
 
 latency:
-  type: fixed
+  method: fixed
   fixed_latency_ms: 57.1428571
 
 evaluation:

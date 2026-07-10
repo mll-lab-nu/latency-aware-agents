@@ -27,7 +27,7 @@ def _base_config(output_root: Path) -> dict:
             "type": "demon_attack_sf",
         },
         "latency": {
-            "type": "zero",
+            "method": "zero",
         },
         "evaluation": {
             "eval_episodes": 3,

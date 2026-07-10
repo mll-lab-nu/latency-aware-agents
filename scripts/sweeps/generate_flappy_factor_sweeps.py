@@ -100,11 +100,12 @@ def _apply_latency_setting(config: dict[str, Any], setting: dict[str, Any], seed
         "min_latency_ms",
         "max_latency_ms",
         "seed",
+        "per_episode",
     ):
         latency_cfg.pop(key, None)
 
     if kind == "fixed":
-        latency_cfg["type"] = "fixed"
+        latency_cfg["method"] = "fixed"
         latency_cfg["fixed_latency_ms"] = float(setting["frames"]) * _frame_ms(config)
     else:
         spec = _latency_distribution_spec(kind, setting)
@@ -116,9 +117,9 @@ def _apply_latency_setting(config: dict[str, Any], setting: dict[str, Any], seed
             )
         )
         if kind == "mixed_normal":
-            latency_cfg["type"] = "mixed_normal_distribution"
+            latency_cfg["per_episode"] = True
         elif kind == "mixed_uniform":
-            latency_cfg["type"] = "mixed_uniform_distribution"
+            latency_cfg["per_episode"] = True
     latency_cfg["add_latency_info"] = False
 
 

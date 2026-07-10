@@ -38,7 +38,7 @@ def _training_config(tmp_path: Path) -> dict:
             "use_gpu_render": True,
         },
         "latency": {
-            "type": "zero",
+            "method": "zero",
             "add_latency_info": False,
         },
         "scheduler": {

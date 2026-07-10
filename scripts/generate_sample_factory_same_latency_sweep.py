@@ -54,13 +54,14 @@ TOP_LEVEL_SAMPLE_FACTORY_KEYS = (
 )
 
 LATENCY_KEYS = (
-    "type",
+    "method",
     "fixed_latency_ms",
     "mean_latency_ms",
     "std_latency_ms",
     "min_latency_ms",
     "max_latency_ms",
     "seed",
+    "per_episode",
     "add_latency_info",
     "max_pending_actions",
 )
@@ -154,16 +155,6 @@ LATENCY_BENCH_POLICY_TYPES = {
     "deadly_corridor": "deadly_corridor_sf",
 }
 
-LATENCY_KIND_MAP = {
-    "zero": "zero",
-    "fixed": "fixed",
-    "normal": "normal",
-    "normal_distribution": "normal",
-    "uniform": "uniform",
-    "uniform_distribution": "uniform",
-}
-
-
 def parse_int_csv(value: str) -> list[int]:
     text = str(value).strip()
     if not text:
@@ -222,8 +213,8 @@ def _latency_manifest_fields(
             row["latency_kind"] = "fixed"
             row["latency_fixed_frames"] = str(int(latency))
         return row
-    row["latency_kind"] = LATENCY_KIND_MAP[latency_distribution.type]
-    if latency_distribution.type == "normal_distribution":
+    row["latency_kind"] = latency_distribution.type
+    if latency_distribution.type == "normal":
         row["latency_mean_frames"] = format_number_label(latency_distribution.mean)
         row["latency_std_frames"] = format_number_label(latency_distribution.std)
     row["latency_min_frames"] = format_number_label(latency_distribution.min)
@@ -328,17 +319,19 @@ def _apply_training_latency_config(
     if latency_distribution is None:
         if latency is None:
             raise ValueError("latency is required for fixed latency configs")
-        latency_cfg["type"] = "zero" if int(latency) == 0 else "fixed"
+        latency_cfg["method"] = "zero" if int(latency) == 0 else "fixed"
         if int(latency) == 0:
             latency_cfg.pop("fixed_latency_ms", None)
         else:
             latency_cfg["fixed_latency_ms"] = _latency_steps_to_ms(config, int(latency))
         for key in ("mean_latency_ms", "std_latency_ms", "min_latency_ms", "max_latency_ms", "seed"):
             latency_cfg.pop(key, None)
+        latency_cfg.pop("per_episode", None)
         latency_cfg["add_latency_info"] = False
         return
 
     latency_cfg.pop("fixed_latency_ms", None)
+    latency_cfg.pop("per_episode", None)
     latency_cfg.update(
         distribution_frames_to_ms_latency_config(
             latency_distribution,
@@ -500,6 +493,7 @@ def _build_latency_bench_eval_config(
     latency_label = _latency_run_label(latency, latency_distribution)
     if latency_distribution is not None:
         latency_cfg.pop("fixed_latency_ms", None)
+        latency_cfg.pop("per_episode", None)
         latency_cfg["add_latency_info"] = False
         latency_cfg.update(
             distribution_frames_to_ms_latency_config(
@@ -512,10 +506,10 @@ def _build_latency_bench_eval_config(
     else:
         latency_cfg["add_latency_info"] = False
         if int(latency) == 0:
-            latency_cfg["type"] = "zero"
+            latency_cfg["method"] = "zero"
             latency_cfg.pop("fixed_latency_ms", None)
         else:
-            latency_cfg["type"] = "fixed"
+            latency_cfg["method"] = "fixed"
             latency_cfg["fixed_latency_ms"] = _latency_steps_to_ms(config, int(latency))
 
     evaluation_cfg = config.setdefault("evaluation", {})

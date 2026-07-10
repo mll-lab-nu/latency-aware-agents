@@ -146,7 +146,7 @@ def test_context_window_spec_emits_official_seed_matrix(tmp_path):
     assert train_cfg["env"]["frame_stack"] == 8
     assert train_cfg["env"]["obs_fps"] == pytest.approx(30)
     assert train_cfg["evaluation"]["eval_episodes"] == 100
-    assert train_cfg["latency"]["type"] == "fixed"
+    assert train_cfg["latency"]["method"] == "fixed"
     assert train_cfg["logging"]["wandb_group"] == "flappy-fs8-fixed_l2"
     assert train_cfg["logging"]["wandb_name"] == "flappy-fs8-fixed_l2-s10"
     assert train_cfg["logging"]["wandb_tags"] == [
@@ -461,7 +461,8 @@ def test_mixed_jitter_robustness_spec_generates_only_mixed_train_runs(tmp_path):
             / "train.yaml"
         ).read_text(encoding="utf-8")
     )
-    assert train_cfg["latency"]["type"] == "mixed_normal_distribution"
+    assert train_cfg["latency"]["method"] == "normal"
+    assert train_cfg["latency"]["per_episode"] is True
     assert train_cfg["evaluation"]["eval_suites"] == {
         "fixed": [[1, 2, 3]],
         "normal": [[2.0, 1.0, 0, 4]],
@@ -476,7 +477,8 @@ def test_mixed_jitter_robustness_spec_generates_only_mixed_train_runs(tmp_path):
         / "seed_911"
         / "latency_bench_eval.yaml"
     )
-    assert eval_cfg["latency"]["type"] == "mixed_uniform_distribution"
+    assert eval_cfg["latency"]["method"] == "uniform"
+    assert eval_cfg["latency"]["per_episode"] is True
     assert eval_cfg["evaluation"]["eval_suites"] == {
         "fixed": [[1, 2, 3]],
         "normal": [[2.0, 1.0, 0, 4]],

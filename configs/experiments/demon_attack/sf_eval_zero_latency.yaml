@@ -8,7 +8,7 @@ evaluation:
   eval_max_steps: 10000
 
 latency:
-  type: zero
+  method: zero
 
 policy:
   type: demon_attack_sf

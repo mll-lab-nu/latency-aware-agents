@@ -58,7 +58,7 @@ def _config(output_dir: str, *, num_episodes: int = 3, score_limit: int | None =
         },
         "env": env_cfg,
         "latency": {
-            "type": "zero",
+            "method": "zero",
         },
         "scheduler": {
             "hold_policy": "one_frame_then_noop",

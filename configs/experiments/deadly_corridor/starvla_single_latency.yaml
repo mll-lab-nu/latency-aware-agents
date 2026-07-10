@@ -39,7 +39,7 @@ policy:
     - ATTACK
 
 latency:
-  type: fixed
+  method: fixed
   fixed_latency_ms: 57.1428571    # 2 frames latency for env_fps=35
 
 evaluation:

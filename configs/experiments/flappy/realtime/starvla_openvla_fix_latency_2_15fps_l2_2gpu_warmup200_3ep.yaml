@@ -30,6 +30,7 @@ env:
     - flap
 
 latency:
+  method: zero
   device: cuda:0
   sync_cuda: true
 

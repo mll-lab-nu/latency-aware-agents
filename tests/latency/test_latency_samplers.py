@@ -29,11 +29,10 @@ def _clock() -> EnvClock:
     return EnvClock(env_fps=25.0, obs_fps=25.0)
 
 
-def _profile_sampler(profile_dir: Path, *, seed=0, sampler: str = "profile_default"):
+def _profile_sampler(profile_dir: Path, *, seed=0, method: str = "temporal"):
     return build_sampler(
-        {"type": "profile_sample", "profile_path": str(profile_dir / "profile.json"), "sampler": sampler},
+        {"method": method, "profile_path": str(profile_dir / "profile.json"), "seed": seed},
         clock=_clock(),
-        seed=seed,
     )
 
 
@@ -187,34 +186,11 @@ def test_uniform_sampler_is_deterministic_within_bounds():
     assert all(10.0 <= value <= 20.0 for value in first_values)
 
 
-def test_fixed_from_profile_uses_summary_mean(tmp_path: Path):
-    profile_dir = _write_latency_profile(tmp_path)
-    sampler = build_sampler(
-        {"method": "fixed", "profile_path": str(profile_dir / "profile.json")},
-        clock=_clock(),
-        seed=None,
-    )
-    assert sampler.sample().latency_ms == 20.0
-
-
-def test_normal_from_profile_uses_summary_mean_and_std(tmp_path: Path):
-    profile_dir = _write_latency_profile(tmp_path)
-    sampler = build_sampler(
-        {"method": "normal", "profile_path": str(profile_dir / "profile.json"), "seed": 0},
-        clock=_clock(),
-        seed=0,
-    )
-    assert isinstance(sampler, NormalSampler)
-    assert sampler.mean_latency_ms == 20.0
-    assert sampler.std_latency_ms == 8.0
-
-
 def test_per_episode_modifier_freezes_draw_per_episode():
     sampler = build_sampler(
-        {"type": "mixed_normal_distribution", "mean_latency_ms": 100.0, "std_latency_ms": 20.0,
+        {"method": "normal", "per_episode": True, "mean_latency_ms": 100.0, "std_latency_ms": 20.0,
          "min_latency_ms": 0.0, "max_latency_ms": 200.0, "seed": 0},
         clock=_clock(),
-        seed=0,
     )
     ep0 = [sampler.sample({"episode_id": 0, "worker_slot": 0}).latency_ms for _ in range(5)]
     ep1 = [sampler.sample({"episode_id": 1, "worker_slot": 0}).latency_ms for _ in range(5)]
@@ -230,7 +206,7 @@ def test_latency_trace_load_and_save(tmp_path: Path):
     assert load_latency_trace(trace_path) == [12.0]
 
 
-def test_profile_default_routes_to_hidden_regime(tmp_path: Path):
+def test_temporal_method_builds_hidden_regime_sampler(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
     sampler = _profile_sampler(profile_dir, seed=0)
     assert isinstance(sampler, HiddenRegimeSampler)
@@ -239,15 +215,6 @@ def test_profile_default_routes_to_hidden_regime(tmp_path: Path):
     assert all(s.action_ready_raw_frames in {1, 2, 3} for s in draws)
     assert sampler.profile_metadata["profile_id"] == "L_test"
     assert sampler.profile_metadata["target_device"] == "test_gpu"
-
-
-def test_legacy_bayes_markov_sampler_config_routes_to_temporal(tmp_path: Path):
-    profile_dir = _write_latency_profile(tmp_path)
-    sampler = _profile_sampler(profile_dir, seed=0, sampler="bayes_markov")
-    assert isinstance(sampler, HiddenRegimeSampler)
-    draws = [sampler.sample({"episode_id": 0, "worker_slot": 0}) for _ in range(5)]
-    assert all(s.worker_service_raw_frames in {1, 2, 3} for s in draws)
-    assert all(s.action_ready_raw_frames in {1, 2, 3} for s in draws)
 
 
 def test_temporal_rejects_stale_burst_model_type(tmp_path: Path):
@@ -397,9 +364,9 @@ def test_hidden_regime_spikeless_profile_is_constant(tmp_path: Path):
     assert [s.action_ready_raw_frames for s in draws] == [2, 2, 2, 2]
 
 
-def test_profile_can_force_iid_inverse_cdf_sampler(tmp_path: Path):
+def test_iid_method_uses_inverse_cdf_distribution(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
-    sampler = _profile_sampler(profile_dir, seed=0, sampler="iid_inverse_cdf")
+    sampler = _profile_sampler(profile_dir, seed=0, method="iid")
     samples = [sampler.sample({"episode_id": 0, "worker_slot": 0}) for _ in range(3)]
     assert [s.latency_ms for s in samples] == pytest.approx([
         26.888437030500963,
@@ -408,29 +375,28 @@ def test_profile_can_force_iid_inverse_cdf_sampler(tmp_path: Path):
     ])
 
 
-def test_profile_default_without_burst_model_raises(tmp_path: Path):
+def test_temporal_method_requires_burst_model_path(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path, write_burst_model=False)
-    with pytest.raises(ValueError, match="profile_default"):
+    with pytest.raises(KeyError, match="burst_model_path"):
         _profile_sampler(profile_dir, seed=0)
 
 
 def test_profile_accepts_profile_directory(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
     sampler = build_sampler(
-        {"type": "profile_sample", "profile_path": str(profile_dir)},
+        {"method": "temporal", "profile_path": str(profile_dir)},
         clock=_clock(),
-        seed=0,
     )
     assert sampler.sample({"episode_id": 0, "worker_slot": 0}).worker_service_raw_frames in {1, 2, 3}
 
 
 def test_profile_rejects_missing_profile_path():
     with pytest.raises(FileNotFoundError):
-        build_sampler({"type": "profile_sample", "profile_path": "/nonexistent/profile.json"}, clock=_clock(), seed=0)
+        build_sampler({"method": "temporal", "profile_path": "/nonexistent/profile.json"}, clock=_clock())
 
 
 def test_profile_rejects_missing_burst_model_file(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
     (profile_dir / "latency_burst_model.json").unlink()
     with pytest.raises(FileNotFoundError):
-        _profile_sampler(profile_dir, sampler="bayes_markov")
+        _profile_sampler(profile_dir)

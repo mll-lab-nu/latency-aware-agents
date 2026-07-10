@@ -16,7 +16,7 @@ executor:
   mode: simulated
 
 latency:
-  type: profile_sample
+  method: temporal
   profile_path: outputs/profiles/flappy_sf_l1_seed0_best_a100_action_ready/profile.json
   add_latency_info: false
 

@@ -32,7 +32,7 @@ policy:
     - LEFTFIRE
 
 latency:
-  type: zero
+  method: zero
 
 evaluation:
   eval_episodes: 20

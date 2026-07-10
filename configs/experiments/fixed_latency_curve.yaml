@@ -7,7 +7,7 @@ executor:
   mode: simulated
 
 latency:
-  type: fixed
+  method: fixed
   fixed_latency_ms: 100
 
 evaluation:
