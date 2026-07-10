@@ -7,7 +7,7 @@ from typing import Any, Mapping
 from latency_bench.data.action_layouts import action_spec_for_env, encode_action_for_env
 from latency_bench.data.prompts import render_teacher_prompt
 from latency_bench.data.rollout_schema import CANONICAL_ROW_FIELDS
-from latency_bench.policy.sample_factory_common import _to_python_action
+from latency_bench.integrations.sample_factory.actions import to_python_action
 
 
 def teacher_dataset_row(
@@ -41,8 +41,8 @@ def teacher_dataset_row(
     Returns:
         Canonical rollout row with environment-specific action fields.
     """
-    latency_raw_frames = int(_to_python_action(info["latency_raw_frames"]))
-    latency_ms = float(_to_python_action(info["latency_ms"]))
+    latency_raw_frames = int(to_python_action(info["latency_raw_frames"]))
+    latency_ms = float(to_python_action(info["latency_ms"]))
     action_spec = action_spec_for_env(env_name)
     base_values = {
         "image": image,

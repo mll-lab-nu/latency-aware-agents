@@ -11,7 +11,7 @@ from typing import Any, Mapping
 
 import yaml
 
-from latency_bench.policy.sample_factory_common import resolve_sample_factory_device
+from latency_bench.integrations.sample_factory.runtime import resolve_sample_factory_device
 
 
 SF_ENV_TO_BENCH_ENV = {

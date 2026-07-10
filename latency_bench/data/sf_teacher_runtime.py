@@ -12,7 +12,10 @@ from typing import Any, Mapping
 import torch
 
 from latency_bench.latency.config import latency_type_from_config
-from latency_bench.policy.sample_factory_common import _load_sf_policy_state_dict, _resolve_device
+from latency_bench.integrations.sample_factory.runtime import (
+    load_sample_factory_policy_state_dict,
+    resolve_torch_device,
+)
 from training.common.config_adapter import import_integration_module
 from training.common.utils import maybe_set_cli_override
 
@@ -117,7 +120,7 @@ def build_env_and_policy(module: Any, cfg: Any, config: Mapping[str, Any], num_e
     from sample_factory.model.model_utils import get_rnn_size
     from sample_factory.utils.attr_dict import AttrDict
 
-    device = torch.device(_resolve_device(cfg.device))
+    device = torch.device(resolve_torch_device(cfg.device))
     envs = [
         make_env_func_batched(
             cfg,
@@ -131,7 +134,7 @@ def build_env_and_policy(module: Any, cfg: Any, config: Mapping[str, Any], num_e
     actor_critic.eval()
     actor_critic.model_to_device(device)
     checkpoint_path = config["checkpoint_path"]
-    checkpoint = _load_sf_policy_state_dict(cfg, actor_critic, device, checkpoint_path)
+    checkpoint = load_sample_factory_policy_state_dict(cfg, actor_critic, device, checkpoint_path)
     return {
         "envs": envs,
         "env_info": env_info,

@@ -5,30 +5,13 @@ from typing import Any, Mapping
 
 import numpy as np
 import torch
-from gymnasium.spaces import Box, Dict as SpaceDict, Discrete, MultiDiscrete, Tuple as SpaceTuple
+from gymnasium.spaces import Box, Dict as SpaceDict, MultiDiscrete, Tuple as SpaceTuple
 
 from latency_bench.core.actions import ActionResolver
-from latency_bench.core.types import Action, Observation, PolicyOutput
+from latency_bench.core.types import Observation, PolicyOutput
+from latency_bench.integrations.sample_factory import actions as sf_actions
+from latency_bench.integrations.sample_factory import runtime as sf_runtime
 from latency_bench.policy.base import PolicyRunner
-from training.common.checkpoints import load_sample_factory_checkpoint_from_paths, trusted_torch_load
-
-
-def _resolve_device(device: Any) -> str:
-    device_name = str(device).strip().lower()
-    if device_name == "auto":
-        return "cuda" if torch.cuda.is_available() else "cpu"
-    if device_name == "gpu":
-        return "cuda"
-    return device_name
-
-
-def resolve_sample_factory_device(device: Any) -> str:
-    device_name = str(device).strip().lower()
-    if device_name == "auto":
-        return "gpu" if torch.cuda.is_available() else "cpu"
-    if device_name == "cuda":
-        return "gpu"
-    return device_name
 
 
 def _obs_to_sf_inputs(
@@ -207,23 +190,6 @@ def _stack_numpy_values(values: Sequence[Any]) -> np.ndarray | None:
     return np.stack(arrays, axis=0)
 
 
-def _load_sf_policy_state_dict(cfg, actor_critic, device: torch.device, checkpoint_path: str | None) -> dict[str, Any]:
-    from sample_factory.algo.learning.learner import Learner
-
-    if checkpoint_path:
-        checkpoint_dict = trusted_torch_load(checkpoint_path, device)
-        actor_critic.load_state_dict(checkpoint_dict["model"])
-        return checkpoint_dict
-
-    policy_id = getattr(cfg, "policy_index", 0)
-    load_checkpoint_kind = getattr(cfg, "load_checkpoint_kind", "latest")
-    name_prefix = dict(latest="checkpoint", best="best")[load_checkpoint_kind]
-    checkpoints = Learner.get_checkpoints(Learner.checkpoint_dir(cfg, policy_id), f"{name_prefix}_*")
-    checkpoint_dict = load_sample_factory_checkpoint_from_paths(checkpoints, device)
-    actor_critic.load_state_dict(checkpoint_dict["model"])
-    return checkpoint_dict
-
-
 def _shape_from_observation_space(space: Any) -> tuple[int, ...] | None:
     if isinstance(space, Box):
         return tuple(int(dim) for dim in space.shape)
@@ -254,23 +220,6 @@ def validate_sample_factory_obs_shape(
         )
 
 
-class SampleFactoryIntegrationModule:
-    """Adapts a training-side integration module to the runner's interface."""
-
-    def __init__(self, module, register_attr: str):
-        self.module = module
-        self._register_attr = register_attr
-
-    def register_components(self):
-        getattr(self.module, self._register_attr)()
-
-    def build_sf_cfg_from_config(self, config: dict[str, Any]):
-        return self.module.parse_cfg(self.module.build_cli_args_from_config(config))
-
-    def make_reference_env(self, cfg):
-        return self.module.make_reference_env(cfg)
-
-
 class SampleFactoryPolicyRunner(PolicyRunner):
     def __init__(
         self,
@@ -292,7 +241,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         self.action_resolver = action_resolver
         self.integration_module = integration_module
         self.policy_type = policy_type
-        self.device = torch.device(_resolve_device(config["policy"].get("device", "auto")))
+        self.device = torch.device(sf_runtime.resolve_torch_device(config["policy"].get("device", "auto")))
         self.deterministic = bool(config["policy"].get("deterministic", True))
         self._prepare_and_normalize_obs = prepare_and_normalize_obs
         self._argmax_actions = argmax_actions
@@ -319,7 +268,12 @@ class SampleFactoryPolicyRunner(PolicyRunner):
 
         self.expected_obs_shape = _shape_from_observation_space(reference_env.observation_space)
         try:
-            checkpoint = _load_sf_policy_state_dict(cfg, self.actor_critic, self.device, checkpoint_path)
+            checkpoint = sf_runtime.load_sample_factory_policy_state_dict(
+                cfg,
+                self.actor_critic,
+                self.device,
+                checkpoint_path,
+            )
         except RuntimeError as exc:
             raise ValueError(
                 f"{policy_type} checkpoint/model shape mismatch. Check env.obs_resize/env.obs_mode "
@@ -355,7 +309,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
             actions = policy_outputs["actions"]
             if self.deterministic:
                 actions = self._deterministic_actions()
-            actions = _normalize_actions_for_space(
+            actions = sf_actions.normalize_actions_for_space(
                 actions,
                 batch_size=1,
                 action_space=self.action_space,
@@ -366,8 +320,8 @@ class SampleFactoryPolicyRunner(PolicyRunner):
                 self.rnn_states = policy_outputs["new_rnn_states"]
 
         processed_actions = self._preprocess_actions_for_space(actions)
-        raw_value = _to_python_action(processed_actions)
-        action = _resolve_action(raw_value, self.action_resolver)
+        raw_value = sf_actions.to_python_action(processed_actions)
+        action = sf_actions.resolve_action(raw_value, self.action_resolver)
         return PolicyOutput(
             action=action,
             raw_output=raw_value,
@@ -405,7 +359,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
             actions = policy_outputs["actions"]
             if self.deterministic:
                 actions = self._deterministic_actions()
-            actions = _normalize_actions_for_space(
+            actions = sf_actions.normalize_actions_for_space(
                 actions,
                 batch_size=batch_size,
                 action_space=self.action_space,
@@ -416,10 +370,14 @@ class SampleFactoryPolicyRunner(PolicyRunner):
                 self._store_batch_rnn_states(slot_ids, policy_outputs["new_rnn_states"])
 
         processed_actions = self._preprocess_actions_for_space(actions)
-        raw_values = _split_batch_actions(processed_actions, batch_size, action_space=self.action_space)
+        raw_values = sf_actions.split_batch_actions(
+            processed_actions,
+            batch_size,
+            action_space=self.action_space,
+        )
         return [
             PolicyOutput(
-                action=_resolve_action(raw_value, self.action_resolver),
+                action=sf_actions.resolve_action(raw_value, self.action_resolver),
                 raw_output=raw_value,
                 metadata={
                     "policy_type": self.policy_type,
@@ -430,7 +388,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         ]
 
     def _raise_if_batch_unsupported(self) -> None:
-        if _is_supported_batched_policy_action_space(self.action_space):
+        if sf_actions.is_supported_batched_policy_action_space(self.action_space):
             return
         if isinstance(self.action_space, SpaceTuple):
             raise NotImplementedError(
@@ -467,7 +425,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
             self._rnn_states_by_slot[int(slot_id)] = new_rnn_states[index : index + 1]
 
     def _deterministic_actions(self) -> torch.Tensor:
-        return _deterministic_actions_for_space(
+        return sf_actions.deterministic_actions_for_space(
             self.actor_critic.action_distribution(),
             action_space=self.action_space,
             argmax_actions=self._argmax_actions,
@@ -478,223 +436,3 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         if isinstance(self.action_space, MultiDiscrete):
             return actions.detach().cpu().numpy()
         return self._preprocess_actions(self.env_info, actions)
-
-
-def _is_flat_discrete_tuple_space(action_space: Any) -> bool:
-    return isinstance(action_space, SpaceTuple) and all(
-        isinstance(subspace, Discrete)
-        for subspace in action_space.spaces
-    )
-
-
-def _is_one_dimensional_multidiscrete_space(action_space: Any) -> bool:
-    return isinstance(action_space, MultiDiscrete) and np.asarray(action_space.nvec).ndim == 1
-
-
-def _is_supported_batched_policy_action_space(action_space: Any) -> bool:
-    return (
-        isinstance(action_space, Discrete)
-        or _is_flat_discrete_tuple_space(action_space)
-        or _is_one_dimensional_multidiscrete_space(action_space)
-    )
-
-
-def _deterministic_actions_for_space(
-    action_distribution: Any,
-    *,
-    action_space: Any,
-    argmax_actions,
-    device: torch.device,
-) -> torch.Tensor:
-    if _is_flat_discrete_tuple_space(action_space):
-        component_actions = []
-        for component_distribution in action_distribution.distributions:
-            component = _as_action_tensor(argmax_actions(component_distribution), device)
-            if component.ndim == 0:
-                component = component.reshape(1)
-            if component.ndim == 2 and component.shape[-1] == 1:
-                component = component.squeeze(-1)
-            component_actions.append(component)
-        return torch.stack(component_actions, dim=1)
-    return _as_action_tensor(argmax_actions(action_distribution), device)
-
-
-def _as_action_tensor(actions: Any, device: torch.device) -> torch.Tensor:
-    if isinstance(actions, torch.Tensor):
-        return actions.to(device=device)
-    return torch.as_tensor(actions, device=device)
-
-
-def _normalize_actions_for_space(
-    actions: Any,
-    *,
-    batch_size: int,
-    action_space: Any,
-    device: torch.device,
-    unsqueeze_tensor,
-) -> torch.Tensor:
-    actions = _as_action_tensor(actions, device)
-    if isinstance(action_space, Discrete):
-        if actions.ndim == 0:
-            if batch_size != 1:
-                raise ValueError(
-                    "Sample Factory batched policy returned a scalar action for multiple observations"
-                )
-            actions = actions.reshape(1, 1)
-        elif actions.ndim == 1:
-            actions = unsqueeze_tensor(actions, dim=-1)
-        _require_action_shape(actions, batch_size=batch_size, num_components=1)
-        return actions
-
-    if _is_flat_discrete_tuple_space(action_space):
-        actions = _normalize_composite_action_tensor(
-            actions,
-            batch_size=batch_size,
-            num_components=len(action_space.spaces),
-            action_space_name="Tuple",
-        )
-        _validate_discrete_tuple_action_values(actions, action_space)
-        return actions
-
-    if _is_one_dimensional_multidiscrete_space(action_space):
-        actions = _normalize_composite_action_tensor(
-            actions,
-            batch_size=batch_size,
-            num_components=len(action_space.nvec),
-            action_space_name="MultiDiscrete",
-        )
-        _validate_multidiscrete_action_values(actions, action_space)
-        return actions
-
-    raise NotImplementedError(f"Unsupported Sample Factory action space for batched prediction: {action_space!r}")
-
-
-def _normalize_composite_action_tensor(
-    actions: torch.Tensor,
-    *,
-    batch_size: int,
-    num_components: int,
-    action_space_name: str,
-) -> torch.Tensor:
-    if actions.ndim == 1:
-        if batch_size == 1 and int(actions.shape[0]) == int(num_components):
-            actions = actions.reshape(1, num_components)
-        else:
-            raise ValueError(
-                f"Sample Factory {action_space_name} actions must have shape [batch, {num_components}], "
-                f"got {tuple(actions.shape)}"
-            )
-    if actions.ndim != 2:
-        raise ValueError(
-            f"Sample Factory {action_space_name} actions must have shape [batch, {num_components}], "
-            f"got {tuple(actions.shape)}"
-        )
-    _require_action_shape(actions, batch_size=batch_size, num_components=num_components)
-    return actions
-
-
-def _require_action_shape(actions: torch.Tensor, *, batch_size: int, num_components: int) -> None:
-    expected_shape = (int(batch_size), int(num_components))
-    if tuple(int(dim) for dim in actions.shape) != expected_shape:
-        raise ValueError(f"Sample Factory actions must have shape {expected_shape}, got {tuple(actions.shape)}")
-
-
-def _validate_discrete_tuple_action_values(actions: torch.Tensor, action_space: SpaceTuple) -> None:
-    for component_index, subspace in enumerate(action_space.spaces):
-        values = actions[:, component_index]
-        if torch.any(values < 0) or torch.any(values >= int(subspace.n)):
-            raise ValueError(
-                f"Tuple action component {component_index} is outside Discrete({int(subspace.n)})"
-            )
-
-
-def _validate_multidiscrete_action_values(actions: torch.Tensor, action_space: MultiDiscrete) -> None:
-    nvec = [int(value) for value in np.asarray(action_space.nvec).tolist()]
-    for component_index, n in enumerate(nvec):
-        values = actions[:, component_index]
-        if torch.any(values < 0) or torch.any(values >= n):
-            raise ValueError(
-                f"MultiDiscrete action component {component_index} is outside range [0, {n})"
-            )
-
-
-def _split_batch_actions(processed_actions: Any, batch_size: int, *, action_space: Any = None) -> list[Any]:
-    if isinstance(processed_actions, torch.Tensor):
-        processed_actions = processed_actions.detach().cpu().numpy()
-    if isinstance(processed_actions, np.ndarray):
-        if processed_actions.ndim == 0:
-            if batch_size != 1:
-                raise ValueError(
-                    "Sample Factory batched policy returned a scalar processed action for multiple observations"
-                )
-            return [_to_python_action(processed_actions)]
-        if int(processed_actions.shape[0]) != batch_size:
-            raise ValueError(
-                "Sample Factory batched policy returned the wrong number of processed actions: "
-                f"expected {batch_size}, got {processed_actions.shape[0]}"
-            )
-        return [_to_python_action(processed_actions[index]) for index in range(batch_size)]
-    if isinstance(processed_actions, list):
-        if _is_flat_discrete_tuple_space(action_space) and len(processed_actions) == len(action_space.spaces):
-            return _split_tuple_component_batches(processed_actions, batch_size)
-        if len(processed_actions) != batch_size:
-            raise ValueError(
-                "Sample Factory batched policy returned the wrong number of processed actions: "
-                f"expected {batch_size}, got {len(processed_actions)}"
-            )
-        return [_to_python_action(item) for item in processed_actions]
-    if batch_size == 1:
-        return [_to_python_action(processed_actions)]
-    raise ValueError(
-        "Sample Factory batched policy returned an unsupported processed action batch "
-        f"of type {type(processed_actions).__name__}"
-    )
-
-
-def _split_tuple_component_batches(component_batches: list[Any], batch_size: int) -> list[Any]:
-    components = []
-    for component in component_batches:
-        if isinstance(component, torch.Tensor):
-            component = component.detach().cpu().numpy()
-        component = np.asarray(component)
-        if component.ndim == 0:
-            if batch_size != 1:
-                raise ValueError(
-                    "Sample Factory Tuple component returned scalar action for multiple observations"
-                )
-            component = component.reshape(1)
-        if int(component.shape[0]) != int(batch_size):
-            raise ValueError(
-                "Sample Factory Tuple component returned the wrong batch size: "
-                f"expected {batch_size}, got {component.shape[0]}"
-            )
-        components.append([_to_python_action(component[index]) for index in range(batch_size)])
-    return [
-        [_to_python_action(component_values[slot_index]) for component_values in components]
-        for slot_index in range(batch_size)
-    ]
-
-
-def _to_python_action(value: Any):
-    if isinstance(value, torch.Tensor):
-        value = value.detach().cpu().numpy()
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, np.ndarray):
-        if value.size == 1:
-            return value.reshape(-1)[0].item()
-        squeezed = np.squeeze(value, axis=0) if value.ndim > 0 and value.shape[0] == 1 else value
-        if squeezed.ndim == 0:
-            return squeezed.item()
-        return squeezed.tolist()
-    if isinstance(value, (list, tuple)):
-        if len(value) == 1:
-            return _to_python_action(value[0])
-        return type(value)(_to_python_action(item) for item in value)
-    return value
-
-
-def _resolve_action(raw_value: Any, action_resolver: ActionResolver) -> Action:
-    if isinstance(raw_value, list):
-        raw_value = tuple(raw_value)
-    return action_resolver.resolve(raw_value)

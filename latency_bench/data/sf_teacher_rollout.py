@@ -37,11 +37,11 @@ from latency_bench.data.sf_teacher_runtime import (
     build_sample_factory_rollout_cfg,
     sample_factory_init_log,
 )
-from latency_bench.policy.sample_factory_common import (
-    _deterministic_actions_for_space,
-    _normalize_actions_for_space,
-    _split_batch_actions,
-    _to_python_action,
+from latency_bench.integrations.sample_factory.actions import (
+    deterministic_actions_for_space,
+    normalize_actions_for_space,
+    split_batch_actions,
+    to_python_action,
 )
 from training.atari_episode_stats import is_true_atari_episode_end
 from training.common.utils import maybe_set_cli_override
@@ -464,13 +464,13 @@ def _step_teacher_policy(
         policy_outputs = actor_critic(normalized_obs, rnn_states[active_slots])
         actions = policy_outputs["actions"]
         if deterministic:
-            actions = _deterministic_actions_for_space(
+            actions = deterministic_actions_for_space(
                 actor_critic.action_distribution(),
                 action_space=driver.action_space,
                 argmax_actions=argmax_actions,
                 device=device,
             )
-        actions = _normalize_actions_for_space(
+        actions = normalize_actions_for_space(
             actions,
             batch_size=len(active_slots),
             action_space=driver.action_space,
@@ -478,7 +478,7 @@ def _step_teacher_policy(
             unsqueeze_tensor=unsqueeze_tensor,
         )
         processed_actions = preprocess_actions(runtime["env_info"], actions)
-        raw_actions = _split_batch_actions(
+        raw_actions = split_batch_actions(
             processed_actions,
             len(active_slots),
             action_space=driver.action_space,
@@ -628,11 +628,11 @@ def _probe_accepted_specs(
                     spec = active_specs[slot]
                     step_result = step_results[slot]
                     active_episode_lengths[slot] += 1
-                    active_episode_returns[slot] += float(_to_python_action(step_result.reward))
+                    active_episode_returns[slot] += float(to_python_action(step_result.reward))
                     if env_name == "demon_attack":
-                        active_episode_raw_returns[slot] += float(_to_python_action(step_result.info["raw_reward"]))
+                        active_episode_raw_returns[slot] += float(to_python_action(step_result.info["raw_reward"]))
                     else:
-                        active_episode_raw_returns[slot] += float(_to_python_action(step_result.reward))
+                        active_episode_raw_returns[slot] += float(to_python_action(step_result.reward))
 
                     next_decision_step = int(active_decision_steps[slot]) + 1
                     life_loss_boundary, episode_done = _rollout_step_flags(

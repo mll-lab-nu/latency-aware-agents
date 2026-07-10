@@ -170,7 +170,7 @@ def apply_runtime_logging_config(sf_cfg: Any, logging_cfg: dict[str, Any]) -> No
 
 
 def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[str]:
-    from latency_bench.policy.sample_factory_common import resolve_sample_factory_device
+    from latency_bench.integrations.sample_factory.runtime import resolve_sample_factory_device
 
     backend_cfg = config["backend"]
     experiment_cfg = config["experiment"]
