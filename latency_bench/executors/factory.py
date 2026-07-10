@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.clock import EnvClock
@@ -43,30 +42,6 @@ from latency_bench.scheduler.decision import (
 from latency_bench.scheduler.factory import build_action_scheduler
 
 
-class ExecutorBuilder(Protocol):
-    def __call__(
-        self,
-        config: dict[str, Any],
-        *,
-        policy: PolicyRunner | None = None,
-    ) -> Any:
-        ...
-
-_EXECUTOR_BUILDERS: dict[ExecutorMode, ExecutorBuilder] = {}
-
-
-def register_executor(mode: ExecutorMode | str) -> Callable[[ExecutorBuilder], ExecutorBuilder]:
-    executor_mode = ExecutorMode(mode)
-
-    def decorator(builder: ExecutorBuilder) -> ExecutorBuilder:
-        if executor_mode in _EXECUTOR_BUILDERS:
-            raise ValueError(f"Executor already registered: {executor_mode.value}")
-        _EXECUTOR_BUILDERS[executor_mode] = builder
-        return builder
-
-    return decorator
-
-
 def build_executor(
     config: dict[str, Any],
     *,
@@ -80,14 +55,11 @@ def build_executor(
             "evaluation.eval_parallel_envs > 1 is only supported for executor.mode=simulated; "
             f"got executor.mode={mode.value}"
         )
-    builder = _EXECUTOR_BUILDERS.get(mode)
-    if builder is None:
-        registered = ", ".join(get_registered_executor_modes()) or "<none>"
-        raise NotImplementedError(
-            f"executor.mode '{mode.value}' is recognized but not implemented. "
-            f"Registered executor modes: {registered}"
-        )
-    return builder(config, policy=policy)
+    if mode == ExecutorMode.SIMULATED:
+        return _build_simulated_executor(config, policy=policy)
+    if mode == ExecutorMode.PAUSED:
+        return _build_paused_executor(config, policy=policy)
+    return _build_realtime_executor(config, policy=policy)
 
 
 def _resolve_policy(
@@ -97,10 +69,6 @@ def _resolve_policy(
 ) -> PolicyRunner:
     """Use an injected (e.g. live in-process) policy, else build from config."""
     return policy if policy is not None else build_policy(config, action_resolver)
-
-
-def get_registered_executor_modes() -> list[str]:
-    return sorted(mode.value for mode in _EXECUTOR_BUILDERS)
 
 
 def _build_trajectory_logger(config: dict[str, Any]) -> TrajectoryLogger:
@@ -141,7 +109,6 @@ def _build_common_executor_components(config: dict[str, Any]) -> _CommonExecutor
     )
 
 
-@register_executor(ExecutorMode.SIMULATED)
 def _build_simulated_executor(
     config: dict[str, Any],
     *,
@@ -152,7 +119,7 @@ def _build_simulated_executor(
     if (
         eval_parallel_envs > 1
         and num_episodes > 0
-        and resolve_latency_method(config.get("latency", {})) in BATCHED_SIMULATED_METHODS
+        and resolve_latency_method(config["latency"]) in BATCHED_SIMULATED_METHODS
     ):
         return _build_batched_simulated_executor(
             config, max_parallel_envs=min(eval_parallel_envs, num_episodes), policy=policy
@@ -202,7 +169,7 @@ def _simulated_inference_pool_enabled(config: dict[str, Any]) -> bool:
     # (dry runs, dummy/random test policies) skip the worker spawn entirely.
     if not config["executor"].get("simulated_inference_pool"):
         return False
-    if not str(config.get("policy", {}).get("device", "")).startswith("cuda"):
+    if not config["policy"].get("device", "").startswith("cuda"):
         return False
     return visible_cuda_device_count() > 0
 
@@ -214,16 +181,13 @@ def _build_batched_simulated_executor(
     policy: PolicyRunner | None = None,
 ) -> BatchedSimulatedLatencyExecutor:
     scheduler_cfg = config["scheduler"]
-    if max_parallel_envs <= 0:
-        raise ValueError("max_parallel_envs must be positive")
-
     action_resolver = ActionResolver(config["env"])
     backend_name = resolve_latency_bench_env_backend(config, eval_parallel_envs=max_parallel_envs)
     env_backend = build_env_step_backend(
         backend_name,
         config=config,
         noop_action=action_resolver.noop_action,
-        num_slots=int(max_parallel_envs),
+        num_slots=max_parallel_envs,
     )
     try:
         raise_if_unsupported_batched_action_space(env_backend.slot_handles)
@@ -262,14 +226,13 @@ def _build_batched_simulated_executor(
             logger=logger,
             episode_latency_source_factory=episode_latency_source_factory,
             simulated_worker_capacity=_simulated_worker_capacity(config),
-            profile_pipeline=bool(config.get("logging", {}).get("simulated_pipeline_profile", False)),
+            profile_pipeline=config["logging"].get("simulated_pipeline_profile", False),
         )
     except Exception:
         env_backend.close()
         raise
 
 
-@register_executor(ExecutorMode.PAUSED)
 def _build_paused_executor(
     config: dict[str, Any],
     *,
@@ -291,7 +254,6 @@ def _build_paused_executor(
     )
 
 
-@register_executor(ExecutorMode.REALTIME)
 def _build_realtime_executor(
     config: dict[str, Any],
     *,
