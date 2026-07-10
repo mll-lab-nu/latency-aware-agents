@@ -14,6 +14,7 @@ import pyarrow.parquet as pq
 import pytest
 import yaml
 from helpers import REPO_ROOT
+from latency_bench.core.config import load_config
 
 
 def _write_checkpoint_config(path: Path, **overrides) -> Path:
@@ -207,15 +208,13 @@ class _FakeProgress:
         pass
 
 
-def test_config_loader_generic_uses_current_public_loader(tmp_path):
-    from training.config_loader import load_training_config_generic
-
+def test_config_loader_resolves_training_config_inheritance(tmp_path):
     base = tmp_path / "base.yaml"
     child = tmp_path / "child.yaml"
     base.write_text("env:\n  name: flappy\nlatency:\n  type: zero\n", encoding="utf-8")
     child.write_text("__base__: base.yaml\nlatency:\n  type: fixed\n  fixed_latency_ms: 50\n", encoding="utf-8")
 
-    config = load_training_config_generic(child)
+    config = load_config(child)
 
     assert config["env"]["name"] == "flappy"
     assert config["latency"] == {"type": "fixed", "fixed_latency_ms": 50}

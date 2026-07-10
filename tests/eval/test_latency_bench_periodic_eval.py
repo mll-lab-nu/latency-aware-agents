@@ -886,11 +886,11 @@ def test_run_sample_factory_training_uses_native_run_rl_without_interval(monkeyp
 
 
 def test_flappy_example_config_shows_periodic_latency_bench_eval_usage():
+    from latency_bench.core.config import load_config
     from latency_bench.eval.suites import parse_eval_suites
-    from training.common import load_training_config
     from training.common.latency_bench_periodic_eval import periodic_eval_enabled
 
-    config = load_training_config(REPO_ROOT / "configs/examples/flappy_periodic_latency_bench_eval.yaml")
+    config = load_config(REPO_ROOT / "configs/examples/flappy_periodic_latency_bench_eval.yaml")
     suites = parse_eval_suites(config)
 
     assert periodic_eval_enabled(config) is True
@@ -904,12 +904,12 @@ def test_flappy_example_config_shows_periodic_latency_bench_eval_usage():
 
 
 def test_base_configs_include_periodic_latency_bench_eval_defaults():
+    from latency_bench.core.config import load_config
     from latency_bench.eval.suites import parse_eval_suites
-    from training.common import load_training_config
     from training.common.latency_bench_periodic_eval import periodic_eval_enabled
 
     for env_name in ("flappy", "demon_attack", "deadly_corridor"):
-        config = load_training_config(REPO_ROOT / f"configs/base/{env_name}.yaml")
+        config = load_config(REPO_ROOT / f"configs/base/{env_name}.yaml")
         suites = parse_eval_suites(config)
 
         assert periodic_eval_enabled(config) is True

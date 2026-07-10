@@ -50,44 +50,6 @@ def apply_checkpoint_kind_override(backend_cfg: dict[str, Any], checkpoint_kind:
     backend_cfg["extra_args"] = filtered_args
 
 
-def _merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    merged = deepcopy(base)
-    for key, value in override.items():
-        if key == "__base__":
-            continue
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = _merge_dicts(merged[key], value)
-        else:
-            merged[key] = deepcopy(value)
-    return merged
-
-
-def load_training_config(path: str | Path) -> dict[str, Any]:
-    import yaml
-
-    path = Path(path).expanduser().resolve()
-    with path.open("r", encoding="utf-8") as handle:
-        current = yaml.safe_load(handle) or {}
-
-    base_ref = current.get("__base__")
-    if not base_ref:
-        return {key: value for key, value in current.items() if key != "__base__"}
-
-    if isinstance(base_ref, (str, Path)):
-        base_paths = [base_ref]
-    else:
-        base_paths = base_ref
-
-    merged: dict[str, Any] = {}
-    for base_item in base_paths:
-        base_path = Path(base_item)
-        if not base_path.is_absolute():
-            base_path = path.parent / base_path
-        merged = _merge_dicts(merged, load_training_config(base_path))
-
-    return _merge_dicts(merged, current)
-
-
 def apply_training_overrides(
     config: dict[str, Any],
     *,
