@@ -8,12 +8,20 @@ import numpy as np
 import pytest
 
 import latency_bench.executors.realtime.executor as realtime_executor
+import latency_bench.executors.realtime.inference_worker as realtime_inference_worker
 import latency_bench.executors.realtime.pool as realtime_pool
-import latency_bench.executors.realtime.workers as realtime_workers
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, ActionEvent, LatencyRecord, Observation, OrderingPolicy, PolicyOutput, StepRecord
 from latency_bench.envs.base import DummyEnvAdapter
+from latency_bench.executors.realtime.env_worker import (
+    _drain_env_action_messages,
+    _drain_env_actions_until_wall_time,
+)
 from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor
+from latency_bench.executors.realtime.inference_worker import (
+    _inference_worker,
+    _worker_runtime_metadata,
+)
 from latency_bench.executors.realtime.messages import (
     RealtimeActionDispatch,
     RealtimeObservationTask,
@@ -24,12 +32,6 @@ from latency_bench.executors.realtime.messages import (
     _action_event_from_dispatch_payload,
 )
 from latency_bench.executors.realtime.pool import ProcessInferencePool
-from latency_bench.executors.realtime.workers import (
-    _drain_env_action_messages,
-    _drain_env_actions_until_wall_time,
-    _inference_worker,
-    _worker_runtime_metadata,
-)
 from latency_bench.executors.realtime.shared_observation import ObservationSlotPool, attach_observation_arrays
 from latency_bench.latency.samplers import ZeroSampler
 from latency_bench.logging.realtime_pipeline import PipelineProfile
@@ -505,8 +507,8 @@ def _patch_worker_dependencies(monkeypatch, measurer_cls):
 
     monkeypatch.setattr(actions_mod, "ActionResolver", DummyActionResolver)
     monkeypatch.setattr(factory_mod, "build_policy", lambda config, action_resolver: DummyWorkerPolicy())
-    monkeypatch.setattr(realtime_workers, "RuntimeLatencyMeasurer", measurer_cls)
-    monkeypatch.setattr(realtime_workers, "_worker_runtime_metadata", lambda worker_id, start_method: {})
+    monkeypatch.setattr(realtime_inference_worker, "RuntimeLatencyMeasurer", measurer_cls)
+    monkeypatch.setattr(realtime_inference_worker, "_worker_runtime_metadata", lambda worker_id, start_method: {})
 
 
 def _executor(
@@ -827,8 +829,8 @@ def test_inference_worker_predicts_from_worker_local_observation_copy(monkeypatc
 
     monkeypatch.setattr(actions_mod, "ActionResolver", DummyActionResolver)
     monkeypatch.setattr(factory_mod, "build_policy", lambda config, action_resolver: MutatingWorkerPolicy())
-    monkeypatch.setattr(realtime_workers, "RuntimeLatencyMeasurer", CallingWorkerMeasurer)
-    monkeypatch.setattr(realtime_workers, "_worker_runtime_metadata", lambda worker_id, start_method: {})
+    monkeypatch.setattr(realtime_inference_worker, "RuntimeLatencyMeasurer", CallingWorkerMeasurer)
+    monkeypatch.setattr(realtime_inference_worker, "_worker_runtime_metadata", lambda worker_id, start_method: {})
 
     observation = Observation(
         data=np.arange(12, dtype=np.uint8).reshape(2, 2, 3),
@@ -994,7 +996,7 @@ def test_env_wait_drains_actions_before_next_frame_boundary() -> None:
 
 
 def test_process_inference_pool_reconstructs_completion_from_busy_task(monkeypatch):
-    monkeypatch.setattr(realtime_pool, "_profile_now_ms", lambda: 20.0)
+    monkeypatch.setattr(realtime_pool, "monotonic_ms", lambda: 20.0)
     task = RealtimeObservationTask(
         obs_id=11,
         observation=Observation(data="obs", env_step=4, sim_time_ms=120.0),

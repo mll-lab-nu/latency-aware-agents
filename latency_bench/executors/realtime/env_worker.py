@@ -1,30 +1,20 @@
-"""Realtime inference-worker and environment-loop subprocess programs."""
+"""Realtime environment-loop subprocess program."""
 from __future__ import annotations
 
 import gc
-import os
-import sys
 import time
 import traceback
 from collections.abc import Callable
-from copy import deepcopy
 from typing import Any
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.executors.realtime.messages import (
     RealtimeObservationTask,
-    RealtimePolicyResult,
     _action_event_ack_payload,
     _action_event_from_dispatch_payload,
 )
-from latency_bench.executors.realtime.shared_observation import (
-    ObservationAttachmentCache,
-    ObservationLocalizer,
-    ObservationSlotPool,
-)
-from latency_bench.latency.hardware_info import safe_set, torch_backend_flags
-from latency_bench.latency.measurement import RuntimeLatencyMeasurer
+from latency_bench.executors.realtime.shared_observation import ObservationSlotPool
+from latency_bench.executors.realtime.timing import monotonic_ms
 from latency_bench.logging.records import build_step_record
 from latency_bench.logging.realtime_pipeline import PipelineProfile
 from latency_bench.scheduler.action_queue import ActionScheduler
@@ -38,147 +28,6 @@ from latency_bench.scheduler.factory import build_action_scheduler
 DEFAULT_OBSERVATION_SLOT_POOL_CAPACITY = 64
 
 
-def _profile_now_ms() -> float:
-    return time.perf_counter() * 1000.0
-
-
-# --- inference worker ---------------------------------------------------------
-
-def _worker_runtime_metadata(worker_id: int, start_method: str) -> dict[str, Any]:
-    import torch
-
-    metadata = {
-        "worker_id": int(worker_id),
-        "worker_pid": os.getpid(),
-        "worker_start_method": start_method,
-        "worker_python_executable": sys.executable,
-        "worker_torch_version": torch.__version__,
-        "worker_torch_cuda_version": torch.version.cuda,
-        "worker_cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
-        "worker_cuda_device_count": torch.cuda.device_count(),
-    }
-    safe_set(metadata, "worker_cuda_current_device", lambda: int(torch.cuda.current_device()))
-    safe_set(
-        metadata,
-        "worker_cuda_current_device_name",
-        lambda: str(torch.cuda.get_device_name(torch.cuda.current_device())),
-    )
-    backend_flags = torch_backend_flags(torch)
-    for flag_key in ("cuda_flash_sdp_enabled", "cuda_mem_efficient_sdp_enabled", "cuda_math_sdp_enabled"):
-        if flag_key in backend_flags:
-            metadata[f"worker_{flag_key}"] = backend_flags[flag_key]
-    safe_set(metadata, "worker_torch_float32_matmul_precision", torch.get_float32_matmul_precision)
-    return metadata
-
-
-def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, device: str, start_method: str) -> None:
-    gc_was_enabled = gc.isenabled()
-    try:
-        from latency_bench.core.actions import ActionResolver
-        from latency_bench.policy.factory import build_policy
-
-        runtime_metadata = _worker_runtime_metadata(worker_id, start_method)
-        worker_config = deepcopy(config)
-        worker_config.setdefault("policy", {})["device"] = device
-        worker_config.setdefault("latency", {})["device"] = device
-        action_resolver = ActionResolver(worker_config["env"])
-        policy = build_policy(worker_config, action_resolver)
-        latency_cfg = worker_config.get("latency", {})
-        measurer = RuntimeLatencyMeasurer(
-            device=device,
-            sync_cuda=bool(latency_cfg.get("sync_cuda", True)),
-        )
-        attachment_cache = ObservationAttachmentCache(blocks={})
-        observation_localizer = ObservationLocalizer()
-        # The policy's object graph is permanent; freeze it out of GC scans and
-        # stop automatic collections so gen-2 pauses can't delay a result send.
-        gc.freeze()
-        gc.disable()
-        connection.send(("ready", {"worker_id": int(worker_id), "device": device}))
-
-        def predict_from_attached_observation(attached_observation, profile):
-            localize_start_ms = _profile_now_ms()
-            local_observation = observation_localizer.localize(attached_observation.observation)
-            if profile is not None:
-                profile.worker_observation_localize_ms = _profile_now_ms() - localize_start_ms
-            # sync_cuda=False: the realtime path measures end-to-end wall-clock
-            # latency, so a CUDA sync inside predict would perturb the measurement.
-            profiler = StageProfiler(enabled=profile is not None, sync_cuda=False)
-            with profiler_scope(profiler):
-                policy_output = policy.predict(local_observation)
-            if profile is not None:
-                timings = profiler.timings
-                profile.policy_build_example_ms = timings.get("policy_build_example_ms", 0.0)
-                profile.policy_wrapper_predict_action_ms = timings.get(
-                    "policy_wrapper_predict_action_ms", 0.0
-                )
-                profile.policy_decode_ms = timings.get("policy_decode_ms", 0.0)
-            return policy_output
-
-        while True:
-            command, payload = connection.recv()
-            worker_recv_ms = _profile_now_ms()
-            payload = payload or {}
-            if command == "close":
-                attachment_cache.close()
-                return
-            if command == "collect":
-                # Sent by the pool only while every worker is idle (post-drain,
-                # pre-episode), so this pause can never delay an inference.
-                gc.collect()
-                continue
-            if command == "predict":
-                task = payload["task"]
-                attach_start_ms = _profile_now_ms()
-                attached_observation = attachment_cache.attach(task.observation)
-                attach_ms = _profile_now_ms() - attach_start_ms
-                profile = task.profile
-                if profile is not None:
-                    profile.worker_recv_ms = worker_recv_ms
-                    profile.parent_to_worker_ipc_ms = (
-                        worker_recv_ms - profile.parent_to_worker_send_start_ms
-                    )
-                    inference_start_ms = _profile_now_ms()
-                    profile.worker_observation_attach_ms = attach_ms
-                    profile.worker_recv_overhead_ms = inference_start_ms - worker_recv_ms
-                try:
-                    policy_output, latency_record = measurer.run_and_measure(
-                        predict_from_attached_observation,
-                        attached_observation,
-                        profile,
-                        obs_id=task.obs_id,
-                    )
-                finally:
-                    attached_observation.close()
-                latency_record.metadata = {
-                    **latency_record.metadata,
-                    **runtime_metadata,
-                }
-                result = RealtimePolicyResult(
-                    policy_output=policy_output,
-                    completion_time_ms=task.submit_time_ms + latency_record.latency_ms,
-                    latency_record=latency_record,
-                    profile=profile,
-                )
-                try:
-                    if result.profile is not None:
-                        result.profile.worker_result_send_start_ms = _profile_now_ms()
-                    connection.send(("result", {"result": result}))
-                except (BrokenPipeError, EOFError, OSError):
-                    return
-    except BaseException:
-        try:
-            connection.send(("error", {"traceback": traceback.format_exc()}))
-        except (BrokenPipeError, EOFError, OSError):
-            return
-    finally:
-        # The real worker process exits with this function; restoring GC state
-        # only matters for in-process callers (tests).
-        gc.unfreeze()
-        if gc_was_enabled:
-            gc.enable()
-
-
 # --- env-loop worker ----------------------------------------------------------
 
 def _drain_env_action_messages(
@@ -186,7 +35,7 @@ def _drain_env_action_messages(
     connection: Any,
     action_scheduler: ActionScheduler,
     release_observation: Callable[[int], None],
-    now_ms_fn: Callable[[], float] = _profile_now_ms,
+    now_ms_fn: Callable[[], float] = monotonic_ms,
 ) -> bool:
     while connection.poll():
         recv_start_ms = now_ms_fn()
@@ -217,7 +66,7 @@ def _drain_env_actions_until_wall_time(
     release_observation: Callable[[int], None],
     target_wall_s: float,
     time_fn: Callable[[], float] = time.perf_counter,
-    now_ms_fn: Callable[[], float] = _profile_now_ms,
+    now_ms_fn: Callable[[], float] = monotonic_ms,
 ) -> bool:
     while True:
         remaining_s = target_wall_s - time_fn()
@@ -318,9 +167,9 @@ def _env_loop_worker(
                 return
 
             if decision_scheduler.should_observe(env_step, scheduled_time_ms):
-                observe_start_ms = _profile_now_ms()
+                observe_start_ms = monotonic_ms()
                 observation = env.observe()
-                observe_end_ms = _profile_now_ms()
+                observe_end_ms = monotonic_ms()
                 obs_id = next_obs_id
                 next_obs_id += 1
                 if observation_pool is None:
@@ -344,7 +193,7 @@ def _env_loop_worker(
                     shared_obs_id=obs_id,
                 )
                 if profile is not None:
-                    profile.env_observation_send_start_ms = _profile_now_ms()
+                    profile.env_observation_send_start_ms = monotonic_ms()
                 connection.send(("observation", {"task": task}))
 
             if _drain_env_action_messages(
@@ -355,17 +204,17 @@ def _env_loop_worker(
                 close_env_and_pool()
                 return
 
-            scheduler_update_start_ms = _profile_now_ms()
+            scheduler_update_start_ms = monotonic_ms()
             active_action = action_scheduler.update(env_step, scheduled_time_ms)
-            scheduler_update_ms = _profile_now_ms() - scheduler_update_start_ms
+            scheduler_update_ms = monotonic_ms() - scheduler_update_start_ms
             new_applied_events = action_scheduler.get_applied_events_since(applied_event_count)
             for event in new_applied_events:
                 if event.profile is not None:
                     event.profile.env_scheduler_update_ms = scheduler_update_ms
 
-            env_step_start_ms = _profile_now_ms()
+            env_step_start_ms = monotonic_ms()
             result = env.step(active_action)
-            env_step_ms = _profile_now_ms() - env_step_start_ms
+            env_step_ms = monotonic_ms() - env_step_start_ms
             for event in new_applied_events:
                 if event.profile is not None:
                     event.profile.env_step_ms = env_step_ms

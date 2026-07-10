@@ -6,14 +6,12 @@ import time
 from typing import Any
 
 from latency_bench.executors.env_step_backend import _set_thread_env_defaults
+from latency_bench.executors.realtime.inference_worker import _inference_worker
 from latency_bench.executors.realtime.messages import (
     RealtimeObservationTask,
     RealtimePolicyCompletion,
 )
-from latency_bench.executors.realtime.workers import (
-    _inference_worker,
-    _profile_now_ms,
-)
+from latency_bench.executors.realtime.timing import monotonic_ms
 
 REALTIME_INFERENCE_START_METHOD = "spawn"
 
@@ -76,11 +74,11 @@ class ProcessInferencePool:
         for worker_id in range(len(self.inference_devices)):
             if worker_id not in self._busy_worker_tasks:
                 if task.profile is not None:
-                    task.profile.parent_to_worker_send_start_ms = _profile_now_ms()
+                    task.profile.parent_to_worker_send_start_ms = monotonic_ms()
                 self._connections[worker_id].send(("predict", {"task": task}))
                 if task.profile is not None:
                     task.profile.parent_to_worker_send_call_ms = (
-                        _profile_now_ms() - task.profile.parent_to_worker_send_start_ms
+                        monotonic_ms() - task.profile.parent_to_worker_send_start_ms
                     )
                 self._busy_worker_tasks[worker_id] = task
                 return True
@@ -156,7 +154,7 @@ class ProcessInferencePool:
                     if profile is not None and result.profile is not None:
                         profile.merge_measured(result.profile)
                         profile.worker_to_parent_ipc_ms = (
-                            _profile_now_ms() - profile.worker_result_send_start_ms
+                            monotonic_ms() - profile.worker_result_send_start_ms
                         )
                     completed.append(
                         RealtimePolicyCompletion(
@@ -177,4 +175,3 @@ class ProcessInferencePool:
     def _raise_if_closed(self) -> None:
         if self.closed:
             raise RuntimeError("inference pool is closed")
-
