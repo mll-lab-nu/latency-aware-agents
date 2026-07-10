@@ -4,11 +4,11 @@ from typing import Any
 
 import numpy as np
 
+from latency_bench.envs.atari import is_true_atari_episode_end
 from training.atari_episode_stats import (
     apply_raw_full_game_return_to_report,
     batched_info_for_agent,
     episode_extra_stats_for_finished_agents,
-    is_true_atari_episode_end,
     is_true_batched_episode_end,
     raw_full_game_returns_for_finished_agents,
 )

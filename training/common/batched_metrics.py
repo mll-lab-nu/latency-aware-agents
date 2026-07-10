@@ -5,7 +5,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from training.atari_episode_stats import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
+from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
 from training.common.episode_metrics import append_episode_metrics_event
 from training.common.utils import batch_indices
 
