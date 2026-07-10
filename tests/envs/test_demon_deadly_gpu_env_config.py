@@ -62,13 +62,12 @@ def test_demon_attack_gpu_simulator_requires_even_split_layout():
 
 
 def test_demon_attack_gpu_split_layout_preserves_global_env_ids_and_seeds():
-    from latency_bench.core.types import LatencySourceType
     from training.common.latency_config import sample_factory_latency_seed_from_flat_config
     from training.demon_attack_sf.batched_gpu_env import DemonAttackBatchedGpuEnv
 
     def fake_env(*, seed, latency_seed, worker_index, vector_index, env_id, num_agents):
         env = object.__new__(DemonAttackBatchedGpuEnv)
-        env.cfg = SimpleNamespace(seed=seed, latency_seed=latency_seed, latency_type=LatencySourceType.ZERO.value)
+        env.cfg = SimpleNamespace(seed=seed, latency_seed=latency_seed, latency_type="zero")
         env.env_config = SimpleNamespace(worker_index=worker_index, vector_index=vector_index, env_id=env_id)
         env.num_agents = num_agents
         return env
