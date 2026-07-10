@@ -5,10 +5,9 @@ For experiments that follow `train -> eval -> upload`, use this workflow.
 ## Standard flow
 
 1. Generate configs and `manifest.tsv`
-2. If the manifest is legacy, migrate it to V2
-3. Run jobs with `scripts/experiment_runner/run_manifest_jobs.py`
-4. Inspect progress with `scripts/manage_factor_sweeps.py` or `runner_events.jsonl`
-5. Do not run `train_commands.txt` line-by-line unless explicitly requested
+2. Run jobs with `scripts/experiment_runner/run_manifest_jobs.py`
+3. Inspect progress with `scripts/manage_factor_sweeps.py` or `runner_events.jsonl`
+4. Do not run `train_commands.txt` line-by-line unless explicitly requested
 
 ## Generators
 
@@ -35,14 +34,6 @@ Useful flags:
 - `--dry-run`
 
 The runner is host-local only. SSH and remote machine selection must be handled outside the runner.
-
-## Legacy manifests
-
-If a manifest is not V2, migrate it first:
-
-```bash
-python scripts/experiment_runner/migrate_manifest_v2.py --input <old_manifest>
-```
 
 ## Status
 
