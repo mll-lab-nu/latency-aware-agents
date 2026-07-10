@@ -43,7 +43,7 @@ from latency_bench.integrations.sample_factory.actions import (
     split_batch_actions,
     to_python_action,
 )
-from training.atari_episode_stats import is_true_atari_episode_end
+from latency_bench.envs.atari import is_true_atari_episode_end
 from training.common.utils import maybe_set_cli_override
 
 

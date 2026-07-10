@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from latency_bench.core.types import Action, Observation
+from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY
 from latency_bench.executors.gpu_batched_env_step_backend import (
     GpuBatchedEnvStepBackendBase,
     SlotStepOutcome,
@@ -101,7 +102,7 @@ class DemonAttackGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
             done=done,
             truncated=is_truncated,
             info=dict(info),
-            extra_info={"is_true_episode_end": bool(done or is_truncated)},
+            extra_info={TRUE_EPISODE_END_INFO_KEY: bool(done or is_truncated)},
         )
 
     def _observe_slot(self, slot_id: int) -> Observation:

@@ -7,10 +7,10 @@ import gymnasium as gym
 import numpy as np
 
 from latency_bench.core.types import Action, Observation, StepResult
+from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
 from latency_bench.envs.base import EnvAdapter
-from latency_bench.utils.array import looks_chw
-from training.atari_episode_stats import is_true_atari_episode_end
 from latency_bench.envs.raw_rgb import RawRgbFrameStackBuffer
+from latency_bench.utils.array import looks_chw
 
 
 class DemonAttackEnvAdapter(EnvAdapter):
@@ -107,7 +107,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
                     "ignored_life_loss_terminal": True,
                     "original_terminated": bool(terminated),
                     "original_truncated": bool(truncated),
-                    "is_true_episode_end": False,
+                    TRUE_EPISODE_END_INFO_KEY: False,
                     "reset_info": dict(reset_info or {}),
                 }
             )
@@ -131,7 +131,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
                 "applied_action": gym_action,
                 "applied_action_name": action.name,
                 "observation": "atari_frame_v1",
-                "is_true_episode_end": bool(true_episode_end) if bool(terminated or truncated) else False,
+                TRUE_EPISODE_END_INFO_KEY: bool(true_episode_end) if bool(terminated or truncated) else False,
             }
         )
         return StepResult(
@@ -206,7 +206,7 @@ def _is_true_episode_end(
         return True
     if not bool(terminated):
         return False
-    if any(key in info for key in ("is_true_episode_end", "game_over", "lives")):
+    if any(key in info for key in (TRUE_EPISODE_END_INFO_KEY, "game_over", "lives")):
         return is_true_atari_episode_end(terminated=True, truncated=False, info=info)
 
     was_real_done = _episodic_life_was_real_done(env)

@@ -182,6 +182,17 @@ def test_non_batched_life_loss_report_is_suppressed(monkeypatch):
     assert state.last_episode_duration == 2.0
 
 
+def test_batched_truncation_overrides_false_episode_end_flag():
+    from training.atari_episode_stats import is_true_batched_episode_end
+
+    assert is_true_batched_episode_end(
+        {
+            "is_true_episode_end": False,
+            "TimeLimit.truncated": True,
+        }
+    )
+
+
 def test_batched_report_main_reward_is_raw_after_life_loss(monkeypatch):
     _, BatchedVectorEnvRunner, misc = _install_fake_sample_factory(monkeypatch)
     from training.common.sf_raw_reward_stats_compat import (
