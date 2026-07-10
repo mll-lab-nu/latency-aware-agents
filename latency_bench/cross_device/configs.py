@@ -108,7 +108,7 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
     latency = {
         "type": "profile_sample",
         "profile_path": str(task.target_profile_path),
-        "seed": int(task.seed),
+        "seed": task.latency_seed,
         "sampler": "profile_default",
         "profile_id": task.target_device["profile_id"],
         "target_device": task.target_device["id"],

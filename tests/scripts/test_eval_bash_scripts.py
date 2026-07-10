@@ -1192,6 +1192,7 @@ def test_cross_device_main_script_documents_single_entrypoint_and_new_protocol_m
         "ONLY_EXPERIMENT",
         "MAX_RUNS",
         "CONTINUE_ON_ERROR",
+        "LATENCY_SEED_SET",
     ):
         assert env_var in script
 
@@ -1318,6 +1319,7 @@ def test_cross_device_sim_preset_expands_to_doctor_and_sim_stages(tmp_path):
             "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
             "PROFILES_DIR": str(tmp_path / "profiles"),
             "OUT": str(tmp_path / "out"),
+            "LATENCY_SEED_SET": "0,1,2",
         },
         capture_output=True,
         text=True,
@@ -1329,6 +1331,7 @@ def test_cross_device_sim_preset_expands_to_doctor_and_sim_stages(tmp_path):
     assert "-m latency_bench.cross_device.protocol doctor" in calls
     assert "-m latency_bench.cross_device.protocol sim" in calls
     assert "-m latency_bench.cross_device.protocol measure" not in calls
+    assert "--latency-seed-set 0,1,2" in calls
     assert "-m latency_bench.cross_device.sync upload" not in calls
     assert "stages: doctor sim" in result.stdout
 

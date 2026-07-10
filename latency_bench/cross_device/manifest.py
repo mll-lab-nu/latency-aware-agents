@@ -83,6 +83,8 @@ def build_base_manifest(
         "smoke_max_steps": task.smoke_max_steps,
         "seed_set": task.seed_set,
         "seed": task.seed,
+        "latency_seed_set": task.latency_seed_set,
+        "latency_seed": task.latency_seed,
         "status": "running",
         "skip_reason": "",
         "error": "",
@@ -303,6 +305,7 @@ def _dedupe_manifest_records(records: list[dict[str, Any]]) -> list[dict[str, An
             str(record["replay_device_id"]),
             str(record["instance_id"]),
             str(record["seed"]),
+            str(_latency_session_seed(record)),
         )
         if record["status"] == "completed":
             existing = completed_by_run_key.get(run_key)
@@ -316,6 +319,15 @@ def _dedupe_manifest_records(records: list[dict[str, Any]]) -> list[dict[str, An
         )
         non_completed_by_key[skipped_key] = record
     return [*non_completed_by_key.values(), *completed_by_run_key.values()]
+
+
+def _latency_session_seed(record: dict[str, Any]) -> Any:
+    """Return the latency seed; legacy sim manifests used `seed` for both RNGs."""
+    if "latency_seed" in record:
+        return record["latency_seed"]
+    if record["stage"] in {"sim_same", "sim_cross"}:
+        return record["seed"]
+    return None
 
 
 def _record_sort_timestamp(record: dict[str, Any]) -> str:

@@ -7,6 +7,10 @@ env_fps_calibration:
   worker_utilization_cap: 0.8
 seed_set:
   - 0
+latency_seed_set:
+  - 0
+  - 1
+  - 2
 
 devices:
   - id: rtx3090

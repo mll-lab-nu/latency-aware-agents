@@ -42,6 +42,7 @@ def _write_protocol_spec(path: Path, base_config: Path) -> None:
         "checkpoint_kind": "best",
         "n_episodes": 1,
         "seed_set": [0],
+        "latency_seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "devices": [
             {

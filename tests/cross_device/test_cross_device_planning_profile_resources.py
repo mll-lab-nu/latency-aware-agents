@@ -28,6 +28,8 @@ def _task(
         replay_device=None,
         seed=0,
         seed_set=[0],
+        latency_seed=None if stage == "measure" else 0,
+        latency_seed_set=[0],
         n_episodes=2,
         checkpoint_kind="best",
         output_dir=tmp_path / "runs",
