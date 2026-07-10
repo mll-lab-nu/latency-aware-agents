@@ -5,9 +5,6 @@ to the eval suites / sweep drivers. The actual work lives in
 :mod:`latency_bench.eval.driver` (single run), :mod:`latency_bench.eval.sweeps`
 (sweeps/suites), :mod:`latency_bench.eval.reporting`, and
 :mod:`latency_bench.eval.config`.
-
-``build_executor`` / ``run_from_config`` / ``run_eval_sweep_from_config`` /
-``run_eval_suites_from_config`` are re-exported here for backward compatibility.
 """
 from __future__ import annotations
 
@@ -16,54 +13,15 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import latency_bench.eval.sweeps as eval_sweeps
 from latency_bench.core.config import load_config
+from latency_bench.eval.config import apply_runtime_overrides as _apply_runtime_overrides
 from latency_bench.eval.config import _is_sample_factory_policy
 from latency_bench.eval.reporting import (
     _log_corrected_eval_summaries_to_wandb,
     _summary_payloads_for_printing,
 )
 from latency_bench.eval.suites import has_eval_suites
-from latency_bench.eval import sweeps as eval_sweeps
-# Re-exported for external callers (`from latency_bench.run import run_eval_*`).
-# main() itself calls them via the `eval_sweeps` module so the retained and the
-# explicit paths share one monkeypatch target.
-from latency_bench.eval.sweeps import run_eval_suites_from_config, run_eval_sweep_from_config
-from latency_bench.eval.driver import run_from_config
-from latency_bench.executors.factory import build_executor
-
-__all__ = [
-    "main",
-    "apply_runtime_overrides",
-    "run_from_config",
-    "run_eval_sweep_from_config",
-    "run_eval_suites_from_config",
-    "build_executor",
-]
-
-
-def apply_runtime_overrides(
-    config: dict[str, Any],
-    checkpoint_path: str | Path | None = None,
-    run_name: str | None = None,
-    output_dir: str | Path | None = None,
-    checkpoint_kind: str | None = None,
-) -> dict[str, Any]:
-    if checkpoint_path is not None:
-        config["policy"]["checkpoint_path"] = str(checkpoint_path)
-    if run_name is not None:
-        config["experiment"]["name"] = str(run_name)
-    if output_dir is not None:
-        config["logging"]["output_dir"] = str(output_dir)
-    if checkpoint_kind is not None:
-        from training.common.config_adapter import (
-            apply_checkpoint_kind_override,
-            normalize_checkpoint_kind,
-        )
-
-        normalized_kind = normalize_checkpoint_kind(checkpoint_kind)
-        apply_checkpoint_kind_override(config.setdefault("backend", {}), normalized_kind)
-        config.setdefault("policy", {})["checkpoint_kind"] = normalized_kind
-    return config
 
 
 def _has_explicit_sample_factory_checkpoint_selection(config: dict[str, Any]) -> bool:
@@ -96,7 +54,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--episode-count", type=int)
     args = parser.parse_args(argv)
     config = load_config(args.config)
-    apply_runtime_overrides(
+    _apply_runtime_overrides(
         config,
         checkpoint_path=args.checkpoint_path,
         run_name=args.run_name,

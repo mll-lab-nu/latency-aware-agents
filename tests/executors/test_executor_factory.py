@@ -10,10 +10,9 @@ from latency_bench.envs.factory import register_env_adapter
 from latency_bench.executors.factory import build_executor
 import latency_bench.executors.factory as executor_factory
 from latency_bench.executors.paused import PausedLatencyExecutor
-from latency_bench.executors.realtime import RealtimeLatencyExecutor
+from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
-from latency_bench.experiments.run_simulated_latency import build_executor as build_legacy_executor
-from latency_bench.run import run_from_config
+from latency_bench.eval.driver import run_from_config
 from latency_bench.latency.burst_profile import build_hidden_regime_burst_model
 from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
 from latency_bench.core.clock import EnvClock
@@ -817,15 +816,6 @@ def test_parallel_simulated_stateful_policy_without_predict_batch_fails_fast(tmp
 
     with pytest.raises(ValueError, match="does not support safe batched simulated eval"):
         build_executor(config)
-
-
-def test_legacy_simulated_wrapper_uses_new_entrypoint(tmp_path):
-    executor = build_legacy_executor(_config(output_dir=str(tmp_path)))
-
-    try:
-        assert isinstance(executor, SimulatedLatencyExecutor)
-    finally:
-        executor.env.close()
 
 
 @pytest.mark.parametrize("mode", ["simulated", "paused", "realtime"])

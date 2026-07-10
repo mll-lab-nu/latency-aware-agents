@@ -21,7 +21,8 @@ from latency_bench.eval.config import (
     _latency_steps_to_ms,
     _train_latency_steps,
 )
-from latency_bench.run import apply_runtime_overrides, run_from_config
+from latency_bench.eval.config import apply_runtime_overrides
+from latency_bench.eval.driver import run_from_config
 from latency_bench.utils.proc import cpu_seconds
 
 

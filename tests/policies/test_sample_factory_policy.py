@@ -1049,7 +1049,7 @@ def test_latency_bench_run_with_batched_sample_factory_discrete_policy_completes
     import json
 
     import latency_bench.executors.factory as executor_factory
-    import latency_bench.run as latency_run
+    import latency_bench.eval.driver as evaluation
 
     runner, _actor = _build_discrete_runner(monkeypatch)
     monkeypatch.setattr(executor_factory, "build_policy", lambda config, action_resolver: runner)
@@ -1099,7 +1099,7 @@ def test_latency_bench_run_with_batched_sample_factory_discrete_policy_completes
         },
     }
 
-    metrics = latency_run.run_from_config(config)
+    metrics = evaluation.run_from_config(config)
 
     assert [metric.episode_id for metric in metrics] == [0, 1, 2, 3, 4]
     action_records = [
@@ -1126,7 +1126,7 @@ def test_latency_bench_run_with_batched_deadly_tuple_policy_completes_exact_epis
     import json
 
     import latency_bench.executors.factory as executor_factory
-    import latency_bench.run as latency_run
+    import latency_bench.eval.driver as evaluation
 
     runner, _actor = _build_tuple_runner(monkeypatch)
     monkeypatch.setattr(executor_factory, "build_policy", lambda config, action_resolver: runner)
@@ -1170,7 +1170,7 @@ def test_latency_bench_run_with_batched_deadly_tuple_policy_completes_exact_epis
         },
     }
 
-    metrics = latency_run.run_from_config(config)
+    metrics = evaluation.run_from_config(config)
 
     assert [metric.episode_id for metric in metrics] == [0, 1, 2, 3, 4]
     action_records = [

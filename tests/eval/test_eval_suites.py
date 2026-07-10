@@ -110,7 +110,6 @@ def test_parse_fixed_eval_suite_supports_explicit_latency_list(tmp_path: Path):
 
 
 def test_run_eval_suites_writes_per_suite_outputs(monkeypatch, tmp_path: Path):
-    import latency_bench.run as latency_run
     import latency_bench.eval.sweeps as eval_sweeps
 
     seen_configs: list[dict] = []
@@ -130,7 +129,7 @@ def test_run_eval_suites_writes_per_suite_outputs(monkeypatch, tmp_path: Path):
 
     monkeypatch.setattr(eval_sweeps, "run_from_config", fake_run_from_config)
 
-    summaries = latency_run.run_eval_suites_from_config(_suite_config(tmp_path), progress=False)
+    summaries = eval_sweeps.run_eval_suites_from_config(_suite_config(tmp_path), progress=False)
 
     assert [summary["suite_name"] for summary in summaries] == [
         "fixed_0_to_2",

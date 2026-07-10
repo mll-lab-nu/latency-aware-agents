@@ -7,11 +7,13 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
-import latency_bench.executors.realtime as realtime
+import latency_bench.executors.realtime.executor as realtime_executor
+import latency_bench.executors.realtime.pool as realtime_pool
+import latency_bench.executors.realtime.workers as realtime_workers
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, ActionEvent, LatencyRecord, Observation, OrderingPolicy, PolicyOutput, StepRecord
 from latency_bench.envs.base import DummyEnvAdapter
-from latency_bench.executors.realtime import RealtimeLatencyExecutor
+from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.realtime.workers import (
     RealtimeActionDispatch,
@@ -149,7 +151,7 @@ def test_process_inference_pool_uses_spawn_start_method(monkeypatch):
         requested_methods.append(start_method)
         return FakeContext()
 
-    monkeypatch.setattr("latency_bench.executors.realtime.mp.get_context", fake_get_context)
+    monkeypatch.setattr(realtime_pool.mp, "get_context", fake_get_context)
     monkeypatch.setattr(ProcessInferencePool, "_start_workers", lambda self: None)
 
     pool = ProcessInferencePool(config={}, inference_devices=["cuda:0"])
@@ -501,8 +503,8 @@ def _patch_worker_dependencies(monkeypatch, measurer_cls):
 
     monkeypatch.setattr(actions_mod, "ActionResolver", DummyActionResolver)
     monkeypatch.setattr(factory_mod, "build_policy", lambda config, action_resolver: DummyWorkerPolicy())
-    monkeypatch.setattr(realtime.workers, "RuntimeLatencyMeasurer", measurer_cls)
-    monkeypatch.setattr(realtime.workers, "_worker_runtime_metadata", lambda worker_id, start_method: {})
+    monkeypatch.setattr(realtime_workers, "RuntimeLatencyMeasurer", measurer_cls)
+    monkeypatch.setattr(realtime_workers, "_worker_runtime_metadata", lambda worker_id, start_method: {})
 
 
 def _executor(
@@ -566,7 +568,7 @@ def test_env_process_ignores_late_action_when_pipe_is_closed(monkeypatch):
             return [event]
         return []
 
-    monkeypatch.setattr(realtime.mp, "get_context", lambda _method: ClosedActionEventPipeContext(parent_conn))
+    monkeypatch.setattr(realtime_executor.mp, "get_context", lambda _method: ClosedActionEventPipeContext(parent_conn))
     monkeypatch.setattr(executor, "_drain_and_release_results", fake_drain_and_release_results)
 
     metrics = executor._run_episode_with_env_process(
@@ -616,7 +618,7 @@ def test_env_process_drains_ready_results_before_submitting_observation(monkeypa
         kwargs["pool"].drained = True
         return []
 
-    monkeypatch.setattr(realtime.mp, "get_context", lambda _method: QueuedEnvMessageContext(parent_conn))
+    monkeypatch.setattr(realtime_executor.mp, "get_context", lambda _method: QueuedEnvMessageContext(parent_conn))
     monkeypatch.setattr(executor, "_drain_and_release_results", fake_drain_and_release_results)
 
     metrics = executor._run_episode_with_env_process(
@@ -665,7 +667,7 @@ def test_env_process_does_not_enqueue_released_actions_on_parent_scheduler(monke
     )
     executor = _executor(pool=pool, max_steps=1)
 
-    monkeypatch.setattr(realtime.mp, "get_context", lambda _method: QueuedEnvMessageContext(parent_conn))
+    monkeypatch.setattr(realtime_executor.mp, "get_context", lambda _method: QueuedEnvMessageContext(parent_conn))
 
     metrics = executor._run_episode_with_env_process(
         pool=pool,
@@ -711,7 +713,7 @@ def test_env_process_releases_in_flight_observations_before_close_after_episode_
     pool = LateCompletionAfterFinalizePool()
     executor = _executor(pool=pool, max_steps=1)
 
-    monkeypatch.setattr(realtime.mp, "get_context", lambda _method: QueuedEnvMessageContext(parent_conn))
+    monkeypatch.setattr(realtime_executor.mp, "get_context", lambda _method: QueuedEnvMessageContext(parent_conn))
 
     metrics = executor._run_episode_with_env_process(
         pool=pool,
@@ -823,8 +825,8 @@ def test_inference_worker_predicts_from_worker_local_observation_copy(monkeypatc
 
     monkeypatch.setattr(actions_mod, "ActionResolver", DummyActionResolver)
     monkeypatch.setattr(factory_mod, "build_policy", lambda config, action_resolver: MutatingWorkerPolicy())
-    monkeypatch.setattr(realtime.workers, "RuntimeLatencyMeasurer", CallingWorkerMeasurer)
-    monkeypatch.setattr(realtime.workers, "_worker_runtime_metadata", lambda worker_id, start_method: {})
+    monkeypatch.setattr(realtime_workers, "RuntimeLatencyMeasurer", CallingWorkerMeasurer)
+    monkeypatch.setattr(realtime_workers, "_worker_runtime_metadata", lambda worker_id, start_method: {})
 
     observation = Observation(
         data=np.arange(12, dtype=np.uint8).reshape(2, 2, 3),
@@ -989,7 +991,7 @@ def test_env_wait_drains_actions_before_next_frame_boundary() -> None:
 
 
 def test_process_inference_pool_reconstructs_completion_from_busy_task(monkeypatch):
-    monkeypatch.setattr(realtime.pool, "_profile_now_ms", lambda: 20.0)
+    monkeypatch.setattr(realtime_pool, "_profile_now_ms", lambda: 20.0)
     task = RealtimeObservationTask(
         obs_id=11,
         observation=Observation(data="obs", env_step=4, sim_time_ms=120.0),
