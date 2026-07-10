@@ -21,7 +21,7 @@ from latency_bench.executors.gpu_batched_env_step_backend import (
     config_policy_type,
     uses_starvla_policy,
 )
-from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
+from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_render_device
 from training.flappy_sf.flappy_cuda_extension import CudaFlappyRenderer
 from training.flappy_sf.gpu_core import CudaFlappyBirdCore

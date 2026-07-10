@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
-from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
+from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 
 
 @dataclass(frozen=True)

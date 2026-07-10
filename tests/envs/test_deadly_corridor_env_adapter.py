@@ -6,7 +6,7 @@ import numpy as np
 
 from latency_bench.core.types import Action
 from latency_bench.envs.deadly_corridor import DeadlyCorridorEnvAdapter
-from training.common.raw_rgb_export import RawRgbFrameStackBuffer
+from latency_bench.envs.raw_rgb import RawRgbFrameStackBuffer
 
 
 class ScriptedVizdoomGame:

@@ -22,7 +22,7 @@ from training.common.latency_config import (
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
-from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_render_device
 

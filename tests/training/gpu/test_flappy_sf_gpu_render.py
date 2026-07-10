@@ -86,7 +86,7 @@ def test_flappy_sf_gpu_render_cpu_reset_contract_image_only():
 def test_flappy_sf_gpu_render_export_reports_raw_rgb_stack_before_resize():
     torch = pytest.importorskip("torch")
 
-    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
     from training.flappy_sf.integration import make_flappy_sf_env
 
     env = make_flappy_sf_env(
@@ -108,7 +108,7 @@ def test_flappy_sf_gpu_render_export_reports_raw_rgb_stack_before_resize():
 def test_flappy_sf_gpu_render_export_advances_stack_oldest_to_newest():
     pytest.importorskip("torch")
 
-    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
     from training.flappy_sf.integration import make_flappy_sf_env
 
     env = make_flappy_sf_env(
@@ -131,7 +131,7 @@ def test_flappy_sf_gpu_render_export_advances_stack_oldest_to_newest():
 def test_flappy_sf_gpu_render_keeps_training_info_clean_by_default():
     pytest.importorskip("torch")
 
-    from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
     from training.flappy_sf.integration import make_flappy_sf_env
 
     env = make_flappy_sf_env("latency_flappy", cfg=_flappy_gpu_cfg(), env_config=_env_config())

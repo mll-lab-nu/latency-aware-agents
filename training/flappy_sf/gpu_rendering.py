@@ -16,7 +16,7 @@ from latency_bench.envs.flappy import (
     FlappyObservationConfig,
     FlappyTorchObservationPipeline,
 )
-from training.common.raw_rgb_export import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
+from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 
 
 _PROFILE_FIELDS = (
