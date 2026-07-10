@@ -383,8 +383,8 @@ Profile sampling must log:
 ```text
 profile_path
 profile_id
-sample_index
-converted_latency_raw_frames
+target_device
+latency_raw_frames
 ```
 
 ---

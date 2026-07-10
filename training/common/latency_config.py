@@ -5,9 +5,13 @@ from typing import Any
 
 from latency_bench.core.clock import ms_to_raw_frames
 from latency_bench.core.latency_distribution import LatencyDistributionSpec
-from latency_bench.core.types import LatencySourceType
 
 from training.common.utils import env_instance_seed
+
+
+_NORMAL_LATENCY_TYPES = {"normal_distribution", "mixed_normal_distribution"}
+_UNIFORM_LATENCY_TYPES = {"uniform_distribution", "mixed_uniform_distribution"}
+_PER_EPISODE_LATENCY_TYPES = {"mixed_normal_distribution", "mixed_uniform_distribution"}
 
 
 @dataclass(frozen=True)
@@ -81,41 +85,37 @@ def build_latency_info(
 
 
 def sample_factory_latency_params_from_flat_config(cfg: Any, *, env_fps: float) -> SampleFactoryLatencyParams:
-    latency_type = LatencySourceType(str(getattr(cfg, "latency_type")))
-    if latency_type == LatencySourceType.ZERO:
+    latency_type = cfg.latency_type
+    if latency_type == "zero":
         return SampleFactoryLatencyParams(fixed_latency_raw_frames=0, latency_distribution_spec=None)
-    if latency_type == LatencySourceType.FIXED:
+    if latency_type == "fixed":
         return SampleFactoryLatencyParams(
-            fixed_latency_raw_frames=latency_ms_to_raw_frames(getattr(cfg, "fixed_latency_ms"), env_fps=env_fps),
+            fixed_latency_raw_frames=latency_ms_to_raw_frames(cfg.fixed_latency_ms, env_fps=env_fps),
             latency_distribution_spec=None,
         )
-    sample_per_episode = latency_type in {
-        LatencySourceType.MIXED_NORMAL_DISTRIBUTION,
-        LatencySourceType.MIXED_UNIFORM_DISTRIBUTION,
-    }
     return SampleFactoryLatencyParams(
         fixed_latency_raw_frames=0,
         latency_distribution_spec=latency_distribution_spec_from_flat_config(cfg, env_fps=env_fps),
-        sample_distribution_per_episode=sample_per_episode,
+        sample_distribution_per_episode=latency_type in _PER_EPISODE_LATENCY_TYPES,
     )
 
 
 def latency_distribution_spec_from_flat_config(cfg: Any, *, env_fps: float) -> LatencyDistributionSpec:
-    latency_type = LatencySourceType(str(getattr(cfg, "latency_type")))
-    if latency_type in {LatencySourceType.NORMAL_DISTRIBUTION, LatencySourceType.MIXED_NORMAL_DISTRIBUTION}:
+    latency_type = cfg.latency_type
+    if latency_type in _NORMAL_LATENCY_TYPES:
         return LatencyDistributionSpec(
             type="normal",
-            mean=latency_ms_to_raw_frame_value(getattr(cfg, "mean_latency_ms"), env_fps=env_fps),
-            std=latency_ms_to_raw_frame_value(getattr(cfg, "std_latency_ms"), env_fps=env_fps),
-            min=latency_ms_to_raw_frame_value(getattr(cfg, "min_latency_ms"), env_fps=env_fps),
-            max=latency_ms_to_raw_frame_value(getattr(cfg, "max_latency_ms"), env_fps=env_fps),
+            mean=latency_ms_to_raw_frame_value(cfg.mean_latency_ms, env_fps=env_fps),
+            std=latency_ms_to_raw_frame_value(cfg.std_latency_ms, env_fps=env_fps),
+            min=latency_ms_to_raw_frame_value(cfg.min_latency_ms, env_fps=env_fps),
+            max=latency_ms_to_raw_frame_value(cfg.max_latency_ms, env_fps=env_fps),
         )
-    if latency_type in {LatencySourceType.UNIFORM_DISTRIBUTION, LatencySourceType.MIXED_UNIFORM_DISTRIBUTION}:
+    if latency_type in _UNIFORM_LATENCY_TYPES:
         return LatencyDistributionSpec(
             type="uniform",
             mean=None,
             std=None,
-            min=latency_ms_to_raw_frame_value(getattr(cfg, "min_latency_ms"), env_fps=env_fps),
-            max=latency_ms_to_raw_frame_value(getattr(cfg, "max_latency_ms"), env_fps=env_fps),
+            min=latency_ms_to_raw_frame_value(cfg.min_latency_ms, env_fps=env_fps),
+            max=latency_ms_to_raw_frame_value(cfg.max_latency_ms, env_fps=env_fps),
         )
-    raise ValueError(f"Sample Factory latency_distribution_spec does not support latency_type={latency_type.value}")
+    raise ValueError(f"Sample Factory latency_distribution_spec does not support latency_type={latency_type}")

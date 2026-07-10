@@ -71,8 +71,6 @@ PROFILE_METADATA_KEYS = (
     "profile_id",
     "target_device",
     "profile_path",
-    "sample_index",
-    "trace_index",
 )
 
 _RAW_RETURN_KEYS = (

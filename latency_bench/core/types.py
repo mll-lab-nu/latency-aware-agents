@@ -21,16 +21,6 @@ class OrderingPolicy(str, Enum):
     LATEST_READY = "latest_ready"
 
 
-class LatencySourceType(str, Enum):
-    ZERO = "zero"
-    FIXED = "fixed"
-    NORMAL_DISTRIBUTION = "normal_distribution"
-    UNIFORM_DISTRIBUTION = "uniform_distribution"
-    MIXED_NORMAL_DISTRIBUTION = "mixed_normal_distribution"
-    MIXED_UNIFORM_DISTRIBUTION = "mixed_uniform_distribution"
-    PROFILE_SAMPLE = "profile_sample"
-
-
 @dataclass
 class Action:
     value: Any
@@ -75,8 +65,6 @@ class LatencyRecord:
     profile_id: str | None = None
     target_device: str | None = None
     profile_path: str | None = None
-    sample_index: int | None = None
-    trace_index: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
