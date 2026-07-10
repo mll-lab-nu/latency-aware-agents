@@ -213,7 +213,7 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
             self._last_raw_rgb = raw_rgb
             self._reset_env_raw_rgb_info(info, raw_rgb)
             with self.gpu_render_profiler.time("pipeline_s"):
-                obs = self.pipeline.reset(raw_rgb, frame_skips=self._latency_raw_frames(info))
+                obs = self.pipeline.reset(raw_rgb)
         return self._obs(obs), [info]
 
     def step(self, action):
@@ -232,7 +232,7 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
                 self._last_raw_rgb = raw_rgb
                 self._reset_env_raw_rgb_info(info, raw_rgb)
                 with self.gpu_render_profiler.time("pipeline_s"):
-                    obs = self.pipeline.reset(raw_rgb, frame_skips=self._latency_raw_frames(reset_info))
+                    obs = self.pipeline.reset(raw_rgb)
             else:
                 raw_rgb = self._render_raw_rgb()
                 self._last_raw_rgb = raw_rgb
@@ -241,7 +241,6 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
                     obs = self.pipeline.step(
                         raw_rgb,
                         dones=np.zeros(1, dtype=np.bool_),
-                        frame_skips=self._latency_raw_frames(info),
                     )
         self.gpu_render_profiler.observe_step()
 
@@ -303,10 +302,6 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
         out = dict(info or {})
         out["numeric_obs"] = numeric_obs
         return out
-
-    @staticmethod
-    def _latency_raw_frames(info: dict[str, Any]) -> np.ndarray:
-        return np.asarray([info.get("latency_raw_frames", 0)], dtype=np.int64)
 
     @staticmethod
     def _scalar_action(action: Any) -> Any:

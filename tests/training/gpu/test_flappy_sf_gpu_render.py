@@ -253,7 +253,7 @@ def test_flappy_sf_gpu_render_auto_resets_on_done():
 def _stack_frames_equal(frame_stack: np.ndarray, agent_idx: int, *, stack_frames: int, base_channels: int = 3) -> bool:
     stack = frame_stack[agent_idx]
     chunks = [
-        stack[:, :, idx * base_channels : (idx + 1) * base_channels]
+        stack[idx * base_channels : (idx + 1) * base_channels]
         for idx in range(stack_frames)
     ]
     return all(np.array_equal(chunks[0], item) for item in chunks[1:])
@@ -272,15 +272,12 @@ def test_flappy_sf_gpu_render_auto_reset_resets_only_done_agent_frame_stack():
         env.reset(seed=123)
 
         for _ in range(5):
-            env.step(np.asarray([1, 1], dtype=np.int64))
-            stack = env.pipeline.current_frame_stack
-            assert stack is not None
+            obs, *_ = env.step(np.asarray([1, 1], dtype=np.int64))
+            stack = obs["obs"].detach().cpu().numpy()
             if not _stack_frames_equal(stack, 0, stack_frames=3) and not _stack_frames_equal(
                 stack, 1, stack_frames=3
             ):
                 break
-        stack = env.pipeline.current_frame_stack
-        assert stack is not None
         assert not _stack_frames_equal(stack, 0, stack_frames=3)
         assert not _stack_frames_equal(stack, 1, stack_frames=3)
 
@@ -304,8 +301,7 @@ def test_flappy_sf_gpu_render_auto_reset_resets_only_done_agent_frame_stack():
         }
         assert "episode/clipped_return" not in infos[0]["episode_extra_stats"]
 
-        stack = env.pipeline.current_frame_stack
-        assert stack is not None
+        stack = obs["obs"].detach().cpu().numpy()
         assert _stack_frames_equal(stack, 0, stack_frames=3)
         assert not _stack_frames_equal(stack, 1, stack_frames=3)
     finally:
@@ -326,9 +322,8 @@ def test_flappy_sf_gpu_render_manual_reset_preserves_terminal_info_and_resets_re
         env.set_auto_reset_done(False)
 
         for _ in range(5):
-            env.step(np.asarray([1, 1], dtype=np.int64))
-            stack = env.pipeline.current_frame_stack
-            assert stack is not None
+            obs, *_ = env.step(np.asarray([1, 1], dtype=np.int64))
+            stack = obs["obs"].detach().cpu().numpy()
             if not _stack_frames_equal(stack, 0, stack_frames=3) and not _stack_frames_equal(
                 stack, 1, stack_frames=3
             ):
@@ -344,10 +339,9 @@ def test_flappy_sf_gpu_render_manual_reset_preserves_terminal_info_and_resets_re
         assert "reset_info" not in infos[0]
         assert "reset_info" not in infos[1]
 
-        _obs, reset_infos = env.reset_agents({0: 777}, active_mask=[True, True])
+        reset_obs, reset_infos = env.reset_agents({0: 777}, active_mask=[True, True])
         assert "numeric_obs" in reset_infos[0]
-        stack = env.pipeline.current_frame_stack
-        assert stack is not None
+        stack = reset_obs["obs"].detach().cpu().numpy()
         assert _stack_frames_equal(stack, 0, stack_frames=3)
         assert not _stack_frames_equal(stack, 1, stack_frames=3)
     finally:
