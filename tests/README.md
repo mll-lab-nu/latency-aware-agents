@@ -118,10 +118,10 @@ conda run -n latency python -m pytest tests/executors -q   # one area
 
 Config lives in `pytest.ini` (testpaths, registered markers, default `-m "not gpu"`).
 
-> The `latency` env is missing some optional deps (e.g. `omegaconf` for starVLA),
-> so a clean checkout already has pre-existing env-dependent failures/skips. When
-> judging whether *your* change broke something, **diff against a baseline run of
-> the unchanged tree** — don't assume every red test is yours.
+Tests that exercise optional integrations skip when that integration's dependency
+set is not installed. A passing default non-GPU suite is the maintained target;
+track and eliminate remaining failures instead of normalizing them as environment
+noise.
 
 ---
 

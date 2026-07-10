@@ -68,7 +68,8 @@ def test_eval_core_noop_reset_fs1_matches_sb3_noop_reset_without_fire_reset():
     from training.common.atari_cv2_obs import native_rgb_to_obs84
 
     _ensure_starvla_on_path()
-    from starVLA.training.rl_games.eval_core import DemonAttackNoopResetWrapper
+    eval_core = pytest.importorskip("starVLA.training.rl_games.eval_core", exc_type=ImportError)
+    DemonAttackNoopResetWrapper = eval_core.DemonAttackNoopResetWrapper
 
     _register_ale(gym)
 
