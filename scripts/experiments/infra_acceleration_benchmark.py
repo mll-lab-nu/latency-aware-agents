@@ -19,7 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from latency_bench.core.config import load_config
 from latency_bench.eval.suites import has_eval_suites
-from latency_bench.run import run_eval_suites_from_config, run_eval_sweep_from_config
+from latency_bench.eval.sweeps import run_eval_suites_from_config, run_eval_sweep_from_config
 from training.common.checkpoints import find_checkpoint
 from training.common.config_adapter import import_integration_module
 from training.common.latency_bench_periodic_eval import build_latency_bench_config_from_training_config

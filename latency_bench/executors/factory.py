@@ -18,7 +18,7 @@ from latency_bench.executors.backend_selection import (
 from latency_bench.executors.base import Executor
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
 from latency_bench.executors.paused import PausedLatencyExecutor
-from latency_bench.executors.realtime import RealtimeLatencyExecutor
+from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.latency.hardware_info import visible_cuda_device_count
@@ -365,5 +365,4 @@ def _eval_parallel_envs(config: dict[str, Any]) -> int:
     if eval_parallel_envs <= 0:
         raise ValueError("evaluation.eval_parallel_envs must be positive")
     return eval_parallel_envs
-
 

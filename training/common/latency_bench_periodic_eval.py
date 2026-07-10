@@ -11,7 +11,7 @@ from typing import Any
 
 from latency_bench.core.config import load_config, merge_dicts
 from latency_bench.logging.wandb_eval import eval_scalar_payload
-from latency_bench.run import run_eval_suites_from_config
+from latency_bench.eval.sweeps import run_eval_suites_from_config
 from training.common.checkpoints import (
     CheckpointEvalLease,
     acquire_checkpoint_eval_lease,

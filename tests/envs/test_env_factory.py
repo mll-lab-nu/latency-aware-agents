@@ -13,7 +13,7 @@ from latency_bench.envs import deadly_corridor
 from latency_bench.envs.deadly_corridor import _noop_action_from_space
 from latency_bench.envs.flappy import FlappyBirdEnvAdapter
 from latency_bench.envs.factory import build_env_adapter, get_registered_env_names
-from latency_bench.experiments.run_simulated_latency import build_executor
+from latency_bench.executors.factory import build_executor
 from latency_bench.policy.base import ConstantPolicyRunner
 
 

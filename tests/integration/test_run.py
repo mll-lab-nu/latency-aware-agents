@@ -205,7 +205,7 @@ def test_run_from_config_uses_sample_factory_eval_episode_seeds(monkeypatch, tmp
     monkeypatch.setattr(evaluation, "seed_everything", lambda seed: global_seed_calls.append(seed) or seed)
     config = _run_config("deadly_corridor_sf", tmp_path, seed=11, num_episodes=3)
 
-    latency_run.run_from_config(config)
+    evaluation.run_from_config(config)
 
     assert global_seed_calls == [11]
     assert episode_seeds == [104740, 104741, 104742]
@@ -239,7 +239,7 @@ def test_run_from_config_keeps_existing_episode_seeds_for_non_sample_factory_pol
     monkeypatch.setattr(evaluation, "seed_everything", lambda seed: global_seed_calls.append(seed) or seed)
     config = _run_config("constant", tmp_path, seed=11, num_episodes=3)
 
-    latency_run.run_from_config(config)
+    evaluation.run_from_config(config)
 
     assert global_seed_calls == [11]
     assert episode_seeds == [11, 12, 13]
@@ -272,7 +272,7 @@ def test_run_from_config_uses_evaluation_eval_max_steps(
     config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
     config["evaluation"] = {"eval_episodes": 1, "eval_max_steps": 7}
 
-    latency_run.run_from_config(config)
+    evaluation.run_from_config(config)
 
     assert eval_steps_seen == [7]
 
@@ -307,7 +307,7 @@ def test_run_from_config_uses_batched_executor_run_episodes_when_available(
     config = _run_config("constant", tmp_path, seed=11, num_episodes=3)
     config["evaluation"]["eval_max_steps"] = 7
 
-    metrics = latency_run.run_from_config(config)
+    metrics = evaluation.run_from_config(config)
 
     assert run_calls == [([0, 1, 2], [11, 12, 13], 7)]
     assert [metric.episode_id for metric in metrics] == [0, 1, 2]
@@ -339,8 +339,8 @@ def test_run_from_config_merges_executor_warmup_metadata(
         def __init__(self):
             self.logger = FakeLogger()
 
-        def run_warmup(self, *, eval_max_steps):
-            warmup_calls.append(eval_max_steps)
+        def run_warmup(self):
+            warmup_calls.append(True)
             return {"warmup_status": "stable", "warmup_samples": 200}
 
         def run_episode(self, *, episode_id, seed, eval_max_steps):
@@ -358,13 +358,13 @@ def test_run_from_config_merges_executor_warmup_metadata(
     config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
     config["evaluation"]["eval_max_steps"] = 10
 
-    metrics = latency_run.run_from_config(config)
+    metrics = evaluation.run_from_config(config)
 
     assert run_calls == [
         (0, 11, 10),
         (1, 12, 10),
     ]
-    assert warmup_calls == [10]
+    assert warmup_calls == [True]
     assert [metric.episode_id for metric in metrics] == [0, 1]
     assert [metric.metadata["warmup_status"] for metric in metrics] == ["stable", "stable"]
     assert [metric.metadata["warmup_samples"] for metric in metrics] == [200, 200]
@@ -408,7 +408,7 @@ def test_run_eval_progress_keeps_existing_episode_format_without_sample_target(
     monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
 
-    latency_run.run_eval_sweep_from_config(config, progress=True)
+    eval_sweeps.run_eval_sweep_from_config(config, progress=True)
 
     captured = capsys.readouterr()
     assert "[bench] sweep 1/1 episode 1/2 done" in captured.err
@@ -444,7 +444,7 @@ def test_run_from_config_without_warmup_hook_does_not_warmup(
     config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
     config["evaluation"]["eval_max_steps"] = 10
 
-    metrics = latency_run.run_from_config(config)
+    metrics = evaluation.run_from_config(config)
 
     assert run_calls == [(0, 11, 10)]
     assert [metric.episode_id for metric in metrics] == [0]
@@ -457,7 +457,7 @@ def test_run_from_config_records_stratified_replay_videos(tmp_path: Path):
         "num_bins": 2,
     }
 
-    latency_run.run_from_config(config, write_summary=False)
+    evaluation.run_from_config(config, write_summary=False)
 
     video_dir = tmp_path / "videos"
     manifest = [
@@ -476,7 +476,7 @@ def test_run_from_config_requires_video_num_bins_when_enabled(tmp_path: Path):
     config["logging"]["video"] = {"enabled": True}
 
     with pytest.raises(KeyError, match="num_bins"):
-        latency_run.run_from_config(config, write_summary=False)
+        evaluation.run_from_config(config, write_summary=False)
 
 
 def test_run_from_config_requires_evaluation_eval_max_steps(monkeypatch, tmp_path: Path):
@@ -493,13 +493,13 @@ def test_run_from_config_requires_evaluation_eval_max_steps(monkeypatch, tmp_pat
     config.pop("evaluation")
 
     with pytest.raises(ValueError, match="evaluation.eval_max_steps is required"):
-        latency_run.run_from_config(config)
+        evaluation.run_from_config(config)
 
 
 def test_run_from_config_is_quiet_by_default(tmp_path: Path, capsys):
     config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
 
-    latency_run.run_from_config(config, write_summary=False)
+    evaluation.run_from_config(config, write_summary=False)
 
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -867,13 +867,13 @@ def test_main_writes_non_sweep_queue_eval_summary(tmp_path: Path, capsys):
 
 def test_main_writes_realtime_measured_summary_with_string_latency_label(monkeypatch, tmp_path: Path, capsys):
     import latency_bench.executors.factory as executor_factory
-    from latency_bench.executors.realtime import RealtimeLatencyExecutor
+    from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor
 
     monkeypatch.setattr(executor_factory, "_resolve_realtime_inference_devices", lambda: ["cpu"])
     monkeypatch.setattr(
         RealtimeLatencyExecutor,
         "run_warmup",
-        lambda self, *, eval_max_steps: {"warmup_status": "stable", "warmup_samples": 200},
+        lambda self: {"warmup_status": "stable", "warmup_samples": 200},
     )
     config_path = tmp_path / "config.yaml"
     output_dir = tmp_path / "realtime_output"

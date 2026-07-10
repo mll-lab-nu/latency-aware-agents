@@ -10,7 +10,7 @@ from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.latency.burst_profile import build_hidden_regime_burst_model
 from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
-from latency_bench.run import run_from_config
+from latency_bench.eval.driver import run_from_config
 from latency_bench.utils.io import load_jsonl_records
 
 

@@ -1,12 +1,12 @@
-"""Pure interpretation of an eval config: seeds, episode counts, and latency math.
+"""Evaluation config interpretation and CLI runtime overrides.
 
-Leaf module — depends only on the config dict shape, never on executors or
-orchestration. Shared by ``run.py`` (single-run + sweep orchestration) and
-``eval_reporting.py``.
+This module depends on config shape rather than executors or orchestration. It is
+shared by the CLI, evaluation drivers, and reporting.
 """
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 _SAMPLE_FACTORY_POLICY_TYPES = {
@@ -14,6 +14,28 @@ _SAMPLE_FACTORY_POLICY_TYPES = {
     "demon_attack_sf",
     "deadly_corridor_sf",
 }
+
+
+def apply_runtime_overrides(
+    config: dict[str, Any],
+    checkpoint_path: str | Path | None = None,
+    run_name: str | None = None,
+    output_dir: str | Path | None = None,
+    checkpoint_kind: str | None = None,
+) -> dict[str, Any]:
+    if checkpoint_path is not None:
+        config["policy"]["checkpoint_path"] = str(checkpoint_path)
+    if run_name is not None:
+        config["experiment"]["name"] = str(run_name)
+    if output_dir is not None:
+        config["logging"]["output_dir"] = str(output_dir)
+    if checkpoint_kind is not None:
+        config["policy"]["checkpoint_kind"] = checkpoint_kind
+        if _is_sample_factory_policy(config):
+            from training.common.config_adapter import apply_checkpoint_kind_override
+
+            apply_checkpoint_kind_override(config["backend"], checkpoint_kind)
+    return config
 
 
 def _is_sample_factory_policy(config: dict[str, Any]) -> bool:

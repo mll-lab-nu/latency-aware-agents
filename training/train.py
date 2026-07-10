@@ -4,7 +4,7 @@ import argparse
 from collections.abc import Sequence
 
 from latency_bench.core.config import load_config
-from training.common import (
+from training.common.config_adapter import (
     apply_training_overrides,
     import_integration_module,
 )
