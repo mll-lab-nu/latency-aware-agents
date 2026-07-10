@@ -25,13 +25,3 @@ def sample_inverse_cdf(
     upper_latency = float(latency_ms[index])
     weight = (quantile - lower_q) / (upper_q - lower_q)
     return lower_latency + weight * (upper_latency - lower_latency)
-
-
-def sample_empirical(rng: random.Random, values: Sequence[float]) -> float:
-    """Draw one value from an unsorted empirical sample via inverse-CDF interpolation."""
-    sorted_values = sorted(float(value) for value in values)
-    if len(sorted_values) == 1:
-        return sorted_values[0]
-    denominator = len(sorted_values) - 1
-    quantile_levels = [index / denominator for index in range(len(sorted_values))]
-    return sample_inverse_cdf(rng, quantile_levels, sorted_values)

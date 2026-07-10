@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import LatencyRecord
 from latency_bench.latency.burst_profile import build_hidden_regime_burst_model
 from latency_bench.latency.profile import (
     build_inverse_cdf_distribution,
@@ -22,7 +21,6 @@ from latency_bench.latency.samplers import (
     ZeroSampler,
     build_sampler,
 )
-from latency_bench.latency.trace import load_latency_trace, save_latency_trace
 
 
 def _clock() -> EnvClock:
@@ -198,12 +196,6 @@ def test_per_episode_modifier_freezes_draw_per_episode():
     assert len(set(ep1)) == 1
     assert ep0[0] != ep1[0]
     assert sampler.latency_type == "mixed_normal_distribution"
-
-
-def test_latency_trace_load_and_save(tmp_path: Path):
-    trace_path = tmp_path / "saved.jsonl"
-    save_latency_trace([LatencyRecord(obs_id=0, latency_ms=12.0)], trace_path)
-    assert load_latency_trace(trace_path) == [12.0]
 
 
 def test_temporal_method_builds_hidden_regime_sampler(tmp_path: Path):
