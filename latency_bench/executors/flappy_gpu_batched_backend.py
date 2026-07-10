@@ -92,7 +92,6 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
             for _slot in range(self._num_slots)
         ]
         self._last_numeric_obs: list[Any] = [None for _slot in range(self._num_slots)]
-        self._last_frame_skips = np.zeros(self._num_slots, dtype=np.int64)
         self.gpu_render_profiler = _GpuRenderProfiler(
             enabled=bool(env_cfg.get("gpu_render_profile", False)),
             interval=int(env_cfg.get("gpu_render_profile_interval", 1000) or 1000),
@@ -161,10 +160,9 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
                     obs = self.pipeline.reset_indices(
                         raw_rgb,
                         reset_mask=reset_mask,
-                        frame_skips=self._last_frame_skips,
                     )
                 else:
-                    obs = self.pipeline.reset(raw_rgb, frame_skips=self._last_frame_skips)
+                    obs = self.pipeline.reset(raw_rgb)
                     self._pipeline_has_reset = True
         return self._policy_observation_frames(obs)
 
@@ -184,7 +182,6 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
                 obs = self.pipeline.step(
                     raw_rgb,
                     dones=np.zeros(self._num_slots, dtype=np.bool_),
-                    frame_skips=self._last_frame_skips,
                     active_mask=active_mask,
                 )
         return self._policy_observation_frames(obs)

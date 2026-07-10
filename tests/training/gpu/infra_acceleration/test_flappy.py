@@ -224,7 +224,7 @@ class _ScalarGpuOracle:
         for agent_idx, env in enumerate(self.envs):
             numeric_obs, info = env.reset(seed=int(seed) + agent_idx)
             infos.append(self._env_cls._with_numeric_obs(info, numeric_obs))
-        obs = self.pipeline.reset(self._render(), frame_skips=self._env_cls._latency_raw_frames(infos))
+        obs = self.pipeline.reset(self._render())
         return {"obs": obs}, infos
 
     def step(self, actions):
@@ -232,7 +232,6 @@ class _ScalarGpuOracle:
         terminated = np.zeros(self.batch_size, dtype=np.bool_)
         truncated = np.zeros(self.batch_size, dtype=np.bool_)
         infos = []
-        observation_infos = []
         for agent_idx, (env, action) in enumerate(zip(self.envs, actions)):
             numeric_obs, reward, term, trunc, info = env.step(int(action))
             info = self._env_cls._with_numeric_obs(info, numeric_obs)
@@ -243,14 +242,10 @@ class _ScalarGpuOracle:
                 reset_numeric_obs, reset_info = env.reset()
                 reset_info = self._env_cls._with_numeric_obs(reset_info, reset_numeric_obs)
                 info["reset_info"] = reset_info
-                observation_infos.append(reset_info)
-            else:
-                observation_infos.append(info)
             infos.append(info)
         obs = self.pipeline.step(
             self._render(),
             dones=np.logical_or(terminated, truncated),
-            frame_skips=self._env_cls._latency_raw_frames(observation_infos),
         )
         return {"obs": obs}, rewards, terminated, truncated, infos
 

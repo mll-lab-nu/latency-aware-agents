@@ -179,7 +179,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         self._auto_reset_done = True
         self._last_observation_infos: list[dict[str, Any]] = [{} for _ in range(self.num_agents)]
         self._empty_info: dict[str, Any] = {}
-        self._last_frame_skips = np.zeros(self.num_agents, dtype=np.int64)
         self.sample_factory_step_cpu_tensors: dict[str, torch.Tensor] = {}
 
         self.gpu_render_profiler = _GpuRenderProfiler(
@@ -228,13 +227,11 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             self._with_numeric_obs({**core_infos[agent_idx], **latency_infos[agent_idx]}, numeric_obs[agent_idx])
             for agent_idx in range(self.num_agents)
         ]
-        self._last_frame_skips[:] = self._latency_raw_frames(infos)
-
         with self.gpu_render_profiler.time("reset_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
             self._reset_env_raw_rgb_frames(raw_rgb)
             with self.gpu_render_profiler.time("pipeline_s"):
-                obs = self.pipeline.reset(raw_rgb, frame_skips=self._last_frame_skips)
+                obs = self.pipeline.reset(raw_rgb)
         self._has_reset = True
         self._attach_env_raw_rgb_infos(infos)
         self._last_observation_infos = [dict(info) for info in infos]
@@ -275,7 +272,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 )
                 infos[agent_idx] = info
                 self._last_observation_infos[agent_idx] = dict(info)
-                self._last_frame_skips[agent_idx] = int(info["latency_raw_frames"])
                 reset_mask[agent_idx] = True
                 self._raw_episode_steps[agent_idx] = 0
                 self._raw_episode_steps_gpu[agent_idx] = 0
@@ -287,7 +283,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 obs = self.pipeline.reset_indices(
                     raw_rgb,
                     reset_mask=reset_mask,
-                    frame_skips=self._last_frame_skips,
                 )
         self._attach_env_raw_rgb_infos(infos)
         return self._obs(obs), infos
@@ -340,7 +335,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 timeout_mask = fused_result.timeout_mask
                 latest_scores = fused_result.scores
                 latency_raw_frames = fused_result.latency_raw_frames
-                self._last_frame_skips[active] = latency_raw_frames[active]
                 with self.gpu_render_profiler.time("metrics_update_s"):
                     done_infos = self.metrics.update(
                         issued_actions=issued_actions,
@@ -427,7 +421,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 with self.gpu_render_profiler.time("latency_finish_s"):
                     latency_result = self.latency.finish_decision(active, raw_frames_advanced)
                     latency_raw_frames = latency_result.latency_raw_frames
-                self._last_frame_skips[active] = latency_raw_frames[active]
                 with self.gpu_render_profiler.time("metrics_update_s"):
                     done_infos = self.metrics.update(
                         issued_actions=issued_actions,
@@ -485,7 +478,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 obs = self.pipeline.step(
                     raw_rgb,
                     dones=np.logical_or(terminated, truncated),
-                    frame_skips=self._last_frame_skips,
                     active_mask=self._active_agents,
                 )
         self.gpu_render_profiler.observe_step()
@@ -544,7 +536,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             )
             reset_infos[agent_idx] = reset_info
             self._last_observation_infos[agent_idx] = dict(reset_info)
-            self._last_frame_skips[agent_idx] = int(reset_info["latency_raw_frames"])
         return reset_infos
 
     def _obs(self, obs: torch.Tensor) -> dict[str, torch.Tensor]:
@@ -663,16 +654,8 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         out["numeric_obs"] = numeric_obs
         return out
 
-    @staticmethod
-    def _latency_raw_frames(infos: Sequence[dict[str, Any]]) -> np.ndarray:
-        values = []
-        for info in infos:
-            values.append(int(info["latency_raw_frames"]))
-        return np.asarray(values, dtype=np.int64)
-
     def _core_scores_numpy(self) -> np.ndarray:
         score = self.core.score
         if isinstance(score, torch.Tensor):
             return score.detach().cpu().numpy().copy()
         return score.copy()
-
