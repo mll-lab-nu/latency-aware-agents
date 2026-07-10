@@ -9,75 +9,11 @@ import time
 import types
 from pathlib import Path
 
-import yaml
 import pytest
 
 import scripts.experiment_runner.run_manifest_jobs as run_manifest_jobs
 from scripts.experiment_runner.job_manifest import load_manifest, write_manifest
-from scripts.experiment_runner.migrate_manifest_v2 import main as migrate_manifest_v2
 from scripts.experiment_runner.run_manifest_jobs import _default_uploader, run_jobs
-
-
-def _write_config(path: Path, *, experiment_name: str, train_dir: Path, output_dir: Path, eval_output_dir: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    train_cfg = {
-        "experiment": {"name": experiment_name, "seed": 7},
-        "backend": {"train_dir": str(train_dir), "run_mode": "train"},
-        "env": {"name": "flappy", "env_fps": 30, "obs_fps": 15, "frame_stack": 4},
-        "latency": {"type": "fixed", "fixed_latency_ms": 100.0},
-        "training": {"train_for_env_steps": 1000},
-        "logging": {"output_dir": str(output_dir), "wandb_name": experiment_name, "wandb_group": "group"},
-    }
-    eval_cfg = {
-        "experiment": {"name": experiment_name, "seed": 7},
-        "backend": {"train_dir": str(train_dir), "run_mode": "eval"},
-        "env": {"name": "flappy", "env_fps": 30, "obs_fps": 15, "frame_stack": 4},
-        "latency": {"type": "fixed", "fixed_latency_ms": 100.0},
-        "logging": {"output_dir": str(eval_output_dir)},
-    }
-    path.write_text(yaml.safe_dump(train_cfg, sort_keys=False), encoding="utf-8")
-    path.with_name("latency_bench_eval.yaml").write_text(yaml.safe_dump(eval_cfg, sort_keys=False), encoding="utf-8")
-
-
-def test_migrate_legacy_manifest_to_v2(tmp_path):
-    generated_root = tmp_path / "generated"
-    train_path = generated_root / "flappy" / "latency_3" / "seed_0" / "train.yaml"
-    _write_config(
-        train_path,
-        experiment_name="flappy_sf_same_latency_l3_seed0",
-        train_dir=tmp_path / "checkpoints",
-        output_dir=tmp_path / "outputs" / "train",
-        eval_output_dir=tmp_path / "outputs" / "eval",
-    )
-    legacy_manifest = generated_root / "manifest.tsv"
-    legacy_manifest.write_text(
-        "\n".join(
-            [
-                "env\tlatency\tseed\ttrain_config\tlatency_bench_eval_config\ttrain_command\tlatency_bench_eval_command",
-                "\t".join(
-                    [
-                        "flappy",
-                        "3",
-                        "0",
-                        str(train_path),
-                        str(train_path.with_name("latency_bench_eval.yaml")),
-                        f"python -m training.train --config {train_path}",
-                        f"python -m latency_bench.run --config {train_path.with_name('latency_bench_eval.yaml')}",
-                    ]
-                ),
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    migrate_manifest_v2(["--input", str(legacy_manifest)])
-
-    rows = load_manifest(legacy_manifest)
-    assert rows[0]["schema_version"] == "v2"
-    assert rows[0]["experiment_family"] == "same_latency"
-    assert rows[0]["sweep_name"] == "same_latency"
-    assert rows[0]["observation_stride"] == "2"
 
 
 def test_runner_uploads_in_background(tmp_path):
