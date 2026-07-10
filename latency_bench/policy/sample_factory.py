@@ -4,7 +4,8 @@ from importlib import import_module
 from typing import Any
 
 from latency_bench.core.actions import ActionResolver
-from latency_bench.policy.sample_factory_common import SampleFactoryIntegrationModule, SampleFactoryPolicyRunner
+from latency_bench.integrations.sample_factory.runtime import SampleFactoryIntegrationModule
+from latency_bench.policy.sample_factory_common import SampleFactoryPolicyRunner
 
 _INTEGRATIONS = {
     "flappy_sf": ("training.flappy_sf.integration", "register_flappy_envs"),

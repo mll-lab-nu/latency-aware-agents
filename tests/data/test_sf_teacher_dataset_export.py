@@ -176,9 +176,9 @@ def _load_sf_teacher_drivers_for_direct_test(monkeypatch):
         import torch  # noqa: F401
     except ModuleNotFoundError:
         monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(Tensor=type("FakeTensor", (), {})))
-    sample_factory_common = ModuleType("latency_bench.policy.sample_factory_common")
-    sample_factory_common._to_python_action = lambda value: value.item() if hasattr(value, "item") else value
-    monkeypatch.setitem(sys.modules, "latency_bench.policy.sample_factory_common", sample_factory_common)
+    sample_factory_actions = ModuleType("latency_bench.integrations.sample_factory.actions")
+    sample_factory_actions.to_python_action = lambda value: value.item() if hasattr(value, "item") else value
+    monkeypatch.setitem(sys.modules, sample_factory_actions.__name__, sample_factory_actions)
     module_path = REPO_ROOT / "latency_bench" / "data" / "sf_teacher_drivers.py"
     spec = importlib.util.spec_from_file_location("_test_sf_teacher_drivers", module_path)
     module = importlib.util.module_from_spec(spec)
@@ -546,8 +546,8 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
         {"env_name": "flappy"},
@@ -645,10 +645,10 @@ def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeyp
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
     monkeypatch.setattr(
         exporter,
-        "_split_batch_actions",
+        "split_batch_actions",
         lambda processed_actions, batch_size, action_space=None: [[0, 1, 0, 0]] * batch_size,
     )
 
@@ -783,8 +783,8 @@ def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(m
 
     monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", fake_build_cfg)
     monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
-    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     _FakeProgress.calls.clear()
     _FakeProgress.updates.clear()
     monkeypatch.setattr(exporter, "tqdm", _FakeProgress)
@@ -907,8 +907,8 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
         {"env_name": "flappy"},
@@ -1158,8 +1158,8 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
@@ -1263,8 +1263,8 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
@@ -1432,8 +1432,8 @@ def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tm
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
     output_dir = tmp_path / "export"
 
@@ -1586,8 +1586,8 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
 
     monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
     monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
-    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: list(processed_actions))
+    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: list(processed_actions))
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
     output_dir = tmp_path / "export"
     exporter.collect_teacher_dataset(
@@ -1715,8 +1715,8 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
 
     monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
     monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
-    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
 
     output_dir = tmp_path / "export"
@@ -1833,8 +1833,8 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
 
     monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
     monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
-    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
     output_dir = tmp_path / "export"
     exporter.collect_teacher_dataset(
@@ -2056,8 +2056,8 @@ def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatc
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
     output_dir = tmp_path / "export"
     exporter.collect_teacher_dataset(
@@ -2224,8 +2224,8 @@ def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_pro
     )
     monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", fake_build_cfg)
     monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
-    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
 
     metadata = exporter.collect_teacher_dataset(
         {"env_name": "flappy"},
@@ -2719,8 +2719,8 @@ def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkey
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "_normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "_split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
 
     output_dir = tmp_path / "shard"
     result = exporter.collect_teacher_dataset(

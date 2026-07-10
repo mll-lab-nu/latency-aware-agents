@@ -8,7 +8,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import torch
 
-from latency_bench.policy.sample_factory_common import _to_python_action
+from latency_bench.integrations.sample_factory.actions import to_python_action
 from latency_bench.utils.array import to_numpy
 
 
@@ -157,9 +157,9 @@ class SerialTeacherRolloutDriver:
             next_obs, reward, terminated, truncated, info = self.envs[int(slot)].step([raw_actions[batch_idx]])
             step_results[int(slot)] = RolloutStepResult(
                 next_obs=next_obs,
-                reward=_to_python_action(reward),
-                terminated=_to_python_action(terminated),
-                truncated=_to_python_action(truncated),
+                reward=to_python_action(reward),
+                terminated=to_python_action(terminated),
+                truncated=to_python_action(truncated),
                 info=info[0],
             )
         return step_results
@@ -277,9 +277,9 @@ class BatchedTeacherRolloutDriver:
         results = {
             slot: RolloutStepResult(
                 next_obs=_obs_slice(obs_host, slot),
-                reward=_to_python_action(rewards_host[slot]),
-                terminated=_to_python_action(terminated_host[slot]),
-                truncated=_to_python_action(truncated_host[slot]),
+                reward=to_python_action(rewards_host[slot]),
+                terminated=to_python_action(terminated_host[slot]),
+                truncated=to_python_action(truncated_host[slot]),
                 info=infos[slot],
             )
             for slot in active_slots

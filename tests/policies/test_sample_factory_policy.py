@@ -12,6 +12,8 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
+from latency_bench.integrations.sample_factory import actions as sf_actions
+from latency_bench.integrations.sample_factory import runtime as sf_runtime
 from latency_bench.policy import sample_factory as sample_factory_policy
 from latency_bench.policy import sample_factory_common
 
@@ -62,8 +64,8 @@ def test_sample_factory_policy_builder_selects_environment_integration(
 
 
 def test_resolve_torch_device_maps_legacy_gpu_to_cuda():
-    assert sample_factory_common._resolve_device("gpu") == "cuda"
-    assert sample_factory_common._resolve_device("cpu") == "cpu"
+    assert sf_runtime.resolve_torch_device("gpu") == "cuda"
+    assert sf_runtime.resolve_torch_device("cpu") == "cpu"
 
 
 def _old_obs_batch_to_sf_inputs_reference(observations, device):
@@ -385,8 +387,8 @@ def _build_discrete_runner(monkeypatch, *, action_space=None, use_rnn: bool = Fa
         preprocess_actions=_discrete_preprocess_actions,
     )
     monkeypatch.setattr(
-        sample_factory_common,
-        "_load_sf_policy_state_dict",
+        sf_runtime,
+        "load_sample_factory_policy_state_dict",
         lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
     )
     config = _config("/tmp/model.pth")
@@ -414,8 +416,8 @@ def _build_rnn_discrete_runner(monkeypatch):
         get_rnn_size=lambda cfg: 2,
     )
     monkeypatch.setattr(
-        sample_factory_common,
-        "_load_sf_policy_state_dict",
+        sf_runtime,
+        "load_sample_factory_policy_state_dict",
         lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
     )
     config = _config("/tmp/model.pth")
@@ -443,8 +445,8 @@ def _build_state_echo_discrete_runner(monkeypatch, *, use_rnn: bool):
         get_rnn_size=lambda cfg: 2,
     )
     monkeypatch.setattr(
-        sample_factory_common,
-        "_load_sf_policy_state_dict",
+        sf_runtime,
+        "load_sample_factory_policy_state_dict",
         lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
     )
     config = _config("/tmp/model.pth")
@@ -509,8 +511,8 @@ def _build_tuple_runner(
     )
     monkeypatch.setattr(sys.modules["sample_factory.algo.utils.env_info"], "extract_env_info", fake_extract_env_info)
     monkeypatch.setattr(
-        sample_factory_common,
-        "_load_sf_policy_state_dict",
+        sf_runtime,
+        "load_sample_factory_policy_state_dict",
         lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
     )
     config = _config("/tmp/model.pth")
@@ -546,7 +548,7 @@ def test_deterministic_actions_for_tuple_space_stacks_component_argmaxes():
         ],
     )
 
-    actions = sample_factory_common._deterministic_actions_for_space(
+    actions = sf_actions.deterministic_actions_for_space(
         action_distribution,
         action_space=action_space,
         argmax_actions=lambda distribution: distribution.argmax_actions,
@@ -560,7 +562,7 @@ def test_deterministic_actions_for_tuple_space_stacks_component_argmaxes():
 def test_deterministic_actions_for_discrete_space_keeps_argmax_output():
     action_distribution = SimpleNamespace(argmax_actions=torch.tensor([1, 0], dtype=torch.long))
 
-    actions = sample_factory_common._deterministic_actions_for_space(
+    actions = sf_actions.deterministic_actions_for_space(
         action_distribution,
         action_space=Discrete(2),
         argmax_actions=lambda distribution: distribution.argmax_actions,
@@ -688,8 +690,8 @@ def test_sample_factory_policy_loads_config_from_checkpoint_when_checkpoint_path
         load_from_checkpoint=fake_load_from_checkpoint,
     )
     monkeypatch.setattr(
-        sample_factory_common,
-        "_load_sf_policy_state_dict",
+        sf_runtime,
+        "load_sample_factory_policy_state_dict",
         fake_load_state_dict,
     )
 
@@ -724,8 +726,8 @@ def test_sample_factory_policy_skips_config_checkpoint_load_for_explicit_checkpo
         load_from_checkpoint=fake_load_from_checkpoint,
     )
     monkeypatch.setattr(
-        sample_factory_common,
-        "_load_sf_policy_state_dict",
+        sf_runtime,
+        "load_sample_factory_policy_state_dict",
         fake_load_state_dict,
     )
 
@@ -753,8 +755,8 @@ def test_sample_factory_policy_unsqueezes_discrete_argmax_actions_before_preproc
         load_from_checkpoint=lambda cfg: cfg,
     )
     monkeypatch.setattr(
-        sample_factory_common,
-        "_load_sf_policy_state_dict",
+        sf_runtime,
+        "load_sample_factory_policy_state_dict",
         lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
     )
 
