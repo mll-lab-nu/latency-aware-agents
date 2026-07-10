@@ -26,6 +26,7 @@ from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors import realtime_warmup
 from latency_bench.executors.base import EpisodeExecutor
 from latency_bench.executors.env_step_backend import resolve_start_method
+from latency_bench.executors.realtime.env_worker import _env_loop_worker
 from latency_bench.executors.realtime.messages import (
     RealtimeObservationTask,
     RealtimePolicyCompletion,
@@ -33,10 +34,7 @@ from latency_bench.executors.realtime.messages import (
 )
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.realtime.shared_observation import ObservationSlotPool
-from latency_bench.executors.realtime.workers import (
-    _env_loop_worker,
-    _profile_now_ms,
-)
+from latency_bench.executors.realtime.timing import monotonic_ms
 from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
     apply_latency_raw_fields,
@@ -170,9 +168,9 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         try:
             while len(latency_records) < sample_target:
                 while pool.idle_worker_count and submitted_count < sample_target:
-                    observe_start_ms = _profile_now_ms()
+                    observe_start_ms = monotonic_ms()
                     observation = self.env.observe()
-                    observe_end_ms = _profile_now_ms()
+                    observe_end_ms = monotonic_ms()
                     obs_id = self._next_obs_id
                     self._next_obs_id += 1
                     shared_observation = observation_pool.write(obs_id=obs_id, observation=observation)
@@ -180,7 +178,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                         env_observe_ms=observe_end_ms - observe_start_ms,
                         env_wall_lag_ms=0.0,
                         env_to_parent_ipc_ms=0.0,
-                        parent_observation_handle_start_ms=_profile_now_ms(),
+                        parent_observation_handle_start_ms=monotonic_ms(),
                         parent_to_env_ipc_ms=0.0,
                         env_action_recv_to_enqueue_ms=0.0,
                     )
@@ -194,13 +192,13 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                     )
                     if pool.submit(task):
                         profile.parent_observation_handle_ms = (
-                            _profile_now_ms() - profile.parent_observation_handle_start_ms
+                            monotonic_ms() - profile.parent_observation_handle_start_ms
                         )
                         submitted_count += 1
                     else:
                         observation_pool.release(obs_id)
                         break
-                completions = pool.drain_completed(_profile_now_ms())
+                completions = pool.drain_completed(monotonic_ms())
                 for completion in completions:
                     observation_pool.release(completion.task.shared_obs_id)
                     latency_records.append(completion.latency_record)
@@ -352,7 +350,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 if pool.submit(task):
                     if task.profile is not None:
                         task.profile.parent_observation_handle_ms = (
-                            _profile_now_ms() - task.profile.parent_observation_handle_start_ms
+                            monotonic_ms() - task.profile.parent_observation_handle_start_ms
                         )
                     coordinator.mark_submitted(int(task.obs_id))
                     acc.submitted_observation_frames += 1
@@ -361,18 +359,18 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                     acc.dropped_observation_count += 1
                     observation_dropped = True
 
-            scheduler_update_start_ms = _profile_now_ms()
+            scheduler_update_start_ms = monotonic_ms()
             active_action = self.action_scheduler.update(env_step, scheduled_time_ms)
-            scheduler_update_ms = _profile_now_ms() - scheduler_update_start_ms
+            scheduler_update_ms = monotonic_ms() - scheduler_update_start_ms
             new_applied_events = self.action_scheduler.get_applied_events_since(applied_event_count)
             for event in new_applied_events:
                 profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
                 if profile is not None:
                     profile.env_scheduler_update_ms = scheduler_update_ms
 
-            env_step_start_ms = _profile_now_ms()
+            env_step_start_ms = monotonic_ms()
             result = self.env.step(active_action)
-            env_step_ms = _profile_now_ms() - env_step_start_ms
+            env_step_ms = monotonic_ms() - env_step_start_ms
             for event in new_applied_events:
                 profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
                 if profile is not None:
@@ -481,7 +479,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 for offset, event in enumerate(released):
                     profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
                     if profile is not None:
-                        profile.parent_to_env_send_start_ms = _profile_now_ms()
+                        profile.parent_to_env_send_start_ms = monotonic_ms()
                     try:
                         parent_conn.send(("action_dispatch", _action_event_dispatch_payload(event)))
                     except BrokenPipeError:
@@ -489,14 +487,14 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                         break
                     if profile is not None:
                         profile.parent_to_env_send_call_ms = (
-                            _profile_now_ms() - profile.parent_to_env_send_start_ms
+                            monotonic_ms() - profile.parent_to_env_send_start_ms
                         )
                     action_event_index[event.action_id] = first_released_index + offset
 
             def handle_env_message(tag: str, payload: dict[str, Any]) -> None:
                 nonlocal done
                 if tag == "observation":
-                    parent_observation_recv_ms = _profile_now_ms()
+                    parent_observation_recv_ms = monotonic_ms()
                     release_ready_actions(self._wall_elapsed_ms())
                     if done:
                         return
@@ -507,7 +505,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                         profile.env_to_parent_ipc_ms = (
                             parent_observation_recv_ms - profile.env_observation_send_start_ms
                         )
-                        profile.parent_observation_handle_start_ms = _profile_now_ms()
+                        profile.parent_observation_handle_start_ms = monotonic_ms()
                     task = RealtimeObservationTask(
                         obs_id=self._next_obs_id,
                         observation=incoming_task.observation,
@@ -520,7 +518,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                     if pool.submit(task):
                         if task.profile is not None:
                             task.profile.parent_observation_handle_ms = (
-                                _profile_now_ms() - task.profile.parent_observation_handle_start_ms
+                                monotonic_ms() - task.profile.parent_observation_handle_start_ms
                             )
                         coordinator.mark_submitted(int(task.obs_id))
                         acc.submitted_observation_frames += 1
@@ -678,7 +676,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         dropped: bool,
         discard_reason: str | None,
     ) -> ActionEvent:
-        release_start_ms = _profile_now_ms()
+        release_start_ms = monotonic_ms()
         latency_record = completion.latency_record
         latency_record.device = completion.device if latency_record.device is None else latency_record.device
         latency_record.metadata = {
@@ -714,7 +712,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         event.dropped = bool(dropped)
         profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
         if profile is not None:
-            profile.parent_release_ms = _profile_now_ms() - release_start_ms
+            profile.parent_release_ms = monotonic_ms() - release_start_ms
         self._next_action_id += 1
         action_events.append(event)
         latency_values_ms.append(float(latency_record.latency_ms))
@@ -730,9 +728,9 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         submit_time_ms: float,
         wall_clock_lag_ms: float = 0.0,
     ) -> RealtimeObservationTask:
-        observe_start_ms = _profile_now_ms()
+        observe_start_ms = monotonic_ms()
         observation = self.env.observe()
-        observe_end_ms = _profile_now_ms()
+        observe_end_ms = monotonic_ms()
         obs_id = self._next_obs_id
         self._next_obs_id += 1
         profile = None
@@ -743,7 +741,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 env_observe_ms=observe_end_ms - observe_start_ms,
                 env_wall_lag_ms=wall_clock_lag_ms,
                 env_to_parent_ipc_ms=0.0,
-                parent_observation_handle_start_ms=_profile_now_ms(),
+                parent_observation_handle_start_ms=monotonic_ms(),
                 parent_to_env_ipc_ms=0.0,
                 env_action_recv_to_enqueue_ms=0.0,
             )
