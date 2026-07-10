@@ -32,6 +32,8 @@ class ProtocolTask:
     replay_device: dict[str, Any] | None
     seed: int
     seed_set: list[int]
+    latency_seed: int | None
+    latency_seed_set: list[int]
     n_episodes: int
     checkpoint_kind: str
     output_dir: Path
@@ -81,13 +83,19 @@ def _build_plan(
     """
     plan: list[PlannedTask] = []
     seed_set = _seed_set(spec, args)
+    latency_seed_set = _latency_seed_set(spec, args)
     checkpoint_kind = str(args.checkpoint_kind or spec.get("checkpoint_kind", "best"))
     n_episodes = _n_episodes(spec, args)
     experiment_ids = list(STAGE_TO_EXPERIMENTS[stage])
     _, explicit_instance = _parse_target(args)
     for row in _iter_selected_rows(spec, args):
         for target_device, replay_device in _device_pairs_for_stage(spec, args, stage, current_device):
-            for seed in seed_set:
+            task_seeds = (
+                ((seed, None) for seed in seed_set)
+                if stage == "measure"
+                else ((seed, latency_seed) for seed in seed_set for latency_seed in latency_seed_set)
+            )
+            for seed, latency_seed in task_seeds:
                 target_profile_instance_id = instance_id if stage in {"measure", "sim_same"} else explicit_instance
                 profile_path = (
                     layout_profile_path(
@@ -108,6 +116,8 @@ def _build_plan(
                     replay_device=replay_device,
                     seed=int(seed),
                     seed_set=seed_set,
+                    latency_seed=latency_seed,
+                    latency_seed_set=latency_seed_set,
                     n_episodes=n_episodes,
                     checkpoint_kind=checkpoint_kind,
                     out=out,
@@ -151,6 +161,8 @@ def _make_task(
     replay_device: dict[str, Any] | None,
     seed: int,
     seed_set: list[int],
+    latency_seed: int | None,
+    latency_seed_set: list[int],
     n_episodes: int,
     checkpoint_kind: str,
     out: Path,
@@ -165,7 +177,11 @@ def _make_task(
     """Create output paths and immutable run identity for one task."""
     policy_slug = slugify(row["policy"])
     count_suffix = f"n{n_episodes}"
-    run_id = f"smoke_seed_{seed}_{count_suffix}" if smoke else f"{checkpoint_kind}_seed_{seed}_{count_suffix}"
+    run_prefix = "smoke" if smoke else checkpoint_kind
+    if stage in {"sim_same", "sim_cross"}:
+        run_id = f"{run_prefix}_seed_{seed}_latency_seed_{latency_seed}_{count_suffix}"
+    else:
+        run_id = f"{run_prefix}_seed_{seed}_{count_suffix}"
     if stage == "sim_cross" and replay_device is not None:
         device_path = Path(str(target_device["id"]))
         output_dir = out / "runs" / stage / policy_slug / device_path / run_id
@@ -181,6 +197,8 @@ def _make_task(
         replay_device=replay_device,
         seed=seed,
         seed_set=seed_set,
+        latency_seed=latency_seed,
+        latency_seed_set=latency_seed_set,
         n_episodes=n_episodes,
         checkpoint_kind=checkpoint_kind,
         output_dir=output_dir,
@@ -328,6 +346,21 @@ def _seed_set(spec: dict[str, Any], args: argparse.Namespace) -> list[int]:
     return [int(item) for item in items]
 
 
+def _latency_seed_set(spec: dict[str, Any], args: argparse.Namespace) -> list[int]:
+    raw = (
+        args.latency_seed_set
+        if getattr(args, "latency_seed_set", None) is not None
+        else spec["latency_seed_set"]
+    )
+    if isinstance(raw, str):
+        items = [item.strip() for item in raw.split(",") if item.strip()]
+    elif isinstance(raw, list):
+        items = raw
+    else:
+        items = [raw]
+    return [int(item) for item in items]
+
+
 def _n_episodes(spec: dict[str, Any], args: argparse.Namespace) -> int:
     if bool(getattr(args, "smoke", False)):
         return int(getattr(args, "smoke_episodes", 1))
@@ -350,6 +383,8 @@ def _spec_with_cli_overrides(spec: dict[str, Any], args: argparse.Namespace) -> 
     updated = deepcopy(spec)
     if getattr(args, "seed_set", None) is not None:
         updated["seed_set"] = _seed_set(spec, args)
+    if getattr(args, "latency_seed_set", None) is not None:
+        updated["latency_seed_set"] = _latency_seed_set(spec, args)
     if getattr(args, "n_episodes", None) is not None:
         updated["n_episodes"] = int(args.n_episodes)
     if getattr(args, "checkpoint_kind", None) is not None:

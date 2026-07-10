@@ -108,6 +108,7 @@ def _write_two_row_realtime_spec(path: Path, first_config: Path, second_config: 
         "n_episodes": 1,
         "sim_parallel_envs": 1,
         "seed_set": [0],
+        "latency_seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "devices": [
             {
@@ -143,6 +144,7 @@ def _write_spec(path: Path, base_config: Path) -> None:
         "n_episodes": 2,
         "sim_parallel_envs": 1,
         "seed_set": [0],
+        "latency_seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "devices": [
             {
@@ -191,6 +193,7 @@ def _write_mixed_spec(path: Path, base_config: Path) -> None:
         "n_episodes": 2,
         "sim_parallel_envs": 1,
         "seed_set": [0],
+        "latency_seed_set": [0],
         "env_fps_calibration": {"worker_utilization_cap": 0.8},
         "devices": [
             {
@@ -333,6 +336,7 @@ def test_real_protocol_rows_cover_flappy_demon_and_deadly():
 
     openvla_rows = {row["policy"]: row for row in spec["rows"]}
 
+    assert spec["latency_seed_set"] == [0, 1, 2]
     assert set(openvla_rows) == {
         "openvla-flappy",
         "demon-attack-openvla",
@@ -1272,10 +1276,10 @@ def test_resume_skips_completed_manifest_but_retries_failed_run(tmp_path: Path):
         env_fps=30.0,
     )
 
-    completed_dir = out / "runs" / "sim_same" / "passing-policy" / "best_seed_0_n1"
+    completed_dir = out / "runs" / "sim_same" / "passing-policy" / "best_seed_0_latency_seed_0_n1"
     completed_dir.mkdir(parents=True)
     (completed_dir / "manifest.json").write_text('{"status": "completed"}\n', encoding="utf-8")
-    failed_dir = out / "runs" / "sim_same" / "failing-policy" / "best_seed_0_n1"
+    failed_dir = out / "runs" / "sim_same" / "failing-policy" / "best_seed_0_latency_seed_0_n1"
     failed_dir.mkdir(parents=True)
     (failed_dir / "manifest.json").write_text('{"status": "failed", "error": "old"}\n', encoding="utf-8")
 
@@ -1326,11 +1330,28 @@ def test_aggregate_dry_run_accepts_common_filters_without_writing_tables(tmp_pat
         "a100",
         "--seed-set",
         "0,1",
+        "--latency-seed-set",
+        "3,5,8",
     )
 
     assert "would_write:" in result.stdout
     assert "experiment3_cross_device_prediction.csv" in result.stdout
     assert not tables.exists()
+
+
+def test_spec_cli_override_parses_latency_seed_set():
+    planning = importlib.import_module("latency_bench.cross_device.planning")
+    spec = {"latency_seed_set": [0]}
+    args = argparse.Namespace(
+        checkpoint_kind=None,
+        latency_seed_set="3,5,8",
+        n_episodes=None,
+        seed_set=None,
+    )
+
+    updated = planning._spec_with_cli_overrides(spec, args)
+
+    assert updated["latency_seed_set"] == [3, 5, 8]
 
 
 def test_aggregate_dry_run_accepts_raw_root(tmp_path: Path):

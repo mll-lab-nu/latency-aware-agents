@@ -30,6 +30,8 @@ def _task(tmp_path, *, stage: str = "sim_same") -> ProtocolTask:
         replay_device=None,
         seed=7,
         seed_set=[7],
+        latency_seed=None if stage == "measure" else 11,
+        latency_seed_set=[11, 13],
         n_episodes=3,
         checkpoint_kind="best",
         output_dir=tmp_path / "runs" / stage,
@@ -75,6 +77,10 @@ def test_build_base_manifest_records_host_metadata(tmp_path, monkeypatch):
     assert payload["hardware_fingerprint"] == {"gpu": {"name": "L40S"}}
     assert payload["cuda_visible_devices"] == "0"
     assert payload["git_sha"] == "abc123"
+    assert payload["seed"] == 7
+    assert payload["seed_set"] == [7]
+    assert payload["latency_seed"] == 11
+    assert payload["latency_seed_set"] == [11, 13]
     assert payload["status"] == "running"
     assert payload["command"].startswith("python -m latency_bench.run")
 
@@ -195,6 +201,43 @@ def test_load_run_manifests_remaps_raw_paths_and_keeps_latest_completed_run(tmp_
     assert completed[0]["output_dir"] == str(output_dir)
     assert completed[0]["profile_path"] == str(profile_path)
     assert [record["skip_reason"] for record in skipped] == ["missing profile"]
+
+
+def test_load_run_manifests_keeps_distinct_latency_seeds_for_same_eval_seed(tmp_path):
+    out = tmp_path / "results"
+    first = _run_record(stage="sim_cross", output_dir=out / "best_seed_7_latency_seed_11_n3")
+    first["latency_seed"] = 11
+    second = _run_record(stage="sim_cross", output_dir=out / "best_seed_7_latency_seed_13_n3")
+    second["latency_seed"] = 13
+    write_jsonl(out / "manifests" / "runs.jsonl", [first, second])
+
+    loaded = manifest.load_run_manifests(out)
+
+    assert {record["output_dir"] for record in loaded} == {
+        first["output_dir"],
+        second["output_dir"],
+    }
+
+
+def test_load_run_manifests_dedupes_legacy_and_explicit_same_latency_seed(tmp_path):
+    out = tmp_path / "results"
+    legacy = _run_record(
+        stage="sim_cross",
+        output_dir=out / "best_seed_7_n3",
+        completed_at="2026-07-04T00:00:01+00:00",
+    )
+    current = _run_record(
+        stage="sim_cross",
+        output_dir=out / "best_seed_7_latency_seed_7_n3",
+        completed_at="2026-07-04T00:00:02+00:00",
+    )
+    current["latency_seed"] = 7
+    write_jsonl(out / "manifests" / "runs.jsonl", [legacy, current])
+
+    loaded = manifest.load_run_manifests(out)
+
+    assert len(loaded) == 1
+    assert loaded[0]["output_dir"] == current["output_dir"]
 
 
 def test_manifest_matching_and_instance_queries_use_completed_run_contract(tmp_path):
