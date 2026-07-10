@@ -12,7 +12,53 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
+from latency_bench.policy import sample_factory as sample_factory_policy
 from latency_bench.policy import sample_factory_common
+
+
+@pytest.mark.parametrize(
+    ("policy_type", "integration_module_name", "register_attr"),
+    [
+        ("flappy_sf", "training.flappy_sf.integration", "register_flappy_envs"),
+        ("demon_attack_sf", "training.demon_attack_sf.integration", "register_demon_attack_envs"),
+        (
+            "deadly_corridor_sf",
+            "training.deadly_corridor_sf.integration",
+            "register_deadly_corridor_components",
+        ),
+    ],
+)
+def test_sample_factory_policy_builder_selects_environment_integration(
+    monkeypatch,
+    policy_type,
+    integration_module_name,
+    register_attr,
+):
+    integration = ModuleType(integration_module_name)
+    registered = []
+    setattr(integration, register_attr, lambda: registered.append(register_attr))
+    imported = []
+    monkeypatch.setattr(
+        sample_factory_policy,
+        "import_module",
+        lambda module_name: imported.append(module_name) or integration,
+    )
+    monkeypatch.setattr(sample_factory_policy, "SampleFactoryPolicyRunner", lambda **kwargs: kwargs)
+
+    config = {"policy": {"type": policy_type}}
+    action_resolver = object()
+    policy = sample_factory_policy.build_sample_factory_policy(
+        config,
+        action_resolver,
+        policy_type=policy_type,
+    )
+    policy["integration_module"].register_components()
+
+    assert imported == [integration_module_name]
+    assert registered == [register_attr]
+    assert policy["config"] is config
+    assert policy["action_resolver"] is action_resolver
+    assert policy["policy_type"] == policy_type
 
 
 def test_resolve_torch_device_maps_legacy_gpu_to_cuda():

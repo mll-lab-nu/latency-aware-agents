@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sys
+from types import ModuleType
+
 import pytest
 
 from latency_bench.core.actions import ActionResolver
@@ -46,11 +49,32 @@ def test_constant_policy_type_builds_constant_policy_runner():
     assert policy.action.is_noop
 
 
-def test_unknown_policy_type_reports_registered_options():
+def test_unknown_policy_type_is_rejected():
     config = _config({"type": "unknown"})
 
     with pytest.raises(ValueError, match="Unsupported policy.type: unknown"):
         build_policy(config, ActionResolver(config["env"]))
+
+
+@pytest.mark.parametrize("policy_type", ["flappy_sf", "demon_attack_sf", "deadly_corridor_sf"])
+def test_sample_factory_policy_types_are_supported(monkeypatch, policy_type):
+    policy_module = ModuleType("latency_bench.policy.sample_factory")
+    built = []
+    sentinel = object()
+
+    def build_sample_factory_policy(config, action_resolver, *, policy_type):
+        built.append((config, action_resolver, policy_type))
+        return sentinel
+
+    policy_module.build_sample_factory_policy = build_sample_factory_policy
+    monkeypatch.setitem(sys.modules, policy_module.__name__, policy_module)
+    config = _config({"type": policy_type})
+    action_resolver = ActionResolver(config["env"])
+
+    policy = build_policy(config, action_resolver)
+
+    assert policy is sentinel
+    assert built == [(config, action_resolver, policy_type)]
 
 
 def test_flappy_constant_flap_resolves_to_env_action_value():
