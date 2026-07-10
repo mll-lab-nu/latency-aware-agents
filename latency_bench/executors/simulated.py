@@ -15,7 +15,7 @@ from latency_bench.executors._simulated_timeline import (
     build_simulated_action_event,
 )
 from latency_bench.executors.base import EpisodeExecutor
-from latency_bench.executors.realtime.workers import RealtimeObservationTask
+from latency_bench.executors.realtime.messages import RealtimeObservationTask
 from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
     compute_episode_metrics,

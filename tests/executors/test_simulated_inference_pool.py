@@ -11,7 +11,7 @@ from pathlib import Path
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, LatencyRecord, Observation, OrderingPolicy, PolicyOutput
 from latency_bench.envs.base import DummyEnvAdapter
-from latency_bench.executors.realtime.workers import RealtimePolicyCompletion
+from latency_bench.executors.realtime.messages import RealtimePolicyCompletion
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.latency.sample import LatencySample
 from latency_bench.latency.samplers import LatencySampler
