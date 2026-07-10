@@ -16,3 +16,11 @@ TESTS_DIR = Path(__file__).resolve().parent
 if str(TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_DIR))
 
+
+GPU_TESTS_DIR = TESTS_DIR / "training" / "gpu"
+
+
+def pytest_collection_modifyitems(items) -> None:
+    for item in items:
+        if Path(str(item.path)).is_relative_to(GPU_TESTS_DIR):
+            item.add_marker("gpu")

@@ -4,7 +4,9 @@ import json
 
 import numpy as np
 import pytest
-from omegaconf import OmegaConf
+
+pytest.importorskip("starVLA.training.rl_games", exc_type=ImportError)
+OmegaConf = pytest.importorskip("omegaconf", exc_type=ImportError).OmegaConf
 
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.integrations import starvla_rl_games_eval_runner as runner_mod

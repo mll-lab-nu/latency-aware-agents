@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+pytest.importorskip("omegaconf", exc_type=ImportError)
+
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.config import load_config
 from latency_bench.core.types import Observation
