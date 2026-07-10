@@ -50,7 +50,7 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
             },
         },
         "latency": {
-            "type": "zero",
+            "method": "zero",
         },
         "scheduler": {
             "hold_policy": "one_frame_then_noop",
@@ -358,7 +358,7 @@ def test_simulated_parallel_builds_batched_executor_for_distribution_latency(tmp
     config["evaluation"]["eval_episodes"] = 3
     config["evaluation"]["eval_parallel_envs"] = 4
     config["latency"] = {
-        "type": "normal_distribution",
+        "method": "normal",
         "mean_latency_ms": 10.0,
         "std_latency_ms": 1.0,
         "min_latency_ms": 0.0,
@@ -384,7 +384,7 @@ def test_seeded_stochastic_latency_source_factory_derives_episode_streams():
 
     factory = build_episode_sampler_factory(
         {
-            "type": "normal_distribution",
+            "method": "normal",
             "mean_latency_ms": 10.0,
             "std_latency_ms": 1.0,
             "min_latency_ms": 0.0,
@@ -411,7 +411,7 @@ def test_seeded_stochastic_latency_eval_is_parallel_invariant(tmp_path):
     serial_config["evaluation"]["eval_parallel_envs"] = 1
     serial_config["evaluation"]["eval_max_steps"] = 4
     serial_config["latency"] = {
-        "type": "normal_distribution",
+        "method": "normal",
         "mean_latency_ms": 10.0,
         "std_latency_ms": 1.0,
         "min_latency_ms": 0.0,
@@ -617,10 +617,10 @@ def test_realtime_devices_follow_torch_visible_count_when_env_is_unset(monkeypat
     assert executor_factory._resolve_realtime_inference_devices() == ["cuda:0", "cuda:1"]
 
 
-def test_factory_builds_realtime_without_latency_type(monkeypatch, tmp_path):
+def test_factory_builds_realtime_with_zero_injected_latency(monkeypatch, tmp_path):
     monkeypatch.setattr(executor_factory, "_resolve_realtime_inference_devices", lambda: ["cuda:0"])
     config = _config(mode="realtime", output_dir=str(tmp_path))
-    config["latency"] = {"device": "cuda:0", "sync_cuda": True}
+    config["latency"] = {"method": "zero", "device": "cuda:0", "sync_cuda": True}
 
     executor = build_executor(config)
 
@@ -633,7 +633,7 @@ def test_factory_builds_realtime_without_latency_type(monkeypatch, tmp_path):
 def test_factory_rejects_non_zero_latency_for_paused(tmp_path):
     mode = "paused"
     config = _config(mode=mode, output_dir=str(tmp_path))
-    config["latency"] = {"type": "fixed", "fixed_latency_ms": 10.0}
+    config["latency"] = {"method": "fixed", "fixed_latency_ms": 10.0}
 
     with pytest.raises(ValueError, match="paused"):
         build_executor(config)
@@ -641,24 +641,24 @@ def test_factory_rejects_non_zero_latency_for_paused(tmp_path):
 
 def test_factory_rejects_injected_latency_for_realtime(tmp_path):
     config = _config(mode="realtime", output_dir=str(tmp_path))
-    config["latency"] = {"type": "fixed", "fixed_latency_ms": 10.0}
+    config["latency"] = {"method": "fixed", "fixed_latency_ms": 10.0}
 
     with pytest.raises(ValueError, match="realtime"):
         build_executor(config)
 
 
-def test_factory_rejects_trace_replay_latency_type(tmp_path):
+def test_factory_rejects_removed_trace_replay_method(tmp_path):
     trace_path = tmp_path / "profile_device_latency.jsonl"
     trace_path.write_text('{"latency_ms": 0.0}\n', encoding="utf-8")
     config = _config(output_dir=str(tmp_path))
     config["evaluation"]["eval_parallel_envs"] = 4
     config["latency"] = {
-        "type": "trace_replay",
+        "method": "trace_replay",
         "trace_path": str(trace_path),
         "loop_trace": True,
     }
 
-    with pytest.raises(ValueError, match="Unsupported latency.type"):
+    with pytest.raises(ValueError, match="Unsupported latency method"):
         build_executor(config)
 
 
@@ -666,7 +666,7 @@ def test_factory_builds_profile_sample_latency_source(tmp_path):
     profile_dir = _write_latency_profile(tmp_path)
     config = _config(output_dir=str(tmp_path))
     config["latency"] = {
-        "type": "profile_sample",
+        "method": "temporal",
         "profile_path": profile_dir,
         "seed": 0,
     }
@@ -680,17 +680,17 @@ def test_factory_builds_profile_sample_latency_source(tmp_path):
         executor.env.close()
 
 
-@pytest.mark.parametrize("latency_type", ["empirical_sample", "empirical_trace_replay", "measured"])
-def test_factory_rejects_removed_empirical_latency_types(tmp_path, latency_type):
+@pytest.mark.parametrize("latency_method", ["empirical_sample", "empirical_trace_replay", "measured"])
+def test_factory_rejects_removed_empirical_latency_methods(tmp_path, latency_method):
     profile_dir = _write_latency_profile(tmp_path)
     config = _config(output_dir=str(tmp_path))
     config["latency"] = {
-        "type": latency_type,
+        "method": latency_method,
         "profile_path": profile_dir,
         "seed": 0,
     }
 
-    with pytest.raises(ValueError, match="Unsupported latency.type"):
+    with pytest.raises(ValueError, match="Unsupported latency method"):
         build_executor(config)
 
 
@@ -725,7 +725,7 @@ def test_parallel_simulated_profile_sample_builds_batched_executor(tmp_path):
     config["env"]["action_map"] = {"noop": (0, 0), "jump": (1, 0)}
     config["policy"]["action"] = "jump"
     config["latency"] = {
-        "type": "profile_sample",
+        "method": "temporal",
         "profile_path": profile_dir,
         "seed": 0,
     }
@@ -743,7 +743,7 @@ def test_temporal_latency_source_gets_no_per_episode_streams(tmp_path):
 
     profile_dir = _write_latency_profile(tmp_path)
     latency_cfg = {
-        "type": "profile_sample",
+        "method": "temporal",
         "profile_path": profile_dir,
         "seed": 0,
     }
@@ -775,7 +775,7 @@ def test_parallel_simulated_temporal_shares_one_machine_timeline(tmp_path):
     config["env"]["action_map"] = {"noop": (0, 0), "jump": (1, 0)}
     config["policy"]["action"] = "jump"
     config["latency"] = {
-        "type": "profile_sample",
+        "method": "temporal",
         "profile_path": profile_dir,
         "seed": 0,
     }

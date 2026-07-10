@@ -30,7 +30,7 @@ env:
   gpu_render_profile_interval: 200
 
 latency:
-  type: zero
+  method: zero
   add_latency_info: false
 
 scheduler:

@@ -35,6 +35,7 @@ env:
   oneshot_actions:
   - flap
 latency:
+  method: zero
   device: cuda:0
   sync_cuda: true
 scheduler:

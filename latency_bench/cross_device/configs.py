@@ -68,6 +68,7 @@ def _row_base_config(row: dict[str, Any]) -> dict[str, Any]:
 def _patch_realtime_measured_config(config: dict[str, Any], task: ProtocolTask) -> None:
     config.setdefault("executor", {})["mode"] = "realtime"
     latency = {
+        "method": "zero",
         "device": "cuda:0",
         "sync_cuda": True,
         "profile_id": task.target_device["profile_id"],
@@ -106,10 +107,9 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
     # latency owns every virtual timestamp, so the pool only buys wall clock.
     config["executor"]["simulated_inference_pool"] = True
     latency = {
-        "type": "profile_sample",
+        "method": profile["latency_method"],
         "profile_path": str(task.target_profile_path),
         "seed": task.latency_seed,
-        "sampler": "profile_default",
         "profile_id": task.target_device["profile_id"],
         "target_device": task.target_device["id"],
     }

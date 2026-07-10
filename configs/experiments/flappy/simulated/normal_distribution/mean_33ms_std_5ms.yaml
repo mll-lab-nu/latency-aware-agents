@@ -1,7 +1,7 @@
 __base__: ../../../../base/flappy.yaml
 
 latency:
-  type: normal_distribution
+  method: normal
   mean_latency_ms: 33
   std_latency_ms: 10
   seed: 0

@@ -128,7 +128,7 @@ def test_sample_factory_training_configs_load():
     cfg = load_config("configs/experiments/demon_attack/sf_fixed_latency_4.yaml")
     assert cfg["backend"]["type"] == "sample_factory"
     assert cfg["env"]["name"] == "demon_attack"
-    assert cfg["latency"]["type"] == "fixed"
+    assert cfg["latency"]["method"] == "fixed"
     assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(4 * 1000.0 / 60.0)
 
 
@@ -499,7 +499,7 @@ def test_common_sf_args_passes_latency_distribution_without_legacy_train_values(
         "backend": {"type": "sample_factory", "train_dir": "runs", "run_mode": "train"},
         "env": {"name": "demon_attack", "env_fps": 60, "obs_fps": 15},
         "latency": {
-            "type": "uniform_distribution",
+            "method": "uniform",
             "min_latency_ms": 0.0,
             "max_latency_ms": 250.0,
             "add_latency_info": False,
@@ -1950,7 +1950,7 @@ def test_same_latency_sweep_generator_emits_sample_factory_train_configs():
     )
     expected_eval_suites = full_cfg["evaluation"]["eval_suites"]
     assert train_cfg["training"]["train_for_env_steps"] == 1234
-    assert train_cfg["latency"]["type"] == "fixed"
+    assert train_cfg["latency"]["method"] == "fixed"
     assert train_cfg["latency"]["fixed_latency_ms"] == pytest.approx(4 * 1000.0 / 60.0)
     assert train_cfg["evaluation"]["eval_suites"] == expected_eval_suites
     assert train_cfg["logging"]["wandb_name"] == "demon-attack-l4-s0"
@@ -2005,7 +2005,7 @@ def test_same_latency_sweep_generator_emits_latency_bench_eval_configs(
     assert loaded["policy"]["checkpoint_path"] == ""
     assert loaded["policy"]["device"] == "auto"
     assert loaded["policy"]["deterministic"] is True
-    assert loaded["latency"]["type"] == "fixed"
+    assert loaded["latency"]["method"] == "fixed"
     assert math.isclose(loaded["latency"]["fixed_latency_ms"], expected_ms, rel_tol=1e-9)
     assert loaded["logging"]["output_dir"] == str(
         tmp_path / "outputs" / "latency_bench" / env_name / "train_latency_3" / "seed_0"
@@ -2050,7 +2050,7 @@ def test_same_latency_sweep_generator_maps_zero_latency_to_zero_source(tmp_path,
         eval_episodes=10,
     )
 
-    assert bench_cfg["latency"]["type"] == "zero"
+    assert bench_cfg["latency"]["method"] == "zero"
     assert "fixed_latency_ms" not in bench_cfg["latency"]
     assert bench_cfg["evaluation"]["eval_suites"] == full_cfg["evaluation"]["eval_suites"]
     assert bench_cfg["logging"]["output_dir"] == str(
@@ -2083,8 +2083,8 @@ def test_same_latency_sweep_generator_preserves_deadly_corridor_latency_bench_ev
     )
     expected_eval_suites = full_cfg["evaluation"]["eval_suites"]
 
-    assert full_cfg["latency"]["type"] == "zero"
-    assert bench_cfg["latency"]["type"] == "zero"
+    assert full_cfg["latency"]["method"] == "zero"
+    assert bench_cfg["latency"]["method"] == "zero"
     assert bench_cfg["evaluation"]["eval_suites"] == expected_eval_suites
     assert "max_episode_steps" not in bench_cfg["env"]
     assert bench_cfg["env"]["env_fps"] == 35
@@ -2149,7 +2149,7 @@ def test_same_latency_sweep_generator_writes_train_and_latency_bench_eval_config
             train_loaded = yaml.safe_load(train_path.read_text(encoding="utf-8"))
             loaded = load_config(bench_path)
             assert train_loaded["evaluation"]["eval_suites"] == expected_eval_suites[env_name]
-            assert train_loaded["latency"]["type"] == ("zero" if latency == 0 else "fixed")
+            assert train_loaded["latency"]["method"] == ("zero" if latency == 0 else "fixed")
             assert loaded["experiment"]["name"] == f"{env_name}_sf_same_latency_l{latency}_seed0"
             assert loaded["backend"]["train_dir"] == "results/checkpoints/sample_factory_runs"
             assert loaded["policy"]["type"] == policy_type
@@ -2172,10 +2172,10 @@ def test_same_latency_sweep_generator_writes_train_and_latency_bench_eval_config
                 assert loaded["env"]["env_fps"] == 35
                 assert loaded["env"]["noop_action"] == [0, 0, 0, 0]
             if latency == 0:
-                assert loaded["latency"]["type"] == "zero"
+                assert loaded["latency"]["method"] == "zero"
                 assert "fixed_latency_ms" not in loaded["latency"]
             else:
-                assert loaded["latency"]["type"] == "fixed"
+                assert loaded["latency"]["method"] == "fixed"
                 assert math.isclose(
                     loaded["latency"]["fixed_latency_ms"],
                     expected_fixed_ms[env_name],
@@ -2230,8 +2230,10 @@ def test_same_latency_generator_writes_single_normal_distribution_run(tmp_path):
     train_loaded = yaml.safe_load((run_dir / "train.yaml").read_text(encoding="utf-8"))
     bench_loaded = load_config(run_dir / "latency_bench_eval.yaml")
     manifest = (generated_root / "manifest.tsv").read_text(encoding="utf-8")
+    manifest_header, manifest_values = manifest.splitlines()
+    manifest_row = dict(zip(manifest_header.split("\t"), manifest_values.split("\t")))
 
-    assert train_loaded["latency"]["type"] == "normal_distribution"
+    assert train_loaded["latency"]["method"] == "normal"
     assert train_loaded["latency"]["mean_latency_ms"] == pytest.approx(5.0 * 1000.0 / 60.0)
     assert train_loaded["latency"]["std_latency_ms"] == pytest.approx(2.0 * 1000.0 / 60.0)
     assert train_loaded["latency"]["min_latency_ms"] == pytest.approx(0.0)
@@ -2239,11 +2241,14 @@ def test_same_latency_generator_writes_single_normal_distribution_run(tmp_path):
     assert "train_values" not in train_loaded["latency"]
     assert "train_distribution" not in train_loaded["latency"]
     assert "train_mode" not in train_loaded["latency"]
-    assert bench_loaded["latency"]["type"] == "normal_distribution"
+    assert bench_loaded["latency"]["method"] == "normal"
     assert bench_loaded["latency"]["mean_latency_ms"] == pytest.approx(5.0 * 1000.0 / 60.0)
     assert bench_loaded["latency"]["std_latency_ms"] == pytest.approx(2.0 * 1000.0 / 60.0)
     assert bench_loaded["latency"]["min_latency_ms"] == pytest.approx(0.0)
     assert bench_loaded["latency"]["max_latency_ms"] == pytest.approx(15.0 * 1000.0 / 60.0)
+    assert manifest_row["latency_kind"] == "normal"
+    assert manifest_row["latency_mean_frames"] == "5"
+    assert manifest_row["latency_std_frames"] == "2"
     assert f"\tsame_latency\tsame_latency\t{label}\t0\t" in manifest
 
 
@@ -2278,7 +2283,7 @@ def test_same_latency_generator_writes_single_uniform_distribution_bench_config(
     run_dir = generated_root / "deadly_corridor" / f"latency_{label}" / "seed_0"
     loaded = load_config(run_dir / "latency_bench_eval.yaml")
 
-    assert loaded["latency"]["type"] == "uniform_distribution"
+    assert loaded["latency"]["method"] == "uniform"
     assert loaded["latency"]["min_latency_ms"] == pytest.approx(0.0)
     assert loaded["latency"]["max_latency_ms"] == pytest.approx(15.0 * 1000.0 / float(loaded["env"]["env_fps"]))
     assert loaded["logging"]["output_dir"] == str(

@@ -30,7 +30,7 @@ def _write_base_config(path: Path) -> None:
         "experiment": {"name": "dry_run_policy_seed0", "seed": 0},
         "executor": {"mode": "simulated"},
         "env": {"name": "flappy", "env_fps": 30, "obs_fps": 30, "noop_action": "noop"},
-        "latency": {"type": "fixed", "fixed_latency_ms": 33.333333333333336},
+        "latency": {"method": "fixed", "fixed_latency_ms": 33.333333333333336},
         "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
         "policy": {"type": "random", "actions": ["noop", "flap"]},
         "logging": {"output_dir": "unused"},
@@ -57,6 +57,7 @@ def _write_profile_manifest(path: Path, *, env_fps: float = 16.0, inference_work
         "summary": {"mean_ms": 125.0, "mean_effective_frames": 2.0, "n_samples": 3},
         "inference_summary": {"mean_ms": 62.5, "mean_effective_frames": 1.0, "n_samples": 3},
         "inference_worker_count": inference_worker_count,
+        "latency_method": "temporal",
     }
     path.write_text(
         json.dumps(
@@ -73,7 +74,7 @@ def _write_base_config_with_policy(path: Path, policy_type: str) -> None:
         "experiment": {"name": f"{policy_type}_seed0", "seed": 0},
         "executor": {"mode": "simulated"},
         "env": {"name": "dummy", "env_fps": 30, "obs_fps": 30, "noop_action": "noop"},
-        "latency": {"type": "zero"},
+        "latency": {"method": "zero"},
         "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
         "policy": {"type": policy_type, "actions": ["noop"]},
         "logging": {"output_dir": "unused"},
@@ -679,9 +680,8 @@ def test_sim_same_dry_run_writes_guarded_generated_config_without_eval(tmp_path:
     assert config["env"]["obs_fps"] == 16.0
     assert config["env"]["simulator"] == "gpu"
     assert config["env"]["use_gpu_render"] is True
-    assert config["latency"]["type"] == "profile_sample"
+    assert config["latency"]["method"] == "temporal"
     assert config["latency"]["profile_path"].endswith("profiles/test_model/flappy/a100/instance_local/profile.json")
-    assert config["latency"]["sampler"] == "profile_default"
     assert config["evaluation"]["eval_latency_values"] is None
     assert config["evaluation"]["eval_parallel_envs"] == 1
     assert not (out / "runs").exists()

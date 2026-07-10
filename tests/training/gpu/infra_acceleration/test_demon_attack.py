@@ -580,7 +580,7 @@ def test_demon_attack_latency_bench_eval_factory_keeps_cpu_adapter_for_gpu_train
                 "screen_size": 84,
                 "export_env_raw_rgb_frames": True,
             },
-            "latency": {"type": "zero", "add_latency_info": False},
+            "latency": {"method": "zero", "add_latency_info": False},
             "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
             "training": {"train_for_env_steps": 1000},
             "evaluation": {"eval_episodes": 1},

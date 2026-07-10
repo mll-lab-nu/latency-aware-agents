@@ -27,7 +27,7 @@ env:
 
 
 latency:
-  type: zero
+  method: zero
   add_latency_info: false
 
 scheduler:

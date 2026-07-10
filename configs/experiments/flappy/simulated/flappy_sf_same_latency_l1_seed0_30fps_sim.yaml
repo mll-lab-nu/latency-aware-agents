@@ -35,7 +35,7 @@ env:
   oneshot_actions:
   - flap
 latency:
-  type: fixed
+  method: fixed
   add_latency_info: false
   fixed_latency_ms: 33.333333333333336
 scheduler:

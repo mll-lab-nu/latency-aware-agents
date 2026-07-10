@@ -78,7 +78,7 @@ n=100 下该协议的分辨率下限约 ±10%——低于这个量级的"gap 差
   就全落在 (1,2] 帧），但是个实打实的 artifact bug。
 - 4090/5090 用了正确的连续 e2e 分布——恰好也是 gap<1% 的两台。
 - 注意：4090/5090/l40s 现存 profile 没有 burst model 且 `latency_method=None`，
-  现在的 master 代码 `profile_default` 会直接 raise——这些机器需要重跑 measure
+  生成 sim 配置时无法写出明确的 `latency.method`——这些机器需要重跑 measure
   （profile 重建脚本已随协议精简一并删除）。
 
 ## 已排除的假设

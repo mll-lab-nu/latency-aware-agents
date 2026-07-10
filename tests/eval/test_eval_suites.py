@@ -29,7 +29,7 @@ def _suite_config(tmp_path: Path) -> dict:
             },
         },
         "latency": {
-            "type": "zero",
+            "method": "zero",
         },
         "scheduler": {
             "hold_policy": "one_frame_then_noop",
@@ -77,7 +77,7 @@ def test_parse_grouped_eval_suites_supports_multiple_normal_distributions(tmp_pa
     ]
     assert suites[0].fixed_latency_values == [0, 1, 2]
     assert suites[1].latency_config == {
-        "type": "normal_distribution",
+        "method": "normal",
         "mean_latency_ms": pytest.approx(2.0 * 1000.0 / 30.0),
         "std_latency_ms": pytest.approx(1.0 * 1000.0 / 30.0),
         "min_latency_ms": 0.0,
@@ -86,7 +86,7 @@ def test_parse_grouped_eval_suites_supports_multiple_normal_distributions(tmp_pa
     }
     assert suites[2].latency_config["mean_latency_ms"] == pytest.approx(4.0 * 1000.0 / 30.0)
     assert suites[3].latency_config == {
-        "type": "uniform_distribution",
+        "method": "uniform",
         "min_latency_ms": pytest.approx(4.0 * 1000.0 / 30.0),
         "max_latency_ms": pytest.approx(12.0 * 1000.0 / 30.0),
         "seed": 0,
@@ -149,8 +149,8 @@ def test_run_eval_suites_writes_per_suite_outputs(monkeypatch, tmp_path: Path):
     ]
     assert seen_configs[0]["logging"]["output_dir"] == str(tmp_path / "fixed_0_to_2" / "eval_latency_0")
     assert seen_configs[3]["logging"]["output_dir"] == str(tmp_path / "normal_mean_2_std_1_min_0_max_15")
-    assert seen_configs[3]["latency"]["type"] == "normal_distribution"
-    assert seen_configs[5]["latency"]["type"] == "uniform_distribution"
+    assert seen_configs[3]["latency"]["method"] == "normal"
+    assert seen_configs[5]["latency"]["method"] == "uniform"
     assert (tmp_path / "fixed_0_to_2" / "queue_eval_latency_0.json").is_file()
     normal_summary_path = (
         tmp_path

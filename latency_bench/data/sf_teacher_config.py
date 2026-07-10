@@ -141,7 +141,7 @@ def _legacy_same_latency_config(flat_cfg: Mapping[str, Any], *, env_name: str, e
             obs_fps = _obs_fps(flat_cfg, env_name)
             obs_stride_raw_frames = int(round(env_fps / obs_fps))
             return {
-                "type": "fixed",
+                "method": "fixed",
                 "fixed_latency_ms": latency_obs_steps * obs_stride_raw_frames * 1000.0 / env_fps,
                 "add_latency_info": False,
             }

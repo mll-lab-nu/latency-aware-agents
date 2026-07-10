@@ -8,6 +8,11 @@ from typing import Any, Callable
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import derive_latency_seed
+from latency_bench.latency.config import (
+    SEEDED_STOCHASTIC_METHODS,
+    latency_type_from_config,
+    resolve_latency_method,
+)
 from latency_bench.latency.inverse_cdf import sample_inverse_cdf
 from latency_bench.latency.profile import load_profile_manifest
 from latency_bench.latency.sample import LatencySample
@@ -375,68 +380,57 @@ class PerEpisodeSampler(LatencySampler):
 
 
 # ---------------------------------------------------------------------------
-# Registry + factory
+# Factory
 # ---------------------------------------------------------------------------
 
 
-SamplerBuilder = Callable[..., LatencySampler]
-SAMPLER_BUILDERS: dict[str, SamplerBuilder] = {}
+def build_sampler(latency_cfg: dict[str, Any], *, clock: EnvClock) -> LatencySampler:
+    method = latency_cfg["method"]
+    seed = latency_cfg.get("seed")
+    profile: dict[str, Any] | None = None
+    profile_path: Path | None = None
 
-
-def register_sampler(method: str) -> Callable[[SamplerBuilder], SamplerBuilder]:
-    def decorator(builder: SamplerBuilder) -> SamplerBuilder:
-        SAMPLER_BUILDERS[method] = builder
-        return builder
-
-    return decorator
-
-
-def resolve_latency_method(latency_cfg: dict[str, Any]) -> str:
-    """Return the normalized method name for a (possibly legacy) latency config.
-
-    Profile-default configs return ``"profile_default"`` since the concrete method
-    can only be resolved once the profile manifest is loaded.
-    """
-    return _normalize_latency_cfg(latency_cfg)["method"]
-
-
-def build_sampler(latency_cfg: dict[str, Any], *, clock: EnvClock, seed: int | None) -> LatencySampler:
-    cfg = _normalize_latency_cfg(latency_cfg)
-    profile, profile_path = _maybe_load_profile(cfg)
-    method = _resolve_method(cfg, profile)
-    builder = SAMPLER_BUILDERS.get(method)
-    if builder is None:
+    if method == "zero":
+        sampler: LatencySampler = ZeroSampler(clock=clock)
+    elif method == "fixed":
+        sampler = FixedSampler(latency_cfg["fixed_latency_ms"], clock=clock)
+    elif method == "normal":
+        sampler = NormalSampler(
+            mean_latency_ms=latency_cfg["mean_latency_ms"],
+            std_latency_ms=latency_cfg["std_latency_ms"],
+            clock=clock,
+            seed=seed,
+            min_latency_ms=latency_cfg.get("min_latency_ms", 0.0),
+            max_latency_ms=latency_cfg.get("max_latency_ms"),
+        )
+    elif method == "uniform":
+        sampler = UniformSampler(
+            min_latency_ms=latency_cfg["min_latency_ms"],
+            max_latency_ms=latency_cfg["max_latency_ms"],
+            clock=clock,
+            seed=seed,
+        )
+    elif method in {"iid", "temporal"}:
+        profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
+        profile = load_profile_manifest(profile_path)
+        if method == "iid":
+            distribution_path = _profile_relative_path(profile_path, profile["distribution_path"])
+            sampler = IidInverseCdfSampler(read_json(distribution_path), clock=clock, seed=seed)
+        else:
+            sampler = _build_temporal(profile, profile_path=profile_path, clock=clock, seed=seed)
+    else:
         raise ValueError(f"Unsupported latency method: {method}")
-    sampler = builder(cfg, profile=profile, profile_path=profile_path, clock=clock, seed=seed)
+
     if profile is not None:
         sampler.profile_metadata = {
             "profile_id": profile.get("profile_id"),
             "target_device": profile.get("target_device"),
             "profile_path": str(profile_path),
         }
-    if cfg.get("per_episode"):
+    if latency_cfg.get("per_episode"):
         sampler = PerEpisodeSampler(sampler)
-        if profile is None:
-            sampler.latency_type = "mixed_normal_distribution" if method == "normal" else "mixed_uniform_distribution"
+    sampler.latency_type = latency_type_from_config(latency_cfg)
     return sampler
-
-
-# Capability sets over the method names above (plus the virtual
-# ``profile_default``, which resolves to a concrete method only once the
-# profile manifest is loaded and therefore has no registered builder).
-SEEDED_STOCHASTIC_METHODS = frozenset({"normal", "uniform", "iid", "temporal", "profile_default"})
-BATCHED_SIMULATED_METHODS = frozenset({"zero", "fixed"}) | SEEDED_STOCHASTIC_METHODS
-
-
-def resolve_concrete_latency_method(latency_cfg: dict[str, Any]) -> str:
-    """Resolve the concrete method name, loading the profile manifest when the
-    config defers to ``profile_default``."""
-    cfg = _normalize_latency_cfg(latency_cfg)
-    method = cfg["method"]
-    if method != "profile_default":
-        return method
-    profile, _ = _maybe_load_profile(cfg)
-    return _resolve_method(cfg, profile)
 
 
 def build_episode_sampler_factory(
@@ -453,72 +447,25 @@ def build_episode_sampler_factory(
     """
     if "seed" not in latency_cfg:
         return None
-    method = resolve_concrete_latency_method(latency_cfg)
+    method = resolve_latency_method(latency_cfg)
     if method == "temporal" or method not in SEEDED_STOCHASTIC_METHODS:
         return None
 
     def build_for_episode(episode_id: int) -> LatencySampler:
         episode_latency_cfg = dict(latency_cfg)
         episode_latency_cfg["seed"] = derive_latency_seed(latency_cfg["seed"], episode_idx=episode_id)
-        return build_sampler(episode_latency_cfg, clock=clock, seed=episode_latency_cfg.get("seed"))
+        return build_sampler(episode_latency_cfg, clock=clock)
 
     return build_for_episode
 
 
-@register_sampler("zero")
-def _build_zero(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
-    return ZeroSampler(clock=clock)
-
-
-@register_sampler("fixed")
-def _build_fixed(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
-    if "fixed_latency_ms" in cfg:
-        fixed_latency_ms = float(cfg["fixed_latency_ms"])
-    else:
-        fixed_latency_ms = float(_profile_summary(profile)["mean_ms"])
-    return FixedSampler(fixed_latency_ms, clock=clock)
-
-
-@register_sampler("normal")
-def _build_normal(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
-    if "mean_latency_ms" in cfg or "std_latency_ms" in cfg:
-        return NormalSampler(
-            mean_latency_ms=float(cfg["mean_latency_ms"]),
-            std_latency_ms=float(cfg["std_latency_ms"]),
-            clock=clock,
-            seed=seed,
-            min_latency_ms=float(cfg.get("min_latency_ms", 0.0)),
-            max_latency_ms=cfg.get("max_latency_ms"),
-        )
-    summary = _profile_summary(profile)
-    return NormalSampler(
-        mean_latency_ms=float(summary["mean_ms"]),
-        std_latency_ms=float(summary["std_ms"]),
-        clock=clock,
-        seed=seed,
-        min_latency_ms=float(cfg.get("min_latency_ms", summary.get("min_ms", 0.0))),
-        max_latency_ms=cfg.get("max_latency_ms", summary.get("max_ms")),
-    )
-
-
-@register_sampler("uniform")
-def _build_uniform(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
-    return UniformSampler(
-        min_latency_ms=float(cfg["min_latency_ms"]),
-        max_latency_ms=float(cfg["max_latency_ms"]),
-        clock=clock,
-        seed=seed,
-    )
-
-
-@register_sampler("iid")
-def _build_iid(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
-    distribution_path = _profile_relative_path(profile_path, profile["distribution_path"])
-    return IidInverseCdfSampler(read_json(distribution_path), clock=clock, seed=seed)
-
-
-@register_sampler("temporal")
-def _build_temporal(cfg, *, profile, profile_path, clock, seed) -> LatencySampler:
+def _build_temporal(
+    profile: dict[str, Any],
+    *,
+    profile_path: Path,
+    clock: EnvClock,
+    seed: int | None,
+) -> LatencySampler:
     model_path = _profile_relative_path(profile_path, profile["burst_model_path"])
     model = read_json(model_path)
     if (
@@ -537,79 +484,8 @@ def _build_temporal(cfg, *, profile, profile_path, clock, seed) -> LatencySample
 
 
 # ---------------------------------------------------------------------------
-# Config normalization + profile resolution
+# Profile paths
 # ---------------------------------------------------------------------------
-
-
-_LEGACY_TYPE_TO_METHOD = {
-    "zero": ("zero", False),
-    "fixed": ("fixed", False),
-    "normal_distribution": ("normal", False),
-    "uniform_distribution": ("uniform", False),
-    "mixed_normal_distribution": ("normal", True),
-    "mixed_uniform_distribution": ("uniform", True),
-}
-
-_LEGACY_PROFILE_SAMPLER_TO_METHOD = {
-    "iid_inverse_cdf": "iid",
-    "bayes_markov": "temporal",
-}
-
-
-def _normalize_latency_cfg(latency_cfg: dict[str, Any]) -> dict[str, Any]:
-    if "method" in latency_cfg:
-        return dict(latency_cfg)
-
-    cfg = dict(latency_cfg)
-    latency_type = cfg.get("type", "zero")
-    if latency_type == "profile_sample":
-        cfg["method"] = _LEGACY_PROFILE_SAMPLER_TO_METHOD.get(
-            cfg.get("sampler", "profile_default"), "profile_default"
-        )
-        return cfg
-    method, per_episode = _LEGACY_TYPE_TO_METHOD.get(latency_type, (None, False))
-    if method is None:
-        raise ValueError(f"Unsupported latency.type: {latency_type}")
-    cfg["method"] = method
-    if per_episode:
-        cfg["per_episode"] = True
-    return cfg
-
-
-def _resolve_method(cfg: dict[str, Any], profile: dict[str, Any] | None) -> str:
-    method = cfg["method"]
-    if method != "profile_default":
-        return method
-    if profile is not None:
-        latency_method = profile.get("latency_method")
-        if latency_method in ("iid", "temporal"):
-            return latency_method
-        sample_model_type = profile.get("sample_model_type")
-        if sample_model_type in _LEGACY_PROFILE_SAMPLER_TO_METHOD:
-            return _LEGACY_PROFILE_SAMPLER_TO_METHOD[sample_model_type]
-    info = profile or {}
-    raise ValueError(
-        "latency.sampler=profile_default cannot resolve a temporal method for profile "
-        f"{info.get('profile_id')!r}: latency_method={info.get('latency_method')!r}, "
-        f"sample_model_type={info.get('sample_model_type')!r}, "
-        f"burst_model_path={info.get('burst_model_path')!r}. Rebuild this profile's "
-        "temporal burst model from measure actions, or set "
-        "latency.sampler=iid_inverse_cdf explicitly to use the iid distribution."
-    )
-
-
-def _maybe_load_profile(cfg: dict[str, Any]) -> tuple[dict[str, Any] | None, Path | None]:
-    profile_path = cfg.get("profile_path")
-    if profile_path is None:
-        return None, None
-    resolved = _resolve_profile_manifest_path(profile_path)
-    return load_profile_manifest(resolved), resolved
-
-
-def _profile_summary(profile: dict[str, Any] | None) -> dict[str, Any]:
-    if profile is None:
-        raise ValueError("profile_path is required to derive this latency method from a profile")
-    return profile["summary"]
 
 
 def _resolve_profile_manifest_path(profile_path: str | Path) -> Path:

@@ -35,7 +35,7 @@ env:
   oneshot_actions:
   - flap
 latency:
-  type: zero
+  method: zero
   add_latency_info: false
 scheduler:
   hold_policy: one_frame_then_noop

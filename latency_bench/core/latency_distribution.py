@@ -121,7 +121,7 @@ def distribution_frames_to_ms_latency_config(
     frame_ms = 1000.0 / env_fps
     if spec.type == "normal":
         config: dict[str, Any] = {
-            "type": "normal_distribution",
+            "method": "normal",
             "mean_latency_ms": spec.mean * frame_ms,
             "std_latency_ms": spec.std * frame_ms,
             "min_latency_ms": spec.min * frame_ms,
@@ -129,7 +129,7 @@ def distribution_frames_to_ms_latency_config(
         }
     elif spec.type == "uniform":
         config = {
-            "type": "uniform_distribution",
+            "method": "uniform",
             "min_latency_ms": spec.min * frame_ms,
             "max_latency_ms": spec.max * frame_ms,
         }

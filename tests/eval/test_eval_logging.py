@@ -63,7 +63,7 @@ def _config(tmp_path: Path, *, latency: dict | None = None, env_name: str = "dum
             },
         },
         "latency": latency or {
-            "type": "fixed",
+            "method": "fixed",
             "fixed_latency_ms": 80.0,
         },
         "scheduler": {
@@ -169,7 +169,7 @@ def test_empirical_profile_metadata_is_logged(tmp_path: Path):
     config = _config(
         tmp_path / "run",
         latency={
-            "type": "profile_sample",
+            "method": "temporal",
             "profile_path": str(profile_dir),
             "seed": 0,
         },

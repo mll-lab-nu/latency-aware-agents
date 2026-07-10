@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 import torch
 
+from latency_bench.latency.config import latency_type_from_config
 from latency_bench.policy.sample_factory_common import _load_sf_policy_state_dict, _resolve_device
 from training.common.config_adapter import import_integration_module
 from training.common.utils import maybe_set_cli_override
@@ -38,8 +39,8 @@ def _apply_latency_to_flat_cfg(cfg: Any, latency_cfg: Mapping[str, Any]) -> None
         cfg: Mutable Sample Factory config object.
         latency_cfg: Nested latency config mapping.
     """
+    maybe_set_cli_override(cfg, "latency_type", latency_type_from_config(latency_cfg))
     field_map = {
-        "type": "latency_type",
         "fixed_latency_ms": "fixed_latency_ms",
         "mean_latency_ms": "mean_latency_ms",
         "std_latency_ms": "std_latency_ms",

@@ -33,13 +33,13 @@ def _latency_config_for_case(case: str, *, env_fps: float) -> dict[str, Any]:
 
     if case == "fixed":
         return {
-            "type": "fixed",
+            "method": "fixed",
             "fixed_latency_ms": frames_ms(4.0),
             "add_latency_info": False,
         }
     if case == "normal":
         return {
-            "type": "normal_distribution",
+            "method": "normal",
             "mean_latency_ms": frames_ms(4.0),
             "std_latency_ms": frames_ms(1.0),
             "min_latency_ms": 0.0,
@@ -47,7 +47,7 @@ def _latency_config_for_case(case: str, *, env_fps: float) -> dict[str, Any]:
             "add_latency_info": False,
         }
     return {
-        "type": "uniform_distribution",
+        "method": "uniform",
         "min_latency_ms": frames_ms(2.0),
         "max_latency_ms": frames_ms(6.0),
         "add_latency_info": False,

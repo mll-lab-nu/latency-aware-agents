@@ -35,7 +35,7 @@ def _base_config(tmp_path: Path) -> dict:
             "simulator": "cpu",
             "gpu_env_device": "auto",
         },
-        "latency": {"type": "zero", "add_latency_info": False},
+        "latency": {"method": "zero", "add_latency_info": False},
         "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
         "training": {
             "train_for_env_steps": 25000000,
@@ -59,9 +59,9 @@ def test_latency_case_sets_fixed_normal_and_uniform_ms():
     normal = profile._latency_config_for_case("normal", env_fps=60.0)
     uniform = profile._latency_config_for_case("uniform", env_fps=60.0)
 
-    assert fixed == {"type": "fixed", "fixed_latency_ms": 4000.0 / 60.0, "add_latency_info": False}
+    assert fixed == {"method": "fixed", "fixed_latency_ms": 4000.0 / 60.0, "add_latency_info": False}
     assert normal == {
-        "type": "normal_distribution",
+        "method": "normal",
         "mean_latency_ms": 4000.0 / 60.0,
         "std_latency_ms": 1000.0 / 60.0,
         "min_latency_ms": 0.0,
@@ -69,7 +69,7 @@ def test_latency_case_sets_fixed_normal_and_uniform_ms():
         "add_latency_info": False,
     }
     assert uniform == {
-        "type": "uniform_distribution",
+        "method": "uniform",
         "min_latency_ms": 2000.0 / 60.0,
         "max_latency_ms": 6000.0 / 60.0,
         "add_latency_info": False,
@@ -103,7 +103,7 @@ def test_stage_config_sets_profile_dimensions_and_disables_wandb(tmp_path: Path)
     assert cfg["backend"]["device"] == "cuda"
     assert cfg["env"]["simulator"] == "gpu"
     assert "gpu_env_batch_size" not in cfg["env"]
-    assert cfg["latency"]["type"] == "normal_distribution"
+    assert cfg["latency"]["method"] == "normal"
     assert cfg["training"]["async_rl"] is False
     assert cfg["training"]["train_for_env_steps"] == 65536
     assert cfg["training"]["num_workers"] == 1

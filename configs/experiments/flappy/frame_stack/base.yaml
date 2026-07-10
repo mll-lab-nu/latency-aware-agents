@@ -42,7 +42,7 @@ env:
     - flap
 
 latency:
-  type: normal_distribution
+  method: normal
   mean_latency_ms: 66.7
   std_latency_ms: 33.3
   min_latency_ms: 0

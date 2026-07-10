@@ -71,7 +71,7 @@ def _gpu_backend_config(output_dir: str, *, frame_stack: int) -> dict[str, Any]:
             "gpu_render_profile_interval": 1000,
         },
         "latency": {
-            "type": "zero",
+            "method": "zero",
         },
         "scheduler": {
             "hold_policy": "one_frame_then_noop",

@@ -47,7 +47,7 @@ def _base_config(env_name: str, tmp_path: Path) -> dict:
             "gpu_render_device": "auto",
             "gpu_env_device": "auto",
         },
-        "latency": {"type": "zero", "add_latency_info": False},
+        "latency": {"method": "zero", "add_latency_info": False},
         "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
         "policy": {"type": "random", "actions": [0]},
         "training": {
