@@ -1,10 +1,4 @@
-"""Everything that lives at / behind the realtime process boundary.
-
-This module holds the IPC message protocol (dataclasses + their (de)serialization)
-shared between the parent and its child processes, plus the two subprocess
-"programs" themselves: the inference worker and the env-loop worker. The parent
-side (pool, coordinator, executor) lives in sibling modules.
-"""
+"""Realtime inference-worker and environment-loop subprocess programs."""
 from __future__ import annotations
 
 import gc
@@ -14,29 +8,27 @@ import time
 import traceback
 from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import dataclass
 from typing import Any
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.timing import StageProfiler, profiler_scope
-from latency_bench.core.types import (
-    Action,
-    ActionEvent,
-    LatencyRecord,
-    Observation,
-    PolicyOutput,
+from latency_bench.executors.realtime.messages import (
+    RealtimeObservationTask,
+    RealtimePolicyResult,
+    _action_event_ack_payload,
+    _action_event_from_dispatch_payload,
 )
-from latency_bench.latency.hardware_info import safe_set, torch_backend_flags
-from latency_bench.latency.measurement import RuntimeLatencyMeasurer
-from latency_bench.logging.records import build_step_record
-from latency_bench.logging.realtime_pipeline import PipelineProfile, REALTIME_PROFILE_METADATA_KEY
-from latency_bench.scheduler.action_queue import ActionScheduler
-from latency_bench.scheduler.factory import build_action_scheduler
 from latency_bench.executors.realtime.shared_observation import (
     ObservationAttachmentCache,
     ObservationLocalizer,
     ObservationSlotPool,
 )
+from latency_bench.latency.hardware_info import safe_set, torch_backend_flags
+from latency_bench.latency.measurement import RuntimeLatencyMeasurer
+from latency_bench.logging.records import build_step_record
+from latency_bench.logging.realtime_pipeline import PipelineProfile
+from latency_bench.scheduler.action_queue import ActionScheduler
+from latency_bench.scheduler.factory import build_action_scheduler
 
 
 # Number of shared-memory slots pre-allocated per episode. In-flight observations
@@ -48,102 +40,6 @@ DEFAULT_OBSERVATION_SLOT_POOL_CAPACITY = 64
 
 def _profile_now_ms() -> float:
     return time.perf_counter() * 1000.0
-
-
-# --- IPC message types --------------------------------------------------------
-
-@dataclass
-class RealtimeObservationTask:
-    """
-    env -> worker
-    """
-    obs_id: int
-    observation: Observation
-    submit_env_step: int
-    submit_time_ms: float
-    profile: PipelineProfile | None = None
-    shared_obs_id: int | None = None
-
-
-@dataclass
-class RealtimePolicyCompletion:
-    """
-    results returned by workers
-    """
-    task: RealtimeObservationTask
-    policy_output: PolicyOutput
-    completion_time_ms: float
-    latency_record: LatencyRecord
-    worker_id: int
-    device: str
-    profile: PipelineProfile | None = None
-
-
-@dataclass
-class RealtimePolicyResult:
-    """
-    slim worker -> parent result; parent reattaches the observation task.
-    """
-    policy_output: PolicyOutput
-    completion_time_ms: float
-    latency_record: LatencyRecord
-    profile: PipelineProfile | None = None
-
-
-@dataclass
-class RealtimeActionDispatch:
-    action_id: int
-    action: Action
-    obs_env_step: int
-    ready_time_ms: float
-    ready_step_float: float
-    latency_raw_frames: int | None = None
-    ready_raw_frame: int | None = None
-    apply_raw_frame: int | None = None
-    applied: bool = False
-    dropped: bool = False
-    profile: PipelineProfile | None = None
-
-
-def _action_event_dispatch_payload(event: ActionEvent) -> dict[str, Any]:
-    payload = {
-        "action_id": event.action_id,
-        "action": event.action,
-        "obs_env_step": event.obs_env_step,
-        "ready_time_ms": event.ready_time_ms,
-        "ready_step_float": event.ready_step_float,
-        "latency_raw_frames": event.latency_raw_frames,
-        "ready_raw_frame": event.ready_raw_frame,
-    }
-    profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
-    if profile is not None:
-        payload["profile"] = profile.to_dict()
-    return payload
-
-
-def _action_event_from_dispatch_payload(payload: dict[str, Any]) -> RealtimeActionDispatch:
-    profile = PipelineProfile.from_dict(payload["profile"]) if "profile" in payload else None
-    return RealtimeActionDispatch(
-        action_id=payload["action_id"],
-        action=payload["action"],
-        obs_env_step=payload["obs_env_step"],
-        ready_time_ms=payload["ready_time_ms"],
-        ready_step_float=payload["ready_step_float"],
-        latency_raw_frames=payload["latency_raw_frames"],
-        ready_raw_frame=payload["ready_raw_frame"],
-        profile=profile,
-    )
-
-
-def _action_event_ack_payload(event: RealtimeActionDispatch) -> dict[str, Any]:
-    payload = {
-        "action_id": event.action_id,
-        "applied": event.applied,
-        "apply_raw_frame": event.apply_raw_frame,
-    }
-    if event.profile is not None:
-        payload["profile"] = event.profile.to_dict()
-    return payload
 
 
 # --- inference worker ---------------------------------------------------------

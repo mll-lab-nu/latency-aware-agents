@@ -6,9 +6,11 @@ import time
 from typing import Any
 
 from latency_bench.executors.env_step_backend import _set_thread_env_defaults
-from latency_bench.executors.realtime.workers import (
+from latency_bench.executors.realtime.messages import (
     RealtimeObservationTask,
     RealtimePolicyCompletion,
+)
+from latency_bench.executors.realtime.workers import (
     _inference_worker,
     _profile_now_ms,
 )
@@ -175,5 +177,4 @@ class ProcessInferencePool:
     def _raise_if_closed(self) -> None:
         if self.closed:
             raise RuntimeError("inference pool is closed")
-
 
