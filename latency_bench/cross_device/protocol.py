@@ -27,7 +27,13 @@ from latency_bench.cross_device.planning import (
     _output_root,
     _spec_with_cli_overrides,
 )
-from latency_bench.cross_device.runner import _print_plan_summary, run_stage
+from latency_bench.cross_device.runner import (
+    _print_plan_summary,
+    publish_measure,
+    run_all_profile_simulations,
+    run_multi_session_measure,
+    run_stage,
+)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -59,17 +65,25 @@ def main(argv: list[str] | None = None) -> None:
     measure.add_argument("--out", type=Path)
     _add_execution_flags(measure)
 
+    publish = subparsers.add_parser("publish-measure", help="Publish a completed multi-session measure protocol.")
+    publish.add_argument("--spec", type=Path, required=True)
+    publish.add_argument("--hardware", default="auto")
+    publish.add_argument("--out", type=Path)
+
     sim = subparsers.add_parser(
         "sim",
         help="Run simulated replay: this machine's own profile by default, or --target <device/instance>.",
     )
     sim.add_argument("--spec", type=Path, required=True)
     sim.add_argument("--hardware", default="auto")
-    sim.add_argument(
+    target_group = sim.add_mutually_exclusive_group()
+    target_group.add_argument(
         "--target",
         help="Replay another machine's profile: <device_id>/<instance_id>. Omit to use this machine.",
     )
-    sim.add_argument("--profiles-dir", type=Path, required=True)
+    target_group.add_argument("--all-target-profiles", action="store_true")
+    sim.add_argument("--profiles-dir", type=Path)
+    sim.add_argument("--latency-method", choices=("temporal", "iid"))
     sim.add_argument("--out", type=Path)
     _add_execution_flags(sim)
 
@@ -91,6 +105,11 @@ def main(argv: list[str] | None = None) -> None:
     _add_override_flags(aggregate)
 
     args = parser.parse_args(argv)
+    if args.command == "sim":
+        if args.all_target_profiles and args.latency_method is None:
+            parser.error("sim --all-target-profiles requires --latency-method")
+        if not args.all_target_profiles and args.profiles_dir is None:
+            parser.error("sim requires --profiles-dir unless --all-target-profiles is set")
     spec = load_protocol_spec(args.spec)
     if args.command == "doctor":
         run_doctor(args, spec)
@@ -130,10 +149,18 @@ def main(argv: list[str] | None = None) -> None:
         )
         for name, path in outputs.items():
             print(f"{name}: {path}")
+    elif args.command == "publish-measure":
+        publish_measure(args, spec)
     elif args.command == "sim":
-        run_stage(args, spec, "sim_same" if args.target is None else "sim_cross")
+        if args.all_target_profiles:
+            run_all_profile_simulations(args, _spec_with_cli_overrides(spec, args))
+        else:
+            run_stage(args, spec, "sim_same" if args.target is None else "sim_cross")
     else:
-        run_stage(args, spec, "measure")
+        if "measure_sessions" in spec:
+            run_multi_session_measure(args, _spec_with_cli_overrides(spec, args))
+        else:
+            run_stage(args, spec, "measure")
 
 
 def _add_selection_flags(parser: argparse.ArgumentParser) -> None:

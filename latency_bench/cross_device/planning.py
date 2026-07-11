@@ -45,6 +45,10 @@ class ProtocolTask:
     target_profile_instance_id: str | None
     smoke: bool = False
     smoke_max_steps: int | None = None
+    measure_session_id: int | None = None
+    measure_role: str | None = None
+    profile_build_id: str | None = None
+    latency_method: str | None = None
 
 
 @dataclass
@@ -173,6 +177,10 @@ def _make_task(
     target_profile_instance_id: str | None,
     smoke: bool = False,
     smoke_max_steps: int | None = None,
+    measure_session_id: int | None = None,
+    measure_role: str | None = None,
+    profile_build_id: str | None = None,
+    latency_method: str | None = None,
 ) -> ProtocolTask:
     """Create output paths and immutable run identity for one task."""
     policy_slug = slugify(row["policy"])
@@ -180,10 +188,34 @@ def _make_task(
     run_prefix = "smoke" if smoke else checkpoint_kind
     if stage in {"sim_same", "sim_cross"}:
         run_id = f"{run_prefix}_seed_{seed}_latency_seed_{latency_seed}_{count_suffix}"
+    elif measure_session_id is not None:
+        run_id = f"{run_prefix}_seed_{seed}_measure_session_{measure_session_id}_{count_suffix}"
     else:
         run_id = f"{run_prefix}_seed_{seed}_{count_suffix}"
     if stage == "sim_cross" and replay_device is not None:
-        device_path = Path(str(target_device["id"]))
+        if target_profile_instance_id is not None and profile_build_id is not None:
+            device_path = Path(str(replay_device["id"]))
+            if instance_id is not None:
+                device_path /= instance_id
+            device_path /= str(target_device["id"])
+            device_path /= target_profile_instance_id
+            device_path /= profile_build_id
+            if latency_method is not None:
+                device_path /= latency_method
+        else:
+            device_path = Path(str(target_device["id"]))
+        output_dir = out / "runs" / stage / policy_slug / device_path / run_id
+        generated_config_path = out / "generated_configs" / stage / policy_slug / device_path / f"{run_id}.yaml"
+    elif stage == "sim_same" and target_profile_instance_id is not None and profile_build_id is not None:
+        device_path = Path(target_profile_instance_id) / profile_build_id
+        if latency_method is not None:
+            device_path /= latency_method
+        output_dir = out / "runs" / stage / policy_slug / device_path / run_id
+        generated_config_path = out / "generated_configs" / stage / policy_slug / device_path / f"{run_id}.yaml"
+    elif stage == "measure" and measure_session_id is not None and target_profile_instance_id is not None:
+        device_path = Path(str(target_device["id"])) / target_profile_instance_id
+        if profile_build_id is not None:
+            device_path /= profile_build_id
         output_dir = out / "runs" / stage / policy_slug / device_path / run_id
         generated_config_path = out / "generated_configs" / stage / policy_slug / device_path / f"{run_id}.yaml"
     else:
@@ -210,6 +242,10 @@ def _make_task(
         target_profile_instance_id=target_profile_instance_id,
         smoke=smoke,
         smoke_max_steps=None if smoke_max_steps is None else int(smoke_max_steps),
+        measure_session_id=measure_session_id,
+        measure_role=measure_role,
+        profile_build_id=profile_build_id,
+        latency_method=latency_method,
     )
 
 

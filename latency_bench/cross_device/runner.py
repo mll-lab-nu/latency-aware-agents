@@ -6,6 +6,8 @@ writes generated configs and run manifests for both completed and skipped tasks.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import shlex
 import subprocess
@@ -29,19 +31,32 @@ from latency_bench.cross_device.manifest import (
     append_note,
     build_base_manifest,
     completed_manifest_exists,
+    git_sha,
     host_fingerprint,
     now_iso,
     record_skipped_task,
 )
 from latency_bench.cross_device.planning import (
+    STAGE_TO_EXPERIMENTS,
     PlannedTask,
     ProtocolTask,
     _build_plan,
+    _make_task,
     _output_root,
     _profiles_dir_for_args,
 )
-from latency_bench.cross_device.spec import detect_hardware
-from latency_bench.cross_device.sync import hf_env, profile_remote_dir, upload_folder_to_hf
+from latency_bench.cross_device.spec import detect_hardware, slugify
+from latency_bench.cross_device.sync import (
+    download_measure_completions,
+    download_profile_build,
+    hf_env,
+    profile_remote_dir,
+    protocol_raw_root,
+    publish_protocol_completion,
+    publish_protocol_folder,
+    publish_protocol_paths,
+    upload_folder_to_hf,
+)
 
 
 def failed_run_summary(task: ProtocolTask, exc: BaseException) -> dict[str, str]:
@@ -145,12 +160,594 @@ def run_stage(args: argparse.Namespace, spec: dict[str, Any], stage: str) -> Non
         raise SystemExit(1)
 
 
+def _protocol_task(
+    *,
+    spec: dict[str, Any],
+    row: dict[str, Any],
+    target_device: dict[str, Any],
+    target_instance_id: str,
+    target_instance_origin: str,
+    stage: str,
+    output_root: Path,
+    measure_session_id: int | None = None,
+    measure_role: str | None = None,
+    latency_seed: int | None = None,
+    sim_host_device: dict[str, Any] | None = None,
+    sim_host_instance_id: str | None = None,
+    target_profile_path: Path | None = None,
+    profile_build_id: str | None = None,
+    latency_method: str | None = None,
+) -> ProtocolTask:
+    seed = spec["seed_set"][0]
+    return _make_task(
+        stage=stage,
+        experiment_ids=list(STAGE_TO_EXPERIMENTS[stage]),
+        row=row,
+        target_device=target_device,
+        replay_device=sim_host_device,
+        seed=seed,
+        seed_set=spec["seed_set"],
+        latency_seed=latency_seed,
+        latency_seed_set=spec["latency_seed_set"],
+        n_episodes=spec["n_episodes"],
+        checkpoint_kind=spec["checkpoint_kind"],
+        out=output_root,
+        target_profile_path=target_profile_path,
+        profile_output_dir=None,
+        instance_id=sim_host_instance_id if sim_host_device is not None else target_instance_id,
+        instance_origin=resolve_instance_origin() if sim_host_device is not None else target_instance_origin,
+        target_profile_instance_id=target_instance_id,
+        measure_session_id=measure_session_id,
+        measure_role=measure_role,
+        profile_build_id=profile_build_id,
+        latency_method=latency_method,
+    )
+
+
+def _protocol_row(spec: dict[str, Any]) -> dict[str, Any]:
+    return spec["rows"][0]
+
+
+def _calibrate_protocol_once(
+    *,
+    args: argparse.Namespace,
+    spec: dict[str, Any],
+    row: dict[str, Any],
+    device: dict[str, Any],
+    instance_id: str,
+    instance_origin: str,
+    output_root: Path,
+) -> Path:
+    calibration_dir = output_root / "calibration" / slugify(row["policy"]) / device["id"] / instance_id
+    calibration_path = calibration_dir / "env_fps_calibration.json"
+    if calibration_path.exists():
+        print(f"calibration: reusing {calibration_path}")
+        return calibration_path
+    task = _protocol_task(
+        spec=spec,
+        row=row,
+        target_device=device,
+        target_instance_id=instance_id,
+        target_instance_origin=instance_origin,
+        stage="measure",
+        output_root=output_root,
+        measure_session_id=spec["measure_sessions"]["fit"][0],
+        measure_role="fit",
+    )
+    config_path = calibration_dir / "config.yaml"
+    _write_generated_config(config_path, _generated_config(task, spec))
+    command = _calibration_command(task, spec, config_path, calibration_path)
+    print("calibration: " + shlex.join(command))
+    if not args.dry_run:
+        subprocess.run(command, check=True)
+    return calibration_path
+
+
+def _run_measure_sessions(
+    *,
+    args: argparse.Namespace,
+    spec: dict[str, Any],
+    row: dict[str, Any],
+    detected: dict[str, Any],
+    instance_id: str,
+    instance_origin: str,
+    output_root: Path,
+    calibration_path: Path,
+    role: str,
+    session_ids: list[int],
+    profile_build_id: str | None = None,
+) -> list[ProtocolTask]:
+    tasks = []
+    for session_id in session_ids:
+        task = _protocol_task(
+            spec=spec,
+            row=row,
+            target_device=detected["device"],
+            target_instance_id=instance_id,
+            target_instance_origin=instance_origin,
+            stage="measure",
+            output_root=output_root,
+            measure_session_id=session_id,
+            measure_role=role,
+            profile_build_id=profile_build_id,
+        )
+        print(f"measure: role={role} session={session_id} output={task.output_dir}")
+        _run_task(
+            task,
+            spec,
+            detected,
+            args,
+            output_root,
+            shared_calibration_path=calibration_path,
+        )
+        tasks.append(task)
+    return tasks
+
+
+def _profile_build_id(
+    spec: dict[str, Any],
+    device: dict[str, Any],
+    instance_id: str,
+    calibration_path: Path,
+    fit_tasks: list[ProtocolTask],
+) -> str:
+    digest = hashlib.sha256()
+    payload = {
+        "protocol_id": spec["protocol_id"],
+        "target_device": device["id"],
+        "instance_id": instance_id,
+        "calibration": {
+            key: read_json(calibration_path)[key]
+            for key in ("selected_env_fps", "selected_obs_fps")
+        },
+        "fit_sessions": [task.measure_session_id for task in fit_tasks],
+        "git_sha": git_sha(),
+        "profile_fitter_sha256": _profile_fitter_sha256(),
+    }
+    digest.update(json.dumps(payload, sort_keys=True).encode())
+    for task in fit_tasks:
+        for filename in (
+            "e2e_latencies.jsonl",
+            "infer_latencies.jsonl",
+            "episode_metrics.jsonl",
+            "actions.jsonl",
+            "steps.jsonl",
+        ):
+            digest.update(filename.encode())
+            digest.update((task.output_dir / filename).read_bytes())
+    return digest.hexdigest()[:12]
+
+
+def _profile_fitter_sha256() -> str:
+    from latency_bench.experiments import build_latency_profile_from_trace
+    from latency_bench.latency import burst_profile
+
+    digest = hashlib.sha256()
+    for module in (build_latency_profile_from_trace, burst_profile):
+        path = Path(module.__file__)
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _profile_artifact_sha256(profile_dir: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(profile_dir.iterdir()):
+        if not path.is_file() or path.name == "profile.json" or path.suffix == ".png":
+            continue
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _fit_protocol_profile(
+    *,
+    spec: dict[str, Any],
+    row: dict[str, Any],
+    device: dict[str, Any],
+    instance_id: str,
+    instance_origin: str,
+    output_root: Path,
+    calibration_path: Path,
+    fit_tasks: list[ProtocolTask],
+) -> tuple[str, Path, str]:
+    from latency_bench.experiments.build_latency_profile_from_trace import build_profile_from_traces
+
+    build_id = _profile_build_id(spec, device, instance_id, calibration_path, fit_tasks)
+    profile_dir = (
+        output_root
+        / "profile_builds"
+        / row["model_type"]
+        / row["env_name"]
+        / device["id"]
+        / instance_id
+        / build_id
+    )
+    if (profile_dir / "profile.json").exists():
+        print(f"profile: reusing {profile_dir}")
+        profile = read_json(profile_dir / "profile.json")
+        return build_id, profile_dir, profile["profile_artifact_sha256"]
+    manifests = [read_json(task.output_dir / "manifest.json") for task in fit_tasks]
+    sessions = [
+        {
+            "measure_session_id": task.measure_session_id,
+            "latencies": task.output_dir / "e2e_latencies.jsonl",
+            "inference_latencies": task.output_dir / "infer_latencies.jsonl",
+            "episode_metrics": task.output_dir / "episode_metrics.jsonl",
+            "actions": task.output_dir / "actions.jsonl",
+            "steps": task.output_dir / "steps.jsonl",
+            "provenance": {
+                "run_dir": str(task.output_dir.relative_to(output_root)),
+                **{
+                    key: manifest[key]
+                    for key in (
+                        "protocol_id",
+                        "measure_session_id",
+                        "measure_role",
+                        "seed",
+                        "n_episodes",
+                        "git_sha",
+                        "started_at",
+                        "completed_at",
+                    )
+                },
+            },
+        }
+        for task, manifest in zip(fit_tasks, manifests)
+    ]
+    calibration = read_json(calibration_path)
+    build_profile_from_traces(
+        sessions=sessions,
+        output_dir=profile_dir,
+        profile_id=device["profile_id"],
+        policy_id=row["policy"],
+        env_id=row["env_name"],
+        target_device=device["id"],
+        env_fps=calibration["selected_env_fps"],
+        metadata={
+            "policy_type": row["policy_type"],
+            "model_type": row["model_type"],
+            "hardware_class": device["id"],
+            "instance_id": instance_id,
+            "instance_origin": instance_origin,
+            "profile_build_id": build_id,
+            "profile_fitter_sha256": _profile_fitter_sha256(),
+            "hardware_fingerprint": manifests[0]["hardware_fingerprint"],
+            "calibration": calibration,
+        },
+        latency_kind="e2e_latency",
+    )
+    profile_path = profile_dir / "profile.json"
+    profile = read_json(profile_path)
+    artifact_sha256 = _profile_artifact_sha256(profile_dir)
+    profile["profile_artifact_sha256"] = artifact_sha256
+    write_json(profile_path, profile)
+    return build_id, profile_dir, artifact_sha256
+
+
+def _measure_completion_path(
+    output_root: Path, device_id: str, instance_id: str, profile_build_id: str
+) -> Path:
+    return output_root / "completion" / "measure" / device_id / instance_id / f"{profile_build_id}.json"
+
+
+def run_multi_session_measure(args: argparse.Namespace, spec: dict[str, Any]) -> None:
+    output_root = _output_root(spec, args.out)
+    detected = detect_hardware(spec, args.hardware)
+    device = detected["device"]
+    if device["id"] not in spec["target_devices"]:
+        raise SystemExit(f"this protocol does not measure target device {device['id']}")
+    instance_id = resolve_instance_id(host_fingerprint())
+    instance_origin = resolve_instance_origin()
+    completed = sorted(
+        (output_root / "completion" / "measure" / device["id"] / instance_id).glob("*.json")
+    )
+    if completed:
+        for path in completed:
+            print(f"measure already complete: {path}")
+        return
+    row = _protocol_row(spec)
+    calibration_path = _calibrate_protocol_once(
+        args=args,
+        spec=spec,
+        row=row,
+        device=device,
+        instance_id=instance_id,
+        instance_origin=instance_origin,
+        output_root=output_root,
+    )
+    fit_tasks = _run_measure_sessions(
+        args=args,
+        spec=spec,
+        row=row,
+        detected=detected,
+        instance_id=instance_id,
+        instance_origin=instance_origin,
+        output_root=output_root,
+        calibration_path=calibration_path,
+        role="fit",
+        session_ids=spec["measure_sessions"]["fit"],
+    )
+    if args.dry_run:
+        _run_measure_sessions(
+            args=args,
+            spec=spec,
+            row=row,
+            detected=detected,
+            instance_id=instance_id,
+            instance_origin=instance_origin,
+            output_root=output_root,
+            calibration_path=calibration_path,
+            role="heldout",
+            session_ids=spec["measure_sessions"]["heldout"],
+            profile_build_id="profile_build",
+        )
+        return
+    build_id, profile_dir, profile_artifact_sha256 = _fit_protocol_profile(
+        spec=spec,
+        row=row,
+        device=device,
+        instance_id=instance_id,
+        instance_origin=instance_origin,
+        output_root=output_root,
+        calibration_path=calibration_path,
+        fit_tasks=fit_tasks,
+    )
+    heldout_tasks = _run_measure_sessions(
+        args=args,
+        spec=spec,
+        row=row,
+        detected=detected,
+        instance_id=instance_id,
+        instance_origin=instance_origin,
+        output_root=output_root,
+        calibration_path=calibration_path,
+        role="heldout",
+        session_ids=spec["measure_sessions"]["heldout"],
+        profile_build_id=build_id,
+    )
+    profile_manifest = read_json(profile_dir / "profile.json")
+    completion = {
+        "protocol_id": spec["protocol_id"],
+        "policy": row["policy"],
+        "model_type": row["model_type"],
+        "env_name": row["env_name"],
+        "target_device_id": device["id"],
+        "target_profile_instance_id": instance_id,
+        "profile_build_id": build_id,
+        "profile_artifact_sha256": profile_artifact_sha256,
+        "profile_fitter_sha256": profile_manifest["profile_fitter_sha256"],
+        "seed_set": spec["seed_set"],
+        "n_episodes": spec["n_episodes"],
+        "measure_sessions": spec["measure_sessions"],
+        "profile_path": str((profile_dir / "profile.json").relative_to(output_root)),
+        "calibration_path": str(calibration_path.relative_to(output_root)),
+        "fit_run_dirs": [str(task.output_dir.relative_to(output_root)) for task in fit_tasks],
+        "heldout_run_dirs": [str(task.output_dir.relative_to(output_root)) for task in heldout_tasks],
+        "generated_config_dirs": sorted(
+            {
+                str(task.generated_config_path.parent.relative_to(output_root))
+                for task in [*fit_tasks, *heldout_tasks]
+            }
+        ),
+    }
+    path = _measure_completion_path(output_root, device["id"], instance_id, build_id)
+    write_json(path, completion)
+    print(f"measure completion: {path}")
+
+
+def publish_measure(args: argparse.Namespace, spec: dict[str, Any]) -> None:
+    output_root = _output_root(spec, args.out)
+    device = detect_hardware(spec, args.hardware)["device"]
+    instance_id = resolve_instance_id(host_fingerprint())
+    completion_paths = sorted(
+        (output_root / "completion" / "measure" / device["id"] / instance_id).glob("*.json")
+    )
+    if not completion_paths:
+        raise FileNotFoundError(
+            f"no completed measure profile for {device['id']}/{instance_id} under {output_root}"
+        )
+    for completion_path in completion_paths:
+        completion = read_json(completion_path)
+        remote_root = protocol_raw_root(device["id"], instance_id, spec["protocol_id"])
+        profile_dir = (output_root / completion["profile_path"]).parent
+        profile = read_json(profile_dir / "profile.json")
+        artifact_sha256 = _profile_artifact_sha256(profile_dir)
+        if not (
+            artifact_sha256
+            == profile["profile_artifact_sha256"]
+            == completion["profile_artifact_sha256"]
+        ):
+            raise RuntimeError(f"profile artifact hash mismatch: {profile_dir}")
+        if profile["profile_fitter_sha256"] != completion["profile_fitter_sha256"]:
+            raise RuntimeError(f"profile fitter hash mismatch: {profile_dir}")
+        publish_protocol_paths(
+            spec,
+            output_root=output_root,
+            remote_root=remote_root,
+            relative_paths=[
+                str(Path(completion["calibration_path"]).parent),
+                *completion["fit_run_dirs"],
+                *completion["heldout_run_dirs"],
+            ],
+        )
+        publish_protocol_paths(
+            spec,
+            output_root=output_root,
+            remote_root=remote_root,
+            relative_paths=completion["generated_config_dirs"],
+        )
+        publish_protocol_folder(
+            spec,
+            local_dir=profile_dir,
+            path_in_repo=(
+                f"profile_builds/{completion['model_type']}/{completion['env_name']}/"
+                f"{device['id']}/{instance_id}/{completion['profile_build_id']}"
+            ),
+        )
+        publish_protocol_completion(
+            spec,
+            local_path=completion_path,
+            path_in_repo=f"{remote_root}/{completion_path.relative_to(output_root).as_posix()}",
+        )
+        print(f"published measure build: {completion['profile_build_id']}")
+
+
+def _sim_completion_path(
+    output_root: Path,
+    latency_method: str,
+    host_device_id: str,
+    host_instance_id: str,
+    target_device_id: str,
+    target_instance_id: str,
+    profile_build_id: str,
+) -> Path:
+    return (
+        output_root
+        / "completion"
+        / "sim"
+        / latency_method
+        / host_device_id
+        / host_instance_id
+        / target_device_id
+        / target_instance_id
+        / f"{profile_build_id}.json"
+    )
+
+
+def run_all_profile_simulations(args: argparse.Namespace, spec: dict[str, Any]) -> None:
+    output_root = _output_root(spec, args.out)
+    detected = detect_hardware(spec, args.hardware)
+    host_device = detected["device"]
+    if host_device["id"] != spec["sim_host_device"]:
+        raise SystemExit(f"this protocol runs sim on {spec['sim_host_device']}, got {host_device['id']}")
+    if args.latency_method not in spec["latency_methods"]:
+        raise SystemExit(f"latency method {args.latency_method!r} is not enabled by this protocol")
+    host_instance_id = resolve_instance_id(host_fingerprint())
+    downloaded = download_measure_completions(spec, output_root / "_hf_protocol")
+    completion_paths = sorted(
+        downloaded.glob(
+            f"raw/*/instances/*/cross_device/{spec['protocol_id']}/completion/measure/**/*.json"
+        )
+    )
+    measure_completions = [read_json(path) for path in completion_paths]
+    available_devices = {
+        completion["target_device_id"]
+        for completion in measure_completions
+    }
+    missing_devices = [
+        device_id
+        for device_id in spec["target_devices"]
+        if device_id not in available_devices
+    ]
+    if missing_devices:
+        raise FileNotFoundError(
+            "missing completed measure profiles for target devices: "
+            + ", ".join(missing_devices)
+        )
+    devices = {device["id"]: device for device in spec["devices"]}
+    row = _protocol_row(spec)
+    for measure_completion in measure_completions:
+        if measure_completion["target_device_id"] not in spec["target_devices"]:
+            continue
+        target_device = devices[measure_completion["target_device_id"]]
+        target_instance_id = measure_completion["target_profile_instance_id"]
+        build_id = measure_completion["profile_build_id"]
+        profile_path = download_profile_build(spec, measure_completion, output_root)
+        profile = read_json(profile_path)
+        artifact_sha256 = _profile_artifact_sha256(profile_path.parent)
+        if not (
+            artifact_sha256
+            == profile["profile_artifact_sha256"]
+            == measure_completion["profile_artifact_sha256"]
+        ):
+            raise RuntimeError(f"profile artifact hash mismatch: {profile_path}")
+        if profile["profile_fitter_sha256"] != measure_completion["profile_fitter_sha256"]:
+            raise RuntimeError(f"profile fitter hash mismatch: {profile_path}")
+        tasks = []
+        for latency_seed in spec["latency_seed_set"]:
+            task = _protocol_task(
+                spec=spec,
+                row=row,
+                target_device=target_device,
+                target_instance_id=target_instance_id,
+                target_instance_origin="measure_completion",
+                stage="sim_cross",
+                output_root=output_root,
+                latency_seed=latency_seed,
+                sim_host_device=host_device,
+                sim_host_instance_id=host_instance_id,
+                target_profile_path=profile_path,
+                profile_build_id=build_id,
+                latency_method=args.latency_method,
+            )
+            print(
+                f"sim: method={args.latency_method} target={target_device['id']}/{target_instance_id} "
+                f"build={build_id} latency_seed={latency_seed}"
+            )
+            _run_task(task, spec, detected, args, output_root)
+            tasks.append(task)
+        completion_path = _sim_completion_path(
+            output_root,
+            args.latency_method,
+            host_device["id"],
+            host_instance_id,
+            target_device["id"],
+            target_instance_id,
+            build_id,
+        )
+        write_json(
+            completion_path,
+            {
+                "protocol_id": spec["protocol_id"],
+                "policy": row["policy"],
+                "latency_method": args.latency_method,
+                "sim_host_device_id": host_device["id"],
+                "sim_host_instance_id": host_instance_id,
+                "target_device_id": target_device["id"],
+                "target_profile_instance_id": target_instance_id,
+                "profile_build_id": build_id,
+                "profile_artifact_sha256": measure_completion["profile_artifact_sha256"],
+                "profile_fitter_sha256": measure_completion["profile_fitter_sha256"],
+                "seed_set": spec["seed_set"],
+                "n_episodes": spec["n_episodes"],
+                "profile_path": str(profile_path.relative_to(output_root)),
+                "latency_seed_set": spec["latency_seed_set"],
+                "run_dirs": [str(task.output_dir.relative_to(output_root)) for task in tasks],
+                "generated_config_dirs": sorted(
+                    {
+                        str(task.generated_config_path.parent.relative_to(output_root))
+                        for task in tasks
+                    }
+                ),
+            },
+        )
+        remote_root = protocol_raw_root(host_device["id"], host_instance_id, spec["protocol_id"])
+        publish_protocol_paths(
+            spec,
+            output_root=output_root,
+            remote_root=remote_root,
+            relative_paths=[
+                *sorted({str(task.output_dir.parent.relative_to(output_root)) for task in tasks}),
+                *sorted({str(task.generated_config_path.parent.relative_to(output_root)) for task in tasks}),
+            ],
+        )
+        publish_protocol_completion(
+            spec,
+            local_path=completion_path,
+            path_in_repo=f"{remote_root}/{completion_path.relative_to(output_root).as_posix()}",
+        )
+        print(f"published sim completion: {completion_path}")
+
+
 def _run_task(
     task: ProtocolTask,
     spec: dict[str, Any],
     detected: dict[str, Any],
     args: argparse.Namespace,
     out: Path,
+    *,
+    shared_calibration_path: Path | None = None,
 ) -> None:
     """Execute one runnable task and record its manifest.
 
@@ -174,17 +771,26 @@ def _run_task(
     profile_cmd = None
     manifest = build_base_manifest(task, spec, detected, eval_cmd, profile_cmd)
     if task.stage == "measure":
-        calibration_config_path = _calibration_generated_config_path(task)
-        calibration_path = _calibration_output_path(task)
-        calibration_cmd = _calibration_command(task, spec, calibration_config_path, calibration_path)
-        _add_calibration_manifest_fields(manifest, calibration_config_path, calibration_path, calibration_cmd)
+        if shared_calibration_path is None:
+            calibration_config_path = _calibration_generated_config_path(task)
+            calibration_path = _calibration_output_path(task)
+            calibration_cmd = _calibration_command(task, spec, calibration_config_path, calibration_path)
+            _add_calibration_manifest_fields(manifest, calibration_config_path, calibration_path, calibration_cmd)
+        else:
+            calibration_path = Path(shared_calibration_path)
+            manifest["calibration_output_path"] = str(calibration_path)
+            manifest["calibration_command"] = ""
     task.output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.dry_run:
         _write_generated_config(task.generated_config_path, config)
         if task.stage == "measure":
-            _write_generated_config(calibration_config_path, config)
-            profile_cmd = _profile_command(task, spec, args.overwrite, config)
+            if shared_calibration_path is None:
+                _write_generated_config(calibration_config_path, config)
+            elif calibration_path.exists():
+                _apply_env_fps_calibration(config, calibration_path)
+            if task.measure_session_id is None:
+                profile_cmd = _profile_command(task, spec, args.overwrite, config)
         print(f"generated_config: {task.generated_config_path}")
         print(shlex.join(eval_cmd))
         if profile_cmd is not None:
@@ -193,12 +799,14 @@ def _run_task(
 
     try:
         if task.stage == "measure":
-            _write_generated_config(calibration_config_path, config)
             write_json(task.output_dir / "manifest.json", manifest)
-            subprocess.run(calibration_cmd, check=True)
+            if shared_calibration_path is None:
+                _write_generated_config(calibration_config_path, config)
+                subprocess.run(calibration_cmd, check=True)
             _apply_env_fps_calibration(config, calibration_path)
-            profile_cmd = _profile_command(task, spec, args.overwrite, config)
-            manifest["profile_command"] = shlex.join(profile_cmd)
+            if task.measure_session_id is None:
+                profile_cmd = _profile_command(task, spec, args.overwrite, config)
+                manifest["profile_command"] = shlex.join(profile_cmd)
         _write_generated_config(task.generated_config_path, config)
         write_json(task.output_dir / "manifest.json", manifest)
         _run_with_runtime_telemetry(
@@ -221,7 +829,8 @@ def _run_task(
         raise
     write_json(task.output_dir / "manifest.json", manifest)
     append_manifest(out, manifest)
-    _upload_run_results(task, out, manifest, detected)
+    if task.measure_session_id is None and task.profile_build_id is None:
+        _upload_run_results(task, out, manifest, detected)
 
 
 def _run_with_runtime_telemetry(run_fn, output_dir: Path, manifest: dict[str, Any]) -> None:

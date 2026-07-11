@@ -155,6 +155,114 @@ def upload_folder_to_hf(
     )
 
 
+def upload_file_to_hf(
+    *,
+    repo_id: str,
+    local_path: Path,
+    repo_type: str,
+    path_in_repo: str,
+) -> None:
+    from huggingface_hub import HfApi
+
+    HfApi().upload_file(
+        repo_id=repo_id,
+        repo_type=repo_type,
+        path_or_fileobj=str(local_path),
+        path_in_repo=path_in_repo,
+    )
+
+
+def protocol_raw_root(device_id: str, instance_id: str, protocol_id: str) -> str:
+    return f"raw/{device_id}/instances/{instance_id}/cross_device/{protocol_id}"
+
+
+def publish_protocol_folder(
+    spec: dict,
+    *,
+    local_dir: Path,
+    path_in_repo: str,
+) -> None:
+    upload_folder_to_hf(
+        repo_id=spec["hf_repo"],
+        repo_type=spec["hf_repo_type"],
+        local_dir=local_dir,
+        path_in_repo=path_in_repo,
+    )
+
+
+def publish_protocol_paths(
+    spec: dict,
+    *,
+    output_root: Path,
+    remote_root: str,
+    relative_paths: list[str],
+) -> None:
+    for relative_path in dict.fromkeys(relative_paths):
+        publish_protocol_folder(
+            spec,
+            local_dir=output_root / relative_path,
+            path_in_repo=f"{remote_root}/{relative_path}",
+        )
+
+
+def publish_protocol_completion(
+    spec: dict,
+    *,
+    local_path: Path,
+    path_in_repo: str,
+) -> None:
+    upload_file_to_hf(
+        repo_id=spec["hf_repo"],
+        repo_type=spec["hf_repo_type"],
+        local_path=local_path,
+        path_in_repo=path_in_repo,
+    )
+
+
+def download_measure_completions(spec: dict, destination: Path) -> Path:
+    from huggingface_hub import snapshot_download
+
+    snapshot = Path(
+        snapshot_download(
+            repo_id=spec["hf_repo"],
+            repo_type=spec["hf_repo_type"],
+            allow_patterns=[
+                f"raw/*/instances/*/cross_device/{spec['protocol_id']}/completion/measure/**/*.json"
+            ],
+        )
+    )
+    shutil.copytree(snapshot / "raw", destination / "raw", dirs_exist_ok=True)
+    return destination
+
+
+def download_profile_build(spec: dict, completion: dict, output_root: Path) -> Path:
+    destination = (
+        output_root
+        / "profile_builds"
+        / completion["model_type"]
+        / completion["env_name"]
+        / completion["target_device_id"]
+        / completion["target_profile_instance_id"]
+        / completion["profile_build_id"]
+    )
+    remote_dir = (
+        f"profile_builds/{completion['model_type']}/{completion['env_name']}/"
+        f"{completion['target_device_id']}/{completion['target_profile_instance_id']}/"
+        f"{completion['profile_build_id']}"
+    )
+    profile_path = destination / "profile.json"
+    if profile_path.exists():
+        return profile_path
+    download_profile_folder_from_hf(
+        repo_id=spec["hf_repo"],
+        repo_type=spec["hf_repo_type"],
+        revision=None,
+        remote_dir=remote_dir,
+        local_dir=destination,
+    )
+    return profile_path
+
+
 def download_results_tree(
     *,
     repo_id: str,
