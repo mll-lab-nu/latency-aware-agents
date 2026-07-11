@@ -6,6 +6,7 @@ from latency_bench.latency.burst_profile import (
     _fit_inverse_cdf,
     build_burst_samples,
     build_hidden_regime_burst_model,
+    build_hidden_regime_burst_model_from_sessions,
 )
 
 
@@ -164,6 +165,32 @@ def test_hidden_regime_model_bridges_bursts_across_episodes():
 
     assert model["burst_dwell_lengths"] == [2]
     assert model["regime_transition_counts"]["burst"] == {"calm": 1, "burst": 1}
+
+
+def test_hidden_regime_model_does_not_bridge_measurement_sessions():
+    sessions = [
+        _episode(0, [42.0] * 10 + [70.0]),
+        _episode(0, [70.0] + [42.0] * 10),
+    ]
+
+    model = build_hidden_regime_burst_model_from_sessions(sessions)
+
+    assert model["spike_threshold_ms"] == pytest.approx(52.5)
+    assert model["burst_dwell_lengths"] == [1, 1]
+    assert model["regime_transition_counts"] == {
+        "calm": {"calm": 18, "burst": 1},
+        "burst": {"calm": 1, "burst": 0},
+    }
+    process = model["burst_rank_processes"][0]
+    assert process["draw_count"] == 2
+    assert process["spike_count"] == 2
+    assert process["severity"]["latency_ms"] == pytest.approx([1.0] * len(process["severity"]["latency_ms"]))
+
+
+def test_single_session_model_wrapper_matches_session_aware_fitter():
+    samples = _episode(0, [42.0] * 10 + [70.0, 42.0, 70.0] + [42.0] * 10)
+
+    assert build_hidden_regime_burst_model(samples) == build_hidden_regime_burst_model_from_sessions([samples])
 
 
 def test_hidden_regime_model_clean_trace_has_no_burst():
@@ -391,6 +418,27 @@ def test_build_burst_samples_assigns_episodes_from_metrics():
     samples = build_burst_samples(action_records, metrics)
 
     assert [(s["episode_id"], s["action_id"]) for s in samples] == [(7, 0), (7, 1), (8, 2)]
+
+
+def test_build_burst_samples_records_measure_session_id():
+    action_records = [
+        _action_record(
+            action_id=0,
+            obs_env_step=0,
+            ready_raw_frame=1,
+            latency_ms=10.0,
+            applied=True,
+            dropped=False,
+        ),
+    ]
+
+    samples = build_burst_samples(
+        action_records,
+        [{"episode_id": 0, "num_actions": 1, "metadata": {"frame_ms": 40.0}}],
+        measure_session_id=4,
+    )
+
+    assert samples[0]["measure_session_id"] == 4
 
 
 def test_build_burst_samples_rejects_metric_action_count_mismatch():
