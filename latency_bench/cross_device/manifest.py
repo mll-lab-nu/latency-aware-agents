@@ -85,6 +85,14 @@ def build_base_manifest(
         "seed": task.seed,
         "latency_seed_set": task.latency_seed_set,
         "latency_seed": task.latency_seed,
+        "measure_session_id": task.measure_session_id,
+        "measure_role": task.measure_role,
+        "profile_build_id": task.profile_build_id,
+        "latency_method": task.latency_method,
+        "sim_host_device_id": (
+            detected["device"]["id"] if task.stage in {"sim_same", "sim_cross"} else None
+        ),
+        "sim_host_instance_id": task.instance_id if task.stage in {"sim_same", "sim_cross"} else None,
         "status": "running",
         "skip_reason": "",
         "error": "",
@@ -139,15 +147,27 @@ def load_run_manifests(root: str | Path, *, raw_root: str | Path | None = None) 
     """
     records: list[dict[str, Any]] = []
     if raw_root is not None:
+        for manifest_path in sorted(Path(raw_root).glob("**/cross_device/**/runs/**/manifest.json")):
+            cross_device_root = _ancestor_named(manifest_path, "cross_device")
+            record = json.loads(manifest_path.read_text(encoding="utf-8"))
+            records.append(_remap_manifest_paths(record, cross_device_root, Path(root)))
         for manifest_path in sorted(Path(raw_root).glob("**/cross_device/manifests/runs.jsonl")):
             protocol_root = manifest_path.parents[1]
             for record in load_jsonl_records(manifest_path):
-                records.append(_remap_manifest_paths(record, protocol_root))
+                records.append(_remap_manifest_paths(record, protocol_root, Path(root)))
     else:
         path = Path(root) / "manifests" / "runs.jsonl"
         if path.exists():
             records = load_jsonl_records(path)
+        records.extend(
+            json.loads(manifest_path.read_text(encoding="utf-8"))
+            for manifest_path in sorted(Path(root).glob("runs/**/manifest.json"))
+        )
     return _dedupe_manifest_records(records)
+
+
+def _ancestor_named(path: Path, name: str) -> Path:
+    return next(parent for parent in path.parents if parent.name == name)
 
 
 def _matches(
@@ -160,6 +180,10 @@ def _matches(
     target_profile_instance_id: str | None = None,
     replay_device_id: str | None = None,
     replay_host_instance_id: str | None = None,
+    measure_role: str | None = None,
+    profile_build_id: str | None = None,
+    latency_method: str | None = None,
+    protocol_id: str | None = None,
 ) -> bool:
     if record["stage"] != stage:
         return False
@@ -174,6 +198,14 @@ def _matches(
     if replay_device_id is not None and record["replay_device_id"] != replay_device_id:
         return False
     if replay_host_instance_id is not None and record["instance_id"] != replay_host_instance_id:
+        return False
+    if measure_role is not None and record["measure_role"] != measure_role:
+        return False
+    if profile_build_id is not None and record["profile_build_id"] != profile_build_id:
+        return False
+    if latency_method is not None and record["latency_method"] != latency_method:
+        return False
+    if protocol_id is not None and record["protocol_id"] != protocol_id:
         return False
     return True
 
@@ -266,13 +298,32 @@ def manifest_contributes_to(record: dict[str, Any], experiment_id: str) -> bool:
     return experiment_id in {str(item) for item in record["experiment_ids"]}
 
 
-def _remap_manifest_paths(record: dict[str, Any], protocol_root: Path) -> dict[str, Any]:
+def _remap_manifest_paths(
+    record: dict[str, Any],
+    protocol_root: Path,
+    local_root: Path,
+) -> dict[str, Any]:
     remapped = dict(record)
     for key in ("output_dir", "profile_path", "generated_config_path"):
         value = remapped[key]
         if not value:
             continue
         remapped[key] = _remap_protocol_path(str(value), protocol_root)
+    if (
+        "profile_build_id" in remapped
+        and remapped["profile_build_id"]
+        and remapped["stage"] in {"sim_same", "sim_cross"}
+    ):
+        remapped["profile_path"] = str(
+            local_root
+            / "profile_builds"
+            / remapped["model_type"]
+            / remapped["env_name"]
+            / remapped["target_device_id"]
+            / remapped["target_profile_instance_id"]
+            / remapped["profile_build_id"]
+            / "profile.json"
+        )
     return remapped
 
 
@@ -296,6 +347,7 @@ def _dedupe_manifest_records(records: list[dict[str, Any]]) -> list[dict[str, An
     non_completed_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
     for record in records:
         run_key = (
+            str(record["protocol_id"]),
             str(record["stage"]),
             tuple(str(item) for item in record["experiment_ids"]),
             str(record["policy"]),
@@ -306,6 +358,9 @@ def _dedupe_manifest_records(records: list[dict[str, Any]]) -> list[dict[str, An
             str(record["instance_id"]),
             str(record["seed"]),
             str(_latency_session_seed(record)),
+            str(record["measure_session_id"] if "measure_session_id" in record else None),
+            str(record["profile_build_id"] if "profile_build_id" in record else None),
+            str(record["latency_method"] if "latency_method" in record else None),
         )
         if record["status"] == "completed":
             existing = completed_by_run_key.get(run_key)

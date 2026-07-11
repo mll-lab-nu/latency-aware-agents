@@ -106,8 +106,13 @@ def _patch_simulated_replay_config(config: dict[str, Any], task: ProtocolTask, s
     # forward passes served batch-1 by per-GPU worker processes; the sampled
     # latency owns every virtual timestamp, so the pool only buys wall clock.
     config["executor"]["simulated_inference_pool"] = True
+    latency_method = (
+        profile["latency_method"]
+        if task.latency_method is None
+        else task.latency_method
+    )
     latency = {
-        "method": profile["latency_method"],
+        "method": latency_method,
         "profile_path": str(task.target_profile_path),
         "seed": task.latency_seed,
         "profile_id": task.target_device["profile_id"],

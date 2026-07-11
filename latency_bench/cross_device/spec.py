@@ -13,16 +13,12 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import yaml
+
+from latency_bench.core.config import load_config
 
 
 def load_protocol_spec(path: str | Path) -> dict[str, Any]:
-    spec_path = Path(path)
-    with spec_path.open("r", encoding="utf-8") as f:
-        spec = yaml.safe_load(f)
-    if not isinstance(spec, dict):
-        raise ValueError(f"Protocol spec must be a mapping: {spec_path}")
-    return spec
+    return load_config(path)
 
 
 def slugify(value: str) -> str:

@@ -33,9 +33,11 @@ def test_generated_sim_config_separates_eval_and_latency_seeds(tmp_path, monkeyp
         target_profile_path=tmp_path / "profile.json",
         target_device={"profile_id": "L_A100", "id": "a100"},
         replay_device={"id": "rtx5090"},
+        latency_method="iid",
     )
 
     generated = configs._generated_config(task, {"sim_parallel_envs": 1})
 
     assert generated["experiment"]["seed"] == 7
     assert generated["latency"]["seed"] == 13
+    assert generated["latency"]["method"] == "iid"

@@ -144,8 +144,12 @@ def _run_record(
     instance_id: str = "instance_a100",
     target_profile_instance_id: str = "instance_a100",
     replay_device_id: str | None = None,
+    measure_session_id: int | None = None,
+    profile_build_id: str | None = None,
+    latency_method: str | None = None,
 ) -> dict:
     return {
+        "protocol_id": "cross-device-v1",
         "stage": stage,
         "experiment_ids": experiment_ids or ["exp2_same_device_calibration"],
         "policy": "OpenVLA",
@@ -155,6 +159,9 @@ def _run_record(
         "replay_device_id": replay_device_id,
         "instance_id": instance_id,
         "seed": 7,
+        "measure_session_id": measure_session_id,
+        "profile_build_id": profile_build_id,
+        "latency_method": latency_method,
         "status": status,
         "skip_reason": skip_reason,
         "notes": "",
@@ -238,6 +245,103 @@ def test_load_run_manifests_dedupes_legacy_and_explicit_same_latency_seed(tmp_pa
 
     assert len(loaded) == 1
     assert loaded[0]["output_dir"] == current["output_dir"]
+
+
+def test_load_run_manifests_keeps_measure_sessions_with_same_eval_seed(tmp_path):
+    out = tmp_path / "results"
+    first = _run_record(output_dir=out / "measure_session_0", measure_session_id=0)
+    second = _run_record(output_dir=out / "measure_session_1", measure_session_id=1)
+    write_jsonl(out / "manifests" / "runs.jsonl", [first, second])
+
+    loaded = manifest.load_run_manifests(out)
+
+    assert [record["measure_session_id"] for record in loaded] == [0, 1]
+
+
+def test_load_run_manifests_keeps_simulations_from_distinct_profile_builds(tmp_path):
+    out = tmp_path / "results"
+    first = _run_record(
+        stage="sim_cross",
+        output_dir=out / "build_a",
+        profile_build_id="build_a",
+    )
+    first["latency_seed"] = 11
+    second = _run_record(
+        stage="sim_cross",
+        output_dir=out / "build_b",
+        profile_build_id="build_b",
+    )
+    second["latency_seed"] = 11
+    write_jsonl(out / "manifests" / "runs.jsonl", [first, second])
+
+    loaded = manifest.load_run_manifests(out)
+
+    assert {record["profile_build_id"] for record in loaded} == {"build_a", "build_b"}
+
+
+def test_load_run_manifests_keeps_distinct_latency_methods(tmp_path):
+    out = tmp_path / "results"
+    temporal = _run_record(
+        stage="sim_cross",
+        output_dir=out / "temporal" / "run",
+        profile_build_id="build_a",
+        latency_method="temporal",
+    )
+    temporal["latency_seed"] = 11
+    iid = _run_record(
+        stage="sim_cross",
+        output_dir=out / "iid" / "run",
+        profile_build_id="build_a",
+        latency_method="iid",
+    )
+    iid["latency_seed"] = 11
+    write_jsonl(out / "manifests" / "runs.jsonl", [temporal, iid])
+
+    loaded = manifest.load_run_manifests(out)
+
+    assert {record["latency_method"] for record in loaded} == {"temporal", "iid"}
+
+
+def test_downloaded_protocol_sim_uses_local_immutable_profile_build(tmp_path):
+    local_root = tmp_path / "protocol"
+    raw_root = tmp_path / "raw"
+    remote_run = (
+        raw_root
+        / "rtx5090"
+        / "instances"
+        / "instance_5090"
+        / "cross_device"
+        / "cross-device-v1"
+        / "runs"
+        / "sim_cross"
+        / "run"
+    )
+    record = _run_record(
+        stage="sim_cross",
+        output_dir=Path("results/cross_device/cross-device-v1/runs/sim_cross/run"),
+        profile_path=Path(
+            "results/cross_device/cross-device-v1/profile_builds/"
+            "openvla/flappy/L_L40S/instance_a100/build_a/profile.json"
+        ),
+        profile_build_id="build_a",
+        latency_method="temporal",
+    )
+    record.update({"model_type": "openvla", "env_name": "flappy", "latency_seed": 0})
+    remote_run.mkdir(parents=True)
+    (remote_run / "manifest.json").write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    [loaded] = manifest.load_run_manifests(local_root, raw_root=raw_root)
+
+    assert loaded["profile_path"] == str(
+        local_root
+        / "profile_builds"
+        / "openvla"
+        / "flappy"
+        / "L_L40S"
+        / "instance_a100"
+        / "build_a"
+        / "profile.json"
+    )
 
 
 def test_manifest_matching_and_instance_queries_use_completed_run_contract(tmp_path):
