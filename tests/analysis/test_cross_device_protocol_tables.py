@@ -113,6 +113,7 @@ def _manifest(
     skip_reason: str = "",
 ) -> dict:
     return {
+        "protocol_id": "cross_device_latency_v1",
         "stage": stage,
         "experiment_ids": experiment_ids if experiment_ids is not None else [experiment_id],
         "policy": "openvla-flappy",

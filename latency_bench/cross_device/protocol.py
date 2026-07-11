@@ -19,7 +19,7 @@ from latency_bench.cross_device.spec import (
 )
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
 from latency_bench.cross_device.configs import _row_base_config
-from latency_bench.cross_device.sync import download_results_tree, hf_env
+from latency_bench.cross_device.sync import download_profile_build, download_results_tree, hf_env
 from latency_bench.cross_device.planning import (
     _build_plan,
     _filtered_spec_for_aggregate,
@@ -34,6 +34,7 @@ from latency_bench.cross_device.runner import (
     run_multi_session_measure,
     run_stage,
 )
+from latency_bench.utils.io import read_json
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -140,6 +141,12 @@ def main(argv: list[str] | None = None) -> None:
                 revision=hf["revision"],
             )
             print(f"raw_root: {raw_root}")
+            if "measure_sessions" in spec:
+                completion_paths = Path(raw_root).glob(
+                    f"**/cross_device/{spec['protocol_id']}/completion/measure/**/*.json"
+                )
+                for completion_path in completion_paths:
+                    download_profile_build(spec, read_json(completion_path), args.root)
         outputs = write_protocol_tables(
             spec=spec,
             root=args.root,

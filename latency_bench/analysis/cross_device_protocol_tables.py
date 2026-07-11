@@ -3,7 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from latency_bench.analysis.eval_stats import summarize_eval_run
+from latency_bench.analysis.eval_stats import (
+    independent_mean_difference_ci95,
+    summarize_eval_run,
+    summarize_eval_sessions,
+)
 from latency_bench.latency.profile import load_profile_manifest
 from latency_bench.cross_device.manifest import (
     load_run_manifests,
@@ -13,7 +17,7 @@ from latency_bench.cross_device.manifest import (
     profile_instances_for_device,
     replay_host_instances_for_cross_pair,
 )
-from latency_bench.utils.io import write_csv
+from latency_bench.utils.io import read_json, write_csv
 
 
 EXPERIMENT1_COLUMNS = (
@@ -23,6 +27,8 @@ EXPERIMENT1_COLUMNS = (
     "env",
     "profile_id",
     "profile_instance_id",
+    "profile_build_id",
+    "profile_path",
     "hardware",
     "env_fps",
     "inference_mean_ms",
@@ -39,7 +45,11 @@ EXPERIMENT2_COLUMNS = (
     "env",
     "profile_id",
     "profile_instance_id",
+    "profile_build_id",
+    "latency_method",
     "hardware",
+    "sim_host_device_id",
+    "sim_host_instance_id",
     "realtime_return",
     "simulated_return_using_L_d",
     "return_abs_error",
@@ -48,6 +58,20 @@ EXPERIMENT2_COLUMNS = (
     "sim_length",
     "length_abs_error",
     "length_rel_error_pct",
+    "realtime_session_count",
+    "simulated_session_count",
+    "realtime_return_std",
+    "simulated_return_std",
+    "realtime_return_ci95",
+    "simulated_return_ci95",
+    "sim_minus_real_return",
+    "sim_minus_real_ci95",
+    "realtime_length_std",
+    "simulated_length_std",
+    "realtime_length_ci95",
+    "simulated_length_ci95",
+    "realtime_n_episodes",
+    "simulated_n_episodes",
     "n_episodes",
     "seed_set",
     "notes",
@@ -78,6 +102,267 @@ EXPERIMENT3_COLUMNS = (
 )
 
 
+def _completion_records(
+    spec: dict[str, Any],
+    root: Path,
+    raw_root: str | Path | None,
+    stage: str,
+) -> list[tuple[dict[str, Any], Path]]:
+    paths_and_roots: list[tuple[Path, Path]] = []
+    if raw_root is not None:
+        for path in Path(raw_root).glob(
+            f"**/cross_device/{spec['protocol_id']}/completion/{stage}/**/*.json"
+        ):
+            protocol_root = next(
+                parent for parent in path.parents if parent.name == spec["protocol_id"]
+            )
+            paths_and_roots.append((path, protocol_root))
+    paths_and_roots.extend(
+        (path, root) for path in (root / "completion" / stage).glob("**/*.json")
+    )
+
+    records: dict[tuple[Any, ...], tuple[dict[str, Any], Path]] = {}
+    for path, protocol_root in paths_and_roots:
+        completion = read_json(path)
+        if completion["protocol_id"] != spec["protocol_id"]:
+            continue
+        key = (
+            completion["target_device_id"],
+            completion["target_profile_instance_id"],
+            completion["profile_build_id"],
+        )
+        if stage == "sim":
+            key = (
+                *key,
+                completion["latency_method"],
+                completion["sim_host_device_id"],
+                completion["sim_host_instance_id"],
+            )
+        records[key] = (completion, protocol_root)
+    return list(records.values())
+
+
+def _run_dirs(protocol_root: Path, relative_dirs: list[str]) -> list[Path]:
+    return [protocol_root / relative_dir for relative_dir in relative_dirs]
+
+
+def _validate_measure_completion(
+    completion: dict[str, Any],
+    protocol_root: Path,
+    spec: dict[str, Any],
+) -> tuple[list[Path], list[Path]]:
+    if (
+        completion["seed_set"] != spec["seed_set"]
+        or completion["n_episodes"] != spec["n_episodes"]
+        or completion["measure_sessions"] != spec["measure_sessions"]
+    ):
+        raise ValueError("measure completion does not match the protocol spec")
+    fit_dirs = _run_dirs(protocol_root, completion["fit_run_dirs"])
+    heldout_dirs = _run_dirs(protocol_root, completion["heldout_run_dirs"])
+    fit_manifests = [read_json(run_dir / "manifest.json") for run_dir in fit_dirs]
+    heldout_manifests = [read_json(run_dir / "manifest.json") for run_dir in heldout_dirs]
+    if (
+        len(fit_dirs) != len(spec["measure_sessions"]["fit"])
+        or len(heldout_dirs) != len(spec["measure_sessions"]["heldout"])
+        or {manifest["measure_session_id"] for manifest in fit_manifests}
+        != set(spec["measure_sessions"]["fit"])
+        or {manifest["measure_session_id"] for manifest in heldout_manifests}
+        != set(spec["measure_sessions"]["heldout"])
+        or any(manifest["measure_role"] != "fit" for manifest in fit_manifests)
+        or any(manifest["measure_role"] != "heldout" for manifest in heldout_manifests)
+        or any(
+            manifest["status"] != "completed"
+            or manifest["protocol_id"] != completion["protocol_id"]
+            or manifest["policy"] != completion["policy"]
+            or manifest["target_device_id"] != completion["target_device_id"]
+            or manifest["target_profile_instance_id"]
+            != completion["target_profile_instance_id"]
+            or manifest["seed"] != spec["seed_set"][0]
+            or manifest["n_episodes"] != spec["n_episodes"]
+            for manifest in [*fit_manifests, *heldout_manifests]
+        )
+        or any(
+            manifest["profile_build_id"] != completion["profile_build_id"]
+            for manifest in heldout_manifests
+        )
+        or any(
+            summarize_eval_run(run_dir)["n_episodes"] != spec["n_episodes"]
+            for run_dir in [*fit_dirs, *heldout_dirs]
+        )
+    ):
+        raise ValueError("measurement runs do not match their completion marker")
+    return fit_dirs, heldout_dirs
+
+
+def _validate_sim_completion(
+    completion: dict[str, Any],
+    protocol_root: Path,
+    spec: dict[str, Any],
+) -> list[Path]:
+    if (
+        completion["seed_set"] != spec["seed_set"]
+        or completion["n_episodes"] != spec["n_episodes"]
+        or completion["latency_method"] not in spec["latency_methods"]
+        or completion["latency_seed_set"] != spec["latency_seed_set"]
+    ):
+        raise ValueError("sim completion does not match the protocol spec")
+    run_dirs = _run_dirs(protocol_root, completion["run_dirs"])
+    manifests = [read_json(run_dir / "manifest.json") for run_dir in run_dirs]
+    if (
+        len(run_dirs) != len(spec["latency_seed_set"])
+        or {manifest["latency_seed"] for manifest in manifests}
+        != set(spec["latency_seed_set"])
+        or any(
+            manifest["status"] != "completed"
+            or manifest["protocol_id"] != completion["protocol_id"]
+            or manifest["policy"] != completion["policy"]
+            or manifest["target_device_id"] != completion["target_device_id"]
+            or manifest["target_profile_instance_id"]
+            != completion["target_profile_instance_id"]
+            or manifest["profile_build_id"] != completion["profile_build_id"]
+            or manifest["latency_method"] != completion["latency_method"]
+            or manifest["sim_host_device_id"] != completion["sim_host_device_id"]
+            or manifest["sim_host_instance_id"] != completion["sim_host_instance_id"]
+            or manifest["seed"] != spec["seed_set"][0]
+            or manifest["n_episodes"] != spec["n_episodes"]
+            for manifest in manifests
+        )
+        or any(
+            summarize_eval_run(run_dir)["n_episodes"] != spec["n_episodes"]
+            for run_dir in run_dirs
+        )
+    ):
+        raise ValueError("simulation runs do not match their completion marker")
+    return run_dirs
+
+
+def _row_for_measure_completion(
+    spec: dict[str, Any], completion: dict[str, Any]
+) -> dict[str, Any]:
+    return next(
+        row
+        for row in spec["rows"]
+        if row["policy"] == completion["policy"]
+        and row["model_type"] == completion["model_type"]
+        and row["env_name"] == completion["env_name"]
+    )
+
+
+def _build_multi_session_experiment1_rows(
+    spec: dict[str, Any], root: Path, raw_root: str | Path | None
+) -> list[dict[str, Any]]:
+    devices = _devices_by_id(spec)
+    rows: list[dict[str, Any]] = []
+    for completion, protocol_root in _completion_records(spec, root, raw_root, "measure"):
+        _validate_measure_completion(completion, protocol_root, spec)
+        row_spec = _row_for_measure_completion(spec, completion)
+        profile_path = root / completion["profile_path"]
+        summary, profile_metadata, notes = _load_profile_summary(profile_path)
+        device = devices[completion["target_device_id"]]
+        out = {
+            "experiment_id": "exp1_latency_profile_summary",
+            "panel": "a",
+            "policy": row_spec["policy"],
+            "env": row_spec["env"],
+            "profile_id": device["profile_id"],
+            "profile_instance_id": completion["target_profile_instance_id"],
+            "profile_build_id": completion["profile_build_id"],
+            "profile_path": str(profile_path),
+            "hardware": device["display_name"],
+            "env_fps": profile_metadata["env_fps"],
+            "notes": notes,
+            **summary,
+        }
+        rows.append({column: out[column] for column in EXPERIMENT1_COLUMNS})
+    return rows
+
+
+def _build_multi_session_experiment2_rows(
+    spec: dict[str, Any], root: Path, raw_root: str | Path | None
+) -> list[dict[str, Any]]:
+    devices = _devices_by_id(spec)
+    measure_records = {
+        (
+            completion["target_device_id"],
+            completion["target_profile_instance_id"],
+            completion["profile_build_id"],
+        ): (completion, protocol_root)
+        for completion, protocol_root in _completion_records(spec, root, raw_root, "measure")
+    }
+    rows: list[dict[str, Any]] = []
+    for sim_completion, sim_root in _completion_records(spec, root, raw_root, "sim"):
+        measure_key = (
+            sim_completion["target_device_id"],
+            sim_completion["target_profile_instance_id"],
+            sim_completion["profile_build_id"],
+        )
+        measure_completion, measure_root = measure_records[measure_key]
+        if (
+            sim_completion["profile_artifact_sha256"]
+            != measure_completion["profile_artifact_sha256"]
+            or sim_completion["profile_fitter_sha256"]
+            != measure_completion["profile_fitter_sha256"]
+        ):
+            raise ValueError("sim completion does not reference the measured profile artifact")
+        _, realtime_dirs = _validate_measure_completion(measure_completion, measure_root, spec)
+        simulated_dirs = _validate_sim_completion(sim_completion, sim_root, spec)
+        realtime = summarize_eval_sessions(realtime_dirs)
+        simulated = summarize_eval_sessions(simulated_dirs)
+        difference, difference_ci95 = independent_mean_difference_ci95(
+            first_mean=realtime["mean_return"],
+            first_std=realtime["std_return"],
+            first_count=realtime["session_count"],
+            second_mean=simulated["mean_return"],
+            second_std=simulated["std_return"],
+            second_count=simulated["session_count"],
+        )
+        row_spec = _row_for_measure_completion(spec, measure_completion)
+        device = devices[sim_completion["target_device_id"]]
+        errors = _error_fields(
+            real_value=realtime["mean_return"],
+            sim_value=simulated["mean_return"],
+            real_length=realtime["mean_length"],
+            sim_length=simulated["mean_length"],
+        )
+        out = {
+            "experiment_id": "exp2_same_device_calibration",
+            "panel": "b",
+            "policy": row_spec["policy"],
+            "env": row_spec["env"],
+            "profile_id": device["profile_id"],
+            "profile_instance_id": sim_completion["target_profile_instance_id"],
+            "profile_build_id": sim_completion["profile_build_id"],
+            "latency_method": sim_completion["latency_method"],
+            "hardware": device["display_name"],
+            "sim_host_device_id": sim_completion["sim_host_device_id"],
+            "sim_host_instance_id": sim_completion["sim_host_instance_id"],
+            "realtime_return": realtime["mean_return"],
+            "simulated_return_using_L_d": simulated["mean_return"],
+            "realtime_length": realtime["mean_length"],
+            "sim_length": simulated["mean_length"],
+            "realtime_session_count": realtime["session_count"],
+            "simulated_session_count": simulated["session_count"],
+            "realtime_return_std": realtime["std_return"],
+            "simulated_return_std": simulated["std_return"],
+            "realtime_return_ci95": realtime["return_ci95"],
+            "simulated_return_ci95": simulated["return_ci95"],
+            "sim_minus_real_return": difference,
+            "sim_minus_real_ci95": difference_ci95,
+            "realtime_length_std": realtime["std_length"],
+            "simulated_length_std": simulated["std_length"],
+            "realtime_length_ci95": realtime["length_ci95"],
+            "simulated_length_ci95": simulated["length_ci95"],
+            "realtime_n_episodes": realtime["n_episodes"],
+            "simulated_n_episodes": simulated["n_episodes"],
+            "n_episodes": spec["n_episodes"],
+            "seed_set": _seed_set_label(spec["seed_set"]),
+            "notes": "",
+            **errors,
+        }
+        rows.append({column: out[column] for column in EXPERIMENT2_COLUMNS})
+    return rows
+
+
 def build_experiment1_rows(
     spec: dict[str, Any],
     root: str | Path,
@@ -85,6 +370,8 @@ def build_experiment1_rows(
     raw_root: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     root_path = Path(root)
+    if "measure_sessions" in spec:
+        return _build_multi_session_experiment1_rows(spec, root_path, raw_root)
     manifests = load_run_manifests(root_path, raw_root=raw_root)
     rows: list[dict[str, Any]] = []
     for experiment_id, experiment, row_spec in _iter_rows(spec, "exp1_latency_profile_summary"):
@@ -130,6 +417,7 @@ def build_experiment1_rows(
                     "env": row_spec.get("env"),
                     "profile_id": device.get("profile_id"),
                     "profile_instance_id": profile_instance_id,
+                    "profile_path": str(profile_path),
                     "hardware": device.get("display_name", device.get("id")),
                     "env_fps": profile_metadata["env_fps"],
                     "notes": notes,
@@ -146,6 +434,8 @@ def build_experiment2_rows(
     raw_root: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     root_path = Path(root)
+    if "measure_sessions" in spec:
+        return _build_multi_session_experiment2_rows(spec, root_path, raw_root)
     manifests = load_run_manifests(root_path, raw_root=raw_root)
     rows: list[dict[str, Any]] = []
     seed_label = _seed_set_label(spec.get("seed_set", []))
@@ -241,6 +531,8 @@ def build_experiment3_rows(
     raw_root: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     root_path = Path(root)
+    if "measure_sessions" in spec:
+        return []
     manifests = load_run_manifests(root_path, raw_root=raw_root)
     rows: list[dict[str, Any]] = []
     seed_label = _seed_set_label(spec.get("seed_set", []))
