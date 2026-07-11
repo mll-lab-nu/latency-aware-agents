@@ -1445,14 +1445,17 @@ exit 0
     calls = calls_path.read_text(encoding="utf-8")
     assert "-m latency_bench.cross_device.protocol aggregate" in calls
     assert "--only-policy openvla-flappy" in calls
-    assert "--root results/cross_device" in calls
-    assert "--out results/cross_device/tables" in calls
+    assert "--spec configs/experiments/cross_device_10real_20sim.yaml" in calls
+    assert "--root results/cross_device/cross_device_10real_20sim_v1" in calls
+    assert "--out results/cross_device/cross_device_10real_20sim_v1/tables" in calls
     assert "--overwrite" in calls
     assert "-m latency_bench.analysis.cross_device_figure_data" in calls
     assert "--profiles-root" not in calls
     assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/data.csv" in calls
+    assert "--out-sampler-ablation paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/sampler_ablation.csv" in calls
     assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/table3_latency_profiles/data.csv" in calls
     assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/run.py" in calls
+    assert "--sampler-ablation paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/sampler_ablation.csv" in calls
     assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/table3_latency_profiles/run.py" in calls
     assert "HF_PROFILE_REPO=latency-sensitive-bench/profiles" in calls
     assert "HF_PROFILE_REPO_TYPE=dataset" in calls

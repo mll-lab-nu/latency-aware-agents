@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from latency_bench.cross_device import runner
+from latency_bench.cross_device import protocol, runner
 from latency_bench.cross_device.spec import load_protocol_spec
 from latency_bench.utils.io import read_json, read_yaml, write_json
 
@@ -448,3 +448,60 @@ def test_convenience_scripts_use_protocol_entrypoint_and_measure_uploads():
     assert "latency_bench.cross_device.protocol publish-measure" in upload
     assert "--latency-method temporal" in temporal
     assert "--latency-method iid" in iid
+
+
+def test_aggregate_downloads_profiles_referenced_by_measure_completions(
+    tmp_path: Path, monkeypatch
+):
+    spec = _spec(tmp_path)
+    raw_root = tmp_path / "downloaded"
+    completion_path = (
+        raw_root
+        / "raw/a100/instances/instance_a/cross_device"
+        / spec["protocol_id"]
+        / "completion/measure/a100/instance_a/build_a.json"
+    )
+    completion = {
+        "protocol_id": spec["protocol_id"],
+        "model_type": "openvla",
+        "env_name": "flappy",
+        "target_device_id": "a100",
+        "target_profile_instance_id": "instance_a",
+        "profile_build_id": "build_a",
+    }
+    write_json(completion_path, completion)
+    downloads = []
+    monkeypatch.setattr(protocol, "load_protocol_spec", lambda path: spec)
+    monkeypatch.setattr(
+        protocol,
+        "hf_env",
+        lambda: {
+            "repo_id": spec["hf_repo"],
+            "repo_type": spec["hf_repo_type"],
+            "revision": None,
+        },
+    )
+    monkeypatch.setattr(protocol, "download_results_tree", lambda **kwargs: raw_root)
+    monkeypatch.setattr(
+        protocol,
+        "download_profile_build",
+        lambda loaded_spec, loaded_completion, output_root: downloads.append(
+            (loaded_spec, loaded_completion, output_root)
+        ),
+    )
+    monkeypatch.setattr(protocol, "write_protocol_tables", lambda **kwargs: {})
+
+    protocol.main(
+        [
+            "aggregate",
+            "--spec",
+            str(tmp_path / "spec.yaml"),
+            "--root",
+            str(tmp_path / "results"),
+            "--out",
+            str(tmp_path / "tables"),
+            "--overwrite",
+        ]
+    )
+
+    assert downloads == [(spec, completion, tmp_path / "results")]

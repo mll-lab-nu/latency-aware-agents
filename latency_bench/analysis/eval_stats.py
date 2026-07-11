@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from scipy.stats import t as student_t
 
 from latency_bench.utils.io import load_jsonl_records
 
@@ -87,6 +88,47 @@ def summarize_eval_run(
     }
     summary.update(_summarize_metadata(records))
     return summary
+
+
+def summarize_eval_sessions(run_paths: Sequence[str | Path]) -> dict[str, Any]:
+    """Summarize independent evaluation sessions using whole-session means."""
+    runs = [summarize_eval_run(run_path) for run_path in run_paths]
+    return_means = np.asarray([run["mean_return"] for run in runs], dtype=np.float64)
+    length_means = np.asarray([run["mean_length"] for run in runs], dtype=np.float64)
+    return_std = float(np.std(return_means, ddof=1))
+    length_std = float(np.std(length_means, ddof=1))
+    t_critical = float(student_t.ppf(0.975, len(runs) - 1))
+    return {
+        "session_count": len(runs),
+        "n_episodes": sum(int(run["n_episodes"]) for run in runs),
+        "mean_return": float(np.mean(return_means)),
+        "std_return": return_std,
+        "return_ci95": t_critical * return_std / np.sqrt(len(runs)),
+        "mean_length": float(np.mean(length_means)),
+        "std_length": length_std,
+        "length_ci95": t_critical * length_std / np.sqrt(len(runs)),
+        "runs": runs,
+    }
+
+
+def independent_mean_difference_ci95(
+    *,
+    first_mean: float,
+    first_std: float,
+    first_count: int,
+    second_mean: float,
+    second_std: float,
+    second_count: int,
+) -> tuple[float, float]:
+    """Welch interval for the difference between independent session means."""
+    first_term = first_std**2 / first_count
+    second_term = second_std**2 / second_count
+    standard_error = np.sqrt(first_term + second_term)
+    degrees_of_freedom = (first_term + second_term) ** 2 / (
+        first_term**2 / (first_count - 1) + second_term**2 / (second_count - 1)
+    )
+    half_width = student_t.ppf(0.975, degrees_of_freedom) * standard_error
+    return float(second_mean - first_mean), float(half_width)
 
 
 def extract_latency_samples_from_records(records: Iterable[dict[str, Any]]) -> list[float]:
