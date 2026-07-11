@@ -30,6 +30,8 @@ WORKER_SERVICE_STAGE_KEYS = (
 # consecutive episodes). Labeling therefore treats the whole sample stream as
 # one machine timeline — bursts, excursions, and transitions bridge episode
 # boundaries — and the sampler carries the regime across episode resets.
+# Separate measurement sessions remain separate timelines: they share fitted
+# distributions but contribute no synthetic boundary transition or dwell.
 #
 # Within a burst, structure is fitted per WORKER, not on the merged stream.
 # Real degradations are worker states: one slow GPU serving every other
@@ -95,65 +97,90 @@ BURST_MERGE_GAP_RECORDS = 30
 def build_burst_samples(
     action_records: list[dict[str, Any]],
     episode_metrics_records: list[dict[str, Any]],
+    *,
+    measure_session_id: int | None = None,
 ) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
     for record, episode_id in _action_records_with_episode_ids(action_records, episode_metrics_records):
         action_ready_ms = _action_ready_ms(record)
         worker_service_ms = _worker_service_ms(record)
-        samples.append(
-            {
-                "episode_id": episode_id,
-                "sample_index": len(samples),
-                "action_id": int(record["action_id"]),
-                "obs_env_step": int(record["obs_env_step"]),
-                "ready_raw_frame": int(record["ready_raw_frame"]),
-                "applied": bool(record["applied"]),
-                "dropped": bool(record["dropped"]),
-                "worker_id": int(record["latency"]["metadata"]["worker_id"]),
-                "action_ready_ms": action_ready_ms,
-                "worker_service_ms_bin": _latency_ms_bin(worker_service_ms),
-                "worker_service_ms": worker_service_ms,
-            }
-        )
+        sample = {
+            "episode_id": episode_id,
+            "sample_index": len(samples),
+            "action_id": int(record["action_id"]),
+            "obs_env_step": int(record["obs_env_step"]),
+            "ready_raw_frame": int(record["ready_raw_frame"]),
+            "applied": bool(record["applied"]),
+            "dropped": bool(record["dropped"]),
+            "worker_id": int(record["latency"]["metadata"]["worker_id"]),
+            "action_ready_ms": action_ready_ms,
+            "worker_service_ms_bin": _latency_ms_bin(worker_service_ms),
+            "worker_service_ms": worker_service_ms,
+        }
+        if measure_session_id is not None:
+            sample["measure_session_id"] = measure_session_id
+        samples.append(sample)
     return samples
 
 
 def build_hidden_regime_burst_model(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    return build_hidden_regime_burst_model_from_sessions([samples])
+
+
+def build_hidden_regime_burst_model_from_sessions(
+    session_samples: list[list[dict[str, Any]]],
+) -> dict[str, Any]:
+    """Fit one model while preserving independent measurement boundaries."""
+    pooled_samples = [sample for samples in session_samples for sample in samples]
     spike_threshold_ms = SPIKE_MEDIAN_MULTIPLIER * median(
-        float(sample["worker_service_ms"]) for sample in samples
+        float(sample["worker_service_ms"]) for sample in pooled_samples
     )
 
-    ordered_samples = sorted(
-        samples, key=lambda item: (int(item["episode_id"]), int(item["sample_index"]))
-    )
-    regimes = _label_regimes(ordered_samples, spike_threshold_ms)
+    ordered_sessions = [
+        sorted(
+            samples,
+            key=lambda item: (int(item["episode_id"]), int(item["sample_index"])),
+        )
+        for samples in session_samples
+    ]
+    session_regimes = [
+        _label_regimes(ordered_samples, spike_threshold_ms)
+        for ordered_samples in ordered_sessions
+    ]
 
     transition_counts = {"calm": {"calm": 0, "burst": 0}, "burst": {"calm": 0, "burst": 0}}
     regime_step_counts = {"calm": 0, "burst": 0}
     calm_emission_samples: list[dict[str, float]] = []
-    for sample, regime in zip(ordered_samples, regimes):
-        regime_step_counts[regime] += 1
-        if regime == "calm":
-            calm_emission_samples.append(
-                {
-                    "action_ready_ms": float(sample["action_ready_ms"]),
-                    "worker_service_ms": float(sample["worker_service_ms"]),
-                }
-            )
-    for index in range(len(regimes) - 1):
-        transition_counts[regimes[index]][regimes[index + 1]] += 1
-    dwells: list[tuple[int, int]] = []
-    start: int | None = None
-    for index, regime in enumerate(regimes + ["calm"]):
-        if regime == "burst" and start is None:
-            start = index
-        elif regime != "burst" and start is not None:
-            dwells.append((start, index - 1))
-            start = None
-    burst_dwell_lengths = [end - begin + 1 for begin, end in dwells]
+    session_dwells: list[list[tuple[int, int]]] = []
+    for ordered_samples, regimes in zip(ordered_sessions, session_regimes):
+        for sample, regime in zip(ordered_samples, regimes):
+            regime_step_counts[regime] += 1
+            if regime == "calm":
+                calm_emission_samples.append(
+                    {
+                        "action_ready_ms": float(sample["action_ready_ms"]),
+                        "worker_service_ms": float(sample["worker_service_ms"]),
+                    }
+                )
+        for index in range(len(regimes) - 1):
+            transition_counts[regimes[index]][regimes[index + 1]] += 1
+        dwells: list[tuple[int, int]] = []
+        start: int | None = None
+        for index, regime in enumerate(regimes + ["calm"]):
+            if regime == "burst" and start is None:
+                start = index
+            elif regime != "burst" and start is not None:
+                dwells.append((start, index - 1))
+                start = None
+        session_dwells.append(dwells)
+    burst_dwell_lengths = [
+        end - begin + 1
+        for dwells in session_dwells
+        for begin, end in dwells
+    ]
 
-    rank_processes, ready_deltas = _fit_rank_processes(
-        ordered_samples, dwells, spike_threshold_ms
+    rank_processes, ready_deltas = _fit_rank_processes_from_sessions(
+        list(zip(ordered_sessions, session_dwells)), spike_threshold_ms
     )
 
     return {
@@ -163,7 +190,7 @@ def build_hidden_regime_burst_model(samples: list[dict[str, Any]]) -> dict[str, 
         "spike_threshold_ms": spike_threshold_ms,
         "spike_median_multiplier": SPIKE_MEDIAN_MULTIPLIER,
         "burst_merge_gap_records": BURST_MERGE_GAP_RECORDS,
-        "worker_count": len({int(sample["worker_id"]) for sample in ordered_samples}),
+        "worker_count": len({int(sample["worker_id"]) for sample in pooled_samples}),
         "regime_transition_counts": transition_counts,
         "regime_step_counts": regime_step_counts,
         "burst_dwell_lengths": sorted(burst_dwell_lengths),
@@ -192,6 +219,15 @@ def _fit_rank_processes(
     dwells: list[tuple[int, int]],
     spike_threshold_ms: float,
 ) -> tuple[list[dict[str, Any]], list[float]]:
+    return _fit_rank_processes_from_sessions(
+        [(ordered_samples, dwells)], spike_threshold_ms
+    )
+
+
+def _fit_rank_processes_from_sessions(
+    sessions: list[tuple[list[dict[str, Any]], list[tuple[int, int]]]],
+    spike_threshold_ms: float,
+) -> tuple[list[dict[str, Any]], list[float]]:
     """Pool each severity rank's per-dwell latents across dwells.
 
     Ranking is per dwell: workers present in the dwell ordered by in-dwell
@@ -210,54 +246,55 @@ def _fit_rank_processes(
     rank_spike_counts: list[int] = []
     ready_deltas: list[float] = []
 
-    for begin, end in dwells:
-        by_worker: dict[int, list[dict[str, Any]]] = {}
-        for sample in ordered_samples[begin:end + 1]:
-            by_worker.setdefault(int(sample["worker_id"]), []).append(sample)
+    for ordered_samples, dwells in sessions:
+        for begin, end in dwells:
+            by_worker: dict[int, list[dict[str, Any]]] = {}
+            for sample in ordered_samples[begin:end + 1]:
+                by_worker.setdefault(int(sample["worker_id"]), []).append(sample)
 
-        def _severity(worker: int) -> tuple[float, int, int]:
-            stream = by_worker[worker]
-            spikes = sum(
-                1 for item in stream if float(item["worker_service_ms"]) > spike_threshold_ms
-            )
-            return (-spikes / len(stream), -spikes, worker)
+            def _severity(worker: int) -> tuple[float, int, int]:
+                stream = by_worker[worker]
+                spikes = sum(
+                    1 for item in stream if float(item["worker_service_ms"]) > spike_threshold_ms
+                )
+                return (-spikes / len(stream), -spikes, worker)
 
-        for rank, worker in enumerate(sorted(by_worker, key=_severity)):
-            while len(rank_severities) <= rank:
-                rank_severities.append([])
-                rank_dwell_lengths.append([])
-                rank_levels.append([])
-                rank_residuals.append([])
-                rank_emissions.append([])
-                rank_draw_counts.append(0)
-                rank_spike_counts.append(0)
-            stream = by_worker[worker]
-            spikes = [
-                sample for sample in stream
-                if float(sample["worker_service_ms"]) > spike_threshold_ms
-            ]
-            rank_draw_counts[rank] += len(stream)
-            rank_spike_counts[rank] += len(spikes)
-            rank_severities[rank].append(len(spikes) / len(stream))
-            rank_dwell_lengths[rank].append(float(end - begin + 1))
-            if spikes:
-                level = sum(float(s["worker_service_ms"]) for s in spikes) / len(spikes)
-                rank_levels[rank].append(level)
-                rank_residuals[rank].extend(
-                    float(s["worker_service_ms"]) - level for s in spikes
+            for rank, worker in enumerate(sorted(by_worker, key=_severity)):
+                while len(rank_severities) <= rank:
+                    rank_severities.append([])
+                    rank_dwell_lengths.append([])
+                    rank_levels.append([])
+                    rank_residuals.append([])
+                    rank_emissions.append([])
+                    rank_draw_counts.append(0)
+                    rank_spike_counts.append(0)
+                stream = by_worker[worker]
+                spikes = [
+                    sample for sample in stream
+                    if float(sample["worker_service_ms"]) > spike_threshold_ms
+                ]
+                rank_draw_counts[rank] += len(stream)
+                rank_spike_counts[rank] += len(spikes)
+                rank_severities[rank].append(len(spikes) / len(stream))
+                rank_dwell_lengths[rank].append(float(end - begin + 1))
+                if spikes:
+                    level = sum(float(s["worker_service_ms"]) for s in spikes) / len(spikes)
+                    rank_levels[rank].append(level)
+                    rank_residuals[rank].extend(
+                        float(s["worker_service_ms"]) - level for s in spikes
+                    )
+                    ready_deltas.extend(
+                        float(s["action_ready_ms"]) - float(s["worker_service_ms"])
+                        for s in spikes
+                    )
+                rank_emissions[rank].extend(
+                    {
+                        "action_ready_ms": float(sample["action_ready_ms"]),
+                        "worker_service_ms": float(sample["worker_service_ms"]),
+                    }
+                    for sample in stream
+                    if float(sample["worker_service_ms"]) <= spike_threshold_ms
                 )
-                ready_deltas.extend(
-                    float(s["action_ready_ms"]) - float(s["worker_service_ms"])
-                    for s in spikes
-                )
-            rank_emissions[rank].extend(
-                {
-                    "action_ready_ms": float(sample["action_ready_ms"]),
-                    "worker_service_ms": float(sample["worker_service_ms"]),
-                }
-                for sample in stream
-                if float(sample["worker_service_ms"]) <= spike_threshold_ms
-            )
 
     rank_processes = [
         {
@@ -412,5 +449,3 @@ def _action_records_with_episode_ids(
             "episode metric num_actions sum "
             f"{cursor} does not match action record count {len(action_records)}"
         )
-
-

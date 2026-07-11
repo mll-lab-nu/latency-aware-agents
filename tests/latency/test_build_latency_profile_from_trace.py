@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from latency_bench.experiments.build_latency_profile_from_trace import build_profile_from_trace
+from latency_bench.experiments.build_latency_profile_from_trace import (
+    build_profile_from_trace,
+    build_profile_from_traces,
+)
 from latency_bench.latency.profile import load_latency_distribution, load_latency_samples, load_profile_manifest, write_latency_samples
 from latency_bench.utils.io import load_jsonl_records
 
@@ -415,3 +418,94 @@ def test_build_latency_profile_from_trace_requires_inference_trace_for_e2e_profi
             [40.0, 80.0],
             latency_kind="e2e_latency",
         )
+
+
+def _write_fit_session(
+    root: Path,
+    *,
+    measure_session_id: int,
+    e2e_samples: list[float],
+    inference_samples: list[float],
+) -> dict:
+    session_dir = root / f"session_{measure_session_id}"
+    session_dir.mkdir()
+    e2e = session_dir / "e2e_latencies.jsonl"
+    inference = session_dir / "infer_latencies.jsonl"
+    actions = session_dir / "actions.jsonl"
+    episode_metrics = session_dir / "episode_metrics.jsonl"
+    steps = session_dir / "steps.jsonl"
+    write_latency_samples(e2e_samples, e2e)
+    write_latency_samples(inference_samples, inference)
+    _write_actions(actions)
+    _write_episode_metrics(
+        episode_metrics,
+        [
+            {
+                "episode_id": 0,
+                "num_actions": 3,
+                "metadata": {
+                    "inference_worker_count": 2,
+                    "frame_ms": 40.0,
+                },
+            }
+        ],
+    )
+    steps.write_text(json.dumps({"env_step": 0}) + "\n", encoding="utf-8")
+    return {
+        "measure_session_id": measure_session_id,
+        "latencies": e2e,
+        "inference_latencies": inference,
+        "episode_metrics": episode_metrics,
+        "actions": actions,
+        "steps": steps,
+        "provenance": {"run_id": f"measure_session_{measure_session_id}"},
+    }
+
+
+def test_build_latency_profile_from_traces_pools_marginals_and_preserves_sessions(tmp_path: Path):
+    sessions = [
+        _write_fit_session(
+            tmp_path,
+            measure_session_id=0,
+            e2e_samples=[40.0, 80.0],
+            inference_samples=[10.0, 20.0],
+        ),
+        _write_fit_session(
+            tmp_path,
+            measure_session_id=1,
+            e2e_samples=[120.0, 160.0],
+            inference_samples=[30.0, 40.0],
+        ),
+    ]
+    output_dir = tmp_path / "pooled_profile"
+
+    manifest = build_profile_from_traces(
+        sessions=sessions,
+        output_dir=output_dir,
+        profile_id="L_multi",
+        policy_id="pi_test",
+        env_id="env_test",
+        target_device="test_gpu",
+        env_fps=25.0,
+        metadata={"profile_build_id": "build_test"},
+    )
+
+    assert load_latency_samples(output_dir / "e2e_latencies.jsonl") == [40.0, 80.0, 120.0, 160.0]
+    assert load_latency_samples(output_dir / "infer_latencies.jsonl") == [10.0, 20.0, 30.0, 40.0]
+    assert manifest["profile_build_id"] == "build_test"
+    assert manifest["n_samples"] == 4
+    assert [session["measure_session_id"] for session in manifest["fit_sessions"]] == [0, 1]
+    assert [session["n_episodes"] for session in manifest["fit_sessions"]] == [1, 1]
+    assert [session["n_actions"] for session in manifest["fit_sessions"]] == [3, 3]
+    assert manifest["fit_sessions"][1]["provenance"] == {"run_id": "measure_session_1"}
+
+    burst_samples = load_jsonl_records(output_dir / "latency_burst_samples.jsonl")
+    assert [sample["measure_session_id"] for sample in burst_samples] == [0, 0, 0, 1, 1, 1]
+    assert [sample["episode_id"] for sample in burst_samples] == [0, 0, 0, 0, 0, 0]
+    burst_model = json.loads((output_dir / "latency_burst_model.json").read_text(encoding="utf-8"))
+    assert burst_model["spike_threshold_ms"] == pytest.approx(13.75)
+    assert burst_model["burst_dwell_lengths"] == [1, 1]
+    assert burst_model["regime_transition_counts"] == {
+        "calm": {"calm": 2, "burst": 2},
+        "burst": {"calm": 0, "burst": 0},
+    }
