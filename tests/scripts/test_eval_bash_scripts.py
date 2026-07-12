@@ -1112,14 +1112,14 @@ def test_starvla_rl_games_hfd_raw_download_convert_dry_run_defaults_to_all_datas
     assert "latency-sensitive-bench/deadly_corridor_fixed_l2_fs6" in result.stdout
 
 
-def test_cross_device_aggregate_script_builds_study_outputs(tmp_path):
+def test_cross_device_aggregate_script_forwards_explicit_selection(tmp_path):
     script_path = REPO_ROOT / "aggregate.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     calls_path = tmp_path / "calls.log"
     _write_executable(
-        fake_bin / "python",
-        f"""#!/usr/bin/env bash
+        fake_bin / "bash",
+        f"""#!/bin/bash
 set -euo pipefail
 printf '%s\n' "$*" >> "{calls_path}"
 exit 0
@@ -1128,13 +1128,28 @@ exit 0
 
     subprocess.run(["bash", "-n", str(script_path)], cwd=REPO_ROOT, check=True)
     subprocess.run(
-        ["bash", str(script_path)],
+        [
+            "/bin/bash",
+            str(script_path),
+            "--profile-ref",
+            "a100/instance/workload/revision",
+            "--real-sessions",
+            "0",
+            "--methods",
+            "temporal",
+            "--latency-seeds",
+            "0",
+            "2",
+        ],
         cwd=REPO_ROOT,
         env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
         check=True,
     )
 
     calls = calls_path.read_text(encoding="utf-8")
-    assert "-m latency_bench.cross_device.protocol aggregate" in calls
-    assert "--spec configs/experiments/cross_device_10real_20sim.yaml" in calls
+    assert "cross_device.sh aggregate" in calls
+    assert "--profile-ref a100/instance/workload/revision" in calls
+    assert "--real-sessions 0" in calls
+    assert "--methods temporal" in calls
+    assert "--latency-seeds 0 2" in calls
     assert calls.count("\n") == 1

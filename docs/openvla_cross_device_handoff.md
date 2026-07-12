@@ -1,64 +1,60 @@
 # OpenVLA Cross-Device Handoff
 
-The active OpenVLA cross-device workflow is the single-study sim2real pipeline documented in [`experiments/cross_device_protocol_runbook.md`](experiments/cross_device_protocol_runbook.md).
+The active workflow stores reusable target artifacts instead of fixed-size studies. See [`experiments/cross_device_protocol_runbook.md`](experiments/cross_device_protocol_runbook.md) for the complete commands.
 
 ## Runtime
 
+- Config: `configs/experiments/cross_device.yaml`
+- Workload: `openvla-flappy`
 - Conda environment: `starvla_rl_games_openvla`
-- Policy/environment: OpenVLA on Flappy
-- Base evaluation config: `configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml`
-- Study configs:
-  - `configs/experiments/cross_device_1real_3sim.yaml`
-  - `configs/experiments/cross_device_10real_20sim.yaml`
-- Remote dataset: configured by `hf_repo` and `hf_repo_type` in `cross_device_study.yaml`
+- Remote dataset: `latency-sensitive-bench/profiles`
+- Legacy snapshot: HF tag `v3`
 
-Each measurement host must have the OpenVLA checkpoint and environment assets referenced by the base config. Simulation hosts need the same policy runtime, but they do not need to match the target GPU model.
+The workload ID is immutable. A behavior-changing policy, checkpoint, environment, or base-config change uses a new workload ID.
+
+## Artifact Contract
+
+```text
+raw/<device>/<instance>/<workload>/sessions/<session>/
+profiles/<device>/<instance>/<workload>/<revision>/
+sim/<device>/<instance>/<workload>/<revision>/<method>/<latency-seed>/
+```
+
+- Physical target identity comes from the GPU UUID hash.
+- Calibration is created once per target/workload and reused by appended real sessions.
+- Profile revisions name exact fitted session sets and are immutable.
+- Simulation seeds are explicit, independently appendable leaves.
+- Simulation host identity is not part of artifact identity.
+- Only calibration/session/profile/seed leaves carry completion markers.
 
 ## Commands
 
-Quick real1 temporal workflow:
+Quick workflow:
 
 ```bash
 bash start.sh
 ```
 
-Formal measurement on each target GPU:
+Independent operations:
 
 ```bash
-bash measure_10.sh
-bash upload_10.sh
+bash cross_device.sh measure --sessions 0 1 --resume
+bash cross_device.sh publish raw --sessions 0 1 --resume
+
+TARGET_REF=$(bash cross_device.sh target-ref)
+bash cross_device.sh fit --target-ref "$TARGET_REF" \
+  --profile-revision fit-0-1 --sessions 0 1 --resume
+bash cross_device.sh publish profile \
+  --profile-ref "$TARGET_REF/fit-0-1" --resume
+
+bash cross_device.sh sim --profile-ref "$TARGET_REF/fit-0-1" \
+  --method temporal --latency-seeds 0 1 2 --resume
+bash cross_device.sh publish sim --profile-ref "$TARGET_REF/fit-0-1" \
+  --method temporal --latency-seeds 0 1 2 --resume
 ```
 
-Formal simulation on any available host:
+Aggregation explicitly lists profile refs, real sessions, methods, and latency seeds. It never infers a study size from the artifact tree.
 
-```bash
-bash sim_20.sh
-SPEC=configs/experiments/cross_device_10real_20sim.yaml \
-  METHOD=temporal bash publish.sh sim
+## Removed Interfaces
 
-bash sim_iid_20.sh
-SPEC=configs/experiments/cross_device_10real_20sim.yaml \
-  METHOD=iid bash publish.sh sim
-```
-
-Aggregate the published study:
-
-```bash
-bash aggregate.sh
-```
-
-## Operational Contracts
-
-- `measure` and `sim` are local compute operations; `publish` is explicit.
-- `--resume` skips only leaf units carrying `DONE`.
-- Partial leaf directories are discarded before retry.
-- Publish uploads data before the group `DONE` marker.
-- A changed experiment uses a new `study_id`; there is no overwrite mode.
-- `CROSS_DEVICE_INSTANCE_ID` overrides the GPU-UUID-derived instance ID when an explicit stable identity is required.
-- Simulation host identity is deliberately absent from the study schema and result keys.
-
-## Removed Legacy Interfaces
-
-The repository no longer supports protocol rows, exp1/exp2/exp3 stage selection, replay pairs, `sim_same`, `sim_cross`, target filters, doctor/smoke orchestration, run manifests, profile-build hashes, raw-root aggregation, or automatic publish from compute commands.
-
-Do not use the removed `scripts/bash_scripts/run_cross_device.sh`, `scripts/bash_scripts/upload_cross_device_to_hf.sh`, `cross_device_protocol.yaml`, or `--target`/`--all-target-profiles` flags.
+There are no real1/real10 study configs, numbered shell wrappers, protocol rows, replay pairs, run manifests, profile-build hashes, automatic seed allocation, mutable latest profile, or group-level completion markers.

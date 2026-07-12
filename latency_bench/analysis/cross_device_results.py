@@ -7,6 +7,7 @@ from latency_bench.analysis.eval_stats import (
     independent_mean_difference_ci95,
     summarize_eval_sessions,
 )
+from latency_bench.cross_device.artifacts import raw_session_dir
 from latency_bench.latency.profile import load_latency_samples
 from latency_bench.utils.io import load_jsonl_records, read_json, write_csv
 
@@ -33,38 +34,38 @@ PROFILE_SUMMARY_FIELDS = (
 )
 
 
-def write_study_outputs(
-    study: dict[str, Any],
+def write_cross_device_outputs(
+    workload: dict[str, Any],
     root: str | Path,
     output_dir: str | Path,
+    profile_refs: list[Path],
+    real_session_ids: list[int],
+    methods: list[str],
+    latency_seeds: list[int],
 ) -> dict[str, Path]:
     root = Path(root)
     output_dir = Path(output_dir)
-    devices = {device["id"]: device for device in study["devices"]}
+    devices = {device["id"]: device for device in workload["devices"]}
     latency_rows: list[dict[str, Any]] = []
     profile_rows: list[dict[str, Any]] = []
     evaluation_rows: list[dict[str, Any]] = []
-    measurement_done_paths = []
-    for device in study["devices"]:
-        done_paths = sorted((root / "measure" / device["id"]).glob("*/DONE"))
-        if not done_paths:
-            raise FileNotFoundError(f"no completed measurement for {device['id']}")
-        measurement_done_paths.extend(done_paths)
-
-    for done_path in measurement_done_paths:
-        measure_dir = done_path.parent
-        device_id = measure_dir.parent.name
-        instance_id = measure_dir.name
-        device = devices[device_id]
-        profile_dir = measure_dir / "profile"
+    for canonical_profile_ref in profile_refs:
+        profile_dir = root / "profiles" / canonical_profile_ref
         (profile_dir / "DONE").read_bytes()
         profile = read_json(profile_dir / "profile.json")
-        identity = _identity(study, device, instance_id, profile)
+        identity = _identity(
+            devices[profile["device_id"]],
+            canonical_profile_ref,
+            profile,
+        )
         e2e_samples = load_latency_samples(profile_dir / profile["trace_path"])
-        inference_samples = load_latency_samples(profile_dir / profile["inference_trace_path"])
+        inference_samples = load_latency_samples(
+            profile_dir / profile["inference_trace_path"]
+        )
+        target = canonical_profile_ref.parent
         overhead_samples = []
-        for session_id in study["sessions"]["fit"]:
-            session_dir = measure_dir / "sessions" / str(session_id)
+        for session_id in profile["fit_session_ids"]:
+            session_dir = raw_session_dir(root, target, session_id)
             (session_dir / "DONE").read_bytes()
             overhead_samples.extend(
                 record["bench_overhead_ms"]
@@ -93,11 +94,22 @@ def write_study_outputs(
                 "inference_mean_ms": profile["inference_summary"]["mean_ms"],
                 "e2e_mean_ms": profile["summary"]["mean_ms"],
                 "e2e_mean_frames": profile["summary"]["mean_effective_frames"],
-                **{field: profile["summary"][field] for field in PROFILE_SUMMARY_FIELDS},
+                **{
+                    field: profile["summary"][field]
+                    for field in PROFILE_SUMMARY_FIELDS
+                },
             }
         )
         evaluation_rows.extend(
-            _evaluation_rows(study, root, measure_dir, device, instance_id, identity)
+            _evaluation_rows(
+                root,
+                canonical_profile_ref,
+                profile,
+                identity,
+                real_session_ids,
+                methods,
+                latency_seeds,
+            )
         )
 
     paths = {
@@ -112,56 +124,71 @@ def write_study_outputs(
 
 
 def _identity(
-    study: dict[str, Any],
     device: dict[str, Any],
-    instance_id: str,
+    canonical_profile_ref: Path,
     profile: dict[str, Any],
 ) -> dict[str, Any]:
     return {
-        "study_id": study["study_id"],
-        "policy_id": study["policy"]["id"],
-        "env_id": study["policy"]["env_name"],
-        "device_id": device["id"],
+        "workload_id": profile["workload_id"],
+        "policy_id": profile["policy_id"],
+        "env_id": profile["env_id"],
+        "device_id": profile["device_id"],
         "device_name": device["display_name"],
-        "instance_id": instance_id,
+        "instance_id": profile["instance_id"],
         "profile_id": profile["profile_id"],
-        "fit_session_ids": ",".join(str(value) for value in study["sessions"]["fit"]),
+        "profile_revision": profile["profile_revision"],
+        "profile_ref": canonical_profile_ref.as_posix(),
+        "fit_session_ids": ",".join(
+            str(value) for value in profile["fit_session_ids"]
+        ),
     }
 
 
 def _evaluation_rows(
-    study: dict[str, Any],
     root: Path,
-    measure_dir: Path,
-    device: dict[str, Any],
-    instance_id: str,
+    canonical_profile_ref: Path,
+    profile: dict[str, Any],
     identity: dict[str, Any],
+    real_session_ids: list[int],
+    methods: list[str],
+    latency_seeds: list[int],
 ) -> list[dict[str, Any]]:
+    target = canonical_profile_ref.parent
     real_paths = []
-    for session_id in study["sessions"]["evaluation"]:
-        session_dir = measure_dir / "sessions" / str(session_id)
+    for session_id in real_session_ids:
+        session_dir = raw_session_dir(root, target, session_id)
         (session_dir / "DONE").read_bytes()
         real_paths.append(session_dir)
     real = summarize_eval_sessions(real_paths)
-    evaluation_scope = (
-        "in_sample"
-        if set(study["sessions"]["fit"]) & set(study["sessions"]["evaluation"])
-        else "heldout"
+    evaluation_scope = _evaluation_scope(
+        profile["fit_session_ids"],
+        real_session_ids,
     )
+    real_ids = ",".join(str(value) for value in real_session_ids)
+    seed_ids = ",".join(str(value) for value in latency_seeds)
     rows = []
-    for method in study["latency_methods"]:
-        method_dir = root / "sim" / device["id"] / instance_id / method
-        (method_dir / "DONE").read_bytes()
+    for method in methods:
         sim_paths = []
-        for latency_seed in study["latency_seeds"]:
-            run_dir = method_dir / str(latency_seed)
+        for latency_seed in latency_seeds:
+            run_dir = (
+                root
+                / "sim"
+                / canonical_profile_ref
+                / method
+                / str(latency_seed)
+            )
             (run_dir / "DONE").read_bytes()
             sim_paths.append(run_dir)
         sim = summarize_eval_sessions(sim_paths)
+        selection = {
+            **identity,
+            "real_session_ids": real_ids,
+            "latency_seed_ids": seed_ids,
+        }
         rows.extend(
             [
                 _metric_row(
-                    identity,
+                    selection,
                     method,
                     evaluation_scope,
                     "episode_return_env",
@@ -170,7 +197,7 @@ def _evaluation_rows(
                     "return",
                 ),
                 _metric_row(
-                    identity,
+                    selection,
                     method,
                     evaluation_scope,
                     "survival_steps",
@@ -181,6 +208,16 @@ def _evaluation_rows(
             ]
         )
     return rows
+
+
+def _evaluation_scope(fit_session_ids: list[int], real_session_ids: list[int]) -> str:
+    fit_ids = set(fit_session_ids)
+    real_ids = set(real_session_ids)
+    if real_ids <= fit_ids:
+        return "in_sample"
+    if real_ids.isdisjoint(fit_ids):
+        return "heldout"
+    return "mixed"
 
 
 def _metric_row(

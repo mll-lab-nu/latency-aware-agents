@@ -4,6 +4,8 @@ from pathlib import Path
 import shutil
 from typing import Any
 
+from latency_bench.utils.io import read_json
+
 
 def download_calibration(
     workload: dict[str, Any],
@@ -59,6 +61,42 @@ def download_profile(workload: dict[str, Any], profile_ref: Path) -> Path:
     profile_dir = snapshot / remote_dir
     (profile_dir / "DONE").read_bytes()
     return profile_dir
+
+
+def download_analysis_selection(
+    workload: dict[str, Any],
+    profile_refs: list[Path],
+    real_session_ids: list[int],
+    methods: list[str],
+    latency_seeds: list[int],
+) -> Path:
+    from huggingface_hub import snapshot_download
+
+    patterns = []
+    for profile_ref in profile_refs:
+        patterns.append(f"profiles/{profile_ref.as_posix()}/**")
+        target = profile_ref.parent
+        profile = read_json(download_profile(workload, profile_ref) / "profile.json")
+        patterns.extend(
+            f"raw/{target.as_posix()}/sessions/{session_id}/**"
+            for session_id in real_session_ids
+        )
+        patterns.extend(
+            f"raw/{target.as_posix()}/sessions/{session_id}/**"
+            for session_id in profile["fit_session_ids"]
+        )
+        patterns.extend(
+            f"sim/{profile_ref.as_posix()}/{method}/{latency_seed}/**"
+            for method in methods
+            for latency_seed in latency_seeds
+        )
+    return Path(
+        snapshot_download(
+            repo_id=workload["hf_repo"],
+            repo_type=workload["hf_repo_type"],
+            allow_patterns=patterns,
+        )
+    )
 
 
 def publish_directory_leaf(
@@ -131,17 +169,3 @@ def publish_calibration(
         path_or_fileobj=str(done),
         path_in_repo=remote_done,
     )
-
-
-def download_study(study: dict[str, Any]) -> Path:
-    from huggingface_hub import snapshot_download
-
-    remote_root = f"cross_device/{study['study_id']}"
-    snapshot = Path(
-        snapshot_download(
-            repo_id=study["hf_repo"],
-            repo_type=study["hf_repo_type"],
-            allow_patterns=f"{remote_root}/**",
-        )
-    )
-    return snapshot / remote_root
