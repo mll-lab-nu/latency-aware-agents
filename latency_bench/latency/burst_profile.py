@@ -214,16 +214,6 @@ def build_hidden_regime_burst_model_from_sessions(
     }
 
 
-def _fit_rank_processes(
-    ordered_samples: list[dict[str, Any]],
-    dwells: list[tuple[int, int]],
-    spike_threshold_ms: float,
-) -> tuple[list[dict[str, Any]], list[float]]:
-    return _fit_rank_processes_from_sessions(
-        [(ordered_samples, dwells)], spike_threshold_ms
-    )
-
-
 def _fit_rank_processes_from_sessions(
     sessions: list[tuple[list[dict[str, Any]], list[tuple[int, int]]]],
     spike_threshold_ms: float,

@@ -395,10 +395,6 @@ def _worker_capacity_summary(
     }
 
 
-def _temporal_summary(burst_samples: list[dict[str, Any]], burst_model: dict[str, Any]) -> dict[str, Any]:
-    return _temporal_summary_from_sessions([burst_samples], burst_model)
-
-
 def _temporal_summary_from_sessions(
     session_burst_samples: list[list[dict[str, Any]]],
     burst_model: dict[str, Any],
@@ -434,10 +430,6 @@ def _temporal_summary_from_sessions(
             ],
         },
     }
-
-
-def _series_temporal_summary(values: list[float]) -> dict[str, Any]:
-    return _series_temporal_summary_from_sessions([values])
 
 
 def _series_temporal_summary_from_sessions(
