@@ -28,8 +28,16 @@ detect_torch_profile() {
     fi
 
     if echo "${compute_caps}" | awk -F. '$1 >= 10 {found=1} END {exit found ? 0 : 1}'; then
-        echo "[install] detected GPU compute capability >= 10.0; selecting cu130" >&2
-        echo "cu130"
+        local driver_version driver_major
+        driver_version="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n 1)"
+        driver_major="${driver_version%%.*}"
+        if ((driver_major >= 580)); then
+            echo "[install] detected GPU compute capability >= 10.0 with driver ${driver_version}; selecting cu130" >&2
+            echo "cu130"
+        else
+            echo "[install] detected GPU compute capability >= 10.0 with driver ${driver_version}; selecting cu128" >&2
+            echo "cu128"
+        fi
         return
     fi
 
