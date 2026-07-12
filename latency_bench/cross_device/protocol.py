@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from latency_bench.analysis.cross_device_results import write_study_outputs
 from latency_bench.cross_device.runner import (
     publish_measure,
     publish_simulation,
@@ -10,6 +11,7 @@ from latency_bench.cross_device.runner import (
     run_simulation,
 )
 from latency_bench.cross_device.spec import load_study
+from latency_bench.cross_device.sync import download_study
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -32,12 +34,23 @@ def main(argv: list[str] | None = None) -> None:
     publish.add_argument("--hardware", default="auto")
     publish.add_argument("--method")
 
+    aggregate = subparsers.add_parser("aggregate")
+    _add_spec(aggregate)
+
     args = parser.parse_args(argv)
     study = load_study(args.spec)
     if args.command == "measure":
         run_measure(study, args.hardware, resume=args.resume)
     elif args.command == "sim":
         run_simulation(study, args.method, resume=args.resume)
+    elif args.command == "aggregate":
+        paths = write_study_outputs(
+            study,
+            download_study(study),
+            Path(study["output_root"]) / "analysis",
+        )
+        for name, path in paths.items():
+            print(f"{name}: {path}")
     elif args.stage == "measure":
         publish_measure(study, args.hardware)
     else:

@@ -1112,7 +1112,7 @@ def test_starvla_rl_games_hfd_raw_download_convert_dry_run_defaults_to_all_datas
     assert "latency-sensitive-bench/deadly_corridor_fixed_l2_fs6" in result.stdout
 
 
-def test_cross_device_aggregate_script_builds_openvla_flappy_paper_outputs(tmp_path):
+def test_cross_device_aggregate_script_builds_study_outputs(tmp_path):
     script_path = REPO_ROOT / "aggregate.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -1121,45 +1121,20 @@ def test_cross_device_aggregate_script_builds_openvla_flappy_paper_outputs(tmp_p
         fake_bin / "python",
         f"""#!/usr/bin/env bash
 set -euo pipefail
-printf 'HF_PROFILE_REPO=%s HF_PROFILE_REPO_TYPE=%s :: %s\\n' \
-  "${{HF_PROFILE_REPO:-}}" "${{HF_PROFILE_REPO_TYPE:-}}" "$*" >> "{calls_path}"
+printf '%s\n' "$*" >> "{calls_path}"
 exit 0
 """,
     )
 
-    syntax = subprocess.run(
-        ["bash", "-n", str(script_path)],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert syntax.returncode == 0, syntax.stderr
-
-    result = subprocess.run(
+    subprocess.run(["bash", "-n", str(script_path)], cwd=REPO_ROOT, check=True)
+    subprocess.run(
         ["bash", str(script_path)],
         cwd=REPO_ROOT,
         env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
-        capture_output=True,
-        text=True,
-        check=False,
+        check=True,
     )
 
-    assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
     assert "-m latency_bench.cross_device.protocol aggregate" in calls
-    assert "--only-policy openvla-flappy" in calls
     assert "--spec configs/experiments/cross_device_10real_20sim.yaml" in calls
-    assert "--root results/cross_device/cross_device_10real_20sim_v1" in calls
-    assert "--out results/cross_device/cross_device_10real_20sim_v1/tables" in calls
-    assert "--overwrite" in calls
-    assert "-m latency_bench.analysis.cross_device_figure_data" in calls
-    assert "--profiles-root" not in calls
-    assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/data.csv" in calls
-    assert "--out-sampler-ablation paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/sampler_ablation.csv" in calls
-    assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/table3_latency_profiles/data.csv" in calls
-    assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/run.py" in calls
-    assert "--sampler-ablation paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/sampler_ablation.csv" in calls
-    assert "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/table3_latency_profiles/run.py" in calls
-    assert "HF_PROFILE_REPO=latency-sensitive-bench/profiles" in calls
-    assert "HF_PROFILE_REPO_TYPE=dataset" in calls
+    assert calls.count("\n") == 1
