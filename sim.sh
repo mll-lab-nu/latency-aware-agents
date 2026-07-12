@@ -16,33 +16,10 @@ else
   conda activate starvla_rl_games_openvla
 fi
 
-export HF_PROFILE_REPO=latency-sensitive-bench/profiles
-export HF_PROFILE_REPO_TYPE=dataset
+SPEC="${SPEC:-configs/experiments/cross_device_1real_3sim.yaml}"
+METHOD="${METHOD:-temporal}"
 
-SPEC=configs/experiments/cross_device_protocol.yaml
-POLICY=openvla-flappy
-PROFILES_DIR=results/cross_device/profiles
-# Space-separated cross-device targets to replay on this host, each
-# <device_id>/<instance_id>. Empty = same-device replay only.
-SIM_TARGETS="${SIM_TARGETS:-}"
-export POLICY
-export PROFILES_DIR
-
-# Same-device replay: this machine reads its own profile.
 python -m latency_bench.cross_device.protocol sim \
   --spec "$SPEC" \
-  --hardware auto \
-  --only-policy "$POLICY" \
-  --profiles-dir "$PROFILES_DIR" \
+  --method "$METHOD" \
   --resume
-
-# Cross-device replay: one run per explicitly requested target.
-for TARGET in $SIM_TARGETS; do
-  python -m latency_bench.cross_device.protocol sim \
-    --spec "$SPEC" \
-    --hardware auto \
-    --target "$TARGET" \
-    --only-policy "$POLICY" \
-    --profiles-dir "$PROFILES_DIR" \
-    --resume
-done

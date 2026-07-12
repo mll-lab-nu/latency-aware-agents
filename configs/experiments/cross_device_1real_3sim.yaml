@@ -1,0 +1,8 @@
+__base__: cross_device_study.yaml
+
+study_id: cross_device_1real_3sim_v2
+output_root: results/cross_device/cross_device_1real_3sim_v2
+latency_seeds: [0, 1, 2]
+sessions:
+  fit: [0]
+  evaluation: [0]
