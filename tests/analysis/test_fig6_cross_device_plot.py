@@ -1,310 +1,171 @@
 from __future__ import annotations
 
+import csv
 import importlib.util
 from pathlib import Path
 
-import pytest
-from helpers import REPO_ROOT
+import matplotlib.pyplot as plt
 
 
-RUN_PATH = (
-    REPO_ROOT
-    / "paper"
-    / "latency-sensitive-vla"
-    / "figures"
-    / "4_1_cross_device_sim"
-    / "fig6_cross_device"
-    / "run.py"
+ROOT = Path(__file__).resolve().parents[2]
+FIG6_SCRIPT = (
+    ROOT
+    / "paper/latency-sensitive-vla/figures/4_1_cross_device_sim/fig6_cross_device/run.py"
 )
 
 
 def _load_fig6_module():
-    spec = importlib.util.spec_from_file_location("fig6_cross_device_run", RUN_PATH)
+    spec = importlib.util.spec_from_file_location("fig6_cross_device_run", FIG6_SCRIPT)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def test_legacy_calibration_rows_use_legacy_plot_path():
-    fig6 = _load_fig6_module()
-    import matplotlib.pyplot as plt
-
-    rows = [
-        {
-            "row_type": "calibration",
-            "policy": "openvla-flappy",
-            "env": "Flappy",
-            "hardware": "A100",
-            "realtime_return": "30.0",
-            "simulated_return_using_L_d": "32.0",
-        }
-    ]
-    figure, ax = plt.subplots()
-
-    fig6.plot_same_device_calibration(ax, rows)
-
-    assert ax.get_title() == "(b) Same-device calibration"
-    assert len(ax.collections) == 1
-    plt.close(figure)
+def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
 
 
-def test_protocol_calibration_uses_aggregate_session_intervals():
-    fig6 = _load_fig6_module()
-    import matplotlib.pyplot as plt
-
-    rows = [
-        {
-            "row_type": "calibration",
-            "policy": "openvla-flappy",
-            "env": "Flappy",
-            "hardware": "A100",
-            "profile_instance_id": "instance_a",
-            "profile_build_id": "aaa111build",
-            "latency_method": "temporal",
-            "sim_host_device_id": "rtx5090",
-            "sim_host_instance_id": "instance_5090",
-            "realtime_return": "30.0",
-            "simulated_return_using_L_d": "32.0",
-            "realtime_return_ci95": "4.0",
-            "simulated_return_ci95": "3.0",
-            "realtime_session_count": "5",
-            "simulated_session_count": "20",
-        }
-    ]
-    figure, ax = plt.subplots()
-
-    fig6.plot_same_device_calibration(ax, rows)
-
-    assert ax.get_title() == "(b) RTX 5090-hosted simulation calibration"
-    assert any("n=5/20" in text.get_text() for text in ax.texts)
-    plt.close(figure)
-
-
-def test_protocol_calibration_labels_multiple_sim_hosts():
-    fig6 = _load_fig6_module()
-    import matplotlib.pyplot as plt
-
-    rows = [
-        {
-            "row_type": "calibration",
-            "policy": "openvla-flappy",
-            "env": "Flappy",
-            "hardware": "A100",
-            "profile_instance_id": "instance_a",
-            "profile_build_id": "aaa111build",
-            "latency_method": "temporal",
-            "sim_host_device_id": "rtx5090",
-            "sim_host_instance_id": host,
-            "realtime_return": "30.0",
-            "simulated_return_using_L_d": simulated_return,
-            "realtime_return_ci95": "4.0",
-            "simulated_return_ci95": "3.0",
-            "realtime_session_count": "5",
-            "simulated_session_count": "20",
-        }
-        for host, simulated_return in (
-            ("instance_host_a", "32.0"),
-            ("instance_host_b", "34.0"),
-        )
-    ]
-    figure, ax = plt.subplots()
-
-    fig6.plot_same_device_calibration(ax, rows)
-
-    labels = {text.get_text() for text in ax.get_legend().get_texts()}
-    assert "A100/a/aaa111@rtx5090/host_a" in labels
-    assert "A100/a/aaa111@rtx5090/host_b" in labels
-    plt.close(figure)
-
-
-def test_sampler_ablation_plot_uses_temporal_and_iid_summary_rows():
-    fig6 = _load_fig6_module()
-    import matplotlib.pyplot as plt
-
-    rows = [
-        {
-            "policy": "openvla-flappy",
-            "env": "Flappy",
-            "hardware": "A100",
-            "profile_instance_id": "instance_a",
-            "profile_build_id": "build_a",
-            "sim_host_device_id": "rtx5090",
-            "sim_host_instance_id": "instance_host",
-            "latency_method": method,
-            "sim_minus_real_return": difference,
-            "sim_minus_real_ci95": "3.0",
-        }
-        for method, difference in (("temporal", "2.0"), ("iid", "12.0"))
-    ]
-    figure, ax = plt.subplots()
-
-    fig6.plot_sampler_ablation(ax, rows)
-
-    assert [tick.get_text() for tick in ax.get_yticklabels()] == ["A100"]
-    assert {text.get_text() for text in ax.get_legend().get_texts()} == {"temporal", "iid"}
-    plt.close(figure)
-
-
-def test_sampler_ablation_keeps_multiple_instances_of_same_hardware():
-    fig6 = _load_fig6_module()
-    import matplotlib.pyplot as plt
-
-    rows = [
-        {
-            "policy": "openvla-flappy",
-            "env": "Flappy",
-            "hardware": "A100",
-            "profile_instance_id": instance_id,
-            "profile_build_id": build_id,
-            "sim_host_device_id": "rtx5090",
-            "sim_host_instance_id": f"instance_{instance_id.removeprefix('instance_')}_host",
-            "latency_method": method,
-            "sim_minus_real_return": difference,
-            "sim_minus_real_ci95": "3.0",
-        }
-        for instance_id, build_id, difference in (
-            ("instance_first", "aaa111build", "2.0"),
-            ("instance_second", "bbb222build", "7.0"),
-        )
-        for method in ("temporal", "iid")
-    ]
-    figure, ax = plt.subplots()
-
-    fig6.plot_sampler_ablation(ax, rows)
-
-    assert [tick.get_text() for tick in ax.get_yticklabels()] == [
-        "A100/first/aaa111@rtx5090/first_host",
-        "A100/second/bbb222@rtx5090/second_host",
-    ]
-    plt.close(figure)
-
-
-def test_sampler_ablation_keeps_multiple_sim_hosts_for_one_profile():
-    fig6 = _load_fig6_module()
-    import matplotlib.pyplot as plt
-
-    rows = [
-        {
-            "policy": "openvla-flappy",
-            "env": "Flappy",
-            "hardware": "A100",
-            "profile_instance_id": "instance_a",
-            "profile_build_id": "aaa111build",
-            "sim_host_device_id": "rtx5090",
-            "sim_host_instance_id": host,
-            "latency_method": method,
-            "sim_minus_real_return": "2.0",
-            "sim_minus_real_ci95": "3.0",
-        }
-        for host in ("instance_host_a", "instance_host_b")
-        for method in ("temporal", "iid")
-    ]
-    figure, ax = plt.subplots()
-
-    fig6.plot_sampler_ablation(ax, rows)
-
-    assert [tick.get_text() for tick in ax.get_yticklabels()] == [
-        "A100/a/aaa111@rtx5090/host_a",
-        "A100/a/aaa111@rtx5090/host_b",
-    ]
-    plt.close(figure)
-
-
-def test_panel_a_keeps_multiple_instances_of_same_hardware():
-    fig6 = _load_fig6_module()
-    import matplotlib.pyplot as plt
-
-    rows = [
-        {
-            "row_type": "e2e_latency_sample",
-            "hardware": "A100",
-            "profile_instance_id": instance_id,
-            "profile_build_id": build_id,
-            "latency_ms": str(latency_ms),
-        }
-        for instance_id, build_id, samples in (
-            ("instance_first", "aaa111build", (40.0, 41.0, 42.0)),
-            ("instance_second", "bbb222build", (70.0, 71.0, 72.0)),
-        )
-        for latency_ms in samples
-    ]
-    figure, ax = plt.subplots()
-
-    fig6.plot_latency_profiles(
-        ax,
-        rows,
-        row_type="e2e_latency_sample",
-        xlabel="E2E",
-        title="profiles",
-    )
-
-    assert {text.get_text() for text in ax.get_legend().get_texts()} == {
-        "A100/first/aaa111",
-        "A100/second/bbb222",
+def _latency_row(
+    *,
+    instance_id: str,
+    latency_ms: float,
+    latency_kind: str = "e2e_latency",
+) -> dict[str, object]:
+    return {
+        "study_id": "study",
+        "policy_id": "openvla-flappy",
+        "env_id": "flappy",
+        "device_id": "a100",
+        "device_name": "A100",
+        "instance_id": instance_id,
+        "profile_id": "L_A100",
+        "fit_session_ids": "0,1,2,3,4",
+        "sample_index": 0,
+        "latency_ms": latency_ms,
+        "env_fps": 16,
+        "frame_ms": 62.5,
+        "latency_kind": latency_kind,
     }
-    plt.close(figure)
 
 
-def test_empty_sampler_ablation_removes_stale_outputs(tmp_path: Path):
+def _result_row(
+    *,
+    latency_method: str,
+    instance_id: str = "gpu-0",
+    metric: str = "episode_return_env",
+    sim_mean: float = 105.0,
+    real_ci95: object = 4.0,
+) -> dict[str, object]:
+    return {
+        "study_id": "study",
+        "policy_id": "openvla-flappy",
+        "env_id": "flappy",
+        "device_id": "a100",
+        "device_name": "A100",
+        "instance_id": instance_id,
+        "profile_id": "L_A100",
+        "fit_session_ids": "0,1,2,3,4",
+        "latency_method": latency_method,
+        "metric": metric,
+        "evaluation_scope": "heldout",
+        "real_session_count": 5,
+        "real_episode_count": 500,
+        "real_mean": 100.0,
+        "real_std": 3.0,
+        "real_ci95": real_ci95,
+        "sim_seed_count": 20,
+        "sim_episode_count": 2000,
+        "sim_mean": sim_mean,
+        "sim_std": 5.0,
+        "sim_ci95": 2.0,
+        "sim_minus_real": sim_mean - 100.0,
+        "difference_ci95": 5.0,
+    }
+
+
+def test_latency_panel_keeps_instances_separate_and_uses_e2e_samples():
     fig6 = _load_fig6_module()
-    outputs = [tmp_path / "sampler_ablation.pdf", tmp_path / "sampler_ablation.png"]
-    for output in outputs:
-        output.write_text("stale", encoding="utf-8")
+    rows = [
+        _latency_row(instance_id=f"gpu-{instance}", latency_ms=40.0 + instance * 10 + value)
+        for instance in range(5)
+        for value in (0.0, 2.0, 4.0, 6.0)
+    ] + [
+        _latency_row(
+            instance_id="gpu-0",
+            latency_ms=500.0,
+            latency_kind="inference_latency",
+        ),
+    ]
+    fig, ax = plt.subplots()
 
-    fig6._remove_sampler_ablation_outputs(tmp_path)
+    fig6.plot_latency_profiles(ax, rows)
 
-    assert not any(output.exists() for output in outputs)
+    assert {line.get_label() for line in ax.get_lines()} == {
+        f"A100 (gpu-{instance})" for instance in range(5)
+    }
+    assert max(max(line.get_xdata()) for line in ax.get_lines()) < 110.0
+    plt.close(fig)
 
 
-def test_main_renders_panels_a_b_and_sampler_ablation_without_panel_c(tmp_path: Path, monkeypatch):
+def test_return_panel_compares_temporal_and_iid_and_ignores_other_metrics():
     fig6 = _load_fig6_module()
-    data = tmp_path / "data.csv"
-    ablation = tmp_path / "sampler_ablation.csv"
-    data.write_text("row_type\ne2e_latency_sample\n", encoding="utf-8")
-    ablation.write_text("latency_method\ntemporal\n", encoding="utf-8")
+    rows = [
+        _result_row(latency_method="temporal", real_ci95=""),
+        _result_row(latency_method="iid", sim_mean=120.0),
+        _result_row(latency_method="temporal", instance_id="gpu-1", sim_mean=108.0),
+        _result_row(latency_method="iid", instance_id="gpu-1", sim_mean=123.0),
+        _result_row(latency_method="temporal", metric="survival_steps", sim_mean=300.0),
+    ]
+    fig, ax = plt.subplots()
     calls = []
-    monkeypatch.setattr(fig6, "plot_latency_profiles", lambda *args, **kwargs: calls.append("a"))
-    monkeypatch.setattr(fig6, "plot_same_device_calibration", lambda *args, **kwargs: calls.append("b"))
-    monkeypatch.setattr(fig6, "plot_cross_device_prediction", lambda *args, **kwargs: calls.append("c"))
-    monkeypatch.setattr(fig6, "plot_sampler_ablation", lambda *args, **kwargs: calls.append("ablation"))
+    errorbar = ax.errorbar
 
-    fig6.main([
-        "--data",
-        str(data),
-        "--sampler-ablation",
-        str(ablation),
-        "--out-dir",
-        str(tmp_path),
-    ])
+    def capture_errorbar(x, y, **kwargs):
+        calls.append((x, y, kwargs["fmt"], kwargs["xerr"]))
+        return errorbar(x, y, **kwargs)
 
-    assert calls == ["a", "b", "ablation"]
-    assert all((tmp_path / f"fig.{suffix}").exists() for suffix in ("pdf", "png"))
-    assert all((tmp_path / f"sampler_ablation.{suffix}").exists() for suffix in ("pdf", "png"))
+    ax.errorbar = capture_errorbar
+    fig6.plot_real_vs_sim(ax, rows)
+
+    assert calls == [
+        (100.0, 105.0, "o", None),
+        (100.0, 120.0, "s", 4.0),
+        (100.0, 108.0, "o", 4.0),
+        (100.0, 123.0, "s", 4.0),
+    ]
+    assert [text.get_text() for text in ax.texts] == [
+        "A100/gpu-0",
+        "A100/gpu-0",
+        "A100/gpu-1",
+        "A100/gpu-1",
+    ]
+    assert [text.get_text() for text in ax.get_legend().get_texts()] == ["Temporal", "Iid"]
+    plt.close(fig)
 
 
-def test_main_removes_stale_ablation_when_csv_has_no_rows(tmp_path: Path, monkeypatch):
+def test_main_reads_fixed_analysis_outputs_and_writes_only_figure(tmp_path: Path):
     fig6 = _load_fig6_module()
-    data = tmp_path / "data.csv"
-    ablation = tmp_path / "sampler_ablation.csv"
-    data.write_text("row_type\ne2e_latency_sample\n", encoding="utf-8")
-    ablation.write_text("latency_method\n", encoding="utf-8")
-    for suffix in ("pdf", "png"):
-        (tmp_path / f"sampler_ablation.{suffix}").write_text("stale", encoding="utf-8")
-    monkeypatch.setattr(fig6, "plot_latency_profiles", lambda *args, **kwargs: None)
-    monkeypatch.setattr(fig6, "plot_same_device_calibration", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        fig6,
-        "plot_sampler_ablation",
-        lambda *args, **kwargs: pytest.fail("empty ablation must not render"),
+    analysis_dir = tmp_path / "analysis"
+    output_dir = tmp_path / "output"
+    analysis_dir.mkdir()
+    _write_csv(
+        analysis_dir / "latency_samples.csv",
+        [
+            _latency_row(instance_id="gpu-0", latency_ms=value)
+            for value in (40.0, 42.0, 44.0, 46.0)
+        ],
+    )
+    _write_csv(
+        analysis_dir / "real_vs_sim.csv",
+        [
+            _result_row(latency_method="temporal"),
+            _result_row(latency_method="iid", sim_mean=110.0),
+        ],
     )
 
-    fig6.main([
-        "--data",
-        str(data),
-        "--sampler-ablation",
-        str(ablation),
-        "--out-dir",
-        str(tmp_path),
-    ])
+    fig6.main(["--analysis-dir", str(analysis_dir), "--out-dir", str(output_dir)])
 
-    assert not any((tmp_path / f"sampler_ablation.{suffix}").exists() for suffix in ("pdf", "png"))
+    assert sorted(path.name for path in output_dir.iterdir()) == ["fig.pdf", "fig.png"]
