@@ -272,7 +272,6 @@ def test_calibration_publish_writes_snapshot_before_done(tmp_path, monkeypatch):
     sync.publish_calibration(workload, raw_dir, Path("raw/a100/instance/workload"))
 
     assert _FakeHfApi.calls == [
-        ("file", "raw/a100/instance/workload/calibration.generated.yaml"),
         ("file", "raw/a100/instance/workload/calibration.json"),
         ("file", "raw/a100/instance/workload/hardware.json"),
         ("file", "raw/a100/instance/workload/calibration.DONE"),

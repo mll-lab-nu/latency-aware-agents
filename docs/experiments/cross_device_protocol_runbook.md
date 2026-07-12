@@ -25,7 +25,6 @@ configs/experiments/cross_device.yaml
 ```text
 raw/<device>/<instance>/<workload>/
   calibration.json
-  calibration.generated.yaml
   hardware.json
   calibration.DONE
   sessions/<session_id>/
@@ -58,6 +57,8 @@ sim/<device>/<instance>/<workload>/<profile_revision>/<temporal|iid>/<latency_se
 ```
 
 `instance` 默认由 GPU UUID 生成，也可通过 `CROSS_DEVICE_INSTANCE_ID` 显式覆盖。同型号的 physical instances 不会自动合并。
+
+本地测量目录还会保存 `calibration.generated.yaml` 和 calibration probe；远端 calibration leaf 只发布后续消费者需要的 calibration、hardware 与 completion marker。
 
 ## 一键快速流程
 
