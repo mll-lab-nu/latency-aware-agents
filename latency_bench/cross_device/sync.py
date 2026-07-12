@@ -28,7 +28,6 @@ def download_calibration(
             repo_id=workload["hf_repo"],
             repo_type=workload["hf_repo_type"],
             allow_patterns=[
-                f"{remote_dir.as_posix()}/calibration.generated.yaml",
                 f"{remote_dir.as_posix()}/calibration.json",
                 f"{remote_dir.as_posix()}/hardware.json",
                 remote_done,
@@ -38,7 +37,6 @@ def download_calibration(
     source_dir = snapshot / remote_dir
     local_dir.mkdir(parents=True, exist_ok=True)
     for name in (
-        "calibration.generated.yaml",
         "calibration.json",
         "hardware.json",
         "calibration.DONE",
@@ -156,7 +154,7 @@ def publish_calibration(
         raise FileExistsError(remote_done)
     done = local_dir / "calibration.DONE"
     done.read_bytes()
-    for name in ("calibration.generated.yaml", "calibration.json", "hardware.json"):
+    for name in ("calibration.json", "hardware.json"):
         api.upload_file(
             repo_id=workload["hf_repo"],
             repo_type=workload["hf_repo_type"],
