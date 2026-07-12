@@ -95,18 +95,25 @@ def summarize_eval_sessions(run_paths: Sequence[str | Path]) -> dict[str, Any]:
     runs = [summarize_eval_run(run_path) for run_path in run_paths]
     return_means = np.asarray([run["mean_return"] for run in runs], dtype=np.float64)
     length_means = np.asarray([run["mean_length"] for run in runs], dtype=np.float64)
-    return_std = float(np.std(return_means, ddof=1))
-    length_std = float(np.std(length_means, ddof=1))
-    t_critical = float(student_t.ppf(0.975, len(runs) - 1))
+    return_std = None
+    length_std = None
+    return_ci95 = None
+    length_ci95 = None
+    if len(runs) > 1:
+        return_std = float(np.std(return_means, ddof=1))
+        length_std = float(np.std(length_means, ddof=1))
+        t_critical = float(student_t.ppf(0.975, len(runs) - 1))
+        return_ci95 = t_critical * return_std / np.sqrt(len(runs))
+        length_ci95 = t_critical * length_std / np.sqrt(len(runs))
     return {
         "session_count": len(runs),
         "n_episodes": sum(int(run["n_episodes"]) for run in runs),
         "mean_return": float(np.mean(return_means)),
         "std_return": return_std,
-        "return_ci95": t_critical * return_std / np.sqrt(len(runs)),
+        "return_ci95": return_ci95,
         "mean_length": float(np.mean(length_means)),
         "std_length": length_std,
-        "length_ci95": t_critical * length_std / np.sqrt(len(runs)),
+        "length_ci95": length_ci95,
         "runs": runs,
     }
 
@@ -121,6 +128,9 @@ def independent_mean_difference_ci95(
     second_count: int,
 ) -> tuple[float, float]:
     """Welch interval for the difference between independent session means."""
+    difference = float(second_mean - first_mean)
+    if first_std == 0.0 and second_std == 0.0:
+        return difference, 0.0
     first_term = first_std**2 / first_count
     second_term = second_std**2 / second_count
     standard_error = np.sqrt(first_term + second_term)
@@ -128,7 +138,7 @@ def independent_mean_difference_ci95(
         first_term**2 / (first_count - 1) + second_term**2 / (second_count - 1)
     )
     half_width = student_t.ppf(0.975, degrees_of_freedom) * standard_error
-    return float(second_mean - first_mean), float(half_width)
+    return difference, float(half_width)
 
 
 def extract_latency_samples_from_records(records: Iterable[dict[str, Any]]) -> list[float]:

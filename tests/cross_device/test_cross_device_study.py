@@ -325,7 +325,7 @@ def test_failed_data_upload_does_not_upload_done(tmp_path, monkeypatch):
 
 
 def test_protocol_dispatches_the_direct_study_commands(monkeypatch):
-    study = {"study_id": "study"}
+    study = {"study_id": "study", "output_root": "."}
     calls = []
     monkeypatch.setattr(protocol, "load_study", lambda _path: study)
     monkeypatch.setattr(
@@ -340,17 +340,25 @@ def test_protocol_dispatches_the_direct_study_commands(monkeypatch):
     )
     monkeypatch.setattr(protocol, "publish_measure", lambda value, hardware: calls.append(("publish-measure", value, hardware)))
     monkeypatch.setattr(protocol, "publish_simulation", lambda value, method: calls.append(("publish-sim", value, method)))
+    monkeypatch.setattr(protocol, "download_study", lambda value: Path("downloaded") / value["study_id"])
+    monkeypatch.setattr(
+        protocol,
+        "write_study_outputs",
+        lambda value, root, out: calls.append(("aggregate", value, root, out)) or {},
+    )
 
     protocol.main(["measure", "--spec", "study.yaml", "--hardware", "a100", "--resume"])
     protocol.main(["sim", "--spec", "study.yaml", "--method", "iid", "--resume"])
     protocol.main(["publish", "--spec", "study.yaml", "--stage", "measure", "--hardware", "l40s"])
     protocol.main(["publish", "--spec", "study.yaml", "--stage", "sim", "--method", "temporal"])
+    protocol.main(["aggregate", "--spec", "study.yaml"])
 
     assert calls == [
         ("measure", study, "a100", True),
         ("sim", study, "iid", True),
         ("publish-measure", study, "l40s"),
         ("publish-sim", study, "temporal"),
+        ("aggregate", study, Path("downloaded/study"), Path("analysis")),
     ]
 
 
