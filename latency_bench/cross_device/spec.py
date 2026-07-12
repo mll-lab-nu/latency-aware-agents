@@ -1,9 +1,4 @@
-"""Protocol spec loading plus hardware detection for cross-device runs.
-
-The spec defines the protocol rows once at top level; experiments only carry
-their panel label and, for cross-device prediction, the replay pairs. This
-module also maps the current machine onto spec entries.
-"""
+"""Cross-device study loading and measurement hardware detection."""
 from __future__ import annotations
 
 import os
@@ -17,8 +12,12 @@ import torch
 from latency_bench.core.config import load_config
 
 
-def load_protocol_spec(path: str | Path) -> dict[str, Any]:
+def load_study(path: str | Path) -> dict[str, Any]:
     return load_config(path)
+
+
+def load_protocol_spec(path: str | Path) -> dict[str, Any]:
+    return load_study(path)
 
 
 def slugify(value: str) -> str:
@@ -65,7 +64,7 @@ def detect_hardware(spec: dict[str, Any], requested: str = "auto") -> dict[str, 
     Returns:
         A dict with the raw detected/requested string and matched device entry.
     """
-    devices = _devices(spec)
+    devices = spec["devices"]
     if requested != "auto":
         device = normalize_hardware_name(requested, devices)
         if device is None:
@@ -99,15 +98,15 @@ def normalize_hardware_name(name: str, devices: list[dict[str, Any]]) -> dict[st
     candidates = _hardware_name_candidates(name)
     for normalized in candidates:
         for device in devices:
-            names = [device.get("id"), device.get("display_name"), *device.get("aliases", [])]
-            if any(_normalize_name(item) == normalized for item in names if item is not None):
+            names = [device["id"], device["display_name"], *device["aliases"]]
+            if any(_normalize_name(item) == normalized for item in names):
                 return device
     for normalized in candidates:
         if not normalized:
             continue
         for device in devices:
-            names = [device.get("id"), device.get("display_name"), *device.get("aliases", [])]
-            aliases = [_normalize_name(item) for item in names if item is not None]
+            names = [device["id"], device["display_name"], *device["aliases"]]
+            aliases = [_normalize_name(item) for item in names]
             if any(_hardware_names_overlap(normalized, alias) for alias in aliases):
                 return device
     return None
@@ -137,8 +136,8 @@ def _normalize_name(value: Any) -> str:
 def _raise_unknown_hardware(detected: str, devices: list[dict[str, Any]]) -> None:
     aliases = []
     for device in devices:
-        aliases.extend([str(device.get("id")), str(device.get("display_name"))])
-        aliases.extend(str(alias) for alias in device.get("aliases", []))
+        aliases.extend([device["id"], device["display_name"]])
+        aliases.extend(device["aliases"])
     raise SystemExit(
         "Could not match hardware. "
         f"detected={detected!r}. Known aliases: {', '.join(sorted(set(aliases)))}"
@@ -157,7 +156,3 @@ def _nvidia_smi_device_name() -> str | None:
         return None
     first = result.stdout.strip().splitlines()
     return first[0].strip() if first else None
-
-
-def _devices(spec: dict[str, Any]) -> list[dict[str, Any]]:
-    return [device for device in spec.get("devices", []) if isinstance(device, dict)]

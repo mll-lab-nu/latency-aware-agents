@@ -1,28 +1,8 @@
-__base__: cross_device_protocol.yaml
+__base__: cross_device_study.yaml
 
-protocol_id: cross_device_10real_20sim_v1
-output_root: results/cross_device/cross_device_10real_20sim_v1
-n_episodes: 100
-seed_set: [0]
-latency_seed_set: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-measure_sessions:
+study_id: cross_device_10real_20sim_v2
+output_root: results/cross_device/cross_device_10real_20sim_v2
+latency_seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+sessions:
   fit: [0, 1, 2, 3, 4]
-  heldout: [5, 6, 7, 8, 9]
-latency_methods: [temporal, iid]
-primary_latency_method: temporal
-sim_host_device: rtx5090
-target_devices: [a100, l40s, rtx4090, rtx5090]
-hf_repo: latency-sensitive-bench/profiles
-hf_repo_type: dataset
-
-rows:
-  - policy: openvla-flappy
-    env: Flappy
-    policy_type: starvla
-    model_type: openvla
-    env_name: flappy
-    target_latency_frames: 2
-    base_config: configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml
-    sim_env:
-      simulator: cpu
-      use_gpu_render: false
+  evaluation: [5, 6, 7, 8, 9]

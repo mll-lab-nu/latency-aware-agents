@@ -12,13 +12,7 @@ def resolve_instance_id(fingerprint: dict[str, Any]) -> str:
     override = os.environ.get(INSTANCE_ID_ENV)
     if override:
         return override
-    try:
-        gpu_uuid = fingerprint["gpu"]["uuid"].strip()
-    except KeyError as exc:
-        raise RuntimeError(f"GPU UUID is required; set {INSTANCE_ID_ENV} to override") from exc
-    if gpu_uuid == "":
-        raise RuntimeError(f"GPU UUID is required; set {INSTANCE_ID_ENV} to override")
-    return instance_id_from_gpu_uuid(gpu_uuid)
+    return instance_id_from_gpu_uuid(fingerprint["gpu"]["uuid"])
 
 
 def resolve_instance_origin() -> str:

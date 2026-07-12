@@ -16,15 +16,9 @@ else
   conda activate starvla_rl_games_openvla
 fi
 
-export HF_PROFILE_REPO=latency-sensitive-bench/profiles
-export HF_PROFILE_REPO_TYPE=dataset
-
-SPEC=configs/experiments/cross_device_protocol.yaml
-POLICY=openvla-flappy
-PROFILES_DIR=results/cross_device/profiles
+SPEC="${SPEC:-configs/experiments/cross_device_1real_3sim.yaml}"
 
 python -m latency_bench.cross_device.protocol measure \
   --spec "$SPEC" \
   --hardware auto \
-  --only-policy "$POLICY" \
   --resume
