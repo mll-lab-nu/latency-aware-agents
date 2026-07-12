@@ -1,4 +1,4 @@
-"""Cross-device study loading and measurement hardware detection."""
+"""Cross-device configuration loading and measurement hardware detection."""
 from __future__ import annotations
 
 import os
@@ -12,6 +12,10 @@ from latency_bench.core.config import load_config
 
 
 def load_study(path: str | Path) -> dict[str, Any]:
+    return load_config(path)
+
+
+def load_workload(path: str | Path) -> dict[str, Any]:
     return load_config(path)
 
 
