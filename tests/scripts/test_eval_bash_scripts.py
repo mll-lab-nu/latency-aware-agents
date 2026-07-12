@@ -76,6 +76,7 @@ def _prepare_install_sh_env(
     tmp_path: Path,
     *,
     compute_caps: str,
+    driver_version: str = "580.65.06",
     conda_mode: str = "path",
     latency_env_exists: bool = False,
 ) -> tuple[dict[str, str], Path]:
@@ -246,6 +247,10 @@ if [[ "${{1:-}}" == "--query-gpu=compute_cap" && "${{2:-}}" == "--format=csv,noh
 {compute_caps}EOF
   exit 0
 fi
+if [[ "${{1:-}}" == "--query-gpu=driver_version" && "${{2:-}}" == "--format=csv,noheader" ]]; then
+  printf '%s\n' "{driver_version}"
+  exit 0
+fi
 exit 1
 """,
     )
@@ -308,7 +313,7 @@ def test_cuda_extensions_build_script_is_executable_bash():
     assert "LIBRARY_PATH" in text
 
 
-def test_install_script_selects_cu130_for_compute_cap_10_gpu(tmp_path):
+def test_install_script_selects_cu130_for_compute_cap_10_gpu_with_r580_driver(tmp_path):
     script_path = REPO_ROOT / "install.sh"
     env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
 
@@ -361,7 +366,7 @@ def test_install_script_reuses_existing_latency_env(tmp_path):
     assert "conda activate latency" in calls
 
 
-def test_install_script_selects_cu130_for_compute_cap_12_gpu(tmp_path):
+def test_install_script_selects_cu130_for_compute_cap_12_gpu_with_r580_driver(tmp_path):
     script_path = REPO_ROOT / "install.sh"
     env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="12.0\n")
 
@@ -382,6 +387,32 @@ def test_install_script_selects_cu130_for_compute_cap_12_gpu(tmp_path):
         "--index-url https://download.pytorch.org/whl/cu130"
     ) in calls
     assert "torchaudio" not in calls
+
+
+def test_install_script_selects_cu128_for_compute_cap_12_gpu_with_r570_driver(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, calls_path = _prepare_install_sh_env(
+        tmp_path,
+        compute_caps="12.0\n",
+        driver_version="570.153.02",
+    )
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "with driver 570.153.02; selecting cu128" in result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert (
+        "python -m pip install torch==2.10.0+cu128 torchvision==0.25.0+cu128 "
+        "--index-url https://download.pytorch.org/whl/cu128"
+    ) in calls
 
 
 def test_install_script_allows_torch_profile_override(tmp_path):
