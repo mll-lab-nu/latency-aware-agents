@@ -1,180 +1,64 @@
 # OpenVLA Cross-Device Handoff
 
-This note is for running OpenVLA cross-device evals on a machine that has the
-OpenVLA base model and SFT checkpoints available.
+The active OpenVLA cross-device workflow is the single-study sim2real pipeline documented in [`experiments/cross_device_protocol_runbook.md`](experiments/cross_device_protocol_runbook.md).
 
-## Supported Rows
+## Runtime
 
-- `openvla-flappy` on `flappy`
-- `demon-attack-openvla` on `demon_attack`
-- `deadly-corridor-openvla` on `deadly_corridor`
+- Conda environment: `starvla_rl_games_openvla`
+- Policy/environment: OpenVLA on Flappy
+- Base evaluation config: `configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml`
+- Study configs:
+  - `configs/experiments/cross_device_1real_3sim.yaml`
+  - `configs/experiments/cross_device_10real_20sim.yaml`
+- Remote dataset: configured by `hf_repo` and `hf_repo_type` in `cross_device_study.yaml`
 
-All rows use the same entrypoint:
+Each measurement host must have the OpenVLA checkpoint and environment assets referenced by the base config. Simulation hosts need the same policy runtime, but they do not need to match the target GPU model.
 
-```bash
-RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh profile
-```
+## Commands
 
-## Required Paths
-
-Set these paths before dependency checks, smoke runs, or full runs:
-
-```bash
-export OPENVLA_BASE_MODEL_PATH=/path/to/openvla_base
-export DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH=/path/to/demon_ckpt
-export DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH=/path/to/deadly_ckpt
-```
-
-For Flappy only, the config default checkpoint is still used unless this
-optional override is set:
+Quick real1 temporal workflow:
 
 ```bash
-export FLAPPY_OPENVLA_CHECKPOINT_PATH=/path/to/flappy_ckpt
+bash start.sh
 ```
 
-The base model directory must contain policy-specific statistics files:
-
-- `flappy_dataset_statistics.json` with key `flappy_bird`
-- `demon_attack_dataset_statistics.json` with key `demon_attack`
-- `deadly_corridor_dataset_statistics.json` with key `deadly_corridor`
-
-Deadly Corridor OpenVLA uses the 54-class joint action layout
-`deadly_corridor_joint_54`. The `deadly_corridor.action` statistics
-fields `q01`, `q99`, `min`, `max`, and `mask` must all have length 54.
-
-Each checkpoint directory must contain:
-
-```text
-actor/model_state_dict/full_weights.pt
-```
-
-## Dry Run
-
-Dry-run prints selected rows, generated config paths, and output directories.
+Formal measurement on each target GPU:
 
 ```bash
-DRY_RUN=1 CROSS_DEVICE_HARDWARE=a100 \
-RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh profile
+bash measure_10.sh
+bash upload_10.sh
 ```
 
-Smoke dry-run:
+Formal simulation on any available host:
 
 ```bash
-DRY_RUN=1 SMOKE=1 MAX_RUNS=1 ONLY_POLICY=demon-attack-openvla \
-CROSS_DEVICE_HARDWARE=a100 \
-RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh profile
+bash sim_20.sh
+SPEC=configs/experiments/cross_device_10real_20sim.yaml \
+  METHOD=temporal bash publish.sh sim
+
+bash sim_iid_20.sh
+SPEC=configs/experiments/cross_device_10real_20sim.yaml \
+  METHOD=iid bash publish.sh sim
 ```
 
-## One-Episode Smoke
-
-Smoke runs are isolated from full runs. They use run IDs like
-`smoke_seed_0_n1` and measure-stage smoke profiles under `profiles_smoke/`.
-This prevents smoke manifests or profiles from causing a later full run to be
-skipped by `--resume`.
-
-Demon Attack smoke:
+Aggregate the published study:
 
 ```bash
-CROSS_DEVICE_HARDWARE=a100 \
-OPENVLA_BASE_MODEL_PATH=/path/to/openvla_base \
-DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH=/path/to/demon_ckpt \
-SMOKE=1 \
-STAGES="measure" \
-ONLY_POLICY=demon-attack-openvla \
-MAX_RUNS=1 \
-RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh custom
+bash aggregate.sh
 ```
 
-Deadly Corridor smoke:
+## Operational Contracts
 
-```bash
-CROSS_DEVICE_HARDWARE=a100 \
-OPENVLA_BASE_MODEL_PATH=/path/to/openvla_base \
-DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH=/path/to/deadly_ckpt \
-SMOKE=1 \
-STAGES="measure" \
-ONLY_POLICY=deadly-corridor-openvla \
-MAX_RUNS=1 \
-RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh custom
-```
+- `measure` and `sim` are local compute operations; `publish` is explicit.
+- `--resume` skips only leaf units carrying `DONE`.
+- Partial leaf directories are discarded before retry.
+- Publish uploads data before the group `DONE` marker.
+- A changed experiment uses a new `study_id`; there is no overwrite mode.
+- `CROSS_DEVICE_INSTANCE_ID` overrides the GPU-UUID-derived instance ID when an explicit stable identity is required.
+- Simulation host identity is deliberately absent from the study schema and result keys.
 
-Optional smoke step cap:
+## Removed Legacy Interfaces
 
-```bash
-SMOKE=1 SMOKE_MAX_STEPS=200 \
-RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh profile
-```
+The repository no longer supports protocol rows, exp1/exp2/exp3 stage selection, replay pairs, `sim_same`, `sim_cross`, target filters, doctor/smoke orchestration, run manifests, profile-build hashes, raw-root aggregation, or automatic publish from compute commands.
 
-`SMOKE_MAX_STEPS` overrides `evaluation.eval_max_steps` in generated
-configs. It does not change environment stepping semantics such as Atari
-wrappers, Doom frameskip, or frame stack.
-
-## Stage Selection
-
-The maintained presets expand as follows:
-
-```text
-doctor  -> doctor
-profile -> doctor, measure
-sim     -> doctor, sim
-```
-
-Same-device replay is `sim` without a target. Cross-device replay uses
-`SIM_TARGET=<device_id>/<instance_id>` or the Python CLI flag
-`--target <device_id>/<instance_id>`.
-
-Set explicit stages with the `custom` preset when needed:
-
-```bash
-STAGES=doctor RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh custom
-STAGES="measure sim" RUNTIME_ENV=openvla scripts/bash_scripts/run_cross_device.sh custom
-```
-
-Smoke does not run simulated replay unless explicitly requested because sim
-depends on existing latency profiles.
-
-## Full Sweep
-
-After dependency checks and per-environment smoke pass, run the full sweep:
-
-```bash
-export CROSS_DEVICE_HARDWARE=a100
-export OPENVLA_BASE_MODEL_PATH=/path/to/openvla_base
-export DEMON_ATTACK_OPENVLA_CHECKPOINT_PATH=/path/to/demon_ckpt
-export DEADLY_CORRIDOR_OPENVLA_CHECKPOINT_PATH=/path/to/deadly_ckpt
-export CONTINUE_ON_ERROR=1
-export RUNTIME_ENV=openvla
-
-scripts/bash_scripts/run_cross_device.sh profile
-scripts/bash_scripts/run_cross_device.sh sim
-```
-
-Full results continue to use the established tree:
-
-```text
-results/cross_device/runs/<stage>/openvla-flappy/flappy/<device>/best_seed_0_n10/
-results/cross_device/runs/<stage>/demon-attack-openvla/demon_attack/<device>/best_seed_0_n10/
-results/cross_device/runs/<stage>/deadly-corridor-openvla/deadly_corridor/<device>/best_seed_0_n10/
-```
-
-Smoke results use isolated run IDs:
-
-```text
-results/cross_device/runs/<stage>/<policy>/<env>/<device>/smoke_seed_0_n1/
-```
-
-## Common Failures
-
-- Missing base model: set `OPENVLA_BASE_MODEL_PATH` to an existing directory.
-- Missing policy statistics file: ensure the selected policy has its
-  `*_dataset_statistics.json` file directly under the base model directory.
-- Missing unnorm key: add the selected env key to the matching statistics file.
-- Deadly action stats length mismatch: `deadly_corridor.action.q01`,
-  `q99`, `min`, `max`, and `mask` must be length 54 for
-  `deadly_corridor_joint_54`.
-- Missing `full_weights.pt`: point the checkpoint env var at the directory that
-  contains `actor/model_state_dict/full_weights.pt`.
-- Demon action meanings mismatch: the latency_bench Demon env will fail fast if
-  the Atari action order differs from the configured expected action meanings.
-- Deadly VizDoom init failure: verify VizDoom/Sample Factory dependencies,
-  scenario files, and display/headless runtime support on the checkpoint machine.
+Do not use the removed `scripts/bash_scripts/run_cross_device.sh`, `scripts/bash_scripts/upload_cross_device_to_hf.sh`, `cross_device_protocol.yaml`, or `--target`/`--all-target-profiles` flags.
