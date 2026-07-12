@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from latency_bench.analysis.cross_device_results import write_study_outputs
+from latency_bench.analysis.cross_device_results import write_cross_device_outputs
 from latency_bench.cross_device.runner import (
     current_target_ref,
     publish_profile,
@@ -13,8 +13,8 @@ from latency_bench.cross_device.runner import (
     run_measure,
     run_simulation,
 )
-from latency_bench.cross_device.spec import load_study, load_workload
-from latency_bench.cross_device.sync import download_study
+from latency_bench.cross_device.spec import load_workload
+from latency_bench.cross_device.sync import download_analysis_selection
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -63,22 +63,46 @@ def main(argv: list[str] | None = None) -> None:
     publish_sim_parser.add_argument("--resume", action="store_true")
 
     aggregate = subparsers.add_parser("aggregate")
-    aggregate.add_argument("--spec", type=Path, required=True)
+    _add_config(aggregate)
+    aggregate.add_argument(
+        "--profile-ref",
+        type=Path,
+        action="append",
+        required=True,
+    )
+    aggregate.add_argument("--real-sessions", type=int, nargs="+", required=True)
+    aggregate.add_argument(
+        "--methods",
+        choices=("temporal", "iid"),
+        nargs="+",
+        required=True,
+    )
+    aggregate.add_argument("--latency-seeds", type=int, nargs="+", required=True)
+    aggregate.add_argument("--output-dir", type=Path)
 
     args = parser.parse_args(argv)
+    workload = load_workload(args.config)
     if args.command == "aggregate":
-        study = load_study(args.spec)
-        paths = write_study_outputs(
-            study,
-            download_study(study),
-            Path(study["output_root"]) / "analysis",
+        output_dir = args.output_dir or Path(workload["artifact_root"]) / "analysis"
+        root = download_analysis_selection(
+            workload,
+            args.profile_ref,
+            args.real_sessions,
+            args.methods,
+            args.latency_seeds,
+        )
+        paths = write_cross_device_outputs(
+            workload,
+            root,
+            output_dir,
+            args.profile_ref,
+            args.real_sessions,
+            args.methods,
+            args.latency_seeds,
         )
         for name, path in paths.items():
             print(f"{name}: {path}")
-        return
-
-    workload = load_workload(args.config)
-    if args.command == "target-ref":
+    elif args.command == "target-ref":
         print(current_target_ref(workload, args.hardware))
     elif args.command == "measure":
         run_measure(

@@ -279,6 +279,42 @@ def test_calibration_publish_writes_snapshot_before_done(tmp_path, monkeypatch):
     ]
 
 
+def test_analysis_download_requests_only_selected_leaves(tmp_path, monkeypatch):
+    workload = _workload(tmp_path)
+    profile_ref = Path("a100/instance/workload/revision")
+    profile_dir = tmp_path / "profile"
+    write_json(profile_dir / "profile.json", {"fit_session_ids": [0, 2]})
+    calls = []
+    monkeypatch.setattr(sync, "download_profile", lambda *_args: profile_dir)
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        types.SimpleNamespace(
+            snapshot_download=lambda **kwargs: calls.append(kwargs) or str(tmp_path)
+        ),
+    )
+
+    root = sync.download_analysis_selection(
+        workload,
+        [profile_ref],
+        [5],
+        ["temporal", "iid"],
+        [1, 3],
+    )
+
+    assert root == tmp_path
+    assert set(calls[0]["allow_patterns"]) == {
+        "profiles/a100/instance/workload/revision/**",
+        "raw/a100/instance/workload/sessions/0/**",
+        "raw/a100/instance/workload/sessions/2/**",
+        "raw/a100/instance/workload/sessions/5/**",
+        "sim/a100/instance/workload/revision/temporal/1/**",
+        "sim/a100/instance/workload/revision/temporal/3/**",
+        "sim/a100/instance/workload/revision/iid/1/**",
+        "sim/a100/instance/workload/revision/iid/3/**",
+    }
+
+
 def test_protocol_dispatches_explicit_simulation_selection(monkeypatch):
     workload = {"workload": {"id": "openvla-flappy"}}
     calls = []
@@ -314,4 +350,58 @@ def test_protocol_dispatches_explicit_simulation_selection(monkeypatch):
             ),
             {"resume": True},
         )
+    ]
+
+
+def test_protocol_aggregate_dispatches_explicit_artifact_selection(
+    tmp_path,
+    monkeypatch,
+):
+    workload = {"artifact_root": str(tmp_path), "workload": {"id": "workload"}}
+    profile_refs = [Path("a100/instance/workload/revision")]
+    calls = []
+    monkeypatch.setattr(protocol, "load_workload", lambda _path: workload)
+    monkeypatch.setattr(
+        protocol,
+        "download_analysis_selection",
+        lambda *args: calls.append(("download", args)) or tmp_path / "remote",
+    )
+    monkeypatch.setattr(
+        protocol,
+        "write_cross_device_outputs",
+        lambda *args: calls.append(("write", args)) or {},
+    )
+
+    protocol.main(
+        [
+            "aggregate",
+            "--profile-ref",
+            str(profile_refs[0]),
+            "--real-sessions",
+            "5",
+            "6",
+            "--methods",
+            "temporal",
+            "iid",
+            "--latency-seeds",
+            "0",
+            "2",
+        ]
+    )
+
+    selection = (workload, profile_refs, [5, 6], ["temporal", "iid"], [0, 2])
+    assert calls == [
+        ("download", selection),
+        (
+            "write",
+            (
+                workload,
+                tmp_path / "remote",
+                tmp_path / "analysis",
+                profile_refs,
+                [5, 6],
+                ["temporal", "iid"],
+                [0, 2],
+            ),
+        ),
     ]

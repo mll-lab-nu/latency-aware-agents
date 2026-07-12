@@ -11,10 +11,6 @@ import torch
 from latency_bench.core.config import load_config
 
 
-def load_study(path: str | Path) -> dict[str, Any]:
-    return load_config(path)
-
-
 def load_workload(path: str | Path) -> dict[str, Any]:
     return load_config(path)
 

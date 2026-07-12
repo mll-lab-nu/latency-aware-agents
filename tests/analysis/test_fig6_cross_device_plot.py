@@ -32,16 +32,19 @@ def _latency_row(
     *,
     instance_id: str,
     latency_ms: float,
+    profile_revision: str = "fit-0",
     latency_kind: str = "e2e_latency",
 ) -> dict[str, object]:
     return {
-        "study_id": "study",
+        "workload_id": "openvla-flappy",
         "policy_id": "openvla-flappy",
         "env_id": "flappy",
         "device_id": "a100",
         "device_name": "A100",
         "instance_id": instance_id,
         "profile_id": "L_A100",
+        "profile_revision": profile_revision,
+        "profile_ref": f"a100/{instance_id}/openvla-flappy/{profile_revision}",
         "fit_session_ids": "0,1,2,3,4",
         "sample_index": 0,
         "latency_ms": latency_ms,
@@ -60,13 +63,15 @@ def _result_row(
     real_ci95: object = 4.0,
 ) -> dict[str, object]:
     return {
-        "study_id": "study",
+        "workload_id": "openvla-flappy",
         "policy_id": "openvla-flappy",
         "env_id": "flappy",
         "device_id": "a100",
         "device_name": "A100",
         "instance_id": instance_id,
         "profile_id": "L_A100",
+        "profile_revision": "fit-0",
+        "profile_ref": f"a100/{instance_id}/openvla-flappy/fit-0",
         "fit_session_ids": "0,1,2,3,4",
         "latency_method": latency_method,
         "metric": metric,
@@ -104,9 +109,31 @@ def test_latency_panel_keeps_instances_separate_and_uses_e2e_samples():
     fig6.plot_latency_profiles(ax, rows)
 
     assert {line.get_label() for line in ax.get_lines()} == {
-        f"A100 (gpu-{instance})" for instance in range(5)
+        f"A100 (gpu-{instance}/fit-0)" for instance in range(5)
     }
     assert max(max(line.get_xdata()) for line in ax.get_lines()) < 110.0
+    plt.close(fig)
+
+
+def test_latency_panel_keeps_profile_revisions_separate():
+    fig6 = _load_fig6_module()
+    rows = [
+        _latency_row(
+            instance_id="gpu-0",
+            profile_revision=revision,
+            latency_ms=offset + value,
+        )
+        for revision, offset in (("fit-0", 40.0), ("fit-0-4", 60.0))
+        for value in (0.0, 2.0, 4.0, 6.0)
+    ]
+    fig, ax = plt.subplots()
+
+    fig6.plot_latency_profiles(ax, rows)
+
+    assert {line.get_label() for line in ax.get_lines()} == {
+        "A100 (gpu-0/fit-0)",
+        "A100 (gpu-0/fit-0-4)",
+    }
     plt.close(fig)
 
 
@@ -137,10 +164,10 @@ def test_return_panel_compares_temporal_and_iid_and_ignores_other_metrics():
         (100.0, 123.0, "s", 4.0),
     ]
     assert [text.get_text() for text in ax.texts] == [
-        "A100/gpu-0",
-        "A100/gpu-0",
-        "A100/gpu-1",
-        "A100/gpu-1",
+        "A100/gpu-0/fit-0",
+        "A100/gpu-0/fit-0",
+        "A100/gpu-1/fit-0",
+        "A100/gpu-1/fit-0",
     ]
     assert [text.get_text() for text in ax.get_legend().get_texts()] == ["Temporal", "Iid"]
     plt.close(fig)
