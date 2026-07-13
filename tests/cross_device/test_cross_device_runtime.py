@@ -214,6 +214,62 @@ def test_simulation_appends_explicit_latency_seeds(tmp_path, monkeypatch):
     runner.run_simulation(workload, canonical_ref, "temporal", [0], resume=True)
 
 
+@pytest.mark.parametrize(
+    ("method", "expected_parameters"),
+    [
+        ("fixed", {"fixed_latency_ms": 12.5}),
+        (
+            "normal",
+            {
+                "mean_latency_ms": 12.5,
+                "std_latency_ms": 3.25,
+            },
+        ),
+    ],
+)
+def test_simulation_uses_profile_summary_for_parametric_methods(
+    tmp_path,
+    monkeypatch,
+    method,
+    expected_parameters,
+):
+    workload = _workload(tmp_path)
+    calls = {"calibrations": [], "evaluations": []}
+    _install_runtime_fakes(monkeypatch, calls)
+    canonical_ref = Path("a100/instance_a/openvla-flappy/fit-0")
+    downloaded = tmp_path / "downloaded-profile"
+    write_json(
+        downloaded / "profile.json",
+        {
+            "profile_id": "L_A100",
+            "env_fps": 16.0,
+            "inference_worker_count": 2,
+            "device_id": "a100",
+            "instance_id": "instance_a",
+            "profile_revision": "fit-0",
+            "summary": {"mean_ms": 12.5, "std_ms": 3.25},
+        },
+    )
+    (downloaded / "DONE").touch()
+    monkeypatch.setattr(runner, "download_profile", lambda *_args: downloaded)
+
+    runner.run_simulation(workload, canonical_ref, method, [7])
+
+    generated_path = (
+        Path(workload["artifact_root"])
+        / "sim"
+        / canonical_ref
+        / method
+        / "7/generated.yaml"
+    )
+    latency_config = yaml.safe_load(generated_path.read_text(encoding="utf-8"))["latency"]
+    assert {
+        name: latency_config[name]
+        for name in expected_parameters
+    } == expected_parameters
+    assert latency_config["seed"] == 7
+
+
 class _FakeHfApi:
     existing: set[str] = set()
     calls: list[tuple] = []
@@ -297,7 +353,7 @@ def test_analysis_download_requests_only_selected_leaves(tmp_path, monkeypatch):
         workload,
         [profile_ref],
         [5],
-        ["temporal", "iid"],
+        ["temporal", "iid", "fixed", "normal"],
         [1, 3],
     )
 
@@ -311,26 +367,43 @@ def test_analysis_download_requests_only_selected_leaves(tmp_path, monkeypatch):
         "sim/a100/instance/workload/revision/temporal/3/**",
         "sim/a100/instance/workload/revision/iid/1/**",
         "sim/a100/instance/workload/revision/iid/3/**",
+        "sim/a100/instance/workload/revision/fixed/1/**",
+        "sim/a100/instance/workload/revision/fixed/3/**",
+        "sim/a100/instance/workload/revision/normal/1/**",
+        "sim/a100/instance/workload/revision/normal/3/**",
     }
 
 
-def test_protocol_dispatches_explicit_simulation_selection(monkeypatch):
+@pytest.mark.parametrize(
+    ("command", "entrypoint", "method"),
+    [
+        (["sim"], "run_simulation", "iid"),
+        (["sim"], "run_simulation", "fixed"),
+        (["publish", "sim"], "publish_simulation", "normal"),
+    ],
+)
+def test_protocol_dispatches_explicit_simulation_selection(
+    monkeypatch,
+    command,
+    entrypoint,
+    method,
+):
     workload = {"workload": {"id": "openvla-flappy"}}
     calls = []
     monkeypatch.setattr(protocol, "load_workload", lambda _path: workload)
     monkeypatch.setattr(
         protocol,
-        "run_simulation",
+        entrypoint,
         lambda *args, **kwargs: calls.append((args, kwargs)),
     )
 
     protocol.main(
         [
-            "sim",
+            *command,
             "--profile-ref",
             "a100/instance_a/openvla-flappy/fit-0",
             "--method",
-            "iid",
+            method,
             "--latency-seeds",
             "0",
             "2",
@@ -344,7 +417,7 @@ def test_protocol_dispatches_explicit_simulation_selection(monkeypatch):
             (
                 workload,
                 Path("a100/instance_a/openvla-flappy/fit-0"),
-                "iid",
+                method,
                 [0, 2, 7],
             ),
             {"resume": True},
@@ -382,13 +455,16 @@ def test_protocol_aggregate_dispatches_explicit_artifact_selection(
             "--methods",
             "temporal",
             "iid",
+            "fixed",
+            "normal",
             "--latency-seeds",
             "0",
             "2",
         ]
     )
 
-    selection = (workload, profile_refs, [5, 6], ["temporal", "iid"], [0, 2])
+    methods = ["temporal", "iid", "fixed", "normal"]
+    selection = (workload, profile_refs, [5, 6], methods, [0, 2])
     assert calls == [
         ("download", selection),
         (
@@ -399,7 +475,7 @@ def test_protocol_aggregate_dispatches_explicit_artifact_selection(
                 tmp_path / "analysis",
                 profile_refs,
                 [5, 6],
-                ["temporal", "iid"],
+                methods,
                 [0, 2],
             ),
         ),

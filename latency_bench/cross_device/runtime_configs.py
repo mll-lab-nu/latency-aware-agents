@@ -65,6 +65,11 @@ def simulation_config(
         "instance_id": profile["instance_id"],
         "profile_revision": profile["profile_revision"],
     }
+    if method == "fixed":
+        config["latency"]["fixed_latency_ms"] = profile["summary"]["mean_ms"]
+    elif method == "normal":
+        config["latency"]["mean_latency_ms"] = profile["summary"]["mean_ms"]
+        config["latency"]["std_latency_ms"] = profile["summary"]["std_ms"]
     config["evaluation"]["eval_parallel_envs"] = workload["sim_parallel_envs"]
     config["evaluation"]["eval_latency_values"] = None
     _enable_records(config)

@@ -8,7 +8,7 @@
 raw session -> profile revision -> simulation seed
 ```
 
-Real session 数量和 simulation 数量不属于存储身份。同一台 physical target、同一 workload 下可以持续追加 real sessions；任一 profile revision 可以选择任意 temporal/IID latency seeds。Simulation host 只影响运行成本，不进入路径或结果身份。
+Real session 数量和 simulation 数量不属于存储身份。同一台 physical target、同一 workload 下可以持续追加 real sessions；任一 profile revision 可以选择任意 temporal、IID、fixed 或 normal latency seeds。Simulation host 只影响运行成本，不进入路径或结果身份。
 
 当前 workload config 是：
 
@@ -49,7 +49,7 @@ profiles/<device>/<instance>/<workload>/<profile_revision>/
   ...
   DONE
 
-sim/<device>/<instance>/<workload>/<profile_revision>/<temporal|iid>/<latency_seed>/
+sim/<device>/<instance>/<workload>/<profile_revision>/<temporal|iid|fixed|normal>/<latency_seed>/
   generated.yaml
   episode_metrics.jsonl
   ...
@@ -128,7 +128,14 @@ bash cross_device.sh publish sim \
   --resume
 ```
 
-IID 使用完全相同的命令，只将 `--method` 改为 `iid`。
+`--method` 支持以下四种 profile-derived simulation：
+
+- `temporal`：使用 profile 的 burst model。
+- `iid`：从 profile 的 inverse-CDF distribution 独立采样。
+- `fixed`：始终使用 profile summary 的 `mean_ms`。
+- `normal`：使用 profile summary 的 `mean_ms` 和总体标准差 `std_ms` 作为正态分布参数。
+
+`normal` 沿用 `NormalSampler` 的非负截零行为，因此截零后的经验均值和标准差不保证与传入参数严格相等。
 
 ### 4. 显式选择需要聚合的数据
 
@@ -137,7 +144,7 @@ bash aggregate.sh \
   --profile-ref a100/instance_01b95985/openvla-flappy/fit-0-4 \
   --profile-ref l40s/instance_ce58e2a5/openvla-flappy/fit-0-4 \
   --real-sessions 5 6 7 8 9 \
-  --methods temporal iid \
+  --methods temporal iid fixed normal \
   --latency-seeds 0 1 2 3 4
 ```
 
