@@ -53,6 +53,8 @@ bash cross_device.sh publish sim --profile-ref "$TARGET_REF/fit-0-1" \
   --method temporal --latency-seeds 0 1 2 --resume
 ```
 
+Simulation methods are `temporal`, `iid`, `fixed`, and `normal`. `fixed` uses the profile mean; `normal` passes the profile mean and population standard deviation to `NormalSampler`, which retains its existing zero-clamp behavior.
+
 Aggregation explicitly lists profile refs, real sessions, methods, and latency seeds. It never infers a study size from the artifact tree.
 
 ## Removed Interfaces

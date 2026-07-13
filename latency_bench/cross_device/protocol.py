@@ -73,7 +73,7 @@ def main(argv: list[str] | None = None) -> None:
     aggregate.add_argument("--real-sessions", type=int, nargs="+", required=True)
     aggregate.add_argument(
         "--methods",
-        choices=("temporal", "iid"),
+        choices=("temporal", "iid", "fixed", "normal"),
         nargs="+",
         required=True,
     )
@@ -161,7 +161,11 @@ def _add_sessions(parser: argparse.ArgumentParser) -> None:
 
 def _add_simulation_selection(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--profile-ref", type=Path, required=True)
-    parser.add_argument("--method", choices=("temporal", "iid"), required=True)
+    parser.add_argument(
+        "--method",
+        choices=("temporal", "iid", "fixed", "normal"),
+        required=True,
+    )
     parser.add_argument("--latency-seeds", type=int, nargs="+", required=True)
 
 
