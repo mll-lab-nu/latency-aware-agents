@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import yaml
+
+from latency_bench.executors.thread_env import THREAD_ENV_DEFAULTS
 
 
 def _write_config(path: Path) -> None:
@@ -26,6 +29,8 @@ def test_calibrate_env_fps_from_saturated_latency_uses_probe_samples(tmp_path, m
     config_path = tmp_path / "config.yaml"
     output_path = tmp_path / "env_fps_calibration.json"
     _write_config(config_path)
+    for key in THREAD_ENV_DEFAULTS:
+        monkeypatch.delenv(key, raising=False)
 
     def fake_probe(*, config_path, samples, skip, period_ms):
         return {
@@ -52,6 +57,7 @@ def test_calibrate_env_fps_from_saturated_latency_uses_probe_samples(tmp_path, m
     )
 
     written = json.loads(output_path.read_text(encoding="utf-8"))
+    assert {key: os.environ[key] for key in THREAD_ENV_DEFAULTS} == THREAD_ENV_DEFAULTS
     assert written == payload
     assert payload["calibration_source"] == "saturated_policy_latency"
     assert payload["selected_env_fps"] == 58
