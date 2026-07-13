@@ -130,7 +130,7 @@ CONFIG=configs/experiments/cross_device_isolated_30s.yaml bash start.sh
 
 两种 lifecycle 必须使用不同 workload ID；否则 `--resume` 可能跳过另一种语义的既有 session，fit 也可能混合不可比较的 traces。isolated session 中途失败时沿用现有规则：删除 partial session，并从 episode 0 整体重跑。
 
-按设备准备的一键 measure/fit/publish 脚本位于 `scripts/bash_scripts/cross_device/<device>/`，当前支持 `a100-sxm4-80gb`、`a100-sxm4-40gb`、`a100-pcie-80gb`、`a100-pcie-40gb`、`rtx-pro-6000-blackwell-ws`、`rtx-pro-6000-blackwell-server`、`rtx-pro-6000-blackwell-maxq-ws`、`l40s`、`rtx3090`、`rtx4090` 和 `rtx5090`。每个设备分别提供 `measure_consecutive.sh` 与 `measure_isolated_30s.sh`。不接受未指定具体型号的通用 A100 或 RTX PRO 6000 名称。
+按设备准备的一键 measure/fit/publish 脚本位于 `scripts/bash_scripts/cross_device/<device>/`，当前支持 `a100-sxm4-80gb`、`a100-sxm4-40gb`、`a100-pcie-80gb`、`a100-pcie-40gb`、`rtx-pro-6000-blackwell-ws`、`rtx-pro-6000-blackwell-server`、`rtx-pro-6000-blackwell-maxq-ws`、`l40s`、`rtx3090`、`rtx4090` 和 `rtx5090`。每个设备分别提供 `measure_consecutive.sh` 与 `measure_isolated_30s.sh`；isolated 脚本只采集 session 0 并生成 `fit-0`，consecutive 脚本采集 sessions 0–4 并生成 `fit-0-4`。不接受未指定具体型号的通用 A100 或 RTX PRO 6000 名称。
 
 ### 2. 从显式 sessions 拟合 profile revision
 

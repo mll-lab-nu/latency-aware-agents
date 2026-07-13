@@ -1184,3 +1184,61 @@ exit 0
     assert "--methods temporal" in calls
     assert "--latency-seeds 0 2" in calls
     assert calls.count("\n") == 1
+
+
+@pytest.mark.parametrize(
+    ("script_name", "session_args", "profile_revision"),
+    [
+        ("measure_isolated_30s.sh", "0", "fit-0"),
+        ("measure_consecutive.sh", "0 1 2 3 4", "fit-0-4"),
+    ],
+)
+def test_cross_device_measure_scripts_use_expected_sessions(
+    tmp_path,
+    script_name,
+    session_args,
+    profile_revision,
+):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir(exist_ok=True)
+    calls_path = tmp_path / "calls.log"
+    _write_executable(
+        fake_bin / "bash",
+        f"""#!/bin/bash
+set -euo pipefail
+printf '%s\n' "$*" >> "{calls_path}"
+if [[ "$*" == *"cross_device.sh target-ref"* ]]; then
+    printf '%s\n' 'device/instance/workload'
+fi
+""",
+    )
+
+    script_paths = sorted(
+        (REPO_ROOT / "scripts/bash_scripts/cross_device").glob(f"*/{script_name}")
+    )
+    assert script_paths
+    for script_path in script_paths:
+        calls_path.write_text("", encoding="utf-8")
+        subprocess.run(
+            ["/bin/bash", str(script_path)],
+            cwd=REPO_ROOT,
+            env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
+            check=True,
+        )
+
+        device_id = script_path.parent.name
+        calls = calls_path.read_text(encoding="utf-8").splitlines()
+        assert len(calls) == 5
+        assert calls[0].startswith("cross_device.sh measure ")
+        assert f"--hardware {device_id}" in calls[0]
+        assert calls[0].endswith(f"--sessions {session_args} --resume")
+        assert calls[1].startswith("cross_device.sh publish raw ")
+        assert f"--hardware {device_id}" in calls[1]
+        assert calls[1].endswith(f"--sessions {session_args} --resume")
+        assert calls[2].startswith("cross_device.sh target-ref ")
+        assert f"--hardware {device_id}" in calls[2]
+        assert calls[3].startswith("cross_device.sh fit ")
+        assert f"--profile-revision {profile_revision}" in calls[3]
+        assert calls[3].endswith(f"--sessions {session_args} --resume")
+        assert calls[4].startswith("cross_device.sh publish profile ")
+        assert f"--profile-ref device/instance/workload/{profile_revision}" in calls[4]
