@@ -12,20 +12,20 @@ from latency_bench.cross_device.spec import load_workload
 
 
 def test_artifact_paths_do_not_depend_on_real_or_sim_counts(tmp_path: Path):
-    target = target_ref("a100", "instance_01b95985", "openvla-flappy")
+    target = target_ref("a100-sxm4-80gb", "instance_01b95985", "openvla-flappy")
     profile = profile_ref(target, "fit-0")
 
     assert raw_workload_dir(tmp_path, target) == (
-        tmp_path / "raw/a100/instance_01b95985/openvla-flappy"
+        tmp_path / "raw/a100-sxm4-80gb/instance_01b95985/openvla-flappy"
     )
     assert raw_session_dir(tmp_path, target, 9) == (
-        tmp_path / "raw/a100/instance_01b95985/openvla-flappy/sessions/9"
+        tmp_path / "raw/a100-sxm4-80gb/instance_01b95985/openvla-flappy/sessions/9"
     )
     assert profile_dir(tmp_path, profile) == (
-        tmp_path / "profiles/a100/instance_01b95985/openvla-flappy/fit-0"
+        tmp_path / "profiles/a100-sxm4-80gb/instance_01b95985/openvla-flappy/fit-0"
     )
     assert simulation_seed_dir(tmp_path, profile, "temporal", 42) == (
-        tmp_path / "sim/a100/instance_01b95985/openvla-flappy/fit-0/temporal/42"
+        tmp_path / "sim/a100-sxm4-80gb/instance_01b95985/openvla-flappy/fit-0/temporal/42"
     )
 
 

@@ -90,7 +90,7 @@ def _write_profile(
     write_json(
         profile_dir / "profile.json",
         {
-            "profile_id": "L_A100",
+            "profile_id": "L_A100_SXM4_80GB",
             "policy_id": workload_id,
             "env_id": "flappy",
             "device_id": device_id,
@@ -170,7 +170,7 @@ def _write_outputs(
 
 def test_outputs_use_explicit_profile_sessions_and_seeds(tmp_path):
     root = tmp_path / "artifacts"
-    canonical_ref = Path("a100/instance_a/openvla-flappy/fit-0")
+    canonical_ref = Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-0")
     _write_complete_selection(root, canonical_ref, [0], {0: (2.0, 20.0)})
 
     paths = _write_outputs(tmp_path, root, [canonical_ref], [0])
@@ -222,7 +222,7 @@ def test_evaluation_scope_comes_from_explicit_selection(
     scope,
 ):
     root = tmp_path / "artifacts"
-    canonical_ref = Path("a100/instance_a/openvla-flappy/revision")
+    canonical_ref = Path("a100-sxm4-80gb/instance_a/openvla-flappy/revision")
     all_ids = set(fit_ids) | set(real_ids)
     _write_complete_selection(
         root,
@@ -241,8 +241,8 @@ def test_evaluation_scope_comes_from_explicit_selection(
 def test_profile_revisions_remain_separate(tmp_path):
     root = tmp_path / "artifacts"
     refs = [
-        Path("a100/instance_a/openvla-flappy/fit-0"),
-        Path("a100/instance_a/openvla-flappy/fit-0-1"),
+        Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-0"),
+        Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-0-1"),
     ]
     for canonical_ref in refs:
         _write_complete_selection(root, canonical_ref, [0], {0: (2.0, 20.0)})
@@ -256,7 +256,7 @@ def test_profile_revisions_remain_separate(tmp_path):
 
 def test_statistics_use_session_and_seed_means_not_pooled_episodes(tmp_path):
     root = tmp_path / "artifacts"
-    canonical_ref = Path("a100/instance_a/openvla-flappy/fit-2")
+    canonical_ref = Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-2")
     _write_raw_session(root, canonical_ref.parent, 2, 2.0, 20.0, [10.0, 20.0])
     _write_profile(root, canonical_ref, [2], [10.0, 20.0])
     _write_variable_run(root / "raw" / canonical_ref.parent / "sessions/0", [0.0])
@@ -292,14 +292,14 @@ def test_statistics_use_session_and_seed_means_not_pooled_episodes(tmp_path):
 @pytest.mark.parametrize(
     "relative_marker",
     [
-        "profiles/a100/instance_a/openvla-flappy/fit-0/DONE",
-        "raw/a100/instance_a/openvla-flappy/sessions/0/DONE",
-        "sim/a100/instance_a/openvla-flappy/fit-0/temporal/0/DONE",
+        "profiles/a100-sxm4-80gb/instance_a/openvla-flappy/fit-0/DONE",
+        "raw/a100-sxm4-80gb/instance_a/openvla-flappy/sessions/0/DONE",
+        "sim/a100-sxm4-80gb/instance_a/openvla-flappy/fit-0/temporal/0/DONE",
     ],
 )
 def test_selected_leaf_requires_done(tmp_path, relative_marker):
     root = tmp_path / "artifacts"
-    canonical_ref = Path("a100/instance_a/openvla-flappy/fit-0")
+    canonical_ref = Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-0")
     _write_complete_selection(root, canonical_ref, [0], {0: (2.0, 20.0)})
     (root / relative_marker).unlink()
 
@@ -309,7 +309,7 @@ def test_selected_leaf_requires_done(tmp_path, relative_marker):
 
 def test_constant_replicates_have_zero_difference_interval(tmp_path):
     root = tmp_path / "artifacts"
-    canonical_ref = Path("a100/instance_a/openvla-flappy/fit-0")
+    canonical_ref = Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-0")
     _write_complete_selection(
         root,
         canonical_ref,

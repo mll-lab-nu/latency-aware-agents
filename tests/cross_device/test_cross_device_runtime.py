@@ -9,7 +9,11 @@ import pytest
 import yaml
 
 from latency_bench.cross_device import protocol, runner, sync
-from latency_bench.cross_device.spec import load_workload, normalize_hardware_name
+from latency_bench.cross_device.spec import (
+    detect_hardware,
+    load_workload,
+    normalize_hardware_name,
+)
 from latency_bench.utils.io import read_json, write_json
 
 
@@ -24,7 +28,7 @@ def _install_runtime_fakes(monkeypatch, calls: dict) -> None:
     monkeypatch.setattr(
         runner,
         "collect_hardware_fingerprint",
-        lambda: {"gpu": {"uuid": "GPU-a100", "name": "A100"}},
+        lambda: {"gpu": {"uuid": "GPU-a100-sxm4-80gb", "name": "A100"}},
     )
 
     def fake_calibration(**kwargs):
@@ -53,7 +57,7 @@ def _install_runtime_fakes(monkeypatch, calls: dict) -> None:
 def _raw_dir(workload: dict) -> Path:
     return (
         Path(workload["artifact_root"])
-        / "raw/a100/instance_a/openvla-flappy"
+        / "raw/a100-sxm4-80gb/instance_a/openvla-flappy"
     )
 
 
@@ -68,13 +72,90 @@ def test_isolated_workload_has_independent_identity_and_explicit_cooldown():
     assert workload["n_episodes"] == 100
 
 
-def test_cross_device_config_supports_rtx3090():
+@pytest.mark.parametrize(
+    ("device_id", "display_name", "alias", "profile_id"),
+    [
+        (
+            "a100-sxm4-80gb",
+            "A100 SXM4 80GB",
+            "NVIDIA A100-SXM4-80GB",
+            "L_A100_SXM4_80GB",
+        ),
+        (
+            "a100-sxm4-40gb",
+            "A100 SXM4 40GB",
+            "NVIDIA A100-SXM4-40GB",
+            "L_A100_SXM4_40GB",
+        ),
+        (
+            "a100-pcie-80gb",
+            "A100 PCIe 80GB",
+            "NVIDIA A100-PCIE-80GB",
+            "L_A100_PCIE_80GB",
+        ),
+        (
+            "a100-pcie-40gb",
+            "A100 PCIe 40GB",
+            "NVIDIA A100-PCIE-40GB",
+            "L_A100_PCIE_40GB",
+        ),
+        ("l40s", "L40S", "NVIDIA L40S", "L_L40S"),
+        ("rtx3090", "RTX 3090", "NVIDIA GeForce RTX 3090", "L_3090"),
+        ("rtx4090", "RTX 4090", "NVIDIA GeForce RTX 4090", "L_4090"),
+        ("rtx5090", "RTX 5090", "NVIDIA GeForce RTX 5090", "L_5090"),
+        (
+            "rtx-pro-6000-blackwell-ws",
+            "RTX PRO 6000 Blackwell Workstation Edition",
+            "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+            "L_RTX_PRO_6000_BLACKWELL_WS",
+        ),
+        (
+            "rtx-pro-6000-blackwell-server",
+            "RTX PRO 6000 Blackwell Server Edition",
+            "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+            "L_RTX_PRO_6000_BLACKWELL_SERVER",
+        ),
+        (
+            "rtx-pro-6000-blackwell-maxq-ws",
+            "RTX PRO 6000 Blackwell Max-Q Workstation Edition",
+            "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition",
+            "L_RTX_PRO_6000_BLACKWELL_MAXQ_WS",
+        ),
+    ],
+)
+def test_cross_device_config_resolves_supported_device_names(
+    device_id,
+    display_name,
+    alias,
+    profile_id,
+):
     workload = load_workload("configs/experiments/cross_device.yaml")
 
-    device = normalize_hardware_name("NVIDIA GeForce RTX 3090", workload["devices"])
+    for name in (device_id, display_name, alias):
+        device = normalize_hardware_name(name, workload["devices"])
 
-    assert device["id"] == "rtx3090"
-    assert device["profile_id"] == "L_3090"
+        assert device["id"] == device_id
+        assert device["profile_id"] == profile_id
+
+
+@pytest.mark.parametrize(
+    "requested",
+    [
+        "a100",
+        "A100",
+        "NVIDIA A100",
+        "rtx6000pro",
+        "rtxpro6000blackwell",
+        "RTX PRO 6000 Blackwell",
+        "NVIDIA RTX PRO 6000 Blackwell",
+    ],
+)
+def test_cross_device_config_rejects_ambiguous_device_names(requested):
+    workload = load_workload("configs/experiments/cross_device.yaml")
+
+    assert normalize_hardware_name(requested, workload["devices"]) is None
+    with pytest.raises(SystemExit, match="Could not match hardware"):
+        detect_hardware(workload, requested)
 
 
 def test_isolated_measure_uses_its_own_artifact_path(tmp_path, monkeypatch):
@@ -83,9 +164,9 @@ def test_isolated_measure_uses_its_own_artifact_path(tmp_path, monkeypatch):
     calls = {"calibrations": [], "evaluations": []}
     _install_runtime_fakes(monkeypatch, calls)
 
-    target = runner.run_measure(workload, "a100", [0])
+    target = runner.run_measure(workload, "a100-sxm4-80gb", [0])
 
-    assert target == Path("a100/instance_a/openvla-flappy-isolated-30s")
+    assert target == Path("a100-sxm4-80gb/instance_a/openvla-flappy-isolated-30s")
     session_dir = Path(workload["artifact_root"]) / "raw" / target / "sessions/0"
     generated = yaml.safe_load((session_dir / "generated.yaml").read_text(encoding="utf-8"))
     assert generated["measurement"] == {
@@ -100,8 +181,8 @@ def test_measure_appends_sessions_and_reuses_calibration(tmp_path, monkeypatch):
     calls = {"calibrations": [], "evaluations": []}
     _install_runtime_fakes(monkeypatch, calls)
 
-    runner.run_measure(workload, "a100", [0])
-    runner.run_measure(workload, "a100", [1, 2])
+    runner.run_measure(workload, "a100-sxm4-80gb", [0])
+    runner.run_measure(workload, "a100-sxm4-80gb", [1, 2])
 
     raw_dir = _raw_dir(workload)
     assert len(calls["calibrations"]) == 1
@@ -125,17 +206,17 @@ def test_measure_resume_skips_done_and_replaces_partial_leaf(tmp_path, monkeypat
     workload = _workload(tmp_path)
     calls = {"calibrations": [], "evaluations": []}
     _install_runtime_fakes(monkeypatch, calls)
-    runner.run_measure(workload, "a100", [0])
+    runner.run_measure(workload, "a100-sxm4-80gb", [0])
     partial_dir = _raw_dir(workload) / "sessions/1"
     partial_dir.mkdir(parents=True)
     (partial_dir / "partial.txt").write_text("keep", encoding="utf-8")
 
-    runner.run_measure(workload, "a100", [0, 1], resume=True)
+    runner.run_measure(workload, "a100-sxm4-80gb", [0, 1], resume=True)
 
     assert [path.name for path in calls["evaluations"]] == ["0", "1"]
     assert not (partial_dir / "partial.txt").exists()
     with pytest.raises(FileExistsError):
-        runner.run_measure(workload, "a100", [0])
+        runner.run_measure(workload, "a100-sxm4-80gb", [0])
 
 
 def test_measure_reuses_remote_calibration_when_local_copy_is_missing(tmp_path, monkeypatch):
@@ -155,7 +236,7 @@ def test_measure_reuses_remote_calibration_when_local_copy_is_missing(tmp_path, 
 
     monkeypatch.setattr(runner, "download_calibration", fake_download)
 
-    runner.run_measure(workload, "a100", [0])
+    runner.run_measure(workload, "a100-sxm4-80gb", [0])
 
     assert calls["calibrations"] == []
     session_dir = _raw_dir(workload) / "sessions/0"
@@ -167,7 +248,7 @@ def test_fit_creates_independent_immutable_revisions(tmp_path, monkeypatch):
     workload = _workload(tmp_path)
     calls = {"calibrations": [], "evaluations": [], "profiles": []}
     _install_runtime_fakes(monkeypatch, calls)
-    runner.run_measure(workload, "a100", [0, 1, 2])
+    runner.run_measure(workload, "a100-sxm4-80gb", [0, 1, 2])
 
     def fake_build(**kwargs):
         calls["profiles"].append(kwargs)
@@ -182,10 +263,10 @@ def test_fit_creates_independent_immutable_revisions(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(runner, "build_profile_from_traces", fake_build)
-    target = Path("a100/instance_a/openvla-flappy")
+    target = Path("a100-sxm4-80gb/instance_a/openvla-flappy")
     partial_profile = (
         Path(workload["artifact_root"])
-        / "profiles/a100/instance_a/openvla-flappy/fit-0"
+        / "profiles/a100-sxm4-80gb/instance_a/openvla-flappy/fit-0"
     )
     partial_profile.mkdir(parents=True)
     (partial_profile / "partial.txt").write_text("discard", encoding="utf-8")
@@ -193,8 +274,8 @@ def test_fit_creates_independent_immutable_revisions(tmp_path, monkeypatch):
     first = runner.run_fit(workload, target, "fit-0", [0])
     second = runner.run_fit(workload, target, "fit-0-2", [0, 2])
 
-    assert first == Path("a100/instance_a/openvla-flappy/fit-0")
-    assert second == Path("a100/instance_a/openvla-flappy/fit-0-2")
+    assert first == Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-0")
+    assert second == Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-0-2")
     assert [
         [session["measure_session_id"] for session in call["sessions"]]
         for call in calls["profiles"]
@@ -205,7 +286,7 @@ def test_fit_creates_independent_immutable_revisions(tmp_path, monkeypatch):
     assert read_json(first_dir / "profile.json")["measurement"] == {
         "episode_lifecycle": "consecutive"
     }
-    assert read_json(first_dir / "hardware.json")["gpu"]["uuid"] == "GPU-a100"
+    assert read_json(first_dir / "hardware.json")["gpu"]["uuid"] == "GPU-a100-sxm4-80gb"
     with pytest.raises(FileExistsError):
         runner.run_fit(workload, target, "fit-0", [0])
     shutil.rmtree(_raw_dir(workload))
@@ -216,15 +297,15 @@ def test_simulation_appends_explicit_latency_seeds(tmp_path, monkeypatch):
     workload = _workload(tmp_path)
     calls = {"calibrations": [], "evaluations": []}
     _install_runtime_fakes(monkeypatch, calls)
-    canonical_ref = Path("a100/instance_a/openvla-flappy/fit-0")
+    canonical_ref = Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-0")
     downloaded = tmp_path / "downloaded-profile"
     write_json(
         downloaded / "profile.json",
         {
-            "profile_id": "L_A100",
+            "profile_id": "L_A100_SXM4_80GB",
             "env_fps": 16.0,
             "inference_worker_count": 2,
-            "device_id": "a100",
+            "device_id": "a100-sxm4-80gb",
             "instance_id": "instance_a",
             "profile_revision": "fit-0",
         },
@@ -284,15 +365,15 @@ def test_simulation_uses_profile_summary_for_parametric_methods(
     workload = _workload(tmp_path)
     calls = {"calibrations": [], "evaluations": []}
     _install_runtime_fakes(monkeypatch, calls)
-    canonical_ref = Path("a100/instance_a/openvla-flappy/fit-0")
+    canonical_ref = Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-0")
     downloaded = tmp_path / "downloaded-profile"
     write_json(
         downloaded / "profile.json",
         {
-            "profile_id": "L_A100",
+            "profile_id": "L_A100_SXM4_80GB",
             "env_fps": 16.0,
             "inference_worker_count": 2,
-            "device_id": "a100",
+            "device_id": "a100-sxm4-80gb",
             "instance_id": "instance_a",
             "profile_revision": "fit-0",
             "summary": {"mean_ms": 12.5, "std_ms": 3.25},
@@ -373,18 +454,18 @@ def test_calibration_publish_writes_snapshot_before_done(tmp_path, monkeypatch):
     _FakeHfApi.calls = []
     monkeypatch.setitem(sys.modules, "huggingface_hub", types.SimpleNamespace(HfApi=_FakeHfApi))
 
-    sync.publish_calibration(workload, raw_dir, Path("raw/a100/instance/workload"))
+    sync.publish_calibration(workload, raw_dir, Path("raw/a100-sxm4-80gb/instance/workload"))
 
     assert _FakeHfApi.calls == [
-        ("file", "raw/a100/instance/workload/calibration.json"),
-        ("file", "raw/a100/instance/workload/hardware.json"),
-        ("file", "raw/a100/instance/workload/calibration.DONE"),
+        ("file", "raw/a100-sxm4-80gb/instance/workload/calibration.json"),
+        ("file", "raw/a100-sxm4-80gb/instance/workload/hardware.json"),
+        ("file", "raw/a100-sxm4-80gb/instance/workload/calibration.DONE"),
     ]
 
 
 def test_analysis_download_requests_only_selected_leaves(tmp_path, monkeypatch):
     workload = _workload(tmp_path)
-    profile_ref = Path("a100/instance/workload/revision")
+    profile_ref = Path("a100-sxm4-80gb/instance/workload/revision")
     profile_dir = tmp_path / "profile"
     write_json(profile_dir / "profile.json", {"fit_session_ids": [0, 2]})
     calls = []
@@ -407,18 +488,18 @@ def test_analysis_download_requests_only_selected_leaves(tmp_path, monkeypatch):
 
     assert root == tmp_path
     assert set(calls[0]["allow_patterns"]) == {
-        "profiles/a100/instance/workload/revision/**",
-        "raw/a100/instance/workload/sessions/0/**",
-        "raw/a100/instance/workload/sessions/2/**",
-        "raw/a100/instance/workload/sessions/5/**",
-        "sim/a100/instance/workload/revision/temporal/1/**",
-        "sim/a100/instance/workload/revision/temporal/3/**",
-        "sim/a100/instance/workload/revision/iid/1/**",
-        "sim/a100/instance/workload/revision/iid/3/**",
-        "sim/a100/instance/workload/revision/fixed/1/**",
-        "sim/a100/instance/workload/revision/fixed/3/**",
-        "sim/a100/instance/workload/revision/normal/1/**",
-        "sim/a100/instance/workload/revision/normal/3/**",
+        "profiles/a100-sxm4-80gb/instance/workload/revision/**",
+        "raw/a100-sxm4-80gb/instance/workload/sessions/0/**",
+        "raw/a100-sxm4-80gb/instance/workload/sessions/2/**",
+        "raw/a100-sxm4-80gb/instance/workload/sessions/5/**",
+        "sim/a100-sxm4-80gb/instance/workload/revision/temporal/1/**",
+        "sim/a100-sxm4-80gb/instance/workload/revision/temporal/3/**",
+        "sim/a100-sxm4-80gb/instance/workload/revision/iid/1/**",
+        "sim/a100-sxm4-80gb/instance/workload/revision/iid/3/**",
+        "sim/a100-sxm4-80gb/instance/workload/revision/fixed/1/**",
+        "sim/a100-sxm4-80gb/instance/workload/revision/fixed/3/**",
+        "sim/a100-sxm4-80gb/instance/workload/revision/normal/1/**",
+        "sim/a100-sxm4-80gb/instance/workload/revision/normal/3/**",
     }
 
 
@@ -449,7 +530,7 @@ def test_protocol_dispatches_explicit_simulation_selection(
         [
             *command,
             "--profile-ref",
-            "a100/instance_a/openvla-flappy/fit-0",
+            "a100-sxm4-80gb/instance_a/openvla-flappy/fit-0",
             "--method",
             method,
             "--latency-seeds",
@@ -464,7 +545,7 @@ def test_protocol_dispatches_explicit_simulation_selection(
         (
             (
                 workload,
-                Path("a100/instance_a/openvla-flappy/fit-0"),
+                Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-0"),
                 method,
                 [0, 2, 7],
             ),
@@ -478,7 +559,7 @@ def test_protocol_aggregate_dispatches_explicit_artifact_selection(
     monkeypatch,
 ):
     workload = {"artifact_root": str(tmp_path), "workload": {"id": "workload"}}
-    profile_refs = [Path("a100/instance/workload/revision")]
+    profile_refs = [Path("a100-sxm4-80gb/instance/workload/revision")]
     calls = []
     monkeypatch.setattr(protocol, "load_workload", lambda _path: workload)
     monkeypatch.setattr(

@@ -54,21 +54,13 @@ def normalize_hardware_name(name: str, devices: list[dict[str, Any]]) -> dict[st
         devices: Device entries from the protocol spec.
 
     Returns:
-        The matched device entry, or None when no alias overlaps.
+        The matched device entry, or None when no normalized name matches.
     """
     candidates = _hardware_name_candidates(name)
     for normalized in candidates:
         for device in devices:
             names = [device["id"], device["display_name"], *device["aliases"]]
             if any(_normalize_name(item) == normalized for item in names):
-                return device
-    for normalized in candidates:
-        if not normalized:
-            continue
-        for device in devices:
-            names = [device["id"], device["display_name"], *device["aliases"]]
-            aliases = [_normalize_name(item) for item in names]
-            if any(_hardware_names_overlap(normalized, alias) for alias in aliases):
                 return device
     return None
 
@@ -82,12 +74,6 @@ def _hardware_name_candidates(name: str) -> list[str]:
         if normalized and normalized not in candidates:
             candidates.append(normalized)
     return candidates
-
-
-def _hardware_names_overlap(detected: str, known: str) -> bool:
-    if len(detected) < 4 or len(known) < 4:
-        return False
-    return detected in known or known in detected
 
 
 def _normalize_name(value: Any) -> str:

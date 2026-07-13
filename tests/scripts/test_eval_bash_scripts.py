@@ -1163,7 +1163,7 @@ exit 0
             "/bin/bash",
             str(script_path),
             "--profile-ref",
-            "a100/instance/workload/revision",
+            "a100-sxm4-80gb/instance/workload/revision",
             "--real-sessions",
             "0",
             "--methods",
@@ -1179,7 +1179,7 @@ exit 0
 
     calls = calls_path.read_text(encoding="utf-8")
     assert "cross_device.sh aggregate" in calls
-    assert "--profile-ref a100/instance/workload/revision" in calls
+    assert "--profile-ref a100-sxm4-80gb/instance/workload/revision" in calls
     assert "--real-sessions 0" in calls
     assert "--methods temporal" in calls
     assert "--latency-seeds 0 2" in calls
