@@ -11,14 +11,9 @@ from typing import Any, Protocol
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import build_env_adapter
+from latency_bench.executors.thread_env import set_thread_env_defaults
 
 
-THREAD_ENV_DEFAULTS = {
-    "OMP_NUM_THREADS": "1",
-    "MKL_NUM_THREADS": "1",
-    "OPENBLAS_NUM_THREADS": "1",
-    "NUMEXPR_NUM_THREADS": "1",
-}
 START_METHOD_ENV = "LATENCY_BENCH_ENV_BACKEND_START_METHOD"
 WORKER_TIMEOUT_ENV = "LATENCY_BENCH_ENV_WORKER_TIMEOUT_SEC"
 
@@ -186,7 +181,7 @@ class SubprocEnvStepBackend:
     ):
         if int(num_slots) <= 0:
             raise ValueError("SubprocEnvStepBackend requires at least one env slot")
-        _set_thread_env_defaults()
+        set_thread_env_defaults()
         self.config = config
         self.noop_action = noop_action
         self.timeout_sec = _worker_timeout_sec() if timeout_sec is None else float(timeout_sec)
@@ -472,12 +467,6 @@ def _env_worker(connection: Any, config: dict[str, Any], noop_action: Action, sl
             connection.close()
         except BaseException:
             pass
-
-
-def _set_thread_env_defaults() -> None:
-    for key, value in THREAD_ENV_DEFAULTS.items():
-        os.environ.setdefault(key, value)
-
 
 def _worker_timeout_sec() -> float:
     raw_value = os.environ.get(WORKER_TIMEOUT_ENV)

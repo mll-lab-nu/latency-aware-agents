@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import multiprocessing as mp
-import os
 import statistics
 import time
 from copy import deepcopy
@@ -12,6 +11,7 @@ from typing import Any
 
 from latency_bench.core.config import load_config
 from latency_bench.core.timing import StageProfiler, profiler_scope
+from latency_bench.executors.thread_env import set_thread_env_defaults
 from latency_bench.latency.env_fps_calibration import select_env_fps_from_latency_samples
 from latency_bench.latency.hardware_info import visible_cuda_device_count
 
@@ -30,6 +30,7 @@ def calibrate_env_fps_from_saturated_latency(
     skip: int = DEFAULT_SKIP,
     paced_period_ms: float | None = None,
 ) -> dict[str, Any]:
+    set_thread_env_defaults()
     config = load_config(config_path)
     saturated = _run_spawned_latency_probe(
         config_path=Path(config_path),

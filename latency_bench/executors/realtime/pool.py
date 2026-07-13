@@ -5,13 +5,13 @@ import multiprocessing as mp
 import time
 from typing import Any
 
-from latency_bench.executors.env_step_backend import _set_thread_env_defaults
 from latency_bench.executors.realtime.inference_worker import _inference_worker
 from latency_bench.executors.realtime.messages import (
     RealtimeObservationTask,
     RealtimePolicyCompletion,
 )
 from latency_bench.executors.realtime.timing import monotonic_ms
+from latency_bench.executors.thread_env import set_thread_env_defaults
 
 REALTIME_INFERENCE_START_METHOD = "spawn"
 
@@ -23,7 +23,7 @@ class ProcessInferencePool:
         config: dict[str, Any],
         inference_devices: list[str],
     ):
-        _set_thread_env_defaults()
+        set_thread_env_defaults()
         self.config = config
         self.inference_devices = list(inference_devices)
         self.start_method = REALTIME_INFERENCE_START_METHOD
