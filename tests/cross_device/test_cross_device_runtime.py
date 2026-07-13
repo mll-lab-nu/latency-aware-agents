@@ -57,6 +57,35 @@ def _raw_dir(workload: dict) -> Path:
     )
 
 
+def test_isolated_workload_has_independent_identity_and_explicit_cooldown():
+    workload = load_workload("configs/experiments/cross_device_isolated_60s.yaml")
+
+    assert workload["workload"]["id"] == "openvla-flappy-isolated-60s"
+    assert workload["measurement"] == {
+        "episode_lifecycle": "isolated",
+        "cooldown_s": 60,
+    }
+    assert workload["n_episodes"] == 100
+
+
+def test_isolated_measure_uses_its_own_artifact_path(tmp_path, monkeypatch):
+    workload = load_workload("configs/experiments/cross_device_isolated_60s.yaml")
+    workload["artifact_root"] = str(tmp_path / "artifacts")
+    calls = {"calibrations": [], "evaluations": []}
+    _install_runtime_fakes(monkeypatch, calls)
+
+    target = runner.run_measure(workload, "a100", [0])
+
+    assert target == Path("a100/instance_a/openvla-flappy-isolated-60s")
+    session_dir = Path(workload["artifact_root"]) / "raw" / target / "sessions/0"
+    generated = yaml.safe_load((session_dir / "generated.yaml").read_text(encoding="utf-8"))
+    assert generated["measurement"] == {
+        "episode_lifecycle": "isolated",
+        "cooldown_s": 60,
+    }
+    assert (session_dir / "DONE").is_file()
+
+
 def test_measure_appends_sessions_and_reuses_calibration(tmp_path, monkeypatch):
     workload = _workload(tmp_path)
     calls = {"calibrations": [], "evaluations": []}
@@ -70,11 +99,17 @@ def test_measure_appends_sessions_and_reuses_calibration(tmp_path, monkeypatch):
     assert [path.name for path in calls["evaluations"]] == ["0", "1", "2"]
     assert (raw_dir / "calibration.DONE").is_file()
     assert not (raw_dir / "DONE").exists()
+    calibration_generated = yaml.safe_load(
+        (raw_dir / "calibration.generated.yaml").read_text(encoding="utf-8")
+    )
+    assert "measurement" not in calibration_generated
     for session_id in range(3):
         session_dir = raw_dir / "sessions" / str(session_id)
         assert (session_dir / "DONE").is_file()
         assert read_json(session_dir / "calibration.json")["selected_env_fps"] == 16.0
         assert read_json(session_dir / "hardware.json")["gpu"]["name"] == "A100"
+        generated = yaml.safe_load((session_dir / "generated.yaml").read_text(encoding="utf-8"))
+        assert generated["measurement"] == {"episode_lifecycle": "consecutive"}
 
 
 def test_measure_resume_skips_done_and_replaces_partial_leaf(tmp_path, monkeypatch):
@@ -158,6 +193,9 @@ def test_fit_creates_independent_immutable_revisions(tmp_path, monkeypatch):
     first_dir = Path(workload["artifact_root"]) / "profiles" / first
     assert not (first_dir / "partial.txt").exists()
     assert read_json(first_dir / "profile.json")["fit_session_ids"] == [0]
+    assert read_json(first_dir / "profile.json")["measurement"] == {
+        "episode_lifecycle": "consecutive"
+    }
     assert read_json(first_dir / "hardware.json")["gpu"]["uuid"] == "GPU-a100"
     with pytest.raises(FileExistsError):
         runner.run_fit(workload, target, "fit-0", [0])
@@ -204,6 +242,7 @@ def test_simulation_appends_explicit_latency_seeds(tmp_path, monkeypatch):
     assert generated["latency"]["profile_ref"] == canonical_ref.as_posix()
     assert generated["latency"]["seed"] == 7
     assert "simulation_host" not in generated["latency"]
+    assert "measurement" not in generated
     with pytest.raises(FileExistsError):
         runner.run_simulation(workload, canonical_ref, "temporal", [0])
     monkeypatch.setattr(

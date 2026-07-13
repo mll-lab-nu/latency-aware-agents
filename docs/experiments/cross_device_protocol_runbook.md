@@ -36,6 +36,7 @@ raw/<device>/<instance>/<workload>/
     infer_latencies.jsonl
     actions.jsonl
     steps.jsonl
+    warmup/episode_<episode_id>/  # isolated lifecycle only
     ...
     DONE
 
@@ -91,6 +92,43 @@ bash cross_device.sh publish raw --sessions 0 1 2 --resume
 ```
 
 第一次测量会创建 target/workload 的 calibration。以后追加 sessions 会复用同一 calibration，并在每个 session 中保存其快照。
+
+#### Episode lifecycle
+
+默认配置使用连续语义：session 只创建一次 realtime runtime、warmup 一次，然后连续运行全部 episodes。
+
+```yaml
+measurement:
+  episode_lifecycle: consecutive
+```
+
+隔离配置位于 `configs/experiments/cross_device_isolated_60s.yaml`，继承相同模型和环境，但使用独立的 `workload.id=openvla-flappy-isolated-60s`：
+
+```yaml
+measurement:
+  episode_lifecycle: isolated
+  cooldown_s: 60
+```
+
+isolated 模式对每个 episode（包括 episode 0）执行以下完整周期：
+
+```text
+关闭 inference workers、模型 CUDA context 和 realtime runtime
+-> 等待 60 秒
+-> 重建 runtime
+-> stress warmup
+-> 运行一个正式 episode
+```
+
+最后一个 episode 结束后只清理资源，不再等待。正式 episode 的 JSONL 和统计仍写入同一 session；每轮 warmup 诊断独立保存在 `warmup/episode_<episode_id>/`。固定等待不轮询 GPU 温度、功耗或利用率，也不控制外部 GPU 作业。
+
+可直接运行完整 isolated 流程：
+
+```bash
+CONFIG=configs/experiments/cross_device_isolated_60s.yaml bash start.sh
+```
+
+两种 lifecycle 必须使用不同 workload ID；否则 `--resume` 可能跳过另一种语义的既有 session，fit 也可能混合不可比较的 traces。isolated session 中途失败时沿用现有规则：删除 partial session，并从 episode 0 整体重跑。
 
 ### 2. 从显式 sessions 拟合 profile revision
 

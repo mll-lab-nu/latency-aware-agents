@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -23,7 +24,7 @@ class Executor(ABC):
     env: Any
     logger: TrajectoryLogger | None
 
-    def run_warmup(self) -> dict[str, Any]:
+    def run_warmup(self, *, artifact_dir: str | Path | None = None) -> dict[str, Any]:
         """Warm up before evaluation; returns metadata merged into episode metrics."""
         return {}
 

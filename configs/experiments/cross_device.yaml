@@ -4,6 +4,9 @@ n_episodes: 100
 sim_parallel_envs: 1
 evaluation_seed: 0
 
+measurement:
+  episode_lifecycle: consecutive
+
 calibration:
   worker_utilization_cap: 0.8
 

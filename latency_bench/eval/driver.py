@@ -8,14 +8,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from training.common.utils import seed_everything
-from latency_bench.core.types import EpisodeMetrics, ExecutorMode
+from latency_bench.core.types import EpisodeLifecycle, EpisodeMetrics, ExecutorMode
 from latency_bench.eval.config import _episode_seed, _eval_episodes, _eval_max_steps
 from latency_bench.eval.reporting import _write_non_sweep_summary
 from latency_bench.executors.base import BatchedExecutor
 from latency_bench.executors.factory import build_executor
+from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor
 from latency_bench.executors.realtime_warmup import plot_realtime_eval_latency
 from latency_bench.latency.config import latency_type_from_config
 from latency_bench.logging.action_trace_replay import record_videos_from_action_trace
@@ -42,9 +43,27 @@ def run_from_config(
 
     executor = build_executor(config, **({"policy": policy} if policy is not None else {}))
     metrics = []
+    warmup_metadata_by_episode: dict[int, dict[str, Any]] = {}
     try:
-        warmup_metadata = executor.run_warmup()
-        if isinstance(executor, BatchedExecutor):
+        if _episode_lifecycle(config) == EpisodeLifecycle.ISOLATED:
+            realtime_executor = cast(RealtimeLatencyExecutor, executor)
+            for episode_id in selected_episode_ids:
+                realtime_executor.restart_runtime(config["measurement"]["cooldown_s"])
+                warmup_metadata_by_episode[episode_id] = realtime_executor.run_warmup(
+                    artifact_dir=Path(logging_cfg["output_dir"])
+                    / "warmup"
+                    / f"episode_{episode_id:06d}",
+                )
+                episode_metrics = realtime_executor.run_episode(
+                    episode_id=episode_id,
+                    seed=_episode_seed(config, episode_id),
+                    eval_max_steps=eval_max_steps,
+                )
+                metrics.append(episode_metrics)
+                if on_episode_complete is not None:
+                    on_episode_complete(episode_metrics)
+        elif isinstance(executor, BatchedExecutor):
+            warmup_metadata = executor.run_warmup()
             run_episodes_kwargs: dict[str, Any] = {
                 "episode_ids": selected_episode_ids,
                 "seeds": [_episode_seed(config, episode_id) for episode_id in selected_episode_ids],
@@ -53,8 +72,13 @@ def run_from_config(
             if on_episode_complete is not None:
                 run_episodes_kwargs["on_episode_complete"] = on_episode_complete
             metrics = list(executor.run_episodes(**run_episodes_kwargs))
+            warmup_metadata_by_episode.update(
+                (episode_id, warmup_metadata) for episode_id in selected_episode_ids
+            )
         else:
+            warmup_metadata = executor.run_warmup()
             for episode_id in selected_episode_ids:
+                warmup_metadata_by_episode[episode_id] = warmup_metadata
                 episode_metrics = executor.run_episode(
                     episode_id=episode_id,
                     seed=_episode_seed(config, episode_id),
@@ -68,7 +92,9 @@ def run_from_config(
             for key, value in _evaluation_raw_fact_metadata(config, int(episode_metrics.episode_id)).items():
                 if episode_metrics.metadata.get(key) is None:
                     episode_metrics.metadata[key] = value
-            episode_metrics.metadata.update(warmup_metadata)
+            episode_metrics.metadata.update(warmup_metadata_by_episode[int(episode_metrics.episode_id)])
+            if "measurement" in config:
+                episode_metrics.metadata["measurement"] = config["measurement"]
             episode_metrics.metadata["config_name"] = experiment_cfg.get("name")
             episode_metrics.metadata["run_name"] = experiment_cfg.get("name")
             if "checkpoint_path" in policy_cfg:
@@ -87,6 +113,12 @@ def run_from_config(
     finally:
         executor.close()
     return metrics
+
+
+def _episode_lifecycle(config: dict[str, Any]) -> EpisodeLifecycle:
+    if "measurement" not in config:
+        return EpisodeLifecycle.CONSECUTIVE
+    return EpisodeLifecycle(config["measurement"]["episode_lifecycle"])
 
 
 def _record_realtime_eval_latency_plot(config: dict[str, Any], executor: Any) -> None:

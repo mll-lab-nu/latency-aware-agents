@@ -31,6 +31,7 @@ def measure_config(
     config = calibration_config(workload, device, instance_id, output_dir)
     config["env"]["env_fps"] = calibration["selected_env_fps"]
     config["env"]["obs_fps"] = calibration["selected_obs_fps"]
+    config["measurement"] = deepcopy(workload["measurement"])
     return config
 
 

@@ -17,7 +17,7 @@ from latency_bench.executors.realtime.env_worker import (
     _drain_env_action_messages,
     _drain_env_actions_until_wall_time,
 )
-from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor
+from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor, RealtimeRuntime
 from latency_bench.executors.realtime.inference_worker import (
     _inference_worker,
     _worker_runtime_metadata,
@@ -533,13 +533,17 @@ def _executor(
         persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
         ordering_policy=ordering_policy,
     )
-    return RealtimeLatencyExecutor(
+    runtime = RealtimeRuntime(
         env=env,
-        policy=ConstantPolicyRunner(Action("unused")),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_source=ZeroSampler(clock=clock),
         action_scheduler=action_scheduler,
         clock=clock,
+    )
+    return RealtimeLatencyExecutor(
+        runtime=runtime,
+        runtime_factory=lambda: runtime,
+        policy=ConstantPolicyRunner(Action("unused")),
         logger=logger,
         time_fn=fake_clock.time,
         sleep_fn=fake_clock.sleep,
@@ -547,6 +551,73 @@ def _executor(
         video_recorder=video_recorder,
         config=config,
     )
+
+
+def test_restart_runtime_rebuilds_owned_resources_and_preserves_session_state(
+    monkeypatch,
+    tmp_path,
+):
+    fake_clock = FakeClock()
+    runtimes = []
+    noop = Action("noop", name="noop", is_noop=True)
+
+    def build_runtime():
+        env = DummyEnvAdapter(env_fps=30.0, max_steps=2, noop_action=noop)
+        clock = EnvClock(env_fps=30.0, obs_fps=30.0)
+        runtime = RealtimeRuntime(
+            env=env,
+            decision_scheduler=ObservationCadenceDecisionScheduler(clock),
+            latency_source=ZeroSampler(clock=clock),
+            action_scheduler=ActionScheduler(
+                clock=clock,
+                noop_action=noop,
+                persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+                ordering_policy=OrderingPolicy.LATEST_READY,
+            ),
+            clock=clock,
+        )
+        runtimes.append(runtime)
+        return runtime
+
+    logger = TrajectoryLogger(
+        tmp_path,
+        save_step_records=True,
+        save_action_records=True,
+        save_latency_records=True,
+    )
+    old_pool = ScriptedInferencePool([], num_workers=1)
+    new_pool = ScriptedInferencePool([], num_workers=1)
+    monkeypatch.setattr(realtime_executor, "ProcessInferencePool", lambda **_kwargs: new_pool)
+    executor = RealtimeLatencyExecutor(
+        runtime=build_runtime(),
+        runtime_factory=build_runtime,
+        policy=None,
+        logger=logger,
+        time_fn=fake_clock.time,
+        sleep_fn=fake_clock.sleep,
+        inference_pool=old_pool,
+        config={"logging": {"output_dir": str(tmp_path)}},
+        inference_devices=["cuda:0"],
+    )
+    executor._next_obs_id = 17
+    executor._next_action_id = 11
+
+    executor.restart_runtime(60)
+
+    assert old_pool.closed
+    assert runtimes[0].env.closed
+    assert fake_clock.sleeps == [60.0]
+    assert executor.env is runtimes[1].env
+    assert executor.inference_pool is None
+    assert executor.logger is logger
+    assert executor._next_obs_id == 17
+    assert executor._next_action_id == 11
+    assert executor._ensure_inference_pool() is new_pool
+
+    executor.close()
+
+    assert new_pool.closed
+    assert runtimes[1].env.closed
 
 
 def test_env_process_ignores_late_action_when_pipe_is_closed(monkeypatch):
@@ -1271,7 +1342,8 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path):
         config={"logging": {"output_dir": str(tmp_path)}},
     )
 
-    summary = executor.run_warmup()
+    warmup_dir = tmp_path / "warmup/episode_000000"
+    summary = executor.run_warmup(artifact_dir=warmup_dir)
 
     assert summary["warmup_mode"] == "stress_policy"
     assert summary["warmup_status"] == "stable"
@@ -1279,10 +1351,11 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path):
     assert summary["warmup_stage_summary"]["policy_wrapper_predict_action_ms"]["p50"] == pytest.approx(0.4)
     assert len(pool.submitted) == 3
     assert len(formal_logger.latency_records) == 0
-    assert (tmp_path / "warmup_latencies.jsonl").is_file()
-    assert (tmp_path / "warmup_pipeline_profile.jsonl").is_file()
-    assert (tmp_path / "warmup_summary.json").is_file()
-    assert (tmp_path / "warmup_stability.png").is_file()
+    assert (warmup_dir / "warmup_latencies.jsonl").is_file()
+    assert (warmup_dir / "warmup_pipeline_profile.jsonl").is_file()
+    assert (warmup_dir / "warmup_summary.json").is_file()
+    assert (warmup_dir / "warmup_stability.png").is_file()
+    assert not (tmp_path / "warmup_summary.json").exists()
     assert not (tmp_path / "latencies.jsonl").exists()
 
 
