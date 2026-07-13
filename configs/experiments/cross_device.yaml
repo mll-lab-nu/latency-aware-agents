@@ -14,15 +14,25 @@ hf_repo: latency-sensitive-bench/profiles
 hf_repo_type: dataset
 
 devices:
-  - id: a100
-    display_name: A100
-    profile_id: L_A100
+  - id: a100-sxm4-80gb
+    display_name: A100 SXM4 80GB
+    profile_id: L_A100_SXM4_80GB
     aliases:
-      - A100
-      - NVIDIA A100
       - NVIDIA A100-SXM4-80GB
+  - id: a100-sxm4-40gb
+    display_name: A100 SXM4 40GB
+    profile_id: L_A100_SXM4_40GB
+    aliases:
       - NVIDIA A100-SXM4-40GB
+  - id: a100-pcie-80gb
+    display_name: A100 PCIe 80GB
+    profile_id: L_A100_PCIE_80GB
+    aliases:
       - NVIDIA A100-PCIE-80GB
+  - id: a100-pcie-40gb
+    display_name: A100 PCIe 40GB
+    profile_id: L_A100_PCIE_40GB
+    aliases:
       - NVIDIA A100-PCIE-40GB
   - id: l40s
     display_name: L40S
@@ -48,6 +58,21 @@ devices:
     aliases:
       - RTX 5090
       - NVIDIA GeForce RTX 5090
+  - id: rtx-pro-6000-blackwell-ws
+    display_name: RTX PRO 6000 Blackwell Workstation Edition
+    profile_id: L_RTX_PRO_6000_BLACKWELL_WS
+    aliases:
+      - NVIDIA RTX PRO 6000 Blackwell Workstation Edition
+  - id: rtx-pro-6000-blackwell-server
+    display_name: RTX PRO 6000 Blackwell Server Edition
+    profile_id: L_RTX_PRO_6000_BLACKWELL_SERVER
+    aliases:
+      - NVIDIA RTX PRO 6000 Blackwell Server Edition
+  - id: rtx-pro-6000-blackwell-maxq-ws
+    display_name: RTX PRO 6000 Blackwell Max-Q Workstation Edition
+    profile_id: L_RTX_PRO_6000_BLACKWELL_MAXQ_WS
+    aliases:
+      - NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition
 
 workload:
   id: openvla-flappy
