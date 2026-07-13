@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from latency_bench.cross_device import protocol, runner, sync
-from latency_bench.cross_device.spec import load_workload
+from latency_bench.cross_device.spec import load_workload, normalize_hardware_name
 from latency_bench.utils.io import read_json, write_json
 
 
@@ -58,30 +58,39 @@ def _raw_dir(workload: dict) -> Path:
 
 
 def test_isolated_workload_has_independent_identity_and_explicit_cooldown():
-    workload = load_workload("configs/experiments/cross_device_isolated_60s.yaml")
+    workload = load_workload("configs/experiments/cross_device_isolated_30s.yaml")
 
-    assert workload["workload"]["id"] == "openvla-flappy-isolated-60s"
+    assert workload["workload"]["id"] == "openvla-flappy-isolated-30s"
     assert workload["measurement"] == {
         "episode_lifecycle": "isolated",
-        "cooldown_s": 60,
+        "cooldown_s": 30,
     }
     assert workload["n_episodes"] == 100
 
 
+def test_cross_device_config_supports_rtx3090():
+    workload = load_workload("configs/experiments/cross_device.yaml")
+
+    device = normalize_hardware_name("NVIDIA GeForce RTX 3090", workload["devices"])
+
+    assert device["id"] == "rtx3090"
+    assert device["profile_id"] == "L_3090"
+
+
 def test_isolated_measure_uses_its_own_artifact_path(tmp_path, monkeypatch):
-    workload = load_workload("configs/experiments/cross_device_isolated_60s.yaml")
+    workload = load_workload("configs/experiments/cross_device_isolated_30s.yaml")
     workload["artifact_root"] = str(tmp_path / "artifacts")
     calls = {"calibrations": [], "evaluations": []}
     _install_runtime_fakes(monkeypatch, calls)
 
     target = runner.run_measure(workload, "a100", [0])
 
-    assert target == Path("a100/instance_a/openvla-flappy-isolated-60s")
+    assert target == Path("a100/instance_a/openvla-flappy-isolated-30s")
     session_dir = Path(workload["artifact_root"]) / "raw" / target / "sessions/0"
     generated = yaml.safe_load((session_dir / "generated.yaml").read_text(encoding="utf-8"))
     assert generated["measurement"] == {
         "episode_lifecycle": "isolated",
-        "cooldown_s": 60,
+        "cooldown_s": 30,
     }
     assert (session_dir / "DONE").is_file()
 

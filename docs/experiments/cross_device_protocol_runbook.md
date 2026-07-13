@@ -102,19 +102,19 @@ measurement:
   episode_lifecycle: consecutive
 ```
 
-隔离配置位于 `configs/experiments/cross_device_isolated_60s.yaml`，继承相同模型和环境，但使用独立的 `workload.id=openvla-flappy-isolated-60s`：
+隔离配置位于 `configs/experiments/cross_device_isolated_30s.yaml`，继承相同模型和环境，但使用独立的 `workload.id=openvla-flappy-isolated-30s`：
 
 ```yaml
 measurement:
   episode_lifecycle: isolated
-  cooldown_s: 60
+  cooldown_s: 30
 ```
 
 isolated 模式对每个 episode（包括 episode 0）执行以下完整周期：
 
 ```text
 关闭 inference workers、模型 CUDA context 和 realtime runtime
--> 等待 60 秒
+-> 等待 30 秒
 -> 重建 runtime
 -> stress warmup
 -> 运行一个正式 episode
@@ -125,10 +125,12 @@ isolated 模式对每个 episode（包括 episode 0）执行以下完整周期�
 可直接运行完整 isolated 流程：
 
 ```bash
-CONFIG=configs/experiments/cross_device_isolated_60s.yaml bash start.sh
+CONFIG=configs/experiments/cross_device_isolated_30s.yaml bash start.sh
 ```
 
 两种 lifecycle 必须使用不同 workload ID；否则 `--resume` 可能跳过另一种语义的既有 session，fit 也可能混合不可比较的 traces。isolated session 中途失败时沿用现有规则：删除 partial session，并从 episode 0 整体重跑。
+
+按设备准备的一键 measure/fit/publish 脚本位于 `scripts/bash_scripts/cross_device/<device>/`，当前支持 `a100`、`l40s`、`rtx3090`、`rtx4090` 和 `rtx5090`。每个设备分别提供 `measure_consecutive.sh` 与 `measure_isolated_30s.sh`。
 
 ### 2. 从显式 sessions 拟合 profile revision
 

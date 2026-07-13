@@ -30,6 +30,12 @@ devices:
     aliases:
       - L40S
       - NVIDIA L40S
+  - id: rtx3090
+    display_name: RTX 3090
+    profile_id: L_3090
+    aliases:
+      - RTX 3090
+      - NVIDIA GeForce RTX 3090
   - id: rtx4090
     display_name: RTX 4090
     profile_id: L_4090
