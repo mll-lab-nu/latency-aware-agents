@@ -17,7 +17,7 @@ from latency_bench.executors.backend_selection import (
 from latency_bench.executors.base import Executor
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
 from latency_bench.executors.paused import PausedLatencyExecutor
-from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor
+from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor, RealtimeRuntime
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.latency.config import (
@@ -82,30 +82,55 @@ def _build_trajectory_logger(config: dict[str, Any]) -> TrajectoryLogger:
 
 
 @dataclass(frozen=True)
-class _CommonExecutorComponents:
+class _ExecutorRuntimeComponents:
     action_resolver: ActionResolver
     env: EnvAdapter
     clock: EnvClock
     decision_scheduler: DecisionScheduler
     action_scheduler: ActionScheduler
+
+
+@dataclass(frozen=True)
+class _CommonExecutorComponents(_ExecutorRuntimeComponents):
     logger: TrajectoryLogger | None
 
 
-def _build_common_executor_components(config: dict[str, Any]) -> _CommonExecutorComponents:
-    """Build the executor dependencies that are identical across the single-episode modes."""
+def _build_executor_runtime_components(config: dict[str, Any]) -> _ExecutorRuntimeComponents:
     action_resolver = ActionResolver(config["env"])
     env = build_env_adapter(config, action_resolver.noop_action)
     clock = _build_clock(config)
     decision_scheduler = _build_decision_scheduler(clock)
     action_scheduler = build_action_scheduler(config["scheduler"], clock=clock, noop_action=env.noop_action)
-    logger = _build_trajectory_logger(config)
-    return _CommonExecutorComponents(
+    return _ExecutorRuntimeComponents(
         action_resolver=action_resolver,
         env=env,
         clock=clock,
         decision_scheduler=decision_scheduler,
         action_scheduler=action_scheduler,
-        logger=logger,
+    )
+
+
+def _build_common_executor_components(config: dict[str, Any]) -> _CommonExecutorComponents:
+    """Build the executor dependencies that are identical across the single-episode modes."""
+    runtime = _build_executor_runtime_components(config)
+    return _CommonExecutorComponents(
+        action_resolver=runtime.action_resolver,
+        env=runtime.env,
+        clock=runtime.clock,
+        decision_scheduler=runtime.decision_scheduler,
+        action_scheduler=runtime.action_scheduler,
+        logger=_build_trajectory_logger(config),
+    )
+
+
+def _build_realtime_runtime(config: dict[str, Any]) -> RealtimeRuntime:
+    runtime = _build_executor_runtime_components(config)
+    return RealtimeRuntime(
+        env=runtime.env,
+        decision_scheduler=runtime.decision_scheduler,
+        latency_source=ZeroSampler(clock=runtime.clock),
+        action_scheduler=runtime.action_scheduler,
+        clock=runtime.clock,
     )
 
 
@@ -269,21 +294,21 @@ def _build_realtime_executor(
         raise ValueError("realtime executor does not support injected latency")
     inference_devices = _resolve_realtime_inference_devices()
 
-    c = _build_common_executor_components(config)
+    def runtime_factory() -> RealtimeRuntime:
+        return _build_realtime_runtime(config)
+
+    runtime = runtime_factory()
     video_output_dir = _video_output_dir(config) if _video_enabled(config) else None
     return RealtimeLatencyExecutor(
-        env=c.env,
+        runtime=runtime,
+        runtime_factory=runtime_factory,
         policy=None,
-        decision_scheduler=c.decision_scheduler,
-        latency_source=ZeroSampler(clock=c.clock),
-        action_scheduler=c.action_scheduler,
-        clock=c.clock,
-        logger=c.logger,
+        logger=_build_trajectory_logger(config),
         config=config,
         inference_devices=inference_devices,
         use_env_process=True,
         video_output_dir=video_output_dir,
-        video_fps=c.clock.env_fps,
+        video_fps=runtime.clock.env_fps,
     )
 
 

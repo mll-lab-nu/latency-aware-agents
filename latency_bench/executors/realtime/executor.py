@@ -14,6 +14,7 @@ import time
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from latency_bench.core.clock import EnvClock
@@ -85,15 +86,21 @@ class _EpisodeAccumulators:
     max_wall_clock_lag_ms: float = 0.0
 
 
+@dataclass(frozen=True)
+class RealtimeRuntime:
+    env: EnvAdapter
+    decision_scheduler: DecisionScheduler
+    latency_source: LatencySampler
+    action_scheduler: ActionScheduler
+    clock: EnvClock
+
+
 class RealtimeLatencyExecutor(EpisodeExecutor):
     def __init__(
         self,
-        env: EnvAdapter,
+        runtime: RealtimeRuntime,
+        runtime_factory: Callable[[], RealtimeRuntime],
         policy: PolicyRunner | None,
-        decision_scheduler: DecisionScheduler,
-        latency_source: LatencySampler,
-        action_scheduler: ActionScheduler,
-        clock: EnvClock,
         logger: TrajectoryLogger | None = None,
         time_fn: Callable[[], float] = time.perf_counter,
         sleep_fn: Callable[[float], None] = time.sleep,
@@ -105,12 +112,9 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         video_output_dir: str | None = None,
         video_fps: float | None = None,
     ):
-        self.env = env
+        self._runtime_factory = runtime_factory
+        self._install_runtime(runtime)
         self.policy = policy
-        self.decision_scheduler = decision_scheduler
-        self.latency_source = latency_source
-        self.action_scheduler = action_scheduler
-        self.clock = clock
         self.logger = logger
         self.time_fn = time_fn
         self.sleep_fn = sleep_fn
@@ -149,11 +153,11 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 eval_max_steps=eval_max_steps,
             )
 
-    def run_warmup(self) -> dict[str, Any]:
+    def run_warmup(self, *, artifact_dir: str | Path | None = None) -> dict[str, Any]:
         with _gc_paused_until_episode_end():
-            return self._run_warmup_impl()
+            return self._run_warmup_impl(artifact_dir)
 
-    def _run_warmup_impl(self) -> dict[str, Any]:
+    def _run_warmup_impl(self, artifact_dir: str | Path | None) -> dict[str, Any]:
         pool = self._ensure_inference_pool()
         latency_records = []
         profiles = []
@@ -209,15 +213,14 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         finally:
             observation_pool.close()
 
+        output_dir = self.config["logging"]["output_dir"] if artifact_dir is None else artifact_dir
         summary = realtime_warmup.write_realtime_stress_warmup_artifacts(
-            self.config["logging"]["output_dir"],
-            latency_records,
-            profiles,
+            output_dir, latency_records, profiles
         )
         if summary["warmup_status"] != "stable":
             print(
                 "WARNING: realtime stress warmup did not stabilize; proceeding with the measured "
-                "episode anyway (inspect warmup_stability.png and warmup_summary.json). "
+                f"episode anyway (inspect warmup artifacts in {output_dir}). "
                 f"reason={summary.get('warmup_stability_reason')} "
                 f"trimmed_mean_span_ms={summary.get('warmup_trimmed_mean_span_ms')} "
                 f"median_span_ms={summary.get('warmup_median_span_ms')}",
@@ -226,10 +229,29 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             )
         return summary
 
+    def restart_runtime(self, cooldown_s: float) -> None:
+        """Dispose the current runtime, cool down, and install a fresh runtime."""
+        self._close_runtime(close_inference_pool=True)
+        self.sleep_fn(cooldown_s)
+        self._install_runtime(self._runtime_factory())
+        self._owns_inference_pool = True
+
     def close(self) -> None:
-        if self._owns_inference_pool and self.inference_pool is not None:
+        self._close_runtime(close_inference_pool=self._owns_inference_pool)
+
+    def _close_runtime(self, *, close_inference_pool: bool) -> None:
+        if close_inference_pool and self.inference_pool is not None:
             self.inference_pool.close()
+        self.inference_pool = None
         self.env.close()
+
+    def _install_runtime(self, runtime: RealtimeRuntime) -> None:
+        self.env = runtime.env
+        self.decision_scheduler = runtime.decision_scheduler
+        self.latency_source = runtime.latency_source
+        self.action_scheduler = runtime.action_scheduler
+        self.clock = runtime.clock
+        self.inference_pool = None
 
     def _ensure_inference_pool(self) -> Any:
         if self.inference_pool is None:

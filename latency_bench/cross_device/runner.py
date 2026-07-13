@@ -135,6 +135,7 @@ def run_fit(
             "calibration_ref": (Path("raw") / target / "calibration.json").as_posix(),
             "policy_type": workload["workload"]["policy_type"],
             "model_type": workload["workload"]["model_type"],
+            "measurement": workload["measurement"],
         },
         latency_kind="e2e_latency",
     )

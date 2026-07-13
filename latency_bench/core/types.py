@@ -11,6 +11,11 @@ class ExecutorMode(str, Enum):
     REALTIME = "realtime"
 
 
+class EpisodeLifecycle(str, Enum):
+    CONSECUTIVE = "consecutive"
+    ISOLATED = "isolated"
+
+
 class ActionHoldPolicy(str, Enum):
     ONE_FRAME_THEN_NOOP = "one_frame_then_noop"
     HOLD = "hold"
