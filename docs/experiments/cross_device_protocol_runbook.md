@@ -177,6 +177,20 @@ bash cross_device.sh publish sim \
 
 `normal` 沿用 `NormalSampler` 的非负截零行为，因此截零后的经验均值和标准差不保证与传入参数严格相等。
 
+根目录的 `sim.sh` 提供五个已测量实例的全量 simulation 入口：
+
+```bash
+bash sim.sh
+```
+
+该入口不接受筛选参数，固定运行以下矩阵并在每个 simulation seed 成功后直接上传：
+
+- consecutive：使用 `cross_device.yaml` 和 `openvla-flappy/fit-0-4`，对四种 method 分别运行 latency seeds `0 1 2 3 4`。
+- isolated：使用 `cross_device_isolated_30s.yaml` 和 `openvla-flappy-isolated-30s/fit-0`，对四种 method 分别运行 latency seed `0`。
+- target instances：`l40s/instance_edd21c9a`、`rtx3090/instance_000df10e`、`rtx4090/instance_e4777ea2`、`rtx5090/instance_02874a5a`、`a100-sxm4-80gb/instance_1d6030f8`。
+
+总计 120 个独立任务。脚本将 GPU `0..7` 固定分为 `0,1`、`2,3`、`4,5`、`6,7` 四个双卡 slot；任一 slot 完成当前 seed 的 simulation 和上传后，立即领取下一个任务。单个任务失败不会停止派发，其余任务全部结束后脚本列出失败项并返回非零。所有命令均使用 `--resume`，因此上传失败后重跑会复用已完成的本地 simulation。运行前，以上 profile revision 必须已发布到配置指定的 Hugging Face repository。
+
 ### 4. 显式选择需要聚合的数据
 
 ```bash
