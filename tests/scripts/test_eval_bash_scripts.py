@@ -1242,3 +1242,224 @@ fi
         assert calls[3].endswith(f"--sessions {session_args} --resume")
         assert calls[4].startswith("cross_device.sh publish profile ")
         assert f"--profile-ref device/instance/workload/{profile_revision}" in calls[4]
+
+
+def _cross_device_sim_expected_calls():
+    devices = {
+        "l40s": "instance_edd21c9a",
+        "rtx3090": "instance_000df10e",
+        "rtx4090": "instance_e4777ea2",
+        "rtx5090": "instance_02874a5a",
+        "a100-sxm4-80gb": "instance_1d6030f8",
+    }
+    lifecycles = (
+        (
+            "configs/experiments/cross_device.yaml",
+            "openvla-flappy",
+            "fit-0-4",
+            range(5),
+        ),
+        (
+            "configs/experiments/cross_device_isolated_30s.yaml",
+            "openvla-flappy-isolated-30s",
+            "fit-0",
+            (0,),
+        ),
+    )
+    methods = ("temporal", "iid", "fixed", "normal")
+    expected = set()
+    for config, workload_id, revision, seeds in lifecycles:
+        for device, instance in devices.items():
+            profile_ref = f"{device}/{instance}/{workload_id}/{revision}"
+            for method in methods:
+                for seed in seeds:
+                    selection = (
+                        f"--config {config} "
+                        f"--profile-ref {profile_ref} "
+                        f"--method {method} "
+                        f"--latency-seeds {seed} --resume"
+                    )
+                    expected.add(f"cross_device.sh sim {selection}")
+                    expected.add(f"cross_device.sh publish sim {selection}")
+    return expected
+
+
+def test_cross_device_sim_script_runs_full_matrix_on_four_slots(tmp_path):
+    script_path = REPO_ROOT / "sim.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls_path = tmp_path / "calls.log"
+    events_path = tmp_path / "events.log"
+    initial_selection = (
+        "--config configs/experiments/cross_device.yaml "
+        "--profile-ref l40s/instance_edd21c9a/openvla-flappy/fit-0-4 "
+        "--method temporal --latency-seeds"
+    )
+    fast_sim = f"cross_device.sh sim {initial_selection} 0 --resume"
+    fast_publish = fast_sim.replace(
+        "cross_device.sh sim ",
+        "cross_device.sh publish sim ",
+        1,
+    )
+    slow_sims = tuple(
+        f"cross_device.sh sim {initial_selection} {seed} --resume"
+        for seed in (1, 2, 3)
+    )
+    next_sim = f"cross_device.sh sim {initial_selection} 4 --resume"
+    _write_executable(
+        fake_bin / "bash",
+        """#!/bin/bash
+set -euo pipefail
+printf '%s|%s\n' "$CUDA_VISIBLE_DEVICES" "$*" >> "$SIM_CALLS_PATH"
+printf 'start|%s|%s\n' "$CUDA_VISIBLE_DEVICES" "$*" >> "$SIM_EVENTS_PATH"
+if [[ "$*" == "$NEXT_SIM_CALL" ]]; then
+  : > "$NEXT_TASK_STARTED"
+fi
+if [[ "$*" == "$SLOW_SIM_1" || "$*" == "$SLOW_SIM_2" || "$*" == "$SLOW_SIM_3" ]]; then
+  for _ in {1..100}; do
+    if [[ -e "$NEXT_TASK_STARTED" ]]; then
+      break
+    fi
+    sleep 0.05
+  done
+  [[ -e "$NEXT_TASK_STARTED" ]]
+fi
+printf 'finish|%s|%s\n' "$CUDA_VISIBLE_DEVICES" "$*" >> "$SIM_EVENTS_PATH"
+""",
+    )
+
+    subprocess.run(["/bin/bash", "-n", str(script_path)], cwd=REPO_ROOT, check=True)
+    result = subprocess.run(
+        ["/bin/bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "SIM_CALLS_PATH": str(calls_path),
+            "SIM_EVENTS_PATH": str(events_path),
+            "SLOW_SIM_1": slow_sims[0],
+            "SLOW_SIM_2": slow_sims[1],
+            "SLOW_SIM_3": slow_sims[2],
+            "NEXT_SIM_CALL": next_sim,
+            "NEXT_TASK_STARTED": str(tmp_path / "next-task-started"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = calls_path.read_text(encoding="utf-8").splitlines()
+    parsed_calls = [call.split("|", maxsplit=1) for call in calls]
+    commands = {command for _, command in parsed_calls}
+    expected = _cross_device_sim_expected_calls()
+    assert len(calls) == 240
+    assert commands == expected
+    assert {slot for slot, _ in parsed_calls} == {"0,1", "2,3", "4,5", "6,7"}
+
+    command_slots = {command: slot for slot, command in parsed_calls}
+    command_positions = {command: index for index, (_, command) in enumerate(parsed_calls)}
+    for command in expected:
+        if command.startswith("cross_device.sh sim "):
+            publish_command = command.replace(
+                "cross_device.sh sim ",
+                "cross_device.sh publish sim ",
+                1,
+            )
+            assert command_slots[command] == command_slots[publish_command]
+            assert command_positions[command] < command_positions[publish_command]
+
+    events = [
+        event.split("|", maxsplit=2)
+        for event in events_path.read_text(encoding="utf-8").splitlines()
+    ]
+
+    def event_index(stage, command):
+        return next(
+            index
+            for index, (event_stage, _, event_command) in enumerate(events)
+            if event_stage == stage and event_command == command
+        )
+
+    fast_slot = next(
+        slot
+        for stage, slot, command in events
+        if stage == "start" and command == fast_sim
+    )
+    next_slot = next(
+        slot
+        for stage, slot, command in events
+        if stage == "start" and command == next_sim
+    )
+    assert fast_slot == next_slot
+    assert event_index("finish", fast_publish) < event_index("start", next_sim)
+    assert event_index("start", next_sim) < min(
+        event_index("finish", command) for command in slow_sims
+    )
+
+    active_slots = {slot: 0 for slot in ("0,1", "2,3", "4,5", "6,7")}
+    for stage, slot, _ in events:
+        if stage == "start":
+            active_slots[slot] += 1
+            assert active_slots[slot] == 1
+        else:
+            assert active_slots[slot] == 1
+            active_slots[slot] -= 1
+    assert set(active_slots.values()) == {0}
+
+
+@pytest.mark.parametrize("failed_stage", ("sim", "publish"))
+def test_cross_device_sim_script_continues_after_task_failure(tmp_path, failed_stage):
+    script_path = REPO_ROOT / "sim.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls_path = tmp_path / "calls.log"
+    failed_sim = (
+        "cross_device.sh sim "
+        "--config configs/experiments/cross_device.yaml "
+        "--profile-ref l40s/instance_edd21c9a/openvla-flappy/fit-0-4 "
+        "--method temporal --latency-seeds 0 --resume"
+    )
+    failed_publish = failed_sim.replace(
+        "cross_device.sh sim ",
+        "cross_device.sh publish sim ",
+        1,
+    )
+    failed_call = failed_sim if failed_stage == "sim" else failed_publish
+    _write_executable(
+        fake_bin / "bash",
+        """#!/bin/bash
+set -euo pipefail
+printf '%s|%s\n' "$CUDA_VISIBLE_DEVICES" "$*" >> "$SIM_CALLS_PATH"
+if [[ "$*" == "$FAILED_SIM_CALL" ]]; then
+  exit 23
+fi
+""",
+    )
+
+    result = subprocess.run(
+        ["/bin/bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "SIM_CALLS_PATH": str(calls_path),
+            "FAILED_SIM_CALL": failed_call,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "l40s/instance_edd21c9a/openvla-flappy/fit-0-4/temporal/0" in result.stderr
+    assert "exit 23" in result.stderr
+    commands = {
+        call.split("|", maxsplit=1)[1]
+        for call in calls_path.read_text(encoding="utf-8").splitlines()
+    }
+    expected = _cross_device_sim_expected_calls()
+    if failed_stage == "sim":
+        expected.remove(failed_publish)
+    assert commands == expected
