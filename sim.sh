@@ -66,12 +66,21 @@ append_lifecycle_tasks \
     ISOLATED_INSTANCES \
     0
 
+prepare_weights() {
+    printf '%s\n' 'Preparing evaluation weights...'
+    RUN_INSIDE_TMUX=1 bash scripts/bash_scripts/download/openvla_flappy_fix_latency_2.sh
+    RUN_INSIDE_TMUX=1 bash scripts/bash_scripts/download/qwen3_vl_4b_instruct.sh
+    bash scripts/bash_scripts/download/link_eval_paths.sh
+}
+
 declare -A PID_SLOTS=()
 declare -A PID_TASKS=()
 declare -a FAILURES=()
 
 next_task=0
 running_tasks=0
+
+prepare_weights
 
 launch_task() {
     local slot="$1"

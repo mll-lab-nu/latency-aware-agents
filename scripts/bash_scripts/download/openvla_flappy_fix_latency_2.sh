@@ -8,6 +8,9 @@ LOG_FILE="${LOG_FILE:-$LOG_DIR/${SESSION_NAME}.log}"
 MODEL_ID="${MODEL_ID:-latency-sensitive-bench/openvla_flappy_fix_latency_2}"
 DOWNLOAD_DIR="${DOWNLOAD_DIR:-/workspace}"
 HFD_SCRIPT="${HFD_SCRIPT:-/workspace/hfd.sh}"
+DOWNLOAD_RETRY_DELAY_S="${DOWNLOAD_RETRY_DELAY_S:-10}"
+MODEL_DIR="${DOWNLOAD_DIR}/$(basename "$MODEL_ID")"
+MANIFEST_FILE="${MODEL_DIR}/.hfd/manifest"
 
 SCRIPT_PATH="$(readlink -f "$0")"
 REPO_ROOT="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
@@ -39,12 +42,40 @@ ensure_launcher_deps() {
 ensure_worker_deps() {
   local pkgs=()
 
+  command -v curl >/dev/null 2>&1 || pkgs+=("curl")
   command -v wget >/dev/null 2>&1 || pkgs+=("wget")
   command -v aria2c >/dev/null 2>&1 || pkgs+=("aria2")
 
   if (( ${#pkgs[@]} > 0 )); then
     install_packages "${pkgs[@]}" ca-certificates
   fi
+}
+
+download_is_complete() {
+  local expected_size
+  local path
+  local actual_size
+
+  [[ -s "$MANIFEST_FILE" ]] || return 1
+  while IFS=$'\t' read -r expected_size path; do
+    [[ -e "${MODEL_DIR}/${path}" && ! -e "${MODEL_DIR}/${path}.aria2" ]] || return 1
+    actual_size="$(stat -c %s "${MODEL_DIR}/${path}")" || return 1
+    [[ "$actual_size" == "$expected_size" ]] || return 1
+  done < "$MANIFEST_FILE"
+}
+
+download_once() {
+  wget https://hf-mirror.com/hfd/hfd.sh -O "$HFD_SCRIPT" || return
+  chmod +x "$HFD_SCRIPT" || return
+
+  (
+    cd "$DOWNLOAD_DIR"
+    bash "$HFD_SCRIPT" "$MODEL_ID" \
+      -x 10 \
+      -j 10 \
+      --exclude "checkpoints/step_5000_pytorch_model.pt" \
+      --exclude "checkpoints/step_5000_state/optimizer.bin"
+  )
 }
 
 # 第一次执行：创建后台 tmux session，然后立刻退出
@@ -61,7 +92,7 @@ if [[ "${RUN_INSIDE_TMUX:-0}" != "1" ]]; then
 
   q() { printf "%q" "$1"; }
 
-  CMD="cd $(q "$REPO_ROOT") && RUN_INSIDE_TMUX=1 MODEL_ID=$(q "$MODEL_ID") DOWNLOAD_DIR=$(q "$DOWNLOAD_DIR") HFD_SCRIPT=$(q "$HFD_SCRIPT") bash $(q "$SCRIPT_PATH") 2>&1 | tee -a $(q "$LOG_FILE")"
+  CMD="cd $(q "$REPO_ROOT") && RUN_INSIDE_TMUX=1 MODEL_ID=$(q "$MODEL_ID") DOWNLOAD_DIR=$(q "$DOWNLOAD_DIR") HFD_SCRIPT=$(q "$HFD_SCRIPT") DOWNLOAD_RETRY_DELAY_S=$(q "$DOWNLOAD_RETRY_DELAY_S") bash $(q "$SCRIPT_PATH") 2>&1 | tee -a $(q "$LOG_FILE")"
 
   tmux new-session -d -s "$SESSION_NAME" "$CMD"
 
@@ -83,15 +114,10 @@ ensure_worker_deps
 
 mkdir -p "$DOWNLOAD_DIR"
 
-wget https://hf-mirror.com/hfd/hfd.sh -O "$HFD_SCRIPT"
-chmod +x "$HFD_SCRIPT"
+until download_once && download_is_complete; do
+  echo "[WARN] download incomplete; retrying in ${DOWNLOAD_RETRY_DELAY_S}s"
+  sleep "$DOWNLOAD_RETRY_DELAY_S"
+done
 
-cd "$DOWNLOAD_DIR"
-
-bash "$HFD_SCRIPT" "$MODEL_ID" \
-  -x 10 \
-  -j 10 \
-  --exclude "checkpoints/step_5000_pytorch_model.pt" \
-  --exclude "checkpoints/step_5000_state/optimizer.bin"
-
+echo "[INFO] verified all manifest files: $MODEL_DIR"
 echo "[INFO] finished at: $(date)"
