@@ -6,10 +6,17 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 readonly -a GPU_SLOTS=("0,1" "2,3" "4,5" "6,7")
 readonly -a METHODS=(temporal iid fixed normal)
 readonly -a DEVICES=(l40s rtx3090 rtx4090 rtx5090 a100-sxm4-80gb)
-declare -Ar INSTANCES=(
+declare -Ar ISOLATED_INSTANCES=(
     [l40s]=instance_edd21c9a
     [rtx3090]=instance_000df10e
     [rtx4090]=instance_e4777ea2
+    [rtx5090]=instance_02874a5a
+    [a100-sxm4-80gb]=instance_1d6030f8
+)
+declare -Ar CONSECUTIVE_INSTANCES=(
+    [l40s]=instance_cfa273e0
+    [rtx3090]=instance_000df10e
+    [rtx4090]=instance_9fb8d975
     [rtx5090]=instance_02874a5a
     [a100-sxm4-80gb]=instance_1d6030f8
 )
@@ -24,7 +31,8 @@ append_lifecycle_tasks() {
     local config="$1"
     local workload_id="$2"
     local profile_revision="$3"
-    shift 3
+    local -n instances="$4"
+    shift 4
     local -a latency_seeds=("$@")
     local device
     local profile_ref
@@ -32,7 +40,7 @@ append_lifecycle_tasks() {
     local latency_seed
 
     for device in "${DEVICES[@]}"; do
-        profile_ref="${device}/${INSTANCES[$device]}/${workload_id}/${profile_revision}"
+        profile_ref="${device}/${instances[$device]}/${workload_id}/${profile_revision}"
         for method in "${METHODS[@]}"; do
             for latency_seed in "${latency_seeds[@]}"; do
                 TASK_CONFIGS+=("$config")
@@ -49,11 +57,13 @@ append_lifecycle_tasks \
     configs/experiments/cross_device.yaml \
     openvla-flappy \
     fit-0-4 \
+    CONSECUTIVE_INSTANCES \
     0 1 2 3 4
 append_lifecycle_tasks \
     configs/experiments/cross_device_isolated_30s.yaml \
     openvla-flappy-isolated-30s \
     fit-0 \
+    ISOLATED_INSTANCES \
     0
 
 declare -A PID_SLOTS=()
