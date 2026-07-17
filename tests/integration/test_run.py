@@ -434,6 +434,56 @@ def test_run_from_config_restarts_and_warms_before_each_isolated_episode(
     ]
 
 
+def test_run_from_config_uses_normal_simulated_path_for_isolated_episodes(
+    monkeypatch,
+    tmp_path: Path,
+):
+    calls = []
+
+    class FakeExecutor(EpisodeExecutor):
+        logger = None
+
+        def run_warmup(self):
+            calls.append(("warmup",))
+            return {"warmup_scope": "simulation"}
+
+        def run_episode(self, *, episode_id, seed, eval_max_steps):
+            calls.append(("episode", episode_id, seed, eval_max_steps))
+            return EpisodeMetrics(
+                episode_id=episode_id,
+                episode_return=float(episode_id),
+                survival_steps=eval_max_steps,
+                metadata={},
+            )
+
+        def close(self):
+            calls.append(("close",))
+
+    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
+    config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
+    config["measurement"] = {
+        "episode_lifecycle": "isolated",
+        "cooldown_s": 30,
+    }
+
+    metrics = evaluation.run_from_config(config, write_summary=False)
+
+    assert calls == [
+        ("warmup",),
+        ("episode", 0, 11, 1),
+        ("episode", 1, 12, 1),
+        ("close",),
+    ]
+    assert [metric.metadata["warmup_scope"] for metric in metrics] == [
+        "simulation",
+        "simulation",
+    ]
+    assert [metric.metadata["measurement"] for metric in metrics] == [
+        config["measurement"],
+        config["measurement"],
+    ]
+
+
 
 def test_run_eval_progress_keeps_existing_episode_format_without_sample_target(
     monkeypatch,

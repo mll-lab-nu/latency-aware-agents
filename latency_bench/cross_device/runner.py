@@ -25,6 +25,7 @@ from latency_bench.cross_device.spec import detect_hardware
 from latency_bench.cross_device.sync import (
     download_calibration,
     download_profile,
+    download_raw_selection,
     publish_calibration,
     publish_directory_leaf,
 )
@@ -40,6 +41,22 @@ from latency_bench.utils.io import read_json, write_json
 def current_target_ref(workload: dict[str, Any], hardware: str) -> Path:
     device, _, instance_id = _current_target(workload, hardware)
     return target_ref(device["id"], instance_id, workload["workload"]["id"])
+
+
+def download_raw(
+    workload: dict[str, Any],
+    target: Path,
+    session_ids: list[int],
+    *,
+    overwrite: bool = False,
+) -> None:
+    download_raw_selection(
+        workload,
+        target,
+        raw_workload_dir(workload["artifact_root"], target),
+        session_ids,
+        overwrite=overwrite,
+    )
 
 
 def run_measure(
@@ -220,12 +237,14 @@ def publish_profile(
     canonical_profile_ref: Path,
     *,
     resume: bool = False,
+    overwrite: bool = False,
 ) -> None:
     publish_directory_leaf(
         workload,
         profile_dir(workload["artifact_root"], canonical_profile_ref),
         Path("profiles") / canonical_profile_ref,
         resume=resume,
+        overwrite=overwrite,
     )
 
 
@@ -236,6 +255,7 @@ def publish_simulation(
     latency_seeds: list[int],
     *,
     resume: bool = False,
+    overwrite: bool = False,
 ) -> None:
     for latency_seed in latency_seeds:
         publish_directory_leaf(
@@ -248,6 +268,7 @@ def publish_simulation(
             ),
             Path("sim") / canonical_profile_ref / method / str(latency_seed),
             resume=resume,
+            overwrite=overwrite,
         )
 
 
