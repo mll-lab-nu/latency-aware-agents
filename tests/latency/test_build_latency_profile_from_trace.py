@@ -32,6 +32,7 @@ def _build_profile(tmp_path: Path, samples: list[float], **overrides):
             "policy_type": "starvla",
             "model_type": "openvla",
             "checkpoint_path": "/tmp/openvla.pt",
+            "measurement": {"episode_lifecycle": "consecutive"},
         },
         "latency_kind": latency_kind,
         "overwrite": False,
@@ -124,6 +125,7 @@ def test_build_latency_profile_from_trace_writes_profile_artifacts(tmp_path: Pat
         "policy_type",
         "model_type",
         "checkpoint_path",
+        "measurement",
         "frame_ms",
         "n_samples",
         "trace_path",
@@ -487,7 +489,10 @@ def test_build_latency_profile_from_traces_pools_marginals_and_preserves_session
         env_id="env_test",
         target_device="test_gpu",
         env_fps=25.0,
-        metadata={"profile_build_id": "build_test"},
+        metadata={
+            "profile_build_id": "build_test",
+            "measurement": {"episode_lifecycle": "consecutive"},
+        },
     )
 
     assert load_latency_samples(output_dir / "e2e_latencies.jsonl") == [40.0, 80.0, 120.0, 160.0]
@@ -509,3 +514,50 @@ def test_build_latency_profile_from_traces_pools_marginals_and_preserves_session
         "calm": {"calm": 2, "burst": 2},
         "burst": {"calm": 0, "burst": 0},
     }
+
+
+def test_build_isolated_profile_splits_episodes_within_measurement_session(tmp_path: Path):
+    session = _write_fit_session(
+        tmp_path,
+        measure_session_id=0,
+        e2e_samples=[40.0, 80.0],
+        inference_samples=[10.0, 20.0],
+    )
+    first_episode = load_jsonl_records(session["actions"])
+    second_episode = [
+        {**record, "action_id": 3 + index}
+        for index, record in enumerate(reversed(first_episode))
+    ]
+    session["actions"].write_text(
+        "".join(json.dumps(record) + "\n" for record in first_episode + second_episode),
+        encoding="utf-8",
+    )
+    _write_episode_metrics(
+        session["episode_metrics"],
+        [
+            {
+                "episode_id": episode_id,
+                "num_actions": 3,
+                "metadata": {"inference_worker_count": 2, "frame_ms": 40.0},
+            }
+            for episode_id in (0, 1)
+        ],
+    )
+    output_dir = tmp_path / "isolated_profile"
+
+    build_profile_from_traces(
+        sessions=[session],
+        output_dir=output_dir,
+        profile_id="L_isolated",
+        policy_id="pi_test",
+        env_id="env_test",
+        target_device="test_gpu",
+        env_fps=25.0,
+        metadata={"measurement": {"episode_lifecycle": "isolated", "cooldown_s": 30}},
+    )
+
+    model = json.loads((output_dir / "latency_burst_model.json").read_text(encoding="utf-8"))
+    assert model["schema_version"] == 10
+    assert model["reset_scope"] == "episode"
+    assert model["initial_regime_counts"] == {"calm": 1, "burst": 1}
+    assert model["regime_transition_counts"]["burst"]["burst"] == 0

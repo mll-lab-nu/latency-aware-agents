@@ -308,6 +308,7 @@ def test_simulation_appends_explicit_latency_seeds(tmp_path, monkeypatch):
             "device_id": "a100-sxm4-80gb",
             "instance_id": "instance_a",
             "profile_revision": "fit-0",
+            "measurement": {"episode_lifecycle": "consecutive"},
         },
     )
     (downloaded / "DONE").touch()
@@ -332,7 +333,7 @@ def test_simulation_appends_explicit_latency_seeds(tmp_path, monkeypatch):
     assert generated["latency"]["profile_ref"] == canonical_ref.as_posix()
     assert generated["latency"]["seed"] == 7
     assert "simulation_host" not in generated["latency"]
-    assert "measurement" not in generated
+    assert generated["measurement"] == {"episode_lifecycle": "consecutive"}
     with pytest.raises(FileExistsError):
         runner.run_simulation(workload, canonical_ref, "temporal", [0])
     monkeypatch.setattr(
@@ -376,6 +377,7 @@ def test_simulation_uses_profile_summary_for_parametric_methods(
             "device_id": "a100-sxm4-80gb",
             "instance_id": "instance_a",
             "profile_revision": "fit-0",
+            "measurement": {"episode_lifecycle": "consecutive"},
             "summary": {"mean_ms": 12.5, "std_ms": 3.25},
         },
     )

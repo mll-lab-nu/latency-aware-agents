@@ -45,6 +45,7 @@ def simulation_config(
     latency_seed: int,
 ) -> dict[str, Any]:
     config = _base_config(workload, output_dir)
+    config["measurement"] = deepcopy(profile["measurement"])
     workload_config = workload["workload"]
     base_env_fps = config["env"]["env_fps"]
     observation_stride = base_env_fps / config["env"]["obs_fps"]
