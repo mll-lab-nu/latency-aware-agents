@@ -516,7 +516,7 @@ def _load_temporal_model(
             f"reset_scope={model.get('reset_scope')!r}, "
             f"schema_version={model.get('schema_version')!r}) at {model_path}; "
             "rebuild the profile from its measure artifacts with "
-            "latency_bench.experiments.build_latency_profile_from_trace."
+            "latency_bench.latency.profile_builder."
         )
     return model
 
