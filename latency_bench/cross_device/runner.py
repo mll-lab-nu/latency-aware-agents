@@ -29,7 +29,7 @@ from latency_bench.cross_device.sync import (
     publish_calibration,
     publish_directory_leaf,
 )
-from latency_bench.experiments.build_latency_profile_from_trace import build_profile_from_traces
+from latency_bench.latency.profile_builder import build_profile_from_traces
 from latency_bench.experiments.calibrate_env_fps_from_saturated_latency import (
     calibrate_env_fps_from_saturated_latency,
 )
