@@ -124,16 +124,10 @@ class _RawRewardTraceEnv(gym.Env):
         return np.array([self.step_count], dtype=np.uint8), reward, False, False, {}
 
 
-def test_sample_factory_training_configs_load():
-    cfg = load_config("configs/experiments/demon_attack/sf_fixed_latency_4.yaml")
-    assert cfg["backend"]["type"] == "sample_factory"
-    assert cfg["env"]["name"] == "demon_attack"
-    assert cfg["latency"]["method"] == "fixed"
-    assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(4 * 1000.0 / 60.0)
-
-
 def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
-    cfg = load_config("configs/experiments/deadly_corridor/sf_fixed_latency_4.yaml")
+    cfg = load_config("configs/base/deadly_corridor.yaml")
+    cfg["experiment"]["name"] = "deadly_corridor_sf_fixed_latency_4"
+    cfg["latency"] = {"method": "fixed", "fixed_latency_ms": 4 * 1000.0 / 35.0}
     args = build_common_sf_args(cfg, sf_env_name="doom_deadly_corridor")
     assert "--latency-type" in args
     assert args[args.index("--latency-type") + 1] == "fixed"
@@ -145,7 +139,8 @@ def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
 
 
 def test_build_common_sf_args_maps_cuda_to_sample_factory_gpu():
-    cfg = load_config("configs/experiments/deadly_corridor/sf_fixed_latency_4.yaml")
+    cfg = load_config("configs/base/deadly_corridor.yaml")
+    cfg["latency"] = {"method": "fixed", "fixed_latency_ms": 4 * 1000.0 / 35.0}
     cfg["backend"]["device"] = "cuda"
 
     args = build_common_sf_args(cfg, sf_env_name="doom_deadly_corridor")
@@ -193,7 +188,7 @@ def test_flappy_sf_cli_omits_max_episode_steps_when_env_field_is_absent():
 
 
 def test_build_common_sf_args_does_not_emit_unsupported_wandb_unique_id_arg():
-    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg = load_config("configs/base/flappy.yaml")
     cfg["logging"]["wandb_name"] = "flappy-bird-l0-s0"
 
     args = build_common_sf_args(cfg, sf_env_name="flappy_bird")
@@ -202,7 +197,7 @@ def test_build_common_sf_args_does_not_emit_unsupported_wandb_unique_id_arg():
 
 
 def test_build_common_sf_args_emits_wandb_tags_as_multiple_values():
-    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg = load_config("configs/base/flappy.yaml")
     cfg["logging"]["wandb_tags"] = ["factor_sweep", "flappy", "frame_stack"]
 
     args = build_common_sf_args(cfg, sf_env_name="flappy_bird")
@@ -212,7 +207,7 @@ def test_build_common_sf_args_emits_wandb_tags_as_multiple_values():
 
 
 def test_build_common_sf_args_splits_legacy_comma_wandb_tags():
-    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg = load_config("configs/base/flappy.yaml")
     cfg["logging"]["wandb_tags"] = "factor_sweep,flappy,frame_stack"
 
     args = build_common_sf_args(cfg, sf_env_name="flappy_bird")
@@ -237,7 +232,7 @@ def test_apply_runtime_logging_config_maps_wandb_name_to_sample_factory_unique_i
 
 
 def test_apply_training_overrides_updates_run_name_train_dir_and_mode():
-    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg = load_config("configs/base/flappy.yaml")
     cfg.setdefault("backend", {})["extra_args"] = ["--some-existing-flag", "1"]
     updated = apply_training_overrides(
         cfg,

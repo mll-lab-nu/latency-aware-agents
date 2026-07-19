@@ -15,10 +15,9 @@ from latency_bench.policy.factory import build_policy
 from latency_bench.data.prompts import BASE_PROMPTS
 from helpers import REPO_ROOT
 
-FLAPPY_REALTIME_STARVLA_CONFIGS = (
-    "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_15fps_l2_2gpu_warmup200_3ep.yaml",
-    "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml",
-    "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_8fps_l1_2gpu_warmup200_3ep.yaml",
+FLAPPY_REALTIME_STARVLA_CONFIG = (
+    "configs/experiments/flappy/realtime/"
+    "starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml"
 )
 FLAPPY_SIMULATED_STARVLA_CONFIGS = (
     "configs/experiments/flappy/simulated/starvla_openvla_fix_latency_2_15fps_l2_warmup200_3ep.yaml",
@@ -701,14 +700,13 @@ def test_starvla_latency_prompt_map_uses_raw_rgb_frame_stack_metadata(monkeypatc
     assert np.asarray(example["image"][0]).mean() == 77
 
 
-def test_flappy_realtime_starvla_configs_use_base_prompt_without_latency_prompt_map():
-    for config_path in FLAPPY_REALTIME_STARVLA_CONFIGS:
-        config = load_config(REPO_ROOT / config_path)
+def test_flappy_realtime_starvla_config_uses_base_prompt_without_latency_prompt_map():
+    config = load_config(REPO_ROOT / FLAPPY_REALTIME_STARVLA_CONFIG)
 
-        assert config["executor"]["mode"] == "realtime"
-        assert config["policy"]["type"] == "starvla"
-        assert "latency_prompt_map_path" not in config["policy"]
-        assert "latency_prompt_raw_frames" not in config["policy"]
+    assert config["executor"]["mode"] == "realtime"
+    assert config["policy"]["type"] == "starvla"
+    assert "latency_prompt_map_path" not in config["policy"]
+    assert "latency_prompt_raw_frames" not in config["policy"]
 
 
 def test_flappy_simulated_starvla_configs_keep_latency_prompt_map():
