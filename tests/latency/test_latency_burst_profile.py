@@ -187,6 +187,29 @@ def test_hidden_regime_model_does_not_bridge_measurement_sessions():
     assert process["severity"]["latency_ms"] == pytest.approx([1.0] * len(process["severity"]["latency_ms"]))
 
 
+def test_episode_scoped_model_fits_initial_burst_separately():
+    segments = [
+        _episode(0, [70.0] + [42.0] * 10),
+        _episode(1, [42.0] * 5 + [70.0] + [42.0] * 5),
+    ]
+
+    model = build_hidden_regime_burst_model_from_sessions(
+        segments, reset_scope="episode"
+    )
+
+    assert model["schema_version"] == 10
+    assert model["reset_scope"] == "episode"
+    assert model["initial_regime_counts"] == {"calm": 1, "burst": 1}
+    assert model["initial_burst_residual_dwell_distribution"]["latency_ms"] == pytest.approx(
+        [1.0] * len(model["initial_burst_residual_dwell_distribution"]["latency_ms"])
+    )
+    assert model["burst_dwell_lengths"] == [1]
+    assert model["regime_transition_counts"] == {
+        "calm": {"calm": 17, "burst": 1},
+        "burst": {"calm": 2, "burst": 0},
+    }
+
+
 def test_single_session_model_wrapper_matches_session_aware_fitter():
     samples = _episode(0, [42.0] * 10 + [70.0, 42.0, 70.0] + [42.0] * 10)
 

@@ -19,6 +19,7 @@ from latency_bench.latency.samplers import (
     NormalSampler,
     UniformSampler,
     ZeroSampler,
+    build_episode_sampler_factory,
     build_sampler,
 )
 
@@ -79,6 +80,7 @@ def _write_latency_profile(
         "n_samples": len(samples),
         "trace_path": trace_path,
         "distribution_path": "latency_distribution.json",
+        "measurement": {"episode_lifecycle": "consecutive"},
         "summary": {"mean_ms": 20.0, "std_ms": 8.0, "min_ms": 10.0, "max_ms": 30.0},
     }
     if write_burst_model:
@@ -218,6 +220,84 @@ def test_temporal_rejects_stale_burst_model_type(tmp_path: Path):
     )
     with pytest.raises(ValueError, match="rebuild the profile"):
         _profile_sampler(profile_dir, seed=0)
+
+
+def test_temporal_rejects_session_model_with_isolated_profile(tmp_path: Path):
+    profile_dir = _write_latency_profile(tmp_path)
+    profile_path = profile_dir / "profile.json"
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    profile["measurement"] = {"episode_lifecycle": "isolated"}
+    profile_path.write_text(json.dumps(profile), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Unsupported temporal burst model"):
+        _profile_sampler(profile_dir, seed=0)
+
+
+def test_temporal_accepts_legacy_session_profile_without_measurement(tmp_path: Path):
+    profile_dir = _write_latency_profile(tmp_path)
+    profile_path = profile_dir / "profile.json"
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    del profile["measurement"]
+    profile_path.write_text(json.dumps(profile), encoding="utf-8")
+
+    assert isinstance(_profile_sampler(profile_dir, seed=0), HiddenRegimeSampler)
+
+
+def test_episode_scoped_sampler_uses_initial_burst_residual():
+    model = _hand_model(
+        rank_process=_rank_process(severity=1.0, level_ms=100.0),
+        enter_burst_count=0,
+    )
+    model.update(
+        {
+            "schema_version": 10,
+            "reset_scope": "episode",
+            "initial_regime_counts": {"calm": 0, "burst": 1},
+            "initial_burst_residual_dwell_distribution": _constant_inverse_cdf(2.0),
+            "burst_dwell_distribution": None,
+        }
+    )
+    sampler = HiddenRegimeSampler(model, clock=_clock(), seed=0)
+
+    values = [
+        sampler.sample({"episode_id": 0, "worker_slot": 0}).worker_service_ms
+        for _ in range(3)
+    ]
+
+    assert values == [100.0, 100.0, 40.0]
+    assert sampler.sample({"episode_id": 1, "worker_slot": 0}).worker_service_ms == 100.0
+
+
+def test_episode_scoped_temporal_factory_requires_seed_and_derives_streams(tmp_path: Path):
+    profile_dir = _write_latency_profile(tmp_path)
+    profile_path = profile_dir / "profile.json"
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    profile["measurement"] = {"episode_lifecycle": "isolated"}
+    profile_path.write_text(json.dumps(profile), encoding="utf-8")
+    model_path = profile_dir / "latency_burst_model.json"
+    model = json.loads(model_path.read_text(encoding="utf-8"))
+    model.update(
+        {
+            "schema_version": 10,
+            "reset_scope": "episode",
+            "initial_regime_counts": {"calm": 1, "burst": 0},
+            "initial_burst_residual_dwell_distribution": None,
+        }
+    )
+    model_path.write_text(json.dumps(model), encoding="utf-8")
+    config = {"method": "temporal", "profile_path": str(profile_path)}
+
+    with pytest.raises(KeyError, match="seed"):
+        build_episode_sampler_factory(config, _clock())
+
+    config["seed"] = 7
+    factory = build_episode_sampler_factory(config, _clock())
+    assert factory is not None
+    first = factory(3)
+    second = factory(3)
+    assert [first.sample({"episode_id": 3, "worker_slot": 0}) for _ in range(5)] == [
+        second.sample({"episode_id": 3, "worker_slot": 0}) for _ in range(5)
+    ]
 
 
 def test_profile_sampler_is_deterministic_with_seed(tmp_path: Path):

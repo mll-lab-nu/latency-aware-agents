@@ -45,7 +45,10 @@ def run_from_config(
     metrics = []
     warmup_metadata_by_episode: dict[int, dict[str, Any]] = {}
     try:
-        if _episode_lifecycle(config) == EpisodeLifecycle.ISOLATED:
+        if (
+            _episode_lifecycle(config) == EpisodeLifecycle.ISOLATED
+            and ExecutorMode(config["executor"]["mode"]) == ExecutorMode.REALTIME
+        ):
             realtime_executor = cast(RealtimeLatencyExecutor, executor)
             for episode_id in selected_episode_ids:
                 realtime_executor.restart_runtime(config["measurement"]["cooldown_s"])

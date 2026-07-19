@@ -205,10 +205,24 @@ class HiddenRegimeSampler(LatencySampler):
         episode_id = int(context["episode_id"])
         worker_slot = int(context["worker_slot"])
         first_draw = self.current_episode_id is None
-        if episode_id != self.current_episode_id:
+        new_episode = episode_id != self.current_episode_id
+        if new_episode:
             self.current_episode_id = episode_id
             self._enter_burst_prob = self._episode_transition_prob("calm", "burst")
-        if first_draw:
+            if self.model["reset_scope"] == "episode":
+                self.regime = "calm"
+                self._burst_remaining = 0
+                self._slot_states.clear()
+                self._unassigned_ranks = []
+                initial_counts = self.model["initial_regime_counts"]
+                total = initial_counts["calm"] + initial_counts["burst"]
+                if self.rng.randrange(total) < initial_counts["burst"]:
+                    self.regime = "burst"
+                    self._burst_remaining = self._sample_dwell(
+                        self.model["initial_burst_residual_dwell_distribution"]
+                    ) - 1
+                    self._begin_dwell(entry_slot=worker_slot)
+        if first_draw or (new_episode and self.model["reset_scope"] == "episode"):
             pass
         elif self.regime == "calm":
             if self.rng.random() < self._enter_burst_prob:
@@ -239,12 +253,16 @@ class HiddenRegimeSampler(LatencySampler):
             # spikes we have no emission distribution for.
             return 0.0 if target == "burst" else 1.0
         counts = self.model["regime_transition_counts"][source]
+        if self.model["reset_scope"] == "episode" and counts[target] == 0:
+            return 0.0
         switch = self.rng.gammavariate(float(counts[target]) + 0.5, 1.0)
         stay = self.rng.gammavariate(float(counts[source]) + 0.5, 1.0)
         return switch / (switch + stay)
 
     def _sample_burst_dwell(self) -> int:
-        dwell = self.model["burst_dwell_distribution"]
+        return self._sample_dwell(self.model["burst_dwell_distribution"])
+
+    def _sample_dwell(self, dwell: dict[str, Any]) -> int:
         quantile = self.rng.random()
         # The dwell's length quantile seeds the severity copula draws of this
         # dwell's slot states.
@@ -439,21 +457,26 @@ def build_episode_sampler_factory(
 ) -> Callable[[int], LatencySampler] | None:
     """Return a per-episode sampler builder deriving a stream seed per episode.
 
-    Only seeded stochastic methods with an explicit ``seed`` get per-episode
-    streams; other configs return ``None`` and reuse the shared sampler. The
-    temporal sampler never gets one: its hidden regime is session-scoped
-    machine state that must survive episode boundaries, and rebuilding it per
-    episode would silently reset a degraded machine at every env reset.
+    Seeded stochastic methods get independent episode streams. Temporal models
+    do so only when their fitted lifecycle is episode-scoped; session-scoped
+    machine state continues to use the shared sampler.
     """
-    if "seed" not in latency_cfg:
-        return None
     method = resolve_latency_method(latency_cfg)
-    if method == "temporal" or method not in SEEDED_STOCHASTIC_METHODS:
+    if method == "temporal":
+        profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
+        profile = load_profile_manifest(profile_path)
+        model = _load_temporal_model(profile, profile_path=profile_path)
+        if model["reset_scope"] == "session":
+            return None
+        seed = latency_cfg["seed"]
+    elif method not in SEEDED_STOCHASTIC_METHODS or "seed" not in latency_cfg:
         return None
+    else:
+        seed = latency_cfg["seed"]
 
     def build_for_episode(episode_id: int) -> LatencySampler:
         episode_latency_cfg = dict(latency_cfg)
-        episode_latency_cfg["seed"] = derive_latency_seed(latency_cfg["seed"], episode_idx=episode_id)
+        episode_latency_cfg["seed"] = derive_latency_seed(seed, episode_idx=episode_id)
         return build_sampler(episode_latency_cfg, clock=clock)
 
     return build_for_episode
@@ -466,12 +489,27 @@ def _build_temporal(
     clock: EnvClock,
     seed: int | None,
 ) -> LatencySampler:
+    model = _load_temporal_model(profile, profile_path=profile_path)
+    return HiddenRegimeSampler(model, clock=clock, seed=seed)
+
+
+def _load_temporal_model(
+    profile: dict[str, Any], *, profile_path: Path
+) -> dict[str, Any]:
     model_path = _profile_relative_path(profile_path, profile["burst_model_path"])
     model = read_json(model_path)
+    contract = (model.get("schema_version"), model.get("reset_scope"))
+    supported_contract = contract in {(9, "session"), (10, "episode")}
+    lifecycle_matches = (
+        contract == (9, "session") and "measurement" not in profile
+    ) or contract == {
+        "consecutive": (9, "session"),
+        "isolated": (10, "episode"),
+    }[profile["measurement"]["episode_lifecycle"]]
     if (
         model.get("model_type") != "hidden_regime"
-        or model.get("reset_scope") != "session"
-        or model.get("schema_version") != 9
+        or not supported_contract
+        or not lifecycle_matches
     ):
         raise ValueError(
             f"Unsupported temporal burst model (model_type={model.get('model_type')!r}, "
@@ -480,7 +518,7 @@ def _build_temporal(
             "rebuild the profile from its measure artifacts with "
             "latency_bench.experiments.build_latency_profile_from_trace."
         )
-    return HiddenRegimeSampler(model, clock=clock, seed=seed)
+    return model
 
 
 # ---------------------------------------------------------------------------

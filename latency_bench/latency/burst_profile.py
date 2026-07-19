@@ -129,6 +129,8 @@ def build_hidden_regime_burst_model(samples: list[dict[str, Any]]) -> dict[str, 
 
 def build_hidden_regime_burst_model_from_sessions(
     session_samples: list[list[dict[str, Any]]],
+    *,
+    reset_scope: str = "session",
 ) -> dict[str, Any]:
     """Fit one model while preserving independent measurement boundaries."""
     pooled_samples = [sample for samples in session_samples for sample in samples]
@@ -177,16 +179,29 @@ def build_hidden_regime_burst_model_from_sessions(
         end - begin + 1
         for dwells in session_dwells
         for begin, end in dwells
+        if reset_scope == "session" or begin > 0
     ]
 
     rank_processes, ready_deltas = _fit_rank_processes_from_sessions(
         list(zip(ordered_sessions, session_dwells)), spike_threshold_ms
     )
 
-    return {
-        "schema_version": 9,
+    initial_regime_counts = {"calm": 0, "burst": 0}
+    initial_burst_residual_lengths: list[int] = []
+    if reset_scope == "episode":
+        for regimes in session_regimes:
+            initial_regime_counts[regimes[0]] += 1
+            if regimes[0] == "burst":
+                residual_length = next(
+                    (index for index, regime in enumerate(regimes) if regime != "burst"),
+                    len(regimes),
+                )
+                initial_burst_residual_lengths.append(residual_length)
+
+    model = {
+        "schema_version": 9 if reset_scope == "session" else 10,
         "model_type": "hidden_regime",
-        "reset_scope": "session",
+        "reset_scope": reset_scope,
         "spike_threshold_ms": spike_threshold_ms,
         "spike_median_multiplier": SPIKE_MEDIAN_MULTIPLIER,
         "burst_merge_gap_records": BURST_MERGE_GAP_RECORDS,
@@ -212,6 +227,14 @@ def build_hidden_regime_burst_model_from_sessions(
         "burst_rank_processes": rank_processes,
         "ready_delta_ms": _fit_inverse_cdf(ready_deltas) if ready_deltas else None,
     }
+    if reset_scope == "episode":
+        model["initial_regime_counts"] = initial_regime_counts
+        model["initial_burst_residual_dwell_distribution"] = (
+            _fit_inverse_cdf([float(length) for length in initial_burst_residual_lengths])
+            if initial_burst_residual_lengths
+            else None
+        )
+    return model
 
 
 def _fit_rank_processes_from_sessions(

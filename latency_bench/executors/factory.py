@@ -231,7 +231,10 @@ def _build_batched_simulated_executor(
         ]
         logger = _build_trajectory_logger(config)
         episode_latency_source_factory = build_episode_sampler_factory(config["latency"], clock)
-        if resolve_latency_method(config["latency"]) == "temporal":
+        if (
+            resolve_latency_method(config["latency"]) == "temporal"
+            and episode_latency_source_factory is None
+        ):
             # The hidden regime is session-scoped machine state and a dwell is
             # a draw budget that spans episodes however draws interleave, so
             # one machine timeline serves every slot.

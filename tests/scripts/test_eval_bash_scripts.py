@@ -1463,3 +1463,55 @@ fi
     if failed_stage == "sim":
         expected.remove(failed_publish)
     assert commands == expected
+
+
+def test_sim_isolated_rebuilds_exact_isolated_matrix_and_artifacts(tmp_path):
+    script_path = REPO_ROOT / "sim_isolated.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls_path = tmp_path / "calls.log"
+    command_logger = f"""#!/bin/bash
+set -euo pipefail
+printf '%s|%s\n' "$(basename "$0")" "$*" >> "{calls_path}"
+"""
+    for command in ("bash", "rm", "python"):
+        _write_executable(fake_bin / command, command_logger)
+
+    subprocess.run(
+        ["/bin/bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
+        check=True,
+    )
+
+    calls = calls_path.read_text(encoding="utf-8").splitlines()
+    bash_calls = [call.split("|", maxsplit=1)[1] for call in calls if call.startswith("bash|")]
+    rm_calls = [call.split("|", maxsplit=1)[1] for call in calls if call.startswith("rm|")]
+    python_calls = [
+        call.split("|", maxsplit=1)[1] for call in calls if call.startswith("python|")
+    ]
+
+    assert sum(call.startswith("cross_device.sh download raw ") for call in bash_calls) == 5
+    assert sum(call.startswith("cross_device.sh fit ") for call in bash_calls) == 5
+    profile_publishes = [
+        call for call in bash_calls if call.startswith("cross_device.sh publish profile ")
+    ]
+    assert len(profile_publishes) == 5
+    assert all("--overwrite" in call and "--resume" not in call for call in profile_publishes)
+
+    simulations = [call for call in bash_calls if call.startswith("cross_device.sh sim ")]
+    simulation_publishes = [
+        call for call in bash_calls if call.startswith("cross_device.sh publish sim ")
+    ]
+    assert len(simulations) == 20
+    assert len(simulation_publishes) == 20
+    assert all("--latency-seeds 0" in call and "--resume" not in call for call in simulations)
+    assert all("--overwrite" in call for call in simulation_publishes)
+    assert all(
+        any(f"--method {method}" in call for call in simulations)
+        for method in ("temporal", "iid", "fixed", "normal")
+    )
+
+    assert sum("results/cross_device/profiles/" in call for call in rm_calls) == 5
+    assert sum("results/cross_device/sim/" in call for call in rm_calls) == 20
+    assert python_calls == ["build_data.py", "plot.py"]
