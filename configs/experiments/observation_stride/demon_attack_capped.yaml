@@ -1,0 +1,40 @@
+__base__: ../../base/demon_attack.yaml
+experiment_family: observation_stride
+generated_root: configs/train/observation_stride/demon_attack/capped
+train_dir: results/checkpoints/observation_stride/demon_attack
+output_root: outputs/observation_stride/demon_attack/capped
+device: cuda
+restart_behavior: resume
+eval_upload_repo_id: latency-sensitive-bench/paper-experiment-evals
+eval_upload_repo_type: dataset
+eval_upload_path_prefix: observation_stride/demon_attack/capped
+seeds:
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+
+evaluation:
+  eval_episodes: 100
+  eval_max_steps: 3600
+
+latency_settings:
+  fixed_l4:
+    kind: fixed
+    frames: 4
+  uniform_u2_6:
+    kind: uniform
+    min: 2
+    max: 6
+
+sweeps:
+  observation_stride:
+    frame_stack:
+      - 4
+    observation_stride:
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6

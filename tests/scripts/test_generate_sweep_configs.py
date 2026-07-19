@@ -1,0 +1,374 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+import yaml
+
+from latency_bench.core.config import load_config
+from scripts.sweeps.generate_sweep_configs import (
+    _build_latency_bench_eval_config,
+    main as generate_sweep_configs,
+)
+
+from helpers import REPO_ROOT
+
+
+OFFICIAL_SEEDS = tuple(range(10, 15))
+
+
+def _read_manifest(path: Path) -> list[dict[str, str]]:
+    lines = path.read_text(encoding="utf-8").strip().splitlines()
+    header = lines[0].split("\t")
+    return [dict(zip(header, line.split("\t"))) for line in lines[1:]]
+
+
+def test_latency_bench_eval_config_disables_full_trace_records(tmp_path):
+    base_config = {
+        "backend": {
+            "train_dir": str(tmp_path / "checkpoints"),
+            "extra_args": [],
+        },
+        "env": {
+            "name": "flappy",
+            "env_fps": 30,
+            "obs_fps": 30,
+            "frame_stack": 4,
+        },
+        "evaluation": {
+            "eval_interval_steps": 1000,
+            "eval_episodes": 3,
+            "eval_suites": {"fixed": [[1]], "normal": [], "uniform": []},
+        },
+        "logging": {
+            "output_dir": str(tmp_path / "train_output"),
+            "save_step_records": True,
+            "save_action_records": True,
+            "save_latency_records": True,
+        },
+        "policy": {},
+    }
+    full_train_config = {
+        "backend": {
+            "train_dir": str(tmp_path / "checkpoints"),
+            "extra_args": [],
+        },
+        "env": {
+            "name": "flappy",
+            "env_fps": 30,
+            "obs_fps": 30,
+            "frame_stack": 4,
+        },
+        "evaluation": {
+            "eval_interval_steps": 1000,
+            "eval_episodes": 3,
+            "eval_suites": {"fixed": [[1]], "normal": [], "uniform": []},
+        },
+        "logging": {
+            "output_dir": str(tmp_path / "train_output"),
+            "save_step_records": True,
+            "save_action_records": True,
+            "save_latency_records": True,
+        },
+    }
+
+    config = _build_latency_bench_eval_config(
+        base_config,
+        full_train_config,
+        sweep_name="frame_stack",
+        latency_label="fixed_l1",
+        frame_stack=4,
+        obs_fps=30,
+        observation_stride=1,
+        seed=10,
+        output_root=tmp_path / "outputs",
+        latency_bench_policy_device="auto",
+    )
+
+    assert config["logging"]["save_step_records"] is False
+    assert config["logging"]["save_action_records"] is False
+    assert config["logging"]["save_latency_records"] is False
+
+
+def test_memory_small_model_spec_emits_official_seed_matrix(tmp_path):
+    generated_root = tmp_path / "configs"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    generate_sweep_configs(
+        [
+            "--spec",
+            "configs/experiments/memory/small_model/flappy_extended.yaml",
+            "--generated-root",
+            str(generated_root),
+            "--output-root",
+            str(output_root),
+            "--train-dir",
+            str(train_dir),
+        ]
+    )
+
+    rows = _read_manifest(generated_root / "manifest.tsv")
+    assert len(rows) == 80
+    assert len({row["train_config"] for row in rows}) == 80
+    assert {row["seed"] for row in rows} == {str(seed) for seed in OFFICIAL_SEEDS}
+    assert {row["schema_version"] for row in rows} == {"v2"}
+    assert {row["experiment_family"] for row in rows} == {"memory_small_model"}
+    assert {row["sweep_name"] for row in rows} == {"frame_stack"}
+    assert {row["env"] for row in rows} == {"flappy"}
+    assert {row["frame_stack"] for row in rows} == {"1", "2", "3", "4", "5", "6", "7", "8"}
+    assert {row["observation_stride"] for row in rows} == {"1"}
+    assert {row["train_upload_repo_id"] for row in rows} == {
+        "latency-sensitive-bench/paper-experiment-models"
+    }
+    assert {row["eval_upload_repo_id"] for row in rows} == {
+        "latency-sensitive-bench/paper-experiment-evals"
+    }
+
+    train_cfg = yaml.safe_load(
+        (
+            generated_root
+            / "frame_stack"
+            / "fixed_l2"
+            / "fs8"
+            / "seed_10"
+            / "train.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    assert train_cfg["experiment"]["name"] == "flappy_frame_stack_fixed_l2_fs8_seed10"
+    assert train_cfg["experiment"]["seed"] == 10
+    assert train_cfg["env"]["frame_stack"] == 8
+    assert train_cfg["env"]["obs_fps"] == pytest.approx(30)
+    assert train_cfg["evaluation"]["eval_episodes"] == 100
+    assert train_cfg["latency"]["method"] == "fixed"
+    assert train_cfg["logging"]["wandb_group"] == "flappy-fs8-fixed_l2"
+    assert train_cfg["logging"]["wandb_name"] == "flappy-fs8-fixed_l2-s10"
+    assert train_cfg["logging"]["wandb_tags"] == [
+        "memory_small_model",
+        "flappy",
+        "frame_stack",
+        "fixed",
+        "fixed_l2",
+        "fs8",
+        "seed10",
+    ]
+    assert train_cfg["logging"]["output_dir"] == str(
+        output_root / "train" / "frame_stack" / "fixed_l2" / "fs8" / "seed_10"
+    )
+    assert "eval_interval_steps" not in train_cfg["evaluation"]
+
+    eval_cfg = load_config(
+        generated_root / "frame_stack" / "fixed_l2" / "fs4" / "seed_10" / "latency_bench_eval.yaml"
+    )
+    assert eval_cfg["backend"]["run_mode"] == "eval"
+    assert eval_cfg["backend"]["extra_args"] == ["--load_checkpoint_kind", "latest"]
+    assert eval_cfg["policy"]["type"] == "flappy_sf"
+    assert eval_cfg["policy"]["checkpoint_kind"] == "latest"
+    assert eval_cfg["evaluation"]["eval_episodes"] == 100
+    assert "eval_interval_steps" not in eval_cfg["evaluation"]
+    assert eval_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [[2]],
+        "normal": [],
+        "uniform": [],
+    }
+    assert eval_cfg["logging"]["save_step_records"] is False
+    assert eval_cfg["logging"]["save_action_records"] is False
+    assert eval_cfg["logging"]["save_latency_records"] is False
+
+    uniform_eval_cfg = load_config(
+        generated_root / "frame_stack" / "uniform_u1_3" / "fs4" / "seed_10" / "latency_bench_eval.yaml"
+    )
+    assert uniform_eval_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [],
+        "normal": [],
+        "uniform": [[1, 3]],
+    }
+
+    assert train_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [[2]],
+        "normal": [],
+        "uniform": [],
+    }
+    assert "train_upload_repo_id" not in train_cfg
+    assert "train_upload_repo_type" not in train_cfg
+    assert "train_upload_path_prefix" not in train_cfg
+    assert "eval_upload_repo_id" not in train_cfg
+    assert "eval_upload_repo_type" not in train_cfg
+    assert "eval_upload_path_prefix" not in train_cfg
+
+
+def test_paper_sweep_specs_use_base_inheritance():
+    spec_paths = [
+        REPO_ROOT / "configs/experiments/observation_stride/flappy_capped.yaml",
+        REPO_ROOT / "configs/experiments/observation_stride/flappy_extended.yaml",
+        REPO_ROOT / "configs/experiments/observation_stride/demon_attack_capped.yaml",
+        REPO_ROOT / "configs/experiments/observation_stride/demon_attack_extended.yaml",
+        REPO_ROOT / "configs/experiments/observation_stride/deadly_corridor.yaml",
+        REPO_ROOT / "configs/experiments/memory/small_model/flappy_capped.yaml",
+        REPO_ROOT / "configs/experiments/memory/small_model/flappy_extended.yaml",
+        REPO_ROOT / "configs/experiments/memory/small_model/demon_attack_capped.yaml",
+        REPO_ROOT / "configs/experiments/memory/small_model/demon_attack_extended.yaml",
+        REPO_ROOT / "configs/experiments/memory/small_model/deadly_corridor.yaml",
+    ]
+
+    for spec_path in spec_paths:
+        spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+        assert "__base__" in spec
+        assert "base_config" not in spec
+        assert spec["experiment_family"] in {"observation_stride", "memory_small_model"}
+
+
+def test_observation_stride_spec_names_axis_by_stride_and_writes_obs_fps(tmp_path):
+    generated_root = tmp_path / "configs"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    generate_sweep_configs(
+        [
+            "--spec",
+            "configs/experiments/observation_stride/demon_attack_extended.yaml",
+            "--generated-root",
+            str(generated_root),
+            "--output-root",
+            str(output_root),
+            "--train-dir",
+            str(train_dir),
+        ]
+    )
+
+    rows = _read_manifest(generated_root / "manifest.tsv")
+    assert len(rows) == 90
+    assert {row["seed"] for row in rows} == {str(seed) for seed in OFFICIAL_SEEDS}
+    assert {row["sweep_name"] for row in rows} == {"observation_stride"}
+    assert {row["observation_stride"] for row in rows} == {"2", "3", "4", "5", "6", "7", "8", "9", "10"}
+
+    train_cfg = yaml.safe_load(
+        (
+            generated_root
+            / "observation_stride"
+            / "fixed_l4"
+            / "stride5"
+            / "seed_10"
+            / "train.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    assert train_cfg["experiment"]["name"] == "demon_attack_observation_stride_fixed_l4_stride5_seed10"
+    assert train_cfg["env"]["frame_stack"] == 4
+    assert train_cfg["env"]["obs_fps"] == pytest.approx(12)
+    assert train_cfg["logging"]["wandb_group"] == "demon-attack-stride5-fixed_l4"
+    assert train_cfg["logging"]["wandb_name"] == "demon-attack-stride5-fixed_l4-s10"
+    assert train_cfg["logging"]["wandb_tags"] == [
+        "observation_stride",
+        "demon-attack",
+        "observation_stride",
+        "fixed",
+        "fixed_l4",
+        "stride5",
+        "seed10",
+    ]
+    assert train_cfg["logging"]["output_dir"] == str(
+        output_root / "train" / "observation_stride" / "fixed_l4" / "stride5" / "seed_10"
+    )
+    assert "eval_interval_steps" not in train_cfg["evaluation"]
+
+
+def test_observation_stride_spec_supports_fractional_deadly_corridor_obs_fps(tmp_path):
+    generated_root = tmp_path / "configs"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    generate_sweep_configs(
+        [
+            "--spec",
+            "configs/experiments/observation_stride/deadly_corridor.yaml",
+            "--generated-root",
+            str(generated_root),
+            "--output-root",
+            str(output_root),
+            "--train-dir",
+            str(train_dir),
+        ]
+    )
+
+    train_cfg = yaml.safe_load(
+        (
+            generated_root
+            / "observation_stride"
+            / "fixed_l4"
+            / "stride5"
+            / "seed_10"
+            / "train.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    assert train_cfg["env"]["obs_fps"] == pytest.approx(7)
+    bench_cfg = load_config(
+        generated_root / "observation_stride" / "fixed_l4" / "stride5" / "seed_10" / "latency_bench_eval.yaml"
+    )
+    assert bench_cfg["policy"]["type"] == "deadly_corridor_sf"
+    assert bench_cfg["env"]["noop_action"] == [0, 0, 0, 0]
+
+
+def test_jitter_robustness_spec_includes_mixed_train_runs(tmp_path):
+    generated_root = tmp_path / "configs"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    generate_sweep_configs(
+        [
+            "--spec",
+            "configs/experiments/jitter_robustness/flappy.yaml",
+            "--generated-root",
+            str(generated_root),
+            "--output-root",
+            str(output_root),
+            "--train-dir",
+            str(train_dir),
+        ]
+    )
+
+    rows = _read_manifest(generated_root / "manifest.tsv")
+    assert len(rows) == 21
+    assert {row["latency_label"] for row in rows} == {
+        "fixed_l1",
+        "fixed_l2",
+        "fixed_l3",
+        "normal_n2_s1",
+        "uniform_u1_3",
+        "mixed_normal_n2_s1",
+        "mixed_uniform_u1_3",
+    }
+    assert {row["seed"] for row in rows} == {"911", "922", "933"}
+
+    train_cfg = yaml.safe_load(
+        (
+            generated_root
+            / "jitter_robustness"
+            / "mixed_normal_n2_s1"
+            / "obs15"
+            / "seed_911"
+            / "train.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    assert train_cfg["latency"]["method"] == "normal"
+    assert train_cfg["latency"]["per_episode"] is True
+    assert train_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [[1, 2, 3]],
+        "normal": [[2.0, 1.0, 0, 4]],
+        "uniform": [[1, 3]],
+    }
+
+    eval_cfg = load_config(
+        generated_root
+        / "jitter_robustness"
+        / "mixed_uniform_u1_3"
+        / "obs15"
+        / "seed_911"
+        / "latency_bench_eval.yaml"
+    )
+    assert eval_cfg["latency"]["method"] == "uniform"
+    assert eval_cfg["latency"]["per_episode"] is True
+    assert eval_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [[1, 2, 3]],
+        "normal": [[2.0, 1.0, 0, 4]],
+        "uniform": [[1, 3]],
+    }

@@ -12,8 +12,151 @@ from pathlib import Path
 import pytest
 
 import scripts.experiment_runner.run_manifest_jobs as run_manifest_jobs
-from scripts.experiment_runner.job_manifest import load_manifest, write_manifest
+from scripts.experiment_runner.job_manifest import (
+    MANIFEST_V2_COLUMNS,
+    append_event,
+    event_log_path_for_manifest,
+    load_events,
+    load_manifest,
+    write_manifest,
+)
 from scripts.experiment_runner.run_manifest_jobs import _default_uploader, run_jobs
+
+
+def _write_single_job(tmp_path: Path) -> tuple[Path, Path, Path]:
+    train_mark = tmp_path / "train"
+    eval_mark = tmp_path / "eval"
+    manifest_path = tmp_path / "manifest.tsv"
+    row = {column: "" for column in MANIFEST_V2_COLUMNS}
+    row.update(
+        {
+            "schema_version": "v2",
+            "job_id": "job1",
+            "train_command": (
+                f"{sys.executable} -c \"from pathlib import Path; "
+                f"Path(r'{train_mark}').write_text('1')\""
+            ),
+            "eval_command": (
+                f"{sys.executable} -c \"from pathlib import Path; "
+                f"Path(r'{eval_mark}').write_text('1')\""
+            ),
+            "train_upload_repo_id": "repo-model",
+            "train_upload_repo_type": "model",
+            "eval_upload_repo_id": "repo-dataset",
+            "eval_upload_repo_type": "dataset",
+        }
+    )
+    write_manifest(manifest_path, [row])
+    return manifest_path, train_mark, eval_mark
+
+
+def test_train_stage_only_trains_and_resumes_from_success(tmp_path):
+    manifest_path, train_mark, eval_mark = _write_single_job(tmp_path)
+
+    for _ in range(2):
+        assert run_jobs(
+            manifest_path=manifest_path,
+            gpus=["0"],
+            upload_workers=1,
+            max_upload_attempts=1,
+            stage="train",
+        ) == 0
+
+    assert train_mark.is_file()
+    assert not eval_mark.exists()
+    events = load_events(event_log_path_for_manifest(manifest_path))
+    assert [event["stage"] for event in events] == ["train_started", "train_succeeded"]
+
+
+def test_eval_stage_does_not_train_or_upload(tmp_path):
+    manifest_path, train_mark, eval_mark = _write_single_job(tmp_path)
+    uploads: list[str] = []
+
+    for _ in range(2):
+        assert run_jobs(
+            manifest_path=manifest_path,
+            gpus=["0"],
+            upload_workers=1,
+            max_upload_attempts=1,
+            stage="eval",
+            uploader=lambda job: uploads.append(job["job_id"]),
+        ) == 0
+
+    assert not train_mark.exists()
+    assert eval_mark.is_file()
+    assert uploads == []
+    events = load_events(event_log_path_for_manifest(manifest_path))
+    assert [event["stage"] for event in events] == ["eval_started", "eval_succeeded"]
+
+
+def test_upload_stage_needs_no_gpu_and_retries_failed_upload(tmp_path):
+    manifest_path, train_mark, eval_mark = _write_single_job(tmp_path)
+    event_log = event_log_path_for_manifest(manifest_path)
+    append_event(event_log, {"job_id": "job1", "stage": "eval_succeeded", "ts": 1.0})
+
+    def fail_upload(job: dict[str, str]) -> None:
+        raise RuntimeError(job["job_id"])
+
+    assert run_jobs(
+        manifest_path=manifest_path,
+        gpus=[],
+        upload_workers=1,
+        max_upload_attempts=1,
+        stage="upload",
+        uploader=fail_upload,
+    ) == 1
+    uploads: list[str] = []
+    assert run_jobs(
+        manifest_path=manifest_path,
+        gpus=[],
+        upload_workers=1,
+        max_upload_attempts=1,
+        stage="upload",
+        uploader=lambda job: uploads.append(job["job_id"]),
+    ) == 0
+
+    assert uploads == ["job1"]
+    assert run_jobs(
+        manifest_path=manifest_path,
+        gpus=[],
+        upload_workers=1,
+        max_upload_attempts=1,
+        stage="upload",
+        uploader=lambda job: uploads.append(job["job_id"]),
+    ) == 0
+    assert uploads == ["job1"]
+    assert not train_mark.exists()
+    assert not eval_mark.exists()
+    assert [event["stage"] for event in load_events(event_log)][-3:] == [
+        "upload_started",
+        "upload_succeeded",
+        "job_complete",
+    ]
+
+
+def test_dry_run_does_not_execute_or_record_success(tmp_path, capsys):
+    manifest_path, train_mark, eval_mark = _write_single_job(tmp_path)
+
+    assert run_jobs(
+        manifest_path=manifest_path,
+        gpus=["0"],
+        upload_workers=1,
+        max_upload_attempts=1,
+        stage="all",
+        dry_run=True,
+    ) == 0
+
+    assert not train_mark.exists()
+    assert not eval_mark.exists()
+    assert load_events(event_log_path_for_manifest(manifest_path)) == []
+    output = capsys.readouterr().out
+    assert "CUDA_VISIBLE_DEVICES=0" in output
+    assert "upload job1: repo-dataset, repo-model" in output
+
+
+def test_cli_requires_gpus_except_for_upload_stage():
+    with pytest.raises(SystemExit):
+        run_manifest_jobs.main(["--manifest", "manifest.tsv", "--stage", "train"])
 
 
 def test_runner_uploads_in_background(tmp_path):
@@ -191,9 +334,9 @@ def test_default_uploader_prefers_env_token_over_dotenv(monkeypatch, tmp_path):
 
     _default_uploader(
         {
-            "train_upload_repo_id": "latency-sensitive-bench/factor-sweeps-models",
+            "train_upload_repo_id": "latency-sensitive-bench/sweep-models",
             "train_upload_repo_type": "model",
-            "eval_upload_repo_id": "latency-sensitive-bench/factor-sweeps-evals",
+            "eval_upload_repo_id": "latency-sensitive-bench/sweep-evals",
             "eval_upload_repo_type": "dataset",
             "train_artifact_dir": str(tmp_path / "train_artifacts"),
             "eval_artifact_dir": str(tmp_path / "eval_artifacts"),
@@ -203,10 +346,10 @@ def test_default_uploader_prefers_env_token_over_dotenv(monkeypatch, tmp_path):
     )
 
     assert calls[0] == ("init", "env-token")
-    assert calls[1] == ("create_repo", "latency-sensitive-bench/factor-sweeps-models")
-    assert calls[2] == ("upload_folder", "train/job1")
-    assert calls[3] == ("create_repo", "latency-sensitive-bench/factor-sweeps-evals")
-    assert calls[4] == ("upload_folder", "eval/job1")
+    assert calls[1] == ("create_repo", "latency-sensitive-bench/sweep-evals")
+    assert calls[2] == ("upload_folder", "eval/job1")
+    assert calls[3] == ("create_repo", "latency-sensitive-bench/sweep-models")
+    assert calls[4] == ("upload_folder", "train/job1")
 
 
 def test_default_uploader_falls_back_to_dotenv_token(monkeypatch, tmp_path):
@@ -235,9 +378,9 @@ def test_default_uploader_falls_back_to_dotenv_token(monkeypatch, tmp_path):
 
     _default_uploader(
         {
-            "train_upload_repo_id": "latency-sensitive-bench/factor-sweeps-models",
+            "train_upload_repo_id": "latency-sensitive-bench/sweep-models",
             "train_upload_repo_type": "model",
-            "eval_upload_repo_id": "latency-sensitive-bench/factor-sweeps-evals",
+            "eval_upload_repo_id": "latency-sensitive-bench/sweep-evals",
             "eval_upload_repo_type": "dataset",
             "train_artifact_dir": str(tmp_path / "train_artifacts"),
             "eval_artifact_dir": str(tmp_path / "eval_artifacts"),
@@ -274,9 +417,9 @@ def test_default_uploader_uses_cached_login_when_no_token_available(monkeypatch,
 
     _default_uploader(
         {
-            "train_upload_repo_id": "latency-sensitive-bench/factor-sweeps-models",
+            "train_upload_repo_id": "latency-sensitive-bench/sweep-models",
             "train_upload_repo_type": "model",
-            "eval_upload_repo_id": "latency-sensitive-bench/factor-sweeps-evals",
+            "eval_upload_repo_id": "latency-sensitive-bench/sweep-evals",
             "eval_upload_repo_type": "dataset",
             "train_artifact_dir": str(tmp_path / "train_artifacts"),
             "eval_artifact_dir": str(tmp_path / "eval_artifacts"),
@@ -313,9 +456,9 @@ def test_default_uploader_splits_model_and_dataset_repos_and_filters_noise(monke
 
     _default_uploader(
         {
-            "train_upload_repo_id": "latency-sensitive-bench/factor-sweeps-models",
+            "train_upload_repo_id": "latency-sensitive-bench/sweep-models",
             "train_upload_repo_type": "model",
-            "eval_upload_repo_id": "latency-sensitive-bench/factor-sweeps-evals",
+            "eval_upload_repo_id": "latency-sensitive-bench/sweep-evals",
             "eval_upload_repo_type": "dataset",
             "train_artifact_dir": str(tmp_path / "train_artifacts"),
             "eval_artifact_dir": str(tmp_path / "eval_artifacts"),
@@ -326,19 +469,19 @@ def test_default_uploader_splits_model_and_dataset_repos_and_filters_noise(monke
 
     assert uploads[0] == {
         "kind": "create_repo",
-        "repo_id": "latency-sensitive-bench/factor-sweeps-models",
-        "repo_type": "model",
+        "repo_id": "latency-sensitive-bench/sweep-evals",
+        "repo_type": "dataset",
     }
-    assert uploads[1]["repo_id"] == "latency-sensitive-bench/factor-sweeps-models"
-    assert uploads[1]["repo_type"] == "model"
-    assert uploads[1]["path_in_repo"] == "train/job1"
+    assert uploads[1]["repo_id"] == "latency-sensitive-bench/sweep-evals"
+    assert uploads[1]["repo_type"] == "dataset"
+    assert uploads[1]["path_in_repo"] == "eval/job1"
     assert uploads[1]["ignore_patterns"] == run_manifest_jobs.UPLOAD_IGNORE_PATTERNS
     assert uploads[2] == {
         "kind": "create_repo",
-        "repo_id": "latency-sensitive-bench/factor-sweeps-evals",
-        "repo_type": "dataset",
+        "repo_id": "latency-sensitive-bench/sweep-models",
+        "repo_type": "model",
     }
-    assert uploads[3]["repo_id"] == "latency-sensitive-bench/factor-sweeps-evals"
-    assert uploads[3]["repo_type"] == "dataset"
-    assert uploads[3]["path_in_repo"] == "eval/job1"
+    assert uploads[3]["repo_id"] == "latency-sensitive-bench/sweep-models"
+    assert uploads[3]["repo_type"] == "model"
+    assert uploads[3]["path_in_repo"] == "train/job1"
     assert uploads[3]["ignore_patterns"] == run_manifest_jobs.UPLOAD_IGNORE_PATTERNS
