@@ -505,7 +505,7 @@ def test_flappy_gpu_render_device_resolution_fails_fast_without_cuda(monkeypatch
 def test_flappy_gpu_render_config_emits_cuda_actor_worker_args():
     from training.flappy_sf.integration import build_cli_args_from_config
 
-    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg = load_config("configs/base/flappy.yaml")
     cfg["env"]["use_gpu_render"] = True
     cfg["env"]["gpu_render_device"] = "cuda"
     cfg["training"]["worker_num_splits"] = 1
@@ -526,7 +526,7 @@ def test_flappy_gpu_render_config_emits_cuda_actor_worker_args():
 def test_flappy_gpu_render_config_cpu_does_not_force_actor_worker_gpu():
     from training.flappy_sf.integration import build_cli_args_from_config
 
-    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg = load_config("configs/base/flappy.yaml")
     cfg["env"]["use_gpu_render"] = True
     cfg["env"]["gpu_render_device"] = "cpu"
     # A GPU env simulator (simulator=gpu) legitimately forces a GPU actor worker
@@ -551,7 +551,7 @@ def test_flappy_gpu_render_config_cpu_does_not_force_actor_worker_gpu():
 def test_flappy_cpu_simulator_keeps_cpu_actions_with_gpu_render():
     from training.flappy_sf.integration import build_cli_args_from_config
 
-    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg = load_config("configs/base/flappy.yaml")
     cfg["env"]["use_gpu_render"] = True
     cfg["env"]["simulator"] = "cpu"
     cfg["env"]["gpu_render_device"] = "cuda"
@@ -567,7 +567,7 @@ def test_flappy_cpu_simulator_keeps_cpu_actions_with_gpu_render():
 def test_flappy_gpu_render_config_does_not_remap_cpu_render_path():
     from training.flappy_sf.integration import build_cli_args_from_config
 
-    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg = load_config("configs/base/flappy.yaml")
     cfg["env"]["use_gpu_render"] = False
     # Pure CPU render path: pin simulator to cpu so this does not route through
     # the GPU-env layout (which inherits simulator=gpu from base/flappy and would
@@ -587,7 +587,7 @@ def test_flappy_gpu_render_config_does_not_remap_cpu_render_path():
 def test_flappy_gpu_render_config_maps_profile_args():
     from training.flappy_sf.integration import build_cli_args_from_config
 
-    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg = load_config("configs/base/flappy.yaml")
     cfg["env"]["use_gpu_render"] = True
     cfg["env"]["gpu_render_device"] = "cpu"
     cfg["env"]["gpu_render_profile"] = True
@@ -603,7 +603,7 @@ def test_flappy_gpu_render_config_maps_profile_args():
 def test_flappy_gpu_simulator_config_is_passed_to_training_adapter():
     from training.flappy_sf.integration import build_cli_args_from_config
 
-    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg = load_config("configs/base/flappy.yaml")
     cfg["env"]["use_gpu_render"] = True
     cfg["env"]["simulator"] = "gpu"
     cfg["env"]["gpu_render_device"] = "cpu"
@@ -817,7 +817,7 @@ def test_flappy_gpu_simulator_accepts_cuda_action_tensor(monkeypatch):
 def test_flappy_gpu_render_config_maps_timelimit_diagnostics_arg():
     from training.flappy_sf.integration import build_cli_args_from_config
 
-    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg = load_config("configs/base/flappy.yaml")
     cfg["env"]["debug_timelimit_diagnostics"] = True
     cfg["training"]["worker_num_splits"] = 1
 
@@ -829,7 +829,7 @@ def test_flappy_gpu_render_config_maps_timelimit_diagnostics_arg():
 def test_flappy_gpu_render_cli_keeps_worker_splits_without_validation():
     from training.flappy_sf.integration import build_cli_args_from_config
 
-    cfg = load_config("configs/experiments/flappy/sf_zero_latency.yaml")
+    cfg = load_config("configs/base/flappy.yaml")
     cfg["env"]["use_gpu_render"] = True
     cfg["env"]["gpu_render_device"] = "cpu"
     cfg["training"]["num_envs_per_worker"] = 4
