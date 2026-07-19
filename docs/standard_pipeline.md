@@ -1,22 +1,11 @@
 # Data Collection
 ```bash
 git clone --recurse-submodules https://github.com/ZihanWang314/latency-sensitive-bench.git
-# git submodule sync --recursive
-# git submodule update --init --recursive third_party/flappy-bird-gymnasium third_party/starVLA third_party/sample-factory
+cd latency-sensitive-bench
 
 # --- env setup ---
-conda create -n latency python=3.10 -y
+bash install.sh --tier use --model openvla --env all
 conda activate latency
-conda install -c nvidia cuda-toolkit=12.8 -y
-
-pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 \
-  --index-url https://download.pytorch.org/whl/cu128
-  
-# Installs a flash-attn wheel matched to the active torch/CUDA/Python/ABI
-# (source-build fallback when no prebuilt wheel matches, e.g. torch 2.10 / cu13).
-bash third_party/starVLA/examples/rl_games/install/flash_attn.sh
-
-python -m pip install -r requirements_starvla_eval_extra.txt
 
 # --- small model checkpoints download ---
 # flappy
@@ -70,17 +59,14 @@ hf upload latency-sensitive-bench/demon_attack_200ep \
 
 # SFT Training
 ```bash
-git clone https://github.com/talha1503/starVLA.git
-
-# --- env setup ---
-bash examples/rl_games/install/bootstrap.sh \
+# Run from the latency-sensitive-bench repository root.
+bash install.sh \
   --tier dev \
-  --conda-env starvla_openvla \
-  --python-version 3.10 \
   --model openvla \
   --env all
 
-conda activate starvla_openvla
+conda activate starvla_rl_games_openvla
+cd third_party/starVLA
 
 # --- data prepare ---
 # flappy

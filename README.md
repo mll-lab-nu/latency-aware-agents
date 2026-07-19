@@ -14,7 +14,7 @@ cd latency-sensitive-bench
 Use this setup to run the benchmark or evaluate a pretrained OpenVLA policy:
 
 ```bash
-bash install.sh
+bash install.sh --tier use --model openvla --env all
 ```
 
 This creates the benchmark environment (`latency`) and an OpenVLA runtime
@@ -24,7 +24,7 @@ Torch/CUDA build and installs all three benchmark task environments.
 Install another VLA backend in its own environment when needed:
 
 ```bash
-bash third_party/starVLA/examples/rl_games/install/bootstrap.sh \
+bash install.sh \
   --tier use \
   --model pi0 \
   --env all
@@ -35,12 +35,11 @@ Each target uses a separate `starvla_rl_games_<model>` Conda environment.
 
 ### For development and training
 
-Install the base benchmark first, then upgrade the model environment to the
-development tier:
+Use the development tier when training models, exporting datasets, running
+analysis, or modifying the codebase:
 
 ```bash
-bash install.sh
-bash third_party/starVLA/examples/rl_games/install/bootstrap.sh \
+bash install.sh \
   --tier dev \
   --model openvla \
   --env all
@@ -49,6 +48,11 @@ bash third_party/starVLA/examples/rl_games/install/bootstrap.sh \
 The `dev` tier adds training, testing, data-processing, FlashAttention, and
 model-specific development dependencies. Change `--model` to develop or train a
 different VLA backend.
+
+Use repeated `--env` options to install only selected tasks. On a non-interactive
+machine, pass `--accept-rom-license` after reviewing the Atari ROM license. Use
+`--torch-profile cpu` for a CPU-only installation; otherwise `auto` selects the
+profile from the available GPU and driver.
 
 ## Environment variables
 

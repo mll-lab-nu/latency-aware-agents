@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LATENCY_BENCH_TORCH_PROFILE="${LATENCY_BENCH_TORCH_PROFILE:-auto}"
+INSTALL_TIER="use"
+MODEL_TARGET="openvla"
+TORCH_PROFILE="${LATENCY_BENCH_TORCH_PROFILE:-auto}"
+ACCEPT_ROM_LICENSE="false"
+REQUESTED_ENVS=()
 MINICONDA_HOME="${HOME}/miniconda3"
 MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
 CONDA_SH_PATH=""
@@ -12,71 +16,100 @@ source "${SCRIPT_DIR}/scripts/bash_scripts/_pip.sh"
 # shellcheck source=scripts/bash_scripts/_mirrors.sh
 source "${SCRIPT_DIR}/scripts/bash_scripts/_mirrors.sh"
 
-detect_torch_profile() {
-    if ! command -v nvidia-smi >/dev/null 2>&1; then
-        echo "[install] nvidia-smi not found; defaulting auto torch profile to cu126" >&2
-        echo "cu126"
-        return
-    fi
+usage() {
+    cat <<'EOF'
+Usage: bash install.sh [options]
 
-    local compute_caps
-    compute_caps="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null || true)"
-    if [[ -z "${compute_caps//[[:space:]]/}" ]]; then
-        echo "[install] unable to query GPU compute capability; defaulting auto torch profile to cu126" >&2
-        echo "cu126"
-        return
-    fi
-
-    if echo "${compute_caps}" | awk -F. '$1 >= 10 {found=1} END {exit found ? 0 : 1}'; then
-        local driver_version driver_major
-        driver_version="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n 1)"
-        driver_major="${driver_version%%.*}"
-        if ((driver_major >= 580)); then
-            echo "[install] detected GPU compute capability >= 10.0 with driver ${driver_version}; selecting cu130" >&2
-            echo "cu130"
-        else
-            echo "[install] detected GPU compute capability >= 10.0 with driver ${driver_version}; selecting cu128" >&2
-            echo "cu128"
-        fi
-        return
-    fi
-
-    echo "[install] detected GPU compute capability < 10.0; selecting cu126" >&2
-    echo "cu126"
+Options:
+  --tier <use|dev>         Install runtime or development dependencies (default: use)
+  --model <name>           openvla|pi0|pi05|gr00t|wan_oft (default: openvla)
+  --env <name|all>         Repeatable: flappy|demon_attack|deadly_corridor|all (default: all)
+  --torch-profile <name>   auto|cpu|cu126|cu128|cu130 (default: auto)
+  --accept-rom-license     Permit AutoROM to accept and download Atari ROMs
+  -h, --help               Show this help
+EOF
 }
 
-resolve_torch_profile() {
+while [[ $# -gt 0 ]]; do
     case "$1" in
-        auto)
-            detect_torch_profile
+        --tier)
+            INSTALL_TIER="$2"
+            shift 2
             ;;
-        cu126|cu128|cu130)
-            echo "$1"
+        --model)
+            MODEL_TARGET="$2"
+            shift 2
+            ;;
+        --env)
+            REQUESTED_ENVS+=("$2")
+            shift 2
+            ;;
+        --torch-profile)
+            TORCH_PROFILE="$2"
+            shift 2
+            ;;
+        --accept-rom-license)
+            ACCEPT_ROM_LICENSE="true"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
             ;;
         *)
-            echo "[install] Unknown LATENCY_BENCH_TORCH_PROFILE='$1'. Expected auto|cu126|cu128|cu130." >&2
-            return 1
+            echo "[install] unknown argument: $1" >&2
+            usage >&2
+            exit 1
             ;;
     esac
-}
+done
 
-resolve_torch_specs() {
-    case "$1" in
-        cu130)
-            echo "torch==2.12.1+cu130 torchvision==0.27.1+cu130"
-            ;;
-        cu128)
-            echo "torch==2.10.0+cu128 torchvision==0.25.0+cu128"
-            ;;
-        cu126)
-            echo "torch==2.10.0+cu126 torchvision==0.25.0+cu126"
-            ;;
-        *)
-            echo "[install] Unknown resolved torch profile '$1'. Expected cu126|cu128|cu130." >&2
-            return 1
-            ;;
-    esac
-}
+case "${INSTALL_TIER}" in
+    use|dev) ;;
+    *)
+        echo "[install] invalid tier '${INSTALL_TIER}'; expected use|dev" >&2
+        exit 1
+        ;;
+esac
+
+case "${MODEL_TARGET}" in
+    openvla|pi0|pi05|gr00t|wan_oft) ;;
+    *)
+        echo "[install] invalid model '${MODEL_TARGET}'; expected openvla|pi0|pi05|gr00t|wan_oft" >&2
+        exit 1
+        ;;
+esac
+
+ENVS_TO_INSTALL=()
+STARVLA_ENV_ARGS=()
+if [[ ${#REQUESTED_ENVS[@]} -eq 0 ]]; then
+    ENVS_TO_INSTALL=(flappy demon_attack deadly_corridor)
+    STARVLA_ENV_ARGS=(--env all)
+else
+    if [[ ${#REQUESTED_ENVS[@]} -gt 1 ]]; then
+        for env_name in "${REQUESTED_ENVS[@]}"; do
+            if [[ "${env_name}" == "all" ]]; then
+                echo "[install] --env all cannot be combined with another --env" >&2
+                exit 1
+            fi
+        done
+    fi
+    for env_name in "${REQUESTED_ENVS[@]}"; do
+        case "${env_name}" in
+            all)
+                ENVS_TO_INSTALL=(flappy demon_attack deadly_corridor)
+                ;;
+            flappy|demon_attack|deadly_corridor)
+                ENVS_TO_INSTALL+=("${env_name}")
+                ;;
+            *)
+                echo "[install] invalid env '${env_name}'; expected flappy|demon_attack|deadly_corridor|all" >&2
+                exit 1
+                ;;
+        esac
+        STARVLA_ENV_ARGS+=(--env "${env_name}")
+    done
+fi
 
 find_conda_sh() {
     local candidates=()
@@ -154,16 +187,6 @@ ensure_latency_env() {
     conda activate latency
 }
 
-SELECTED_TORCH_PROFILE="$(resolve_torch_profile "${LATENCY_BENCH_TORCH_PROFILE}")"
-export STARVLA_TORCH_PROFILE="${SELECTED_TORCH_PROFILE}"
-# Speed-test mirrors once and route torch + pypi through the fastest provider. Exports
-# STARVLA_TORCH_INDEX_BASE / PIP_INDEX_URL / UV_* so the requirements install and the
-# starVLA bootstrap (and its parallel env builds) inherit the choice without re-probing.
-export_mirror_env "${SELECTED_TORCH_PROFILE}"
-TORCH_INDEX_URL="${STARVLA_TORCH_INDEX_BASE}/${SELECTED_TORCH_PROFILE}"
-read -r -a TORCH_SPECS <<< "$(resolve_torch_specs "${SELECTED_TORCH_PROFILE}")"
-echo "[install] torch_profile=${SELECTED_TORCH_PROFILE} index_url=${TORCH_INDEX_URL}"
-
 # Fresh cloud instance bootstrap for the master branch.
 #
 # GitHub authentication on Vast.ai or similar rented GPU hosts:
@@ -181,7 +204,15 @@ echo "[install] torch_profile=${SELECTED_TORCH_PROFILE} index_url=${TORCH_INDEX_
 ensure_conda
 persist_conda_shell_init
 
+cd "${SCRIPT_DIR}"
 git submodule update --init --recursive
+
+# Keep root and model environments on the same Torch profile implementation.
+# shellcheck source=third_party/starVLA/examples/rl_games/install/_torch_profile.sh
+source "${SCRIPT_DIR}/third_party/starVLA/examples/rl_games/install/_torch_profile.sh"
+SELECTED_TORCH_PROFILE="$(resolve_torch_profile "${TORCH_PROFILE}")"
+export STARVLA_TORCH_PROFILE="${SELECTED_TORCH_PROFILE}"
+export ACCEPT_ROM_LICENSE
 
 ensure_latency_env
 # Keep uv's cache on the same filesystem as the conda envs so packages are
@@ -196,16 +227,39 @@ export UV_HTTP_RETRIES="${UV_HTTP_RETRIES:-10}"
 # every env re-downloads the identical multi-GB torch/CUDA stack) and UV_LINK_MODE=copy
 # (defeats the cache->env hardlink dedup). Clear both to restore download/disk dedup.
 unset UV_NO_CACHE UV_LINK_MODE
+
+# Speed-test mirrors once and share the selected provider with every model env.
+export_mirror_env "${SELECTED_TORCH_PROFILE}"
+echo "[install] tier=${INSTALL_TIER} model=${MODEL_TARGET} torch=${SELECTED_TORCH_PROFILE} envs=${ENVS_TO_INSTALL[*]}"
+
 python -m pip install --upgrade pip
 ensure_uv
-pip_install "${TORCH_SPECS[@]}" --index-url "${TORCH_INDEX_URL}"
-python - <<'PY'
-import torch
+PYTHON_BIN=python bash third_party/starVLA/examples/rl_games/install/torch.sh
 
-print(f"[install] torch={torch.__version__} cuda={torch.version.cuda}")
-PY
-pip_install -r requirements.txt
+if [[ "${INSTALL_TIER}" == "dev" ]]; then
+    pip_install -e ".[dev]"
+else
+    pip_install -e .
+fi
+pip_install --no-deps -e third_party/flappy-bird-gymnasium
+pip_install -e third_party/sample-factory
 
-bash scripts/bash_scripts/build_cuda_extensions.sh
-bash third_party/starVLA/examples/rl_games/install/bootstrap.sh
-wandb login
+for env_name in "${ENVS_TO_INSTALL[@]}"; do
+    PYTHON_BIN=python bash "third_party/starVLA/examples/rl_games/install/env/${env_name}.sh"
+done
+
+if [[ "${SELECTED_TORCH_PROFILE}" != "cpu" ]]; then
+    pip_install ninja==1.13.0
+    bash scripts/bash_scripts/build_cuda_extensions.sh
+fi
+
+BOOTSTRAP_ARGS=(
+    --tier "${INSTALL_TIER}"
+    --model "${MODEL_TARGET}"
+    --torch-profile "${SELECTED_TORCH_PROFILE}"
+)
+BOOTSTRAP_ARGS+=("${STARVLA_ENV_ARGS[@]}")
+if [[ "${ACCEPT_ROM_LICENSE}" == "true" ]]; then
+    BOOTSTRAP_ARGS+=(--accept-rom-license)
+fi
+bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "${BOOTSTRAP_ARGS[@]}"
