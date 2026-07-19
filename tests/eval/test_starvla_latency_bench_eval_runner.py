@@ -130,6 +130,13 @@ def test_resolve_starvla_prompt_latency_neutral_strips_latency_suffix():
         == "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP."
     )
 
+    with pytest.raises(KeyError, match="3"):
+        resolve_starvla_prompt(
+            env_name="flappy",
+            observation_metadata={"latency_raw_frames": 3},
+            latency_prompt_map={"2": {"prompt": prompt}},
+        )
+
 
 def test_translation_multiframe_expands_eval_frame_stack(tmp_path):
     cfg = build_latency_bench_config_for_rl_games(
