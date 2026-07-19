@@ -161,7 +161,11 @@ bash cross_device.sh publish sim --profile-ref "$TARGET_REF/fit-0" \
 
 `--overwrite` 只替换命令指定的远端 leaf，并在 payload 完整上传后最后写入 `DONE`；它与
 `--resume` 互斥。默认发布仍为 append-only。根目录的 `sim_isolated.sh` 固定重建五个已测实例的
-isolated `fit-0` profiles、四种 seed-0 simulations 和 sim2real 图表。
+isolated `fit-0` profiles，以及基于当前 HF raw sessions 0--4 的 RTX 4090 consecutive
+`fit-0-4` profile。脚本先完成 isolated 的四种 seed-0 simulations 和 RTX 4090 consecutive
+的四种方法、五个 seeds；全部成功后才覆盖发布 profiles 和 simulation leaves，并重新聚合、绘制
+sim2real 图表。脚本内部通过 `sim --local-profile` 使用尚未发布的本地 profiles，避免 simulation
+失败时在 HF 留下新 profile 与旧 simulation 混用的状态。
 
 ### 3. 在任意主机追加 simulation seeds
 
