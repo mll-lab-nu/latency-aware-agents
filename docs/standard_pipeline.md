@@ -2,7 +2,7 @@
 ```bash
 git clone --recurse-submodules https://github.com/ZihanWang314/latency-sensitive-bench.git
 # git submodule sync --recursive
-# git submodule update --init --recursive flappy-bird-gymnasium starVLA sample-factory
+# git submodule update --init --recursive third_party/flappy-bird-gymnasium third_party/starVLA third_party/sample-factory
 
 # --- env setup ---
 conda create -n latency python=3.10 -y
@@ -14,7 +14,7 @@ pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 \
   
 # Installs a flash-attn wheel matched to the active torch/CUDA/Python/ABI
 # (source-build fallback when no prebuilt wheel matches, e.g. torch 2.10 / cu13).
-bash starVLA/examples/rl_games/install/flash_attn.sh
+bash third_party/starVLA/examples/rl_games/install/flash_attn.sh
 
 python -m pip install -r requirements_starvla_eval_extra.txt
 
@@ -74,6 +74,7 @@ git clone https://github.com/talha1503/starVLA.git
 
 # --- env setup ---
 bash examples/rl_games/install/bootstrap.sh \
+  --tier dev \
   --conda-env starvla_openvla \
   --python-version 3.10 \
   --model openvla \

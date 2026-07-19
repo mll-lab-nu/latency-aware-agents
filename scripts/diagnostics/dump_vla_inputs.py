@@ -153,7 +153,7 @@ def visualize(args: argparse.Namespace) -> None:
 
 
 def print_trainable(args: argparse.Namespace) -> None:
-    sys.path.insert(0, str(REPO_ROOT / "starVLA"))
+    sys.path.insert(0, str(REPO_ROOT / "third_party" / "starVLA"))
     from omegaconf import OmegaConf
     from starVLA.model.framework.base_framework import baseframework
     from starVLA.training.trainer_utils.trainer_tools import TrainerUtils, resolve_freeze_llm_layer_indices

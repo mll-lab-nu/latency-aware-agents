@@ -1,8 +1,8 @@
 # Local Flappy Bird Gymnasium fork/submodule.
--e ./flappy-bird-gymnasium
+-e ./third_party/flappy-bird-gymnasium
 
 # Local Sample Factory fork
--e ./sample-factory
+-e ./third_party/sample-factory
 
 # Core runtime.
 # install.sh installs PyTorch and torchvision before this file using the selected CUDA profile.

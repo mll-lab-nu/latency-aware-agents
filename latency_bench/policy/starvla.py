@@ -20,7 +20,7 @@ from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolv
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-STARVLA_ROOT = REPO_ROOT / "starVLA"
+STARVLA_ROOT = REPO_ROOT / "third_party" / "starVLA"
 STATEFUL_STARVLA_MODEL_IDS: tuple[str, ...] = (
     "pi0",
     "pi-0",

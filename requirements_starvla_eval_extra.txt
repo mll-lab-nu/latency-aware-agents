@@ -4,8 +4,8 @@
 # Install the CUDA-specific torch stack and flash-attn wheel first, then run:
 #   python -m pip install -r requirements_starvla_eval_extra.txt
 
--e ./flappy-bird-gymnasium
--e ./starVLA
+-e ./third_party/flappy-bird-gymnasium
+-e ./third_party/starVLA
 
 # latency_bench / environment runtime.
 numpy==1.26.4
