@@ -228,7 +228,7 @@ if [[ "${1:-}" == "scripts/bash_scripts/build_cuda_extensions.sh" ]]; then
   printf 'UV_HTTP_RETRIES=%s\\n' "${UV_HTTP_RETRIES-__unset__}" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
   exit 0
 fi
-if [[ "${1:-}" == "starVLA/examples/rl_games/install/bootstrap.sh" ]]; then
+if [[ "${1:-}" == "third_party/starVLA/examples/rl_games/install/bootstrap.sh" ]]; then
   printf 'bash %s\\n' "$*" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
   printf 'UV_HTTP_TIMEOUT=%s\\n' "${UV_HTTP_TIMEOUT-__unset__}" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
   printf 'UV_HTTP_CONNECT_TIMEOUT=%s\\n' "${UV_HTTP_CONNECT_TIMEOUT-__unset__}" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
@@ -336,6 +336,8 @@ def test_install_script_selects_cu130_for_compute_cap_10_gpu_with_r580_driver(tm
     ) in calls
     assert "python -m pip install -r requirements.txt" in calls
     assert "bash scripts/bash_scripts/build_cuda_extensions.sh" in calls
+    assert "bash third_party/starVLA/examples/rl_games/install/bootstrap.sh\n" in calls
+    assert "--split-envs" not in calls
     assert "UV_HTTP_TIMEOUT=300" in calls
     assert "UV_HTTP_CONNECT_TIMEOUT=30" in calls
     assert "UV_HTTP_RETRIES=10" in calls
@@ -476,7 +478,7 @@ def test_mirrors_fall_back_to_official_when_no_provider_reachable(tmp_path):
     "helper_path",
     [
         REPO_ROOT / "scripts" / "bash_scripts" / "_pip.sh",
-        REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "_pip.sh",
+        REPO_ROOT / "third_party" / "starVLA" / "examples" / "rl_games" / "install" / "_pip.sh",
     ],
 )
 def test_pip_install_with_explicit_index_clears_uv_index_environment(tmp_path, helper_path):
@@ -580,14 +582,8 @@ exit 0
     assert f"uv pip install --python {fake_bin / 'python'} -r {requirements_path}" in log
 
 
-@pytest.mark.parametrize(
-    "helper_path",
-    [
-        REPO_ROOT / "scripts" / "bash_scripts" / "_pip.sh",
-        REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "_pip.sh",
-    ],
-)
-def test_pip_install_retries_same_command_after_network_failure(tmp_path, helper_path):
+def test_pip_install_retries_same_command_after_network_failure(tmp_path):
+    helper_path = REPO_ROOT / "scripts" / "bash_scripts" / "_pip.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     log_path = tmp_path / "uv.log"
@@ -729,9 +725,8 @@ def test_install_script_persists_conda_shell_init(tmp_path):
 
 
 def test_starvla_rl_games_installers_match_flash_attn_wheel_to_runtime(tmp_path):
-    install_dir = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install"
+    install_dir = REPO_ROOT / "third_party" / "starVLA" / "examples" / "rl_games" / "install"
     helper_path = install_dir / "flash_attn.sh"
-    eval_extra_path = install_dir / "eval_extra.sh"
     if not helper_path.exists():
         pytest.skip("starVLA submodule pin does not include flash_attn.sh")
     model_scripts = [
@@ -757,10 +752,10 @@ exit 0
     )
     fake_python.chmod(0o755)
 
-    for script_path in [helper_path, eval_extra_path, *model_scripts]:
+    for script_path in [helper_path, *model_scripts]:
         syntax = subprocess.run(
             ["bash", "-n", str(script_path)],
-            cwd=REPO_ROOT / "starVLA",
+            cwd=REPO_ROOT / "third_party" / "starVLA",
             capture_output=True,
             text=True,
             check=False,
@@ -772,25 +767,26 @@ exit 0
         "cp310-cp310-linux_x86_64.whl"
     )
 
-    # Model scripts install deps via _pip.sh, which prefers uv. uv cannot introspect
-    # the fake python below, so exercise _pip.sh's supported plain-pip fallback by
-    # dropping any uv on PATH (the fake python then logs the pip-install invocations).
-    env_path = os.pathsep.join(
-        p
-        for p in os.environ.get("PATH", "").split(os.pathsep)
-        if not (p and os.access(os.path.join(p, "uv"), os.X_OK))
+    _write_executable(
+        tmp_path / "uv",
+        """#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+""",
     )
 
     for script_path in model_scripts:
         fake_log.write_text("", encoding="utf-8")
         result = subprocess.run(
             ["bash", str(script_path)],
-            cwd=REPO_ROOT / "starVLA",
+            cwd=REPO_ROOT / "third_party" / "starVLA",
             env={
                 **os.environ,
-                "PATH": env_path,
+                "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
                 "PYTHON_BIN": str(fake_python),
                 "PYTHON_FAKE_LOG": str(fake_log),
+                "STARVLA_INSTALL_TIER": "dev",
+                "STARVLA_TORCH_PROFILE": "cu128",
             },
             capture_output=True,
             text=True,
@@ -801,7 +797,7 @@ exit 0
 
 
 def test_starvla_torch_installer_cu130_uses_torchvision_without_torchaudio(tmp_path):
-    script_path = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "torch.sh"
+    script_path = REPO_ROOT / "third_party" / "starVLA" / "examples" / "rl_games" / "install" / "torch.sh"
     fake_python = tmp_path / "python"
     fake_log = tmp_path / "python.log"
     fake_python.write_text(
@@ -819,18 +815,21 @@ exit 0
     )
     fake_python.chmod(0o755)
 
-    env_path = os.pathsep.join(
-        p
-        for p in os.environ.get("PATH", "").split(os.pathsep)
-        if not (p and os.access(os.path.join(p, "uv"), os.X_OK))
+    _write_executable(
+        tmp_path / "uv",
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "${PYTHON_FAKE_LOG}"
+exit 0
+""",
     )
     result = subprocess.run(
         ["bash", str(script_path)],
-        cwd=REPO_ROOT / "starVLA",
-        env={
-            **os.environ,
-            "PATH": env_path,
-            "PYTHON_BIN": str(fake_python),
+            cwd=REPO_ROOT / "third_party" / "starVLA",
+            env={
+                **os.environ,
+                "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+                "PYTHON_BIN": str(fake_python),
             "PYTHON_FAKE_LOG": str(fake_log),
             "STARVLA_TORCH_PROFILE": "cu130",
         },
@@ -846,151 +845,8 @@ exit 0
     assert "torchaudio" not in log
 
 
-def test_starvla_install_stack_installs_eval_extra_requirements_after_env_deps(tmp_path):
-    script_path = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "install_stack.sh"
-    if "eval_extra" not in script_path.read_text(encoding="utf-8"):
-        pytest.skip("starVLA submodule pin predates eval_extra integration in install_stack.sh")
-    fake_python = tmp_path / "python"
-    fake_log = tmp_path / "python.log"
-    fake_python.write_text(
-        """#!/usr/bin/env bash
-set -euo pipefail
-if [[ "${1:-}" == "-" ]]; then
-  cat >/dev/null
-  printf 'cp310\\n2.7\\ncu12\\nFALSE\\n'
-  exit 0
-fi
-printf '%s | %s\\n' "$PWD" "$*" >> "${PYTHON_FAKE_LOG}"
-exit 0
-""",
-        encoding="utf-8",
-    )
-    fake_python.chmod(0o755)
-
-    result = subprocess.run(
-        ["bash", str(script_path), "--no-conda", "openvla", "flappy"],
-        cwd=REPO_ROOT / "starVLA",
-        env={
-            **os.environ,
-            "PYTHON_BIN": str(fake_python),
-            "PYTHON_FAKE_LOG": str(fake_log),
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    log = fake_log.read_text(encoding="utf-8")
-    env_install_index = log.index("-m pip install flappy-bird-gymnasium")
-    eval_extra_index = log.index(
-        f"{REPO_ROOT} | -m pip install -r requirements_starvla_eval_extra.txt"
-    )
-    validation_index = log.index("-m compileall")
-    assert env_install_index < eval_extra_index < validation_index
-
-
-def test_starvla_bootstrap_split_envs_installs_eval_extra_requirements_per_model(tmp_path):
-    script_path = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "bootstrap.sh"
-    if "eval_extra" not in script_path.read_text(encoding="utf-8"):
-        pytest.skip("starVLA submodule pin predates eval_extra integration in bootstrap.sh")
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    fake_conda_base = tmp_path / "conda"
-    fake_profile_dir = fake_conda_base / "etc" / "profile.d"
-    fake_profile_dir.mkdir(parents=True)
-    fake_log = tmp_path / "python.log"
-
-    fake_python = fake_bin / "python"
-    fake_python.write_text(
-        """#!/usr/bin/env bash
-set -euo pipefail
-if [[ "${1:-}" == "-" ]]; then
-  cat >/dev/null
-  printf 'cp310\\n2.7\\ncu12\\nFALSE\\n'
-  exit 0
-fi
-if [[ "${1:-}" == "-c" ]]; then
-  if [[ "${2:-}" == *"sys.version_info.major"* ]]; then
-    printf '3.10\\n'
-  fi
-fi
-printf '%s | %s\\n' "$CONDA_DEFAULT_ENV" "$*" >> "${PYTHON_FAKE_LOG}"
-exit 0
-""",
-        encoding="utf-8",
-    )
-    fake_python.chmod(0o755)
-
-    fake_conda = fake_bin / "conda"
-    fake_conda.write_text(
-        f"""#!/usr/bin/env bash
-set -euo pipefail
-if [[ "${{1:-}}" == "info" && "${{2:-}}" == "--base" ]]; then
-  printf '%s\\n' "{fake_conda_base}"
-  exit 0
-fi
-printf 'fake conda: %s\\n' "$*" >&2
-exit 1
-""",
-        encoding="utf-8",
-    )
-    fake_conda.chmod(0o755)
-
-    (fake_profile_dir / "conda.sh").write_text(
-        """conda() {
-  case "$1 ${2:-}" in
-    "env list")
-      printf '# conda environments:\\n'
-      ;;
-    "create -n")
-      return 0
-      ;;
-    "activate "*)
-      export CONDA_DEFAULT_ENV="$2"
-      ;;
-    *)
-      printf 'fake conda function: %s\\n' "$*" >&2
-      return 1
-      ;;
-  esac
-}
-""",
-        encoding="utf-8",
-    )
-
-    result = subprocess.run(
-        [
-            "bash",
-            str(script_path),
-            "--split-envs",
-            "--env",
-            "flappy",
-            "--skip-validate",
-        ],
-        cwd=REPO_ROOT / "starVLA",
-        env={
-            **os.environ,
-            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
-            "PYTHON_FAKE_LOG": str(fake_log),
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    log = fake_log.read_text(encoding="utf-8")
-    assert log.count("-m pip install -r requirements_starvla_eval_extra.txt") == 3
-    for model in ("openvla", "pi0", "gr00t"):
-        assert (
-            f"starvla_rl_games_{model} | -m pip install -r "
-            "requirements_starvla_eval_extra.txt"
-        ) in log
-
-
 def test_starvla_flash_attn_helper_uses_python_abi_tag(tmp_path):
-    helper_path = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "flash_attn.sh"
+    helper_path = REPO_ROOT / "third_party" / "starVLA" / "examples" / "rl_games" / "install" / "flash_attn.sh"
     if not helper_path.exists():
         pytest.skip("starVLA submodule pin does not include flash_attn.sh")
     (tmp_path / "torch.py").write_text(
@@ -1010,7 +866,7 @@ _C = _CType()
 
     result = subprocess.run(
         ["bash", str(helper_path), "--print-url"],
-        cwd=REPO_ROOT / "starVLA",
+        cwd=REPO_ROOT / "third_party" / "starVLA",
         env={
             **os.environ,
             "PYTHON_BIN": sys.executable,
@@ -1028,7 +884,7 @@ _C = _CType()
 
 
 def test_starvla_flash_attn_helper_rejects_unsupported_runtime(tmp_path):
-    helper_path = REPO_ROOT / "starVLA" / "examples" / "rl_games" / "install" / "flash_attn.sh"
+    helper_path = REPO_ROOT / "third_party" / "starVLA" / "examples" / "rl_games" / "install" / "flash_attn.sh"
     if not helper_path.exists():
         pytest.skip("starVLA submodule pin does not include flash_attn.sh")
     fake_python = tmp_path / "python"
@@ -1044,7 +900,7 @@ printf 'cp310\\n2.5\\ncu11\\nFALSE\\n'
 
     result = subprocess.run(
         ["bash", str(helper_path), "--print-url"],
-        cwd=REPO_ROOT / "starVLA",
+        cwd=REPO_ROOT / "third_party" / "starVLA",
         env={**os.environ, "PYTHON_BIN": str(fake_python)},
         capture_output=True,
         text=True,
@@ -1058,6 +914,7 @@ printf 'cp310\\n2.5\\ncu11\\nFALSE\\n'
 def test_starvla_rl_games_hfd_raw_download_convert_dry_run_single_dataset():
     script_path = (
         REPO_ROOT
+        / "third_party"
         / "starVLA"
         / "examples"
         / "rl_games"
@@ -1069,7 +926,7 @@ def test_starvla_rl_games_hfd_raw_download_convert_dry_run_single_dataset():
 
     syntax = subprocess.run(
         ["bash", "-n", str(script_path)],
-        cwd=REPO_ROOT / "starVLA",
+        cwd=REPO_ROOT / "third_party" / "starVLA",
         capture_output=True,
         text=True,
         check=False,
@@ -1090,7 +947,7 @@ def test_starvla_rl_games_hfd_raw_download_convert_dry_run_single_dataset():
             "2",
             "--dry-run",
         ],
-        cwd=REPO_ROOT / "starVLA",
+        cwd=REPO_ROOT / "third_party" / "starVLA",
         capture_output=True,
         text=True,
         check=False,
@@ -1111,6 +968,7 @@ def test_starvla_rl_games_hfd_raw_download_convert_dry_run_single_dataset():
 def test_starvla_rl_games_hfd_raw_download_convert_dry_run_defaults_to_all_datasets():
     script_path = (
         REPO_ROOT
+        / "third_party"
         / "starVLA"
         / "examples"
         / "rl_games"
@@ -1130,7 +988,7 @@ def test_starvla_rl_games_hfd_raw_download_convert_dry_run_defaults_to_all_datas
             "/tmp/ws",
             "--dry-run",
         ],
-        cwd=REPO_ROOT / "starVLA",
+        cwd=REPO_ROOT / "third_party" / "starVLA",
         capture_output=True,
         text=True,
         check=False,

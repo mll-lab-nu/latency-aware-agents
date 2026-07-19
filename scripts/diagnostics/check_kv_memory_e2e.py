@@ -1,7 +1,8 @@
 """End-to-end equivalence check for the streaming KV memory on a REAL checkpoint.
 
 The cache / rotation / position math is unit-proven on tiny models
-(starVLA/tests/test_kv_memory_equivalence.py, test_kv_memory_rope_window.py). This
+(third_party/starVLA/tests/test_kv_memory_equivalence.py,
+third_party/starVLA/tests/test_kv_memory_rope_window.py). This
 script validates the one piece those cannot: the real-model segment construction
 (processor chat-template token boundaries, get_rope_index positions, pixel
 handling) once the memory path is wired to an actual Qwen3-VL-4B checkpoint.
@@ -33,7 +34,7 @@ import torch
 from PIL import Image, ImageDraw
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-for path in (REPO_ROOT, REPO_ROOT / "starVLA"):
+for path in (REPO_ROOT, REPO_ROOT / "third_party" / "starVLA"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 

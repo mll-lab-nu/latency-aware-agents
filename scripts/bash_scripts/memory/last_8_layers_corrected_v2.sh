@@ -25,11 +25,11 @@ fi
 hf download latency-sensitive-bench/flappy_200ep \
   --repo-type dataset \
   --include "flappy_fix_latency_2_200ep/**" \
-  --local-dir "${REPO_ROOT}/starVLA/data/raw/flappy_fix_latency_2_200ep"
+  --local-dir "${REPO_ROOT}/third_party/starVLA/data/raw/flappy_fix_latency_2_200ep"
 
 # --- process data ---
-# convert 脚本用相对路径，需在 starVLA/ 下运行；真实路径在 bash_scripts/gr00t/data_conversion/。
-cd "${REPO_ROOT}/starVLA"
+# convert 脚本用相对路径，需在 third_party/starVLA/ 下运行；真实路径在 bash_scripts/gr00t/data_conversion/。
+cd "${REPO_ROOT}/third_party/starVLA"
 python examples/rl_games/bash_scripts/gr00t/data_conversion/convert_flappy_to_starvla_lerobot.py \
   --dataset-name data/raw/flappy_fix_latency_2_200ep \
   --output-dir data/flappy_fix_latency_2_200ep/flappy_train__bridge \
@@ -37,11 +37,11 @@ python examples/rl_games/bash_scripts/gr00t/data_conversion/convert_flappy_to_st
   --force
 
 # --- train (fix latency, freeze ViT/visual connector + freeze LLM layers 0..27) ---
-bash "${REPO_ROOT}/starVLA/commands/memory/train_flappy_openvla_last_8_layers_corrected_v2.sh"
+bash "${REPO_ROOT}/third_party/starVLA/commands/memory/train_flappy_openvla_last_8_layers_corrected_v2.sh"
 
 # --- upload checkpoints ---
-# checkpoint 落在 starVLA/results/Checkpoints/<run_id>，run_id=flappy_fix_latency_2_200ep
-RUN_DIR="${REPO_ROOT}/starVLA/results/Checkpoints/flappy_fix_latency_2_200ep_last_8_layers_corrected_v2"
+# checkpoint 落在 third_party/starVLA/results/Checkpoints/<run_id>，run_id=flappy_fix_latency_2_200ep
+RUN_DIR="${REPO_ROOT}/third_party/starVLA/results/Checkpoints/flappy_fix_latency_2_200ep_last_8_layers_corrected_v2"
 CHECKPOINT_DIR="${RUN_DIR}/checkpoints"
 compgen -G "${CHECKPOINT_DIR}/steps_*_model.safetensors" > /dev/null
 find "${CHECKPOINT_DIR}" -maxdepth 1 -type d -name "steps_*_state" -exec rm -rf {} +

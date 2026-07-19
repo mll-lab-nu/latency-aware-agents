@@ -207,5 +207,5 @@ PY
 pip_install -r requirements.txt
 
 bash scripts/bash_scripts/build_cuda_extensions.sh
-bash starVLA/examples/rl_games/install/bootstrap.sh --split-envs
+bash third_party/starVLA/examples/rl_games/install/bootstrap.sh
 wandb login
