@@ -45,10 +45,6 @@ class RealtimeWarmupStatus:
     reason: str
 
 
-def is_realtime_warmup_stable(latency_values_ms: Sequence[float]) -> bool:
-    return realtime_warmup_status(latency_values_ms).stable
-
-
 def realtime_warmup_status(latency_values_ms: Sequence[float]) -> RealtimeWarmupStatus:
     values = [float(value) for value in latency_values_ms]
     sample_count = len(values)
