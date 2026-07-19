@@ -700,22 +700,24 @@ def test_starvla_latency_prompt_map_uses_raw_rgb_frame_stack_metadata(monkeypatc
     assert np.asarray(example["image"][0]).mean() == 77
 
 
-def test_flappy_realtime_starvla_config_uses_base_prompt_without_latency_prompt_map():
+def test_flappy_realtime_starvla_config_uses_latency_neutral_prompt():
     config = load_config(REPO_ROOT / FLAPPY_REALTIME_STARVLA_CONFIG)
 
     assert config["executor"]["mode"] == "realtime"
     assert config["policy"]["type"] == "starvla"
+    assert config["policy"]["prompt_mode"] == "latency_neutral"
     assert "latency_prompt_map_path" not in config["policy"]
     assert "latency_prompt_raw_frames" not in config["policy"]
 
 
-def test_flappy_simulated_starvla_configs_keep_latency_prompt_map():
+def test_flappy_simulated_starvla_configs_use_latency_neutral_prompt():
     for config_path in FLAPPY_SIMULATED_STARVLA_CONFIGS:
         config = load_config(REPO_ROOT / config_path)
 
         assert config["executor"]["mode"] == "simulated"
         assert config["policy"]["type"] == "starvla"
-        assert "latency_prompt_map_path" in config["policy"]
+        assert config["policy"]["prompt_mode"] == "latency_neutral"
+        assert "latency_prompt_map_path" not in config["policy"]
 
 
 def test_starvla_requires_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Path):
