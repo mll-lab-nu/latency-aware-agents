@@ -214,6 +214,11 @@ def _build_profile_from_loaded_sessions(
         if "episode_return" in metrics_records[0]:
             manifest["control_summary"] = _control_summary(metrics_records)
     if has_actions:
+        episode_lifecycle = metadata["measurement"]["episode_lifecycle"]
+        reset_scope = {
+            "consecutive": "session",
+            "isolated": "episode",
+        }[episode_lifecycle]
         session_burst_samples = [
             build_burst_samples(
                 session["action_records"],
@@ -229,11 +234,23 @@ def _build_profile_from_loaded_sessions(
             for samples in session_burst_samples
             for sample in samples
         ]
-        burst_model = (
-            build_hidden_regime_burst_model_from_sessions(session_burst_samples)
-            if multi_session
-            else build_hidden_regime_burst_model(burst_samples)
-        )
+        if reset_scope == "episode":
+            episode_segments = [
+                [sample for sample in samples if sample["episode_id"] == episode_id]
+                for samples in session_burst_samples
+                for episode_id in sorted({sample["episode_id"] for sample in samples})
+            ]
+            burst_model = build_hidden_regime_burst_model_from_sessions(
+                episode_segments, reset_scope="episode"
+            )
+            temporal_segments = episode_segments
+        else:
+            burst_model = (
+                build_hidden_regime_burst_model_from_sessions(session_burst_samples)
+                if multi_session
+                else build_hidden_regime_burst_model(burst_samples)
+            )
+            temporal_segments = session_burst_samples
         write_jsonl(paths["burst_samples"], burst_samples)
         write_json(paths["burst_model"], burst_model)
         manifest["latency_method"] = "temporal"
@@ -247,7 +264,7 @@ def _build_profile_from_loaded_sessions(
                 inference_worker_count=manifest["inference_worker_count"],
             )
         manifest["temporal_summary"] = _temporal_summary_from_sessions(
-            session_burst_samples, burst_model
+            temporal_segments, burst_model
         )
     if multi_session:
         manifest["fit_sessions"] = [

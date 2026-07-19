@@ -6,6 +6,7 @@ from pathlib import Path
 from latency_bench.analysis.cross_device_results import write_cross_device_outputs
 from latency_bench.cross_device.runner import (
     current_target_ref,
+    download_raw,
     publish_profile,
     publish_raw,
     publish_simulation,
@@ -43,6 +44,14 @@ def main(argv: list[str] | None = None) -> None:
     _add_simulation_selection(sim)
     sim.add_argument("--resume", action="store_true")
 
+    download = subparsers.add_parser("download")
+    download_subparsers = download.add_subparsers(dest="artifact", required=True)
+    download_raw_parser = download_subparsers.add_parser("raw")
+    _add_config(download_raw_parser)
+    download_raw_parser.add_argument("--target-ref", type=Path, required=True)
+    _add_sessions(download_raw_parser)
+    download_raw_parser.add_argument("--overwrite", action="store_true")
+
     publish = subparsers.add_parser("publish")
     publish_subparsers = publish.add_subparsers(dest="artifact", required=True)
 
@@ -55,12 +64,12 @@ def main(argv: list[str] | None = None) -> None:
     publish_profile_parser = publish_subparsers.add_parser("profile")
     _add_config(publish_profile_parser)
     publish_profile_parser.add_argument("--profile-ref", type=Path, required=True)
-    publish_profile_parser.add_argument("--resume", action="store_true")
+    _add_publish_mode(publish_profile_parser)
 
     publish_sim_parser = publish_subparsers.add_parser("sim")
     _add_config(publish_sim_parser)
     _add_simulation_selection(publish_sim_parser)
-    publish_sim_parser.add_argument("--resume", action="store_true")
+    _add_publish_mode(publish_sim_parser)
 
     aggregate = subparsers.add_parser("aggregate")
     _add_config(aggregate)
@@ -128,6 +137,13 @@ def main(argv: list[str] | None = None) -> None:
             args.latency_seeds,
             resume=args.resume,
         )
+    elif args.command == "download":
+        download_raw(
+            workload,
+            args.target_ref,
+            args.sessions,
+            overwrite=args.overwrite,
+        )
     elif args.artifact == "raw":
         publish_raw(
             workload,
@@ -136,14 +152,24 @@ def main(argv: list[str] | None = None) -> None:
             resume=args.resume,
         )
     elif args.artifact == "profile":
-        publish_profile(workload, args.profile_ref, resume=args.resume)
+        publish_options = {"resume": args.resume}
+        if args.overwrite:
+            publish_options["overwrite"] = True
+        publish_profile(
+            workload,
+            args.profile_ref,
+            **publish_options,
+        )
     else:
+        publish_options = {"resume": args.resume}
+        if args.overwrite:
+            publish_options["overwrite"] = True
         publish_simulation(
             workload,
             args.profile_ref,
             args.method,
             args.latency_seeds,
-            resume=args.resume,
+            **publish_options,
         )
 
 
@@ -157,6 +183,12 @@ def _add_config(parser: argparse.ArgumentParser) -> None:
 
 def _add_sessions(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--sessions", type=int, nargs="+", required=True)
+
+
+def _add_publish_mode(parser: argparse.ArgumentParser) -> None:
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--resume", action="store_true")
+    mode.add_argument("--overwrite", action="store_true")
 
 
 def _add_simulation_selection(parser: argparse.ArgumentParser) -> None:

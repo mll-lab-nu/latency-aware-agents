@@ -150,6 +150,19 @@ bash cross_device.sh publish profile \
 
 Profile revision 是不可变 leaf。增加 fit sessions 时创建新 revision，例如保留 `fit-0`，再创建 `fit-0-4`。
 
+修复已发布 leaf 时可显式下载指定 target/session，并原位覆盖 profile 或 simulation：
+
+```bash
+bash cross_device.sh download raw --target-ref "$TARGET_REF" --sessions 0 --overwrite
+bash cross_device.sh publish profile --profile-ref "$TARGET_REF/fit-0" --overwrite
+bash cross_device.sh publish sim --profile-ref "$TARGET_REF/fit-0" \
+  --method temporal --latency-seeds 0 --overwrite
+```
+
+`--overwrite` 只替换命令指定的远端 leaf，并在 payload 完整上传后最后写入 `DONE`；它与
+`--resume` 互斥。默认发布仍为 append-only。根目录的 `sim_isolated.sh` 固定重建五个已测实例的
+isolated `fit-0` profiles、四种 seed-0 simulations 和 sim2real 图表。
+
 ### 3. 在任意主机追加 simulation seeds
 
 ```bash
