@@ -92,8 +92,6 @@
 ## 怎么验证
 
 - KV memory 单测(无需 checkpoint):`starvla_rl_games_gr00t` 环境下 `python -m pytest third_party/starVLA/tests/test_kv_memory_equivalence.py third_party/starVLA/tests/test_kv_memory_rope_window.py -q`。前者覆盖缓存/旋转/淘汰数学和跨 slot 批处理等价;后者覆盖单帧预处理用的 block 复制与位置稳定性。注意 starVLA 的导入要用这个环境(`latency` 环境没有 transformers)。
-- KV memory 真模型端到端:`python scripts/diagnostics/check_kv_memory_e2e.py --checkpoint <ckpt> --frames 3`。`window >= frames`(不淘汰)时,逐帧流式必须逐位等于一次性整窗前向,验证真实 chat template 的 token 边界、`get_rope_index`、像素拼装这段没接错。需要 GPU 和 QwenOFT checkpoint。
-- 输入可视化 / 训推一致 / 冻结:`python scripts/diagnostics/dump_vla_inputs.py --frames 4 --out playground/vla_inputs` 把 single/multiframe/stitch 三种模式下评测和训练各自喂的图 dump 出来肉眼对照,并逐像素断言两侧一致;`--print-trainable --checkpoint <ckpt> --ratio 0.5` 看冻结层数和可训练参数量。
 - 时序多图 / 拼图 / 冻结训练:用 `third_party/starVLA/commands/train_flappy_qwenoft_{multiframe,stitch,kv_memory}.sh` 跑几十步,看 loss 下降、`input_frame_count` 和可训练参数量符合预期。
 - 端到端评测:`python -m latency_bench.run --config configs/experiments/flappy/starvla_flappy_{multiframe,kv_memory}.yaml`。
 

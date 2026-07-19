@@ -38,8 +38,8 @@ ENV_TITLES = {
 }
 
 PARITY_TESTS = {
-    "flappy": ["tests/infra_acceleration/test_flappy.py"],
-    "demon_attack": ["tests/infra_acceleration/test_demon_attack.py"],
+    "flappy": ["tests/training/gpu/infra_acceleration/test_flappy.py"],
+    "demon_attack": ["tests/training/gpu/infra_acceleration/test_demon_attack.py"],
 }
 
 
