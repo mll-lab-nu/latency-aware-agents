@@ -193,6 +193,7 @@ def test_measure_appends_sessions_and_reuses_calibration(tmp_path, monkeypatch):
         (raw_dir / "calibration.generated.yaml").read_text(encoding="utf-8")
     )
     assert "measurement" not in calibration_generated
+    assert calibration_generated["policy"]["prompt_mode"] == "latency_neutral"
     for session_id in range(3):
         session_dir = raw_dir / "sessions" / str(session_id)
         assert (session_dir / "DONE").is_file()
@@ -200,6 +201,7 @@ def test_measure_appends_sessions_and_reuses_calibration(tmp_path, monkeypatch):
         assert read_json(session_dir / "hardware.json")["gpu"]["name"] == "A100"
         generated = yaml.safe_load((session_dir / "generated.yaml").read_text(encoding="utf-8"))
         assert generated["measurement"] == {"episode_lifecycle": "consecutive"}
+        assert generated["policy"]["prompt_mode"] == "latency_neutral"
 
 
 def test_measure_resume_skips_done_and_replaces_partial_leaf(tmp_path, monkeypatch):
@@ -334,6 +336,7 @@ def test_simulation_appends_explicit_latency_seeds(tmp_path, monkeypatch):
     assert generated["latency"]["seed"] == 7
     assert "simulation_host" not in generated["latency"]
     assert generated["measurement"] == {"episode_lifecycle": "consecutive"}
+    assert generated["policy"]["prompt_mode"] == "latency_neutral"
     with pytest.raises(FileExistsError):
         runner.run_simulation(workload, canonical_ref, "temporal", [0])
     monkeypatch.setattr(
