@@ -2,7 +2,7 @@ __base__:
   - ../../base/flappy.yaml
 
 experiment:
-  name: openvla_flappy_fixed_l2_200ep_last_8_layers_corrected_v2
+  name: vla_finetuning_scope_full_model
   seed: 42
 
 executor:
@@ -16,10 +16,13 @@ env:
 
 policy:
   type: starvla
-  checkpoint_path: results/Checkpoints/openvla_flappy_fixed_l2_200ep_last_8_layers_corrected_v2/final_model
+  # Historical artifact ID retained for the published checkpoint.
+  checkpoint_path: results/Checkpoints/openvla_flappy_fixed_l2_200ep_full_tuning_corrected/final_model
   device: cuda
   unnorm_key: new_embodiment
-  latency_prompt_map_path: /mnt/data/latency_data/playground/Datasets/rl_games/flappy_train/latency_prompt_map.json
+  # Exact fixed-latency-2 prompt used by the published training dataset.
+  latency_prompt_map_path: third_party/starVLA/prompt/flappy_latency_prompt_map.json
+  latency_prompt_key: 2
   actions:
     - noop
     - flap
@@ -39,7 +42,7 @@ evaluation:
     uniform: []
 
 logging:
-  output_dir: outputs/openvla_flappy_fixed_l2_200ep_last_8_layers_corrected_v2
+  output_dir: outputs/vla_finetuning_scope/full_model
   save_step_records: false
   save_action_records: false
   save_latency_records: false
