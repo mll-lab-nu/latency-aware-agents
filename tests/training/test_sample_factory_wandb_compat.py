@@ -190,14 +190,14 @@ def test_sample_factory_wandb_patch_splits_legacy_comma_tag_list(monkeypatch, tm
         wandb_project="project",
         wandb_user=None,
         wandb_job_type=None,
-        wandb_tags=["factor_sweep,flappy,frame_stack"],
+        wandb_tags=["observation_stride,flappy,frame_stack"],
         wandb_unique_id="flappy-fs4-fixed_l1-s42",
     )
 
     wandb_utils.init_wandb(cfg)
 
-    assert init_calls[-1]["tags"] == ["factor_sweep", "flappy", "frame_stack"]
-    assert cfg.wandb_tags == ["factor_sweep", "flappy", "frame_stack"]
+    assert init_calls[-1]["tags"] == ["observation_stride", "flappy", "frame_stack"]
+    assert cfg.wandb_tags == ["observation_stride", "flappy", "frame_stack"]
 
 
 def test_sample_factory_wandb_patch_falls_back_to_experiment_identity(monkeypatch, tmp_path):
