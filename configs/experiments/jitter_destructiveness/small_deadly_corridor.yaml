@@ -1,0 +1,44 @@
+__base__: ../../base/deadly_corridor.yaml
+experiment_family: jitter_destructiveness
+generated_root: configs/train/jitter_destructiveness/deadly_corridor
+train_dir: results/checkpoints/jitter_destructiveness/trained/small
+output_root: outputs/jitter_destructiveness/trained/small/deadly_corridor
+device: cuda
+restart_behavior: resume
+
+env:
+  env_fps: 35
+  obs_fps: 8.75
+
+seeds:
+  - 10
+  - 11
+  - 12
+
+evaluation:
+  eval_episodes: 20
+  eval_parallel_envs: 32
+  eval_max_steps: 30000
+  eval_suites:
+    fixed:
+      - [4]
+    normal:
+      - [4.0, 1.0, 0, 15]
+    uniform:
+      - [2, 6]
+
+latency_settings:
+  fixed_l4:
+    kind: fixed
+    frames: 4
+    eval_suites:
+      fixed: [[4]]
+      normal: [[4.0, 1.0, 0, 15]]
+      uniform: [[2, 6]]
+
+sweeps:
+  baseline:
+    frame_stack:
+      - 4
+    obs_fps:
+      - 8.75

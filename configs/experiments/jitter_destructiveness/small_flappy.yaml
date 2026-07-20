@@ -1,0 +1,40 @@
+__base__: ../../base/flappy.yaml
+experiment_family: jitter_destructiveness
+generated_root: configs/train/jitter_destructiveness/flappy
+train_dir: results/checkpoints/jitter_destructiveness/trained/small
+output_root: outputs/jitter_destructiveness/trained/small/flappy
+device: cuda
+restart_behavior: resume
+
+seeds:
+  - 10
+  - 11
+  - 12
+
+evaluation:
+  eval_episodes: 50
+  eval_parallel_envs: 100
+  eval_max_steps: 3600
+  eval_suites:
+    fixed:
+      - [2]
+    normal:
+      - [2.0, 1.0, 0, 4]
+    uniform:
+      - [1, 3]
+
+latency_settings:
+  fixed_l2:
+    kind: fixed
+    frames: 2
+    eval_suites:
+      fixed: [[2]]
+      normal: [[2.0, 1.0, 0, 4]]
+      uniform: [[1, 3]]
+
+sweeps:
+  baseline:
+    frame_stack:
+      - 4
+    obs_fps:
+      - 15
