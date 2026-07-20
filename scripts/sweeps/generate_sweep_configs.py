@@ -25,10 +25,6 @@ from scripts.experiment_runner.job_manifest import (
     SCHEMA_VERSION,
     write_manifest,
 )
-from scripts.generate_sample_factory_same_latency_sweep import _prune_sample_factory_config
-from scripts.generate_sample_factory_same_latency_sweep import _align_demon_attack_raw_eval_config
-from scripts.generate_sample_factory_same_latency_sweep import _drop_eval_time_limit_fields
-from scripts.generate_sample_factory_same_latency_sweep import LATENCY_BENCH_POLICY_TYPES
 from training.common.config_adapter import apply_checkpoint_kind_override
 
 
@@ -48,6 +44,113 @@ SPEC_ONLY_KEYS = {
     "seeds",
     "latency_settings",
     "sweeps",
+}
+
+TOP_LEVEL_SAMPLE_FACTORY_KEYS = (
+    "experiment",
+    "backend",
+    "env",
+    "latency",
+    "scheduler",
+    "training",
+    "evaluation",
+    "logging",
+)
+
+LATENCY_KEYS = (
+    "method",
+    "fixed_latency_ms",
+    "mean_latency_ms",
+    "std_latency_ms",
+    "min_latency_ms",
+    "max_latency_ms",
+    "seed",
+    "per_episode",
+    "add_latency_info",
+    "max_pending_actions",
+)
+
+LOGGING_KEYS = (
+    "output_dir",
+    "wandb_project",
+    "wandb_group",
+    "wandb_job_type",
+    "wandb_tags",
+    "wandb_name",
+)
+
+EXPERIMENT_KEYS = (
+    "name",
+    "seed",
+)
+
+ENV_KEYS_BY_NAME = {
+    "flappy": (
+        "name",
+        "env_fps",
+        "obs_fps",
+        "gym_id",
+        "use_lidar",
+        "normalize_obs",
+        "audio_on",
+        "frame_stack",
+        "obs_resize",
+        "use_gpu_render",
+        "simulator",
+        "gpu_render_device",
+        "gpu_render_profile",
+        "gpu_render_profile_interval",
+        "pipe_gap",
+        "bird_color",
+        "pipe_color",
+        "background",
+        "score_limit",
+        "debug",
+        "debug_timelimit_diagnostics",
+        "max_episode_steps",
+    ),
+    "demon_attack": (
+        "name",
+        "env_id",
+        "env_fps",
+        "obs_fps",
+        "screen_size",
+        "noop_max",
+        "frame_stack",
+        "terminal_on_life_loss",
+        "clip_reward",
+        "repeat_action_probability",
+        "full_action_space",
+        "max_episode_steps",
+        "simulator",
+        "gpu_env_device",
+    ),
+    "deadly_corridor": (
+        "name",
+        "env_id",
+        "env_fps",
+        "obs_fps",
+        "frame_stack",
+        "res_w",
+        "res_h",
+        "wide_aspect_ratio",
+        "max_episode_steps",
+        "simulator",
+        "gpu_env_device",
+        "gpu_env_profile",
+        "gpu_env_profile_interval",
+    ),
+}
+
+SCHEDULER_KEYS = (
+    "hold_policy",
+    "ordering_policy",
+)
+
+LATENCY_BENCH_POLICY_TYPES = {
+    "flappy": "flappy_sf",
+    "demon_attack": "demon_attack_sf",
+    "deadly_corridor": "deadly_corridor_sf",
 }
 
 
@@ -372,6 +475,47 @@ def _build_manifest_row(
     return row
 
 
+def _prune_sample_factory_config(config: dict[str, Any]) -> dict[str, Any]:
+    pruned = {key: deepcopy(config[key]) for key in TOP_LEVEL_SAMPLE_FACTORY_KEYS}
+
+    experiment_cfg = pruned["experiment"]
+    pruned["experiment"] = {
+        key: deepcopy(experiment_cfg[key])
+        for key in EXPERIMENT_KEYS
+        if key in experiment_cfg
+    }
+
+    env_cfg = pruned["env"]
+    env_keys = ENV_KEYS_BY_NAME[str(env_cfg["name"]).strip().lower()]
+    pruned["env"] = {
+        key: deepcopy(env_cfg[key])
+        for key in env_keys
+        if key in env_cfg
+    }
+
+    latency_cfg = pruned["latency"]
+    pruned["latency"] = {
+        key: deepcopy(latency_cfg[key])
+        for key in LATENCY_KEYS
+        if key in latency_cfg
+    }
+
+    scheduler_cfg = pruned["scheduler"]
+    pruned["scheduler"] = {
+        key: deepcopy(scheduler_cfg[key])
+        for key in SCHEDULER_KEYS
+        if key in scheduler_cfg
+    }
+
+    logging_cfg = pruned["logging"]
+    pruned["logging"] = {
+        key: deepcopy(logging_cfg[key])
+        for key in LOGGING_KEYS
+        if key in logging_cfg and not (isinstance(logging_cfg[key], str) and not logging_cfg[key].strip())
+    }
+    return pruned
+
+
 def _build_full_train_config(
     base_config: dict[str, Any],
     *,
@@ -444,6 +588,19 @@ def _build_full_train_config(
     return config
 
 
+def _drop_eval_time_limit_fields(config: dict[str, Any]) -> None:
+    config["env"].pop("max_episode_steps", None)
+
+
+def _align_demon_attack_raw_eval_config(config: dict[str, Any], env_name: str) -> None:
+    if env_name != "demon_attack":
+        return
+    if not config["evaluation"]["eval_raw_reward"]:
+        return
+    config["env"]["terminal_on_life_loss"] = True
+    config["env"]["clip_reward"] = False
+
+
 def _build_latency_bench_eval_config(
     base_config: dict[str, Any],
     full_train_config: dict[str, Any],
@@ -459,11 +616,11 @@ def _build_latency_bench_eval_config(
 ) -> dict[str, Any]:
     config = merge_dicts(base_config, full_train_config)
     env_name = _env_name(config)
-    config.setdefault("backend", {})["run_mode"] = "eval"
+    config["backend"]["run_mode"] = "eval"
     _drop_eval_time_limit_fields(config)
     _align_demon_attack_raw_eval_config(config, env_name)
     config["policy"] = merge_dicts(
-        base_config.get("policy", {}),
+        base_config["policy"],
         {
             "type": LATENCY_BENCH_POLICY_TYPES[env_name],
             "checkpoint_path": "",
@@ -489,7 +646,7 @@ def _build_latency_bench_eval_config(
     config["logging"]["save_action_records"] = False
     config["logging"]["save_latency_records"] = False
     if env_name == "deadly_corridor":
-        config.setdefault("env", {})["noop_action"] = [0, 0, 0, 0]
+        config["env"]["noop_action"] = [0, 0, 0, 0]
     _disable_periodic_eval(config)
     return config
 

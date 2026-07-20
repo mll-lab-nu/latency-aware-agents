@@ -92,68 +92,7 @@ These are separate. If CPU env stepping dominates and the backend is `serial`, G
 
 For DemonAttack StarVLA simulated eval, `demon_attack_gpu_batched` keeps the policy-facing observation contract locked to the CPU adapter: `Observation.data`, `env_step`, `sim_time_ms`, and `metadata["env_raw_rgb_frame_stack"]` must match the CPU path for the same seed/action trace. The GPU backend only changes how active slots are stepped.
 
-## Benchmarking
-
-Use the lightweight benchmark script to compare parallel settings without changing eval workload:
-
-```bash
-python scripts/bench_latency_bench_env_backend.py \
-  --config configs/train/demon_attack/latency_0/seed_0/latency_bench_eval.yaml \
-  --checkpoint-kind best \
-  --parallel-envs 1,4,16,32,64 \
-  --backends auto \
-  --output-root outputs/env_backend_bench/demon_attack
-```
-
-Flappy:
-
-```bash
-python scripts/bench_latency_bench_env_backend.py \
-  --config configs/train/flappy/latency_0/seed_0/latency_bench_eval.yaml \
-  --checkpoint-kind best \
-  --parallel-envs 1,4,16,32,64 \
-  --backends auto \
-  --output-root outputs/env_backend_bench/flappy
-```
-
-Deadly Corridor:
-
-```bash
-python scripts/bench_latency_bench_env_backend.py \
-  --config configs/train/deadly_corridor/latency_0/seed_0/latency_bench_eval.yaml \
-  --checkpoint-kind best \
-  --parallel-envs 1,4,16,32 \
-  --backends auto \
-  --output-root outputs/env_backend_bench/deadly_corridor
-```
-
-The script prints CSV with wall-clock time, episodes/sec, cumulative CPU seconds, CPU utilization, expected episodes, completed episodes, and an output correctness flag. `cpu_util` is `cpu_sec / wall_sec`; a value near `16.0` means the run used about sixteen CPU cores on average.
-
-The CSV is written to stdout and eval progress logs are redirected to stderr, so results can be saved with shell redirection:
-
-```bash
-python scripts/bench_latency_bench_env_backend.py \
-  --config configs/train/demon_attack/latency_0/seed_0/latency_bench_eval.yaml \
-  --checkpoint-kind best \
-  --parallel-envs 1,4,16,32,64 \
-  --backends auto \
-  --output-root outputs/env_backend_bench/demon_attack \
-  > outputs/env_backend_bench/demon_attack.csv
-```
-
-For GPU utilization, sample in another terminal:
-
-```bash
-nvidia-smi dmon -s pucvmt -d 1 -o DT
-```
-
-For CPU utilization, use `htop` interactively or:
-
-```bash
-pidstat -durh 1
-```
-
-Check `completed_ok=1` and `episodes == expected_episodes` for every CSV row before comparing speed.
+## Profiling
 
 When `logging.simulated_pipeline_profile: true`, batched simulated eval writes `simulated_pipeline_summary.json` in the run output directory with `observe_slots_ms`, policy timing stages, `env_step_ms`, active slot count, and policy batch size. StarVLA reports separate `policy_build_example_ms`, `policy_wrapper_predict_action_ms`, and `policy_decode_ms` values, so the summary distinguishes model inference from image/example preparation and env stepping.
 

@@ -139,6 +139,17 @@ def test_memory_small_model_spec_emits_official_seed_matrix(tmp_path):
     assert train_cfg["experiment"]["seed"] == 10
     assert train_cfg["env"]["frame_stack"] == 8
     assert train_cfg["env"]["obs_fps"] == pytest.approx(30)
+    assert train_cfg["env"]["obs_resize"] == [84, 84]
+    assert train_cfg["env"]["use_gpu_render"] is True
+    assert train_cfg["env"]["simulator"] == "gpu"
+    assert train_cfg["env"]["gpu_render_device"] == "auto"
+    assert train_cfg["env"]["gpu_render_profile"] is False
+    assert train_cfg["env"]["gpu_render_profile_interval"] == 200
+    assert train_cfg["scheduler"] == {
+        "hold_policy": "one_frame_then_noop",
+        "ordering_policy": "latest_ready",
+    }
+    assert train_cfg["training"]["worker_num_splits"] == 1
     assert train_cfg["evaluation"]["eval_episodes"] == 100
     assert train_cfg["latency"]["method"] == "fixed"
     assert train_cfg["logging"]["wandb_group"] == "flappy-fs8-fixed_l2"
@@ -164,6 +175,11 @@ def test_memory_small_model_spec_emits_official_seed_matrix(tmp_path):
     assert eval_cfg["backend"]["extra_args"] == ["--load_checkpoint_kind", "latest"]
     assert eval_cfg["policy"]["type"] == "flappy_sf"
     assert eval_cfg["policy"]["checkpoint_kind"] == "latest"
+    assert eval_cfg["env"]["obs_resize"] == [84, 84]
+    assert eval_cfg["env"]["use_gpu_render"] is True
+    assert eval_cfg["env"]["gpu_render_device"] == "auto"
+    assert eval_cfg["scheduler"] == train_cfg["scheduler"]
+    assert eval_cfg["training"]["worker_num_splits"] == 1
     assert eval_cfg["evaluation"]["eval_episodes"] == 100
     assert "eval_interval_steps" not in eval_cfg["evaluation"]
     assert eval_cfg["evaluation"]["eval_suites"] == {
