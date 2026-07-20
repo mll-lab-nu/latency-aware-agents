@@ -23,7 +23,7 @@ This document is dynamic audit material. It records current-code behavior, suspe
 | Latency sources | `latency_bench/latency/sources.py`, `latency_bench/latency/measurement.py`, `latency_bench/latency/profile.py`, `latency_bench/latency/trace.py` |
 | Action queue / scheduler | `latency_bench/scheduler/action_queue.py`, `latency_bench/scheduler/persistence.py`, `latency_bench/scheduler/decision.py` |
 | Policy inference runners | `latency_bench/policy/base.py`, `latency_bench/policy/factory.py`, `latency_bench/policy/sample_factory_common.py`, env-specific policy runners under `latency_bench/policy/` |
-| Config / entrypoints | `latency_bench/core/config.py`, `latency_bench/core/clock.py`, `latency_bench/run.py`, `configs/`, `scripts/generate_sample_factory_same_latency_sweep.py` |
+| Config / entrypoints | `latency_bench/core/config.py`, `latency_bench/core/clock.py`, `latency_bench/run.py`, `configs/`, `scripts/sweeps/generate_sweep_configs.py` |
 | Logging / metrics | `latency_bench/logging/metrics.py`, `latency_bench/logging/records.py`, `latency_bench/logging/summary.py`, `latency_bench/logging/trajectory_logger.py` |
 | Training latency wrappers | `training/sample_factory_common/latency_wrapper.py`, `training/flappy_sf/integration.py`, `training/demon_attack_sf/integration.py`, `training/deadly_corridor_sf/integration.py` |
 | Tests | `tests/test_action_queue.py`, `tests/test_decision_scheduler.py`, `tests/test_simulated_executor.py`, `tests/test_paused_executor.py`, `tests/test_realtime_executor.py`, `tests/test_latency_sources.py`, `tests/test_config.py`, `tests/test_batched_simulated_executor.py`, `tests/test_sample_factory_backend.py` |

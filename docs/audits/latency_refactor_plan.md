@@ -56,7 +56,7 @@ This plan is dynamic implementation guidance. It must not redefine the contract.
 - `latency_bench/scheduler/decision.py`
 - `latency_bench/executors/factory.py`
 - `configs/base/*.yaml`
-- `scripts/generate_sample_factory_same_latency_sweep.py`
+- `scripts/sweeps/generate_sweep_configs.py`
 - `tests/test_config.py`
 - `tests/test_decision_scheduler.py`
 - `tests/test_latency_execution_semantics_contract.py`

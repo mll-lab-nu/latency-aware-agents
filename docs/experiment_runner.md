@@ -111,6 +111,5 @@ provenance.
 
 - `scripts/sweeps/generate_sweep_configs.py` expands one source spec.
 - `scripts/experiment_runner/run_manifest_jobs.py` executes one manifest.
-- `scripts/manage_sweep_jobs.py` reports manifest training state.
 - `train_commands.txt` and `latency_bench_eval_commands.txt` are derived
   artifacts; `manifest.tsv` and `runner_events.jsonl` are the source of truth.
