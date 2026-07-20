@@ -5,7 +5,10 @@ from collections import deque
 import numpy as np
 
 from latency_bench.core.types import Action
-from latency_bench.envs.deadly_corridor import DeadlyCorridorEnvAdapter
+from latency_bench.envs.deadly_corridor import (
+    DeadlyCorridorEnvAdapter,
+    _semantic_to_runtime_multibinary,
+)
 from latency_bench.envs.raw_rgb import RawRgbFrameStackBuffer
 
 
@@ -47,6 +50,21 @@ class ScriptedVizdoomEnv:
         value = int(self.steps.pop(0))
         self.game.screen_buffer = np.full((3, 4, 4), value, dtype=np.uint8)
         return self.game.screen_buffer.copy(), 0.0, False, False, {"value": value}
+
+
+def test_deadly_corridor_multibinary_buttons_follow_runtime_order():
+    semantic = [1, 0, 1, 0, 1, 0, 1]
+    runtime_order = [
+        "ATTACK",
+        "TURN_LEFT",
+        "TURN_RIGHT",
+        "MOVE_FORWARD",
+        "MOVE_BACKWARD",
+        "MOVE_LEFT",
+        "MOVE_RIGHT",
+    ]
+
+    assert _semantic_to_runtime_multibinary(semantic, runtime_order) == [1, 1, 0, 1, 0, 1, 0]
 
 
 def test_deadly_corridor_reset_reseeds_initialized_vizdoom_game_before_episode():
