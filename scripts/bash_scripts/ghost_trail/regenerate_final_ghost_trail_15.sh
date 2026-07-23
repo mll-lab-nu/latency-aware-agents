@@ -6,7 +6,7 @@ set -euo pipefail
 # trail.
 #
 # On a new machine, edit only this variable if your workspace root differs.
-WORKSPACE="${WORKSPACE:-/workspace}"
+WORKSPACE=""
 
 SOURCE_HF_REPO="latency-sensitive-bench/memory-rollouts"
 SOURCE_HF_CONFIG="demon_attack_fixed_latency_6_200ep_7k2steps"
