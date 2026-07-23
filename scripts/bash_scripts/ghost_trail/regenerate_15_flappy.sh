@@ -5,7 +5,7 @@ set -euo pipefail
 # dataset below, but render observations with a 15-frame Flappy ghost trail.
 #
 # On a new machine, edit only this variable if your workspace root differs.
-WORKSPACE="${WORKSPACE:-/workspace}"
+WORKSPACE=""
 
 SOURCE_HF_REPO="latency-sensitive-bench/memory-rollouts"
 SOURCE_HF_CONFIG="flappy_fixed_latency_3_200ep_7k2steps"
