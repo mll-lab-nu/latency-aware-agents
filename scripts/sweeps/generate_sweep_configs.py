@@ -116,6 +116,7 @@ ENV_KEYS_BY_NAME = {
         "obs_fps",
         "screen_size",
         "noop_max",
+        "reset_mode",
         "frame_stack",
         "terminal_on_life_loss",
         "clip_reward",
