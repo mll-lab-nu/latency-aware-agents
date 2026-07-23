@@ -23,6 +23,75 @@ def _read_manifest(path: Path) -> list[dict[str, str]]:
     return [dict(zip(header, line.split("\t"))) for line in lines[1:]]
 
 
+@pytest.mark.parametrize(
+    ("env_name", "latency_label", "latency_frames", "obs_fps", "obs_fps_label"),
+    [
+        ("flappy", "fixed_l3", 3, 30, "30"),
+        ("demon_attack", "fixed_l6", 6, 15, "15"),
+        ("deadly_corridor", "fixed_l6", 6, 8.75, "8p75"),
+    ],
+)
+def test_memory_rollout_teacher_spec_emits_single_uploadable_job(
+    tmp_path,
+    env_name,
+    latency_label,
+    latency_frames,
+    obs_fps,
+    obs_fps_label,
+):
+    generated_root = tmp_path / "configs"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    generate_sweep_configs(
+        [
+            "--spec",
+            f"configs/experiments/memory/rollout_teacher/{env_name}.yaml",
+            "--generated-root",
+            str(generated_root),
+            "--output-root",
+            str(output_root),
+            "--train-dir",
+            str(train_dir),
+        ]
+    )
+
+    rows = _read_manifest(generated_root / "manifest.tsv")
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["env"] == env_name
+    assert row["experiment_family"] == "memory_rollout_teacher"
+    assert row["sweep_name"] == "teacher"
+    assert row["seed"] == "0"
+    assert row["frame_stack"] == "4"
+    assert row["obs_fps"] == obs_fps_label
+    assert row["latency_label"] == latency_label
+    assert row["latency_kind"] == "fixed"
+    assert row["latency_fixed_frames"] == str(latency_frames)
+    assert row["train_upload_repo_id"] == "latency-sensitive-bench/paper-experiment-models"
+    assert row["train_upload_repo_type"] == "model"
+    assert row["eval_upload_repo_id"] == ""
+    assert row["train_artifact_repo_path"].startswith(
+        f"memory/rollout_teachers/{env_name}/train/"
+    )
+
+    train_cfg = yaml.safe_load(Path(row["train_config"]).read_text(encoding="utf-8"))
+    assert train_cfg["experiment"]["seed"] == 0
+    assert train_cfg["env"]["frame_stack"] == 4
+    assert train_cfg["env"]["obs_fps"] == pytest.approx(obs_fps)
+    if env_name == "demon_attack":
+        assert train_cfg["env"]["reset_mode"] == "fire"
+    assert train_cfg["latency"]["method"] == "fixed"
+    assert train_cfg["latency"]["fixed_latency_ms"] == pytest.approx(
+        latency_frames * 1000 / train_cfg["env"]["env_fps"]
+    )
+    assert train_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [[latency_frames]],
+        "normal": [],
+        "uniform": [],
+    }
+
+
 def test_latency_bench_eval_config_disables_full_trace_records(tmp_path):
     base_config = {
         "backend": {

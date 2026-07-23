@@ -527,7 +527,13 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
 
     fake_env = FakeEnv()
     fake_actor = FakeActorCritic()
-    fake_cfg = SimpleNamespace(frame_stack=1, env_fps=30.0, obs_fps=15.0, seed=11)
+    fake_cfg = SimpleNamespace(
+        frame_stack=1,
+        env_fps=30.0,
+        obs_fps=15.0,
+        seed=11,
+        use_gpu_render=False,
+    )
 
     monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
     monkeypatch.setattr(
@@ -1246,7 +1252,20 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
         def close(self):
             return None
 
-    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=0)))
+    monkeypatch.setattr(
+        exporter,
+        "build_sample_factory_rollout_cfg",
+        lambda config: (
+            object(),
+            SimpleNamespace(
+                frame_stack=4,
+                env_fps=30.0,
+                obs_fps=15.0,
+                seed=0,
+                use_gpu_render=False,
+            ),
+        ),
+    )
     monkeypatch.setattr(
         exporter,
         "build_env_and_policy",
@@ -1414,7 +1433,16 @@ def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tm
     monkeypatch.setattr(
         exporter,
         "build_sample_factory_rollout_cfg",
-        lambda config: (object(), SimpleNamespace(frame_stack=1, env_fps=30.0, obs_fps=15.0, seed=0)),
+        lambda config: (
+            object(),
+            SimpleNamespace(
+                frame_stack=1,
+                env_fps=30.0,
+                obs_fps=15.0,
+                seed=0,
+                use_gpu_render=False,
+            ),
+        ),
     )
     monkeypatch.setattr(
         exporter,
@@ -2037,7 +2065,13 @@ def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatc
         print("sample factory stderr", file=sys.stderr)
         os.write(2, b"native init stderr\n")
         logging.getLogger("rl").warning("sample factory logger")
-        return object(), SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=0)
+        return object(), SimpleNamespace(
+            frame_stack=4,
+            env_fps=30.0,
+            obs_fps=15.0,
+            seed=0,
+            use_gpu_render=False,
+        )
 
     monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", fake_build_config)
     monkeypatch.setattr(
@@ -2149,6 +2183,69 @@ def test_rollout_cfg_parses_sample_factory_evaluation_args(monkeypatch, tmp_path
     assert result_cfg is parsed_cfg
     assert calls[0] == "registered"
     assert calls[1][:2] == ["--mode", "eval"]
+
+
+@pytest.mark.parametrize(
+    ("num_envs", "runtime_num_envs", "driver_kind"),
+    [(1, 1, "serial"), (3, 1, "batched")],
+)
+def test_flappy_gpu_rollout_uses_requested_render_batch_size(
+    monkeypatch,
+    tmp_path,
+    num_envs,
+    runtime_num_envs,
+    driver_kind,
+):
+    from contextlib import nullcontext
+
+    from latency_bench.data import sf_teacher_rollout
+
+    cfg = SimpleNamespace(
+        frame_stack=4,
+        use_gpu_render=True,
+        simulator="gpu",
+        gpu_render_batch_size=128,
+    )
+    runtime = {"envs": [object()]}
+    captured = {}
+
+    monkeypatch.setattr(sf_teacher_rollout, "sample_factory_init_log", lambda output_dir: nullcontext())
+    monkeypatch.setattr(
+        sf_teacher_rollout,
+        "build_sample_factory_rollout_cfg",
+        lambda config: (object(), cfg),
+    )
+
+    def fake_build_env_and_policy(module, rollout_cfg, config, build_num_envs):
+        captured["gpu_render_batch_size"] = rollout_cfg.gpu_render_batch_size
+        captured["num_envs"] = build_num_envs
+        return runtime
+
+    monkeypatch.setattr(sf_teacher_rollout, "build_env_and_policy", fake_build_env_and_policy)
+    monkeypatch.setattr(
+        sf_teacher_rollout,
+        "SerialTeacherRolloutDriver",
+        lambda envs: SimpleNamespace(kind="serial"),
+    )
+    monkeypatch.setattr(
+        sf_teacher_rollout,
+        "BatchedTeacherRolloutDriver",
+        lambda env, slot_count: SimpleNamespace(kind="batched"),
+    )
+
+    _, _, driver, frame_stack = sf_teacher_rollout._build_rollout_driver_runtime(
+        {"env_name": "flappy"},
+        output_dir=tmp_path,
+        num_envs=num_envs,
+        export_env_raw_rgb_frames=True,
+    )
+
+    assert captured == {
+        "gpu_render_batch_size": num_envs,
+        "num_envs": runtime_num_envs,
+    }
+    assert driver.kind == driver_kind
+    assert frame_stack == 4
 
 
 def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_probe_steps(monkeypatch, tmp_path):
@@ -2738,7 +2835,13 @@ def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkey
             return None
 
     fake_env = FakeEnv()
-    fake_cfg = SimpleNamespace(frame_stack=1, env_fps=30.0, obs_fps=15.0, seed=11)
+    fake_cfg = SimpleNamespace(
+        frame_stack=1,
+        env_fps=30.0,
+        obs_fps=15.0,
+        seed=11,
+        use_gpu_render=False,
+    )
     monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
     monkeypatch.setattr(
         exporter,

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
-import subprocess
+import shlex
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -10,6 +12,7 @@ import types
 from pathlib import Path
 
 import pytest
+from helpers import REPO_ROOT
 
 import scripts.experiment_runner.run_manifest_jobs as run_manifest_jobs
 from scripts.experiment_runner.job_manifest import (
@@ -66,6 +69,39 @@ def test_train_stage_only_trains_and_resumes_from_success(tmp_path):
     assert not eval_mark.exists()
     events = load_events(event_log_path_for_manifest(manifest_path))
     assert [event["stage"] for event in events] == ["train_started", "train_succeeded"]
+
+
+@pytest.mark.parametrize(
+    ("recorded_stage", "expected_stage"),
+    [
+        ("train_started", "train"),
+        ("train_succeeded", "eval"),
+        ("eval_started", "eval"),
+        ("eval_failed", "eval"),
+        ("eval_succeeded", "upload"),
+        ("upload_started", "upload"),
+    ],
+)
+def test_resume_stage_keeps_interrupted_job_at_its_current_pipeline_stage(
+    tmp_path,
+    recorded_stage,
+    expected_stage,
+):
+    train_artifact_dir = tmp_path / "train_artifact"
+    train_artifact_dir.mkdir()
+    (train_artifact_dir / "config.json").write_text("{}")
+    assert run_manifest_jobs._resume_stage(
+        {"job_id": "job1", "train_artifact_dir": str(train_artifact_dir)},
+        {"job1": recorded_stage},
+    ) == expected_stage
+
+
+@pytest.mark.parametrize("recorded_stage", ["train_succeeded", "eval_started", "eval_failed"])
+def test_resume_stage_retrains_when_train_artifact_was_deleted(tmp_path, recorded_stage):
+    assert run_manifest_jobs._resume_stage(
+        {"job_id": "job1", "train_artifact_dir": str(tmp_path / "deleted_train_artifact")},
+        {"job1": recorded_stage},
+    ) == "train"
 
 
 def test_eval_stage_does_not_train_or_upload(tmp_path):
@@ -132,6 +168,26 @@ def test_upload_stage_needs_no_gpu_and_retries_failed_upload(tmp_path):
         "upload_succeeded",
         "job_complete",
     ]
+
+
+def test_upload_stage_resumes_interrupted_upload(tmp_path):
+    manifest_path, _, _ = _write_single_job(tmp_path)
+    append_event(
+        event_log_path_for_manifest(manifest_path),
+        {"job_id": "job1", "stage": "upload_started", "ts": 1.0},
+    )
+    uploads: list[str] = []
+
+    assert run_jobs(
+        manifest_path=manifest_path,
+        gpus=[],
+        upload_workers=1,
+        max_upload_attempts=1,
+        stage="upload",
+        uploader=lambda job: uploads.append(job["job_id"]),
+    ) == 0
+
+    assert uploads == ["job1"]
 
 
 def test_dry_run_does_not_execute_or_record_success(tmp_path, capsys):
@@ -308,6 +364,186 @@ def test_run_command_cleanup_terminates_child_process_group(tmp_path):
         time.sleep(0.05)
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
+
+
+def test_sigint_cancels_queue_and_kills_all_active_process_groups(tmp_path):
+    helper_path = tmp_path / "ignore_term_job.py"
+    helper_path.write_text(
+        """from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+child = subprocess.Popen(
+    [
+        sys.executable,
+        "-c",
+        "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)",
+    ]
+)
+Path(sys.argv[1]).write_text(
+    json.dumps(
+        {
+            "leader_pid": os.getpid(),
+            "leader_pgid": os.getpgid(0),
+            "child_pid": child.pid,
+            "child_pgid": os.getpgid(child.pid),
+        }
+    ),
+    encoding="utf-8",
+)
+time.sleep(60)
+""",
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "manifest.tsv"
+    markers = [tmp_path / f"job_{idx}.json" for idx in range(4)]
+    rows = []
+    for idx, marker in enumerate(markers):
+        row = {column: "" for column in MANIFEST_V2_COLUMNS}
+        row.update(
+            {
+                "schema_version": "v2",
+                "job_id": f"job{idx}",
+                "train_command": f"exec {shlex.join([sys.executable, str(helper_path), str(marker)])}",
+            }
+        )
+        rows.append(row)
+    write_manifest(manifest_path, rows)
+
+    runner = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "scripts.experiment_runner.run_manifest_jobs",
+            "--manifest",
+            str(manifest_path),
+            "--stage",
+            "train",
+            "--gpus",
+            "0,1",
+        ],
+        cwd=REPO_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    process_groups: set[int] = set()
+    try:
+        deadline = time.time() + 10.0
+        while sum(marker.is_file() for marker in markers) < 2 and time.time() < deadline:
+            time.sleep(0.05)
+        assert [marker.is_file() for marker in markers] == [True, True, False, False]
+        for marker in markers[:2]:
+            process_info = json.loads(marker.read_text(encoding="utf-8"))
+            assert process_info["leader_pgid"] == process_info["child_pgid"]
+            process_groups.add(int(process_info["leader_pgid"]))
+
+        runner.send_signal(signal.SIGINT)
+        time.sleep(0.1)
+        runner.send_signal(signal.SIGINT)
+        stdout, stderr = runner.communicate(timeout=10.0)
+        assert runner.returncode != 0, (stdout, stderr)
+        assert [marker.is_file() for marker in markers] == [True, True, False, False]
+
+        deadline = time.time() + 5.0
+        while process_groups and time.time() < deadline:
+            for process_group in list(process_groups):
+                try:
+                    os.killpg(process_group, 0)
+                except ProcessLookupError:
+                    process_groups.remove(process_group)
+            time.sleep(0.05)
+        assert not process_groups
+
+        events = load_events(event_log_path_for_manifest(manifest_path))
+        assert [event["stage"] for event in events] == ["train_started", "train_started"]
+    finally:
+        if runner.poll() is None:
+            runner.kill()
+            runner.wait()
+        for process_group in process_groups:
+            try:
+                os.killpg(process_group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def test_sigint_does_not_wait_for_in_flight_upload(tmp_path):
+    manifest_path = tmp_path / "manifest.tsv"
+    row = {column: "" for column in MANIFEST_V2_COLUMNS}
+    row.update(
+        {
+            "schema_version": "v2",
+            "job_id": "job0",
+            "train_upload_repo_id": "repo-model",
+            "train_upload_repo_type": "model",
+        }
+    )
+    write_manifest(manifest_path, [row])
+    append_event(
+        event_log_path_for_manifest(manifest_path),
+        {"job_id": "job0", "stage": "eval_succeeded"},
+    )
+    upload_started = tmp_path / "upload_started"
+    helper_path = tmp_path / "blocking_upload_runner.py"
+    helper_path.write_text(
+        """from pathlib import Path
+import sys
+import time
+
+from scripts.experiment_runner.run_manifest_jobs import run_jobs
+
+manifest_path = Path(sys.argv[1])
+upload_started = Path(sys.argv[2])
+
+def blocking_uploader(job):
+    del job
+    upload_started.write_text("started", encoding="utf-8")
+    time.sleep(60)
+
+raise SystemExit(
+    run_jobs(
+        manifest_path=manifest_path,
+        gpus=[],
+        upload_workers=1,
+        max_upload_attempts=1,
+        stage="upload",
+        uploader=blocking_uploader,
+    )
+)
+""",
+        encoding="utf-8",
+    )
+    runner = subprocess.Popen(
+        [sys.executable, str(helper_path), str(manifest_path), str(upload_started)],
+        cwd=REPO_ROOT,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT)},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.time() + 10.0
+        while not upload_started.is_file() and time.time() < deadline:
+            time.sleep(0.05)
+        assert upload_started.is_file()
+
+        started_at = time.monotonic()
+        runner.send_signal(signal.SIGINT)
+        stdout, stderr = runner.communicate(timeout=5.0)
+        assert runner.returncode != 0, (stdout, stderr)
+        assert time.monotonic() - started_at < 3.0
+    finally:
+        if runner.poll() is None:
+            runner.kill()
+            runner.wait()
 
 
 def test_default_uploader_prefers_env_token_over_dotenv(monkeypatch, tmp_path):
