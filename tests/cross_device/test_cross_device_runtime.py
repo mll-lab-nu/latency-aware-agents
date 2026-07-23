@@ -193,6 +193,7 @@ def test_measure_appends_sessions_and_reuses_calibration(tmp_path, monkeypatch):
         (raw_dir / "calibration.generated.yaml").read_text(encoding="utf-8")
     )
     assert "measurement" not in calibration_generated
+    assert calibration_generated["policy"]["prompt_mode"] == "latency_neutral"
     for session_id in range(3):
         session_dir = raw_dir / "sessions" / str(session_id)
         assert (session_dir / "DONE").is_file()
@@ -200,6 +201,7 @@ def test_measure_appends_sessions_and_reuses_calibration(tmp_path, monkeypatch):
         assert read_json(session_dir / "hardware.json")["gpu"]["name"] == "A100"
         generated = yaml.safe_load((session_dir / "generated.yaml").read_text(encoding="utf-8"))
         assert generated["measurement"] == {"episode_lifecycle": "consecutive"}
+        assert generated["policy"]["prompt_mode"] == "latency_neutral"
 
 
 def test_measure_resume_skips_done_and_replaces_partial_leaf(tmp_path, monkeypatch):
@@ -334,6 +336,7 @@ def test_simulation_appends_explicit_latency_seeds(tmp_path, monkeypatch):
     assert generated["latency"]["seed"] == 7
     assert "simulation_host" not in generated["latency"]
     assert generated["measurement"] == {"episode_lifecycle": "consecutive"}
+    assert generated["policy"]["prompt_mode"] == "latency_neutral"
     with pytest.raises(FileExistsError):
         runner.run_simulation(workload, canonical_ref, "temporal", [0])
     monkeypatch.setattr(
@@ -342,6 +345,50 @@ def test_simulation_appends_explicit_latency_seeds(tmp_path, monkeypatch):
         lambda *_args: pytest.fail("completed resume must not download profile"),
     )
     runner.run_simulation(workload, canonical_ref, "temporal", [0], resume=True)
+
+
+def test_simulation_uses_explicit_local_profile(tmp_path, monkeypatch):
+    workload = _workload(tmp_path)
+    calls = {"calibrations": [], "evaluations": []}
+    _install_runtime_fakes(monkeypatch, calls)
+    canonical_ref = Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-0")
+    local_profile = Path(workload["artifact_root"]) / "profiles" / canonical_ref
+    write_json(
+        local_profile / "profile.json",
+        {
+            "profile_id": "L_A100_SXM4_80GB",
+            "env_fps": 16.0,
+            "inference_worker_count": 2,
+            "device_id": "a100-sxm4-80gb",
+            "instance_id": "instance_a",
+            "profile_revision": "fit-0",
+            "measurement": {"episode_lifecycle": "consecutive"},
+        },
+    )
+    (local_profile / "DONE").touch()
+    monkeypatch.setattr(
+        runner,
+        "download_profile",
+        lambda *_args: pytest.fail("local profile must not download from HF"),
+    )
+
+    runner.run_simulation(
+        workload,
+        canonical_ref,
+        "temporal",
+        [0],
+        local_profile=True,
+    )
+
+    generated_path = (
+        Path(workload["artifact_root"])
+        / "sim"
+        / canonical_ref
+        / "temporal/0/generated.yaml"
+    )
+    latency_config = yaml.safe_load(generated_path.read_text(encoding="utf-8"))["latency"]
+    assert latency_config["profile_path"] == str(local_profile / "profile.json")
+    assert latency_config["profile_ref"] == canonical_ref.as_posix()
 
 
 @pytest.mark.parametrize(
@@ -552,6 +599,42 @@ def test_protocol_dispatches_explicit_simulation_selection(
                 [0, 2, 7],
             ),
             {"resume": True},
+        )
+    ]
+
+
+def test_protocol_dispatches_explicit_local_profile(monkeypatch):
+    workload = {"workload": {"id": "openvla-flappy"}}
+    calls = []
+    monkeypatch.setattr(protocol, "load_workload", lambda _path: workload)
+    monkeypatch.setattr(
+        protocol,
+        "run_simulation",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    protocol.main(
+        [
+            "sim",
+            "--profile-ref",
+            "a100-sxm4-80gb/instance_a/openvla-flappy/fit-0",
+            "--method",
+            "temporal",
+            "--latency-seeds",
+            "0",
+            "--local-profile",
+        ]
+    )
+
+    assert calls == [
+        (
+            (
+                workload,
+                Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-0"),
+                "temporal",
+                [0],
+            ),
+            {"resume": False, "local_profile": True},
         )
     ]
 

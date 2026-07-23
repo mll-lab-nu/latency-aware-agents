@@ -21,10 +21,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 PYTHON="${PYTHON:-python}"
 FILTER_PRESET="${FILTER_PRESET:-contiguous_v1}"   # KV-memory needs contiguous rows
 
-# Teacher checkpoint on the hub and where to download it.
+# Immutable published teacher checkpoint; this external path predates the
+# paper-facing memory/small_model name.
 CKPT_HF_REPO="latency-sensitive-bench/factor-sweeps-models"
 CKPT_SUBPATH="factor_sweeps/flappy/context_window/train/factor_sweep:flappy:frame_stack:fixed_l2:fs1:obs30:stride1:seed10"
-CKPT_DOWNLOAD_ROOT="${CKPT_DOWNLOAD_ROOT:-$REPO_ROOT/playground/factor_sweeps_ckpts}"
+CKPT_DOWNLOAD_ROOT="${CKPT_DOWNLOAD_ROOT:-$REPO_ROOT/playground/published_teacher_ckpts}"
 CHECKPOINT_ROOT="$CKPT_DOWNLOAD_ROOT/$CKPT_SUBPATH"
 
 OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/scripts/bash_scripts/rollout_data/exports/flappy_fixed_l2}"

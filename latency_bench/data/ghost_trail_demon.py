@@ -1,7 +1,7 @@
 """Bullet-aware Demon Attack ghost-trail image transform for dataset export.
 
 Ported verbatim (logic + parameters) from
-``starVLA/examples/rl_games/scripts/build_bullet_aware_ghost_trails_demon_attack.py``
+``third_party/starVLA/examples/rl_games/scripts/build_bullet_aware_ghost_trails_demon_attack.py``
 so the exported dataset trails are pixel-faithful to the validated
 ``continuous_30`` ablation (rendered there with ``render_all_history=True``).
 

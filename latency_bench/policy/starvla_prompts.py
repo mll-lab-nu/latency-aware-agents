@@ -34,10 +34,8 @@ def resolve_starvla_prompt(
         key = observation_metadata.get("latency_prompt_key", latency_prompt_key)
         if key is None:
             key = observation_metadata["latency_raw_frames"]
-        entry = latency_prompt_map.get(str(key))
-        if entry is not None:
-            return _apply_prompt_mode(entry["prompt"], prompt_mode)
-    # Map missing or key not found — reconstruct prompt from observation metadata.
+        return _apply_prompt_mode(latency_prompt_map[str(key)]["prompt"], prompt_mode)
+
     raw_frames = observation_metadata.get("latency_raw_frames")
     if raw_frames is not None:
         prompt = render_teacher_prompt(

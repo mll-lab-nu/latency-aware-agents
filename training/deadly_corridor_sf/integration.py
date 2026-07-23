@@ -30,6 +30,7 @@ from training.common.latency_config import (
 from training.common.latency_bench_periodic_eval import run_sample_factory_training
 from training.common.latency_wrapper import ActionLatencyWrapper, EpisodeMetricsWrapper, RewardTraceWrapper
 from training.common.raw_rgb_export import RawRgbFrameStackInfoWrapper
+from training.common.sample_factory_config import SampleFactoryConfigParser
 from training.common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
 from training.common.wandb_compat import patch_sample_factory_wandb
 
@@ -287,23 +288,24 @@ def add_latency_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--vizdoom_init_retry_jitter_sec", type=float, default=0.25)
 
 
-def parse_cfg(argv=None):
-    from sample_factory.cfg.arguments import parse_full_cfg, parse_sf_args
+def configure_sample_factory_parser(parser: argparse.ArgumentParser) -> None:
     from sf_examples.vizdoom.doom.doom_params import (
         add_doom_env_args,
         add_doom_env_eval_args,
         doom_override_defaults,
     )
 
-    parser, _ = parse_sf_args(argv=argv, evaluation=True)
     add_doom_env_args(parser)
     add_doom_env_eval_args(parser)
     add_latency_args(parser)
     doom_override_defaults(parser)
     parser.set_defaults(env_frameskip=1, eval_env_frameskip=1)
-    cfg = parse_full_cfg(parser, argv)
-    _force_doom_raw_frame_step_cfg(cfg)
-    return cfg
+
+
+SAMPLE_FACTORY_CONFIG_PARSER = SampleFactoryConfigParser(
+    configure_parser=configure_sample_factory_parser,
+    finalize_cfg=_force_doom_raw_frame_step_cfg,
+)
 
 
 def build_cli_args_from_config(config: dict) -> list[str]:
@@ -335,7 +337,7 @@ def run_from_config(config: dict) -> int:
     from sample_factory.algo.utils.misc import ExperimentStatus
 
     register_deadly_corridor_components()
-    cfg = parse_cfg(build_cli_args_from_config(config))
+    cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
     logging_cfg = config.get("logging", {}) if isinstance(config.get("logging"), dict) else {}
     apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))

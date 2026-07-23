@@ -885,24 +885,6 @@ def test_run_sample_factory_training_uses_native_run_rl_without_interval(monkeyp
     assert calls == ["patch", ("run_rl", SimpleNamespace(name="cfg"))]
 
 
-def test_flappy_example_config_shows_periodic_latency_bench_eval_usage():
-    from latency_bench.core.config import load_config
-    from latency_bench.eval.suites import parse_eval_suites
-    from training.common.latency_bench_periodic_eval import periodic_eval_enabled
-
-    config = load_config(REPO_ROOT / "configs/examples/flappy_periodic_latency_bench_eval.yaml")
-    suites = parse_eval_suites(config)
-
-    assert periodic_eval_enabled(config) is True
-    assert config["evaluation"]["eval_interval_steps"] == 1_000_000
-    assert [suite.name for suite in suites] == [
-        "fixed_0_to_15",
-        "normal_mean_2_std_1_min_0_max_15",
-        "normal_mean_4_std_2_min_0_max_15",
-        "uniform_min_0_max_5",
-    ]
-
-
 def test_base_configs_include_periodic_latency_bench_eval_defaults():
     from latency_bench.core.config import load_config
     from latency_bench.eval.suites import parse_eval_suites

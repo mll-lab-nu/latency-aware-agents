@@ -15,10 +15,9 @@ from latency_bench.policy.factory import build_policy
 from latency_bench.data.prompts import BASE_PROMPTS
 from helpers import REPO_ROOT
 
-FLAPPY_REALTIME_STARVLA_CONFIGS = (
-    "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_15fps_l2_2gpu_warmup200_3ep.yaml",
-    "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml",
-    "configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_8fps_l1_2gpu_warmup200_3ep.yaml",
+FLAPPY_REALTIME_STARVLA_CONFIG = (
+    "configs/experiments/flappy/realtime/"
+    "starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml"
 )
 FLAPPY_SIMULATED_STARVLA_CONFIGS = (
     "configs/experiments/flappy/simulated/starvla_openvla_fix_latency_2_15fps_l2_warmup200_3ep.yaml",
@@ -38,6 +37,8 @@ class FakePolicyServerWrapper:
         unnorm_key=None,
         action_output_mode=None,
         rl_games_env_name=None,
+        rl_games_action_layout=None,
+        rl_games_multibinary_threshold=None,
     ):
         self.ckpt_path = ckpt_path
         self.device = device
@@ -45,6 +46,8 @@ class FakePolicyServerWrapper:
         self.unnorm_key = unnorm_key
         self.action_output_mode = action_output_mode
         self.rl_games_env_name = rl_games_env_name
+        self.rl_games_action_layout = rl_games_action_layout
+        self.rl_games_multibinary_threshold = rl_games_multibinary_threshold
         self.calls = []
         self._model_cfg = {
             "datasets": {
@@ -170,6 +173,8 @@ def test_starvla_passes_latest_raw_frame_and_base_prompt_by_default(monkeypatch,
     assert wrapper.unnorm_key == "flappy"
     assert wrapper.action_output_mode == "rl_games"
     assert wrapper.rl_games_env_name == "flappy"
+    assert wrapper.rl_games_action_layout is None
+    assert wrapper.rl_games_multibinary_threshold is None
     assert wrapper.calls[0]["unnorm_key"] == "flappy"
     example = wrapper.calls[0]["examples"][0]
     assert example["lang"] == BASE_PROMPTS["flappy"]
@@ -179,6 +184,22 @@ def test_starvla_passes_latest_raw_frame_and_base_prompt_by_default(monkeypatch,
     assert output.metadata["prompt_source"] == "base"
     assert output.action.name == "flap"
     assert output.action.value == 1
+
+
+def test_starvla_passes_action_decode_overrides_to_checkpoint_wrapper(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    config = _config(tmp_path)
+    config["policy"]["action_layout"] = "multibinary_7"
+    config["policy"]["multibinary_threshold"] = 0.25
+
+    build_policy(config, ActionResolver(config["env"]))
+
+    wrapper = FakePolicyServerWrapper.instances[0]
+    assert wrapper.rl_games_action_layout == "multibinary_7"
+    assert wrapper.rl_games_multibinary_threshold == 0.25
 
 
 def test_starvla_policy_uses_wrapper_default_unnorm_key(monkeypatch, tmp_path: Path):
@@ -226,6 +247,8 @@ def test_starvla_policy_uses_saved_checkpoint_no_state_config(monkeypatch, tmp_p
             unnorm_key=None,
             action_output_mode=None,
             rl_games_env_name=None,
+            rl_games_action_layout=None,
+            rl_games_multibinary_threshold=None,
         ):
             super().__init__(
                 ckpt_path=ckpt_path,
@@ -234,6 +257,8 @@ def test_starvla_policy_uses_saved_checkpoint_no_state_config(monkeypatch, tmp_p
                 unnorm_key=unnorm_key,
                 action_output_mode=action_output_mode,
                 rl_games_env_name=rl_games_env_name,
+                rl_games_action_layout=rl_games_action_layout,
+                rl_games_multibinary_threshold=rl_games_multibinary_threshold,
             )
             cfg = OmegaConf.create(
                 {
@@ -701,23 +726,24 @@ def test_starvla_latency_prompt_map_uses_raw_rgb_frame_stack_metadata(monkeypatc
     assert np.asarray(example["image"][0]).mean() == 77
 
 
-def test_flappy_realtime_starvla_configs_use_base_prompt_without_latency_prompt_map():
-    for config_path in FLAPPY_REALTIME_STARVLA_CONFIGS:
-        config = load_config(REPO_ROOT / config_path)
+def test_flappy_realtime_starvla_config_uses_latency_neutral_prompt():
+    config = load_config(REPO_ROOT / FLAPPY_REALTIME_STARVLA_CONFIG)
 
-        assert config["executor"]["mode"] == "realtime"
-        assert config["policy"]["type"] == "starvla"
-        assert "latency_prompt_map_path" not in config["policy"]
-        assert "latency_prompt_raw_frames" not in config["policy"]
+    assert config["executor"]["mode"] == "realtime"
+    assert config["policy"]["type"] == "starvla"
+    assert config["policy"]["prompt_mode"] == "latency_neutral"
+    assert "latency_prompt_map_path" not in config["policy"]
+    assert "latency_prompt_raw_frames" not in config["policy"]
 
 
-def test_flappy_simulated_starvla_configs_keep_latency_prompt_map():
+def test_flappy_simulated_starvla_configs_use_latency_neutral_prompt():
     for config_path in FLAPPY_SIMULATED_STARVLA_CONFIGS:
         config = load_config(REPO_ROOT / config_path)
 
         assert config["executor"]["mode"] == "simulated"
         assert config["policy"]["type"] == "starvla"
-        assert "latency_prompt_map_path" in config["policy"]
+        assert config["policy"]["prompt_mode"] == "latency_neutral"
+        assert "latency_prompt_map_path" not in config["policy"]
 
 
 def test_starvla_requires_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Path):
@@ -753,6 +779,21 @@ def test_deadly_corridor_factorized_starvla_vector_decodes_to_tuple_action():
             env_name="deadly_corridor",
             action_by_raw_id={},
         )
+
+
+def test_deadly_corridor_multibinary_payload_preserves_simultaneous_buttons():
+    from latency_bench.policy.starvla import action_from_starvla_payload
+
+    action, metadata = action_from_starvla_payload(
+        payload=np.asarray([1, 0, 1, 0, 1, 0, 1], dtype=np.int64),
+        env_name="deadly_corridor",
+        action_by_raw_id={},
+        action_output_type="rl_games_deadly_corridor_multibinary",
+    )
+
+    assert action.value == [1, 0, 1, 0, 1, 0, 1]
+    assert action.name == "MOVE_FORWARD+MOVE_LEFT+TURN_LEFT+ATTACK"
+    assert metadata["action_layout"] == "deadly_corridor_multibinary_7"
 
 
 def test_demon_attack_decodes_only_six_supported_actions():
@@ -989,3 +1030,39 @@ def test_build_live_starvla_policy_injects_framework_without_reload(tmp_path: Pa
     # reset_state must forward to the live framework's reset_memory.
     policy.reset_state(3)
     assert framework.reset_calls == [3]
+
+
+def test_live_starvla_wrapper_uses_shared_deadly_multibinary_decode():
+    from latency_bench.policy.starvla import LiveStarVlaWrapper
+
+    class DeadlyFramework:
+        def predict_action(self, examples, **kwargs):
+            return {
+                "normalized_actions": np.asarray(
+                    [[[-0.2, 0.8, 0.7, 0.1, 0.9, -0.4, 0.6]]],
+                    dtype=np.float32,
+                )
+            }
+
+    model_cfg = {
+        "framework": {"action_model": {"loss_type": "discrete_ce"}},
+        "rl_games": {
+            "env_eval": {
+                "deadly": {
+                    "action_layout": "multibinary_7",
+                    "multibinary_threshold": None,
+                }
+            }
+        },
+    }
+    wrapper = LiveStarVlaWrapper(
+        framework=DeadlyFramework(),
+        model_cfg=model_cfg,
+        env_name="deadly_corridor",
+        action_layout="multibinary_7",
+    )
+
+    prediction = wrapper.predict_action(examples=[{"image": [], "lang": ""}])
+
+    assert prediction["actions"].tolist() == [[[0, 1, 1, 0, 1, 0, 1]]]
+    assert prediction["action_output_type"] == "rl_games_deadly_corridor_multibinary"

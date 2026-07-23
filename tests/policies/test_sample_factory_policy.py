@@ -18,6 +18,23 @@ from latency_bench.policy import sample_factory as sample_factory_policy
 from latency_bench.policy import sample_factory_common
 
 
+def test_sample_factory_integration_builds_policy_config_with_eval_parser():
+    calls = []
+    parsed_cfg = object()
+    module = SimpleNamespace(
+        build_cli_args_from_config=lambda config: ["--experiment", config["experiment"]],
+        SAMPLE_FACTORY_CONFIG_PARSER=SimpleNamespace(
+            parse_eval=lambda argv: calls.append(argv) or parsed_cfg
+        ),
+    )
+    integration = sf_runtime.SampleFactoryIntegrationModule(module, "register_components")
+
+    result = integration.build_sf_cfg_from_config({"experiment": "teacher"})
+
+    assert result is parsed_cfg
+    assert calls == [["--experiment", "teacher"]]
+
+
 @pytest.mark.parametrize(
     ("policy_type", "integration_module_name", "register_attr"),
     [

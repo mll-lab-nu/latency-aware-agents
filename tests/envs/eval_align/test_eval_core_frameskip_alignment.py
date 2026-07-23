@@ -140,6 +140,6 @@ def _register_ale(gym) -> None:
 
 
 def _ensure_starvla_on_path() -> None:
-    starvla_root = REPO_ROOT / "starVLA"
+    starvla_root = REPO_ROOT / "third_party" / "starVLA"
     if str(starvla_root) not in sys.path:
         sys.path.insert(0, str(starvla_root))

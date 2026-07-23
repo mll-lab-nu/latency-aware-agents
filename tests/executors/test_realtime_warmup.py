@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from latency_bench.executors.realtime_warmup import (
-    is_realtime_warmup_stable,
     plot_realtime_warmup,
     realtime_warmup_status,
 )
@@ -40,7 +39,6 @@ def test_realtime_warmup_stability_accepts_stable_mock_data(tmp_path):
     status = realtime_warmup_status(samples)
 
     assert status.stable is True
-    assert is_realtime_warmup_stable(samples) is True
 
     path = tmp_path / "mock_stable_warmup.png"
     plot_realtime_warmup(samples, path, status=status)
@@ -69,7 +67,6 @@ def test_realtime_warmup_stability_rejects_unstable_mock_data(tmp_path):
     status = realtime_warmup_status(samples)
 
     assert status.stable is False
-    assert is_realtime_warmup_stable(samples) is False
 
     path = tmp_path / "mock_unstable_warmup.png"
     plot_realtime_warmup(samples, path, status=status)

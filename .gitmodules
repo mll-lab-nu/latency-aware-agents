@@ -1,10 +1,9 @@
 [submodule "flappy-bird-gymnasium"]
-	path = flappy-bird-gymnasium
-	url = git@github.com:mindorigin150/flappy-bird-gymnasium.git
+	path = third_party/flappy-bird-gymnasium
+	url = https://github.com/mindorigin150/flappy-bird-gymnasium.git
 [submodule "starVLA"]
-	path = starVLA
-	url = git@github.com:talha1503/starVLA.git
-	branch = memory
+	path = third_party/starVLA
+	url = https://github.com/talha1503/starVLA.git
 [submodule "sample-factory"]
-	path = sample-factory
-	url = git@github.com:mindorigin150/sample-factory.git
+	path = third_party/sample-factory
+	url = https://github.com/mindorigin150/sample-factory.git

@@ -58,7 +58,9 @@ class SampleFactoryIntegrationModule:
         getattr(self.module, self._register_attr)()
 
     def build_sf_cfg_from_config(self, config: dict[str, Any]):
-        return self.module.parse_cfg(self.module.build_cli_args_from_config(config))
+        return self.module.SAMPLE_FACTORY_CONFIG_PARSER.parse_eval(
+            self.module.build_cli_args_from_config(config)
+        )
 
     def make_reference_env(self, cfg: Any):
         return self.module.make_reference_env(cfg)

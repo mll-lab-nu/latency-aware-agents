@@ -692,7 +692,7 @@ logging:
   wandb_name: demon-attack-fs8-fixed_l2-s42
   wandb_user: entity
   wandb_tags:
-    - factor_sweep
+    - observation_stride
     - demon-attack
 """,
         encoding="utf-8",
@@ -752,7 +752,7 @@ logging:
             "resume": "allow",
             "group": "demon-attack-fs8-fixed_l2",
             "job_type": None,
-            "tags": ["factor_sweep", "demon-attack"],
+            "tags": ["observation_stride", "demon-attack"],
         },
         {
             "project": "latency-sensitive-bench",
@@ -762,7 +762,7 @@ logging:
             "resume": "allow",
             "group": "demon-attack-fs8-fixed_l2",
             "job_type": None,
-            "tags": ["factor_sweep", "demon-attack"],
+            "tags": ["observation_stride", "demon-attack"],
         },
     ]
     assert ("eval_corrected/*",) in [args for args, _kwargs in defined_metrics]
@@ -855,7 +855,7 @@ logging:
   wandb_name: demon-attack-fs8-fixed_l2-s42
   wandb_user: entity
   wandb_tags:
-    - factor_sweep
+    - observation_stride
     - demon-attack
 """,
         encoding="utf-8",

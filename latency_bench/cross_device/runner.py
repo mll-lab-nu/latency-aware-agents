@@ -29,7 +29,7 @@ from latency_bench.cross_device.sync import (
     publish_calibration,
     publish_directory_leaf,
 )
-from latency_bench.experiments.build_latency_profile_from_trace import build_profile_from_traces
+from latency_bench.latency.profile_builder import build_profile_from_traces
 from latency_bench.experiments.calibrate_env_fps_from_saturated_latency import (
     calibrate_env_fps_from_saturated_latency,
 )
@@ -168,6 +168,7 @@ def run_simulation(
     latency_seeds: list[int],
     *,
     resume: bool = False,
+    local_profile: bool = False,
 ) -> None:
     device_id, _, workload_id, _ = canonical_profile_ref.parts
     if workload_id != workload["workload"]["id"]:
@@ -189,8 +190,12 @@ def run_simulation(
         pending.append((latency_seed, output_dir))
     if not pending:
         return
-    downloaded_profile = download_profile(workload, canonical_profile_ref)
-    profile = read_json(downloaded_profile / "profile.json")
+    if local_profile:
+        selected_profile = profile_dir(artifact_root, canonical_profile_ref)
+        (selected_profile / "DONE").read_bytes()
+    else:
+        selected_profile = download_profile(workload, canonical_profile_ref)
+    profile = read_json(selected_profile / "profile.json")
     for latency_seed, output_dir in pending:
         output_done = output_dir / "DONE"
         if output_dir.exists():
@@ -199,7 +204,7 @@ def run_simulation(
         config = simulation_config(
             workload,
             output_dir,
-            downloaded_profile / "profile.json",
+            selected_profile / "profile.json",
             canonical_profile_ref,
             profile,
             method,
