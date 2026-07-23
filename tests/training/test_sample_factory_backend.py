@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -103,6 +105,95 @@ class _RawRewardTraceEnv(gym.Env):
         reward = float(self.rewards[self.step_count])
         self.step_count += 1
         return np.array([self.step_count], dtype=np.uint8), reward, False, False, {}
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "training.flappy_sf.integration",
+        "training.demon_attack_sf.integration",
+        "training.deadly_corridor_sf.integration",
+    ],
+)
+def test_sample_factory_integrations_split_train_and_eval_parser_contract(module_name):
+    module = importlib.import_module(module_name)
+    argv = [
+        "--algo",
+        "APPO",
+        "--env",
+        module.SF_ENV_NAME,
+        "--experiment",
+        "parser_contract",
+    ]
+    parser = module.SAMPLE_FACTORY_CONFIG_PARSER
+
+    train_cfg = parser.parse_train(argv)
+    eval_cfg = parser.parse_eval([*argv, "--policy_index", "2"])
+
+    assert not hasattr(train_cfg, "policy_index")
+    assert eval_cfg.policy_index == 2
+
+
+def test_deadly_corridor_parser_records_raw_frame_checkpoint_overrides():
+    from training.deadly_corridor_sf import integration
+
+    cfg = integration.SAMPLE_FACTORY_CONFIG_PARSER.parse_train(
+        [
+            "--algo",
+            "APPO",
+            "--env",
+            integration.SF_ENV_NAME,
+            "--experiment",
+            "raw_frame_overrides",
+        ]
+    )
+
+    assert cfg.cli_args["env_frameskip"] == 1
+    assert cfg.cli_args["eval_env_frameskip"] == 1
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "training.flappy_sf.integration",
+        "training.demon_attack_sf.integration",
+        "training.deadly_corridor_sf.integration",
+    ],
+)
+def test_sample_factory_eval_parser_adds_policy_index_to_legacy_checkpoint(module_name, tmp_path):
+    from sample_factory.cfg.arguments import load_from_checkpoint
+
+    module = importlib.import_module(module_name)
+    experiment = module_name.split(".")[-2]
+    experiment_dir = tmp_path / experiment
+    experiment_dir.mkdir()
+    (experiment_dir / "config.json").write_text(
+        json.dumps(
+            {
+                "algo": "APPO",
+                "env": module.SF_ENV_NAME,
+                "experiment": experiment,
+                "train_dir": str(tmp_path),
+            }
+        ),
+        encoding="utf-8",
+    )
+    cfg = module.SAMPLE_FACTORY_CONFIG_PARSER.parse_eval(
+        [
+            "--algo",
+            "APPO",
+            "--env",
+            module.SF_ENV_NAME,
+            "--experiment",
+            experiment,
+            "--train_dir",
+            str(tmp_path),
+        ]
+    )
+
+    loaded_cfg = load_from_checkpoint(cfg)
+
+    assert loaded_cfg.policy_index == 0
 
 
 def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():

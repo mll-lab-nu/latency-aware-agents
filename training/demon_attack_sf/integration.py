@@ -35,6 +35,10 @@ from training.common.latency_config import (
     sample_factory_latency_seed_from_flat_config,
 )
 from training.common.latency_bench_periodic_eval import run_sample_factory_training
+from training.common.sample_factory_config import (
+    SampleFactoryConfigParser,
+    force_sample_factory_raw_frame_step_cfg,
+)
 from training.common.sf_raw_reward_stats_compat import (
     ensure_sample_factory_raw_reward_console_stats_installed,
 )
@@ -45,11 +49,6 @@ from training.common.wandb_compat import patch_sample_factory_wandb
 SF_ENV_NAME = "latency_demon_attack"
 _ENVS_REGISTERED = False
 _SAMPLE_FACTORY_PROBE_ENV_CONFIG = SimpleNamespace(worker_index=0, vector_index=0, env_id=0)
-
-
-def _force_sample_factory_raw_frame_step_cfg(cfg) -> None:
-    setattr(cfg, "env_frameskip", 1)
-    setattr(cfg, "eval_env_frameskip", 1)
 
 
 def _ale_raw_rgb_frame(env: gym.Env) -> np.ndarray:
@@ -115,7 +114,7 @@ def make_demon_attack_sf_env(
     ensure_sample_factory_raw_reward_console_stats_installed(env_name=SF_ENV_NAME)
     if cfg.simulator == "gpu":
         ensure_sample_factory_gpu_sampling_compat_installed(env_name=SF_ENV_NAME)
-    _force_sample_factory_raw_frame_step_cfg(cfg)
+    force_sample_factory_raw_frame_step_cfg(cfg)
     clock = EnvClock(
         env_fps=cfg.env_fps,
         obs_fps=cfg.obs_fps
@@ -216,7 +215,7 @@ def make_reference_env(cfg):
     from sample_factory.algo.utils.make_env import make_env_func_batched
     from sample_factory.utils.attr_dict import AttrDict
 
-    _force_sample_factory_raw_frame_step_cfg(cfg)
+    force_sample_factory_raw_frame_step_cfg(cfg)
     register_demon_attack_envs()
     return make_env_func_batched(
         cfg,
@@ -318,15 +317,15 @@ def demon_attack_override_defaults(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def parse_cfg(argv=None):
-    from sample_factory.cfg.arguments import parse_full_cfg, parse_sf_args
-
-    parser, _ = parse_sf_args(argv=argv, evaluation=False)
+def configure_sample_factory_parser(parser: argparse.ArgumentParser) -> None:
     add_demon_attack_env_args(parser)
     demon_attack_override_defaults(parser)
-    cfg = parse_full_cfg(parser, argv)
-    _force_sample_factory_raw_frame_step_cfg(cfg)
-    return cfg
+
+
+SAMPLE_FACTORY_CONFIG_PARSER = SampleFactoryConfigParser(
+    configure_parser=configure_sample_factory_parser,
+    finalize_cfg=force_sample_factory_raw_frame_step_cfg,
+)
 
 
 def build_cli_args_from_config(config: dict) -> list[str]:
@@ -361,7 +360,7 @@ def run_from_config(config: dict) -> int:
     from training.common.utils import seed_everything
 
     register_demon_attack_envs()
-    cfg = parse_cfg(build_cli_args_from_config(config))
+    cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
     logging_cfg = config.get("logging", {}) if isinstance(config.get("logging"), dict) else {}
     apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))
