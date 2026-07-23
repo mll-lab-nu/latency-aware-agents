@@ -1,0 +1,48 @@
+__base__:
+  - ../../base/flappy.yaml
+
+experiment:
+  name: vla_finetuning_scope_last_8_layers
+  seed: 42
+
+executor:
+  mode: simulated
+
+env:
+  env_fps: 30
+  obs_fps: 30
+  frame_stack: 1
+  obs_resize: [224, 224]
+
+policy:
+  type: starvla
+  # Historical artifact ID retained for the published checkpoint.
+  checkpoint_path: results/Checkpoints/openvla_flappy_fixed_l2_200ep_last_8_layers_corrected_v2/final_model
+  device: cuda
+  unnorm_key: new_embodiment
+  # Exact fixed-latency-2 prompt used by the published training dataset.
+  latency_prompt_map_path: third_party/starVLA/prompt/flappy_latency_prompt_map.json
+  latency_prompt_key: 2
+  actions:
+    - noop
+    - flap
+
+latency:
+  method: fixed
+  fixed_latency_ms: 66.66666666666667
+
+evaluation:
+  eval_episodes: 50
+  eval_parallel_envs: 4
+  eval_max_steps: 3600
+  eval_suites:
+    fixed:
+      - [2]
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/vla_finetuning_scope/last_8_layers
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false

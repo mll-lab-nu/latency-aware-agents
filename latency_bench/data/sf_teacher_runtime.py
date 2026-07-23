@@ -90,7 +90,7 @@ def build_sample_factory_rollout_cfg(config: dict[str, Any]):
         argv.extend(["--device", str(config["device_override"])])
     if "load_checkpoint_kind" in flat_cfg:
         argv.extend(["--load_checkpoint_kind", str(flat_cfg["load_checkpoint_kind"])])
-    cfg = module.parse_cfg(argv)
+    cfg = module.SAMPLE_FACTORY_CONFIG_PARSER.parse_eval(argv)
     cfg = load_from_checkpoint(cfg)
     if config["latency_override"] is not None:
         _apply_latency_to_flat_cfg(cfg, config["latency_override"])

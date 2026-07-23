@@ -35,9 +35,11 @@ PYTHON="${PYTHON:-python}"
 EXPORT_PY="$REPO_ROOT/scripts/rollout_data/export_sf_teacher_dataset.py"
 MERGE_PY="$REPO_ROOT/scripts/rollout_data/merge_probe_shards.py"
 
+# Immutable published teacher checkpoint; this external path predates the
+# paper-facing memory/small_model name.
 CKPT_HF_REPO="latency-sensitive-bench/factor-sweeps-models"
 CKPT_SUBPATH="factor_sweeps/flappy/context_window/train/factor_sweep:flappy:frame_stack:fixed_l2:fs1:obs30:stride1:seed10"
-CKPT_DOWNLOAD_ROOT="${CKPT_DOWNLOAD_ROOT:-$REPO_ROOT/playground/factor_sweeps_ckpts}"
+CKPT_DOWNLOAD_ROOT="${CKPT_DOWNLOAD_ROOT:-$REPO_ROOT/playground/published_teacher_ckpts}"
 CHECKPOINT_ROOT="$CKPT_DOWNLOAD_ROOT/$CKPT_SUBPATH"
 
 RUN_ROOT="${RUN_ROOT:-$REPO_ROOT/scripts/bash_scripts/rollout_data/exports/flappy_fixed_l2_sharded}"

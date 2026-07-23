@@ -5,6 +5,7 @@ import os
 import queue
 import signal
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -26,6 +27,10 @@ UPLOAD_IGNORE_PATTERNS = [
     "**/wandb/**",
     "**/wandb_logs/**",
     "**/events.out.tfevents.*",
+    "**/*_state/**",
+    "**/optimizer/**",
+    "**/optimizers/**",
+    "**/.cache/**",
     "**/__pycache__/**",
 ]
 PROCESS_GROUP_TERM_TIMEOUT_SEC = 2.0
@@ -50,6 +55,14 @@ def _job_states(events: list[dict[str, Any]]) -> dict[str, str]:
     return states
 
 
+def _successful_jobs(events: list[dict[str, Any]], stage: str) -> set[str]:
+    return {
+        str(event["job_id"])
+        for event in events
+        if str(event["stage"]) == stage
+    }
+
+
 def _event_writer(event_log: Path) -> Callable[[dict[str, Any]], None]:
     lock = threading.Lock()
 
@@ -58,11 +71,6 @@ def _event_writer(event_log: Path) -> Callable[[dict[str, Any]], None]:
             append_event(event_log, event)
 
     return write
-
-
-def _register_process(process: subprocess.Popen) -> None:
-    with _ACTIVE_PROCESSES_LOCK:
-        _ACTIVE_PROCESSES.add(process)
 
 
 def _forget_process(process: subprocess.Popen) -> None:
@@ -76,11 +84,10 @@ def _active_processes() -> list[subprocess.Popen]:
 
 
 def _signal_process_group(process: subprocess.Popen, sig: int) -> None:
-    if process.poll() is None:
-        try:
-            os.killpg(process.pid, sig)
-        except ProcessLookupError:
-            pass
+    try:
+        os.killpg(process.pid, sig)
+    except ProcessLookupError:
+        pass
 
 
 def _terminate_active_processes(sig: int = signal.SIGTERM) -> None:
@@ -105,15 +112,24 @@ def _terminate_active_processes(sig: int = signal.SIGTERM) -> None:
             pass
 
 
-def _run_command(command: str, *, gpu: str) -> None:
+def _run_command(
+    command: str,
+    *,
+    gpu: str,
+    cancel_event: threading.Event | None = None,
+) -> bool:
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(gpu)
-    process = subprocess.Popen(command, shell=True, env=env, start_new_session=True)
-    _register_process(process)
+    with _ACTIVE_PROCESSES_LOCK:
+        if cancel_event is not None and cancel_event.is_set():
+            return False
+        process = subprocess.Popen(command, shell=True, env=env, start_new_session=True)
+        _ACTIVE_PROCESSES.add(process)
     try:
         returncode = process.wait()
         if returncode != 0:
             raise subprocess.CalledProcessError(returncode, command)
+        return True
     finally:
         _forget_process(process)
 
@@ -156,19 +172,6 @@ def _default_uploader(job: dict[str, str]) -> None:
     from huggingface_hub import HfApi
 
     api = HfApi(token=_resolve_hf_token())
-    if train_repo_id:
-        api.create_repo(
-            repo_id=train_repo_id,
-            repo_type=str(job["train_upload_repo_type"]),
-            exist_ok=True,
-        )
-        api.upload_folder(
-            repo_id=train_repo_id,
-            repo_type=str(job["train_upload_repo_type"]),
-            folder_path=str(job["train_artifact_dir"]),
-            path_in_repo=str(job["train_artifact_repo_path"]),
-            ignore_patterns=UPLOAD_IGNORE_PATTERNS,
-        )
     if eval_repo_id:
         api.create_repo(
             repo_id=eval_repo_id,
@@ -182,20 +185,30 @@ def _default_uploader(job: dict[str, str]) -> None:
             path_in_repo=str(job["eval_artifact_repo_path"]),
             ignore_patterns=UPLOAD_IGNORE_PATTERNS,
         )
+    if train_repo_id:
+        api.create_repo(
+            repo_id=train_repo_id,
+            repo_type=str(job["train_upload_repo_type"]),
+            exist_ok=True,
+        )
+        api.upload_folder(
+            repo_id=train_repo_id,
+            repo_type=str(job["train_upload_repo_type"]),
+            folder_path=str(job["train_artifact_dir"]),
+            path_in_repo=str(job["train_artifact_repo_path"]),
+            ignore_patterns=UPLOAD_IGNORE_PATTERNS,
+        )
 
 
 def _resume_stage(job: dict[str, str], states: dict[str, str]) -> str:
     stage = states.get(str(job["job_id"]), "")
     if stage in {"job_complete", "upload_skipped", "upload_succeeded"}:
         return "complete"
-    if stage == "eval_succeeded":
+    if stage in {"eval_succeeded", "upload_started", "upload_failed"}:
         return "upload"
-    if stage == "train_succeeded":
-        return "eval"
-    if stage == "eval_failed":
-        # Training already succeeded before eval ran; re-eval from the checkpoint
-        # instead of retraining from scratch.
-        return "eval"
+    if stage in {"train_succeeded", "eval_started", "eval_failed"}:
+        train_config = Path(job["train_artifact_dir"]) / "config.json"
+        return "eval" if train_config.is_file() else "train"
     return "train"
 
 
@@ -205,38 +218,51 @@ def run_jobs(
     gpus: list[str],
     upload_workers: int,
     max_upload_attempts: int,
+    stage: str = "all",
     match: str = "",
     dry_run: bool = False,
     uploader: Callable[[dict[str, str]], None] | None = None,
 ) -> int:
-    previous_sigint = signal.getsignal(signal.SIGINT)
-    previous_sigterm = signal.getsignal(signal.SIGTERM)
-
-    def stop_active_processes(signum, frame):
-        del frame
-        _terminate_active_processes(signal.SIGTERM)
-        raise KeyboardInterrupt(signum)
-
-    signal.signal(signal.SIGINT, stop_active_processes)
-    signal.signal(signal.SIGTERM, stop_active_processes)
     manifest_file = Path(manifest_path).expanduser().resolve()
     event_log = event_log_path_for_manifest(manifest_file)
     write_event = _event_writer(event_log)
     rows = load_manifest(manifest_file)
     if match:
         rows = [row for row in rows if match in row["job_id"]]
-    states = _job_states(load_events(event_log))
-    jobs = [row for row in rows if _resume_stage(row, states) != "complete"]
+    events = load_events(event_log)
+    states = _job_states(events)
+    if stage == "all":
+        jobs = [row for row in rows if _resume_stage(row, states) != "complete"]
+    elif stage == "train":
+        succeeded = _successful_jobs(events, "train_succeeded")
+        jobs = [row for row in rows if row["job_id"] not in succeeded]
+    elif stage == "eval":
+        succeeded = _successful_jobs(events, "eval_succeeded")
+        jobs = [row for row in rows if row["job_id"] not in succeeded]
+    else:
+        jobs = [
+            row
+            for row in rows
+            if states.get(row["job_id"], "")
+            in {"eval_succeeded", "upload_started", "upload_failed"}
+        ]
     job_queue: queue.Queue[dict[str, str] | None] = queue.Queue()
     upload_queue: queue.Queue[UploadTask | None] = queue.Queue()
     failures: list[tuple[str, str]] = []
     failure_lock = threading.Lock()
+    cancel_event = threading.Event()
+    signal_event = threading.Event()
+    cleanup_started = False
     uploader_fn = _default_uploader if uploader is None else uploader
 
-    for job in jobs:
-        job_queue.put(job)
-    for _ in gpus:
-        job_queue.put(None)
+    if stage != "upload":
+        for job in jobs:
+            job_queue.put(job)
+        for _ in gpus:
+            job_queue.put(None)
+    else:
+        for job in jobs:
+            upload_queue.put(UploadTask(job))
 
     def record_failure(job_id: str, stage: str) -> None:
         with failure_lock:
@@ -248,25 +274,50 @@ def run_jobs(
             if job is None:
                 job_queue.task_done()
                 break
-            stage = _resume_stage(job, states)
+            if cancel_event.is_set():
+                job_queue.task_done()
+                continue
+            next_stage = _resume_stage(job, states) if stage == "all" else stage
             job_id = str(job["job_id"])
             try:
-                if stage == "train":
-                    write_event({"job_id": job_id, "stage": "train_started", "gpu": gpu, "ts": _now()})
-                    if not dry_run:
-                        _run_command(str(job["train_command"]), gpu=gpu)
-                    write_event({"job_id": job_id, "stage": "train_succeeded", "gpu": gpu, "ts": _now()})
-                    stage = "eval"
-                if stage == "eval":
-                    write_event({"job_id": job_id, "stage": "eval_started", "gpu": gpu, "ts": _now()})
-                    if not dry_run:
-                        _run_command(str(job["eval_command"]), gpu=gpu)
-                    write_event({"job_id": job_id, "stage": "eval_succeeded", "gpu": gpu, "ts": _now()})
-                    stage = "upload"
-                if stage == "upload":
+                if next_stage == "train":
+                    if cancel_event.is_set():
+                        continue
+                    if dry_run:
+                        print(f"[dry-run] CUDA_VISIBLE_DEVICES={gpu} {job['train_command']}", flush=True)
+                    else:
+                        write_event({"job_id": job_id, "stage": "train_started", "gpu": gpu, "ts": _now()})
+                        started = _run_command(
+                            str(job["train_command"]),
+                            gpu=gpu,
+                            cancel_event=cancel_event,
+                        )
+                        if not started or cancel_event.is_set():
+                            continue
+                        write_event({"job_id": job_id, "stage": "train_succeeded", "gpu": gpu, "ts": _now()})
+                    next_stage = "eval" if stage == "all" else "complete"
+                if next_stage == "eval":
+                    if cancel_event.is_set():
+                        continue
+                    if dry_run:
+                        print(f"[dry-run] CUDA_VISIBLE_DEVICES={gpu} {job['eval_command']}", flush=True)
+                    else:
+                        write_event({"job_id": job_id, "stage": "eval_started", "gpu": gpu, "ts": _now()})
+                        started = _run_command(
+                            str(job["eval_command"]),
+                            gpu=gpu,
+                            cancel_event=cancel_event,
+                        )
+                        if not started or cancel_event.is_set():
+                            continue
+                        write_event({"job_id": job_id, "stage": "eval_succeeded", "gpu": gpu, "ts": _now()})
+                    next_stage = "upload" if stage == "all" else "complete"
+                if next_stage == "upload" and not cancel_event.is_set():
                     upload_queue.put(UploadTask(job))
             except subprocess.CalledProcessError:
-                failed_stage = "train_failed" if stage == "train" else "eval_failed"
+                if cancel_event.is_set():
+                    continue
+                failed_stage = "train_failed" if next_stage == "train" else "eval_failed"
                 write_event({"job_id": job_id, "stage": failed_stage, "gpu": gpu, "ts": _now()})
                 record_failure(job_id, failed_stage)
             finally:
@@ -275,34 +326,52 @@ def run_jobs(
     def upload_worker() -> None:
         while True:
             task = upload_queue.get()
-            if task is None:
-                upload_queue.task_done()
-                break
-            job = task.job
-            job_id = str(job["job_id"])
-            train_repo_id = str(job["train_upload_repo_id"])
-            eval_repo_id = str(job["eval_upload_repo_id"])
-            if not train_repo_id and not eval_repo_id:
-                write_event({"job_id": job_id, "stage": "upload_skipped", "ts": _now()})
-                write_event({"job_id": job_id, "stage": "job_complete", "ts": _now()})
-                upload_queue.task_done()
-                continue
-            attempt = 0
-            success = False
-            while attempt < max_upload_attempts and not success:
-                attempt += 1
-                write_event({"job_id": job_id, "stage": "upload_started", "attempt": attempt, "ts": _now()})
-                try:
-                    if not dry_run:
-                        uploader_fn(job)
-                    write_event({"job_id": job_id, "stage": "upload_succeeded", "attempt": attempt, "ts": _now()})
+            try:
+                if task is None:
+                    break
+                if cancel_event.is_set():
+                    continue
+                job = task.job
+                job_id = str(job["job_id"])
+                train_repo_id = str(job["train_upload_repo_id"])
+                eval_repo_id = str(job["eval_upload_repo_id"])
+                if dry_run:
+                    targets = [repo_id for repo_id in (eval_repo_id, train_repo_id) if repo_id]
+                    print(f"[dry-run] upload {job_id}: {', '.join(targets) or 'no upload target'}", flush=True)
+                    continue
+                if not train_repo_id and not eval_repo_id:
+                    write_event({"job_id": job_id, "stage": "upload_skipped", "ts": _now()})
                     write_event({"job_id": job_id, "stage": "job_complete", "ts": _now()})
-                    success = True
-                except Exception:
-                    write_event({"job_id": job_id, "stage": "upload_failed", "attempt": attempt, "ts": _now()})
-            if not success:
-                record_failure(job_id, "upload_failed")
-            upload_queue.task_done()
+                    continue
+                attempt = 0
+                success = False
+                while attempt < max_upload_attempts and not success and not cancel_event.is_set():
+                    attempt += 1
+                    write_event({"job_id": job_id, "stage": "upload_started", "attempt": attempt, "ts": _now()})
+                    try:
+                        uploader_fn(job)
+                        if cancel_event.is_set():
+                            continue
+                        write_event({"job_id": job_id, "stage": "upload_succeeded", "attempt": attempt, "ts": _now()})
+                        write_event({"job_id": job_id, "stage": "job_complete", "ts": _now()})
+                        success = True
+                    except Exception as error:
+                        if cancel_event.is_set():
+                            continue
+                        write_event(
+                            {
+                                "job_id": job_id,
+                                "stage": "upload_failed",
+                                "attempt": attempt,
+                                "error": repr(error),
+                                "ts": _now(),
+                            }
+                        )
+                        print(f"upload failed for {job_id} (attempt {attempt}): {error!r}", file=sys.stderr)
+                if not success and not cancel_event.is_set():
+                    record_failure(job_id, "upload_failed")
+            finally:
+                upload_queue.task_done()
 
     upload_threads = [
         threading.Thread(target=upload_worker, name=f"upload-{idx}", daemon=True)
@@ -310,19 +379,46 @@ def run_jobs(
     ]
     train_threads = [
         threading.Thread(target=train_worker, args=(gpu,), name=f"train-{gpu}", daemon=True)
-        for gpu in gpus
+        for gpu in gpus if stage != "upload"
     ]
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def stop_active_processes(signum, frame):
+        nonlocal cleanup_started
+        del frame
+        if signal_event.is_set():
+            return
+        signal_event.set()
+        cancel_event.set()
+        if cleanup_started:
+            return
+        raise KeyboardInterrupt(signum)
+
+    signal.signal(signal.SIGINT, stop_active_processes)
+    signal.signal(signal.SIGTERM, stop_active_processes)
     try:
         for thread in upload_threads + train_threads:
             thread.start()
         job_queue.join()
-        for _ in upload_threads:
-            upload_queue.put(None)
         upload_queue.join()
-        for thread in train_threads + upload_threads:
-            thread.join()
         return 1 if failures else 0
     finally:
+        cleanup_started = True
+        cancel_event.set()
+        _terminate_active_processes(signal.SIGTERM)
+        for thread in train_threads:
+            thread.join()
+        _terminate_active_processes(signal.SIGTERM)
+        if signal_event.is_set():
+            for _ in upload_threads:
+                upload_queue.put(None)
+        else:
+            upload_queue.join()
+            for _ in upload_threads:
+                upload_queue.put(None)
+            for thread in upload_threads:
+                thread.join()
         _terminate_active_processes(signal.SIGTERM)
         signal.signal(signal.SIGINT, previous_sigint)
         signal.signal(signal.SIGTERM, previous_sigterm)
@@ -331,7 +427,8 @@ def run_jobs(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run manifest-defined train/eval/upload jobs.")
     parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--gpus", type=str, default="0")
+    parser.add_argument("--stage", choices=("all", "train", "eval", "upload"), default="all")
+    parser.add_argument("--gpus", type=str)
     parser.add_argument("--upload-workers", type=int, default=2)
     parser.add_argument("--max-upload-attempts", type=int, default=3)
     parser.add_argument("--match", type=str, default="")
@@ -340,13 +437,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    gpus = [item.strip() for item in args.gpus.split(",") if item.strip()]
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.stage != "upload" and args.gpus is None:
+        parser.error("--gpus is required for all, train, and eval stages")
+    gpus = [] if args.gpus is None else [item.strip() for item in args.gpus.split(",") if item.strip()]
     return run_jobs(
         manifest_path=args.manifest,
         gpus=gpus,
         upload_workers=int(args.upload_workers),
         max_upload_attempts=int(args.max_upload_attempts),
+        stage=str(args.stage),
         match=str(args.match),
         dry_run=bool(args.dry_run),
     )

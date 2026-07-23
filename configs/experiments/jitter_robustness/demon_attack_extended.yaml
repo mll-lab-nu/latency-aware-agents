@@ -1,0 +1,9 @@
+__base__: demon_attack_capped.yaml
+generated_root: configs/train/jitter_robustness/demon_attack/extended
+output_root: outputs/jitter_robustness/demon_attack/extended
+train_upload_repo_id: ""
+train_upload_path_prefix: ""
+eval_upload_path_prefix: jitter_robustness/demon_attack/extended
+
+evaluation:
+  eval_max_steps: 36000

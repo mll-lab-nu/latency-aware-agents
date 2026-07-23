@@ -249,7 +249,7 @@ def test_deadly_corridor_adapter_builds_prepared_eval_cfg_from_full_config(monke
         captured["build_config"] = config
         return ["--from-full-config", "1"]
 
-    def fake_parse_cfg(argv):
+    def fake_parse_eval(argv):
         captured["parse_argv"] = list(argv)
         return SimpleNamespace(
             mode="eval",
@@ -287,7 +287,11 @@ def test_deadly_corridor_adapter_builds_prepared_eval_cfg_from_full_config(monke
 
     monkeypatch.setattr(integration, "register_deadly_corridor_components", lambda: None)
     monkeypatch.setattr(integration, "build_cli_args_from_config", fake_build_cli_args_from_config)
-    monkeypatch.setattr(integration, "parse_cfg", fake_parse_cfg)
+    monkeypatch.setattr(
+        integration,
+        "SAMPLE_FACTORY_CONFIG_PARSER",
+        SimpleNamespace(parse_eval=fake_parse_eval),
+    )
     monkeypatch.setitem(
         sys.modules,
         "sample_factory.cfg.arguments",

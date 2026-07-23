@@ -42,6 +42,7 @@ def main(argv: list[str] | None = None) -> None:
     sim = subparsers.add_parser("sim")
     _add_config(sim)
     _add_simulation_selection(sim)
+    sim.add_argument("--local-profile", action="store_true")
     sim.add_argument("--resume", action="store_true")
 
     download = subparsers.add_parser("download")
@@ -130,12 +131,15 @@ def main(argv: list[str] | None = None) -> None:
         )
         print(output_ref)
     elif args.command == "sim":
+        simulation_options = {"resume": args.resume}
+        if args.local_profile:
+            simulation_options["local_profile"] = True
         run_simulation(
             workload,
             args.profile_ref,
             args.method,
             args.latency_seeds,
-            resume=args.resume,
+            **simulation_options,
         )
     elif args.command == "download":
         download_raw(

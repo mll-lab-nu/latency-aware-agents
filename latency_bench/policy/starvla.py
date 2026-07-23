@@ -20,7 +20,7 @@ from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolv
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-STARVLA_ROOT = REPO_ROOT / "starVLA"
+STARVLA_ROOT = REPO_ROOT / "third_party" / "starVLA"
 STATEFUL_STARVLA_MODEL_IDS: tuple[str, ...] = (
     "pi0",
     "pi-0",
@@ -344,11 +344,49 @@ def decode_starvla_action(
     env_name: str,
     action_by_raw_id: Mapping[int, Action],
 ) -> tuple[Action, dict[str, Any]]:
-    if str(env_name) == "demon_attack":
-        return demon_attack_action_from_vector(vector)
+    deadly_layout = None
     if str(env_name) == "deadly_corridor":
-        return deadly_corridor_action_from_vector(vector)
-    return indexed_action_from_vector(vector, action_by_raw_id)
+        action_dim = int(np.asarray(vector).shape[-1])
+        deadly_layouts = {
+            7: "deadly_corridor_semantic_7",
+            11: "deadly_corridor_factorized_11",
+            54: "deadly_corridor_joint_54",
+        }
+        if action_dim not in deadly_layouts:
+            raise ValueError(
+                "Deadly Corridor StarVLA action vector expected 7, 11, or 54 "
+                f"values, got {action_dim}"
+            )
+        deadly_layout = deadly_layouts[action_dim]
+
+    decode_rl_games_actions, _ = _load_rl_games_action_decode()
+    prediction = decode_rl_games_actions(
+        normalized_actions=np.asarray(vector),
+        env_name=str(env_name),
+    )
+    action, metadata = action_from_starvla_payload(
+        payload=np.asarray(prediction["actions"]),
+        env_name=env_name,
+        action_by_raw_id=action_by_raw_id,
+        action_output_type=prediction["action_output_type"],
+    )
+    if deadly_layout is not None:
+        metadata["action_layout"] = deadly_layout
+        if deadly_layout == "deadly_corridor_joint_54":
+            turn, move, strafe, attack = action.value
+            metadata["raw_action_id"] = turn * 18 + move * 6 + strafe * 2 + attack
+        elif deadly_layout == "deadly_corridor_semantic_7":
+            semantic_actions = (
+                [0, 1, 0, 0],
+                [0, 2, 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 2, 0],
+                [1, 0, 0, 0],
+                [2, 0, 0, 0],
+                [0, 0, 0, 1],
+            )
+            metadata["raw_action_id"] = semantic_actions.index(action.value)
+    return action, metadata
 
 
 # Fixed semantic button order the StarVLA multibinary head is trained against.
@@ -412,23 +450,6 @@ def to_jsonable_action_payload(payload: npt.NDArray[Any]) -> Any:
     return value
 
 
-def indexed_action_from_vector(
-    vector: npt.NDArray[Any],
-    action_by_raw_id: Mapping[int, Action],
-) -> tuple[Action, dict[str, Any]]:
-    # argmax over the first n_actions dims only — the head may be a wider
-    # (bridge-padded) vector; matches starVLA eval_core decode_discrete_argmax(raw, n).
-    n_actions = len(action_by_raw_id)
-    raw_action_id = int(np.argmax(np.asarray(vector)[:n_actions]))
-    return action_by_raw_id[raw_action_id], {"raw_action_id": raw_action_id}
-
-
-def demon_attack_action_from_vector(vector: npt.NDArray[Any]) -> tuple[Action, dict[str, Any]]:
-    n_actions = len(DEMON_ATTACK_ACTION_LABELS)
-    action_id = int(np.argmax(np.asarray(vector)[:n_actions]))
-    return demon_attack_action_from_id(action_id)
-
-
 def demon_attack_action_from_id(action_id: int) -> tuple[Action, dict[str, Any]]:
     action = Action(
         value=action_id,
@@ -437,42 +458,6 @@ def demon_attack_action_from_id(action_id: int) -> tuple[Action, dict[str, Any]]
         is_oneshot=False,
     )
     return action, {"raw_action_id": action_id, "action_label": action.name}
-
-
-def deadly_corridor_action_from_vector(vector: npt.NDArray[Any]) -> tuple[Action, dict[str, Any]]:
-    if vector.shape[0] == 54:
-        return deadly_corridor_action_from_joint_vector(vector)
-    if vector.shape[0] == 11:
-        return deadly_corridor_action_from_factorized_vector(vector)
-    if vector.shape[0] == 7:
-        return deadly_corridor_action_from_semantic_vector(vector)
-    raise ValueError(f"Deadly Corridor StarVLA action vector expected 7, 11, or 54 values, got {vector.shape[0]}")
-
-
-def deadly_corridor_action_from_factorized_vector(vector: npt.NDArray[Any]) -> tuple[Action, dict[str, Any]]:
-    turn = int(np.argmax(vector[0:3]))
-    move = int(np.argmax(vector[3:6]))
-    strafe = int(np.argmax(vector[6:9]))
-    attack = int(np.argmax(vector[9:11]))
-    return deadly_corridor_action_from_tuple(
-        action_value=[turn, move, strafe, attack],
-        metadata={"action_layout": "deadly_corridor_factorized_11"},
-    )
-
-
-def deadly_corridor_action_from_joint_vector(vector: npt.NDArray[Any]) -> tuple[Action, dict[str, Any]]:
-    joint_id = int(np.argmax(vector))
-    attack = joint_id % 2
-    strafe = (joint_id // 2) % 3
-    move = (joint_id // 6) % 3
-    turn = (joint_id // 18) % 3
-    return deadly_corridor_action_from_tuple(
-        action_value=[turn, move, strafe, attack],
-        metadata={
-            "raw_action_id": joint_id,
-            "action_layout": "deadly_corridor_joint_54",
-        },
-    )
 
 
 def deadly_corridor_action_from_tuple(
@@ -505,31 +490,6 @@ def deadly_corridor_action_from_tuple(
         "attack_label": attack_label,
         "action_label": action_name,
         **metadata,
-    }
-
-
-def deadly_corridor_action_from_semantic_vector(vector: npt.NDArray[Any]) -> tuple[Action, dict[str, Any]]:
-    action_id = int(np.argmax(vector))
-    semantic_actions = (
-        ([0, 1, 0, 0], "MOVE_FORWARD"),
-        ([0, 2, 0, 0], "MOVE_BACKWARD"),
-        ([0, 0, 1, 0], "MOVE_LEFT"),
-        ([0, 0, 2, 0], "MOVE_RIGHT"),
-        ([1, 0, 0, 0], "TURN_LEFT"),
-        ([2, 0, 0, 0], "TURN_RIGHT"),
-        ([0, 0, 0, 1], "ATTACK"),
-    )
-    action_value, action_name = semantic_actions[action_id]
-    return Action(
-        value=action_value,
-        name=action_name,
-        is_noop=False,
-        is_oneshot=False,
-    ), {
-        "raw_action_id": action_id,
-        "decoded_action_tuple": action_value,
-        "action_label": action_name,
-        "action_layout": "deadly_corridor_semantic_7",
     }
 
 
@@ -622,11 +582,14 @@ def _profiler_stage(profiler: Any, name: str) -> Any:
     return profiler.time(name) if profiler is not None else nullcontext()
 
 
-def _load_decode_rl_games_actions() -> Any:
+def _load_rl_games_action_decode() -> tuple[Any, Any]:
     _ensure_starvla_path()
-    from deployment.model_server.rl_games_action_decode import decode_rl_games_actions
+    from deployment.model_server.rl_games_action_decode import (
+        decode_rl_games_actions,
+        resolve_deadly_action_decode_spec,
+    )
 
-    return decode_rl_games_actions
+    return decode_rl_games_actions, resolve_deadly_action_decode_spec
 
 
 class LiveStarVlaWrapper:
@@ -647,21 +610,22 @@ class LiveStarVlaWrapper:
         framework: Any,
         model_cfg: dict[str, Any],
         env_name: str,
-        action_layout: str = "",
-        multibinary_threshold: float = 0.0,
+        action_layout: str | None = None,
+        multibinary_threshold: float | None = None,
     ) -> None:
         self._framework = framework
         self._model_cfg = model_cfg
         self._rl_games_env_name = str(env_name)
-        self._decode_rl_games_actions = _load_decode_rl_games_actions()
-        self._action_layout = str(action_layout or "").strip().lower()
-        self._multibinary_threshold = float(multibinary_threshold)
-
-    def _uses_deadly_multibinary(self) -> bool:
-        return (
-            self._rl_games_env_name == "deadly_corridor"
-            and self._action_layout == "multibinary_7"
-        )
+        (
+            self._decode_rl_games_actions,
+            resolve_deadly_action_decode_spec,
+        ) = _load_rl_games_action_decode()
+        if self._rl_games_env_name == "deadly_corridor":
+            self._action_layout, self._multibinary_threshold = resolve_deadly_action_decode_spec(
+                model_cfg,
+                action_layout=action_layout,
+                multibinary_threshold=multibinary_threshold,
+            )
 
     def reset_memory(self, slot_id: int | None = None) -> None:
         reset = getattr(self._framework, "reset_memory", None)
@@ -680,24 +644,19 @@ class LiveStarVlaWrapper:
         out = self._framework.predict_action(examples=examples, **kwargs)
         normalized = np.asarray(out["normalized_actions"])  # (B, T, D)
         with _profiler_stage(profiler, "starvla_wrapper_rl_games_decode_ms"):
-            if self._uses_deadly_multibinary():
-                # Independent per-button thresholding (matches eval_core), instead
-                # of the shared argmax semantic_7 decode which can only ever fire a
-                # single button. The result is a 7-dim multibinary vector in fixed
-                # semantic order; DeadlyCorridorVlaEnvAdapter re-orders it to the
-                # live ViZDoom button layout before stepping.
-                buttons = (
-                    np.asarray(normalized, dtype=np.float32)[..., :7]
-                    >= self._multibinary_threshold
-                ).astype(np.int64)
-                return {
-                    "actions": buttons,
-                    "raw_action_scores": normalized,
-                    "action_output_type": "rl_games_deadly_corridor_multibinary",
-                }
             return self._decode_rl_games_actions(
                 normalized_actions=normalized,
                 env_name=self._rl_games_env_name,
+                deadly_action_layout=(
+                    self._action_layout
+                    if self._rl_games_env_name == "deadly_corridor"
+                    else None
+                ),
+                deadly_multibinary_threshold=(
+                    self._multibinary_threshold
+                    if self._rl_games_env_name == "deadly_corridor"
+                    else None
+                ),
             )
 
 
@@ -723,6 +682,14 @@ def build_starvla_policy(
         unnorm_key=unnorm_key,
         action_output_mode="rl_games",
         rl_games_env_name=config["env"]["name"],
+        rl_games_action_layout=(
+            policy_cfg["action_layout"] if "action_layout" in policy_cfg else None
+        ),
+        rl_games_multibinary_threshold=(
+            policy_cfg["multibinary_threshold"]
+            if "multibinary_threshold" in policy_cfg
+            else None
+        ),
     )
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
@@ -770,8 +737,12 @@ def build_live_starvla_policy(
         framework=framework,
         model_cfg=model_cfg,
         env_name=env_name,
-        action_layout=str(policy_cfg.get("action_layout", "") or ""),
-        multibinary_threshold=float(policy_cfg.get("multibinary_threshold", 0.0) or 0.0),
+        action_layout=policy_cfg["action_layout"] if "action_layout" in policy_cfg else None,
+        multibinary_threshold=(
+            policy_cfg["multibinary_threshold"]
+            if "multibinary_threshold" in policy_cfg
+            else None
+        ),
     )
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])

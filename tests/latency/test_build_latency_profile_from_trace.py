@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from latency_bench.experiments.build_latency_profile_from_trace import (
+from latency_bench.latency.profile_builder import (
     build_profile_from_trace,
     build_profile_from_traces,
 )

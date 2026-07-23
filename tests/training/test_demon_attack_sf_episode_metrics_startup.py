@@ -6,7 +6,11 @@ from types import SimpleNamespace
 def _patch_run_from_config_dependencies(monkeypatch, integration, cfg):
     monkeypatch.setattr(integration, "register_demon_attack_envs", lambda: None)
     monkeypatch.setattr(integration, "build_cli_args_from_config", lambda _config: [])
-    monkeypatch.setattr(integration, "parse_cfg", lambda _args: cfg)
+    monkeypatch.setattr(
+        integration,
+        "SAMPLE_FACTORY_CONFIG_PARSER",
+        SimpleNamespace(parse_train=lambda _args: cfg),
+    )
     monkeypatch.setattr(integration, "apply_runtime_logging_config", lambda _cfg, _logging_cfg: None)
     monkeypatch.setattr(integration, "seed_everything", lambda _seed: None, raising=False)
     monkeypatch.setattr(integration, "patch_sample_factory_wandb", lambda: None)

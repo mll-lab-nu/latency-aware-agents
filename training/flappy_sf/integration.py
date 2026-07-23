@@ -36,6 +36,10 @@ from training.common.latency_wrapper import (
     EpisodeMetricsWrapper,
     RewardTraceWrapper,
 )
+from training.common.sample_factory_config import (
+    SampleFactoryConfigParser,
+    force_sample_factory_raw_frame_step_cfg,
+)
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from training.common.sf_episode_extra_stats_compat import (
     ensure_sample_factory_episode_extra_stats_installed,
@@ -51,11 +55,6 @@ from sample_factory.algo.utils.misc import ExperimentStatus
 SF_ENV_NAME = "latency_flappy"
 _ENVS_REGISTERED = False
 _TIMELIMIT_DIAGNOSTICS_PRINTED: set[tuple[int, int, int]] = set()
-
-
-def _force_sample_factory_raw_frame_step_cfg(cfg: Any) -> None:
-    setattr(cfg, "env_frameskip", 1)
-    setattr(cfg, "eval_env_frameskip", 1)
 
 
 def parse_obs_resize(value: Any) -> tuple[int, int] | None:
@@ -317,7 +316,7 @@ def make_flappy_sf_env(
     ensure_sample_factory_episode_extra_stats_installed(env_name=SF_ENV_NAME)
     ensure_sample_factory_gpu_sampling_compat_installed(env_name=SF_ENV_NAME)
     env_config = env_config or {}
-    _force_sample_factory_raw_frame_step_cfg(cfg)
+    force_sample_factory_raw_frame_step_cfg(cfg)
     use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))
     obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
     frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
@@ -441,7 +440,7 @@ def make_reference_env(cfg):
     from sample_factory.algo.utils.make_env import make_env_func_batched
     from sample_factory.utils.attr_dict import AttrDict
 
-    _force_sample_factory_raw_frame_step_cfg(cfg)
+    force_sample_factory_raw_frame_step_cfg(cfg)
     register_flappy_envs()
     return make_env_func_batched(
         cfg,
@@ -541,15 +540,15 @@ def flappy_override_defaults(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def parse_cfg(argv=None):
-    from sample_factory.cfg.arguments import parse_full_cfg, parse_sf_args
-
-    parser, _ = parse_sf_args(argv=argv, evaluation=False)
+def configure_sample_factory_parser(parser: argparse.ArgumentParser) -> None:
     add_flappy_env_args(parser)
     flappy_override_defaults(parser)
-    cfg = parse_full_cfg(parser, argv)
-    _force_sample_factory_raw_frame_step_cfg(cfg)
-    return cfg
+
+
+SAMPLE_FACTORY_CONFIG_PARSER = SampleFactoryConfigParser(
+    configure_parser=configure_sample_factory_parser,
+    finalize_cfg=force_sample_factory_raw_frame_step_cfg,
+)
 
 
 def build_cli_args_from_config(config: dict) -> list[str]:
@@ -592,7 +591,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
 
 def run_from_config(config: dict) -> int:
     register_flappy_envs()
-    cfg = parse_cfg(build_cli_args_from_config(config))
+    cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
     logging_cfg = config.get("logging", {}) if isinstance(config.get("logging"), dict) else {}
     apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))

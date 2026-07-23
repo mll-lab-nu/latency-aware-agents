@@ -1,0 +1,40 @@
+__base__: ../flappy/frame_stack/base.yaml
+experiment_family: observation_stride
+generated_root: configs/train/observation_stride/flappy/capped
+train_dir: results/checkpoints/observation_stride/flappy
+output_root: outputs/observation_stride/flappy/capped
+device: cuda
+restart_behavior: resume
+eval_upload_repo_id: latency-sensitive-bench/paper-experiment-evals
+eval_upload_repo_type: dataset
+eval_upload_path_prefix: observation_stride/flappy/capped
+seeds:
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+
+evaluation:
+  eval_episodes: 100
+  eval_max_steps: 3600
+
+latency_settings:
+  fixed_l2:
+    kind: fixed
+    frames: 2
+  uniform_u1_3:
+    kind: uniform
+    min: 1
+    max: 3
+
+sweeps:
+  observation_stride:
+    frame_stack:
+      - 4
+    observation_stride:
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5

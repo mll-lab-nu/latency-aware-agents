@@ -1,5 +1,0 @@
-__base__: ../../../../base/flappy.yaml
-
-latency:
-  method: fixed
-  fixed_latency_ms: 50
