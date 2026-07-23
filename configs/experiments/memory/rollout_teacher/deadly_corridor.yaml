@@ -1,0 +1,34 @@
+__base__: ../../../base/deadly_corridor.yaml
+experiment_family: memory_rollout_teacher
+generated_root: configs/train/memory/rollout_teacher/deadly_corridor
+train_dir: results/checkpoints/memory/rollout_teacher
+output_root: outputs/memory/rollout_teacher/deadly_corridor
+device: cuda
+restart_behavior: resume
+train_upload_repo_id: latency-sensitive-bench/paper-experiment-models
+train_upload_repo_type: model
+train_upload_path_prefix: memory/rollout_teachers/deadly_corridor
+
+seeds:
+  - 0
+
+evaluation:
+  eval_episodes: 100
+  eval_parallel_envs: 1
+  eval_max_steps: 30000
+
+latency_settings:
+  fixed_l6:
+    kind: fixed
+    frames: 6
+    eval_suites:
+      fixed: [[6]]
+      normal: []
+      uniform: []
+
+sweeps:
+  teacher:
+    frame_stack:
+      - 4
+    obs_fps:
+      - 8.75

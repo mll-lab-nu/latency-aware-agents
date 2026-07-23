@@ -1016,14 +1016,14 @@ def _build_rollout_driver_runtime(
         module, cfg = build_sample_factory_rollout_cfg(config)
         frame_stack = int(cfg.frame_stack)
         setattr(cfg, "export_env_raw_rgb_frames", bool(export_env_raw_rgb_frames))
+        if env_name == "flappy" and cfg.use_gpu_render:
+            maybe_set_cli_override(cfg, "gpu_render_batch_size", int(num_envs))
         use_batched_driver = (
             (env_name == "flappy" and int(num_envs) > 1 and cfg.use_gpu_render)
             or (env_name == "demon_attack" and cfg.simulator == "gpu")
         )
         if use_batched_driver:
-            if env_name == "flappy":
-                maybe_set_cli_override(cfg, "gpu_render_batch_size", int(num_envs))
-            else:
+            if env_name == "demon_attack":
                 maybe_set_cli_override(cfg, "gpu_env_batch_size", int(num_envs))
             runtime = build_env_and_policy(module, cfg, config, 1)
         else:
