@@ -18,11 +18,6 @@ from latency_bench.utils.io import write_jsonl
 from latency_bench.data.action_layouts import action_spec_for_env
 from latency_bench.data.filters import density_weights_clean_v1
 
-FPS_BY_ENV = {
-    "flappy": 30,
-    "demon_attack": 60,
-    "deadly_corridor": 35,
-}
 STATE_DIM = 1
 
 
@@ -134,7 +129,7 @@ def _row_action_vector(row: dict[str, Any], *, action_dim: int) -> list[float]:
 def _write_metadata(
     dataset_dir: Path,
     *,
-    fps: int,
+    fps: float,
     action_labels: list[str],
     episode_lengths: list[int],
     task_prompts: list[str],
@@ -155,7 +150,7 @@ def _write_metadata(
         json.dumps(
             {
                 "codebase_version": "v2.0",
-                "fps": int(fps),
+                "fps": fps,
                 "features": {
                     "observation.image": {"dtype": "image"},
                     "observation.state": {"dtype": "float32", "shape": [STATE_DIM]},
@@ -183,9 +178,8 @@ def _convert_split(
     *,
     env_name: str,
     action_labels: list[str],
-    fps: int,
+    fps: float,
     reward_field: str,
-    obs_stride: int = 1,
     density_weighting: bool = False,
 ) -> dict[str, Any]:
     """Convert one canonical rollout split into a LeRobot dataset directory.
@@ -197,11 +191,6 @@ def _convert_split(
         action_labels: Canonical action labels in vector order.
         fps: Frame rate used for timestamps.
         reward_field: Source canonical reward column.
-        obs_stride: Raw frames per observation decision (``round(env_fps/obs_fps)``).
-            Canonical rows are recorded once per raw frame; keeping only the obs
-            decisions (``decision_step % obs_stride == 0``) makes adjacent LeRobot
-            rows adjacent observations, so KV-memory rollouts unroll at the eval
-            observation cadence.
         density_weighting: When True, write per-row ``density_weight`` from clean_v1's
             event balancing (train split). When False, weights are uniform 1.0 (val
             split keeps an unweighted held-out loss).
@@ -214,7 +203,6 @@ def _convert_split(
     task_prompts: list[str] = []
     episode_lengths: list[int] = []
     for new_episode_idx, episode_rows in enumerate(_episode_groups(rows)):
-        episode_rows = [row for row in episode_rows if int(row["decision_step"]) % obs_stride == 0]
         density_weights = (
             density_weights_clean_v1(env_name, episode_rows)
             if density_weighting
@@ -232,7 +220,7 @@ def _convert_split(
                 {
                     "image_bytes": _png_bytes(row["image"]),
                     "action": _row_action_vector(row, action_dim=len(action_labels)),
-                    "timestamp": float(frame_idx) / int(fps),
+                    "timestamp": frame_idx / fps,
                     "episode_index": new_episode_idx,
                     "frame_index": frame_idx,
                     "task_index": prompt_to_task_index[prompt],
@@ -288,9 +276,11 @@ def convert_canonical_rollout_to_lerobot(
     action_spec = action_spec_for_env(env_name)
     action_labels = list(metadata["action_labels"])
     reward_field = str(metadata["reward_field"])
-    obs_stride = int(metadata.get("obs_stride_raw_frames", 1))
-    # Rows survive at the observation cadence, so timestamps advance at obs_fps.
-    fps = max(1, int(FPS_BY_ENV[env_name]) // obs_stride)
+    rows_unit = metadata["rows_unit"]
+    if rows_unit != "decision_step":
+        raise ValueError(f"rows_unit must be 'decision_step', got {rows_unit!r}")
+    fps = metadata["obs_fps"]
+    obs_stride = metadata["obs_stride_raw_frames"]
     val_output_dir = output_dir.with_name(f"{output_dir.name}__val")
     if output_dir.exists() and force:
         shutil.rmtree(output_dir)
@@ -303,7 +293,6 @@ def convert_canonical_rollout_to_lerobot(
         action_labels=action_labels,
         fps=fps,
         reward_field=reward_field,
-        obs_stride=obs_stride,
         density_weighting=True,
     )
     val_manifest = _convert_split(
@@ -313,7 +302,6 @@ def convert_canonical_rollout_to_lerobot(
         action_labels=action_labels,
         fps=fps,
         reward_field=reward_field,
-        obs_stride=obs_stride,
         density_weighting=False,
     )
     manifest = {
@@ -324,6 +312,9 @@ def convert_canonical_rollout_to_lerobot(
         "action_labels": action_labels,
         "action_dim": len(action_labels),
         "active_action_dim": len(action_spec.labels),
+        "rows_unit": rows_unit,
+        "obs_fps": fps,
+        "obs_stride_raw_frames": obs_stride,
         "validation_dataset_name": val_output_dir.name,
         "validation_episodes": val_manifest["episodes"],
         "validation_frames": val_manifest["frames"],

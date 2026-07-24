@@ -77,6 +77,10 @@ hf download latency-sensitive-bench/flappy_200ep \
   
 python examples/rl_games/data_conversion/convert_flappy_to_starvla_lerobot.py \
   --dataset-name data/raw/flappy_fix_latency_0_200ep \
+  --source-fps 30 \
+  --obs-stride-raw-frames 1 \
+  --source-latency-column latency_raw_frames \
+  --target-latency-unit raw_frames \
   --output-dir data/flappy_fix_latency_0_200ep/flappy_train__bridge \
   --action-carrier bridge \
   --force
@@ -89,6 +93,10 @@ hf download latency-sensitive-bench/demon_attack_200ep \
 
 python examples/rl_games/data_conversion/convert_demon_attack_to_starvla_lerobot.py \
   --dataset-name data/raw/demon_attack_fix_latency_0_200ep \
+  --source-fps 15 \
+  --obs-stride-raw-frames 4 \
+  --source-latency-column latency_raw_frames \
+  --target-latency-unit raw_frames \
   --output-dir data/demon_attack_fix_latency_0_200ep/demon_attack_train__bridge \
   --action-carrier bridge \
   --force 
