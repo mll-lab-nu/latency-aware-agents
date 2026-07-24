@@ -31,6 +31,9 @@ prepare_flappy() {
     "${STARVLA_ROOT}/examples/rl_games/bash_scripts/gr00t/data_conversion/convert_flappy_to_starvla_lerobot.py" \
     --dataset-name "${RAW_ROOT}" \
     --dataset-source-subdir flappy_fix_latency_2_200ep \
+    --source-metadata "${RAW_ROOT}/flappy_fix_latency_2_200ep/metadata.json" \
+    --source-latency-column latency_raw_frames \
+    --target-latency-unit observation_steps \
     --output-dir "${STARVLA_ROOT}/data/jitter_destructiveness/flappy_fix_latency_2_200ep/flappy_train__bridge" \
     --action-carrier bridge \
     --force
@@ -47,6 +50,9 @@ prepare_demon_attack() {
     "${STARVLA_ROOT}/examples/rl_games/bash_scripts/gr00t/data_conversion/convert_demon_attack_to_starvla_lerobot.py" \
     --dataset-name "${RAW_ROOT}" \
     --dataset-source-subdir demon_attack_fix_latency_2_200ep \
+    --source-metadata "${RAW_ROOT}/demon_attack_fix_latency_2_200ep/metadata.json" \
+    --source-latency-column latency_raw_frames \
+    --target-latency-unit observation_steps \
     --output-dir "${STARVLA_ROOT}/data/jitter_destructiveness/demon_attack_fix_latency_2_200ep/demon_attack_train__bridge" \
     --action-carrier bridge \
     --force
@@ -63,6 +69,9 @@ prepare_deadly_corridor() {
     "${STARVLA_ROOT}/examples/rl_games/bash_scripts/gr00t/data_conversion/convert_deadly_corridor_to_starvla_lerobot.py" \
     --dataset-name "${RAW_ROOT}" \
     --dataset-source-subdir deadly_corridor_fix_latency_2_1000ep \
+    --source-metadata "${RAW_ROOT}/deadly_corridor_fix_latency_2_1000ep/metadata.json" \
+    --source-latency-column latency_raw_frames \
+    --target-latency-unit observation_steps \
     --output-dir "${STARVLA_ROOT}/data/jitter_destructiveness/deadly_corridor_fix_latency_2/deadly_corridor_train__bridge" \
     --action-carrier bridge \
     --action-layout multibinary_7 \

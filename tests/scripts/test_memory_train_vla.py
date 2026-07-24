@@ -69,6 +69,9 @@ printf '%s\\n' "$*" >> "{calls_path}"
     )
     calls = calls_path.read_text(encoding="utf-8").splitlines()
     conversion_calls = [call for call in calls if converter_name in call]
+    training_calls = [
+        call for call in calls if "commands/memory/train_flappy_openvla_single_baseline.sh" in call
+    ]
 
     assert conversion_calls == [
         " ".join(
@@ -77,6 +80,10 @@ printf '%s\\n' "$*" >> "{calls_path}"
                 str(converter),
                 "--dataset-name",
                 str(REPO_ROOT / "teacher_datasets/memory" / raw_name),
+                "--source-metadata",
+                str(REPO_ROOT / "teacher_datasets/memory" / raw_name / "metadata.json"),
+                "--source-latency-column latency_raw_frames",
+                "--target-latency-unit raw_frames",
                 "--output-dir",
                 str(
                     starvla_root
@@ -89,3 +96,5 @@ printf '%s\\n' "$*" >> "{calls_path}"
             ]
         )
     ]
+    assert len(training_calls) == 1
+    assert "dataset.target_latency_unit=raw_frames" in training_calls[0].split()

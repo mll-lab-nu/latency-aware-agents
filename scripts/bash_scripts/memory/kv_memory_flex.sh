@@ -32,6 +32,10 @@ hf download latency-sensitive-bench/flappy_200ep_7k2steps \
 cd "${REPO_ROOT}/third_party/starVLA"
 python examples/rl_games/bash_scripts/gr00t/data_conversion/convert_flappy_to_starvla_lerobot.py \
   --dataset-name data/raw/flappy_fix_latency_2_200ep_7k2steps \
+  --source-fps 30 \
+  --obs-stride-raw-frames 1 \
+  --source-latency-column latency_raw_frames \
+  --target-latency-unit raw_frames \
   --output-dir data/flappy_fix_latency_2_200ep_7k2steps/flappy_train__bridge \
   --action-carrier bridge \
   --force

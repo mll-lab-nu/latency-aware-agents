@@ -69,6 +69,9 @@ prepare_data() {
   conda run --no-capture-output -n starvla_rl_games_openvla python \
     "${converter}" \
     --dataset-name "${RAW_ROOT}/${raw_name}" \
+    --source-metadata "${RAW_ROOT}/${raw_name}/metadata.json" \
+    --source-latency-column latency_raw_frames \
+    --target-latency-unit raw_frames \
     --output-dir "${data_root}/${data_mix}" \
     --action-carrier bridge \
     --force \
@@ -121,6 +124,7 @@ train_method() {
     "env=${env_name}" \
     "run_id=${run_id}" \
     "paths.dataset_local_dir=${dataset_local_dir}" \
+    "dataset.target_latency_unit=raw_frames" \
     "${eval_args[@]}"
 
   conda run --no-capture-output -n latency hf upload \

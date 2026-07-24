@@ -67,6 +67,9 @@ rollout_env() {
   conda run --no-capture-output -n starvla_rl_games_openvla python \
     "${STARVLA_ROOT}/examples/rl_games/bash_scripts/gr00t/data_conversion/${converter}" \
     --dataset-name "${RAW_ROOT}/${raw_name}" \
+    --source-metadata "${RAW_ROOT}/${raw_name}/metadata.json" \
+    --source-latency-column latency_raw_frames \
+    --target-latency-unit observation_steps \
     --output-dir "${output_root}/${data_mix}" \
     "${converter_args[@]}" \
     --force
