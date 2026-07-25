@@ -1,0 +1,48 @@
+__base__:
+  - ../../base/flappy.yaml
+
+experiment:
+  name: starvla_wan_oft_flappy_raw3
+  seed: 42
+
+backend:
+  run_mode: eval
+
+executor:
+  mode: simulated
+
+env:
+  obs_resize: [224, 224]
+
+policy:
+  type: starvla
+  checkpoint_path: third_party/starVLA/results/Checkpoints/wan_oft_flappy_fix_latency_3_context5_standard_sft_2000_effbs128_224_currentce/checkpoints/steps_2000_pytorch_model.pt
+  device: cuda
+  latency_prompt_map_path: third_party/starVLA/data/flappy_fix_latency_3_200ep_context5/flappy_train__bridge/latency_prompt_map.json
+  latency_prompt_key: 3
+  actions:
+    - noop
+    - flap
+
+latency:
+  method: fixed
+  fixed_latency_ms: 100.0
+
+evaluation:
+  eval_episodes: 20
+  eval_parallel_envs: 1
+  eval_max_steps: 3600
+  eval_deterministic: true
+  eval_suites:
+    fixed:
+      - [3]
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/starvla_wan_oft_flappy_raw3
+  video:
+    enabled: false
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false

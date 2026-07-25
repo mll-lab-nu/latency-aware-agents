@@ -22,6 +22,8 @@ def _model_cfg(
     num_obs_frames: int = 1,
     image_mode: str = "single",
     kv_memory_enabled: bool = False,
+    pack_image_sequence: bool = False,
+    image_sequence_length: int = 1,
 ) -> dict:
     return {
         "framework": {"action_model": {"state_dim": 7}, "kv_memory": {"enabled": kv_memory_enabled}},
@@ -30,6 +32,8 @@ def _model_cfg(
                 "include_state": True,
                 "num_obs_frames": num_obs_frames,
                 "image_mode": image_mode,
+                "pack_image_sequence": pack_image_sequence,
+                "image_sequence_length": image_sequence_length,
             }
         },
     }
@@ -72,6 +76,11 @@ def test_translation_flappy_fixed_latency(tmp_path):
     ],
 )
 def test_translation_frame_skipped_tasks_use_observation_step_latency(tmp_path, env_name, obs_fps):
+    prompt_map_path = tmp_path / "latency_prompt_map.json"
+    prompt_map_path.write_text(
+        json.dumps({"2": {"latency_raw_frames": 8, "prompt": "latency 2"}}),
+        encoding="utf-8",
+    )
     cfg = build_latency_bench_config_for_rl_games(
         env_name=env_name,
         model_cfg=_model_cfg(),
@@ -82,7 +91,7 @@ def test_translation_frame_skipped_tasks_use_observation_step_latency(tmp_path, 
         latency_steps=2,
         eval_parallel_envs=1,
         unnorm_key=env_name,
-        latency_prompt_map_path=str(tmp_path / "latency_prompt_map.json"),
+        latency_prompt_map_path=str(prompt_map_path),
         image_transform_config=None,
         actions=None,
         output_dir=tmp_path,
@@ -91,6 +100,46 @@ def test_translation_frame_skipped_tasks_use_observation_step_latency(tmp_path, 
     assert cfg["latency"]["method"] == "fixed"
     assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(2 * 1000.0 / obs_fps)
     assert cfg["policy"]["latency_prompt_key"] == 2
+
+
+@pytest.mark.parametrize(
+    ("env_name", "expected_latency_ms"),
+    [
+        ("demon_attack", 100.0),
+        ("deadly_corridor", 6 * 1000.0 / 35.0),
+    ],
+)
+def test_translation_uses_prompt_map_raw_frame_latency(
+    tmp_path,
+    env_name,
+    expected_latency_ms,
+):
+    prompt_map_path = tmp_path / "latency_prompt_map.json"
+    prompt_map_path.write_text(
+        json.dumps({"6": {"latency_raw_frames": 6, "prompt": "latency 6"}}),
+        encoding="utf-8",
+    )
+
+    cfg = build_latency_bench_config_for_rl_games(
+        env_name=env_name,
+        model_cfg=_model_cfg(),
+        seed=42,
+        image_size=224,
+        num_episodes=1,
+        eval_max_steps=10,
+        latency_steps=6,
+        eval_parallel_envs=1,
+        unnorm_key=None,
+        latency_prompt_map_path=str(prompt_map_path),
+        image_transform_config=None,
+        actions=None,
+        output_dir=tmp_path,
+    )
+
+    assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(
+        expected_latency_ms
+    )
+    assert cfg["policy"]["latency_prompt_key"] == 6
 
 
 def test_translation_zero_latency_uses_zero_type(tmp_path):
@@ -193,6 +242,69 @@ def test_translation_kv_memory_does_not_expand_eval_frame_stack(tmp_path):
         output_dir=tmp_path,
     )
     assert cfg["env"]["frame_stack"] == 4
+
+
+@pytest.mark.parametrize(
+    ("env_name", "expected_frame_stack"),
+    [
+        ("flappy", 5),
+        ("demon_attack", 17),
+        ("deadly_corridor", 17),
+    ],
+)
+def test_translation_wanoft_expands_raw_history_at_observation_stride(
+    tmp_path,
+    env_name,
+    expected_frame_stack,
+):
+    cfg = build_latency_bench_config_for_rl_games(
+        env_name=env_name,
+        model_cfg=_model_cfg(
+            pack_image_sequence=True,
+            image_sequence_length=5,
+        ),
+        seed=0,
+        image_size=224,
+        num_episodes=1,
+        eval_max_steps=100,
+        latency_steps=0,
+        eval_parallel_envs=1,
+        unnorm_key=None,
+        latency_prompt_map_path=None,
+        image_transform_config=None,
+        actions=None,
+        output_dir=tmp_path,
+    )
+
+    assert cfg["env"]["frame_stack"] == expected_frame_stack
+
+
+def test_translation_wanoft_rejects_single_image_ghost_trail(tmp_path):
+    with pytest.raises(
+        ValueError,
+        match="packed image sequences require image_transform=raw_rgb",
+    ):
+        build_latency_bench_config_for_rl_games(
+            env_name="flappy",
+            model_cfg=_model_cfg(
+                pack_image_sequence=True,
+                image_sequence_length=5,
+            ),
+            seed=0,
+            image_size=224,
+            num_episodes=1,
+            eval_max_steps=100,
+            latency_steps=0,
+            eval_parallel_envs=1,
+            unnorm_key=None,
+            latency_prompt_map_path=None,
+            image_transform_config={
+                "image_transform": "flappy_ghost_trail",
+                "history_frames": 5,
+            },
+            actions=None,
+            output_dir=tmp_path,
+        )
 
 
 def _make_cfg(
