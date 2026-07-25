@@ -38,7 +38,11 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.config import load_config
 from latency_bench.eval.config import _apply_eval_latency
 from latency_bench.eval.driver import run_from_config
-from latency_bench.policy.starvla import build_live_starvla_policy
+from latency_bench.policy.starvla import (
+    apply_starvla_model_input_config,
+    build_live_starvla_policy,
+)
+from latency_bench.policy.starvla_prompts import load_latency_prompt_map
 
 # eval_core lives in the starVLA submodule (editable-installed).
 from starVLA.training.rl_games import RlGamesEvalRunner
@@ -78,19 +82,17 @@ def _cfg_get(container: Any, key: str, default_value: Any = None) -> Any:
         return getattr(container, key, default_value)
 
 
-def _starvla_latency_label_to_ms(config: dict[str, Any], latency_steps: int) -> float:
-    """Convert a StarVLA RL-games latency label to latency_bench milliseconds.
+def _starvla_latency_label_to_raw_frames(
+    config: dict[str, Any],
+    latency_steps: int,
+    latency_prompt_map_path: str | None,
+) -> int:
+    if latency_prompt_map_path is not None:
+        prompt_map = load_latency_prompt_map(latency_prompt_map_path)
+        return int(prompt_map[str(latency_steps)]["latency_raw_frames"])
 
-    StarVLA RL-games eval labels are policy/observation-step latencies. The
-    latency_bench fixed-latency scheduler consumes milliseconds, which are later
-    converted to raw env frames. For frame-skipped tasks such as Demon Attack
-    (60 Hz env, 15 Hz observations) and Deadly Corridor (35 Hz env, 8.75 Hz
-    observations), using raw env_fps directly under-applies latency by 4x.
-    """
     obs_fps = float(config["env"].get("obs_fps", config["env"]["env_fps"]))
-    if obs_fps <= 0:
-        raise ValueError("env.obs_fps must be positive")
-    return int(latency_steps) * 1000.0 / obs_fps
+    return int(latency_steps) * round(float(config["env"]["env_fps"]) / obs_fps)
 
 
 def _apply_starvla_frame_stack_from_model_cfg(
@@ -99,6 +101,17 @@ def _apply_starvla_frame_stack_from_model_cfg(
     model_cfg: Mapping[str, Any],
     image_transform: str,
 ) -> None:
+    apply_starvla_model_input_config(
+        config,
+        model_cfg=model_cfg,
+        image_transform=image_transform,
+    )
+    vla_data = model_cfg["datasets"]["vla_data"]
+    if (
+        "pack_image_sequence" in vla_data
+        and bool(vla_data["pack_image_sequence"])
+    ):
+        return
     if image_transform not in {"", "none", "raw", "raw_rgb"}:
         return
     framework_cfg = model_cfg["framework"]
@@ -253,10 +266,19 @@ def build_latency_bench_config_for_rl_games(
         config["env"]["frame_stack"] = max(int(config["env"].get("frame_stack", 1) or 1), frame_stack_min)
     _apply_starvla_frame_stack_from_model_cfg(config, model_cfg=model_cfg, image_transform=image_transform)
 
-    # Single fixed latency for this rollout. The incoming StarVLA label is in
-    # observation/policy steps, not raw environment frames.
-    latency_ms = _starvla_latency_label_to_ms(config, int(latency_steps))
-    _apply_eval_latency(config, int(latency_steps), latency_ms)
+    # Single fixed latency for this rollout. Prompt maps carry exact source
+    # raw-frame latency; legacy runs without one use observation-step labels.
+    latency_raw_frames = _starvla_latency_label_to_raw_frames(
+        config,
+        int(latency_steps),
+        latency_prompt_map_path,
+    )
+    latency_ms = (
+        latency_raw_frames
+        * 1000.0
+        / float(config["env"]["env_fps"])
+    )
+    _apply_eval_latency(config, latency_raw_frames, latency_ms)
 
     policy: dict[str, Any] = {
         "type": "starvla",
