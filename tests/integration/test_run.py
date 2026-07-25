@@ -9,6 +9,7 @@ import pytest
 
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.executors.base import BatchedExecutor, EpisodeExecutor
+from latency_bench.eval.config import apply_runtime_overrides
 import latency_bench.run as latency_run
 import latency_bench.eval.driver as evaluation
 import latency_bench.eval.sweeps as eval_sweeps
@@ -940,6 +941,35 @@ def test_main_applies_runtime_overrides(tmp_path: Path):
     assert metrics["metadata"]["output_dir"] == str(override_output_dir)
     summary = json.loads((override_output_dir / "queue_eval_latency_0.json").read_text(encoding="utf-8"))
     assert summary["checkpoint_kind"] == "best"
+
+
+def test_wanoft_runtime_overrides_keep_raw_latency_and_prompt_key_aligned(
+    tmp_path: Path,
+):
+    config = _run_config("constant", tmp_path, num_episodes=1)
+    config["evaluation"]["eval_suites"] = {
+        "fixed": [[3]],
+        "normal": [],
+        "uniform": [],
+    }
+
+    apply_runtime_overrides(
+        config,
+        latency_prompt_map_path=tmp_path / "latency_prompt_map.json",
+        latency_raw_frames=6,
+        eval_max_steps=50,
+        eval_parallel_envs=2,
+    )
+
+    assert config["latency"]["method"] == "fixed"
+    assert config["latency"]["fixed_latency_ms"] == pytest.approx(200.0)
+    assert config["policy"]["latency_prompt_key"] == 6
+    assert config["policy"]["latency_prompt_map_path"] == str(
+        tmp_path / "latency_prompt_map.json"
+    )
+    assert config["evaluation"]["eval_suites"]["fixed"] == [[6]]
+    assert config["evaluation"]["eval_max_steps"] == 50
+    assert config["evaluation"]["eval_parallel_envs"] == 2
 
 
 def test_main_writes_non_sweep_queue_eval_summary(tmp_path: Path, capsys):

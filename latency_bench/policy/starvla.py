@@ -11,6 +11,7 @@ import numpy.typing as npt
 from PIL import Image
 
 from latency_bench.core.actions import ActionResolver
+from latency_bench.core.clock import EnvClock
 from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.data.ghost_trail import GhostTrailConfig, build_flappy_ghost_trail_window
@@ -81,6 +82,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         prompt_mode: str | None = None,
         obs_resize: tuple[int, int] | None = None,
         image_transform_config: Mapping[str, Any] | None = None,
+        observation_stride_raw_frames: int,
     ) -> None:
         self._wrapper = wrapper
         self._obs_resize = tuple(obs_resize) if obs_resize else None
@@ -103,6 +105,22 @@ class StarVlaPolicyRunner(PolicyRunner):
         self._include_state = _include_state_from_model_cfg(model_cfg)
         self._state_dim = _state_dim_from_model_cfg(model_cfg) if self._include_state else None
         vla_data = (model_cfg.get("datasets", {}) or {}).get("vla_data", {}) or {}
+        self._pack_image_sequence = (
+            bool(vla_data["pack_image_sequence"])
+            if "pack_image_sequence" in vla_data
+            else False
+        )
+        self._image_sequence_length = (
+            int(vla_data["image_sequence_length"])
+            if self._pack_image_sequence
+            else 1
+        )
+        self._observation_stride_raw_frames = int(observation_stride_raw_frames)
+        self._image_sequence_raw_span = (
+            1
+            + (self._image_sequence_length - 1)
+            * self._observation_stride_raw_frames
+        )
         self._num_obs_frames = int(vla_data.get("num_obs_frames", 1) or 1)
         self._image_mode = str(vla_data.get("image_mode", "single"))
         self._stitch_grid = tuple(vla_data.get("stitch_grid", [2, 2]))
@@ -167,7 +185,23 @@ class StarVlaPolicyRunner(PolicyRunner):
         frames = observation_data_to_hwc_uint8_frames(frame_source)  # oldest .. newest
         transformed = self._transformed_frame(frames=frames, observation=observation)
 
-        if transformed is not None:
+        if self._pack_image_sequence:
+            if transformed is not None:
+                raise ValueError(
+                    "WanOFT packed image sequences require image_transform=raw_rgb"
+                )
+            if len(frames) < self._image_sequence_raw_span:
+                raise ValueError(
+                    "WanOFT packed image sequence requires "
+                    f"{self._image_sequence_raw_span} raw frames for "
+                    f"{self._image_sequence_length} decision observations at stride "
+                    f"{self._observation_stride_raw_frames}, got {len(frames)}"
+                )
+            frames = frames[
+                -self._image_sequence_raw_span
+                :: self._observation_stride_raw_frames
+            ]
+        elif transformed is not None:
             frames = [transformed]
         else:
             # Select the temporal observation window to match training (_pack_sample).
@@ -286,6 +320,10 @@ class StarVlaPolicyRunner(PolicyRunner):
             "kv_memory_enabled": self._kv_memory_enabled,
             **action_metadata,
         }
+        if self._pack_image_sequence:
+            metadata["image_sequence_length"] = self._image_sequence_length
+            metadata["input_frame_raw_stride"] = self._observation_stride_raw_frames
+            metadata["input_frame_raw_span"] = self._image_sequence_raw_span
         if "slot_id" in example:
             metadata["slot_id"] = example["slot_id"]
         if raw_action_scores is not None:
@@ -569,6 +607,71 @@ def _ensure_starvla_path() -> None:
         sys.path.insert(0, starvla_root)
 
 
+def _observation_stride_raw_frames(config: Mapping[str, Any]) -> int:
+    env_cfg = config["env"]
+    return EnvClock(
+        env_fps=float(env_cfg["env_fps"]),
+        obs_fps=float(env_cfg["obs_fps"]),
+    ).obs_stride_raw_frames
+
+
+def apply_starvla_model_input_config(
+    config: dict[str, Any],
+    *,
+    model_cfg: Mapping[str, Any],
+    image_transform: str = "raw_rgb",
+) -> None:
+    """Match latency_bench's raw frame stack to a saved StarVLA input contract."""
+    vla_data = model_cfg["datasets"]["vla_data"]
+    pack_image_sequence = (
+        bool(vla_data["pack_image_sequence"])
+        if "pack_image_sequence" in vla_data
+        else False
+    )
+    if not pack_image_sequence:
+        return
+
+    normalized_transform = str(image_transform).strip().lower()
+    if normalized_transform not in {"", "none", "raw", "raw_rgb"}:
+        raise ValueError(
+            "WanOFT packed image sequences require image_transform=raw_rgb"
+        )
+
+    image_sequence_length = int(vla_data["image_sequence_length"])
+    observation_stride = _observation_stride_raw_frames(config)
+    required_raw_frames = 1 + (image_sequence_length - 1) * observation_stride
+    config["env"]["frame_stack"] = max(
+        int(config["env"]["frame_stack"]),
+        required_raw_frames,
+    )
+
+
+def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
+    """Read checkpoint metadata before env construction and size its frame stack."""
+    if config["policy"]["type"] != "starvla":
+        return
+
+    _ensure_starvla_path()
+    from starVLA.model.framework.share_tools import read_mode_config
+
+    model_cfg, _norm_stats = read_mode_config(config["policy"]["checkpoint_path"])
+    image_transform_cfg = (
+        config["policy"]["image_transform_config"]
+        if "image_transform_config" in config["policy"]
+        else {}
+    )
+    image_transform = (
+        image_transform_cfg["image_transform"]
+        if "image_transform" in image_transform_cfg
+        else "raw_rgb"
+    )
+    apply_starvla_model_input_config(
+        config,
+        model_cfg=model_cfg,
+        image_transform=image_transform,
+    )
+
+
 def _load_policy_wrapper_class() -> Any:
     _ensure_starvla_path()
     from deployment.model_server.policy_wrapper import PolicyServerWrapper
@@ -712,6 +815,7 @@ def build_starvla_policy(
         prompt_mode=prompt_mode,
         obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
         image_transform_config=image_transform_config,
+        observation_stride_raw_frames=_observation_stride_raw_frames(config),
     )
 
 
@@ -765,14 +869,17 @@ def build_live_starvla_policy(
         prompt_mode=prompt_mode,
         obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
         image_transform_config=image_transform_config,
+        observation_stride_raw_frames=_observation_stride_raw_frames(config),
     )
 
 
 __all__ = [
     "LiveStarVlaWrapper",
     "StarVlaPolicyRunner",
+    "apply_starvla_model_input_config",
     "build_live_starvla_policy",
     "build_starvla_policy",
     "decode_starvla_action",
     "observation_data_to_hwc_uint8_frames",
+    "prepare_starvla_checkpoint_input_config",
 ]

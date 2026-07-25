@@ -1,0 +1,48 @@
+__base__:
+  - ../../base/deadly_corridor.yaml
+
+experiment:
+  name: starvla_wan_oft_deadly_corridor_raw6
+  seed: 42
+
+backend:
+  run_mode: eval
+
+executor:
+  mode: simulated
+
+env:
+  obs_resize: [224, 224]
+
+policy:
+  type: starvla
+  checkpoint_path: third_party/starVLA/results/Checkpoints/wan_oft_deadly_corridor_fix_latency_6_context5_standard_sft_2000_effbs128_224_currentbce/checkpoints/steps_2000_pytorch_model.pt
+  device: cuda
+  action_layout: multibinary_7
+  multibinary_threshold: 0.0
+  latency_prompt_map_path: third_party/starVLA/data/deadly_corridor_fix_latency_6_1000ep_context5/deadly_corridor_train__bridge/latency_prompt_map.json
+  latency_prompt_key: 6
+
+latency:
+  method: fixed
+  fixed_latency_ms: 171.42857142857142
+
+evaluation:
+  eval_episodes: 20
+  eval_parallel_envs: 1
+  eval_max_steps: 30000
+  eval_deterministic: true
+  eval_raw_reward: true
+  eval_suites:
+    fixed:
+      - [6]
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/starvla_wan_oft_deadly_corridor_raw6
+  video:
+    enabled: false
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false

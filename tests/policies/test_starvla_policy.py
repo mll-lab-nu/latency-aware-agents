@@ -140,6 +140,8 @@ def _config(
     return {
         "env": {
             "name": "flappy",
+            "env_fps": 30,
+            "obs_fps": 30,
             "noop_action": "noop",
             "action_map": {"noop": 0, "flap": 1},
             "oneshot_actions": ["flap"],
@@ -460,6 +462,150 @@ def test_starvla_passes_single_raw_frame_and_base_prompt(monkeypatch, tmp_path: 
     assert len(example["image"]) == 1
     assert np.asarray(example["image"][0]).shape == (12, 16, 3)
     assert np.asarray(example["image"][0]).mean() == 77
+
+
+def test_starvla_wanoft_samples_decision_observations_from_raw_history(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from latency_bench.policy import starvla
+
+    class WanOftPolicyServerWrapper(FakePolicyServerWrapper):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._model_cfg = {
+                "datasets": {
+                    "vla_data": {
+                        "include_state": False,
+                        "pack_image_sequence": True,
+                        "image_sequence_length": 5,
+                    },
+                },
+                "framework": {
+                    "action_model": {},
+                },
+            }
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(
+        starvla,
+        "_load_policy_wrapper_class",
+        lambda: WanOftPolicyServerWrapper,
+    )
+    config = _config(tmp_path)
+    config["env"]["env_fps"] = 60
+    config["env"]["obs_fps"] = 15
+    policy = build_policy(config, ActionResolver(config["env"]))
+    raw_history = np.stack(
+        [np.full((3, 4, 3), index, dtype=np.uint8) for index in range(17)]
+    )
+
+    output = policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=16,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": raw_history},
+        )
+    )
+
+    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
+    assert [int(np.asarray(image).mean()) for image in example["image"]] == [
+        0,
+        4,
+        8,
+        12,
+        16,
+    ]
+    assert output.metadata["input_frame_count"] == 5
+    assert output.metadata["image_sequence_length"] == 5
+    assert output.metadata["input_frame_raw_stride"] == 4
+    assert output.metadata["input_frame_raw_span"] == 17
+
+
+def test_starvla_wanoft_rejects_incomplete_decision_history(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from latency_bench.policy import starvla
+
+    class WanOftPolicyServerWrapper(FakePolicyServerWrapper):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._model_cfg = {
+                "datasets": {
+                    "vla_data": {
+                        "include_state": False,
+                        "pack_image_sequence": True,
+                        "image_sequence_length": 5,
+                    },
+                },
+                "framework": {
+                    "action_model": {},
+                },
+            }
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(
+        starvla,
+        "_load_policy_wrapper_class",
+        lambda: WanOftPolicyServerWrapper,
+    )
+    config = _config(tmp_path)
+    config["env"]["env_fps"] = 60
+    config["env"]["obs_fps"] = 15
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    with pytest.raises(ValueError, match="requires 17 raw frames"):
+        policy.predict(
+            Observation(
+                data=np.zeros((1,), dtype=np.uint8),
+                env_step=15,
+                sim_time_ms=0.0,
+                metadata={
+                    "env_raw_rgb_frame_stack": np.zeros(
+                        (16, 3, 4, 3),
+                        dtype=np.uint8,
+                    )
+                },
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("env_fps", "obs_fps", "expected_frame_stack"),
+    [
+        (30, 30, 5),
+        (60, 15, 17),
+        (35, 8.75, 17),
+    ],
+)
+def test_apply_starvla_model_input_config_sizes_wanoft_raw_history(
+    env_fps,
+    obs_fps,
+    expected_frame_stack,
+):
+    from latency_bench.policy.starvla import apply_starvla_model_input_config
+
+    config = {
+        "env": {
+            "env_fps": env_fps,
+            "obs_fps": obs_fps,
+            "frame_stack": 4,
+        }
+    }
+    model_cfg = {
+        "datasets": {
+            "vla_data": {
+                "pack_image_sequence": True,
+                "image_sequence_length": 5,
+            }
+        }
+    }
+
+    apply_starvla_model_input_config(config, model_cfg=model_cfg)
+
+    assert config["env"]["frame_stack"] == expected_frame_stack
 
 
 def test_starvla_omits_state_when_checkpoint_excludes_state(monkeypatch, tmp_path: Path):

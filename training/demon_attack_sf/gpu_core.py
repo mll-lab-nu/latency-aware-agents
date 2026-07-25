@@ -101,11 +101,11 @@ _RESET_RAM_VALUES_BY_CACHE_INDEX = (
 
 
 def load_demon_attack_rom_bytes() -> bytes:
-    return resources.files("ale_py.roms").joinpath("demon_attack.bin").read_bytes()
+    return resources.files("AutoROM.roms").joinpath("demon_attack.bin").read_bytes()
 
 
 def demon_attack_rom_path() -> str:
-    return str(resources.files("ale_py.roms").joinpath("demon_attack.bin"))
+    return str(resources.files("AutoROM.roms").joinpath("demon_attack.bin"))
 
 
 @dataclass
