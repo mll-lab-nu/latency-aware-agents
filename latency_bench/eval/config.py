@@ -22,6 +22,10 @@ def apply_runtime_overrides(
     run_name: str | None = None,
     output_dir: str | Path | None = None,
     checkpoint_kind: str | None = None,
+    latency_prompt_map_path: str | Path | None = None,
+    latency_raw_frames: int | None = None,
+    eval_max_steps: int | None = None,
+    eval_parallel_envs: int | None = None,
 ) -> dict[str, Any]:
     if checkpoint_path is not None:
         config["policy"]["checkpoint_path"] = str(checkpoint_path)
@@ -35,6 +39,30 @@ def apply_runtime_overrides(
             from training.common.config_adapter import apply_checkpoint_kind_override
 
             apply_checkpoint_kind_override(config["backend"], checkpoint_kind)
+    if latency_prompt_map_path is not None:
+        config["policy"]["latency_prompt_map_path"] = str(latency_prompt_map_path)
+    if latency_raw_frames is not None:
+        latency_ms = (
+            int(latency_raw_frames)
+            * 1000.0
+            / float(config["env"]["env_fps"])
+        )
+        _apply_eval_latency(config, int(latency_raw_frames), latency_ms)
+        config["policy"]["latency_prompt_key"] = int(latency_raw_frames)
+        if "eval_suites" in config["evaluation"]:
+            config["evaluation"]["eval_suites"] = {
+                "fixed": [[int(latency_raw_frames)]],
+                "normal": [],
+                "uniform": [],
+            }
+        if "eval_latency_values" in config["evaluation"]:
+            config["evaluation"]["eval_latency_values"] = [
+                int(latency_raw_frames)
+            ]
+    if eval_max_steps is not None:
+        config["evaluation"]["eval_max_steps"] = int(eval_max_steps)
+    if eval_parallel_envs is not None:
+        config["evaluation"]["eval_parallel_envs"] = int(eval_parallel_envs)
     return config
 
 

@@ -32,6 +32,11 @@ def run_from_config(
     episode_ids: Sequence[int] | None = None,
     policy: Any | None = None,
 ) -> list[EpisodeMetrics]:
+    if policy is None and config["policy"]["type"] == "starvla":
+        from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
+
+        prepare_starvla_checkpoint_input_config(config)
+
     experiment_cfg = config["experiment"]
     policy_cfg = config["policy"]
     logging_cfg = config["logging"]

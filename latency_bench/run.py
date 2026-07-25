@@ -50,6 +50,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--run-name", type=str)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--checkpoint-kind", choices=["latest", "best"])
+    parser.add_argument("--latency-prompt-map-path", type=Path)
+    parser.add_argument("--latency-raw-frames", type=int)
+    parser.add_argument("--eval-max-steps", type=int)
+    parser.add_argument("--eval-parallel-envs", type=int)
     parser.add_argument("--episode-start", type=int)
     parser.add_argument("--episode-count", type=int)
     args = parser.parse_args(argv)
@@ -60,6 +64,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         run_name=args.run_name,
         output_dir=args.output_dir,
         checkpoint_kind=args.checkpoint_kind,
+        latency_prompt_map_path=args.latency_prompt_map_path,
+        latency_raw_frames=args.latency_raw_frames,
+        eval_max_steps=args.eval_max_steps,
+        eval_parallel_envs=args.eval_parallel_envs,
     )
     episode_ids = _episode_ids_from_cli_args(args)
     if has_eval_suites(config):

@@ -33,6 +33,11 @@ bash install.sh \
 Supported model targets are `openvla`, `pi0`, `pi05`, `gr00t`, and `wan_oft`.
 Each target uses a separate `starvla_rl_games_<model>` Conda environment.
 
+WanOFT checkpoints from the Flappy Bird, Demon Attack, and Deadly Corridor
+StarVLA pipelines can be evaluated with temporal multi-image input. See
+[docs/starvla_wan_oft_eval.md](docs/starvla_wan_oft_eval.md) for the three
+configs, checkpoint command, and raw-frame history contract.
+
 ### For development and training
 
 Use the development tier when training models, exporting datasets, running

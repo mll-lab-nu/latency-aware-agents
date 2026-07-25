@@ -1,0 +1,78 @@
+# StarVLA WanOFT checkpoint evaluation
+
+The benchmark evaluates the checkpoints produced by the three StarVLA
+one-click WanOFT pipelines:
+
+- `third_party/starVLA/scripts/run_flappy_wan_oft_pipeline.sh`
+- `third_party/starVLA/scripts/run_demon_attack_wan_oft_pipeline.sh`
+- `third_party/starVLA/scripts/run_deadly_corridor_wan_oft_pipeline.sh`
+
+Install the matching runtime once:
+
+```bash
+bash install.sh --tier use --model wan_oft --env all --accept-rom-license
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate starvla_rl_games_wan_oft
+```
+
+Run an evaluation by overriding the generated checkpoint and prompt-map paths:
+
+```bash
+python -m latency_bench.run \
+  --config configs/experiments/flappy/starvla_wan_oft.yaml \
+  --checkpoint-path third_party/starVLA/results/Checkpoints/<run_id>/checkpoints/steps_<N>_pytorch_model.pt \
+  --latency-prompt-map-path third_party/starVLA/data/flappy_fix_latency_3_200ep_context5/flappy_train__bridge/latency_prompt_map.json \
+  --output-dir outputs/<run_id>_latency_bench
+```
+
+Use the corresponding config for the other tasks:
+
+```text
+configs/experiments/demon_attack/starvla_wan_oft.yaml
+configs/experiments/deadly_corridor/starvla_wan_oft.yaml
+```
+
+For a short checkpoint smoke test, keep the training pipeline at 50 steps and
+limit the rollout:
+
+```bash
+python -m latency_bench.run \
+  --config configs/experiments/demon_attack/starvla_wan_oft.yaml \
+  --checkpoint-path third_party/starVLA/results/Checkpoints/<run_id>/checkpoints/steps_50_pytorch_model.pt \
+  --latency-prompt-map-path third_party/starVLA/data/demon_attack_fix_latency_6_200ep_context5/demon_attack_train__bridge/latency_prompt_map.json \
+  --output-dir outputs/<run_id>_smoke \
+  --episode-start 0 \
+  --episode-count 1 \
+  --eval-max-steps 50
+```
+
+`--latency-raw-frames` overrides both the benchmark's fixed raw-frame latency
+and the prompt-map key. The shipped configs match the current pipelines:
+Flappy uses 3 raw frames, while Demon Attack and Deadly Corridor use 6.
+
+## Multi-image contract
+
+WanOFT's saved `config.yaml` is the source of truth for
+`datasets.vla_data.pack_image_sequence` and `image_sequence_length`.
+Before constructing the environment, latency-bench reads those fields and
+sizes the raw RGB history to cover the requested number of policy
+observations.
+
+For the default five-image checkpoints:
+
+| task | raw frames per observation | raw history | selected frame indices |
+| --- | ---: | ---: | --- |
+| Flappy Bird | 1 | 5 | `0,1,2,3,4` |
+| Demon Attack | 4 | 17 | `0,4,8,12,16` |
+| Deadly Corridor | 4 | 17 | `0,4,8,12,16` |
+
+The selected images are passed to StarVLA oldest-to-newest, matching
+`starVLA.training.rl_games.eval_core`. At reset the environment's existing raw
+frame buffer repeats the initial image, which matches eval_core's initial
+history. Packed sequences require raw RGB input; a ghost-trail transform is a
+different model input contract.
+
+The prompt map also supplies the exact `latency_raw_frames` value for in-process
+StarVLA training evaluation. This preserves the two frame-skipped tasks'
+6-raw-frame latency as 1.5 policy decision intervals instead of rounding it to
+an integer number of decisions.
