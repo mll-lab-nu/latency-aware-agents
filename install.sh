@@ -3,7 +3,6 @@ set -euo pipefail
 
 INSTALL_TIER="dev"
 MODEL_TARGET=""
-ACCEPT_ROM_LICENSE="false"
 MINICONDA_HOME="${HOME}/miniconda3"
 MINICONDA_VERSION="py310_26.1.1-1"
 MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-${MINICONDA_VERSION}-Linux-x86_64.sh"
@@ -21,7 +20,6 @@ Python 3.10, CUDA Toolkit 12.8.1, and PyTorch 2.11.0+cu128.
 Options:
   --tier <use|dev>         Install runtime or development dependencies (default: dev)
   --model <name|all>       Required: openvla|pi0|pi05|gr00t|wan_oft|all
-  --accept-rom-license     Permit AutoROM to accept and download Atari ROMs
   -h, --help               Show this help
 EOF
 }
@@ -35,10 +33,6 @@ while [[ $# -gt 0 ]]; do
         --model)
             MODEL_TARGET="$2"
             shift 2
-            ;;
-        --accept-rom-license)
-            ACCEPT_ROM_LICENSE="true"
-            shift
             ;;
         -h|--help)
             usage
@@ -142,9 +136,6 @@ BOOTSTRAP_ARGS=(
     --tier "${INSTALL_TIER}"
     --model "${MODEL_TARGET}"
 )
-if [[ "${ACCEPT_ROM_LICENSE}" == "true" ]]; then
-    BOOTSTRAP_ARGS+=(--accept-rom-license)
-fi
 
 echo "[install] fixed stack: python=3.10 cuda=12.8.1 torch=2.11.0+cu128 model=${MODEL_TARGET}"
 bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "${BOOTSTRAP_ARGS[@]}"

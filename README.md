@@ -16,13 +16,13 @@ PyTorch 2.11.0+cu128. The CUDA build targets H200 (`sm_90`) and RTX PRO 6000
 Install one model explicitly:
 
 ```bash
-bash install.sh --model openvla --accept-rom-license
+bash install.sh --model openvla
 ```
 
 Install all five model environments:
 
 ```bash
-bash install.sh --model all --accept-rom-license
+bash install.sh --model all
 ```
 
 The accepted models are `openvla`, `pi0`, `pi05`, `gr00t`, `wan_oft`, and
@@ -37,8 +37,7 @@ StarVLA pipelines can be evaluated with temporal multi-image input. See
 [docs/starvla_wan_oft_eval.md](docs/starvla_wan_oft_eval.md) for the three
 configs, checkpoint command, and raw-frame history contract.
 
-`--tier use` omits development/test model packages. On a non-interactive
-machine, pass `--accept-rom-license` after reviewing the Atari ROM license.
+`--tier use` omits development/test model packages.
 
 ## Environment variables
 
