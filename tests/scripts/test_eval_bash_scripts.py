@@ -233,7 +233,6 @@ if [[ "${1:-}" == "third_party/starVLA/examples/rl_games/install/torch.sh" ]]; t
 fi
 if [[ "${1:-}" == third_party/starVLA/examples/rl_games/install/env/*.sh ]]; then
   printf 'bash %s\\n' "$*" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
-  printf 'ACCEPT_ROM_LICENSE=%s\\n' "${ACCEPT_ROM_LICENSE}" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
   exit 0
 fi
 if [[ "${1:-}" == "third_party/starVLA/examples/rl_games/install/bootstrap.sh" ]]; then
@@ -367,7 +366,7 @@ def test_install_script_does_not_select_stack_from_gpu_or_driver(tmp_path):
     assert "cu130" not in calls
 
 
-def test_install_script_help_has_no_torch_profile(tmp_path):
+def test_install_script_help_exposes_only_fixed_stack_options(tmp_path):
     script_path = REPO_ROOT / "install.sh"
     env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="12.0\n")
 
@@ -385,6 +384,7 @@ def test_install_script_help_has_no_torch_profile(tmp_path):
     assert "Python 3.10" in result.stdout
     assert "CUDA Toolkit 12.8.1" in result.stdout
     assert "PyTorch 2.11.0+cu128" in result.stdout
+    assert "--accept-rom-license" not in result.stdout
     assert not calls_path.exists()
 
 
@@ -442,7 +442,6 @@ def test_install_script_forwards_all_model_selection(tmp_path):
             "dev",
             "--model",
             "all",
-            "--accept-rom-license",
         ],
         cwd=REPO_ROOT,
         env=env,
@@ -456,8 +455,7 @@ def test_install_script_forwards_all_model_selection(tmp_path):
     calls = calls_path.read_text(encoding="utf-8")
     assert (
         "bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "
-        "--tier dev --model all "
-        "--accept-rom-license"
+        "--tier dev --model all"
     ) in calls
 
 
