@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -230,7 +229,6 @@ if [[ "${1:-}" == "scripts/bash_scripts/build_cuda_extensions.sh" ]]; then
 fi
 if [[ "${1:-}" == "third_party/starVLA/examples/rl_games/install/torch.sh" ]]; then
   printf 'bash %s\\n' "$*" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
-  printf 'STARVLA_TORCH_PROFILE=%s\\n' "${STARVLA_TORCH_PROFILE}" >> "${LATENCY_BENCH_FAKE_INSTALL_CALLS}"
   exit 0
 fi
 if [[ "${1:-}" == third_party/starVLA/examples/rl_games/install/env/*.sh ]]; then
@@ -315,20 +313,18 @@ def test_cuda_extensions_build_script_is_executable_bash():
     assert "load_flappy_cuda_extension" in text
     assert "load_cule_atari_extension" in text
     assert "torch.cuda.synchronize" in text
-    assert "cuda-toolkit[nvcc,cccl]==13.0.*" in text
-    assert "--list-gpu-code" in text
-    assert 'if [[ -n "${CONDA_PREFIX:-}" ]]; then' in text
-    assert 'elif [[ -n "${VIRTUAL_ENV:-}" ]]; then' in text
-    assert 'for env_lib_dir in "${env_prefix}/lib64" "${env_prefix}/lib"; do' in text
-    assert "LIBRARY_PATH" in text
+    assert 'export CUDA_HOME="${CONDA_PREFIX}"' in text
+    assert 'export TORCH_CUDA_ARCH_LIST="9.0;12.0"' in text
+    assert "--list-gpu-code" not in text
+    assert "detect_gpu_compute_cap" not in text
 
 
-def test_install_script_selects_cu130_for_compute_cap_10_gpu_with_r580_driver(tmp_path):
+def test_install_script_forwards_fixed_stack_bootstrap(tmp_path):
     script_path = REPO_ROOT / "install.sh"
     env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
 
     result = subprocess.run(
-        ["bash", str(script_path)],
+        ["bash", str(script_path), "--model", "openvla"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -337,72 +333,17 @@ def test_install_script_selects_cu130_for_compute_cap_10_gpu_with_r580_driver(tm
     )
 
     assert result.returncode == 0, result.stderr
-    assert "tier=use model=openvla torch=cu130 envs=flappy demon_attack deadly_corridor" in result.stdout
+    assert "fixed stack: python=3.10 cuda=12.8.1 torch=2.11.0+cu128 model=openvla" in result.stdout
     calls = calls_path.read_text(encoding="utf-8")
-    assert "conda create -n latency -c conda-forge --override-channels python=3.10 -y" in calls
-    assert "bash third_party/starVLA/examples/rl_games/install/torch.sh" in calls
-    assert "STARVLA_TORCH_PROFILE=cu130" in calls
-    assert " -e .\n" in calls
-    assert " --no-deps -e third_party/flappy-bird-gymnasium" in calls
-    assert " -e third_party/sample-factory" in calls
-    for env_name in ("flappy", "demon_attack", "deadly_corridor"):
-        assert f"bash third_party/starVLA/examples/rl_games/install/env/{env_name}.sh" in calls
-    assert "bash scripts/bash_scripts/build_cuda_extensions.sh" in calls
     assert (
         "bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "
-        "--tier use --model openvla --torch-profile cu130 --env all"
+        "--tier dev --model openvla"
     ) in calls
-    assert "UV_HTTP_TIMEOUT=300" in calls
-    assert "UV_HTTP_CONNECT_TIMEOUT=30" in calls
-    assert "UV_HTTP_RETRIES=10" in calls
-    assert "conda install -y -c conda-forge --override-channels go" not in calls
+    assert "--conda-env" not in calls
+    assert "torch-profile" not in calls
 
 
-def test_install_script_reuses_existing_latency_env(tmp_path):
-    script_path = REPO_ROOT / "install.sh"
-    env, calls_path = _prepare_install_sh_env(
-        tmp_path,
-        compute_caps="10.3\n",
-        latency_env_exists=True,
-    )
-
-    result = subprocess.run(
-        ["bash", str(script_path)],
-        cwd=REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "reusing existing conda env: latency" in result.stderr
-    calls = calls_path.read_text(encoding="utf-8")
-    assert "conda create -n latency" not in calls
-    assert "conda activate latency" in calls
-
-
-def test_install_script_selects_cu130_for_compute_cap_12_gpu_with_r580_driver(tmp_path):
-    script_path = REPO_ROOT / "install.sh"
-    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="12.0\n")
-
-    result = subprocess.run(
-        ["bash", str(script_path)],
-        cwd=REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "torch=cu130" in result.stdout
-    calls = calls_path.read_text(encoding="utf-8")
-    assert "STARVLA_TORCH_PROFILE=cu130" in calls
-    assert "torchaudio" not in calls
-
-
-def test_install_script_selects_cu128_for_compute_cap_12_gpu_with_r570_driver(tmp_path):
+def test_install_script_does_not_select_stack_from_gpu_or_driver(tmp_path):
     script_path = REPO_ROOT / "install.sh"
     env, calls_path = _prepare_install_sh_env(
         tmp_path,
@@ -411,7 +352,7 @@ def test_install_script_selects_cu128_for_compute_cap_12_gpu_with_r570_driver(tm
     )
 
     result = subprocess.run(
-        ["bash", str(script_path)],
+        ["bash", str(script_path), "--model", "openvla"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -420,18 +361,18 @@ def test_install_script_selects_cu128_for_compute_cap_12_gpu_with_r570_driver(tm
     )
 
     assert result.returncode == 0, result.stderr
-    assert "torch=cu128" in result.stdout
+    assert "fixed stack: python=3.10 cuda=12.8.1 torch=2.11.0+cu128 model=openvla" in result.stdout
     calls = calls_path.read_text(encoding="utf-8")
-    assert "STARVLA_TORCH_PROFILE=cu128" in calls
+    assert "torch-profile" not in calls
+    assert "cu130" not in calls
 
 
-def test_install_script_allows_torch_profile_override(tmp_path):
+def test_install_script_help_has_no_torch_profile(tmp_path):
     script_path = REPO_ROOT / "install.sh"
-    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="9.0\n")
-    env["LATENCY_BENCH_TORCH_PROFILE"] = "cu128"
+    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="12.0\n")
 
     result = subprocess.run(
-        ["bash", str(script_path)],
+        ["bash", str(script_path), "--help"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -440,12 +381,56 @@ def test_install_script_allows_torch_profile_override(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert "torch=cu128" in result.stdout
+    assert "torch-profile" not in result.stdout
+    assert "Python 3.10" in result.stdout
+    assert "CUDA Toolkit 12.8.1" in result.stdout
+    assert "PyTorch 2.11.0+cu128" in result.stdout
+    assert not calls_path.exists()
+
+
+def test_install_script_rejects_removed_torch_profile_option(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, calls_path = _prepare_install_sh_env(
+        tmp_path,
+        compute_caps="12.0\n",
+        driver_version="570.153.02",
+    )
+
+    result = subprocess.run(
+        ["bash", str(script_path), "--torch-profile", "cu128"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "unknown argument: --torch-profile" in result.stderr
+    assert not calls_path.exists()
+
+
+def test_install_script_ignores_removed_profile_environment_variable(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="9.0\n")
+    env["LATENCY_BENCH_TORCH_PROFILE"] = "cu130"
+
+    result = subprocess.run(
+        ["bash", str(script_path), "--model", "openvla"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "fixed stack: python=3.10 cuda=12.8.1 torch=2.11.0+cu128 model=openvla" in result.stdout
     calls = calls_path.read_text(encoding="utf-8")
-    assert "STARVLA_TORCH_PROFILE=cu128" in calls
+    assert "cu130" not in calls
 
 
-def test_install_script_forwards_development_model_and_environment_selection(tmp_path):
+def test_install_script_forwards_all_model_selection(tmp_path):
     script_path = REPO_ROOT / "install.sh"
     env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
 
@@ -456,11 +441,7 @@ def test_install_script_forwards_development_model_and_environment_selection(tmp
             "--tier",
             "dev",
             "--model",
-            "gr00t",
-            "--env",
-            "demon_attack",
-            "--torch-profile",
-            "cu128",
+            "all",
             "--accept-rom-license",
         ],
         cwd=REPO_ROOT,
@@ -471,27 +452,21 @@ def test_install_script_forwards_development_model_and_environment_selection(tmp
     )
 
     assert result.returncode == 0, result.stderr
-    assert "tier=dev model=gr00t torch=cu128 envs=demon_attack" in result.stdout
+    assert "fixed stack: python=3.10 cuda=12.8.1 torch=2.11.0+cu128 model=all" in result.stdout
     calls = calls_path.read_text(encoding="utf-8")
-    assert " -e .[dev]" in calls
-    assert " --no-deps -e third_party/flappy-bird-gymnasium" in calls
-    assert "env/demon_attack.sh" in calls
-    assert "env/flappy.sh" not in calls
-    assert "env/deadly_corridor.sh" not in calls
-    assert "ACCEPT_ROM_LICENSE=true" in calls
     assert (
         "bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "
-        "--tier dev --model gr00t --torch-profile cu128 --env demon_attack "
+        "--tier dev --model all "
         "--accept-rom-license"
     ) in calls
 
 
-def test_install_script_cpu_tier_skips_cuda_extension_build(tmp_path):
+def test_install_script_accepts_each_supported_model(tmp_path):
     script_path = REPO_ROOT / "install.sh"
     env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
 
     result = subprocess.run(
-        ["bash", str(script_path), "--torch-profile", "cpu", "--env", "flappy"],
+        ["bash", str(script_path), "--model", "gr00t"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -501,10 +476,25 @@ def test_install_script_cpu_tier_skips_cuda_extension_build(tmp_path):
 
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
-    assert "STARVLA_TORCH_PROFILE=cpu" in calls
-    assert "ninja==1.13.0" not in calls
-    assert "build_cuda_extensions.sh" not in calls
-    assert "env/flappy.sh" in calls
+    assert "bootstrap.sh --tier dev --model gr00t" in calls
+
+
+def test_install_script_requires_model(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "--model is required" in result.stderr
+    assert not calls_path.exists()
 
 
 def _run_mirrors_snippet(snippet: str, env_extra: dict[str, str]) -> str:
@@ -709,23 +699,12 @@ exit 0
     assert "pip install failed on attempt 1/3; retrying" in result.stderr
 
 
-def test_install_script_rejects_unknown_torch_profile(tmp_path):
-    script_path = REPO_ROOT / "install.sh"
-    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
-    env["LATENCY_BENCH_TORCH_PROFILE"] = "bogus"
+def test_install_script_source_has_no_profile_resolver():
+    source = (REPO_ROOT / "install.sh").read_text(encoding="utf-8")
 
-    result = subprocess.run(
-        ["bash", str(script_path)],
-        cwd=REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "unknown profile 'bogus'; expected auto|cpu|cu126|cu128|cu130" in result.stderr
-    assert "install/torch.sh" not in calls_path.read_text(encoding="utf-8")
+    assert "_torch_profile.sh" not in source
+    assert "resolve_torch_profile" not in source
+    assert "nvidia-smi" not in source
 
 
 def test_install_script_uses_conda_exe_when_path_is_missing(tmp_path):
@@ -733,7 +712,7 @@ def test_install_script_uses_conda_exe_when_path_is_missing(tmp_path):
     env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n", conda_mode="exe")
 
     result = subprocess.run(
-        ["bash", str(script_path)],
+        ["bash", str(script_path), "--model", "openvla"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -744,9 +723,7 @@ def test_install_script_uses_conda_exe_when_path_is_missing(tmp_path):
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
     assert "conda tos" not in calls
-    assert "conda create -n latency -c conda-forge --override-channels python=3.10 -y" in calls
-    assert "conda activate latency" in calls
-    assert "conda install -y -c conda-forge --override-channels go" not in calls
+    assert "bootstrap.sh --tier dev --model openvla" in calls
 
 
 def test_install_script_bootstraps_miniconda_when_conda_is_missing(tmp_path):
@@ -754,7 +731,7 @@ def test_install_script_bootstraps_miniconda_when_conda_is_missing(tmp_path):
     env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n", conda_mode="missing")
 
     result = subprocess.run(
-        ["bash", str(script_path)],
+        ["bash", str(script_path), "--model", "openvla"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -766,9 +743,9 @@ def test_install_script_bootstraps_miniconda_when_conda_is_missing(tmp_path):
     calls = calls_path.read_text(encoding="utf-8")
     assert "curl " in calls
     assert "conda tos" not in calls
-    assert "conda create -n latency -c conda-forge --override-channels python=3.10 -y" in calls
-    assert "conda activate latency" in calls
-    assert "conda install -y -c conda-forge --override-channels go" not in calls
+    source = script_path.read_text(encoding="utf-8")
+    assert 'MINICONDA_VERSION="py310_26.1.1-1"' in source
+    assert "bootstrap.sh --tier dev --model openvla" in calls
 
 
 def test_install_script_persists_conda_shell_init(tmp_path):
@@ -778,7 +755,7 @@ def test_install_script_persists_conda_shell_init(tmp_path):
     bashrc_path.write_text("# existing bashrc\n", encoding="utf-8")
 
     result = subprocess.run(
-        ["bash", str(script_path)],
+        ["bash", str(script_path), "--model", "openvla"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -791,79 +768,7 @@ def test_install_script_persists_conda_shell_init(tmp_path):
     assert f"source {tmp_path / 'miniconda3' / 'etc' / 'profile.d' / 'conda.sh'}" in bashrc
 
 
-def test_starvla_rl_games_installers_match_flash_attn_wheel_to_runtime(tmp_path):
-    install_dir = REPO_ROOT / "third_party" / "starVLA" / "examples" / "rl_games" / "install"
-    helper_path = install_dir / "flash_attn.sh"
-    if not helper_path.exists():
-        pytest.skip("starVLA submodule pin does not include flash_attn.sh")
-    model_scripts = [
-        install_dir / "model" / "openvla.sh",
-        install_dir / "model" / "pi0.sh",
-        install_dir / "model" / "gr00t.sh",
-    ]
-
-    fake_python = tmp_path / "python"
-    fake_log = tmp_path / "python.log"
-    fake_python.write_text(
-        """#!/usr/bin/env bash
-set -euo pipefail
-if [[ "${1:-}" == "-" ]]; then
-  cat >/dev/null
-  printf 'cp310\\n2.7\\ncu12\\nFALSE\\n'
-  exit 0
-fi
-printf '%s\\n' "$*" >> "${PYTHON_FAKE_LOG}"
-exit 0
-""",
-        encoding="utf-8",
-    )
-    fake_python.chmod(0o755)
-
-    for script_path in [helper_path, *model_scripts]:
-        syntax = subprocess.run(
-            ["bash", "-n", str(script_path)],
-            cwd=REPO_ROOT / "third_party" / "starVLA",
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert syntax.returncode == 0, syntax.stderr
-
-    expected_wheel = (
-        "flash_attn-2.8.3.post1+cu12torch2.7cxx11abiFALSE-"
-        "cp310-cp310-linux_x86_64.whl"
-    )
-
-    _write_executable(
-        tmp_path / "uv",
-        """#!/usr/bin/env bash
-set -euo pipefail
-exit 0
-""",
-    )
-
-    for script_path in model_scripts:
-        fake_log.write_text("", encoding="utf-8")
-        result = subprocess.run(
-            ["bash", str(script_path)],
-            cwd=REPO_ROOT / "third_party" / "starVLA",
-            env={
-                **os.environ,
-                "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
-                "PYTHON_BIN": str(fake_python),
-                "PYTHON_FAKE_LOG": str(fake_log),
-                "STARVLA_INSTALL_TIER": "dev",
-                "STARVLA_TORCH_PROFILE": "cu128",
-            },
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert result.returncode == 0, result.stderr
-        assert expected_wheel in fake_log.read_text(encoding="utf-8")
-
-
-def test_starvla_torch_installer_cu130_uses_torchvision_without_torchaudio(tmp_path):
+def test_starvla_torch_installer_uses_fixed_cu128_stack(tmp_path):
     script_path = REPO_ROOT / "third_party" / "starVLA" / "examples" / "rl_games" / "install" / "torch.sh"
     fake_python = tmp_path / "python"
     fake_log = tmp_path / "python.log"
@@ -872,7 +777,7 @@ def test_starvla_torch_installer_cu130_uses_torchvision_without_torchaudio(tmp_p
 set -euo pipefail
 if [[ "${1:-}" == "-" ]]; then
   cat >/dev/null
-  printf '[install/torch] torch=2.12.1+cu130 cuda=13.0\\n'
+  printf '[install/torch] torch=2.11.0+cu128 cuda=12.8\\n'
   exit 0
 fi
 printf '%s\\n' "$*" >> "${PYTHON_FAKE_LOG}"
@@ -892,13 +797,12 @@ exit 0
     )
     result = subprocess.run(
         ["bash", str(script_path)],
-            cwd=REPO_ROOT / "third_party" / "starVLA",
-            env={
-                **os.environ,
-                "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
-                "PYTHON_BIN": str(fake_python),
+        cwd=REPO_ROOT / "third_party" / "starVLA",
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "PYTHON_BIN": str(fake_python),
             "PYTHON_FAKE_LOG": str(fake_log),
-            "STARVLA_TORCH_PROFILE": "cu130",
         },
         capture_output=True,
         text=True,
@@ -907,75 +811,76 @@ exit 0
 
     assert result.returncode == 0, result.stderr
     log = fake_log.read_text(encoding="utf-8")
-    assert "torch==2.12.1+cu130 torchvision==0.27.1+cu130" in log
-    assert "--index-url https://download.pytorch.org/whl/cu130" in log
-    assert "torchaudio" not in log
+    assert (
+        "torch==2.11.0+cu128 torchvision==0.26.0+cu128 "
+        "torchaudio==2.11.0+cu128 triton==3.6.0"
+    ) in log
+    assert "--index-url https://download.pytorch.org/whl/cu128" in log
+    for removed in ("cu126", "cu130", "/cpu", "2.12.1"):
+        assert removed not in log
 
 
-def test_starvla_flash_attn_helper_uses_python_abi_tag(tmp_path):
-    helper_path = REPO_ROOT / "third_party" / "starVLA" / "examples" / "rl_games" / "install" / "flash_attn.sh"
-    if not helper_path.exists():
-        pytest.skip("starVLA submodule pin does not include flash_attn.sh")
-    (tmp_path / "torch.py").write_text(
-        """__version__ = "2.7.1+cu128"
-
-class _Version:
-    cuda = "12.8"
-
-class _CType:
-    _GLIBCXX_USE_CXX11_ABI = True
-
-version = _Version()
-_C = _CType()
+def test_starvla_flash_attn_is_fixed_source_build(tmp_path):
+    helper_path = (
+        REPO_ROOT
+        / "third_party"
+        / "starVLA"
+        / "examples"
+        / "rl_games"
+        / "install"
+        / "flash_attn.sh"
+    )
+    fake_log = tmp_path / "python.log"
+    fake_python = tmp_path / "python"
+    fake_python.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'CUDA_HOME=%s TORCH_CUDA_ARCH_LIST=%s FLASH_ATTN_CUDA_ARCHS=%s ARGS=%s\\n' \
+  "${CUDA_HOME}" "${TORCH_CUDA_ARCH_LIST}" "${FLASH_ATTN_CUDA_ARCHS}" "$*" \
+  >> "${PYTHON_FAKE_LOG}"
+if [[ "${1:-}" == "-" ]]; then
+  cat >/dev/null
+  printf '%s\\n' "/tmp/fake-flash-attn.so"
+fi
 """,
         encoding="utf-8",
     )
+    fake_python.chmod(0o755)
+    fake_cuobjdump = tmp_path / "cuobjdump"
+    fake_cuobjdump.write_text(
+        "#!/usr/bin/env bash\nprintf '%s\\n' 'sm_90' 'sm_120'\n",
+        encoding="utf-8",
+    )
+    fake_cuobjdump.chmod(0o755)
 
     result = subprocess.run(
-        ["bash", str(helper_path), "--print-url"],
+        ["bash", str(helper_path)],
         cwd=REPO_ROOT / "third_party" / "starVLA",
         env={
             **os.environ,
-            "PYTHON_BIN": sys.executable,
-            "PYTHONPATH": str(tmp_path),
+            "CONDA_PREFIX": str(tmp_path / "conda"),
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "PYTHON_BIN": str(fake_python),
+            "PYTHON_FAKE_LOG": str(fake_log),
         },
         capture_output=True,
         text=True,
         check=False,
     )
 
-    py_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
     assert result.returncode == 0, result.stderr
-    assert f"{py_tag}-{py_tag}-linux_x86_64.whl" in result.stdout
-    assert "cpython-" not in result.stdout
-
-
-def test_starvla_flash_attn_helper_rejects_unsupported_runtime(tmp_path):
-    helper_path = REPO_ROOT / "third_party" / "starVLA" / "examples" / "rl_games" / "install" / "flash_attn.sh"
-    if not helper_path.exists():
-        pytest.skip("starVLA submodule pin does not include flash_attn.sh")
-    fake_python = tmp_path / "python"
-    fake_python.write_text(
-        """#!/usr/bin/env bash
-set -euo pipefail
-cat >/dev/null
-printf 'cp310\\n2.5\\ncu11\\nFALSE\\n'
-""",
-        encoding="utf-8",
-    )
-    fake_python.chmod(0o755)
-
-    result = subprocess.run(
-        ["bash", str(helper_path), "--print-url"],
-        cwd=REPO_ROOT / "third_party" / "starVLA",
-        env={**os.environ, "PYTHON_BIN": str(fake_python)},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "unsupported torch/CUDA runtime" in result.stderr
+    log = fake_log.read_text(encoding="utf-8")
+    assert "TORCH_CUDA_ARCH_LIST=9.0;12.0" in log
+    assert "FLASH_ATTN_CUDA_ARCHS=90;120" in log
+    assert (
+        "ARGS=-m pip install flash-attn==2.8.3.post1 "
+        "--force-reinstall --no-cache-dir --no-binary=flash-attn "
+        "--no-build-isolation --no-deps"
+    ) in log
+    helper_source = helper_path.read_text(encoding="utf-8")
+    assert "fall back to sdpa" not in helper_source
+    assert "STARVLA_FLASH_ATTN_BUILD_FROM_SOURCE" not in helper_source
+    assert "--print-url" not in helper_source
 
 
 def test_starvla_rl_games_hfd_raw_download_convert_dry_run_single_dataset():

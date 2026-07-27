@@ -9,55 +9,36 @@ git clone --recurse-submodules https://github.com/ZihanWang314/latency-sensitive
 cd latency-sensitive-bench
 ```
 
-### For use
+Every RL-games model environment uses Python 3.10, CUDA Toolkit 12.8.1, and
+PyTorch 2.11.0+cu128. The CUDA build targets H200 (`sm_90`) and RTX PRO 6000
+(`sm_120`); there is no automatic Torch/CUDA profile selection.
 
-Use this setup to run the benchmark or evaluate a pretrained OpenVLA policy:
-
-```bash
-bash install.sh --tier use --model openvla --env all
-```
-
-This creates the benchmark environment (`latency`) and an OpenVLA runtime
-environment (`starvla_rl_games_openvla`). The installer selects a compatible
-Torch/CUDA build and installs all three benchmark task environments.
-
-Install another VLA backend in its own environment when needed:
+Install one model explicitly:
 
 ```bash
-bash install.sh \
-  --tier use \
-  --model pi0 \
-  --env all
+bash install.sh --model openvla --accept-rom-license
 ```
 
-Supported model targets are `openvla`, `pi0`, `pi05`, `gr00t`, and `wan_oft`.
-Each target uses a separate `starvla_rl_games_<model>` Conda environment.
+Install all five model environments:
+
+```bash
+bash install.sh --model all --accept-rom-license
+```
+
+The accepted models are `openvla`, `pi0`, `pi05`, `gr00t`, `wan_oft`, and
+`all`. Each selected model creates a separate
+`starvla_rl_games_<model>` Conda environment and installs Flappy, Demon Attack,
+and Deadly Corridor. Model-specific packages such as Transformers, Datasets,
+Diffusers, JAX, and Ray are resolved independently inside that environment;
+there is no dependency lock file.
 
 WanOFT checkpoints from the Flappy Bird, Demon Attack, and Deadly Corridor
 StarVLA pipelines can be evaluated with temporal multi-image input. See
 [docs/starvla_wan_oft_eval.md](docs/starvla_wan_oft_eval.md) for the three
 configs, checkpoint command, and raw-frame history contract.
 
-### For development and training
-
-Use the development tier when training models, exporting datasets, running
-analysis, or modifying the codebase:
-
-```bash
-bash install.sh \
-  --tier dev \
-  --model openvla \
-  --env all
-```
-
-The `dev` tier adds training, testing, data-processing, FlashAttention, and
-model-specific development dependencies. Change `--model` to develop or train a
-different VLA backend.
-
-Use repeated `--env` options to install only selected tasks. On a non-interactive
-machine, pass `--accept-rom-license` after reviewing the Atari ROM license. Use
-`--torch-profile cpu` for a CPU-only installation; otherwise `auto` selects the
-profile from the available GPU and driver.
+`--tier use` omits development/test model packages. On a non-interactive
+machine, pass `--accept-rom-license` after reviewing the Atari ROM license.
 
 ## Environment variables
 
