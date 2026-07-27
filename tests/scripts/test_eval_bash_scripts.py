@@ -53,6 +53,8 @@ exit 0
     (prefix / "etc" / "profile.d" / "conda.sh").write_text(
         f"""conda() {{
   if [[ "${{1:-}}" == "activate" ]]; then
+    printf '%s' "$NVCC_PREPEND_FLAGS" >/dev/null
+    export CONDA_PREFIX="{prefix}/envs/${{2:-}}"
     printf 'conda activate %s\\n' "${{2:-}}" >> "{calls_path}"
     return 0
   fi
@@ -195,6 +197,8 @@ chmod +x "$prefix/bin/conda"
 cat > "$prefix/etc/profile.d/conda.sh" <<'EOC'
 conda() {{
   if [[ "${{1:-}}" == "activate" ]]; then
+    printf '%s' "$NVCC_PREPEND_FLAGS" >/dev/null
+    export CONDA_PREFIX="__PREFIX__/envs/${{2:-}}"
     printf 'conda activate %s\\n' "${{2:-}}" >> "__CALLS__"
     return 0
   fi
@@ -335,11 +339,56 @@ def test_install_script_forwards_fixed_stack_bootstrap(tmp_path):
     assert "fixed stack: python=3.10 cuda=12.8.1 torch=2.11.0+cu128 model=openvla" in result.stdout
     calls = calls_path.read_text(encoding="utf-8")
     assert (
+        "conda create -n latency --override-channels "
+        "-c nvidia/label/cuda-12.8.1 -c conda-forge "
+        "python=3.10 cuda-toolkit=12.8.1 pip setuptools wheel packaging zlib=1.3.2 -y"
+    ) in calls
+    assert "conda activate latency" in calls
+    assert "bash third_party/starVLA/examples/rl_games/install/torch.sh" in calls
+    assert "uv pip install" in calls
+    assert "-e .[dev]" in calls
+    assert "-e third_party/sample-factory" in calls
+    for game in ("demon_attack", "deadly_corridor", "flappy"):
+        assert f"bash third_party/starVLA/examples/rl_games/install/env/{game}.sh" in calls
+    assert "bash scripts/bash_scripts/build_cuda_extensions.sh" in calls
+    assert (
         "bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "
         "--tier dev --model openvla"
     ) in calls
+    assert calls.index("conda activate latency") < calls.index(
+        "bash third_party/starVLA/examples/rl_games/install/bootstrap.sh"
+    )
     assert "--conda-env" not in calls
     assert "torch-profile" not in calls
+
+
+def test_install_script_updates_existing_latency_environment(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, calls_path = _prepare_install_sh_env(
+        tmp_path,
+        compute_caps="12.0\n",
+        latency_env_exists=True,
+    )
+
+    result = subprocess.run(
+        ["bash", str(script_path), "--tier", "use", "--model", "openvla"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert (
+        "conda install -n latency --override-channels "
+        "-c nvidia/label/cuda-12.8.1 -c conda-forge "
+        "python=3.10 cuda-toolkit=12.8.1 pip setuptools wheel packaging zlib=1.3.2 -y"
+    ) in calls
+    assert "conda create -n latency" not in calls
+    assert "-e .[dev]" in calls
+    assert "bootstrap.sh --tier use --model openvla" in calls
 
 
 def test_install_script_does_not_select_stack_from_gpu_or_driver(tmp_path):
@@ -1012,6 +1061,39 @@ exit 0
     assert "--methods temporal" in calls
     assert "--latency-seeds 0 2" in calls
     assert calls.count("\n") == 1
+
+
+def test_cross_device_activation_survives_cuda_hook_with_unset_flags(tmp_path):
+    prefix = tmp_path / "conda"
+    fake_bin = tmp_path / "bin"
+    calls_path = tmp_path / "calls.log"
+    conda_bin = fake_bin / "conda"
+    _write_fake_conda_installation(prefix, conda_bin, calls_path)
+    _write_executable(
+        fake_bin / "python",
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'python %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(REPO_ROOT / "cross_device.sh"), "target-ref"],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "LATENCY_BENCH_FAKE_INSTALL_CALLS": str(calls_path),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "conda activate " in calls
+    assert "python -m latency_bench.cross_device.protocol target-ref" in calls
 
 
 @pytest.mark.parametrize(

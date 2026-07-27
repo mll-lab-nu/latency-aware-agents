@@ -3,6 +3,9 @@ set -euo pipefail
 
 INSTALL_TIER="dev"
 MODEL_TARGET=""
+PYTHON_VERSION="3.10"
+CUDA_VERSION="12.8.1"
+LATENCY_ENV_NAME="latency"
 MINICONDA_HOME="${HOME}/miniconda3"
 MINICONDA_VERSION="py310_26.1.1-1"
 MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-${MINICONDA_VERSION}-Linux-x86_64.sh"
@@ -14,7 +17,8 @@ usage() {
     cat <<'EOF'
 Usage: bash install.sh [options]
 
-Installs one or all isolated RL-games model environments with:
+Installs the shared latency environment and one or all isolated RL-games model
+environments with:
 Python 3.10, CUDA Toolkit 12.8.1, and PyTorch 2.11.0+cu128.
 
 Options:
@@ -126,16 +130,85 @@ persist_conda_shell_init() {
     fi
 }
 
+ensure_latency_env() {
+    local conda_action="create"
+    if conda env list | awk '{print $1}' | grep -qx "${LATENCY_ENV_NAME}"; then
+        conda_action="install"
+        echo "[install] updating existing Conda environment: ${LATENCY_ENV_NAME}"
+    else
+        echo "[install] creating Conda environment: ${LATENCY_ENV_NAME}"
+    fi
+
+    conda "${conda_action}" \
+        -n "${LATENCY_ENV_NAME}" \
+        --override-channels \
+        -c nvidia/label/cuda-12.8.1 \
+        -c conda-forge \
+        "python=${PYTHON_VERSION}" \
+        "cuda-toolkit=${CUDA_VERSION}" \
+        pip \
+        setuptools \
+        wheel \
+        packaging \
+        "zlib=1.3.2" \
+        -y
+}
+
+install_latency_env() {
+    local original_ld_library_path="${LD_LIBRARY_PATH:-}"
+
+    ensure_latency_env
+    set +u
+    conda activate "${LATENCY_ENV_NAME}"
+    set -u
+
+    export CUDA_HOME="${CONDA_PREFIX}"
+    export LD_LIBRARY_PATH="${CUDA_HOME}/lib:${CUDA_HOME}/lib64${original_ld_library_path:+:${original_ld_library_path}}"
+    export TORCH_CUDA_ARCH_LIST="9.0;12.0"
+
+    PYTHON_BIN=python
+    export PYTHON_BIN
+    # shellcheck source=third_party/starVLA/examples/rl_games/install/_pip.sh
+    source third_party/starVLA/examples/rl_games/install/_pip.sh
+
+    python -m pip install pip==25.3 setuptools==80.9.0 wheel==0.47.0
+    ensure_uv
+    PYTHON_BIN=python bash third_party/starVLA/examples/rl_games/install/torch.sh
+    pip_install -e ".[dev]"
+    pip_install -e third_party/sample-factory
+
+    for env_name in demon_attack deadly_corridor flappy; do
+        PYTHON_BIN=python bash "third_party/starVLA/examples/rl_games/install/env/${env_name}.sh"
+    done
+
+    pip_install ninja==1.13.0
+    bash scripts/bash_scripts/build_cuda_extensions.sh
+    python -m pip check
+    conda deactivate
+
+    export LD_LIBRARY_PATH="${original_ld_library_path}"
+    echo "[install] latency environment complete"
+}
+
 ensure_conda
 persist_conda_shell_init
 
 cd "${SCRIPT_DIR}"
 git submodule update --init --recursive
 
+CONDA_BASE="$(conda info --base)"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${CONDA_BASE}/.uv_cache}"
+export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}"
+export UV_HTTP_CONNECT_TIMEOUT="${UV_HTTP_CONNECT_TIMEOUT:-30}"
+export UV_HTTP_RETRIES="${UV_HTTP_RETRIES:-10}"
+unset UV_NO_CACHE UV_LINK_MODE
+
+echo "[install] fixed stack: python=3.10 cuda=12.8.1 torch=2.11.0+cu128 model=${MODEL_TARGET}"
+install_latency_env
+
 BOOTSTRAP_ARGS=(
     --tier "${INSTALL_TIER}"
     --model "${MODEL_TARGET}"
 )
 
-echo "[install] fixed stack: python=3.10 cuda=12.8.1 torch=2.11.0+cu128 model=${MODEL_TARGET}"
 bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "${BOOTSTRAP_ARGS[@]}"
