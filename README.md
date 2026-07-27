@@ -9,9 +9,10 @@ git clone --recurse-submodules https://github.com/ZihanWang314/latency-sensitive
 cd latency-sensitive-bench
 ```
 
-Every RL-games model environment uses Python 3.10, CUDA Toolkit 12.8.1, and
-PyTorch 2.11.0+cu128. The CUDA build targets H200 (`sm_90`) and RTX PRO 6000
-(`sm_120`); there is no automatic Torch/CUDA profile selection.
+The shared `latency` environment and every RL-games model environment use
+Python 3.10, CUDA Toolkit 12.8.1, and PyTorch 2.11.0+cu128. The CUDA build
+targets H200 (`sm_90`) and RTX PRO 6000 (`sm_120`); there is no automatic
+Torch/CUDA profile selection.
 
 Install one model explicitly:
 
@@ -26,18 +27,22 @@ bash install.sh --model all
 ```
 
 The accepted models are `openvla`, `pi0`, `pi05`, `gr00t`, `wan_oft`, and
-`all`. Each selected model creates a separate
-`starvla_rl_games_<model>` Conda environment and installs Flappy, Demon Attack,
-and Deadly Corridor. Model-specific packages such as Transformers, Datasets,
-Diffusers, JAX, and Ray are resolved independently inside that environment;
-there is no dependency lock file.
+`all`. Every invocation creates or updates the shared `latency` Conda
+environment for benchmark training, teacher rollout, dataset export, and
+development tools. Each selected model also creates a separate
+`starvla_rl_games_<model>` environment. Both environment types install Flappy,
+Demon Attack, and Deadly Corridor. Model-specific packages such as
+Transformers, Diffusers, JAX, and Ray are resolved independently inside the
+model environment; there is no dependency lock file.
 
 WanOFT checkpoints from the Flappy Bird, Demon Attack, and Deadly Corridor
 StarVLA pipelines can be evaluated with temporal multi-image input. See
 [docs/starvla_wan_oft_eval.md](docs/starvla_wan_oft_eval.md) for the three
 configs, checkpoint command, and raw-frame history contract.
 
-`--tier use` omits development/test model packages.
+`--tier use` omits development/test packages from the selected model
+environment. The shared `latency` environment always includes the data and
+teacher-training tools used by the experiment scripts.
 
 ## Environment variables
 

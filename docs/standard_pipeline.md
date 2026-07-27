@@ -4,7 +4,7 @@ git clone --recurse-submodules https://github.com/ZihanWang314/latency-sensitive
 cd latency-sensitive-bench
 
 # --- env setup ---
-bash install.sh --tier use --model openvla --env all
+bash install.sh --tier use --model openvla
 conda activate latency
 
 # --- small model checkpoints download ---
