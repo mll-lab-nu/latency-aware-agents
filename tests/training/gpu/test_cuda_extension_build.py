@@ -10,10 +10,14 @@ def test_uses_fixed_cuda_home_and_dual_arch_list(monkeypatch, tmp_path):
 
     cuda_home = tmp_path / "cuda-12.8"
     (cuda_home / "bin").mkdir(parents=True)
+    (cuda_home / "include").mkdir()
     (cuda_home / "lib").mkdir()
     (cuda_home / "lib64").mkdir()
+    (cuda_home / "targets" / "x86_64-linux" / "include").mkdir(parents=True)
+    (cuda_home / "targets" / "x86_64-linux" / "lib" / "stubs").mkdir(parents=True)
     monkeypatch.setenv("CUDA_HOME", str(cuda_home))
     monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.delenv("CPATH", raising=False)
     monkeypatch.delenv("LD_LIBRARY_PATH", raising=False)
     monkeypatch.delenv("LIBRARY_PATH", raising=False)
 
@@ -23,9 +27,15 @@ def test_uses_fixed_cuda_home_and_dual_arch_list(monkeypatch, tmp_path):
     assert os.environ["CUDA_HOME"] == str(cuda_home)
     assert os.environ["TORCH_CUDA_ARCH_LIST"] == "9.0;12.0"
     assert os.environ["PATH"].split(os.pathsep)[0] == str(cuda_home / "bin")
-    assert os.environ["LD_LIBRARY_PATH"].split(os.pathsep)[:2] == [
+    assert os.environ["CPATH"].split(os.pathsep) == [
+        str(cuda_home / "include"),
+        str(cuda_home / "targets" / "x86_64-linux" / "include"),
+    ]
+    assert os.environ["LD_LIBRARY_PATH"].split(os.pathsep) == [
         str(cuda_home / "lib"),
         str(cuda_home / "lib64"),
+        str(cuda_home / "targets" / "x86_64-linux" / "lib"),
+        str(cuda_home / "targets" / "x86_64-linux" / "lib" / "stubs"),
     ]
     assert cuda_extension_build.cpp_extension.CUDA_HOME == str(cuda_home)
 

@@ -20,7 +20,14 @@ def ensure_compatible_cuda_extension_toolchain() -> Path:
 def _activate_cuda_home(cuda_home: Path) -> None:
     os.environ["CUDA_HOME"] = str(cuda_home)
     _prepend_paths("PATH", [cuda_home / "bin"])
-    library_paths = [cuda_home / "lib", cuda_home / "lib64"]
+    target_root = cuda_home / "targets" / "x86_64-linux"
+    _prepend_paths("CPATH", [cuda_home / "include", target_root / "include"])
+    library_paths = [
+        cuda_home / "lib",
+        cuda_home / "lib64",
+        target_root / "lib",
+        target_root / "lib" / "stubs",
+    ]
     _prepend_paths("LD_LIBRARY_PATH", library_paths)
     _prepend_paths("LIBRARY_PATH", library_paths)
     cpp_extension.CUDA_HOME = str(cuda_home)
