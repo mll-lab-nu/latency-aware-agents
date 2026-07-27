@@ -1,189 +1,42 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import pytest
 
 
-def _write_nvcc(path: Path, gpu_codes: str) -> None:
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        "#!/usr/bin/env bash\n"
-        "if [[ \"$1\" == \"--list-gpu-code\" ]]; then\n"
-        f"  printf '%s\\n' '{gpu_codes}'\n"
-        "fi\n",
-        encoding="utf-8",
-    )
-    path.chmod(0o755)
-
-
-def test_selects_env_cuda_when_system_nvcc_lacks_gpu_arch(monkeypatch, tmp_path):
+def test_uses_fixed_cuda_home_and_dual_arch_list(monkeypatch, tmp_path):
     from training.common import cuda_extension_build
 
-    system_cuda = tmp_path / "usr" / "local" / "cuda"
-    env_cuda = tmp_path / "env" / "lib" / "python3.10" / "site-packages" / "nvidia" / "cu13"
-    (env_cuda / "lib").mkdir(parents=True)
-    (env_cuda / "lib64").mkdir(parents=True)
-    _write_nvcc(system_cuda / "bin" / "nvcc", "sm_100")
-    _write_nvcc(env_cuda / "bin" / "nvcc", "sm_100\nsm_103")
-
-    monkeypatch.setattr(cuda_extension_build.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(cuda_extension_build.torch.cuda, "get_device_capability", lambda: (10, 3))
-    monkeypatch.setattr(cuda_extension_build.cpp_extension, "CUDA_HOME", str(system_cuda))
-    monkeypatch.setattr(cuda_extension_build, "_system_nvcc_paths", lambda: iter([system_cuda / "bin" / "nvcc"]))
-    monkeypatch.setattr(cuda_extension_build.site, "getsitepackages", lambda: [str(env_cuda.parents[2])])
-    monkeypatch.setattr(cuda_extension_build.sys, "prefix", str(tmp_path / "env"))
-    monkeypatch.setenv("CUDA_HOME", str(system_cuda))
+    cuda_home = tmp_path / "cuda-12.8"
+    (cuda_home / "bin").mkdir(parents=True)
+    (cuda_home / "lib").mkdir()
+    (cuda_home / "lib64").mkdir()
+    monkeypatch.setenv("CUDA_HOME", str(cuda_home))
     monkeypatch.setenv("PATH", "/usr/bin")
-    monkeypatch.delenv("CONDA_PREFIX", raising=False)
-    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
     monkeypatch.delenv("LD_LIBRARY_PATH", raising=False)
     monkeypatch.delenv("LIBRARY_PATH", raising=False)
 
     selected = cuda_extension_build.ensure_compatible_cuda_extension_toolchain()
 
-    assert selected == env_cuda
-    assert os.environ["CUDA_HOME"] == str(env_cuda)
-    assert os.environ["PATH"].split(os.pathsep)[0] == str(env_cuda / "bin")
+    assert selected == cuda_home
+    assert os.environ["CUDA_HOME"] == str(cuda_home)
+    assert os.environ["TORCH_CUDA_ARCH_LIST"] == "9.0;12.0"
+    assert os.environ["PATH"].split(os.pathsep)[0] == str(cuda_home / "bin")
     assert os.environ["LD_LIBRARY_PATH"].split(os.pathsep)[:2] == [
-        str(env_cuda / "lib64"),
-        str(env_cuda / "lib"),
+        str(cuda_home / "lib"),
+        str(cuda_home / "lib64"),
     ]
-    assert os.environ["LIBRARY_PATH"].split(os.pathsep)[:2] == [
-        str(env_cuda / "lib64"),
-        str(env_cuda / "lib"),
-    ]
-    assert cuda_extension_build.cpp_extension.CUDA_HOME == str(env_cuda)
+    assert cuda_extension_build.cpp_extension.CUDA_HOME == str(cuda_home)
 
 
-def test_leaves_environment_unchanged_when_no_nvcc_supports_gpu_arch(monkeypatch, tmp_path):
+def test_cuda_home_is_required(monkeypatch):
     from training.common import cuda_extension_build
 
-    system_cuda = tmp_path / "usr" / "local" / "cuda"
-    env_cuda = tmp_path / "env" / "lib" / "python3.10" / "site-packages" / "nvidia" / "cu13"
-    _write_nvcc(system_cuda / "bin" / "nvcc", "sm_100")
-    _write_nvcc(env_cuda / "bin" / "nvcc", "sm_100")
+    monkeypatch.delenv("CUDA_HOME", raising=False)
 
-    monkeypatch.setattr(cuda_extension_build.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(cuda_extension_build.torch.cuda, "get_device_capability", lambda: (10, 3))
-    monkeypatch.setattr(cuda_extension_build.cpp_extension, "CUDA_HOME", str(system_cuda))
-    monkeypatch.setattr(cuda_extension_build, "_system_nvcc_paths", lambda: iter([system_cuda / "bin" / "nvcc"]))
-    monkeypatch.setattr(cuda_extension_build.site, "getsitepackages", lambda: [str(env_cuda.parents[2])])
-    monkeypatch.setattr(cuda_extension_build.sys, "prefix", str(tmp_path / "env"))
-    monkeypatch.setenv("CUDA_HOME", str(system_cuda))
-    monkeypatch.setenv("PATH", "/usr/bin")
-    monkeypatch.delenv("CONDA_PREFIX", raising=False)
-    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
-    monkeypatch.setenv("LD_LIBRARY_PATH", "/existing/lib")
-    monkeypatch.setenv("LIBRARY_PATH", "/existing/link")
-    monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
-
-    selected = cuda_extension_build.ensure_compatible_cuda_extension_toolchain()
-
-    assert selected is None
-    assert os.environ["CUDA_HOME"] == str(system_cuda)
-    assert os.environ["PATH"] == "/usr/bin"
-    assert os.environ["LD_LIBRARY_PATH"] == "/existing/lib"
-    assert os.environ["LIBRARY_PATH"] == "/existing/link"
-    assert "TORCH_CUDA_ARCH_LIST" not in os.environ
-    assert cuda_extension_build.cpp_extension.CUDA_HOME == str(system_cuda)
-
-
-def test_creates_cuda_runtime_compat_link_for_versioned_cudart(monkeypatch, tmp_path):
-    from training.common import cuda_extension_build
-
-    cuda_home = tmp_path / "env" / "lib" / "python3.10" / "site-packages" / "nvidia" / "cu13"
-    cuda_lib = cuda_home / "lib"
-    cuda_lib.mkdir(parents=True)
-    versioned_cudart = cuda_lib / "libcudart.so.13"
-    versioned_cudart.write_text("", encoding="utf-8")
-    _write_nvcc(cuda_home / "bin" / "nvcc", "sm_103")
-    repo_root = tmp_path / "repo"
-
-    monkeypatch.setattr(cuda_extension_build.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(cuda_extension_build.torch.cuda, "get_device_capability", lambda: (10, 3))
-    monkeypatch.setattr(cuda_extension_build, "_raw_candidate_nvcc_paths", lambda: iter([cuda_home / "bin" / "nvcc"]))
-    monkeypatch.setattr(cuda_extension_build, "__file__", str(repo_root / "training" / "common" / "cuda_extension_build.py"))
-    monkeypatch.setenv("PATH", "/usr/bin")
-    monkeypatch.delenv("LD_LIBRARY_PATH", raising=False)
-    monkeypatch.delenv("LIBRARY_PATH", raising=False)
-
-    selected = cuda_extension_build.ensure_compatible_cuda_extension_toolchain()
-
-    compat_dir = repo_root / ".cache" / "cuda_link_compat"
-    compat_link = compat_dir / "libcudart.so"
-    assert selected == cuda_home
-    assert compat_link.resolve() == versioned_cudart
-    assert os.environ["LD_LIBRARY_PATH"].split(os.pathsep)[:2] == [str(compat_dir), str(cuda_lib)]
-    assert os.environ["LIBRARY_PATH"].split(os.pathsep)[:2] == [str(compat_dir), str(cuda_lib)]
-
-
-def test_cuda_runtime_compat_link_survives_competing_recreate(monkeypatch, tmp_path):
-    from training.common import cuda_extension_build
-
-    cuda_home = tmp_path / "env" / "lib" / "python3.10" / "site-packages" / "nvidia" / "cu13"
-    cuda_lib = cuda_home / "lib"
-    cuda_lib.mkdir(parents=True)
-    versioned_cudart = cuda_lib / "libcudart.so.13"
-    versioned_cudart.write_text("", encoding="utf-8")
-    _write_nvcc(cuda_home / "bin" / "nvcc", "sm_103")
-    repo_root = tmp_path / "repo"
-    compat_dir = repo_root / ".cache" / "cuda_link_compat"
-    compat_dir.mkdir(parents=True)
-    compat_link = compat_dir / "libcudart.so"
-    compat_link.symlink_to(versioned_cudart)
-
-    original_unlink = Path.unlink
-    original_symlink_to = Path.symlink_to
-
-    def unlink_with_competing_recreate(self, missing_ok=False):
-        result = original_unlink(self, missing_ok=missing_ok)
-        if self == compat_link:
-            original_symlink_to(self, versioned_cudart)
-        return result
-
-    monkeypatch.setattr(Path, "unlink", unlink_with_competing_recreate)
-    monkeypatch.setattr(cuda_extension_build.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(cuda_extension_build.torch.cuda, "get_device_capability", lambda: (10, 3))
-    monkeypatch.setattr(cuda_extension_build, "_raw_candidate_nvcc_paths", lambda: iter([cuda_home / "bin" / "nvcc"]))
-    monkeypatch.setattr(cuda_extension_build, "__file__", str(repo_root / "training" / "common" / "cuda_extension_build.py"))
-    monkeypatch.setenv("PATH", "/usr/bin")
-    monkeypatch.delenv("LD_LIBRARY_PATH", raising=False)
-    monkeypatch.delenv("LIBRARY_PATH", raising=False)
-
-    selected = cuda_extension_build.ensure_compatible_cuda_extension_toolchain()
-
-    assert selected == cuda_home
-    assert compat_link.resolve() == versioned_cudart
-    assert os.environ["LD_LIBRARY_PATH"].split(os.pathsep)[:2] == [str(compat_dir), str(cuda_lib)]
-    assert os.environ["LIBRARY_PATH"].split(os.pathsep)[:2] == [str(compat_dir), str(cuda_lib)]
-
-
-def test_uses_cuda_lib_dir_when_unversioned_cudart_exists(monkeypatch, tmp_path):
-    from training.common import cuda_extension_build
-
-    cuda_home = tmp_path / "env" / "lib" / "python3.10" / "site-packages" / "nvidia" / "cu13"
-    cuda_lib = cuda_home / "lib"
-    cuda_lib.mkdir(parents=True)
-    (cuda_lib / "libcudart.so").write_text("", encoding="utf-8")
-    _write_nvcc(cuda_home / "bin" / "nvcc", "sm_103")
-    repo_root = tmp_path / "repo"
-
-    monkeypatch.setattr(cuda_extension_build.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(cuda_extension_build.torch.cuda, "get_device_capability", lambda: (10, 3))
-    monkeypatch.setattr(cuda_extension_build, "_raw_candidate_nvcc_paths", lambda: iter([cuda_home / "bin" / "nvcc"]))
-    monkeypatch.setattr(cuda_extension_build, "__file__", str(repo_root / "training" / "common" / "cuda_extension_build.py"))
-    monkeypatch.setenv("PATH", "/usr/bin")
-    monkeypatch.delenv("LD_LIBRARY_PATH", raising=False)
-    monkeypatch.delenv("LIBRARY_PATH", raising=False)
-
-    selected = cuda_extension_build.ensure_compatible_cuda_extension_toolchain()
-
-    assert selected == cuda_home
-    assert not (repo_root / ".cache" / "cuda_link_compat" / "libcudart.so").exists()
-    assert os.environ["LD_LIBRARY_PATH"].split(os.pathsep)[0] == str(cuda_lib)
-    assert os.environ["LIBRARY_PATH"].split(os.pathsep)[0] == str(cuda_lib)
+    with pytest.raises(KeyError, match="CUDA_HOME"):
+        cuda_extension_build.ensure_compatible_cuda_extension_toolchain()
 
 
 @pytest.mark.parametrize(
@@ -193,12 +46,13 @@ def test_uses_cuda_lib_dir_when_unversioned_cudart_exists(monkeypatch, tmp_path)
         ("training.demon_attack_sf.cule_atari_extension", "load_cule_atari_extension"),
     ],
 )
-def test_cuda_extension_loaders_select_toolchain_before_jit_load(monkeypatch, module_path, function_name):
+def test_cuda_extension_loaders_activate_toolchain_before_jit_load(
+    monkeypatch,
+    module_path,
+    function_name,
+):
     module = pytest.importorskip(module_path)
     calls: list[str] = []
-
-    if hasattr(module, "torch"):
-        monkeypatch.setattr(module.torch.cuda, "is_available", lambda: True)
 
     def fake_ensure_toolchain():
         calls.append("toolchain")
