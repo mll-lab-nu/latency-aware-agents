@@ -435,6 +435,9 @@ class DeadlyCorridorVlaEnvAdapter(EnvAdapter):
             info=step_info,
         )
 
+    def observe(self) -> Observation:
+        return self._make_observation(info=self._last_info)
+
     def render_game_frame(self) -> np.ndarray:
         frame = self.gym_env.render()
         return np.asarray(frame, dtype=np.uint8)

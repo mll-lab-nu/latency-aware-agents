@@ -16,7 +16,8 @@ env:
 
 policy:
   type: starvla
-  checkpoint_path: third_party/starVLA/results/Checkpoints/wan_oft_deadly_corridor_fix_latency_6_context5_standard_sft_2000_effbs128_224_currentbce/checkpoints/steps_2000_pytorch_model.pt
+  checkpoint_path: third_party/starVLA/results/Checkpoints/wan_oft_deadly_corridor_fix_latency_6_context5_standard_sft_1000_effbs128_224_currentbce/checkpoints/steps_1000_pytorch_model.pt
+  model_config_path: third_party/starVLA/results/Checkpoints/wan_oft_deadly_corridor_fix_latency_6_context5_standard_sft_1000_effbs128_224_currentbce/config.full.yaml
   device: cuda
   action_layout: multibinary_7
   multibinary_threshold: 0.0
