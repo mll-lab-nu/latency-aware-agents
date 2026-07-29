@@ -17,7 +17,8 @@ env:
 
 policy:
   type: starvla
-  checkpoint_path: third_party/starVLA/results/Checkpoints/wan_oft_demon_attack_fix_latency_6_context5_standard_sft_2000_effbs128_224_currentce/checkpoints/steps_2000_pytorch_model.pt
+  checkpoint_path: third_party/starVLA/results/Checkpoints/wan_oft_demon_attack_fix_latency_6_context5_standard_sft_5000_effbs128_224_currentce/checkpoints/steps_5000_pytorch_model.pt
+  model_config_path: third_party/starVLA/results/Checkpoints/wan_oft_demon_attack_fix_latency_6_context5_standard_sft_5000_effbs128_224_currentce/config.full.yaml
   device: cuda
   latency_prompt_map_path: third_party/starVLA/data/demon_attack_fix_latency_6_200ep_context5/demon_attack_train__bridge/latency_prompt_map.json
   latency_prompt_key: 6

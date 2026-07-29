@@ -523,6 +523,78 @@ def test_starvla_wanoft_samples_decision_observations_from_raw_history(
     assert output.metadata["input_frame_raw_span"] == 17
 
 
+def test_starvla_wanoft_uses_explicit_full_model_config(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from latency_bench.policy import starvla
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(
+        starvla,
+        "_load_starvla_model_config",
+        lambda _path: {
+            "datasets": {
+                "vla_data": {
+                    "include_state": False,
+                    "pack_image_sequence": True,
+                    "image_sequence_length": 5,
+                },
+            },
+            "framework": {
+                "action_model": {},
+            },
+        },
+    )
+    config = _config(tmp_path)
+    config["policy"]["model_config_path"] = str(tmp_path / "config.full.yaml")
+    policy = build_policy(config, ActionResolver(config["env"]))
+    raw_history = np.stack(
+        [np.full((3, 4, 3), index, dtype=np.uint8) for index in range(5)]
+    )
+
+    output = policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=4,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": raw_history},
+        )
+    )
+
+    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
+    assert [int(np.asarray(image).mean()) for image in example["image"]] == [0, 1, 2, 3, 4]
+    assert output.metadata["input_frame_count"] == 5
+
+
+def test_prepare_starvla_checkpoint_input_config_uses_explicit_full_model_config(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from latency_bench.policy import starvla
+
+    monkeypatch.setattr(
+        starvla,
+        "_load_starvla_model_config",
+        lambda _path: {
+            "datasets": {
+                "vla_data": {
+                    "pack_image_sequence": True,
+                    "image_sequence_length": 5,
+                },
+            },
+        },
+    )
+    config = _config(tmp_path)
+    config["env"]["frame_stack"] = 4
+    config["policy"]["model_config_path"] = str(tmp_path / "config.full.yaml")
+
+    starvla.prepare_starvla_checkpoint_input_config(config)
+
+    assert config["env"]["frame_stack"] == 5
+
+
 def test_starvla_wanoft_rejects_incomplete_decision_history(
     monkeypatch,
     tmp_path: Path,
