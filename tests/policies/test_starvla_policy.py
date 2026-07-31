@@ -464,6 +464,111 @@ def test_starvla_passes_single_raw_frame_and_base_prompt(monkeypatch, tmp_path: 
     assert np.asarray(example["image"][0]).mean() == 77
 
 
+def test_starvla_multiframe_passes_four_temporal_images(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    class MultiframePolicyServerWrapper(FakePolicyServerWrapper):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._model_cfg = {
+                "datasets": {
+                    "vla_data": {
+                        "include_state": False,
+                        "num_obs_frames": 4,
+                        "image_mode": "multiframe",
+                        "stitch_grid": [2, 2],
+                    },
+                },
+                "framework": {
+                    "action_model": {},
+                    "kv_memory": {"enabled": False},
+                },
+            }
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(
+        starvla,
+        "_load_policy_wrapper_class",
+        lambda: MultiframePolicyServerWrapper,
+    )
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+    raw_history = np.stack(
+        [np.full((8, 8, 3), value, dtype=np.uint8) for value in (1, 2, 3, 4)]
+    )
+
+    policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=3,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": raw_history},
+        )
+    )
+
+    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
+    assert [int(np.asarray(image).mean()) for image in example["image"]] == [
+        1,
+        2,
+        3,
+        4,
+    ]
+
+
+def test_starvla_stitch_builds_one_temporal_mosaic(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    class StitchPolicyServerWrapper(FakePolicyServerWrapper):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._model_cfg = {
+                "datasets": {
+                    "vla_data": {
+                        "include_state": False,
+                        "num_obs_frames": 4,
+                        "image_mode": "stitch",
+                        "stitch_grid": [2, 2],
+                    },
+                },
+                "framework": {
+                    "action_model": {},
+                    "kv_memory": {"enabled": False},
+                },
+            }
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(
+        starvla,
+        "_load_policy_wrapper_class",
+        lambda: StitchPolicyServerWrapper,
+    )
+    config = _config(tmp_path)
+    policy = build_policy(config, ActionResolver(config["env"]))
+    raw_history = np.stack(
+        [np.full((8, 8, 3), value, dtype=np.uint8) for value in (1, 2, 3, 4)]
+    )
+
+    policy.predict(
+        Observation(
+            data=np.zeros((1,), dtype=np.uint8),
+            env_step=3,
+            sim_time_ms=0.0,
+            metadata={"env_raw_rgb_frame_stack": raw_history},
+        )
+    )
+
+    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
+    assert len(example["image"]) == 1
+    mosaic = np.asarray(example["image"][0])
+    assert mosaic.shape == (224, 224, 3)
+    assert [
+        int(mosaic[:112, :112].mean()),
+        int(mosaic[:112, 112:].mean()),
+        int(mosaic[112:, :112].mean()),
+        int(mosaic[112:, 112:].mean()),
+    ] == [1, 2, 3, 4]
+
+
 def test_starvla_wanoft_samples_decision_observations_from_raw_history(
     monkeypatch,
     tmp_path: Path,
