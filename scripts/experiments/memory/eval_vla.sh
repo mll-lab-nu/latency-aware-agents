@@ -34,17 +34,30 @@ select_methods() {
   esac
 }
 
+hf_download() {
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if conda run --no-capture-output -n latency hf download "$@"; then
+      return
+    fi
+    echo "Hugging Face download attempt ${attempt}/5 failed." >&2
+    if (( attempt < 5 )); then
+      sleep 10
+    fi
+  done
+  return 1
+}
+
 download_run() {
   local run_id="$1"
 
-  conda run --no-capture-output -n latency hf download \
+  hf_download \
     "${VLA_REPO}" \
     --include \
-    "${run_id}/checkpoints/steps_*_model.safetensors" \
+    "${run_id}/checkpoints/steps_4000_model.safetensors" \
     "${run_id}/config.yaml" \
     "${run_id}/config.full.yaml" \
     "${run_id}/dataset_statistics.json" \
-    "${run_id}/wandb/wandb/run-*/files/config.yaml" \
     --local-dir "${CHECKPOINT_ROOT}"
 }
 
@@ -93,27 +106,11 @@ output_path.write_text(
 PY
 }
 
-latest_wandb_run_id() {
-  local run_dir="$1"
-  local config_path run_dir_name
-
-  config_path="$(
-    find "${run_dir}/wandb" -type f -path '*/wandb/run-*/files/config.yaml' \
-      | sort \
-      | tail -n 1
-  )"
-  if [[ -z "${config_path}" ]]; then
-    echo "No WandB run metadata found under ${run_dir}/wandb" >&2
-    return 1
-  fi
-  run_dir_name="$(basename "$(dirname "$(dirname "${config_path}")")")"
-  echo "${run_dir_name##*-}"
-}
-
 eval_method() {
   local env_name="$1"
   local method="$2"
-  local latency episodes eval_parallel raw_name run_id run_dir prompt_map wandb_run_id
+  local latency episodes eval_parallel raw_name run_id run_dir checkpoint_path prompt_map wandb_run_name eval_status
+  local downloaded_checkpoint=0
 
   case "${env_name}" in
     flappy)
@@ -136,20 +133,23 @@ eval_method() {
   raw_name="${env_name}_fix_latency_${latency}_${episodes}ep_7k2steps"
   run_id="${raw_name}_${method}"
   run_dir="${CHECKPOINT_ROOT}/${run_id}"
+  checkpoint_path="${run_dir}/checkpoints/steps_4000_model.safetensors"
 
-  if ! compgen -G "${run_dir}/checkpoints/steps_*_model.safetensors" >/dev/null; then
+  if [[ ! -f "${checkpoint_path}" ]]; then
+    downloaded_checkpoint=1
     download_run "${run_id}"
   fi
 
   prompt_map="${run_dir}/eval_inputs/${env_name}_fixed_latency_${latency}.json"
   mkdir -p "$(dirname "${prompt_map}")"
   write_latency_prompt_map "${env_name}" "${latency}" "${prompt_map}"
-  wandb_run_id="$(latest_wandb_run_id "${run_dir}")"
+  wandb_run_name="${run_id}__post_train__step_4000__latency_bench"
 
-  echo "Evaluating ${run_id}: latency=${latency} raw_frames, episodes=100, parallel=${eval_parallel}, wandb_run_id=${wandb_run_id}"
-  conda run --no-capture-output -n starvla_rl_games_openvla python \
+  echo "Evaluating ${run_id}: latency=${latency} raw_frames, episodes=100, parallel=${eval_parallel}, wandb_run_name=${wandb_run_name}"
+  if conda run --no-capture-output -n starvla_rl_games_openvla python \
     "${STARVLA_ROOT}/examples/rl_games/scripts/eval_checkpoint.py" \
     --run-dir "${run_dir}" \
+    --step 4000 \
     --stage post_train \
     --workspace-dir "${STARVLA_ROOT}" \
     --base-model-dir "${BASE_MODEL_DIR}" \
@@ -161,16 +161,40 @@ eval_method() {
     --override "rl_games.env_eval.post_train.enabled=true" \
     --override "rl_games.env_eval.latency.prompt_map_path=${prompt_map}" \
     --wandb-enabled true \
-    --wandb-run-id "${wandb_run_id}"
+    --wandb-project starVLA_rl_games \
+    --wandb-entity zihanwang-ai-northwestern-university \
+    --wandb-run-name "${wandb_run_name}"; then
+    eval_status=0
+  else
+    eval_status=$?
+  fi
+
+  if (( downloaded_checkpoint )); then
+    rm -f "${checkpoint_path}"
+  fi
+  return "${eval_status}"
 }
 
 select_envs "${1:-all}"
 select_methods "${2:-all}"
 
-conda run --no-capture-output -n latency hf download \
-  "${BASE_MODEL_REPO}" \
-  --revision "${BASE_MODEL_REVISION}" \
-  --local-dir "${BASE_MODEL_DIR}"
+if [[ ! -f "${BASE_MODEL_DIR}/model-00001-of-00002.safetensors" ||
+      ! -f "${BASE_MODEL_DIR}/model-00002-of-00002.safetensors" ]]; then
+  hf_download \
+    "${BASE_MODEL_REPO}" \
+    --revision "${BASE_MODEL_REVISION}" \
+    --local-dir "${BASE_MODEL_DIR}"
+fi
+
+CUDA_HOME="$(
+  conda run --no-capture-output -n starvla_rl_games_openvla python -c \
+    'from torch.utils.cpp_extension import CUDA_HOME; print(CUDA_HOME)'
+)"
+TORCH_CUDA_ARCH_LIST="$(
+  conda run --no-capture-output -n starvla_rl_games_openvla python -c \
+    'import torch; major, minor = torch.cuda.get_device_capability(); print(f"{major}.{minor}")'
+)"
+export CUDA_HOME TORCH_CUDA_ARCH_LIST
 
 for env_name in "${ENVS[@]}"; do
   for method in "${METHODS[@]}"; do
