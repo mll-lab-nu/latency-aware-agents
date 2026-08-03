@@ -4,20 +4,23 @@ set -euo pipefail
 # Regenerate the same accepted Flappy Bird episodes as the memory rollout
 # dataset below, but render observations with a 15-frame Flappy ghost trail.
 #
-# On a new machine, edit only this variable if your workspace root differs.
-WORKSPACE=""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+
+# On a new machine, override WORKSPACE if you want downloads/outputs elsewhere.
+WORKSPACE="${WORKSPACE:-${REPO_ROOT}}"
 
 SOURCE_HF_REPO="latency-sensitive-bench/memory-rollouts"
 SOURCE_HF_CONFIG="flappy_fixed_latency_3_200ep_7k2steps"
 SOURCE_HF_REVISION="6875117373bb24255a07653b65501b53a35dc2d4"
 
-CHECKPOINT_HF_REPO="latency-sensitive-bench/latency-checkpoints"
-CHECKPOINT_HF_INCLUDE="checkpoints/flappy_sf_same_latency_l3_seed0/**"
-CHECKPOINT_LOCAL_DIR="${WORKSPACE}/small_model"
-CHECKPOINT_ROOT="${WORKSPACE}/small_model/checkpoints/flappy_sf_same_latency_l3_seed0"
-OUTPUT_DIR="${WORKSPACE}/outputs/teacher_datasets/flappy_fixed_latency_3_200ep_7k2steps_ghost15"
+CHECKPOINT_HF_REPO="latency-sensitive-bench/paper-experiment-models"
+CHECKPOINT_HF_INCLUDE="memory/rollout_teachers/flappy/train/memory_rollout_teacher:flappy:teacher:fixed_l3:fs4:obs30:stride1:seed0/**"
+CHECKPOINT_LOCAL_DIR="${WORKSPACE}/paper_experiment_models"
+CHECKPOINT_ROOT="${CHECKPOINT_LOCAL_DIR}/memory/rollout_teachers/flappy/train/memory_rollout_teacher:flappy:teacher:fixed_l3:fs4:obs30:stride1:seed0"
+OUTPUT_DIR="${WORKSPACE}/outputs/teacher_datasets/flappy_fixed_latency_3_200ep_7k2steps_ghost15_2"
 UPLOAD_HF_REPO="latency-sensitive-bench/memory-rollouts"
-UPLOAD_HF_PATH="flappy_fixed_latency_3_200ep_7k2steps_ghost15"
+UPLOAD_HF_PATH="flappy_fixed_latency_3_200ep_7k2steps_ghost15_2"
 
 MAX_EPISODES=200
 MAX_STEPS=7200
@@ -35,8 +38,6 @@ GHOST_TRAIL_MIN_ALPHA=35
 GHOST_TRAIL_SCROLL_PX_PER_STEP=4.0
 GHOST_TRAIL_GROUND_FRACTION=0.22
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 cd "${REPO_ROOT}"
 
 if ! command -v python >/dev/null 2>&1; then
