@@ -955,6 +955,7 @@ def test_wanoft_runtime_overrides_keep_raw_latency_and_prompt_key_aligned(
 
     apply_runtime_overrides(
         config,
+        model_config_path=tmp_path / "config.full.yaml",
         latency_prompt_map_path=tmp_path / "latency_prompt_map.json",
         latency_raw_frames=6,
         eval_max_steps=50,
@@ -967,6 +968,7 @@ def test_wanoft_runtime_overrides_keep_raw_latency_and_prompt_key_aligned(
     assert config["policy"]["latency_prompt_map_path"] == str(
         tmp_path / "latency_prompt_map.json"
     )
+    assert config["policy"]["model_config_path"] == str(tmp_path / "config.full.yaml")
     assert config["evaluation"]["eval_suites"]["fixed"] == [[6]]
     assert config["evaluation"]["eval_max_steps"] == 50
     assert config["evaluation"]["eval_parallel_envs"] == 2

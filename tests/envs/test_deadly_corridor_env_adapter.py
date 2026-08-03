@@ -7,9 +7,13 @@ import numpy as np
 from latency_bench.core.types import Action
 from latency_bench.envs.deadly_corridor import (
     DeadlyCorridorEnvAdapter,
+    DeadlyCorridorVlaEnvAdapter,
     _semantic_to_runtime_multibinary,
 )
-from latency_bench.envs.raw_rgb import RawRgbFrameStackBuffer
+from latency_bench.envs.raw_rgb import (
+    ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
+    RawRgbFrameStackBuffer,
+)
 
 
 class ScriptedVizdoomGame:
@@ -115,3 +119,21 @@ def test_deadly_corridor_observe_stacks_raw_frames_between_policy_observations()
     assert raw_stack.shape == (2, 4, 4, 3)
     assert np.all(raw_stack[0] == 2)
     assert np.all(raw_stack[1] == 3)
+
+
+def test_deadly_corridor_vla_observe_exports_raw_frame_stack():
+    frame = np.full((4, 4, 3), 7, dtype=np.uint8)
+    adapter = object.__new__(DeadlyCorridorVlaEnvAdapter)
+    adapter.env_fps = 35.0
+    adapter.env_step = 0
+    adapter.export_env_raw_rgb_frames = True
+    adapter._last_info = {}
+    adapter._last_frame = frame
+    adapter._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=2)
+    adapter._raw_rgb_frames.reset(frame)
+
+    observation = adapter.observe()
+
+    assert observation.data is frame
+    assert observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY].shape == (2, 4, 4, 3)
+    assert np.all(observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] == 7)
