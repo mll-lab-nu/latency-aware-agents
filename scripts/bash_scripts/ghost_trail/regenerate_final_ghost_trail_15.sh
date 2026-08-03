@@ -5,20 +5,23 @@ set -euo pipefail
 # rollout dataset, but render observations with a 15-frame Demon Attack ghost
 # trail.
 #
-# On a new machine, edit only this variable if your workspace root differs.
-WORKSPACE=""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+
+# On a new machine, override WORKSPACE if you want downloads/outputs elsewhere.
+WORKSPACE="${WORKSPACE:-${REPO_ROOT}}"
 
 SOURCE_HF_REPO="latency-sensitive-bench/memory-rollouts"
 SOURCE_HF_CONFIG="demon_attack_fixed_latency_6_200ep_7k2steps"
 SOURCE_HF_REVISION="6875117373bb24255a07653b65501b53a35dc2d4"
 
-CHECKPOINT_HF_REPO="latency-sensitive-bench/latency-checkpoints"
-CHECKPOINT_HF_INCLUDE="checkpoints_old/demon_attack_sf_same_latency_l6_seed0/**"
-CHECKPOINT_LOCAL_DIR="${WORKSPACE}/small_model"
-CHECKPOINT_ROOT="${WORKSPACE}/small_model/checkpoints_old/demon_attack_sf_same_latency_l6_seed0"
-OUTPUT_DIR="${WORKSPACE}/outputs/teacher_datasets/demon_attack_fixed_latency_6_200ep_7k2steps_ghost15"
+CHECKPOINT_HF_REPO="latency-sensitive-bench/paper-experiment-models"
+CHECKPOINT_HF_INCLUDE="memory/rollout_teachers/demon_attack/train/memory_rollout_teacher:demon_attack:teacher:fixed_l6:fs4:obs15:stride4:seed0/**"
+CHECKPOINT_LOCAL_DIR="${WORKSPACE}/paper_experiment_models"
+CHECKPOINT_ROOT="${CHECKPOINT_LOCAL_DIR}/memory/rollout_teachers/demon_attack/train/memory_rollout_teacher:demon_attack:teacher:fixed_l6:fs4:obs15:stride4:seed0"
+OUTPUT_DIR="${WORKSPACE}/outputs/teacher_datasets/demon_attack_fixed_latency_6_200ep_7k2steps_ghost15_2"
 UPLOAD_HF_REPO="latency-sensitive-bench/memory-rollouts"
-UPLOAD_HF_PATH="demon_attack_fixed_latency_6_200ep_7k2steps_ghost15"
+UPLOAD_HF_PATH="demon_attack_fixed_latency_6_200ep_7k2steps_ghost15_2"
 
 MAX_EPISODES=200
 MAX_STEPS=7200
@@ -32,8 +35,6 @@ REPLAY_NUM_ENVS=16
 IMAGE_WRITER_WORKERS=32
 GHOST_TRAIL_HISTORY_FRAMES=15
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 cd "${REPO_ROOT}"
 
 if ! command -v python >/dev/null 2>&1; then
