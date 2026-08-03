@@ -111,6 +111,7 @@ eval_method() {
   local method="$2"
   local latency episodes eval_parallel raw_name run_id run_dir checkpoint_path prompt_map wandb_run_name eval_status
   local downloaded_checkpoint=0
+  local max_steps_args=()
 
   case "${env_name}" in
     flappy)
@@ -122,6 +123,7 @@ eval_method() {
       latency=6
       episodes=200
       eval_parallel=20
+      max_steps_args=(--max-steps-per-episode 14400)
       ;;
     deadly_corridor)
       latency=6
@@ -144,6 +146,9 @@ eval_method() {
   mkdir -p "$(dirname "${prompt_map}")"
   write_latency_prompt_map "${env_name}" "${latency}" "${prompt_map}"
   wandb_run_name="${run_id}__post_train__step_4000__latency_bench"
+  if [[ "${env_name}" == "demon_attack" ]]; then
+    wandb_run_name="${wandb_run_name}__max_raw_steps_14400"
+  fi
 
   echo "Evaluating ${run_id}: latency=${latency} raw_frames, episodes=100, parallel=${eval_parallel}, wandb_run_name=${wandb_run_name}"
   if conda run --no-capture-output -n starvla_rl_games_openvla python \
@@ -155,6 +160,7 @@ eval_method() {
     --base-model-dir "${BASE_MODEL_DIR}" \
     --latencies "${latency}" \
     --num-episodes 100 \
+    "${max_steps_args[@]}" \
     --override "rl_games.env_eval.enabled=true" \
     --override "rl_games.env_eval.eval_backend=latency_bench" \
     --override "rl_games.env_eval.eval_parallel_envs=${eval_parallel}" \
