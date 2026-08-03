@@ -17,6 +17,7 @@ def test_uses_fixed_cuda_home_and_dual_arch_list(monkeypatch, tmp_path):
     (cuda_home / "targets" / "x86_64-linux" / "lib" / "stubs").mkdir(parents=True)
     monkeypatch.setenv("CUDA_HOME", str(cuda_home))
     monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
     monkeypatch.delenv("CPATH", raising=False)
     monkeypatch.delenv("LD_LIBRARY_PATH", raising=False)
     monkeypatch.delenv("LIBRARY_PATH", raising=False)
@@ -38,6 +39,17 @@ def test_uses_fixed_cuda_home_and_dual_arch_list(monkeypatch, tmp_path):
         str(cuda_home / "targets" / "x86_64-linux" / "lib" / "stubs"),
     ]
     assert cuda_extension_build.cpp_extension.CUDA_HOME == str(cuda_home)
+
+
+def test_preserves_explicit_cuda_arch_list(monkeypatch, tmp_path):
+    from training.common import cuda_extension_build
+
+    monkeypatch.setenv("CUDA_HOME", str(tmp_path))
+    monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "8.0")
+
+    cuda_extension_build.ensure_compatible_cuda_extension_toolchain()
+
+    assert os.environ["TORCH_CUDA_ARCH_LIST"] == "8.0"
 
 
 def test_cuda_home_is_required(monkeypatch):

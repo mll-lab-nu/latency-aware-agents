@@ -47,6 +47,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run a latency-sensitive control benchmark.")
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--checkpoint-path", type=Path)
+    parser.add_argument("--model-config-path", type=Path)
     parser.add_argument("--run-name", type=str)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--checkpoint-kind", choices=["latest", "best"])
@@ -61,6 +62,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     _apply_runtime_overrides(
         config,
         checkpoint_path=args.checkpoint_path,
+        model_config_path=args.model_config_path,
         run_name=args.run_name,
         output_dir=args.output_dir,
         checkpoint_kind=args.checkpoint_kind,

@@ -12,7 +12,8 @@ CUDA_ARCH_LIST = "9.0;12.0"
 
 def ensure_compatible_cuda_extension_toolchain() -> Path:
     cuda_home = Path(os.environ["CUDA_HOME"])
-    os.environ["TORCH_CUDA_ARCH_LIST"] = CUDA_ARCH_LIST
+    if "TORCH_CUDA_ARCH_LIST" not in os.environ:
+        os.environ["TORCH_CUDA_ARCH_LIST"] = CUDA_ARCH_LIST
     _activate_cuda_home(cuda_home)
     return cuda_home
 

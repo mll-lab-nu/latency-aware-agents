@@ -83,6 +83,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         obs_resize: tuple[int, int] | None = None,
         image_transform_config: Mapping[str, Any] | None = None,
         observation_stride_raw_frames: int,
+        model_cfg: Mapping[str, Any] | None = None,
     ) -> None:
         self._wrapper = wrapper
         self._obs_resize = tuple(obs_resize) if obs_resize else None
@@ -101,7 +102,11 @@ class StarVlaPolicyRunner(PolicyRunner):
         self._image_transform = str(
             self._image_transform_config.get("image_transform", "raw_rgb") or "raw_rgb"
         ).strip().lower()
-        model_cfg = _normalized_model_cfg_from_wrapper(wrapper)
+        model_cfg = (
+            _normalized_model_cfg_from_wrapper(wrapper)
+            if model_cfg is None
+            else _normalized_model_cfg(model_cfg)
+        )
         self._include_state = _include_state_from_model_cfg(model_cfg)
         self._state_dim = _state_dim_from_model_cfg(model_cfg) if self._include_state else None
         vla_data = (model_cfg.get("datasets", {}) or {}).get("vla_data", {}) or {}
@@ -541,15 +546,25 @@ def _as_uint8_image(frame: npt.NDArray[Any]) -> npt.NDArray[np.uint8]:
     return np.ascontiguousarray(frame, dtype=np.uint8)
 
 
-def _normalized_model_cfg_from_wrapper(wrapper: Any) -> dict[str, Any]:
+def _normalized_model_cfg(model_cfg: Mapping[str, Any]) -> dict[str, Any]:
     _ensure_starvla_path()
     from omegaconf import OmegaConf
     from starVLA.model.framework.share_tools import apply_config_compat
 
-    cfg = OmegaConf.create(wrapper._model_cfg)
+    cfg = OmegaConf.create(model_cfg)
     apply_config_compat(cfg)
     _apply_model_family_include_state_compat(cfg)
     return OmegaConf.to_container(cfg, resolve=True)
+
+
+def _normalized_model_cfg_from_wrapper(wrapper: Any) -> dict[str, Any]:
+    return _normalized_model_cfg(wrapper._model_cfg)
+
+
+def _load_starvla_model_config(path: str | Path) -> dict[str, Any]:
+    from omegaconf import OmegaConf
+
+    return _normalized_model_cfg(OmegaConf.load(path))
 
 
 def _apply_model_family_include_state_compat(cfg: Any) -> None:
@@ -651,13 +666,18 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
     if config["policy"]["type"] != "starvla":
         return
 
-    _ensure_starvla_path()
-    from starVLA.model.framework.share_tools import read_mode_config
+    policy_cfg = config["policy"]
+    if "model_config_path" in policy_cfg:
+        model_cfg = _load_starvla_model_config(policy_cfg["model_config_path"])
+    else:
+        _ensure_starvla_path()
+        from starVLA.model.framework.share_tools import read_mode_config
 
-    model_cfg, _norm_stats = read_mode_config(config["policy"]["checkpoint_path"])
+        saved_model_cfg, _norm_stats = read_mode_config(policy_cfg["checkpoint_path"])
+        model_cfg = _normalized_model_cfg(saved_model_cfg)
     image_transform_cfg = (
-        config["policy"]["image_transform_config"]
-        if "image_transform_config" in config["policy"]
+        policy_cfg["image_transform_config"]
+        if "image_transform_config" in policy_cfg
         else {}
     )
     image_transform = (
@@ -802,6 +822,11 @@ def build_starvla_policy(
     latency_prompt_key = policy_cfg.get("latency_prompt_key")
     prompt_mode = policy_cfg.get("prompt_mode")
     image_transform_config = policy_cfg.get("image_transform_config")
+    model_cfg = (
+        _load_starvla_model_config(policy_cfg["model_config_path"])
+        if "model_config_path" in policy_cfg
+        else None
+    )
     return StarVlaPolicyRunner(
         wrapper=wrapper,
         checkpoint_path=policy_cfg["checkpoint_path"],
@@ -816,6 +841,7 @@ def build_starvla_policy(
         obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
         image_transform_config=image_transform_config,
         observation_stride_raw_frames=_observation_stride_raw_frames(config),
+        model_cfg=model_cfg,
     )
 
 

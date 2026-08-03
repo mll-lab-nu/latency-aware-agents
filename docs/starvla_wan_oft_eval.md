@@ -21,6 +21,7 @@ Run an evaluation by overriding the generated checkpoint and prompt-map paths:
 python -m latency_bench.run \
   --config configs/experiments/flappy/starvla_wan_oft.yaml \
   --checkpoint-path third_party/starVLA/results/Checkpoints/<run_id>/checkpoints/steps_<N>_pytorch_model.pt \
+  --model-config-path third_party/starVLA/results/Checkpoints/<run_id>/config.full.yaml \
   --latency-prompt-map-path third_party/starVLA/data/flappy_fix_latency_3_200ep_context5/flappy_train__bridge/latency_prompt_map.json \
   --output-dir outputs/<run_id>_latency_bench
 ```
@@ -39,6 +40,7 @@ limit the rollout:
 python -m latency_bench.run \
   --config configs/experiments/demon_attack/starvla_wan_oft.yaml \
   --checkpoint-path third_party/starVLA/results/Checkpoints/<run_id>/checkpoints/steps_50_pytorch_model.pt \
+  --model-config-path third_party/starVLA/results/Checkpoints/<run_id>/config.full.yaml \
   --latency-prompt-map-path third_party/starVLA/data/demon_attack_fix_latency_6_200ep_context5/demon_attack_train__bridge/latency_prompt_map.json \
   --output-dir outputs/<run_id>_smoke \
   --episode-start 0 \
@@ -52,11 +54,13 @@ Flappy uses 3 raw frames, while Demon Attack and Deadly Corridor use 6.
 
 ## Multi-image contract
 
-WanOFT's saved `config.yaml` is the source of truth for
+WanOFT's saved `config.full.yaml` is the source of truth for
 `datasets.vla_data.pack_image_sequence` and `image_sequence_length`.
-Before constructing the environment, latency-bench reads those fields and
-sizes the raw RGB history to cover the requested number of policy
-observations.
+The compact `config.yaml` saved beside these checkpoints does not contain
+those dataset input fields. Pass `--model-config-path` when overriding a
+checkpoint so latency-bench reads the full input contract before constructing
+the environment and sizes the raw RGB history to cover the requested number
+of policy observations.
 
 For the default five-image checkpoints:
 
