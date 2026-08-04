@@ -107,6 +107,7 @@ train_method() {
       latency=6
       episodes=1000
       eval_args=(
+        "rl_games.deadly_corridor_loss_type=multibinary_bce"
         "rl_games.env_eval.mid_train.enabled=false"
         "rl_games.env_eval.post_train.enabled=false"
       )
