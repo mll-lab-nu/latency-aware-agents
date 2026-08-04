@@ -97,4 +97,7 @@ printf '%s\\n' "$*" >> "{calls_path}"
         )
     ]
     assert len(training_calls) == 1
-    assert "dataset.target_latency_unit=raw_frames" in training_calls[0].split()
+    training_args = training_calls[0].split()
+    assert "dataset.target_latency_unit=raw_frames" in training_args
+    deadly_loss_override = "rl_games.deadly_corridor_loss_type=multibinary_bce"
+    assert (deadly_loss_override in training_args) is (env_name == "deadly_corridor")
