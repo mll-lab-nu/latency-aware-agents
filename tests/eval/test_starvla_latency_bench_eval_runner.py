@@ -187,10 +187,24 @@ def test_resolve_starvla_prompt_latency_neutral_strips_latency_suffix():
         )
 
 
-def test_translation_multiframe_expands_eval_frame_stack(tmp_path):
+@pytest.mark.parametrize(
+    ("env_name", "image_mode", "num_obs_frames", "expected_frame_stack"),
+    [
+        ("flappy", "multiframe", 8, 8),
+        ("demon_attack", "multiframe", 4, 13),
+        ("deadly_corridor", "stitch", 4, 13),
+    ],
+)
+def test_translation_multiframe_expands_eval_frame_stack_at_observation_stride(
+    tmp_path,
+    env_name,
+    image_mode,
+    num_obs_frames,
+    expected_frame_stack,
+):
     cfg = build_latency_bench_config_for_rl_games(
-        env_name="flappy",
-        model_cfg=_model_cfg(num_obs_frames=8, image_mode="multiframe"),
+        env_name=env_name,
+        model_cfg=_model_cfg(num_obs_frames=num_obs_frames, image_mode=image_mode),
         seed=0,
         image_size=224,
         num_episodes=1,
@@ -203,7 +217,7 @@ def test_translation_multiframe_expands_eval_frame_stack(tmp_path):
         actions=None,
         output_dir=tmp_path,
     )
-    assert cfg["env"]["frame_stack"] == 8
+    assert cfg["env"]["frame_stack"] == expected_frame_stack
 
 
 def test_translation_multiframe_keeps_larger_base_frame_stack(tmp_path):
@@ -242,6 +256,41 @@ def test_translation_kv_memory_does_not_expand_eval_frame_stack(tmp_path):
         output_dir=tmp_path,
     )
     assert cfg["env"]["frame_stack"] == 4
+
+
+@pytest.mark.parametrize(
+    ("env_name", "image_transform", "expected_frame_stack"),
+    [
+        ("flappy", "flappy_ghost_trail", 6),
+        ("demon_attack", "demon_attack_ghost_trail", 5),
+    ],
+)
+def test_translation_ghost_history_is_not_expanded_by_multiframe_input(
+    tmp_path,
+    env_name,
+    image_transform,
+    expected_frame_stack,
+):
+    cfg = build_latency_bench_config_for_rl_games(
+        env_name=env_name,
+        model_cfg=_model_cfg(num_obs_frames=8, image_mode="multiframe"),
+        seed=0,
+        image_size=224,
+        num_episodes=1,
+        eval_max_steps=100,
+        latency_steps=0,
+        eval_parallel_envs=1,
+        unnorm_key=None,
+        latency_prompt_map_path=None,
+        image_transform_config={
+            "image_transform": image_transform,
+            "history_frames": 5,
+        },
+        actions=None,
+        output_dir=tmp_path,
+    )
+
+    assert cfg["env"]["frame_stack"] == expected_frame_stack
 
 
 @pytest.mark.parametrize(
