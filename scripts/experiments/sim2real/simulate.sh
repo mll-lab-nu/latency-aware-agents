@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+cd "${REPO_ROOT}"
 
 readonly -a GPU_SLOTS=("0,1" "2,3" "4,5" "6,7")
 readonly -a METHODS=(temporal iid fixed normal)
@@ -93,13 +95,13 @@ launch_task() {
 
     (
         printf '[slot %s] start %s\n' "$slot" "$label"
-        CUDA_VISIBLE_DEVICES="$slot" bash cross_device.sh sim \
+        CUDA_VISIBLE_DEVICES="$slot" bash "${SCRIPT_DIR}/cross_device.sh" sim \
             --config "$config" \
             --profile-ref "$profile_ref" \
             --method "$method" \
             --latency-seeds "$latency_seed" \
             --resume || exit $?
-        CUDA_VISIBLE_DEVICES="$slot" bash cross_device.sh publish sim \
+        CUDA_VISIBLE_DEVICES="$slot" bash "${SCRIPT_DIR}/cross_device.sh" publish sim \
             --config "$config" \
             --profile-ref "$profile_ref" \
             --method "$method" \
