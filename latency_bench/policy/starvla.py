@@ -208,13 +208,12 @@ class StarVlaPolicyRunner(PolicyRunner):
             ]
         elif transformed is not None:
             frames = [transformed]
+        elif self._image_mode == "single" or self._kv_memory_enabled:
+            frames = frames[-1:]
         else:
             # Select the temporal observation window to match training (_pack_sample).
-            if self._image_mode == "single":
-                frames = frames[-1:]
-            else:
-                n = min(self._num_obs_frames, len(frames))
-                frames = frames[-n:]
+            raw_span = 1 + (self._num_obs_frames - 1) * self._observation_stride_raw_frames
+            frames = frames[-raw_span :: self._observation_stride_raw_frames]
 
         prompt = resolve_starvla_prompt(
             env_name=self._env_name,
@@ -643,18 +642,25 @@ def apply_starvla_model_input_config(
         if "pack_image_sequence" in vla_data
         else False
     )
-    if not pack_image_sequence:
-        return
-
     normalized_transform = str(image_transform).strip().lower()
-    if normalized_transform not in {"", "none", "raw", "raw_rgb"}:
-        raise ValueError(
-            "WanOFT packed image sequences require image_transform=raw_rgb"
-        )
+    raw_image_transform = normalized_transform in {"", "none", "raw", "raw_rgb"}
+    if pack_image_sequence:
+        if not raw_image_transform:
+            raise ValueError(
+                "WanOFT packed image sequences require image_transform=raw_rgb"
+            )
+        input_frame_count = int(vla_data["image_sequence_length"])
+    else:
+        if not raw_image_transform:
+            return
+        if model_cfg["framework"]["kv_memory"]["enabled"]:
+            return
+        if vla_data["image_mode"] == "single":
+            return
+        input_frame_count = int(vla_data["num_obs_frames"])
 
-    image_sequence_length = int(vla_data["image_sequence_length"])
     observation_stride = _observation_stride_raw_frames(config)
-    required_raw_frames = 1 + (image_sequence_length - 1) * observation_stride
+    required_raw_frames = 1 + (input_frame_count - 1) * observation_stride
     config["env"]["frame_stack"] = max(
         int(config["env"]["frame_stack"]),
         required_raw_frames,

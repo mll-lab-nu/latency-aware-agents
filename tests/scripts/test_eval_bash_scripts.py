@@ -1020,49 +1020,6 @@ def test_starvla_rl_games_hfd_raw_download_convert_dry_run_defaults_to_all_datas
     assert "latency-sensitive-bench/deadly_corridor_fixed_l2_fs6" in result.stdout
 
 
-def test_cross_device_aggregate_script_forwards_explicit_selection(tmp_path):
-    script_path = REPO_ROOT / "aggregate.sh"
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    calls_path = tmp_path / "calls.log"
-    _write_executable(
-        fake_bin / "bash",
-        f"""#!/bin/bash
-set -euo pipefail
-printf '%s\n' "$*" >> "{calls_path}"
-exit 0
-""",
-    )
-
-    subprocess.run(["bash", "-n", str(script_path)], cwd=REPO_ROOT, check=True)
-    subprocess.run(
-        [
-            "/bin/bash",
-            str(script_path),
-            "--profile-ref",
-            "a100-sxm4-80gb/instance/workload/revision",
-            "--real-sessions",
-            "0",
-            "--methods",
-            "temporal",
-            "--latency-seeds",
-            "0",
-            "2",
-        ],
-        cwd=REPO_ROOT,
-        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
-        check=True,
-    )
-
-    calls = calls_path.read_text(encoding="utf-8")
-    assert "cross_device.sh aggregate" in calls
-    assert "--profile-ref a100-sxm4-80gb/instance/workload/revision" in calls
-    assert "--real-sessions 0" in calls
-    assert "--methods temporal" in calls
-    assert "--latency-seeds 0 2" in calls
-    assert calls.count("\n") == 1
-
-
 def test_cross_device_activation_survives_cuda_hook_with_unset_flags(tmp_path):
     prefix = tmp_path / "conda"
     fake_bin = tmp_path / "bin"
@@ -1078,8 +1035,12 @@ printf 'python %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
     )
 
     result = subprocess.run(
-        ["bash", str(REPO_ROOT / "cross_device.sh"), "target-ref"],
-        cwd=REPO_ROOT,
+        [
+            "bash",
+            str(REPO_ROOT / "scripts/experiments/sim2real/cross_device.sh"),
+            "target-ref",
+        ],
+        cwd=tmp_path,
         env={
             **os.environ,
             "PATH": f"{fake_bin}:{os.environ['PATH']}",
@@ -1097,17 +1058,45 @@ printf 'python %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
 
 
 @pytest.mark.parametrize(
-    ("script_name", "session_args", "profile_revision"),
+    ("script_name", "config", "session_args", "profile_revision"),
     [
-        ("measure_isolated_30s.sh", "0", "fit-0"),
-        ("measure_consecutive.sh", "0 1 2 3 4", "fit-0-4"),
+        (
+            "measure_isolated_30s.sh",
+            "configs/experiments/cross_device_isolated_30s.yaml",
+            "0",
+            "fit-0",
+        ),
+        (
+            "measure_consecutive.sh",
+            "configs/experiments/cross_device.yaml",
+            "0 1 2 3 4",
+            "fit-0-4",
+        ),
     ],
+)
+@pytest.mark.parametrize(
+    "hardware",
+    (
+        "a100-pcie-40gb",
+        "a100-pcie-80gb",
+        "a100-sxm4-40gb",
+        "a100-sxm4-80gb",
+        "l40s",
+        "rtx-pro-6000-blackwell-maxq-ws",
+        "rtx-pro-6000-blackwell-server",
+        "rtx-pro-6000-blackwell-ws",
+        "rtx3090",
+        "rtx4090",
+        "rtx5090",
+    ),
 )
 def test_cross_device_measure_scripts_use_expected_sessions(
     tmp_path,
     script_name,
+    config,
     session_args,
     profile_revision,
+    hardware,
 ):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir(exist_ok=True)
@@ -1123,35 +1112,33 @@ fi
 """,
     )
 
-    script_paths = sorted(
-        (REPO_ROOT / "scripts/bash_scripts/cross_device").glob(f"*/{script_name}")
+    script_path = (
+        REPO_ROOT / "scripts" / "experiments" / "sim2real" / script_name
     )
-    assert script_paths
-    for script_path in script_paths:
-        calls_path.write_text("", encoding="utf-8")
-        subprocess.run(
-            ["/bin/bash", str(script_path)],
-            cwd=REPO_ROOT,
-            env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
-            check=True,
-        )
+    subprocess.run(
+        ["/bin/bash", str(script_path), hardware],
+        cwd=tmp_path,
+        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
+        check=True,
+    )
 
-        device_id = script_path.parent.name
-        calls = calls_path.read_text(encoding="utf-8").splitlines()
-        assert len(calls) == 5
-        assert calls[0].startswith("cross_device.sh measure ")
-        assert f"--hardware {device_id}" in calls[0]
-        assert calls[0].endswith(f"--sessions {session_args} --resume")
-        assert calls[1].startswith("cross_device.sh publish raw ")
-        assert f"--hardware {device_id}" in calls[1]
-        assert calls[1].endswith(f"--sessions {session_args} --resume")
-        assert calls[2].startswith("cross_device.sh target-ref ")
-        assert f"--hardware {device_id}" in calls[2]
-        assert calls[3].startswith("cross_device.sh fit ")
-        assert f"--profile-revision {profile_revision}" in calls[3]
-        assert calls[3].endswith(f"--sessions {session_args} --resume")
-        assert calls[4].startswith("cross_device.sh publish profile ")
-        assert f"--profile-ref device/instance/workload/{profile_revision}" in calls[4]
+    calls = [
+        "cross_device.sh " + call.split("cross_device.sh ", maxsplit=1)[1]
+        for call in calls_path.read_text(encoding="utf-8").splitlines()
+    ]
+    selection = f"--config {config} --hardware {hardware}"
+    target_selection = "--config " + config
+    assert calls == [
+        f"cross_device.sh measure {selection} --sessions {session_args} --resume",
+        f"cross_device.sh publish raw {selection} --sessions {session_args} --resume",
+        f"cross_device.sh target-ref {selection}",
+        "cross_device.sh fit "
+        f"{target_selection} --target-ref device/instance/workload "
+        f"--profile-revision {profile_revision} --sessions {session_args} --resume",
+        "cross_device.sh publish profile "
+        f"{target_selection} --profile-ref device/instance/workload/{profile_revision} "
+        "--resume",
+    ]
 
 
 def _cross_device_sim_expected_calls():
@@ -1203,8 +1190,18 @@ def _cross_device_sim_expected_calls():
     return expected
 
 
+def _normalize_script_call(command):
+    if "cross_device.sh " in command:
+        return "cross_device.sh " + command.split("cross_device.sh ", maxsplit=1)[1]
+    if "scripts/bash_scripts/" in command:
+        return "scripts/bash_scripts/" + command.split(
+            "scripts/bash_scripts/", maxsplit=1
+        )[1]
+    return command
+
+
 def test_cross_device_sim_script_runs_full_matrix_on_four_slots(tmp_path):
-    script_path = REPO_ROOT / "sim.sh"
+    script_path = REPO_ROOT / "scripts/experiments/sim2real/simulate.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     calls_path = tmp_path / "calls.log"
@@ -1231,10 +1228,10 @@ def test_cross_device_sim_script_runs_full_matrix_on_four_slots(tmp_path):
 set -euo pipefail
 printf '%s|%s\n' "${CUDA_VISIBLE_DEVICES-}" "$*" >> "$SIM_CALLS_PATH"
 printf 'start|%s|%s\n' "${CUDA_VISIBLE_DEVICES-}" "$*" >> "$SIM_EVENTS_PATH"
-if [[ "$*" == "$NEXT_SIM_CALL" ]]; then
+if [[ "$*" == *"$NEXT_SIM_CALL" ]]; then
   : > "$NEXT_TASK_STARTED"
 fi
-if [[ "$*" == "$SLOW_SIM_1" || "$*" == "$SLOW_SIM_2" || "$*" == "$SLOW_SIM_3" ]]; then
+if [[ "$*" == *"$SLOW_SIM_1" || "$*" == *"$SLOW_SIM_2" || "$*" == *"$SLOW_SIM_3" ]]; then
   for _ in {1..100}; do
     if [[ -e "$NEXT_TASK_STARTED" ]]; then
       break
@@ -1270,7 +1267,10 @@ printf 'finish|%s|%s\n' "${CUDA_VISIBLE_DEVICES-}" "$*" >> "$SIM_EVENTS_PATH"
 
     assert result.returncode == 0, result.stderr
     all_calls = calls_path.read_text(encoding="utf-8").splitlines()
-    parsed_all_calls = [call.split("|", maxsplit=1) for call in all_calls]
+    parsed_all_calls = [
+        (slot, _normalize_script_call(command))
+        for slot, command in (call.split("|", maxsplit=1) for call in all_calls)
+    ]
     preparation_commands = [
         command for _, command in parsed_all_calls if not command.startswith("cross_device.sh ")
     ]
@@ -1303,9 +1303,12 @@ printf 'finish|%s|%s\n' "${CUDA_VISIBLE_DEVICES-}" "$*" >> "$SIM_EVENTS_PATH"
             assert command_positions[command] < command_positions[publish_command]
 
     events = [
-        event.split("|", maxsplit=2)
-        for event in events_path.read_text(encoding="utf-8").splitlines()
-        if "|cross_device.sh " in event
+        (stage, slot, _normalize_script_call(command))
+        for stage, slot, command in (
+            event.split("|", maxsplit=2)
+            for event in events_path.read_text(encoding="utf-8").splitlines()
+            if "cross_device.sh " in event
+        )
     ]
 
     def event_index(stage, command):
@@ -1344,7 +1347,7 @@ printf 'finish|%s|%s\n' "${CUDA_VISIBLE_DEVICES-}" "$*" >> "$SIM_EVENTS_PATH"
 
 @pytest.mark.parametrize("failed_stage", ("sim", "publish"))
 def test_cross_device_sim_script_continues_after_task_failure(tmp_path, failed_stage):
-    script_path = REPO_ROOT / "sim.sh"
+    script_path = REPO_ROOT / "scripts/experiments/sim2real/simulate.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     calls_path = tmp_path / "calls.log"
@@ -1365,7 +1368,7 @@ def test_cross_device_sim_script_continues_after_task_failure(tmp_path, failed_s
         """#!/bin/bash
 set -euo pipefail
 printf '%s|%s\n' "${CUDA_VISIBLE_DEVICES-}" "$*" >> "$SIM_CALLS_PATH"
-if [[ "$*" == "$FAILED_SIM_CALL" ]]; then
+if [[ "$*" == *"$FAILED_SIM_CALL" ]]; then
   exit 23
 fi
 """,
@@ -1389,9 +1392,9 @@ fi
     assert "l40s/instance_cfa273e0/openvla-flappy/fit-0-4/temporal/0" in result.stderr
     assert "exit 23" in result.stderr
     commands = {
-        call.split("|", maxsplit=1)[1]
+        _normalize_script_call(call.split("|", maxsplit=1)[1])
         for call in calls_path.read_text(encoding="utf-8").splitlines()
-        if "|cross_device.sh " in call
+        if "cross_device.sh " in call
     }
     expected = _cross_device_sim_expected_calls()
     if failed_stage == "sim":
@@ -1399,162 +1402,35 @@ fi
     assert commands == expected
 
 
-def test_sim_isolated_rebuilds_corrected_sim2real_matrix_and_artifacts(tmp_path):
-    script_path = REPO_ROOT / "sim_isolated.sh"
+
+def test_sim2real_build_figures_builds_data_before_plotting(tmp_path):
+    script_path = REPO_ROOT / "scripts/experiments/sim2real/build_figures.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     calls_path = tmp_path / "calls.log"
-    command_logger = f"""#!/bin/bash
+    python_logger = f"""#!/bin/bash
 set -euo pipefail
-printf '%s|%s\n' "$(basename "$0")" "$*" >> "{calls_path}"
+printf '%s|%s\\n' "$PWD" "$*" >> "{calls_path}"
 """
-    for command in ("bash", "rm", "python"):
-        _write_executable(fake_bin / command, command_logger)
+    _write_executable(fake_bin / "python", python_logger)
+    _write_executable(fake_bin / "python3", python_logger)
 
     subprocess.run(
         ["/bin/bash", str(script_path)],
-        cwd=REPO_ROOT,
+        cwd=tmp_path,
         env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
         check=True,
     )
 
-    calls = calls_path.read_text(encoding="utf-8").splitlines()
-    bash_calls = [call.split("|", maxsplit=1)[1] for call in calls if call.startswith("bash|")]
-    rm_calls = [call.split("|", maxsplit=1)[1] for call in calls if call.startswith("rm|")]
-    python_calls = [
-        call.split("|", maxsplit=1)[1] for call in calls if call.startswith("python|")
+    calls = [
+        (Path(cwd) / arguments.split(maxsplit=1)[0]).resolve()
+        for cwd, arguments in (
+            call.split("|", maxsplit=1)
+            for call in calls_path.read_text(encoding="utf-8").splitlines()
+        )
     ]
-
-    assert sum(call.startswith("cross_device.sh download raw ") for call in bash_calls) == 6
-    assert sum(call.startswith("cross_device.sh fit ") for call in bash_calls) == 6
-    profile_publishes = [
-        call for call in bash_calls if call.startswith("cross_device.sh publish profile ")
+    experiment_dir = REPO_ROOT / "paper/latency-sensitive-vla/exps/sim2real"
+    assert calls == [
+        experiment_dir / "build_data.py",
+        experiment_dir / "plot.py",
     ]
-    assert len(profile_publishes) == 6
-    assert all("--overwrite" in call and "--resume" not in call for call in profile_publishes)
-    assert any(
-        call
-        == "cross_device.sh download raw --config configs/experiments/cross_device.yaml "
-        "--target-ref rtx4090/instance_9fb8d975/openvla-flappy "
-        "--sessions 0 1 2 3 4 --overwrite"
-        for call in bash_calls
-    )
-    assert any(
-        call
-        == "cross_device.sh fit --config configs/experiments/cross_device.yaml "
-        "--target-ref rtx4090/instance_9fb8d975/openvla-flappy "
-        "--profile-revision fit-0-4 --sessions 0 1 2 3 4"
-        for call in bash_calls
-    )
-
-    simulations = [call for call in bash_calls if call.startswith("cross_device.sh sim ")]
-    simulation_publishes = [
-        call for call in bash_calls if call.startswith("cross_device.sh publish sim ")
-    ]
-    assert len(simulations) == 40
-    assert len(simulation_publishes) == 40
-    assert all("--local-profile" in call and "--resume" not in call for call in simulations)
-    assert all("--overwrite" in call for call in simulation_publishes)
-    assert all(
-        any(f"--method {method}" in call for call in simulations)
-        for method in ("temporal", "iid", "fixed", "normal")
-    )
-
-    consecutive_simulations = [
-        call
-        for call in simulations
-        if "--profile-ref rtx4090/instance_9fb8d975/openvla-flappy/fit-0-4 " in call
-    ]
-    expected_consecutive_simulations = {
-        "cross_device.sh sim --config configs/experiments/cross_device.yaml "
-        "--profile-ref rtx4090/instance_9fb8d975/openvla-flappy/fit-0-4 "
-        f"--method {method} --latency-seeds {seed} --local-profile"
-        for method in ("temporal", "iid", "fixed", "normal")
-        for seed in range(5)
-    }
-    assert set(consecutive_simulations) == expected_consecutive_simulations
-
-    isolated_simulations = [
-        call for call in simulations if "openvla-flappy-isolated-30s/fit-0" in call
-    ]
-    isolated_instances = {
-        "l40s": "instance_edd21c9a",
-        "rtx3090": "instance_000df10e",
-        "rtx4090": "instance_e4777ea2",
-        "rtx5090": "instance_02874a5a",
-        "a100-sxm4-80gb": "instance_1d6030f8",
-    }
-    expected_isolated_simulations = {
-        "cross_device.sh sim "
-        "--config configs/experiments/cross_device_isolated_30s.yaml "
-        f"--profile-ref {device}/{instance}/openvla-flappy-isolated-30s/fit-0 "
-        f"--method {method} --latency-seeds 0 --local-profile"
-        for device, instance in isolated_instances.items()
-        for method in ("temporal", "iid", "fixed", "normal")
-    }
-    assert set(isolated_simulations) == expected_isolated_simulations
-
-    last_simulation = max(
-        index
-        for index, call in enumerate(bash_calls)
-        if call.startswith("cross_device.sh sim ")
-    )
-    first_simulation_publish = min(
-        index
-        for index, call in enumerate(bash_calls)
-        if call.startswith("cross_device.sh publish sim ")
-    )
-    first_profile_publish = min(
-        index
-        for index, call in enumerate(bash_calls)
-        if call.startswith("cross_device.sh publish profile ")
-    )
-    assert first_profile_publish > last_simulation
-    assert first_simulation_publish > last_simulation
-
-    assert sum("results/cross_device/profiles/" in call for call in rm_calls) == 6
-    assert sum("results/cross_device/sim/" in call for call in rm_calls) == 40
-    assert python_calls == ["build_data.py", "plot.py"]
-
-
-def test_sim_isolated_does_not_publish_partial_simulation_matrix(tmp_path):
-    script_path = REPO_ROOT / "sim_isolated.sh"
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    calls_path = tmp_path / "calls.log"
-    _write_executable(
-        fake_bin / "bash",
-        f"""#!/bin/bash
-set -euo pipefail
-printf '%s\n' "$*" >> "{calls_path}"
-if [[ "$*" == *"cross_device.sh sim "* ]] && \
-   [[ "$*" == *"--profile-ref rtx4090/instance_9fb8d975/openvla-flappy/fit-0-4 "* ]] && \
-   [[ "$*" == *"--method temporal --latency-seeds 0"* ]]; then
-  exit 23
-fi
-""",
-    )
-    command_logger = f"""#!/bin/bash
-set -euo pipefail
-printf '%s\n' "$*" >> "{calls_path}"
-"""
-    for command in ("rm", "python"):
-        _write_executable(fake_bin / command, command_logger)
-
-    result = subprocess.run(
-        ["/bin/bash", str(script_path)],
-        cwd=REPO_ROOT,
-        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 1
-    assert "exit 23" in result.stderr
-    calls = calls_path.read_text(encoding="utf-8").splitlines()
-    assert sum(call.startswith("cross_device.sh sim ") for call in calls) == 40
-    assert not any(call.startswith("cross_device.sh publish profile ") for call in calls)
-    assert not any(call.startswith("cross_device.sh publish sim ") for call in calls)
-    assert "build_data.py" not in calls
-    assert "plot.py" not in calls
