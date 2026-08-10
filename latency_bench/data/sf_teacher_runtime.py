@@ -20,19 +20,38 @@ from training.common.config_adapter import import_integration_module
 from training.common.utils import maybe_set_cli_override
 
 
-def _register_components(module: Any, env_name: str) -> None:
+REGISTRATION_METHOD_BY_INTEGRATION = {
+    "deadly_corridor": "register_deadly_corridor_components",
+    "demon_attack": "register_demon_attack_envs",
+    "flappy": "register_flappy_envs",
+    "gymnasium": "register_gymnasium_envs",
+}
+
+GYMNASIUM_CHECKPOINT_ARG_FIELDS = (
+    ("gym_task_name", "--gym-task-name"),
+    ("gym_env_id", "--gym-env-id"),
+    ("gym_make_kwargs_json", "--gym-make-kwargs-json"),
+    ("gym_registration_imports_json", "--gym-registration-imports-json"),
+    ("gym_action_labels_json", "--gym-action-labels-json"),
+    ("gym_action_values_json", "--gym-action-values-json"),
+    ("gym_noop_action_id", "--gym-noop-action-id"),
+    ("gym_base_prompt", "--gym-base-prompt"),
+    ("env_fps", "--env-fps"),
+    ("obs_fps", "--obs-fps"),
+    ("frame_stack", "--frame-stack"),
+    ("hold_policy", "--hold-policy"),
+    ("ordering_policy", "--ordering-policy"),
+)
+
+
+def _register_components(module: Any, integration_name: str) -> None:
     """Register Sample Factory integration components for an environment.
 
     Args:
         module: Imported training integration module.
-        env_name: Canonical benchmark environment name.
+        integration_name: Training integration selected by the checkpoint.
     """
-    if env_name == "deadly_corridor":
-        module.register_deadly_corridor_components()
-    elif env_name == "demon_attack":
-        module.register_demon_attack_envs()
-    else:
-        module.register_flappy_envs()
+    getattr(module, REGISTRATION_METHOD_BY_INTEGRATION[integration_name])()
 
 
 def _apply_latency_to_flat_cfg(cfg: Any, latency_cfg: Mapping[str, Any]) -> None:
@@ -71,8 +90,9 @@ def build_sample_factory_rollout_cfg(config: dict[str, Any]):
     from sample_factory.cfg.arguments import load_from_checkpoint
 
     env_name = str(config["env_name"])
-    module = import_integration_module({"env": {"name": env_name}})
-    _register_components(module, env_name)
+    integration_name = config["integration_name"] if "integration_name" in config else env_name
+    module = import_integration_module({"env": {"name": integration_name}})
+    _register_components(module, integration_name)
     flat_cfg = config["flat_cfg"]
     argv = [
         "--mode",
@@ -86,6 +106,9 @@ def build_sample_factory_rollout_cfg(config: dict[str, Any]):
         "--train_dir",
         str(Path(str(config["checkpoint_experiment_dir"])).parent),
     ]
+    if integration_name == "gymnasium":
+        for field_name, flag in GYMNASIUM_CHECKPOINT_ARG_FIELDS:
+            argv.extend([flag, str(flat_cfg[field_name])])
     if config["device_override"] is not None:
         argv.extend(["--device", str(config["device_override"])])
     if "load_checkpoint_kind" in flat_cfg:

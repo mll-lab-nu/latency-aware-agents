@@ -14,6 +14,10 @@ _INTEGRATIONS = {
         "training.deadly_corridor_sf.integration",
         "register_deadly_corridor_components",
     ),
+    "gymnasium_sf": (
+        "training.gymnasium_sf.integration",
+        "register_gymnasium_envs",
+    ),
 }
 
 
@@ -29,4 +33,5 @@ def build_sample_factory_policy(
         action_resolver=action_resolver,
         integration_module=SampleFactoryIntegrationModule(import_module(integration_module), register_components),
         policy_type=policy_type,
+        policy_action_refs=config["env"]["action_order"] if policy_type == "gymnasium_sf" else None,
     )

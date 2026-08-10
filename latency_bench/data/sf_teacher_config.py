@@ -11,6 +11,12 @@ from typing import Any, Mapping
 
 import yaml
 
+from latency_bench.data.action_layouts import (
+    ActionSpec,
+    action_spec_for_env,
+    gymnasium_discrete_action_spec,
+)
+from latency_bench.data.prompts import BASE_PROMPTS
 from latency_bench.integrations.sample_factory.runtime import resolve_sample_factory_device
 
 
@@ -36,6 +42,7 @@ DEFAULT_OBS_FPS_BY_BENCH_ENV = {
 }
 
 LEGACY_SAME_LATENCY_RE = re.compile(r"(?:^|_)same_latency_l(?P<frames>\d+)(?:_|$)")
+GYMNASIUM_SF_ENV = "latency_gymnasium"
 
 
 @dataclass(frozen=True)
@@ -63,6 +70,37 @@ def _infer_env_name_from_sf_env(sf_env_name: str) -> str:
     if normalized in SF_ENV_TO_BENCH_ENV:
         return SF_ENV_TO_BENCH_ENV[normalized]
     raise ValueError(f"Could not infer benchmark env name from Sample Factory env {sf_env_name!r}")
+
+
+def _rollout_task_contract(flat_cfg: Mapping[str, Any]) -> tuple[str, str, ActionSpec, str]:
+    """Resolve task identity and semantics stored in a teacher checkpoint."""
+    if flat_cfg["env"] == GYMNASIUM_SF_ENV:
+        action_labels = json.loads(flat_cfg["gym_action_labels_json"])
+        return (
+            flat_cfg["gym_task_name"],
+            "gymnasium",
+            gymnasium_discrete_action_spec(action_labels),
+            flat_cfg["gym_base_prompt"],
+        )
+    env_name = _infer_env_name_from_sf_env(flat_cfg["env"])
+    return env_name, env_name, action_spec_for_env(env_name), BASE_PROMPTS[env_name]
+
+
+def _gymnasium_task_metadata(flat_cfg: Mapping[str, Any]) -> dict[str, Any]:
+    """Build published Gymnasium task metadata from its checkpoint contract."""
+    return {
+        "task_name": flat_cfg["gym_task_name"],
+        "env_id": flat_cfg["gym_env_id"],
+        "make_kwargs": json.loads(flat_cfg["gym_make_kwargs_json"]),
+        "registration_imports": json.loads(flat_cfg["gym_registration_imports_json"]),
+        "action_labels": json.loads(flat_cfg["gym_action_labels_json"]),
+        "action_values": json.loads(flat_cfg["gym_action_values_json"]),
+        "noop_action_id": flat_cfg["gym_noop_action_id"],
+        "base_prompt": flat_cfg["gym_base_prompt"],
+        "env_fps": flat_cfg["env_fps"],
+        "obs_fps": flat_cfg["obs_fps"],
+        "frame_stack": flat_cfg["frame_stack"],
+    }
 
 
 def _resolve_checkpoint_root(checkpoint_root: str | Path) -> CheckpointRoot:
@@ -166,7 +204,7 @@ def load_rollout_training_config(
     """
     checkpoint = _resolve_checkpoint_root(checkpoint_root)
     flat_cfg = _read_checkpoint_config(checkpoint.experiment_dir)
-    env_name = _infer_env_name_from_sf_env(str(flat_cfg["env"]))
+    env_name, integration_name, action_spec, base_prompt = _rollout_task_contract(flat_cfg)
     config_source = str((checkpoint.experiment_dir / "config.json").resolve())
     latency_override = None
     latency_source = "checkpoint"
@@ -188,13 +226,16 @@ def load_rollout_training_config(
 
     descriptor = {
         "env_name": env_name,
+        "integration_name": integration_name,
+        "action_spec": action_spec,
+        "base_prompt": base_prompt,
         "checkpoint_experiment_dir": str(checkpoint.experiment_dir),
         "checkpoint_path": None if checkpoint.checkpoint_path is None else str(checkpoint.checkpoint_path),
         "flat_cfg": deepcopy(flat_cfg),
         "device_override": None if not device_override else resolve_sample_factory_device(device_override),
         "latency_override": latency_override,
     }
-    return descriptor, {
+    metadata = {
         "checkpoint_experiment_dir": str(checkpoint.experiment_dir),
         "checkpoint_path": None if checkpoint.checkpoint_path is None else str(checkpoint.checkpoint_path),
         "config_source": config_source,
@@ -202,3 +243,6 @@ def load_rollout_training_config(
         "checkpoint_config": deepcopy(flat_cfg),
         "latency_override": deepcopy(latency_override),
     }
+    if integration_name == "gymnasium":
+        metadata["gymnasium_task"] = _gymnasium_task_metadata(flat_cfg)
+    return descriptor, metadata

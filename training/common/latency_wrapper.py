@@ -61,6 +61,7 @@ class ActionLatencyWrapper(gym.Wrapper):
         latency_distribution_spec: LatencyDistributionSpec | None = None,
         sample_distribution_per_episode: bool = False,
         max_pending_actions: int | None = None,
+        noop_action: Any | None = None,
     ):
         super().__init__(env)
         self.fixed_latency_raw_frames = int(fixed_latency_raw_frames)
@@ -82,7 +83,7 @@ class ActionLatencyWrapper(gym.Wrapper):
                 f"({self.max_frame_latency + 1})"
             )
 
-        self.noop_action = noop_action_from_space(env.action_space)
+        self.noop_action = noop_action_from_space(env.action_space) if noop_action is None else noop_action
         self.clock = EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
         self.hold_policy = ActionHoldPolicy(hold_policy)
         self.ordering_policy = OrderingPolicy(ordering_policy)

@@ -56,6 +56,21 @@ def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
     expected_action[11] = 1.0
     assert table.to_pylist()[0]["action"] == expected_action
     assert table.to_pylist()[0]["done"] is True
+    assert table.column_names == [
+        "observation.image",
+        "observation.state",
+        "action",
+        "timestamp",
+        "episode_index",
+        "frame_index",
+        "task_index",
+        "done",
+        "reward",
+        "density_weight",
+    ]
+    assert not (tmp_path / "lerobot" / "meta" / "modality.json").exists()
+    assert not (tmp_path / "lerobot" / "latency_prompt_map.json").exists()
+    assert not (tmp_path / "lerobot__val" / "manifest.json").exists()
 
 
 @pytest.mark.parametrize("obs_fps", [15.0, 8.75])

@@ -1,0 +1,96 @@
+experiment:
+  name: gymnasium_mountain_car_fixed_l3
+  seed: 0
+
+backend:
+  type: sample_factory
+  algo: APPO
+  device: cpu
+  train_dir: outputs/examples/gymnasium_mountain_car/checkpoints
+  restart_behavior: overwrite
+  run_mode: train
+
+executor:
+  mode: simulated
+
+env:
+  name: gymnasium
+  task_name: mountain_car
+  env_id: MountainCar-v0
+  registration_imports: []
+  make_kwargs:
+    render_mode: rgb_array
+  env_fps: 30
+  obs_fps: 10
+  frame_stack: 1
+  noop_action: coast
+  action_map:
+    push_left: 0
+    coast: 1
+    push_right: 2
+  action_order:
+    - push_left
+    - coast
+    - push_right
+  base_prompt: >-
+    Drive the car up the right hill. Choose exactly one action from:
+    push_left, coast, push_right.
+
+latency:
+  method: fixed
+  fixed_latency_ms: 100.0
+  add_latency_info: false
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+
+policy:
+  type: random
+  actions:
+    - push_left
+    - coast
+    - push_right
+
+training:
+  train_for_env_steps: 20000
+  num_workers: 1
+  num_envs_per_worker: 4
+  worker_num_splits: 1
+  num_policies: 1
+  batch_size: 256
+  rollout: 32
+  recurrence: 1
+  num_epochs: 2
+  num_batches_per_epoch: 2
+  max_policy_lag: 100
+  learning_rate: 0.00025
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  value_loss_coeff: 0.5
+  max_grad_norm: 0.5
+  async_rl: false
+  use_rnn: false
+  normalize_input: true
+  normalize_returns: true
+  save_every_sec: 30
+  keep_checkpoints: 2
+
+evaluation:
+  eval_interval_steps: null
+  eval_episodes: 5
+  eval_parallel_envs: 1
+  eval_max_steps: 200
+  eval_deterministic: true
+  eval_raw_reward: true
+
+logging:
+  output_dir: outputs/examples/gymnasium_mountain_car/train
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false
