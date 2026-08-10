@@ -31,6 +31,9 @@ dev = [
     "pytest==9.0.3",
 ]
 
+[project.scripts]
+latency-bench = "latency_bench.cross_device.protocol:main"
+
 [tool.setuptools.packages.find]
 include = ["latency_bench*", "training*"]
 

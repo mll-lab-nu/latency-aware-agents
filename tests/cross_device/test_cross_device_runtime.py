@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from latency_bench.cross_device import protocol, runner, sync
+from latency_bench.cross_device import profile_resolver, protocol, runner, sync
 from latency_bench.cross_device.spec import (
     detect_hardware,
     load_workload,
@@ -156,6 +156,101 @@ def test_cross_device_config_rejects_ambiguous_device_names(requested):
     assert normalize_hardware_name(requested, workload["devices"]) is None
     with pytest.raises(SystemExit, match="Could not match hardware"):
         detect_hardware(workload, requested)
+
+
+def test_profile_resolver_parses_profile_refs_from_repo_files():
+    candidates = profile_resolver.profile_candidates_from_repo_files(
+        [
+            ".gitattributes",
+            "profiles/rtx4090/instance_a/openvla-flappy/fit-0/profile.json",
+            "profiles/rtx4090/instance_a/openvla-flappy/fit-0/DONE",
+            "profiles/a100-sxm4-80gb/instance_b/openvla-flappy/fit-0-4/profile.json",
+        ]
+    )
+
+    assert [candidate.ref.as_posix() for candidate in candidates] == [
+        "a100-sxm4-80gb/instance_b/openvla-flappy/fit-0-4",
+        "rtx4090/instance_a/openvla-flappy/fit-0",
+    ]
+
+
+def test_profile_resolver_selects_best_local_gpu_profile(tmp_path, monkeypatch):
+    workload = _workload(tmp_path)
+    workload["hf_repo"] = "profile-repo"
+    profile_paths = {
+        "profiles/a100-sxm4-80gb/instance_a/openvla-flappy/fit-0/profile.json": tmp_path / "exact.json",
+        "profiles/a100-sxm4-80gb/instance_other/openvla-flappy/fit-0-4/profile.json": tmp_path / "other.json",
+        "profiles/rtx4090/instance_z/openvla-flappy/fit-0-9/profile.json": tmp_path / "wrong-device.json",
+    }
+    write_json(
+        profile_paths["profiles/a100-sxm4-80gb/instance_a/openvla-flappy/fit-0/profile.json"],
+        {
+            "device_id": "a100-sxm4-80gb",
+            "instance_id": "instance_a",
+            "workload_id": "openvla-flappy",
+            "profile_revision": "fit-0",
+            "hardware": {"gpu": {"name": "A100", "memory.total": "40960 MiB", "compute_cap": "8.0"}},
+        },
+    )
+    write_json(
+        profile_paths["profiles/a100-sxm4-80gb/instance_other/openvla-flappy/fit-0-4/profile.json"],
+        {
+            "device_id": "a100-sxm4-80gb",
+            "instance_id": "instance_other",
+            "workload_id": "openvla-flappy",
+            "profile_revision": "fit-0-4",
+            "hardware": {"gpu": {"name": "A100", "memory.total": "40960 MiB", "compute_cap": "8.0"}},
+        },
+    )
+    write_json(
+        profile_paths["profiles/rtx4090/instance_z/openvla-flappy/fit-0-9/profile.json"],
+        {"device_id": "rtx4090", "instance_id": "instance_z", "workload_id": "openvla-flappy"},
+    )
+
+    class FakeHfApi:
+        def list_repo_files(self, **_kwargs):
+            return list(profile_paths)
+
+    def fake_hf_hub_download(*, filename, **_kwargs):
+        return str(profile_paths[filename])
+
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        types.SimpleNamespace(HfApi=FakeHfApi, hf_hub_download=fake_hf_hub_download),
+    )
+    monkeypatch.setattr(
+        profile_resolver,
+        "collect_hardware_fingerprint",
+        lambda: {
+            "gpu": {
+                "uuid": "GPU-a",
+                "name": "A100",
+                "memory.total": "40960 MiB",
+                "compute_cap": "8.0",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        profile_resolver,
+        "detect_hardware",
+        lambda workload, hardware: {
+            "raw": hardware,
+            "device": {"id": "a100-sxm4-80gb", "display_name": "A100 SXM4 80GB", "aliases": []},
+        },
+    )
+    monkeypatch.setattr(profile_resolver, "resolve_instance_id", lambda _fingerprint: "instance_a")
+    monkeypatch.setattr(
+        profile_resolver,
+        "download_profile",
+        lambda _workload, ref: tmp_path / "downloaded" / ref,
+    )
+
+    resolved = profile_resolver.resolve_best_profile(workload)
+
+    assert resolved.ref == Path("a100-sxm4-80gb/instance_a/openvla-flappy/fit-0")
+    assert resolved.local_profile_path == tmp_path / "downloaded/a100-sxm4-80gb/instance_a/openvla-flappy/fit-0/profile.json"
+    assert "same_gpu_uuid_instance" in resolved.match_reasons
 
 
 def test_isolated_measure_uses_its_own_artifact_path(tmp_path, monkeypatch):

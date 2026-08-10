@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from latency_bench.analysis.cross_device_results import write_cross_device_outputs
 from latency_bench.cross_device.runner import (
     current_target_ref,
     download_raw,
@@ -14,8 +13,15 @@ from latency_bench.cross_device.runner import (
     run_measure,
     run_simulation,
 )
+from latency_bench.cross_device.profile_resolver import resolve_best_profile
 from latency_bench.cross_device.spec import load_workload
 from latency_bench.cross_device.sync import download_analysis_selection
+
+
+def write_cross_device_outputs(*args, **kwargs):
+    from latency_bench.analysis.cross_device_results import write_cross_device_outputs as _write_cross_device_outputs
+
+    return _write_cross_device_outputs(*args, **kwargs)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -90,6 +96,15 @@ def main(argv: list[str] | None = None) -> None:
     aggregate.add_argument("--latency-seeds", type=int, nargs="+", required=True)
     aggregate.add_argument("--output-dir", type=Path)
 
+    profile = subparsers.add_parser("profile")
+    profile_subparsers = profile.add_subparsers(dest="profile_command", required=True)
+    resolve_profile = profile_subparsers.add_parser("resolve")
+    _add_config(resolve_profile)
+    resolve_profile.add_argument("--hardware", default="auto")
+    resolve_profile.add_argument("--workload-id", default="")
+    resolve_profile.add_argument("--revision", default="latest")
+    resolve_profile.add_argument("--no-download", action="store_true")
+
     args = parser.parse_args(argv)
     workload = load_workload(args.config)
     if args.command == "aggregate":
@@ -114,6 +129,20 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{name}: {path}")
     elif args.command == "target-ref":
         print(current_target_ref(workload, args.hardware))
+    elif args.command == "profile":
+        resolved = resolve_best_profile(
+            workload,
+            hardware=args.hardware,
+            workload_id=args.workload_id or None,
+            revision=args.revision,
+            download=not args.no_download,
+        )
+        print(f"PROFILE_REF={resolved.ref.as_posix()}")
+        print(f"PROFILE_PATH={resolved.local_profile_path}")
+        print(f"PROFILE_SCORE={resolved.score}")
+        print(f"PROFILE_MATCH_REASONS={','.join(resolved.match_reasons)}")
+        print(f"DETECTED_DEVICE_ID={resolved.detected_device_id}")
+        print(f"DETECTED_INSTANCE_ID={resolved.detected_instance_id}")
     elif args.command == "measure":
         run_measure(
             workload,
