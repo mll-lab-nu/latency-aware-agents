@@ -1,0 +1,58 @@
+experiment:
+  name: gymnasium_mountain_car_latency_bench_eval
+  seed: 0
+
+executor:
+  mode: simulated
+
+env:
+  name: gymnasium
+  task_name: mountain_car
+  env_id: MountainCar-v0
+  registration_imports: []
+  make_kwargs:
+    render_mode: rgb_array
+  env_fps: 30
+  obs_fps: 10
+  frame_stack: 1
+  noop_action: coast
+  action_map:
+    push_left: 0
+    coast: 1
+    push_right: 2
+  action_order:
+    - push_left
+    - coast
+    - push_right
+  base_prompt: >-
+    Drive the car up the right hill. Choose exactly one action from:
+    push_left, coast, push_right.
+
+latency:
+  method: fixed
+  fixed_latency_ms: 100.0
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+
+policy:
+  type: random
+  actions:
+    - push_left
+    - coast
+    - push_right
+
+evaluation:
+  eval_episodes: 1
+  eval_parallel_envs: 1
+  eval_max_steps: 200
+
+logging:
+  output_dir: outputs/examples/gymnasium_mountain_car_latency_bench_eval
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

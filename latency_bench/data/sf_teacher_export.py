@@ -144,7 +144,15 @@ def export_sample_factory_teacher_dataset(
         device_override=device or None,
     )
     if env_name:
+        if config["integration_name"] == "gymnasium":
+            raise ValueError(
+                "Gymnasium task identity is fixed by the teacher checkpoint; "
+                "do not pass --env-name"
+            )
         config["env_name"] = str(env_name)
+        config["action_spec"] = action_spec_for_env(config["env_name"])
+        config["base_prompt"] = BASE_PROMPTS[config["env_name"]]
+    action_spec = config["action_spec"]
     rollout_metadata = collect_teacher_dataset(
         config,
         output_dir=output_dir,
@@ -174,15 +182,20 @@ def export_sample_factory_teacher_dataset(
     shard_image_metadata = image_metadata_from_shards(output_dir)
     write_parquet_splits_from_shards(
         output_dir,
-        action_spec=action_spec_for_env(str(config["env_name"])),
+        action_spec=action_spec,
         keep_dataset=False,
     )
     metadata = {
         **config_metadata,
         **rollout_metadata,
         "env_name": config["env_name"],
-        "prompt_source": "latency_bench.data.prompts",
-        "base_prompt": BASE_PROMPTS[str(config["env_name"])],
+        "integration_name": config["integration_name"],
+        "prompt_source": (
+            "sample_factory_checkpoint:gym_base_prompt"
+            if config["integration_name"] == "gymnasium"
+            else "latency_bench.data.prompts"
+        ),
+        "base_prompt": config["base_prompt"],
         "image_transform_prompt_contexts": IMAGE_TRANSFORM_CONTEXTS,
         "prompt_timing_suffix": TIMING_SUFFIX,
         "max_episodes": int(max_episodes),

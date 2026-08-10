@@ -35,6 +35,7 @@ POLICY_TYPES = {
     "flappy": "flappy_sf",
     "demon_attack": "demon_attack_sf",
     "deadly_corridor": "deadly_corridor_sf",
+    "gymnasium": "gymnasium_sf",
 }
 
 
@@ -50,7 +51,11 @@ def build_latency_bench_config_from_training_config(
     output_dir: str | Path,
 ) -> dict[str, Any]:
     env_name = str(training_config["env"]["name"]).strip().lower()
-    base_config = load_config(BASE_CONFIGS[env_name])
+    base_config = (
+        deepcopy(training_config)
+        if env_name == "gymnasium"
+        else load_config(BASE_CONFIGS[env_name])
+    )
     override = {
         key: deepcopy(training_config[key])
         for key in (

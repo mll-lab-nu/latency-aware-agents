@@ -40,6 +40,13 @@ StarVLA pipelines can be evaluated with temporal multi-image input. See
 [docs/starvla_wan_oft_eval.md](docs/starvla_wan_oft_eval.md) for the three
 configs, checkpoint command, and raw-frame history contract.
 
+To adapt a new finite-action Gymnasium task through latency-aware Sample
+Factory training, teacher rollout, basic single-image OpenVLA SFT, and final
+`latency_bench` evaluation, see
+[docs/gymnasium_adapter.md](docs/gymnasium_adapter.md). The guide defines the
+single task contract, user-owned design decisions, generated train/validation
+handoff, commands, and current first-release support boundary.
+
 `--tier use` omits development/test packages from the selected model
 environment. The shared `latency` environment always includes the data and
 teacher-training tools used by the experiment scripts.

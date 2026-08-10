@@ -48,6 +48,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--checkpoint-path", type=Path)
     parser.add_argument("--model-config-path", type=Path)
+    parser.add_argument("--task-manifest-path", type=Path)
     parser.add_argument("--run-name", type=str)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--checkpoint-kind", choices=["latest", "best"])
@@ -63,6 +64,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         config,
         checkpoint_path=args.checkpoint_path,
         model_config_path=args.model_config_path,
+        task_manifest_path=args.task_manifest_path,
         run_name=args.run_name,
         output_dir=args.output_dir,
         checkpoint_kind=args.checkpoint_kind,
