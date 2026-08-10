@@ -242,7 +242,7 @@ def test_generic_rollout_runtime_selects_gymnasium_integration_and_replays_check
     assert argv[argv.index("--gym-noop-action-id") + 1] == "1"
 
 
-def test_teacher_export_cli_accepts_arbitrary_inferred_task_name():
+def test_teacher_export_cli_leaves_generic_task_name_to_checkpoint_inference():
     from scripts.rollout_data.export_sf_teacher_dataset import build_parser
 
     args = build_parser().parse_args(
@@ -251,8 +251,6 @@ def test_teacher_export_cli_accepts_arbitrary_inferred_task_name():
             "checkpoint",
             "--output-dir",
             "out",
-            "--env-name",
-            "mountain_car",
             "--max-episodes",
             "1",
             "--max-steps-per-episode",
@@ -260,7 +258,7 @@ def test_teacher_export_cli_accepts_arbitrary_inferred_task_name():
         ]
     )
 
-    assert args.env_name == "mountain_car"
+    assert args.env_name == ""
 
 
 def test_generic_teacher_export_rejects_task_identity_override(monkeypatch, tmp_path):

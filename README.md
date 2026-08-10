@@ -45,7 +45,18 @@ Factory training, teacher rollout, basic single-image OpenVLA SFT, and final
 `latency_bench` evaluation, see
 [docs/gymnasium_adapter.md](docs/gymnasium_adapter.md). The guide defines the
 single task contract, user-owned design decisions, generated train/validation
-handoff, commands, and current first-release support boundary.
+handoff, commands, and current first-release support boundary. Its runnable
+public example is AirRaid (`ALE/AirRaid-v5`): the Atari scaffold freezes the
+native six-action order, uses one PAL raw frame per tick at 50 FPS, observes at
+12.5 FPS, and maps 100 ms latency to five raw frames. Generate the `env` block
+for another Atari game from the
+[`configs/examples/gymnasium/air_raid`](configs/examples/gymnasium/air_raid)
+configuration set with:
+
+```bash
+conda activate latency
+python scripts/scaffold_gymnasium_atari.py --ale-env-id ALE/AirRaid-v5
+```
 
 `--tier use` omits development/test packages from the selected model
 environment. The shared `latency` environment always includes the data and
@@ -60,4 +71,11 @@ HF_TOKEN=...
 HF_PROFILE_REPO=latency-sensitive-bench/profiles
 HF_PROFILE_REPO_TYPE=dataset
 WANDB_API_KEY=...
+WANDB_ENTITY=...
+WANDB_PROJECT=...
 ```
+
+For an untracked smoke run, set `WANDB_MODE=disabled` while keeping non-empty
+`WANDB_ENTITY` and `WANDB_PROJECT` values. OpenVLA smoke runs on large CUDA
+models may also use `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` to reduce
+allocator fragmentation.

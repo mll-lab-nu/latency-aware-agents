@@ -1,0 +1,79 @@
+experiment:
+  name: gymnasium_air_raid_latency_bench_eval
+  seed: 0
+
+executor:
+  mode: simulated
+
+env:
+  name: gymnasium
+  task_name: air_raid
+  env_id: LatencyBench/Atari-v0
+  registration_imports:
+    - latency_bench.envs.gymnasium_atari
+  make_kwargs:
+    ale_env_id: ALE/AirRaid-v5
+    render_mode: rgb_array
+    screen_size: 84
+    noop_max: 30
+    frameskip: 1
+    repeat_action_probability: 0.0
+    full_action_space: false
+    terminal_on_life_loss: false
+    max_num_frames_per_episode: 108000
+    grayscale_obs: true
+    mode: 1
+    difficulty: 0
+  env_fps: 50
+  obs_fps: 12.5
+  frame_stack: 1
+  noop_action: noop
+  action_map:
+    noop: 0
+    fire: 1
+    right: 2
+    left: 3
+    rightfire: 4
+    leftfire: 5
+  action_order:
+    - noop
+    - fire
+    - right
+    - left
+    - rightfire
+    - leftfire
+  base_prompt: >-
+    Protect the two buildings by moving sideways and shooting the flying saucers.
+    Choose exactly one action from: noop, fire, right, left, rightfire, leftfire.
+
+latency:
+  method: fixed
+  fixed_latency_ms: 100.0
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+
+policy:
+  type: random
+  actions:
+    - noop
+    - fire
+    - right
+    - left
+    - rightfire
+    - leftfire
+
+evaluation:
+  eval_episodes: 1
+  eval_parallel_envs: 1
+  eval_max_steps: 1000
+
+logging:
+  output_dir: outputs/examples/gymnasium_air_raid/latency_bench_eval
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

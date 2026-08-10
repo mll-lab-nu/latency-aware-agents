@@ -10,12 +10,14 @@ import gymnasium as gym
 from gymnasium.spaces import Discrete
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
+from latency_bench.core.types import Action, ActionHoldPolicy, OrderingPolicy
 from latency_bench.envs.gymnasium_task import (
     gymnasium_discrete_action_labels,
     gymnasium_discrete_action_values,
     gymnasium_noop_action_id,
 )
+from latency_bench.scheduler.action_queue import ActionScheduler
+from latency_bench.scheduler.factory import build_persistence_policy
 from training.common.config_adapter import (
     append_cli_arg,
     apply_runtime_logging_config,
@@ -34,6 +36,7 @@ from training.common.latency_wrapper import (
     ActionLatencyWrapper,
     EpisodeMetricsWrapper,
     RewardTraceWrapper,
+    clone_action,
 )
 from training.common.raw_rgb_export import RawRgbFrameStackInfoWrapper
 from training.common.sample_factory_config import (
@@ -81,6 +84,26 @@ class GymnasiumActionCatalogWrapper(gym.Wrapper):
         return self.env.step(self.native_actions[action])
 
 
+class GymnasiumActionLatencyWrapper(ActionLatencyWrapper):
+    def __init__(self, *args, noop_action: Any, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.noop_action = noop_action
+        self.action_scheduler = ActionScheduler(
+            clock=self.clock,
+            noop_action=Action(
+                value=clone_action(self.noop_action),
+                name="noop",
+                is_noop=True,
+            ),
+            persistence_policy=build_persistence_policy(
+                self.hold_policy,
+                clock=self.clock,
+            ),
+            ordering_policy=self.ordering_policy,
+        )
+        self.current_applied_action = clone_action(self.noop_action)
+
+
 def make_gymnasium_sf_env(
     _full_env_name: str,
     cfg: Any = None,
@@ -119,7 +142,7 @@ def make_gymnasium_sf_env(
         env_id=int(env_config.env_id),
     )
     latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=clock.env_fps)
-    env = ActionLatencyWrapper(
+    env = GymnasiumActionLatencyWrapper(
         env,
         fixed_latency_raw_frames=latency_params.fixed_latency_raw_frames,
         env_fps=clock.env_fps,

@@ -189,7 +189,6 @@ def export_sample_factory_teacher_dataset(
         **config_metadata,
         **rollout_metadata,
         "env_name": config["env_name"],
-        "integration_name": config["integration_name"],
         "prompt_source": (
             "sample_factory_checkpoint:gym_base_prompt"
             if config["integration_name"] == "gymnasium"
@@ -219,6 +218,8 @@ def export_sample_factory_teacher_dataset(
         "total_episodes": split_stats["total_episodes"],
         "image_resolution": shard_image_metadata["image_resolution"],
     }
+    if config["integration_name"] == "gymnasium":
+        metadata["integration_name"] = "gymnasium"
     with (output_dir / "metadata.json").open("w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2, sort_keys=True)
         handle.write("\n")
