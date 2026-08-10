@@ -1,4 +1,4 @@
-__base__: gymnasium_mountain_car_latency_bench_eval.yaml
+__base__: latency_bench_eval.yaml
 
 experiment:
   name: gymnasium_mountain_car_starvla_fixed_l3

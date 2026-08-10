@@ -12,13 +12,13 @@ from latency_bench.envs.gymnasium_task import (
     gymnasium_discrete_action_values,
     gymnasium_noop_action_id,
 )
-from latency_bench.policy.sample_factory_common import SampleFactoryPolicyRunner
+from latency_bench.policy.sample_factory import _GymnasiumPolicyActionResolver
 from training.common.latency_bench_periodic_eval import (
     build_latency_bench_config_from_training_config,
 )
-from training.common.latency_wrapper import ActionLatencyWrapper
 from training.gymnasium_sf.integration import (
     GymnasiumActionCatalogWrapper,
+    GymnasiumActionLatencyWrapper,
     SAMPLE_FACTORY_CONFIG_PARSER,
     build_cli_args_from_config,
     make_reference_env,
@@ -41,8 +41,27 @@ class _NativeActionTraceEnv(gym.Env):
         return np.zeros(1, dtype=np.float32), 0.0, False, False, {}
 
 
-def _mountain_car_config():
-    return load_config("configs/examples/gymnasium_mountain_car_small_model_train.yaml")
+def _vector_gymnasium_config():
+    config = load_config("configs/examples/gymnasium/air_raid/small_model_train.yaml")
+    config["backend"]["device"] = "cpu"
+    config["env"] = {
+        "name": "gymnasium",
+        "task_name": "mountain_car",
+        "env_id": "MountainCar-v0",
+        "registration_imports": [],
+        "make_kwargs": {"render_mode": "rgb_array"},
+        "env_fps": 30,
+        "obs_fps": 10,
+        "frame_stack": 1,
+        "noop_action": "coast",
+        "action_map": {"push_left": 0, "coast": 1, "push_right": 2},
+        "action_order": ["push_left", "coast", "push_right"],
+        "base_prompt": (
+            "Drive the car up the right hill. Choose exactly one action from: "
+            "push_left, coast, push_right."
+        ),
+    }
+    return config
 
 
 def test_task_contract_uses_explicit_action_order_and_noop_position():
@@ -64,7 +83,7 @@ def test_task_contract_uses_explicit_action_order_and_noop_position():
 def test_action_catalog_and_latency_decode_nonzero_noop_to_native_action():
     native_env = _NativeActionTraceEnv()
     env = GymnasiumActionCatalogWrapper(native_env, [10, 20, 30])
-    env = ActionLatencyWrapper(
+    env = GymnasiumActionLatencyWrapper(
         env,
         fixed_latency_raw_frames=2,
         env_fps=10,
@@ -83,7 +102,7 @@ def test_action_catalog_and_latency_decode_nonzero_noop_to_native_action():
 
 
 def test_sample_factory_config_round_trips_complete_task_contract():
-    config = _mountain_car_config()
+    config = _vector_gymnasium_config()
     cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
 
     assert cfg.gym_task_name == "mountain_car"
@@ -105,19 +124,20 @@ def test_sample_factory_config_round_trips_complete_task_contract():
 
 
 def test_gymnasium_sf_policy_decodes_catalog_ids_with_action_order():
-    config = _mountain_car_config()
-    runner = SampleFactoryPolicyRunner.__new__(SampleFactoryPolicyRunner)
-    runner.action_resolver = ActionResolver(config["env"])
-    runner.policy_action_refs = config["env"]["action_order"]
+    config = _vector_gymnasium_config()
+    resolver = _GymnasiumPolicyActionResolver(
+        ActionResolver(config["env"]),
+        config["env"]["action_order"],
+    )
 
-    action = runner._resolve_action(2)
+    action = resolver.resolve(2)
 
     assert action.name == "push_right"
     assert action.value == 2
 
 
 def test_periodic_eval_preserves_generic_task_contract(tmp_path):
-    training_config = _mountain_car_config()
+    training_config = _vector_gymnasium_config()
 
     config = build_latency_bench_config_from_training_config(
         training_config,

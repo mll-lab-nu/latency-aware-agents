@@ -228,7 +228,6 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         action_resolver: ActionResolver,
         integration_module: Any,
         policy_type: str,
-        policy_action_refs: Sequence[Any] | None = None,
     ):
         from sample_factory.algo.sampling.batched_sampling import preprocess_actions
         from sample_factory.algo.utils.action_distributions import argmax_actions
@@ -242,7 +241,6 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         self.action_resolver = action_resolver
         self.integration_module = integration_module
         self.policy_type = policy_type
-        self.policy_action_refs = policy_action_refs
         self.device = torch.device(sf_runtime.resolve_torch_device(config["policy"].get("device", "auto")))
         self.deterministic = bool(config["policy"].get("deterministic", True))
         self._prepare_and_normalize_obs = prepare_and_normalize_obs
@@ -323,7 +321,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
 
         processed_actions = self._preprocess_actions_for_space(actions)
         raw_value = sf_actions.to_python_action(processed_actions)
-        action = self._resolve_action(raw_value)
+        action = sf_actions.resolve_action(raw_value, self.action_resolver)
         return PolicyOutput(
             action=action,
             raw_output=raw_value,
@@ -379,7 +377,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         )
         return [
             PolicyOutput(
-                action=self._resolve_action(raw_value),
+                action=sf_actions.resolve_action(raw_value, self.action_resolver),
                 raw_output=raw_value,
                 metadata={
                     "policy_type": self.policy_type,
@@ -406,11 +404,6 @@ class SampleFactoryPolicyRunner(PolicyRunner):
             "Sample Factory batched simulated eval supports Discrete, flat Tuple(Discrete, ...), "
             f"and one-dimensional MultiDiscrete action spaces; got action_space={self.action_space!r}"
         )
-
-    def _resolve_action(self, raw_value: Any):
-        if self.policy_action_refs is None:
-            return sf_actions.resolve_action(raw_value, self.action_resolver)
-        return self.action_resolver.resolve(self.policy_action_refs[raw_value])
 
     def _zero_rnn_state(self) -> torch.Tensor:
         return torch.zeros([1, self.rnn_size], dtype=torch.float32, device=self.device)
