@@ -95,34 +95,6 @@ def _starvla_latency_label_to_raw_frames(
     return int(latency_steps) * round(float(config["env"]["env_fps"]) / obs_fps)
 
 
-def _apply_starvla_frame_stack_from_model_cfg(
-    config: dict[str, Any],
-    *,
-    model_cfg: Mapping[str, Any],
-    image_transform: str,
-) -> None:
-    apply_starvla_model_input_config(
-        config,
-        model_cfg=model_cfg,
-        image_transform=image_transform,
-    )
-    vla_data = model_cfg["datasets"]["vla_data"]
-    if (
-        "pack_image_sequence" in vla_data
-        and bool(vla_data["pack_image_sequence"])
-    ):
-        return
-    if image_transform not in {"", "none", "raw", "raw_rgb"}:
-        return
-    framework_cfg = model_cfg["framework"]
-    if framework_cfg["kv_memory"]["enabled"]:
-        return
-    vla_data = model_cfg["datasets"]["vla_data"]
-    if vla_data["image_mode"] == "single":
-        return
-    config["env"]["frame_stack"] = max(config["env"]["frame_stack"], vla_data["num_obs_frames"])
-
-
 class _EvalProgressReporter:
     def __init__(
         self,
@@ -264,7 +236,7 @@ def build_latency_bench_config_for_rl_games(
             raise ValueError(f"Unsupported rl_games.env_eval.image_transform={image_transform!r}")
         frame_stack_min = history_frames if image_transform == "demon_attack_ghost_trail" else history_frames + 1
         config["env"]["frame_stack"] = max(int(config["env"].get("frame_stack", 1) or 1), frame_stack_min)
-    _apply_starvla_frame_stack_from_model_cfg(config, model_cfg=model_cfg, image_transform=image_transform)
+    apply_starvla_model_input_config(config, model_cfg=model_cfg, image_transform=image_transform)
 
     # Single fixed latency for this rollout. Prompt maps carry exact source
     # raw-frame latency; legacy runs without one use observation-step labels.

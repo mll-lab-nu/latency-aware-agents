@@ -464,7 +464,20 @@ def test_starvla_passes_single_raw_frame_and_base_prompt(monkeypatch, tmp_path: 
     assert np.asarray(example["image"][0]).mean() == 77
 
 
-def test_starvla_multiframe_passes_four_temporal_images(monkeypatch, tmp_path: Path):
+@pytest.mark.parametrize(
+    ("obs_fps", "history_values", "expected_values"),
+    [
+        (60, tuple(range(4)), [0, 1, 2, 3]),
+        (15, tuple(range(13)), [0, 4, 8, 12]),
+    ],
+)
+def test_starvla_multiframe_passes_four_temporal_images(
+    monkeypatch,
+    tmp_path: Path,
+    obs_fps,
+    history_values,
+    expected_values,
+):
     from latency_bench.policy import starvla
 
     class MultiframePolicyServerWrapper(FakePolicyServerWrapper):
@@ -492,27 +505,24 @@ def test_starvla_multiframe_passes_four_temporal_images(monkeypatch, tmp_path: P
         lambda: MultiframePolicyServerWrapper,
     )
     config = _config(tmp_path)
+    config["env"]["env_fps"] = 60
+    config["env"]["obs_fps"] = obs_fps
     policy = build_policy(config, ActionResolver(config["env"]))
     raw_history = np.stack(
-        [np.full((8, 8, 3), value, dtype=np.uint8) for value in (1, 2, 3, 4)]
+        [np.full((8, 8, 3), value, dtype=np.uint8) for value in history_values]
     )
 
     policy.predict(
         Observation(
             data=np.zeros((1,), dtype=np.uint8),
-            env_step=3,
+            env_step=history_values[-1],
             sim_time_ms=0.0,
             metadata={"env_raw_rgb_frame_stack": raw_history},
         )
     )
 
     example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
-    assert [int(np.asarray(image).mean()) for image in example["image"]] == [
-        1,
-        2,
-        3,
-        4,
-    ]
+    assert [int(np.asarray(image).mean()) for image in example["image"]] == expected_values
 
 
 def test_starvla_stitch_builds_one_temporal_mosaic(monkeypatch, tmp_path: Path):
@@ -543,15 +553,17 @@ def test_starvla_stitch_builds_one_temporal_mosaic(monkeypatch, tmp_path: Path):
         lambda: StitchPolicyServerWrapper,
     )
     config = _config(tmp_path)
+    config["env"]["env_fps"] = 60
+    config["env"]["obs_fps"] = 15
     policy = build_policy(config, ActionResolver(config["env"]))
     raw_history = np.stack(
-        [np.full((8, 8, 3), value, dtype=np.uint8) for value in (1, 2, 3, 4)]
+        [np.full((8, 8, 3), value, dtype=np.uint8) for value in range(13)]
     )
 
     policy.predict(
         Observation(
             data=np.zeros((1,), dtype=np.uint8),
-            env_step=3,
+            env_step=12,
             sim_time_ms=0.0,
             metadata={"env_raw_rgb_frame_stack": raw_history},
         )
@@ -566,7 +578,7 @@ def test_starvla_stitch_builds_one_temporal_mosaic(monkeypatch, tmp_path: Path):
         int(mosaic[:112, 112:].mean()),
         int(mosaic[112:, :112].mean()),
         int(mosaic[112:, 112:].mean()),
-    ] == [1, 2, 3, 4]
+    ] == [0, 4, 8, 12]
 
 
 def test_starvla_wanoft_samples_decision_observations_from_raw_history(
@@ -700,6 +712,37 @@ def test_prepare_starvla_checkpoint_input_config_uses_explicit_full_model_config
     assert config["env"]["frame_stack"] == 5
 
 
+def test_prepare_starvla_checkpoint_input_config_sizes_plain_multiframe_history(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from latency_bench.policy import starvla
+
+    monkeypatch.setattr(
+        starvla,
+        "_load_starvla_model_config",
+        lambda _path: {
+            "datasets": {
+                "vla_data": {
+                    "pack_image_sequence": False,
+                    "num_obs_frames": 4,
+                    "image_mode": "multiframe",
+                },
+            },
+            "framework": {"kv_memory": {"enabled": False}},
+        },
+    )
+    config = _config(tmp_path)
+    config["env"]["env_fps"] = 60
+    config["env"]["obs_fps"] = 15
+    config["env"]["frame_stack"] = 4
+    config["policy"]["model_config_path"] = str(tmp_path / "config.full.yaml")
+
+    starvla.prepare_starvla_checkpoint_input_config(config)
+
+    assert config["env"]["frame_stack"] == 13
+
+
 def test_starvla_wanoft_rejects_incomplete_decision_history(
     monkeypatch,
     tmp_path: Path,
@@ -830,6 +873,8 @@ def test_starvla_kv_memory_passes_required_slot_id_and_metadata(monkeypatch, tmp
                 "datasets": {
                     "vla_data": {
                         "include_state": False,
+                        "num_obs_frames": 8,
+                        "image_mode": "multiframe",
                     },
                 },
                 "framework": {
@@ -855,7 +900,9 @@ def test_starvla_kv_memory_passes_required_slot_id_and_metadata(monkeypatch, tmp
             sim_time_ms=0.0,
             metadata={
                 "slot_id": 3,
-                "env_raw_rgb_frame_stack": np.zeros((1, 12, 16, 3), dtype=np.uint8),
+                "env_raw_rgb_frame_stack": np.stack(
+                    [np.full((12, 16, 3), value, dtype=np.uint8) for value in range(8)]
+                ),
             },
         )
     )
@@ -863,6 +910,8 @@ def test_starvla_kv_memory_passes_required_slot_id_and_metadata(monkeypatch, tmp
     wrapper = FakePolicyServerWrapper.instances[0]
     example = wrapper.calls[0]["examples"][0]
     assert example["slot_id"] == 3
+    assert len(example["image"]) == 1
+    assert np.asarray(example["image"][0]).mean() == 7
     assert output.metadata["slot_id"] == 3
     assert output.metadata["kv_memory_enabled"] is True
 
