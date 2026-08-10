@@ -6,8 +6,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import torch
-
 from latency_bench.core.config import load_config
 
 
@@ -33,8 +31,9 @@ def detect_hardware(spec: dict[str, Any], requested: str = "auto") -> dict[str, 
         return {"raw": requested, "device": device}
 
     candidates: list[str] = []
-    if torch.cuda.is_available():
-        candidates.append(str(torch.cuda.get_device_name(0)))
+    torch_name = _torch_device_name()
+    if torch_name:
+        candidates.append(torch_name)
     smi_name = _nvidia_smi_device_name()
     if smi_name:
         candidates.append(smi_name)
@@ -103,3 +102,16 @@ def _nvidia_smi_device_name() -> str | None:
         return None
     first = result.stdout.strip().splitlines()
     return first[0].strip() if first else None
+
+
+def _torch_device_name() -> str | None:
+    try:
+        import torch
+    except Exception:
+        return None
+    try:
+        if torch.cuda.is_available():
+            return str(torch.cuda.get_device_name(0))
+    except Exception:
+        return None
+    return None
