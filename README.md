@@ -203,8 +203,6 @@ status.
 
 ### 1. Generate Teacher Rollout Data
 
-Owner: `latency-sensitive-bench`
-
 Teacher rollouts are generated from small policies and exported as datasets:
 
 ```bash
@@ -226,9 +224,6 @@ bash scripts/bash_scripts/run_sf_teacher_dataset_export.sh \
 Detailed guide: [docs/standard_pipeline.md](docs/standard_pipeline.md).
 
 ### 2. Train A VLA With StarVLA
-
-Owner: `starVLA`, using datasets and dependencies from
-`latency-sensitive-bench`
 
 Example mixed-latency OpenVLA training:
 
@@ -254,9 +249,6 @@ examples/rl_games/bash_scripts/openvla/bridge/ghost_trail/final_flappy_latency_4
 
 ### 3. Evaluate A VLA Under Fixed Latency
 
-Owner: `starVLA` for most VLA post-train runs; `latency-sensitive-bench` for
-benchmark-level config evaluation.
-
 StarVLA fixed-latency eval is usually configured through:
 
 ```text
@@ -280,8 +272,6 @@ Owner depends on the path:
   jitter protocol.
 
 ### 5. Profile A New Machine
-
-Owner: `latency-sensitive-bench`
 
 Run the target-machine profile workflow:
 
@@ -313,8 +303,6 @@ Detailed guides:
 [docs/openvla_cross_device_handoff.md](docs/openvla_cross_device_handoff.md).
 
 ### 6. Run Human Realtime Evaluation
-
-Owner: `latency-sensitive-bench-realtime-human`
 
 ```bash
 cd ../latency-sensitive-bench-realtime-human
