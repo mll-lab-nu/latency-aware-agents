@@ -169,7 +169,7 @@ def test_gymnasium_sweep_preserves_task_contract_and_uses_task_identity(tmp_path
             {
                 "__base__": str(
                     REPO_ROOT
-                    / "configs/examples/gymnasium/air_raid/small_model_train.yaml"
+                    / "configs/examples/gymnasium/inverted_pendulum/small_model_train.yaml"
                 ),
                 "experiment_family": "generic_gym_sweep",
                 "generated_root": str(generated_root),
@@ -177,12 +177,12 @@ def test_gymnasium_sweep_preserves_task_contract_and_uses_task_identity(tmp_path
                 "train_dir": str(train_dir),
                 "seeds": [3],
                 "latency_settings": {
-                    "fixed_l5": {"kind": "fixed", "frames": 5},
+                    "fixed_l1": {"kind": "fixed", "frames": 1},
                 },
                 "sweeps": {
                     "observation_rate": {
                         "frame_stack": [1],
-                        "obs_fps": [12.5],
+                        "obs_fps": [25],
                     }
                 },
             }
@@ -194,15 +194,16 @@ def test_gymnasium_sweep_preserves_task_contract_and_uses_task_identity(tmp_path
 
     rows = _read_manifest(generated_root / "manifest.tsv")
     assert len(rows) == 1
-    assert rows[0]["env"] == "air_raid"
+    assert rows[0]["env"] == "inverted_pendulum_discrete"
     assert rows[0]["run_name"] == (
-        "air_raid_observation_rate_fixed_l5_obs12p5_seed3"
+        "inverted_pendulum_discrete_observation_rate_fixed_l1_obs25_seed3"
     )
 
     train_cfg = yaml.safe_load(Path(rows[0]["train_config"]).read_text(encoding="utf-8"))
     eval_cfg = load_config(rows[0]["eval_config"])
     expected_env = load_config(
-        REPO_ROOT / "configs/examples/gymnasium/air_raid/small_model_train.yaml"
+        REPO_ROOT
+        / "configs/examples/gymnasium/inverted_pendulum/small_model_train.yaml"
     )["env"]
 
     assert train_cfg["env"] == expected_env

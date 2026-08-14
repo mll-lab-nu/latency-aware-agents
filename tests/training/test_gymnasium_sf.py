@@ -42,7 +42,9 @@ class _NativeActionTraceEnv(gym.Env):
 
 
 def _vector_gymnasium_config():
-    config = load_config("configs/examples/gymnasium/air_raid/small_model_train.yaml")
+    config = load_config(
+        "configs/examples/gymnasium/inverted_pendulum/small_model_train.yaml"
+    )
     config["backend"]["device"] = "cpu"
     config["env"] = {
         "name": "gymnasium",

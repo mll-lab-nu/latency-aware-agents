@@ -1,0 +1,14 @@
+2026-08-12T18:07:14+00:00
+PWD=/workspace/gym-adapt-mujoco-5090
+## gym-adapt...origin/gym-adapt
+?? artifacts/
+?? configs/examples/gymnasium/inverted_pendulum/
+?? latency_bench/envs/gymnasium_mujoco.py
+?? latency_sensitive_bench.egg-info/
+?? scripts/scaffold_gymnasium_mujoco.py
+?? tests/envs/test_gymnasium_mujoco.py
+9f097021418cf62cad41be02c56c72c31fc8b3d1
+Filesystem      Size  Used Avail Use% Mounted on
+overlay         400G  9.7G  391G   3% /
+Python 3.12.13
+NVIDIA GeForce RTX 5090, 590.48.01, 32607 MiB

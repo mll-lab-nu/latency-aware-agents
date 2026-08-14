@@ -1,567 +1,366 @@
-# Adapt a Gymnasium task to the latency-sensitive pipeline
+# Adapting a Gymnasium environment
 
-This guide is the release path for adapting a new finite-action Gymnasium task
-without changing the existing Flappy Bird, Demon Attack, or Deadly Corridor
-interfaces:
+This document is both the manual runbook for a task author and the primary
+execution specification for an adaptation agent. It describes the separate
+Gymnasium integration, the decisions that must be frozen, the files that must
+be generated, and the minimum evidence required before a task is called
+adapted.
+
+For a complete worked example with real server commands, generated files,
+figures, video, verified InvertedPendulum results, and unexecuted next-stage
+commands, open [`docs/gym-adapt/index.html`](gym-adapt/index.html). The runnable
+example configs are in
+[`configs/examples/gymnasium/inverted_pendulum/`](../configs/examples/gymnasium/inverted_pendulum/).
+
+## Audience and document roles
+
+| Reader | How to use this document |
+| --- | --- |
+| User adapting manually | Follow the manual workflow in order, copy the InvertedPendulum config structure, replace the complete task contract, and run every applicable verification gate. |
+| User working with an agent | Provide the information in the agent prompt, approve the scientific decisions the API cannot answer, and review the generated report and evidence before running later stages. |
+| Adaptation agent | Treat every required field, stop condition, verification gate, and reporting requirement below as part of the task. Do not replace a missing decision with a hidden default. |
+
+The Markdown guide is normative: it defines what must be done. The HTML
+walkthrough is explanatory and evidentiary: it shows how one real adaptation
+was performed and defines the expected shape of a future agent's final report.
+
+## Supported release path
+
+The basic path is:
 
 ```text
-fixed-latency Sample Factory teacher
-    -> teacher rollout (train.parquet + val.parquet)
-    -> native-action LeRobot train/validation datasets
-    -> single-image OpenVLA SFT
-    -> latency_bench evaluation
+Gymnasium task contract
+  -> latency-aware Sample Factory training
+  -> small-model teacher rollout
+  -> LeRobot conversion
+  -> basic single-image OpenVLA SFT
+  -> latency-bench evaluation
 ```
 
-The generic adapter preserves the configured Gymnasium constructor arguments,
-native observation, native action values, reward, `terminated`, and `truncated`.
-It adds a raw-tick latency clock and an explicitly ordered finite action
-catalog. It does not guess task semantics or silently preprocess an
-environment.
+The fast path requires a finite, ordered action catalog. A native
+`gymnasium.spaces.Discrete` task usually needs only configuration. A continuous
+or structured action space needs a task-owned wrapper that exposes a finite
+`Discrete(n)` catalog and maps each catalog ID back to the exact native action.
+The framework does not silently discretize actions.
 
-## 1. Release scope
+The existing Flappy Bird, Demon Attack, and Deadly Corridor integrations remain
+separate. New tasks use `env.name: gymnasium` and are dispatched through
+`GymnasiumEnvAdapter` and `training.gymnasium_sf`.
 
-The first release deliberately supports the smallest complete path:
+## Manual adaptation workflow
 
-| Stage | Supported generic Gymnasium path |
-| --- | --- |
-| Small-model training | Existing Sample Factory/APPO path with zero, fixed, normal, uniform, and their existing per-episode mixed latency modes. |
-| Small-model evaluation | Simulated `latency_bench` evaluation using `policy.type: gymnasium_sf`. |
-| Teacher data | Deterministic checkpoint rollout to canonical train/validation parquet. |
-| StarVLA data | Native-width finite-action LeRobot datasets with a generated train/validation mixture. |
-| StarVLA training | OpenVLA, `init=scratch`, `mode=single`, one current RGB image, native action width, no state, no online environment evaluation during SFT. |
-| Final evaluation | Disk-backed OpenVLA checkpoint evaluation through `latency_bench` and the original Gymnasium task contract. |
+Use this sequence whether the work is performed by a user or an agent.
 
-The following are **not first-release claims**:
+### 1. Pin and install the task package
 
-- Sample Factory observation-memory or policy frame-stack ablations;
-- multi-image, KV-memory, WanOFT, Pi, GR00T, or cross-task StarVLA training;
-- seven-dimensional bridge carriers;
-- continuous, `MultiDiscrete`, or `MultiBinary` StarVLA control;
-- generic GPU-batched simulation/rendering;
-- automatic action discretization, observation preprocessing, reward shaping,
-  frame skipping, or old-Gym API conversion.
+Record the exact package version and Gymnasium environment ID. Install the
+task-specific package in every runtime that constructs the environment: the
+small-model/rollout environment and, when online VLA evaluation is required,
+the StarVLA environment as well.
 
-`env.frame_stack` remains `1` in this release. It is a fixed raw-RGB buffer
-setting required by the shared VLA input interface, not a supported
-small-model memory experiment.
+Task-specific dependencies do not belong in the repository's base
+`pyproject.toml`. For example, the InvertedPendulum walkthrough installs its
+MuJoCo runtime explicitly on the experiment server; the generic benchmark does
+not install MuJoCo for every user.
 
-### Fast-path requirements
+### 2. Probe the installed API before writing configs
 
-A new task fits the release path when:
+Run a bounded probe against the exact installed version. At minimum, record:
 
-- it implements the Gymnasium five-value API;
-- its controller can be represented by a finite, explicitly ordered action
-  catalog;
-- each catalog value is JSON-stable and can be passed directly to
-  `env.step(action)`;
-- its unchanged observation space is accepted by Sample Factory;
-- `render_mode: rgb_array` returns an HWC RGB image;
-- one configured `step()` has a documented meaning as one benchmark raw tick.
+```python
+import importlib
+import gymnasium as gym
 
-If an action requires a NumPy array, tuple, class instance, or other value that
-does not round-trip through JSON, register a task-owned Gymnasium wrapper whose
-public action catalog is JSON-stable and reconstruct the native value inside
-that wrapper. A truly continuous controller needs a new action head, loss, and
-decoder and is outside this path.
+for module_name in REGISTRATION_IMPORTS:
+    importlib.import_module(module_name)
 
-## 2. Install the project and task package
+env = gym.make(ENV_ID, render_mode="rgb_array", **MAKE_KWARGS)
+observation, reset_info = env.reset(seed=0)
+next_observation, reward, terminated, truncated, step_info = env.step(PROBE_ACTION)
+rgb = env.render()
 
-Clone the formal submodule and install the OpenVLA environment:
+print(env.spec)
+print(env.action_space, env.observation_space)
+print(observation.shape, observation.dtype)
+print(next_observation.shape, next_observation.dtype)
+print(reward, terminated, truncated, reset_info, step_info)
+print(rgb.shape, rgb.dtype)
+env.close()
+```
+
+Adapt the probe action to the native action space. Also inspect task-specific
+timing fields, frame skip, time limit, reset options, available action meanings,
+and renderer requirements. Save the probe output rather than relying on memory
+or a newer documentation page.
+
+### 3. Separate API facts from task-author decisions
+
+The probe establishes runtime facts. It does not establish the experiment. The
+task author must explicitly approve the raw-tick meaning, clock, action catalog,
+no-op, preprocessing, task semantics, prompt, latency, and budgets listed in
+the next section.
+
+### 4. Decide whether a task-owned wrapper is required
+
+- A native `Discrete(n)` action space with JSON-stable action values can usually
+  be described directly in the `env` config.
+- A continuous, structured, or otherwise incompatible action space needs a
+  registered task-owned wrapper that exposes a finite `Discrete(n)` policy
+  catalog and maps each ID to the exact native action.
+- An observation unsupported by the basic Sample Factory policy needs one
+  explicit task-owned observation wrapper used identically in training and
+  evaluation.
+- If `render_mode: rgb_array` does not provide stable HWC RGB frames, rollout
+  and VLA stages are not ready until the task owns an explicit rendering path.
+
+Do not add environment-family behavior to `GymnasiumEnvAdapter`; new task
+semantics belong in the registered task wrapper and its tests.
+
+### 5. Freeze one contract and create four configs
+
+Copy the directory structure, not the InvertedPendulum scientific choices:
 
 ```bash
-git clone --recurse-submodules https://github.com/ZihanWang314/latency-sensitive-bench.git
-cd latency-sensitive-bench
-bash install.sh --tier dev --model openvla
+cp -R configs/examples/gymnasium/inverted_pendulum \
+  configs/examples/gymnasium/<task_name>
 ```
 
-The small model, rollout exporter, and converter run in `latency`. OpenVLA SFT
-runs in `starvla_rl_games_openvla`. The project installation includes
-`ale_py` and the Atari ROM package in both environments. For a separately
-packaged task, install the same task package/version in both environments:
+Replace the complete `env` block and task/output names. Keep
+`small_model_eval.yaml` based on `small_model_train.yaml` and
+`starvla_eval.yaml` based on `latency_bench_eval.yaml`. Resolve all four files
+through `latency_bench.core.config.load_config()` and confirm that their final
+`env` mappings are identical.
 
-```bash
-conda activate latency
-python -m pip install -e /absolute/path/to/acme-gym
+### 6. Add semantic tests and verify timing
 
-conda activate starvla_rl_games_openvla
-python -m pip install -e /absolute/path/to/acme-gym
-```
+When a wrapper is introduced, test its registered ID, policy-ID-to-native-action
+mapping, observation/render behavior, and frozen contract. Then run the
+zero-latency parity and requested fixed-latency trace described below.
 
-Use the same environment ID, registration package, wrapper, and constructor
-arguments at every stage.
+### 7. Run only the authorized experiment stages
 
-## 3. Define one task contract
+Config composition and logic tests do not require a long training budget. A
+full small-model run, teacher rollout, data conversion, OpenVLA training, and
+online evaluation are distinct stages. Run only stages authorized by the user
+and label the others `NOT RUN`.
 
-Users configure one public schema under `env`. AirRaid is the public Atari
-reference:
+### 8. Deliver an adaptation report
+
+An agent-assisted adaptation is not complete when code alone is generated. The
+agent must create a task-specific report such as
+`docs/gym-adapt/<task_name>.html`, following the structure and visual language
+of the InvertedPendulum walkthrough, and link it from
+`docs/gym-adapt/README.md`. The required contents are specified in “Adaptation
+report contract” below.
+
+## What can be inspected from the environment API
+
+Given an installed Gymnasium environment ID, a user or agent can probe:
+
+- the registered environment version and constructor arguments;
+- action and observation spaces, shapes, bounds, and dtypes;
+- the `reset()` and `step()` return structure;
+- `terminated` and `truncated` behavior observed during a bounded trace;
+- rendered RGB shape and dtype when `render_mode: rgb_array` is supported;
+- wrapper metadata such as `render_fps` when the environment publishes it;
+- Atari minimal action meanings and PAL/NTSC screen height through ALE;
+- MuJoCo `dt`, `frame_skip`, time limit, and the installed environment version.
+
+API inspection cannot decide the experiment semantics. The task author must
+approve:
+
+- what one raw tick means;
+- `env_fps`, `obs_fps`, and the latency condition;
+- the safe pending no-op action;
+- action labels, order, and native values;
+- any action discretization or observation preprocessing;
+- reset, reward, termination, truncation, and success semantics;
+- the base language prompt;
+- training, rollout, filtering, and evaluation budgets.
+
+If one of these choices is scientifically ambiguous, the agent should stop and
+ask rather than invent a hidden default.
+
+## Agent interaction protocol
+
+An adaptation agent should work in explicit phases:
+
+1. **Reconnaissance:** read this guide and the InvertedPendulum walkthrough,
+   inspect the repository and pinned task runtime, and produce an API-fact
+   report before changing task code.
+2. **Decision request:** show the user a compact table of unresolved choices,
+   why each choice changes the experiment, and a proposed value only when a
+   reasonable proposal is useful. Clearly label proposals as unapproved.
+3. **Contract confirmation:** wait for the user to approve the action catalog,
+   no-op, clock, preprocessing, task semantics, prompt, latency, and authorized
+   execution budget.
+4. **Generation:** create the wrapper only if required, the four grouped
+   configs, semantic tests, and reproducibility material. Do not edit a legacy
+   environment path to make the new task work.
+5. **Verification:** run config equality, zero-latency parity, latency-trace,
+   observation/render, focused generic-path, and task-specific tests.
+6. **Bounded execution:** run training or GPU stages only within the approved
+   time, compute, storage, and download budget.
+7. **Delivery:** create the task report, distinguish `VERIFIED`, `NOT RUN`, and
+   `BLOCKED`, and give the user exact next-stage commands with placeholders
+   replaced wherever artifacts already exist.
+
+The agent must stop and ask again if probing contradicts the proposed contract,
+the installed environment version differs, no safe pending no-op is known, a
+finite catalog would materially redefine the scientific task, or a later-stage
+manifest/checkpoint contract does not match the config.
+
+## The environment contract
+
+Every new task defines one `env` mapping and copies it unchanged into all four
+task configs:
 
 ```yaml
 env:
   name: gymnasium
-  task_name: air_raid
-  env_id: LatencyBench/Atari-v0
+  task_name: example_task
+  env_id: Package/RegisteredEnv-v0
   registration_imports:
-    - latency_bench.envs.gymnasium_atari
+    - package_that_registers_the_env
   make_kwargs:
-    ale_env_id: ALE/AirRaid-v5
     render_mode: rgb_array
-    screen_size: 84
-    noop_max: 30
-    frameskip: 1
-    repeat_action_probability: 0.0
-    full_action_space: false
-    terminal_on_life_loss: false
-    max_num_frames_per_episode: 108000
-    grayscale_obs: true
-    mode: 1
-    difficulty: 0
-  env_fps: 50
-  obs_fps: 12.5
+  env_fps: 30
+  obs_fps: 10
   frame_stack: 1
   noop_action: noop
   action_map:
     noop: 0
-    fire: 1
-    right: 2
-    left: 3
-    rightfire: 4
-    leftfire: 5
+    action_a: 1
+    action_b: 2
   action_order:
     - noop
-    - fire
-    - right
-    - left
-    - rightfire
-    - leftfire
+    - action_a
+    - action_b
   base_prompt: >-
-    Protect the two buildings by moving sideways and shooting the flying saucers.
-    Choose exactly one action from: noop, fire, right, left, rightfire, leftfire.
+    Complete the task. Choose exactly one action from:
+    noop, action_a, action_b.
 ```
 
-Reference configs:
-
-- [`latency_bench_eval.yaml`](../configs/examples/gymnasium/air_raid/latency_bench_eval.yaml)
-- [`small_model_train.yaml`](../configs/examples/gymnasium/air_raid/small_model_train.yaml)
-- [`small_model_eval.yaml`](../configs/examples/gymnasium/air_raid/small_model_eval.yaml)
-- [`starvla_eval.yaml`](../configs/examples/gymnasium/air_raid/starvla_eval.yaml)
-
-### Atari scaffold
-
-Generate the complete `env` block for another Atari game, then paste it into
-copies of the four AirRaid configs:
-
-```bash
-conda activate latency
-python scripts/scaffold_gymnasium_atari.py \
-  --ale-env-id ALE/AirRaid-v5 \
-  --base-prompt \
-  "Protect the two buildings by moving sideways and shooting the flying saucers. Choose exactly one action from: noop, fire, right, left, rightfire, leftfire."
-```
-
-The scaffold imports the Atari package, constructs the exact wrapper, reads the
-minimal ALE action meanings in native order, detects 210-line NTSC versus
-250-line PAL RGB output, and emits the frozen action catalog and clock. Its
-latency-oriented defaults are:
-
-```yaml
-env_id: LatencyBench/Atari-v0
-registration_imports: [latency_bench.envs.gymnasium_atari]
-make_kwargs:
-  ale_env_id: <ALE/Game-v5>
-  render_mode: rgb_array
-  screen_size: 84
-  noop_max: 30
-  frameskip: 1
-  repeat_action_probability: 0.0
-  full_action_space: false
-  terminal_on_life_loss: false
-  max_num_frames_per_episode: 108000
-  grayscale_obs: true
-  mode: <documented default mode>
-  difficulty: <documented default difficulty>
-frame_stack: 1
-```
-
-Freeze the ROM's minimal action meanings in their exact native order, with
-semantic lowercase labels in `action_map` and `action_order`. Set
-`obs_fps = env_fps / 4` to retain the usual four raw Atari frames per policy
-decision while allowing the latency scheduler to change an action on every raw
-frame. Do not use a blanket `env_fps: 60`: confirm the ROM display format first.
-AirRaid is PAL and therefore uses 50 raw frames/s and 12.5 decisions/s; common
-NTSC games such as Demon Attack use 60 and 15.
-
-These defaults intentionally disable ALE v5's native four-frame repeat and
-sticky-action probability. Leaving the v5 defaults (`frameskip=4`,
-`repeat_action_probability=0.25`) creates a different task: one benchmark tick
-would cover four emulator frames and sticky actions would confound controller
-randomness with measured inference latency.
-
-### Explicit wrapper contract
-
-The Atari scaffold uses the project-owned `LatencyBench/Atari-v0` wrapper. Its
-complete constructor contract is the `make_kwargs` block above: the wrapper
-constructs the named ALE task with one emulator frame per `step()`, then applies
-Gymnasium `AtariPreprocessing` with `frame_skip=1`, the configured random no-op
-reset, 84-pixel grayscale policy observations, no life-loss terminal, and no
-observation scaling. It finally exposes CHW `uint8` policy observations while
-leaving `env.render()` as the original HWC RGB game frame used for teacher/VLA
-data. AirRaid's native reward, game-over termination, and ALE frame-limit
-truncation remain unchanged; no reward clipping, policy frame stack, or
-`EpisodicLife` is added. ALE itself applies AirRaid's required starting FIRE
-action before the preprocessing wrapper performs its no-op reset steps.
-
-The AirRaid-specific facts are grounded in the
-[official environment specification](https://ale.farama.org/environments/air_raid/)
-and ALE's
-[`AirRaidSettings`](https://github.com/Farama-Foundation/Arcade-Learning-Environment/blob/master/src/ale/games/supported/AirRaid.cpp).
-The latter defines the six-action minimal set, score-difference reward,
-game-over condition, and starting FIRE action. ALE detects the distributed
-AirRaid ROM as PAL; its console clock maps PAL to 50 FPS.
-
-If another Atari task needs different preprocessing, register a different
-wrapper instead of changing `LatencyBench/Atari-v0` silently. Make that
-wrapper's ID, registration import, base ALE constructor arguments,
-preprocessing arguments, observation space, reward, and episode boundaries
-explicit. Use the same registered ID and constructor arguments for Sample
-Factory training, rollout, conversion metadata, and final evaluation. A
-training-only wrapper is an incompatible experiment, not a convenience default.
-
-### Field contract
+`gymnasium_task_contract()` derives and freezes eleven fields:
 
 | Field | Meaning |
 | --- | --- |
-| `name` | Integration dispatch key. It must remain `gymnasium`. |
-| `task_name` | Stable semantic identity used by checkpoints, datasets, prompts, and output paths. |
-| `env_id` | Exact ID passed to `gymnasium.make`. |
-| `registration_imports` | Modules imported in listed order before `gymnasium.make`. Use this for packages that register environments as an import side effect. |
-| `make_kwargs` | Passed unchanged to `gymnasium.make(env_id, **make_kwargs)`. |
-| `env_fps` | Number of configured environment `step()` calls per simulated second. This defines the raw-tick unit. |
-| `obs_fps` | Policy decision frequency. `env_fps / obs_fps` must be integral. |
-| `frame_stack` | Fixed to `1` for the single-image first-release path. It does not alter the small-model observation. |
-| `noop_action` | Semantic label of the real task no-op/default action. |
-| `action_map` | Semantic label to exact native Gymnasium action value. |
-| `action_order` | Canonical policy ID and StarVLA logit order. ID `i` always means `action_order[i]`. |
-| `base_prompt` | Stable task instruction. It should name the legal semantic actions. |
+| `task_name` | Stable semantic task identity |
+| `env_id` | Exact registered Gymnasium environment |
+| `make_kwargs` | Exact constructor arguments |
+| `registration_imports` | Modules imported before `gym.make()` |
+| `action_labels` | `action_order` copied in order |
+| `action_values` | `action_map[label]` in the same order |
+| `noop_action_id` | Position of `noop_action` in `action_order` |
+| `base_prompt` | Task instruction before latency wording |
+| `env_fps` | Raw environment ticks per second |
+| `obs_fps` | Policy decisions per second |
+| `frame_stack` | Raw RGB history used by the VLA handoff |
 
-For a separately packaged task:
+Action order, native values, no-op, timing, and prompt are experiment contracts,
+not display metadata. Changing any of them creates a different task and requires
+new checkpoints and datasets.
 
-```yaml
-env:
-  name: gymnasium
-  task_name: acme_balance
-  env_id: AcmeBalance-v0
-  registration_imports:
-    - acme_gym.envs
-```
-
-Every generic stage imports the listed modules in order and then calls the
-same `gymnasium.make`. Do not create a second handwritten action or prompt
-registry for StarVLA.
-
-## 4. Decisions the task author must make
-
-The framework preserves a contract; the task author must decide whether it is
-scientifically correct.
-
-| Decision | Required task-specific work |
-| --- | --- |
-| Raw tick | Document what one configured `step()` advances. Disable native action repeat/frame skip or define the clock at the aggregate rate. |
-| Observation rate | Choose `obs_fps` and verify that `env_fps / obs_fps` is an integer. |
-| No-op | Demonstrate that it is safe at reset and while a delayed action is pending. Do not assume native action `0` is a no-op. |
-| Action catalog | Choose a sufficient finite set, assign semantic labels, and freeze `action_order` before RL training. |
-| Observation preprocessing | If needed, implement one registered Gymnasium wrapper and reuse it in all stages. |
-| Reward/episode boundary | Decide whether native reward, shaping, termination, and time-limit truncation match the experiment. |
-| Prompt | Describe the goal and legal actions without renaming or reordering them. |
-| Rollout filter | Start with `none`; add a task-specific filter only after inspecting returns, failures, class balance, and continuity. |
-| Training budget | Choose RL steps, rollout episodes, SFT steps, batch size, learning rate, and checkpoint cadence. |
-
-Changing any row after data collection creates a different task contract.
-Train a new teacher and regenerate the data instead of reusing an incompatible
-checkpoint.
-
-### Agent adaptation protocol: Atari Discrete fast path
-
-This subsection is an execution contract for a coding agent. Give the agent
-this document and one installed ALE environment ID such as `ALE/AirRaid-v5`.
-That is sufficient for a coding agent to prepare the Atari Discrete fast path
-and pass the CPU logic gate. A bounded GPU pipeline smoke is conditional on
-the resources, licences, budgets, and scientific approvals listed below; this
-guide is not a push-button authorization to start it. The environment ID alone
-is **not** sufficient to choose the scientific task definition, run a long
-experiment, or claim policy quality.
-
-In short: the standard ALE finite-Discrete logic adaptation is autonomous;
-the bounded end-to-end smoke is autonomous only after its inputs and resource
-budget are approved; a reusable scientific experiment always requires task
-author approval.
-
-#### Minimum user input
-
-Required:
-
-- the exact ALE environment ID, including its version;
-- access to the ROM through the normal ALE/Gymnasium installation.
-
-Optional inputs are a stable task name, an approved task prompt, a target
-fixed latency, output locations, and explicit smoke budgets. When they are not
-provided, the agent may derive the snake-case task name, use the wrapper and
-clock defaults emitted by the Atari scaffold, use a fixed latency only for a
-short integration check, and draft a prompt of the form emitted by the
-scaffold. A drafted prompt is provisional: it is suitable for checking data
-flow, but it is not an approved scientific instruction.
-
-#### Steps the agent may execute autonomously
-
-1. Inspect the current checkout and preserve all existing environment
-   interfaces. Do not rewrite Flappy Bird, Demon Attack, Deadly Corridor, or
-   the generic adapter to specialize them for the new game.
-2. Install or import only the task dependencies already required by the Atari
-   fast path. Construct the requested ALE task through
-   `LatencyBench/Atari-v0`; do not download unrelated models or run broad
-   experiment suites.
-3. Run `scripts/scaffold_gymnasium_atari.py --ale-env-id <ID>`. Record the
-   detected PAL/NTSC clock, minimal native action meanings, native action
-   values, no-op label, wrapper ID, registration import, and all constructor
-   arguments. Preserve the emitted action order exactly.
-4. Create task-owned copies of the four current Atari reference configurations
-   for small-model training, small-model evaluation, latency-bench
-   construction/evaluation, and StarVLA evaluation. Replace each root
-   configuration's complete `env` block as one unit, keep inherited evaluation
-   configs pointed at that task-owned root, choose a new output namespace, and
-   require the same resolved task contract in all four. Do not add a second
-   action or prompt registry.
-5. Add or update a task-level contract test modelled on the AirRaid scaffold
-   and parity tests. Verify construction, seeded reset/step, action-ID to
-   native-action mapping, observation dtype/shape, HWC RGB rendering, reward,
-   separate `terminated`/`truncated` values, raw-tick clock, and exact contract
-   equality across all four configurations.
-6. Run the focused generic adapter, Atari wrapper, scaffold, configuration,
-   teacher-contract, converter-contract, and StarVLA contract tests. Run a
-   zero-latency trajectory parity check before any latency smoke.
-7. If a small CUDA-capable smoke is authorized and dependencies are already
-   available, bound every stage: a minimal Sample Factory run that saves and
-   reloads one real checkpoint; enough accepted teacher episodes to leave both
-   train and validation non-empty with `filter_preset=none`; conversion of
-   those rows; one real train and
-   validation loader batch; two OpenVLA optimizer steps with optimizer state
-   and best-model saving disabled; and a few scheduled raw ticks of online
-   evaluation. Stop after proving artifact compatibility. Do not continue to
-   convergence or evaluate policy quality.
-8. Report the exact commands, resolved contract, test results, artifact paths,
-   disk use, and every skipped GPU or long-running gate. Separate static
-   composition, CPU logic checks, short GPU smoke, and full experiment status.
-
-The agent may use the scaffold's generic prompt to complete steps 1--6. Before
-step 7 produces data intended for reuse, the task author must approve the
-prompt and every scientific decision in the table above.
-
-#### Mandatory stop-and-ask boundaries
-
-The agent must stop and request a user decision, without inventing a fallback,
-when any of the following occurs:
-
-- the action space is continuous, `MultiDiscrete`, `MultiBinary`, dynamically
-  changing, or cannot be represented by JSON-stable native values;
-- the minimal action meanings are missing, duplicated, unstable, or do not
-  contain a demonstrated safe pending-action no-op;
-- the task does not produce HWC RGB through `render_mode: rgb_array`, or its
-  unchanged/wrapped observation is not accepted by Sample Factory;
-- one `step()` cannot be tied to a documented emulator tick, PAL/NTSC timing
-  cannot be established, or the requested observation rate is not an integral
-  raw-tick stride;
-- correct play requires changing preprocessing, native frame skip, sticky
-  actions, reward, reset behavior, life-loss handling, termination, truncation,
-  mode, difficulty, or the finite action catalog;
-- the goal, legal-action wording, reward interpretation, episode boundary,
-  rollout filter, latency condition, seed set, or training/evaluation budget is
-  scientifically ambiguous;
-- a contract field differs between live environment, checkpoint, teacher
-  metadata, LeRobot manifest, StarVLA config, and final evaluation;
-- required ROM access, credentials, model weights, licences, GPU memory, or
-  disk budget are unavailable.
-
-A user may explicitly approve a task-owned wrapper or a different experiment
-definition. The agent must then assign it a new contract/output identity and
-repeat parity; it must not silently normalize that choice back into the Atari
-defaults.
-
-#### Required artifacts
-
-A completed adaptation handoff contains:
-
-- four task configurations with exactly equal resolved 11-field task
-  contracts;
-- any task-owned registration wrapper and its focused tests, if one was
-  explicitly approved;
-- scaffold output or an equivalent resolved-contract record;
-- zero-latency parity evidence and focused-test output;
-- for a bounded end-to-end smoke: a loadable Sample Factory checkpoint,
-  canonical train/validation parquet plus metadata and filter report, paired
-  LeRobot datasets, generated mixture, latency prompt map, train manifest,
-  `config.full.yaml`, a model-only OpenVLA checkpoint, and an online action
-  trace;
-- a validation note stating which gates are logic-only, short-smoke, or not
-  run, together with artifact sizes and remaining scientific approvals.
-
-Temporary smoke artifacts are not publication artifacts. The agent may remove
-only disposable outputs that it created and identified; it must preserve
-checkpoints, datasets, caches, or submodule changes owned by the user.
-
-#### Acceptance gates and failure conditions
-
-The adaptation passes the **logic gate** only when the exact task contract is
-identical across the four configurations, zero-latency trajectory parity
-passes, the action catalog round-trips to the native environment without
-reordering, RGB and policy observations have the documented values and shapes,
-and focused legacy plus generic tests pass.
-
-It passes the **bounded pipeline smoke gate** only when a real small-model
-checkpoint reloads, teacher train/validation output is non-empty and split by
-episode, LeRobot manifests preserve the checkpoint contract and native action
-width, one train and validation batch load, two OpenVLA steps save a loadable
-model-only checkpoint with its `config.full.yaml`, and online evaluation
-applies at least one model action at the expected raw tick. Passing this gate
-does not establish learning, return, robustness, or reproducibility.
-
-The adaptation fails closed if any required contract field is missing or
-different, an action is guessed/remapped, parity differs, an exception is
-swallowed, an observation or prompt is silently substituted, a legacy task's
-behavior changes, or a stage is reported as tested when it was only composed
-or skipped. In those cases the agent must preserve the failing evidence and
-report the first semantic mismatch rather than continue with a hidden
-fallback.
-
-## 5. Raw-tick latency semantics
-
-The clock is:
+Latency is expressed in raw ticks:
 
 ```text
-raw tick duration       = 1000 / env_fps ms
-raw ticks per decision  = env_fps / obs_fps
-fixed latency in ticks  = ceil(fixed_latency_ms * env_fps / 1000)
+raw_latency_frames = ceil(latency_ms / 1000 * env_fps)
+observation_stride = env_fps / obs_fps
 ```
 
-AirRaid uses:
+The selected rates must produce the intended integer observation stride.
+
+## Files generated for one task
+
+Place the four runnable configs together:
 
 ```text
-env_fps                 = 50 (PAL)
-obs_fps                 = 12.5
-raw ticks per decision  = 4
-fixed_latency_ms        = 100
-fixed latency           = 5 raw ticks
+configs/examples/gymnasium/<task>/
+  latency_bench_eval.yaml
+  small_model_train.yaml
+  small_model_eval.yaml
+  starvla_eval.yaml
 ```
 
-One Sample Factory policy decision therefore advances four native AirRaid
-frames. The scheduler queues the newly issued catalog action in
-raw-tick time, applies the configured hold/ordering policy, and accumulates
-reward over those four native steps. Dataset and evaluation names use `l5`
-because 100 ms maps to five AirRaid raw frames.
+`small_model_eval.yaml` inherits `small_model_train.yaml`.
+`starvla_eval.yaml` inherits `latency_bench_eval.yaml`. The resolved `env`
+mapping must be identical in all four files.
 
-## 6. Gate 0: verify zero-latency parity
+When the native interface is not directly compatible, also add:
 
-Before training, compare two seeded trajectories:
+```text
+latency_bench/envs/<task_wrapper>.py
+scripts/scaffold_<task_family>.py       # only when a reusable probe is useful
+tests/envs/test_<task_wrapper>.py
+```
 
-1. Construct the exact native/wrapped Gymnasium task and apply a fixed semantic
-   action trace through `action_map`.
-2. Construct the generic latency path with the same seed and
-   `latency.method: zero`, and issue the same trace.
+The InvertedPendulum example shows the continuous-action case:
 
-When `env_fps / obs_fps = K`, hold each reference action for the same `K`
-native steps before comparing the next policy boundary. Compare:
+- [`latency_bench/envs/gymnasium_mujoco.py`](../latency_bench/envs/gymnasium_mujoco.py)
+  maps five catalog IDs to five user-approved scalar forces;
+- [`scripts/scaffold_gymnasium_mujoco.py`](../scripts/scaffold_gymnasium_mujoco.py)
+  records the pinned API facts and prints the accepted `env` block;
+- [`configs/examples/gymnasium/inverted_pendulum/`](../configs/examples/gymnasium/inverted_pendulum/)
+  contains the four grouped configs;
+- [`tests/envs/test_gymnasium_mujoco.py`](../tests/envs/test_gymnasium_mujoco.py)
+  verifies registration, native-action mapping, and the frozen contract.
 
-- native action at every raw tick;
-- observation value, dtype, and shape;
-- summed reward per decision and total return;
-- `terminated` and `truncated` separately;
-- terminal raw tick;
-- RGB render output;
-- native `info` after excluding benchmark-owned metadata.
+The MuJoCo files are a worked task-owned implementation, not code that every
+Gymnasium task imports. A new task should reuse the generic interfaces and the
+file organization while generating only the wrapper and dependencies its own
+API requires.
 
-The repository's generic parity tests are in
-[`tests/envs/test_gymnasium_env_adapter.py`](../tests/envs/test_gymnasium_env_adapter.py).
-For AirRaid, hold each catalog action for four native wrapper steps at every
-reference policy boundary. A stochastic wrapper also needs repeated same-seed
-trajectory checks.
+## Verification before training
 
-A construction smoke test is useful but does not replace parity:
+The adaptation should pass these gates:
+
+1. The exact registration module can be imported in a clean process.
+2. The resolved `env` mapping is identical across all four configs.
+3. The configured no-op maps to the intended native action.
+4. At zero latency, a fixed seed and native action trace match the reference
+   Gymnasium environment in observation, reward, termination, and truncation.
+5. At fixed latency, the issued and applied action trace matches the expected
+   raw-frame delay.
+6. Policy observations and rendered RGB retain their documented shapes and
+   dtypes.
+7. Existing Flappy, Demon Attack, and Deadly Corridor tests remain unchanged.
+
+Focused release tests include:
 
 ```bash
-python -m latency_bench.run \
-  --config configs/examples/gymnasium/air_raid/latency_bench_eval.yaml \
-  --episode-start 0 \
-  --episode-count 2
+pytest -q \
+  tests/envs/test_gymnasium_env_adapter.py \
+  tests/training/test_gymnasium_sf.py \
+  tests/data/test_generic_gymnasium_teacher_export.py \
+  tests/policies/test_generic_gymnasium_starvla_policy.py
 ```
 
-## 7. Train and evaluate the small model
+Add the task-specific wrapper test when the adaptation introduces one.
 
-Copy the complete training example and replace only the task contract, output
-names, latency, and ordinary Sample Factory hyperparameters:
+## Basic experiment commands
+
+Train the small model:
 
 ```bash
-cp configs/examples/gymnasium/air_raid/small_model_train.yaml \
-  configs/examples/my_task_small_model_train.yaml
-```
-
-The reference fixed-latency block is:
-
-```yaml
-latency:
-  method: fixed
-  fixed_latency_ms: 100.0
-  add_latency_info: false
-```
-
-Train:
-
-```bash
-conda activate latency
 python -m training.train \
-  --config configs/examples/my_task_small_model_train.yaml
+  --config configs/examples/gymnasium/<task>/small_model_train.yaml
 ```
 
-The experiment directory is:
-
-```text
-<backend.train_dir>/<experiment.name>/
-  config.json
-  checkpoint_p*/checkpoint_*.pth
-```
-
-`config.json` contains the exact Gymnasium ID, constructor kwargs,
-registration imports, action labels/values/order, no-op ID, prompt, and clock.
-The teacher exporter reconstructs the task from this checkpoint contract.
-
-Evaluate one checkpoint at the training latency:
+Evaluate a saved small-model checkpoint:
 
 ```bash
 python -m latency_bench.run \
-  --config configs/examples/gymnasium/air_raid/small_model_eval.yaml \
-  --checkpoint-path \
-    outputs/examples/gymnasium_air_raid/checkpoints/gymnasium_air_raid_fixed_l5/checkpoint_p0/checkpoint_XXXXXXXXX_YYYYY.pth \
-  --episode-start 0 \
-  --episode-count 5
+  --config configs/examples/gymnasium/<task>/small_model_eval.yaml \
+  --checkpoint-path <checkpoint.pth>
 ```
 
-The policy type is `gymnasium_sf`. Its raw policy ID is decoded through the
-checkpoint's `action_order` and the unchanged `action_map`.
-
-This release does not promise generic observation-memory, RNN, frame-stack,
-GPU-render, or environment-specific ablation configs. Such experiments require
-task-owned implementation and validation.
-
-## 8. Export the teacher rollout
-
-Start with no task-specific filter and one current decision image:
+Export teacher data from the checkpoint:
 
 ```bash
-conda activate latency
 python scripts/rollout_data/export_sf_teacher_dataset.py \
-  --checkpoint-root \
-    outputs/examples/gymnasium_air_raid/checkpoints/gymnasium_air_raid_fixed_l5 \
-  --output-dir \
-    outputs/examples/gymnasium_air_raid/teacher_fixed_l5 \
+  --checkpoint-root <sample_factory_run> \
+  --output-dir <teacher_output> \
   --max-episodes 200 \
-  --max-steps-per-episode 27000 \
   --val-fraction 0.1 \
   --num-envs 1 \
   --replay-num-envs 1 \
@@ -572,386 +371,143 @@ python scripts/rollout_data/export_sf_teacher_dataset.py \
   --export-image-size 224,224
 ```
 
-Do not pass `--env-name` for a Gymnasium checkpoint. The semantic task name is
-part of the checkpoint contract; the exporter rejects attempts to relabel it.
+Do not pass `--env-name` for a generic Gymnasium checkpoint. The exporter reads
+the task identity and complete contract from the checkpoint.
 
-The result is:
-
-```text
-teacher_fixed_l5/
-  train.parquet
-  val.parquet
-  metadata.json
-  filter_report.json
-```
-
-Important details:
-
-- rows are policy decision steps, not raw ticks;
-- train/validation assignment is by episode;
-- `context-window` stays `1` for this release;
-- `clean_v1` and `contiguous_v1` contain assumptions from existing tasks and
-  are not generic quality filters;
-- `metadata.json` is the canonical manifest for the teacher export. It records
-  `integration_name: gymnasium`, `task_name`/`env_name`, action layout and
-  labels, prompt, clock, checkpoint task contract, split counts, and filter
-  report.
-
-Inspect the following before conversion:
-
-- accepted/rejected episodes and return distribution;
-- no episode overlap between train and validation;
-- one-hot width and class balance in exact `action_order`;
-- prompt and raw-frame latency consistency;
-- RGB image content and size;
-- reset boundaries, terminal rows, and action continuity.
-
-## 9. Convert train and validation data for StarVLA
-
-Use the native action carrier only:
+Convert canonical rows to the StarVLA LeRobot format:
 
 ```bash
 python scripts/rollout_data/prepare_starvla_lerobot_dataset.py \
-  outputs/examples/gymnasium_air_raid/teacher_fixed_l5 \
+  <teacher_output> \
   third_party/starVLA/playground/Datasets/rl_games \
-  air_raid_fixed_l5 \
+  <dataset_name> \
   --action-carrier native
 ```
 
-This produces paired datasets and a generated mixture:
+The basic release path uses a categorical carrier whose width equals the action
+catalog size. It does not train OpenVLA to emit the original continuous Box
+vector.
 
-```text
-third_party/starVLA/playground/Datasets/rl_games/
-  air_raid_fixed_l5/
-    data/chunk-000/episode_000000.parquet
-    meta/info.json
-    meta/modality.json
-    meta/episodes.jsonl
-    meta/tasks.jsonl
-    latency_prompt_map.json
-    manifest.json
-  air_raid_fixed_l5__val/
-    data/...
-    meta/...
-    manifest.json
-  _generated_mixtures/
-    air_raid_fixed_l5.json
-```
-
-The train manifest records:
-
-- `integration_name: gymnasium`, semantic `task_name`, and the complete
-  `gymnasium_task` contract copied from the teacher checkpoint;
-- exact `env_id`, registration imports, make kwargs, ordered action labels,
-  native action values, no-op ID, base prompt, timing rates, and frame stack;
-- `action_layout`, ordered `action_labels`, and
-  `robot_type: rl_games_gymnasium_discrete`;
-- `action_carrier: native`;
-- `action_dim == active_action_dim == len(action_order)`;
-- `obs_fps` and `obs_stride_raw_frames`;
-- `validation_dataset_name` and validation counts;
-- `latency_prompt_map_path` and `custom_mixtures_path`.
-
-The validation manifest repeats the same task/action contract and points back
-with `training_dataset_name`. The generated mixture JSON contains two named
-entries:
-
-```json
-{
-  "air_raid_fixed_l5": [
-    ["air_raid_fixed_l5", 1.0, "rl_games_gymnasium_discrete"]
-  ],
-  "air_raid_fixed_l5__val": [
-    ["air_raid_fixed_l5__val", 1.0, "rl_games_gymnasium_discrete"]
-  ]
-}
-```
-
-Do not edit these three handoff files independently. If the task/action contract
-changes, regenerate the teacher export and both LeRobot splits.
-
-## 10. Run basic single-image OpenVLA SFT
-
-The public first-release combination is fixed:
-
-```text
-model=openvla
-env=gymnasium
-init=scratch
-mode=single
-action carrier=native
-num_obs_frames=1
-image_mode=single
-KV memory=disabled
-StarVLA environment evaluation=disabled
-```
-
-The recommended entry point reads the complete task contract and active action
-dimension from the train manifest, so these values are not typed a second time:
+Run basic single-image OpenVLA SFT:
 
 ```bash
 cd third_party/starVLA
-conda activate starvla_rl_games_openvla
-
-WANDB_MODE=disabled \
-WANDB_ENTITY=disabled \
-WANDB_PROJECT=starvla_air_raid \
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 bash commands/openvla/train_gymnasium_openvla.sh \
   playground/Datasets/rl_games \
-  air_raid_fixed_l5 \
-  playground/Datasets/rl_games/_generated_mixtures/air_raid_fixed_l5.json \
-  checkpoint.save_best_model=false \
-  checkpoint.save_training_state=false \
-  checkpoint.save_safetensors_file=true
+  <dataset_name> \
+  playground/Datasets/rl_games/_generated_mixtures/<dataset_name>.json
 ```
 
-The three positional values are:
-
-| Argument | Meaning |
-| --- | --- |
-| dataset root | Parent directory containing the train and validation LeRobot directories. |
-| dataset name | Train dataset directory and generated mixture key. |
-| mixture path | Generated mixture JSON from the converter. |
-
-The launcher fixes `model=openvla`, `env=gymnasium`, `init=scratch`, and
-`mode=single`. It reads `gymnasium_task` and `active_action_dim` from
-`<dataset-root>/<dataset-name>/manifest.json`, forwards optional extra Hydra
-overrides after the three positional values, and derives
-`datasets.vla_data.eval_data_mix` as `<dataset.converted_name>__val`, so the
-generated validation mixture is selected without another user override.
-
-For example, a short logic run is:
+Run final evaluation after filling the four StarVLA artifact paths in
+`starvla_eval.yaml`:
 
 ```bash
-WANDB_MODE=disabled \
-WANDB_ENTITY=disabled \
-WANDB_PROJECT=starvla_air_raid \
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-bash commands/openvla/train_gymnasium_openvla.sh \
-  playground/Datasets/rl_games \
-  air_raid_fixed_l5 \
-  playground/Datasets/rl_games/_generated_mixtures/air_raid_fixed_l5.json \
-  trainer.max_train_steps=2 \
-  trainer.save_interval=2 \
-  checkpoint.save_best_model=false \
-  checkpoint.save_training_state=false \
-  checkpoint.save_safetensors_file=true
-```
-
-The checkpoint overrides keep only a loadable model-only safetensors file and
-avoid optimizer/training-state duplication. The full default 2000-step command
-above writes
-`checkpoints/steps_2000_model.safetensors`; the two-step smoke writes
-`checkpoints/steps_2_model.safetensors`. If you change
-`trainer.max_train_steps`, use the matching step in the final evaluation path.
-Set real W&B values instead of the disabled values when experiment logging is
-required. `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` reduces allocator
-fragmentation during the short smoke and does not change the model or data
-contract.
-
-The resolved configuration must keep `framework.action_model.action_dim` equal
-to the native carrier width and `action_env_dim` equal to the active task
-width. For this first-release native path, both are `N`.
-
-Before a long run, verify one loader batch:
-
-- train mix resolves `air_raid_fixed_l5`;
-- validation mix resolves `air_raid_fixed_l5__val`;
-- image input is one `224 x 224` current RGB frame;
-- each training row resolves its prompt through LeRobot `task_index` and
-  `meta/tasks.jsonl`, and that prompt matches the corresponding entry in
-  `latency_prompt_map.json` used by final online evaluation;
-- action tensor width and active dimension are `N`;
-- ordered labels equal `env.action_order`;
-- resolved config contains `rl_games.task: gymnasium`, the complete
-  `rl_games.gymnasium.task_contract`, and the derived semantic
-  `rl_games.gymnasium.task_name`.
-
-The run directory is:
-
-```text
-third_party/starVLA/results/Checkpoints/<run_id>/
-  config.full.yaml
-  config.yaml
-  checkpoints/steps_<N>_model.safetensors
-```
-
-Keep `config.full.yaml` with the checkpoint. Final benchmark input setup reads
-the saved model configuration; a checkpoint file alone is not the complete
-experiment artifact.
-
-## 11. Evaluate the OpenVLA checkpoint in `latency_bench`
-
-Copy
-[`starvla_eval.yaml`](../configs/examples/gymnasium/air_raid/starvla_eval.yaml)
-and replace its four artifact paths: checkpoint, saved model config, train task
-manifest, and latency prompt map. Do not repeat or reorder actions under
-`policy`: the generic StarVLA policy reads the canonical `env.action_order`.
-
-Run from the repository root:
-
-```bash
-conda activate starvla_rl_games_openvla
-cd /absolute/path/to/latency-sensitive-bench
-
 python -m latency_bench.run \
-  --config configs/examples/gymnasium/air_raid/starvla_eval.yaml \
-  --checkpoint-path \
-    third_party/starVLA/results/Checkpoints/air_raid_fixed_l5_openvla_sft/checkpoints/steps_2000_model.safetensors \
-  --model-config-path \
-    third_party/starVLA/results/Checkpoints/air_raid_fixed_l5_openvla_sft/config.full.yaml \
-  --task-manifest-path \
-    third_party/starVLA/playground/Datasets/rl_games/air_raid_fixed_l5/manifest.json \
-  --latency-prompt-map-path \
-    third_party/starVLA/playground/Datasets/rl_games/air_raid_fixed_l5/latency_prompt_map.json \
-  --latency-raw-frames 5 \
-  --episode-start 0 \
-  --episode-count 20
+  --config configs/examples/gymnasium/<task>/starvla_eval.yaml
 ```
 
-The reference dataset contains only the L5 prompt because its teacher rollout
-uses one fixed five-raw-frame latency. Keep `policy.latency_prompt_key: 5` and
-`--latency-raw-frames 5` together. To evaluate additional latencies with a
-prompt map, collect those latency conditions so the generated map contains the
-matching keys.
+Final evaluation strictly compares the eval YAML contract, dataset manifest,
+and saved model config before decoding a model action ID through
+`action_order` and `action_map`.
 
-The online path:
+## Adaptation report contract
 
-1. creates the same Gymnasium environment from `env_id`,
-   `registration_imports`, and `make_kwargs`;
-2. renders one current RGB frame;
-3. selects the prompt for the scheduled raw-frame latency;
-4. asks OpenVLA for native-width action scores;
-5. takes the argmax over the first `len(action_order)` scores;
-6. resolves that ID through `action_order` and then `action_map`;
-7. schedules the exact native action in the raw-tick latency queue.
+For manual work, keeping this record is strongly recommended. For an
+agent-assisted adaptation, it is required. Use
+[`docs/gym-adapt/index.html`](gym-adapt/index.html) as the reference and create
+a task-specific HTML report such as `docs/gym-adapt/<task_name>.html`, plus
+curated assets under `docs/gym-adapt/assets/<task_name>/`. Add the report to the
+directory index in `docs/gym-adapt/README.md`; do not overwrite the reference
+walkthrough.
 
-Before loading the model, disk and live policy paths compare the evaluation
-task contract against both the train manifest and the saved StarVLA config.
-Changing action order, native values, no-op, prompt, environment construction,
-or timing fields therefore fails explicitly instead of silently changing the
-experiment.
+The report must contain:
 
-Final acceptance must compare the small model and OpenVLA under the same task
-contract, seeds, raw-tick latency, hold policy, ordering policy, episode limit,
-and reward/termination semantics.
+1. **Scope and status:** environment/package versions, selected task ID,
+   scientific objective, target latency, support boundary, and a summary of
+   which stages were actually run.
+2. **API reconnaissance:** exact probe command and output for construction,
+   spaces, reset, step, render, timing, and version-specific behavior.
+3. **User decisions:** the questions asked, the user's explicit answers, and a
+   table separating API facts from task-author choices.
+4. **Frozen contract:** the complete resolved `env` mapping and all eleven
+   `gymnasium_task_contract()` fields.
+5. **Generated implementation:** wrapper, registration, configs, tests, and an
+   explanation of how policy action IDs reach native environment actions.
+6. **Pipeline propagation:** where each contract field is consumed by the env
+   factory, Sample Factory integration/checkpoint, teacher export, LeRobot
+   conversion, StarVLA config/loader, and final evaluation validation.
+7. **Command ledger:** exact user-facing and agent-executed commands, runtime
+   environment, output paths, duration/steps when known, and exit status.
+8. **Evidence ledger:** parity traces, latency traces, resolved configs, logs,
+   metrics, images, videos, manifests, and checkpoints that were actually
+   produced. Link curated release assets; keep bulky raw experiment output in
+   ignored `artifacts/` or external storage.
+9. **Continuation runbook:** commands for the first stage not yet executed and
+   all subsequent basic stages—teacher rollout, conversion, OpenVLA SFT, and
+   final latency-bench evaluation—using the task's real paths and contract.
+10. **Isolation and limitations:** legacy-path regression status, unsupported
+    experiment modes, unresolved decisions, blockers, and claims the smoke run
+    does not establish.
 
-## 12. Validation status and release acceptance
+Use visible status labels consistently:
 
-The generic code path and configuration composition can be checked on a local
-Mac. A Mac logic check does **not** establish that a full CUDA OpenVLA SFT run
-or complete online benchmark succeeds.
+- `VERIFIED`: the command ran and the linked evidence supports the statement;
+- `NOT RUN`: the path or command is documented but was not executed;
+- `BLOCKED`: execution was attempted or required but could not proceed, with
+  the exact blocker recorded;
+- `USER DECISION`: a scientific choice supplied or approved by the task author;
+- `API FACT`: a value observed from the pinned runtime.
 
-The AirRaid reference path has also been smoke-tested on CUDA: a fixed-L5
-Sample Factory run produced and reloaded a checkpoint; two teacher episodes
-were exported and converted to train/validation LeRobot datasets; basic
-single-image OpenVLA completed two optimizer steps and saved a model-only
-checkpoint; and a 12-raw-frame online run applied its first two model actions at
-raw frames 5 and 9. This verifies integration and short closed-loop execution,
-not policy quality, convergence, or the full experiment matrix.
+Never show a planned artifact as if it exists. If a stage is not run, list its
+expected outputs separately from the evidence ledger.
 
-Before publishing results, run on the target GPU server:
+## Current boundary
 
-1. one real StarVLA train and validation loader batch;
-2. a short OpenVLA SFT smoke run that saves a checkpoint;
-3. one zero-latency online episode through `latency_bench`;
-4. one fixed-latency online episode through `latency_bench`;
-5. the intended full-seed/full-episode experiment;
-6. regression tests for the three existing environments.
+| Environment property | Release support |
+| --- | --- |
+| Native `Discrete(n)` actions | Direct finite catalog |
+| Continuous or structured actions | Task-owned finite catalog wrapper required |
+| Stable Box/vector or CHW image policy observations | Supported by the basic small-model path |
+| Other observation structures | Explicit wrapper/preprocessing required |
+| `rgb_array` rendering | Required for rollout and VLA stages |
+| Basic APPO training | Supported |
+| Basic single-image OpenVLA SFT | Supported handoff |
+| Memory/frame-stack experiments | Outside this release path |
+| Automatic action discretization or prompt design | Not supported |
 
-Do not describe successful config composition, unit tests, or data conversion
-as a completed GPU SFT or online evaluation.
+Logic tests and short smoke runs establish that the pipeline executes; they do
+not establish policy quality, convergence, or scientific validity.
 
-## 13. Per-task release checklist
+## Prompt for an adaptation agent
 
-- [ ] Task package version and `env_id` are documented.
-- [ ] One wrapper, if needed, is registered and reused everywhere.
-- [ ] One configured `step()` has a documented raw-tick meaning.
-- [ ] `env_fps / obs_fps` is integral.
-- [ ] The chosen no-op is safe while an action is pending.
-- [ ] `action_map`, `action_order`, and `base_prompt` are frozen.
-- [ ] Native versus generic zero-latency action-trace parity passes.
-- [ ] RGB rendering is HWC and visually inspected.
-- [ ] Fixed-latency Sample Factory training produces a real checkpoint.
-- [ ] That checkpoint evaluates with `policy.type: gymnasium_sf`.
-- [ ] Teacher export begins with `filter_preset=none` and has disjoint episode
-  splits.
-- [ ] Teacher metadata, actions, prompts, latency, reward, images, and terminal
-  rows are inspected.
-- [ ] Train and validation LeRobot manifests agree on task/action metadata.
-- [ ] The StarVLA loader accepts the manifest/config contract equality check.
-- [ ] Generated mixture resolves both train and validation keys.
-- [ ] OpenVLA config uses `env=gymnasium`, `init=scratch`, `mode=single`, one
-  image, native action width, and no environment eval.
-- [ ] One real GPU loader batch and short SFT checkpoint pass.
-- [ ] The checkpoint decodes through the generic `latency_bench` policy.
-- [ ] Final evaluation uses the matching train `task_manifest_path`; a
-  deliberately reordered action catalog is rejected.
-- [ ] Existing task behavior and interfaces remain unchanged.
+Provide the agent with:
 
-## 14. Troubleshooting
+1. the exact Gymnasium environment ID and package/version;
+2. the scientific objective;
+3. the desired latency condition or permission to propose one;
+4. the task prompt, or permission to draft one for approval;
+5. the available CPU/GPU, time, and disk budget.
 
-### Gymnasium cannot find `env_id`
-
-Install the same task package in both Conda environments. Put every required
-registration module in `registration_imports` and verify that importing them in
-order registers the configured ID.
-
-### The small model selects the wrong native action
-
-Inspect the checkpoint fields `gym_action_labels_json` and
-`gym_action_values_json`. Policy ID `i` must mean `action_order[i]`, and its
-native value must be `action_map[action_order[i]]`. Do not infer meaning from
-mapping insertion order.
-
-### Latency is off by the observation stride
-
-Recompute raw ticks and decision stride separately:
+Suggested request:
 
 ```text
-ceil(latency_ms * env_fps / 1000)
-env_fps / obs_fps
+Read docs/gymnasium_adapter.md and docs/gym-adapt/index.html. Adapt [ENV_ID] from
+[PACKAGE + PINNED VERSION] into latency-sensitive-bench through the separate
+env.name=gymnasium path. My task objective is: [OBJECTIVE]. Target latency is
+[LATENCY]. Please first probe the exact Gymnasium API and report: constructor
+arguments, action/observation spaces, reset/step/render behavior, native timing,
+and anything you cannot infer. Ask me to decide any action catalog/order/no-op,
+raw-tick meaning, preprocessing, reward/termination policy, prompt, and budgets.
+After I answer, create a task-owned wrapper only if needed; generate grouped
+small-model train/eval, latency-bench eval, and StarVLA eval configs; preserve
+the resulting task contract across checkpoint, rollout, conversion, SFT, and
+final eval; run parity/compatibility tests; and keep every legacy environment
+path untouched. Record commands, generated files, artifact paths, and which
+stages were actually run. Create a self-contained adaptation report such as
+docs/gym-adapt/[TASK_NAME].html that follows the InvertedPendulum walkthrough.
+Separate API facts from my decisions, show the frozen contract and generated
+files, document the pipeline consumers, preserve exact commands and evidence,
+explain how I can
+continue rollout/SFT/eval, and mark every stage VERIFIED, NOT RUN, or BLOCKED.
+Do not invent results.
 ```
-
-`latency_raw_frames` is never a policy-decision count.
-
-### Sample Factory rejects the observation
-
-The generic path preserves the observation exposed by the configured `env_id`.
-The Atari scaffold deliberately exposes CHW `uint8`; other tasks keep their own
-native observation unless their explicit registered wrapper changes it.
-Implement one task-owned registered observation wrapper, update the single
-`env_id` contract, and repeat zero-latency parity. Do not add a training-only
-fallback.
-
-### Teacher images are blank or malformed
-
-Construct the environment with `render_mode: rgb_array` and inspect
-`env.render()` directly. The state/vector observation is not substituted for
-the VLA image.
-
-### The data is empty or biased
-
-Use `--filter-preset none`, inspect `filter_report.json`, returns, episode
-lengths, and class balance, then implement an explicit task-specific filter if
-the experiment requires one.
-
-### StarVLA reports an unknown mixture or wrong action dimension
-
-Check the generated mixture path, train and validation mixture keys,
-`robot_type`, `task_name`, `action_dim`, and `active_action_dim` in both
-manifests. They must agree with the Hydra overrides and `env.action_order`.
-
-### OpenVLA stops before training because W&B settings are missing
-
-For an offline smoke, export `WANDB_MODE=disabled`, `WANDB_ENTITY=disabled`,
-and a non-empty `WANDB_PROJECT` as shown above. For a tracked experiment,
-replace them with the intended project settings.
-
-### A short OpenVLA run runs out of CUDA memory despite enough free memory
-
-Retry with `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. Keep the smoke at
-batch size one, save only the final model file, and disable optimizer/training
-state checkpoints. These settings limit allocator fragmentation and disk use;
-they do not make a model that is intrinsically too large fit the GPU.
