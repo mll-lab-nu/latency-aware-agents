@@ -80,6 +80,48 @@ Use `--tier use` to omit development/test packages from the selected model
 environment. The shared `latency` environment always includes the data and
 teacher-training tools used by the experiment scripts.
 
+## Agent-Assisted Gymnasium Adaptation
+
+New Gymnasium environments use a separate, contract-driven path.
+You can adapt a task manually, but using an agent is recommended because the
+process requires API inspection, explicit scientific decisions, generated
+configs/tests, and cross-stage contract checks.
+
+- Use the [Gymnasium adaptation guide](docs/gymnasium_adapter.md) as the manual
+  runbook and as the primary execution specification for an agent. It explains
+  the supported boundary and uses the runnable
+  [Inverted Pendulum configs](configs/examples/gymnasium/inverted_pendulum/) as
+  a reference.
+- Use the [complete agent-assisted walkthrough](docs/gym-adapt/index.html) to
+  understand what an adaptation changes, inspect the resulting evidence, and
+  continue from small-model training to rollout, conversion, OpenVLA SFT, and
+  final evaluation. It is also the reporting template an agent should follow
+  for a new task.
+
+Give the agent this prompt, replacing the bracketed fields:
+
+```text
+Read docs/gymnasium_adapter.md and docs/gym-adapt/index.html. Adapt [ENV_ID] from
+[PACKAGE + PINNED VERSION] into latency-sensitive-bench through the separate
+env.name=gymnasium path. My task objective is: [OBJECTIVE]. Target latency is
+[LATENCY]. Please first probe the exact Gymnasium API and report: constructor
+arguments, action/observation spaces, reset/step/render behavior, native timing,
+and anything you cannot infer. Ask me to decide any action catalog/order/no-op,
+raw-tick meaning, preprocessing, reward/termination policy, prompt, and budgets.
+After I answer, create a task-owned wrapper only if needed; generate grouped
+small-model train/eval, latency-bench eval, and StarVLA eval configs; preserve
+the resulting task contract across checkpoint, rollout, conversion, SFT, and
+final eval; run parity/compatibility tests; and keep every legacy environment
+path untouched. Record commands, generated files, artifact paths, and which
+stages were actually run. Create a self-contained adaptation report such as
+docs/gym-adapt/[TASK_NAME].html that follows the InvertedPendulum walkthrough.
+Separate API facts from my decisions, show the frozen contract and generated
+files, document the pipeline consumers, preserve exact commands and evidence,
+explain how I can continue rollout/SFT/eval, and mark every stage VERIFIED,
+NOT RUN, or BLOCKED.
+Do not invent results.
+```
+
 Create a local `.env` for services used by experiments:
 
 ```bash

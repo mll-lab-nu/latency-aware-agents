@@ -1,0 +1,2 @@
+COMMAND: MUJOCO_GL=egl .venv/bin/python -m training.train --config configs/examples/gymnasium/inverted_pendulum/small_model_train.yaml
+2026-08-12T18:12:36+00:00

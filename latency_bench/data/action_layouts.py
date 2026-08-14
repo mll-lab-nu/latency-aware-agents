@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -12,6 +12,7 @@ ACTION_LAYOUT_FLAPPY_DISCRETE = "flappy_discrete"
 ACTION_LAYOUT_DEMON_ATTACK_DISCRETE = "demon_attack_discrete"
 ACTION_LAYOUT_DEADLY_CORRIDOR_FACTORIZED_11 = "deadly_corridor_factorized_11"
 ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54 = "deadly_corridor_joint_54"
+ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1 = "gymnasium_discrete_v1"
 
 FLAPPY_ACTION_LABELS = ("NOOP", "FLAP")
 DEMON_ATTACK_ACTION_LABELS = ("NOOP", "FIRE", "RIGHT", "LEFT", "RIGHTFIRE", "LEFTFIRE")
@@ -102,6 +103,25 @@ def action_spec_for_env(env_name: str) -> ActionSpec:
         The action spec that defines row fields and label order.
     """
     return ACTION_SPECS_BY_ENV[str(env_name)]
+
+
+def gymnasium_discrete_action_spec(action_labels: Sequence[str]) -> ActionSpec:
+    """Build the rollout action spec for an explicit Gymnasium action catalog.
+
+    Args:
+        action_labels: Ordered catalog labels stored in the teacher checkpoint.
+
+    Returns:
+        A discrete one-hot rollout spec with the checkpoint's label order.
+    """
+    return ActionSpec(
+        layout=ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
+        labels=tuple(action_labels),
+        row_fields=("action_id", "action", "action_text"),
+        reward_field="raw_reward",
+        episode_return_field="episode_raw_return",
+        reward_semantics="raw_reward",
+    )
 
 
 def _to_python_action(value: Any) -> Any:
@@ -196,18 +216,25 @@ def deadly_corridor_joint_54_action(raw_action: Any) -> dict[str, Any]:
     }
 
 
-def discrete_action(env_name: str, raw_action: Any) -> dict[str, Any]:
+def discrete_action(
+    env_name: str,
+    raw_action: Any,
+    *,
+    action_spec: ActionSpec | None = None,
+) -> dict[str, Any]:
     """Encode a discrete environment action into canonical row fields.
 
     Args:
         env_name: Canonical benchmark environment name.
         raw_action: Raw discrete action id from the policy.
+        action_spec: Optional explicit catalog layout for a generic task.
 
     Returns:
         Row fields ``action_id``, ``action``, and ``action_text``.
     """
     action_id = _action_id(raw_action)
-    action_labels = action_spec_for_env(env_name).labels
+    resolved_action_spec = action_spec if action_spec is not None else action_spec_for_env(env_name)
+    action_labels = resolved_action_spec.labels
     return {
         "action_id": action_id,
         "action": _one_hot(action_id, len(action_labels)),
@@ -215,16 +242,23 @@ def discrete_action(env_name: str, raw_action: Any) -> dict[str, Any]:
     }
 
 
-def encode_action_for_env(env_name: str, raw_action: Any) -> dict[str, Any]:
+def encode_action_for_env(
+    env_name: str,
+    raw_action: Any,
+    *,
+    action_spec: ActionSpec | None = None,
+) -> dict[str, Any]:
     """Encode an environment action using the canonical rollout layout.
 
     Args:
         env_name: Canonical benchmark environment name.
         raw_action: Raw action produced for the environment.
+        action_spec: Optional explicit catalog layout for a generic task.
 
     Returns:
         Environment-specific action row fields.
     """
-    if str(env_name) == "deadly_corridor":
+    resolved_action_spec = action_spec if action_spec is not None else action_spec_for_env(env_name)
+    if resolved_action_spec.layout == ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54:
         return deadly_corridor_joint_54_action(raw_action)
-    return discrete_action(str(env_name), raw_action)
+    return discrete_action(str(env_name), raw_action, action_spec=resolved_action_spec)

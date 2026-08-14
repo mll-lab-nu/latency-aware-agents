@@ -12,11 +12,17 @@ from latency_bench.integrations.sample_factory.actions import to_python_action
 from latency_bench.utils.array import to_numpy
 
 
-def batch_observations(observations: Sequence[Any]) -> Any:
+def batch_observations(
+    observations: Sequence[Any],
+    *,
+    preserve_leading_batch: bool = False,
+) -> Any:
     """Batch active environment observations for policy inference.
 
     Args:
         observations: Observations from active rollout slots.
+        preserve_leading_batch: Keep Sample Factory's leading singleton batch
+            axis for generic vector observations.
 
     Returns:
         Batched observation object matching Sample Factory expectations.
@@ -25,14 +31,27 @@ def batch_observations(observations: Sequence[Any]) -> Any:
     if isinstance(first, Mapping):
         if len(observations) == 1:
             arrays = {key: to_numpy(value) for key, value in first.items()}
-            if any(array.ndim >= 4 for array in arrays.values()):
+            if any(array.ndim >= 4 for array in arrays.values()) or (
+                preserve_leading_batch
+                and all(
+                    array.ndim >= 1 and int(array.shape[0]) == 1
+                    for array in arrays.values()
+                )
+            ):
                 return arrays
         arrays = {}
         for key in first:
             values = [to_numpy(obs[key]) for obs in observations]
             arrays[key] = (
                 np.concatenate(values, axis=0)
-                if values[0].ndim >= 4 and int(values[0].shape[0]) == 1
+                if (
+                    values[0].ndim >= 4
+                    or (
+                        preserve_leading_batch
+                        and values[0].ndim >= 1
+                        and int(values[0].shape[0]) == 1
+                    )
+                )
                 else np.stack(values, axis=0)
             )
         return arrays

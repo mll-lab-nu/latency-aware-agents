@@ -1,0 +1,68 @@
+experiment:
+  name: gymnasium_inverted_pendulum_discrete_latency_bench_eval
+  seed: 0
+
+executor:
+  mode: simulated
+
+env:
+  name: gymnasium
+  task_name: inverted_pendulum_discrete
+  env_id: LatencyBench/InvertedPendulumDiscrete-v0
+  registration_imports:
+    - latency_bench.envs.gymnasium_mujoco
+  make_kwargs:
+    base_env_id: InvertedPendulum-v4
+    render_mode: rgb_array
+    force_values: [-3.0, -1.5, 0.0, 1.5, 3.0]
+    base_make_kwargs: {}
+  env_fps: 25
+  obs_fps: 25
+  frame_stack: 1
+  noop_action: zero_force
+  action_map:
+    push_left_hard: 0
+    push_left_soft: 1
+    zero_force: 2
+    push_right_soft: 3
+    push_right_hard: 4
+  action_order:
+    - push_left_hard
+    - push_left_soft
+    - zero_force
+    - push_right_soft
+    - push_right_hard
+  base_prompt: >-
+    Keep the pole upright by applying horizontal cart forces. Choose exactly one action from:
+    push_left_hard, push_left_soft, zero_force, push_right_soft, push_right_hard.
+
+latency:
+  method: fixed
+  fixed_latency_ms: 40.0
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+
+policy:
+  type: random
+  actions:
+    - push_left_hard
+    - push_left_soft
+    - zero_force
+    - push_right_soft
+    - push_right_hard
+
+evaluation:
+  eval_episodes: 5
+  eval_parallel_envs: 1
+  eval_max_steps: 1000
+
+logging:
+  output_dir: outputs/examples/gymnasium_inverted_pendulum/latency_bench_eval
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
