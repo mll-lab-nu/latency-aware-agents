@@ -11,6 +11,7 @@ ENV_INTEGRATIONS = {
     "deadly_corridor": "training.deadly_corridor_sf.integration",
     "demon_attack": "training.demon_attack_sf.integration",
     "flappy": "training.flappy_sf.integration",
+    "gymnasium": "training.gymnasium_sf.integration",
 }
 
 

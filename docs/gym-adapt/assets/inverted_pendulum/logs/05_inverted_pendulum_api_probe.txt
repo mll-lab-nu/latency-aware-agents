@@ -1,0 +1,33 @@
+gymnasium 0.29.1
+mujoco 3.3.7
+sample-factory 2.1.1
+torch 2.11.0+cu128
+InvertedPendulum-v5.make_error VersionNotFound Environment version `v5` for environment `InvertedPendulum` doesn't exist. It provides versioned environments: [ `v2`, `v4` ].
+selected_env_id InvertedPendulum-v4
+unwrapped_class gymnasium.envs.mujoco.inverted_pendulum_v4.InvertedPendulumEnv
+spec.id InvertedPendulum-v4
+spec.kwargs {'render_mode': 'rgb_array'}
+spec.max_episode_steps 1000
+metadata {'render_modes': ['human', 'rgb_array', 'depth_array'], 'render_fps': 25}
+action_space Box(-3.0, 3.0, (1,), float32)
+action_shape (1,)
+action_low [-3.0]
+action_high [3.0]
+action_dtype float32
+observation_space Box(-inf, inf, (4,), float64)
+observation_shape (4,)
+observation_dtype float64
+reset.obs_shape (4,)
+reset.obs_dtype float64
+reset.info {}
+reset.obs [0.002501909332093339, 0.007944276019391511, 0.005513713804903871, -0.005495856200188163]
+render.shape (480, 480, 3)
+render.dtype uint8
+render.minmax (0, 138)
+step.zero_action [0.0]
+step.obs_shape (4,)
+step.reward 1.0
+step.terminated False
+step.truncated False
+step.info {}
+gif_frames 7

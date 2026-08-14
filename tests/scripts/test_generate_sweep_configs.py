@@ -159,6 +159,58 @@ def test_latency_bench_eval_config_disables_full_trace_records(tmp_path):
     assert config["logging"]["save_latency_records"] is False
 
 
+def test_gymnasium_sweep_preserves_task_contract_and_uses_task_identity(tmp_path):
+    generated_root = tmp_path / "configs"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+    spec_path = tmp_path / "gymnasium_sweep.yaml"
+    spec_path.write_text(
+        yaml.safe_dump(
+            {
+                "__base__": str(
+                    REPO_ROOT
+                    / "configs/examples/gymnasium/inverted_pendulum/small_model_train.yaml"
+                ),
+                "experiment_family": "generic_gym_sweep",
+                "generated_root": str(generated_root),
+                "output_root": str(output_root),
+                "train_dir": str(train_dir),
+                "seeds": [3],
+                "latency_settings": {
+                    "fixed_l1": {"kind": "fixed", "frames": 1},
+                },
+                "sweeps": {
+                    "observation_rate": {
+                        "frame_stack": [1],
+                        "obs_fps": [25],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    generate_sweep_configs(["--spec", str(spec_path)])
+
+    rows = _read_manifest(generated_root / "manifest.tsv")
+    assert len(rows) == 1
+    assert rows[0]["env"] == "inverted_pendulum_discrete"
+    assert rows[0]["run_name"] == (
+        "inverted_pendulum_discrete_observation_rate_fixed_l1_obs25_seed3"
+    )
+
+    train_cfg = yaml.safe_load(Path(rows[0]["train_config"]).read_text(encoding="utf-8"))
+    eval_cfg = load_config(rows[0]["eval_config"])
+    expected_env = load_config(
+        REPO_ROOT
+        / "configs/examples/gymnasium/inverted_pendulum/small_model_train.yaml"
+    )["env"]
+
+    assert train_cfg["env"] == expected_env
+    assert eval_cfg["env"] == expected_env
+    assert eval_cfg["policy"]["type"] == "gymnasium_sf"
+
+
 def test_memory_small_model_spec_emits_official_seed_matrix(tmp_path):
     generated_root = tmp_path / "configs"
     output_root = tmp_path / "outputs"

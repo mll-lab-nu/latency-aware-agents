@@ -19,6 +19,10 @@ teacher_datasets/
 checkpoints/
 checkpoints_*/
 logs/
+!docs/gym-adapt/assets/inverted_pendulum/logs/
+!docs/gym-adapt/assets/inverted_pendulum/logs/**
+/docs/gym-adapt/assets/inverted_pendulum/logs/02_focused_tests.txt
+/docs/gym-adapt/assets/inverted_pendulum/logs/11_media_stdout.txt
 configs/train
 
 
@@ -26,7 +30,12 @@ configs/train
 tmp/
 _vizdoom.ini
 __pycache__/
+*.egg-info/
 .codex
+.DS_Store
+/artifacts/
+/starVLA/
+/uv.lock
 
 # onle reference for agents, not to upload
 reference/

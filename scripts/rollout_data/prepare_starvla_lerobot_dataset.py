@@ -26,6 +26,7 @@ def convert_raw_export_to_lerobot(
     raw_export_dir: Path,
     lerobot_root: Path,
     data_mix: str,
+    action_carrier: str = "native",
 ) -> dict:
     """Convert a raw rollout export into a named LeRobot data mix.
 
@@ -33,6 +34,7 @@ def convert_raw_export_to_lerobot(
         raw_export_dir: Canonical rollout export directory.
         lerobot_root: Directory that will contain the LeRobot datasets.
         data_mix: Train dataset directory name under ``lerobot_root``.
+        action_carrier: ``native`` catalog width or seven-dimensional ``bridge`` width.
 
     Returns:
         Conversion manifest returned by the LeRobot adapter.
@@ -42,6 +44,7 @@ def convert_raw_export_to_lerobot(
         raw_export_dir,
         output_dir,
         force=True,
+        action_carrier=action_carrier,
     )
 
 
@@ -92,6 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("raw_export_dir")
     parser.add_argument("lerobot_root")
     parser.add_argument("data_mix")
+    parser.add_argument("--action-carrier", choices=["native", "bridge"], default="native")
     parser.add_argument("--push-to-hub", default="")
     parser.add_argument("--private", action="store_true")
     return parser
@@ -115,6 +119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         raw_export_dir=raw_export_dir,
         lerobot_root=lerobot_root,
         data_mix=data_mix,
+        action_carrier=args.action_carrier,
     )
     if args.push_to_hub:
         push_lerobot_dataset(

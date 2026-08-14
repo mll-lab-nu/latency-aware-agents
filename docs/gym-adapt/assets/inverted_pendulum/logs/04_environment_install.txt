@@ -1,0 +1,4 @@
+gymnasium 0.29.1
+mujoco 3.3.7
+gymnasium 0.29.1
+mujoco 3.3.7
