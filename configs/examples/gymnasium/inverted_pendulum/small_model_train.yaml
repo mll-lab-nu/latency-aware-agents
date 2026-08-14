@@ -1,12 +1,12 @@
 experiment:
-  name: gymnasium_air_raid_fixed_l5
+  name: gymnasium_inverted_pendulum_discrete_fixed_l1
   seed: 0
 
 backend:
   type: sample_factory
   algo: APPO
   device: cuda
-  train_dir: outputs/examples/gymnasium_air_raid/checkpoints
+  train_dir: outputs/examples/gymnasium_inverted_pendulum/checkpoints
   restart_behavior: overwrite
   run_mode: train
 
@@ -15,48 +15,38 @@ executor:
 
 env:
   name: gymnasium
-  task_name: air_raid
-  env_id: LatencyBench/Atari-v0
+  task_name: inverted_pendulum_discrete
+  env_id: LatencyBench/InvertedPendulumDiscrete-v0
   registration_imports:
-    - latency_bench.envs.gymnasium_atari
+    - latency_bench.envs.gymnasium_mujoco
   make_kwargs:
-    ale_env_id: ALE/AirRaid-v5
+    base_env_id: InvertedPendulum-v4
     render_mode: rgb_array
-    screen_size: 84
-    noop_max: 30
-    frameskip: 1
-    repeat_action_probability: 0.0
-    full_action_space: false
-    terminal_on_life_loss: false
-    max_num_frames_per_episode: 108000
-    grayscale_obs: true
-    mode: 1
-    difficulty: 0
-  env_fps: 50
-  obs_fps: 12.5
+    force_values: [-3.0, -1.5, 0.0, 1.5, 3.0]
+    base_make_kwargs: {}
+  env_fps: 25
+  obs_fps: 25
   frame_stack: 1
-  noop_action: noop
+  noop_action: zero_force
   action_map:
-    noop: 0
-    fire: 1
-    right: 2
-    left: 3
-    rightfire: 4
-    leftfire: 5
+    push_left_hard: 0
+    push_left_soft: 1
+    zero_force: 2
+    push_right_soft: 3
+    push_right_hard: 4
   action_order:
-    - noop
-    - fire
-    - right
-    - left
-    - rightfire
-    - leftfire
+    - push_left_hard
+    - push_left_soft
+    - zero_force
+    - push_right_soft
+    - push_right_hard
   base_prompt: >-
-    Protect the two buildings by moving sideways and shooting the flying saucers.
-    Choose exactly one action from: noop, fire, right, left, rightfire, leftfire.
+    Keep the pole upright by applying horizontal cart forces. Choose exactly one action from:
+    push_left_hard, push_left_soft, zero_force, push_right_soft, push_right_hard.
 
 latency:
   method: fixed
-  fixed_latency_ms: 100.0
+  fixed_latency_ms: 40.0
   add_latency_info: false
 
 scheduler:
@@ -66,15 +56,14 @@ scheduler:
 policy:
   type: random
   actions:
-    - noop
-    - fire
-    - right
-    - left
-    - rightfire
-    - leftfire
+    - push_left_hard
+    - push_left_soft
+    - zero_force
+    - push_right_soft
+    - push_right_hard
 
 training:
-  train_for_env_steps: 25000000
+  train_for_env_steps: 1000000
   num_workers: 1
   num_envs_per_worker: 16
   worker_num_splits: 1
@@ -103,12 +92,11 @@ evaluation:
   eval_interval_steps: null
   eval_episodes: 5
   eval_parallel_envs: 1
-  eval_max_steps: 27000
+  eval_max_steps: 1000
   eval_deterministic: true
-  eval_raw_reward: true
 
 logging:
-  output_dir: outputs/examples/gymnasium_air_raid/train
+  output_dir: outputs/examples/gymnasium_inverted_pendulum/train
   video:
     enabled: false
     num_bins: 1
