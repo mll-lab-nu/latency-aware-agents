@@ -405,8 +405,7 @@ class PerEpisodeSampler(LatencySampler):
 def build_sampler(latency_cfg: dict[str, Any], *, clock: EnvClock) -> LatencySampler:
     method = latency_cfg["method"]
     seed = latency_cfg.get("seed")
-    profile: dict[str, Any] | None = None
-    profile_path: Path | None = None
+    profile_metadata: dict[str, Any] | None = None
 
     if method == "zero":
         sampler: LatencySampler = ZeroSampler(clock=clock)
@@ -428,27 +427,26 @@ def build_sampler(latency_cfg: dict[str, Any], *, clock: EnvClock) -> LatencySam
             clock=clock,
             seed=seed,
         )
-    elif method in {"iid", "temporal"}:
+    elif method == "iid":
+        distribution, profile_metadata = _load_iid_profile(latency_cfg["profile_path"])
+        sampler = IidInverseCdfSampler(
+            distribution,
+            clock=clock,
+            seed=seed,
+        )
+    elif method == "temporal":
         profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
         profile = load_profile_manifest(profile_path)
-        if method == "iid":
-            distribution_path = _profile_relative_path(profile_path, profile["distribution_path"])
-            sampler = IidInverseCdfSampler(read_json(distribution_path), clock=clock, seed=seed)
-        else:
-            sampler = _build_temporal(profile, profile_path=profile_path, clock=clock, seed=seed)
+        sampler = _build_temporal(profile, profile_path=profile_path, clock=clock, seed=seed)
+        profile_metadata = _profile_metadata(profile, profile_path)
     else:
         raise ValueError(f"Unsupported latency method: {method}")
 
-    if profile is not None:
-        sampler.profile_metadata = {
-            "profile_id": profile.get("profile_id"),
-            "target_device": profile.get("target_device"),
-            "profile_path": str(profile_path),
-        }
-    if latency_cfg.get("per_episode"):
-        sampler = PerEpisodeSampler(sampler)
-    sampler.latency_type = latency_type_from_config(latency_cfg)
-    return sampler
+    return _finalize_sampler(
+        sampler,
+        latency_cfg=latency_cfg,
+        profile_metadata=profile_metadata,
+    )
 
 
 def build_episode_sampler_factory(
@@ -462,6 +460,26 @@ def build_episode_sampler_factory(
     machine state continues to use the shared sampler.
     """
     method = resolve_latency_method(latency_cfg)
+    if method == "iid":
+        if "seed" not in latency_cfg:
+            return None
+        distribution, profile_metadata = _load_iid_profile(latency_cfg["profile_path"])
+        seed = latency_cfg["seed"]
+
+        def build_iid_for_episode(episode_id: int) -> LatencySampler:
+            sampler = IidInverseCdfSampler(
+                distribution,
+                clock=clock,
+                seed=derive_latency_seed(seed, episode_idx=episode_id),
+            )
+            return _finalize_sampler(
+                sampler,
+                latency_cfg=latency_cfg,
+                profile_metadata=profile_metadata,
+            )
+
+        return build_iid_for_episode
+
     if method == "temporal":
         profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
         profile = load_profile_manifest(profile_path)
@@ -480,6 +498,38 @@ def build_episode_sampler_factory(
         return build_sampler(episode_latency_cfg, clock=clock)
 
     return build_for_episode
+
+
+def _finalize_sampler(
+    sampler: LatencySampler,
+    *,
+    latency_cfg: dict[str, Any],
+    profile_metadata: dict[str, Any] | None,
+) -> LatencySampler:
+    sampler.latency_type = latency_type_from_config(latency_cfg)
+    sampler.profile_metadata = profile_metadata
+    if latency_cfg.get("per_episode"):
+        return PerEpisodeSampler(sampler)
+    return sampler
+
+
+def _load_iid_profile(
+    profile_path: str | Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    resolved_profile_path = _resolve_profile_manifest_path(profile_path)
+    profile = load_profile_manifest(resolved_profile_path)
+    distribution_path = _profile_relative_path(
+        resolved_profile_path, profile["distribution_path"]
+    )
+    return read_json(distribution_path), _profile_metadata(profile, resolved_profile_path)
+
+
+def _profile_metadata(profile: dict[str, Any], profile_path: Path) -> dict[str, Any]:
+    return {
+        "profile_id": profile["profile_id"],
+        "target_device": profile["target_device"],
+        "profile_path": str(profile_path),
+    }
 
 
 def _build_temporal(

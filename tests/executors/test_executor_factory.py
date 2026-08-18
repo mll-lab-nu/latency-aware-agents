@@ -438,6 +438,46 @@ def test_seeded_stochastic_latency_eval_is_parallel_invariant(tmp_path):
     ]
 
 
+def test_iid_latency_eval_is_parallel_invariant_and_loads_distribution_once(tmp_path, monkeypatch):
+    import latency_bench.latency.samplers as latency_samplers
+
+    profile_dir = _write_latency_profile(tmp_path)
+    read_paths = []
+    read_json = latency_samplers.read_json
+
+    def record_read(path):
+        read_paths.append(Path(path))
+        return read_json(path)
+
+    monkeypatch.setattr(latency_samplers, "read_json", record_read)
+
+    serial_config = _config(output_dir=str(tmp_path / "serial"))
+    serial_config["evaluation"]["eval_episodes"] = 3
+    serial_config["evaluation"]["eval_parallel_envs"] = 1
+    serial_config["evaluation"]["eval_max_steps"] = 4
+    serial_config["latency"] = {
+        "method": "iid",
+        "profile_path": profile_dir,
+        "seed": 7,
+    }
+
+    parallel_config = _config(output_dir=str(tmp_path / "parallel"))
+    parallel_config["evaluation"]["eval_episodes"] = 3
+    parallel_config["evaluation"]["eval_parallel_envs"] = 3
+    parallel_config["evaluation"]["eval_max_steps"] = 4
+    parallel_config["latency"] = dict(serial_config["latency"])
+
+    serial_metrics = run_from_config(serial_config)
+    assert len(read_paths) == 1
+    read_paths.clear()
+    parallel_metrics = run_from_config(parallel_config)
+
+    assert len(read_paths) == 1
+    assert [(metric.episode_id, metric.mean_latency_ms) for metric in serial_metrics] == [
+        (metric.episode_id, metric.mean_latency_ms) for metric in parallel_metrics
+    ]
+
+
 def test_isolated_temporal_sequences_are_parallel_and_order_invariant(tmp_path):
     profile_root = tmp_path / "model"
     profile_root.mkdir()

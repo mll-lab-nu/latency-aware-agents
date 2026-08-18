@@ -172,8 +172,12 @@ def _build_single_simulated_executor(
         )
     else:
         policy = _resolve_policy(config, c.action_resolver, policy)
-    latency_source = _build_latency_source(config["latency"], c.clock)
     episode_latency_source_factory = build_episode_sampler_factory(config["latency"], c.clock)
+    latency_source = (
+        episode_latency_source_factory(0)
+        if episode_latency_source_factory is not None
+        else _build_latency_source(config["latency"], c.clock)
+    )
     return SimulatedLatencyExecutor(
         env=c.env,
         policy=policy,
@@ -231,10 +235,15 @@ def _build_batched_simulated_executor(
         ]
         logger = _build_trajectory_logger(config)
         episode_latency_source_factory = build_episode_sampler_factory(config["latency"], clock)
-        if (
-            resolve_latency_method(config["latency"]) == "temporal"
-            and episode_latency_source_factory is None
-        ):
+        if episode_latency_source_factory is not None:
+            # The real source is selected when each episode starts.  Build
+            # initial slot sources through the factory as well so IID's shared
+            # profile distribution is not loaded once per slot.
+            latency_sources = [
+                episode_latency_source_factory(slot_id)
+                for slot_id, _env in enumerate(env_backend.slot_handles)
+            ]
+        elif resolve_latency_method(config["latency"]) == "temporal":
             # The hidden regime is session-scoped machine state and a dwell is
             # a draw budget that spans episodes however draws interleave, so
             # one machine timeline serves every slot.
