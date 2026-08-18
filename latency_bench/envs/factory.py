@@ -5,12 +5,25 @@ from typing import Any
 
 from latency_bench.core.types import Action
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
-from latency_bench.envs.flappy import FlappyBirdEnvAdapter
 
 
 EnvAdapterBuilder = Callable[[dict[str, Any], Action], EnvAdapter]
 
 _ENV_ADAPTER_BUILDERS: dict[str, EnvAdapterBuilder] = {}
+
+
+def _flappy_env_adapter_type() -> type[EnvAdapter]:
+    if "FlappyBirdEnvAdapter" not in globals():
+        from latency_bench.envs.flappy import FlappyBirdEnvAdapter as adapter_type
+
+        globals()["FlappyBirdEnvAdapter"] = adapter_type
+    return globals()["FlappyBirdEnvAdapter"]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "FlappyBirdEnvAdapter":
+        return _flappy_env_adapter_type()
+    raise AttributeError(name)
 
 
 def register_env_adapter(name: str) -> Callable[[EnvAdapterBuilder], EnvAdapterBuilder]:
@@ -83,6 +96,22 @@ def _build_dummy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
     )
 
 
+@register_env_adapter("gymnasium")
+def _build_gymnasium_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
+    from latency_bench.envs.gymnasium import GymnasiumEnvAdapter
+
+    env_cfg = config["env"]
+    return GymnasiumEnvAdapter(
+        env_id=env_cfg["env_id"],
+        registration_imports=env_cfg["registration_imports"],
+        make_kwargs=env_cfg["make_kwargs"],
+        env_fps=env_cfg["env_fps"],
+        noop_action=noop_action,
+        frame_stack=env_cfg["frame_stack"],
+        export_env_raw_rgb_frames=_exports_raw_rgb_frames(config),
+    )
+
+
 @register_env_adapter("flappy")
 def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
     env_cfg = config["env"]
@@ -99,7 +128,7 @@ def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
     obs_resize = env_cfg.get("obs_resize")
     if obs_resize is not None:
         obs_resize = tuple(int(value) for value in obs_resize)
-    return FlappyBirdEnvAdapter(
+    return _flappy_env_adapter_type()(
         gym_id=env_cfg.get("gym_id", "FlappyBird-v0"),
         env_fps=float(env_cfg["env_fps"]),
         noop_action=noop_action,

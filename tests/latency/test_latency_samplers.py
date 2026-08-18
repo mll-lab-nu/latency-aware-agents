@@ -447,6 +447,34 @@ def test_iid_method_uses_inverse_cdf_distribution(tmp_path: Path):
     ])
 
 
+def test_iid_episode_factory_derives_reproducible_independent_streams(tmp_path: Path):
+    profile_dir = _write_latency_profile(tmp_path)
+    factory = build_episode_sampler_factory(
+        {
+            "method": "iid",
+            "profile_path": profile_dir,
+            "seed": 7,
+        },
+        _clock(),
+    )
+
+    first = factory(3)
+    repeat = factory(3)
+    other = factory(4)
+    first_values = [first.sample({"episode_id": 3, "worker_slot": 0}).latency_ms for _ in range(10)]
+    repeat_values = [repeat.sample({"episode_id": 3, "worker_slot": 0}).latency_ms for _ in range(10)]
+    other_values = [other.sample({"episode_id": 4, "worker_slot": 0}).latency_ms for _ in range(10)]
+
+    assert first_values == repeat_values
+    assert first_values != other_values
+    assert first.latency_type == "profile_sample"
+    assert first.profile_metadata == {
+        "profile_id": "L_test",
+        "target_device": "test_gpu",
+        "profile_path": str(profile_dir / "profile.json"),
+    }
+
+
 def test_temporal_method_requires_burst_model_path(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path, write_burst_model=False)
     with pytest.raises(KeyError, match="burst_model_path"):

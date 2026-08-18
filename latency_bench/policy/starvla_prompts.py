@@ -27,6 +27,7 @@ def resolve_starvla_prompt(
     env_name: str,
     observation_metadata: dict[str, Any],
     latency_prompt_map: dict[str, Any] | None,
+    base_prompt: str | None = None,
     latency_prompt_key: int | str | None = None,
     prompt_mode: str | None = None,
 ) -> str:
@@ -45,6 +46,8 @@ def resolve_starvla_prompt(
             env_fps=float(observation_metadata.get("env_fps", 35.0)),
             obs_fps=float(observation_metadata.get("obs_fps", 35.0)),
             image_transform=str(observation_metadata.get("image_transform", "raw_rgb")),
+            base_prompt=base_prompt,
         )
         return _apply_prompt_mode(prompt, prompt_mode)
-    return _apply_prompt_mode(BASE_PROMPTS[str(env_name)], prompt_mode)
+    prompt = BASE_PROMPTS[str(env_name)] if base_prompt is None else base_prompt
+    return _apply_prompt_mode(prompt, prompt_mode)

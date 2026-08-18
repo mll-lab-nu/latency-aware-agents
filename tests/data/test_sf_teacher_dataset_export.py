@@ -2677,7 +2677,7 @@ def test_prepare_starvla_lerobot_dataset_converts_from_raw_export(monkeypatch, t
         (
             raw_export,
             tmp_path / "lerobot" / "demon_attack_train",
-            {"force": True},
+            {"force": True, "action_carrier": "native"},
         )
     ]
 

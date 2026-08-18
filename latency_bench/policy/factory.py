@@ -9,6 +9,7 @@ _SAMPLE_FACTORY_POLICY_TYPES = {
     "flappy_sf",
     "demon_attack_sf",
     "deadly_corridor_sf",
+    "gymnasium_sf",
 }
 
 

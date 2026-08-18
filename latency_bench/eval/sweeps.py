@@ -13,6 +13,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.eval.config import (
     _apply_eval_latency,
@@ -31,6 +32,7 @@ from latency_bench.eval.reporting import (
 from latency_bench.eval.suites import has_eval_suites, parse_eval_suites
 from latency_bench.eval.driver import run_from_config
 from latency_bench.logging.summary import write_queue_eval_summary
+from latency_bench.policy.factory import build_policy
 
 
 def _run_one_sweep(
@@ -188,6 +190,7 @@ def run_eval_suites_from_config(
     policy: Any | None = None,
 ) -> list[dict[str, Any]]:
     suites = parse_eval_suites(config)
+    policy = _reuse_checkpoint_policy(config, policy)
     base_output_dir = Path(config["logging"]["output_dir"])
     train_latency_steps = _train_latency_steps(config)
     experiment_name = str(config["experiment"].get("name", "latency_bench"))
@@ -270,6 +273,34 @@ def run_eval_suites_from_config(
         )
         summaries.append(summary)
     return summaries
+
+
+def _reuse_checkpoint_policy(
+    config: dict[str, Any],
+    policy: Any | None,
+) -> Any | None:
+    if policy is not None:
+        return policy
+
+    executor_cfg = config["executor"]
+    if executor_cfg["mode"] == "realtime" or (
+        executor_cfg["mode"] == "simulated"
+        and executor_cfg.get("simulated_inference_pool")
+    ):
+        return None
+
+    policy_type = config["policy"]["type"]
+    if "checkpoint_path" not in config["policy"] or not (
+        _is_sample_factory_policy(config) or policy_type == "starvla"
+    ):
+        return policy
+
+    if policy_type == "starvla":
+        from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
+
+        prepare_starvla_checkpoint_input_config(config)
+
+    return build_policy(config, ActionResolver(config["env"]))
 
 
 def _retained_eval_checkpoint_markers(config: dict[str, Any]) -> list[dict[str, Any]]:

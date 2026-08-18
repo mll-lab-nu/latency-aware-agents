@@ -13,6 +13,7 @@ _SAMPLE_FACTORY_POLICY_TYPES = {
     "flappy_sf",
     "demon_attack_sf",
     "deadly_corridor_sf",
+    "gymnasium_sf",
 }
 
 
@@ -27,11 +28,14 @@ def apply_runtime_overrides(
     eval_max_steps: int | None = None,
     eval_parallel_envs: int | None = None,
     model_config_path: str | Path | None = None,
+    task_manifest_path: str | Path | None = None,
 ) -> dict[str, Any]:
     if checkpoint_path is not None:
         config["policy"]["checkpoint_path"] = str(checkpoint_path)
     if model_config_path is not None:
         config["policy"]["model_config_path"] = str(model_config_path)
+    if task_manifest_path is not None:
+        config["policy"]["task_manifest_path"] = str(task_manifest_path)
     if run_name is not None:
         config["experiment"]["name"] = str(run_name)
     if output_dir is not None:

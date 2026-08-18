@@ -1,0 +1,105 @@
+experiment:
+  name: gymnasium_inverted_pendulum_discrete_fixed_l1
+  seed: 0
+
+backend:
+  type: sample_factory
+  algo: APPO
+  device: cuda
+  train_dir: outputs/examples/gymnasium_inverted_pendulum/checkpoints
+  restart_behavior: overwrite
+  run_mode: train
+
+executor:
+  mode: simulated
+
+env:
+  name: gymnasium
+  task_name: inverted_pendulum_discrete
+  env_id: LatencyBench/InvertedPendulumDiscrete-v0
+  registration_imports:
+    - latency_bench.envs.gymnasium_mujoco
+  make_kwargs:
+    base_env_id: InvertedPendulum-v4
+    render_mode: rgb_array
+    force_values: [-3.0, -1.5, 0.0, 1.5, 3.0]
+    base_make_kwargs: {}
+  env_fps: 25
+  obs_fps: 25
+  frame_stack: 1
+  noop_action: zero_force
+  action_map:
+    push_left_hard: 0
+    push_left_soft: 1
+    zero_force: 2
+    push_right_soft: 3
+    push_right_hard: 4
+  action_order:
+    - push_left_hard
+    - push_left_soft
+    - zero_force
+    - push_right_soft
+    - push_right_hard
+  base_prompt: >-
+    Keep the pole upright by applying horizontal cart forces. Choose exactly one action from:
+    push_left_hard, push_left_soft, zero_force, push_right_soft, push_right_hard.
+
+latency:
+  method: fixed
+  fixed_latency_ms: 40.0
+  add_latency_info: false
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+
+policy:
+  type: random
+  actions:
+    - push_left_hard
+    - push_left_soft
+    - zero_force
+    - push_right_soft
+    - push_right_hard
+
+training:
+  train_for_env_steps: 1000000
+  num_workers: 1
+  num_envs_per_worker: 16
+  worker_num_splits: 1
+  num_policies: 1
+  batch_size: 1024
+  rollout: 64
+  recurrence: 32
+  num_epochs: 2
+  num_batches_per_epoch: 8
+  max_policy_lag: 300
+  learning_rate: 0.000303
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  value_loss_coeff: 0.5
+  max_grad_norm: 0.0
+  async_rl: true
+  use_rnn: false
+  normalize_input: true
+  normalize_returns: true
+  save_every_sec: 600
+  keep_checkpoints: 5
+
+evaluation:
+  eval_interval_steps: null
+  eval_episodes: 5
+  eval_parallel_envs: 1
+  eval_max_steps: 1000
+  eval_deterministic: true
+
+logging:
+  output_dir: outputs/examples/gymnasium_inverted_pendulum/train
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false

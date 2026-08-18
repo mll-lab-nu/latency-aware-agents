@@ -29,6 +29,7 @@ def render_teacher_prompt(
     env_fps: float,
     obs_fps: float,
     image_transform: str = "raw_rgb",
+    base_prompt: str | None = None,
 ) -> str:
     """Render the prompt stored on each rollout decision row.
 
@@ -40,13 +41,16 @@ def render_teacher_prompt(
         obs_fps: Observation decision rate.
         image_transform: Optional exported-image transform name. Some transforms
             add visual context that should be reflected in the prompt.
+        base_prompt: Explicit task prompt carried by a generic Gymnasium
+            checkpoint. Existing benchmark tasks use ``BASE_PROMPTS``.
 
     Returns:
         Base environment prompt with timing context appended.
     """
 
     transform_context = IMAGE_TRANSFORM_CONTEXTS.get(str(image_transform).strip().lower(), "")
-    return BASE_PROMPTS[str(env_name)] + transform_context + TIMING_SUFFIX.format(
+    resolved_base_prompt = BASE_PROMPTS[str(env_name)] if base_prompt is None else base_prompt
+    return resolved_base_prompt + transform_context + TIMING_SUFFIX.format(
         latency_raw_frames=int(latency_raw_frames),
         latency_ms=float(latency_ms),
         env_fps=float(env_fps),

@@ -142,6 +142,7 @@ ENV_KEYS_BY_NAME = {
         "gpu_env_profile",
         "gpu_env_profile_interval",
     ),
+<<<<<<< HEAD
     "defend_the_line": (
         "name",
         "env_id",
@@ -161,6 +162,21 @@ ENV_KEYS_BY_NAME = {
         "vizdoom_init_lock_timeout_sec",
         "vizdoom_init_lock_max_wait_sec",
         "vizdoom_init_retry_jitter_sec",
+=======
+    "gymnasium": (
+        "name",
+        "task_name",
+        "env_id",
+        "registration_imports",
+        "make_kwargs",
+        "env_fps",
+        "obs_fps",
+        "frame_stack",
+        "noop_action",
+        "action_map",
+        "action_order",
+        "base_prompt",
+>>>>>>> e044fcd7ba392e4e06d14c5a93269338d754e70f
     ),
 }
 
@@ -173,7 +189,11 @@ LATENCY_BENCH_POLICY_TYPES = {
     "flappy": "flappy_sf",
     "demon_attack": "demon_attack_sf",
     "deadly_corridor": "deadly_corridor_sf",
+<<<<<<< HEAD
     "defend_the_line": "deadly_corridor_sf",
+=======
+    "gymnasium": "gymnasium_sf",
+>>>>>>> e044fcd7ba392e4e06d14c5a93269338d754e70f
 }
 
 
@@ -190,6 +210,13 @@ def _frame_ms(config: dict[str, Any]) -> float:
 
 def _env_name(config: dict[str, Any]) -> str:
     return str(config["env"]["name"])
+
+
+def _task_name(config: dict[str, Any]) -> str:
+    env_cfg = config["env"]
+    if env_cfg["name"] == "gymnasium":
+        return env_cfg["task_name"]
+    return env_cfg["name"]
 
 
 def _env_slug(env_name: str) -> str:
@@ -557,7 +584,7 @@ def _build_full_train_config(
     experiment_family: str,
 ) -> dict[str, Any]:
     config = deepcopy(base_config)
-    env_name = _env_name(config)
+    env_name = _task_name(config)
     config.setdefault("experiment", {})["name"] = _run_name(
         env_name,
         sweep_name,
@@ -819,7 +846,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         manifest_rows.append(
             _build_manifest_row(
                 experiment_family=experiment_family,
-                env_name=_env_name(train_config),
+                env_name=_task_name(train_config),
                 sweep_name=sweep_name,
                 latency_label=latency_label,
                 latency_setting=latency_setting,

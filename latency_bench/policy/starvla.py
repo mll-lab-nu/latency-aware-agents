@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -16,6 +17,7 @@ from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.data.ghost_trail import GhostTrailConfig, build_flappy_ghost_trail_window
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.gymnasium_task import gymnasium_task_contract
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
 
@@ -78,6 +80,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         action_resolver: ActionResolver,
         action_refs: Sequence[Any],
         latency_prompt_map: dict[str, Any] | None = None,
+        base_prompt: str | None = None,
         latency_prompt_key: int | str | None = None,
         prompt_mode: str | None = None,
         obs_resize: tuple[int, int] | None = None,
@@ -96,6 +99,7 @@ class StarVlaPolicyRunner(PolicyRunner):
             for raw_action_id, action_ref in enumerate(action_refs)
         }
         self._latency_prompt_map = latency_prompt_map
+        self._base_prompt = base_prompt
         self._latency_prompt_key = latency_prompt_key
         self._prompt_mode = str(prompt_mode or "default").strip().lower()
         self._image_transform_config = dict(image_transform_config or {"image_transform": "raw_rgb"})
@@ -219,6 +223,7 @@ class StarVlaPolicyRunner(PolicyRunner):
             env_name=self._env_name,
             observation_metadata=observation.metadata,
             latency_prompt_map=self._latency_prompt_map,
+            base_prompt=self._base_prompt,
             latency_prompt_key=self._latency_prompt_key,
             prompt_mode=self._prompt_mode,
         )
@@ -739,12 +744,14 @@ class LiveStarVlaWrapper:
         framework: Any,
         model_cfg: dict[str, Any],
         env_name: str,
+        rl_games_action_env_dim: int | None = None,
         action_layout: str | None = None,
         multibinary_threshold: float | None = None,
     ) -> None:
         self._framework = framework
         self._model_cfg = model_cfg
         self._rl_games_env_name = str(env_name)
+        self._rl_games_action_env_dim = rl_games_action_env_dim
         (
             self._decode_rl_games_actions,
             resolve_deadly_action_decode_spec,
@@ -772,6 +779,9 @@ class LiveStarVlaWrapper:
         profiler = kwargs["profiler"] if "profiler" in kwargs else None
         out = self._framework.predict_action(examples=examples, **kwargs)
         normalized = np.asarray(out["normalized_actions"])  # (B, T, D)
+        decode_kwargs: dict[str, Any] = {}
+        if self._rl_games_env_name == "gymnasium":
+            decode_kwargs["action_env_dim"] = self._rl_games_action_env_dim
         with _profiler_stage(profiler, "starvla_wrapper_rl_games_decode_ms"):
             return self._decode_rl_games_actions(
                 normalized_actions=normalized,
@@ -786,6 +796,7 @@ class LiveStarVlaWrapper:
                     if self._rl_games_env_name == "deadly_corridor"
                     else None
                 ),
+                **decode_kwargs,
             )
 
 
@@ -797,20 +808,69 @@ def sha256_array(value: npt.NDArray[Any]) -> str:
     return hashlib.sha256(np.ascontiguousarray(value).tobytes()).hexdigest()
 
 
+def _validate_gymnasium_starvla_contract(
+    *,
+    env_cfg: Mapping[str, Any],
+    policy_cfg: Mapping[str, Any],
+    model_cfg: Mapping[str, Any],
+) -> None:
+    expected = gymnasium_task_contract(env_cfg)
+    manifest = json.loads(
+        Path(policy_cfg["task_manifest_path"]).read_text(encoding="utf-8")
+    )
+    if manifest["integration_name"] != "gymnasium":
+        raise ValueError("StarVLA task manifest is not a Gymnasium handoff")
+    if manifest["gymnasium_task"] != expected:
+        raise ValueError(
+            "Evaluation Gymnasium task contract does not match the StarVLA dataset manifest"
+        )
+    if model_cfg["rl_games"]["gymnasium"]["task_contract"] != expected:
+        raise ValueError(
+            "Evaluation Gymnasium task contract does not match the StarVLA model config"
+        )
+    if manifest["active_action_dim"] != len(expected["action_labels"]):
+        raise ValueError(
+            "StarVLA dataset active_action_dim does not match its Gymnasium action catalog"
+        )
+    if (
+        model_cfg["framework"]["action_model"]["action_env_dim"]
+        != manifest["active_action_dim"]
+    ):
+        raise ValueError(
+            "StarVLA model action_env_dim does not match the dataset manifest"
+        )
+
+
 def build_starvla_policy(
     config: dict[str, Any],
     action_resolver: ActionResolver,
 ) -> PolicyRunner:
     policy_cfg = config["policy"]
+    env_cfg = config["env"]
+    integration_env_name = env_cfg["name"]
+    if integration_env_name == "gymnasium":
+        model_cfg = _load_starvla_model_config(policy_cfg["model_config_path"])
+        _validate_gymnasium_starvla_contract(
+            env_cfg=env_cfg,
+            policy_cfg=policy_cfg,
+            model_cfg=model_cfg,
+        )
+        semantic_env_name = env_cfg["task_name"]
+        action_refs = env_cfg["action_order"]
+        base_prompt = env_cfg["base_prompt"]
+    else:
+        semantic_env_name = integration_env_name
+        action_refs = policy_cfg.get("actions", action_resolver.default_action_refs())
+        base_prompt = None
     unnorm_key = policy_cfg["unnorm_key"] if "unnorm_key" in policy_cfg else None
     wrapper_cls = _load_policy_wrapper_class()
-    wrapper = wrapper_cls(
+    wrapper_kwargs: dict[str, Any] = dict(
         ckpt_path=policy_cfg["checkpoint_path"],
         device=policy_cfg["device"],
         use_bf16=True,
         unnorm_key=unnorm_key,
         action_output_mode="rl_games",
-        rl_games_env_name=config["env"]["name"],
+        rl_games_env_name=integration_env_name,
         rl_games_action_layout=(
             policy_cfg["action_layout"] if "action_layout" in policy_cfg else None
         ),
@@ -820,6 +880,9 @@ def build_starvla_policy(
             else None
         ),
     )
+    if integration_env_name == "gymnasium":
+        wrapper_kwargs["rl_games_action_env_dim"] = len(action_refs)
+    wrapper = wrapper_cls(**wrapper_kwargs)
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
         if "latency_prompt_map_path" in policy_cfg
@@ -828,23 +891,25 @@ def build_starvla_policy(
     latency_prompt_key = policy_cfg.get("latency_prompt_key")
     prompt_mode = policy_cfg.get("prompt_mode")
     image_transform_config = policy_cfg.get("image_transform_config")
-    model_cfg = (
-        _load_starvla_model_config(policy_cfg["model_config_path"])
-        if "model_config_path" in policy_cfg
-        else None
-    )
+    if integration_env_name != "gymnasium":
+        model_cfg = (
+            _load_starvla_model_config(policy_cfg["model_config_path"])
+            if "model_config_path" in policy_cfg
+            else None
+        )
     return StarVlaPolicyRunner(
         wrapper=wrapper,
         checkpoint_path=policy_cfg["checkpoint_path"],
         device=policy_cfg["device"],
         unnorm_key=unnorm_key,
-        env_name=config["env"]["name"],
+        env_name=semantic_env_name,
         action_resolver=action_resolver,
-        action_refs=policy_cfg.get("actions", action_resolver.default_action_refs()),
+        action_refs=action_refs,
         latency_prompt_map=latency_prompt_map,
+        base_prompt=base_prompt,
         latency_prompt_key=latency_prompt_key,
         prompt_mode=prompt_mode,
-        obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
+        obs_resize=tuple(env_cfg["obs_resize"]) if env_cfg.get("obs_resize") else None,
         image_transform_config=image_transform_config,
         observation_stride_raw_frames=_observation_stride_raw_frames(config),
         model_cfg=model_cfg,
@@ -868,11 +933,26 @@ def build_live_starvla_policy(
     """
     policy_cfg = config["policy"]
     unnorm_key = policy_cfg["unnorm_key"] if "unnorm_key" in policy_cfg else None
-    env_name = config["env"]["name"]
-    wrapper = LiveStarVlaWrapper(
+    env_cfg = config["env"]
+    integration_env_name = env_cfg["name"]
+    if integration_env_name == "gymnasium":
+        normalized_model_cfg = _normalized_model_cfg(model_cfg)
+        _validate_gymnasium_starvla_contract(
+            env_cfg=env_cfg,
+            policy_cfg=policy_cfg,
+            model_cfg=normalized_model_cfg,
+        )
+        semantic_env_name = env_cfg["task_name"]
+        action_refs = env_cfg["action_order"]
+        base_prompt = env_cfg["base_prompt"]
+    else:
+        semantic_env_name = integration_env_name
+        action_refs = policy_cfg.get("actions", action_resolver.default_action_refs())
+        base_prompt = None
+    wrapper_kwargs: dict[str, Any] = dict(
         framework=framework,
         model_cfg=model_cfg,
-        env_name=env_name,
+        env_name=integration_env_name,
         action_layout=policy_cfg["action_layout"] if "action_layout" in policy_cfg else None,
         multibinary_threshold=(
             policy_cfg["multibinary_threshold"]
@@ -880,6 +960,9 @@ def build_live_starvla_policy(
             else None
         ),
     )
+    if integration_env_name == "gymnasium":
+        wrapper_kwargs["rl_games_action_env_dim"] = len(action_refs)
+    wrapper = LiveStarVlaWrapper(**wrapper_kwargs)
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
         if "latency_prompt_map_path" in policy_cfg
@@ -893,15 +976,17 @@ def build_live_starvla_policy(
         checkpoint_path=policy_cfg.get("checkpoint_path", ""),
         device=policy_cfg.get("device", "cuda"),
         unnorm_key=unnorm_key,
-        env_name=env_name,
+        env_name=semantic_env_name,
         action_resolver=action_resolver,
-        action_refs=policy_cfg.get("actions", action_resolver.default_action_refs()),
+        action_refs=action_refs,
         latency_prompt_map=latency_prompt_map,
+        base_prompt=base_prompt,
         latency_prompt_key=latency_prompt_key,
         prompt_mode=prompt_mode,
-        obs_resize=tuple(config["env"]["obs_resize"]) if config["env"].get("obs_resize") else None,
+        obs_resize=tuple(env_cfg["obs_resize"]) if env_cfg.get("obs_resize") else None,
         image_transform_config=image_transform_config,
         observation_stride_raw_frames=_observation_stride_raw_frames(config),
+        model_cfg=normalized_model_cfg if integration_env_name == "gymnasium" else None,
     )
 
 
