@@ -1,0 +1,144 @@
+{
+  "source": "runtime_api_probe",
+  "gymnasium_version": "0.29.1",
+  "ale_py_version": "0.8.1",
+  "env_id": "ALE/Asterix-v5",
+  "resolved_spec": {
+    "id": "ALE/Asterix-v5",
+    "entry_point": "shimmy.atari_env:AtariEnv",
+    "max_episode_steps": null,
+    "kwargs": {
+      "game": "asterix",
+      "obs_type": "rgb",
+      "repeat_action_probability": 0.0,
+      "full_action_space": false,
+      "frameskip": 1,
+      "max_num_frames_per_episode": 108000,
+      "render_mode": "rgb_array",
+      "mode": 0,
+      "difficulty": 0
+    }
+  },
+  "unwrapped_class": "shimmy.atari_env.AtariEnv",
+  "metadata": {
+    "render_modes": [
+      "human",
+      "rgb_array"
+    ],
+    "obs_types": [
+      "grayscale",
+      "ram",
+      "rgb"
+    ]
+  },
+  "action_space": {
+    "type": "Discrete",
+    "n": 9,
+    "dtype": "int64",
+    "meanings": [
+      "NOOP",
+      "UP",
+      "RIGHT",
+      "LEFT",
+      "DOWN",
+      "UPRIGHT",
+      "UPLEFT",
+      "DOWNRIGHT",
+      "DOWNLEFT"
+    ]
+  },
+  "observation_space": {
+    "type": "Box",
+    "shape": [
+      210,
+      160,
+      3
+    ],
+    "dtype": "uint8"
+  },
+  "reset_observation_shape": [
+    210,
+    160,
+    3
+  ],
+  "reset_observation_dtype": "uint8",
+  "reset_info": {
+    "lives": 3,
+    "episode_frame_number": 0,
+    "frame_number": 0,
+    "seeds": [
+      2968811710,
+      3677149159
+    ]
+  },
+  "noop_step": {
+    "action": 0,
+    "reward": 0.0,
+    "terminated": false,
+    "truncated": false,
+    "info": {
+      "lives": 3,
+      "episode_frame_number": 1,
+      "frame_number": 1
+    }
+  },
+  "render": {
+    "shape": [
+      210,
+      160,
+      3
+    ],
+    "dtype": "uint8"
+  },
+  "available_modes": [
+    0
+  ],
+  "available_difficulties": [
+    0
+  ],
+  "reset_episode_frame_number": 0,
+  "post_step_episode_frame_number": 1,
+  "native_env_fps": 60,
+  "video_standard": "NTSC",
+  "clock_source": "Asterix NTSC ROM task contract",
+  "render_mode": "rgb_array",
+  "base_make_kwargs": {
+    "obs_type": "rgb",
+    "frameskip": 1,
+    "repeat_action_probability": 0.0,
+    "full_action_space": false,
+    "mode": 0,
+    "difficulty": 0,
+    "max_num_frames_per_episode": 108000
+  },
+  "action_catalog": {
+    "source": "gymnasium_api",
+    "labels": [
+      "noop",
+      "up",
+      "right",
+      "left",
+      "down",
+      "upright",
+      "upleft",
+      "downright",
+      "downleft"
+    ],
+    "values": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "noop_action": "noop"
+  },
+  "random_noop_reset": {
+    "source": "user_approved",
+    "noop_max": 30
+  }
+}
