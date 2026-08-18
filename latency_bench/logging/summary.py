@@ -20,6 +20,8 @@ _LATENCY_METADATA_KEYS = (
     "checkpoint_kind",
     "suite_name",
     "eval_phase",
+    "profile_path",
+    "latency_seed",
     "train_env_steps",
     "checkpoint_path",
     "checkpoint_global_step",

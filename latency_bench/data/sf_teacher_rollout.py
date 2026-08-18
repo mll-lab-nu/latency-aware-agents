@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from latency_bench.data.action_layouts import action_spec_for_env
+from latency_bench.data.action_layouts import ActionSpec, action_spec_for_env
 from latency_bench.data.filters import (
     FILTER_PRESET_CLEAN_V1,
     accepts_episode,
@@ -438,6 +438,7 @@ def _step_teacher_policy(
     active_obs: list[Any | None],
     rnn_states: torch.Tensor,
     deterministic: bool,
+    preserve_leading_batch: bool = False,
 ) -> tuple[list[Any], torch.Tensor, dict[int, Any]]:
     """Run one teacher policy/env step for active rollout slots.
 
@@ -458,7 +459,10 @@ def _step_teacher_policy(
     argmax_actions = runtime["argmax_actions"]
     preprocess_actions = runtime["preprocess_actions"]
     unsqueeze_tensor = runtime["unsqueeze_tensor"]
-    obs_batch = batch_observations([active_obs[slot] for slot in active_slots])
+    obs_batch = batch_observations(
+        [active_obs[slot] for slot in active_slots],
+        preserve_leading_batch=preserve_leading_batch,
+    )
     normalized_obs = prepare_and_normalize_obs(actor_critic, obs_batch)
     with torch.no_grad():
         policy_outputs = actor_critic(normalized_obs, rnn_states[active_slots])
@@ -532,6 +536,8 @@ def _probe_accepted_specs(
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
     rollout_seed_offset: int = 0,
+    action_spec: ActionSpec | None = None,
+    integration_name: str | None = None,
 ) -> None:
     """Probe rollout attempts without raw RGB until enough accepted specs exist.
 
@@ -549,11 +555,14 @@ def _probe_accepted_specs(
         probe_state: Mutable probe state persisted for resume.
         filter_preset: Filter preset name for episode-level gating.
         filter_kwargs: Optional overrides forwarded to the episode gate.
+        action_spec: Explicit action layout carried by a generic checkpoint.
+        integration_name: Integration identity used for legacy-specific rollout behavior.
     """
     accepted_specs = probe_state["accepted_specs"]
     rnn_size = runtime["rnn_size"]
     device = runtime["device"]
-    action_spec = action_spec_for_env(env_name)
+    resolved_action_spec = action_spec if action_spec is not None else action_spec_for_env(env_name)
+    behavior_env_name = env_name if integration_name is None else integration_name
     final_splits = {
         int(spec["episode_idx"]): str(spec["split"])
         for spec in _build_episode_plan(
@@ -605,6 +614,7 @@ def _probe_accepted_specs(
                     active_obs=active_obs,
                     rnn_states=rnn_states,
                     deterministic=deterministic,
+                    preserve_leading_batch=behavior_env_name == "gymnasium",
                 )
                 reset_plan: dict[int, int] = {}
                 target_reached = False
@@ -629,14 +639,14 @@ def _probe_accepted_specs(
                     step_result = step_results[slot]
                     active_episode_lengths[slot] += 1
                     active_episode_returns[slot] += float(to_python_action(step_result.reward))
-                    if env_name == "demon_attack":
+                    if behavior_env_name == "demon_attack":
                         active_episode_raw_returns[slot] += float(to_python_action(step_result.info["raw_reward"]))
                     else:
                         active_episode_raw_returns[slot] += float(to_python_action(step_result.reward))
 
                     next_decision_step = int(active_decision_steps[slot]) + 1
                     life_loss_boundary, episode_done = _rollout_step_flags(
-                        env_name,
+                        behavior_env_name,
                         step_result,
                         next_decision_step=next_decision_step,
                         max_steps_per_episode=int(max_steps_per_episode),
@@ -645,13 +655,13 @@ def _probe_accepted_specs(
                         probe_state["attempted_episodes"] += 1
                         summary = {
                             "episode_length": int(active_episode_lengths[slot]),
-                            action_spec.episode_return_field: float(active_episode_returns[slot]),
+                            resolved_action_spec.episode_return_field: float(active_episode_returns[slot]),
                         }
-                        if env_name == "demon_attack":
+                        if behavior_env_name == "demon_attack":
                             summary["episode_raw_return"] = float(active_episode_raw_returns[slot])
                         accepted = accepts_episode(
                             filter_preset,
-                            env_name,
+                            behavior_env_name,
                             summary,
                             max_steps_per_episode=int(max_steps_per_episode),
                             filter_kwargs=filter_kwargs,
@@ -663,11 +673,13 @@ def _probe_accepted_specs(
                                 "attempt_idx": int(spec["attempt_idx"]),
                                 "episode_idx": int(final_episode_idx),
                                 "episode_length": int(summary["episode_length"]),
-                                action_spec.episode_return_field: float(summary[action_spec.episode_return_field]),
+                                resolved_action_spec.episode_return_field: float(
+                                    summary[resolved_action_spec.episode_return_field]
+                                ),
                                 "seed": int(spec["seed"]),
                                 "split": str(final_split),
                             }
-                            if env_name == "demon_attack":
+                            if behavior_env_name == "demon_attack":
                                 accepted_spec["episode_raw_return"] = float(summary["episode_raw_return"])
                             accepted_specs.append(accepted_spec)
                             progress.update(1)
@@ -744,6 +756,9 @@ def _replay_accepted_specs(
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     context_window: int = 1,
     image_transform_config: GhostTrailConfig | None = None,
+    action_spec: ActionSpec | None = None,
+    base_prompt: str | None = None,
+    integration_name: str | None = None,
 ) -> list[int] | None:
     """Replay accepted specs with raw RGB export and write episode shards.
 
@@ -764,10 +779,14 @@ def _replay_accepted_specs(
         context_window: Total image window length including the current ``image`` field.
         image_transform_config: Optional causal image transform applied before
             row filtering. Defaults to raw RGB.
+        action_spec: Explicit action layout carried by a generic checkpoint.
+        base_prompt: Explicit task prompt carried by a generic checkpoint.
+        integration_name: Integration identity used for legacy-specific rollout behavior.
     Returns:
         First observed image resolution, or ``None`` when no spec is replayed.
     """
     image_transform_config = image_transform_config or GhostTrailConfig()
+    behavior_env_name = env_name if integration_name is None else integration_name
     specs_to_replay = [
         spec for spec in accepted_specs if int(spec["episode_idx"]) not in completed_episode_indices
     ]
@@ -790,7 +809,7 @@ def _replay_accepted_specs(
     # foreground_components (cv2.connectedComponents) is called exactly once per new
     # raw frame (4× per decision step) rather than 30× per decision step.
     _is_demon_ghost_trail = (
-        str(env_name) == "demon_attack"
+        behavior_env_name == "demon_attack"
         and image_transform_config.normalized_transform() == "demon_attack_ghost_trail"
     )
     _ghost_trail_history_len = max(1, int(image_transform_config.history_frames))
@@ -858,6 +877,7 @@ def _replay_accepted_specs(
                     active_obs=active_obs,
                     rnn_states=rnn_states,
                     deterministic=deterministic,
+                    preserve_leading_batch=behavior_env_name == "gymnasium",
                 )
                 reset_plan: dict[int, int] = {}
 
@@ -876,7 +896,7 @@ def _replay_accepted_specs(
                     step_result = step_results[slot]
                     next_decision_step = decision_step + 1
                     life_loss_boundary, episode_done = _rollout_step_flags(
-                        env_name,
+                        behavior_env_name,
                         step_result,
                         next_decision_step=next_decision_step,
                         max_steps_per_episode=int(max_steps_per_episode),
@@ -894,6 +914,8 @@ def _replay_accepted_specs(
                             env_fps=env_fps,
                             obs_fps=obs_fps,
                             image_transform=image_transform_config.normalized_transform(),
+                            action_spec=action_spec,
+                            base_prompt=base_prompt,
                         )
                         active_episode_rows[slot].append(row)
                     rnn_states[slot] = new_rnn_states[batch_idx]
@@ -907,7 +929,7 @@ def _replay_accepted_specs(
                         if str(spec["split"]) == "train":
                             shard_rows = filter_train_rows(
                                 filter_preset,
-                                env_name,
+                                behavior_env_name,
                                 final_rows,
                                 seed=int(spec["seed"]),
                             )
@@ -922,7 +944,7 @@ def _replay_accepted_specs(
                             }
                         else:
                             frames_by_decision_step = build_episode_image_frames(
-                                env_name=env_name,
+                                env_name=behavior_env_name,
                                 rows=final_rows,
                                 frames=active_episode_frames[slot],
                                 config=image_transform_config,
@@ -1012,18 +1034,19 @@ def _build_rollout_driver_runtime(
         Sample Factory cfg, runtime mapping, driver, and checkpoint frame stack.
     """
     env_name = str(config["env_name"])
+    integration_name = config["integration_name"] if "integration_name" in config else env_name
     with sample_factory_init_log(output_dir):
         module, cfg = build_sample_factory_rollout_cfg(config)
         frame_stack = int(cfg.frame_stack)
         setattr(cfg, "export_env_raw_rgb_frames", bool(export_env_raw_rgb_frames))
-        if env_name == "flappy" and cfg.use_gpu_render:
+        if integration_name == "flappy" and cfg.use_gpu_render:
             maybe_set_cli_override(cfg, "gpu_render_batch_size", int(num_envs))
         use_batched_driver = (
-            (env_name == "flappy" and int(num_envs) > 1 and cfg.use_gpu_render)
-            or (env_name == "demon_attack" and cfg.simulator == "gpu")
+            (integration_name == "flappy" and int(num_envs) > 1 and cfg.use_gpu_render)
+            or (integration_name == "demon_attack" and cfg.simulator == "gpu")
         )
         if use_batched_driver:
-            if env_name == "demon_attack":
+            if integration_name == "demon_attack":
                 maybe_set_cli_override(cfg, "gpu_env_batch_size", int(num_envs))
             runtime = build_env_and_policy(module, cfg, config, 1)
         else:
@@ -1081,6 +1104,9 @@ def collect_teacher_dataset(
         Rollout metadata.
     """
     env_name = str(config["env_name"])
+    integration_name = config["integration_name"] if "integration_name" in config else env_name
+    action_spec = config["action_spec"] if "action_spec" in config else action_spec_for_env(env_name)
+    base_prompt = config["base_prompt"] if "base_prompt" in config else None
     image_transform_config = image_transform_config or GhostTrailConfig()
     completed_episode_indices = completed_episode_indices_from_shards(output_dir)
     probe_state = _load_probe_state(
@@ -1117,6 +1143,8 @@ def collect_teacher_dataset(
             filter_preset=filter_preset,
             filter_kwargs=filter_kwargs,
             rollout_seed_offset=int(rollout_seed_offset),
+            action_spec=action_spec,
+            integration_name=integration_name,
         )
 
     if probe_only:
@@ -1161,9 +1189,11 @@ def collect_teacher_dataset(
             filter_preset=filter_preset,
             context_window=int(context_window),
             image_transform_config=image_transform_config,
+            action_spec=action_spec,
+            base_prompt=base_prompt,
+            integration_name=integration_name,
         )
 
-    action_spec = action_spec_for_env(env_name)
     runtime_metadata = probe_state["runtime_metadata"]
     env_fps = float(runtime_metadata["env_fps"])
     obs_fps = float(runtime_metadata["obs_fps"])
@@ -1171,7 +1201,7 @@ def collect_teacher_dataset(
     filter_report = _filter_report_from_probe_state(
         output_dir,
         probe_state,
-        env_name=env_name,
+        env_name=integration_name,
         filter_preset=filter_preset,
     )
     return {
