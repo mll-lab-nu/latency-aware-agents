@@ -1,0 +1,20 @@
+..............................                                           [100%]
+=============================== warnings summary ===============================
+tests/training/test_gymnasium_sf.py::test_sample_factory_config_round_trips_complete_task_contract
+tests/training/test_gymnasium_sf.py::test_sample_factory_config_round_trips_complete_task_contract
+tests/training/test_gymnasium_sf.py::test_sample_factory_config_round_trips_complete_task_contract
+tests/training/test_gymnasium_sf.py::test_sample_factory_config_round_trips_complete_task_contract
+tests/training/test_gymnasium_sf.py::test_sample_factory_config_round_trips_complete_task_contract
+  /venv/latency/lib/python3.10/site-packages/torch/jit/_script.py:1488: DeprecationWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+tests/training/test_gymnasium_sf.py::test_sample_factory_config_round_trips_complete_task_contract
+  /venv/latency/lib/python3.10/site-packages/gymnasium/core.py:311: UserWarning: [33mWARN: env.num_agents to get variables from other wrappers is deprecated and will be removed in v1.0, to get this variable you can do `env.unwrapped.num_agents` for environment variables or `env.get_wrapper_attr('num_agents')` that will search the reminding wrappers.[0m
+    logger.warn(
+
+tests/training/test_gymnasium_sf.py::test_sample_factory_config_round_trips_complete_task_contract
+  /venv/latency/lib/python3.10/site-packages/gymnasium/core.py:311: UserWarning: [33mWARN: env.is_multiagent to get variables from other wrappers is deprecated and will be removed in v1.0, to get this variable you can do `env.unwrapped.is_multiagent` for environment variables or `env.get_wrapper_attr('is_multiagent')` that will search the reminding wrappers.[0m
+    logger.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+30 passed, 7 warnings in 3.94s
