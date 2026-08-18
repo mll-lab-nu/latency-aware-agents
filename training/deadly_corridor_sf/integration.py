@@ -313,7 +313,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     evaluation_cfg = config.get("evaluation", {})
     scheduler_cfg = config.get("scheduler")
     if not isinstance(scheduler_cfg, dict):
-        raise ValueError("scheduler must be a mapping for DeadlyCorridor Sample Factory")
+        raise ValueError("scheduler must be a mapping for VizDoom Sample Factory")
     args = build_common_sf_args(config, sf_env_name=env_cfg.get("env_id", SF_ENV_NAME))
     append_cli_arg(args, "--env-fps", env_cfg["env_fps"])
     append_cli_arg(args, "--obs-fps", env_cfg["obs_fps"])
