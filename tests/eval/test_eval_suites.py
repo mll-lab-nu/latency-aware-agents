@@ -109,6 +109,245 @@ def test_parse_fixed_eval_suite_supports_explicit_latency_list(tmp_path: Path):
     assert suites[0].fixed_latency_values == [0, 1, 2, 3, 4]
 
 
+def test_parse_iid_eval_suites_uses_explicit_name_and_profile_provenance(tmp_path: Path):
+    from latency_bench.eval.suites import parse_eval_suites
+
+    config = _suite_config(tmp_path)
+    profile_path = tmp_path / "profiles" / "rtx_3090" / "profile.json"
+    config["evaluation"]["eval_suites"] = {
+        "iid": [
+            {
+                "name": "rtx_3090",
+                "profile_path": str(profile_path),
+                "seed": 42,
+            }
+        ],
+    }
+
+    suites = parse_eval_suites(config)
+
+    assert [suite.name for suite in suites] == ["rtx_3090"]
+    assert suites[0].latency_config == {
+        "method": "iid",
+        "profile_path": str(profile_path),
+        "seed": 42,
+    }
+    assert suites[0].latency_label == "rtx_3090"
+    assert suites[0].metadata == {
+        "suite_name": "rtx_3090",
+        "latency_type": "profile_sample",
+        "profile_path": str(profile_path),
+        "latency_seed": 42,
+    }
+
+
+def test_iid_suite_summary_retains_profile_provenance(monkeypatch, tmp_path: Path):
+    import latency_bench.eval.sweeps as eval_sweeps
+
+    config = _suite_config(tmp_path)
+    profile_path = tmp_path / "profiles" / "rtx_3090" / "profile.json"
+    config["evaluation"]["eval_suites"] = {
+        "iid": [
+            {
+                "name": "rtx_3090",
+                "profile_path": str(profile_path),
+                "seed": 42,
+            }
+        ],
+    }
+
+    def fake_run_from_config(
+        config,
+        extra_metadata=None,
+        write_summary=True,
+        on_episode_complete=None,
+        episode_ids=None,
+    ):
+        return [
+            EpisodeMetrics(
+                episode_id=0,
+                episode_return=10.0,
+                survival_steps=5,
+                metadata=dict(extra_metadata or {}),
+            )
+        ]
+
+    monkeypatch.setattr(eval_sweeps, "run_from_config", fake_run_from_config)
+
+    summaries = eval_sweeps.run_eval_suites_from_config(config, progress=False)
+
+    assert summaries[0]["latency_type"] == "profile_sample"
+    assert summaries[0]["profile_path"] == str(profile_path)
+    assert summaries[0]["latency_seed"] == 42
+    summary_path = tmp_path / "rtx_3090" / "queue_eval_latency_rtx_3090.json"
+    assert json.loads(summary_path.read_text(encoding="utf-8"))["latency_seed"] == 42
+
+
+@pytest.mark.parametrize("policy_type", ["flappy_sf", "starvla"])
+def test_checkpoint_eval_suites_build_policy_once_and_reuse_it(
+    monkeypatch,
+    tmp_path: Path,
+    policy_type: str,
+):
+    import latency_bench.eval.sweeps as eval_sweeps
+
+    config = _suite_config(tmp_path)
+    config["policy"] = {
+        "type": policy_type,
+        "checkpoint_path": str(tmp_path / "checkpoint.pth"),
+    }
+    config["evaluation"]["eval_suites"] = {
+        "iid": [
+            {
+                "name": "rtx_3090",
+                "profile_path": str(tmp_path / "profile.json"),
+                "seed": 42,
+            },
+            {
+                "name": "rtx_4090",
+                "profile_path": str(tmp_path / "profile.json"),
+                "seed": 42,
+            },
+        ],
+    }
+    built_policies: list[object] = []
+    prepared_configs: list[dict] = []
+    used_policies: list[object] = []
+
+    def fake_build_policy(config, action_resolver):
+        policy = object()
+        built_policies.append(policy)
+        return policy
+
+    def fake_run_from_config(
+        config,
+        extra_metadata=None,
+        write_summary=True,
+        on_episode_complete=None,
+        episode_ids=None,
+        policy=None,
+    ):
+        used_policies.append(policy)
+        return [
+            EpisodeMetrics(
+                episode_id=0,
+                episode_return=10.0,
+                survival_steps=5,
+                metadata=dict(extra_metadata or {}),
+            )
+        ]
+
+    monkeypatch.setattr(eval_sweeps, "build_policy", fake_build_policy)
+    monkeypatch.setattr(eval_sweeps, "run_from_config", fake_run_from_config)
+    if policy_type == "starvla":
+        import latency_bench.policy.starvla as starvla
+
+        monkeypatch.setattr(
+            starvla,
+            "prepare_starvla_checkpoint_input_config",
+            prepared_configs.append,
+        )
+
+    eval_sweeps.run_eval_suites_from_config(config, progress=False)
+
+    assert len(built_policies) == 1
+    assert prepared_configs == ([config] if policy_type == "starvla" else [])
+    assert used_policies == [built_policies[0], built_policies[0]]
+
+
+def test_checkpoint_eval_suites_preserve_explicit_policy(monkeypatch, tmp_path: Path):
+    import latency_bench.eval.sweeps as eval_sweeps
+
+    config = _suite_config(tmp_path)
+    config["policy"] = {
+        "type": "flappy_sf",
+        "checkpoint_path": str(tmp_path / "checkpoint.pth"),
+    }
+    config["evaluation"]["eval_suites"] = {
+        "iid": [
+            {
+                "name": "rtx_3090",
+                "profile_path": str(tmp_path / "profile.json"),
+                "seed": 42,
+            }
+        ],
+    }
+    injected_policy = object()
+    used_policies: list[object] = []
+
+    def fake_run_from_config(config, *, extra_metadata, policy, **kwargs):
+        used_policies.append(policy)
+        return [
+            EpisodeMetrics(
+                episode_id=0,
+                episode_return=10.0,
+                survival_steps=5,
+                metadata=dict(extra_metadata),
+            )
+        ]
+
+    def fail_build_policy(config, action_resolver):
+        raise AssertionError("explicit suite policy must not be rebuilt")
+
+    monkeypatch.setattr(eval_sweeps, "build_policy", fail_build_policy)
+    monkeypatch.setattr(eval_sweeps, "run_from_config", fake_run_from_config)
+
+    eval_sweeps.run_eval_suites_from_config(
+        config,
+        progress=False,
+        policy=injected_policy,
+    )
+
+    assert used_policies == [injected_policy]
+
+
+@pytest.mark.parametrize(
+    "executor_config",
+    [
+        {"mode": "realtime"},
+        {"mode": "simulated", "simulated_inference_pool": True},
+    ],
+)
+def test_checkpoint_eval_suites_leave_subprocess_policy_construction_to_executor(
+    monkeypatch,
+    tmp_path: Path,
+    executor_config: dict,
+):
+    import latency_bench.eval.sweeps as eval_sweeps
+
+    config = _suite_config(tmp_path)
+    config["executor"] = executor_config
+    config["policy"] = {
+        "type": "flappy_sf",
+        "checkpoint_path": str(tmp_path / "checkpoint.pth"),
+    }
+    config["evaluation"]["eval_suites"] = {"fixed": [[0]]}
+    built_policies: list[object] = []
+    used_policies: list[object | None] = []
+
+    def fake_build_policy(config, action_resolver):
+        built_policies.append(object())
+
+    def fake_run_from_config(config, *, extra_metadata, policy=None, **kwargs):
+        used_policies.append(policy)
+        return [
+            EpisodeMetrics(
+                episode_id=0,
+                episode_return=10.0,
+                survival_steps=5,
+                metadata=dict(extra_metadata),
+            )
+        ]
+
+    monkeypatch.setattr(eval_sweeps, "build_policy", fake_build_policy)
+    monkeypatch.setattr(eval_sweeps, "run_from_config", fake_run_from_config)
+
+    eval_sweeps.run_eval_suites_from_config(config, progress=False)
+
+    assert built_policies == []
+    assert used_policies == [None]
+
+
 def test_run_eval_suites_writes_per_suite_outputs(monkeypatch, tmp_path: Path):
     import latency_bench.eval.sweeps as eval_sweeps
 
