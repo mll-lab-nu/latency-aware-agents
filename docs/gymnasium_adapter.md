@@ -8,7 +8,8 @@ adapted.
 
 For a complete worked example with real server commands, generated files,
 figures, video, verified InvertedPendulum results, and unexecuted next-stage
-commands, open [`docs/gym-adapt/index.html`](gym-adapt/index.html). The runnable
+commands, open the [Gymnasium adaptation examples](gym-adapt/gymnasium/README.md).
+The runnable
 example configs are in
 [`configs/examples/gymnasium/inverted_pendulum/`](../configs/examples/gymnasium/inverted_pendulum/).
 
@@ -148,9 +149,9 @@ and label the others `NOT RUN`.
 
 An agent-assisted adaptation is not complete when code alone is generated. The
 agent must create a task-specific report such as
-`docs/gym-adapt/<task_name>.html`, following the structure and visual language
-of the InvertedPendulum walkthrough, and link it from
-`docs/gym-adapt/README.md`. The required contents are specified in “Adaptation
+`docs/gym-adapt/gymnasium/<task_name>/index.html`, following the structure and
+visual language of the worked examples, and link it from
+`docs/gym-adapt/gymnasium/README.md`. The required contents are specified in “Adaptation
 report contract” below.
 
 ## What can be inspected from the environment API
@@ -174,7 +175,9 @@ approve:
 - the safe pending no-op action;
 - action labels, order, and native values;
 - any action discretization or observation preprocessing;
-- reset, reward, termination, truncation, and success semantics;
+- reset semantics, including whether Atari-style seeded random NOOP steps are
+  enabled and their explicit maximum;
+- reward, termination, truncation, and success semantics;
 - the base language prompt;
 - training, rollout, filtering, and evaluation budgets.
 
@@ -414,11 +417,11 @@ and saved model config before decoding a model action ID through
 
 For manual work, keeping this record is strongly recommended. For an
 agent-assisted adaptation, it is required. Use
-[`docs/gym-adapt/index.html`](gym-adapt/index.html) as the reference and create
-a task-specific HTML report such as `docs/gym-adapt/<task_name>.html`, plus
-curated assets under `docs/gym-adapt/assets/<task_name>/`. Add the report to the
-directory index in `docs/gym-adapt/README.md`; do not overwrite the reference
-walkthrough.
+the [worked examples index](gym-adapt/gymnasium/README.md) as the reference and
+create a task-specific HTML report at
+`docs/gym-adapt/gymnasium/<task_name>/index.html`, plus curated assets inside
+that task directory. Add the report to the examples index; do not overwrite an
+existing walkthrough.
 
 The report must contain:
 
@@ -491,7 +494,7 @@ Provide the agent with:
 Suggested request:
 
 ```text
-Read docs/gymnasium_adapter.md and docs/gym-adapt/index.html. Adapt [ENV_ID] from
+Read docs/gymnasium_adapter.md and docs/gym-adapt/gymnasium/README.md. Adapt [ENV_ID] from
 [PACKAGE + PINNED VERSION] into latency-sensitive-bench through the separate
 env.name=gymnasium path. My task objective is: [OBJECTIVE]. Target latency is
 [LATENCY]. Please first probe the exact Gymnasium API and report: constructor
@@ -504,7 +507,7 @@ the resulting task contract across checkpoint, rollout, conversion, SFT, and
 final eval; run parity/compatibility tests; and keep every legacy environment
 path untouched. Record commands, generated files, artifact paths, and which
 stages were actually run. Create a self-contained adaptation report such as
-docs/gym-adapt/[TASK_NAME].html that follows the InvertedPendulum walkthrough.
+docs/gym-adapt/gymnasium/[TASK_NAME]/index.html that follows the worked examples.
 Separate API facts from my decisions, show the frozen contract and generated
 files, document the pipeline consumers, preserve exact commands and evidence,
 explain how I can continue rollout/SFT/eval, and mark every stage VERIFIED,

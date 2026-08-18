@@ -1,2 +1,0 @@
-COMMAND: MUJOCO_GL=egl .venv/bin/python -m latency_bench.run --config configs/examples/gymnasium/inverted_pendulum/small_model_eval.yaml --checkpoint-path outputs/examples/gymnasium_inverted_pendulum/checkpoints/gymnasium_inverted_pendulum_discrete_fixed_l1/checkpoint_p0/checkpoint_000001984_1015808.pth --episode-count 10
-2026-08-12T18:19:35+00:00

@@ -46,7 +46,7 @@
           <div class="callout success"><strong>For a user:</strong> follow the adaptation from API probe to a verified latency-sensitive small-model experiment. Review the decisions and artifacts, then use the command ledger to continue teacher rollout, LeRobot conversion, basic OpenVLA SFT, and final evaluation. Commands marked <code>NOT RUN</code> are instructions, not claimed results.</div>
           <div class="callout"><strong>For an adaptation agent:</strong> this page is both a process example and the required final-report format. A new adaptation should expose the same separation of API facts, user decisions, generated files, contract propagation, exact commands, linked evidence, continuation steps, isolation, and limitations.</div>
         </div>
-        <p>The normative implementation guide is <a href="../gymnasium_adapter.md"><code>docs/gymnasium_adapter.md</code></a>. This HTML page explains and evidences one execution of that guide; it does not replace the contract or authorize an agent to invent missing scientific choices.</p>
+        <p>The normative implementation guide is <a href="../../../gymnasium_adapter.md"><code>docs/gymnasium_adapter.md</code></a>. This HTML page explains and evidences one execution of that guide; it does not replace the contract or authorize an agent to invent missing scientific choices.</p>
       </section>
 
       <section id="scope">
@@ -406,7 +406,7 @@ python -m latency_bench.run \
       <section id="delivery">
         <p class="section-kicker">10 / required agent deliverable</p>
         <h2>A new adaptation must end with an equally transparent report</h2>
-        <p>Code generation is only part of an agent-assisted adaptation. The agent should create a self-contained report such as <code>docs/gym-adapt/&lt;task_name&gt;.html</code>, link it from <code>docs/gym-adapt/README.md</code>, reuse this page's information hierarchy and styles, and store curated evidence under <code>docs/gym-adapt/assets/&lt;task_name&gt;/</code>. The reference <code>index.html</code> must not be overwritten. Large checkpoints and raw experiment directories remain in ignored local or external storage.</p>
+        <p>Code generation is only part of an agent-assisted adaptation. The agent should create a self-contained report at <code>docs/gym-adapt/gymnasium/&lt;task_name&gt;/index.html</code>, link it from <code>docs/gym-adapt/gymnasium/README.md</code>, reuse this page's information hierarchy and styles, and store curated evidence inside the task directory. Existing reports must not be overwritten. Large checkpoints and raw experiment directories remain in ignored local or external storage.</p>
         <div class="table-wrap"><table>
           <thead><tr><th>Required report section</th><th>What the user must be able to verify</th></tr></thead>
           <tbody>
@@ -426,7 +426,7 @@ python -m latency_bench.run \
         <p class="section-kicker">11 / start an agent-assisted adaptation</p>
         <h2>Give an agent this prompt plus the existing adaptation guide</h2>
         <p>For a different Gymnasium environment, replace only the bracketed fields. The agent should first report API facts and unanswered scientific choices, then wait for answers before registering a wrapper or freezing configs.</p>
-        <pre class="prompt"><code>Read docs/gymnasium_adapter.md and docs/gym-adapt/index.html. Adapt [ENV_ID] from
+        <pre class="prompt"><code>Read docs/gymnasium_adapter.md and docs/gym-adapt/gymnasium/README.md. Adapt [ENV_ID] from
 [PACKAGE + PINNED VERSION] into latency-sensitive-bench through the separate
 env.name=gymnasium path. My task objective is: [OBJECTIVE]. Target latency is
 [LATENCY]. Please first probe the exact Gymnasium API and report: constructor
@@ -439,7 +439,7 @@ the resulting task contract across checkpoint, rollout, conversion, SFT, and
 final eval; run parity/compatibility tests; and keep every legacy environment
 path untouched. Record commands, generated files, artifact paths, and which
 stages were actually run. Create a self-contained adaptation report such as
-docs/gym-adapt/[TASK_NAME].html that follows the InvertedPendulum walkthrough.
+docs/gym-adapt/gymnasium/[TASK_NAME]/index.html that follows the worked examples.
 Separate API facts from my decisions, show the frozen contract and generated
 files, document the pipeline consumers, preserve exact commands and evidence,
 explain how I can continue rollout/SFT/eval, and mark every stage VERIFIED,
@@ -448,6 +448,6 @@ Do not invent results.</code></pre>
       </section>
     </main>
   </div>
-  <footer><p>Gym Adapt · worked adaptation, user continuation runbook, and agent delivery template · <a href="../gymnasium_adapter.md">normative adaptation guide</a></p></footer>
+  <footer><p>Gym Adapt · worked adaptation, user continuation runbook, and agent delivery template · <a href="../../../gymnasium_adapter.md">normative adaptation guide</a></p></footer>
 </body>
 </html>
