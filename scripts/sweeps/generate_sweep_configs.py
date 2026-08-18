@@ -142,7 +142,6 @@ ENV_KEYS_BY_NAME = {
         "gpu_env_profile",
         "gpu_env_profile_interval",
     ),
-<<<<<<< HEAD
     "defend_the_line": (
         "name",
         "env_id",
@@ -162,7 +161,7 @@ ENV_KEYS_BY_NAME = {
         "vizdoom_init_lock_timeout_sec",
         "vizdoom_init_lock_max_wait_sec",
         "vizdoom_init_retry_jitter_sec",
-=======
+    ),
     "gymnasium": (
         "name",
         "task_name",
@@ -176,7 +175,6 @@ ENV_KEYS_BY_NAME = {
         "action_map",
         "action_order",
         "base_prompt",
->>>>>>> e044fcd7ba392e4e06d14c5a93269338d754e70f
     ),
 }
 
@@ -189,11 +187,8 @@ LATENCY_BENCH_POLICY_TYPES = {
     "flappy": "flappy_sf",
     "demon_attack": "demon_attack_sf",
     "deadly_corridor": "deadly_corridor_sf",
-<<<<<<< HEAD
     "defend_the_line": "deadly_corridor_sf",
-=======
     "gymnasium": "gymnasium_sf",
->>>>>>> e044fcd7ba392e4e06d14c5a93269338d754e70f
 }
 
 
