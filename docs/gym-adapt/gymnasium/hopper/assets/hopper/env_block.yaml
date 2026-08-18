@@ -1,0 +1,161 @@
+env:
+  name: gymnasium
+  task_name: hopper_discrete_ternary
+  env_id: LatencyBench/HopperDiscrete-v0
+  registration_imports:
+  - latency_bench.envs.gymnasium_hopper
+  make_kwargs:
+    base_env_id: Hopper-v4
+    render_mode: rgb_array
+    action_values:
+    - - -1.0
+      - -1.0
+      - -1.0
+    - - -1.0
+      - -1.0
+      - 0.0
+    - - -1.0
+      - -1.0
+      - 1.0
+    - - -1.0
+      - 0.0
+      - -1.0
+    - - -1.0
+      - 0.0
+      - 0.0
+    - - -1.0
+      - 0.0
+      - 1.0
+    - - -1.0
+      - 1.0
+      - -1.0
+    - - -1.0
+      - 1.0
+      - 0.0
+    - - -1.0
+      - 1.0
+      - 1.0
+    - - 0.0
+      - -1.0
+      - -1.0
+    - - 0.0
+      - -1.0
+      - 0.0
+    - - 0.0
+      - -1.0
+      - 1.0
+    - - 0.0
+      - 0.0
+      - -1.0
+    - - 0.0
+      - 0.0
+      - 0.0
+    - - 0.0
+      - 0.0
+      - 1.0
+    - - 0.0
+      - 1.0
+      - -1.0
+    - - 0.0
+      - 1.0
+      - 0.0
+    - - 0.0
+      - 1.0
+      - 1.0
+    - - 1.0
+      - -1.0
+      - -1.0
+    - - 1.0
+      - -1.0
+      - 0.0
+    - - 1.0
+      - -1.0
+      - 1.0
+    - - 1.0
+      - 0.0
+      - -1.0
+    - - 1.0
+      - 0.0
+      - 0.0
+    - - 1.0
+      - 0.0
+      - 1.0
+    - - 1.0
+      - 1.0
+      - -1.0
+    - - 1.0
+      - 1.0
+      - 0.0
+    - - 1.0
+      - 1.0
+      - 1.0
+    base_make_kwargs:
+      forward_reward_weight: 1.0
+      ctrl_cost_weight: 0.001
+      healthy_reward: 1.0
+      terminate_when_unhealthy: true
+      reset_noise_scale: 0.005
+      exclude_current_positions_from_observation: true
+  env_fps: 125.0
+  obs_fps: 125.0
+  frame_stack: 1
+  noop_action: t_z_l_z_f_z
+  action_map:
+    t_n_l_n_f_n: 0
+    t_n_l_n_f_z: 1
+    t_n_l_n_f_p: 2
+    t_n_l_z_f_n: 3
+    t_n_l_z_f_z: 4
+    t_n_l_z_f_p: 5
+    t_n_l_p_f_n: 6
+    t_n_l_p_f_z: 7
+    t_n_l_p_f_p: 8
+    t_z_l_n_f_n: 9
+    t_z_l_n_f_z: 10
+    t_z_l_n_f_p: 11
+    t_z_l_z_f_n: 12
+    t_z_l_z_f_z: 13
+    t_z_l_z_f_p: 14
+    t_z_l_p_f_n: 15
+    t_z_l_p_f_z: 16
+    t_z_l_p_f_p: 17
+    t_p_l_n_f_n: 18
+    t_p_l_n_f_z: 19
+    t_p_l_n_f_p: 20
+    t_p_l_z_f_n: 21
+    t_p_l_z_f_z: 22
+    t_p_l_z_f_p: 23
+    t_p_l_p_f_n: 24
+    t_p_l_p_f_z: 25
+    t_p_l_p_f_p: 26
+  action_order:
+  - t_n_l_n_f_n
+  - t_n_l_n_f_z
+  - t_n_l_n_f_p
+  - t_n_l_z_f_n
+  - t_n_l_z_f_z
+  - t_n_l_z_f_p
+  - t_n_l_p_f_n
+  - t_n_l_p_f_z
+  - t_n_l_p_f_p
+  - t_z_l_n_f_n
+  - t_z_l_n_f_z
+  - t_z_l_n_f_p
+  - t_z_l_z_f_n
+  - t_z_l_z_f_z
+  - t_z_l_z_f_p
+  - t_z_l_p_f_n
+  - t_z_l_p_f_z
+  - t_z_l_p_f_p
+  - t_p_l_n_f_n
+  - t_p_l_n_f_z
+  - t_p_l_n_f_p
+  - t_p_l_z_f_n
+  - t_p_l_z_f_z
+  - t_p_l_z_f_p
+  - t_p_l_p_f_n
+  - t_p_l_p_f_z
+  - t_p_l_p_f_p
+  base_prompt: Move the hopper forward while keeping it upright. Choose exactly one
+    action from the 27-action torque catalog; t, l, and f denote thigh, leg, and foot,
+    while n, z, and p denote -1, 0, and +1 torque.
