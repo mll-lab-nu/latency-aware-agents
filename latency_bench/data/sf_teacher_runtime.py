@@ -51,7 +51,12 @@ def _register_components(module: Any, integration_name: str) -> None:
         module: Imported training integration module.
         integration_name: Training integration selected by the checkpoint.
     """
-    getattr(module, REGISTRATION_METHOD_BY_INTEGRATION[integration_name])()
+    if env_name in {"deadly_corridor", "defend_the_line"}:
+        module.register_deadly_corridor_components()
+    elif env_name == "demon_attack":
+        module.register_demon_attack_envs()
+    else:
+        module.register_flappy_envs()
 
 
 def _apply_latency_to_flat_cfg(cfg: Any, latency_cfg: Mapping[str, Any]) -> None:

@@ -1,0 +1,98 @@
+experiment:
+  name: defend_the_line_base
+  seed: 42
+
+backend:
+  type: sample_factory
+  algo: APPO
+  device: cpu
+  train_dir: results/sample_factory
+  restart_behavior: resume
+  run_mode: train
+
+executor:
+  mode: simulated
+
+env:
+  name: defend_the_line
+  env_id: doom_defend_the_line
+  env_fps: 35
+  obs_fps: 8.75
+  noop_action: [0, 0]
+  frame_stack: 4
+  res_w: 128
+  res_h: 72
+  wide_aspect_ratio: false
+  simulator: cpu
+
+latency:
+  method: zero
+  add_latency_info: false
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+
+policy:
+  type: random
+  actions:
+    - [0, 0]
+
+training:
+  train_for_env_steps: 25000000
+  num_workers: 32
+  num_envs_per_worker: 4
+  worker_num_splits: 2
+  num_policies: 1
+  batch_size: 1024
+  rollout: 128
+  recurrence: 128
+  num_epochs: 2
+  num_batches_per_epoch: 2
+  learning_rate: 0.0001
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  exploration_loss: symmetric_kl
+  exploration_loss_coeff: 0.001
+  value_loss_coeff: 0.5
+  max_grad_norm: 4.0
+  async_rl: true
+  use_rnn: true
+  rnn_type: gru
+  rnn_size: 512
+  normalize_input: true
+  normalize_returns: true
+  stats_avg: 100
+  experiment_summaries_interval: 1
+  save_every_sec: 600
+  keep_checkpoints: 5
+
+evaluation:
+  eval_interval_steps: 1000000
+  eval_episodes: 20
+  eval_parallel_envs: 1
+  eval_max_steps: 7200
+  eval_deterministic: true
+  eval_raw_reward: true
+  eval_suites:
+    fixed:
+      - [0, 2, 4, 6]
+    normal:
+      - [4.0, 1.0, 0, 15]
+    uniform:
+      - [2, 6]
+
+logging:
+  output_dir: outputs/defend_the_line_base
+  video:
+    enabled: true
+    num_bins: 10
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  wandb_project: latency-sensitive-bench
+  wandb_group: defend-the-line
+  wandb_job_type: sample_factory
+  wandb_tags: ""

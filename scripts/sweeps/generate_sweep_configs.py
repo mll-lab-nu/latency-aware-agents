@@ -131,6 +131,7 @@ ENV_KEYS_BY_NAME = {
         "env_id",
         "env_fps",
         "obs_fps",
+        "noop_action",
         "frame_stack",
         "res_w",
         "res_h",
@@ -140,6 +141,26 @@ ENV_KEYS_BY_NAME = {
         "gpu_env_device",
         "gpu_env_profile",
         "gpu_env_profile_interval",
+    ),
+    "defend_the_line": (
+        "name",
+        "env_id",
+        "env_fps",
+        "obs_fps",
+        "noop_action",
+        "frame_stack",
+        "res_w",
+        "res_h",
+        "wide_aspect_ratio",
+        "max_episode_steps",
+        "simulator",
+        "gpu_env_device",
+        "gpu_env_profile",
+        "gpu_env_profile_interval",
+        "vizdoom_init_max_parallel",
+        "vizdoom_init_lock_timeout_sec",
+        "vizdoom_init_lock_max_wait_sec",
+        "vizdoom_init_retry_jitter_sec",
     ),
     "gymnasium": (
         "name",
@@ -166,6 +187,7 @@ LATENCY_BENCH_POLICY_TYPES = {
     "flappy": "flappy_sf",
     "demon_attack": "demon_attack_sf",
     "deadly_corridor": "deadly_corridor_sf",
+    "defend_the_line": "deadly_corridor_sf",
     "gymnasium": "gymnasium_sf",
 }
 
@@ -670,6 +692,8 @@ def _build_latency_bench_eval_config(
     config["logging"]["save_latency_records"] = False
     if env_name == "deadly_corridor":
         config["env"]["noop_action"] = [0, 0, 0, 0]
+    elif env_name == "defend_the_line":
+        config["env"]["noop_action"] = [0, 0]
     _disable_periodic_eval(config)
     return config
 

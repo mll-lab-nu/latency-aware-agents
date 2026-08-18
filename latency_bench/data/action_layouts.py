@@ -12,6 +12,7 @@ ACTION_LAYOUT_FLAPPY_DISCRETE = "flappy_discrete"
 ACTION_LAYOUT_DEMON_ATTACK_DISCRETE = "demon_attack_discrete"
 ACTION_LAYOUT_DEADLY_CORRIDOR_FACTORIZED_11 = "deadly_corridor_factorized_11"
 ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54 = "deadly_corridor_joint_54"
+ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6 = "defend_the_line_joint_6"
 ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1 = "gymnasium_discrete_v1"
 
 FLAPPY_ACTION_LABELS = ("NOOP", "FLAP")
@@ -20,6 +21,8 @@ DEADLY_CORRIDOR_TURN_LABELS = ("TURN_NOOP", "TURN_LEFT", "TURN_RIGHT")
 DEADLY_CORRIDOR_MOVE_LABELS = ("MOVE_NOOP", "MOVE_FORWARD", "MOVE_BACKWARD")
 DEADLY_CORRIDOR_STRAFE_LABELS = ("STRAFE_NOOP", "MOVE_LEFT", "MOVE_RIGHT")
 DEADLY_CORRIDOR_ATTACK_LABELS = ("ATTACK_NOOP", "ATTACK")
+DEFEND_THE_LINE_TURN_LABELS = ("TURN_NOOP", "TURN_LEFT", "TURN_RIGHT")
+DEFEND_THE_LINE_ATTACK_LABELS = ("ATTACK_NOOP", "ATTACK")
 DEADLY_CORRIDOR_FACTORIZED_11_LABELS = (
     *DEADLY_CORRIDOR_TURN_LABELS,
     *DEADLY_CORRIDOR_MOVE_LABELS,
@@ -42,6 +45,19 @@ DEADLY_CORRIDOR_JOINT_54_LABELS = tuple(
     for move in range(len(DEADLY_CORRIDOR_MOVE_LABELS))
     for strafe in range(len(DEADLY_CORRIDOR_STRAFE_LABELS))
     for attack in range(len(DEADLY_CORRIDOR_ATTACK_LABELS))
+)
+DEFEND_THE_LINE_JOINT_6_LABELS = tuple(
+    " + ".join(
+        label
+        for label in (
+            DEFEND_THE_LINE_TURN_LABELS[turn],
+            DEFEND_THE_LINE_ATTACK_LABELS[attack],
+        )
+        if not label.endswith("_NOOP")
+    )
+    or "NOOP"
+    for turn in range(len(DEFEND_THE_LINE_TURN_LABELS))
+    for attack in range(len(DEFEND_THE_LINE_ATTACK_LABELS))
 )
 
 
@@ -85,6 +101,14 @@ ACTION_SPECS_BY_ENV = {
     "deadly_corridor": ActionSpec(
         layout=ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54,
         labels=DEADLY_CORRIDOR_JOINT_54_LABELS,
+        row_fields=("action_id", "action_text"),
+        reward_field="raw_reward",
+        episode_return_field="episode_raw_return",
+        reward_semantics="raw_reward",
+    ),
+    "defend_the_line": ActionSpec(
+        layout=ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6,
+        labels=DEFEND_THE_LINE_JOINT_6_LABELS,
         row_fields=("action_id", "action_text"),
         reward_field="raw_reward",
         episode_return_field="episode_raw_return",
@@ -216,6 +240,21 @@ def deadly_corridor_joint_54_action(raw_action: Any) -> dict[str, Any]:
     }
 
 
+def _defend_the_line_tuple(raw_action: Any) -> list[int]:
+    return [int(item) for item in _to_python_action(raw_action)]
+
+
+def defend_the_line_joint_6_action(raw_action: Any) -> dict[str, Any]:
+    """Encode a Defend the Line tuple action as a compact joint action id."""
+    turn, attack = _defend_the_line_tuple(raw_action)
+    action_id = int(turn) * len(DEFEND_THE_LINE_ATTACK_LABELS) + int(attack)
+    return {
+        "action_id": action_id,
+        "action_text": DEFEND_THE_LINE_JOINT_6_LABELS[action_id],
+    }
+
+
+def discrete_action(env_name: str, raw_action: Any) -> dict[str, Any]:
 def discrete_action(
     env_name: str,
     raw_action: Any,
@@ -261,4 +300,6 @@ def encode_action_for_env(
     resolved_action_spec = action_spec if action_spec is not None else action_spec_for_env(env_name)
     if resolved_action_spec.layout == ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54:
         return deadly_corridor_joint_54_action(raw_action)
-    return discrete_action(str(env_name), raw_action, action_spec=resolved_action_spec)
+    if str(env_name) == "defend_the_line":
+        return defend_the_line_joint_6_action(raw_action)
+    return discrete_action(str(env_name), raw_action)
