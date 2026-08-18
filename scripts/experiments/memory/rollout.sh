@@ -8,30 +8,37 @@ HF_REPO_ID="latency-sensitive-bench/memory-rollouts"
 
 usage() {
   cat >&2 <<'EOF'
-Usage: rollout.sh [flappy|demon_attack|deadly_corridor|all]
+Usage: rollout.sh [flappy|demon_attack|deadly_corridor|defend_the_line|all] [latency_raw_frames]
 EOF
 }
 
 select_envs() {
   case "$1" in
-    flappy|demon_attack|deadly_corridor) ENVS=("$1") ;;
-    all) ENVS=(flappy demon_attack deadly_corridor) ;;
+    flappy|demon_attack|deadly_corridor|defend_the_line) ENVS=("$1") ;;
+    all) ENVS=(flappy demon_attack deadly_corridor defend_the_line) ;;
     *) usage; exit 2 ;;
   esac
 }
 
 manifest_train_artifact_dir() {
-  python - "$1" <<'PY'
+  python - "$1" "$2" <<'PY'
 import csv
 import sys
 
+latency = str(sys.argv[2])
 with open(sys.argv[1], encoding="utf-8", newline="") as handle:
-    print(next(csv.DictReader(handle, delimiter="\t"))["train_artifact_dir"])
+    for row in csv.DictReader(handle, delimiter="\t"):
+        if row["latency_fixed_frames"] == latency:
+            print(row["train_artifact_dir"])
+            break
+    else:
+        raise SystemExit(f"No manifest row found for latency_fixed_frames={latency}")
 PY
 }
 
 rollout_env() {
   local env_name="$1"
+  local requested_latency="${2:-}"
   local latency episodes raw_name hf_config_name manifest checkpoint_root
 
   case "${env_name}" in
@@ -47,12 +54,19 @@ rollout_env() {
       latency=6
       episodes=1000
       ;;
+    defend_the_line)
+      latency=6
+      episodes=1000
+      ;;
   esac
+  if [[ -n "${requested_latency}" ]]; then
+    latency="${requested_latency}"
+  fi
 
   raw_name="${env_name}_fix_latency_${latency}_${episodes}ep_7k2steps"
   hf_config_name="${env_name}_fixed_latency_${latency}_${episodes}ep_7k2steps"
   manifest="${REPO_ROOT}/configs/train/memory/rollout_teacher/${env_name}/manifest.tsv"
-  checkpoint_root="$(manifest_train_artifact_dir "${manifest}")"
+  checkpoint_root="$(manifest_train_artifact_dir "${manifest}" "${latency}")"
 
   MAX_EPISODES="${episodes}" \
   MAX_STEPS=7200 \
@@ -68,7 +82,9 @@ rollout_env() {
     "${RAW_ROOT}/${raw_name}"
 }
 
-select_envs "${1:-all}"
+env_selector="${1:-all}"
+latency_selector="${2:-}"
+select_envs "${env_selector}"
 for env_name in "${ENVS[@]}"; do
-  rollout_env "${env_name}"
+  rollout_env "${env_name}" "${latency_selector}"
 done

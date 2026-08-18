@@ -27,7 +27,7 @@ def _register_components(module: Any, env_name: str) -> None:
         module: Imported training integration module.
         env_name: Canonical benchmark environment name.
     """
-    if env_name == "deadly_corridor":
+    if env_name in {"deadly_corridor", "defend_the_line"}:
         module.register_deadly_corridor_components()
     elif env_name == "demon_attack":
         module.register_demon_attack_envs()
