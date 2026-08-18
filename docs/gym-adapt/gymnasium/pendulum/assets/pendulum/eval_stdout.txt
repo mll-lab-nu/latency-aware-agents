@@ -1,0 +1,30 @@
+[bench] run=gymnasium_pendulum_discrete_fixed_l1 sweeps=1 episodes_per_sweep=10 total_episode_runs=10
+[bench] sweep 1/1: eval_latency=1
+/venv/latency/lib/python3.10/site-packages/gymnasium/core.py:311: UserWarning: [33mWARN: env.num_agents to get variables from other wrappers is deprecated and will be removed in v1.0, to get this variable you can do `env.unwrapped.num_agents` for environment variables or `env.get_wrapper_attr('num_agents')` that will search the reminding wrappers.[0m
+  logger.warn(
+/venv/latency/lib/python3.10/site-packages/gymnasium/core.py:311: UserWarning: [33mWARN: env.is_multiagent to get variables from other wrappers is deprecated and will be removed in v1.0, to get this variable you can do `env.unwrapped.is_multiagent` for environment variables or `env.get_wrapper_attr('is_multiagent')` that will search the reminding wrappers.[0m
+  logger.warn(
+[36m[2026-08-18 11:47:26,127][05319] RunningMeanStd input shape: (3,)[0m
+[36m[2026-08-18 11:47:26,134][05319] RunningMeanStd input shape: (1,)[0m
+[bench] sweep 1/1 episode 1/10 done
+[bench] sweep 1/1 episode 2/10 done
+[bench] sweep 1/1 episode 3/10 done
+[bench] sweep 1/1 episode 4/10 done
+[bench] sweep 1/1 episode 5/10 done
+[bench] sweep 1/1 episode 6/10 done
+[bench] sweep 1/1 episode 7/10 done
+[bench] sweep 1/1 episode 8/10 done
+[bench] sweep 1/1 episode 9/10 done
+[bench] sweep 1/1 episode 10/10 done
+[bench] sweep 1/1 complete elapsed=3.7s
+episode=0 return=-697.749 steps=200 mean_latency_ms=50.0
+episode=1 return=-507.513 steps=200 mean_latency_ms=50.0
+episode=2 return=-639.171 steps=200 mean_latency_ms=50.0
+episode=3 return=-510.056 steps=200 mean_latency_ms=50.0
+episode=4 return=-629.221 steps=200 mean_latency_ms=50.0
+episode=5 return=-617.252 steps=200 mean_latency_ms=50.0
+episode=6 return=-613.956 steps=200 mean_latency_ms=50.0
+episode=7 return=-817.877 steps=200 mean_latency_ms=50.0
+episode=8 return=-628.457 steps=200 mean_latency_ms=50.0
+episode=9 return=-503.855 steps=200 mean_latency_ms=50.0
+summary latency=1 episodes=10 mean_return=-616.511 std_return=91.585 mean_length=200.0
