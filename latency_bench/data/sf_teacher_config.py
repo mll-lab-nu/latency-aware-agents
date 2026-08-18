@@ -22,21 +22,25 @@ from latency_bench.integrations.sample_factory.runtime import resolve_sample_fac
 
 SF_ENV_TO_BENCH_ENV = {
     "doom_deadly_corridor": "deadly_corridor",
+    "doom_defend_the_line": "defend_the_line",
     "latency_flappy": "flappy",
     "latency_demon_attack": "demon_attack",
     "deadly_corridor": "deadly_corridor",
+    "defend_the_line": "defend_the_line",
     "flappy": "flappy",
     "demon_attack": "demon_attack",
 }
 
 DEFAULT_ENV_FPS_BY_BENCH_ENV = {
     "deadly_corridor": 35.0,
+    "defend_the_line": 35.0,
     "flappy": 30.0,
     "demon_attack": 60.0,
 }
 
 DEFAULT_OBS_FPS_BY_BENCH_ENV = {
     "deadly_corridor": 8.75,
+    "defend_the_line": 8.75,
     "flappy": 30.0,
     "demon_attack": 15.0,
 }

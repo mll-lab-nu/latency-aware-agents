@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint-root", required=True, help="Sample Factory experiment directory or checkpoint file.")
     parser.add_argument("--output-dir", required=True, help="Directory where parquet files and observation images are written.")
     parser.add_argument("--latency-config", default="", help="Optional YAML containing a training-compatible latency: section.")
-    parser.add_argument("--env-name", default="", choices=["", "deadly_corridor", "demon_attack", "flappy"])
+    parser.add_argument("--env-name", default="", choices=["", "deadly_corridor", "defend_the_line", "demon_attack", "flappy"])
     parser.add_argument("--max-episodes", type=int, required=True)
     parser.add_argument("--max-steps-per-episode", type=int, required=True, help="Max policy decision steps per episode.")
     parser.add_argument("--val-fraction", type=float, default=0.1)

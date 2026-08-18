@@ -400,7 +400,7 @@ def test_dataset_image_uses_latest_env_raw_rgb_frame():
 def test_teacher_prompts_cover_rollout_envs():
     from latency_bench.data.prompts import BASE_PROMPTS
 
-    assert set(BASE_PROMPTS) == {"flappy", "demon_attack", "deadly_corridor"}
+    assert set(BASE_PROMPTS) == {"flappy", "demon_attack", "deadly_corridor", "defend_the_line"}
 
 
 def test_batch_observations_keeps_already_batched_mapping_observation():

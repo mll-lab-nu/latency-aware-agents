@@ -3,6 +3,7 @@ set -euo pipefail
 
 INSTALL_TIER="dev"
 MODEL_TARGET=""
+SKIP_FLASH_ATTN="false"
 PYTHON_VERSION="3.10"
 CUDA_VERSION="12.8.1"
 LATENCY_ENV_NAME="latency"
@@ -24,6 +25,7 @@ Python 3.10, CUDA Toolkit 12.8.1, and PyTorch 2.11.0+cu128.
 Options:
   --tier <use|dev>         Install runtime or development dependencies (default: dev)
   --model <name|all>       Required: openvla|pi0|pi05|gr00t|wan_oft|all
+  --skip-flash-attn        Skip FlashAttention install/check in selected model envs
   -h, --help               Show this help
 EOF
 }
@@ -37,6 +39,10 @@ while [[ $# -gt 0 ]]; do
         --model)
             MODEL_TARGET="$2"
             shift 2
+            ;;
+        --skip-flash-attn)
+            SKIP_FLASH_ATTN="true"
+            shift
             ;;
         -h|--help)
             usage
@@ -210,5 +216,9 @@ BOOTSTRAP_ARGS=(
     --tier "${INSTALL_TIER}"
     --model "${MODEL_TARGET}"
 )
+
+if [[ "${SKIP_FLASH_ATTN}" == "true" ]]; then
+    BOOTSTRAP_ARGS+=(--skip-flash-attn)
+fi
 
 bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "${BOOTSTRAP_ARGS[@]}"

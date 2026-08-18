@@ -7,21 +7,21 @@ cd "${REPO_ROOT}"
 
 usage() {
   cat >&2 <<'EOF'
-Usage: train_small_model.sh [flappy|demon_attack|deadly_corridor|all] --gpus CSV
+Usage: train_small_model.sh [flappy|demon_attack|deadly_corridor|defend_the_line|all] --gpus CSV
 EOF
 }
 
 select_envs() {
   case "$1" in
-    flappy|demon_attack|deadly_corridor) ENVS=("$1") ;;
-    all) ENVS=(flappy demon_attack deadly_corridor) ;;
+    flappy|demon_attack|deadly_corridor|defend_the_line) ENVS=("$1") ;;
+    all) ENVS=(flappy demon_attack deadly_corridor defend_the_line) ;;
     *) usage; exit 2 ;;
   esac
 }
 
 env_selector=all
 case "${1:-}" in
-  flappy|demon_attack|deadly_corridor|all)
+  flappy|demon_attack|deadly_corridor|defend_the_line|all)
     env_selector="$1"
     shift
     ;;
