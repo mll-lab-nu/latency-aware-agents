@@ -1,4 +1,0 @@
-clone_path=/workspace/gym-adapt-mujoco-5090
-9f097021418cf62cad41be02c56c72c31fc8b3d1
-gym-adapt
- 1e2499bff92ff3b4e59f942b728ea5fd604e9fc2 third_party/sample-factory (remotes/origin/lsb-v2.1.1-event-handoff)
