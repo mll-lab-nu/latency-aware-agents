@@ -254,7 +254,6 @@ def defend_the_line_joint_6_action(raw_action: Any) -> dict[str, Any]:
     }
 
 
-def discrete_action(env_name: str, raw_action: Any) -> dict[str, Any]:
 def discrete_action(
     env_name: str,
     raw_action: Any,
