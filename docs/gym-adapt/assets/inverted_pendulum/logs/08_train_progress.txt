@@ -1,4 +1,0 @@
-2026-08-12T18:16:38+00:00
-root        7026    7016  0 18:12 ?        00:00:00 bash -c cd /workspace/gym-adapt-mujoco-5090 && mkdir -p /workspace/gym-adapt-mujoco-logs && { echo "COMMAND: MUJOCO_GL=egl .venv/bin/python -m training.train --config configs/examples/gymnasium/inverted_pendulum/small_model_train.yaml"; date -Is; } | tee /workspace/gym-adapt-mujoco-logs/07_train_command.txt; MUJOCO_GL=egl .venv/bin/python -m training.train --config configs/examples/gymnasium/inverted_pendulum/small_model_train.yaml 2>&1 | tee /workspace/gym-adapt-mujoco-logs/07_train_stdout.txt
-root        7031    7026  5 18:12 ?        00:00:12 .venv/bin/python -m training.train --config configs/examples/gymnasium/inverted_pendulum/small_model_train.yaml
-[36m[2026-08-12 18:16:34,067][07031] Fps is (10 sec: 2457.6, 60 sec: 2730.7, 300 sec: 3016.1). Total num frames: 663552. Throughput: 0: 2748.1. Samples: 669632. Policy #0 lag: (min: 15.0, avg: 15.0, max: 15.0)[0m

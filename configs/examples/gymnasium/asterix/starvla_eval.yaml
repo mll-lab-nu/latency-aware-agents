@@ -1,0 +1,27 @@
+__base__: latency_bench_eval.yaml
+
+experiment:
+  name: gymnasium_asterix_starvla_fixed_l1
+
+policy:
+  type: starvla
+  checkpoint_path: third_party/starVLA/results/Checkpoints/asterix_fixed_l1_openvla_sft/checkpoints/steps_2000_model.safetensors
+  model_config_path: third_party/starVLA/results/Checkpoints/asterix_fixed_l1_openvla_sft/config.full.yaml
+  task_manifest_path: third_party/starVLA/playground/Datasets/rl_games/asterix_fixed_l1/manifest.json
+  device: cuda
+  latency_prompt_map_path: third_party/starVLA/playground/Datasets/rl_games/asterix_fixed_l1/latency_prompt_map.json
+  latency_prompt_key: 1
+
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_max_steps: 5000
+
+logging:
+  output_dir: outputs/examples/gymnasium_asterix/starvla_eval
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
