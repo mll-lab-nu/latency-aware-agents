@@ -2185,6 +2185,44 @@ def test_rollout_cfg_parses_sample_factory_evaluation_args(monkeypatch, tmp_path
     assert calls[1][:2] == ["--mode", "eval"]
 
 
+def test_rollout_cfg_registers_defend_the_line_with_vizdoom_components(monkeypatch, tmp_path):
+    from sample_factory.cfg import arguments as sf_arguments
+
+    from latency_bench.data import sf_teacher_runtime
+
+    calls = []
+    parsed_cfg = SimpleNamespace(policy_index=0)
+    module = SimpleNamespace(
+        register_deadly_corridor_components=lambda: calls.append("registered"),
+        SAMPLE_FACTORY_CONFIG_PARSER=SimpleNamespace(
+            parse_eval=lambda argv: calls.append(argv) or parsed_cfg
+        ),
+    )
+    monkeypatch.setattr(sf_teacher_runtime, "import_integration_module", lambda config: module)
+    monkeypatch.setattr(sf_arguments, "load_from_checkpoint", lambda cfg: cfg)
+
+    result_module, result_cfg = sf_teacher_runtime.build_sample_factory_rollout_cfg(
+        {
+            "env_name": "defend_the_line",
+            "integration_name": "defend_the_line",
+            "checkpoint_experiment_dir": str(tmp_path / "teacher"),
+            "checkpoint_path": None,
+            "flat_cfg": {
+                "algo": "APPO",
+                "env": "doom_defend_the_line",
+                "load_checkpoint_kind": "latest",
+            },
+            "device_override": None,
+            "latency_override": None,
+        }
+    )
+
+    assert result_module is module
+    assert result_cfg is parsed_cfg
+    assert calls[0] == "registered"
+    assert calls[1][:2] == ["--mode", "eval"]
+
+
 @pytest.mark.parametrize(
     ("num_envs", "runtime_num_envs", "driver_kind"),
     [(1, 1, "serial"), (3, 1, "batched")],
