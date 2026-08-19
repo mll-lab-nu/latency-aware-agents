@@ -1,0 +1,114 @@
+{
+  "source": "runtime_api_probe",
+  "gymnasium_version": "0.29.1",
+  "box2d_version": "2.3.5",
+  "env_id": "LunarLander-v2",
+  "resolved_spec": {
+    "id": "LunarLander-v2",
+    "entry_point": "gymnasium.envs.box2d.lunar_lander:LunarLander",
+    "max_episode_steps": 1000,
+    "kwargs": {
+      "render_mode": "rgb_array",
+      "continuous": false,
+      "gravity": -10.0,
+      "enable_wind": false,
+      "wind_power": 15.0,
+      "turbulence_power": 1.5
+    }
+  },
+  "unwrapped_class": "gymnasium.envs.box2d.lunar_lander.LunarLander",
+  "metadata": {
+    "render_modes": [
+      "human",
+      "rgb_array"
+    ],
+    "render_fps": 50
+  },
+  "action_space": {
+    "type": "Discrete",
+    "n": 4,
+    "dtype": "int64"
+  },
+  "observation_space": {
+    "type": "Box",
+    "shape": [
+      8
+    ],
+    "low": [
+      -1.5,
+      -1.5,
+      -5.0,
+      -5.0,
+      -3.1415927410125732,
+      -5.0,
+      -0.0,
+      -0.0
+    ],
+    "high": [
+      1.5,
+      1.5,
+      5.0,
+      5.0,
+      3.1415927410125732,
+      5.0,
+      1.0,
+      1.0
+    ],
+    "dtype": "float32"
+  },
+  "reset_observation_shape": [
+    8
+  ],
+  "reset_observation_dtype": "float32",
+  "reset_observation": [
+    0.005706119351089001,
+    1.3990336656570435,
+    0.5779653191566467,
+    -0.5282996892929077,
+    -0.006605303846299648,
+    -0.13091765344142914,
+    0.0,
+    0.0
+  ],
+  "reset_info_keys": [],
+  "noop_step": {
+    "action": 0,
+    "reward": -1.0992279298227459,
+    "terminated": false,
+    "truncated": false,
+    "info_keys": []
+  },
+  "render": {
+    "shape": [
+      400,
+      600,
+      3
+    ],
+    "dtype": "uint8"
+  },
+  "native_env_fps": 50,
+  "make_kwargs": {
+    "render_mode": "rgb_array",
+    "continuous": false,
+    "gravity": -10.0,
+    "enable_wind": false,
+    "wind_power": 15.0,
+    "turbulence_power": 1.5
+  },
+  "action_catalog": {
+    "source": "gymnasium_api",
+    "labels": [
+      "do_nothing",
+      "fire_left_orientation_engine",
+      "fire_main_engine",
+      "fire_right_orientation_engine"
+    ],
+    "values": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "noop_action": "do_nothing"
+  }
+}

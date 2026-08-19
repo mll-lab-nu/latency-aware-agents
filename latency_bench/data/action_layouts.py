@@ -299,6 +299,6 @@ def encode_action_for_env(
     resolved_action_spec = action_spec if action_spec is not None else action_spec_for_env(env_name)
     if resolved_action_spec.layout == ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54:
         return deadly_corridor_joint_54_action(raw_action)
-    if str(env_name) == "defend_the_line":
+    if resolved_action_spec.layout == ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6:
         return defend_the_line_joint_6_action(raw_action)
-    return discrete_action(str(env_name), raw_action)
+    return discrete_action(str(env_name), raw_action, action_spec=resolved_action_spec)

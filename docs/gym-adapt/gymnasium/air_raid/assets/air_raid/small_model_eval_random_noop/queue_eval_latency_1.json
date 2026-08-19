@@ -1,0 +1,36 @@
+{
+  "checkpoint_kind": "latest",
+  "checkpoint_path": "outputs/examples/gymnasium_air_raid/checkpoints/gymnasium_air_raid_fixed_l1/checkpoint_p0/checkpoint_000001984_1015808.pth",
+  "experiment_name": "gymnasium_air_raid_fixed_l1_random_noop_eval",
+  "latency": 1,
+  "latency_type": "fixed",
+  "lengths": [
+    1972,
+    5000,
+    5000,
+    5000,
+    5000,
+    5000,
+    1462,
+    5000,
+    5000,
+    1835
+  ],
+  "mean_length": 4026.9,
+  "mean_return": 2090.0,
+  "returns": [
+    825.0,
+    2575.0,
+    2575.0,
+    2425.0,
+    2725.0,
+    2425.0,
+    850.0,
+    2725.0,
+    3100.0,
+    675.0
+  ],
+  "seed": 0,
+  "std_return": 875.2999485890537,
+  "timestamp_utc": "2026-08-18T14:21:54.587469+00:00"
+}

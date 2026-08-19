@@ -1,0 +1,145 @@
+{
+  "seed": 123,
+  "actions": [
+    13,
+    26,
+    0,
+    23,
+    4,
+    22,
+    9,
+    17
+  ],
+  "reset_obs_equal": true,
+  "all_steps_equal": true,
+  "steps": [
+    {
+      "step": 1,
+      "issued_action_id": 13,
+      "native_action": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "obs_equal": true,
+      "obs_max_abs_diff": 0.0,
+      "reward_equal": true,
+      "terminated_equal": true,
+      "truncated_equal": true,
+      "adapter_applied_action": 13,
+      "adapter_env_step": 1
+    },
+    {
+      "step": 2,
+      "issued_action_id": 26,
+      "native_action": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "obs_equal": true,
+      "obs_max_abs_diff": 0.0,
+      "reward_equal": true,
+      "terminated_equal": true,
+      "truncated_equal": true,
+      "adapter_applied_action": 26,
+      "adapter_env_step": 2
+    },
+    {
+      "step": 3,
+      "issued_action_id": 0,
+      "native_action": [
+        -1.0,
+        -1.0,
+        -1.0
+      ],
+      "obs_equal": true,
+      "obs_max_abs_diff": 0.0,
+      "reward_equal": true,
+      "terminated_equal": true,
+      "truncated_equal": true,
+      "adapter_applied_action": 0,
+      "adapter_env_step": 3
+    },
+    {
+      "step": 4,
+      "issued_action_id": 23,
+      "native_action": [
+        1.0,
+        0.0,
+        1.0
+      ],
+      "obs_equal": true,
+      "obs_max_abs_diff": 0.0,
+      "reward_equal": true,
+      "terminated_equal": true,
+      "truncated_equal": true,
+      "adapter_applied_action": 23,
+      "adapter_env_step": 4
+    },
+    {
+      "step": 5,
+      "issued_action_id": 4,
+      "native_action": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "obs_equal": true,
+      "obs_max_abs_diff": 0.0,
+      "reward_equal": true,
+      "terminated_equal": true,
+      "truncated_equal": true,
+      "adapter_applied_action": 4,
+      "adapter_env_step": 5
+    },
+    {
+      "step": 6,
+      "issued_action_id": 22,
+      "native_action": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "obs_equal": true,
+      "obs_max_abs_diff": 0.0,
+      "reward_equal": true,
+      "terminated_equal": true,
+      "truncated_equal": true,
+      "adapter_applied_action": 22,
+      "adapter_env_step": 6
+    },
+    {
+      "step": 7,
+      "issued_action_id": 9,
+      "native_action": [
+        0.0,
+        -1.0,
+        -1.0
+      ],
+      "obs_equal": true,
+      "obs_max_abs_diff": 0.0,
+      "reward_equal": true,
+      "terminated_equal": true,
+      "truncated_equal": true,
+      "adapter_applied_action": 9,
+      "adapter_env_step": 7
+    },
+    {
+      "step": 8,
+      "issued_action_id": 17,
+      "native_action": [
+        0.0,
+        1.0,
+        1.0
+      ],
+      "obs_equal": true,
+      "obs_max_abs_diff": 0.0,
+      "reward_equal": true,
+      "terminated_equal": true,
+      "truncated_equal": true,
+      "adapter_applied_action": 17,
+      "adapter_env_step": 8
+    }
+  ]
+}

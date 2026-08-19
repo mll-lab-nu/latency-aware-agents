@@ -1,0 +1,36 @@
+[bench] run=gymnasium_air_raid_fixed_l1_random_noop_eval sweeps=1 episodes_per_sweep=10 total_episode_runs=10
+[bench] sweep 1/1: eval_latency=1
+A.L.E: Arcade Learning Environment (version 0.8.1+53f58b7)
+[Powered by Stella]
+/venv/latency/lib/python3.10/site-packages/gymnasium/core.py:311: UserWarning: [33mWARN: env.num_agents to get variables from other wrappers is deprecated and will be removed in v1.0, to get this variable you can do `env.unwrapped.num_agents` for environment variables or `env.get_wrapper_attr('num_agents')` that will search the reminding wrappers.[0m
+  logger.warn(
+/venv/latency/lib/python3.10/site-packages/gymnasium/core.py:311: UserWarning: [33mWARN: env.is_multiagent to get variables from other wrappers is deprecated and will be removed in v1.0, to get this variable you can do `env.unwrapped.is_multiagent` for environment variables or `env.get_wrapper_attr('is_multiagent')` that will search the reminding wrappers.[0m
+  logger.warn(
+[36m[2026-08-18 14:21:26,634][16101] RunningMeanStd input shape: (1, 84, 84)[0m
+[36m[2026-08-18 14:21:26,642][16101] RunningMeanStd input shape: (1,)[0m
+[36m[2026-08-18 14:21:26,655][16101] ConvEncoder: input_channels=1[0m
+[36m[2026-08-18 14:21:28,039][16101] Conv encoder output size: 512[0m
+[bench] sweep 1/1 episode 1/10 done
+[bench] sweep 1/1 episode 2/10 done
+[bench] sweep 1/1 episode 3/10 done
+[bench] sweep 1/1 episode 4/10 done
+[bench] sweep 1/1 episode 5/10 done
+[bench] sweep 1/1 episode 6/10 done
+[bench] sweep 1/1 episode 7/10 done
+[bench] sweep 1/1 episode 8/10 done
+[bench] sweep 1/1 episode 9/10 done
+[bench] sweep 1/1 episode 10/10 done
+/venv/latency/lib/python3.10/site-packages/gymnasium/utils/passive_env_checker.py:335: UserWarning: [33mWARN: No render fps was declared in the environment (env.metadata['render_fps'] is None or not defined), rendering may occur at inconsistent fps.[0m
+  logger.warn(
+[bench] sweep 1/1 complete elapsed=31.6s
+episode=0 return=825.000 steps=1972 mean_latency_ms=20.0
+episode=1 return=2575.000 steps=5000 mean_latency_ms=20.0
+episode=2 return=2575.000 steps=5000 mean_latency_ms=20.0
+episode=3 return=2425.000 steps=5000 mean_latency_ms=20.0
+episode=4 return=2725.000 steps=5000 mean_latency_ms=20.0
+episode=5 return=2425.000 steps=5000 mean_latency_ms=20.0
+episode=6 return=850.000 steps=1462 mean_latency_ms=20.0
+episode=7 return=2725.000 steps=5000 mean_latency_ms=20.0
+episode=8 return=3100.000 steps=5000 mean_latency_ms=20.0
+episode=9 return=675.000 steps=1835 mean_latency_ms=20.0
+summary latency=1 episodes=10 mean_return=2090.000 std_return=875.300 mean_length=4026.9

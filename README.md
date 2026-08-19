@@ -334,29 +334,28 @@ and cross-stage contract checks.
   the supported boundary and uses the runnable
   [Inverted Pendulum configs](configs/examples/gymnasium/inverted_pendulum/) as
   a reference.
-- Use the [complete agent-assisted walkthrough](docs/gym-adapt/index.html) to
-  understand what an adaptation changes, inspect its evidence, and continue
-  from small-model training to rollout, conversion, OpenVLA SFT, and final
-  evaluation. It is also the reporting template an agent should follow for a
-  new task.
+- Use the [agent-assisted Gymnasium examples](docs/gym-adapt/gymnasium/README.md)
+  to understand what an adaptation changes, inspect its evidence, and continue
+  from small-model training to later pipeline stages. The Inverted Pendulum and
+  Pendulum reports are also the reporting templates an agent should follow.
 
 Give the agent this prompt, replacing the bracketed fields:
 
 ```text
-Read docs/gymnasium_adapter.md and docs/gym-adapt/index.html. Adapt [ENV_ID] from [PACKAGE + PINNED VERSION] into latency-sensitive-bench through the separate env.name=gymnasium path. My task objective is [OBJECTIVE], and the target latency is [LATENCY].
+Read docs/gymnasium_adapter.md and docs/gym-adapt/gymnasium/README.md. Adapt [ENV_ID] from [PACKAGE + PINNED VERSION] into latency-sensitive-bench through the separate env.name=gymnasium path. My task objective is [OBJECTIVE], and the target latency is [LATENCY].
 
 First, probe the exact Gymnasium API and report its constructor arguments, action and observation spaces, reset/step/render behavior, native timing, and anything you cannot infer. Ask me to decide the action catalog, action order, no-op action, raw-tick meaning, preprocessing, reward and termination policy, task prompt, and experiment budgets whenever these cannot be determined from the API.
 
 After I answer, create a task-owned wrapper only if needed; generate grouped small-model train/eval, latency-bench eval, and StarVLA eval configs; preserve the resulting task contract across checkpoint, rollout, conversion, SFT, and final evaluation; run parity and compatibility tests; and keep every legacy environment path untouched. Record the commands, generated files, artifact paths, and which stages were actually run.
 
-Create a self-contained report at docs/gym-adapt/[TASK_NAME].html following the Inverted Pendulum walkthrough. Separate API facts from my decisions, show the frozen contract and generated files, document every pipeline consumer, preserve exact commands and evidence, explain how I can continue rollout/SFT/eval, and mark every stage VERIFIED, NOT RUN, or BLOCKED. Do not invent results.
+Create a self-contained report at docs/gym-adapt/gymnasium/[TASK_NAME]/index.html following the worked examples. Separate API facts from my decisions, show the frozen contract and generated files, document every pipeline consumer, preserve exact commands and evidence, explain how I can continue rollout/SFT/eval, and mark every stage VERIFIED, NOT RUN, or BLOCKED. Do not invent results.
 ```
 
 ## Documentation
 
 - [Latency execution semantics](docs/latency_execution_semantics_en.md)
 - [Standard rollout, SFT, and eval pipeline](docs/standard_pipeline.md)
-- [Gymnasium adaptation guide](docs/gymnasium_adapter.md) & [agent-assisted adaptation walkthrough](docs/gym-adapt/index.html)
+- [Gymnasium adaptation guide](docs/gymnasium_adapter.md) & [agent-assisted adaptation examples](docs/gym-adapt/gymnasium/README.md)
 - [Memory and KV-memory design](docs/memory.md)
 - [New-machine profile and training handoff](docs/new_machine_profile_train.md)
 - [Cross-device profile handoff](docs/openvla_cross_device_handoff.md)
