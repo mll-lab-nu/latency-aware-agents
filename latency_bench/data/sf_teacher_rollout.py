@@ -277,7 +277,9 @@ def _filter_report_from_probe_state(
     probe_state: Mapping[str, Any],
     *,
     env_name: str,
+    episode_return_field: str,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
+    episode_return_gt: float | None = None,
 ) -> dict[str, Any]:
     """Build final filter report from probe state and written row shards.
 
@@ -286,6 +288,8 @@ def _filter_report_from_probe_state(
         probe_state: Persisted probe state with accepted specs and attempt counters.
         env_name: Canonical benchmark environment name.
         filter_preset: Filter preset name recorded in the report.
+        episode_return_field: Canonical episode-return field used by the acceptance gate.
+        episode_return_gt: Optional strict lower bound for accepted episode returns.
 
     Returns:
         Filter report written to metadata and ``filter_report.json``.
@@ -306,6 +310,12 @@ def _filter_report_from_probe_state(
         "val_rows_before_row_filter": sum(int(spec["episode_length"]) for spec in val_specs),
         "val_rows_after_row_filter": split_stats["val_rows"],
     }
+    if episode_return_gt is not None:
+        report["episode_return_gate"] = {
+            "field": episode_return_field,
+            "operator": ">",
+            "threshold": float(episode_return_gt),
+        }
     if env_name == "demon_attack":
         report["raw_score_bins"] = demon_raw_score_bin_counts(accepted_specs)
     return report
@@ -527,6 +537,17 @@ def _rollout_step_flags(
 PROBE_STATE_WRITE_EVERY = 256
 
 
+def _passes_episode_return_gate(
+    summary: Mapping[str, Any],
+    *,
+    episode_return_field: str,
+    episode_return_gt: float | None,
+) -> bool:
+    if episode_return_gt is None:
+        return True
+    return summary[episode_return_field] > float(episode_return_gt)
+
+
 def _probe_accepted_specs(
     runtime: Mapping[str, Any],
     driver: SerialTeacherRolloutDriver | BatchedTeacherRolloutDriver,
@@ -542,6 +563,7 @@ def _probe_accepted_specs(
     probe_state: dict[str, Any],
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
+    episode_return_gt: float | None = None,
     rollout_seed_offset: int = 0,
     action_spec: ActionSpec | None = None,
     integration_name: str | None = None,
@@ -562,6 +584,7 @@ def _probe_accepted_specs(
         probe_state: Mutable probe state persisted for resume.
         filter_preset: Filter preset name for episode-level gating.
         filter_kwargs: Optional overrides forwarded to the episode gate.
+        episode_return_gt: Optional strict lower bound for accepted episode returns.
         action_spec: Explicit action layout carried by a generic checkpoint.
         integration_name: Integration identity used for legacy-specific rollout behavior.
     """
@@ -672,6 +695,11 @@ def _probe_accepted_specs(
                             summary,
                             max_steps_per_episode=int(max_steps_per_episode),
                             filter_kwargs=filter_kwargs,
+                        )
+                        accepted = accepted and _passes_episode_return_gate(
+                            summary,
+                            episode_return_field=resolved_action_spec.episode_return_field,
+                            episode_return_gt=episode_return_gt,
                         )
                         if accepted:
                             final_episode_idx = len(accepted_specs)
@@ -1082,6 +1110,7 @@ def collect_teacher_dataset(
     row_buffer_size: int,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
+    episode_return_gt: float | None = None,
     context_window: int = 1,
     rollout_seed_offset: int = 0,
     probe_only: bool = False,
@@ -1104,6 +1133,7 @@ def collect_teacher_dataset(
         row_buffer_size: Pending image write threshold.
         filter_preset: Filter preset name (``"none"`` or ``"clean_v1"``).
         filter_kwargs: Temporary exporter experiment arguments retained at the public boundary.
+        episode_return_gt: Optional strict lower bound for accepted episode returns.
         context_window: Total image window length including the current ``image`` field.
         image_transform_config: Optional causal image transform applied during
             replay before row filtering.
@@ -1149,6 +1179,7 @@ def collect_teacher_dataset(
             probe_state=probe_state,
             filter_preset=filter_preset,
             filter_kwargs=filter_kwargs,
+            episode_return_gt=episode_return_gt,
             rollout_seed_offset=int(rollout_seed_offset),
             action_spec=action_spec,
             integration_name=integration_name,
@@ -1158,13 +1189,20 @@ def collect_teacher_dataset(
         # Sharded-probe worker mode: the accepted_specs (with their reset seeds) are now
         # persisted in probe_state.json; skip replay/image writing. A separate merge step
         # combines shards and the single-process replay path materializes the dataset.
-        return {
+        metadata = {
             "probe_only": True,
             "env_name": env_name,
             "accepted_episodes": len(probe_state["accepted_specs"]),
             "rollout_seed_offset": int(rollout_seed_offset),
             "filter_preset": filter_preset,
         }
+        if episode_return_gt is not None:
+            metadata["episode_return_gate"] = {
+                "field": action_spec.episode_return_field,
+                "operator": ">",
+                "threshold": float(episode_return_gt),
+            }
+        return metadata
 
     accepted_specs = probe_state["accepted_specs"]
     completed_episode_indices = completed_episode_indices_from_shards(output_dir)
@@ -1210,8 +1248,10 @@ def collect_teacher_dataset(
         probe_state,
         env_name=integration_name,
         filter_preset=filter_preset,
+        episode_return_field=action_spec.episode_return_field,
+        episode_return_gt=episode_return_gt,
     )
-    return {
+    metadata = {
         "schema_version": SCHEMA_VERSION,
         "action_layout": action_spec.layout,
         "action_labels": list(action_spec.labels),
@@ -1236,3 +1276,6 @@ def collect_teacher_dataset(
         "train_episodes": split_stats["train_episodes"],
         "val_episodes": split_stats["val_episodes"],
     }
+    if episode_return_gt is not None:
+        metadata["episode_return_gate"] = filter_report["episode_return_gate"]
+    return metadata

@@ -240,6 +240,61 @@ def test_generic_rollout_runtime_selects_gymnasium_integration_and_replays_check
         == flat_cfg["gym_action_values_json"]
     )
     assert argv[argv.index("--gym-noop-action-id") + 1] == "1"
+    assert json.loads(argv[argv.index("--gym-action-space-json") + 1]) == {
+        "type": "discrete",
+        "labels": ["PUSH_LEFT", "COAST", "PUSH_RIGHT"],
+        "values": [0, 1, 2],
+    }
+    assert json.loads(argv[argv.index("--gym-noop-action-json") + 1]) == "COAST"
+
+
+def test_generic_rollout_runtime_forwards_only_continuous_action_contract(monkeypatch, tmp_path):
+    from sample_factory.cfg import arguments as sf_arguments
+    from latency_bench.data import sf_teacher_runtime
+
+    calls: list[object] = []
+    parsed_cfg = SimpleNamespace(policy_index=0)
+    module = SimpleNamespace(
+        register_gymnasium_envs=lambda: calls.append("registered"),
+        SAMPLE_FACTORY_CONFIG_PARSER=SimpleNamespace(
+            parse_eval=lambda argv: calls.append(argv) or parsed_cfg
+        ),
+    )
+    monkeypatch.setattr(sf_teacher_runtime, "import_integration_module", lambda config: module)
+    monkeypatch.setattr(sf_arguments, "load_from_checkpoint", lambda cfg: cfg)
+    flat_cfg = _generic_flat_cfg()
+    flat_cfg["gym_action_space_json"] = json.dumps(
+        {
+            "type": "box",
+            "labels": ["a0", "a1"],
+            "low": [-1.0, -1.0],
+            "high": [1.0, 1.0],
+            "dtype": "float32",
+        }
+    )
+    flat_cfg["gym_noop_action_json"] = json.dumps([0.0, 0.0])
+    del flat_cfg["gym_action_labels_json"]
+    del flat_cfg["gym_action_values_json"]
+    del flat_cfg["gym_noop_action_id"]
+
+    sf_teacher_runtime.build_sample_factory_rollout_cfg(
+        {
+            "env_name": "continuous_task",
+            "integration_name": "gymnasium",
+            "checkpoint_experiment_dir": str(tmp_path / "teacher"),
+            "checkpoint_path": None,
+            "flat_cfg": flat_cfg,
+            "device_override": None,
+            "latency_override": None,
+        }
+    )
+
+    argv = calls[1]
+    assert json.loads(argv[argv.index("--gym-action-space-json") + 1])["type"] == "box"
+    assert json.loads(argv[argv.index("--gym-noop-action-json") + 1]) == [0.0, 0.0]
+    assert "--gym-action-labels-json" not in argv
+    assert "--gym-action-values-json" not in argv
+    assert "--gym-noop-action-id" not in argv
 
 
 def test_teacher_export_cli_leaves_generic_task_name_to_checkpoint_inference():
@@ -259,6 +314,44 @@ def test_teacher_export_cli_leaves_generic_task_name_to_checkpoint_inference():
     )
 
     assert args.env_name == ""
+
+
+def test_teacher_export_cli_accepts_strict_episode_return_gate():
+    from scripts.rollout_data.export_sf_teacher_dataset import build_parser
+
+    args = build_parser().parse_args(
+        [
+            "--checkpoint-root",
+            "checkpoint",
+            "--output-dir",
+            "out",
+            "--max-episodes",
+            "100",
+            "--max-steps-per-episode",
+            "1000",
+            "--episode-return-gt",
+            "3000",
+        ]
+    )
+
+    assert args.episode_return_gt == pytest.approx(3000.0)
+
+
+@pytest.mark.parametrize(
+    ("episode_return", "accepted"),
+    [(2999.999, False), (3000.0, False), (3000.001, True)],
+)
+def test_generic_episode_return_gate_is_strictly_greater(episode_return, accepted):
+    from latency_bench.data.sf_teacher_rollout import _passes_episode_return_gate
+
+    assert (
+        _passes_episode_return_gate(
+            {"episode_raw_return": episode_return},
+            episode_return_field="episode_raw_return",
+            episode_return_gt=3000.0,
+        )
+        is accepted
+    )
 
 
 def test_generic_teacher_export_rejects_task_identity_override(monkeypatch, tmp_path):
@@ -336,7 +429,7 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
     assert manifest["action_dim"] == 3
     assert manifest["active_action_dim"] == 3
     assert manifest["action_carrier"] == "native"
-    assert manifest["robot_type"] == "rl_games_gymnasium_discrete"
+    assert manifest["robot_type"] == "rl_games_gymnasium"
     assert manifest["integration_name"] == "gymnasium"
     assert manifest["task_name"] == "mountain_car"
     assert manifest["gymnasium_task"]["action_values"] == [0, 1, 2]
@@ -402,8 +495,8 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
         }
     }
     assert mixtures == {
-        "lerobot": [["lerobot", 1.0, "rl_games_gymnasium_discrete"]],
-        "lerobot__val": [["lerobot__val", 1.0, "rl_games_gymnasium_discrete"]],
+        "lerobot": [["lerobot", 1.0, "rl_games_gymnasium"]],
+        "lerobot__val": [["lerobot__val", 1.0, "rl_games_gymnasium"]],
     }
 
 
@@ -553,6 +646,6 @@ def test_generic_task_name_matching_legacy_env_keeps_generic_handoff_semantics(
     mixtures = json.loads(
         (tmp_path / "_generated_mixtures/lerobot.json").read_text(encoding="utf-8")
     )
-    assert manifest["robot_type"] == "rl_games_gymnasium_discrete"
+    assert manifest["robot_type"] == "rl_games_gymnasium"
     assert table["density_weight"].to_pylist() == [1.0, 1.0]
-    assert mixtures["lerobot"] == [["lerobot", 1.0, "rl_games_gymnasium_discrete"]]
+    assert mixtures["lerobot"] == [["lerobot", 1.0, "rl_games_gymnasium"]]

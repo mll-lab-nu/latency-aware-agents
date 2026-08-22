@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 import sys
@@ -28,14 +29,11 @@ REGISTRATION_METHOD_BY_INTEGRATION = {
     "gymnasium": "register_gymnasium_envs",
 }
 
-GYMNASIUM_CHECKPOINT_ARG_FIELDS = (
+GYMNASIUM_CHECKPOINT_COMMON_ARG_FIELDS = (
     ("gym_task_name", "--gym-task-name"),
     ("gym_env_id", "--gym-env-id"),
     ("gym_make_kwargs_json", "--gym-make-kwargs-json"),
     ("gym_registration_imports_json", "--gym-registration-imports-json"),
-    ("gym_action_labels_json", "--gym-action-labels-json"),
-    ("gym_action_values_json", "--gym-action-values-json"),
-    ("gym_noop_action_id", "--gym-noop-action-id"),
     ("gym_base_prompt", "--gym-base-prompt"),
     ("env_fps", "--env-fps"),
     ("obs_fps", "--obs-fps"),
@@ -43,6 +41,39 @@ GYMNASIUM_CHECKPOINT_ARG_FIELDS = (
     ("hold_policy", "--hold-policy"),
     ("ordering_policy", "--ordering-policy"),
 )
+
+GYMNASIUM_CHECKPOINT_DISCRETE_ARG_FIELDS = (
+    ("gym_action_labels_json", "--gym-action-labels-json"),
+    ("gym_action_values_json", "--gym-action-values-json"),
+    ("gym_noop_action_id", "--gym-noop-action-id"),
+)
+
+
+def _gymnasium_checkpoint_args(flat_cfg: Mapping[str, Any]) -> list[str]:
+    if "gym_action_space_json" in flat_cfg:
+        action_space_json = flat_cfg["gym_action_space_json"]
+        noop_action_json = flat_cfg["gym_noop_action_json"]
+    else:
+        action_labels = json.loads(flat_cfg["gym_action_labels_json"])
+        action_values = json.loads(flat_cfg["gym_action_values_json"])
+        action_space_json = json.dumps(
+            {
+                "type": "discrete",
+                "labels": action_labels,
+                "values": action_values,
+            }
+        )
+        noop_action_json = json.dumps(action_labels[int(flat_cfg["gym_noop_action_id"])])
+
+    argv: list[str] = []
+    for field_name, flag in GYMNASIUM_CHECKPOINT_COMMON_ARG_FIELDS:
+        argv.extend([flag, str(flat_cfg[field_name])])
+    argv.extend(["--gym-action-space-json", str(action_space_json)])
+    argv.extend(["--gym-noop-action-json", str(noop_action_json)])
+    if json.loads(action_space_json)["type"] == "discrete":
+        for field_name, flag in GYMNASIUM_CHECKPOINT_DISCRETE_ARG_FIELDS:
+            argv.extend([flag, str(flat_cfg[field_name])])
+    return argv
 
 
 def _register_components(module: Any, integration_name: str) -> None:
@@ -109,8 +140,7 @@ def build_sample_factory_rollout_cfg(config: dict[str, Any]):
         str(Path(str(config["checkpoint_experiment_dir"])).parent),
     ]
     if integration_name == "gymnasium":
-        for field_name, flag in GYMNASIUM_CHECKPOINT_ARG_FIELDS:
-            argv.extend([flag, str(flat_cfg[field_name])])
+        argv.extend(_gymnasium_checkpoint_args(flat_cfg))
     if config["device_override"] is not None:
         argv.extend(["--device", str(config["device_override"])])
     if "load_checkpoint_kind" in flat_cfg:

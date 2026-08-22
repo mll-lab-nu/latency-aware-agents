@@ -105,6 +105,7 @@ def export_sample_factory_teacher_dataset(
     hf_max_shard_size: str,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
+    episode_return_gt: float | None = None,
     hf_config_name: str = "",
     context_window: int = 1,
     rollout_seed_offset: int = 0,
@@ -134,6 +135,7 @@ def export_sample_factory_teacher_dataset(
         hf_private: Whether the uploaded repository should be private.
         hf_token: Explicit Hugging Face token.
         hf_max_shard_size: Hub upload shard size.
+        episode_return_gt: Optional strict lower bound for accepted episode returns.
         context_window: Total image window length including the current ``image`` field.
         image_transform_config: Optional image transform applied during replay
             before row filtering.
@@ -173,6 +175,7 @@ def export_sample_factory_teacher_dataset(
         row_buffer_size=int(row_buffer_size),
         filter_preset=str(filter_preset),
         filter_kwargs=filter_kwargs,
+        episode_return_gt=episode_return_gt,
         context_window=int(context_window),
         rollout_seed_offset=int(rollout_seed_offset),
         probe_only=bool(probe_only),
@@ -225,6 +228,8 @@ def export_sample_factory_teacher_dataset(
     }
     if config["integration_name"] == "gymnasium":
         metadata["integration_name"] = "gymnasium"
+    if episode_return_gt is not None:
+        metadata["episode_return_gate"] = rollout_metadata["episode_return_gate"]
     with (output_dir / "metadata.json").open("w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2, sort_keys=True)
         handle.write("\n")

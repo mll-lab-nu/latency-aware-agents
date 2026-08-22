@@ -54,7 +54,7 @@ def _action_carrier_spec(
 
 def _robot_type_for_env(env_name: str, integration_name: str) -> str:
     if integration_name == "gymnasium":
-        return "rl_games_gymnasium_discrete"
+        return "rl_games_gymnasium"
     return _ROBOT_TYPES_BY_ENV[env_name]
 
 
