@@ -13,10 +13,11 @@ import latency_bench.envs.gymnasium_hopper  # registers the task wrapper
 from latency_bench.core.config import load_config
 
 
-ROOT = Path("artifacts/hopper")
-TRAIN_STDOUT = ROOT / "server/train_stdout.txt"
-VIDEO = Path("outputs/examples/gymnasium_hopper/eval/videos/bin_00_episode_000006.mp4")
-EVAL_METRICS = Path("outputs/examples/gymnasium_hopper/eval/episode_metrics.jsonl")
+ROOT = Path(__file__).resolve().parents[1]
+TRAIN_STDOUT = ROOT / "small_model" / "sf_log.txt"
+EVAL_ROOT = ROOT / "small_model_eval"
+VIDEO_MANIFEST = EVAL_ROOT / "videos" / "manifest.jsonl"
+EVAL_METRICS = EVAL_ROOT / "episode_metrics.jsonl"
 
 
 def strip_ansi(text: str) -> str:
@@ -38,7 +39,7 @@ def plot_training_curve() -> None:
     plt.style.use("seaborn-v0_8-whitegrid")
     fig, ax = plt.subplots(figsize=(8, 4.5))
     ax.plot(frames, rewards, color="#147a80", linewidth=2)
-    ax.set(xlabel="Environment frames", ylabel="Mean episode return", title="Hopper ternary torque catalog · fixed L1 latency")
+    ax.set(xlabel="Environment frames", ylabel="Mean episode return", title="Hopper ternary torque catalog · zero latency")
     fig.tight_layout()
     fig.savefig(ROOT / "training_curve.png", dpi=180)
     plt.close(fig)
@@ -53,7 +54,7 @@ def plot_eval_returns() -> None:
     fig, ax = plt.subplots(figsize=(8, 4.5))
     ax.bar(episode_ids, returns, color="#476f87")
     ax.axhline(mean_return, color="#b46a2a", linestyle="--", linewidth=2, label=f"mean {mean_return:.1f}")
-    ax.set(xlabel="Evaluation episode", ylabel="Episode return", title="Hopper checkpoint evaluation · fixed L1 latency")
+    ax.set(xlabel="Evaluation episode", ylabel="Episode return", title="Hopper checkpoint evaluation · zero latency")
     ax.legend(frameon=False)
     fig.tight_layout()
     fig.savefig(ROOT / "eval_returns.png", dpi=180)
@@ -77,7 +78,9 @@ def render_task_media() -> None:
 
 
 def build_contact_sheet() -> None:
-    capture = cv2.VideoCapture(str(VIDEO))
+    manifest = json.loads(VIDEO_MANIFEST.read_text().splitlines()[0])
+    video = VIDEO_MANIFEST.parent / manifest["video_path"]
+    capture = cv2.VideoCapture(str(video))
     frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = capture.get(cv2.CAP_PROP_FPS)
     selected = []
@@ -101,7 +104,6 @@ def build_contact_sheet() -> None:
 def main() -> None:
     plot_training_curve()
     plot_eval_returns()
-    render_task_media()
     build_contact_sheet()
 
 
