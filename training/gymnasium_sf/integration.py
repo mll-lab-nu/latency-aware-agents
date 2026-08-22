@@ -12,6 +12,7 @@ from gymnasium.spaces import Discrete
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, ActionHoldPolicy, OrderingPolicy
 from latency_bench.envs.gymnasium_task import (
+    gymnasium_action_space_contract,
     gymnasium_discrete_action_labels,
     gymnasium_discrete_action_values,
     gymnasium_noop_action_id,
@@ -68,6 +69,14 @@ def _gymnasium_action_values(cfg: Any) -> list[Any]:
     return json.loads(cfg.gym_action_values_json)
 
 
+def _gymnasium_action_space(cfg: Any) -> dict[str, Any]:
+    return json.loads(cfg.gym_action_space_json)
+
+
+def _gymnasium_noop_action(cfg: Any) -> Any:
+    return json.loads(cfg.gym_noop_action_json)
+
+
 def _render_rgb_frame(env: gym.Env):
     return env.render()
 
@@ -117,7 +126,9 @@ def make_gymnasium_sf_env(
         import_module(module_name)
 
     env = gym.make(cfg.gym_env_id, **_gymnasium_make_kwargs(cfg))
-    env = GymnasiumActionCatalogWrapper(env, _gymnasium_action_values(cfg))
+    action_space_contract = _gymnasium_action_space(cfg)
+    if action_space_contract["type"] == "discrete":
+        env = GymnasiumActionCatalogWrapper(env, _gymnasium_action_values(cfg))
     frame_stack = cfg.frame_stack
     if bool(cfg.export_env_raw_rgb_frames):
         env = RawRgbFrameStackInfoWrapper(
@@ -155,12 +166,20 @@ def make_gymnasium_sf_env(
         env_reset_seed_base=wrapper_seed + 104729,
         add_latency_info=bool(cfg.add_latency_info),
         max_pending_actions=cfg.max_pending_actions,
-        noop_action=cfg.gym_noop_action_id,
+        noop_action=(
+            cfg.gym_noop_action_id
+            if action_space_contract["type"] == "discrete"
+            else _gymnasium_noop_action(cfg)
+        ),
     )
-    action_labels = {
-        action_id: name
-        for action_id, name in enumerate(_gymnasium_action_labels(cfg))
-    }
+    action_labels = (
+        {
+            action_id: name
+            for action_id, name in enumerate(_gymnasium_action_labels(cfg))
+        }
+        if action_space_contract["type"] == "discrete"
+        else {}
+    )
     return EpisodeMetricsWrapper(
         env,
         frames_per_decision=clock.obs_stride_raw_frames,
@@ -200,9 +219,11 @@ def add_gymnasium_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--gym-env-id", type=str, required=True)
     parser.add_argument("--gym-make-kwargs-json", type=str, required=True)
     parser.add_argument("--gym-registration-imports-json", type=str, required=True)
-    parser.add_argument("--gym-action-labels-json", type=str, required=True)
-    parser.add_argument("--gym-action-values-json", type=str, required=True)
-    parser.add_argument("--gym-noop-action-id", type=int, required=True)
+    parser.add_argument("--gym-action-space-json", type=str, required=True)
+    parser.add_argument("--gym-action-labels-json", type=str)
+    parser.add_argument("--gym-action-values-json", type=str)
+    parser.add_argument("--gym-noop-action-id", type=int)
+    parser.add_argument("--gym-noop-action-json", type=str, required=True)
     parser.add_argument("--gym-base-prompt", type=str, required=True)
     parser.add_argument("--env-fps", dest="env_fps", type=float, required=True)
     parser.add_argument("--obs-fps", dest="obs_fps", type=float, required=True)
@@ -268,17 +289,21 @@ def build_cli_args_from_config(config: dict[str, Any]) -> list[str]:
         "--gym-registration-imports-json",
         json.dumps(env_cfg["registration_imports"]),
     )
-    append_cli_arg(
-        args,
-        "--gym-action-labels-json",
-        json.dumps(gymnasium_discrete_action_labels(env_cfg)),
-    )
-    append_cli_arg(
-        args,
-        "--gym-action-values-json",
-        json.dumps(gymnasium_discrete_action_values(env_cfg)),
-    )
-    append_cli_arg(args, "--gym-noop-action-id", gymnasium_noop_action_id(env_cfg))
+    action_space_contract = gymnasium_action_space_contract(env_cfg)
+    append_cli_arg(args, "--gym-action-space-json", json.dumps(action_space_contract))
+    append_cli_arg(args, "--gym-noop-action-json", json.dumps(env_cfg["noop_action"]))
+    if action_space_contract["type"] == "discrete":
+        append_cli_arg(
+            args,
+            "--gym-action-labels-json",
+            json.dumps(gymnasium_discrete_action_labels(env_cfg)),
+        )
+        append_cli_arg(
+            args,
+            "--gym-action-values-json",
+            json.dumps(gymnasium_discrete_action_values(env_cfg)),
+        )
+        append_cli_arg(args, "--gym-noop-action-id", gymnasium_noop_action_id(env_cfg))
     append_cli_arg(args, "--gym-base-prompt", env_cfg["base_prompt"])
     append_cli_arg(args, "--env-fps", env_cfg["env_fps"])
     append_cli_arg(args, "--obs-fps", env_cfg["obs_fps"])
@@ -289,11 +314,18 @@ def build_cli_args_from_config(config: dict[str, Any]) -> list[str]:
     return args
 
 
+def build_train_cfg_from_config(config: dict[str, Any]) -> Any:
+    cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
+    if "lr_schedule" in config["training"]:
+        cfg.lr_schedule = config["training"]["lr_schedule"]
+    return cfg
+
+
 def run_from_config(config: dict[str, Any]) -> int:
     from sample_factory.algo.utils.misc import ExperimentStatus
 
     register_gymnasium_envs()
-    cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
+    cfg = build_train_cfg_from_config(config)
     apply_runtime_logging_config(cfg, config["logging"])
     seed_everything(int(cfg.seed))
     patch_sample_factory_wandb()

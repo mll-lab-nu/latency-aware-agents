@@ -39,7 +39,7 @@ def build_sample_factory_policy(
     integration_module, register_components = _INTEGRATIONS[policy_type]
     policy_action_resolver = (
         _GymnasiumPolicyActionResolver(action_resolver, config["env"]["action_order"])
-        if policy_type == "gymnasium_sf"
+        if policy_type == "gymnasium_sf" and "action_order" in config["env"]
         else action_resolver
     )
     return SampleFactoryPolicyRunner(

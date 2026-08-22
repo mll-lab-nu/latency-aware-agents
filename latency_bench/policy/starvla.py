@@ -17,7 +17,10 @@ from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.data.ghost_trail import GhostTrailConfig, build_flappy_ghost_trail_window
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
-from latency_bench.envs.gymnasium_task import gymnasium_task_contract
+from latency_bench.envs.gymnasium_task import (
+    gymnasium_action_space_contract,
+    gymnasium_task_contract,
+)
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
 
@@ -457,6 +460,14 @@ def action_from_starvla_payload(
     action_by_raw_id: Mapping[int, Action],
     action_output_type: str = "",
 ) -> tuple[Action, dict[str, Any]]:
+    if str(action_output_type) == "rl_games_continuous":
+        values = [float(item) for item in np.asarray(payload).reshape(-1).tolist()]
+        return Action(
+            value=values,
+            name="continuous_torque",
+            is_noop=all(value == 0.0 for value in values),
+            is_oneshot=False,
+        ), {"continuous_action": values}
     if str(env_name) == "demon_attack":
         return demon_attack_action_from_id(int(np.asarray(payload).reshape(-1)[0]))
     if str(env_name) == "deadly_corridor":
@@ -745,6 +756,7 @@ class LiveStarVlaWrapper:
         model_cfg: dict[str, Any],
         env_name: str,
         rl_games_action_env_dim: int | None = None,
+        gymnasium_action_space_type: str = "discrete",
         action_layout: str | None = None,
         multibinary_threshold: float | None = None,
     ) -> None:
@@ -752,6 +764,7 @@ class LiveStarVlaWrapper:
         self._model_cfg = model_cfg
         self._rl_games_env_name = str(env_name)
         self._rl_games_action_env_dim = rl_games_action_env_dim
+        self._gymnasium_action_space_type = gymnasium_action_space_type
         (
             self._decode_rl_games_actions,
             resolve_deadly_action_decode_spec,
@@ -782,6 +795,8 @@ class LiveStarVlaWrapper:
         decode_kwargs: dict[str, Any] = {}
         if self._rl_games_env_name == "gymnasium":
             decode_kwargs["action_env_dim"] = self._rl_games_action_env_dim
+            if self._gymnasium_action_space_type == "box":
+                decode_kwargs["gymnasium_action_space_type"] = "box"
         with _profiler_stage(profiler, "starvla_wrapper_rl_games_decode_ms"):
             return self._decode_rl_games_actions(
                 normalized_actions=normalized,
@@ -828,7 +843,8 @@ def _validate_gymnasium_starvla_contract(
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA model config"
         )
-    if manifest["active_action_dim"] != len(expected["action_labels"]):
+    action_space = gymnasium_action_space_contract(env_cfg)
+    if manifest["active_action_dim"] != len(action_space["labels"]):
         raise ValueError(
             "StarVLA dataset active_action_dim does not match its Gymnasium action catalog"
         )
@@ -856,7 +872,7 @@ def build_starvla_policy(
             model_cfg=model_cfg,
         )
         semantic_env_name = env_cfg["task_name"]
-        action_refs = env_cfg["action_order"]
+        action_refs = env_cfg.get("action_order", [])
         base_prompt = env_cfg["base_prompt"]
     else:
         semantic_env_name = integration_env_name
@@ -881,7 +897,10 @@ def build_starvla_policy(
         ),
     )
     if integration_env_name == "gymnasium":
-        wrapper_kwargs["rl_games_action_env_dim"] = len(action_refs)
+        action_space = gymnasium_action_space_contract(env_cfg)
+        wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
+        if action_space["type"] == "box":
+            wrapper_kwargs["rl_games_gymnasium_action_space_type"] = "box"
     wrapper = wrapper_cls(**wrapper_kwargs)
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
@@ -943,7 +962,7 @@ def build_live_starvla_policy(
             model_cfg=normalized_model_cfg,
         )
         semantic_env_name = env_cfg["task_name"]
-        action_refs = env_cfg["action_order"]
+        action_refs = env_cfg.get("action_order", [])
         base_prompt = env_cfg["base_prompt"]
     else:
         semantic_env_name = integration_env_name
@@ -961,7 +980,10 @@ def build_live_starvla_policy(
         ),
     )
     if integration_env_name == "gymnasium":
-        wrapper_kwargs["rl_games_action_env_dim"] = len(action_refs)
+        action_space = gymnasium_action_space_contract(env_cfg)
+        wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
+        if action_space["type"] == "box":
+            wrapper_kwargs["gymnasium_action_space_type"] = "box"
     wrapper = LiveStarVlaWrapper(**wrapper_kwargs)
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])

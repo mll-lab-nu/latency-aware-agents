@@ -8,6 +8,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 import torch
+from gymnasium.spaces import Box
 from tqdm import tqdm
 
 from latency_bench.data.action_layouts import ActionSpec, action_spec_for_env
@@ -488,7 +489,13 @@ def _step_teacher_policy(
             action_space=driver.action_space,
         )
         new_rnn_states = policy_outputs["new_rnn_states"]
-    return raw_actions, new_rnn_states, driver.step(active_slots, raw_actions)
+    step_results = driver.step(active_slots, raw_actions)
+    if isinstance(driver.action_space, Box):
+        raw_actions = [
+            step_results[slot].info["applied_action"]
+            for slot in active_slots
+        ]
+    return raw_actions, new_rnn_states, step_results
 
 
 def _rollout_step_flags(

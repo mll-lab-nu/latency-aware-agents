@@ -231,6 +231,11 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         "max_policy_lag",
         "num_batches_to_accumulate",
         "learning_rate",
+        "kl_loss_coeff",
+        "nonlinearity",
+        "policy_initialization",
+        "continuous_tanh_scale",
+        "initial_stddev",
         "gamma",
         "gae_lambda",
         "ppo_clip_ratio",
@@ -252,10 +257,17 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     bool_fields = (
         "async_rl",
         "batched_sampling",
+        "serial_mode",
         "use_rnn",
         "normalize_returns",
         "normalize_input",
+        "adaptive_stddev",
+        "shuffle_minibatches",
+        "value_bootstrap",
         "with_wandb",
+    )
+    list_fields = (
+        "encoder_mlp_layers",
     )
 
     for field in scalar_fields:
@@ -276,6 +288,10 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
             continue
         if field in training_cfg:
             append_cli_arg(args, f"--{field}", training_cfg.get(field))
+    for field in list_fields:
+        if field in training_cfg:
+            args.append(f"--{field}")
+            args.extend(str(item) for item in training_cfg[field])
 
     append_cli_arg(args, "--latency-type", latency_type_from_config(latency_cfg))
     append_cli_arg(args, "--fixed-latency-ms", latency_cfg.get("fixed_latency_ms"))
