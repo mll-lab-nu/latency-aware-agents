@@ -555,6 +555,7 @@ def test_starvla_lerobot_bridge_carrier_rejects_more_than_seven_actions(tmp_path
             {
                 "env_name": "eight_action_task",
                 "integration_name": "gymnasium",
+                "action_layout": "gymnasium_discrete_v1",
                 "action_labels": action_labels,
                 "gymnasium_task": {
                     "task_name": "eight_action_task",

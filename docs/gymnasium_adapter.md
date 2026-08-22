@@ -377,7 +377,7 @@ python scripts/rollout_data/export_sf_teacher_dataset.py \
 Do not pass `--env-name` for a generic Gymnasium checkpoint. The exporter reads
 the task identity and complete contract from the checkpoint.
 
-Convert canonical rows to the StarVLA LeRobot format:
+Convert canonical rows to the LeRobot format:
 
 ```bash
 python scripts/rollout_data/prepare_starvla_lerobot_dataset.py \
@@ -387,11 +387,12 @@ python scripts/rollout_data/prepare_starvla_lerobot_dataset.py \
   --action-carrier native
 ```
 
-The basic release path uses a categorical carrier whose width equals the action
-catalog size. It does not train OpenVLA to emit the original continuous Box
-vector.
+Discrete Gymnasium tasks keep the existing StarVLA handoff and categorical
+carrier. Continuous Gymnasium tasks preserve the native Box vector in LeRobot,
+but deliberately emit no StarVLA modality, robot type, or generated mixture
+until a continuous StarVLA data configuration and action head are implemented.
 
-Run basic single-image OpenVLA SFT:
+Run basic single-image OpenVLA SFT for a registered discrete task:
 
 ```bash
 cd third_party/starVLA

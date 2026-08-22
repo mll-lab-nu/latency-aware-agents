@@ -15,7 +15,11 @@ from PIL import Image
 
 from latency_bench.utils.io import write_jsonl
 
-from latency_bench.data.action_layouts import action_spec_for_env
+from latency_bench.data.action_layouts import (
+    ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+    ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
+    action_spec_for_env,
+)
 from latency_bench.data.filters import density_weights_clean_v1
 
 STATE_DIM = 1
@@ -483,6 +487,7 @@ def _write_metadata(
     state_dim: int,
     state_labels: list[str],
     context_image_count: int | None,
+    continuous: bool,
 ) -> None:
     """Write minimal LeRobot metadata files for a split dataset.
 
@@ -546,36 +551,39 @@ def _write_metadata(
         ),
         encoding="utf-8",
     )
-    (meta_dir / "modality.json").write_text(
-        json.dumps(
-            {
-                "state": {
-                    "game_state": {
-                        "start": 0,
-                        "end": state_dim,
-                        "dtype": "float32",
-                        "absolute": True,
-                        "original_key": "observation.state",
-                    }
+    if not continuous:
+        (meta_dir / "modality.json").write_text(
+            json.dumps(
+                {
+                    "state": {
+                        "game_state": {
+                            "start": 0,
+                            "end": state_dim,
+                            "dtype": "float32",
+                            "absolute": True,
+                            "original_key": "observation.state",
+                        }
+                    },
+                    "action": {
+                        "button": {
+                            "start": 0,
+                            "end": action_dim,
+                            "dtype": "float32",
+                            "absolute": True,
+                            "original_key": "action",
+                        }
+                    },
+                    "video": {"image": {"original_key": "observation.image"}},
+                    "annotation": {
+                        "human.action.task_description": {
+                            "original_key": "task_index"
+                        }
+                    },
                 },
-                "action": {
-                    "button": {
-                        "start": 0,
-                        "end": action_dim,
-                        "dtype": "float32",
-                        "absolute": True,
-                        "original_key": "action",
-                    }
-                },
-                "video": {"image": {"original_key": "observation.image"}},
-                "annotation": {
-                    "human.action.task_description": {"original_key": "task_index"}
-                },
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
     write_jsonl(
         meta_dir / "episodes.jsonl",
         [
@@ -606,6 +614,7 @@ def _convert_split(
     image_shape: tuple[int, int, int],
     fps: float,
     reward_field: str,
+    continuous: bool,
     density_weighting: bool = False,
 ) -> dict[str, Any]:
     """Convert one canonical rollout split into a LeRobot dataset directory.
@@ -685,6 +694,7 @@ def _convert_split(
         state_dim=state_dim,
         state_labels=state_labels,
         context_image_count=context_image_count,
+        continuous=continuous,
     )
     return {
         "dataset_name": output_dir.name,
@@ -728,23 +738,28 @@ def convert_canonical_rollout_to_lerobot(
             metadata=metadata,
             force=force,
         )
+    action_layout = metadata["action_layout"]
+    if action_layout not in (
+        ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
+        ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+    ):
+        raise ValueError(f"Unsupported Gymnasium action_layout={action_layout!r}")
     active_action_labels = list(metadata["action_labels"])
-    gymnasium_task = None
-    if integration_name == "gymnasium":
-        gymnasium_task = metadata["gymnasium_task"]
-        if env_name != gymnasium_task["task_name"]:
-            raise ValueError(
-                "Canonical Gymnasium env_name does not match gymnasium_task.task_name"
-            )
-        task_action_labels = (
-            gymnasium_task["action_space"]["labels"]
-            if "action_space" in gymnasium_task
-            else gymnasium_task["action_labels"]
+    gymnasium_task = metadata["gymnasium_task"]
+    if env_name != gymnasium_task["task_name"]:
+        raise ValueError(
+            "Canonical Gymnasium env_name does not match gymnasium_task.task_name"
         )
-        if active_action_labels != task_action_labels:
-            raise ValueError(
-                "Canonical Gymnasium action_labels do not match gymnasium_task action-space labels"
-            )
+    continuous = action_layout == ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1
+    task_action_labels = (
+        gymnasium_task["action_space"]["labels"]
+        if continuous
+        else gymnasium_task["action_labels"]
+    )
+    if active_action_labels != task_action_labels:
+        raise ValueError(
+            "Canonical Gymnasium action_labels do not match gymnasium_task action-space labels"
+        )
     action_labels, active_action_dim, state_dim, state_labels = _action_carrier_spec(
         active_action_labels,
         action_carrier,
@@ -760,6 +775,16 @@ def convert_canonical_rollout_to_lerobot(
         shutil.rmtree(output_dir)
     if val_output_dir.exists() and force:
         shutil.rmtree(val_output_dir)
+    if continuous:
+        stale_starvla_paths = (
+            output_dir / "meta/modality.json",
+            output_dir / "latency_prompt_map.json",
+            val_output_dir / "meta/modality.json",
+            val_output_dir / "latency_prompt_map.json",
+            output_dir.parent / "_generated_mixtures" / f"{output_dir.name}.json",
+        )
+        for path in stale_starvla_paths:
+            path.unlink(missing_ok=True)
     train_rows = _load_rows(raw_export_dir, "train")
     val_rows = _load_rows(raw_export_dir, "val")
     first_row = (train_rows or val_rows)[0]
@@ -785,6 +810,7 @@ def convert_canonical_rollout_to_lerobot(
         image_shape=image_shape,
         fps=fps,
         reward_field=reward_field,
+        continuous=continuous,
         density_weighting=True,
     )
     val_manifest = _convert_split(
@@ -800,17 +826,15 @@ def convert_canonical_rollout_to_lerobot(
         image_shape=image_shape,
         fps=fps,
         reward_field=reward_field,
+        continuous=continuous,
         density_weighting=False,
     )
-    prompt_map_path, mixture_path = _write_starvla_handoff_files(
-        output_dir,
-        val_output_dir,
-        env_name=env_name,
-        integration_name=integration_name,
-        rows=[*train_rows, *val_rows],
-    )
     handoff_contract = {
-        "format": "starvla_lerobot_v2_image_parquet",
+        "format": (
+            "lerobot_v2_image_parquet"
+            if continuous
+            else "starvla_lerobot_v2_image_parquet"
+        ),
         "source": str(raw_export_dir),
         "integration_name": integration_name,
         "task_name": env_name,
@@ -820,15 +844,26 @@ def convert_canonical_rollout_to_lerobot(
         "action_dim": len(action_labels),
         "active_action_dim": active_action_dim,
         "action_carrier": action_carrier,
-        "robot_type": _robot_type_for_env(env_name, integration_name),
         "rows_unit": rows_unit,
         "obs_fps": fps,
         "obs_stride_raw_frames": obs_stride,
-        "latency_prompt_map_path": str(prompt_map_path),
-        "custom_mixtures_path": str(mixture_path),
     }
-    if integration_name == "gymnasium":
-        handoff_contract["gymnasium_task"] = gymnasium_task
+    if not continuous:
+        prompt_map_path, mixture_path = _write_starvla_handoff_files(
+            output_dir,
+            val_output_dir,
+            env_name=env_name,
+            integration_name=integration_name,
+            rows=[*train_rows, *val_rows],
+        )
+        handoff_contract.update(
+            {
+                "robot_type": _robot_type_for_env(env_name, integration_name),
+                "latency_prompt_map_path": str(prompt_map_path),
+                "custom_mixtures_path": str(mixture_path),
+            }
+        )
+    handoff_contract["gymnasium_task"] = gymnasium_task
     manifest = {
         **train_manifest,
         **handoff_contract,

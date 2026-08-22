@@ -13,6 +13,7 @@ separate `env.name: gymnasium` path.
 | Walker2D | Native continuous `Box(6)` torques | Continuous APPO, L0–L4 evaluation, 7D OpenVLA carrier | [Open report](walker2d/index.html) |
 | AirRaid | Native `Discrete(6)` Atari actions | Probe, CHW wrapper, PAL L1 APPO training, original + random-noop evaluation | [Open report](air_raid/index.html) |
 | Asterix | Native `Discrete(9)` Atari actions | Probe, random-noop CHW wrapper, NTSC L1 APPO training, small-model evaluation | [Open report](asterix/index.html) |
+| MyoChallenge 2025 Table Tennis P2 | Native continuous `Box(275)` muscle/actuator controls | 100 Hz wrapper, two APPO smoke checkpoints, latency sweeps, trace replay, teacher export, native LeRobot conversion | [Open report](myochallenge_table_tennis_p2/index.html) |
 
 Each report separates runtime API facts from task-author decisions, records the
 frozen environment contract, links generated files and commands, and labels
