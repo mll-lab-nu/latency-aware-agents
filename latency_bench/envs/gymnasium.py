@@ -4,6 +4,7 @@ from importlib import import_module
 from typing import Any
 
 import gymnasium
+import numpy as np
 
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
@@ -39,16 +40,31 @@ class GymnasiumEnvAdapter(EnvAdapter):
         self.gym_env = gymnasium.make(env_id, **make_kwargs)
         self.action_space = self.gym_env.action_space
         self.observation_space = self.gym_env.observation_space
+        self._policy_frame_stack_enabled = frame_stack > 1 and isinstance(
+            self.observation_space,
+            gymnasium.spaces.Box,
+        )
+        if self._policy_frame_stack_enabled:
+            self.observation_space = gymnasium.spaces.Box(
+                low=np.concatenate([self.observation_space.low] * frame_stack, axis=0),
+                high=np.concatenate([self.observation_space.high] * frame_stack, axis=0),
+                dtype=self.observation_space.dtype,
+            )
 
         self.env_step = 0
         self._last_frame: Any = None
         self._last_info: dict[str, Any] = {}
+        self._observed_frames: list[np.ndarray] = []
         self._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=frame_stack)
 
     def reset(self, seed: int | None = None) -> Observation:
         observation, info = self.gym_env.reset(seed=seed)
         self.env_step = 0
-        self._last_frame = observation
+        if not self._policy_frame_stack_enabled:
+            self._last_frame = observation
+        else:
+            self._observed_frames = [np.asarray(observation).copy() for _ in range(self.frame_stack)]
+            self._last_frame = np.concatenate(self._observed_frames, axis=0)
         self._last_info = info
         if self.export_env_raw_rgb_frames:
             self._reset_raw_rgb_frame_stack()
@@ -57,7 +73,11 @@ class GymnasiumEnvAdapter(EnvAdapter):
     def step(self, action: Action) -> StepResult:
         observation, reward, terminated, truncated, info = self.gym_env.step(action.value)
         self.env_step += 1
-        self._last_frame = observation
+        if not self._policy_frame_stack_enabled:
+            self._last_frame = observation
+        else:
+            self._observed_frames = [*self._observed_frames[1:], np.asarray(observation).copy()]
+            self._last_frame = np.concatenate(self._observed_frames, axis=0)
         self._last_info = info
         if self.export_env_raw_rgb_frames:
             self._append_raw_rgb_frame()
