@@ -76,6 +76,14 @@ environment for benchmark training, teacher rollout, dataset export, and
 development tools. Each selected model also creates a separate
 `starvla_rl_games_<model>` environment.
 
+MyoChallenge 2025 is an optional Gymnasium task dependency. Install its
+pinned runtime only in environments that run those tasks:
+
+```bash
+uv pip install -e '.[myochallenge]'
+export MUJOCO_GL=egl  # headless MuJoCo rendering
+```
+
 Use `--tier use` to omit development/test packages from the selected model
 environment. The shared `latency` environment always includes the data and
 teacher-training tools used by the experiment scripts.

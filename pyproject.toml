@@ -30,6 +30,9 @@ dev = [
     "pyarrow==24.0.0",
     "pytest==9.0.3",
 ]
+myochallenge = [
+    "MyoSuite==2.11.6",
+]
 
 [project.scripts]
 latency-bench = "latency_bench.cross_device.protocol:main"
