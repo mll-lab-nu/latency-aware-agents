@@ -1,16 +1,17 @@
 __base__: small_model_eval.yaml
 
 experiment:
-  name: gymnasium_air_raid_fixed_l1_random_noop_eval
+  name: gymnasium_air_raid_zero_latency_atari_official_fast_10m_random_noop_eval
 
 env:
   make_kwargs:
     noop_max: 30
+    fire_reset: true
 
 logging:
   output_dir: outputs/examples/gymnasium_air_raid/eval_random_noop
   video:
-    enabled: true
+    enabled: false
     num_bins: 1
   save_step_records: true
   save_action_records: true

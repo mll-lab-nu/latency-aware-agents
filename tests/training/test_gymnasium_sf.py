@@ -17,6 +17,7 @@ from training.common.latency_bench_periodic_eval import (
     build_latency_bench_config_from_training_config,
 )
 from training.gymnasium_sf.integration import (
+    ChannelFirstFrameStackWrapper,
     GymnasiumActionCatalogWrapper,
     GymnasiumActionLatencyWrapper,
     SAMPLE_FACTORY_CONFIG_PARSER,
@@ -39,6 +40,18 @@ class _NativeActionTraceEnv(gym.Env):
     def step(self, action):
         self.native_actions.append(action)
         return np.zeros(1, dtype=np.float32), 0.0, False, False, {}
+
+
+class _ChannelFirstImageEnv(gym.Env):
+    observation_space = gym.spaces.Box(low=0, high=255, shape=(1, 2, 2), dtype=np.uint8)
+    action_space = gym.spaces.Discrete(1)
+
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        return np.zeros((1, 2, 2), dtype=np.uint8), {}
+
+    def step(self, action):
+        return np.ones((1, 2, 2), dtype=np.uint8), 0.0, False, False, {}
 
 
 def _vector_gymnasium_config():
@@ -101,6 +114,18 @@ def test_action_catalog_and_latency_decode_nonzero_noop_to_native_action():
     env.step(2)
 
     assert native_env.native_actions == [20, 20, 30]
+
+
+def test_channel_first_frame_stack_repeats_reset_and_appends_new_frame():
+    env = ChannelFirstFrameStackWrapper(_ChannelFirstImageEnv(), 4)
+
+    reset_observation, _ = env.reset(seed=3)
+    next_observation, *_ = env.step(0)
+
+    assert env.observation_space.shape == (4, 2, 2)
+    np.testing.assert_array_equal(reset_observation, np.zeros((4, 2, 2), dtype=np.uint8))
+    np.testing.assert_array_equal(next_observation[:3], np.zeros((3, 2, 2), dtype=np.uint8))
+    np.testing.assert_array_equal(next_observation[3], np.ones((2, 2), dtype=np.uint8))
 
 
 def test_sample_factory_config_round_trips_complete_task_contract():

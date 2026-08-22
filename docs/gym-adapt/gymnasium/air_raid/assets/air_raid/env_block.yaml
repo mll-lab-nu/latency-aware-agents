@@ -18,7 +18,7 @@ env:
       max_num_frames_per_episode: 108000
   env_fps: 50
   obs_fps: 12.5
-  frame_stack: 1
+  frame_stack: 4
   noop_action: noop
   action_map:
     noop: 0

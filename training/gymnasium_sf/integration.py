@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any, Optional
 
 import gymnasium as gym
+import numpy as np
 from gymnasium.spaces import Discrete
 
 from latency_bench.core.clock import EnvClock
@@ -93,6 +94,30 @@ class GymnasiumActionCatalogWrapper(gym.Wrapper):
         return self.env.step(self.native_actions[action])
 
 
+class ChannelFirstFrameStackWrapper(gym.Wrapper):
+    """Stack channel-first image observations along the channel axis."""
+
+    def __init__(self, env: gym.Env, num_frames: int):
+        super().__init__(env)
+        self.num_frames = num_frames
+        self.observation_space = gym.spaces.Box(
+            low=np.concatenate([env.observation_space.low] * num_frames, axis=0),
+            high=np.concatenate([env.observation_space.high] * num_frames, axis=0),
+            dtype=env.observation_space.dtype,
+        )
+        self.frames = []
+
+    def reset(self, **kwargs):
+        observation, info = self.env.reset(**kwargs)
+        self.frames = [np.asarray(observation).copy() for _ in range(self.num_frames)]
+        return np.concatenate(self.frames, axis=0), info
+
+    def step(self, action):
+        observation, reward, terminated, truncated, info = self.env.step(action)
+        self.frames = [*self.frames[1:], np.asarray(observation).copy()]
+        return np.concatenate(self.frames, axis=0), reward, terminated, truncated, info
+
+
 class GymnasiumActionLatencyWrapper(ActionLatencyWrapper):
     def __init__(self, *args, noop_action: Any, **kwargs):
         super().__init__(*args, **kwargs)
@@ -130,6 +155,8 @@ def make_gymnasium_sf_env(
     if action_space_contract["type"] == "discrete":
         env = GymnasiumActionCatalogWrapper(env, _gymnasium_action_values(cfg))
     frame_stack = cfg.frame_stack
+    if frame_stack > 1:
+        env = ChannelFirstFrameStackWrapper(env, frame_stack)
     if bool(cfg.export_env_raw_rgb_frames):
         env = RawRgbFrameStackInfoWrapper(
             env,
