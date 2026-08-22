@@ -38,7 +38,12 @@
 
 如果首先实现一个轻量 embodied backend，候选任务明显收敛到 **continuous Gymnasium + MuJoCo**。Gymnasium 应作为接入边界，MuJoCo 只是其背后的一个 simulator。只有当具体任务的科学价值足够高时，才额外启用 Isaac Lab plugin。
 
-当前 [`gymnasium_adapter.md`](gymnasium_adapter.md) 记录的 release path 要求有限、离散的 action catalog。本文大部分候选使用 continuous action。它们目前只是调研候选，并不代表 codebase 已经支持；在正式接入前仍需实现 continuous/structured action、action chunk 及相应的数据表示。
+当前 [`gymnasium_adapter.md`](gymnasium_adapter.md) 的 release path 已支持
+native `Discrete` 和 bounded continuous `Box` action。本文大部分候选使用
+continuous action；只要环境暴露稳定的 Box/vector 与 policy-compatible
+observation，就可以沿用 generic Gymnasium adapter、latency executor 和
+continuous rollout/export contract。structured action、action chunk 和后续
+VLA model/data support 仍需按任务单独确认。
 
 ---
 
@@ -140,8 +145,9 @@ P2 会改变来球位置和速度、球拍质量及摩擦。成功要求球拍�
 来源：[MyoChallenge 2025 文档](https://myosuite.readthedocs.io/en/stable/challenge-doc2025.html)。
 
 主要限制是 action interface：policy 控制数百维 muscle activation，而不是标准
-6/7-DoF end-effector command。它非常适合 privileged RL teacher，但标准 VLA
-可能需要 hierarchical action representation。
+6/7-DoF end-effector command。它暴露的是可直接保留的 native continuous Box，
+因此适合 privileged RL teacher；标准 VLA 仍可能需要 hierarchical action
+representation 或额外的 continuous action head。
 
 #### Soccer Shootout
 
@@ -171,6 +177,21 @@ Baoding Balls 最值得优先考虑：两个自由球必须持续相对旋转且
 Pen Twirl 和 Die Reorientation 是单物体、间歇接触的替代任务。
 [MyoSuite task catalogue](https://myosuite.readthedocs.io/en/stable/suite.html)
 还提供 rough、hilly、stair locomotion。
+
+#### Baoding Balls
+
+推荐先探测并冻结以下两个 variant：
+
+```text
+myoChallengeBaodingP1-v1
+myoChallengeBaodingP2-v1
+```
+
+它们都可以通过 `LatencyBench/MyoSuite-v0` 的共享 RGB/lifecycle wrapper
+接入；P1 主要改变球的位置，P2 还引入目标、尺寸和摩擦的变化。动作、观测
+shape、实际 Box bounds、no-op、native horizon 和 MuJoCo clock 必须从安装的
+MyoSuite 版本 probe 后写入 task contract。不要从文档中的 `[0, 1]` 描述推断
+运行时 bounds，也不要把 sparse/dense reward 或成功指标放进共享 wrapper。
 
 部分年份有公开 winning policy 和训练代码，例如
 [2022 Baoding Ball solution](https://github.com/amathislab/myochallenge)。这些
@@ -747,10 +768,10 @@ task adapter 只负责：
 latency，而不是 VLA inference latency。
 
 当前 repository 已经分离 realtime environment/inference worker，这是正确的
-execution model。正式支持本文任务还缺少：continuous/structured action、
-first-class action chunk、continuous action dataset layout，以及 gaming path 之外
-的 task metric。这些能力应在 Gymnasium boundary 统一实现，而不是按 simulator
-重复实现。
+execution model。Gymnasium boundary 已支持 native continuous Box/vector；正式
+接入更多任务仍需逐项确认 structured action、first-class action chunk、
+continuous StarVLA model/data support，以及 gaming path 之外的 task metric。
+这些能力应在 Gymnasium boundary 统一实现，而不是按 simulator 重复实现。
 
 ---
 
