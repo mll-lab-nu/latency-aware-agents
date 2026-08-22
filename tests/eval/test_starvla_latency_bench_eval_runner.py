@@ -184,6 +184,7 @@ def test_translation_gymnasium_continuous_uses_training_contract(tmp_path):
     }
     model_cfg = _model_cfg()
     model_cfg["rl_games"] = {"gymnasium": {"task_contract": task_contract}}
+    model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"] = task_contract
     model_cfg["datasets"]["vla_data"].update(
         {"data_root_dir": str(tmp_path), "data_mix": "walker_train"}
     )
@@ -210,6 +211,62 @@ def test_translation_gymnasium_continuous_uses_training_contract(tmp_path):
         tmp_path / "walker_train" / "manifest.json"
     )
     assert cfg["evaluation"]["eval_episodes"] == 20
+
+
+def test_translation_gymnasium_discrete_restores_action_catalog(tmp_path):
+    task_contract = {
+        "task_name": "inverted_pendulum_discrete",
+        "env_id": "LatencyBench/InvertedPendulumDiscrete-v0",
+        "registration_imports": ["latency_bench.envs.gymnasium_mujoco"],
+        "make_kwargs": {
+            "base_env_id": "InvertedPendulum-v4",
+            "base_make_kwargs": {},
+            "render_mode": "rgb_array",
+        },
+        "base_prompt": "Keep the pole upright.",
+        "env_fps": 25.0,
+        "obs_fps": 25.0,
+        "frame_stack": 1,
+        "action_labels": ["left", "zero", "right"],
+        "action_values": [0, 1, 2],
+        "noop_action_id": 1,
+    }
+    model_cfg = _model_cfg()
+    model_cfg["rl_games"] = {
+        "gymnasium": {
+            "task_contract": {
+                **task_contract,
+                "make_kwargs": {
+                    "base_env_id": "InvertedPendulum-v4",
+                    "render_mode": "rgb_array",
+                },
+            }
+        }
+    }
+    model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"] = task_contract
+    model_cfg["datasets"]["vla_data"].update(
+        {"data_root_dir": str(tmp_path), "data_mix": "pendulum_train"}
+    )
+
+    cfg = build_latency_bench_config_for_rl_games(
+        env_name="gymnasium",
+        model_cfg=model_cfg,
+        seed=42,
+        image_size=224,
+        num_episodes=20,
+        eval_max_steps=1000,
+        latency_steps=0,
+        eval_parallel_envs=5,
+        unnorm_key=None,
+        latency_prompt_map_path=None,
+        image_transform_config=None,
+        actions=None,
+        output_dir=tmp_path / "eval",
+    )
+
+    assert cfg["env"]["action_order"] == ["left", "zero", "right"]
+    assert cfg["env"]["action_map"] == {"left": 0, "zero": 1, "right": 2}
+    assert cfg["env"]["noop_action"] == "zero"
 
 
 def test_resolve_starvla_prompt_latency_neutral_strips_latency_suffix():

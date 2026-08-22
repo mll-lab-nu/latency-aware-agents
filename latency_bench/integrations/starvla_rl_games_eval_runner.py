@@ -209,12 +209,22 @@ def build_latency_bench_config_for_rl_games(
     budgets, and disabled artifacts.
     """
     if env_name == "gymnasium":
-        task_contract = deepcopy(model_cfg["rl_games"]["gymnasium"]["task_contract"])
+        task_contract = deepcopy(model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"])
+        env_config = {"name": "gymnasium", **task_contract}
+        if "action_labels" in task_contract:
+            action_labels = list(task_contract["action_labels"])
+            env_config.update(
+                {
+                    "action_order": action_labels,
+                    "action_map": dict(zip(action_labels, task_contract["action_values"])),
+                    "noop_action": action_labels[task_contract["noop_action_id"]],
+                }
+            )
         config = {
             "experiment": {},
             "backend": {"run_mode": "eval"},
             "executor": {"mode": "simulated"},
-            "env": {"name": "gymnasium", **task_contract},
+            "env": env_config,
             "latency": {"method": "zero", "add_latency_info": False},
             "scheduler": {
                 "hold_policy": "hold",

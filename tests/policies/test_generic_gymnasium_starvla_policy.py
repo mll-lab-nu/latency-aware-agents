@@ -93,7 +93,12 @@ def _generic_config(tmp_path: Path) -> dict:
         json.dumps(
             {
                 "rl_games": {"gymnasium": {"task_contract": contract}},
-                "datasets": {"vla_data": {"include_state": False}},
+                "datasets": {
+                    "vla_data": {
+                        "include_state": False,
+                        "gymnasium_task_contract": contract,
+                    }
+                },
                 "framework": {"action_model": {"action_env_dim": 3}},
             }
         ),
@@ -308,7 +313,7 @@ def test_generic_starvla_rejects_model_config_contract_drift(
     monkeypatch.setattr(starvla, "_load_starvla_model_config", _read_model_config)
     config = _generic_config(tmp_path)
     model_cfg = _read_model_config(config["policy"]["model_config_path"])
-    model_cfg["rl_games"]["gymnasium"]["task_contract"]["action_values"] = [0, 2, 1]
+    model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"]["action_values"] = [0, 2, 1]
     Path(config["policy"]["model_config_path"]).write_text(
         json.dumps(model_cfg),
         encoding="utf-8",
