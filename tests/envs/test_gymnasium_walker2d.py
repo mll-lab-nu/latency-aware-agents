@@ -107,9 +107,12 @@ def test_zero_latency_applies_issued_walker2d_action_immediately(monkeypatch):
         noop_action=scaffold.NOOP_ACTION,
     )
     env.reset(seed=0)
-    env.step(np.ones(6, dtype=np.float32))
+    _, _, _, _, info = env.step(np.asarray([2.0, -2.0, 0.5, -0.5, 0.25, -0.25], dtype=np.float32))
 
-    assert np.array_equal(native_env.actions[0], np.ones(6, dtype=np.float32))
+    expected = np.asarray([1.0, -1.0, 0.5, -0.5, 0.25, -0.25], dtype=np.float32)
+    assert np.array_equal(native_env.actions[0], expected)
+    assert info["applied_action"] == expected.tolist()
+    assert info["queued_action"].tolist() == pytest.approx([2.0, -2.0, 0.5, -0.5, 0.25, -0.25])
 
 
 def test_scaffold_reports_native_continuous_action_contract(monkeypatch):

@@ -210,6 +210,7 @@ class ActionLatencyWrapper(gym.Wrapper):
         terminated = False
         truncated = False
         raw_frames_advanced = 0
+        environment_applied_action = None
         for _ in range(self.clock.obs_stride_raw_frames):
             # for each raw frame step, ask scheduler which action should be taken
             active_action = self.action_scheduler.update(
@@ -221,6 +222,8 @@ class ActionLatencyWrapper(gym.Wrapper):
             # accumulate rewards for raw frames
             total_reward += float(reward)
             step_info = dict(info or {})
+            if "applied_action" in step_info:
+                environment_applied_action = clone_action(step_info["applied_action"])
             if "raw_reward" in step_info:
                 total_raw_reward += float(step_info["raw_reward"])
                 saw_raw_reward = True
@@ -241,6 +244,8 @@ class ActionLatencyWrapper(gym.Wrapper):
             info["ready_raw_frame"] = int(scheduled_ready_raw_frame)
             info["raw_frames_advanced"] = int(raw_frames_advanced)
             info["obs_stride_raw_frames"] = int(self.clock.obs_stride_raw_frames)
+        if environment_applied_action is not None:
+            info["applied_action"] = environment_applied_action
         self.decision_step_idx += 1
         return obs, float(total_reward), terminated, truncated, info
 

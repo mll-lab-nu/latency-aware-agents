@@ -612,7 +612,7 @@ def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeyp
             ]
 
         def step(self, action):
-            reward = 0.0 if len(self.reset_seeds) == 1 else 2200.0
+            reward = 3000.0 if len(self.reset_seeds) == 1 else 3000.001
             return (
                 np.zeros((3, 2, 2), dtype=np.uint8),
                 np.float32(reward),
@@ -671,6 +671,7 @@ def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeyp
         export_image_size=None,
         image_writer_workers=0,
         row_buffer_size=1,
+        episode_return_gt=3000.0,
     )
     train_rows = _read_shard_rows(output_dir, "train")
     val_rows = _read_shard_rows(output_dir, "val")
@@ -679,7 +680,7 @@ def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeyp
     assert fake_env.reset_seeds == [11, 12, 12]
     assert train_rows[0]["episode_idx"] == 0
     assert train_rows[0]["seed"] == 12
-    assert train_rows[0]["raw_reward"] == 2200.0
+    assert train_rows[0]["raw_reward"] == pytest.approx(3000.001)
     assert Path(train_rows[0]["image"]).exists()
     assert "_attempts" not in train_rows[0]["image"]
     assert sorted(path.name for path in (output_dir / "images" / "train" / "episode_000000").glob("*.png")) == [
@@ -693,6 +694,11 @@ def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeyp
     assert metadata["filter_report"]["attempted_episodes"] == 2
     assert metadata["filter_report"]["accepted_episodes"] == 1
     assert metadata["filter_report"]["rejected_episodes"] == 1
+    assert metadata["episode_return_gate"] == {
+        "field": "episode_raw_return",
+        "operator": ">",
+        "threshold": 3000.0,
+    }
 
 
 def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(monkeypatch, tmp_path):
