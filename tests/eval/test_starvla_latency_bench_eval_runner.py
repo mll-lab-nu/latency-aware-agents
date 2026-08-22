@@ -163,6 +163,55 @@ def test_translation_zero_latency_uses_zero_type(tmp_path):
     assert "unnorm_key" not in cfg["policy"]
 
 
+def test_translation_gymnasium_continuous_uses_training_contract(tmp_path):
+    task_contract = {
+        "task_name": "walker2d_continuous_torque",
+        "env_id": "LatencyBench/Walker2dContinuous-v0",
+        "registration_imports": ["latency_bench.envs.gymnasium_walker2d"],
+        "make_kwargs": {"base_env_id": "Walker2d-v4", "render_mode": "rgb_array"},
+        "base_prompt": "Move forward.",
+        "env_fps": 125.0,
+        "obs_fps": 125.0,
+        "frame_stack": 1,
+        "action_space": {
+            "type": "box",
+            "labels": ["a", "b"],
+            "low": [-1.0, -1.0],
+            "high": [1.0, 1.0],
+            "dtype": "float32",
+        },
+        "noop_action": [0.0, 0.0],
+    }
+    model_cfg = _model_cfg()
+    model_cfg["rl_games"] = {"gymnasium": {"task_contract": task_contract}}
+    model_cfg["datasets"]["vla_data"].update(
+        {"data_root_dir": str(tmp_path), "data_mix": "walker_train"}
+    )
+
+    cfg = build_latency_bench_config_for_rl_games(
+        env_name="gymnasium",
+        model_cfg=model_cfg,
+        seed=42,
+        image_size=224,
+        num_episodes=20,
+        eval_max_steps=3600,
+        latency_steps=2,
+        eval_parallel_envs=1,
+        unnorm_key=None,
+        latency_prompt_map_path=None,
+        image_transform_config=None,
+        actions=None,
+        output_dir=tmp_path / "eval",
+    )
+
+    assert cfg["env"] == {"name": "gymnasium", "obs_resize": [224, 224], **task_contract}
+    assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(16.0)
+    assert cfg["policy"]["task_manifest_path"] == str(
+        tmp_path / "walker_train" / "manifest.json"
+    )
+    assert cfg["evaluation"]["eval_episodes"] == 20
+
+
 def test_resolve_starvla_prompt_latency_neutral_strips_latency_suffix():
     prompt = (
         "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. "
