@@ -839,7 +839,7 @@ def _validate_gymnasium_starvla_contract(
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA dataset manifest"
         )
-    if model_cfg["rl_games"]["gymnasium"]["task_contract"] != expected:
+    if model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"] != expected:
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA model config"
         )
