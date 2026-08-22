@@ -420,7 +420,6 @@ def _write_episode(
         ),
         "frame_index": pa.array([row["frame_index"] for row in rows], type=pa.int64()),
         "task_index": pa.array([row["task_index"] for row in rows], type=pa.int64()),
-        "action_id": pa.array([row["action_id"] for row in rows], type=pa.int64()),
         "latency": pa.array(
             [row["latency_raw_frames"] for row in rows], type=pa.int64()
         ),
@@ -435,6 +434,10 @@ def _write_episode(
             [row["density_weight"] for row in rows], type=pa.float32()
         ),
     }
+    if rows and "action_id" in rows[0]:
+        columns["action_id"] = pa.array(
+            [row["action_id"] for row in rows], type=pa.int64()
+        )
     if rows and "context_image_bytes" in rows[0]:
         image_type = pa.struct([("bytes", pa.binary()), ("path", pa.string())])
         columns["observation.context_images"] = pa.array(
@@ -650,13 +653,14 @@ def _convert_split(
                 "episode_index": new_episode_idx,
                 "frame_index": frame_idx,
                 "task_index": prompt_to_task_index[prompt],
-                "action_id": int(row["action_id"]),
                 "latency_raw_frames": int(row["latency_raw_frames"]),
                 # ``done`` is generated only for the LeRobot target format, not for canonical rollout rows.
                 "done": frame_idx == len(episode_rows) - 1,
                 "reward": float(row[reward_field]),
                 "density_weight": float(density_weights[frame_idx]),
             }
+            if "action_id" in row:
+                out_row["action_id"] = int(row["action_id"])
             if "context_images" in row and row["context_images"] is not None:
                 out_row["context_image_bytes"] = [
                     _png_bytes(image) for image in row["context_images"]
@@ -732,9 +736,14 @@ def convert_canonical_rollout_to_lerobot(
             raise ValueError(
                 "Canonical Gymnasium env_name does not match gymnasium_task.task_name"
             )
-        if active_action_labels != gymnasium_task["action_labels"]:
+        task_action_labels = (
+            gymnasium_task["action_space"]["labels"]
+            if "action_space" in gymnasium_task
+            else gymnasium_task["action_labels"]
+        )
+        if active_action_labels != task_action_labels:
             raise ValueError(
-                "Canonical Gymnasium action_labels do not match gymnasium_task.action_labels"
+                "Canonical Gymnasium action_labels do not match gymnasium_task action-space labels"
             )
     action_labels, active_action_dim, state_dim, state_labels = _action_carrier_spec(
         active_action_labels,

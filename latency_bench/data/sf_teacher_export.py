@@ -14,7 +14,10 @@ from latency_bench.data.hf_parquet import (
     write_parquet_splits_from_shards,
 )
 from latency_bench.data.prompts import BASE_PROMPTS, IMAGE_TRANSFORM_CONTEXTS, TIMING_SUFFIX
-from latency_bench.data.action_layouts import action_spec_for_env
+from latency_bench.data.action_layouts import (
+    ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+    action_spec_for_env,
+)
 from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1, FILTER_PRESET_NONE
 from latency_bench.data.ghost_trail import GhostTrailConfig
 from latency_bench.data.sf_teacher_config import load_rollout_training_config
@@ -153,6 +156,8 @@ def export_sample_factory_teacher_dataset(
         config["action_spec"] = action_spec_for_env(config["env_name"])
         config["base_prompt"] = BASE_PROMPTS[config["env_name"]]
     action_spec = config["action_spec"]
+    if action_spec.layout == ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1:
+        filter_preset = FILTER_PRESET_NONE
     rollout_metadata = collect_teacher_dataset(
         config,
         output_dir=output_dir,

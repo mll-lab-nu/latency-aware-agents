@@ -22,18 +22,42 @@ def gymnasium_noop_action_id(env_config: Mapping[str, Any]) -> int:
     return gymnasium_discrete_action_labels(env_config).index(env_config["noop_action"])
 
 
+def gymnasium_action_space_contract(env_config: Mapping[str, Any]) -> dict[str, Any]:
+    if "action_space" in env_config:
+        return dict(env_config["action_space"])
+    return {
+        "type": "discrete",
+        "labels": list(gymnasium_discrete_action_labels(env_config)),
+        "values": list(gymnasium_discrete_action_values(env_config)),
+    }
+
+
 def gymnasium_task_contract(env_config: Mapping[str, Any]) -> dict[str, Any]:
     """Return the immutable task semantics shared by training, data, and evaluation."""
-    return {
+    contract = {
         "task_name": env_config["task_name"],
         "env_id": env_config["env_id"],
         "make_kwargs": env_config["make_kwargs"],
         "registration_imports": env_config["registration_imports"],
-        "action_labels": list(gymnasium_discrete_action_labels(env_config)),
-        "action_values": list(gymnasium_discrete_action_values(env_config)),
-        "noop_action_id": gymnasium_noop_action_id(env_config),
         "base_prompt": env_config["base_prompt"],
         "env_fps": env_config["env_fps"],
         "obs_fps": env_config["obs_fps"],
         "frame_stack": env_config["frame_stack"],
     }
+    action_space = gymnasium_action_space_contract(env_config)
+    if action_space["type"] == "discrete":
+        contract.update(
+            {
+                "action_labels": list(gymnasium_discrete_action_labels(env_config)),
+                "action_values": list(gymnasium_discrete_action_values(env_config)),
+                "noop_action_id": gymnasium_noop_action_id(env_config),
+            }
+        )
+    else:
+        contract.update(
+            {
+                "action_space": action_space,
+                "noop_action": env_config["noop_action"],
+            }
+        )
+    return contract

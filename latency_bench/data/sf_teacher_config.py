@@ -15,6 +15,7 @@ from latency_bench.data.action_layouts import (
     ActionSpec,
     action_spec_for_env,
     gymnasium_discrete_action_spec,
+    gymnasium_continuous_action_spec,
 )
 from latency_bench.data.prompts import BASE_PROMPTS
 from latency_bench.integrations.sample_factory.runtime import resolve_sample_factory_device
@@ -79,11 +80,21 @@ def _infer_env_name_from_sf_env(sf_env_name: str) -> str:
 def _rollout_task_contract(flat_cfg: Mapping[str, Any]) -> tuple[str, str, ActionSpec, str]:
     """Resolve task identity and semantics stored in a teacher checkpoint."""
     if flat_cfg["env"] == GYMNASIUM_SF_ENV:
-        action_labels = json.loads(flat_cfg["gym_action_labels_json"])
+        if "gym_action_space_json" in flat_cfg:
+            action_space = json.loads(flat_cfg["gym_action_space_json"])
+            action_labels = action_space["labels"]
+        else:
+            action_space = {"type": "discrete"}
+            action_labels = json.loads(flat_cfg["gym_action_labels_json"])
+        action_spec = (
+            gymnasium_continuous_action_spec(action_labels)
+            if action_space["type"] == "box"
+            else gymnasium_discrete_action_spec(action_labels)
+        )
         return (
             flat_cfg["gym_task_name"],
             "gymnasium",
-            gymnasium_discrete_action_spec(action_labels),
+            action_spec,
             flat_cfg["gym_base_prompt"],
         )
     env_name = _infer_env_name_from_sf_env(flat_cfg["env"])
@@ -92,19 +103,37 @@ def _rollout_task_contract(flat_cfg: Mapping[str, Any]) -> tuple[str, str, Actio
 
 def _gymnasium_task_metadata(flat_cfg: Mapping[str, Any]) -> dict[str, Any]:
     """Build published Gymnasium task metadata from its checkpoint contract."""
-    return {
+    metadata = {
         "task_name": flat_cfg["gym_task_name"],
         "env_id": flat_cfg["gym_env_id"],
         "make_kwargs": json.loads(flat_cfg["gym_make_kwargs_json"]),
         "registration_imports": json.loads(flat_cfg["gym_registration_imports_json"]),
-        "action_labels": json.loads(flat_cfg["gym_action_labels_json"]),
-        "action_values": json.loads(flat_cfg["gym_action_values_json"]),
-        "noop_action_id": flat_cfg["gym_noop_action_id"],
         "base_prompt": flat_cfg["gym_base_prompt"],
         "env_fps": flat_cfg["env_fps"],
         "obs_fps": flat_cfg["obs_fps"],
         "frame_stack": flat_cfg["frame_stack"],
     }
+    action_space = (
+        json.loads(flat_cfg["gym_action_space_json"])
+        if "gym_action_space_json" in flat_cfg
+        else {"type": "discrete"}
+    )
+    if action_space["type"] == "discrete":
+        metadata.update(
+            {
+                "action_labels": json.loads(flat_cfg["gym_action_labels_json"]),
+                "action_values": json.loads(flat_cfg["gym_action_values_json"]),
+                "noop_action_id": flat_cfg["gym_noop_action_id"],
+            }
+        )
+    else:
+        metadata.update(
+            {
+                "action_space": action_space,
+                "noop_action": json.loads(flat_cfg["gym_noop_action_json"]),
+            }
+        )
+    return metadata
 
 
 def _resolve_checkpoint_root(checkpoint_root: str | Path) -> CheckpointRoot:
