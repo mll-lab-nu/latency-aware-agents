@@ -208,9 +208,30 @@ def build_latency_bench_config_for_rl_games(
     fixed latency, starVLA policy fields, the 224 obs resize, episode/step
     budgets, and disabled artifacts.
     """
-    if env_name not in BASE_CONFIGS:
-        raise ValueError(f"Unsupported rl_games eval task for latency_bench: {env_name!r}")
-    config = deepcopy(load_config(BASE_CONFIGS[env_name]))
+    if env_name == "gymnasium":
+        task_contract = deepcopy(model_cfg["rl_games"]["gymnasium"]["task_contract"])
+        config = {
+            "experiment": {},
+            "backend": {"run_mode": "eval"},
+            "executor": {"mode": "simulated"},
+            "env": {"name": "gymnasium", **task_contract},
+            "latency": {"method": "zero", "add_latency_info": False},
+            "scheduler": {
+                "hold_policy": "hold",
+                "ordering_policy": "issue_order_fifo",
+            },
+            "policy": {"type": "random"},
+            "evaluation": {},
+            "logging": {
+                "output_dir": str(output_dir),
+                "video": {"enabled": False, "num_bins": 1},
+                "save_step_records": False,
+                "save_action_records": False,
+                "save_latency_records": False,
+            },
+        }
+    else:
+        config = deepcopy(load_config(BASE_CONFIGS[env_name]))
 
     config["experiment"] = {
         **config.get("experiment", {}),
@@ -257,6 +278,11 @@ def build_latency_bench_config_for_rl_games(
         "checkpoint_path": str(output_dir),  # metadata only; live model is injected
         "device": "cuda",
     }
+    if env_name == "gymnasium":
+        data_cfg = model_cfg["datasets"]["vla_data"]
+        policy["task_manifest_path"] = str(
+            Path(data_cfg["data_root_dir"]) / data_cfg["data_mix"] / "manifest.json"
+        )
     if unnorm_key is not None:
         policy["unnorm_key"] = unnorm_key
     if latency_prompt_map_path:
@@ -395,6 +421,8 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         return OmegaConf.to_container(self.cfg, resolve=True)
 
     def _base_actions(self, env_name: str) -> list[Any] | None:
+        if env_name == "gymnasium":
+            return None
         base = load_config(BASE_CONFIGS[env_name])
         policy_cfg = base.get("policy", {})
         return list(policy_cfg["actions"]) if "actions" in policy_cfg else None
