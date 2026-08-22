@@ -8,8 +8,15 @@ import gymnasium as gym
 import numpy as np
 
 import latency_bench.envs.myochallenge_table_tennis as myo_env
+from latency_bench.envs.myosuite import (
+    MYOSUITE_ENV_ID,
+    MyoSuiteEnv,
+    make_myo_suite_env,
+)
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
+from latency_bench.envs.gymnasium_task import gymnasium_task_contract
+from scripts.scaffold_myochallenge import build_myochallenge_env_config
 
 
 class _FakeMyoEnv(gym.Env):
@@ -18,6 +25,7 @@ class _FakeMyoEnv(gym.Env):
 
     def __init__(self) -> None:
         self.sim = _FakeSim()
+        self.spec = SimpleNamespace(max_episode_steps=200)
         self.actions: list[np.ndarray] = []
         self.seed_calls: list[int] = []
 
@@ -102,9 +110,77 @@ def test_wrapper_converts_box_actions_records_score_and_renders(monkeypatch):
     assert native_env.sim.close_calls == 1
 
 
+def test_shared_wrapper_preserves_native_info_without_task_metrics(monkeypatch):
+    native_env = _FakeMyoEnv()
+    monkeypatch.setattr(myo_env.gym, "make", lambda *args, **kwargs: native_env)
+
+    env = MyoSuiteEnv(
+        base_env_id="myoChallengeBaodingP1-v1",
+        render_mode="rgb_array",
+        base_make_kwargs={},
+        camera_name="default",
+        render_width=32,
+        render_height=32,
+    )
+    env.reset(seed=4)
+    _, _, _, _, info = env.step([0.0, 0.0, 0.0])
+
+    assert native_env.seed_calls == [4]
+    assert np.array_equal(native_env.actions[0], np.zeros(3, dtype=np.float32))
+    assert info == {"solved": np.bool_(True)}
+    assert "score" not in info
+    env.close()
+
+
+def test_generic_myo_registration_and_box_contract():
+    spec = gym.spec(MYOSUITE_ENV_ID)
+    assert spec.entry_point is make_myo_suite_env
+
+    report = {
+        "action_space": {
+            "labels": ["muscle_0", "muscle_1"],
+            "low": [0.0, 0.0],
+            "high": [1.0, 1.0],
+            "dtype": "float32",
+        },
+        "noop_action": [0.0, 0.0],
+        "timing": {"native_env_fps": 40.0},
+    }
+    contract = build_myochallenge_env_config(
+        report=report,
+        task_name="myochallenge_baoding_p1",
+        benchmark_env_id=MYOSUITE_ENV_ID,
+        base_env_id="myoChallengeBaodingP1-v1",
+        registration_imports=["latency_bench.envs.myosuite"],
+        base_make_kwargs={"normalize_act": True},
+        camera_name="default",
+        render_width=224,
+        render_height=224,
+        base_prompt="Rotate both balls without dropping them.",
+        env_fps=40.0,
+        obs_fps=20.0,
+        frame_stack=1,
+    )
+
+    assert contract["action_space"] == {
+        "type": "box",
+        "labels": ["muscle_0", "muscle_1"],
+        "low": [0.0, 0.0],
+        "high": [1.0, 1.0],
+        "dtype": "float32",
+    }
+    assert contract["noop_action"] == [0.0, 0.0]
+    assert contract["make_kwargs"]["base_env_id"] == "myoChallengeBaodingP1-v1"
+    assert contract["env_fps"] == 40.0
+    assert contract["obs_fps"] == 20.0
+    task_contract = gymnasium_task_contract(contract)
+    assert task_contract["action_space"]["low"] == [0.0, 0.0]
+    assert task_contract["noop_action"] == [0.0, 0.0]
+
+
 def test_registration_is_lazy_and_exposes_benchmark_id():
     spec = gym.spec(myo_env.GYMNASIUM_MYOCHALLENGE_TABLE_TENNIS_P2_ENV_ID)
-    assert spec.max_episode_steps == 300
+    assert spec.max_episode_steps is None
 
 
 def test_myochallenge_configs_keep_native_100_hz_contract():

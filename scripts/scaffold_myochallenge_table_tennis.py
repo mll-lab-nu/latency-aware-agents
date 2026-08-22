@@ -3,20 +3,37 @@
 from __future__ import annotations
 
 import argparse
-import importlib.metadata
 import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-import gymnasium as gym
 import numpy as np
+
+from scaffold_myochallenge import (
+    build_myochallenge_env_config,
+    build_myochallenge_probe_report,
+    write_myochallenge_outputs,
+)
 from latency_bench.envs.myochallenge_table_tennis import (
     GYMNASIUM_MYOCHALLENGE_TABLE_TENNIS_P2_ENV_ID,
     MYOCHALLENGE_TABLE_TENNIS_P2_BASE_ENV_ID,
     MYOCHALLENGE_TABLE_TENNIS_P2_CAMERA,
     MYOCHALLENGE_TABLE_TENNIS_P2_RENDER_SIZE,
 )
+
+
+MYOCHALLENGE_TABLE_TENNIS_TASK_NAME = "myochallenge_table_tennis_p2"
+MYOCHALLENGE_TABLE_TENNIS_REGISTRATION_IMPORT = (
+    "latency_bench.envs.myochallenge_table_tennis"
+)
+MYOCHALLENGE_TABLE_TENNIS_PROMPT = (
+    "Return the incoming ping-pong ball with the paddle so it contacts the "
+    "paddle exactly once and lands on the opponent side without touching the "
+    "agent side. Predict continuous muscle and actuator controls in the "
+    "native MuJoCo actuator order."
+)
+MYOCHALLENGE_TABLE_TENNIS_ACTION_DIM = 275
 
 
 def build_myochallenge_table_tennis_probe_report(
@@ -27,99 +44,81 @@ def build_myochallenge_table_tennis_probe_report(
     render_width: int = MYOCHALLENGE_TABLE_TENNIS_P2_RENDER_SIZE[0],
     render_height: int = MYOCHALLENGE_TABLE_TENNIS_P2_RENDER_SIZE[1],
 ) -> dict[str, Any]:
-    env = gym.make(
-        GYMNASIUM_MYOCHALLENGE_TABLE_TENNIS_P2_ENV_ID,
+    """Probe the pinned Table Tennis wrapper with its approved zero vector."""
+    return build_myochallenge_probe_report(
+        benchmark_env_id=GYMNASIUM_MYOCHALLENGE_TABLE_TENNIS_P2_ENV_ID,
         base_env_id=base_env_id,
-        render_mode="rgb_array",
+        registration_imports=[MYOCHALLENGE_TABLE_TENNIS_REGISTRATION_IMPORT],
         base_make_kwargs=base_make_kwargs,
         camera_name=camera_name,
         render_width=render_width,
         render_height=render_height,
+        noop_action=np.zeros(MYOCHALLENGE_TABLE_TENNIS_ACTION_DIM, dtype=np.float32),
     )
-    try:
-        observation, reset_info = env.reset(seed=0)
-        rendered_frame = env.render()
-        zero_action = np.zeros(env.action_space.shape, dtype=env.action_space.dtype)
-        _, reward, terminated, truncated, step_info = env.step(zero_action)
-        native_env = env.unwrapped
-        model = native_env.sim.model
-        action_labels = [model.actuator(index).name for index in range(model.nu)]
-        entry_point = env.spec.entry_point
-        return {
-            "source": "runtime_api_probe",
-            "myosuite_version": importlib.metadata.version("MyoSuite"),
-            "mujoco_version": importlib.metadata.version("mujoco"),
-            "env_id": base_env_id,
-            "benchmark_env_id": GYMNASIUM_MYOCHALLENGE_TABLE_TENNIS_P2_ENV_ID,
-            "resolved_spec": {
-                "id": env.spec.id,
-                "entry_point": f"{entry_point.__module__}.{entry_point.__qualname__}",
-                "max_episode_steps": env.spec.max_episode_steps,
-                "kwargs": env.spec.kwargs,
-            },
-            "unwrapped_class": f"{type(native_env).__module__}.{type(native_env).__name__}",
-            "metadata": env.metadata,
-            "action_space": {
-                "type": type(env.action_space).__name__,
-                "shape": list(env.action_space.shape),
-                "low_min": float(np.min(env.action_space.low)),
-                "low_max": float(np.max(env.action_space.low)),
-                "high_min": float(np.min(env.action_space.high)),
-                "high_max": float(np.max(env.action_space.high)),
-                "dtype": str(env.action_space.dtype),
-                "labels": action_labels,
-            },
-            "observation_space": {
-                "type": type(env.observation_space).__name__,
-                "shape": list(env.observation_space.shape),
-                "dtype": str(env.observation_space.dtype),
-            },
-            "reset_observation_shape": list(observation.shape),
-            "reset_observation_dtype": str(observation.dtype),
-            "reset_info_keys": sorted(reset_info),
-            "zero_action_step": {
-                "reward": float(reward),
-                "terminated": bool(terminated),
-                "truncated": bool(truncated),
-                "solved": bool(step_info["solved"]),
-                "score": float(step_info["score"]),
-                "info_keys": sorted(step_info),
-            },
-            "render": {
-                "camera": camera_name,
-                "shape": list(rendered_frame.shape),
-                "dtype": str(rendered_frame.dtype),
-            },
-            "unwrapped_dt_seconds": native_env.dt,
-            "unwrapped_frame_skip": native_env.frame_skip,
-            "model_timestep_seconds": native_env.sim.model.opt.timestep,
-            "native_env_fps": 1.0 / native_env.dt,
-            "max_episode_steps": env.spec.max_episode_steps,
-        }
-    finally:
-        env.close()
+
+
+def build_myochallenge_table_tennis_env_config(
+    *,
+    report: dict[str, Any],
+    base_env_id: str,
+    base_make_kwargs: dict[str, Any],
+    camera_name: str,
+    render_width: int,
+    render_height: int,
+) -> dict[str, Any]:
+    """Build the frozen Table Tennis ``env`` mapping from one API probe."""
+    return {
+        "env": build_myochallenge_env_config(
+            report=report,
+            task_name=MYOCHALLENGE_TABLE_TENNIS_TASK_NAME,
+            benchmark_env_id=GYMNASIUM_MYOCHALLENGE_TABLE_TENNIS_P2_ENV_ID,
+            base_env_id=base_env_id,
+            registration_imports=[MYOCHALLENGE_TABLE_TENNIS_REGISTRATION_IMPORT],
+            base_make_kwargs=base_make_kwargs,
+            camera_name=camera_name,
+            render_width=render_width,
+            render_height=render_height,
+            base_prompt=MYOCHALLENGE_TABLE_TENNIS_PROMPT,
+            env_fps=report["timing"]["native_env_fps"],
+            obs_fps=report["timing"]["native_env_fps"],
+            frame_stack=1,
+        )
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Probe MyoChallenge 2025 Table Tennis P2.")
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-env-id", default=MYOCHALLENGE_TABLE_TENNIS_P2_BASE_ENV_ID)
     parser.add_argument("--base-make-kwargs-json", default="{}")
     parser.add_argument("--camera-name", default=MYOCHALLENGE_TABLE_TENNIS_P2_CAMERA)
     parser.add_argument("--render-width", type=int, default=MYOCHALLENGE_TABLE_TENNIS_P2_RENDER_SIZE[0])
     parser.add_argument("--render-height", type=int, default=MYOCHALLENGE_TABLE_TENNIS_P2_RENDER_SIZE[1])
     parser.add_argument("--report-path", type=Path)
+    parser.add_argument("--env-yaml-path", type=Path)
     args = parser.parse_args(argv)
 
+    base_make_kwargs = json.loads(args.base_make_kwargs_json)
     report = build_myochallenge_table_tennis_probe_report(
         base_env_id=args.base_env_id,
-        base_make_kwargs=json.loads(args.base_make_kwargs_json),
+        base_make_kwargs=base_make_kwargs,
         camera_name=args.camera_name,
         render_width=args.render_width,
         render_height=args.render_height,
     )
-    if args.report_path is not None:
-        args.report_path.parent.mkdir(parents=True, exist_ok=True)
-        args.report_path.write_text(json.dumps(report, indent=2) + "\n")
+    env_config = build_myochallenge_table_tennis_env_config(
+        report=report,
+        base_env_id=args.base_env_id,
+        base_make_kwargs=base_make_kwargs,
+        camera_name=args.camera_name,
+        render_width=args.render_width,
+        render_height=args.render_height,
+    )
+    write_myochallenge_outputs(
+        report=report,
+        env_config=env_config["env"],
+        report_path=args.report_path,
+        env_yaml_path=args.env_yaml_path,
+    )
     print(json.dumps(report, indent=2))
 
 
