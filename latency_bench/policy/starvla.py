@@ -829,7 +829,13 @@ def _validate_gymnasium_starvla_contract(
     policy_cfg: Mapping[str, Any],
     model_cfg: Mapping[str, Any],
 ) -> None:
-    expected = gymnasium_task_contract(env_cfg)
+    eval_contract = gymnasium_task_contract(env_cfg)
+    expected = policy_cfg.get("gymnasium_training_task_contract", eval_contract)
+    comparable_eval_contract = {**eval_contract, "make_kwargs": expected["make_kwargs"]}
+    if comparable_eval_contract != expected:
+        raise ValueError(
+            "Evaluation Gymnasium task contract does not match the StarVLA training contract"
+        )
     manifest = json.loads(
         Path(policy_cfg["task_manifest_path"]).read_text(encoding="utf-8")
     )

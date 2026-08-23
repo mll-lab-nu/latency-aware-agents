@@ -197,6 +197,7 @@ def build_latency_bench_config_for_rl_games(
     image_transform_config: dict[str, Any] | None,
     actions: list[Any] | None,
     output_dir: str | Path,
+    gymnasium_make_kwargs: Mapping[str, Any] | None = None,
     prompt_mode: str | None = None,
     action_layout: str | None = None,
     multibinary_threshold: float | None = None,
@@ -211,6 +212,10 @@ def build_latency_bench_config_for_rl_games(
     if env_name == "gymnasium":
         task_contract = deepcopy(model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"])
         env_config = {"name": "gymnasium", **task_contract}
+        env_config["make_kwargs"] = {
+            **env_config["make_kwargs"],
+            **dict(gymnasium_make_kwargs or {}),
+        }
         if "action_labels" in task_contract:
             action_labels = list(task_contract["action_labels"])
             env_config.update(
@@ -293,6 +298,7 @@ def build_latency_bench_config_for_rl_games(
         policy["task_manifest_path"] = str(
             Path(data_cfg["data_root_dir"]) / data_cfg["data_mix"] / "manifest.json"
         )
+        policy["gymnasium_training_task_contract"] = task_contract
     if unnorm_key is not None:
         policy["unnorm_key"] = unnorm_key
     if latency_prompt_map_path:
@@ -437,6 +443,11 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         policy_cfg = base.get("policy", {})
         return list(policy_cfg["actions"]) if "actions" in policy_cfg else None
 
+    def _gymnasium_make_kwargs(self) -> dict[str, Any] | None:
+        gymnasium_cfg = _cfg_get(self.cfg.rl_games.env_eval, "gymnasium", None)
+        make_kwargs = _cfg_get(gymnasium_cfg, "make_kwargs", None)
+        return _plain_mapping(make_kwargs) or None
+
     def _fold_episode_metrics(
         self,
         metrics_list: list[Any],
@@ -523,6 +534,7 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                 unnorm_key=getattr(self.cfg.rl_games.env_eval, "unnorm_key", None),
                 latency_prompt_map_path=self._prompt_map_path(task_name),
                 image_transform_config=self._image_transform_config(stage=stage, task=task_name),
+                gymnasium_make_kwargs=self._gymnasium_make_kwargs(),
                 prompt_mode=self._prompt_mode(stage=stage, task=task_name),
                 actions=self._base_actions(task_name),
                 output_dir=output_dir,
