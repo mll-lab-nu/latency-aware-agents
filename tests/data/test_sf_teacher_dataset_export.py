@@ -830,6 +830,7 @@ def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(m
     assert metadata["filter_report"]["accepted_episodes"] == 1
     assert metadata["filter_report"]["rejected_episodes"] == 0
     assert metadata["replay_num_envs"] == 1
+    assert metadata["max_steps_unit"] == "raw_frame"
     state = json.loads((output_dir / "probe_state.json").read_text(encoding="utf-8"))
     assert state["next_attempt_idx"] == 3
     assert state["attempted_episodes"] == 1
@@ -839,6 +840,7 @@ def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(m
             "attempt_idx": 0,
             "episode_idx": 0,
             "episode_length": 1,
+            "episode_raw_frames": 2,
             "episode_raw_return": 1.5,
             "seed": 100,
             "split": "train",
@@ -1475,7 +1477,7 @@ def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tm
         {"env_name": "flappy"},
         output_dir=output_dir,
         max_episodes=1,
-        max_steps_per_episode=4,
+        max_steps_per_episode=8,
         val_fraction=0.0,
         split_seed=0,
         num_envs=1,
@@ -1758,7 +1760,7 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
         {"env_name": "demon_attack"},
         output_dir=output_dir,
         max_episodes=1,
-        max_steps_per_episode=8,
+        max_steps_per_episode=12,
         val_fraction=0.0,
         split_seed=0,
         num_envs=1,
@@ -1779,6 +1781,7 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
             "attempt_idx": 0,
             "episode_idx": 0,
             "episode_length": 3,
+            "episode_raw_frames": 12,
             "episode_raw_return": 8000.0,
             "seed": 100,
             "split": "train",
