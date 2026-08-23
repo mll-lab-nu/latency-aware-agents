@@ -558,6 +558,45 @@ def test_runner_threads_eval_parallel_envs_from_cfg(tmp_path, monkeypatch):
     assert captured["eval_parallel_envs"] == 8
 
 
+def test_runner_applies_eval_only_gymnasium_reset_kwargs(tmp_path, monkeypatch):
+    captured = {}
+    task_contract = {
+        "task_name": "air_raid",
+        "env_id": "LatencyBench/AirRaid-v0",
+        "registration_imports": ["latency_bench.envs.gymnasium_air_raid"],
+        "make_kwargs": {"noop_max": 0},
+        "env_fps": 50.0,
+        "obs_fps": 12.5,
+        "frame_stack": 4,
+        "action_labels": ["noop", "fire"],
+        "action_values": [0, 1],
+        "noop_action_id": 0,
+        "base_prompt": "Play Air Raid.",
+    }
+    cfg = _make_cfg(latencies=(0,))
+    cfg.rl_games.task = "gymnasium"
+    cfg.rl_games.env_eval.gymnasium = {
+        "make_kwargs": {"noop_max": 30, "fire_reset": True}
+    }
+    cfg.datasets.vla_data.gymnasium_task_contract = task_contract
+    cfg.datasets.vla_data.data_root_dir = str(tmp_path)
+    cfg.datasets.vla_data.data_mix = "air_raid_train"
+
+    def fake_run_from_config(config, *, write_summary, episode_ids, policy, on_episode_complete=None):
+        captured["make_kwargs"] = config["env"]["make_kwargs"]
+        return [EpisodeMetrics(episode_id=0, episode_return=1.0, survival_steps=5)]
+
+    monkeypatch.setattr(runner_mod, "run_from_config", fake_run_from_config)
+    monkeypatch.setattr(runner_mod, "build_live_starvla_policy", lambda **kwargs: object())
+
+    LatencyBenchRlGamesEvalRunner(cfg=cfg, output_dir=str(tmp_path)).run(
+        model=object(), step=5000, stage="post_train", save=False
+    )
+
+    assert captured["make_kwargs"] == {"noop_max": 30, "fire_reset": True}
+    assert task_contract["make_kwargs"] == {"noop_max": 0}
+
+
 def test_runner_threads_multiframe_frame_stack_from_model_cfg(tmp_path, monkeypatch):
     captured = {}
 

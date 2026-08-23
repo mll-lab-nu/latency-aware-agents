@@ -166,6 +166,30 @@ def test_generic_checkpoint_policy_separates_integration_task_and_native_action(
     assert output.metadata["raw_action_id"] == 0
 
 
+def test_generic_policy_allows_eval_only_reset_wrapper_overrides(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from latency_bench.policy import starvla
+
+    GenericPolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
+    monkeypatch.setattr(starvla, "_normalized_model_cfg", lambda model_cfg: model_cfg)
+    monkeypatch.setattr(starvla, "_load_starvla_model_config", _read_model_config)
+    config = _generic_config(tmp_path)
+    training_contract = gymnasium_task_contract(config["env"])
+    config["policy"]["gymnasium_training_task_contract"] = training_contract
+    config["env"]["make_kwargs"] = {
+        "render_mode": "rgb_array",
+        "noop_max": 30,
+        "fire_reset": True,
+    }
+
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    assert policy._env_name == "mountain_car"
+
+
 def test_generic_prompt_map_takes_priority_over_explicit_base_prompt(
     monkeypatch,
     tmp_path: Path,
