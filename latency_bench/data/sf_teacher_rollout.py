@@ -512,7 +512,7 @@ def _rollout_step_flags(
     env_name: str,
     step_result: RolloutStepResult,
     *,
-    next_decision_step: int,
+    next_raw_frame: int,
     max_steps_per_episode: int,
 ) -> tuple[bool, bool]:
     raw_done = step_result.terminated or step_result.truncated
@@ -525,7 +525,7 @@ def _rollout_step_flags(
             step_result.info,
         )
         life_loss_boundary = raw_done and not true_episode_end
-    if next_decision_step >= max_steps_per_episode:
+    if next_raw_frame >= max_steps_per_episode:
         return life_loss_boundary, True
     return life_loss_boundary, true_episode_end
 
@@ -577,7 +577,7 @@ def _probe_accepted_specs(
         env_name: Canonical benchmark environment name.
         output_dir: Rollout export directory.
         max_episodes: Number of accepted episodes requested.
-        max_steps_per_episode: Step cap per episode.
+        max_steps_per_episode: Raw environment frame cap per episode.
         val_fraction: Fraction assigned to validation.
         split_seed: RNG seed for split assignment.
         deterministic: Whether to use deterministic teacher actions.
@@ -593,6 +593,7 @@ def _probe_accepted_specs(
     device = runtime["device"]
     resolved_action_spec = action_spec if action_spec is not None else action_spec_for_env(env_name)
     behavior_env_name = env_name if integration_name is None else integration_name
+    obs_stride_raw_frames = int(float(cfg.env_fps) / float(cfg.obs_fps))
     final_splits = {
         int(spec["episode_idx"]): str(spec["split"])
         for spec in _build_episode_plan(
@@ -678,13 +679,15 @@ def _probe_accepted_specs(
                     life_loss_boundary, episode_done = _rollout_step_flags(
                         behavior_env_name,
                         step_result,
-                        next_decision_step=next_decision_step,
+                        next_raw_frame=next_decision_step * obs_stride_raw_frames,
                         max_steps_per_episode=int(max_steps_per_episode),
                     )
                     if episode_done:
                         probe_state["attempted_episodes"] += 1
                         summary = {
                             "episode_length": int(active_episode_lengths[slot]),
+                            "episode_raw_frames": int(active_episode_lengths[slot])
+                            * obs_stride_raw_frames,
                             resolved_action_spec.episode_return_field: float(active_episode_returns[slot]),
                         }
                         if behavior_env_name == "demon_attack":
@@ -708,6 +711,7 @@ def _probe_accepted_specs(
                                 "attempt_idx": int(spec["attempt_idx"]),
                                 "episode_idx": int(final_episode_idx),
                                 "episode_length": int(summary["episode_length"]),
+                                "episode_raw_frames": int(summary["episode_raw_frames"]),
                                 resolved_action_spec.episode_return_field: float(
                                     summary[resolved_action_spec.episode_return_field]
                                 ),
@@ -805,7 +809,7 @@ def _replay_accepted_specs(
         output_dir: Rollout export directory.
         accepted_specs: Accepted probe specs.
         completed_episode_indices: Episode indices already written as shards.
-        max_steps_per_episode: Step cap per episode.
+        max_steps_per_episode: Raw environment frame cap per episode.
         deterministic: Whether to use deterministic teacher actions.
         export_image_size: Optional ``(width, height)`` resize target.
         image_writer_workers: Number of async image writer threads.
@@ -833,6 +837,7 @@ def _replay_accepted_specs(
     device = runtime["device"]
     env_fps = float(cfg.env_fps)
     obs_fps = float(cfg.obs_fps)
+    obs_stride_raw_frames = int(env_fps / obs_fps)
     spec_cursor = 0
     replayed = 0
 
@@ -933,7 +938,7 @@ def _replay_accepted_specs(
                     life_loss_boundary, episode_done = _rollout_step_flags(
                         behavior_env_name,
                         step_result,
-                        next_decision_step=next_decision_step,
+                        next_raw_frame=next_decision_step * obs_stride_raw_frames,
                         max_steps_per_episode=int(max_steps_per_episode),
                     )
                     if not life_loss_boundary:
@@ -1122,7 +1127,7 @@ def collect_teacher_dataset(
         config: Rollout descriptor loaded from a checkpoint.
         output_dir: Rollout export directory.
         max_episodes: Number of episodes to collect.
-        max_steps_per_episode: Step cap per episode.
+        max_steps_per_episode: Raw environment frame cap per episode.
         val_fraction: Fraction assigned to validation.
         split_seed: RNG seed for split assignment.
         num_envs: Number of probe rollout environments or agents.
@@ -1265,6 +1270,7 @@ def collect_teacher_dataset(
         "env_fps": env_fps,
         "obs_fps": obs_fps,
         "obs_stride_raw_frames": int(env_fps / obs_fps),
+        "max_steps_unit": "raw_frame",
         "image_source": "env_raw_rgb"
         if image_transform_config.normalized_transform() == "raw_rgb"
         else f"env_raw_rgb_{image_transform_config.normalized_transform()}",

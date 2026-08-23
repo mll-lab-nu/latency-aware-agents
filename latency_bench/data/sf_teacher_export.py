@@ -120,7 +120,7 @@ def export_sample_factory_teacher_dataset(
         latency_config_path: Optional latency-only YAML override.
         env_name: Optional canonical environment name override.
         max_episodes: Number of episodes to collect.
-        max_steps_per_episode: Step cap per episode.
+        max_steps_per_episode: Raw environment frame cap per episode.
         val_fraction: Fraction assigned to validation.
         split_seed: RNG seed for split assignment.
         num_envs: Number of probe rollout environments or agents.
@@ -207,6 +207,7 @@ def export_sample_factory_teacher_dataset(
         "prompt_timing_suffix": TIMING_SUFFIX,
         "max_episodes": int(max_episodes),
         "max_steps_per_episode": int(max_steps_per_episode),
+        "max_steps_unit": "raw_frame",
         "val_fraction": float(val_fraction),
         "split_seed": int(split_seed),
         "num_envs": int(num_envs),

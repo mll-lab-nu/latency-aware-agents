@@ -17,7 +17,7 @@ Example:
 
 Optional environment variables:
   MAX_EPISODES        Number of episodes to collect. Default: 1k.
-  MAX_STEPS           Max policy decision steps per episode. Default: 1k.
+  MAX_STEPS           Max raw environment frames per episode. Default: 1k.
   VAL_FRACTION        Validation split fraction. Default: 0.01.
   NUM_ENVS            Number of probe rollout envs. Default: 12.
   REPLAY_NUM_ENVS     Number of replay rollout envs. Default: 16.
