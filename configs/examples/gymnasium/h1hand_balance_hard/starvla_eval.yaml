@@ -1,0 +1,14 @@
+__base__: latency_bench_eval.yaml
+
+experiment:
+  name: gymnasium_h1hand_balance_hard_starvla_not_run
+
+policy:
+  type: starvla
+  checkpoint_path: third_party/starVLA/results/Checkpoints/h1hand_balance_hard/checkpoint.safetensors
+  model_config_path: third_party/starVLA/results/Checkpoints/h1hand_balance_hard/config.full.yaml
+  task_manifest_path: third_party/starVLA/playground/Datasets/rl_games/h1hand_balance_hard/manifest.json
+  device: cuda
+
+logging:
+  output_dir: outputs/examples/gymnasium/h1hand_balance_hard/starvla_eval_not_run
