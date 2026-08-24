@@ -5,20 +5,16 @@
     "gymnasium": "0.29.1",
     "mujoco": "3.3.0",
     "dm-control": "1.0.28",
-    "jax": "0.4.28",
-    "jaxlib": "0.4.28",
-    "sample-factory": "2.1.1",
-    "numpy": "1.26.4",
-    "torch": "2.13.0",
-    "imageio": "2.34.2"
+    "numpy": "1.26.4"
   },
   "env_id": "LatencyBench/H1HandBalanceHard-v0",
   "native_env_id": "h1hand-balance_hard-v0",
   "resolved_spec": {
     "id": "LatencyBench/H1HandBalanceHard-v0",
-    "entry_point": "latency_bench.envs.humanoidbench.make_h1hand_balance_hard_env",
+    "entry_point": "latency_bench.envs.humanoidbench.HumanoidBenchEnv",
     "max_episode_steps": 1000,
     "kwargs": {
+      "native_env_id": "h1hand-balance_hard-v0",
       "render_mode": "rgb_array",
       "width": 256,
       "height": 256

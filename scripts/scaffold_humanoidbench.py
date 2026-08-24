@@ -1,9 +1,8 @@
-"""Probe H1Hand Balance Hard and emit its frozen Gymnasium contract."""
+"""Probe one HumanoidBench task and emit its frozen Gymnasium contract."""
 
 from __future__ import annotations
 
 import argparse
-import importlib
 import importlib.metadata
 import json
 from collections.abc import Sequence
@@ -15,16 +14,21 @@ import mujoco
 import numpy as np
 import yaml
 
+from latency_bench.envs.humanoidbench import HUMANOIDBENCH_ENV_SPECS
 
-ENV_ID = "LatencyBench/H1HandBalanceHard-v0"
-NATIVE_ENV_ID = "h1hand-balance_hard-v0"
-TASK_NAME = "h1hand_balance_hard"
+
 REGISTRATION_IMPORTS = ["latency_bench.envs.humanoidbench"]
 MAKE_KWARGS = {"render_mode": "rgb_array", "width": 256, "height": 256}
-BASE_PROMPT = (
-    "Keep the H1Hand humanoid balanced on the rolling support board. "
-    "Maintain an upright torso and avoid falling or contacting the floor."
-)
+
+
+def _normalize_native_control(env: gym.Env, control: np.ndarray) -> np.ndarray:
+    native_env = env.unwrapped
+    return (
+        2.0
+        * (control - native_env.action_low)
+        / (native_env.action_high - native_env.action_low)
+        - 1.0
+    ).astype(env.action_space.dtype)
 
 
 def actuator_labels(env: gym.Env) -> list[str]:
@@ -35,27 +39,78 @@ def actuator_labels(env: gym.Env) -> list[str]:
     ]
 
 
-def nominal_stance_action(env: gym.Env) -> np.ndarray:
+def _actuator_length_noop(env: gym.Env) -> np.ndarray:
     native_env = env.unwrapped
     keyframe_data = mujoco.MjData(native_env.model)
     mujoco.mj_resetDataKeyframe(native_env.model, keyframe_data, native_env.keyframe)
     mujoco.mj_forward(native_env.model, keyframe_data)
-    return (
-        2.0
-        * (keyframe_data.actuator_length - native_env.action_low)
-        / (native_env.action_high - native_env.action_low)
-        - 1.0
-    ).astype(env.action_space.dtype)
+    return _normalize_native_control(env, keyframe_data.actuator_length)
 
 
-def build_probe_report() -> dict[str, Any]:
-    for module_name in REGISTRATION_IMPORTS:
-        importlib.import_module(module_name)
+def _highbar_keyframe_noop(env: gym.Env) -> np.ndarray:
+    native_env = env.unwrapped
+    keyframe_control = native_env.model.key_ctrl[native_env.keyframe].copy()
+    for actuator_name in ("lh_A_THJ5", "rh_A_THJ5"):
+        actuator_id = mujoco.mj_name2id(
+            native_env.model,
+            mujoco.mjtObj.mjOBJ_ACTUATOR,
+            actuator_name,
+        )
+        keyframe_control[actuator_id] = np.float32(1.0472)
+    return _normalize_native_control(
+        env,
+        keyframe_control.astype(native_env.action_low.dtype),
+    )
 
-    env = gym.make(ENV_ID, **MAKE_KWARGS)
+
+_TASK_METADATA = {
+    "h1hand_balance_hard": {
+        "base_prompt": (
+            "Keep the H1Hand humanoid balanced on the rolling support board. "
+            "Maintain an upright torso and avoid falling or contacting the floor."
+        ),
+        "noop_action_builder": _actuator_length_noop,
+    },
+    "h1hand_hurdle": {
+        "base_prompt": (
+            "Move the H1Hand humanoid forward over the hurdles without falling. "
+            "Clear each hurdle while maintaining stable locomotion."
+        ),
+        "noop_action_builder": _actuator_length_noop,
+    },
+    "h1hand_run": {
+        "base_prompt": (
+            "Run the H1Hand humanoid forward as quickly as possible while remaining upright."
+        ),
+        "noop_action_builder": _actuator_length_noop,
+    },
+    "h1hand_basketball": {
+        "base_prompt": (
+            "Catch the incoming basketball with both hands, then throw it through the hoop "
+            "without falling."
+        ),
+        "noop_action_builder": _actuator_length_noop,
+    },
+    "h1strong_highbar_hard": {
+        "base_prompt": (
+            "Swing the H1Strong humanoid around the high bar while maintaining its grip and "
+            "body control."
+        ),
+        "noop_action_builder": _highbar_keyframe_noop,
+    },
+}
+
+
+def build_noop_action(task_name: str, env: gym.Env) -> np.ndarray:
+    return _TASK_METADATA[task_name]["noop_action_builder"](env)
+
+
+def build_probe_report(task_name: str) -> dict[str, Any]:
+    env_spec = HUMANOIDBENCH_ENV_SPECS[task_name]
+    env = gym.make(env_spec["env_id"], **MAKE_KWARGS)
     try:
         native_env = env.unwrapped
-        noop_action = nominal_stance_action(env)
+        noop_action = build_noop_action(task_name, env)
         observation, reset_info = env.reset(seed=0)
         next_observation, reward, terminated, truncated, step_info = env.step(noop_action)
         rendered_frame = env.render()
@@ -70,16 +125,11 @@ def build_probe_report() -> dict[str, Any]:
                     "gymnasium",
                     "mujoco",
                     "dm-control",
-                    "jax",
-                    "jaxlib",
-                    "sample-factory",
                     "numpy",
-                    "torch",
-                    "imageio",
                 )
             },
-            "env_id": ENV_ID,
-            "native_env_id": NATIVE_ENV_ID,
+            "env_id": env_spec["env_id"],
+            "native_env_id": env_spec["native_env_id"],
             "resolved_spec": {
                 "id": resolved_spec.id,
                 "entry_point": f"{entry_point.__module__}.{entry_point.__qualname__}",
@@ -131,13 +181,14 @@ def build_probe_report() -> dict[str, Any]:
         env.close()
 
 
-def build_env_config(report: dict[str, Any]) -> dict[str, Any]:
+def build_env_config(task_name: str, report: dict[str, Any]) -> dict[str, Any]:
+    env_spec = HUMANOIDBENCH_ENV_SPECS[task_name]
     action_space = report["action_space"]
     env_fps = report["timing"]["native_env_fps"]
     return {
         "name": "gymnasium",
-        "task_name": TASK_NAME,
-        "env_id": ENV_ID,
+        "task_name": task_name,
+        "env_id": env_spec["env_id"],
         "registration_imports": REGISTRATION_IMPORTS,
         "make_kwargs": MAKE_KWARGS,
         "env_fps": env_fps,
@@ -151,7 +202,7 @@ def build_env_config(report: dict[str, Any]) -> dict[str, Any]:
             "dtype": action_space["dtype"],
         },
         "noop_action": report["noop_action"],
-        "base_prompt": BASE_PROMPT,
+        "base_prompt": _TASK_METADATA[task_name]["base_prompt"],
     }
 
 
@@ -175,12 +226,17 @@ def write_outputs(
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--task-name",
+        required=True,
+        choices=HUMANOIDBENCH_ENV_SPECS,
+    )
     parser.add_argument("--report-path", type=Path)
     parser.add_argument("--env-yaml-path", type=Path)
     args = parser.parse_args(argv)
 
-    report = build_probe_report()
-    env_config = build_env_config(report)
+    report = build_probe_report(args.task_name)
+    env_config = build_env_config(args.task_name, report)
     write_outputs(
         report=report,
         env_config=env_config,

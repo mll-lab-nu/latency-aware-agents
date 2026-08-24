@@ -3,111 +3,177 @@ from __future__ import annotations
 from pathlib import Path
 
 import gymnasium as gym
-import mujoco
 import numpy as np
+import pytest
 
 from latency_bench.core.config import load_config
 from latency_bench.core.types import Action
 from latency_bench.envs.gymnasium import GymnasiumEnvAdapter
-from scripts.scaffold_humanoidbench import (
-    ENV_ID,
-    NATIVE_ENV_ID,
-    actuator_labels,
-    build_env_config,
-    build_probe_report,
-    nominal_stance_action,
-)
+from latency_bench.envs.humanoidbench import HUMANOIDBENCH_ENV_SPECS
+from scripts.scaffold_humanoidbench import actuator_labels, build_noop_action
 from training.gymnasium_sf.integration import build_train_cfg_from_config, make_reference_env
 
 
 CONFIG_DIR = Path("configs/examples/gymnasium/h1hand_balance_hard")
+EXPECTED_ACTUATOR_LABELS = load_config(CONFIG_DIR / "small_model_train.yaml")["env"][
+    "action_space"
+]["labels"]
+TASK_CONTRACTS = (
+    (
+        "h1hand_balance_hard",
+        "LatencyBench/H1HandBalanceHard-v0",
+        "h1hand-balance_hard-v0",
+        (177,),
+        1000,
+    ),
+    (
+        "h1hand_hurdle",
+        "LatencyBench/H1HandHurdle-v0",
+        "h1hand-hurdle-v0",
+        (151,),
+        1000,
+    ),
+    (
+        "h1hand_run",
+        "LatencyBench/H1HandRun-v0",
+        "h1hand-run-v0",
+        (151,),
+        1000,
+    ),
+    (
+        "h1hand_basketball",
+        "LatencyBench/H1HandBasketball-v0",
+        "h1hand-basketball-v0",
+        (164,),
+        500,
+    ),
+    (
+        "h1strong_highbar_hard",
+        "LatencyBench/H1StrongHighBarHard-v0",
+        "h1strong-highbar_hard-v0",
+        (151,),
+        1000,
+    ),
+)
 
 
-def test_humanoidbench_runtime_contract_and_nominal_stance():
-    import latency_bench.envs.humanoidbench  # noqa: F401
-
-    env = gym.make(ENV_ID, render_mode="rgb_array", width=256, height=256)
+@pytest.mark.parametrize(
+    ("task_name", "env_id", "native_env_id", "observation_shape", "horizon"),
+    TASK_CONTRACTS,
+    ids=[contract[0] for contract in TASK_CONTRACTS],
+)
+def test_humanoidbench_family_runtime_contract(
+    task_name,
+    env_id,
+    native_env_id,
+    observation_shape,
+    horizon,
+):
+    native_spec = gym.spec(native_env_id)
+    registered_spec = gym.spec(env_id)
+    env_spec = HUMANOIDBENCH_ENV_SPECS[task_name]
+    env = gym.make(env_id, render_mode="rgb_array", width=256, height=256)
     try:
         native_env = env.unwrapped
-        observation, reset_info = env.reset(seed=0)
-        action = nominal_stance_action(env)
-        next_observation, _, terminated, truncated, _ = env.step(action)
+        observation, _ = env.reset(seed=0)
+        action = build_noop_action(task_name, env)
+        next_observation, _, _, _, _ = env.step(action.tolist())
         rgb = env.render()
 
-        assert env.spec.max_episode_steps == 1000
-        assert env.action_space == gym.spaces.Box(-1.0, 1.0, shape=(61,), dtype=np.float32)
+        assert env_spec == {
+            "env_id": env_id,
+            "native_env_id": native_env_id,
+            "observation_shape": observation_shape,
+            "max_episode_steps": native_spec.max_episode_steps,
+        }
+        assert native_spec.max_episode_steps == horizon
+        assert registered_spec.max_episode_steps == horizon
+        assert registered_spec.kwargs == {"native_env_id": native_env_id}
+        assert env.action_space == gym.spaces.Box(
+            -1.0,
+            1.0,
+            shape=(61,),
+            dtype=np.float32,
+        )
+        assert actuator_labels(env) == EXPECTED_ACTUATOR_LABELS
         assert env.observation_space == gym.spaces.Box(
             -np.inf,
             np.inf,
-            shape=(177,),
+            shape=observation_shape,
             dtype=np.float64,
         )
         assert native_env.model.opt.timestep == 0.002
         assert native_env.frame_skip == 10
         assert native_env.dt == 0.02
-        assert len(actuator_labels(env)) == 61
-        assert actuator_labels(env)[0] == "left_hip_yaw"
-        assert actuator_labels(env)[-1] == "rh_A_LFJ0"
+        assert 1.0 / native_env.dt == 50.0
         assert env.action_space.contains(action)
-        assert not np.array_equal(action, np.zeros(61, dtype=np.float32))
-        assert observation.shape == (177,)
+        assert observation.shape == observation_shape
         assert observation.dtype == np.float64
-        assert next_observation.shape == (177,)
+        assert next_observation.shape == observation_shape
         assert next_observation.dtype == np.float64
-        assert reset_info == {}
-        assert terminated is False
-        assert truncated is False
         assert rgb.shape == (256, 256, 3)
         assert rgb.dtype == np.uint8
     finally:
         env.close()
 
 
-def test_humanoidbench_wrapper_converts_policy_list_to_native_array():
-    import latency_bench.envs.humanoidbench  # noqa: F401
-
-    env = gym.make(ENV_ID, render_mode="rgb_array", width=256, height=256)
+def test_humanoidbench_basketball_repeated_seeded_reset_is_exact():
+    env_spec = HUMANOIDBENCH_ENV_SPECS["h1hand_basketball"]
+    env = gym.make(env_spec["env_id"], render_mode="rgb_array", width=256, height=256)
     try:
-        env.reset(seed=0)
-        action = nominal_stance_action(env).tolist()
-        observation, _, terminated, truncated, _ = env.step(action)
+        first_observation, _ = env.reset(seed=17)
+        second_observation, _ = env.reset(seed=17)
 
-        assert observation.shape == (177,)
-        assert terminated is False
-        assert truncated is False
+        np.testing.assert_array_equal(second_observation, first_observation)
     finally:
         env.close()
 
 
-def test_humanoidbench_probe_emits_runtime_contract():
-    report = build_probe_report()
-    env_config = build_env_config(report)
+def test_humanoidbench_highbar_constrains_only_thumb_keyframe_controls():
+    task_name = "h1strong_highbar_hard"
+    env_spec = HUMANOIDBENCH_ENV_SPECS[task_name]
+    env = gym.make(env_spec["env_id"], render_mode="rgb_array", width=256, height=256)
+    try:
+        native_env = env.unwrapped
+        labels = actuator_labels(env)
+        thumb_ids = [labels.index(name) for name in ("lh_A_THJ5", "rh_A_THJ5")]
+        keyframe_control = native_env.model.key_ctrl[native_env.keyframe].copy()
+        constrained_control = keyframe_control.copy()
+        constrained_control[thumb_ids] = np.float32(1.0472)
 
-    assert report["action_space"]["shape"] == [61]
-    assert report["observation_space"] == {
-        "type": "Box",
-        "shape": [177],
-        "dtype": "float64",
-    }
-    assert report["render"] == {"shape": [256, 256, 3], "dtype": "uint8"}
-    assert report["timing"] == {
-        "dt_seconds": 0.02,
-        "frame_skip": 10,
-        "model_timestep_seconds": 0.002,
-        "native_env_fps": 50.0,
-    }
-    assert len(env_config["action_space"]["labels"]) == 61
-    assert len(env_config["noop_action"]) == 61
-    assert env_config["registration_imports"] == ["latency_bench.envs.humanoidbench"]
-    assert load_config(CONFIG_DIR / "small_model_train.yaml")["env"] == env_config
+        action = build_noop_action(task_name, env)
+        expected_action = (
+            2.0
+            * (
+                constrained_control.astype(native_env.action_low.dtype)
+                - native_env.action_low
+            )
+            / (native_env.action_high - native_env.action_low)
+            - 1.0
+        ).astype(env.action_space.dtype)
+        changed_ids = np.flatnonzero(constrained_control != keyframe_control).tolist()
+
+        assert keyframe_control[thumb_ids].tolist() == [1.05, 1.05]
+        np.testing.assert_array_equal(
+            native_env.action_high[thumb_ids],
+            np.full(2, 1.0472, dtype=np.float32),
+        )
+        assert changed_ids == thumb_ids
+        np.testing.assert_array_equal(action, expected_action)
+        assert env.action_space.contains(action)
+
+        env.reset(seed=0)
+        env.step(action)
+    finally:
+        env.close()
 
 
 def test_humanoidbench_seeded_reset_and_zero_latency_adapter_parity():
     config = load_config(CONFIG_DIR / "small_model_train.yaml")
     env_config = config["env"]
-    import latency_bench.envs.humanoidbench  # noqa: F401
+    native_env_id = HUMANOIDBENCH_ENV_SPECS["h1hand_balance_hard"]["native_env_id"]
 
-    native_env = gym.make(NATIVE_ENV_ID, **env_config["make_kwargs"])
+    native_env = gym.make(native_env_id, **env_config["make_kwargs"])
     adapter = GymnasiumEnvAdapter(
         env_id=env_config["env_id"],
         registration_imports=env_config["registration_imports"],
