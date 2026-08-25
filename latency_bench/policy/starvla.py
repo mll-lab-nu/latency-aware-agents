@@ -744,6 +744,28 @@ def _load_rl_games_action_decode() -> tuple[Any, Any]:
     return decode_rl_games_actions, resolve_deadly_action_decode_spec
 
 
+def _load_live_policy_norm_processor(
+    *,
+    model_cfg: dict[str, Any],
+    unnorm_key: str | None,
+    robot_type: str,
+) -> Any:
+    _ensure_starvla_path()
+    from deployment.model_server.policy_norm_processor import PolicyNormProcessor
+
+    norm_stats = json.loads(
+        (Path(model_cfg["output_dir"]) / "dataset_statistics.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    return PolicyNormProcessor.from_config(
+        model_cfg=model_cfg,
+        norm_stats=norm_stats,
+        unnorm_key=unnorm_key,
+        robot_type=robot_type,
+    )
+
+
 class LiveStarVlaWrapper:
     """In-process stand-in for ``PolicyServerWrapper`` over a *live* framework.
 
@@ -752,8 +774,8 @@ class LiveStarVlaWrapper:
     This wrapper exposes only the rl_games-mode surface ``StarVlaPolicyRunner``
     uses — ``predict_action`` (framework forward + rl_games decode),
     ``reset_memory`` passthrough, and the ``_model_cfg`` attribute — so no
-    checkpoint reload is needed. The disk-backed ``PolicyNormProcessor`` is never
-    built because rl_games decoding ignores un-normalization stats.
+    checkpoint reload is needed. Gymnasium state and continuous actions still
+    use StarVLA's training-time normalization transform.
     """
 
     def __init__(
@@ -766,12 +788,14 @@ class LiveStarVlaWrapper:
         gymnasium_action_space_type: str = "discrete",
         action_layout: str | None = None,
         multibinary_threshold: float | None = None,
+        gymnasium_norm_processor: Any | None = None,
     ) -> None:
         self._framework = framework
         self._model_cfg = model_cfg
         self._rl_games_env_name = str(env_name)
         self._rl_games_action_env_dim = rl_games_action_env_dim
         self._gymnasium_action_space_type = gymnasium_action_space_type
+        self._gymnasium_norm_processor = gymnasium_norm_processor
         (
             self._decode_rl_games_actions,
             resolve_deadly_action_decode_spec,
@@ -797,14 +821,38 @@ class LiveStarVlaWrapper:
         # unnorm_key is unused in rl_games mode; kept for interface parity.
         del unnorm_key
         profiler = kwargs["profiler"] if "profiler" in kwargs else None
+        if self._rl_games_env_name == "gymnasium":
+            examples = [
+                {
+                    **example,
+                    "state": self._gymnasium_norm_processor.apply_state(
+                        example["state"]
+                    ),
+                }
+                if "state" in example
+                else example
+                for example in examples
+            ]
         out = self._framework.predict_action(examples=examples, **kwargs)
         normalized = np.asarray(out["normalized_actions"])  # (B, T, D)
         decode_kwargs: dict[str, Any] = {}
         if self._rl_games_env_name == "gymnasium":
+            action_values = None
+            if self._gymnasium_action_space_type == "box":
+                action_values = np.stack(
+                    [
+                        self._gymnasium_norm_processor.unapply_actions(
+                            normalized[batch_idx]
+                        )
+                        for batch_idx in range(normalized.shape[0])
+                    ],
+                    axis=0,
+                )
             decode_kwargs["action_env_dim"] = self._rl_games_action_env_dim
             decode_kwargs["gymnasium_action_space_type"] = (
                 self._gymnasium_action_space_type
             )
+            decode_kwargs["action_values"] = action_values
         with _profiler_stage(profiler, "starvla_wrapper_rl_games_decode_ms"):
             return self._decode_rl_games_actions(
                 normalized_actions=normalized,
@@ -869,6 +917,26 @@ def _validate_gymnasium_starvla_contract(
         raise ValueError(
             "StarVLA model action_env_dim does not match the dataset manifest"
         )
+    model_include_state = model_cfg["datasets"]["vla_data"]["include_state"]
+    if manifest["include_state"] != model_include_state:
+        raise ValueError(
+            "StarVLA model include_state does not match the dataset manifest"
+        )
+    if model_include_state:
+        if (
+            model_cfg["framework"]["action_model"]["state_dim"]
+            != manifest["state_dim"]
+        ):
+            raise ValueError(
+                "StarVLA model state_dim does not match the dataset manifest"
+            )
+        if (
+            "state_space" in expected
+            and len(expected["state_space"]["labels"]) != manifest["state_dim"]
+        ):
+            raise ValueError(
+                "Gymnasium state labels do not match the dataset state_dim"
+            )
     return manifest["robot_type"]
 
 
@@ -971,7 +1039,7 @@ def build_live_starvla_policy(
     integration_env_name = env_cfg["name"]
     if integration_env_name == "gymnasium":
         normalized_model_cfg = _normalized_model_cfg(model_cfg)
-        _validate_gymnasium_starvla_contract(
+        robot_type = _validate_gymnasium_starvla_contract(
             env_cfg=env_cfg,
             policy_cfg=policy_cfg,
             model_cfg=normalized_model_cfg,
@@ -998,6 +1066,17 @@ def build_live_starvla_policy(
         action_space = gymnasium_action_space_contract(env_cfg)
         wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
         wrapper_kwargs["gymnasium_action_space_type"] = action_space["type"]
+        if (
+            _include_state_from_model_cfg(normalized_model_cfg)
+            or action_space["type"] == "box"
+        ):
+            wrapper_kwargs["gymnasium_norm_processor"] = (
+                _load_live_policy_norm_processor(
+                    model_cfg=normalized_model_cfg,
+                    unnorm_key=unnorm_key,
+                    robot_type=robot_type,
+                )
+            )
     wrapper = LiveStarVlaWrapper(**wrapper_kwargs)
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])

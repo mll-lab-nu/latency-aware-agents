@@ -44,6 +44,8 @@ def gymnasium_task_contract(env_config: Mapping[str, Any]) -> dict[str, Any]:
         "obs_fps": env_config["obs_fps"],
         "frame_stack": env_config["frame_stack"],
     }
+    if "state_space" in env_config:
+        contract["state_space"] = env_config["state_space"]
     action_space = gymnasium_action_space_contract(env_config)
     if action_space["type"] == "discrete":
         contract.update(

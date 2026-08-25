@@ -625,7 +625,6 @@ def _convert_split(
     image_shape: tuple[int, int, int],
     fps: float,
     reward_field: str,
-    continuous: bool,
     density_weighting: bool = False,
 ) -> dict[str, Any]:
     """Convert one canonical rollout split into a LeRobot dataset directory.
@@ -813,6 +812,12 @@ def convert_canonical_rollout_to_lerobot(
                 state_dim=len(first_row["state"]),
             )
         )
+        if "state_space" in gymnasium_task:
+            state_labels = list(gymnasium_task["state_space"]["labels"])
+            if len(state_labels) != state_dim:
+                raise ValueError(
+                    "gymnasium_task state_space labels do not match canonical state dimension"
+                )
     image_source = first_row["image"]
     with Image.open(io.BytesIO(_png_bytes(image_source))) as image:
         width, height = image.size
@@ -836,7 +841,6 @@ def convert_canonical_rollout_to_lerobot(
         image_shape=image_shape,
         fps=fps,
         reward_field=reward_field,
-        continuous=continuous,
         density_weighting=True,
     )
     val_manifest = _convert_split(
@@ -853,7 +857,6 @@ def convert_canonical_rollout_to_lerobot(
         image_shape=image_shape,
         fps=fps,
         reward_field=reward_field,
-        continuous=continuous,
         density_weighting=False,
     )
     handoff_contract = {

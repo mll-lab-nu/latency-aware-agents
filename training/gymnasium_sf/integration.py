@@ -118,6 +118,21 @@ class ChannelFirstFrameStackWrapper(gym.Wrapper):
         return np.concatenate(self.frames, axis=0), reward, terminated, truncated, info
 
 
+class GymnasiumStateInfoWrapper(gym.Wrapper):
+    """Keep each raw Gymnasium observation beside the policy observation."""
+
+    def reset(self, **kwargs):
+        observation, info = self.env.reset(**kwargs)
+        return observation, {**info, "gymnasium_state": np.asarray(observation).copy()}
+
+    def step(self, action):
+        observation, reward, terminated, truncated, info = self.env.step(action)
+        return observation, reward, terminated, truncated, {
+            **info,
+            "gymnasium_state": np.asarray(observation).copy(),
+        }
+
+
 class GymnasiumActionLatencyWrapper(ActionLatencyWrapper):
     def __init__(self, *args, noop_action: Any, **kwargs):
         super().__init__(*args, **kwargs)
@@ -151,6 +166,7 @@ def make_gymnasium_sf_env(
         import_module(module_name)
 
     env = gym.make(cfg.gym_env_id, **_gymnasium_make_kwargs(cfg))
+    env = GymnasiumStateInfoWrapper(env)
     action_space_contract = _gymnasium_action_space(cfg)
     if action_space_contract["type"] == "discrete":
         env = GymnasiumActionCatalogWrapper(env, _gymnasium_action_values(cfg))
@@ -252,6 +268,7 @@ def add_gymnasium_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--gym-noop-action-id", type=int)
     parser.add_argument("--gym-noop-action-json", type=str, required=True)
     parser.add_argument("--gym-base-prompt", type=str, required=True)
+    parser.add_argument("--gym-state-labels-json", type=str, default="")
     parser.add_argument("--env-fps", dest="env_fps", type=float, required=True)
     parser.add_argument("--obs-fps", dest="obs_fps", type=float, required=True)
     parser.add_argument("--frame-stack", dest="frame_stack", type=int, required=True)
@@ -332,6 +349,12 @@ def build_cli_args_from_config(config: dict[str, Any]) -> list[str]:
         )
         append_cli_arg(args, "--gym-noop-action-id", gymnasium_noop_action_id(env_cfg))
     append_cli_arg(args, "--gym-base-prompt", env_cfg["base_prompt"])
+    if "state_space" in env_cfg:
+        append_cli_arg(
+            args,
+            "--gym-state-labels-json",
+            json.dumps(env_cfg["state_space"]["labels"]),
+        )
     append_cli_arg(args, "--env-fps", env_cfg["env_fps"])
     append_cli_arg(args, "--obs-fps", env_cfg["obs_fps"])
     append_cli_arg(args, "--frame-stack", env_cfg["frame_stack"])

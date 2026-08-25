@@ -56,6 +56,7 @@ def _write_generic_export(
     task_name: str = "mountain_car",
     integration_name: str = "gymnasium",
     include_state: bool = False,
+    state_labels: list[str] | None = None,
 ) -> None:
     from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
     from latency_bench.data.hf_parquet import write_parquet_splits
@@ -94,6 +95,8 @@ def _write_generic_export(
     }
     if include_state:
         metadata["include_state"] = True
+    if state_labels is not None:
+        metadata["gymnasium_task"]["state_space"] = {"labels": state_labels}
     (raw_export / "metadata.json").write_text(
         json.dumps(metadata), encoding="utf-8"
     )
@@ -112,6 +115,7 @@ def _generic_flat_cfg() -> dict:
         "gym_action_labels_json": json.dumps(["PUSH_LEFT", "COAST", "PUSH_RIGHT"]),
         "gym_action_values_json": json.dumps([0, 1, 2]),
         "gym_noop_action_id": 1,
+        "gym_state_labels_json": "",
         "gym_base_prompt": "Drive the car up the hill.",
         "env_fps": 30.0,
         "obs_fps": 10.0,
@@ -183,10 +187,114 @@ def test_generic_teacher_row_uses_explicit_action_spec_and_prompt():
     assert row["env_name"] == "mountain_car"
     assert row["action_id"] == 2
     assert row["action"] == [0.0, 0.0, 1.0]
-    assert row["state"] == [1.0, 2.0]
     assert row["action_text"] == "PUSH_RIGHT"
+    assert row["state"] == [1.0, 2.0]
     assert row["prompt"].startswith("Drive the car up the hill.")
     assert "Current action latency is 3 raw frames (100.00 ms)." in row["prompt"]
+
+
+def test_gymnasium_replay_exports_pre_action_native_state_with_stacked_observations(
+    monkeypatch,
+    tmp_path,
+):
+    import torch
+
+    from latency_bench.data import sf_teacher_rollout
+    from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
+    from latency_bench.data.hf_parquet import iter_episode_rows
+    from latency_bench.data.sf_teacher_drivers import RolloutStepResult
+
+    policy_observations = []
+    step_index = 0
+
+    class Driver:
+        slot_count = 1
+
+        def reset_slots(self, reset_plan):
+            assert reset_plan == {0: 7}
+            return {
+                0: (
+                    {"obs": np.asarray([[0.0, 0.0]], dtype=np.float32)},
+                    {
+                        "gymnasium_state": np.asarray([0.0], dtype=np.float32),
+                        "env_raw_rgb_frame_stack": np.zeros(
+                            (2, 2, 2, 3), dtype=np.uint8
+                        ),
+                    },
+                )
+            }
+
+        def close(self):
+            pass
+
+    def step_teacher_policy(
+        runtime,
+        driver,
+        *,
+        active_slots,
+        active_obs,
+        rnn_states,
+        deterministic,
+        preserve_leading_batch,
+    ):
+        nonlocal step_index
+        policy_observations.append(active_obs[0]["obs"].copy())
+        action_id = (2, 0)[step_index]
+        next_state = float(step_index + 1)
+        result = RolloutStepResult(
+            next_obs={
+                "obs": np.asarray(
+                    [[next_state - 1.0, next_state]], dtype=np.float32
+                )
+            },
+            reward=0.0,
+            terminated=step_index == 1,
+            truncated=False,
+            info={
+                "gymnasium_state": np.asarray([next_state], dtype=np.float32),
+                "env_raw_rgb_frame_stack": np.full(
+                    (2, 2, 2, 3), step_index + 1, dtype=np.uint8
+                ),
+                "latency_raw_frames": 0,
+                "latency_ms": 0.0,
+            },
+        )
+        step_index += 1
+        return [action_id], torch.zeros_like(rnn_states), {0: result}
+
+    monkeypatch.setattr(
+        sf_teacher_rollout,
+        "_step_teacher_policy",
+        step_teacher_policy,
+    )
+    output_dir = tmp_path / "rollout"
+    sf_teacher_rollout._replay_accepted_specs(
+        {"rnn_size": 1, "device": torch.device("cpu")},
+        Driver(),
+        cfg=SimpleNamespace(env_fps=30.0, obs_fps=30.0, frame_stack=2),
+        env_name="mountain_car",
+        output_dir=output_dir,
+        accepted_specs=[{"episode_idx": 0, "split": "val", "seed": 7}],
+        completed_episode_indices=set(),
+        max_steps_per_episode=3,
+        deterministic=True,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+        action_spec=gymnasium_discrete_action_spec(ACTION_LABELS),
+        base_prompt="Drive the car up the hill.",
+        integration_name="gymnasium",
+    )
+
+    rows = list(iter_episode_rows(output_dir, "val"))
+    assert [(row["state"], row["action_id"]) for row in rows] == [
+        ([0.0], 2),
+        ([1.0], 0),
+    ]
+    assert [observation.tolist() for observation in policy_observations] == [
+        [[0.0, 0.0]],
+        [[0.0, 1.0]],
+    ]
 
 
 def test_generic_vector_observations_keep_sample_factory_batch_dimension():
@@ -511,6 +619,45 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
         "lerobot": [["lerobot", 1.0, "rl_games_gymnasium_native"]],
         "lerobot__val": [["lerobot__val", 1.0, "rl_games_gymnasium_native"]],
     }
+
+def test_starvla_lerobot_converter_uses_explicit_gymnasium_state(tmp_path):
+    from latency_bench.data.exporters.starvla_lerobot import (
+        convert_canonical_rollout_to_lerobot,
+    )
+
+    image_path = tmp_path / "image.png"
+    save_test_image(image_path, 7)
+    raw_export = tmp_path / "raw"
+    rows = [
+        _canonical_row(image_path, decision_step=0, state=[-2.0, 1.0]),
+        _canonical_row(image_path, decision_step=1, state=[2.0, 3.0]),
+    ]
+    _write_generic_export(
+        raw_export,
+        rows,
+        task_name="inverted_pendulum_rgb_state",
+        include_state=True,
+        state_labels=["cart_position", "pole_angle"],
+    )
+
+    output_dir = tmp_path / "lerobot"
+    manifest = convert_canonical_rollout_to_lerobot(raw_export, output_dir, force=True)
+    converted = pq.read_table(
+        output_dir / "data/chunk-000/episode_000000.parquet"
+    ).to_pylist()
+
+    assert [row["observation.state"] for row in converted] == [
+        [-2.0, 1.0],
+        [2.0, 3.0],
+    ]
+    assert manifest["include_state"] is True
+    assert manifest["state_dim"] == 2
+    assert "state_labels" not in manifest
+    info = json.loads((output_dir / "meta/info.json").read_text(encoding="utf-8"))
+    assert info["features"]["observation.state"]["names"] == [
+        "cart_position",
+        "pole_angle",
+    ]
 
 
 def test_starvla_lerobot_bridge_carrier_pads_action_and_preserves_native_state(tmp_path):
