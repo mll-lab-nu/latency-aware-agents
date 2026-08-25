@@ -23,6 +23,7 @@ def _canonical_row(
     task_name: str = "mountain_car",
     decision_step: int = 0,
     context_images: list[Path] | None = None,
+    state: list[float] | None = None,
 ) -> dict:
     action = [0.0] * len(ACTION_LABELS)
     action[action_id] = 1.0
@@ -43,6 +44,8 @@ def _canonical_row(
     }
     if context_images is not None:
         row["context_images"] = [str(path) for path in context_images]
+    if state is not None:
+        row["state"] = state
     return row
 
 
@@ -52,12 +55,28 @@ def _write_generic_export(
     *,
     task_name: str = "mountain_car",
     integration_name: str = "gymnasium",
+    state_labels: list[str] | None = None,
 ) -> None:
     from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
     from latency_bench.data.hf_parquet import write_parquet_splits
 
     action_spec = gymnasium_discrete_action_spec(ACTION_LABELS)
     write_parquet_splits(raw_export, train_rows, [], action_spec=action_spec)
+    task_contract = {
+        "task_name": task_name,
+        "env_id": "MountainCar-v0",
+        "make_kwargs": {"render_mode": "rgb_array"},
+        "registration_imports": [],
+        "action_labels": list(action_spec.labels),
+        "action_values": [0, 1, 2],
+        "noop_action_id": 1,
+        "base_prompt": "Drive the car up the hill.",
+        "env_fps": 30.0,
+        "obs_fps": 10.0,
+        "frame_stack": 1,
+    }
+    if state_labels is not None:
+        task_contract["state_space"] = {"labels": state_labels}
     (raw_export / "metadata.json").write_text(
         json.dumps(
             {
@@ -66,19 +85,7 @@ def _write_generic_export(
                 "action_layout": "gymnasium_discrete_v1",
                 "reward_field": "raw_reward",
                 "action_labels": list(action_spec.labels),
-                "gymnasium_task": {
-                    "task_name": task_name,
-                    "env_id": "MountainCar-v0",
-                    "make_kwargs": {"render_mode": "rgb_array"},
-                    "registration_imports": [],
-                    "action_labels": list(action_spec.labels),
-                    "action_values": [0, 1, 2],
-                    "noop_action_id": 1,
-                    "base_prompt": "Drive the car up the hill.",
-                    "env_fps": 30.0,
-                    "obs_fps": 10.0,
-                    "frame_stack": 1,
-                },
+                "gymnasium_task": task_contract,
                 "rows_unit": "decision_step",
                 "obs_fps": 10.0,
                 "obs_stride_raw_frames": 3,
@@ -166,12 +173,14 @@ def test_generic_teacher_row_uses_explicit_action_spec_and_prompt():
         obs_fps=10.0,
         action_spec=action_spec,
         base_prompt="Drive the car up the hill.",
+        state=[0.25, -0.5],
     )
 
     assert row["env_name"] == "mountain_car"
     assert row["action_id"] == 2
     assert row["action"] == [0.0, 0.0, 1.0]
     assert row["action_text"] == "PUSH_RIGHT"
+    assert row["state"] == [0.25, -0.5]
     assert row["prompt"].startswith("Drive the car up the hill.")
     assert "Current action latency is 3 raw frames (100.00 ms)." in row["prompt"]
 
@@ -497,6 +506,45 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
     assert mixtures == {
         "lerobot": [["lerobot", 1.0, "rl_games_gymnasium"]],
         "lerobot__val": [["lerobot__val", 1.0, "rl_games_gymnasium"]],
+    }
+
+
+def test_starvla_lerobot_converter_uses_explicit_gymnasium_state(tmp_path):
+    from latency_bench.data.exporters.starvla_lerobot import (
+        convert_canonical_rollout_to_lerobot,
+    )
+
+    image_path = tmp_path / "image.png"
+    save_test_image(image_path, 7)
+    raw_export = tmp_path / "raw"
+    rows = [
+        _canonical_row(image_path, decision_step=0, state=[-2.0, 1.0]),
+        _canonical_row(image_path, decision_step=1, state=[2.0, 3.0]),
+    ]
+    _write_generic_export(
+        raw_export,
+        rows,
+        task_name="inverted_pendulum_rgb_state",
+        state_labels=["cart_position", "pole_angle"],
+    )
+
+    output_dir = tmp_path / "lerobot"
+    manifest = convert_canonical_rollout_to_lerobot(raw_export, output_dir, force=True)
+    converted = pq.read_table(
+        output_dir / "data/chunk-000/episode_000000.parquet"
+    ).to_pylist()
+
+    assert [row["observation.state"] for row in converted] == [
+        [-1.0, -1.0],
+        [1.0, 1.0],
+    ]
+    assert manifest["uses_state"] is True
+    assert manifest["state_dim"] == 2
+    assert manifest["state_labels"] == ["cart_position", "pole_angle"]
+    assert manifest["state_normalization"] == {
+        "type": "min_max",
+        "min": [-2.0, 1.0],
+        "max": [2.0, 3.0],
     }
 
 
