@@ -280,6 +280,7 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
         [0.0] * 275,
         [index / 275.0 for index in range(275)],
     ]
+    state = [float(index) for index in range(177)]
     rows = [
         {
             "image": str(image_path),
@@ -293,17 +294,26 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
             "latency_ms": 10.0,
             "raw_reward": 0.0,
             "action": action,
+            "state": state,
             "action_text": "continuous_control",
         }
         for step, action in enumerate(actions)
     ]
     raw_export = tmp_path / "raw"
-    write_parquet_splits(raw_export, rows, [], action_spec=action_spec)
+    write_parquet_splits(
+        raw_export,
+        rows,
+        [],
+        action_spec=action_spec,
+        include_state=True,
+    )
     (raw_export / "metadata.json").write_text(
         json.dumps(
             {
                 "env_name": "myochallenge_table_tennis_p2",
                 "integration_name": "gymnasium",
+                "schema_version": 3,
+                "include_state": True,
                 "action_layout": "gymnasium_continuous_v1",
                 "reward_field": "raw_reward",
                 "action_labels": action_labels,
@@ -354,14 +364,17 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
     assert manifest["format"] == "lerobot_v2_image_parquet"
     assert manifest["action_dim"] == 275
     assert manifest["active_action_dim"] == 275
+    assert manifest["state_dim"] == 177
     assert manifest["carrier_action_labels"] == action_labels
     assert rows_out[0]["action"] == [0.0] * 275
     assert rows_out[1]["action"] == pytest.approx(actions[1])
+    assert rows_out[0]["observation.state"] == state
     assert info["features"]["action"]["shape"] == [275]
     assert info["features"]["action"]["names"] == action_labels
+    assert info["features"]["observation.state"]["shape"] == [177]
     assert [row["timestamp"] for row in rows_out] == pytest.approx([0.0, 0.01])
-    assert not stale_modality.exists()
-    assert not stale_val_modality.exists()
+    assert stale_modality.exists()
+    assert stale_val_modality.exists()
     assert not stale_prompt_map.exists()
     assert not stale_mixture.exists()
     for output_manifest in (manifest, validation_manifest):
@@ -389,4 +402,50 @@ def test_starvla_lerobot_exporter_rejects_unknown_gymnasium_action_layout(tmp_pa
     )
 
     with pytest.raises(ValueError, match="Unsupported Gymnasium action_layout"):
+        convert_canonical_rollout_to_lerobot(raw_export, tmp_path / "lerobot")
+
+
+def test_starvla_lerobot_exporter_rejects_unknown_gymnasium_schema_version(tmp_path):
+    from latency_bench.data.exporters.starvla_lerobot import (
+        convert_canonical_rollout_to_lerobot,
+    )
+
+    raw_export = tmp_path / "raw"
+    raw_export.mkdir()
+    (raw_export / "metadata.json").write_text(
+        json.dumps(
+            {
+                "env_name": "unknown_task",
+                "integration_name": "gymnasium",
+                "schema_version": 99,
+                "action_layout": "gymnasium_continuous_v1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Unsupported Gymnasium schema_version=99"):
+        convert_canonical_rollout_to_lerobot(raw_export, tmp_path / "lerobot")
+
+
+def test_starvla_lerobot_exporter_requires_include_state_for_schema_v3(tmp_path):
+    from latency_bench.data.exporters.starvla_lerobot import (
+        convert_canonical_rollout_to_lerobot,
+    )
+
+    raw_export = tmp_path / "raw"
+    raw_export.mkdir()
+    (raw_export / "metadata.json").write_text(
+        json.dumps(
+            {
+                "env_name": "unknown_task",
+                "integration_name": "gymnasium",
+                "schema_version": 3,
+                "action_layout": "gymnasium_continuous_v1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(KeyError, match="include_state"):
         convert_canonical_rollout_to_lerobot(raw_export, tmp_path / "lerobot")

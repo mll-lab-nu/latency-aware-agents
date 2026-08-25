@@ -191,6 +191,7 @@ def export_sample_factory_teacher_dataset(
     write_parquet_splits_from_shards(
         output_dir,
         action_spec=action_spec,
+        include_state=config["integration_name"] == "gymnasium",
         keep_dataset=False,
     )
     metadata = {
@@ -226,6 +227,7 @@ def export_sample_factory_teacher_dataset(
         "val_episodes": split_stats["val_episodes"],
         "total_episodes": split_stats["total_episodes"],
         "image_resolution": shard_image_metadata["image_resolution"],
+        "include_state": config["integration_name"] == "gymnasium",
     }
     if config["integration_name"] == "gymnasium":
         metadata["integration_name"] = "gymnasium"

@@ -27,9 +27,11 @@ class GenericPolicyServerWrapper:
         rl_games_action_layout=None,
         rl_games_multibinary_threshold=None,
         rl_games_action_env_dim=None,
+        rl_games_gymnasium_action_space_type=None,
     ):
         self.rl_games_env_name = rl_games_env_name
         self.rl_games_action_env_dim = rl_games_action_env_dim
+        self.rl_games_gymnasium_action_space_type = rl_games_gymnasium_action_space_type
         self.calls = []
         self._model_cfg = {
             "datasets": {"vla_data": {"include_state": False}},
@@ -39,6 +41,15 @@ class GenericPolicyServerWrapper:
 
     def predict_action(self, examples, unnorm_key=None, **kwargs):
         self.calls.append({"examples": examples, "unnorm_key": unnorm_key, "kwargs": kwargs})
+        if self.rl_games_gymnasium_action_space_type == "box":
+            actions = np.zeros(
+                (len(examples), 1, self.rl_games_action_env_dim), dtype=np.float32
+            )
+            return {
+                "actions": actions,
+                "raw_action_scores": actions,
+                "action_output_type": "rl_games_continuous",
+            }
         return {
             "actions": np.asarray([[[0]]] * len(examples), dtype=np.int64),
             "raw_action_scores": np.asarray(
@@ -95,11 +106,11 @@ def _generic_config(tmp_path: Path) -> dict:
                 "rl_games": {"gymnasium": {"task_contract": contract}},
                 "datasets": {
                     "vla_data": {
-                        "include_state": False,
+                        "include_state": True,
                         "gymnasium_task_contract": contract,
                     }
                 },
-                "framework": {"action_model": {"action_env_dim": 3}},
+                "framework": {"action_model": {"action_env_dim": 3, "state_dim": 2}},
             }
         ),
         encoding="utf-8",
@@ -119,7 +130,7 @@ def _generic_config(tmp_path: Path) -> dict:
 
 def _observation(metadata: dict | None = None) -> Observation:
     return Observation(
-        data=np.zeros((2,), dtype=np.float32),
+        data=np.asarray([1.25, -2.5], dtype=np.float32),
         env_step=0,
         sim_time_ms=0.0,
         metadata={
@@ -159,11 +170,61 @@ def test_generic_checkpoint_policy_separates_integration_task_and_native_action(
     wrapper = GenericPolicyServerWrapper.instances[0]
     assert wrapper.rl_games_env_name == "gymnasium"
     assert wrapper.rl_games_action_env_dim == 3
+    assert wrapper.rl_games_gymnasium_action_space_type == "discrete"
     assert policy._env_name == "mountain_car"
-    assert wrapper.calls[0]["examples"][0]["lang"] == "Drive the car up the mountain."
+    example = wrapper.calls[0]["examples"][0]
+    assert example["lang"] == "Drive the car up the mountain."
+    np.testing.assert_array_equal(
+        example["state"], np.asarray([[1.25, -2.5]], dtype=np.float32)
+    )
     assert output.action.name == "push_right"
     assert output.action.value == 2
     assert output.metadata["raw_action_id"] == 0
+
+
+def test_h1_checkpoint_policy_passes_native_state_and_box_contract(monkeypatch):
+    from latency_bench.core.config import load_config
+    from latency_bench.policy import starvla
+
+    GenericPolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
+    monkeypatch.setattr(starvla, "_normalized_model_cfg", lambda model_cfg: model_cfg)
+    config = load_config(
+        "configs/examples/gymnasium/h1hand_balance_hard/starvla_eval.yaml"
+    )
+    contract = gymnasium_task_contract(config["env"])
+    model_cfg = {
+        "datasets": {
+            "vla_data": {
+                "include_state": True,
+                "gymnasium_task_contract": contract,
+            }
+        },
+        "framework": {"action_model": {"action_env_dim": 61, "state_dim": 177}},
+    }
+    monkeypatch.setattr(starvla, "_load_starvla_model_config", lambda path: model_cfg)
+    monkeypatch.setattr(starvla, "_validate_gymnasium_starvla_contract", lambda **kwargs: None)
+    state = np.arange(177, dtype=np.float32)
+
+    policy = build_policy(config, ActionResolver(config["env"]))
+    output = policy.predict(
+        Observation(
+            data=state,
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={
+                "env_raw_rgb_frame_stack": np.zeros((8, 8, 3), dtype=np.uint8)
+            },
+        )
+    )
+
+    wrapper = GenericPolicyServerWrapper.instances[0]
+    assert wrapper.rl_games_action_env_dim == 61
+    assert wrapper.rl_games_gymnasium_action_space_type == "box"
+    np.testing.assert_array_equal(
+        wrapper.calls[0]["examples"][0]["state"], state.reshape(1, -1)
+    )
+    assert output.action.value == [0.0] * 61
 
 
 def test_generic_policy_allows_eval_only_reset_wrapper_overrides(
@@ -235,15 +296,17 @@ def test_generic_live_policy_passes_action_dim_to_decoder_and_decodes_native_val
         *,
         normalized_actions,
         env_name,
-        deadly_action_layout,
-        deadly_multibinary_threshold,
-        action_env_dim,
-    ):
+            deadly_action_layout,
+            deadly_multibinary_threshold,
+            action_env_dim,
+            gymnasium_action_space_type,
+        ):
         decode_calls.append(
             {
-                "env_name": env_name,
-                "action_env_dim": action_env_dim,
-                "normalized_actions": normalized_actions,
+                    "env_name": env_name,
+                    "action_env_dim": action_env_dim,
+                    "gymnasium_action_space_type": gymnasium_action_space_type,
+                    "normalized_actions": normalized_actions,
             }
         )
         actions = np.argmax(
@@ -285,7 +348,12 @@ def test_generic_live_policy_passes_action_dim_to_decoder_and_decodes_native_val
     assert policy._wrapper._rl_games_action_env_dim == 3
     assert decode_calls[0]["env_name"] == "gymnasium"
     assert decode_calls[0]["action_env_dim"] == 3
+    assert decode_calls[0]["gymnasium_action_space_type"] == "discrete"
     assert framework.calls[0]["examples"][0]["lang"] == "Drive the car up the mountain."
+    np.testing.assert_array_equal(
+        framework.calls[0]["examples"][0]["state"],
+        np.asarray([[1.25, -2.5]], dtype=np.float32),
+    )
     assert output.action.name == "push_right"
     assert output.action.value == 2
 

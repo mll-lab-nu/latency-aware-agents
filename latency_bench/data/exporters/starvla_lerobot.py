@@ -35,9 +35,17 @@ _ROBOT_TYPES_BY_ENV = {
 def _action_carrier_spec(
     action_labels: list[str],
     action_carrier: str,
+    *,
+    state_dim: int | None = None,
 ) -> tuple[list[str], int, int, list[str]]:
     if action_carrier == "native":
-        return action_labels, len(action_labels), STATE_DIM, ["state"]
+        resolved_state_dim = STATE_DIM if state_dim is None else state_dim
+        state_labels = (
+            ["state"]
+            if resolved_state_dim == STATE_DIM
+            else [f"state_{index}" for index in range(resolved_state_dim)]
+        )
+        return action_labels, len(action_labels), resolved_state_dim, state_labels
     if action_carrier != "bridge":
         raise ValueError(f"Unsupported action_carrier={action_carrier!r}")
     if len(action_labels) > BRIDGE_ACTION_DIM:
@@ -52,8 +60,13 @@ def _action_carrier_spec(
             for index in range(len(action_labels), BRIDGE_ACTION_DIM)
         ),
     ]
-    state_labels = [f"BRIDGE_STATE_{index}" for index in range(BRIDGE_ACTION_DIM)]
-    return carrier_labels, len(action_labels), BRIDGE_ACTION_DIM, state_labels
+    resolved_state_dim = BRIDGE_ACTION_DIM if state_dim is None else state_dim
+    state_labels = (
+        [f"BRIDGE_STATE_{index}" for index in range(BRIDGE_ACTION_DIM)]
+        if state_dim is None
+        else [f"state_{index}" for index in range(resolved_state_dim)]
+    )
+    return carrier_labels, len(action_labels), resolved_state_dim, state_labels
 
 
 def _robot_type_for_env(env_name: str, integration_name: str) -> str:
@@ -396,6 +409,7 @@ def _write_episode(
     *,
     action_dim: int,
     state_dim: int,
+    include_state: bool,
 ) -> None:
     """Write one LeRobot episode parquet file.
 
@@ -411,7 +425,7 @@ def _write_episode(
             type=pa.struct([("bytes", pa.binary()), ("path", pa.string())]),
         ),
         "observation.state": pa.array(
-            [[0.0] * state_dim for _ in rows],
+            [row["state"] if include_state else [0.0] * state_dim for row in rows],
             type=pa.list_(pa.float32(), state_dim),
         ),
         "action": pa.array(
@@ -488,6 +502,7 @@ def _write_metadata(
     state_labels: list[str],
     context_image_count: int | None,
     continuous: bool,
+    include_state: bool,
 ) -> None:
     """Write minimal LeRobot metadata files for a split dataset.
 
@@ -551,12 +566,12 @@ def _write_metadata(
         ),
         encoding="utf-8",
     )
-    if not continuous:
+    if not continuous or include_state:
         (meta_dir / "modality.json").write_text(
             json.dumps(
                 {
                     "state": {
-                        "game_state": {
+                        "native": {
                             "start": 0,
                             "end": state_dim,
                             "dtype": "float32",
@@ -565,7 +580,7 @@ def _write_metadata(
                         }
                     },
                     "action": {
-                        "button": {
+                        "native": {
                             "start": 0,
                             "end": action_dim,
                             "dtype": "float32",
@@ -610,6 +625,7 @@ def _convert_split(
     active_action_dim: int,
     state_dim: int,
     state_labels: list[str],
+    include_state: bool,
     context_image_count: int | None,
     image_shape: tuple[int, int, int],
     fps: float,
@@ -670,6 +686,8 @@ def _convert_split(
             }
             if "action_id" in row:
                 out_row["action_id"] = int(row["action_id"])
+            if include_state:
+                out_row["state"] = row["state"]
             if "context_images" in row and row["context_images"] is not None:
                 out_row["context_image_bytes"] = [
                     _png_bytes(image) for image in row["context_images"]
@@ -683,6 +701,7 @@ def _convert_split(
             out_rows,
             action_dim=len(action_labels),
             state_dim=state_dim,
+            include_state=include_state,
         )
     _write_metadata(
         output_dir,
@@ -695,6 +714,7 @@ def _convert_split(
         state_labels=state_labels,
         context_image_count=context_image_count,
         continuous=continuous,
+        include_state=include_state,
     )
     return {
         "dataset_name": output_dir.name,
@@ -744,6 +764,10 @@ def convert_canonical_rollout_to_lerobot(
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
     ):
         raise ValueError(f"Unsupported Gymnasium action_layout={action_layout!r}")
+    schema_version = metadata["schema_version"]
+    if schema_version not in (2, 3):
+        raise ValueError(f"Unsupported Gymnasium schema_version={schema_version!r}")
+    include_state = metadata["include_state"] if schema_version == 3 else False
     active_action_labels = list(metadata["action_labels"])
     gymnasium_task = metadata["gymnasium_task"]
     if env_name != gymnasium_task["task_name"]:
@@ -760,10 +784,10 @@ def convert_canonical_rollout_to_lerobot(
         raise ValueError(
             "Canonical Gymnasium action_labels do not match gymnasium_task action-space labels"
         )
-    action_labels, active_action_dim, state_dim, state_labels = _action_carrier_spec(
-        active_action_labels,
-        action_carrier,
-    )
+    if not include_state:
+        action_labels, active_action_dim, state_dim, state_labels = (
+            _action_carrier_spec(active_action_labels, action_carrier)
+        )
     reward_field = str(metadata["reward_field"])
     rows_unit = metadata["rows_unit"]
     if rows_unit != "decision_step":
@@ -788,6 +812,14 @@ def convert_canonical_rollout_to_lerobot(
     train_rows = _load_rows(raw_export_dir, "train")
     val_rows = _load_rows(raw_export_dir, "val")
     first_row = (train_rows or val_rows)[0]
+    if include_state:
+        action_labels, active_action_dim, state_dim, state_labels = (
+            _action_carrier_spec(
+                active_action_labels,
+                action_carrier,
+                state_dim=len(first_row["state"]),
+            )
+        )
     image_source = first_row["image"]
     with Image.open(io.BytesIO(_png_bytes(image_source))) as image:
         width, height = image.size
@@ -806,6 +838,7 @@ def convert_canonical_rollout_to_lerobot(
         active_action_dim=active_action_dim,
         state_dim=state_dim,
         state_labels=state_labels,
+        include_state=include_state,
         context_image_count=context_image_count,
         image_shape=image_shape,
         fps=fps,
@@ -822,6 +855,7 @@ def convert_canonical_rollout_to_lerobot(
         active_action_dim=active_action_dim,
         state_dim=state_dim,
         state_labels=state_labels,
+        include_state=include_state,
         context_image_count=context_image_count,
         image_shape=image_shape,
         fps=fps,
@@ -847,6 +881,8 @@ def convert_canonical_rollout_to_lerobot(
         "rows_unit": rows_unit,
         "obs_fps": fps,
         "obs_stride_raw_frames": obs_stride,
+        "include_state": include_state,
+        "state_dim": state_dim,
     }
     if not continuous:
         prompt_map_path, mixture_path = _write_starvla_handoff_files(

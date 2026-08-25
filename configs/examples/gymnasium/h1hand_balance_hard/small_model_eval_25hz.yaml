@@ -1,0 +1,10 @@
+__base__: small_model_eval.yaml
+
+experiment:
+  name: gymnasium_h1hand_balance_hard_zero_latency_25hz_eval
+
+env:
+  obs_fps: 25.0
+
+logging:
+  output_dir: outputs/examples/gymnasium/h1hand_balance_hard/eval_25hz

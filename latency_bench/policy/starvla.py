@@ -115,8 +115,11 @@ class StarVlaPolicyRunner(PolicyRunner):
             else _normalized_model_cfg(model_cfg)
         )
         self._include_state = _include_state_from_model_cfg(model_cfg)
-        self._state_dim = _state_dim_from_model_cfg(model_cfg) if self._include_state else None
-        vla_data = (model_cfg.get("datasets", {}) or {}).get("vla_data", {}) or {}
+        self._state_dim = (
+            _state_dim_from_model_cfg(model_cfg) if self._include_state else None
+        )
+        vla_data = model_cfg["datasets"]["vla_data"]
+        self._uses_native_state = "gymnasium_task_contract" in vla_data
         self._pack_image_sequence = (
             bool(vla_data["pack_image_sequence"])
             if "pack_image_sequence" in vla_data
@@ -257,7 +260,11 @@ class StarVlaPolicyRunner(PolicyRunner):
         elif "slot_id" in observation.metadata:
             example["slot_id"] = observation.metadata["slot_id"]
         if self._include_state:
-            example["state"] = np.zeros((1, self._state_dim), dtype=np.float32)
+            if self._uses_native_state:
+                state = np.asarray(observation.data, dtype=np.float32)
+                example["state"] = state.reshape(1, -1) if state.ndim == 1 else state
+            else:
+                example["state"] = np.zeros((1, self._state_dim), dtype=np.float32)
         return example
 
     def _transformed_frame(
@@ -795,8 +802,9 @@ class LiveStarVlaWrapper:
         decode_kwargs: dict[str, Any] = {}
         if self._rl_games_env_name == "gymnasium":
             decode_kwargs["action_env_dim"] = self._rl_games_action_env_dim
-            if self._gymnasium_action_space_type == "box":
-                decode_kwargs["gymnasium_action_space_type"] = "box"
+            decode_kwargs["gymnasium_action_space_type"] = (
+                self._gymnasium_action_space_type
+            )
         with _profiler_stage(profiler, "starvla_wrapper_rl_games_decode_ms"):
             return self._decode_rl_games_actions(
                 normalized_actions=normalized,
@@ -905,8 +913,7 @@ def build_starvla_policy(
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
         wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
-        if action_space["type"] == "box":
-            wrapper_kwargs["rl_games_gymnasium_action_space_type"] = "box"
+        wrapper_kwargs["rl_games_gymnasium_action_space_type"] = action_space["type"]
     wrapper = wrapper_cls(**wrapper_kwargs)
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
@@ -988,8 +995,7 @@ def build_live_starvla_policy(
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
         wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
-        if action_space["type"] == "box":
-            wrapper_kwargs["gymnasium_action_space_type"] = "box"
+        wrapper_kwargs["gymnasium_action_space_type"] = action_space["type"]
     wrapper = LiveStarVlaWrapper(**wrapper_kwargs)
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])

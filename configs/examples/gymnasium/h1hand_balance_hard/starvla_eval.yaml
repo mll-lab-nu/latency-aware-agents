@@ -1,12 +1,15 @@
 __base__: latency_bench_eval.yaml
 
+env:
+  obs_fps: 25.0
+
 experiment:
   name: gymnasium_h1hand_balance_hard_starvla_not_run
 
 policy:
   type: starvla
-  checkpoint_path: third_party/starVLA/results/Checkpoints/h1hand_balance_hard/checkpoint.safetensors
-  model_config_path: third_party/starVLA/results/Checkpoints/h1hand_balance_hard/config.full.yaml
+  checkpoint_path: third_party/starVLA/results/Checkpoints/h1hand_balance_hard_qwen_gr00t/checkpoints/steps_100000_state
+  model_config_path: third_party/starVLA/results/Checkpoints/h1hand_balance_hard_qwen_gr00t/config.full.yaml
   task_manifest_path: third_party/starVLA/playground/Datasets/rl_games/h1hand_balance_hard/manifest.json
   device: cuda
 

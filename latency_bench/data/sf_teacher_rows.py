@@ -17,6 +17,7 @@ def teacher_dataset_row(
     decision_step: int,
     image: str,
     raw_action: Any,
+    state: Any | None = None,
     info: Mapping[str, Any],
     reward: Any,
     env_fps: float,
@@ -33,6 +34,7 @@ def teacher_dataset_row(
         decision_step: Zero-based policy decision step within the episode.
         image: Path to the saved pre-step image.
         raw_action: Raw teacher action for this decision.
+        state: Optional pre-decision native observation state.
         info: Environment step info after applying the action.
         reward: Reward returned by the environment step.
         env_fps: Raw environment FPS.
@@ -71,4 +73,6 @@ def teacher_dataset_row(
     row = {field: base_values[field] for field in CANONICAL_ROW_FIELDS}
     row[resolved_action_spec.reward_field] = base_values[resolved_action_spec.reward_field]
     row.update(encode_action_for_env(env_name, raw_action, action_spec=resolved_action_spec))
+    if state is not None:
+        row["state"] = state.reshape(-1).tolist()
     return row

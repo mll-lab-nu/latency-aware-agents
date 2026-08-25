@@ -23,6 +23,7 @@ def _canonical_row(
     task_name: str = "mountain_car",
     decision_step: int = 0,
     context_images: list[Path] | None = None,
+    state: list[float] | None = None,
 ) -> dict:
     action = [0.0] * len(ACTION_LABELS)
     action[action_id] = 1.0
@@ -43,6 +44,8 @@ def _canonical_row(
     }
     if context_images is not None:
         row["context_images"] = [str(path) for path in context_images]
+    if state is not None:
+        row["state"] = state
     return row
 
 
@@ -52,39 +55,47 @@ def _write_generic_export(
     *,
     task_name: str = "mountain_car",
     integration_name: str = "gymnasium",
+    include_state: bool = False,
 ) -> None:
     from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
     from latency_bench.data.hf_parquet import write_parquet_splits
 
     action_spec = gymnasium_discrete_action_spec(ACTION_LABELS)
-    write_parquet_splits(raw_export, train_rows, [], action_spec=action_spec)
+    write_parquet_splits(
+        raw_export,
+        train_rows,
+        [],
+        action_spec=action_spec,
+        include_state=include_state,
+    )
+    metadata = {
+        "env_name": task_name,
+        "integration_name": integration_name,
+        "schema_version": 3 if include_state else 2,
+        "action_layout": "gymnasium_discrete_v1",
+        "reward_field": "raw_reward",
+        "action_labels": list(action_spec.labels),
+        "gymnasium_task": {
+            "task_name": task_name,
+            "env_id": "MountainCar-v0",
+            "make_kwargs": {"render_mode": "rgb_array"},
+            "registration_imports": [],
+            "action_labels": list(action_spec.labels),
+            "action_values": [0, 1, 2],
+            "noop_action_id": 1,
+            "base_prompt": "Drive the car up the hill.",
+            "env_fps": 30.0,
+            "obs_fps": 10.0,
+            "frame_stack": 1,
+        },
+        "rows_unit": "decision_step",
+        "obs_fps": 10.0,
+        "obs_stride_raw_frames": 3,
+    }
+    if include_state:
+        metadata["include_state"] = True
     (raw_export / "metadata.json").write_text(
-        json.dumps(
-            {
-                "env_name": task_name,
-                "integration_name": integration_name,
-                "action_layout": "gymnasium_discrete_v1",
-                "reward_field": "raw_reward",
-                "action_labels": list(action_spec.labels),
-                "gymnasium_task": {
-                    "task_name": task_name,
-                    "env_id": "MountainCar-v0",
-                    "make_kwargs": {"render_mode": "rgb_array"},
-                    "registration_imports": [],
-                    "action_labels": list(action_spec.labels),
-                    "action_values": [0, 1, 2],
-                    "noop_action_id": 1,
-                    "base_prompt": "Drive the car up the hill.",
-                    "env_fps": 30.0,
-                    "obs_fps": 10.0,
-                    "frame_stack": 1,
-                },
-                "rows_unit": "decision_step",
-                "obs_fps": 10.0,
-                "obs_stride_raw_frames": 3,
-            }
-        ),
-        encoding="utf-8",
+        json.dumps(metadata), encoding="utf-8"
     )
 
 
@@ -160,6 +171,7 @@ def test_generic_teacher_row_uses_explicit_action_spec_and_prompt():
         decision_step=4,
         image="frame.png",
         raw_action=2,
+        state=np.asarray([1.0, 2.0], dtype=np.float64),
         info={"latency_raw_frames": 3, "latency_ms": 100.0},
         reward=-1.0,
         env_fps=30.0,
@@ -171,6 +183,7 @@ def test_generic_teacher_row_uses_explicit_action_spec_and_prompt():
     assert row["env_name"] == "mountain_car"
     assert row["action_id"] == 2
     assert row["action"] == [0.0, 0.0, 1.0]
+    assert row["state"] == [1.0, 2.0]
     assert row["action_text"] == "PUSH_RIGHT"
     assert row["prompt"].startswith("Drive the car up the hill.")
     assert "Current action latency is 3 raw frames (100.00 ms)." in row["prompt"]
@@ -467,7 +480,7 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
     assert info["features"]["latency"] == {"dtype": "int64", "shape": [1]}
     assert modality == {
         "state": {
-            "game_state": {
+            "native": {
                 "start": 0,
                 "end": 1,
                 "dtype": "float32",
@@ -476,7 +489,7 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
             }
         },
         "action": {
-            "button": {
+            "native": {
                 "start": 0,
                 "end": 3,
                 "dtype": "float32",
@@ -500,7 +513,7 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
     }
 
 
-def test_starvla_lerobot_bridge_carrier_pads_action_and_state_to_seven(tmp_path):
+def test_starvla_lerobot_bridge_carrier_pads_action_and_preserves_native_state(tmp_path):
     from latency_bench.data.exporters.starvla_lerobot import (
         convert_canonical_rollout_to_lerobot,
     )
@@ -508,7 +521,12 @@ def test_starvla_lerobot_bridge_carrier_pads_action_and_state_to_seven(tmp_path)
     image_path = tmp_path / "image.png"
     save_test_image(image_path, 7)
     raw_export = tmp_path / "raw"
-    _write_generic_export(raw_export, [_canonical_row(image_path, action_id=2)])
+    state = [float(index) for index in range(17)]
+    _write_generic_export(
+        raw_export,
+        [_canonical_row(image_path, action_id=2, state=state)],
+        include_state=True,
+    )
 
     output_dir = tmp_path / "lerobot"
     manifest = convert_canonical_rollout_to_lerobot(
@@ -533,12 +551,12 @@ def test_starvla_lerobot_bridge_carrier_pads_action_and_state_to_seven(tmp_path)
         "BRIDGE_PAD_6",
     ]
     assert row["action"] == [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
-    assert row["observation.state"] == [0.0] * 7
+    assert row["observation.state"] == state
     assert info["features"]["action"]["shape"] == [7]
     assert info["features"]["observation.state"] == {
         "dtype": "float32",
-        "shape": [7],
-        "names": [f"BRIDGE_STATE_{index}" for index in range(7)],
+        "shape": [17],
+        "names": [f"state_{index}" for index in range(17)],
     }
 
 
@@ -555,6 +573,7 @@ def test_starvla_lerobot_bridge_carrier_rejects_more_than_seven_actions(tmp_path
             {
                 "env_name": "eight_action_task",
                 "integration_name": "gymnasium",
+                "schema_version": 2,
                 "action_layout": "gymnasium_discrete_v1",
                 "action_labels": action_labels,
                 "gymnasium_task": {

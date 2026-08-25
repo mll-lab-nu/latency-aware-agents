@@ -203,12 +203,16 @@ def test_humanoidbench_seeded_reset_and_zero_latency_adapter_parity():
 
 
 def test_humanoidbench_configs_and_sample_factory_keep_box_61_contract():
-    config_paths = sorted(CONFIG_DIR.glob("*.yaml"))
-    configs = [load_config(path) for path in config_paths]
-    env_config = configs[0]["env"]
+    env_config = load_config(CONFIG_DIR / "small_model_train.yaml")["env"]
 
-    assert len(config_paths) == 4
-    assert all(config["env"] == env_config for config in configs[1:])
+    for name in ("small_model_eval.yaml", "latency_bench_eval.yaml"):
+        assert load_config(CONFIG_DIR / name)["env"] == env_config
+    for name in (
+        "small_model_train_25hz.yaml",
+        "small_model_eval_25hz.yaml",
+        "starvla_eval.yaml",
+    ):
+        assert load_config(CONFIG_DIR / name)["env"] == {**env_config, "obs_fps": 25.0}
     assert env_config["env_fps"] == 50.0
     assert env_config["obs_fps"] == 50.0
     assert env_config["frame_stack"] == 1

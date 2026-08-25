@@ -949,6 +949,11 @@ def _replay_accepted_specs(
                             decision_step=decision_step,
                             image=str(image_path),
                             raw_action=raw_actions[batch_idx],
+                            state=(
+                                active_obs[slot]["obs"]
+                                if integration_name == "gymnasium"
+                                else None
+                            ),
                             info=step_result.info,
                             reward=step_result.reward,
                             env_fps=env_fps,
