@@ -20,6 +20,7 @@ from training.gymnasium_sf.integration import (
     ChannelFirstFrameStackWrapper,
     GymnasiumActionCatalogWrapper,
     GymnasiumActionLatencyWrapper,
+    GymnasiumStateInfoWrapper,
     SAMPLE_FACTORY_CONFIG_PARSER,
     build_cli_args_from_config,
     make_reference_env,
@@ -95,6 +96,25 @@ def test_task_contract_uses_explicit_action_order_and_noop_position():
     assert gymnasium_noop_action_id(env_cfg) == 1
 
 
+def test_inverted_pendulum_rgb_state_adaptation_declares_state_contract():
+    config = load_config(
+        "configs/examples/gymnasium/inverted_pendulum_rgb_state/small_model_train.yaml"
+    )
+    args = build_cli_args_from_config(config)
+
+    assert config["env"]["task_name"] == "inverted_pendulum_rgb_state"
+    assert config["env"]["state_space"]["labels"] == [
+        "cart_position",
+        "pole_angle",
+        "cart_velocity",
+        "pole_angular_velocity",
+    ]
+    state_arg = args[args.index("--gym-state-labels-json") + 1]
+    assert state_arg == (
+        '["cart_position", "pole_angle", "cart_velocity", "pole_angular_velocity"]'
+    )
+
+
 def test_action_catalog_and_latency_decode_nonzero_noop_to_native_action():
     native_env = _NativeActionTraceEnv()
     env = GymnasiumActionCatalogWrapper(native_env, [10, 20, 30])
@@ -126,6 +146,16 @@ def test_channel_first_frame_stack_repeats_reset_and_appends_new_frame():
     np.testing.assert_array_equal(reset_observation, np.zeros((4, 2, 2), dtype=np.uint8))
     np.testing.assert_array_equal(next_observation[:3], np.zeros((3, 2, 2), dtype=np.uint8))
     np.testing.assert_array_equal(next_observation[3], np.ones((2, 2), dtype=np.uint8))
+
+
+def test_gymnasium_state_info_wrapper_preserves_numeric_observation():
+    env = GymnasiumStateInfoWrapper(_NativeActionTraceEnv())
+
+    reset_observation, reset_info = env.reset(seed=3)
+    next_observation, *_, step_info = env.step(0)
+
+    np.testing.assert_array_equal(reset_info["gymnasium_state"], reset_observation)
+    np.testing.assert_array_equal(step_info["gymnasium_state"], next_observation)
 
 
 def test_sample_factory_config_round_trips_complete_task_contract():

@@ -1,0 +1,19 @@
+__base__: latency_bench_eval.yaml
+
+experiment:
+  name: gymnasium_inverted_pendulum_rgb_state_starvla_eval
+
+policy:
+  type: starvla
+  checkpoint_path: third_party/starVLA/results/Checkpoints/inverted_pendulum_rgb_state_openvla_sft/checkpoints/steps_2000_pytorch_model.pt
+  model_config_path: third_party/starVLA/results/Checkpoints/inverted_pendulum_rgb_state_openvla_sft/config.full.yaml
+  task_manifest_path: third_party/starVLA/playground/Datasets/rl_games/inverted_pendulum_rgb_state/manifest.json
+  device: cuda
+  latency_prompt_map_path: third_party/starVLA/playground/Datasets/rl_games/inverted_pendulum_rgb_state/latency_prompt_map.json
+  latency_prompt_key: 1
+
+evaluation:
+  eval_episodes: 20
+
+logging:
+  output_dir: outputs/examples/gymnasium_inverted_pendulum_rgb_state/starvla_eval

@@ -411,7 +411,7 @@ def _write_episode(
             type=pa.struct([("bytes", pa.binary()), ("path", pa.string())]),
         ),
         "observation.state": pa.array(
-            [[0.0] * state_dim for _ in rows],
+            [row.get("state", [0.0] * state_dim) for row in rows],
             type=pa.list_(pa.float32(), state_dim),
         ),
         "action": pa.array(
@@ -615,6 +615,7 @@ def _convert_split(
     fps: float,
     reward_field: str,
     continuous: bool,
+    state_normalization: dict[str, Any] | None,
     density_weighting: bool = False,
 ) -> dict[str, Any]:
     """Convert one canonical rollout split into a LeRobot dataset directory.
@@ -668,6 +669,15 @@ def _convert_split(
                 "reward": float(row[reward_field]),
                 "density_weight": float(density_weights[frame_idx]),
             }
+            if state_normalization is not None:
+                state = np.asarray(row["state"], dtype=np.float32)
+                state_min = np.asarray(state_normalization["min"], dtype=np.float32)
+                state_max = np.asarray(state_normalization["max"], dtype=np.float32)
+                out_row["state"] = np.clip(
+                    2.0 * (state - state_min) / (state_max - state_min) - 1.0,
+                    -1.0,
+                    1.0,
+                ).tolist()
             if "action_id" in row:
                 out_row["action_id"] = int(row["action_id"])
             if "context_images" in row and row["context_images"] is not None:
@@ -764,6 +774,10 @@ def convert_canonical_rollout_to_lerobot(
         active_action_labels,
         action_carrier,
     )
+    uses_state = "state_space" in gymnasium_task
+    if uses_state:
+        state_labels = list(gymnasium_task["state_space"]["labels"])
+        state_dim = len(state_labels)
     reward_field = str(metadata["reward_field"])
     rows_unit = metadata["rows_unit"]
     if rows_unit != "decision_step":
@@ -787,6 +801,14 @@ def convert_canonical_rollout_to_lerobot(
             path.unlink(missing_ok=True)
     train_rows = _load_rows(raw_export_dir, "train")
     val_rows = _load_rows(raw_export_dir, "val")
+    state_normalization = None
+    if uses_state:
+        train_states = np.asarray([row["state"] for row in train_rows], dtype=np.float32)
+        state_normalization = {
+            "type": "min_max",
+            "min": train_states.min(axis=0).tolist(),
+            "max": train_states.max(axis=0).tolist(),
+        }
     first_row = (train_rows or val_rows)[0]
     image_source = first_row["image"]
     with Image.open(io.BytesIO(_png_bytes(image_source))) as image:
@@ -811,6 +833,7 @@ def convert_canonical_rollout_to_lerobot(
         fps=fps,
         reward_field=reward_field,
         continuous=continuous,
+        state_normalization=state_normalization,
         density_weighting=True,
     )
     val_manifest = _convert_split(
@@ -827,6 +850,7 @@ def convert_canonical_rollout_to_lerobot(
         fps=fps,
         reward_field=reward_field,
         continuous=continuous,
+        state_normalization=state_normalization,
         density_weighting=False,
     )
     handoff_contract = {
@@ -847,6 +871,10 @@ def convert_canonical_rollout_to_lerobot(
         "rows_unit": rows_unit,
         "obs_fps": fps,
         "obs_stride_raw_frames": obs_stride,
+        "uses_state": uses_state,
+        "state_dim": state_dim,
+        "state_labels": state_labels,
+        "state_normalization": state_normalization,
     }
     if not continuous:
         prompt_map_path, mixture_path = _write_starvla_handoff_files(

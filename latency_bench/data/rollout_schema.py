@@ -21,7 +21,7 @@ CANONICAL_ROW_FIELDS = (
 )
 
 
-def _rollout_feature_map(action_spec: ActionSpec) -> dict[str, Any]:
+def _rollout_feature_map(action_spec: ActionSpec, *, include_state: bool = False) -> dict[str, Any]:
     feature_map: dict[str, Any] = {
         "image": HFImage(),
         "env_name": Value("string"),
@@ -41,10 +41,12 @@ def _rollout_feature_map(action_spec: ActionSpec) -> dict[str, Any]:
     if "action" in action_spec.row_fields:
         feature_map["action"] = HFSequence(Value("float32"))
     feature_map["action_text"] = Value("string")
+    if include_state:
+        feature_map["state"] = HFSequence(Value("float32"))
     return feature_map
 
 
-def rollout_features(action_spec: ActionSpec) -> Features:
+def rollout_features(action_spec: ActionSpec, *, include_state: bool = False) -> Features:
     """Build Hugging Face dataset features for canonical rollout rows.
 
     Args:
@@ -53,10 +55,12 @@ def rollout_features(action_spec: ActionSpec) -> Features:
     Returns:
         Hugging Face ``Features`` for one environment's rollout table.
     """
-    return Features(_rollout_feature_map(action_spec))
+    return Features(_rollout_feature_map(action_spec, include_state=include_state))
 
 
-def rollout_features_with_context_images(action_spec: ActionSpec) -> Features:
+def rollout_features_with_context_images(
+    action_spec: ActionSpec, *, include_state: bool = False
+) -> Features:
     """Build rollout features for rows that carry historical context images.
 
     Args:
@@ -65,12 +69,12 @@ def rollout_features_with_context_images(action_spec: ActionSpec) -> Features:
     Returns:
         Hugging Face ``Features`` including ``context_images``.
     """
-    feature_map = _rollout_feature_map(action_spec)
+    feature_map = _rollout_feature_map(action_spec, include_state=include_state)
     feature_map["context_images"] = HFSequence(HFImage())
     return Features(feature_map)
 
 
-def empty_records(action_spec: ActionSpec) -> dict[str, list[Any]]:
+def empty_records(action_spec: ActionSpec, *, include_state: bool = False) -> dict[str, list[Any]]:
     """Build empty column arrays matching the rollout features.
 
     Args:
@@ -79,10 +83,15 @@ def empty_records(action_spec: ActionSpec) -> dict[str, list[Any]]:
     Returns:
         Empty column mapping suitable for ``Dataset.from_dict``.
     """
-    return {name: [] for name in rollout_features(action_spec)}
+    return {name: [] for name in rollout_features(action_spec, include_state=include_state)}
 
 
-def empty_records_with_context_images(action_spec: ActionSpec, include_context_images: bool) -> dict[str, list[Any]]:
+def empty_records_with_context_images(
+    action_spec: ActionSpec,
+    include_context_images: bool,
+    *,
+    include_state: bool = False,
+) -> dict[str, list[Any]]:
     """Build empty column arrays for single-image or context-image rollout features.
 
     Args:
@@ -92,7 +101,11 @@ def empty_records_with_context_images(action_spec: ActionSpec, include_context_i
     Returns:
         Empty column mapping suitable for ``Dataset.from_dict``.
     """
-    features = rollout_features_with_context_images(action_spec) if include_context_images else rollout_features(action_spec)
+    features = (
+        rollout_features_with_context_images(action_spec, include_state=include_state)
+        if include_context_images
+        else rollout_features(action_spec, include_state=include_state)
+    )
     return {name: [] for name in features}
 
 
