@@ -71,7 +71,7 @@ def _action_carrier_spec(
 
 def _robot_type_for_env(env_name: str, integration_name: str) -> str:
     if integration_name == "gymnasium":
-        return "rl_games_gymnasium"
+        return "rl_games_gymnasium_native"
     return _ROBOT_TYPES_BY_ENV[env_name]
 
 
@@ -501,8 +501,6 @@ def _write_metadata(
     state_dim: int,
     state_labels: list[str],
     context_image_count: int | None,
-    continuous: bool,
-    include_state: bool,
 ) -> None:
     """Write minimal LeRobot metadata files for a split dataset.
 
@@ -566,39 +564,36 @@ def _write_metadata(
         ),
         encoding="utf-8",
     )
-    if not continuous or include_state:
-        (meta_dir / "modality.json").write_text(
-            json.dumps(
-                {
-                    "state": {
-                        "native": {
-                            "start": 0,
-                            "end": state_dim,
-                            "dtype": "float32",
-                            "absolute": True,
-                            "original_key": "observation.state",
-                        }
-                    },
-                    "action": {
-                        "native": {
-                            "start": 0,
-                            "end": action_dim,
-                            "dtype": "float32",
-                            "absolute": True,
-                            "original_key": "action",
-                        }
-                    },
-                    "video": {"image": {"original_key": "observation.image"}},
-                    "annotation": {
-                        "human.action.task_description": {
-                            "original_key": "task_index"
-                        }
-                    },
+    (meta_dir / "modality.json").write_text(
+        json.dumps(
+            {
+                "state": {
+                    "native": {
+                        "start": 0,
+                        "end": state_dim,
+                        "dtype": "float32",
+                        "absolute": True,
+                        "original_key": "observation.state",
+                    }
                 },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+                "action": {
+                    "native": {
+                        "start": 0,
+                        "end": action_dim,
+                        "dtype": "float32",
+                        "absolute": True,
+                        "original_key": "action",
+                    }
+                },
+                "video": {"image": {"original_key": "observation.image"}},
+                "annotation": {
+                    "human.action.task_description": {"original_key": "task_index"}
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     write_jsonl(
         meta_dir / "episodes.jsonl",
         [
@@ -713,8 +708,6 @@ def _convert_split(
         state_dim=state_dim,
         state_labels=state_labels,
         context_image_count=context_image_count,
-        continuous=continuous,
-        include_state=include_state,
     )
     return {
         "dataset_name": output_dir.name,
@@ -884,6 +877,7 @@ def convert_canonical_rollout_to_lerobot(
         "include_state": include_state,
         "state_dim": state_dim,
     }
+    handoff_contract["robot_type"] = _robot_type_for_env(env_name, integration_name)
     if not continuous:
         prompt_map_path, mixture_path = _write_starvla_handoff_files(
             output_dir,
@@ -894,7 +888,6 @@ def convert_canonical_rollout_to_lerobot(
         )
         handoff_contract.update(
             {
-                "robot_type": _robot_type_for_env(env_name, integration_name),
                 "latency_prompt_map_path": str(prompt_map_path),
                 "custom_mixtures_path": str(mixture_path),
             }

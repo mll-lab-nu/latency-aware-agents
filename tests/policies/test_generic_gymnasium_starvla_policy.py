@@ -28,10 +28,12 @@ class GenericPolicyServerWrapper:
         rl_games_multibinary_threshold=None,
         rl_games_action_env_dim=None,
         rl_games_gymnasium_action_space_type=None,
+        rl_games_gymnasium_robot_type=None,
     ):
         self.rl_games_env_name = rl_games_env_name
         self.rl_games_action_env_dim = rl_games_action_env_dim
         self.rl_games_gymnasium_action_space_type = rl_games_gymnasium_action_space_type
+        self.rl_games_gymnasium_robot_type = rl_games_gymnasium_robot_type
         self.calls = []
         self._model_cfg = {
             "datasets": {"vla_data": {"include_state": False}},
@@ -93,6 +95,7 @@ def _generic_config(tmp_path: Path) -> dict:
         json.dumps(
             {
                 "integration_name": "gymnasium",
+                "robot_type": "rl_games_gymnasium_native",
                 "active_action_dim": 3,
                 "gymnasium_task": contract,
             }
@@ -171,6 +174,7 @@ def test_generic_checkpoint_policy_separates_integration_task_and_native_action(
     assert wrapper.rl_games_env_name == "gymnasium"
     assert wrapper.rl_games_action_env_dim == 3
     assert wrapper.rl_games_gymnasium_action_space_type == "discrete"
+    assert wrapper.rl_games_gymnasium_robot_type == "rl_games_gymnasium_native"
     assert policy._env_name == "mountain_car"
     example = wrapper.calls[0]["examples"][0]
     assert example["lang"] == "Drive the car up the mountain."
@@ -203,7 +207,11 @@ def test_h1_checkpoint_policy_passes_native_state_and_box_contract(monkeypatch):
         "framework": {"action_model": {"action_env_dim": 61, "state_dim": 177}},
     }
     monkeypatch.setattr(starvla, "_load_starvla_model_config", lambda path: model_cfg)
-    monkeypatch.setattr(starvla, "_validate_gymnasium_starvla_contract", lambda **kwargs: None)
+    monkeypatch.setattr(
+        starvla,
+        "_validate_gymnasium_starvla_contract",
+        lambda **kwargs: "rl_games_gymnasium_native",
+    )
     state = np.arange(177, dtype=np.float32)
 
     policy = build_policy(config, ActionResolver(config["env"]))

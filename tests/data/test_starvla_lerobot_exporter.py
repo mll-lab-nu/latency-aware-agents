@@ -361,24 +361,31 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
     table = pq.read_table(output_dir / "data/chunk-000/episode_000000.parquet")
     rows_out = table.to_pylist()
     info = json.loads((output_dir / "meta/info.json").read_text(encoding="utf-8"))
+    modality = json.loads(
+        (output_dir / "meta/modality.json").read_text(encoding="utf-8")
+    )
     assert manifest["format"] == "lerobot_v2_image_parquet"
     assert manifest["action_dim"] == 275
     assert manifest["active_action_dim"] == 275
     assert manifest["state_dim"] == 177
     assert manifest["carrier_action_labels"] == action_labels
+    assert manifest["action_carrier"] == "native"
+    assert manifest["robot_type"] == "rl_games_gymnasium_native"
     assert rows_out[0]["action"] == [0.0] * 275
     assert rows_out[1]["action"] == pytest.approx(actions[1])
     assert rows_out[0]["observation.state"] == state
     assert info["features"]["action"]["shape"] == [275]
     assert info["features"]["action"]["names"] == action_labels
     assert info["features"]["observation.state"]["shape"] == [177]
+    assert modality["state"]["native"]["original_key"] == "observation.state"
+    assert modality["action"]["native"]["original_key"] == "action"
     assert [row["timestamp"] for row in rows_out] == pytest.approx([0.0, 0.01])
     assert stale_modality.exists()
     assert stale_val_modality.exists()
     assert not stale_prompt_map.exists()
     assert not stale_mixture.exists()
     for output_manifest in (manifest, validation_manifest):
-        assert "robot_type" not in output_manifest
+        assert output_manifest["robot_type"] == "rl_games_gymnasium_native"
         assert "latency_prompt_map_path" not in output_manifest
         assert "custom_mixtures_path" not in output_manifest
 

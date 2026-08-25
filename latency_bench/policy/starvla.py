@@ -836,7 +836,7 @@ def _validate_gymnasium_starvla_contract(
     env_cfg: Mapping[str, Any],
     policy_cfg: Mapping[str, Any],
     model_cfg: Mapping[str, Any],
-) -> None:
+) -> str:
     eval_contract = gymnasium_task_contract(env_cfg)
     expected = policy_cfg.get("gymnasium_training_task_contract", eval_contract)
     comparable_eval_contract = {**eval_contract, "make_kwargs": expected["make_kwargs"]}
@@ -869,6 +869,7 @@ def _validate_gymnasium_starvla_contract(
         raise ValueError(
             "StarVLA model action_env_dim does not match the dataset manifest"
         )
+    return manifest["robot_type"]
 
 
 def build_starvla_policy(
@@ -880,7 +881,7 @@ def build_starvla_policy(
     integration_env_name = env_cfg["name"]
     if integration_env_name == "gymnasium":
         model_cfg = _load_starvla_model_config(policy_cfg["model_config_path"])
-        _validate_gymnasium_starvla_contract(
+        robot_type = _validate_gymnasium_starvla_contract(
             env_cfg=env_cfg,
             policy_cfg=policy_cfg,
             model_cfg=model_cfg,
@@ -914,6 +915,7 @@ def build_starvla_policy(
         action_space = gymnasium_action_space_contract(env_cfg)
         wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
         wrapper_kwargs["rl_games_gymnasium_action_space_type"] = action_space["type"]
+        wrapper_kwargs["rl_games_gymnasium_robot_type"] = robot_type
     wrapper = wrapper_cls(**wrapper_kwargs)
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])

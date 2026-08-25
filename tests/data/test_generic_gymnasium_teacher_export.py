@@ -442,7 +442,7 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
     assert manifest["action_dim"] == 3
     assert manifest["active_action_dim"] == 3
     assert manifest["action_carrier"] == "native"
-    assert manifest["robot_type"] == "rl_games_gymnasium"
+    assert manifest["robot_type"] == "rl_games_gymnasium_native"
     assert manifest["integration_name"] == "gymnasium"
     assert manifest["task_name"] == "mountain_car"
     assert manifest["gymnasium_task"]["action_values"] == [0, 1, 2]
@@ -508,8 +508,8 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
         }
     }
     assert mixtures == {
-        "lerobot": [["lerobot", 1.0, "rl_games_gymnasium"]],
-        "lerobot__val": [["lerobot__val", 1.0, "rl_games_gymnasium"]],
+        "lerobot": [["lerobot", 1.0, "rl_games_gymnasium_native"]],
+        "lerobot__val": [["lerobot__val", 1.0, "rl_games_gymnasium_native"]],
     }
 
 
@@ -666,6 +666,6 @@ def test_generic_task_name_matching_legacy_env_keeps_generic_handoff_semantics(
     mixtures = json.loads(
         (tmp_path / "_generated_mixtures/lerobot.json").read_text(encoding="utf-8")
     )
-    assert manifest["robot_type"] == "rl_games_gymnasium"
+    assert manifest["robot_type"] == "rl_games_gymnasium_native"
     assert table["density_weight"].to_pylist() == [1.0, 1.0]
-    assert mixtures["lerobot"] == [["lerobot", 1.0, "rl_games_gymnasium"]]
+    assert mixtures["lerobot"] == [["lerobot", 1.0, "rl_games_gymnasium_native"]]
