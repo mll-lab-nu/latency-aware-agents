@@ -230,7 +230,6 @@ def test_hurdle_residual_uses_reference_tokens_and_sonic_reset(
         sonic_decoder_path="decoder.onnx",
         sonic_decoder_mode=sonic.SONIC_DECODER_MODE_ENVIRONMENT,
         sonic_base_token_path=str(token_path),
-        sonic_residual_scale=1.0 / 16.0,
         render_mode="rgb_array",
         width=32,
         height=32,
@@ -252,9 +251,7 @@ def test_hurdle_residual_uses_reference_tokens_and_sonic_reset(
 
         residual = np.ones(64, dtype=np.float32)
         next_observation, *_ = env.step(residual)
-        np.testing.assert_allclose(
-            native._decoder.input[0, :64], tokens[0] + residual / 16.0
-        )
+        np.testing.assert_allclose(native._decoder.input[0, :64], tokens[0] + residual)
         np.testing.assert_array_equal(next_observation["base_token"], tokens[1])
         assert native._base_token_cursor == 1
 
@@ -284,7 +281,6 @@ def test_hurdle_residual_inference_worker_contract(tmp_path, hurdle_scene_path):
         sonic_decoder_path="unused.onnx",
         sonic_decoder_mode=sonic.SONIC_DECODER_MODE_INFERENCE_WORKER,
         sonic_base_token_path=str(token_path),
-        sonic_residual_scale=1.0 / 16.0,
         render_mode="rgb_array",
         width=32,
         height=32,

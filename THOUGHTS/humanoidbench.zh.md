@@ -192,10 +192,10 @@ SONIC 确实改善了稳定性，但视频中的动作仍然不对。主要问�
 直接修复方案是：离线用官方 Run planner 生成 30 Hz qpos，重采样到 50 Hz，再经过同 revision 的官方 encoder（其输出已包含 FSQ）得到 `1001 × 64` reference token cache。Hurdle FastTD3 输出连续 64D residual：
 
 ```text
-token[t] = reference_token[t] + (1 / 16) * residual[t]
+token[t] = reference_token[t] + residual[t]
 ```
 
-这里 `1/16` 是官方 FSQ 相邻量化 level 的间距；组合后不再 quantize，也不 clip。Actor、critic 和 replay 统一看到 `task observation + 930D decoder state + 64D reference token`。Decoder 仍接收组合后的 token 和原始 930D state。Reset 使用 SONIC default joints、pelvis `z=0.76`、清空 history/last action/token cursor；14D hands 固定 relaxed zero target。第一版只为 Hurdle 增加 `sonic64_residual`，保留 raw43/sonic78 作为历史 baseline。
+Residual 是 actor 在 `[-1, 1]` 内输出的连续 post-quant 偏移；组合后不再 quantize，也不 clip。`1/16` 虽然是 FSQ 相邻 level 的间距，却不是官方 residual 幅度合同；实际训练中它让 actor 大量饱和且回报停滞，因此删除。Actor、critic 和 replay 统一看到 `task observation + 930D decoder state + 64D reference token`。Decoder 仍接收组合后的 token 和原始 930D state。Reset 使用 SONIC default joints、pelvis `z=0.76`、清空 history/last action/token cursor；14D hands 固定 relaxed zero target。第一版只为 Hurdle 增加 `sonic64_residual`，保留 raw43/sonic78 作为历史 baseline。
 
 ## 为什么首选 SONIC 作为 body interface
 
@@ -212,7 +212,7 @@ SONIC 本身并不保证任务成功、动作像人或手指自然。这些仍�
 SONIC 在训练内部使用 finite scalar quantization，但官方部署 client 发送的是 checkpoint-specific 64D `float32` motion token。它还会对 command 做线性混合；如果 runtime interface 强制使用 token ID，这种操作就不成立。因此：
 
 - 旧 baseline 的 SONIC body prefix 保持连续 `Box(64)`；加上可学习 hands 后为 `Box(78)`。
-- Hurdle residual actor 也输出连续 `Box(64)`，但语义是对官方 FSQ reference token 的一个 level residual，不再负责从零生成完整 token。
+- Hurdle residual actor 也输出连续 `Box(64)`，语义是对官方 FSQ reference token 的 post-quant residual，不再负责从零生成完整 token。
 - 不增加 quantization wrapper，也不切换到 MultiDiscrete APPO。
 - 把 64 个维度视为 checkpoint-specific latent contract，而不是各自有独立物理含义的 control。
 
@@ -312,7 +312,7 @@ FastTD3 继续负责 actor、critic、replay 和 optimization。旧 HumanoidBenc
 
 官方 C++/ONNX MuJoCo demo 适合验证正确性。Eval 和 nonzero-latency run 为每个 environment 使用一个进程内、单线程 CPU ONNX Runtime session，因为 decoder 必须处于被延迟的 environment boundary 内。
 
-Zero-latency FastTD3 training 改用 Sample Factory inference worker 内的单个 CUDA ONNX Runtime session。旧 baseline 直接解码 78D actor action 的前 64 维；Hurdle residual 先计算 `base + residual / 16`。两者再与 930D controller state 拼接并解码为 29D body target，而 replay 始终保留 actor 原始 action。部署 graph 已实际通过 batch 1、8、32 和 64；GPU 与 CPU 输出的最大绝对误差小于 `0.01`。
+Zero-latency FastTD3 training 改用 Sample Factory inference worker 内的单个 CUDA ONNX Runtime session。旧 baseline 直接解码 78D actor action 的前 64 维；Hurdle residual 先计算 `base + residual`。两者再与 930D controller state 拼接并解码为 29D body target，而 replay 始终保留 actor 原始 action。部署 graph 已实际通过 batch 1、8、32 和 64；GPU 与 CPU 输出的最大绝对误差小于 `0.01`。
 
 Decoder 必须在每个 50 Hz policy step 接收真实 controller history 和 proprioception。该 target 在本 step 的十个 2 ms MuJoCo substep 中保持不变是预期行为；跨多个 policy step 复用才会改变 SONIC control contract。
 
@@ -507,7 +507,7 @@ Token RL 能学到有用 locomotion 且吞吐可接受时才继续。如果失�
 | 2026-08-26 | 历史决策，部分保留：G1 资产放入固定 revision 的公开 Hugging Face dataset，官方 decoder 单独固定 revision | 存储方式仍合理，但首个 asset revision 无效 | 在 Git 中 vendor 资产，或仅为存储资产 fork HumanoidBench | corrected local assets 通过 review 后替换 dataset 默认 revision |
 | 2026-08-26 | 历史 parity 对比 raw `43D` 与 SONIC `78D`，两边都学习相同 14 个 hand joint | 保留官方 task controllability，避免 ignored/scripted action，同时只隔离 29D-body 与 64D-token 差异 | fixed hands 或仅 Basketball 使用 scripted synergy | Hurdle residual 已改用 fixed hands |
 | 2026-08-26 | 历史决策，已被 Hurdle residual 替代：四任务统一使用 direct continuous 64D body-token control | Hurdle 10M 虽优于 raw43，但动作仍不对且 token 大量饱和 | 现在就加 task planner 或 high-level skill interface | 非 Hurdle task 仍可保留为 baseline |
-| 2026-08-26 | Hurdle 使用离线官方 Run planner → encoder/FSQ reference token，加 `1/16` FastTD3 residual | 让 decoder 接收实际 motion-manifold reference，并让 actor/critic/replay 看见 decoder state 与 reference token | 继续在完整 64D cube 内从零学习；在线运行 774 MB planner | residual 仍无法跨杆时，重新审计 reference motion 或 reward |
+| 2026-08-26 | Hurdle 使用离线官方 Run planner → encoder/FSQ reference token，加连续 FastTD3 residual；废弃 `1/16` 缩放 | 让 decoder 接收实际 motion-manifold reference，并让 actor/critic/replay 看见 decoder state 与 reference token；`1/16` 训练出现 actor 饱和和回报停滞 | 继续在完整 64D cube 内从零学习；在线运行 774 MB planner | direct residual 仍无法跨杆时，重新审计 reference motion 或 reward |
 
 ## 待回答的实验问题
 

@@ -56,7 +56,6 @@ SONIC_HAND_ACTION_LABELS = [
     "right_hand_middle_1_joint",
 ]
 SONIC_ACTION_DIM = SONIC_TOKEN_DIM + len(SONIC_HAND_ACTION_LABELS)
-SONIC_RESIDUAL_SCALE = 1.0 / 16.0
 SONIC_RESIDUAL_VARIANT = "sonic64_residual"
 SONIC_RESIDUAL_TASK = "g1_sonic_hurdle"
 
@@ -188,12 +187,7 @@ def build_g1_env_config(
             }
         )
     if residual:
-        make_kwargs.update(
-            {
-                "sonic_base_token_path": base_token_path.as_posix(),
-                "sonic_residual_scale": SONIC_RESIDUAL_SCALE,
-            }
-        )
+        make_kwargs["sonic_base_token_path"] = base_token_path.as_posix()
     return {
         "name": "gymnasium",
         "task_name": task_name,
@@ -275,8 +269,6 @@ def build_g1_train_config(
         training["fasttd3_sonic_decoder_path"] = env_config["make_kwargs"][
             "sonic_decoder_path"
         ]
-    if variant == SONIC_RESIDUAL_VARIANT:
-        training["fasttd3_sonic_residual_scale"] = SONIC_RESIDUAL_SCALE
     config["evaluation"]["eval_interval_steps"] = None
     config["logging"].update(
         {

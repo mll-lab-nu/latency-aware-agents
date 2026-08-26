@@ -359,7 +359,6 @@ class G1SonicEnv(MujocoEnv):
         sonic_decoder_path: str | None = None,
         sonic_decoder_mode: str = SONIC_DECODER_MODE_ENVIRONMENT,
         sonic_base_token_path: str | None = None,
-        sonic_residual_scale: float | None = None,
         render_mode: str,
         width: int,
         height: int,
@@ -376,7 +375,6 @@ class G1SonicEnv(MujocoEnv):
         residual_control = control_mode == G1_CONTROL_MODE_SONIC_RESIDUAL
         if residual_control:
             self._base_tokens = np.load(sonic_base_token_path)
-            self._residual_scale = sonic_residual_scale
             self._base_token_cursor = 0
             packed_observation_space = Box(
                 -np.inf,
@@ -709,10 +707,7 @@ class G1SonicEnv(MujocoEnv):
                 decoder_action = self._pending_decoded_action
                 self._pending_decoded_action = None
             else:
-                token = (
-                    self._base_tokens[self._base_token_cursor]
-                    + self._residual_scale * action
-                )
+                token = self._base_tokens[self._base_token_cursor] + action
                 decoder_action = self._decode(token)
             body_action_mu = decoder_action[_POLICY_INDEX_FOR_MUJOCO]
             hand_action = None

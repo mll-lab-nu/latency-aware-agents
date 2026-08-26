@@ -100,9 +100,6 @@ def test_generate_g1_10m_writes_raw_and_sonic_jobs(tmp_path, monkeypatch):
             assert train_config["training"]["fasttd3_sonic_decoder_path"] == str(
                 decoder_path
             )
-            assert train_config["training"]["fasttd3_sonic_residual_scale"] == (
-                1.0 / 16.0
-            )
             assert make_kwargs["sonic_decoder_mode"] == "inference_worker"
             assert eval_config["env"]["make_kwargs"]["sonic_decoder_mode"] == (
                 "environment"
@@ -110,11 +107,6 @@ def test_generate_g1_10m_writes_raw_and_sonic_jobs(tmp_path, monkeypatch):
             assert (
                 make_kwargs["sonic_base_token_path"]
                 == eval_config["env"]["make_kwargs"]["sonic_base_token_path"]
-            )
-            assert (
-                make_kwargs["sonic_residual_scale"]
-                == eval_config["env"]["make_kwargs"]["sonic_residual_scale"]
-                == (1.0 / 16.0)
             )
         assert train_config["training"]["train_for_env_steps"] == 128
         assert train_config["backend"]["restart_behavior"] == "restart"
