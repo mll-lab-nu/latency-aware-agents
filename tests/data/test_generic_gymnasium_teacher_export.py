@@ -67,12 +67,11 @@ def _write_generic_export(
         train_rows,
         [],
         action_spec=action_spec,
-        include_state=include_state,
     )
     metadata = {
         "env_name": task_name,
         "integration_name": integration_name,
-        "schema_version": 3 if include_state else 2,
+        "schema_version": 2,
         "action_layout": "gymnasium_discrete_v1",
         "reward_field": "raw_reward",
         "action_labels": list(action_spec.labels),
@@ -94,8 +93,9 @@ def _write_generic_export(
         "obs_stride_raw_frames": 3,
     }
     if include_state:
-        metadata["include_state"] = True
-    if state_labels is not None:
+        labels = state_labels or [f"state_{index}" for index in range(len(train_rows[0]["state"]))]
+        metadata["gymnasium_task"]["state_space"] = {"labels": labels}
+    elif state_labels is not None:
         metadata["gymnasium_task"]["state_space"] = {"labels": state_labels}
     (raw_export / "metadata.json").write_text(
         json.dumps(metadata), encoding="utf-8"
@@ -193,7 +193,7 @@ def test_generic_teacher_row_uses_explicit_action_spec_and_prompt():
     assert "Current action latency is 3 raw frames (100.00 ms)." in row["prompt"]
 
 
-def test_gymnasium_replay_exports_pre_action_native_state_with_stacked_observations(
+def test_gymnasium_replay_exports_pre_action_state_with_stacked_observations(
     monkeypatch,
     tmp_path,
 ):
@@ -271,7 +271,12 @@ def test_gymnasium_replay_exports_pre_action_native_state_with_stacked_observati
     sf_teacher_rollout._replay_accepted_specs(
         {"rnn_size": 1, "device": torch.device("cpu")},
         Driver(),
-        cfg=SimpleNamespace(env_fps=30.0, obs_fps=30.0, frame_stack=2),
+        cfg=SimpleNamespace(
+            env_fps=30.0,
+            obs_fps=30.0,
+            frame_stack=2,
+            gym_state_labels_json='["state"]',
+        ),
         env_name="mountain_car",
         output_dir=output_dir,
         accepted_specs=[{"episode_idx": 0, "split": "val", "seed": 7}],
@@ -518,7 +523,7 @@ def test_generic_teacher_export_rejects_task_identity_override(monkeypatch, tmp_
         )
 
 
-def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
+def test_starvla_lerobot_converter_writes_handoff_contract(tmp_path):
     from latency_bench.data.exporters.starvla_lerobot import (
         convert_canonical_rollout_to_lerobot,
     )
@@ -550,7 +555,7 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
     assert manifest["action_dim"] == 3
     assert manifest["active_action_dim"] == 3
     assert manifest["action_carrier"] == "native"
-    assert manifest["robot_type"] == "rl_games_gymnasium_native"
+    assert manifest["robot_type"] == "rl_games_gymnasium"
     assert manifest["integration_name"] == "gymnasium"
     assert manifest["task_name"] == "mountain_car"
     assert manifest["gymnasium_task"]["action_values"] == [0, 1, 2]
@@ -588,7 +593,7 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
     assert info["features"]["latency"] == {"dtype": "int64", "shape": [1]}
     assert modality == {
         "state": {
-            "native": {
+            "game_state": {
                 "start": 0,
                 "end": 1,
                 "dtype": "float32",
@@ -597,7 +602,7 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
             }
         },
         "action": {
-            "native": {
+            "button": {
                 "start": 0,
                 "end": 3,
                 "dtype": "float32",
@@ -616,11 +621,11 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
         }
     }
     assert mixtures == {
-        "lerobot": [["lerobot", 1.0, "rl_games_gymnasium_native"]],
-        "lerobot__val": [["lerobot__val", 1.0, "rl_games_gymnasium_native"]],
+        "lerobot": [["lerobot", 1.0, "rl_games_gymnasium"]],
+        "lerobot__val": [["lerobot__val", 1.0, "rl_games_gymnasium"]],
     }
 
-def test_starvla_lerobot_converter_uses_explicit_gymnasium_state(tmp_path):
+def test_starvla_lerobot_converter_normalizes_gymnasium_state_from_train(tmp_path):
     from latency_bench.data.exporters.starvla_lerobot import (
         convert_canonical_rollout_to_lerobot,
     )
@@ -647,12 +652,17 @@ def test_starvla_lerobot_converter_uses_explicit_gymnasium_state(tmp_path):
     ).to_pylist()
 
     assert [row["observation.state"] for row in converted] == [
-        [-2.0, 1.0],
-        [2.0, 3.0],
+        [-1.0, -1.0],
+        [1.0, 1.0],
     ]
-    assert manifest["include_state"] is True
+    assert manifest["uses_state"] is True
     assert manifest["state_dim"] == 2
-    assert "state_labels" not in manifest
+    assert manifest["state_labels"] == ["cart_position", "pole_angle"]
+    assert manifest["state_normalization"] == {
+        "type": "min_max",
+        "min": [-2.0, 1.0],
+        "max": [2.0, 3.0],
+    }
     info = json.loads((output_dir / "meta/info.json").read_text(encoding="utf-8"))
     assert info["features"]["observation.state"]["names"] == [
         "cart_position",
@@ -660,7 +670,7 @@ def test_starvla_lerobot_converter_uses_explicit_gymnasium_state(tmp_path):
     ]
 
 
-def test_starvla_lerobot_bridge_carrier_pads_action_and_preserves_native_state(tmp_path):
+def test_starvla_lerobot_bridge_carrier_pads_action_and_preserves_state(tmp_path):
     from latency_bench.data.exporters.starvla_lerobot import (
         convert_canonical_rollout_to_lerobot,
     )
@@ -671,8 +681,17 @@ def test_starvla_lerobot_bridge_carrier_pads_action_and_preserves_native_state(t
     state = [float(index) for index in range(17)]
     _write_generic_export(
         raw_export,
-        [_canonical_row(image_path, action_id=2, state=state)],
+        [
+            _canonical_row(image_path, action_id=2, state=state),
+            _canonical_row(
+                image_path,
+                action_id=2,
+                decision_step=1,
+                state=[value + 1.0 for value in state],
+            ),
+        ],
         include_state=True,
+        state_labels=[f"state_{index}" for index in range(17)],
     )
 
     output_dir = tmp_path / "lerobot"
@@ -698,7 +717,7 @@ def test_starvla_lerobot_bridge_carrier_pads_action_and_preserves_native_state(t
         "BRIDGE_PAD_6",
     ]
     assert row["action"] == [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
-    assert row["observation.state"] == state
+    assert row["observation.state"] == [-1.0] * 17
     assert info["features"]["action"]["shape"] == [7]
     assert info["features"]["observation.state"] == {
         "dtype": "float32",
@@ -813,6 +832,6 @@ def test_generic_task_name_matching_legacy_env_keeps_generic_handoff_semantics(
     mixtures = json.loads(
         (tmp_path / "_generated_mixtures/lerobot.json").read_text(encoding="utf-8")
     )
-    assert manifest["robot_type"] == "rl_games_gymnasium_native"
+    assert manifest["robot_type"] == "rl_games_gymnasium"
     assert table["density_weight"].to_pylist() == [1.0, 1.0]
-    assert mixtures["lerobot"] == [["lerobot", 1.0, "rl_games_gymnasium_native"]]
+    assert mixtures["lerobot"] == [["lerobot", 1.0, "rl_games_gymnasium"]]

@@ -26,6 +26,7 @@ class GymnasiumEnvAdapter(EnvAdapter):
         noop_action: Action,
         frame_stack: int,
         export_env_raw_rgb_frames: bool,
+        include_state: bool = False,
     ) -> None:
         self.env_id = env_id
         self.registration_imports = registration_imports
@@ -34,6 +35,7 @@ class GymnasiumEnvAdapter(EnvAdapter):
         self.noop_action = noop_action
         self.frame_stack = frame_stack
         self.export_env_raw_rgb_frames = export_env_raw_rgb_frames
+        self.include_state = include_state
 
         for module_name in registration_imports:
             import_module(module_name)
@@ -54,11 +56,20 @@ class GymnasiumEnvAdapter(EnvAdapter):
         self.env_step = 0
         self._last_frame: Any = None
         self._last_info: dict[str, Any] = {}
+        self._last_state: Any = None
         self._observed_frames: list[np.ndarray] = []
         self._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=frame_stack)
 
+    @staticmethod
+    def _state(observation: Any) -> np.ndarray:
+        if isinstance(observation, dict):
+            observation = observation["obs"]
+        return np.asarray(observation).copy()
+
     def reset(self, seed: int | None = None) -> Observation:
         observation, info = self.gym_env.reset(seed=seed)
+        if self.include_state:
+            self._last_state = self._state(observation)
         self.env_step = 0
         if not self._policy_frame_stack_enabled:
             self._last_frame = observation
@@ -72,6 +83,8 @@ class GymnasiumEnvAdapter(EnvAdapter):
 
     def step(self, action: Action) -> StepResult:
         observation, reward, terminated, truncated, info = self.gym_env.step(action.value)
+        if self.include_state:
+            self._last_state = self._state(observation)
         self.env_step += 1
         if not self._policy_frame_stack_enabled:
             self._last_frame = observation
@@ -106,6 +119,12 @@ class GymnasiumEnvAdapter(EnvAdapter):
             sim_time_ms=self.env_step * self.frame_ms,
             metadata=self._metadata(self._last_info),
         )
+
+    def _metadata(self, info: dict[str, Any]) -> dict[str, Any]:
+        metadata = super()._metadata(info)
+        if self.include_state:
+            metadata["gymnasium_state"] = self._last_state
+        return metadata
 
     def render_game_frame(self) -> Any:
         return self.gym_env.render()

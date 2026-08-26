@@ -177,6 +177,16 @@ def test_gymnasium_state_info_wrapper_preserves_numeric_observation():
     np.testing.assert_array_equal(step_info["gymnasium_state"], next_observation)
 
 
+def test_gymnasium_state_info_wrapper_uses_policy_state_from_dict_observation():
+    observation = {
+        "obs": np.array([1.0, 2.0]),
+        "sonic_state": np.zeros(930),
+    }
+    np.testing.assert_array_equal(
+        GymnasiumStateInfoWrapper._state(observation), observation["obs"]
+    )
+
+
 def test_gymnasium_state_is_unstacked_and_aligned_with_action():
     native_env = _StateTraceEnv()
     env = GymnasiumActionCatalogWrapper(

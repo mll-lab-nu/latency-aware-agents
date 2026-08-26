@@ -838,7 +838,7 @@ def _replay_accepted_specs(
     env_fps = float(cfg.env_fps)
     obs_fps = float(cfg.obs_fps)
     obs_stride_raw_frames = int(env_fps / obs_fps)
-    capture_state = integration_name == "gymnasium"
+    include_state = bool(cfg.gym_state_labels_json)
     spec_cursor = 0
     replayed = 0
 
@@ -897,7 +897,7 @@ def _replay_accepted_specs(
                 reset_results = driver.reset_slots(initial_reset_plan)
             for slot, (obs, reset_info) in reset_results.items():
                 active_obs[slot] = obs
-                if capture_state:
+                if include_state:
                     active_states[slot] = reset_info["gymnasium_state"]
                 if _is_demon_ghost_trail:
                     active_ghost_streams[slot] = DemonGhostTrailStream(_ghost_trail_history_len)
@@ -960,7 +960,7 @@ def _replay_accepted_specs(
                             image_transform=image_transform_config.normalized_transform(),
                             action_spec=action_spec,
                             base_prompt=base_prompt,
-                            state=active_states[slot] if capture_state else None,
+                            state=active_states[slot] if include_state else None,
                         )
                         active_episode_rows[slot].append(row)
                     rnn_states[slot] = new_rnn_states[batch_idx]
@@ -1017,7 +1017,7 @@ def _replay_accepted_specs(
                     else:
                         if life_loss_boundary:
                             active_obs[slot], reset_info = driver.continue_after_life_loss(slot)
-                            if capture_state:
+                            if include_state:
                                 active_states[slot] = reset_info["gymnasium_state"]
                             if _is_demon_ghost_trail:
                                 active_ghost_streams[slot].clear()
@@ -1027,7 +1027,7 @@ def _replay_accepted_specs(
                             rnn_states[slot].zero_()
                         else:
                             active_obs[slot] = step_result.next_obs
-                            if capture_state:
+                            if include_state:
                                 active_states[slot] = step_result.info["gymnasium_state"]
                             if _is_demon_ghost_trail:
                                 new_raw_frames = frames_from_env_raw_rgb_info(step_result.info)
@@ -1045,7 +1045,7 @@ def _replay_accepted_specs(
                         reset_results = driver.reset_slots(reset_plan)
                     for slot, (obs, reset_info) in reset_results.items():
                         active_obs[slot] = obs
-                        if capture_state:
+                        if include_state:
                             active_states[slot] = reset_info["gymnasium_state"]
                         if _is_demon_ghost_trail:
                             active_ghost_streams[slot] = DemonGhostTrailStream(_ghost_trail_history_len)

@@ -17,7 +17,6 @@ def teacher_dataset_row(
     decision_step: int,
     image: str,
     raw_action: Any,
-    state: Any | None = None,
     info: Mapping[str, Any],
     reward: Any,
     env_fps: float,
@@ -25,6 +24,7 @@ def teacher_dataset_row(
     image_transform: str = "raw_rgb",
     action_spec: ActionSpec | None = None,
     base_prompt: str | None = None,
+    state: Any | None = None,
 ) -> dict[str, Any]:
     """Build one canonical rollout row from a teacher decision.
 

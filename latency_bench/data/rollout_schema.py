@@ -7,7 +7,7 @@ from datasets import Features, Image as HFImage, Sequence as HFSequence, Value
 from latency_bench.data.action_layouts import ActionSpec
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 2
 CANONICAL_ROW_FIELDS = (
     "image",
     "env_name",
@@ -21,7 +21,7 @@ CANONICAL_ROW_FIELDS = (
 )
 
 
-def _rollout_feature_map(action_spec: ActionSpec, *, include_state: bool) -> dict[str, Any]:
+def _rollout_feature_map(action_spec: ActionSpec, *, include_state: bool = False) -> dict[str, Any]:
     feature_map: dict[str, Any] = {
         "image": HFImage(),
         "env_name": Value("string"),
@@ -40,9 +40,9 @@ def _rollout_feature_map(action_spec: ActionSpec, *, include_state: bool) -> dic
         feature_map["action_tuple"] = HFSequence(Value("int64"))
     if "action" in action_spec.row_fields:
         feature_map["action"] = HFSequence(Value("float32"))
+    feature_map["action_text"] = Value("string")
     if include_state:
         feature_map["state"] = HFSequence(Value("float32"))
-    feature_map["action_text"] = Value("string")
     return feature_map
 
 
