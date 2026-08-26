@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-import numpy as np
-
 from latency_bench.data.action_layouts import ActionSpec, action_spec_for_env, encode_action_for_env
 from latency_bench.data.prompts import render_teacher_prompt
 from latency_bench.data.rollout_schema import CANONICAL_ROW_FIELDS
@@ -36,6 +34,7 @@ def teacher_dataset_row(
         decision_step: Zero-based policy decision step within the episode.
         image: Path to the saved pre-step image.
         raw_action: Raw teacher action for this decision.
+        state: Optional pre-decision native observation state.
         info: Environment step info after applying the action.
         reward: Reward returned by the environment step.
         env_fps: Raw environment FPS.
@@ -75,5 +74,5 @@ def teacher_dataset_row(
     row[resolved_action_spec.reward_field] = base_values[resolved_action_spec.reward_field]
     row.update(encode_action_for_env(env_name, raw_action, action_spec=resolved_action_spec))
     if state is not None:
-        row["state"] = np.asarray(state, dtype=np.float32).reshape(-1).tolist()
+        row["state"] = state.reshape(-1).tolist()
     return row

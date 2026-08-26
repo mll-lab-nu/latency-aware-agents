@@ -33,6 +33,12 @@ dev = [
 myochallenge = [
     "MyoSuite==2.11.6",
 ]
+sonic = [
+    "dm-control==1.0.28",
+    "mujoco==3.3.0",
+    "onnx==1.19.1",
+    "onnxruntime-gpu[cuda,cudnn]==1.23.2",
+]
 
 [project.scripts]
 latency-bench = "latency_bench.cross_device.protocol:main"

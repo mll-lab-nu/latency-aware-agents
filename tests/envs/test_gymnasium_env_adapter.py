@@ -164,6 +164,17 @@ def test_gymnasium_adapter_imports_registration_modules_before_make(monkeypatch)
         adapter.close()
 
 
+def test_gymnasium_adapter_uses_obs_from_dict_state():
+    observation = {
+        "obs": np.asarray([1.0, 2.0], dtype=np.float32),
+        "sonic_state": np.zeros(930, dtype=np.float32),
+    }
+
+    np.testing.assert_array_equal(
+        GymnasiumEnvAdapter._state(observation), observation["obs"]
+    )
+
+
 def test_gymnasium_adapter_passes_env_id_and_make_kwargs_unchanged(monkeypatch):
     fake_env = FakeGymEnv()
     opaque_setting = object()
@@ -467,12 +478,16 @@ def test_gymnasium_adapter_zero_latency_matches_direct_gym_trajectory():
         noop_action=Action(value=1, name="coast", is_noop=True),
         frame_stack=1,
         export_env_raw_rgb_frames=False,
+        include_state=True,
     )
     try:
         direct_observation, direct_info = direct_env.reset(seed=91)
         adapted_observation = adapter.reset(seed=91)
 
         np.testing.assert_array_equal(adapted_observation.data, direct_observation)
+        np.testing.assert_array_equal(
+            adapted_observation.metadata["gymnasium_state"], direct_observation
+        )
         assert adapted_observation.metadata.items() >= direct_info.items()
 
         for action_id in actions:
@@ -483,6 +498,9 @@ def test_gymnasium_adapter_zero_latency_matches_direct_gym_trajectory():
 
             assert adapted.observation is not None
             np.testing.assert_array_equal(adapted.observation.data, direct_observation)
+            np.testing.assert_array_equal(
+                adapted.observation.metadata["gymnasium_state"], direct_observation
+            )
             assert adapted.reward == direct_reward
             assert adapted.done is direct_terminated
             assert adapted.truncated is direct_truncated

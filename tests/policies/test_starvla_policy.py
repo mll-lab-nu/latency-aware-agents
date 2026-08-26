@@ -183,6 +183,7 @@ def test_starvla_passes_latest_raw_frame_and_base_prompt_by_default(monkeypatch,
     assert len(example["image"]) == 1
     assert np.asarray(example["image"][0]).mean() == 22
     assert example["state"].shape == (1, 7)
+    np.testing.assert_array_equal(example["state"], np.zeros((1, 7), dtype=np.float32))
     assert output.metadata["prompt_source"] == "base"
     assert output.action.name == "flap"
     assert output.action.value == 1

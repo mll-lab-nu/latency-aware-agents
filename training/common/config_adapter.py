@@ -266,6 +266,12 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         "save_best_after",
         "stats_avg",
         "experiment_summaries_interval",
+        "fasttd3_replay_capacity",
+        "fasttd3_replay_batch_size",
+        "fasttd3_transitions_per_update",
+        "fasttd3_v_min",
+        "fasttd3_v_max",
+        "fasttd3_sonic_decoder_path",
     )
     bool_fields = (
         "async_rl",
@@ -283,6 +289,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         "force_envs_single_thread",
         "actor_critic_share_weights",
         "with_wandb",
+        "fasttd3_compile",
     )
     list_fields = (
         "encoder_mlp_layers",

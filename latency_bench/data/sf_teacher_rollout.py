@@ -838,7 +838,7 @@ def _replay_accepted_specs(
     env_fps = float(cfg.env_fps)
     obs_fps = float(cfg.obs_fps)
     obs_stride_raw_frames = int(env_fps / obs_fps)
-    include_state = bool(getattr(cfg, "gym_state_labels_json", ""))
+    include_state = integration_name == "gymnasium" and bool(cfg.gym_state_labels_json)
     spec_cursor = 0
     replayed = 0
 
@@ -898,7 +898,7 @@ def _replay_accepted_specs(
             for slot, (obs, reset_info) in reset_results.items():
                 active_obs[slot] = obs
                 if include_state:
-                    active_states[slot] = np.asarray(reset_info["gymnasium_state"]).copy()
+                    active_states[slot] = reset_info["gymnasium_state"]
                 if _is_demon_ghost_trail:
                     active_ghost_streams[slot] = DemonGhostTrailStream(_ghost_trail_history_len)
                     active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
@@ -1018,9 +1018,7 @@ def _replay_accepted_specs(
                         if life_loss_boundary:
                             active_obs[slot], reset_info = driver.continue_after_life_loss(slot)
                             if include_state:
-                                active_states[slot] = np.asarray(
-                                    reset_info["gymnasium_state"]
-                                ).copy()
+                                active_states[slot] = reset_info["gymnasium_state"]
                             if _is_demon_ghost_trail:
                                 active_ghost_streams[slot].clear()
                                 active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
@@ -1030,9 +1028,7 @@ def _replay_accepted_specs(
                         else:
                             active_obs[slot] = step_result.next_obs
                             if include_state:
-                                active_states[slot] = np.asarray(
-                                    step_result.info["gymnasium_state"]
-                                ).copy()
+                                active_states[slot] = step_result.info["gymnasium_state"]
                             if _is_demon_ghost_trail:
                                 new_raw_frames = frames_from_env_raw_rgb_info(step_result.info)
                                 for f in new_raw_frames:
@@ -1050,9 +1046,7 @@ def _replay_accepted_specs(
                     for slot, (obs, reset_info) in reset_results.items():
                         active_obs[slot] = obs
                         if include_state:
-                            active_states[slot] = np.asarray(
-                                reset_info["gymnasium_state"]
-                            ).copy()
+                            active_states[slot] = reset_info["gymnasium_state"]
                         if _is_demon_ghost_trail:
                             active_ghost_streams[slot] = DemonGhostTrailStream(_ghost_trail_history_len)
                             active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()

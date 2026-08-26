@@ -7,3 +7,6 @@
 [submodule "sample-factory"]
 	path = third_party/sample-factory
 	url = https://github.com/mindorigin150/sample-factory.git
+[submodule "third_party/humanoid-bench"]
+	path = third_party/humanoid-bench
+	url = https://github.com/mindorigin150/humanoid-bench.git

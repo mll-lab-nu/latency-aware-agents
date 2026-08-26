@@ -113,7 +113,7 @@ def _gymnasium_task_metadata(flat_cfg: Mapping[str, Any]) -> dict[str, Any]:
         "obs_fps": flat_cfg["obs_fps"],
         "frame_stack": flat_cfg["frame_stack"],
     }
-    if flat_cfg.get("gym_state_labels_json"):
+    if flat_cfg["gym_state_labels_json"]:
         metadata["state_space"] = {
             "labels": json.loads(flat_cfg["gym_state_labels_json"]),
         }

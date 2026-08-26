@@ -280,6 +280,7 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
         [0.0] * 275,
         [index / 275.0 for index in range(275)],
     ]
+    state = [float(index) for index in range(177)]
     rows = [
         {
             "image": str(image_path),
@@ -293,12 +294,18 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
             "latency_ms": 10.0,
             "raw_reward": 0.0,
             "action": action,
+            "state": [value + step for value in state],
             "action_text": "continuous_control",
         }
         for step, action in enumerate(actions)
     ]
     raw_export = tmp_path / "raw"
-    write_parquet_splits(raw_export, rows, [], action_spec=action_spec)
+    write_parquet_splits(
+        raw_export,
+        rows,
+        [],
+        action_spec=action_spec,
+    )
     (raw_export / "metadata.json").write_text(
         json.dumps(
             {
@@ -324,6 +331,9 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
                     "env_fps": 100.0,
                     "obs_fps": 100.0,
                     "frame_stack": 1,
+                    "state_space": {
+                        "labels": [f"state_{index}" for index in range(177)]
+                    },
                 },
                 "rows_unit": "decision_step",
                 "obs_fps": 100.0,
@@ -351,23 +361,34 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
     table = pq.read_table(output_dir / "data/chunk-000/episode_000000.parquet")
     rows_out = table.to_pylist()
     info = json.loads((output_dir / "meta/info.json").read_text(encoding="utf-8"))
+    modality = json.loads(
+        (output_dir / "meta/modality.json").read_text(encoding="utf-8")
+    )
     assert manifest["format"] == "lerobot_v2_image_parquet"
     assert manifest["action_dim"] == 275
     assert manifest["active_action_dim"] == 275
+    assert manifest["state_dim"] == 177
     assert manifest["carrier_action_labels"] == action_labels
+    assert manifest["action_carrier"] == "native"
+    assert manifest["robot_type"] == "rl_games_gymnasium"
     assert rows_out[0]["action"] == [0.0] * 275
     assert rows_out[1]["action"] == pytest.approx(actions[1])
+    assert rows_out[0]["observation.state"] == [-1.0] * 177
+    assert rows_out[1]["observation.state"] == [1.0] * 177
     assert info["features"]["action"]["shape"] == [275]
     assert info["features"]["action"]["names"] == action_labels
+    assert info["features"]["observation.state"]["shape"] == [177]
+    assert modality["state"]["game_state"]["original_key"] == "observation.state"
+    assert modality["action"]["button"]["original_key"] == "action"
     assert [row["timestamp"] for row in rows_out] == pytest.approx([0.0, 0.01])
-    assert not stale_modality.exists()
-    assert not stale_val_modality.exists()
-    assert not stale_prompt_map.exists()
-    assert not stale_mixture.exists()
+    assert stale_modality.exists()
+    assert stale_val_modality.exists()
+    assert stale_prompt_map.exists()
+    assert stale_mixture.exists()
     for output_manifest in (manifest, validation_manifest):
-        assert "robot_type" not in output_manifest
-        assert "latency_prompt_map_path" not in output_manifest
-        assert "custom_mixtures_path" not in output_manifest
+        assert output_manifest["robot_type"] == "rl_games_gymnasium"
+        assert output_manifest["latency_prompt_map_path"]
+        assert output_manifest["custom_mixtures_path"]
 
 
 def test_starvla_lerobot_exporter_rejects_unknown_gymnasium_action_layout(tmp_path):
