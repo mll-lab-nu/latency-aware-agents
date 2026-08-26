@@ -391,6 +391,132 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
         assert output_manifest["custom_mixtures_path"]
 
 
+@pytest.mark.parametrize(
+    ("action_carrier", "action_dim"),
+    [("bridge", 7), ("native", 6)],
+)
+def test_starvla_lerobot_exporter_writes_handoff_for_generic_continuous_state(
+    tmp_path,
+    action_carrier,
+    action_dim,
+):
+    from latency_bench.data.action_layouts import gymnasium_continuous_action_spec
+    from latency_bench.data.exporters.starvla_lerobot import (
+        convert_canonical_rollout_to_lerobot,
+    )
+    from latency_bench.data.hf_parquet import write_parquet_splits
+
+    image_path = tmp_path / "image.png"
+    save_test_image(image_path, 7)
+    action_labels = [f"torque_{index}" for index in range(6)]
+    state_labels = [f"state_{index}" for index in range(17)]
+    raw_export = tmp_path / "raw"
+    write_parquet_splits(
+        raw_export,
+        [
+            {
+                "image": str(image_path),
+                "env_name": "continuous_state_task",
+                "episode_idx": 0,
+                "decision_step": 0,
+                "split": "train",
+                "seed": 4,
+                "prompt": "Walk forward.",
+                "latency_raw_frames": 0,
+                "latency_ms": 0.0,
+                "raw_reward": 1.0,
+                "state": [float(index) for index in range(17)],
+                "action": [0.1] * 6,
+                "action_text": "continuous_control",
+            },
+            {
+                "image": str(image_path),
+                "env_name": "continuous_state_task",
+                "episode_idx": 0,
+                "decision_step": 1,
+                "split": "train",
+                "seed": 4,
+                "prompt": "Walk forward.",
+                "latency_raw_frames": 0,
+                "latency_ms": 0.0,
+                "raw_reward": 1.0,
+                "state": [float(index + 1) for index in range(17)],
+                "action": [0.2] * 6,
+                "action_text": "continuous_control",
+            },
+        ],
+        [],
+        action_spec=gymnasium_continuous_action_spec(action_labels),
+    )
+    (raw_export / "metadata.json").write_text(
+        json.dumps(
+            {
+                "env_name": "continuous_state_task",
+                "integration_name": "gymnasium",
+                "action_layout": "gymnasium_continuous_v1",
+                "reward_field": "raw_reward",
+                "action_labels": action_labels,
+                "gymnasium_task": {
+                    "task_name": "continuous_state_task",
+                    "env_id": "Walker2d-v4",
+                    "make_kwargs": {"render_mode": "rgb_array"},
+                    "registration_imports": [],
+                    "action_space": {
+                        "type": "box",
+                        "labels": action_labels,
+                        "low": [-1.0] * 6,
+                        "high": [1.0] * 6,
+                        "dtype": "float32",
+                        "openvla_carrier_dim": 7,
+                        "openvla_padding": [0.0],
+                    },
+                    "state_space": {"labels": state_labels},
+                    "noop_action": [0.0] * 6,
+                    "base_prompt": "Walk forward.",
+                    "env_fps": 125.0,
+                    "obs_fps": 125.0,
+                    "frame_stack": 1,
+                },
+                "rows_unit": "decision_step",
+                "obs_fps": 125.0,
+                "obs_stride_raw_frames": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output_dir = tmp_path / f"continuous_state__{action_carrier}"
+    manifest = convert_canonical_rollout_to_lerobot(
+        raw_export,
+        output_dir,
+        force=True,
+        action_carrier=action_carrier,
+    )
+
+    table = pq.read_table(output_dir / "data/chunk-000/episode_000000.parquet")
+    modality = json.loads((output_dir / "meta/modality.json").read_text())
+    assert manifest["format"] == "lerobot_v2_image_parquet"
+    assert manifest["action_dim"] == action_dim
+    assert manifest["active_action_dim"] == 6
+    assert manifest["state_dim"] == 17
+    assert manifest["robot_type"] == "rl_games_gymnasium"
+    if action_carrier == "native":
+        assert "openvla_carrier_dim" not in manifest["gymnasium_task"]["action_space"]
+        assert "openvla_padding" not in manifest["gymnasium_task"]["action_space"]
+    else:
+        assert manifest["gymnasium_task"]["action_space"]["openvla_carrier_dim"] == 7
+    assert table.to_pylist()[0]["action"] == pytest.approx(
+        [0.1] * 6 + ([0.0] if action_carrier == "bridge" else [])
+    )
+    assert table.to_pylist()[0]["observation.state"] == pytest.approx([-1.0] * 17)
+    assert table.to_pylist()[1]["observation.state"] == pytest.approx([1.0] * 17)
+    assert modality["state"]["game_state"]["end"] == 17
+    assert (output_dir / "latency_prompt_map.json").exists()
+    assert (
+        tmp_path / f"_generated_mixtures/continuous_state__{action_carrier}.json"
+    ).exists()
+
+
 def test_starvla_lerobot_exporter_rejects_unknown_gymnasium_action_layout(tmp_path):
     from latency_bench.data.exporters.starvla_lerobot import (
         convert_canonical_rollout_to_lerobot,

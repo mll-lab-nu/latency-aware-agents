@@ -144,11 +144,8 @@ def test_scaffold_reports_native_continuous_action_contract(monkeypatch):
         "low": [-1.0] * 6,
         "high": [1.0] * 6,
         "dtype": "float32",
-        "openvla_carrier_dim": 7,
-        "openvla_padding": [0.0],
     }
     assert env_config["noop_action"] == scaffold.NOOP_ACTION
-    assert report["action_catalog"]["openvla_carrier"][-1] == "OPENVLA_PAD"
     assert native_env.closed is True
 
 
@@ -161,7 +158,6 @@ def test_scaffold_reports_native_continuous_action_contract(monkeypatch):
         "configs/examples/gymnasium/walker2d/small_model_train_sf_official_10m.yaml",
         "configs/examples/gymnasium/walker2d/small_model_eval_sf_official_10m.yaml",
         "configs/examples/gymnasium/walker2d/small_model_eval.yaml",
-        "configs/examples/gymnasium/walker2d/starvla_eval.yaml",
     ],
 )
 def test_walker2d_configs_share_zero_latency_contract(config_path):
@@ -172,7 +168,7 @@ def test_walker2d_configs_share_zero_latency_contract(config_path):
     assert env_cfg["env_id"] == gymnasium_walker2d.GYMNASIUM_WALKER2D_ENV_ID
     assert env_cfg["action_space"]["type"] == "box"
     assert env_cfg["action_space"]["labels"] == scaffold.ACTION_LABELS
-    assert env_cfg["action_space"]["openvla_carrier_dim"] == 7
+    assert len(env_cfg["action_space"]["labels"]) == 6
     assert env_cfg["noop_action"] == scaffold.NOOP_ACTION
     assert clock.obs_stride_raw_frames == 1
     assert config["latency"]["method"] == "zero"
@@ -184,11 +180,11 @@ def test_walker2d_small_model_eval_sweeps_requested_latencies_and_episode_count(
 
     assert config["evaluation"]["eval_latency_values"] == [0, 1, 2, 3, 4]
     assert config["evaluation"]["eval_episodes"] == 10
-    assert config["backend"]["train_dir"] == "/mnt/checkpoints/latency-sensitive-bench/walker2d"
+    assert config["backend"]["train_dir"] == "/mnt/checkpoints/latency-sensitive-bench/small_models/walker2d"
     assert config["logging"]["output_dir"] == "/mnt/data/latency-sensitive-bench/walker2d/continuous_small_model_eval"
 
 
-def test_walker2d_checkpoint_contract_preserves_box_and_openvla_carrier():
+def test_walker2d_checkpoint_contract_preserves_native_box():
     config = load_config("configs/examples/gymnasium/walker2d/small_model_train_ppo_tuned.yaml")
     cfg = build_train_cfg_from_config(config)
     task_contract = gymnasium_task_contract(config["env"])
@@ -196,8 +192,7 @@ def test_walker2d_checkpoint_contract_preserves_box_and_openvla_carrier():
     assert cfg.gym_action_space_json == json.dumps(config["env"]["action_space"])
     assert json.loads(cfg.gym_noop_action_json) == [0.0] * 6
     assert task_contract["action_space"]["type"] == "box"
-    assert task_contract["action_space"]["openvla_carrier_dim"] == 7
-    assert task_contract["action_space"]["openvla_padding"] == [0.0]
+    assert len(task_contract["action_space"]["labels"]) == 6
     assert cfg.encoder_mlp_layers == [64, 64]
     assert cfg.nonlinearity == "tanh"
     assert cfg.kl_loss_coeff == pytest.approx(0.1)

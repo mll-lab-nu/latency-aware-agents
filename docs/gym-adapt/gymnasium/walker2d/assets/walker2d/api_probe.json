@@ -101,7 +101,7 @@
   },
   "action_catalog": {
     "source": "native_walker2d_box",
-    "note": "The policy predicts all six native continuous torques independently; OpenVLA tokenizes each continuous dimension separately.",
+    "note": "The policy and OpenVLA both use the same six native continuous torques.",
     "labels": [
       "right_thigh_torque",
       "right_leg_torque",
@@ -133,15 +133,6 @@
       0.0,
       0.0,
       0.0
-    ],
-    "openvla_carrier": [
-      "right_thigh_torque",
-      "right_leg_torque",
-      "right_foot_torque",
-      "left_thigh_torque",
-      "left_leg_torque",
-      "left_foot_torque",
-      "OPENVLA_PAD"
     ]
   }
 }

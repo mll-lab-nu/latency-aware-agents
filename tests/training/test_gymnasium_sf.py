@@ -134,6 +134,21 @@ def test_inverted_pendulum_rgb_state_adaptation_declares_state_contract():
     )
 
 
+def test_walker2d_rgb_state_adaptation_declares_seventeen_state_values():
+    config = load_config(
+        "configs/examples/gymnasium/walker2d_rgb_state/small_model_train.yaml"
+    )
+
+    assert config["env"]["task_name"] == "walker2d_rgb_state"
+    assert len(config["env"]["state_space"]["labels"]) == 17
+    assert config["env"]["state_space"]["labels"][:2] == [
+        "torso_height",
+        "torso_angle",
+    ]
+    assert config["env"]["action_space"]["type"] == "box"
+    assert len(config["env"]["action_space"]["labels"]) == 6
+
+
 def test_action_catalog_and_latency_decode_nonzero_noop_to_native_action():
     native_env = _NativeActionTraceEnv()
     env = GymnasiumActionCatalogWrapper(native_env, [10, 20, 30])
