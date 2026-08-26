@@ -1,0 +1,17 @@
+__base__: ../../base/atlantis.yaml
+
+experiment:
+  name: atlantis_sf_zero_latency
+  seed: 0
+
+backend:
+  run_mode: train
+
+latency:
+  method: zero
+  add_latency_info: false
+
+logging:
+  output_dir: outputs/atlantis_sf_zero_latency
+  wandb_group: atlantis
+  wandb_job_type: sample_factory

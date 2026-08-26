@@ -1,0 +1,17 @@
+__base__: ../../base/asterix.yaml
+
+experiment:
+  name: asterix_sf_zero_latency
+  seed: 0
+
+backend:
+  run_mode: train
+
+latency:
+  method: zero
+  add_latency_info: false
+
+logging:
+  output_dir: outputs/asterix_sf_zero_latency
+  wandb_group: asterix
+  wandb_job_type: sample_factory
