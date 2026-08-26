@@ -1,5 +1,5 @@
 experiment:
-  name: gymnasium_hopper_discrete_ternary_fixed_l1
+  name: gymnasium_hopper_discrete_ternary_zero_latency
   seed: 0
 
 backend:
@@ -121,8 +121,7 @@ env:
     torque catalog; t, l, and f denote thigh, leg, and foot, while n, z, and p denote -1, 0, and +1 torque.
 
 latency:
-  method: fixed
-  fixed_latency_ms: 8.0
+  method: zero
   add_latency_info: false
 
 scheduler:

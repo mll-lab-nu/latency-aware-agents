@@ -17,7 +17,7 @@ Example:
 
 Optional environment variables:
   MAX_EPISODES        Number of episodes to collect. Default: 1k.
-  MAX_STEPS           Max policy decision steps per episode. Default: 1k.
+  MAX_STEPS           Max raw environment frames per episode. Default: 1k.
   VAL_FRACTION        Validation split fraction. Default: 0.01.
   NUM_ENVS            Number of probe rollout envs. Default: 12.
   REPLAY_NUM_ENVS     Number of replay rollout envs. Default: 16.
@@ -38,6 +38,8 @@ Optional environment variables:
   HF_CONFIG_NAME      HF dataset config name for multi-config repos.
   FILTER_PRESET       Filter preset: none or clean_v1. Default: clean_v1.
   DEMON_EPISODE_THRESHOLD  Override Demon Attack episode clipped return threshold.
+  EPISODE_RETURN_GT  Accept only episodes with canonical return strictly greater than this value.
+  PROBE_ONLY          Set to 1 to persist accepted seeds without RGB replay/parquet materialization.
 
 Notes:
   By default the exporter parses *_same_latency_lN_* checkpoint names when present,
@@ -115,6 +117,14 @@ if [[ -n "${DEMON_EPISODE_THRESHOLD:-}" ]]; then
     CMD+=(--demon-episode-threshold "${DEMON_EPISODE_THRESHOLD}")
 fi
 
+if [[ -n "${EPISODE_RETURN_GT:-}" ]]; then
+    CMD+=(--episode-return-gt "${EPISODE_RETURN_GT}")
+fi
+
+if [[ "${PROBE_ONLY:-0}" == "1" || "${PROBE_ONLY:-0}" == "true" ]]; then
+    CMD+=(--probe-only)
+fi
+
 if [[ -n "${HF_REPO_ID:-}" ]]; then
     CMD+=(--push-to-hub --hf-repo-id "${HF_REPO_ID}" --hf-token "${HF_TOKEN:-}")
     if [[ "${HF_PRIVATE}" == "1" || "${HF_PRIVATE}" == "true" ]]; then
@@ -154,6 +164,10 @@ printf '    filter preset: %s\n' "${FILTER_PRESET:-clean_v1}"
 if [[ -n "${DEMON_EPISODE_THRESHOLD:-}" ]]; then
     printf '    demon threshold: %s\n' "${DEMON_EPISODE_THRESHOLD}"
 fi
+if [[ -n "${EPISODE_RETURN_GT:-}" ]]; then
+    printf '    episode return > %s\n' "${EPISODE_RETURN_GT}"
+fi
+printf '    probe only: %s\n' "${PROBE_ONLY:-0}"
 if [[ -n "${HF_CONFIG_NAME:-}" ]]; then
     printf '    hf config name: %s\n' "${HF_CONFIG_NAME}"
 fi

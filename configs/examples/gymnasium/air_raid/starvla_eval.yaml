@@ -1,15 +1,15 @@
 __base__: latency_bench_eval.yaml
 
 experiment:
-  name: gymnasium_air_raid_starvla_fixed_l1
+  name: gymnasium_air_raid_starvla_l0
 
 policy:
   type: starvla
-  checkpoint_path: third_party/starVLA/results/Checkpoints/air_raid_fixed_l1_openvla_sft/checkpoints/steps_2000_model.safetensors
-  model_config_path: third_party/starVLA/results/Checkpoints/air_raid_fixed_l1_openvla_sft/config.full.yaml
-  task_manifest_path: third_party/starVLA/playground/Datasets/rl_games/air_raid_fixed_l1/manifest.json
+  checkpoint_path: third_party/starVLA/results/Checkpoints/air_raid_l0_openvla_sft/checkpoints/steps_2000_model.safetensors
+  model_config_path: third_party/starVLA/results/Checkpoints/air_raid_l0_openvla_sft/config.full.yaml
+  task_manifest_path: third_party/starVLA/playground/Datasets/rl_games/air_raid_l0/manifest.json
   device: cuda
-  latency_prompt_map_path: third_party/starVLA/playground/Datasets/rl_games/air_raid_fixed_l1/latency_prompt_map.json
+  latency_prompt_map_path: third_party/starVLA/playground/Datasets/rl_games/air_raid_l0/latency_prompt_map.json
   latency_prompt_key: 1
 
 evaluation:

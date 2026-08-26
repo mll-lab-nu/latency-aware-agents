@@ -1,11 +1,5 @@
-[bench] run=gymnasium_hopper_discrete_ternary_fixed_l1 sweeps=1 episodes_per_sweep=10 total_episode_runs=10
-[bench] sweep 1/1: eval_latency=1
-/venv/latency/lib/python3.10/site-packages/gymnasium/core.py:311: UserWarning: [33mWARN: env.num_agents to get variables from other wrappers is deprecated and will be removed in v1.0, to get this variable you can do `env.unwrapped.num_agents` for environment variables or `env.get_wrapper_attr('num_agents')` that will search the reminding wrappers.[0m
-  logger.warn(
-/venv/latency/lib/python3.10/site-packages/gymnasium/core.py:311: UserWarning: [33mWARN: env.is_multiagent to get variables from other wrappers is deprecated and will be removed in v1.0, to get this variable you can do `env.unwrapped.is_multiagent` for environment variables or `env.get_wrapper_attr('is_multiagent')` that will search the reminding wrappers.[0m
-  logger.warn(
-[36m[2026-08-18 13:19:35,365][11103] RunningMeanStd input shape: (11,)[0m
-[36m[2026-08-18 13:19:35,372][11103] RunningMeanStd input shape: (1,)[0m
+[bench] run=gymnasium_hopper_discrete_ternary_zero_latency sweeps=1 episodes_per_sweep=10 total_episode_runs=10
+[bench] sweep 1/1: eval_latency=0
 [bench] sweep 1/1 episode 1/10 done
 [bench] sweep 1/1 episode 2/10 done
 [bench] sweep 1/1 episode 3/10 done
@@ -16,15 +10,15 @@
 [bench] sweep 1/1 episode 8/10 done
 [bench] sweep 1/1 episode 9/10 done
 [bench] sweep 1/1 episode 10/10 done
-[bench] sweep 1/1 complete elapsed=10.1s
-episode=0 return=538.825 steps=215 mean_latency_ms=8.0
-episode=1 return=3277.235 steps=1000 mean_latency_ms=8.0
-episode=2 return=3348.806 steps=1000 mean_latency_ms=8.0
-episode=3 return=548.955 steps=211 mean_latency_ms=8.0
-episode=4 return=1342.200 steps=367 mean_latency_ms=8.0
-episode=5 return=326.435 steps=146 mean_latency_ms=8.0
-episode=6 return=3211.698 steps=1000 mean_latency_ms=8.0
-episode=7 return=1579.534 steps=489 mean_latency_ms=8.0
-episode=8 return=3320.254 steps=1000 mean_latency_ms=8.0
-episode=9 return=3103.880 steps=1000 mean_latency_ms=8.0
-summary latency=1 episodes=10 mean_return=2059.782 std_return=1244.812 mean_length=642.8
+[bench] sweep 1/1 complete elapsed=14.4s
+episode=0 return=1335.070 steps=410 mean_latency_ms=0.0
+episode=1 return=811.947 steps=279 mean_latency_ms=0.0
+episode=2 return=845.757 steps=298 mean_latency_ms=0.0
+episode=3 return=862.391 steps=300 mean_latency_ms=0.0
+episode=4 return=1781.339 steps=532 mean_latency_ms=0.0
+episode=5 return=1349.343 steps=423 mean_latency_ms=0.0
+episode=6 return=1283.638 steps=397 mean_latency_ms=0.0
+episode=7 return=1628.814 steps=512 mean_latency_ms=0.0
+episode=8 return=944.646 steps=318 mean_latency_ms=0.0
+episode=9 return=894.986 steps=281 mean_latency_ms=0.0
+summary latency=0 episodes=10 mean_return=1173.793 std_return=333.287 mean_length=375.0

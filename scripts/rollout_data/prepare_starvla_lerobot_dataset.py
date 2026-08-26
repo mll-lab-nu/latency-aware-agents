@@ -75,7 +75,7 @@ def push_lerobot_dataset(
         "repo_id": repo_id,
         "repo_type": "dataset",
         "allow_patterns": [f"{data_mix}/**", f"{data_mix}__val/**"],
-        "commit_message": "Upload StarVLA LeRobot dataset",
+        "commit_message": "Upload LeRobot dataset",
     }
     if token:
         create_repo_kwargs["token"] = token
@@ -91,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     Returns:
         Configured argument parser.
     """
-    parser = argparse.ArgumentParser(description="Prepare a StarVLA LeRobot dataset from a raw rollout export.")
+    parser = argparse.ArgumentParser(description="Prepare a LeRobot dataset from a raw rollout export.")
     parser.add_argument("raw_export_dir")
     parser.add_argument("lerobot_root")
     parser.add_argument("data_mix")

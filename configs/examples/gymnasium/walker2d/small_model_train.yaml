@@ -1,0 +1,118 @@
+experiment:
+  name: gymnasium_walker2d_continuous_zero_latency
+  seed: 0
+backend:
+  type: sample_factory
+  algo: APPO
+  device: cuda
+  train_dir: /mnt/checkpoints/latency-sensitive-bench/walker2d
+  restart_behavior: overwrite
+  run_mode: train
+executor:
+  mode: simulated
+env:
+  name: gymnasium
+  task_name: walker2d_continuous_torque
+  env_id: LatencyBench/Walker2dContinuous-v0
+  registration_imports:
+  - latency_bench.envs.gymnasium_walker2d
+  make_kwargs:
+    base_env_id: Walker2d-v4
+    render_mode: rgb_array
+    base_make_kwargs:
+      forward_reward_weight: 1.0
+      ctrl_cost_weight: 0.001
+      healthy_reward: 1.0
+      terminate_when_unhealthy: true
+      reset_noise_scale: 0.005
+      exclude_current_positions_from_observation: true
+  env_fps: 125.0
+  obs_fps: 125.0
+  frame_stack: 1
+  action_space:
+    type: box
+    labels:
+    - right_thigh_torque
+    - right_leg_torque
+    - right_foot_torque
+    - left_thigh_torque
+    - left_leg_torque
+    - left_foot_torque
+    low:
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    high:
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    dtype: float32
+    openvla_carrier_dim: 7
+    openvla_padding:
+    - 0.0
+  noop_action:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  base_prompt: Move the Walker2d robot forward while keeping its torso upright. Predict
+    six continuous torques in [-1, 1] ordered as right thigh, right leg, right foot,
+    left thigh, left leg, and left foot.
+latency:
+  method: zero
+  add_latency_info: false
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+policy:
+  type: random
+training:
+  train_for_env_steps: 10000000
+  num_workers: 1
+  num_envs_per_worker: 16
+  worker_num_splits: 1
+  num_policies: 1
+  batch_size: 1024
+  rollout: 64
+  recurrence: 32
+  num_epochs: 2
+  num_batches_per_epoch: 8
+  max_policy_lag: 300
+  learning_rate: 0.000303
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  value_loss_coeff: 0.5
+  max_grad_norm: 4.0
+  exploration_loss_coeff: 0.01
+  async_rl: true
+  batched_sampling: true
+  use_rnn: false
+  encoder_mlp_layers: [512, 512]
+  normalize_input: true
+  normalize_returns: true
+  save_every_sec: 600
+  keep_checkpoints: 5
+evaluation:
+  eval_interval_steps: null
+  eval_episodes: 5
+  eval_parallel_envs: 1
+  eval_max_steps: 1000
+  eval_deterministic: true
+logging:
+  output_dir: /mnt/data/latency-sensitive-bench/walker2d/train
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false

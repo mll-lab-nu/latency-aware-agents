@@ -110,6 +110,24 @@ def test_l1_scheduler_advances_four_raw_frames_and_delays_first_action(monkeypat
     assert native_env.actions == [0, 4, 4, 4, 4, 5, 5, 5]
 
 
+def test_air_raid_fire_reset_starts_game_with_fire_actions(monkeypatch):
+    native_env = _AirRaidProbeEnv()
+    monkeypatch.setattr(gymnasium_air_raid, "_register_ale", lambda: None)
+    monkeypatch.setattr(gymnasium_air_raid.gym, "make", lambda *args, **kwargs: native_env)
+    env = gymnasium_air_raid.make_latency_sensitive_air_raid_env(
+        base_env_id="ALE/AirRaid-v5",
+        render_mode="rgb_array",
+        screen_size=84,
+        noop_max=0,
+        base_make_kwargs={},
+        fire_reset=True,
+    )
+
+    env.reset(seed=0)
+
+    assert native_env.actions == [1, 2]
+
+
 def test_scaffold_reports_pal_clock_and_native_action_meanings(monkeypatch, capsys):
     native_env = _AirRaidProbeEnv()
     monkeypatch.setattr(scaffold.gym, "make", lambda *args, **kwargs: native_env)
@@ -135,7 +153,7 @@ def test_scaffold_reports_pal_clock_and_native_action_meanings(monkeypatch, caps
     "configs/examples/gymnasium/air_raid/small_model_eval.yaml",
     "configs/examples/gymnasium/air_raid/starvla_eval.yaml",
 ])
-def test_air_raid_configs_share_contract_and_l1_latency(config_path):
+def test_air_raid_configs_share_zero_latency_four_frame_contract(config_path):
     config = load_config(config_path)
     env_cfg = config["env"]
     clock = EnvClock(env_fps=env_cfg["env_fps"], obs_fps=env_cfg["obs_fps"])
@@ -150,13 +168,15 @@ def test_air_raid_configs_share_contract_and_l1_latency(config_path):
     assert env_cfg["action_order"] == ACTION_LABELS
     assert env_cfg["action_map"] == dict(zip(ACTION_LABELS, range(6)))
     assert env_cfg["noop_action"] == "noop"
+    assert env_cfg["frame_stack"] == 4
     assert clock.obs_stride_raw_frames == 4
     assert clock.env_fps == 50
-    assert clock.latency_ms_to_raw_frames(config["latency"]["fixed_latency_ms"]) == 1
+    assert config["latency"] == {"method": "zero", "add_latency_info": False}
 
 
 def test_air_raid_random_noop_eval_variant_is_explicit():
     config = load_config("configs/examples/gymnasium/air_raid/small_model_eval_random_noop.yaml")
 
     assert config["env"]["make_kwargs"]["noop_max"] == 30
+    assert config["env"]["make_kwargs"]["fire_reset"] is True
     assert config["logging"]["output_dir"] == "outputs/examples/gymnasium_air_raid/eval_random_noop"

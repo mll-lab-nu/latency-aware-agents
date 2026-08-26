@@ -14,12 +14,16 @@ def test_clean_v1_accepts_deadly_corridor_by_raw_return():
 def test_clean_v1_accepts_flappy_by_length_fraction():
     from latency_bench.data.filters import clean_v1_accepts_episode_summary
 
-    # Flappy keeps episodes that survive >= 0.7 * max_steps_per_episode.
+    # Flappy compares raw-frame survival against the raw-frame cap.
     assert not clean_v1_accepts_episode_summary(
-        "flappy", {"episode_length": 699, "episode_raw_return": 0.0}, max_steps_per_episode=1000
+        "flappy",
+        {"episode_length": 233, "episode_raw_frames": 699, "episode_raw_return": 0.0},
+        max_steps_per_episode=1000,
     )
     assert clean_v1_accepts_episode_summary(
-        "flappy", {"episode_length": 700, "episode_raw_return": 0.0}, max_steps_per_episode=1000
+        "flappy",
+        {"episode_length": 234, "episode_raw_frames": 700, "episode_raw_return": 0.0},
+        max_steps_per_episode=1000,
     )
 
 

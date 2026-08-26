@@ -93,7 +93,12 @@ def _generic_config(tmp_path: Path) -> dict:
         json.dumps(
             {
                 "rl_games": {"gymnasium": {"task_contract": contract}},
-                "datasets": {"vla_data": {"include_state": False}},
+                "datasets": {
+                    "vla_data": {
+                        "include_state": False,
+                        "gymnasium_task_contract": contract,
+                    }
+                },
                 "framework": {"action_model": {"action_env_dim": 3}},
             }
         ),
@@ -159,6 +164,86 @@ def test_generic_checkpoint_policy_separates_integration_task_and_native_action(
     assert output.action.name == "push_right"
     assert output.action.value == 2
     assert output.metadata["raw_action_id"] == 0
+
+
+@pytest.mark.parametrize(
+    ("normalization", "metadata", "expected_state"),
+    [
+        (None, {}, [[0.0, 0.0]]),
+        (
+            {"type": "min_max", "min": [0.0, 2.0], "max": [2.0, 4.0]},
+            {"gymnasium_state": [1.0, 3.0]},
+            [[0.0, 0.0]],
+        ),
+    ],
+)
+def test_generic_policy_uses_state_only_with_explicit_normalization(
+    monkeypatch,
+    tmp_path: Path,
+    normalization,
+    metadata,
+    expected_state,
+):
+    from latency_bench.policy import starvla
+
+    monkeypatch.setattr(starvla, "_normalized_model_cfg", lambda model_cfg: model_cfg)
+
+    config = _generic_config(tmp_path)
+    wrapper = GenericPolicyServerWrapper(None)
+    model_cfg = {
+        "datasets": {
+            "vla_data": {
+                "include_state": True,
+                "num_obs_frames": 1,
+                "image_mode": "single",
+            }
+        },
+        "framework": {
+            "action_model": {"state_dim": 2},
+            "kv_memory": {"enabled": False},
+        },
+    }
+    runner = starvla.StarVlaPolicyRunner(
+        wrapper=wrapper,
+        checkpoint_path="checkpoint.pt",
+        device="cpu",
+        unnorm_key=None,
+        env_name="mountain_car",
+        action_resolver=ActionResolver(config["env"]),
+        action_refs=config["env"]["action_order"],
+        base_prompt=config["env"]["base_prompt"],
+        observation_stride_raw_frames=3,
+        model_cfg=model_cfg,
+        state_normalization=normalization,
+    )
+
+    runner.predict(_observation(metadata))
+
+    assert wrapper.calls[0]["examples"][0]["state"].tolist() == expected_state
+
+
+def test_generic_policy_allows_eval_only_reset_wrapper_overrides(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from latency_bench.policy import starvla
+
+    GenericPolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
+    monkeypatch.setattr(starvla, "_normalized_model_cfg", lambda model_cfg: model_cfg)
+    monkeypatch.setattr(starvla, "_load_starvla_model_config", _read_model_config)
+    config = _generic_config(tmp_path)
+    training_contract = gymnasium_task_contract(config["env"])
+    config["policy"]["gymnasium_training_task_contract"] = training_contract
+    config["env"]["make_kwargs"] = {
+        "render_mode": "rgb_array",
+        "noop_max": 30,
+        "fire_reset": True,
+    }
+
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    assert policy._env_name == "mountain_car"
 
 
 def test_generic_prompt_map_takes_priority_over_explicit_base_prompt(
@@ -308,7 +393,7 @@ def test_generic_starvla_rejects_model_config_contract_drift(
     monkeypatch.setattr(starvla, "_load_starvla_model_config", _read_model_config)
     config = _generic_config(tmp_path)
     model_cfg = _read_model_config(config["policy"]["model_config_path"])
-    model_cfg["rl_games"]["gymnasium"]["task_contract"]["action_values"] = [0, 2, 1]
+    model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"]["action_values"] = [0, 2, 1]
     Path(config["policy"]["model_config_path"]).write_text(
         json.dumps(model_cfg),
         encoding="utf-8",

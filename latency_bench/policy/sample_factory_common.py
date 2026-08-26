@@ -321,7 +321,11 @@ class SampleFactoryPolicyRunner(PolicyRunner):
 
         processed_actions = self._preprocess_actions_for_space(actions)
         raw_value = sf_actions.to_python_action(processed_actions)
-        action = sf_actions.resolve_action(raw_value, self.action_resolver)
+        action = sf_actions.resolve_action(
+            raw_value,
+            self.action_resolver,
+            action_space=self.action_space,
+        )
         return PolicyOutput(
             action=action,
             raw_output=raw_value,
@@ -377,7 +381,11 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         )
         return [
             PolicyOutput(
-                action=sf_actions.resolve_action(raw_value, self.action_resolver),
+                action=sf_actions.resolve_action(
+                    raw_value,
+                    self.action_resolver,
+                    action_space=self.action_space,
+                ),
                 raw_output=raw_value,
                 metadata={
                     "policy_type": self.policy_type,
@@ -401,7 +409,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
                 f"got nvec={self.action_space.nvec!r}"
             )
         raise NotImplementedError(
-            "Sample Factory batched simulated eval supports Discrete, flat Tuple(Discrete, ...), "
+            "Sample Factory batched simulated eval supports Box, Discrete, flat Tuple(Discrete, ...), "
             f"and one-dimensional MultiDiscrete action spaces; got action_space={self.action_space!r}"
         )
 

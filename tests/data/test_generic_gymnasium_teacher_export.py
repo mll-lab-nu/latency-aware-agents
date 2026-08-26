@@ -23,6 +23,7 @@ def _canonical_row(
     task_name: str = "mountain_car",
     decision_step: int = 0,
     context_images: list[Path] | None = None,
+    state: list[float] | None = None,
 ) -> dict:
     action = [0.0] * len(ACTION_LABELS)
     action[action_id] = 1.0
@@ -43,6 +44,8 @@ def _canonical_row(
     }
     if context_images is not None:
         row["context_images"] = [str(path) for path in context_images]
+    if state is not None:
+        row["state"] = state
     return row
 
 
@@ -52,12 +55,28 @@ def _write_generic_export(
     *,
     task_name: str = "mountain_car",
     integration_name: str = "gymnasium",
+    state_labels: list[str] | None = None,
 ) -> None:
     from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
     from latency_bench.data.hf_parquet import write_parquet_splits
 
     action_spec = gymnasium_discrete_action_spec(ACTION_LABELS)
     write_parquet_splits(raw_export, train_rows, [], action_spec=action_spec)
+    task_contract = {
+        "task_name": task_name,
+        "env_id": "MountainCar-v0",
+        "make_kwargs": {"render_mode": "rgb_array"},
+        "registration_imports": [],
+        "action_labels": list(action_spec.labels),
+        "action_values": [0, 1, 2],
+        "noop_action_id": 1,
+        "base_prompt": "Drive the car up the hill.",
+        "env_fps": 30.0,
+        "obs_fps": 10.0,
+        "frame_stack": 1,
+    }
+    if state_labels is not None:
+        task_contract["state_space"] = {"labels": state_labels}
     (raw_export / "metadata.json").write_text(
         json.dumps(
             {
@@ -66,19 +85,7 @@ def _write_generic_export(
                 "action_layout": "gymnasium_discrete_v1",
                 "reward_field": "raw_reward",
                 "action_labels": list(action_spec.labels),
-                "gymnasium_task": {
-                    "task_name": task_name,
-                    "env_id": "MountainCar-v0",
-                    "make_kwargs": {"render_mode": "rgb_array"},
-                    "registration_imports": [],
-                    "action_labels": list(action_spec.labels),
-                    "action_values": [0, 1, 2],
-                    "noop_action_id": 1,
-                    "base_prompt": "Drive the car up the hill.",
-                    "env_fps": 30.0,
-                    "obs_fps": 10.0,
-                    "frame_stack": 1,
-                },
+                "gymnasium_task": task_contract,
                 "rows_unit": "decision_step",
                 "obs_fps": 10.0,
                 "obs_stride_raw_frames": 3,
@@ -166,12 +173,14 @@ def test_generic_teacher_row_uses_explicit_action_spec_and_prompt():
         obs_fps=10.0,
         action_spec=action_spec,
         base_prompt="Drive the car up the hill.",
+        state=[0.25, -0.5],
     )
 
     assert row["env_name"] == "mountain_car"
     assert row["action_id"] == 2
     assert row["action"] == [0.0, 0.0, 1.0]
     assert row["action_text"] == "PUSH_RIGHT"
+    assert row["state"] == [0.25, -0.5]
     assert row["prompt"].startswith("Drive the car up the hill.")
     assert "Current action latency is 3 raw frames (100.00 ms)." in row["prompt"]
 
@@ -240,6 +249,61 @@ def test_generic_rollout_runtime_selects_gymnasium_integration_and_replays_check
         == flat_cfg["gym_action_values_json"]
     )
     assert argv[argv.index("--gym-noop-action-id") + 1] == "1"
+    assert json.loads(argv[argv.index("--gym-action-space-json") + 1]) == {
+        "type": "discrete",
+        "labels": ["PUSH_LEFT", "COAST", "PUSH_RIGHT"],
+        "values": [0, 1, 2],
+    }
+    assert json.loads(argv[argv.index("--gym-noop-action-json") + 1]) == "COAST"
+
+
+def test_generic_rollout_runtime_forwards_only_continuous_action_contract(monkeypatch, tmp_path):
+    from sample_factory.cfg import arguments as sf_arguments
+    from latency_bench.data import sf_teacher_runtime
+
+    calls: list[object] = []
+    parsed_cfg = SimpleNamespace(policy_index=0)
+    module = SimpleNamespace(
+        register_gymnasium_envs=lambda: calls.append("registered"),
+        SAMPLE_FACTORY_CONFIG_PARSER=SimpleNamespace(
+            parse_eval=lambda argv: calls.append(argv) or parsed_cfg
+        ),
+    )
+    monkeypatch.setattr(sf_teacher_runtime, "import_integration_module", lambda config: module)
+    monkeypatch.setattr(sf_arguments, "load_from_checkpoint", lambda cfg: cfg)
+    flat_cfg = _generic_flat_cfg()
+    flat_cfg["gym_action_space_json"] = json.dumps(
+        {
+            "type": "box",
+            "labels": ["a0", "a1"],
+            "low": [-1.0, -1.0],
+            "high": [1.0, 1.0],
+            "dtype": "float32",
+        }
+    )
+    flat_cfg["gym_noop_action_json"] = json.dumps([0.0, 0.0])
+    del flat_cfg["gym_action_labels_json"]
+    del flat_cfg["gym_action_values_json"]
+    del flat_cfg["gym_noop_action_id"]
+
+    sf_teacher_runtime.build_sample_factory_rollout_cfg(
+        {
+            "env_name": "continuous_task",
+            "integration_name": "gymnasium",
+            "checkpoint_experiment_dir": str(tmp_path / "teacher"),
+            "checkpoint_path": None,
+            "flat_cfg": flat_cfg,
+            "device_override": None,
+            "latency_override": None,
+        }
+    )
+
+    argv = calls[1]
+    assert json.loads(argv[argv.index("--gym-action-space-json") + 1])["type"] == "box"
+    assert json.loads(argv[argv.index("--gym-noop-action-json") + 1]) == [0.0, 0.0]
+    assert "--gym-action-labels-json" not in argv
+    assert "--gym-action-values-json" not in argv
+    assert "--gym-noop-action-id" not in argv
 
 
 def test_teacher_export_cli_leaves_generic_task_name_to_checkpoint_inference():
@@ -259,6 +323,44 @@ def test_teacher_export_cli_leaves_generic_task_name_to_checkpoint_inference():
     )
 
     assert args.env_name == ""
+
+
+def test_teacher_export_cli_accepts_strict_episode_return_gate():
+    from scripts.rollout_data.export_sf_teacher_dataset import build_parser
+
+    args = build_parser().parse_args(
+        [
+            "--checkpoint-root",
+            "checkpoint",
+            "--output-dir",
+            "out",
+            "--max-episodes",
+            "100",
+            "--max-steps-per-episode",
+            "1000",
+            "--episode-return-gt",
+            "3000",
+        ]
+    )
+
+    assert args.episode_return_gt == pytest.approx(3000.0)
+
+
+@pytest.mark.parametrize(
+    ("episode_return", "accepted"),
+    [(2999.999, False), (3000.0, False), (3000.001, True)],
+)
+def test_generic_episode_return_gate_is_strictly_greater(episode_return, accepted):
+    from latency_bench.data.sf_teacher_rollout import _passes_episode_return_gate
+
+    assert (
+        _passes_episode_return_gate(
+            {"episode_raw_return": episode_return},
+            episode_return_field="episode_raw_return",
+            episode_return_gt=3000.0,
+        )
+        is accepted
+    )
 
 
 def test_generic_teacher_export_rejects_task_identity_override(monkeypatch, tmp_path):
@@ -336,7 +438,7 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
     assert manifest["action_dim"] == 3
     assert manifest["active_action_dim"] == 3
     assert manifest["action_carrier"] == "native"
-    assert manifest["robot_type"] == "rl_games_gymnasium_discrete"
+    assert manifest["robot_type"] == "rl_games_gymnasium"
     assert manifest["integration_name"] == "gymnasium"
     assert manifest["task_name"] == "mountain_car"
     assert manifest["gymnasium_task"]["action_values"] == [0, 1, 2]
@@ -402,8 +504,47 @@ def test_starvla_lerobot_converter_writes_native_handoff_contract(tmp_path):
         }
     }
     assert mixtures == {
-        "lerobot": [["lerobot", 1.0, "rl_games_gymnasium_discrete"]],
-        "lerobot__val": [["lerobot__val", 1.0, "rl_games_gymnasium_discrete"]],
+        "lerobot": [["lerobot", 1.0, "rl_games_gymnasium"]],
+        "lerobot__val": [["lerobot__val", 1.0, "rl_games_gymnasium"]],
+    }
+
+
+def test_starvla_lerobot_converter_uses_explicit_gymnasium_state(tmp_path):
+    from latency_bench.data.exporters.starvla_lerobot import (
+        convert_canonical_rollout_to_lerobot,
+    )
+
+    image_path = tmp_path / "image.png"
+    save_test_image(image_path, 7)
+    raw_export = tmp_path / "raw"
+    rows = [
+        _canonical_row(image_path, decision_step=0, state=[-2.0, 1.0]),
+        _canonical_row(image_path, decision_step=1, state=[2.0, 3.0]),
+    ]
+    _write_generic_export(
+        raw_export,
+        rows,
+        task_name="inverted_pendulum_rgb_state",
+        state_labels=["cart_position", "pole_angle"],
+    )
+
+    output_dir = tmp_path / "lerobot"
+    manifest = convert_canonical_rollout_to_lerobot(raw_export, output_dir, force=True)
+    converted = pq.read_table(
+        output_dir / "data/chunk-000/episode_000000.parquet"
+    ).to_pylist()
+
+    assert [row["observation.state"] for row in converted] == [
+        [-1.0, -1.0],
+        [1.0, 1.0],
+    ]
+    assert manifest["uses_state"] is True
+    assert manifest["state_dim"] == 2
+    assert manifest["state_labels"] == ["cart_position", "pole_angle"]
+    assert manifest["state_normalization"] == {
+        "type": "min_max",
+        "min": [-2.0, 1.0],
+        "max": [2.0, 3.0],
     }
 
 
@@ -462,6 +603,7 @@ def test_starvla_lerobot_bridge_carrier_rejects_more_than_seven_actions(tmp_path
             {
                 "env_name": "eight_action_task",
                 "integration_name": "gymnasium",
+                "action_layout": "gymnasium_discrete_v1",
                 "action_labels": action_labels,
                 "gymnasium_task": {
                     "task_name": "eight_action_task",
@@ -553,6 +695,6 @@ def test_generic_task_name_matching_legacy_env_keeps_generic_handoff_semantics(
     mixtures = json.loads(
         (tmp_path / "_generated_mixtures/lerobot.json").read_text(encoding="utf-8")
     )
-    assert manifest["robot_type"] == "rl_games_gymnasium_discrete"
+    assert manifest["robot_type"] == "rl_games_gymnasium"
     assert table["density_weight"].to_pylist() == [1.0, 1.0]
-    assert mixtures["lerobot"] == [["lerobot", 1.0, "rl_games_gymnasium_discrete"]]
+    assert mixtures["lerobot"] == [["lerobot", 1.0, "rl_games_gymnasium"]]

@@ -8,6 +8,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 import torch
+from gymnasium.spaces import Box
 from tqdm import tqdm
 
 from latency_bench.data.action_layouts import ActionSpec, action_spec_for_env
@@ -276,7 +277,9 @@ def _filter_report_from_probe_state(
     probe_state: Mapping[str, Any],
     *,
     env_name: str,
+    episode_return_field: str,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
+    episode_return_gt: float | None = None,
 ) -> dict[str, Any]:
     """Build final filter report from probe state and written row shards.
 
@@ -285,6 +288,8 @@ def _filter_report_from_probe_state(
         probe_state: Persisted probe state with accepted specs and attempt counters.
         env_name: Canonical benchmark environment name.
         filter_preset: Filter preset name recorded in the report.
+        episode_return_field: Canonical episode-return field used by the acceptance gate.
+        episode_return_gt: Optional strict lower bound for accepted episode returns.
 
     Returns:
         Filter report written to metadata and ``filter_report.json``.
@@ -305,6 +310,12 @@ def _filter_report_from_probe_state(
         "val_rows_before_row_filter": sum(int(spec["episode_length"]) for spec in val_specs),
         "val_rows_after_row_filter": split_stats["val_rows"],
     }
+    if episode_return_gt is not None:
+        report["episode_return_gate"] = {
+            "field": episode_return_field,
+            "operator": ">",
+            "threshold": float(episode_return_gt),
+        }
     if env_name == "demon_attack":
         report["raw_score_bins"] = demon_raw_score_bin_counts(accepted_specs)
     return report
@@ -488,14 +499,20 @@ def _step_teacher_policy(
             action_space=driver.action_space,
         )
         new_rnn_states = policy_outputs["new_rnn_states"]
-    return raw_actions, new_rnn_states, driver.step(active_slots, raw_actions)
+    step_results = driver.step(active_slots, raw_actions)
+    if isinstance(driver.action_space, Box):
+        raw_actions = [
+            step_results[slot].info["applied_action"]
+            for slot in active_slots
+        ]
+    return raw_actions, new_rnn_states, step_results
 
 
 def _rollout_step_flags(
     env_name: str,
     step_result: RolloutStepResult,
     *,
-    next_decision_step: int,
+    next_raw_frame: int,
     max_steps_per_episode: int,
 ) -> tuple[bool, bool]:
     raw_done = step_result.terminated or step_result.truncated
@@ -508,7 +525,7 @@ def _rollout_step_flags(
             step_result.info,
         )
         life_loss_boundary = raw_done and not true_episode_end
-    if next_decision_step >= max_steps_per_episode:
+    if next_raw_frame >= max_steps_per_episode:
         return life_loss_boundary, True
     return life_loss_boundary, true_episode_end
 
@@ -518,6 +535,17 @@ def _rollout_step_flags(
 # frequently, and serializing the whole state to disk per completion dominates. The final
 # state is flushed once the probe loop ends, so a clean run's persisted state is identical.
 PROBE_STATE_WRITE_EVERY = 256
+
+
+def _passes_episode_return_gate(
+    summary: Mapping[str, Any],
+    *,
+    episode_return_field: str,
+    episode_return_gt: float | None,
+) -> bool:
+    if episode_return_gt is None:
+        return True
+    return summary[episode_return_field] > float(episode_return_gt)
 
 
 def _probe_accepted_specs(
@@ -535,6 +563,7 @@ def _probe_accepted_specs(
     probe_state: dict[str, Any],
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
+    episode_return_gt: float | None = None,
     rollout_seed_offset: int = 0,
     action_spec: ActionSpec | None = None,
     integration_name: str | None = None,
@@ -548,13 +577,14 @@ def _probe_accepted_specs(
         env_name: Canonical benchmark environment name.
         output_dir: Rollout export directory.
         max_episodes: Number of accepted episodes requested.
-        max_steps_per_episode: Step cap per episode.
+        max_steps_per_episode: Raw environment frame cap per episode.
         val_fraction: Fraction assigned to validation.
         split_seed: RNG seed for split assignment.
         deterministic: Whether to use deterministic teacher actions.
         probe_state: Mutable probe state persisted for resume.
         filter_preset: Filter preset name for episode-level gating.
         filter_kwargs: Optional overrides forwarded to the episode gate.
+        episode_return_gt: Optional strict lower bound for accepted episode returns.
         action_spec: Explicit action layout carried by a generic checkpoint.
         integration_name: Integration identity used for legacy-specific rollout behavior.
     """
@@ -563,6 +593,7 @@ def _probe_accepted_specs(
     device = runtime["device"]
     resolved_action_spec = action_spec if action_spec is not None else action_spec_for_env(env_name)
     behavior_env_name = env_name if integration_name is None else integration_name
+    obs_stride_raw_frames = int(float(cfg.env_fps) / float(cfg.obs_fps))
     final_splits = {
         int(spec["episode_idx"]): str(spec["split"])
         for spec in _build_episode_plan(
@@ -648,13 +679,15 @@ def _probe_accepted_specs(
                     life_loss_boundary, episode_done = _rollout_step_flags(
                         behavior_env_name,
                         step_result,
-                        next_decision_step=next_decision_step,
+                        next_raw_frame=next_decision_step * obs_stride_raw_frames,
                         max_steps_per_episode=int(max_steps_per_episode),
                     )
                     if episode_done:
                         probe_state["attempted_episodes"] += 1
                         summary = {
                             "episode_length": int(active_episode_lengths[slot]),
+                            "episode_raw_frames": int(active_episode_lengths[slot])
+                            * obs_stride_raw_frames,
                             resolved_action_spec.episode_return_field: float(active_episode_returns[slot]),
                         }
                         if behavior_env_name == "demon_attack":
@@ -666,6 +699,11 @@ def _probe_accepted_specs(
                             max_steps_per_episode=int(max_steps_per_episode),
                             filter_kwargs=filter_kwargs,
                         )
+                        accepted = accepted and _passes_episode_return_gate(
+                            summary,
+                            episode_return_field=resolved_action_spec.episode_return_field,
+                            episode_return_gt=episode_return_gt,
+                        )
                         if accepted:
                             final_episode_idx = len(accepted_specs)
                             final_split = final_splits[final_episode_idx]
@@ -673,6 +711,7 @@ def _probe_accepted_specs(
                                 "attempt_idx": int(spec["attempt_idx"]),
                                 "episode_idx": int(final_episode_idx),
                                 "episode_length": int(summary["episode_length"]),
+                                "episode_raw_frames": int(summary["episode_raw_frames"]),
                                 resolved_action_spec.episode_return_field: float(
                                     summary[resolved_action_spec.episode_return_field]
                                 ),
@@ -770,7 +809,7 @@ def _replay_accepted_specs(
         output_dir: Rollout export directory.
         accepted_specs: Accepted probe specs.
         completed_episode_indices: Episode indices already written as shards.
-        max_steps_per_episode: Step cap per episode.
+        max_steps_per_episode: Raw environment frame cap per episode.
         deterministic: Whether to use deterministic teacher actions.
         export_image_size: Optional ``(width, height)`` resize target.
         image_writer_workers: Number of async image writer threads.
@@ -798,6 +837,8 @@ def _replay_accepted_specs(
     device = runtime["device"]
     env_fps = float(cfg.env_fps)
     obs_fps = float(cfg.obs_fps)
+    obs_stride_raw_frames = int(env_fps / obs_fps)
+    include_state = bool(getattr(cfg, "gym_state_labels_json", ""))
     spec_cursor = 0
     replayed = 0
 
@@ -820,6 +861,7 @@ def _replay_accepted_specs(
     active_specs: list[dict[str, Any] | None] = [None for _ in range(driver.slot_count)]
     active_obs: list[Any | None] = [None for _ in range(driver.slot_count)]
     active_image_frames: list[np.ndarray | None] = [None for _ in range(driver.slot_count)]
+    active_states: list[np.ndarray | None] = [None for _ in range(driver.slot_count)]
     active_episode_rows: list[list[dict[str, Any]]] = [[] for _ in range(driver.slot_count)]
     active_episode_frames: list[list[np.ndarray]] = [[] for _ in range(driver.slot_count)]
     active_decision_steps = [0 for _ in range(driver.slot_count)]
@@ -855,6 +897,8 @@ def _replay_accepted_specs(
                 reset_results = driver.reset_slots(initial_reset_plan)
             for slot, (obs, reset_info) in reset_results.items():
                 active_obs[slot] = obs
+                if include_state:
+                    active_states[slot] = np.asarray(reset_info["gymnasium_state"]).copy()
                 if _is_demon_ghost_trail:
                     active_ghost_streams[slot] = DemonGhostTrailStream(_ghost_trail_history_len)
                     active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
@@ -898,7 +942,7 @@ def _replay_accepted_specs(
                     life_loss_boundary, episode_done = _rollout_step_flags(
                         behavior_env_name,
                         step_result,
-                        next_decision_step=next_decision_step,
+                        next_raw_frame=next_decision_step * obs_stride_raw_frames,
                         max_steps_per_episode=int(max_steps_per_episode),
                     )
                     if not life_loss_boundary:
@@ -916,6 +960,7 @@ def _replay_accepted_specs(
                             image_transform=image_transform_config.normalized_transform(),
                             action_spec=action_spec,
                             base_prompt=base_prompt,
+                            state=active_states[slot] if include_state else None,
                         )
                         active_episode_rows[slot].append(row)
                     rnn_states[slot] = new_rnn_states[batch_idx]
@@ -962,6 +1007,7 @@ def _replay_accepted_specs(
                         reset_plan.update(replacement_plan)
                         active_obs[slot] = None
                         active_image_frames[slot] = None
+                        active_states[slot] = None
                         active_episode_rows[slot] = []
                         active_episode_frames[slot] = []
                         active_decision_steps[slot] = 0
@@ -971,6 +1017,10 @@ def _replay_accepted_specs(
                     else:
                         if life_loss_boundary:
                             active_obs[slot], reset_info = driver.continue_after_life_loss(slot)
+                            if include_state:
+                                active_states[slot] = np.asarray(
+                                    reset_info["gymnasium_state"]
+                                ).copy()
                             if _is_demon_ghost_trail:
                                 active_ghost_streams[slot].clear()
                                 active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
@@ -979,6 +1029,10 @@ def _replay_accepted_specs(
                             rnn_states[slot].zero_()
                         else:
                             active_obs[slot] = step_result.next_obs
+                            if include_state:
+                                active_states[slot] = np.asarray(
+                                    step_result.info["gymnasium_state"]
+                                ).copy()
                             if _is_demon_ghost_trail:
                                 new_raw_frames = frames_from_env_raw_rgb_info(step_result.info)
                                 for f in new_raw_frames:
@@ -995,6 +1049,10 @@ def _replay_accepted_specs(
                         reset_results = driver.reset_slots(reset_plan)
                     for slot, (obs, reset_info) in reset_results.items():
                         active_obs[slot] = obs
+                        if include_state:
+                            active_states[slot] = np.asarray(
+                                reset_info["gymnasium_state"]
+                            ).copy()
                         if _is_demon_ghost_trail:
                             active_ghost_streams[slot] = DemonGhostTrailStream(_ghost_trail_history_len)
                             active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
@@ -1075,6 +1133,7 @@ def collect_teacher_dataset(
     row_buffer_size: int,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
+    episode_return_gt: float | None = None,
     context_window: int = 1,
     rollout_seed_offset: int = 0,
     probe_only: bool = False,
@@ -1086,7 +1145,7 @@ def collect_teacher_dataset(
         config: Rollout descriptor loaded from a checkpoint.
         output_dir: Rollout export directory.
         max_episodes: Number of episodes to collect.
-        max_steps_per_episode: Step cap per episode.
+        max_steps_per_episode: Raw environment frame cap per episode.
         val_fraction: Fraction assigned to validation.
         split_seed: RNG seed for split assignment.
         num_envs: Number of probe rollout environments or agents.
@@ -1097,6 +1156,7 @@ def collect_teacher_dataset(
         row_buffer_size: Pending image write threshold.
         filter_preset: Filter preset name (``"none"`` or ``"clean_v1"``).
         filter_kwargs: Temporary exporter experiment arguments retained at the public boundary.
+        episode_return_gt: Optional strict lower bound for accepted episode returns.
         context_window: Total image window length including the current ``image`` field.
         image_transform_config: Optional causal image transform applied during
             replay before row filtering.
@@ -1142,6 +1202,7 @@ def collect_teacher_dataset(
             probe_state=probe_state,
             filter_preset=filter_preset,
             filter_kwargs=filter_kwargs,
+            episode_return_gt=episode_return_gt,
             rollout_seed_offset=int(rollout_seed_offset),
             action_spec=action_spec,
             integration_name=integration_name,
@@ -1151,13 +1212,20 @@ def collect_teacher_dataset(
         # Sharded-probe worker mode: the accepted_specs (with their reset seeds) are now
         # persisted in probe_state.json; skip replay/image writing. A separate merge step
         # combines shards and the single-process replay path materializes the dataset.
-        return {
+        metadata = {
             "probe_only": True,
             "env_name": env_name,
             "accepted_episodes": len(probe_state["accepted_specs"]),
             "rollout_seed_offset": int(rollout_seed_offset),
             "filter_preset": filter_preset,
         }
+        if episode_return_gt is not None:
+            metadata["episode_return_gate"] = {
+                "field": action_spec.episode_return_field,
+                "operator": ">",
+                "threshold": float(episode_return_gt),
+            }
+        return metadata
 
     accepted_specs = probe_state["accepted_specs"]
     completed_episode_indices = completed_episode_indices_from_shards(output_dir)
@@ -1203,8 +1271,10 @@ def collect_teacher_dataset(
         probe_state,
         env_name=integration_name,
         filter_preset=filter_preset,
+        episode_return_field=action_spec.episode_return_field,
+        episode_return_gt=episode_return_gt,
     )
-    return {
+    metadata = {
         "schema_version": SCHEMA_VERSION,
         "action_layout": action_spec.layout,
         "action_labels": list(action_spec.labels),
@@ -1218,6 +1288,7 @@ def collect_teacher_dataset(
         "env_fps": env_fps,
         "obs_fps": obs_fps,
         "obs_stride_raw_frames": int(env_fps / obs_fps),
+        "max_steps_unit": "raw_frame",
         "image_source": "env_raw_rgb"
         if image_transform_config.normalized_transform() == "raw_rgb"
         else f"env_raw_rgb_{image_transform_config.normalized_transform()}",
@@ -1229,3 +1300,6 @@ def collect_teacher_dataset(
         "train_episodes": split_stats["train_episodes"],
         "val_episodes": split_stats["val_episodes"],
     }
+    if episode_return_gt is not None:
+        metadata["episode_return_gate"] = filter_report["episode_return_gate"]
+    return metadata

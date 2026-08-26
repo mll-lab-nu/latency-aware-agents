@@ -1,0 +1,41 @@
+__base__: small_model_train.yaml
+
+experiment:
+  name: gymnasium_walker2d_continuous_zero_latency_ppo_tuned_1m_candidate
+
+training:
+  train_for_env_steps: 1000000
+  num_workers: 8
+  num_envs_per_worker: 8
+  worker_num_splits: 2
+  batch_size: 1024
+  rollout: 64
+  recurrence: 1
+  num_epochs: 2
+  num_batches_per_epoch: 4
+  learning_rate: 0.00295
+  lr_schedule: linear_decay
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.2
+  ppo_clip_value: 0.2
+  value_loss_coeff: 1.3
+  max_grad_norm: 3.5
+  exploration_loss_coeff: 0.0
+  kl_loss_coeff: 0.1
+  async_rl: false
+  batched_sampling: false
+  serial_mode: false
+  use_rnn: false
+  encoder_mlp_layers: [64, 64]
+  nonlinearity: tanh
+  adaptive_stddev: false
+  policy_initialization: torch_default
+  initial_stddev: 1.0
+  shuffle_minibatches: false
+  value_bootstrap: true
+  normalize_input: true
+  normalize_returns: true
+
+logging:
+  output_dir: /mnt/data/latency-sensitive-bench/walker2d/continuous_ppo_tuned_1m_candidate_train

@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from gymnasium.spaces import Discrete, MultiDiscrete, Tuple as SpaceTuple
+from gymnasium.spaces import Box, Discrete, MultiDiscrete, Tuple as SpaceTuple
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import Action
@@ -24,6 +24,7 @@ def _is_one_dimensional_multidiscrete_space(action_space: Any) -> bool:
 def is_supported_batched_policy_action_space(action_space: Any) -> bool:
     return (
         isinstance(action_space, Discrete)
+        or isinstance(action_space, Box)
         or _is_flat_discrete_tuple_space(action_space)
         or _is_one_dimensional_multidiscrete_space(action_space)
     )
@@ -74,6 +75,14 @@ def normalize_actions_for_space(
         elif actions.ndim == 1:
             actions = unsqueeze_tensor(actions, dim=-1)
         _require_action_shape(actions, batch_size=batch_size, num_components=1)
+        return actions
+
+    if isinstance(action_space, Box):
+        expected_shape = (batch_size, *action_space.shape)
+        if tuple(actions.shape) != expected_shape:
+            raise ValueError(
+                f"Sample Factory Box actions must have shape {expected_shape}, got {tuple(actions.shape)}"
+            )
         return actions
 
     if _is_flat_discrete_tuple_space(action_space):
@@ -224,7 +233,7 @@ def to_python_action(value: Any) -> Any:
     return value
 
 
-def resolve_action(raw_value: Any, action_resolver: ActionResolver) -> Action:
-    if isinstance(raw_value, list):
+def resolve_action(raw_value: Any, action_resolver: ActionResolver, *, action_space: Any) -> Action:
+    if isinstance(raw_value, list) and not isinstance(action_space, Box):
         raw_value = tuple(raw_value)
     return action_resolver.resolve(raw_value)

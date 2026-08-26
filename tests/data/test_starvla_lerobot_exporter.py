@@ -261,3 +261,132 @@ def test_starvla_lerobot_exporter_does_not_accept_latency_alias(tmp_path):
         assert "latency_raw_frames" in str(exc)
     else:
         raise AssertionError("expected missing latency_raw_frames to fail")
+
+
+def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
+    tmp_path,
+):
+    from latency_bench.data.action_layouts import gymnasium_continuous_action_spec
+    from latency_bench.data.exporters.starvla_lerobot import (
+        convert_canonical_rollout_to_lerobot,
+    )
+    from latency_bench.data.hf_parquet import write_parquet_splits
+
+    image_path = tmp_path / "image.png"
+    save_test_image(image_path, 7)
+    action_labels = [f"actuator_{index}" for index in range(275)]
+    action_spec = gymnasium_continuous_action_spec(action_labels)
+    actions = [
+        [0.0] * 275,
+        [index / 275.0 for index in range(275)],
+    ]
+    rows = [
+        {
+            "image": str(image_path),
+            "env_name": "myochallenge_table_tennis_p2",
+            "episode_idx": 0,
+            "decision_step": step,
+            "split": "train",
+            "seed": 4,
+            "prompt": "Return the ball.",
+            "latency_raw_frames": 1,
+            "latency_ms": 10.0,
+            "raw_reward": 0.0,
+            "action": action,
+            "action_text": "continuous_control",
+        }
+        for step, action in enumerate(actions)
+    ]
+    raw_export = tmp_path / "raw"
+    write_parquet_splits(raw_export, rows, [], action_spec=action_spec)
+    (raw_export / "metadata.json").write_text(
+        json.dumps(
+            {
+                "env_name": "myochallenge_table_tennis_p2",
+                "integration_name": "gymnasium",
+                "action_layout": "gymnasium_continuous_v1",
+                "reward_field": "raw_reward",
+                "action_labels": action_labels,
+                "gymnasium_task": {
+                    "task_name": "myochallenge_table_tennis_p2",
+                    "env_id": "myoChallengeTableTennisP2-v0",
+                    "make_kwargs": {"render_mode": "rgb_array"},
+                    "registration_imports": ["myosuite"],
+                    "action_space": {
+                        "type": "box",
+                        "labels": action_labels,
+                        "low": [-1.0] * 275,
+                        "high": [1.0] * 275,
+                        "dtype": "float32",
+                    },
+                    "noop_action": [0.0] * 275,
+                    "base_prompt": "Return the ball.",
+                    "env_fps": 100.0,
+                    "obs_fps": 100.0,
+                    "frame_stack": 1,
+                },
+                "rows_unit": "decision_step",
+                "obs_fps": 100.0,
+                "obs_stride_raw_frames": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output_dir = tmp_path / "lerobot"
+    stale_modality = output_dir / "meta/modality.json"
+    stale_prompt_map = output_dir / "latency_prompt_map.json"
+    stale_val_modality = tmp_path / "lerobot__val/meta/modality.json"
+    for stale_path in (stale_modality, stale_prompt_map, stale_val_modality):
+        stale_path.parent.mkdir(parents=True, exist_ok=True)
+        stale_path.write_text("{}", encoding="utf-8")
+    stale_mixture = tmp_path / "_generated_mixtures/lerobot.json"
+    stale_mixture.parent.mkdir()
+    stale_mixture.write_text("{}", encoding="utf-8")
+    manifest = convert_canonical_rollout_to_lerobot(raw_export, output_dir)
+    validation_manifest = json.loads(
+        (tmp_path / "lerobot__val/manifest.json").read_text(encoding="utf-8")
+    )
+
+    table = pq.read_table(output_dir / "data/chunk-000/episode_000000.parquet")
+    rows_out = table.to_pylist()
+    info = json.loads((output_dir / "meta/info.json").read_text(encoding="utf-8"))
+    assert manifest["format"] == "lerobot_v2_image_parquet"
+    assert manifest["action_dim"] == 275
+    assert manifest["active_action_dim"] == 275
+    assert manifest["carrier_action_labels"] == action_labels
+    assert rows_out[0]["action"] == [0.0] * 275
+    assert rows_out[1]["action"] == pytest.approx(actions[1])
+    assert info["features"]["action"]["shape"] == [275]
+    assert info["features"]["action"]["names"] == action_labels
+    assert [row["timestamp"] for row in rows_out] == pytest.approx([0.0, 0.01])
+    assert not stale_modality.exists()
+    assert not stale_val_modality.exists()
+    assert not stale_prompt_map.exists()
+    assert not stale_mixture.exists()
+    for output_manifest in (manifest, validation_manifest):
+        assert "robot_type" not in output_manifest
+        assert "latency_prompt_map_path" not in output_manifest
+        assert "custom_mixtures_path" not in output_manifest
+
+
+def test_starvla_lerobot_exporter_rejects_unknown_gymnasium_action_layout(tmp_path):
+    from latency_bench.data.exporters.starvla_lerobot import (
+        convert_canonical_rollout_to_lerobot,
+    )
+
+    raw_export = tmp_path / "raw"
+    raw_export.mkdir()
+    (raw_export / "metadata.json").write_text(
+        json.dumps(
+            {
+                "env_name": "unknown_task",
+                "integration_name": "gymnasium",
+                "action_layout": "gymnasium_unknown_v1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Unsupported Gymnasium action_layout"):
+        convert_canonical_rollout_to_lerobot(raw_export, tmp_path / "lerobot")

@@ -4,6 +4,7 @@ from importlib import import_module
 from typing import Any
 
 import gymnasium
+import numpy as np
 
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
@@ -25,6 +26,7 @@ class GymnasiumEnvAdapter(EnvAdapter):
         noop_action: Action,
         frame_stack: int,
         export_env_raw_rgb_frames: bool,
+        include_state: bool = False,
     ) -> None:
         self.env_id = env_id
         self.registration_imports = registration_imports
@@ -33,22 +35,40 @@ class GymnasiumEnvAdapter(EnvAdapter):
         self.noop_action = noop_action
         self.frame_stack = frame_stack
         self.export_env_raw_rgb_frames = export_env_raw_rgb_frames
+        self.include_state = include_state
 
         for module_name in registration_imports:
             import_module(module_name)
         self.gym_env = gymnasium.make(env_id, **make_kwargs)
         self.action_space = self.gym_env.action_space
         self.observation_space = self.gym_env.observation_space
+        self._policy_frame_stack_enabled = frame_stack > 1 and isinstance(
+            self.observation_space,
+            gymnasium.spaces.Box,
+        )
+        if self._policy_frame_stack_enabled:
+            self.observation_space = gymnasium.spaces.Box(
+                low=np.concatenate([self.observation_space.low] * frame_stack, axis=0),
+                high=np.concatenate([self.observation_space.high] * frame_stack, axis=0),
+                dtype=self.observation_space.dtype,
+            )
 
         self.env_step = 0
         self._last_frame: Any = None
         self._last_info: dict[str, Any] = {}
+        self._last_state: Any = None
+        self._observed_frames: list[np.ndarray] = []
         self._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=frame_stack)
 
     def reset(self, seed: int | None = None) -> Observation:
         observation, info = self.gym_env.reset(seed=seed)
+        self._last_state = np.asarray(observation).copy()
         self.env_step = 0
-        self._last_frame = observation
+        if not self._policy_frame_stack_enabled:
+            self._last_frame = observation
+        else:
+            self._observed_frames = [np.asarray(observation).copy() for _ in range(self.frame_stack)]
+            self._last_frame = np.concatenate(self._observed_frames, axis=0)
         self._last_info = info
         if self.export_env_raw_rgb_frames:
             self._reset_raw_rgb_frame_stack()
@@ -56,8 +76,13 @@ class GymnasiumEnvAdapter(EnvAdapter):
 
     def step(self, action: Action) -> StepResult:
         observation, reward, terminated, truncated, info = self.gym_env.step(action.value)
+        self._last_state = np.asarray(observation).copy()
         self.env_step += 1
-        self._last_frame = observation
+        if not self._policy_frame_stack_enabled:
+            self._last_frame = observation
+        else:
+            self._observed_frames = [*self._observed_frames[1:], np.asarray(observation).copy()]
+            self._last_frame = np.concatenate(self._observed_frames, axis=0)
         self._last_info = info
         if self.export_env_raw_rgb_frames:
             self._append_raw_rgb_frame()
@@ -86,6 +111,12 @@ class GymnasiumEnvAdapter(EnvAdapter):
             sim_time_ms=self.env_step * self.frame_ms,
             metadata=self._metadata(self._last_info),
         )
+
+    def _metadata(self, info: dict[str, Any]) -> dict[str, Any]:
+        metadata = super()._metadata(info)
+        if self.include_state:
+            metadata["gymnasium_state"] = self._last_state
+        return metadata
 
     def render_game_frame(self) -> Any:
         return self.gym_env.render()

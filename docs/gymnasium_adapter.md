@@ -38,11 +38,13 @@ Gymnasium task contract
   -> latency-bench evaluation
 ```
 
-The fast path requires a finite, ordered action catalog. A native
-`gymnasium.spaces.Discrete` task usually needs only configuration. A continuous
-or structured action space needs a task-owned wrapper that exposes a finite
-`Discrete(n)` catalog and maps each catalog ID back to the exact native action.
-The framework does not silently discretize actions.
+The compatibility path supports native `Discrete` and bounded `Box` action
+spaces. A native `gymnasium.spaces.Discrete` task declares its finite ordered
+catalog in the contract. A native `gymnasium.spaces.Box` task preserves its
+ordered vector, bounds, dtype, and no-op action through the generic adapter and
+continuous rollout/export path. A task-owned wrapper is needed only when the
+native action or observation structure is not supported by that path. The
+framework does not silently discretize actions.
 
 The existing Flappy Bird, Demon Attack, and Deadly Corridor integrations remain
 separate. New tasks use `env.name: gymnasium` and are dispatched through
@@ -97,17 +99,21 @@ or a newer documentation page.
 ### 3. Separate API facts from task-author decisions
 
 The probe establishes runtime facts. It does not establish the experiment. The
-task author must explicitly approve the raw-tick meaning, clock, action catalog,
-no-op, preprocessing, task semantics, prompt, latency, and budgets listed in
-the next section.
+task author must explicitly approve the raw-tick meaning, clock, action
+representation, no-op, preprocessing, task semantics, prompt, latency, and
+budgets listed in the next section.
 
 ### 4. Decide whether a task-owned wrapper is required
 
 - A native `Discrete(n)` action space with JSON-stable action values can usually
   be described directly in the `env` config.
-- A continuous, structured, or otherwise incompatible action space needs a
-  registered task-owned wrapper that exposes a finite `Discrete(n)` policy
-  catalog and maps each ID to the exact native action.
+- A native bounded `Box` action space can be described directly with its ordered
+  dimension labels, per-dimension bounds, dtype, and pending no-op vector.
+- MyoSuite tasks can use the shared `LatencyBench/MyoSuite-v0` registration with
+  task-specific `base_env_id` and constructor kwargs; add a task wrapper only
+  when the task needs semantics beyond native state, action, reward, and RGB.
+- A structured or otherwise incompatible action space needs one registered
+  task-owned wrapper that exposes the exact policy-facing representation.
 - An observation unsupported by the basic Sample Factory policy needs one
   explicit task-owned observation wrapper used identically in training and
   evaluation.
@@ -173,8 +179,9 @@ approve:
 - what one raw tick means;
 - `env_fps`, `obs_fps`, and the latency condition;
 - the safe pending no-op action;
-- action labels, order, and native values;
-- any action discretization or observation preprocessing;
+- action labels/order/native values for Discrete, or dimension order/bounds/dtype
+  for Box;
+- any action discretization, scaling, or observation preprocessing;
 - reset semantics, including whether Atari-style seeded random NOOP steps are
   enabled and their explicit maximum;
 - reward, termination, truncation, and success semantics;
@@ -194,9 +201,9 @@ An adaptation agent should work in explicit phases:
 2. **Decision request:** show the user a compact table of unresolved choices,
    why each choice changes the experiment, and a proposed value only when a
    reasonable proposal is useful. Clearly label proposals as unapproved.
-3. **Contract confirmation:** wait for the user to approve the action catalog,
-   no-op, clock, preprocessing, task semantics, prompt, latency, and authorized
-   execution budget.
+3. **Contract confirmation:** wait for the user to approve the action
+   representation, no-op, clock, preprocessing, task semantics, prompt, latency,
+   and authorized execution budget.
 4. **Generation:** create the wrapper only if required, the four grouped
    configs, semantic tests, and reproducibility material. Do not edit a legacy
    environment path to make the new task work.
@@ -209,9 +216,9 @@ An adaptation agent should work in explicit phases:
    replaced wherever artifacts already exist.
 
 The agent must stop and ask again if probing contradicts the proposed contract,
-the installed environment version differs, no safe pending no-op is known, a
-finite catalog would materially redefine the scientific task, or a later-stage
-manifest/checkpoint contract does not match the config.
+the installed environment version differs, no safe pending no-op is known, the
+chosen policy representation would materially redefine the scientific task, or
+a later-stage manifest/checkpoint contract does not match the config.
 
 ## The environment contract
 
@@ -244,7 +251,21 @@ env:
     noop, action_a, action_b.
 ```
 
-`gymnasium_task_contract()` derives and freezes eleven fields:
+For a native continuous `Box`, replace the discrete catalog fields with an
+`action_space` block and a vector no-op:
+
+```yaml
+action_space:
+  type: box
+  labels: [joint_0, joint_1]
+  low: [-1.0, -0.5]
+  high: [1.0, 0.5]
+  dtype: float32
+noop_action: [0.0, 0.0]
+```
+
+`gymnasium_task_contract()` freezes the shared task fields plus the
+action-specific fields:
 
 | Field | Meaning |
 | --- | --- |
@@ -252,17 +273,17 @@ env:
 | `env_id` | Exact registered Gymnasium environment |
 | `make_kwargs` | Exact constructor arguments |
 | `registration_imports` | Modules imported before `gym.make()` |
-| `action_labels` | `action_order` copied in order |
-| `action_values` | `action_map[label]` in the same order |
-| `noop_action_id` | Position of `noop_action` in `action_order` |
+| `action_labels`, `action_values`, `noop_action_id` | Discrete action catalog and no-op position |
+| `action_space`, `noop_action` | Native Box/vector representation and no-op vector |
 | `base_prompt` | Task instruction before latency wording |
 | `env_fps` | Raw environment ticks per second |
 | `obs_fps` | Policy decisions per second |
 | `frame_stack` | Raw RGB history used by the VLA handoff |
 
-Action order, native values, no-op, timing, and prompt are experiment contracts,
-not display metadata. Changing any of them creates a different task and requires
-new checkpoints and datasets.
+Action order and native values for Discrete tasks, or dimension order, bounds,
+dtype, and no-op for Box tasks, are experiment contracts, not display metadata.
+Changing any of them creates a different task and requires new checkpoints and
+datasets.
 
 Latency is expressed in raw ticks:
 
@@ -297,7 +318,8 @@ scripts/scaffold_<task_family>.py       # only when a reusable probe is useful
 tests/envs/test_<task_wrapper>.py
 ```
 
-The InvertedPendulum example shows the continuous-action case:
+The InvertedPendulum example shows the finite-catalog bridge for a native
+continuous action API:
 
 - [`latency_bench/envs/gymnasium_mujoco.py`](../latency_bench/envs/gymnasium_mujoco.py)
   maps five catalog IDs to five user-approved scalar forces;
@@ -307,6 +329,16 @@ The InvertedPendulum example shows the continuous-action case:
   contains the four grouped configs;
 - [`tests/envs/test_gymnasium_mujoco.py`](../tests/envs/test_gymnasium_mujoco.py)
   verifies registration, native-action mapping, and the frozen contract.
+
+The Walker2d example shows the native Box case: its six-dimensional torque
+vector passes through the generic Gymnasium adapter without a finite action
+catalog wrapper.
+
+For MyoSuite variants, [`scripts/scaffold_myochallenge.py`](../scripts/scaffold_myochallenge.py)
+probes the registered task and writes the resolved Box bounds, labels, no-op,
+observation, render, timing, and native horizon. The Table Tennis script is a
+thin task-specific invocation; Baoding P1/P2 can use the shared probe and
+`LatencyBench/MyoSuite-v0` registration directly.
 
 The MuJoCo files are a worked task-owned implementation, not code that every
 Gymnasium task imports. A new task should reuse the generic interfaces and the
@@ -319,7 +351,7 @@ The adaptation should pass these gates:
 
 1. The exact registration module can be imported in a clean process.
 2. The resolved `env` mapping is identical across all four configs.
-3. The configured no-op maps to the intended native action.
+3. The configured no-op is the intended native action or vector.
 4. At zero latency, a fixed seed and native action trace match the reference
    Gymnasium environment in observation, reward, termination, and truncation.
 5. At fixed latency, the issued and applied action trace matches the expected
@@ -377,7 +409,7 @@ python scripts/rollout_data/export_sf_teacher_dataset.py \
 Do not pass `--env-name` for a generic Gymnasium checkpoint. The exporter reads
 the task identity and complete contract from the checkpoint.
 
-Convert canonical rows to the StarVLA LeRobot format:
+Convert canonical rows to the LeRobot format:
 
 ```bash
 python scripts/rollout_data/prepare_starvla_lerobot_dataset.py \
@@ -387,11 +419,12 @@ python scripts/rollout_data/prepare_starvla_lerobot_dataset.py \
   --action-carrier native
 ```
 
-The basic release path uses a categorical carrier whose width equals the action
-catalog size. It does not train OpenVLA to emit the original continuous Box
-vector.
+Discrete Gymnasium tasks keep the existing StarVLA handoff and categorical
+carrier. Continuous Gymnasium tasks preserve the native Box vector in LeRobot,
+but deliberately emit no StarVLA modality, robot type, or generated mixture
+until a continuous StarVLA data configuration and action head are implemented.
 
-Run basic single-image OpenVLA SFT:
+Run basic single-image OpenVLA SFT for a registered discrete task:
 
 ```bash
 cd third_party/starVLA
@@ -432,8 +465,8 @@ The report must contain:
    spaces, reset, step, render, timing, and version-specific behavior.
 3. **User decisions:** the questions asked, the user's explicit answers, and a
    table separating API facts from task-author choices.
-4. **Frozen contract:** the complete resolved `env` mapping and all eleven
-   `gymnasium_task_contract()` fields.
+4. **Frozen contract:** the complete resolved `env` mapping and all shared plus
+   action-specific `gymnasium_task_contract()` fields.
 5. **Generated implementation:** wrapper, registration, configs, tests, and an
    explanation of how policy action IDs reach native environment actions.
 6. **Pipeline propagation:** where each contract field is consumed by the env
@@ -469,7 +502,8 @@ expected outputs separately from the evidence ledger.
 | Environment property | Release support |
 | --- | --- |
 | Native `Discrete(n)` actions | Direct finite catalog |
-| Continuous or structured actions | Task-owned finite catalog wrapper required |
+| Native bounded `Box` vectors | Direct ordered vector contract and continuous carrier |
+| Other structured actions | Explicit task-owned representation/wrapper required |
 | Stable Box/vector or CHW image policy observations | Supported by the basic small-model path |
 | Other observation structures | Explicit wrapper/preprocessing required |
 | `rgb_array` rendering | Required for rollout and VLA stages |
@@ -499,8 +533,9 @@ Read docs/gymnasium_adapter.md and docs/gym-adapt/gymnasium/README.md. Adapt [EN
 env.name=gymnasium path. My task objective is: [OBJECTIVE]. Target latency is
 [LATENCY]. Please first probe the exact Gymnasium API and report: constructor
 arguments, action/observation spaces, reset/step/render behavior, native timing,
-and anything you cannot infer. Ask me to decide any action catalog/order/no-op,
-raw-tick meaning, preprocessing, reward/termination policy, prompt, and budgets.
+and anything you cannot infer. Ask me to decide any action representation,
+dimension/order/no-op, raw-tick meaning, preprocessing, reward/termination policy,
+prompt, and budgets.
 After I answer, create a task-owned wrapper only if needed; generate grouped
 small-model train/eval, latency-bench eval, and StarVLA eval configs; preserve
 the resulting task contract across checkpoint, rollout, conversion, SFT, and

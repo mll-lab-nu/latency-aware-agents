@@ -197,6 +197,7 @@ def build_latency_bench_config_for_rl_games(
     image_transform_config: dict[str, Any] | None,
     actions: list[Any] | None,
     output_dir: str | Path,
+    gymnasium_make_kwargs: Mapping[str, Any] | None = None,
     prompt_mode: str | None = None,
     action_layout: str | None = None,
     multibinary_threshold: float | None = None,
@@ -208,9 +209,44 @@ def build_latency_bench_config_for_rl_games(
     fixed latency, starVLA policy fields, the 224 obs resize, episode/step
     budgets, and disabled artifacts.
     """
-    if env_name not in BASE_CONFIGS:
-        raise ValueError(f"Unsupported rl_games eval task for latency_bench: {env_name!r}")
-    config = deepcopy(load_config(BASE_CONFIGS[env_name]))
+    if env_name == "gymnasium":
+        task_contract = deepcopy(model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"])
+        env_config = {"name": "gymnasium", **task_contract}
+        env_config["make_kwargs"] = {
+            **env_config["make_kwargs"],
+            **dict(gymnasium_make_kwargs or {}),
+        }
+        if "action_labels" in task_contract:
+            action_labels = list(task_contract["action_labels"])
+            env_config.update(
+                {
+                    "action_order": action_labels,
+                    "action_map": dict(zip(action_labels, task_contract["action_values"])),
+                    "noop_action": action_labels[task_contract["noop_action_id"]],
+                }
+            )
+        config = {
+            "experiment": {},
+            "backend": {"run_mode": "eval"},
+            "executor": {"mode": "simulated"},
+            "env": env_config,
+            "latency": {"method": "zero", "add_latency_info": False},
+            "scheduler": {
+                "hold_policy": "hold",
+                "ordering_policy": "issue_order_fifo",
+            },
+            "policy": {"type": "random"},
+            "evaluation": {},
+            "logging": {
+                "output_dir": str(output_dir),
+                "video": {"enabled": False, "num_bins": 1},
+                "save_step_records": False,
+                "save_action_records": False,
+                "save_latency_records": False,
+            },
+        }
+    else:
+        config = deepcopy(load_config(BASE_CONFIGS[env_name]))
 
     config["experiment"] = {
         **config.get("experiment", {}),
@@ -257,6 +293,12 @@ def build_latency_bench_config_for_rl_games(
         "checkpoint_path": str(output_dir),  # metadata only; live model is injected
         "device": "cuda",
     }
+    if env_name == "gymnasium":
+        data_cfg = model_cfg["datasets"]["vla_data"]
+        policy["task_manifest_path"] = str(
+            Path(data_cfg["data_root_dir"]) / data_cfg["data_mix"] / "manifest.json"
+        )
+        policy["gymnasium_training_task_contract"] = task_contract
     if unnorm_key is not None:
         policy["unnorm_key"] = unnorm_key
     if latency_prompt_map_path:
@@ -395,9 +437,16 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         return OmegaConf.to_container(self.cfg, resolve=True)
 
     def _base_actions(self, env_name: str) -> list[Any] | None:
+        if env_name == "gymnasium":
+            return None
         base = load_config(BASE_CONFIGS[env_name])
         policy_cfg = base.get("policy", {})
         return list(policy_cfg["actions"]) if "actions" in policy_cfg else None
+
+    def _gymnasium_make_kwargs(self) -> dict[str, Any] | None:
+        gymnasium_cfg = _cfg_get(self.cfg.rl_games.env_eval, "gymnasium", None)
+        make_kwargs = _cfg_get(gymnasium_cfg, "make_kwargs", None)
+        return _plain_mapping(make_kwargs) or None
 
     def _fold_episode_metrics(
         self,
@@ -485,6 +534,7 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                 unnorm_key=getattr(self.cfg.rl_games.env_eval, "unnorm_key", None),
                 latency_prompt_map_path=self._prompt_map_path(task_name),
                 image_transform_config=self._image_transform_config(stage=stage, task=task_name),
+                gymnasium_make_kwargs=self._gymnasium_make_kwargs(),
                 prompt_mode=self._prompt_mode(stage=stage, task=task_name),
                 actions=self._base_actions(task_name),
                 output_dir=output_dir,

@@ -112,7 +112,7 @@ def test_scaffold_reports_runtime_and_user_approved_catalog(monkeypatch, capsys)
     "configs/examples/gymnasium/hopper/small_model_eval.yaml",
     "configs/examples/gymnasium/hopper/starvla_eval.yaml",
 ])
-def test_hopper_configs_share_contract_and_l1_latency(config_path):
+def test_hopper_configs_share_contract_and_zero_latency(config_path):
     config = load_config(config_path)
     env_cfg = config["env"]
     clock = EnvClock(env_fps=env_cfg["env_fps"], obs_fps=env_cfg["obs_fps"])
@@ -125,4 +125,4 @@ def test_hopper_configs_share_contract_and_l1_latency(config_path):
     assert env_cfg["noop_action"] == "t_z_l_z_f_z"
     assert clock.obs_stride_raw_frames == 1
     assert clock.env_fps == 125
-    assert clock.latency_ms_to_raw_frames(config["latency"]["fixed_latency_ms"]) == 1
+    assert config["latency"] == {"method": "zero", "add_latency_info": False}

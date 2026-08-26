@@ -41,7 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--latency-config", default="", help="Optional YAML containing a training-compatible latency: section.")
     parser.add_argument("--env-name", default="", choices=["", "deadly_corridor", "defend_the_line", "demon_attack", "flappy"])
     parser.add_argument("--max-episodes", type=int, required=True)
-    parser.add_argument("--max-steps-per-episode", type=int, required=True, help="Max policy decision steps per episode.")
+    parser.add_argument(
+        "--max-steps-per-episode",
+        type=int,
+        required=True,
+        help="Max raw environment frames per episode.",
+    )
     parser.add_argument("--val-fraction", type=float, default=0.1)
     parser.add_argument("--split-seed", type=int, default=0)
     parser.add_argument("--num-envs", type=int, default=1)
@@ -63,6 +68,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--demon-episode-threshold", type=float, default=None,
                         help="Override Demon Attack episode-level clipped return threshold.")
+    parser.add_argument(
+        "--episode-return-gt",
+        type=float,
+        default=None,
+        help="Accept only episodes whose canonical episode return is strictly greater than this threshold.",
+    )
     parser.add_argument("--rollout-seed-offset", type=int, default=0,
                         help="Offset added to the probe reset base seed so sharded probe workers "
                              "explore disjoint episodes. Default 0 reproduces single-process behavior.")
@@ -132,6 +143,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         hf_config_name=str(args.hf_config_name),
         filter_preset=str(args.filter_preset),
         filter_kwargs=filter_kwargs or None,
+        episode_return_gt=args.episode_return_gt,
         context_window=int(args.context_window),
         rollout_seed_offset=int(args.rollout_seed_offset),
         probe_only=bool(args.probe_only),
