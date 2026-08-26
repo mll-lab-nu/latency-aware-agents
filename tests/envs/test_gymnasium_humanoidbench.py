@@ -216,6 +216,9 @@ def test_humanoidbench_configs_and_sample_factory_keep_box_61_contract():
     assert env_config["env_fps"] == 50.0
     assert env_config["obs_fps"] == 50.0
     assert env_config["frame_stack"] == 1
+    assert env_config["state_space"]["labels"] == [
+        f"state_{index:03d}" for index in range(177)
+    ]
     assert env_config["action_space"]["type"] == "box"
     assert len(env_config["action_space"]["labels"]) == 61
     assert len(env_config["noop_action"]) == 61
