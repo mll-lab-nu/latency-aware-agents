@@ -1,0 +1,32 @@
+__base__: ../../base/asterix.yaml
+
+experiment:
+  name: asterix_sf_zero_latency
+
+backend:
+  run_mode: eval
+
+latency:
+  method: zero
+  add_latency_info: false
+
+policy:
+  type: gymnasium_sf
+  checkpoint_path: ""
+  checkpoint_kind: latest
+  device: auto
+  deterministic: true
+
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_max_steps: 5000
+
+logging:
+  output_dir: outputs/asterix_sf_eval_zero_latency
+  video:
+    enabled: true
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

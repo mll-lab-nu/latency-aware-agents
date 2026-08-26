@@ -346,6 +346,8 @@ def test_paper_sweep_specs_use_base_inheritance():
         REPO_ROOT / "configs/experiments/memory/small_model/demon_attack_capped.yaml",
         REPO_ROOT / "configs/experiments/memory/small_model/demon_attack_extended.yaml",
         REPO_ROOT / "configs/experiments/memory/small_model/deadly_corridor.yaml",
+        REPO_ROOT / "configs/experiments/memory/small_model/asterix_zero_latency.yaml",
+        REPO_ROOT / "configs/experiments/memory/small_model/atlantis_zero_latency.yaml",
     ]
 
     for spec_path in spec_paths:
@@ -353,6 +355,96 @@ def test_paper_sweep_specs_use_base_inheritance():
         assert "__base__" in spec
         assert "base_config" not in spec
         assert spec["experiment_family"] in {"observation_stride", "memory_small_model"}
+
+
+def test_asterix_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path):
+    generated_root = tmp_path / "configs"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    generate_sweep_configs(
+        [
+            "--spec",
+            "configs/experiments/memory/small_model/asterix_zero_latency.yaml",
+            "--generated-root",
+            str(generated_root),
+            "--output-root",
+            str(output_root),
+            "--train-dir",
+            str(train_dir),
+        ]
+    )
+
+    rows = _read_manifest(generated_root / "manifest.tsv")
+    assert len(rows) == 5
+    assert {row["env"] for row in rows} == {"asterix"}
+    assert {row["latency_kind"] for row in rows} == {"fixed"}
+    assert {row["latency_fixed_frames"] for row in rows} == {"0"}
+    assert {row["frame_stack"] for row in rows} == {"1"}
+    assert {row["obs_fps"] for row in rows} == {"15"}
+
+    train_cfg = yaml.safe_load(Path(rows[0]["train_config"]).read_text(encoding="utf-8"))
+    eval_cfg = load_config(rows[0]["eval_config"])
+
+    assert train_cfg["experiment"]["name"].startswith("asterix_frame_stack_fixed_l0_fs1_seed")
+    assert train_cfg["env"]["name"] == "gymnasium"
+    assert train_cfg["env"]["task_name"] == "asterix"
+    assert train_cfg["latency"] == {
+        "method": "fixed",
+        "fixed_latency_ms": 0.0,
+        "add_latency_info": False,
+    }
+    assert eval_cfg["policy"]["type"] == "gymnasium_sf"
+    assert eval_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [[0]],
+        "normal": [],
+        "uniform": [],
+    }
+
+
+def test_atlantis_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path):
+    generated_root = tmp_path / "configs"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    generate_sweep_configs(
+        [
+            "--spec",
+            "configs/experiments/memory/small_model/atlantis_zero_latency.yaml",
+            "--generated-root",
+            str(generated_root),
+            "--output-root",
+            str(output_root),
+            "--train-dir",
+            str(train_dir),
+        ]
+    )
+
+    rows = _read_manifest(generated_root / "manifest.tsv")
+    assert len(rows) == 5
+    assert {row["env"] for row in rows} == {"atlantis"}
+    assert {row["latency_kind"] for row in rows} == {"fixed"}
+    assert {row["latency_fixed_frames"] for row in rows} == {"0"}
+    assert {row["frame_stack"] for row in rows} == {"1"}
+    assert {row["obs_fps"] for row in rows} == {"15"}
+
+    train_cfg = yaml.safe_load(Path(rows[0]["train_config"]).read_text(encoding="utf-8"))
+    eval_cfg = load_config(rows[0]["eval_config"])
+
+    assert train_cfg["experiment"]["name"].startswith("atlantis_frame_stack_fixed_l0_fs1_seed")
+    assert train_cfg["env"]["name"] == "gymnasium"
+    assert train_cfg["env"]["task_name"] == "atlantis"
+    assert train_cfg["latency"] == {
+        "method": "fixed",
+        "fixed_latency_ms": 0.0,
+        "add_latency_info": False,
+    }
+    assert eval_cfg["policy"]["type"] == "gymnasium_sf"
+    assert eval_cfg["evaluation"]["eval_suites"] == {
+        "fixed": [[0]],
+        "normal": [],
+        "uniform": [],
+    }
 
 
 def test_observation_stride_spec_names_axis_by_stride_and_writes_obs_fps(tmp_path):

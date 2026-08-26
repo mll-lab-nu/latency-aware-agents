@@ -11,11 +11,15 @@ SPECS=(
   configs/experiments/memory/small_model/demon_attack_capped.yaml
   configs/experiments/memory/small_model/demon_attack_extended.yaml
   configs/experiments/memory/small_model/deadly_corridor.yaml
+  configs/experiments/memory/small_model/asterix_zero_latency.yaml
+  configs/experiments/memory/small_model/atlantis_zero_latency.yaml
 )
 TRAIN_MANIFESTS=(
   configs/train/memory/small_model/flappy/extended/manifest.tsv
   configs/train/memory/small_model/demon_attack/extended/manifest.tsv
   configs/train/memory/small_model/deadly_corridor/manifest.tsv
+  configs/train/memory/small_model/asterix/zero_latency/manifest.tsv
+  configs/train/memory/small_model/atlantis/zero_latency/manifest.tsv
 )
 EVAL_MANIFESTS=(
   configs/train/memory/small_model/flappy/capped/manifest.tsv
@@ -23,6 +27,8 @@ EVAL_MANIFESTS=(
   configs/train/memory/small_model/demon_attack/capped/manifest.tsv
   configs/train/memory/small_model/demon_attack/extended/manifest.tsv
   configs/train/memory/small_model/deadly_corridor/manifest.tsv
+  configs/train/memory/small_model/asterix/zero_latency/manifest.tsv
+  configs/train/memory/small_model/atlantis/zero_latency/manifest.tsv
 )
 RESULTS_ROOT="outputs/memory/small_model"
 PAPER_DIR="paper/latency-sensitive-vla/exps/memory/small_model"
@@ -32,7 +38,7 @@ PAPER_FIGURE_DIR="${PAPER_OUTPUT_DIR}/figures"
 usage() {
   cat <<'EOF'
 Usage:
-  run.sh generate [--seeds CSV]
+  run.sh generate [--seeds CSV] [--match TEXT]
   run.sh train --gpus CSV [--match TEXT] [--dry-run]
   run.sh eval --gpus CSV [--match TEXT] [--dry-run]
   run.sh upload [--match TEXT] [--upload-workers N] [--max-upload-attempts N] [--dry-run]
@@ -45,12 +51,20 @@ EOF
 
 generate_configs() {
   local seeds="$1"
+  local match="$2"
   local args=()
   if [[ -n "${seeds}" ]]; then
     args+=(--seeds "${seeds}")
   fi
   for spec in "${SPECS[@]}"; do
-    python scripts/sweeps/generate_sweep_configs.py --spec "${spec}" "${args[@]}"
+    if [[ -n "${match}" && "${spec}" != *"${match}"* ]]; then
+      continue
+    fi
+    if [[ "${#args[@]}" -gt 0 ]]; then
+      python scripts/sweeps/generate_sweep_configs.py --spec "${spec}" "${args[@]}"
+    else
+      python scripts/sweeps/generate_sweep_configs.py --spec "${spec}"
+    fi
   done
 }
 
@@ -68,7 +82,10 @@ run_compute_stage() {
     args+=(--dry-run)
   fi
   for manifest in "$@"; do
-    python scripts/experiment_runner/run_manifest_jobs.py --manifest "${manifest}" "${args[@]}"
+    if [[ -n "${match}" && "${manifest}" != *"${match}"* && ! -f "${manifest}" ]]; then
+      continue
+    fi
+    python -m scripts.experiment_runner.run_manifest_jobs --manifest "${manifest}" "${args[@]}"
   done
 }
 
@@ -89,7 +106,10 @@ run_upload_stage() {
     args+=(--dry-run)
   fi
   for manifest in "${EVAL_MANIFESTS[@]}"; do
-    python scripts/experiment_runner/run_manifest_jobs.py --manifest "${manifest}" "${args[@]}"
+    if [[ -n "${match}" && "${manifest}" != *"${match}"* && ! -f "${manifest}" ]]; then
+      continue
+    fi
+    python -m scripts.experiment_runner.run_manifest_jobs --manifest "${manifest}" "${args[@]}"
   done
 }
 
@@ -120,13 +140,15 @@ shift
 case "${command}" in
   generate)
     seeds=""
+    match=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --seeds) seeds="$2"; shift 2 ;;
+        --match) match="$2"; shift 2 ;;
         *) usage; exit 2 ;;
       esac
     done
-    generate_configs "${seeds}"
+    generate_configs "${seeds}" "${match}"
     ;;
   train|eval)
     gpus=""
@@ -227,7 +249,7 @@ case "${command}" in
       usage
       exit 2
     fi
-    generate_configs ""
+    generate_configs "" ""
     run_compute_stage train "${gpus}" "" false "${TRAIN_MANIFESTS[@]}"
     run_compute_stage eval "${gpus}" "" false "${EVAL_MANIFESTS[@]}"
     build_local_data "${RESULTS_ROOT}" "${PAPER_OUTPUT_DIR}/data.csv"

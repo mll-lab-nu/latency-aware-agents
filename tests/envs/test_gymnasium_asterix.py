@@ -109,3 +109,21 @@ def test_asterix_configs_share_contract_and_l1(config_path):
     assert env_cfg["action_map"]==dict(zip(ACTION_LABELS,range(9)))
     assert clock.obs_stride_raw_frames==4
     assert clock.latency_ms_to_raw_frames(config["latency"]["fixed_latency_ms"])==1
+
+
+@pytest.mark.parametrize("config_path",[
+    "configs/base/asterix.yaml",
+    "configs/experiments/asterix/sf_zero_latency.yaml",
+    "configs/experiments/asterix/sf_eval_zero_latency.yaml",
+])
+def test_asterix_zero_latency_configs_share_contract(config_path):
+    config=load_config(config_path); env_cfg=config["env"]
+    clock=EnvClock(env_fps=env_cfg["env_fps"],obs_fps=env_cfg["obs_fps"])
+    assert env_cfg["env_id"]==gymnasium_asterix.GYMNASIUM_ASTERIX_ENV_ID
+    assert env_cfg["make_kwargs"]["noop_max"]==30
+    assert env_cfg["make_kwargs"]["base_make_kwargs"]["frameskip"]==1
+    assert env_cfg["make_kwargs"]["base_make_kwargs"]["repeat_action_probability"]==0.0
+    assert env_cfg["action_order"]==ACTION_LABELS
+    assert env_cfg["action_map"]==dict(zip(ACTION_LABELS,range(9)))
+    assert clock.obs_stride_raw_frames==4
+    assert config["latency"]=={"method":"zero","add_latency_info":False}

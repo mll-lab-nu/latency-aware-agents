@@ -1,0 +1,41 @@
+__base__: ../../../base/atlantis.yaml
+experiment_family: memory_small_model
+generated_root: configs/train/memory/small_model/atlantis/zero_latency
+train_dir: results/checkpoints/memory/small_model/atlantis
+output_root: outputs/memory/small_model/atlantis/zero_latency
+device: cuda
+restart_behavior: resume
+train_upload_repo_id: latency-sensitive-bench/paper-experiment-models
+train_upload_repo_type: model
+train_upload_path_prefix: memory/small_model/atlantis
+eval_upload_repo_id: latency-sensitive-bench/paper-experiment-evals
+eval_upload_repo_type: dataset
+eval_upload_path_prefix: memory/small_model/atlantis/zero_latency
+seeds:
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+
+evaluation:
+  eval_episodes: 100
+  eval_parallel_envs: 1
+  eval_max_steps: 5000
+
+latency_settings:
+  fixed_l0:
+    kind: fixed
+    frames: 0
+    eval_suites:
+      fixed:
+        - [0]
+      normal: []
+      uniform: []
+
+sweeps:
+  frame_stack:
+    frame_stack:
+      - 1
+    obs_fps:
+      - 15
