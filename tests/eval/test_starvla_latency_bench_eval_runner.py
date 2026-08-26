@@ -163,6 +163,112 @@ def test_translation_zero_latency_uses_zero_type(tmp_path):
     assert "unnorm_key" not in cfg["policy"]
 
 
+def test_translation_gymnasium_continuous_uses_training_contract(tmp_path):
+    task_contract = {
+        "task_name": "walker2d_continuous_torque",
+        "env_id": "LatencyBench/Walker2dContinuous-v0",
+        "registration_imports": ["latency_bench.envs.gymnasium_walker2d"],
+        "make_kwargs": {"base_env_id": "Walker2d-v4", "render_mode": "rgb_array"},
+        "base_prompt": "Move forward.",
+        "env_fps": 125.0,
+        "obs_fps": 125.0,
+        "frame_stack": 1,
+        "action_space": {
+            "type": "box",
+            "labels": ["a", "b"],
+            "low": [-1.0, -1.0],
+            "high": [1.0, 1.0],
+            "dtype": "float32",
+        },
+        "noop_action": [0.0, 0.0],
+    }
+    model_cfg = _model_cfg()
+    model_cfg["rl_games"] = {"gymnasium": {"task_contract": task_contract}}
+    model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"] = task_contract
+    model_cfg["datasets"]["vla_data"].update(
+        {"data_root_dir": str(tmp_path), "data_mix": "walker_train"}
+    )
+
+    cfg = build_latency_bench_config_for_rl_games(
+        env_name="gymnasium",
+        model_cfg=model_cfg,
+        seed=42,
+        image_size=224,
+        num_episodes=20,
+        eval_max_steps=3600,
+        latency_steps=2,
+        eval_parallel_envs=1,
+        unnorm_key=None,
+        latency_prompt_map_path=None,
+        image_transform_config=None,
+        actions=None,
+        output_dir=tmp_path / "eval",
+    )
+
+    assert cfg["env"] == {"name": "gymnasium", "obs_resize": [224, 224], **task_contract}
+    assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(16.0)
+    assert cfg["policy"]["task_manifest_path"] == str(
+        tmp_path / "walker_train" / "manifest.json"
+    )
+    assert cfg["evaluation"]["eval_episodes"] == 20
+
+
+def test_translation_gymnasium_discrete_restores_action_catalog(tmp_path):
+    task_contract = {
+        "task_name": "inverted_pendulum_discrete",
+        "env_id": "LatencyBench/InvertedPendulumDiscrete-v0",
+        "registration_imports": ["latency_bench.envs.gymnasium_mujoco"],
+        "make_kwargs": {
+            "base_env_id": "InvertedPendulum-v4",
+            "base_make_kwargs": {},
+            "render_mode": "rgb_array",
+        },
+        "base_prompt": "Keep the pole upright.",
+        "env_fps": 25.0,
+        "obs_fps": 25.0,
+        "frame_stack": 1,
+        "action_labels": ["left", "zero", "right"],
+        "action_values": [0, 1, 2],
+        "noop_action_id": 1,
+    }
+    model_cfg = _model_cfg()
+    model_cfg["rl_games"] = {
+        "gymnasium": {
+            "task_contract": {
+                **task_contract,
+                "make_kwargs": {
+                    "base_env_id": "InvertedPendulum-v4",
+                    "render_mode": "rgb_array",
+                },
+            }
+        }
+    }
+    model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"] = task_contract
+    model_cfg["datasets"]["vla_data"].update(
+        {"data_root_dir": str(tmp_path), "data_mix": "pendulum_train"}
+    )
+
+    cfg = build_latency_bench_config_for_rl_games(
+        env_name="gymnasium",
+        model_cfg=model_cfg,
+        seed=42,
+        image_size=224,
+        num_episodes=20,
+        eval_max_steps=1000,
+        latency_steps=0,
+        eval_parallel_envs=5,
+        unnorm_key=None,
+        latency_prompt_map_path=None,
+        image_transform_config=None,
+        actions=None,
+        output_dir=tmp_path / "eval",
+    )
+
+    assert cfg["env"]["action_order"] == ["left", "zero", "right"]
+    assert cfg["env"]["action_map"] == {"left": 0, "zero": 1, "right": 2}
+    assert cfg["env"]["noop_action"] == "zero"
+
+
 def test_resolve_starvla_prompt_latency_neutral_strips_latency_suffix():
     prompt = (
         "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. "
@@ -450,6 +556,45 @@ def test_runner_threads_eval_parallel_envs_from_cfg(tmp_path, monkeypatch):
     )
     runner.run(model=object(), step=1, stage="mid_train", save=False)
     assert captured["eval_parallel_envs"] == 8
+
+
+def test_runner_applies_eval_only_gymnasium_reset_kwargs(tmp_path, monkeypatch):
+    captured = {}
+    task_contract = {
+        "task_name": "air_raid",
+        "env_id": "LatencyBench/AirRaid-v0",
+        "registration_imports": ["latency_bench.envs.gymnasium_air_raid"],
+        "make_kwargs": {"noop_max": 0},
+        "env_fps": 50.0,
+        "obs_fps": 12.5,
+        "frame_stack": 4,
+        "action_labels": ["noop", "fire"],
+        "action_values": [0, 1],
+        "noop_action_id": 0,
+        "base_prompt": "Play Air Raid.",
+    }
+    cfg = _make_cfg(latencies=(0,))
+    cfg.rl_games.task = "gymnasium"
+    cfg.rl_games.env_eval.gymnasium = {
+        "make_kwargs": {"noop_max": 30, "fire_reset": True}
+    }
+    cfg.datasets.vla_data.gymnasium_task_contract = task_contract
+    cfg.datasets.vla_data.data_root_dir = str(tmp_path)
+    cfg.datasets.vla_data.data_mix = "air_raid_train"
+
+    def fake_run_from_config(config, *, write_summary, episode_ids, policy, on_episode_complete=None):
+        captured["make_kwargs"] = config["env"]["make_kwargs"]
+        return [EpisodeMetrics(episode_id=0, episode_return=1.0, survival_steps=5)]
+
+    monkeypatch.setattr(runner_mod, "run_from_config", fake_run_from_config)
+    monkeypatch.setattr(runner_mod, "build_live_starvla_policy", lambda **kwargs: object())
+
+    LatencyBenchRlGamesEvalRunner(cfg=cfg, output_dir=str(tmp_path)).run(
+        model=object(), step=5000, stage="post_train", save=False
+    )
+
+    assert captured["make_kwargs"] == {"noop_max": 30, "fire_reset": True}
+    assert task_contract["make_kwargs"] == {"noop_max": 0}
 
 
 def test_runner_threads_multiframe_frame_stack_from_model_cfg(tmp_path, monkeypatch):

@@ -69,6 +69,28 @@ class FakeGymEnv:
         self.close_calls += 1
 
 
+class FakeChannelFirstImageEnv:
+    action_space = gymnasium.spaces.Discrete(1)
+    observation_space = gymnasium.spaces.Box(
+        low=0,
+        high=255,
+        shape=(1, 2, 2),
+        dtype=np.uint8,
+    )
+
+    def reset(self, *, seed=None, options=None):
+        return np.zeros((1, 2, 2), dtype=np.uint8), {}
+
+    def step(self, action):
+        return np.ones((1, 2, 2), dtype=np.uint8), 0.0, False, False, {}
+
+    def render(self):
+        return np.zeros((2, 2, 3), dtype=np.uint8)
+
+    def close(self):
+        return None
+
+
 def _install_fake_make(
     monkeypatch: pytest.MonkeyPatch,
     fake_env: FakeGymEnv,
@@ -187,6 +209,28 @@ def test_gymnasium_adapter_reset_preserves_observation_and_seed(monkeypatch):
         assert adapter.observe().data is fake_env.reset_observation
     finally:
         adapter.close()
+
+
+def test_gymnasium_adapter_stacks_channel_first_policy_observations(monkeypatch):
+    fake_env = FakeChannelFirstImageEnv()
+    monkeypatch.setattr(gymnasium, "make", lambda env_id, **kwargs: fake_env)
+    adapter = GymnasiumEnvAdapter(
+        env_id="Acme/Image-v0",
+        registration_imports=[],
+        make_kwargs={},
+        env_fps=20.0,
+        noop_action=Action(value=0, name="noop", is_noop=True),
+        frame_stack=4,
+        export_env_raw_rgb_frames=False,
+    )
+
+    reset_observation = adapter.reset(seed=3)
+    next_observation = adapter.step(Action(value=0, name="noop")).observation
+
+    assert adapter.observation_space.shape == (4, 2, 2)
+    np.testing.assert_array_equal(reset_observation.data, np.zeros((4, 2, 2), dtype=np.uint8))
+    np.testing.assert_array_equal(next_observation.data[:3], np.zeros((3, 2, 2), dtype=np.uint8))
+    np.testing.assert_array_equal(next_observation.data[3], np.ones((2, 2), dtype=np.uint8))
 
 
 @pytest.mark.parametrize(

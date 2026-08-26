@@ -13,7 +13,7 @@ FILTER_PRESET_CONTIGUOUS_V1 = "contiguous_v1"
 FILTER_PRESET_NONE = "none"
 FLAPPY_CONTEXT_WINDOW = 2
 FLAPPY_BACKGROUND_KEEP_PROB = 0.2
-# Keep a Flappy episode once the bird survives at least this fraction of the step
+# Keep a Flappy episode once the bird survives at least this fraction of the raw-frame
 # cap, rather than requiring a full-length run.
 FLAPPY_MIN_LENGTH_FRACTION = 0.7
 DEMON_CONTEXT_WINDOW = 8
@@ -59,8 +59,8 @@ def clean_v1_accepts_episode_summary(
 
     Args:
         env_name: Canonical benchmark environment name.
-        summary: Episode summary with length and environment-specific return.
-        max_steps_per_episode: Export step cap; Flappy keeps episodes that survive
+        summary: Episode summary with raw-frame length and environment-specific return.
+        max_steps_per_episode: Export raw-frame cap; Flappy keeps episodes that survive
             at least ``FLAPPY_MIN_LENGTH_FRACTION`` of it.
         demon_episode_threshold: Override raw-score threshold for demon_attack.
             When provided, replaces ``DEMON_RAW_SCORE_STRONG_THRESHOLD``.
@@ -70,7 +70,10 @@ def clean_v1_accepts_episode_summary(
     """
     demon_threshold = DEMON_RAW_SCORE_STRONG_THRESHOLD if demon_episode_threshold is None else demon_episode_threshold
     return {
-        "flappy": lambda: summary["episode_length"] >= FLAPPY_MIN_LENGTH_FRACTION * max_steps_per_episode,
+        "flappy": lambda: (
+            summary["episode_raw_frames"]
+            >= FLAPPY_MIN_LENGTH_FRACTION * max_steps_per_episode
+        ),
         "deadly_corridor": lambda: summary["episode_raw_return"] >= 2200.0,
         "defend_the_line": lambda: True,
         "demon_attack": lambda: summary["episode_raw_return"] >= demon_threshold,
@@ -248,7 +251,7 @@ def accepts_episode(
         filter_preset: ``"none"`` or ``"clean_v1"``.
         env_name: Canonical benchmark environment name.
         summary: Episode summary with length and environment-specific return.
-        max_steps_per_episode: Export step cap used by Flappy's full-length gate.
+        max_steps_per_episode: Export raw-frame cap used by Flappy's survival gate.
         filter_kwargs: Optional overrides forwarded to the preset gate function
             (e.g. ``demon_episode_threshold`` overrides the hard-coded demon score).
 

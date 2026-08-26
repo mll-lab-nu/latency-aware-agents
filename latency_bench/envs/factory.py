@@ -109,6 +109,7 @@ def _build_gymnasium_env(config: dict[str, Any], noop_action: Action) -> EnvAdap
         noop_action=noop_action,
         frame_stack=env_cfg["frame_stack"],
         export_env_raw_rgb_frames=_exports_raw_rgb_frames(config),
+        include_state="state_space" in env_cfg,
     )
 
 

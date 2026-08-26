@@ -1,0 +1,56 @@
+env:
+  name: gymnasium
+  task_name: walker2d_continuous_torque
+  env_id: LatencyBench/Walker2dContinuous-v0
+  registration_imports:
+  - latency_bench.envs.gymnasium_walker2d
+  make_kwargs:
+    base_env_id: Walker2d-v4
+    render_mode: rgb_array
+    base_make_kwargs:
+      forward_reward_weight: 1.0
+      ctrl_cost_weight: 0.001
+      healthy_reward: 1.0
+      terminate_when_unhealthy: true
+      reset_noise_scale: 0.005
+      exclude_current_positions_from_observation: true
+  env_fps: 125.0
+  obs_fps: 125.0
+  frame_stack: 1
+  action_space:
+    type: box
+    labels:
+    - right_thigh_torque
+    - right_leg_torque
+    - right_foot_torque
+    - left_thigh_torque
+    - left_leg_torque
+    - left_foot_torque
+    low:
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    high:
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    dtype: float32
+    openvla_carrier_dim: 7
+    openvla_padding:
+    - 0.0
+  noop_action:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  base_prompt: Move the Walker2d robot forward while keeping its torso upright. Predict
+    six continuous torques in [-1, 1] ordered as right thigh, right leg, right foot,
+    left thigh, left leg, and left foot.

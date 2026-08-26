@@ -1,16 +1,16 @@
 __base__: latency_bench_eval.yaml
 
 experiment:
-  name: gymnasium_hopper_discrete_ternary_starvla_fixed_l1
+  name: gymnasium_hopper_discrete_ternary_starvla_zero_latency
 
 policy:
   type: starvla
-  checkpoint_path: third_party/starVLA/results/Checkpoints/hopper_discrete_ternary_fixed_l1_openvla_sft/checkpoints/steps_2000_model.safetensors
-  model_config_path: third_party/starVLA/results/Checkpoints/hopper_discrete_ternary_fixed_l1_openvla_sft/config.full.yaml
-  task_manifest_path: third_party/starVLA/playground/Datasets/rl_games/hopper_discrete_ternary_fixed_l1/manifest.json
+  checkpoint_path: third_party/starVLA/results/Checkpoints/hopper_discrete_ternary_zero_latency_openvla_sft/checkpoints/steps_2000_model.safetensors
+  model_config_path: third_party/starVLA/results/Checkpoints/hopper_discrete_ternary_zero_latency_openvla_sft/config.full.yaml
+  task_manifest_path: third_party/starVLA/playground/Datasets/rl_games/hopper_discrete_ternary_zero_latency/manifest.json
   device: cuda
-  latency_prompt_map_path: third_party/starVLA/playground/Datasets/rl_games/hopper_discrete_ternary_fixed_l1/latency_prompt_map.json
-  latency_prompt_key: 1
+  latency_prompt_map_path: third_party/starVLA/playground/Datasets/rl_games/hopper_discrete_ternary_zero_latency/latency_prompt_map.json
+  latency_prompt_key: 0
 
 evaluation:
   eval_episodes: 20

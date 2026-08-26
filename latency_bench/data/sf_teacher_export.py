@@ -14,7 +14,10 @@ from latency_bench.data.hf_parquet import (
     write_parquet_splits_from_shards,
 )
 from latency_bench.data.prompts import BASE_PROMPTS, IMAGE_TRANSFORM_CONTEXTS, TIMING_SUFFIX
-from latency_bench.data.action_layouts import action_spec_for_env
+from latency_bench.data.action_layouts import (
+    ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+    action_spec_for_env,
+)
 from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1, FILTER_PRESET_NONE
 from latency_bench.data.ghost_trail import GhostTrailConfig
 from latency_bench.data.sf_teacher_config import load_rollout_training_config
@@ -102,6 +105,7 @@ def export_sample_factory_teacher_dataset(
     hf_max_shard_size: str,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
+    episode_return_gt: float | None = None,
     hf_config_name: str = "",
     context_window: int = 1,
     rollout_seed_offset: int = 0,
@@ -116,7 +120,7 @@ def export_sample_factory_teacher_dataset(
         latency_config_path: Optional latency-only YAML override.
         env_name: Optional canonical environment name override.
         max_episodes: Number of episodes to collect.
-        max_steps_per_episode: Step cap per episode.
+        max_steps_per_episode: Raw environment frame cap per episode.
         val_fraction: Fraction assigned to validation.
         split_seed: RNG seed for split assignment.
         num_envs: Number of probe rollout environments or agents.
@@ -131,6 +135,7 @@ def export_sample_factory_teacher_dataset(
         hf_private: Whether the uploaded repository should be private.
         hf_token: Explicit Hugging Face token.
         hf_max_shard_size: Hub upload shard size.
+        episode_return_gt: Optional strict lower bound for accepted episode returns.
         context_window: Total image window length including the current ``image`` field.
         image_transform_config: Optional image transform applied during replay
             before row filtering.
@@ -153,6 +158,8 @@ def export_sample_factory_teacher_dataset(
         config["action_spec"] = action_spec_for_env(config["env_name"])
         config["base_prompt"] = BASE_PROMPTS[config["env_name"]]
     action_spec = config["action_spec"]
+    if action_spec.layout == ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1:
+        filter_preset = FILTER_PRESET_NONE
     rollout_metadata = collect_teacher_dataset(
         config,
         output_dir=output_dir,
@@ -168,6 +175,7 @@ def export_sample_factory_teacher_dataset(
         row_buffer_size=int(row_buffer_size),
         filter_preset=str(filter_preset),
         filter_kwargs=filter_kwargs,
+        episode_return_gt=episode_return_gt,
         context_window=int(context_window),
         rollout_seed_offset=int(rollout_seed_offset),
         probe_only=bool(probe_only),
@@ -199,6 +207,7 @@ def export_sample_factory_teacher_dataset(
         "prompt_timing_suffix": TIMING_SUFFIX,
         "max_episodes": int(max_episodes),
         "max_steps_per_episode": int(max_steps_per_episode),
+        "max_steps_unit": "raw_frame",
         "val_fraction": float(val_fraction),
         "split_seed": int(split_seed),
         "num_envs": int(num_envs),
@@ -220,6 +229,8 @@ def export_sample_factory_teacher_dataset(
     }
     if config["integration_name"] == "gymnasium":
         metadata["integration_name"] = "gymnasium"
+    if episode_return_gt is not None:
+        metadata["episode_return_gate"] = rollout_metadata["episode_return_gate"]
     with (output_dir / "metadata.json").open("w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2, sort_keys=True)
         handle.write("\n")

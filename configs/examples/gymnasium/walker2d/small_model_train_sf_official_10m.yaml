@@ -1,0 +1,10 @@
+__base__: small_model_train_ppo_tuned.yaml
+
+experiment:
+  name: gymnasium_walker2d_continuous_zero_latency_sf_official_10m
+
+training:
+  train_for_env_steps: 10000000
+
+logging:
+  output_dir: /mnt/data/latency-sensitive-bench/walker2d/continuous_sf_official_10m_train

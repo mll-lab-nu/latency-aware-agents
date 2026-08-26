@@ -14,6 +14,7 @@ ACTION_LAYOUT_DEADLY_CORRIDOR_FACTORIZED_11 = "deadly_corridor_factorized_11"
 ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54 = "deadly_corridor_joint_54"
 ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6 = "defend_the_line_joint_6"
 ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1 = "gymnasium_discrete_v1"
+ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1 = "gymnasium_continuous_v1"
 
 FLAPPY_ACTION_LABELS = ("NOOP", "FLAP")
 DEMON_ATTACK_ACTION_LABELS = ("NOOP", "FIRE", "RIGHT", "LEFT", "RIGHTFIRE", "LEFTFIRE")
@@ -142,6 +143,17 @@ def gymnasium_discrete_action_spec(action_labels: Sequence[str]) -> ActionSpec:
         layout=ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
         labels=tuple(action_labels),
         row_fields=("action_id", "action", "action_text"),
+        reward_field="raw_reward",
+        episode_return_field="episode_raw_return",
+        reward_semantics="raw_reward",
+    )
+
+
+def gymnasium_continuous_action_spec(action_labels: Sequence[str]) -> ActionSpec:
+    return ActionSpec(
+        layout=ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+        labels=tuple(action_labels),
+        row_fields=("action", "action_text"),
         reward_field="raw_reward",
         episode_return_field="episode_raw_return",
         reward_semantics="raw_reward",
@@ -301,4 +313,10 @@ def encode_action_for_env(
         return deadly_corridor_joint_54_action(raw_action)
     if resolved_action_spec.layout == ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6:
         return defend_the_line_joint_6_action(raw_action)
+    if resolved_action_spec.layout == ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1:
+        action = [float(item) for item in _to_python_action(raw_action)]
+        return {
+            "action": action,
+            "action_text": "[" + ", ".join(f"{item:.6f}" for item in action) + "]",
+        }
     return discrete_action(str(env_name), raw_action, action_spec=resolved_action_spec)
