@@ -755,6 +755,15 @@ def convert_canonical_rollout_to_lerobot(
             "Canonical Gymnasium env_name does not match gymnasium_task.task_name"
         )
     continuous = action_layout == ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1
+    if continuous and action_carrier == "native":
+        gymnasium_task = {
+            **gymnasium_task,
+            "action_space": {
+                key: value
+                for key, value in gymnasium_task["action_space"].items()
+                if key not in {"openvla_carrier_dim", "openvla_padding"}
+            },
+        }
     task_action_labels = (
         gymnasium_task["action_space"]["labels"]
         if continuous

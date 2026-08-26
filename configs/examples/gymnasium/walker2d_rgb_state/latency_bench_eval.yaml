@@ -1,0 +1,9 @@
+__base__:
+  - ../walker2d/latency_bench_eval.yaml
+  - state_contract.yaml
+
+experiment:
+  name: gymnasium_walker2d_rgb_state_latency_bench_eval
+
+logging:
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/walker2d_rgb_state/latency_bench_eval

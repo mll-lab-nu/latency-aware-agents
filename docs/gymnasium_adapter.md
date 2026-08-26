@@ -420,9 +420,9 @@ python scripts/rollout_data/prepare_starvla_lerobot_dataset.py \
 ```
 
 Discrete Gymnasium tasks keep the existing StarVLA handoff and categorical
-carrier. Continuous Gymnasium tasks preserve the native Box vector in LeRobot,
-but deliberately emit no StarVLA modality, robot type, or generated mixture
-until a continuous StarVLA data configuration and action head are implemented.
+carrier. Continuous Gymnasium tasks preserve the native Box vector in LeRobot
+and emit the same StarVLA modality, robot type, prompt map, and generated
+mixture without adding a carrier dimension.
 
 Run basic single-image OpenVLA SFT for a registered discrete task:
 

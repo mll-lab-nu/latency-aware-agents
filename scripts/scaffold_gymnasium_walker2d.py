@@ -81,12 +81,11 @@ def build_walker2d_probe_report(
         "base_make_kwargs": base_make_kwargs,
         "action_catalog": {
             "source": "native_walker2d_box",
-            "note": "The policy predicts all six native continuous torques independently; OpenVLA tokenizes each continuous dimension separately.",
+            "note": "The policy and OpenVLA both use the same six native continuous torques.",
             "labels": ACTION_LABELS,
             "low": env.action_space.low.tolist(),
             "high": env.action_space.high.tolist(),
             "noop_action": NOOP_ACTION,
-            "openvla_carrier": [*ACTION_LABELS, "OPENVLA_PAD"],
         },
     }
     env.close()
@@ -119,8 +118,6 @@ def build_walker2d_env_config(
             "low": [-1.0] * 6,
             "high": [1.0] * 6,
             "dtype": "float32",
-            "openvla_carrier_dim": 7,
-            "openvla_padding": [0.0],
         },
         "noop_action": NOOP_ACTION,
         "base_prompt": (
@@ -139,12 +136,11 @@ def write_configs(config_dir: Path, env_config: dict[str, Any]) -> None:
             "small_model_train.yaml",
             "small_model_eval.yaml",
             "latency_bench_eval.yaml",
-            "starvla_eval.yaml",
         )
     }
     train = configs["small_model_train.yaml"]
     train["experiment"]["name"] = "gymnasium_walker2d_continuous_zero_latency"
-    train["backend"]["train_dir"] = "/mnt/checkpoints/latency-sensitive-bench/walker2d"
+    train["backend"]["train_dir"] = "/mnt/checkpoints/latency-sensitive-bench/small_models/walker2d"
     train["env"] = deepcopy(env_config)
     train["latency"] = {"method": "zero", "add_latency_info": False}
     train["policy"].pop("actions", None)
@@ -163,24 +159,11 @@ def write_configs(config_dir: Path, env_config: dict[str, Any]) -> None:
     bench_eval["evaluation"]["eval_latency_values"] = [0, 1, 2, 3, 4]
     bench_eval["logging"]["output_dir"] = "/mnt/data/latency-sensitive-bench/walker2d/latency_bench_eval"
 
-    starvla_eval = configs["starvla_eval.yaml"]
-    starvla_eval["experiment"]["name"] = "gymnasium_walker2d_continuous_starvla"
-    starvla_eval["policy"]["checkpoint_path"] = "/mnt/checkpoints/latency-sensitive-bench/walker2d/starvla/checkpoint.safetensors"
-    starvla_eval["policy"]["model_config_path"] = "/mnt/checkpoints/latency-sensitive-bench/walker2d/starvla/config.full.yaml"
-    starvla_eval["policy"]["task_manifest_path"] = "/mnt/data/latency-sensitive-bench/walker2d/vla/manifest.json"
-    starvla_eval["policy"]["latency_prompt_map_path"] = "/mnt/data/latency-sensitive-bench/walker2d/vla/latency_prompt_map.json"
-    starvla_eval["policy"]["latency_prompt_key"] = 0
-    starvla_eval["policy"]["action_carrier"] = "bridge_continuous_7d"
-    starvla_eval["evaluation"]["eval_episodes"] = 10
-    starvla_eval["evaluation"]["eval_latency_values"] = [0, 1, 2, 3, 4]
-    starvla_eval["logging"]["output_dir"] = "/mnt/data/latency-sensitive-bench/walker2d/starvla_eval"
-
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "small_model_train.yaml").write_text(yaml.safe_dump(train, sort_keys=False))
     for name, config in (
         ("small_model_eval.yaml", small_eval),
         ("latency_bench_eval.yaml", bench_eval),
-        ("starvla_eval.yaml", starvla_eval),
     ):
         (config_dir / name).write_text(yaml.safe_dump(config, sort_keys=False))
 
