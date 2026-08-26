@@ -6,7 +6,9 @@ from typing import Any
 
 import gymnasium as gym
 import humanoid_bench
+import mujoco
 import numpy as np
+from gymnasium.envs.mujoco import mujoco_rendering
 from humanoid_bench.dmc_deps import dmc_sizes
 
 
@@ -18,6 +20,36 @@ for _struct_name, _field_names in {
 }.items():
     for _field_name in _field_names:
         del dmc_sizes.array_sizes[_struct_name][_field_name]
+
+
+def _add_marker_to_mujoco_33_scene(self, marker: dict[str, Any]) -> None:
+    """Add one Gymnasium marker using MuJoCo 3.3's MjvGeom fields."""
+
+    if self.scn.ngeom >= self.scn.maxgeom:
+        raise RuntimeError(f"Ran out of geoms. maxgeom: {self.scn.maxgeom}")
+
+    geom = self.scn.geoms[self.scn.ngeom]
+    mujoco.mjv_initGeom(
+        geom,
+        mujoco.mjtGeom.mjGEOM_BOX,
+        np.full(3, 0.1),
+        np.zeros(3),
+        np.eye(3).ravel(),
+        np.ones(4, dtype=np.float32),
+    )
+    geom.objtype = mujoco.mjtObj.mjOBJ_UNKNOWN
+    geom.objid = -1
+    geom.category = mujoco.mjtCatBit.mjCAT_DECOR
+    for key, value in marker.items():
+        attribute = getattr(geom, key)
+        if isinstance(attribute, np.ndarray):
+            attribute[:] = value
+        else:
+            setattr(geom, key, value)
+    self.scn.ngeom += 1
+
+
+mujoco_rendering.BaseRender._add_marker_to_scene = _add_marker_to_mujoco_33_scene
 
 
 HUMANOIDBENCH_ENV_SPECS = {

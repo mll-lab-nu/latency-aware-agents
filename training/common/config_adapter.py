@@ -271,6 +271,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         "fasttd3_transitions_per_update",
         "fasttd3_v_min",
         "fasttd3_v_max",
+        "fasttd3_sonic_decoder_path",
     )
     bool_fields = (
         "async_rl",

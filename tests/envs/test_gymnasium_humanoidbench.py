@@ -168,6 +168,16 @@ def test_humanoidbench_highbar_constrains_only_thumb_keyframe_controls():
         env.close()
 
 
+@pytest.mark.parametrize("env_id", ["g1-reach-v0", "g1-push-v0"])
+def test_humanoidbench_mujoco_33_task_markers_render(env_id):
+    env = gym.make(env_id, render_mode="rgb_array", width=32, height=32)
+    try:
+        env.reset(seed=0)
+        assert env.render().shape == (32, 32, 3)
+    finally:
+        env.close()
+
+
 def test_humanoidbench_seeded_reset_and_zero_latency_adapter_parity():
     config = load_config(CONFIG_DIR / "small_model_train.yaml")
     env_config = config["env"]
