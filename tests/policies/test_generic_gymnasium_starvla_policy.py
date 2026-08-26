@@ -96,10 +96,16 @@ def _generic_config(tmp_path: Path) -> dict:
         json.dumps(
             {
                 "integration_name": "gymnasium",
-                "robot_type": "rl_games_gymnasium_native",
+                "robot_type": "rl_games_gymnasium",
                 "active_action_dim": 3,
-                "include_state": True,
+                "uses_state": True,
                 "state_dim": 2,
+                "state_labels": ["position", "velocity"],
+                "state_normalization": {
+                    "type": "min_max",
+                    "min": [-10.0, -10.0],
+                    "max": [10.0, 10.0],
+                },
                 "gymnasium_task": contract,
             }
         ),
@@ -141,6 +147,7 @@ def _observation(metadata: dict | None = None) -> Observation:
         sim_time_ms=0.0,
         metadata={
             "env_raw_rgb_frame_stack": np.zeros((8, 8, 3), dtype=np.uint8),
+            "gymnasium_state": np.asarray([1.25, -2.5], dtype=np.float32),
             **(metadata or {}),
         },
     )
@@ -150,7 +157,7 @@ def _read_model_config(path: str | Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def test_generic_checkpoint_policy_separates_integration_task_and_native_action(
+def test_generic_checkpoint_policy_separates_integration_task_and_state_action(
     monkeypatch,
     tmp_path: Path,
 ):
@@ -176,13 +183,13 @@ def test_generic_checkpoint_policy_separates_integration_task_and_native_action(
     wrapper = GenericPolicyServerWrapper.instances[0]
     assert wrapper.rl_games_env_name == "gymnasium"
     assert wrapper.rl_games_action_env_dim == 3
-    assert wrapper.rl_games_gymnasium_action_space_type == "discrete"
-    assert wrapper.rl_games_gymnasium_robot_type == "rl_games_gymnasium_native"
+    assert wrapper.rl_games_gymnasium_action_space_type is None
+    assert wrapper.rl_games_gymnasium_robot_type is None
     assert policy._env_name == "mountain_car"
     example = wrapper.calls[0]["examples"][0]
     assert example["lang"] == "Drive the car up the mountain."
     np.testing.assert_array_equal(
-        example["state"], np.asarray([[1.25, -2.5]], dtype=np.float32)
+        example["state"], np.asarray([[0.125, -0.25]], dtype=np.float32)
     )
     assert output.action.name == "push_right"
     assert output.action.value == 2
@@ -191,11 +198,7 @@ def test_generic_checkpoint_policy_separates_integration_task_and_native_action(
 
 @pytest.mark.parametrize(
     ("mismatch", "message"),
-    [
-        ("include_state", "model include_state"),
-        ("model_state_dim", "model state_dim"),
-        ("state_labels", "state labels"),
-    ],
+    [("state_labels", "dataset manifest")],
 )
 def test_generic_checkpoint_policy_rejects_state_contract_mismatch(
     monkeypatch,
@@ -213,16 +216,7 @@ def test_generic_checkpoint_policy_rejects_state_contract_mismatch(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     model_config = json.loads(model_config_path.read_text(encoding="utf-8"))
 
-    if mismatch == "include_state":
-        manifest["include_state"] = False
-    elif mismatch == "model_state_dim":
-        model_config["framework"]["action_model"]["state_dim"] = 3
-    else:
-        config["env"]["state_space"]["labels"] = ["position"]
-        contract = gymnasium_task_contract(config["env"])
-        manifest["gymnasium_task"] = contract
-        model_config["datasets"]["vla_data"]["gymnasium_task_contract"] = contract
-        model_config["rl_games"]["gymnasium"]["task_contract"] = contract
+    manifest["gymnasium_task"]["state_space"]["labels"] = ["position"]
 
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     model_config_path.write_text(json.dumps(model_config), encoding="utf-8")
@@ -231,7 +225,7 @@ def test_generic_checkpoint_policy_rejects_state_contract_mismatch(
         build_policy(config, ActionResolver(config["env"]))
 
 
-def test_h1_checkpoint_policy_passes_native_state_and_box_contract(monkeypatch):
+def test_h1_checkpoint_policy_passes_state_and_box_contract(monkeypatch, tmp_path: Path):
     from latency_bench.core.config import load_config
     from latency_bench.policy import starvla
 
@@ -242,6 +236,20 @@ def test_h1_checkpoint_policy_passes_native_state_and_box_contract(monkeypatch):
         "configs/examples/gymnasium/h1hand_balance_hard/starvla_eval.yaml"
     )
     contract = gymnasium_task_contract(config["env"])
+    task_manifest_path = tmp_path / "h1_manifest.json"
+    task_manifest_path.write_text(
+        json.dumps(
+            {
+                "integration_name": "gymnasium",
+                "uses_state": True,
+                "state_dim": 177,
+                "state_labels": [f"state_{index:03d}" for index in range(177)],
+                "gymnasium_task": contract,
+            }
+        ),
+        encoding="utf-8",
+    )
+    config["policy"]["task_manifest_path"] = str(task_manifest_path)
     model_cfg = {
         "datasets": {
             "vla_data": {
@@ -255,7 +263,7 @@ def test_h1_checkpoint_policy_passes_native_state_and_box_contract(monkeypatch):
     monkeypatch.setattr(
         starvla,
         "_validate_gymnasium_starvla_contract",
-        lambda **kwargs: "rl_games_gymnasium_native",
+        lambda **kwargs: None,
     )
     state = np.arange(177, dtype=np.float32)
 
@@ -275,7 +283,8 @@ def test_h1_checkpoint_policy_passes_native_state_and_box_contract(monkeypatch):
     assert wrapper.rl_games_action_env_dim == 61
     assert wrapper.rl_games_gymnasium_action_space_type == "box"
     np.testing.assert_array_equal(
-        wrapper.calls[0]["examples"][0]["state"], state.reshape(1, -1)
+        wrapper.calls[0]["examples"][0]["state"],
+        np.zeros((1, 177), dtype=np.float32),
     )
     assert output.action.value == [0.0] * 61
 
@@ -337,28 +346,13 @@ def test_generic_prompt_map_takes_priority_over_explicit_base_prompt(
     assert example["lang"] == "Use the latency-three policy."
 
 
-def test_generic_live_policy_normalizes_native_state_and_decodes_actions(
+def test_generic_live_policy_uses_manifest_state_and_decodes_actions(
     monkeypatch,
     tmp_path: Path,
 ):
     from latency_bench.policy import starvla
 
     decode_calls = []
-
-    class NormProcessor:
-        def __init__(self):
-            self.state_calls = []
-            self.action_calls = []
-
-        def apply_state(self, state):
-            self.state_calls.append(np.asarray(state).copy())
-            return np.asarray(state) + 1.0
-
-        def unapply_actions(self, actions):
-            self.action_calls.append(np.asarray(actions).copy())
-            return np.asarray(actions) + 10.0
-
-    norm_processor = NormProcessor()
 
     def decode_rl_games_actions(
         *,
@@ -367,8 +361,8 @@ def test_generic_live_policy_normalizes_native_state_and_decodes_actions(
         deadly_action_layout,
         deadly_multibinary_threshold,
         action_env_dim,
-        gymnasium_action_space_type,
-        action_values,
+        gymnasium_action_space_type="discrete",
+        action_values=None,
     ):
         decode_calls.append(
             {
@@ -376,11 +370,11 @@ def test_generic_live_policy_normalizes_native_state_and_decodes_actions(
                 "action_env_dim": action_env_dim,
                 "gymnasium_action_space_type": gymnasium_action_space_type,
                 "normalized_actions": normalized_actions,
-                "action_values": action_values,
+            "action_values": action_values,
             }
         )
         actions = (
-            action_values[..., :action_env_dim]
+            normalized_actions[..., :action_env_dim]
             if gymnasium_action_space_type == "box"
             else np.argmax(normalized_actions[..., :action_env_dim], axis=-1)[
                 ..., None
@@ -406,11 +400,6 @@ def test_generic_live_policy_normalizes_native_state_and_decodes_actions(
         "_normalized_model_cfg",
         lambda model_cfg: model_cfg,
     )
-    monkeypatch.setattr(
-        starvla,
-        "_load_live_policy_norm_processor",
-        lambda **kwargs: norm_processor,
-    )
     monkeypatch.setattr(starvla, "_load_starvla_model_config", _read_model_config)
     config = _generic_config(tmp_path)
     framework = GenericLiveFramework()
@@ -435,7 +424,7 @@ def test_generic_live_policy_normalizes_native_state_and_decodes_actions(
     assert framework.calls[0]["examples"][0]["lang"] == "Drive the car up the mountain."
     np.testing.assert_array_equal(
         framework.calls[0]["examples"][0]["state"],
-        np.asarray([[2.25, -1.5]], dtype=np.float32),
+        np.asarray([[0.125, -0.25]], dtype=np.float32),
     )
     assert output.action.name == "push_right"
     assert output.action.value == 2
@@ -446,16 +435,12 @@ def test_generic_live_policy_normalizes_native_state_and_decodes_actions(
         env_name="gymnasium",
         rl_games_action_env_dim=2,
         gymnasium_action_space_type="box",
-        gymnasium_norm_processor=norm_processor,
     )
     box_prediction = box_wrapper.predict_action(
         examples=[{"image": [], "lang": "", "state": np.asarray([[3.0, 4.0]])}]
     )
 
-    np.testing.assert_allclose(box_prediction["actions"], [[[10.9, 10.1]]])
-    np.testing.assert_array_equal(norm_processor.state_calls[0], [[1.25, -2.5]])
-    np.testing.assert_array_equal(norm_processor.state_calls[1], [[3.0, 4.0]])
-    np.testing.assert_allclose(norm_processor.action_calls[0], [[0.9, 0.1, 0.0]])
+    np.testing.assert_allclose(box_prediction["actions"], [[[0.9, 0.1]]])
 
 
 @pytest.mark.parametrize(

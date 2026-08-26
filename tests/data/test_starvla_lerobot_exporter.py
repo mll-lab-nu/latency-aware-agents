@@ -294,7 +294,7 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
             "latency_ms": 10.0,
             "raw_reward": 0.0,
             "action": action,
-            "state": state,
+            "state": [value + step for value in state],
             "action_text": "continuous_control",
         }
         for step, action in enumerate(actions)
@@ -305,15 +305,12 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
         rows,
         [],
         action_spec=action_spec,
-        include_state=True,
     )
     (raw_export / "metadata.json").write_text(
         json.dumps(
             {
                 "env_name": "myochallenge_table_tennis_p2",
                 "integration_name": "gymnasium",
-                "schema_version": 3,
-                "include_state": True,
                 "action_layout": "gymnasium_continuous_v1",
                 "reward_field": "raw_reward",
                 "action_labels": action_labels,
@@ -334,6 +331,9 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
                     "env_fps": 100.0,
                     "obs_fps": 100.0,
                     "frame_stack": 1,
+                    "state_space": {
+                        "labels": [f"state_{index}" for index in range(177)]
+                    },
                 },
                 "rows_unit": "decision_step",
                 "obs_fps": 100.0,
@@ -370,24 +370,25 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
     assert manifest["state_dim"] == 177
     assert manifest["carrier_action_labels"] == action_labels
     assert manifest["action_carrier"] == "native"
-    assert manifest["robot_type"] == "rl_games_gymnasium_native"
+    assert manifest["robot_type"] == "rl_games_gymnasium"
     assert rows_out[0]["action"] == [0.0] * 275
     assert rows_out[1]["action"] == pytest.approx(actions[1])
-    assert rows_out[0]["observation.state"] == state
+    assert rows_out[0]["observation.state"] == [-1.0] * 177
+    assert rows_out[1]["observation.state"] == [1.0] * 177
     assert info["features"]["action"]["shape"] == [275]
     assert info["features"]["action"]["names"] == action_labels
     assert info["features"]["observation.state"]["shape"] == [177]
-    assert modality["state"]["native"]["original_key"] == "observation.state"
-    assert modality["action"]["native"]["original_key"] == "action"
+    assert modality["state"]["game_state"]["original_key"] == "observation.state"
+    assert modality["action"]["button"]["original_key"] == "action"
     assert [row["timestamp"] for row in rows_out] == pytest.approx([0.0, 0.01])
     assert stale_modality.exists()
     assert stale_val_modality.exists()
-    assert not stale_prompt_map.exists()
-    assert not stale_mixture.exists()
+    assert stale_prompt_map.exists()
+    assert stale_mixture.exists()
     for output_manifest in (manifest, validation_manifest):
-        assert output_manifest["robot_type"] == "rl_games_gymnasium_native"
-        assert "latency_prompt_map_path" not in output_manifest
-        assert "custom_mixtures_path" not in output_manifest
+        assert output_manifest["robot_type"] == "rl_games_gymnasium"
+        assert output_manifest["latency_prompt_map_path"]
+        assert output_manifest["custom_mixtures_path"]
 
 
 def test_starvla_lerobot_exporter_rejects_unknown_gymnasium_action_layout(tmp_path):
@@ -409,50 +410,4 @@ def test_starvla_lerobot_exporter_rejects_unknown_gymnasium_action_layout(tmp_pa
     )
 
     with pytest.raises(ValueError, match="Unsupported Gymnasium action_layout"):
-        convert_canonical_rollout_to_lerobot(raw_export, tmp_path / "lerobot")
-
-
-def test_starvla_lerobot_exporter_rejects_unknown_gymnasium_schema_version(tmp_path):
-    from latency_bench.data.exporters.starvla_lerobot import (
-        convert_canonical_rollout_to_lerobot,
-    )
-
-    raw_export = tmp_path / "raw"
-    raw_export.mkdir()
-    (raw_export / "metadata.json").write_text(
-        json.dumps(
-            {
-                "env_name": "unknown_task",
-                "integration_name": "gymnasium",
-                "schema_version": 99,
-                "action_layout": "gymnasium_continuous_v1",
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="Unsupported Gymnasium schema_version=99"):
-        convert_canonical_rollout_to_lerobot(raw_export, tmp_path / "lerobot")
-
-
-def test_starvla_lerobot_exporter_requires_include_state_for_schema_v3(tmp_path):
-    from latency_bench.data.exporters.starvla_lerobot import (
-        convert_canonical_rollout_to_lerobot,
-    )
-
-    raw_export = tmp_path / "raw"
-    raw_export.mkdir()
-    (raw_export / "metadata.json").write_text(
-        json.dumps(
-            {
-                "env_name": "unknown_task",
-                "integration_name": "gymnasium",
-                "schema_version": 3,
-                "action_layout": "gymnasium_continuous_v1",
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(KeyError, match="include_state"):
         convert_canonical_rollout_to_lerobot(raw_export, tmp_path / "lerobot")

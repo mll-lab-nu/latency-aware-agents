@@ -35,17 +35,9 @@ _ROBOT_TYPES_BY_ENV = {
 def _action_carrier_spec(
     action_labels: list[str],
     action_carrier: str,
-    *,
-    state_dim: int | None = None,
 ) -> tuple[list[str], int, int, list[str]]:
     if action_carrier == "native":
-        resolved_state_dim = STATE_DIM if state_dim is None else state_dim
-        state_labels = (
-            ["state"]
-            if resolved_state_dim == STATE_DIM
-            else [f"state_{index}" for index in range(resolved_state_dim)]
-        )
-        return action_labels, len(action_labels), resolved_state_dim, state_labels
+        return action_labels, len(action_labels), STATE_DIM, ["state"]
     if action_carrier != "bridge":
         raise ValueError(f"Unsupported action_carrier={action_carrier!r}")
     if len(action_labels) > BRIDGE_ACTION_DIM:
@@ -60,18 +52,13 @@ def _action_carrier_spec(
             for index in range(len(action_labels), BRIDGE_ACTION_DIM)
         ),
     ]
-    resolved_state_dim = BRIDGE_ACTION_DIM if state_dim is None else state_dim
-    state_labels = (
-        [f"BRIDGE_STATE_{index}" for index in range(BRIDGE_ACTION_DIM)]
-        if state_dim is None
-        else [f"state_{index}" for index in range(resolved_state_dim)]
-    )
-    return carrier_labels, len(action_labels), resolved_state_dim, state_labels
+    state_labels = [f"BRIDGE_STATE_{index}" for index in range(BRIDGE_ACTION_DIM)]
+    return carrier_labels, len(action_labels), BRIDGE_ACTION_DIM, state_labels
 
 
 def _robot_type_for_env(env_name: str, integration_name: str) -> str:
     if integration_name == "gymnasium":
-        return "rl_games_gymnasium_native"
+        return "rl_games_gymnasium"
     return _ROBOT_TYPES_BY_ENV[env_name]
 
 
@@ -409,7 +396,6 @@ def _write_episode(
     *,
     action_dim: int,
     state_dim: int,
-    include_state: bool,
 ) -> None:
     """Write one LeRobot episode parquet file.
 
@@ -425,7 +411,7 @@ def _write_episode(
             type=pa.struct([("bytes", pa.binary()), ("path", pa.string())]),
         ),
         "observation.state": pa.array(
-            [row["state"] if include_state else [0.0] * state_dim for row in rows],
+            [row.get("state", [0.0] * state_dim) for row in rows],
             type=pa.list_(pa.float32(), state_dim),
         ),
         "action": pa.array(
@@ -568,7 +554,7 @@ def _write_metadata(
         json.dumps(
             {
                 "state": {
-                    "native": {
+                    "game_state": {
                         "start": 0,
                         "end": state_dim,
                         "dtype": "float32",
@@ -577,7 +563,7 @@ def _write_metadata(
                     }
                 },
                 "action": {
-                    "native": {
+                    "button": {
                         "start": 0,
                         "end": action_dim,
                         "dtype": "float32",
@@ -620,11 +606,11 @@ def _convert_split(
     active_action_dim: int,
     state_dim: int,
     state_labels: list[str],
-    include_state: bool,
     context_image_count: int | None,
     image_shape: tuple[int, int, int],
     fps: float,
     reward_field: str,
+    state_normalization: dict[str, Any] | None,
     density_weighting: bool = False,
 ) -> dict[str, Any]:
     """Convert one canonical rollout split into a LeRobot dataset directory.
@@ -678,10 +664,17 @@ def _convert_split(
                 "reward": float(row[reward_field]),
                 "density_weight": float(density_weights[frame_idx]),
             }
+            if state_normalization is not None:
+                state = np.asarray(row["state"], dtype=np.float32)
+                state_min = np.asarray(state_normalization["min"], dtype=np.float32)
+                state_max = np.asarray(state_normalization["max"], dtype=np.float32)
+                out_row["state"] = np.clip(
+                    2.0 * (state - state_min) / (state_max - state_min) - 1.0,
+                    -1.0,
+                    1.0,
+                ).tolist()
             if "action_id" in row:
                 out_row["action_id"] = int(row["action_id"])
-            if include_state:
-                out_row["state"] = row["state"]
             if "context_images" in row and row["context_images"] is not None:
                 out_row["context_image_bytes"] = [
                     _png_bytes(image) for image in row["context_images"]
@@ -695,7 +688,6 @@ def _convert_split(
             out_rows,
             action_dim=len(action_labels),
             state_dim=state_dim,
-            include_state=include_state,
         )
     _write_metadata(
         output_dir,
@@ -756,10 +748,6 @@ def convert_canonical_rollout_to_lerobot(
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
     ):
         raise ValueError(f"Unsupported Gymnasium action_layout={action_layout!r}")
-    schema_version = metadata["schema_version"]
-    if schema_version not in (2, 3):
-        raise ValueError(f"Unsupported Gymnasium schema_version={schema_version!r}")
-    include_state = metadata["include_state"] if schema_version == 3 else False
     active_action_labels = list(metadata["action_labels"])
     gymnasium_task = metadata["gymnasium_task"]
     if env_name != gymnasium_task["task_name"]:
@@ -776,10 +764,14 @@ def convert_canonical_rollout_to_lerobot(
         raise ValueError(
             "Canonical Gymnasium action_labels do not match gymnasium_task action-space labels"
         )
-    if not include_state:
-        action_labels, active_action_dim, state_dim, state_labels = (
-            _action_carrier_spec(active_action_labels, action_carrier)
-        )
+    action_labels, active_action_dim, state_dim, state_labels = _action_carrier_spec(
+        active_action_labels,
+        action_carrier,
+    )
+    uses_state = "state_space" in gymnasium_task
+    if uses_state:
+        state_labels = list(gymnasium_task["state_space"]["labels"])
+        state_dim = len(state_labels)
     reward_field = str(metadata["reward_field"])
     rows_unit = metadata["rows_unit"]
     if rows_unit != "decision_step":
@@ -791,33 +783,17 @@ def convert_canonical_rollout_to_lerobot(
         shutil.rmtree(output_dir)
     if val_output_dir.exists() and force:
         shutil.rmtree(val_output_dir)
-    if continuous:
-        stale_starvla_paths = (
-            output_dir / "meta/modality.json",
-            output_dir / "latency_prompt_map.json",
-            val_output_dir / "meta/modality.json",
-            val_output_dir / "latency_prompt_map.json",
-            output_dir.parent / "_generated_mixtures" / f"{output_dir.name}.json",
-        )
-        for path in stale_starvla_paths:
-            path.unlink(missing_ok=True)
     train_rows = _load_rows(raw_export_dir, "train")
     val_rows = _load_rows(raw_export_dir, "val")
+    state_normalization = None
+    if uses_state:
+        train_states = np.asarray([row["state"] for row in train_rows], dtype=np.float32)
+        state_normalization = {
+            "type": "min_max",
+            "min": train_states.min(axis=0).tolist(),
+            "max": train_states.max(axis=0).tolist(),
+        }
     first_row = (train_rows or val_rows)[0]
-    if include_state:
-        action_labels, active_action_dim, state_dim, state_labels = (
-            _action_carrier_spec(
-                active_action_labels,
-                action_carrier,
-                state_dim=len(first_row["state"]),
-            )
-        )
-        if "state_space" in gymnasium_task:
-            state_labels = list(gymnasium_task["state_space"]["labels"])
-            if len(state_labels) != state_dim:
-                raise ValueError(
-                    "gymnasium_task state_space labels do not match canonical state dimension"
-                )
     image_source = first_row["image"]
     with Image.open(io.BytesIO(_png_bytes(image_source))) as image:
         width, height = image.size
@@ -836,11 +812,11 @@ def convert_canonical_rollout_to_lerobot(
         active_action_dim=active_action_dim,
         state_dim=state_dim,
         state_labels=state_labels,
-        include_state=include_state,
         context_image_count=context_image_count,
         image_shape=image_shape,
         fps=fps,
         reward_field=reward_field,
+        state_normalization=state_normalization,
         density_weighting=True,
     )
     val_manifest = _convert_split(
@@ -852,11 +828,11 @@ def convert_canonical_rollout_to_lerobot(
         active_action_dim=active_action_dim,
         state_dim=state_dim,
         state_labels=state_labels,
-        include_state=include_state,
         context_image_count=context_image_count,
         image_shape=image_shape,
         fps=fps,
         reward_field=reward_field,
+        state_normalization=state_normalization,
         density_weighting=False,
     )
     handoff_contract = {
@@ -877,24 +853,25 @@ def convert_canonical_rollout_to_lerobot(
         "rows_unit": rows_unit,
         "obs_fps": fps,
         "obs_stride_raw_frames": obs_stride,
-        "include_state": include_state,
+        "uses_state": uses_state,
         "state_dim": state_dim,
+        "state_labels": state_labels,
+        "state_normalization": state_normalization,
     }
     handoff_contract["robot_type"] = _robot_type_for_env(env_name, integration_name)
-    if not continuous:
-        prompt_map_path, mixture_path = _write_starvla_handoff_files(
-            output_dir,
-            val_output_dir,
-            env_name=env_name,
-            integration_name=integration_name,
-            rows=[*train_rows, *val_rows],
-        )
-        handoff_contract.update(
-            {
-                "latency_prompt_map_path": str(prompt_map_path),
-                "custom_mixtures_path": str(mixture_path),
-            }
-        )
+    prompt_map_path, mixture_path = _write_starvla_handoff_files(
+        output_dir,
+        val_output_dir,
+        env_name=env_name,
+        integration_name=integration_name,
+        rows=[*train_rows, *val_rows],
+    )
+    handoff_contract.update(
+        {
+            "latency_prompt_map_path": str(prompt_map_path),
+            "custom_mixtures_path": str(mixture_path),
+        }
+    )
     handoff_contract["gymnasium_task"] = gymnasium_task
     manifest = {
         **train_manifest,

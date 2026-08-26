@@ -90,6 +90,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         image_transform_config: Mapping[str, Any] | None = None,
         observation_stride_raw_frames: int,
         model_cfg: Mapping[str, Any] | None = None,
+        state_normalization: Mapping[str, Any] | None = None,
     ) -> None:
         self._wrapper = wrapper
         self._obs_resize = tuple(obs_resize) if obs_resize else None
@@ -115,11 +116,9 @@ class StarVlaPolicyRunner(PolicyRunner):
             else _normalized_model_cfg(model_cfg)
         )
         self._include_state = _include_state_from_model_cfg(model_cfg)
-        self._state_dim = (
-            _state_dim_from_model_cfg(model_cfg) if self._include_state else None
-        )
-        vla_data = model_cfg["datasets"]["vla_data"]
-        self._uses_native_state = "gymnasium_task_contract" in vla_data
+        self._state_dim = _state_dim_from_model_cfg(model_cfg) if self._include_state else None
+        self._state_normalization = dict(state_normalization or {})
+        vla_data = (model_cfg.get("datasets", {}) or {}).get("vla_data", {}) or {}
         self._pack_image_sequence = (
             bool(vla_data["pack_image_sequence"])
             if "pack_image_sequence" in vla_data
@@ -260,9 +259,18 @@ class StarVlaPolicyRunner(PolicyRunner):
         elif "slot_id" in observation.metadata:
             example["slot_id"] = observation.metadata["slot_id"]
         if self._include_state:
-            if self._uses_native_state:
-                state = np.asarray(observation.data, dtype=np.float32)
-                example["state"] = state.reshape(1, -1) if state.ndim == 1 else state
+            if self._state_normalization:
+                state = np.asarray(
+                    observation.metadata["gymnasium_state"], dtype=np.float32
+                )
+                state_min = np.asarray(self._state_normalization["min"], dtype=np.float32)
+                state_max = np.asarray(self._state_normalization["max"], dtype=np.float32)
+                state = np.clip(
+                    2.0 * (state - state_min) / (state_max - state_min) - 1.0,
+                    -1.0,
+                    1.0,
+                )
+                example["state"] = state.reshape(1, self._state_dim)
             else:
                 example["state"] = np.zeros((1, self._state_dim), dtype=np.float32)
         return example
@@ -744,28 +752,6 @@ def _load_rl_games_action_decode() -> tuple[Any, Any]:
     return decode_rl_games_actions, resolve_deadly_action_decode_spec
 
 
-def _load_live_policy_norm_processor(
-    *,
-    model_cfg: dict[str, Any],
-    unnorm_key: str | None,
-    robot_type: str,
-) -> Any:
-    _ensure_starvla_path()
-    from deployment.model_server.policy_norm_processor import PolicyNormProcessor
-
-    norm_stats = json.loads(
-        (Path(model_cfg["output_dir"]) / "dataset_statistics.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    return PolicyNormProcessor.from_config(
-        model_cfg=model_cfg,
-        norm_stats=norm_stats,
-        unnorm_key=unnorm_key,
-        robot_type=robot_type,
-    )
-
-
 class LiveStarVlaWrapper:
     """In-process stand-in for ``PolicyServerWrapper`` over a *live* framework.
 
@@ -774,8 +760,8 @@ class LiveStarVlaWrapper:
     This wrapper exposes only the rl_games-mode surface ``StarVlaPolicyRunner``
     uses — ``predict_action`` (framework forward + rl_games decode),
     ``reset_memory`` passthrough, and the ``_model_cfg`` attribute — so no
-    checkpoint reload is needed. Gymnasium state and continuous actions still
-    use StarVLA's training-time normalization transform.
+    checkpoint reload is needed. The disk-backed ``PolicyNormProcessor`` is never
+    built because rl_games decoding ignores un-normalization stats.
     """
 
     def __init__(
@@ -788,14 +774,12 @@ class LiveStarVlaWrapper:
         gymnasium_action_space_type: str = "discrete",
         action_layout: str | None = None,
         multibinary_threshold: float | None = None,
-        gymnasium_norm_processor: Any | None = None,
     ) -> None:
         self._framework = framework
         self._model_cfg = model_cfg
         self._rl_games_env_name = str(env_name)
         self._rl_games_action_env_dim = rl_games_action_env_dim
         self._gymnasium_action_space_type = gymnasium_action_space_type
-        self._gymnasium_norm_processor = gymnasium_norm_processor
         (
             self._decode_rl_games_actions,
             resolve_deadly_action_decode_spec,
@@ -821,38 +805,13 @@ class LiveStarVlaWrapper:
         # unnorm_key is unused in rl_games mode; kept for interface parity.
         del unnorm_key
         profiler = kwargs["profiler"] if "profiler" in kwargs else None
-        if self._rl_games_env_name == "gymnasium":
-            examples = [
-                {
-                    **example,
-                    "state": self._gymnasium_norm_processor.apply_state(
-                        example["state"]
-                    ),
-                }
-                if "state" in example
-                else example
-                for example in examples
-            ]
         out = self._framework.predict_action(examples=examples, **kwargs)
         normalized = np.asarray(out["normalized_actions"])  # (B, T, D)
         decode_kwargs: dict[str, Any] = {}
         if self._rl_games_env_name == "gymnasium":
-            action_values = None
-            if self._gymnasium_action_space_type == "box":
-                action_values = np.stack(
-                    [
-                        self._gymnasium_norm_processor.unapply_actions(
-                            normalized[batch_idx]
-                        )
-                        for batch_idx in range(normalized.shape[0])
-                    ],
-                    axis=0,
-                )
             decode_kwargs["action_env_dim"] = self._rl_games_action_env_dim
-            decode_kwargs["gymnasium_action_space_type"] = (
-                self._gymnasium_action_space_type
-            )
-            decode_kwargs["action_values"] = action_values
+            if self._gymnasium_action_space_type == "box":
+                decode_kwargs["gymnasium_action_space_type"] = "box"
         with _profiler_stage(profiler, "starvla_wrapper_rl_games_decode_ms"):
             return self._decode_rl_games_actions(
                 normalized_actions=normalized,
@@ -884,7 +843,7 @@ def _validate_gymnasium_starvla_contract(
     env_cfg: Mapping[str, Any],
     policy_cfg: Mapping[str, Any],
     model_cfg: Mapping[str, Any],
-) -> str:
+) -> None:
     eval_contract = gymnasium_task_contract(env_cfg)
     expected = policy_cfg.get("gymnasium_training_task_contract", eval_contract)
     comparable_eval_contract = {**eval_contract, "make_kwargs": expected["make_kwargs"]}
@@ -917,27 +876,6 @@ def _validate_gymnasium_starvla_contract(
         raise ValueError(
             "StarVLA model action_env_dim does not match the dataset manifest"
         )
-    model_include_state = model_cfg["datasets"]["vla_data"]["include_state"]
-    if manifest["include_state"] != model_include_state:
-        raise ValueError(
-            "StarVLA model include_state does not match the dataset manifest"
-        )
-    if model_include_state:
-        if (
-            model_cfg["framework"]["action_model"]["state_dim"]
-            != manifest["state_dim"]
-        ):
-            raise ValueError(
-                "StarVLA model state_dim does not match the dataset manifest"
-            )
-        if (
-            "state_space" in expected
-            and len(expected["state_space"]["labels"]) != manifest["state_dim"]
-        ):
-            raise ValueError(
-                "Gymnasium state labels do not match the dataset state_dim"
-            )
-    return manifest["robot_type"]
 
 
 def build_starvla_policy(
@@ -949,7 +887,10 @@ def build_starvla_policy(
     integration_env_name = env_cfg["name"]
     if integration_env_name == "gymnasium":
         model_cfg = _load_starvla_model_config(policy_cfg["model_config_path"])
-        robot_type = _validate_gymnasium_starvla_contract(
+        task_manifest = json.loads(
+            Path(policy_cfg["task_manifest_path"]).read_text(encoding="utf-8")
+        )
+        _validate_gymnasium_starvla_contract(
             env_cfg=env_cfg,
             policy_cfg=policy_cfg,
             model_cfg=model_cfg,
@@ -982,8 +923,8 @@ def build_starvla_policy(
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
         wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
-        wrapper_kwargs["rl_games_gymnasium_action_space_type"] = action_space["type"]
-        wrapper_kwargs["rl_games_gymnasium_robot_type"] = robot_type
+        if action_space["type"] == "box":
+            wrapper_kwargs["rl_games_gymnasium_action_space_type"] = "box"
     wrapper = wrapper_cls(**wrapper_kwargs)
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
@@ -1015,6 +956,11 @@ def build_starvla_policy(
         image_transform_config=image_transform_config,
         observation_stride_raw_frames=_observation_stride_raw_frames(config),
         model_cfg=model_cfg,
+        state_normalization=(
+            task_manifest.get("state_normalization")
+            if integration_env_name == "gymnasium"
+            else None
+        ),
     )
 
 
@@ -1039,7 +985,10 @@ def build_live_starvla_policy(
     integration_env_name = env_cfg["name"]
     if integration_env_name == "gymnasium":
         normalized_model_cfg = _normalized_model_cfg(model_cfg)
-        robot_type = _validate_gymnasium_starvla_contract(
+        task_manifest = json.loads(
+            Path(policy_cfg["task_manifest_path"]).read_text(encoding="utf-8")
+        )
+        _validate_gymnasium_starvla_contract(
             env_cfg=env_cfg,
             policy_cfg=policy_cfg,
             model_cfg=normalized_model_cfg,
@@ -1065,18 +1014,8 @@ def build_live_starvla_policy(
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
         wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
-        wrapper_kwargs["gymnasium_action_space_type"] = action_space["type"]
-        if (
-            _include_state_from_model_cfg(normalized_model_cfg)
-            or action_space["type"] == "box"
-        ):
-            wrapper_kwargs["gymnasium_norm_processor"] = (
-                _load_live_policy_norm_processor(
-                    model_cfg=normalized_model_cfg,
-                    unnorm_key=unnorm_key,
-                    robot_type=robot_type,
-                )
-            )
+        if action_space["type"] == "box":
+            wrapper_kwargs["gymnasium_action_space_type"] = "box"
     wrapper = LiveStarVlaWrapper(**wrapper_kwargs)
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
@@ -1102,6 +1041,11 @@ def build_live_starvla_policy(
         image_transform_config=image_transform_config,
         observation_stride_raw_frames=_observation_stride_raw_frames(config),
         model_cfg=normalized_model_cfg if integration_env_name == "gymnasium" else None,
+        state_normalization=(
+            task_manifest.get("state_normalization")
+            if integration_env_name == "gymnasium"
+            else None
+        ),
     )
 
 
