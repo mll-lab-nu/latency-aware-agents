@@ -838,7 +838,7 @@ def _replay_accepted_specs(
     env_fps = float(cfg.env_fps)
     obs_fps = float(cfg.obs_fps)
     obs_stride_raw_frames = int(env_fps / obs_fps)
-    include_state = bool(cfg.gym_state_labels_json)
+    include_state = integration_name == "gymnasium" and bool(cfg.gym_state_labels_json)
     spec_cursor = 0
     replayed = 0
 

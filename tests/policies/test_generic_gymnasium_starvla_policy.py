@@ -196,9 +196,50 @@ def test_generic_checkpoint_policy_separates_integration_task_and_state_action(
     assert output.metadata["raw_action_id"] == 0
 
 
+def test_generic_checkpoint_policy_keeps_stateless_gymnasium_stateless(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from latency_bench.policy import starvla
+
+    GenericPolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
+    monkeypatch.setattr(starvla, "_normalized_model_cfg", lambda model_cfg: model_cfg)
+    monkeypatch.setattr(starvla, "_load_starvla_model_config", _read_model_config)
+    config = _generic_config(tmp_path)
+    del config["env"]["state_space"]
+    contract = gymnasium_task_contract(config["env"])
+    manifest_path = Path(config["policy"]["task_manifest_path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(
+        {
+            "uses_state": False,
+            "state_dim": 1,
+            "state_labels": ["state"],
+            "state_normalization": None,
+            "gymnasium_task": contract,
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    model_config_path = Path(config["policy"]["model_config_path"])
+    model_config = json.loads(model_config_path.read_text(encoding="utf-8"))
+    model_config["datasets"]["vla_data"].update(
+        {"include_state": False, "gymnasium_task_contract": contract}
+    )
+    model_config_path.write_text(json.dumps(model_config), encoding="utf-8")
+
+    policy = build_policy(config, ActionResolver(config["env"]))
+    policy.predict(_observation())
+
+    assert "state" not in GenericPolicyServerWrapper.instances[0].calls[0]["examples"][0]
+
+
 @pytest.mark.parametrize(
     ("mismatch", "message"),
-    [("state_labels", "dataset manifest")],
+    [
+        ("state_labels", "state_labels"),
+        ("state_normalization", "state_normalization"),
+    ],
 )
 def test_generic_checkpoint_policy_rejects_state_contract_mismatch(
     monkeypatch,
@@ -212,14 +253,14 @@ def test_generic_checkpoint_policy_rejects_state_contract_mismatch(
     monkeypatch.setattr(starvla, "_load_starvla_model_config", _read_model_config)
     config = _generic_config(tmp_path)
     manifest_path = Path(config["policy"]["task_manifest_path"])
-    model_config_path = Path(config["policy"]["model_config_path"])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    model_config = json.loads(model_config_path.read_text(encoding="utf-8"))
 
-    manifest["gymnasium_task"]["state_space"]["labels"] = ["position"]
+    if mismatch == "state_labels":
+        manifest["state_labels"] = ["position"]
+    else:
+        manifest["state_normalization"] = {}
 
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    model_config_path.write_text(json.dumps(model_config), encoding="utf-8")
 
     with pytest.raises(ValueError, match=message):
         build_policy(config, ActionResolver(config["env"]))
@@ -241,9 +282,15 @@ def test_h1_checkpoint_policy_passes_state_and_box_contract(monkeypatch, tmp_pat
         json.dumps(
             {
                 "integration_name": "gymnasium",
+                "active_action_dim": 61,
                 "uses_state": True,
                 "state_dim": 177,
                 "state_labels": [f"state_{index:03d}" for index in range(177)],
+                "state_normalization": {
+                    "type": "min_max",
+                    "min": [0.0] * 177,
+                    "max": [176.0] * 177,
+                },
                 "gymnasium_task": contract,
             }
         ),
@@ -260,11 +307,6 @@ def test_h1_checkpoint_policy_passes_state_and_box_contract(monkeypatch, tmp_pat
         "framework": {"action_model": {"action_env_dim": 61, "state_dim": 177}},
     }
     monkeypatch.setattr(starvla, "_load_starvla_model_config", lambda path: model_cfg)
-    monkeypatch.setattr(
-        starvla,
-        "_validate_gymnasium_starvla_contract",
-        lambda **kwargs: None,
-    )
     state = np.arange(177, dtype=np.float32)
 
     policy = build_policy(config, ActionResolver(config["env"]))
@@ -274,7 +316,8 @@ def test_h1_checkpoint_policy_passes_state_and_box_contract(monkeypatch, tmp_pat
             env_step=0,
             sim_time_ms=0.0,
             metadata={
-                "env_raw_rgb_frame_stack": np.zeros((8, 8, 3), dtype=np.uint8)
+                "env_raw_rgb_frame_stack": np.zeros((8, 8, 3), dtype=np.uint8),
+                "gymnasium_state": state,
             },
         )
     )
@@ -282,9 +325,9 @@ def test_h1_checkpoint_policy_passes_state_and_box_contract(monkeypatch, tmp_pat
     wrapper = GenericPolicyServerWrapper.instances[0]
     assert wrapper.rl_games_action_env_dim == 61
     assert wrapper.rl_games_gymnasium_action_space_type == "box"
-    np.testing.assert_array_equal(
+    np.testing.assert_allclose(
         wrapper.calls[0]["examples"][0]["state"],
-        np.zeros((1, 177), dtype=np.float32),
+        (2.0 * state / 176.0 - 1.0).reshape(1, 177),
     )
     assert output.action.value == [0.0] * 61
 
