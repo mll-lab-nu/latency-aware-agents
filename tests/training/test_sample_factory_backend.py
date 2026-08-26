@@ -268,6 +268,16 @@ def test_build_common_sf_args_does_not_emit_unsupported_wandb_unique_id_arg():
     assert "--wandb_unique_id" not in args
 
 
+def test_build_common_sf_args_emits_fasttd3_sonic_residual_scale():
+    cfg = load_config("configs/base/flappy.yaml")
+    cfg["training"]["fasttd3_sonic_residual_scale"] = 0.0625
+
+    args = build_common_sf_args(cfg, sf_env_name="flappy_bird")
+
+    idx = args.index("--fasttd3_sonic_residual_scale")
+    assert args[idx : idx + 2] == ["--fasttd3_sonic_residual_scale", "0.0625"]
+
+
 def test_build_common_sf_args_emits_wandb_tags_as_multiple_values():
     cfg = load_config("configs/base/flappy.yaml")
     cfg["logging"]["wandb_tags"] = ["observation_stride", "flappy", "frame_stack"]

@@ -24,7 +24,9 @@ from latency_bench.envs.humanoidbench_sonic_assets import (
     SONIC_ASSETS_REPO_ID,
     SONIC_ASSETS_REVISION,
     prepare_g1_sonic_assets,
+    prepare_g1_sonic_reference_assets,
 )
+from latency_bench.envs.humanoidbench_sonic_reference import write_reference_tokens
 from scripts.experiment_runner.job_manifest import (
     MANIFEST_V2_COLUMNS,
     SCHEMA_VERSION,
@@ -54,6 +56,9 @@ SONIC_HAND_ACTION_LABELS = [
     "right_hand_middle_1_joint",
 ]
 SONIC_ACTION_DIM = SONIC_TOKEN_DIM + len(SONIC_HAND_ACTION_LABELS)
+SONIC_RESIDUAL_SCALE = 1.0 / 16.0
+SONIC_RESIDUAL_VARIANT = "sonic64_residual"
+SONIC_RESIDUAL_TASK = "g1_sonic_hurdle"
 
 NUM_WORKERS = 128
 NUM_ENVS_PER_WORKER = 1
@@ -71,7 +76,7 @@ G1_10M_OUTPUT_ROOT = REPO_ROOT / "results/humanoidbench_g1_sonic_fasttd3_10m"
 G1_10M_WANDB_GROUP = "G1-SONIC-10M"
 G1_10M_WANDB_TAGS = ["humanoidbench", "g1", "fasttd3", "g1-sonic-10m"]
 G1_10M_TRAIN_ENV_STEPS = 10_000_000
-G1_10M_VARIANTS = ("raw43", "sonic78")
+G1_10M_VARIANTS = ("raw43", "sonic78", SONIC_RESIDUAL_VARIANT)
 G1_10M_TASKS = (
     "g1_sonic_hurdle",
     "g1_sonic_run",
@@ -119,6 +124,9 @@ G1_RAW_ACTION_LABELS = G1_BODY_ACTION_LABELS + SONIC_HAND_ACTION_LABELS
 G1_SONIC_ACTION_LABELS = [
     f"sonic_token_{index}" for index in range(SONIC_TOKEN_DIM)
 ] + SONIC_HAND_ACTION_LABELS
+G1_SONIC_RESIDUAL_ACTION_LABELS = [
+    f"sonic_residual_{index}" for index in range(SONIC_TOKEN_DIM)
+]
 
 
 def _keyframe_joint_targets(scene_path: Path, joint_names: list[str]) -> list[float]:
@@ -140,19 +148,37 @@ def build_g1_env_config(
     variant: str,
     scene_path: Path,
     decoder_path: Path,
+    base_token_path: Path | None = None,
     render_mode: str | None = None,
 ) -> dict[str, Any]:
     spec = G1_SONIC_ENV_SPECS[task_name]
     sonic = variant == "sonic78"
-    action_dim = SONIC_ACTION_DIM if sonic else len(G1_RAW_ACTION_LABELS)
+    residual = variant == SONIC_RESIDUAL_VARIANT
+    if residual:
+        action_dim = SONIC_TOKEN_DIM
+        action_labels = G1_SONIC_RESIDUAL_ACTION_LABELS
+        noop_action = [0.0] * SONIC_TOKEN_DIM
+        control_mode = "sonic_token_residual"
+    elif sonic:
+        action_dim = SONIC_ACTION_DIM
+        action_labels = G1_SONIC_ACTION_LABELS
+        noop_action = [0.0] * SONIC_TOKEN_DIM + _keyframe_joint_targets(
+            scene_path, SONIC_HAND_ACTION_LABELS
+        )
+        control_mode = "sonic_token"
+    else:
+        action_dim = len(G1_RAW_ACTION_LABELS)
+        action_labels = G1_RAW_ACTION_LABELS
+        noop_action = _keyframe_joint_targets(scene_path, G1_RAW_ACTION_LABELS)
+        control_mode = "raw_body_target"
     make_kwargs: dict[str, Any] = {
         "render_mode": render_mode,
         "width": 256,
         "height": 256,
         "scene_path": str(scene_path),
-        "control_mode": "sonic_token" if sonic else "raw_body_target",
+        "control_mode": control_mode,
     }
-    if sonic:
+    if sonic or residual:
         make_kwargs.update(
             {
                 "sonic_decoder_path": str(decoder_path),
@@ -161,12 +187,13 @@ def build_g1_env_config(
                 else "environment",
             }
         )
-    hand_noop = _keyframe_joint_targets(scene_path, SONIC_HAND_ACTION_LABELS)
-    noop_action = (
-        [0.0] * SONIC_TOKEN_DIM + hand_noop
-        if sonic
-        else _keyframe_joint_targets(scene_path, G1_BODY_ACTION_LABELS) + hand_noop
-    )
+    if residual:
+        make_kwargs.update(
+            {
+                "sonic_base_token_path": base_token_path.as_posix(),
+                "sonic_residual_scale": SONIC_RESIDUAL_SCALE,
+            }
+        )
     return {
         "name": "gymnasium",
         "task_name": task_name,
@@ -178,7 +205,7 @@ def build_g1_env_config(
         "frame_stack": 1,
         "action_space": {
             "type": "box",
-            "labels": G1_SONIC_ACTION_LABELS if sonic else G1_RAW_ACTION_LABELS,
+            "labels": action_labels,
             "low": [-1.0] * action_dim,
             "high": [1.0] * action_dim,
             "dtype": "float32",
@@ -196,6 +223,7 @@ def build_g1_train_config(
     train_dir: Path,
     train_output_dir: Path,
     run_name: str,
+    wandb_name: str,
     train_for_env_steps: int,
 ) -> dict[str, Any]:
     config = load_config(BASE_TRAIN_CONFIG)
@@ -243,16 +271,19 @@ def build_g1_train_config(
             "fasttd3_v_max": 2000.0 if task_name == "g1_sonic_basketball" else 250.0,
         }
     )
-    if variant == "sonic78":
+    if variant in ("sonic78", SONIC_RESIDUAL_VARIANT):
         training["fasttd3_sonic_decoder_path"] = env_config["make_kwargs"][
             "sonic_decoder_path"
         ]
+    if variant == SONIC_RESIDUAL_VARIANT:
+        training["fasttd3_sonic_residual_scale"] = SONIC_RESIDUAL_SCALE
     config["evaluation"]["eval_interval_steps"] = None
     config["logging"].update(
         {
             "output_dir": str(train_output_dir),
             "wandb_project": WANDB_PROJECT,
             "wandb_group": G1_10M_WANDB_GROUP,
+            "wandb_name": wandb_name,
             "wandb_job_type": WANDB_JOB_TYPE,
             "wandb_tags": G1_10M_WANDB_TAGS + [task_name, variant],
         }
@@ -284,7 +315,7 @@ def build_g1_eval_config(
         "eval_deterministic": True,
         "eval_latency_values": [0],
     }
-    if variant == "sonic78":
+    if variant in ("sonic78", SONIC_RESIDUAL_VARIANT):
         config["training"].pop("fasttd3_sonic_decoder_path")
         config["env"]["make_kwargs"]["sonic_decoder_mode"] = "environment"
     config["env"]["make_kwargs"]["render_mode"] = "rgb_array"
@@ -355,7 +386,7 @@ def _g1_manifest_row(
             "eval_command": eval_command,
             "run_name": run_name,
             "wandb_group": G1_10M_WANDB_GROUP,
-            "wandb_name": run_name,
+            "wandb_name": train_config["logging"]["wandb_name"],
             "train_dir": str(train_dir),
             "checkpoint_dir": str(train_dir / run_name / "checkpoint_p0"),
             "train_output_dir": str(train_output_dir),
@@ -376,10 +407,21 @@ def generate_g1_10m(
     variants: Sequence[str] = G1_10M_VARIANTS,
     train_for_env_steps: int = G1_10M_TRAIN_ENV_STEPS,
 ) -> dict[str, Any]:
-    """Generate the eight same-scene G1 raw-vs-SONIC jobs."""
+    """Generate the same-scene G1 baselines and Hurdle residual job."""
 
     output_root = output_root.expanduser()
     asset_root, decoder_path = prepare_g1_sonic_assets(output_root)
+    base_token_path = None
+    if SONIC_RESIDUAL_TASK in tasks and SONIC_RESIDUAL_VARIANT in variants:
+        planner_path, encoder_path = prepare_g1_sonic_reference_assets(output_root)
+        base_token_path = output_root / "reference" / "hurdle_run_tokens.npy"
+        base_token_path.parent.mkdir(parents=True, exist_ok=True)
+        write_reference_tokens(
+            planner_path,
+            encoder_path,
+            base_token_path,
+            G1_SONIC_ENV_SPECS[SONIC_RESIDUAL_TASK]["horizon"],
+        )
     scene_paths = {
         task_name: asset_root
         / G1_SONIC_ENV_SPECS[task_name]["scene_filename"].removeprefix("sonic_g1/")
@@ -392,6 +434,8 @@ def generate_g1_10m(
     for task_name in tasks:
         spec = G1_SONIC_ENV_SPECS[task_name]
         for variant in variants:
+            if variant == SONIC_RESIDUAL_VARIANT and task_name != SONIC_RESIDUAL_TASK:
+                continue
             run_name = (
                 f"g1_sonic_{task_name.removeprefix('g1_sonic_')}_{variant}_s1"
             )
@@ -400,6 +444,7 @@ def generate_g1_10m(
                 variant=variant,
                 scene_path=scene_paths[task_name],
                 decoder_path=decoder_path,
+                base_token_path=base_token_path,
             )
             task_root = output_root / task_name / variant
             train_config = build_g1_train_config(
@@ -409,6 +454,7 @@ def generate_g1_10m(
                 train_dir=train_dir,
                 train_output_dir=task_root / "train",
                 run_name=run_name,
+                wandb_name=f"{output_root.name}_{run_name}",
                 train_for_env_steps=train_for_env_steps,
             )
             eval_config = build_g1_eval_config(
@@ -473,6 +519,9 @@ def generate_g1_10m(
         "wandb_group": G1_10M_WANDB_GROUP,
         "wandb_tags": G1_10M_WANDB_TAGS,
         "sonic_decoder_path": str(decoder_path),
+        "sonic_reference_token_path": (
+            None if base_token_path is None else str(base_token_path)
+        ),
         "sonic_assets_repo_id": SONIC_ASSETS_REPO_ID,
         "sonic_assets_revision": SONIC_ASSETS_REVISION,
         "manifest": str(manifest_path),

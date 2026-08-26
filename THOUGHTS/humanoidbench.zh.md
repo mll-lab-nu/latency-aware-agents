@@ -28,7 +28,7 @@ StarVLA 训练基础设施 + NVIDIA 官方 GR00T N1.7 model/processor
 50 Hz SONIC，由 benchmark 注入 VLA observation/inference latency
 ```
 
-修正后的第一轮实验让四个支持任务使用完全相同的连续 `Box(78)` teacher contract：前 64 维是 SONIC body token，后 14 维是可学习 hand target。对应 flat baseline 使用 `Box(43)`：29 维直接 body target 加同样的 14 维 hand target。每个任务可以有自己的 teacher checkpoint，但不能有自己的 action abstraction。只有某个任务在 mapping、reward、controller contract 和训练预算都检查完后仍然失败，才考虑为该任务引入更高层 planner、motion reference 或 skill library。
+此前四任务实验使用连续 `Box(78)` teacher contract：前 64 维是自由 SONIC body token，后 14 维是可学习 hand target。Hurdle 的 10M 结果表明这个接口只复用了 decoder，没有真正使用 motion prior，因此 Hurdle 下一轮改为官方 Run reference token 加 64D FastTD3 residual；其他 task 的旧 baseline 保持不变。
 
 这条路线主动放弃与原生 HumanoidBench 的可比性。目标是为我们自己的 embodied VLA pipeline 构建受控 latency benchmark，而不是在原始机器人和 actuator 定义下提交排行榜结果。
 
@@ -169,6 +169,34 @@ Raw environment 可以随并行度扩展，flat FastTD3 能达到约 4k–5k FPS
 
 此前公开的 [`latency-sensitive-bench/g1-sonic-assets`](https://huggingface.co/datasets/latency-sensitive-bench/g1-sonic-assets) revision 对历史对比无效：它使用简化本地 scene，而不是官方 HumanoidBench task assets 和逻辑。当前支持的替代 bundle 明确不包含两个 High Bar task。Decoder 继续单独固定到 NVIDIA `nvidia/GEAR-SONIC` revision `1157dbafbae49ba17b8b53ace04cd8191b6a6697`。
 
+### Hurdle 10M 结果与 residual 修复
+
+同一 Hurdle scene 的 best-checkpoint evaluation 为：
+
+| Interface | Return | Episode length |
+|---|---:|---:|
+| raw43 | 160.21 ± 62.74 | 863.7 |
+| sonic78 | 303.35 ± 92.18 | 1000.0 |
+
+SONIC 确实改善了稳定性，但视频中的动作仍然不对。主要问题不是 decoder 数值 bug，而是训练合同没有真正使用 pretrained motion prior：FastTD3 可以在整个连续 64D cube 内自由输出，约 49.3% 的 token 分量绝对值不小于 0.95，约 33.0% 不小于 0.99；官方 encoder/FSQ 产生的 motion manifold 没有约束它。
+
+同时存在以下问题：
+
+- 最主要：RL 学习目标没有适配 SONIC。自由 token 只经过 decoder，不等于从参考动作编码得到的 motion prior。
+- Reward 只优化任务表现，不能充分约束自然动作；是否增加倒地、碰杆和 motion-quality 项留给独立 reward audit，本轮不修改 reward、termination 或 best-checkpoint metric。
+- Hurdle reset 没有使用 SONIC 的中立位。
+- Decoder 已经收到完整 930D history/state；真正缺失的是 actor、critic 和 replay 看不到这些状态，也看不到参考 token。
+- 14D hand 没有 motion prior，Hurdle 又不需要手部控制，容易产生无意义动作。
+- 本地 `0.002 × 10` 与 SONIC training simulator 的 `0.005 × 4` 都是 50 Hz policy interval，但 dynamics 不完全相同；目前只记录为剩余风险。
+
+直接修复方案是：离线用官方 Run planner 生成 30 Hz qpos，重采样到 50 Hz，再经过同 revision 的官方 encoder（其输出已包含 FSQ）得到 `1001 × 64` reference token cache。Hurdle FastTD3 输出连续 64D residual：
+
+```text
+token[t] = reference_token[t] + (1 / 16) * residual[t]
+```
+
+这里 `1/16` 是官方 FSQ 相邻量化 level 的间距；组合后不再 quantize，也不 clip。Actor、critic 和 replay 统一看到 `task observation + 930D decoder state + 64D reference token`。Decoder 仍接收组合后的 token 和原始 930D state。Reset 使用 SONIC default joints、pelvis `z=0.76`、清空 history/last action/token cursor；14D hands 固定 relaxed zero target。第一版只为 Hurdle 增加 `sonic64_residual`，保留 raw43/sonic78 作为历史 baseline。
+
 ## 为什么首选 SONIC 作为 body interface
 
 [SONIC](https://arxiv.org/html/2511.07820) 是面向 Unitree G1 的 learned whole-body controller。其公开 VLA workflow 暴露紧凑的 motion-token command，由底层 policy 处理高频 body action。对本项目而言，它有三点价值：
@@ -183,15 +211,16 @@ SONIC 本身并不保证任务成功、动作像人或手指自然。这些仍�
 
 SONIC 在训练内部使用 finite scalar quantization，但官方部署 client 发送的是 checkpoint-specific 64D `float32` motion token。它还会对 command 做线性混合；如果 runtime interface 强制使用 token ID，这种操作就不成立。因此：
 
-- SONIC body prefix 保持连续 `Box(64)`；加上可学习 hands 后，完整 teacher action 为 `Box(78)`。
+- 旧 baseline 的 SONIC body prefix 保持连续 `Box(64)`；加上可学习 hands 后为 `Box(78)`。
+- Hurdle residual actor 也输出连续 `Box(64)`，但语义是对官方 FSQ reference token 的一个 level residual，不再负责从零生成完整 token。
 - 不增加 quantization wrapper，也不切换到 MultiDiscrete APPO。
 - 把 64 个维度视为 checkpoint-specific latent contract，而不是各自有独立物理含义的 control。
 
 公开合同见 [SONIC VLA workflow](https://nvlabs.github.io/GR00T-WholeBodyControl/tutorials/vla_workflow.html)、[inference guide](https://nvlabs.github.io/GR00T-WholeBodyControl/tutorials/vla_inference.html)和 [`features_sonic_vla.py`](https://github.com/NVlabs/GR00T-WholeBodyControl/blob/main/gear_sonic/data/features_sonic_vla.py)。
 
-### 所有任务都先从 64D 层开始
+### 历史 parity 方案：所有任务都先从自由 64D 层开始
 
-最小可用 teacher 为：
+旧 raw43/sonic78 baseline 的 teacher contract 为：
 
 ```text
 observation: robot proprioception + privileged task/object state
@@ -200,7 +229,7 @@ algorithm:   FastTD3
 decoder:     frozen SONIC policy
 ```
 
-这不表示所有任务共享同一个 actor，而是各任务 actor 共享一种 action contract、replay format、decoder 和最终 VLA target。
+这不表示所有任务共享同一个 actor，而是各任务 actor 共享一种 action contract、replay format、decoder 和最终 VLA target。Hurdle residual 已不再遵循这个 `64D + 14D` 合同：它学习 64D residual，并固定 hands。
 
 某个任务失败时，首先检查：
 
@@ -229,16 +258,16 @@ decoder:     frozen SONIC policy
 
 HumanoidBench upstream 有 32 个 task，但本 SONIC G1 adaptation 只支持 30 个。`highbar_simple` 和 `highbar_hard` 明确不支持：不注册、不生成、不做 comparison、不训练。其余 task 复用同一份官方 G1/controller 定义，不为每个任务 fork 一套机器人。
 
-### 首批四个任务
+### 首批四个任务（历史 raw43/sonic78 parity）
 
 | 任务 | Scene adaptation | 初始 hand policy |
 |---|---|---|
 | Balance Hard | 使用官方 task asset/class；只替换 robot 和 G1 keyframe | 可学习 14D target |
 | Run | 使用官方 floor 和 `Run` task class；只替换 robot/keyframe | 可学习 14D target |
-| Hurdle | 使用官方 hurdle assets 和 `Hurdle` task class；只替换 robot/keyframe | 可学习 14D target |
+| Hurdle | 使用官方 hurdle assets 和 `Hurdle` task class；只替换 robot/keyframe | 历史 baseline 可学习 14D；residual 固定 relaxed zero |
 | Basketball | 使用官方 court、ball reset、reward、termination；只替换 robot/keyframe | 可学习 14D target |
 
-本轮 parity 不允许自定义 reward、termination、obstacle、ball、board、bar geometry、camera semantics 或 timing。Task-specific adaptation 仅限本体对应的 reset。由于 robot/controller 不同，原生 HumanoidBench 数字仍只作为历史 smoke reference，不能直接比较。
+这轮历史 parity 不允许自定义 reward、termination、obstacle、ball、board、bar geometry、camera semantics 或 timing。Hurdle residual 继续保持相同 task contract，只改变 reset 与 controller interface。由于 robot/controller 不同，原生 HumanoidBench 数字仍只作为历史 smoke reference，不能直接比较。
 
 ### 决策：继续长程训练前先对齐支持的 30-task family
 
@@ -255,7 +284,7 @@ HumanoidBench upstream 有 32 个 task，但本 SONIC G1 adaptation 只支持 30
 
 通用上游 bug 已在 [`mindorigin150/humanoid-bench`](https://github.com/mindorigin150/humanoid-bench) 中分别提交：Kitchen 的 MuJoCo 3.3 default nesting、G1 `free_base` contract、Room 互不重叠且不穿地的 object reset、Truck episode bookkeeping、Truck package density 遗漏、Spoon target phase reset、High Bar reset noise 顺序，以及 Package randomized destination 的 stale observation。主仓库固定该 fork 为 submodule。上游 [issue #62](https://github.com/carlosferrazza/humanoid-bench/issues/62) 独立报告了完全相同的 G1 Truck `free_base` failure；[issue #11](https://github.com/carlosferrazza/humanoid-bench/issues/11) 也记录了 `robot.dof` 包含 free-root qpos、并不等于 actuator 数量这一反复造成误解的语义。我们采纳公开的 [Truck density issue #60](https://github.com/carlosferrazza/humanoid-bench/issues/60) 作为明确的物理合同修复：Truck 十个可搬运 package 的 visual/collision geom 都使用 `density="5"`，与现有 Package task 一致，不再使用 MuJoCo 默认密度。它会改变 Truck 物理，因此此前 Truck 训练结果失效；该修复与 robot/reset parity 分开追踪。
 
-本地使用是显式且方便的，不会污染 HumanoidBench native registry：导入 `latency_bench.envs.humanoidbench_sonic`，选择 `G1_SONIC_ENV_SPECS["g1_sonic_<task>"]`，再把对应生成资产的 `scene_path` 传给 `gym.make`。Raw control 使用 `raw_body_target`；SONIC 使用 `sonic_token` 和固定版本 decoder。人工批准后，`prepare_g1_sonic_assets(cache_dir)` 会下载固定的 Hugging Face asset revision 与 decoder，FastTD3 experiment generator 会自动解析所选 task scene。在 pending revision 被替换前，helper 会有意阻止基于旧公开 bundle 生成长训 job。
+本地使用是显式且方便的，不会污染 HumanoidBench native registry：导入 `latency_bench.envs.humanoidbench_sonic`，选择 `G1_SONIC_ENV_SPECS["g1_sonic_<task>"]`，再把对应生成资产的 `scene_path` 传给 `gym.make`。Raw control 使用 `raw_body_target`；旧 SONIC baseline 使用 `sonic_token`；Hurdle residual 使用 `sonic_token_residual`。三者都固定对应版本的 controller/decoder 资产。
 
 ## 手部是独立的控制问题
 
@@ -267,23 +296,23 @@ HumanoidBench upstream 有 32 个 task，但本 SONIC G1 adaptation 只支持 30
 
 64D body token 不约束 14 个 hand joint。如果 flat RL actor 在 Run 或 Hurdle 中输出不受约束的手指动作，即使 body motion 改善，手仍然可能很怪。公开 deployment path 把 hands 作为独立 command stream；训练时可选的 hand decoder 不会改变这个外部 contract。
 
-严格 task-parity 实验让四个 actor 都学习完整 14D hand stream。这样对比才诚实：H1Hand 的手本来可控，Basketball 必须用手。Run/Hurdle 不奖励自然手指，因此怪异 hand motion 是已知 teacher-data 风险；在测出 parity 结果前，不用 scripted fallback 或自定义 hand reward 掩盖它。
+旧 raw43/sonic78 task-parity baseline 让四个 actor 都学习完整 14D hand stream。Hurdle residual 是明确例外：该任务不需要手部控制，64D residual actor 之外的 14 个 hand joints 固定为 relaxed zero target；Basketball 等操作任务仍保留可学习 hands。
 
-Rollout dataset 和 replay 必须保存完整、实际执行的 78D command。如果 locomotion 已成功但无约束手指让 teacher data 不可用，最小后续方案是显式 hand smoothness/neutral-pose cost，并与 raw task reward 分开报告。
+旧 baseline 的 rollout dataset 和 replay 必须保存完整、实际执行的 78D command；Hurdle residual replay 保存 64D residual。如果其他 task 的 locomotion 已成功但无约束手指让 teacher data 不可用，最小后续方案是显式 hand smoothness/neutral-pose cost，并与 raw task reward 分开报告。
 
 ## Sample Factory 集成
 
 ### 最小 learner 边界
 
-FastTD3 继续负责 actor、critic、replay 和 optimization。HumanoidBench G1 environment 暴露 `Box(78)`，对应 raw baseline 暴露 `Box(43)`。环境按需解码 token prefix，应用 policy 的 hand suffix，并推进 MuJoCo。
+FastTD3 继续负责 actor、critic、replay 和 optimization。旧 HumanoidBench G1 SONIC baseline 暴露 `Box(78)`，raw baseline 暴露 `Box(43)`；Hurdle residual variant 暴露 `Box(64)`。
 
-FastTD3 replay 保存完整 78D learnable action。Inference worker 只把前 64 维送入 SONIC，再把 decoded 29D body target 注入 MuJoCo；包含 14D hand suffix 的原始 78D action 保留在 trajectory 和 replay 中。不要用 decoded 29D body target 替代它。
+旧 SONIC replay 保存完整 78D learnable action。Hurdle residual replay 保存原始 64D residual；inference worker 先与 observation 中的 base token 组合，再把 decoded 29D body target 注入 MuJoCo。两种路径都不能用 decoded 29D target 替代 actor action。
 
 ### 吞吐约束
 
 官方 C++/ONNX MuJoCo demo 适合验证正确性。Eval 和 nonzero-latency run 为每个 environment 使用一个进程内、单线程 CPU ONNX Runtime session，因为 decoder 必须处于被延迟的 environment boundary 内。
 
-Zero-latency FastTD3 training 改用 Sample Factory inference worker 内的单个 CUDA ONNX Runtime session。它在 GPU 上拼接每个 78D actor action 的前 64 维和 930D controller state，用 GPU input/output binding 直接解码，再把 29D body target 注入环境。Actor output、replay action 和 scheduler 可见 action 仍保持 78D。部署 graph 已实际通过 batch 1、8、32 和 64；GPU 与 CPU 输出的最大绝对误差小于 `0.01`。
+Zero-latency FastTD3 training 改用 Sample Factory inference worker 内的单个 CUDA ONNX Runtime session。旧 baseline 直接解码 78D actor action 的前 64 维；Hurdle residual 先计算 `base + residual / 16`。两者再与 930D controller state 拼接并解码为 29D body target，而 replay 始终保留 actor 原始 action。部署 graph 已实际通过 batch 1、8、32 和 64；GPU 与 CPU 输出的最大绝对误差小于 `0.01`。
 
 Decoder 必须在每个 50 Hz policy step 接收真实 controller history 和 proprioception。该 target 在本 step 的十个 2 ms MuJoCo substep 中保持不变是预期行为；跨多个 policy step 复用才会改变 SONIC control contract。
 
@@ -412,30 +441,30 @@ Fallback action 必须在实验定义中明确指定，不能由 adapter 静默�
 - 导入完全一致的官方 G1 MuJoCo asset 和 SONIC checkpoint。
 - 让同一组 token/proprioception sequence 分别经过官方 reference 和仓库集成。
 - 比较 decoded target 和短程 MuJoCo rollout。
-- 确认 64D body + 14D hand wire contract 和 state history。
+- 确认历史 baseline 的 64D body + 14D hand contract，以及 Hurdle residual 的 64D residual + fixed-hands contract 和 state history。
 
 只有本地集成与官方 contract 足够一致、能复现 deterministic smoke trajectory 后才能继续。
 
 ### Gate 1 — 单任务 token RL proof
 
-- 先适配 Run，因为 flat FastTD3 结果已经证明该任务可学习。
-- 使用可学习 hands，在 `Box(78)` 中训练一个 FastTD3 actor。
+- 在 Hurdle 上使用离线官方 Run reference token cache。
+- 使用 `Box(64)` FastTD3 residual 和 fixed relaxed hands。
 - 验证任务学习、motion video、controller metric 和 end-to-end FPS。
 
 Token RL 能学到有用 locomotion 且吞吐可接受时才继续。如果失败，在增加另一层 abstraction 前先判断瓶颈是 scene mapping、controller expressivity 还是 optimization。
 
-### Gate 2 — 四任务 teacher suite
+### Gate 2 — 历史四任务 direct-token teacher suite（Hurdle 已由 residual 替代）
 
 - 复用同一个 robot、decoder、action space 和 replay contract。
 - 为 Balance、Run、Hurdle 和 Basketball 分别训练 checkpoint。
-- 每个任务都保持相同的可学习 14D hand suffix。
+- 历史 baseline 每个任务都保持相同的可学习 14D hand suffix；当前 Hurdle residual 不适用。
 - 同时根据 task success 和 motion quality 选择 checkpoint。
 
-只升级失败的任务。只有 direct 64D training 已经充分训练，并且完成 contract check 后仍可稳定复现失败，才值得增加 task-specific higher layer。
+只升级失败的任务。非 Hurdle task 只有在 direct 64D training 已经充分训练，并且完成 contract check 后仍可稳定复现失败，才值得增加 task-specific higher layer。
 
 ### Gate 3 — teacher data 与 VLA fine-tuning
 
-- 导出通过质量门控、包含 RGB、language、proprioception 的 78D rollout。
+- 旧 baseline 导出通过质量门控的 78D rollout；Hurdle residual 导出 64D residual，并显式携带 reference contract。两者都包含 RGB、language 和 proprioception。
 - 在 StarVLA 内通过 offline behavior cloning fine-tune 官方 N1.7。
 - 在没有 latency 时评估 open-loop chunk prediction 和 closed-loop task success。
 
@@ -454,7 +483,7 @@ Token RL 能学到有用 locomotion 且吞吐可接受时才继续。如果失�
 |---|---|---|
 | VLA 直接输出 raw 43D/61D joints | 重复学习 low-level control，且已复现不自然的 flat-action incentive | 证明 SONIC token control 本身是限制因素 |
 | 在旧 flat actor 上增加 reward regularization | 可以缓解症状，但 teacher 与目标 VLA/SONIC interface 仍不对齐 | 作为 diagnostic 或 fallback baseline |
-| Per-task planner/skill layer | 过早制造多种 teacher interface | 某个任务可复现地无法用 direct 64D control 学会 |
+| 在线 per-task planner/skill selection layer | 训练时引入 774 MB planner 和新的在线状态机没有必要 | 固定离线 Run reference 无法覆盖所需 motion |
 
 ## 决策日志
 
@@ -465,25 +494,26 @@ Token RL 能学到有用 locomotion 且吞吐可接受时才继续。如果失�
 | 2026-08-26 | Truck 十个可搬运 package geom 采用 `density="5"` | issue #60 指出 density 遗漏，且 Package task 已有相同项目约定 | 保留 MuJoCo 默认密度的 Truck 物理 | 证据显示目标密度不同，或必须保持未修改物理 |
 | 2026-08-26 | 通用 HumanoidBench bug 在项目 fork 中逐问题独立提交 | SONIC adaptation 留在本仓库，同时让 Kitchen、Truck、Room、Spoon、Package、High Bar reset 修复可复用 | 在 asset generator 维护重复 patch | 修复被上游接受，或不再使用该 fork |
 | 2026-08-25 | 使用与 SONIC 官方完全一致的 G1 | 避免 23-DoF torque 与 29-DoF position-target contract mismatch | 现在就为原生 G1 或 H1 retarget/retrain SONIC | 官方 G1 无法表达必要任务 |
-| 2026-08-25 | 每个 teacher 首次尝试都使用 direct continuous 64D FastTD3 | 最小的共享 body interface，且与 deployment token 一致 | quantized/MultiDiscrete policy 或直接增加 high-level planner | 完成 contract 和训练检查后 direct token control 仍失败 |
+| 2026-08-25 | 历史决策，已被 Hurdle residual 替代：每个 teacher 首次尝试都使用 direct continuous 64D FastTD3 | 最小的共享 body interface，且与 deployment token 一致 | quantized/MultiDiscrete policy 或直接增加 high-level planner | 非 Hurdle task 仍可保留为 baseline |
 | 2026-08-25 | 允许 per-task teacher checkpoint，但保持一种 action contract | 任务不同；共享 wire format 才是有价值的复用 | 没有证据就假设一个 universal actor | multi-task sharing 成为明确实验 |
 | 2026-08-25 | Hand 保持在 64D body token 之外 | 官方 VLA wire format 有独立的 7D + 7D hands | 所有任务都输出不受约束的 14D fingers | Basketball 需要超出初始 hand synergy 的能力 |
 | 2026-08-25 | 历史决策，已被替代：Balance/Run/Hurdle 使用 fixed relaxed hands，High Bar 使用 fixed grasp，Basketball 使用 scripted grasp | 它简化了第一版 Run-only proof，但不再保留完整 task controllability | 从一开始就训练完整 hand policy | 已在 2026-08-26 重启；parity 实验现在学习全部 14 个 hand joint |
-| 2026-08-25 | Teacher data 保存完整、实际执行的 78D action | Student 必须学习真正发送给 controller 的 command | 只保存 actor output 或 decoded 29D target | 官方 VLA action contract 改变 |
+| 2026-08-25 | 历史 baseline 的 teacher data 保存完整、实际执行的 78D action | Student 必须学习真正发送给 controller 的 command | 只保存 actor output 或 decoded 29D target | Hurdle residual 已改为保存 64D residual 与 reference contract |
 | 2026-08-25 | 在 StarVLA 中复用官方 N1.7，不扩展 `QwenGR00T.py` | 保留 pretrained model/processor/action contract | 本地复制或近似 N1.7 | 实际尝试后仍无法集成官方 loading path |
 | 2026-08-25 | 在 VLA chunk boundary 定义 latency，并移除 stale prefix | 与官方 deployment logic 一致，也能隔离 high-level latency | inference 时冻结整个 controller，或执行 stale command | 选择不同 deployment architecture |
 | 2026-08-26 | 第一版只实现 Run，使用 fixed relaxed hands，并让每个 environment 使用一个 CPU ONNX Runtime session | 最小路径已经足以验证 64D token、decoder、controller、FastTD3 checkpoint 和 deterministic video pipeline | 未测量前就构建 centralized decoder service | profiling 证明 decoder execution 或 duplication 是主要瓶颈 |
 | 2026-08-26 | Latency benchmark 使用 `0.002 × 10` dynamics | 对齐 500 Hz deployment control loop，同时保留 SONIC 的 50 Hz policy interval | 复制 training simulator 的 `0.005 × 4` dynamics | deterministic comparison 证明该 dynamics 选择妨碍 SONIC 产生有效行为 |
 | 2026-08-26 | Zero-latency training 在 Sample Factory inference worker 中用 CUDA batch 解码 SONIC | 单 decoder session 和 GPU I/O binding 把稳态吞吐提升到 5.06k–5.38k FPS；首个 Run-only 实验保存 64D，修正后保存 78D | 每个 environment 一个 CPU session，或独立 decoder service | nonzero latency 要求 decoder 在 environment boundary 内执行 |
 | 2026-08-26 | 历史决策，部分保留：G1 资产放入固定 revision 的公开 Hugging Face dataset，官方 decoder 单独固定 revision | 存储方式仍合理，但首个 asset revision 无效 | 在 Git 中 vendor 资产，或仅为存储资产 fork HumanoidBench | corrected local assets 通过 review 后替换 dataset 默认 revision |
-| 2026-08-26 | 对比 raw `43D` 与 SONIC `78D`，两边都学习相同 14 个 hand joint | 保留官方 task controllability，避免 ignored/scripted action，同时只隔离 29D-body 与 64D-token 差异 | fixed hands 或仅 Basketball 使用 scripted synergy | 测得 hand motion 确实需要显式质量干预 |
-| 2026-08-26 | 四个首次尝试继续统一使用 direct continuous 64D body-token control | 这是最小统一 SONIC interface；此前失败来自错配 scene，不能据此增加新层 | 现在就加 task planner 或 high-level skill interface | corrected parity scene、充分训练和视频 review 后某任务仍失败 |
+| 2026-08-26 | 历史 parity 对比 raw `43D` 与 SONIC `78D`，两边都学习相同 14 个 hand joint | 保留官方 task controllability，避免 ignored/scripted action，同时只隔离 29D-body 与 64D-token 差异 | fixed hands 或仅 Basketball 使用 scripted synergy | Hurdle residual 已改用 fixed hands |
+| 2026-08-26 | 历史决策，已被 Hurdle residual 替代：四任务统一使用 direct continuous 64D body-token control | Hurdle 10M 虽优于 raw43，但动作仍不对且 token 大量饱和 | 现在就加 task planner 或 high-level skill interface | 非 Hurdle task 仍可保留为 baseline |
+| 2026-08-26 | Hurdle 使用离线官方 Run planner → encoder/FSQ reference token，加 `1/16` FastTD3 residual | 让 decoder 接收实际 motion-manifold reference，并让 actor/critic/replay 看见 decoder state 与 reference token | 继续在完整 64D cube 内从零学习；在线运行 774 MB planner | residual 仍无法跨杆时，重新审计 reference motion 或 reward |
 
 ## 待回答的实验问题
 
 这些是待测量的问题，不是新基础设施承诺：
 
-1. Direct 64D body-token + 14D hand RL 能否学会四个支持任务的 reward，哪些任务仍存在 motion-quality failure？
+1. Hurdle 的 offline Run reference + 64D residual 能否同时改善跨杆表现与 motion quality？
 2. Basketball 能否仅凭官方 sparse task signal 学会完整 14D hand stream？
 3. 官方 task definition 能否按计划对 G1 完全不改，还是某个任务会暴露 morphology-specific impossibility？
 4. 使用 simulated RGB 和 privileged-teacher rollout 时，offline N1.7 fine-tuning 是否稳定？

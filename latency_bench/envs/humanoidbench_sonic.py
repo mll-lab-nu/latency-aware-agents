@@ -32,6 +32,7 @@ from latency_bench.envs import humanoidbench as humanoidbench_family
 
 G1_CONTROL_MODE_RAW = "raw_body_target"
 G1_CONTROL_MODE_SONIC = "sonic_token"
+G1_CONTROL_MODE_SONIC_RESIDUAL = "sonic_token_residual"
 SONIC_DECODER_MODE_ENVIRONMENT = "environment"
 SONIC_DECODER_MODE_INFERENCE_WORKER = "inference_worker"
 
@@ -357,6 +358,8 @@ class G1SonicEnv(MujocoEnv):
         control_mode: str = G1_CONTROL_MODE_SONIC,
         sonic_decoder_path: str | None = None,
         sonic_decoder_mode: str = SONIC_DECODER_MODE_ENVIRONMENT,
+        sonic_base_token_path: str | None = None,
+        sonic_residual_scale: float | None = None,
         render_mode: str,
         width: int,
         height: int,
@@ -370,16 +373,37 @@ class G1SonicEnv(MujocoEnv):
         task_class = TASKS[self._task_key]
         task_info = task_class(self.robot, None)
         policy_observation_space = task_info.observation_space
-        observation_space = (
-            DictSpace(
+        residual_control = control_mode == G1_CONTROL_MODE_SONIC_RESIDUAL
+        if residual_control:
+            self._base_tokens = np.load(sonic_base_token_path)
+            self._residual_scale = sonic_residual_scale
+            self._base_token_cursor = 0
+            packed_observation_space = Box(
+                -np.inf,
+                np.inf,
+                shape=(policy_observation_space.shape[0] + 930 + 64,),
+                dtype=policy_observation_space.dtype,
+            )
+            observation_space = DictSpace(
                 {
-                    "obs": policy_observation_space,
+                    "obs": packed_observation_space,
                     "sonic_state": Box(-np.inf, np.inf, shape=(930,), dtype=np.float32),
+                    "base_token": Box(-np.inf, np.inf, shape=(64,), dtype=np.float32),
                 }
             )
-            if sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER
-            else policy_observation_space
-        )
+        else:
+            observation_space = (
+                DictSpace(
+                    {
+                        "obs": policy_observation_space,
+                        "sonic_state": Box(
+                            -np.inf, np.inf, shape=(930,), dtype=np.float32
+                        ),
+                    }
+                )
+                if sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER
+                else policy_observation_space
+            )
         super().__init__(
             model_path=scene_path,
             frame_skip=task_info.frame_skip,
@@ -390,7 +414,12 @@ class G1SonicEnv(MujocoEnv):
             camera_name=task_info.camera_name,
             default_camera_config=DEFAULT_CAMERA_CONFIG,
         )
-        action_dim = 43 if control_mode == G1_CONTROL_MODE_RAW else 78
+        if control_mode == G1_CONTROL_MODE_RAW:
+            action_dim = 43
+        elif residual_control:
+            action_dim = 64
+        else:
+            action_dim = 78
         self.action_space = Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
         self.observation_space = observation_space
         self._sonic_decoder_mode = sonic_decoder_mode
@@ -398,7 +427,7 @@ class G1SonicEnv(MujocoEnv):
         self.action_high = np.full(action_dim, 1.0, dtype=np.float64)
 
         if (
-            control_mode == G1_CONTROL_MODE_SONIC
+            control_mode in (G1_CONTROL_MODE_SONIC, G1_CONTROL_MODE_SONIC_RESIDUAL)
             and sonic_decoder_mode == SONIC_DECODER_MODE_ENVIRONMENT
         ):
             session_options = ort.SessionOptions()
@@ -582,7 +611,7 @@ class G1SonicEnv(MujocoEnv):
     def _controller(
         self,
         body_action_mu: np.ndarray,
-        hand_action: np.ndarray,
+        hand_action: np.ndarray | None,
         *,
         raw_body: bool = False,
     ) -> np.ndarray:
@@ -594,8 +623,13 @@ class G1SonicEnv(MujocoEnv):
             target_mu = _DEFAULT_ANGLES + body_action_mu * _ACTION_SCALE
         q_mu = self.data.qpos[self._body_qpos_addresses]
         dq_mu = self.data.qvel[self._body_qvel_addresses]
-        hand_target = self._hand_joint_ranges[:, 0] + (hand_action + 1.0) * 0.5 * (
-            self._hand_joint_ranges[:, 1] - self._hand_joint_ranges[:, 0]
+        hand_target = (
+            np.zeros(14, dtype=np.float64)
+            if hand_action is None
+            else self._hand_joint_ranges[:, 0]
+            + (hand_action + 1.0)
+            * 0.5
+            * (self._hand_joint_ranges[:, 1] - self._hand_joint_ranges[:, 0])
         )
         hand_q = self.data.qpos[self._hand_qpos_addresses]
         hand_dq = self.data.qvel[self._hand_qvel_addresses]
@@ -616,6 +650,14 @@ class G1SonicEnv(MujocoEnv):
         self._pending_decoded_action = np.asarray(action, dtype=np.float64)
 
     def _observation(self, task_observation: np.ndarray):
+        if self._control_mode == G1_CONTROL_MODE_SONIC_RESIDUAL:
+            sonic_state = self._decoder_state()
+            base_token = self._base_tokens[self._base_token_cursor]
+            return {
+                "obs": np.concatenate([task_observation, sonic_state, base_token]),
+                "sonic_state": sonic_state,
+                "base_token": base_token,
+            }
         if self._sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER:
             return {"obs": task_observation, "sonic_state": self._decoder_state()}
         return task_observation
@@ -635,7 +677,14 @@ class G1SonicEnv(MujocoEnv):
         mujoco.mj_forward(self.model, self.data)
         init_qpos = self.data.qpos.copy()
         init_qvel = self.data.qvel.copy()
-        randomness = self.randomness
+        if self._control_mode == G1_CONTROL_MODE_SONIC_RESIDUAL:
+            init_qpos[2] = 0.76
+            init_qpos[self._body_qpos_addresses] = _DEFAULT_ANGLES
+            init_qpos[self._hand_qpos_addresses] = 0.0
+            randomness = 0.0
+            self._base_token_cursor = 0
+        else:
+            randomness = self.randomness
         self.set_state(
             init_qpos
             + self.np_random.uniform(-randomness, randomness, size=self.model.nq),
@@ -655,6 +704,19 @@ class G1SonicEnv(MujocoEnv):
             decoder_action = body_action_mu[_MUJOCO_INDEX_FOR_POLICY]
             hand_action = action[29:43].astype(np.float64)
             raw_body = True
+        elif self._control_mode == G1_CONTROL_MODE_SONIC_RESIDUAL:
+            if self._sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER:
+                decoder_action = self._pending_decoded_action
+                self._pending_decoded_action = None
+            else:
+                token = (
+                    self._base_tokens[self._base_token_cursor]
+                    + self._residual_scale * action
+                )
+                decoder_action = self._decode(token)
+            body_action_mu = decoder_action[_POLICY_INDEX_FOR_MUJOCO]
+            hand_action = None
+            raw_body = False
         elif self._sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER:
             decoder_action = self._pending_decoded_action
             self._pending_decoded_action = None
@@ -673,6 +735,8 @@ class G1SonicEnv(MujocoEnv):
             mujoco.mj_step(self.model, self.data)
         self._last_action[:] = decoder_action
         self._history.append(self._frame())
+        if self._control_mode == G1_CONTROL_MODE_SONIC_RESIDUAL:
+            self._base_token_cursor += 1
         task_observation = self._task.get_obs()
         reward, info = self._task.get_reward()
         terminated, termination_info = self._task.get_terminated()

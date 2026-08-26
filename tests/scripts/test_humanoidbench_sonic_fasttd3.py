@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import onnx
 import yaml
 from onnx import TensorProto, helper
@@ -26,6 +27,18 @@ def test_generate_g1_10m_writes_raw_and_sonic_jobs(tmp_path, monkeypatch):
         "prepare_g1_sonic_assets",
         lambda _root: (asset_root, decoder_path),
     )
+    planner_path = tmp_path / "planner.onnx"
+    encoder_path = tmp_path / "encoder.onnx"
+    monkeypatch.setattr(
+        sonic,
+        "prepare_g1_sonic_reference_assets",
+        lambda _root: (planner_path, encoder_path),
+    )
+
+    def write_tokens(_planner, _encoder, output_path, horizon):
+        np.save(output_path, np.zeros((horizon + 1, 64), dtype=np.float32))
+
+    monkeypatch.setattr(sonic, "write_reference_tokens", write_tokens)
     monkeypatch.setattr(
         sonic, "_keyframe_joint_targets", lambda _path, names: [0.0] * len(names)
     )
@@ -36,13 +49,21 @@ def test_generate_g1_10m_writes_raw_and_sonic_jobs(tmp_path, monkeypatch):
     )
 
     rows = load_manifest(summary["manifest"])
-    assert len(rows) == 8
+    assert len(rows) == 9
     assert summary["experiment_family"] == "G1-SONIC-10M"
     assert summary["wandb_group"] == "G1-SONIC-10M"
-    assert {row["sweep_name"] for row in rows} == {"raw43", "sonic78"}
+    assert {row["sweep_name"] for row in rows} == {
+        "raw43",
+        "sonic78",
+        "sonic64_residual",
+    }
     for row in rows:
         train_config = yaml.safe_load(Path(row["train_config"]).read_text())
         eval_config = yaml.safe_load(Path(row["eval_config"]).read_text())
+        assert train_config["logging"]["wandb_name"] == (
+            f"results_{train_config['experiment']['name']}"
+        )
+        assert row["wandb_name"] == train_config["logging"]["wandb_name"]
         variant = row["sweep_name"]
         make_kwargs = train_config["env"]["make_kwargs"]
         if variant == "raw43":
@@ -54,7 +75,7 @@ def test_generate_g1_10m_writes_raw_and_sonic_jobs(tmp_path, monkeypatch):
             )
             assert "fasttd3_sonic_decoder_path" not in train_config["training"]
             assert "sonic_decoder_path" not in make_kwargs
-        else:
+        elif variant == "sonic78":
             assert len(train_config["env"]["action_space"]["low"]) == 78
             assert len(train_config["env"]["noop_action"]) == 78
             assert (
@@ -67,6 +88,33 @@ def test_generate_g1_10m_writes_raw_and_sonic_jobs(tmp_path, monkeypatch):
             assert make_kwargs["sonic_decoder_mode"] == "inference_worker"
             assert eval_config["env"]["make_kwargs"]["sonic_decoder_mode"] == (
                 "environment"
+            )
+        else:
+            assert row["env"] == "g1_sonic_hurdle"
+            assert len(train_config["env"]["action_space"]["low"]) == 64
+            assert len(train_config["env"]["noop_action"]) == 64
+            assert (
+                train_config["env"]["action_space"]["labels"]
+                == sonic.G1_SONIC_RESIDUAL_ACTION_LABELS
+            )
+            assert train_config["training"]["fasttd3_sonic_decoder_path"] == str(
+                decoder_path
+            )
+            assert train_config["training"]["fasttd3_sonic_residual_scale"] == (
+                1.0 / 16.0
+            )
+            assert make_kwargs["sonic_decoder_mode"] == "inference_worker"
+            assert eval_config["env"]["make_kwargs"]["sonic_decoder_mode"] == (
+                "environment"
+            )
+            assert (
+                make_kwargs["sonic_base_token_path"]
+                == eval_config["env"]["make_kwargs"]["sonic_base_token_path"]
+            )
+            assert (
+                make_kwargs["sonic_residual_scale"]
+                == eval_config["env"]["make_kwargs"]["sonic_residual_scale"]
+                == (1.0 / 16.0)
             )
         assert train_config["training"]["train_for_env_steps"] == 128
         assert train_config["backend"]["restart_behavior"] == "restart"

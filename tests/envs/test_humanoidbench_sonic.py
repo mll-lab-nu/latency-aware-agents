@@ -48,6 +48,15 @@ def scene_path(scene_root):
 
 
 @pytest.fixture(scope="module")
+def hurdle_scene_path(scene_root):
+    path = scene_root / sonic.G1_SONIC_ENV_SPECS["g1_sonic_hurdle"][
+        "scene_filename"
+    ].removeprefix("sonic_g1/")
+    mujoco.MjModel.from_xml_path(str(path))
+    return path
+
+
+@pytest.fixture(scope="module")
 def scene_paths(scene_root):
     paths = {
         task_name: scene_root / spec["scene_filename"].removeprefix("sonic_g1/")
@@ -203,6 +212,92 @@ def test_inference_worker_mode_exposes_decoder_state_and_consumes_body_action(
         next_observation, *_ = env.step(np.zeros(78, dtype=np.float32))
         np.testing.assert_array_equal(env.unwrapped._last_action, body_action)
         assert next_observation["sonic_state"].shape == (930,)
+    finally:
+        env.close()
+
+
+def test_hurdle_residual_uses_reference_tokens_and_sonic_reset(
+    monkeypatch, tmp_path, hurdle_scene_path
+):
+    tokens = np.arange(3 * 64, dtype=np.float32).reshape(3, 64) / 64
+    token_path = tmp_path / "run_tokens.npy"
+    np.save(token_path, tokens)
+    monkeypatch.setattr(sonic.ort, "InferenceSession", _DecoderSession)
+    env = gym.make(
+        sonic.G1_SONIC_ENV_SPECS["g1_sonic_hurdle"]["env_id"],
+        scene_path=str(hurdle_scene_path),
+        control_mode=sonic.G1_CONTROL_MODE_SONIC_RESIDUAL,
+        sonic_decoder_path="decoder.onnx",
+        sonic_decoder_mode=sonic.SONIC_DECODER_MODE_ENVIRONMENT,
+        sonic_base_token_path=str(token_path),
+        sonic_residual_scale=1.0 / 16.0,
+        render_mode="rgb_array",
+        width=32,
+        height=32,
+    )
+    try:
+        observation, _ = env.reset(seed=7)
+        native = env.unwrapped
+        assert env.action_space.shape == (64,)
+        assert observation["obs"].shape == (99 + 930 + 64,)
+        np.testing.assert_array_equal(observation["base_token"], tokens[0])
+        np.testing.assert_array_equal(observation["obs"][-64:], tokens[0])
+        np.testing.assert_array_equal(
+            native.data.qpos[native._body_qpos_addresses], sonic._DEFAULT_ANGLES
+        )
+        np.testing.assert_array_equal(
+            native.data.qpos[native._hand_qpos_addresses], np.zeros(14)
+        )
+        assert native.data.qpos[2] == 0.76
+
+        residual = np.ones(64, dtype=np.float32)
+        next_observation, *_ = env.step(residual)
+        np.testing.assert_allclose(
+            native._decoder.input[0, :64], tokens[0] + residual / 16.0
+        )
+        np.testing.assert_array_equal(next_observation["base_token"], tokens[1])
+        assert native._base_token_cursor == 1
+
+        native.data.qpos[native._hand_qpos_addresses] = 0.1
+        native.data.qvel[native._hand_qvel_addresses] = 0.0
+        control = native._controller(np.zeros(29), None)
+        np.testing.assert_allclose(
+            control[native._hand_actuator_ids], -sonic._HAND_KP * 0.1
+        )
+
+        reset_observation, _ = env.reset(seed=11)
+        np.testing.assert_array_equal(reset_observation["base_token"], tokens[0])
+        assert native._base_token_cursor == 0
+        np.testing.assert_array_equal(native._last_action, np.zeros(29))
+    finally:
+        env.close()
+
+
+def test_hurdle_residual_inference_worker_contract(tmp_path, hurdle_scene_path):
+    tokens = np.zeros((2, 64), dtype=np.float32)
+    token_path = tmp_path / "run_tokens.npy"
+    np.save(token_path, tokens)
+    env = gym.make(
+        sonic.G1_SONIC_ENV_SPECS["g1_sonic_hurdle"]["env_id"],
+        scene_path=str(hurdle_scene_path),
+        control_mode=sonic.G1_CONTROL_MODE_SONIC_RESIDUAL,
+        sonic_decoder_path="unused.onnx",
+        sonic_decoder_mode=sonic.SONIC_DECODER_MODE_INFERENCE_WORKER,
+        sonic_base_token_path=str(token_path),
+        sonic_residual_scale=1.0 / 16.0,
+        render_mode="rgb_array",
+        width=32,
+        height=32,
+    )
+    try:
+        observation, _ = env.reset(seed=0)
+        assert observation["obs"].shape == (99 + 930 + 64,)
+        assert observation["sonic_state"].shape == (930,)
+        assert observation["base_token"].shape == (64,)
+        env.unwrapped.set_decoded_action(np.zeros(29, dtype=np.float32))
+        next_observation, *_ = env.step(np.zeros(64, dtype=np.float32))
+        np.testing.assert_array_equal(next_observation["base_token"], tokens[1])
+        assert env.unwrapped._base_token_cursor == 1
     finally:
         env.close()
 

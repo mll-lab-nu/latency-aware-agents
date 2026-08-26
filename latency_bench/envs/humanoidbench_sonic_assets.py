@@ -11,9 +11,33 @@ from huggingface_hub import hf_hub_download, snapshot_download
 
 SONIC_REPO_ID = "nvidia/GEAR-SONIC"
 SONIC_REVISION = "1157dbafbae49ba17b8b53ace04cd8191b6a6697"
+SONIC_PLANNER_FILENAME = "planner_sonic.onnx"
+SONIC_ENCODER_FILENAME = "sonic_v1_1/model_encoder.onnx"
 SONIC_DECODER_FILENAME = "sonic_v1_1/model_decoder.onnx"
 SONIC_ASSETS_REPO_ID = "latency-sensitive-bench/g1-sonic-assets"
 SONIC_ASSETS_REVISION = "7c0a6616c78106adf9fa54dfc40e56ea07dc7d5d"
+
+
+def prepare_g1_sonic_reference_assets(cache_dir: Path) -> tuple[Path, Path]:
+    """Download the pinned SONIC planner and v1.1 encoder."""
+
+    planner = Path(
+        hf_hub_download(
+            repo_id=SONIC_REPO_ID,
+            filename=SONIC_PLANNER_FILENAME,
+            revision=SONIC_REVISION,
+            local_dir=cache_dir / "planner",
+        )
+    )
+    encoder = Path(
+        hf_hub_download(
+            repo_id=SONIC_REPO_ID,
+            filename=SONIC_ENCODER_FILENAME,
+            revision=SONIC_REVISION,
+            local_dir=cache_dir / "encoder",
+        )
+    )
+    return planner, encoder
 
 
 def prepare_g1_sonic_assets(cache_dir: Path) -> tuple[Path, Path]:
