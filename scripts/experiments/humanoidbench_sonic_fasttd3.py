@@ -1,4 +1,4 @@
-"""Generate FastTD3 + SONIC G1 10M experiments."""
+"""Generate the SONIC 29D physical-residual FastTD3 H025 experiment."""
 
 from __future__ import annotations
 
@@ -6,11 +6,12 @@ import argparse
 import json
 import shlex
 import sys
-from collections.abc import Sequence
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+import onnxruntime as ort
 import mujoco
 import yaml
 
@@ -19,14 +20,27 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from latency_bench.core.config import load_config
-from latency_bench.envs.humanoidbench_sonic import G1_SONIC_ENV_SPECS
+from latency_bench.envs.humanoidbench_sonic import (
+    G1_CONTROL_MODE_SONIC_COMPOSED,
+    G1_SONIC_ENV_SPECS,
+)
+from latency_bench.envs.humanoidbench_sonic_contract import G1_BODY_JOINT_NAMES
 from latency_bench.envs.humanoidbench_sonic_assets import (
     SONIC_ASSETS_REPO_ID,
     SONIC_ASSETS_REVISION,
     prepare_g1_sonic_assets,
-    prepare_g1_sonic_reference_assets,
+    prepare_g1_sonic_encoder,
+    prepare_g1_sonic_planner,
+    prepare_g1_sonic_skill_references,
 )
-from latency_bench.envs.humanoidbench_sonic_reference import write_reference_tokens
+from latency_bench.envs.humanoidbench_sonic_reference import (
+    SONIC_REFERENCE_LOOKAHEAD,
+    canonicalize_reference_heading,
+    generate_planner_qpos,
+    load_bones_seed_reference_qpos,
+    resample_qpos_to_50hz,
+    straighten_reference_heading,
+)
 from scripts.experiment_runner.job_manifest import (
     MANIFEST_V2_COLUMNS,
     SCHEMA_VERSION,
@@ -38,26 +52,16 @@ BASE_TRAIN_CONFIG = REPO_ROOT / (
     "configs/examples/gymnasium/h1hand_balance_hard/small_model_train.yaml"
 )
 SONIC_REGISTRATION_IMPORT = "latency_bench.envs.humanoidbench_sonic"
-SONIC_TOKEN_DIM = 64
-SONIC_HAND_ACTION_LABELS = [
-    "left_hand_thumb_0_joint",
-    "left_hand_thumb_1_joint",
-    "left_hand_thumb_2_joint",
-    "left_hand_middle_0_joint",
-    "left_hand_middle_1_joint",
-    "left_hand_index_0_joint",
-    "left_hand_index_1_joint",
-    "right_hand_thumb_0_joint",
-    "right_hand_thumb_1_joint",
-    "right_hand_thumb_2_joint",
-    "right_hand_index_0_joint",
-    "right_hand_index_1_joint",
-    "right_hand_middle_0_joint",
-    "right_hand_middle_1_joint",
-]
-SONIC_ACTION_DIM = SONIC_TOKEN_DIM + len(SONIC_HAND_ACTION_LABELS)
-SONIC_RESIDUAL_VARIANT = "sonic64_residual"
-SONIC_RESIDUAL_TASK = "g1_sonic_hurdle"
+SONIC_PHYSICAL_RESIDUAL_DIM = len(G1_BODY_JOINT_NAMES)
+SONIC_VARIANT = "sonic29d_fullres_anchor_h025_1m"
+HURDLE_TASK = "g1_sonic_hurdle"
+SINGLE_HURDLE_HORIZON = 400
+ACTIVE_HURDLES = 1
+RUN_REFERENCE_HORIZON = 1500
+RUN_TARGET_VELOCITY = 3.0
+HURDLE_HEIGHT = 0.25
+TRAIN_FOR_ENV_STEPS = 1_000_000
+EVAL_INTERVAL_STEPS = 100_000
 
 NUM_WORKERS = 128
 NUM_ENVS_PER_WORKER = 1
@@ -67,130 +71,116 @@ ENV_FPS = 50.0
 WANDB_PROJECT = "latency-sensitive-bench"
 WANDB_JOB_TYPE = "sample_factory"
 
-# The 10M comparison uses one G1 scene/controller for both policies.  The
-# raw policy emits body targets plus hand controls; the SONIC policy emits
-# tokens plus hand controls and decodes only its first 64 actor outputs.
-G1_10M_EXPERIMENT_FAMILY = "G1-SONIC-10M"
-G1_10M_OUTPUT_ROOT = REPO_ROOT / "results/humanoidbench_g1_sonic_fasttd3_10m"
-G1_10M_WANDB_GROUP = "G1-SONIC-10M"
-G1_10M_WANDB_TAGS = ["humanoidbench", "g1", "fasttd3", "g1-sonic-10m"]
-G1_10M_TRAIN_ENV_STEPS = 10_000_000
-G1_10M_VARIANTS = ("raw43", "sonic78", SONIC_RESIDUAL_VARIANT)
-G1_10M_TASKS = (
-    "g1_sonic_hurdle",
-    "g1_sonic_run",
-    "g1_sonic_balance_hard",
-    "g1_sonic_basketball",
+G1_EXPERIMENT_FAMILY = "G1-SONIC-29D-STRAIGHT-REFERENCE-ACTOR-ANCHOR-H025-1M"
+G1_OUTPUT_ROOT = REPO_ROOT / (
+    "results/humanoidbench_g1_sonic29d_fullres_anchor_h025_1m"
 )
-G1_TASK_PROMPTS = {
-    "g1_sonic_balance_hard": "Keep the G1 humanoid balanced on the rolling support board.",
-    "g1_sonic_hurdle": "Move the G1 humanoid forward over the hurdles without falling.",
-    "g1_sonic_run": "Run forward while remaining upright.",
-    "g1_sonic_basketball": "Catch the basketball and throw it through the hoop without falling.",
-}
-G1_BODY_ACTION_LABELS = [
-    "left_hip_pitch_joint",
-    "left_hip_roll_joint",
-    "left_hip_yaw_joint",
-    "left_knee_joint",
-    "left_ankle_pitch_joint",
-    "left_ankle_roll_joint",
-    "right_hip_pitch_joint",
-    "right_hip_roll_joint",
-    "right_hip_yaw_joint",
-    "right_knee_joint",
-    "right_ankle_pitch_joint",
-    "right_ankle_roll_joint",
-    "waist_yaw_joint",
-    "waist_roll_joint",
-    "waist_pitch_joint",
-    "left_shoulder_pitch_joint",
-    "left_shoulder_roll_joint",
-    "left_shoulder_yaw_joint",
-    "left_elbow_joint",
-    "left_wrist_roll_joint",
-    "left_wrist_pitch_joint",
-    "left_wrist_yaw_joint",
-    "right_shoulder_pitch_joint",
-    "right_shoulder_roll_joint",
-    "right_shoulder_yaw_joint",
-    "right_elbow_joint",
-    "right_wrist_roll_joint",
-    "right_wrist_pitch_joint",
-    "right_wrist_yaw_joint",
-]
-G1_RAW_ACTION_LABELS = G1_BODY_ACTION_LABELS + SONIC_HAND_ACTION_LABELS
-G1_SONIC_ACTION_LABELS = [
-    f"sonic_token_{index}" for index in range(SONIC_TOKEN_DIM)
-] + SONIC_HAND_ACTION_LABELS
-G1_SONIC_RESIDUAL_ACTION_LABELS = [
-    f"sonic_residual_{index}" for index in range(SONIC_TOKEN_DIM)
+G1_SONIC_ASSET_CACHE = REPO_ROOT / "results/humanoidbench_g1_sonic_assets"
+G1_WANDB_GROUP = "G1-SONIC-29D-STRAIGHT-REFERENCE-ACTOR-ANCHOR-H025-1M"
+G1_WANDB_TAGS = [
+    "humanoidbench",
+    "g1",
+    "hurdle",
+    "fasttd3",
+    "sonic-physical-residual",
+    SONIC_VARIANT,
 ]
 
 
-def _keyframe_joint_targets(scene_path: Path, joint_names: list[str]) -> list[float]:
+def _write_reference_bundle(
+    planner_path: Path,
+    skill_paths: dict[str, Path],
+    scene_path: Path,
+    output_path: Path,
+) -> None:
+    planner = ort.InferenceSession(
+        str(planner_path), providers=["CPUExecutionProvider"]
+    )
     model = mujoco.MjModel.from_xml_path(str(scene_path))
-    joint_ids = [
-        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
-        for name in joint_names
-    ]
-    positions = model.key_qpos[0, model.jnt_qposadr[joint_ids]]
-    ranges = model.jnt_range[joint_ids]
-    return (
-        2.0 * (positions - ranges[:, 0]) / (ranges[:, 1] - ranges[:, 0]) - 1.0
-    ).tolist()
+    data = mujoco.MjData(model)
+    body_qpos_addresses = np.asarray(
+        [model.jnt_qposadr[model.joint(name).id] for name in G1_BODY_JOINT_NAMES]
+    )
+    foot_site_ids = [model.site(name).id for name in ("left_foot", "right_foot")]
+    run_qpos = straighten_reference_heading(
+        resample_qpos_to_50hz(
+            generate_planner_qpos(
+                planner,
+                RUN_REFERENCE_HORIZON,
+                target_velocity=RUN_TARGET_VELOCITY,
+            ),
+            RUN_REFERENCE_HORIZON + SONIC_REFERENCE_LOOKAHEAD + 1,
+        )
+    )
+    jump_qpos, jump_num_tokens = load_bones_seed_reference_qpos(
+        skill_paths["obstacle_jump"]
+    )
+    references = (
+        ("run", run_qpos, RUN_REFERENCE_HORIZON + 1),
+        (
+            "jump",
+            canonicalize_reference_heading(jump_qpos),
+            jump_num_tokens,
+        ),
+    )
+    arrays: dict[str, np.ndarray] = {}
+    for bundle_name, qpos, num_tokens in references:
+        reference_qpos = qpos[:num_tokens]
+        arrays[f"{bundle_name}_reference_qpos"] = reference_qpos
+        arrays[f"{bundle_name}_encoder_qpos"] = qpos
+        if bundle_name == "run":
+            foot_contacts = []
+            for frame in reference_qpos:
+                mujoco.mj_resetDataKeyframe(model, data, 0)
+                data.qpos[:7] = frame[:7]
+                data.qpos[body_qpos_addresses] = frame[7:]
+                mujoco.mj_forward(model, data)
+                foot_contacts.append(data.site_xpos[foot_site_ids, 2] <= 0.02)
+            arrays["run_reference_foot_contacts"] = np.asarray(foot_contacts)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(output_path, **arrays)
 
 
 def build_g1_env_config(
     *,
-    task_name: str,
-    variant: str,
     scene_path: Path,
     decoder_path: Path,
-    base_token_path: Path | None = None,
+    encoder_path: Path,
+    reference_path: Path,
+    hurdle_height: float,
     render_mode: str | None = None,
 ) -> dict[str, Any]:
-    spec = G1_SONIC_ENV_SPECS[task_name]
-    sonic = variant == "sonic78"
-    residual = variant == SONIC_RESIDUAL_VARIANT
-    if residual:
-        action_dim = SONIC_TOKEN_DIM
-        action_labels = G1_SONIC_RESIDUAL_ACTION_LABELS
-        noop_action = [0.0] * SONIC_TOKEN_DIM
-        control_mode = "sonic_token_residual"
-    elif sonic:
-        action_dim = SONIC_ACTION_DIM
-        action_labels = G1_SONIC_ACTION_LABELS
-        noop_action = [0.0] * SONIC_TOKEN_DIM + _keyframe_joint_targets(
-            scene_path, SONIC_HAND_ACTION_LABELS
-        )
-        control_mode = "sonic_token"
-    else:
-        action_dim = len(G1_RAW_ACTION_LABELS)
-        action_labels = G1_RAW_ACTION_LABELS
-        noop_action = _keyframe_joint_targets(scene_path, G1_RAW_ACTION_LABELS)
-        control_mode = "raw_body_target"
+    action_labels = [f"{name}_residual" for name in G1_BODY_JOINT_NAMES]
+    action_low = [-1.0] * SONIC_PHYSICAL_RESIDUAL_DIM
+    action_high = [1.0] * SONIC_PHYSICAL_RESIDUAL_DIM
+    noop_action = [0.0] * SONIC_PHYSICAL_RESIDUAL_DIM
+    control_mode = G1_CONTROL_MODE_SONIC_COMPOSED
+
     make_kwargs: dict[str, Any] = {
         "render_mode": render_mode,
         "width": 256,
         "height": 256,
         "scene_path": str(scene_path),
         "control_mode": control_mode,
+        "hurdle_height": hurdle_height,
+        "hurdle_count": ACTIVE_HURDLES,
+        "hurdle_horizon": SINGLE_HURDLE_HORIZON,
     }
-    if sonic or residual:
-        make_kwargs.update(
-            {
-                "sonic_decoder_path": str(decoder_path),
-                "sonic_decoder_mode": "inference_worker"
-                if render_mode is None
-                else "environment",
-            }
-        )
-    if residual:
-        make_kwargs["sonic_base_token_path"] = base_token_path.as_posix()
+    make_kwargs.update(
+        {
+            "sonic_decoder_path": str(decoder_path),
+            "sonic_encoder_path": str(encoder_path),
+            "sonic_decoder_mode": (
+                "inference_worker" if render_mode is None else "environment"
+            ),
+            "sonic_reference_bundle_path": str(reference_path),
+        }
+    )
+
+    spec = G1_SONIC_ENV_SPECS[HURDLE_TASK]
     return {
         "name": "gymnasium",
-        "task_name": task_name,
+        "task_name": HURDLE_TASK,
         "env_id": spec["env_id"],
         "registration_imports": [SONIC_REGISTRATION_IMPORT],
         "make_kwargs": make_kwargs,
@@ -200,25 +190,24 @@ def build_g1_env_config(
         "action_space": {
             "type": "box",
             "labels": action_labels,
-            "low": [-1.0] * action_dim,
-            "high": [1.0] * action_dim,
+            "low": action_low,
+            "high": action_high,
             "dtype": "float32",
         },
         "noop_action": noop_action,
-        "base_prompt": G1_TASK_PROMPTS[task_name],
+        "base_prompt": "Move the G1 humanoid over the hurdle without contact or falling.",
     }
 
 
 def build_g1_train_config(
     *,
-    task_name: str,
-    variant: str,
     env_config: dict[str, Any],
     train_dir: Path,
     train_output_dir: Path,
     run_name: str,
     wandb_name: str,
     train_for_env_steps: int,
+    restart_behavior: str,
 ) -> dict[str, Any]:
     config = load_config(BASE_TRAIN_CONFIG)
     config["experiment"]["name"] = run_name
@@ -229,13 +218,12 @@ def build_g1_train_config(
             "device": "gpu",
             "train_dir": str(train_dir),
             "run_mode": "train",
-            "restart_behavior": "restart",
+            "restart_behavior": restart_behavior,
             "actor_worker_gpus": [],
         }
     )
     config["env"] = deepcopy(env_config)
-    training = config["training"]
-    training.update(
+    config["training"].update(
         {
             "train_for_env_steps": train_for_env_steps,
             "num_workers": NUM_WORKERS,
@@ -248,7 +236,7 @@ def build_g1_train_config(
             "fasttd3_transitions_per_update": 64,
             "fasttd3_compile": True,
             "learning_rate": 3e-4,
-            "gamma": 0.99,
+            "gamma": 0.999,
             "recurrence": 1,
             "num_epochs": 1,
             "num_batches_per_epoch": 1,
@@ -261,23 +249,30 @@ def build_g1_train_config(
             "normalize_returns": False,
             "reward_scale": 1.0,
             "reward_clip": 1e9,
-            "fasttd3_v_min": -2000.0 if task_name == "g1_sonic_basketball" else -250.0,
-            "fasttd3_v_max": 2000.0 if task_name == "g1_sonic_basketball" else 250.0,
+            "fasttd3_v_min": -300.0,
+            "fasttd3_v_max": 300.0,
+            "fasttd3_actor_action_l2": 1.0,
         }
     )
-    if variant in ("sonic78", SONIC_RESIDUAL_VARIANT):
-        training["fasttd3_sonic_decoder_path"] = env_config["make_kwargs"][
-            "sonic_decoder_path"
-        ]
-    config["evaluation"]["eval_interval_steps"] = None
+    config["training"]["fasttd3_sonic_decoder_path"] = env_config["make_kwargs"][
+        "sonic_decoder_path"
+    ]
+    config["evaluation"].update(
+        {
+            "eval_interval_steps": EVAL_INTERVAL_STEPS,
+            "eval_episodes": 50,
+            "eval_max_steps": SINGLE_HURDLE_HORIZON,
+            "eval_suites": {"fixed": [[0]]},
+        }
+    )
     config["logging"].update(
         {
             "output_dir": str(train_output_dir),
             "wandb_project": WANDB_PROJECT,
-            "wandb_group": G1_10M_WANDB_GROUP,
+            "wandb_group": G1_WANDB_GROUP,
             "wandb_name": wandb_name,
             "wandb_job_type": WANDB_JOB_TYPE,
-            "wandb_tags": G1_10M_WANDB_TAGS + [task_name, variant],
+            "wandb_tags": G1_WANDB_TAGS,
         }
     )
     config["logging"]["video"]["enabled"] = False
@@ -287,50 +282,43 @@ def build_g1_train_config(
 def build_g1_eval_config(
     *,
     train_config: dict[str, Any],
-    variant: str,
     eval_output_dir: Path,
-    horizon: int,
 ) -> dict[str, Any]:
     config = deepcopy(train_config)
     config["backend"]["run_mode"] = "eval"
-    config["backend"]["extra_args"] = ["--load_checkpoint_kind", "best"]
+    config["backend"]["extra_args"] = ["--load_checkpoint_kind", "latest"]
     config["policy"] = {
         "type": "gymnasium_sf",
-        "checkpoint_kind": "best",
+        "checkpoint_kind": "latest",
         "device": "cuda",
         "deterministic": True,
     }
     config["evaluation"] = {
-        "eval_episodes": 10,
+        "eval_episodes": 50,
         "eval_parallel_envs": 1,
-        "eval_max_steps": horizon,
+        "eval_max_steps": SINGLE_HURDLE_HORIZON,
         "eval_deterministic": True,
         "eval_latency_values": [0],
     }
-    if variant in ("sonic78", SONIC_RESIDUAL_VARIANT):
-        config["training"].pop("fasttd3_sonic_decoder_path")
-        config["env"]["make_kwargs"]["sonic_decoder_mode"] = "environment"
+    config["training"].pop("fasttd3_sonic_decoder_path")
+    config["env"]["make_kwargs"]["sonic_decoder_mode"] = "environment"
     config["env"]["make_kwargs"]["render_mode"] = "rgb_array"
     config["logging"].update(
         {
             "output_dir": str(eval_output_dir),
-            "wandb_project": WANDB_PROJECT,
-            "wandb_group": G1_10M_WANDB_GROUP,
             "wandb_job_type": WANDB_JOB_TYPE,
-            "wandb_tags": G1_10M_WANDB_TAGS,
+            "wandb_tags": G1_WANDB_TAGS,
         }
     )
     config["logging"]["video"]["enabled"] = True
     config["logging"]["save_step_records"] = True
-    config["logging"]["save_action_records"] = False
+    config["logging"]["save_action_records"] = True
     config["logging"]["save_latency_records"] = False
     return config
 
 
-def _g1_manifest_row(
+def _manifest_row(
     *,
-    task_name: str,
-    variant: str,
     run_name: str,
     train_path: Path,
     eval_path: Path,
@@ -341,31 +329,23 @@ def _g1_manifest_row(
     train_output_dir = Path(train_config["logging"]["output_dir"])
     eval_output_dir = Path(eval_config["logging"]["output_dir"])
     job_id = build_job_id(
-        experiment_family=G1_10M_EXPERIMENT_FAMILY,
-        env_name=f"{task_name}_{variant}",
-        sweep_name=variant,
+        experiment_family=G1_EXPERIMENT_FAMILY,
+        env_name=f"{HURDLE_TASK}_{SONIC_VARIANT}",
+        sweep_name=SONIC_VARIANT,
         latency_label="0",
         frame_stack=1,
         obs_fps=ENV_FPS,
         observation_stride=1,
         seed=SEED,
     )
-    train_command = (
-        f"{shlex.quote(sys.executable)} -m training.train --config "
-        f"{shlex.quote(str(train_path))}"
-    )
-    eval_command = (
-        f"{shlex.quote(sys.executable)} -m latency_bench.run --config "
-        f"{shlex.quote(str(eval_path))}"
-    )
     row = {column: "" for column in MANIFEST_V2_COLUMNS}
     row.update(
         {
             "schema_version": SCHEMA_VERSION,
             "job_id": job_id,
-            "env": task_name,
-            "experiment_family": G1_10M_EXPERIMENT_FAMILY,
-            "sweep_name": variant,
+            "env": HURDLE_TASK,
+            "experiment_family": G1_EXPERIMENT_FAMILY,
+            "sweep_name": SONIC_VARIANT,
             "latency_label": "0",
             "seed": str(SEED),
             "frame_stack": "1",
@@ -374,10 +354,16 @@ def _g1_manifest_row(
             "train_config": str(train_path),
             "eval_kind": "sample_factory_zero_latency",
             "eval_config": str(eval_path),
-            "train_command": train_command,
-            "eval_command": eval_command,
+            "train_command": (
+                f"{shlex.quote(sys.executable)} -m training.train --config "
+                f"{shlex.quote(str(train_path))}"
+            ),
+            "eval_command": (
+                f"{shlex.quote(sys.executable)} -m latency_bench.run --config "
+                f"{shlex.quote(str(eval_path))}"
+            ),
             "run_name": run_name,
-            "wandb_group": G1_10M_WANDB_GROUP,
+            "wandb_group": G1_WANDB_GROUP,
             "wandb_name": train_config["logging"]["wandb_name"],
             "train_dir": str(train_dir),
             "checkpoint_dir": str(train_dir / run_name / "checkpoint_p0"),
@@ -392,110 +378,89 @@ def _g1_manifest_row(
     return row
 
 
-def generate_g1_10m(
+def generate_g1_experiment(
     *,
-    output_root: Path = G1_10M_OUTPUT_ROOT,
-    tasks: Sequence[str] = G1_10M_TASKS,
-    variants: Sequence[str] = G1_10M_VARIANTS,
-    train_for_env_steps: int = G1_10M_TRAIN_ENV_STEPS,
+    output_root: Path = G1_OUTPUT_ROOT,
 ) -> dict[str, Any]:
-    """Generate the same-scene G1 baselines and Hurdle residual job."""
-
     output_root = output_root.expanduser()
-    asset_root, decoder_path = prepare_g1_sonic_assets(output_root)
-    base_token_path = None
-    if SONIC_RESIDUAL_TASK in tasks and SONIC_RESIDUAL_VARIANT in variants:
-        planner_path, encoder_path = prepare_g1_sonic_reference_assets(output_root)
-        base_token_path = output_root / "reference" / "hurdle_run_tokens.npy"
-        base_token_path.parent.mkdir(parents=True, exist_ok=True)
-        write_reference_tokens(
-            planner_path,
-            encoder_path,
-            base_token_path,
-            G1_SONIC_ENV_SPECS[SONIC_RESIDUAL_TASK]["horizon"],
-        )
-    scene_paths = {
-        task_name: asset_root
-        / G1_SONIC_ENV_SPECS[task_name]["scene_filename"].removeprefix("sonic_g1/")
-        for task_name in tasks
-    }
+    asset_root, decoder_path = prepare_g1_sonic_assets(G1_SONIC_ASSET_CACHE)
+    encoder_path = prepare_g1_sonic_encoder(G1_SONIC_ASSET_CACHE)
+    planner_path = prepare_g1_sonic_planner(G1_SONIC_ASSET_CACHE)
+    skill_paths = prepare_g1_sonic_skill_references(G1_SONIC_ASSET_CACHE)
+    scene_path = asset_root / G1_SONIC_ENV_SPECS[HURDLE_TASK][
+        "scene_filename"
+    ].removeprefix("sonic_g1/")
+    reference_path = output_root / "reference" / "hurdle_run_jump.npz"
+    _write_reference_bundle(
+        planner_path, skill_paths, scene_path, reference_path
+    )
+
     generated_root = output_root / "generated"
     train_dir = output_root / "checkpoints"
-    rows: list[dict[str, str]] = []
-    jobs: list[dict[str, Any]] = []
-    for task_name in tasks:
-        spec = G1_SONIC_ENV_SPECS[task_name]
-        for variant in variants:
-            if variant == SONIC_RESIDUAL_VARIANT and task_name != SONIC_RESIDUAL_TASK:
-                continue
-            run_name = (
-                f"g1_sonic_{task_name.removeprefix('g1_sonic_')}_{variant}_s1"
-            )
-            env_config = build_g1_env_config(
-                task_name=task_name,
-                variant=variant,
-                scene_path=scene_paths[task_name],
-                decoder_path=decoder_path,
-                base_token_path=base_token_path,
-            )
-            task_root = output_root / task_name / variant
-            train_config = build_g1_train_config(
-                task_name=task_name,
-                variant=variant,
-                env_config=env_config,
-                train_dir=train_dir,
-                train_output_dir=task_root / "train",
-                run_name=run_name,
-                wandb_name=f"{output_root.name}_{run_name}",
-                train_for_env_steps=train_for_env_steps,
-            )
-            eval_config = build_g1_eval_config(
-                train_config=train_config,
-                variant=variant,
-                eval_output_dir=task_root / "eval_best_l0",
-                horizon=spec["horizon"],
-            )
-            config_root = generated_root / task_name / variant
-            config_root.mkdir(parents=True, exist_ok=True)
-            train_path = config_root / "train.yaml"
-            eval_path = config_root / "eval.yaml"
-            train_path.write_text(
-                yaml.safe_dump(train_config, sort_keys=False), encoding="utf-8"
-            )
-            eval_path.write_text(
-                yaml.safe_dump(eval_config, sort_keys=False), encoding="utf-8"
-            )
-            row = _g1_manifest_row(
-                task_name=task_name,
-                variant=variant,
-                run_name=run_name,
-                train_path=train_path,
-                eval_path=eval_path,
-                train_config=train_config,
-                eval_config=eval_config,
-            )
-            rows.append(row)
-            jobs.append(
-                {
-                    "task_name": task_name,
-                    "variant": variant,
-                    "train_for_env_steps": train_for_env_steps,
-                    "horizon": spec["horizon"],
-                    "train_config": str(train_path),
-                    "eval_config": str(eval_path),
-                    "checkpoint_dir": row["checkpoint_dir"],
-                    "train_output_dir": row["train_output_dir"],
-                    "eval_output_dir": row["eval_output_dir"],
-                }
-            )
+    run_name = f"g1_sonic_hurdle_{SONIC_VARIANT}_s{SEED}"
+    env_config = build_g1_env_config(
+        scene_path=scene_path,
+        decoder_path=decoder_path,
+        encoder_path=encoder_path,
+        reference_path=reference_path,
+        hurdle_height=HURDLE_HEIGHT,
+    )
+    task_root = output_root / HURDLE_TASK / SONIC_VARIANT
+    train_config = build_g1_train_config(
+        env_config=env_config,
+        train_dir=train_dir,
+        train_output_dir=task_root / "train",
+        run_name=run_name,
+        wandb_name=f"{output_root.name}_{run_name}",
+        train_for_env_steps=TRAIN_FOR_ENV_STEPS,
+        restart_behavior="restart",
+    )
+    eval_config = build_g1_eval_config(
+        train_config=train_config,
+        eval_output_dir=task_root / "eval_latest_l0",
+    )
+    config_root = generated_root / SONIC_VARIANT
+    config_root.mkdir(parents=True, exist_ok=True)
+    train_path = config_root / "train.yaml"
+    eval_path = config_root / "eval.yaml"
+    train_path.write_text(
+        yaml.safe_dump(train_config, sort_keys=False), encoding="utf-8"
+    )
+    eval_path.write_text(
+        yaml.safe_dump(eval_config, sort_keys=False), encoding="utf-8"
+    )
+    row = _manifest_row(
+        run_name=run_name,
+        train_path=train_path,
+        eval_path=eval_path,
+        train_config=train_config,
+        eval_config=eval_config,
+    )
+    job = {
+        "task_name": HURDLE_TASK,
+        "variant": SONIC_VARIANT,
+        "hurdle_height": HURDLE_HEIGHT,
+        "train_for_env_steps": TRAIN_FOR_ENV_STEPS,
+        "train_config": str(train_path),
+        "eval_config": str(eval_path),
+        "checkpoint_dir": row["checkpoint_dir"],
+        "train_output_dir": row["train_output_dir"],
+        "eval_output_dir": row["eval_output_dir"],
+        "train_command": row["train_command"],
+        "eval_command": row["eval_command"],
+    }
+
     generated_root.mkdir(parents=True, exist_ok=True)
     manifest_path = generated_root / "manifest.tsv"
-    write_manifest(manifest_path, rows)
+    write_manifest(manifest_path, [row])
     summary = {
-        "experiment_family": G1_10M_EXPERIMENT_FAMILY,
-        "tasks": list(tasks),
-        "variants": list(variants),
-        "train_for_env_steps": train_for_env_steps,
+        "experiment_family": G1_EXPERIMENT_FAMILY,
+        "task": HURDLE_TASK,
+        "variant": SONIC_VARIANT,
+        "hurdle_height": HURDLE_HEIGHT,
+        "train_for_env_steps": TRAIN_FOR_ENV_STEPS,
+        "eval_interval_steps": EVAL_INTERVAL_STEPS,
+        "seed": SEED,
         "num_workers": NUM_WORKERS,
         "num_envs_per_worker": NUM_ENVS_PER_WORKER,
         "collection_batch_size": COLLECTION_BATCH_SIZE,
@@ -503,25 +468,16 @@ def generate_g1_10m(
         "replay_batch_size": 32_768,
         "transitions_per_update": 64,
         "learning_rate": 3e-4,
-        "gamma": 0.99,
+        "gamma": 0.999,
         "fasttd3_compile": True,
-        "periodic_evaluation": False,
-        "final_eval_episodes": 10,
-        "wandb_project": WANDB_PROJECT,
-        "wandb_group": G1_10M_WANDB_GROUP,
-        "wandb_tags": G1_10M_WANDB_TAGS,
+        "final_eval_episodes": 50,
         "sonic_decoder_path": str(decoder_path),
-        "sonic_reference_token_path": (
-            None if base_token_path is None else str(base_token_path)
-        ),
+        "sonic_planner_path": str(planner_path),
+        "sonic_reference_bundle_path": str(reference_path),
         "sonic_assets_repo_id": SONIC_ASSETS_REPO_ID,
         "sonic_assets_revision": SONIC_ASSETS_REVISION,
         "manifest": str(manifest_path),
-        "runner_command": (
-            f"{shlex.quote(sys.executable)} -m scripts.experiment_runner.run_manifest_jobs "
-            f"--manifest {shlex.quote(str(manifest_path))} --gpus 0,1"
-        ),
-        "jobs": jobs,
+        "jobs": [job],
     }
     (generated_root / "summary.json").write_text(
         json.dumps(summary, indent=2) + "\n", encoding="utf-8"
@@ -531,21 +487,9 @@ def generate_g1_10m(
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-root", type=Path, default=G1_10M_OUTPUT_ROOT)
-    parser.add_argument("--train-for-env-steps", type=int)
-    parser.add_argument("--task", action="append", choices=G1_10M_TASKS)
-    parser.add_argument("--variant", action="append", choices=G1_10M_VARIANTS)
+    parser.add_argument("--output-root", type=Path, default=G1_OUTPUT_ROOT)
     args = parser.parse_args(argv)
-    summary = generate_g1_10m(
-        output_root=args.output_root,
-        tasks=tuple(args.task) if args.task else G1_10M_TASKS,
-        variants=tuple(args.variant) if args.variant else G1_10M_VARIANTS,
-        train_for_env_steps=(
-            G1_10M_TRAIN_ENV_STEPS
-            if args.train_for_env_steps is None
-            else args.train_for_env_steps
-        ),
-    )
+    summary = generate_g1_experiment(output_root=args.output_root)
     print(json.dumps(summary, indent=2))
 
 

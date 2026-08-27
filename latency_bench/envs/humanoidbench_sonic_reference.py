@@ -1,27 +1,26 @@
-"""Generate SONIC planner references and v1.1 encoder token caches.
-
-The pinned planner emits MuJoCo G1 ``qpos`` frames at 30 Hz.  This module
-repeats planner inference, resamples the result to SONIC's 50 Hz control rate,
-and runs the matching v1.1 encoder.  The encoder output already includes FSQ;
-the saved array therefore contains the 64-dimensional base tokens consumed by
-the residual controller.
-"""
+"""Generate 50 Hz SONIC references and pack v1.1 encoder observations."""
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 
 import numpy as np
-import onnxruntime as ort
+from scipy.spatial.transform import Rotation
+
+from latency_bench.envs.humanoidbench_sonic_contract import (
+    G1_DEFAULT_ANGLES,
+    MUJOCO_INDEX_FOR_POLICY,
+    SONIC_TOKEN_DIM,
+)
 
 SONIC_PLANNER_RUN_MODE = 3
-SONIC_PLANNER_DEFAULT_SPEED = -1.0
+SONIC_PLANNER_DEFAULT_SPEED = 3.0
 SONIC_PLANNER_FORWARD = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
 SONIC_PLANNER_FACING = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
 SONIC_PLANNER_ALLOWED_TOKENS = np.ones((1, 11), dtype=np.int64)
 
 SONIC_ENCODER_INPUT_DIM = 1751
-SONIC_TOKEN_DIM = 64
 SONIC_CONTROL_HZ = 50.0
 SONIC_PLANNER_HZ = 30.0
 SONIC_ENCODER_REFERENCE_FRAMES = 10
@@ -30,76 +29,7 @@ SONIC_REFERENCE_LOOKAHEAD = (
     SONIC_ENCODER_REFERENCE_FRAMES - 1
 ) * SONIC_ENCODER_REFERENCE_STEP
 
-# MuJoCo joint order -> encoder/IsaacLab joint order.  This is the inverse of
-# the order used by the SONIC decoder to consume its 29 body outputs.
-_MUJOCO_INDEX_FOR_POLICY = np.asarray(
-    [
-        0,
-        6,
-        12,
-        1,
-        7,
-        13,
-        2,
-        8,
-        14,
-        3,
-        9,
-        15,
-        22,
-        4,
-        10,
-        16,
-        23,
-        5,
-        11,
-        17,
-        24,
-        18,
-        25,
-        19,
-        26,
-        20,
-        27,
-        21,
-        28,
-    ],
-    dtype=np.int64,
-)
-_DEFAULT_ANGLES = np.asarray(
-    [
-        -0.312,
-        0.0,
-        0.0,
-        0.669,
-        -0.363,
-        0.0,
-        -0.312,
-        0.0,
-        0.0,
-        0.669,
-        -0.363,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.2,
-        0.2,
-        0.0,
-        0.6,
-        0.0,
-        0.0,
-        0.0,
-        0.2,
-        -0.2,
-        0.0,
-        0.6,
-        0.0,
-        0.0,
-        0.0,
-    ],
-    dtype=np.float32,
-)
+BONES_SEED_SOURCE_HZ = 120.0
 
 
 def default_initial_qpos() -> np.ndarray:
@@ -107,14 +37,19 @@ def default_initial_qpos() -> np.ndarray:
 
     qpos = np.zeros(36, dtype=np.float32)
     qpos[:7] = [0.0, 0.0, 0.788740, 1.0, 0.0, 0.0, 0.0]
-    qpos[7:] = _DEFAULT_ANGLES
+    qpos[7:] = G1_DEFAULT_ANGLES
     return qpos
 
 
-def _planner_inputs(context_qpos: np.ndarray, seed: int) -> dict[str, np.ndarray]:
+def _planner_inputs(
+    context_qpos: np.ndarray,
+    seed: int,
+    *,
+    target_velocity: float = SONIC_PLANNER_DEFAULT_SPEED,
+) -> dict[str, np.ndarray]:
     return {
         "context_mujoco_qpos": context_qpos[None, ...].astype(np.float32),
-        "target_vel": np.asarray([SONIC_PLANNER_DEFAULT_SPEED], dtype=np.float32),
+        "target_vel": np.asarray([target_velocity], dtype=np.float32),
         "mode": np.asarray([SONIC_PLANNER_RUN_MODE], dtype=np.int64),
         "movement_direction": SONIC_PLANNER_FORWARD,
         "facing_direction": SONIC_PLANNER_FACING,
@@ -128,13 +63,58 @@ def _planner_inputs(context_qpos: np.ndarray, seed: int) -> dict[str, np.ndarray
 
 
 def _run_planner(
-    planner_session: object, context_qpos: np.ndarray, seed: int
+    planner_session: object,
+    context_qpos: np.ndarray,
+    seed: int,
+    *,
+    target_velocity: float,
 ) -> np.ndarray:
-    outputs = planner_session.run(None, _planner_inputs(context_qpos, seed))
+    outputs = planner_session.run(
+        None,
+        _planner_inputs(context_qpos, seed, target_velocity=target_velocity),
+    )
     names = [output.name for output in planner_session.get_outputs()]
     output_by_name = dict(zip(names, outputs))
     num_frames = int(np.asarray(output_by_name["num_pred_frames"]).reshape(-1)[0])
     return np.asarray(output_by_name["mujoco_qpos"], dtype=np.float32)[0, :num_frames]
+
+
+def load_bones_seed_qpos(csv_path: Path) -> np.ndarray:
+    """Load one BONES-SEED G1 CSV into MuJoCo qpos order and SI units."""
+
+    with csv_path.open(newline="", encoding="utf-8") as stream:
+        reader = csv.DictReader(stream)
+        rows = list(reader)
+        joint_columns = [name for name in reader.fieldnames if name.endswith("_dof")]
+
+    root_position = (
+        np.asarray(
+            [
+                [row["root_translateX"], row["root_translateY"], row["root_translateZ"]]
+                for row in rows
+            ],
+            dtype=np.float32,
+        )
+        / 100.0
+    )
+    root_euler = np.asarray(
+        [
+            [row["root_rotateX"], row["root_rotateY"], row["root_rotateZ"]]
+            for row in rows
+        ],
+        dtype=np.float64,
+    )
+    root_quat_xyzw = Rotation.from_euler("xyz", root_euler, degrees=True).as_quat()
+    joint_positions = np.asarray(
+        [[row[name] for name in joint_columns] for row in rows],
+        dtype=np.float32,
+    )
+
+    qpos = np.empty((len(rows), 36), dtype=np.float32)
+    qpos[:, :3] = root_position
+    qpos[:, 3:7] = root_quat_xyzw[:, [3, 0, 1, 2]]
+    qpos[:, 7:] = np.deg2rad(joint_positions)
+    return qpos
 
 
 def generate_planner_qpos(
@@ -142,6 +122,7 @@ def generate_planner_qpos(
     horizon_steps: int,
     *,
     seed: int = 1234,
+    target_velocity: float = SONIC_PLANNER_DEFAULT_SPEED,
 ) -> np.ndarray:
     """Generate enough 30 Hz MuJoCo qpos frames for an encoded horizon."""
 
@@ -160,7 +141,12 @@ def generate_planner_qpos(
     chunks: list[np.ndarray] = []
     generated_frames = 0
     while generated_frames < required_30hz_frames:
-        chunk = _run_planner(planner_session, context, seed)
+        chunk = _run_planner(
+            planner_session,
+            context,
+            seed,
+            target_velocity=target_velocity,
+        )
         new_chunk = chunk if not chunks else chunk[4:]
         chunks.append(new_chunk)
         generated_frames += len(new_chunk)
@@ -185,15 +171,20 @@ def _quat_slerp(q0: np.ndarray, q1: np.ndarray, weight: float) -> np.ndarray:
     )
 
 
-def resample_qpos_to_50hz(qpos_30hz: np.ndarray, num_frames: int) -> np.ndarray:
-    """Resample planner qpos from 30 Hz to 50 Hz using quaternion SLERP."""
+def resample_qpos_to_50hz(
+    qpos_30hz: np.ndarray,
+    num_frames: int,
+    *,
+    source_hz: float = SONIC_PLANNER_HZ,
+) -> np.ndarray:
+    """Resample qpos to 50 Hz using quaternion SLERP and linear joints."""
 
     source = np.asarray(qpos_30hz, dtype=np.float64)
     result = np.empty((num_frames, 36), dtype=np.float32)
     for target_frame, target_time in enumerate(
         np.arange(num_frames) / SONIC_CONTROL_HZ
     ):
-        source_position = target_time * SONIC_PLANNER_HZ
+        source_position = target_time * source_hz
         frame0 = min(int(np.floor(source_position)), len(source) - 1)
         frame1 = min(frame0 + 1, len(source) - 1)
         weight = min(source_position - frame0, 1.0)
@@ -249,23 +240,30 @@ def _quat_to_rotation_6d(quaternion: np.ndarray) -> np.ndarray:
 def build_encoder_observation(
     qpos_50hz: np.ndarray,
     frame_index: int,
+    *,
+    actual_root_quaternion: np.ndarray | None = None,
 ) -> np.ndarray:
     """Pack the official 1751D v1.1 encoder input for G1 mode."""
 
     qpos = np.asarray(qpos_50hz, dtype=np.float64)
-    base_heading = _heading_quaternion(qpos[frame_index, 3:7])
+    root_quaternion = (
+        qpos[frame_index, 3:7]
+        if actual_root_quaternion is None
+        else actual_root_quaternion
+    )
+    base_heading = _heading_quaternion(root_quaternion)
     frame_indices = np.minimum(
         frame_index
         + np.arange(SONIC_ENCODER_REFERENCE_FRAMES) * SONIC_ENCODER_REFERENCE_STEP,
         len(qpos) - 1,
     )
     reference = qpos[frame_indices]
-    joint_positions = reference[:, 7:][:, _MUJOCO_INDEX_FOR_POLICY]
+    joint_positions = reference[:, 7:][:, MUJOCO_INDEX_FOR_POLICY]
     joint_positions_all = qpos[:, 7:]
     joint_velocities_all = np.empty_like(joint_positions_all)
     joint_velocities_all[:-1] = np.diff(joint_positions_all, axis=0) * SONIC_CONTROL_HZ
     joint_velocities_all[-1] = joint_velocities_all[-2]
-    joint_velocities = joint_velocities_all[frame_indices][:, _MUJOCO_INDEX_FOR_POLICY]
+    joint_velocities = joint_velocities_all[frame_indices][:, MUJOCO_INDEX_FOR_POLICY]
     anchor_heading = np.asarray(
         [
             _quat_to_rotation_6d(
@@ -282,54 +280,61 @@ def build_encoder_observation(
     return observation
 
 
-def encode_reference_tokens(
-    planner_session: object,
-    encoder_session: object,
-    horizon_steps: int,
-    *,
-    seed: int = 1234,
+def encode_qpos_tokens(
+    encoder_session: object, qpos_50hz: np.ndarray, horizon_steps: int
 ) -> np.ndarray:
-    """Generate ``horizon_steps + 1`` FSQ-compressed base tokens."""
+    """Encode a 50 Hz qpos sequence with the SONIC v1.1 encoder."""
 
-    qpos_30hz = generate_planner_qpos(
-        planner_session,
-        horizon_steps,
-        seed=seed,
-    )
-    qpos_50hz = resample_qpos_to_50hz(
-        qpos_30hz,
-        horizon_steps + SONIC_REFERENCE_LOOKAHEAD + 1,
-    )
     tokens = []
     for frame_index in range(horizon_steps + 1):
-        encoder_input = build_encoder_observation(qpos_50hz, frame_index)
-        output = encoder_session.run(
-            ["encoded_tokens"], {"obs_dict": encoder_input[None, :]}
-        )[0]
-        tokens.append(output[0])
+        observation = build_encoder_observation(qpos_50hz, frame_index)
+        tokens.append(
+            encoder_session.run(["encoded_tokens"], {"obs_dict": observation[None, :]})[
+                0
+            ][0]
+        )
     return np.asarray(tokens, dtype=np.float32).reshape(-1, SONIC_TOKEN_DIM)
 
 
-def write_reference_tokens(
-    planner_path: Path,
-    encoder_path: Path,
-    output_path: Path,
-    horizon_steps: int,
-    *,
-    seed: int = 1234,
-) -> None:
-    """Run pinned ONNX planner/encoder and save the token cache."""
+def load_bones_seed_reference_qpos(csv_path: Path) -> tuple[np.ndarray, int]:
+    """Return the 50 Hz physical reference and its encoded token count."""
 
-    planner_session = ort.InferenceSession(
-        str(planner_path), providers=["CPUExecutionProvider"]
+    qpos_120hz = load_bones_seed_qpos(csv_path)
+    num_tokens = int(np.ceil(len(qpos_120hz) * SONIC_CONTROL_HZ / BONES_SEED_SOURCE_HZ))
+    return (
+        resample_qpos_to_50hz(
+            qpos_120hz,
+            num_tokens + SONIC_REFERENCE_LOOKAHEAD,
+            source_hz=BONES_SEED_SOURCE_HZ,
+        ),
+        num_tokens,
     )
-    encoder_session = ort.InferenceSession(
-        str(encoder_path), providers=["CPUExecutionProvider"]
+
+
+def canonicalize_reference_heading(qpos: np.ndarray) -> np.ndarray:
+    """Remove a motion's global starting yaw while preserving pose dynamics."""
+
+    canonical = np.asarray(qpos, dtype=np.float32).copy()
+    inverse_heading = _quat_conjugate(_heading_quaternion(canonical[0, 3:7]))
+    canonical[:, 3:7] = np.asarray(
+        [_quat_multiply(inverse_heading, frame[3:7]) for frame in canonical]
     )
-    tokens = encode_reference_tokens(
-        planner_session,
-        encoder_session,
-        horizon_steps,
-        seed=seed,
+    origin = np.asarray([canonical[0, 0], canonical[0, 1], 0.0])
+    canonical[:, :3] = Rotation.from_quat(
+        inverse_heading[[1, 2, 3, 0]]
+    ).apply(canonical[:, :3] - origin)
+    return canonical
+
+
+def straighten_reference_heading(qpos: np.ndarray) -> np.ndarray:
+    """Keep each pose's tilt while removing global yaw and lateral drift."""
+
+    straight = np.asarray(qpos, dtype=np.float32).copy()
+    straight[:, 3:7] = np.asarray(
+        [
+            _quat_multiply(_quat_conjugate(_heading_quaternion(frame[3:7])), frame[3:7])
+            for frame in straight
+        ]
     )
-    np.save(output_path, tokens)
+    straight[:, 1] = straight[0, 1]
+    return straight
