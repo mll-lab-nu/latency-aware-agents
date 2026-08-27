@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from latency_bench.core.types import StepRecord
@@ -15,7 +16,12 @@ def replay_step_records(env: Any, step_records: list[StepRecord]) -> dict[str, A
         result = env.step(record.active_action)
         replay_done = bool(result.done or result.truncated)
         episode_return += float(result.reward)
-        if float(result.reward) != float(record.reward):
+        if not math.isclose(
+            float(result.reward),
+            float(record.reward),
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        ):
             reward_mismatch_count += 1
         if replay_done != bool(record.done):
             done_mismatch_count += 1

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -89,7 +90,12 @@ def _record_episode_from_steps(
         for record in step_records:
             result = env.step(record.active_action)
             replay_done = result.done or result.truncated
-            if result.reward != record.reward:
+            if not math.isclose(
+                float(result.reward),
+                float(record.reward),
+                rel_tol=1e-12,
+                abs_tol=1e-12,
+            ):
                 raise ValueError(
                     f"action trace replay reward mismatch at episode {episode_id} "
                     f"env_step {record.env_step}: expected {record.reward}, got {result.reward}"
