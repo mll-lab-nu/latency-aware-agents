@@ -326,6 +326,15 @@ def test_apply_training_overrides_updates_run_name_train_dir_and_mode():
     assert updated["logging"]["output_dir"] == "outputs/eval/best/flappy/latency_0/seed_0"
 
 
+@pytest.mark.parametrize("missing_section", ["backend", "experiment", "logging"])
+def test_apply_training_overrides_requires_top_level_sections(missing_section):
+    config = load_config("configs/base/flappy.yaml")
+    del config[missing_section]
+
+    with pytest.raises(KeyError, match=missing_section):
+        apply_training_overrides(config)
+
+
 def test_flappy_sf_obs_resize_single_frame_shape():
     from training.flappy_sf.integration import FlappyImageObsWrapper
 

@@ -64,9 +64,9 @@ def apply_training_overrides(
     output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     updated = deepcopy(config)
-    backend_cfg = updated.setdefault("backend", {})
-    experiment_cfg = updated.setdefault("experiment", {})
-    logging_cfg = updated.setdefault("logging", {})
+    backend_cfg = updated["backend"]
+    experiment_cfg = updated["experiment"]
+    logging_cfg = updated["logging"]
     if run_name is not None:
         experiment_cfg["name"] = str(run_name)
     if train_dir is not None:
