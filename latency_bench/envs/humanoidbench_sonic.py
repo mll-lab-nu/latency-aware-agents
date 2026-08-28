@@ -546,7 +546,8 @@ class G1SonicEnv(MujocoEnv):
         self._v_cmd = np.zeros(43, dtype=np.float64)
         self._target_acceleration_limits = (
             None
-            if target_velocity_ramp_time_s is None
+            if control_mode == G1_CONTROL_MODE_SONIC_COMPOSED
+            or target_velocity_ramp_time_s is None
             else self._target_velocity_limits / target_velocity_ramp_time_s
         )
         self._command_tracking_error = 0.0
@@ -1130,34 +1131,12 @@ class G1SonicEnv(MujocoEnv):
                 else None
             )
             raw_body = False
-        if self._control_mode == G1_CONTROL_MODE_SONIC_COMPOSED:
-            body_target = G1_DEFAULT_ANGLES + body_action_mu * _ACTION_SCALE
-            hand_target = np.zeros(14, dtype=np.float64)
-            previous_q_cmd = self._q_cmd
-            previous_v_cmd = self._v_cmd
-            self._q_cmd = np.concatenate([body_target, hand_target])
-            self._v_cmd = (self._q_cmd - previous_q_cmd) / self.dt
-            acceleration = (self._v_cmd - previous_v_cmd) / self.dt
-            self._command_tracking_error = 0.0
-            self._target_velocity_max_ratio = float(
-                np.max(np.abs(self._v_cmd) / self._target_velocity_limits)
-            )
-            self._target_acceleration_mean_ratio_per_s = float(
-                np.mean(np.abs(acceleration) / self._target_velocity_limits)
-            )
-            self._target_acceleration_max_ratio_per_s = float(
-                np.max(np.abs(acceleration) / self._target_velocity_limits)
-            )
-            self._target_velocity_reversal_fraction = float(
-                np.count_nonzero(self._v_cmd * previous_v_cmd < 0.0) / 43
-            )
-        else:
-            body_target, hand_target = self._condition_targets(
-                body_action_mu,
-                hand_action,
-                raw_body=raw_body,
-                absolute_body=absolute_body,
-            )
+        body_target, hand_target = self._condition_targets(
+            body_action_mu,
+            hand_action,
+            raw_body=raw_body,
+            absolute_body=absolute_body,
+        )
         self._torque_saturation_count = 0
         self._torque_sample_count = 0
         self._actual_joint_velocity_max = 0.0

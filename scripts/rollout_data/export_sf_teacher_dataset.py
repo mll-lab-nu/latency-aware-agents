@@ -39,6 +39,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint-root", required=True, help="Sample Factory experiment directory or checkpoint file.")
     parser.add_argument("--output-dir", required=True, help="Directory where parquet files and observation images are written.")
     parser.add_argument("--latency-config", default="", help="Optional YAML containing a training-compatible latency: section.")
+    parser.add_argument(
+        "--gym-camera-name",
+        default="",
+        help="Optional Gymnasium camera_name override, e.g. head_camera.",
+    )
     parser.add_argument("--env-name", default="", choices=["", "deadly_corridor", "defend_the_line", "demon_attack", "flappy"])
     parser.add_argument("--max-episodes", type=int, required=True)
     parser.add_argument(
@@ -123,6 +128,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         checkpoint_root=args.checkpoint_root,
         output_dir=output_dir,
         latency_config_path=args.latency_config or None,
+        gym_camera_name=args.gym_camera_name or None,
         env_name=str(args.env_name),
         max_episodes=int(args.max_episodes),
         max_steps_per_episode=int(args.max_steps_per_episode),

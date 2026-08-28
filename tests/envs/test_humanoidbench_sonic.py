@@ -516,10 +516,12 @@ def test_composed_control_latches_jump_and_applies_physical_residual(
         native._maybe_trigger_jump()
         assert native._reference_mode == sonic.JUMP_STATE
         assert native._jump_phase == 30
-        observation, *_ = env.step(np.ones(29, dtype=np.float32))
+        observation, _, _, _, first_info = env.step(np.ones(29, dtype=np.float32))
         np.testing.assert_array_equal(native._decoder.input[0, :64], np.zeros(64))
         np.testing.assert_array_equal(observation["base_token"], np.zeros(64))
         np.testing.assert_array_equal(observation["obs"][-2:], [1.0, 31 / 32])
+        assert first_info["target_velocity_max_ratio"] <= 1.0 + 1e-12
+        assert first_info["target_acceleration_max_ratio_per_s"] > 10.0
 
         residual_action = np.ones(29, dtype=np.float32)
         _, _, _, _, info = env.step(residual_action)

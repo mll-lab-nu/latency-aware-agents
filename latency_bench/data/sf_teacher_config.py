@@ -228,6 +228,7 @@ def load_rollout_training_config(
     *,
     latency_config_path: str | Path | None = None,
     device_override: str | None = None,
+    gym_camera_name: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Load the rollout descriptor and metadata used for dataset export.
 
@@ -235,12 +236,24 @@ def load_rollout_training_config(
         checkpoint_root: Experiment directory or checkpoint file path.
         latency_config_path: Optional latency-only YAML override.
         device_override: Optional rollout device override.
+        gym_camera_name: Optional camera name override for Gymnasium checkpoints.
 
     Returns:
         Rollout descriptor and export metadata.
     """
     checkpoint = _resolve_checkpoint_root(checkpoint_root)
     flat_cfg = _read_checkpoint_config(checkpoint.experiment_dir)
+    if flat_cfg["env"] == GYMNASIUM_SF_ENV:
+        make_kwargs = json.loads(flat_cfg["gym_make_kwargs_json"])
+        if gym_camera_name is not None:
+            make_kwargs["camera_name"] = gym_camera_name
+            make_kwargs["render_mode"] = "rgb_array"
+        if (
+            "sonic_decoder_mode" in make_kwargs
+            and make_kwargs["sonic_decoder_mode"] == "inference_worker"
+        ):
+            make_kwargs["sonic_decoder_mode"] = "environment"
+        flat_cfg["gym_make_kwargs_json"] = json.dumps(make_kwargs)
     env_name, integration_name, action_spec, base_prompt = _rollout_task_contract(flat_cfg)
     config_source = str((checkpoint.experiment_dir / "config.json").resolve())
     latency_override = None

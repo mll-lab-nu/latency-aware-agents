@@ -86,6 +86,7 @@ def export_sample_factory_teacher_dataset(
     checkpoint_root: str | Path,
     output_dir: Path,
     latency_config_path: str | Path | None,
+    gym_camera_name: str | None = None,
     env_name: str,
     max_episodes: int,
     max_steps_per_episode: int,
@@ -118,6 +119,7 @@ def export_sample_factory_teacher_dataset(
         checkpoint_root: Experiment directory or checkpoint file path.
         output_dir: Directory receiving parquet files and metadata.
         latency_config_path: Optional latency-only YAML override.
+        gym_camera_name: Optional camera name override for Gymnasium checkpoints.
         env_name: Optional canonical environment name override.
         max_episodes: Number of episodes to collect.
         max_steps_per_episode: Raw environment frame cap per episode.
@@ -147,6 +149,7 @@ def export_sample_factory_teacher_dataset(
         checkpoint_root,
         latency_config_path=latency_config_path,
         device_override=device or None,
+        gym_camera_name=gym_camera_name,
     )
     if env_name:
         if config["integration_name"] == "gymnasium":
