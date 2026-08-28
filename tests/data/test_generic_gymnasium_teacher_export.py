@@ -332,6 +332,104 @@ def test_gymnasium_replay_exports_pre_action_state_with_stacked_observations(
     ]
 
 
+def test_g1_replay_exports_pre_action_proprio_and_conditioned_target(
+    monkeypatch,
+    tmp_path,
+):
+    import torch
+
+    from latency_bench.data import sf_teacher_rollout
+    from latency_bench.data.action_layouts import gymnasium_continuous_action_spec
+    from latency_bench.data.hf_parquet import iter_episode_rows
+    from latency_bench.data.sf_teacher_drivers import RolloutStepResult
+
+    step_index = 0
+
+    class Driver:
+        slot_count = 1
+
+        def reset_slots(self, reset_plan):
+            return {
+                0: (
+                    {"obs": np.zeros((1, 2), dtype=np.float32)},
+                    {
+                        "official_gr00t_proprio": np.full(93, 10.0, dtype=np.float32),
+                        "env_raw_rgb_frame_stack": np.zeros(
+                            (2, 2, 2, 3), dtype=np.uint8
+                        ),
+                    },
+                )
+            }
+
+        def close(self):
+            pass
+
+    def step_teacher_policy(
+        runtime,
+        driver,
+        *,
+        active_slots,
+        active_obs,
+        rnn_states,
+        deterministic,
+        preserve_leading_batch,
+    ):
+        nonlocal step_index
+        next_state = float(step_index + 11)
+        action_target = np.full(29, step_index + 0.25, dtype=np.float32)
+        result = RolloutStepResult(
+            next_obs={"obs": np.zeros((1, 2), dtype=np.float32)},
+            reward=0.0,
+            terminated=step_index == 1,
+            truncated=False,
+            info={
+                "official_gr00t_proprio": np.full(93, next_state, dtype=np.float32),
+                "action_target": action_target,
+                "env_raw_rgb_frame_stack": np.zeros((2, 2, 2, 3), dtype=np.uint8),
+                "latency_raw_frames": 0,
+                "latency_ms": 0.0,
+            },
+        )
+        teacher_action = np.full(29, -step_index - 1.0, dtype=np.float32)
+        step_index += 1
+        return [teacher_action], torch.zeros_like(rnn_states), {0: result}
+
+    monkeypatch.setattr(
+        sf_teacher_rollout,
+        "_step_teacher_policy",
+        step_teacher_policy,
+    )
+    output_dir = tmp_path / "rollout"
+    sf_teacher_rollout._replay_accepted_specs(
+        {"rnn_size": 1, "device": torch.device("cpu")},
+        Driver(),
+        cfg=SimpleNamespace(
+            env_fps=50.0,
+            obs_fps=50.0,
+            frame_stack=1,
+            gym_state_labels_json="",
+        ),
+        env_name="g1_sonic_hurdle",
+        output_dir=output_dir,
+        accepted_specs=[{"episode_idx": 0, "split": "val", "seed": 7}],
+        completed_episode_indices=set(),
+        max_steps_per_episode=3,
+        deterministic=True,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+        action_spec=gymnasium_continuous_action_spec(
+            [f"joint_{index}" for index in range(29)]
+        ),
+        base_prompt="Clear the hurdle.",
+        integration_name="gymnasium",
+    )
+
+    rows = list(iter_episode_rows(output_dir, "val"))
+    assert [row["state"] for row in rows] == [[10.0] * 93, [11.0] * 93]
+    assert [row["action"] for row in rows] == [[0.25] * 29, [1.25] * 29]
+
+
 def test_generic_vector_observations_keep_sample_factory_batch_dimension():
     from latency_bench.data.sf_teacher_drivers import batch_observations
 
