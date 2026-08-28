@@ -1,0 +1,9 @@
+__base__:
+  - ../half_cheetah/small_model_eval.yaml
+  - state_contract.yaml
+
+experiment:
+  name: gymnasium_half_cheetah_rgb_state_small_model_eval
+
+logging:
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/half_cheetah_rgb_state/small_model_eval
