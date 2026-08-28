@@ -17,6 +17,18 @@ from helpers import REPO_ROOT
 from latency_bench.core.config import load_config
 
 
+def _rollout_descriptor(env_name: str) -> dict:
+    from latency_bench.data.action_layouts import action_spec_for_env
+    from latency_bench.data.prompts import BASE_PROMPTS
+
+    return {
+        "env_name": env_name,
+        "integration_name": env_name,
+        "action_spec": action_spec_for_env(env_name),
+        "base_prompt": BASE_PROMPTS[env_name],
+    }
+
+
 def _write_checkpoint_config(path: Path, **overrides) -> Path:
     config = {
         "algo": "APPO",
@@ -556,7 +568,7 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
     monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
-        {"env_name": "flappy"},
+        _rollout_descriptor("flappy"),
         output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=1,
@@ -660,7 +672,7 @@ def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeyp
 
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
-        {"env_name": "deadly_corridor"},
+        _rollout_descriptor("deadly_corridor"),
         output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=8,
@@ -803,7 +815,7 @@ def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(m
 
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
-        {"env_name": "flappy"},
+        _rollout_descriptor("flappy"),
         output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=1,
@@ -925,7 +937,7 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
-        {"env_name": "flappy"},
+        _rollout_descriptor("flappy"),
         output_dir=output_dir,
         max_episodes=2,
         max_steps_per_episode=1,
@@ -1043,7 +1055,7 @@ def test_collect_teacher_dataset_encodes_deadly_corridor_factorized_tuple_action
     )
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
-        {"env_name": "deadly_corridor"},
+        _rollout_descriptor("deadly_corridor"),
         output_dir=output_dir,
         max_episodes=2,
         max_steps_per_episode=8,
@@ -1177,7 +1189,7 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
-        {"env_name": "demon_attack"},
+        _rollout_descriptor("demon_attack"),
         output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=8,
@@ -1295,7 +1307,7 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
-        {"env_name": "flappy"},
+        _rollout_descriptor("flappy"),
         output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=1,
@@ -1474,7 +1486,7 @@ def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tm
     output_dir = tmp_path / "export"
 
     metadata = exporter.collect_teacher_dataset(
-        {"env_name": "flappy"},
+        _rollout_descriptor("flappy"),
         output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=8,
@@ -1627,7 +1639,7 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
     output_dir = tmp_path / "export"
     exporter.collect_teacher_dataset(
-        {"env_name": "demon_attack"},
+        _rollout_descriptor("demon_attack"),
         output_dir=output_dir,
         max_episodes=3,
         max_steps_per_episode=8,
@@ -1757,7 +1769,7 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
 
     output_dir = tmp_path / "export"
     exporter.collect_teacher_dataset(
-        {"env_name": "demon_attack"},
+        _rollout_descriptor("demon_attack"),
         output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=12,
@@ -1875,7 +1887,7 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
     output_dir = tmp_path / "export"
     exporter.collect_teacher_dataset(
-        {"env_name": "flappy"},
+        _rollout_descriptor("flappy"),
         output_dir=output_dir,
         max_episodes=2,
         max_steps_per_episode=1,
@@ -1902,7 +1914,7 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
     FakeProgress.updates.clear()
 
     exporter.collect_teacher_dataset(
-        {"env_name": "flappy"},
+        _rollout_descriptor("flappy"),
         output_dir=output_dir,
         max_episodes=3,
         max_steps_per_episode=1,
@@ -1983,7 +1995,7 @@ def test_collect_teacher_dataset_skips_runtime_when_probe_and_shards_complete(mo
     )
 
     metadata = exporter.collect_teacher_dataset(
-        {"env_name": "flappy"},
+        _rollout_descriptor("flappy"),
         output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=1,
@@ -2104,7 +2116,7 @@ def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatc
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
     output_dir = tmp_path / "export"
     exporter.collect_teacher_dataset(
-        {"env_name": "flappy"},
+        _rollout_descriptor("flappy"),
         output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=1,
@@ -2281,7 +2293,7 @@ def test_flappy_gpu_rollout_uses_requested_render_batch_size(
     )
 
     _, _, driver, frame_stack = sf_teacher_rollout._build_rollout_driver_runtime(
-        {"env_name": "flappy"},
+        _rollout_descriptor("flappy"),
         output_dir=tmp_path,
         num_envs=num_envs,
         export_env_raw_rgb_frames=True,
@@ -2409,7 +2421,7 @@ def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_pro
     monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
 
     metadata = exporter.collect_teacher_dataset(
-        {"env_name": "flappy"},
+        _rollout_descriptor("flappy"),
         output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=1,
@@ -2911,7 +2923,7 @@ def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkey
 
     output_dir = tmp_path / "shard"
     result = exporter.collect_teacher_dataset(
-        {"env_name": "flappy"},
+        _rollout_descriptor("flappy"),
         output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=1,

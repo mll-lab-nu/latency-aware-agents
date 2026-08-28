@@ -17,6 +17,7 @@ from latency_bench.utils.io import write_jsonl
 
 from latency_bench.data.action_layouts import (
     ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+    ACTION_LAYOUT_G1_SONIC_GR00T_V1,
     ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
     action_spec_for_env,
 )
@@ -461,19 +462,8 @@ def _row_action_vector(
     active_action_dim: int,
     action_dim: int,
 ) -> list[float]:
-    if "action" in row and row["action"] is not None:
-        values = [float(value) for value in row["action"]]
-        return [*values, *([0.0] * (action_dim - active_action_dim))]
-    if "action_id" not in row:
-        raise KeyError(
-            f"row is missing action fields; available columns: {sorted(row)}"
-        )
-    action_id = int(row["action_id"])
-    if action_id < 0 or action_id >= active_action_dim:
-        raise ValueError(
-            f"action_id={action_id} is outside action range [0, {active_action_dim - 1}]"
-        )
-    return [1.0 if idx == action_id else 0.0 for idx in range(action_dim)]
+    values = [float(value) for value in row["action"]]
+    return [*values, *([0.0] * (action_dim - active_action_dim))]
 
 
 def _write_metadata(
@@ -756,6 +746,7 @@ def convert_canonical_rollout_to_lerobot(
     if action_layout not in (
         ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+        ACTION_LAYOUT_G1_SONIC_GR00T_V1,
     ):
         raise ValueError(f"Unsupported Gymnasium action_layout={action_layout!r}")
     active_action_labels = list(metadata["action_labels"])
@@ -764,7 +755,10 @@ def convert_canonical_rollout_to_lerobot(
         raise ValueError(
             "Canonical Gymnasium env_name does not match gymnasium_task.task_name"
         )
-    continuous = action_layout == ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1
+    continuous = action_layout in (
+        ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+        ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+    )
     if continuous and action_carrier == "native":
         gymnasium_task = {
             **gymnasium_task,

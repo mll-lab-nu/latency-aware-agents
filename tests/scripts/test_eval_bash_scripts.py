@@ -506,6 +506,7 @@ def test_install_script_forwards_all_model_selection(tmp_path):
         "bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "
         "--tier dev --model all"
     ) in calls
+    assert "uv sync --project third_party/Isaac-GR00T --python 3.12" in calls
 
 
 def test_install_script_accepts_each_supported_model(tmp_path):
@@ -524,6 +525,30 @@ def test_install_script_accepts_each_supported_model(tmp_path):
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
     assert "bootstrap.sh --tier dev --model gr00t" in calls
+
+
+def test_install_script_sets_up_official_gr00t_without_starvla_bootstrap(tmp_path):
+    script_path = REPO_ROOT / "install.sh"
+    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
+
+    result = subprocess.run(
+        ["bash", str(script_path), "--model", "official_gr00t"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "git submodule update --init --recursive" in calls
+    assert "uv sync --project third_party/Isaac-GR00T --python 3.12" in calls
+    assert (
+        "uv run --project third_party/Isaac-GR00T python -c "
+        in calls
+    )
+    assert "bootstrap.sh" not in calls
 
 
 def test_install_script_requires_model(tmp_path):

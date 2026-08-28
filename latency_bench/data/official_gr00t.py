@@ -14,11 +14,13 @@ from PIL import Image
 from latency_bench.data.exporters.starvla_lerobot import (
     convert_canonical_rollout_to_lerobot,
 )
+from latency_bench.envs.humanoidbench_sonic_contract import (
+    G1_GR00T_ACTION_DIM,
+    G1_GR00T_ACTION_HORIZON,
+    G1_GR00T_STATE_DIM,
+)
 
 OFFICIAL_GR00T_EMBODIMENT_TAG = "NEW_EMBODIMENT"
-OFFICIAL_GR00T_STATE_DIM = 93
-OFFICIAL_GR00T_ACTION_DIM = 29
-OFFICIAL_GR00T_ACTION_HORIZON = 40
 
 
 def _official_gr00t_modality_json() -> dict[str, Any]:
@@ -27,7 +29,7 @@ def _official_gr00t_modality_json() -> dict[str, Any]:
         "state": {
             "state": {
                 "start": 0,
-                "end": OFFICIAL_GR00T_STATE_DIM,
+                "end": G1_GR00T_STATE_DIM,
                 "dtype": "float32",
                 "absolute": True,
                 "original_key": "observation.state",
@@ -36,7 +38,7 @@ def _official_gr00t_modality_json() -> dict[str, Any]:
         "action": {
             "action": {
                 "start": 0,
-                "end": OFFICIAL_GR00T_ACTION_DIM,
+                "end": G1_GR00T_ACTION_DIM,
                 "dtype": "float32",
                 "absolute": True,
                 "original_key": "action",
@@ -145,12 +147,12 @@ def convert_canonical_rollout_to_official_gr00t(
         normalize_state=False,
         write_starvla_handoff=False,
     )
-    if manifest["state_dim"] != OFFICIAL_GR00T_STATE_DIM:
+    if manifest["state_dim"] != G1_GR00T_STATE_DIM:
         raise ValueError(
             "official GR00T requires a 93D state, "
             f"got {manifest['state_dim']}"
         )
-    if manifest["action_dim"] != OFFICIAL_GR00T_ACTION_DIM:
+    if manifest["action_dim"] != G1_GR00T_ACTION_DIM:
         raise ValueError(
             "official GR00T requires a 29D action, "
             f"got {manifest['action_dim']}"
@@ -164,7 +166,7 @@ def convert_canonical_rollout_to_official_gr00t(
     manifest = {
         **manifest,
         "official_embodiment_tag": OFFICIAL_GR00T_EMBODIMENT_TAG,
-        "official_action_horizon": OFFICIAL_GR00T_ACTION_HORIZON,
+        "official_action_horizon": G1_GR00T_ACTION_HORIZON,
         "official_modality_config": "latency_bench/policy/official_gr00t_modality.py",
     }
     output_dir.joinpath("manifest.json").write_text(
@@ -175,7 +177,7 @@ def convert_canonical_rollout_to_official_gr00t(
     validation_manifest.update(
         {
             "official_embodiment_tag": OFFICIAL_GR00T_EMBODIMENT_TAG,
-            "official_action_horizon": OFFICIAL_GR00T_ACTION_HORIZON,
+            "official_action_horizon": G1_GR00T_ACTION_HORIZON,
             "official_modality_config": "latency_bench/policy/official_gr00t_modality.py",
         }
     )
@@ -186,9 +188,6 @@ def convert_canonical_rollout_to_official_gr00t(
 
 
 __all__ = [
-    "OFFICIAL_GR00T_ACTION_DIM",
-    "OFFICIAL_GR00T_ACTION_HORIZON",
     "OFFICIAL_GR00T_EMBODIMENT_TAG",
-    "OFFICIAL_GR00T_STATE_DIM",
     "convert_canonical_rollout_to_official_gr00t",
 ]

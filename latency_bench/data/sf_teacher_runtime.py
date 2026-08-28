@@ -50,20 +50,8 @@ GYMNASIUM_CHECKPOINT_DISCRETE_ARG_FIELDS = (
 
 
 def _gymnasium_checkpoint_args(flat_cfg: Mapping[str, Any]) -> list[str]:
-    if "gym_action_space_json" in flat_cfg:
-        action_space_json = flat_cfg["gym_action_space_json"]
-        noop_action_json = flat_cfg["gym_noop_action_json"]
-    else:
-        action_labels = json.loads(flat_cfg["gym_action_labels_json"])
-        action_values = json.loads(flat_cfg["gym_action_values_json"])
-        action_space_json = json.dumps(
-            {
-                "type": "discrete",
-                "labels": action_labels,
-                "values": action_values,
-            }
-        )
-        noop_action_json = json.dumps(action_labels[int(flat_cfg["gym_noop_action_id"])])
+    action_space_json = flat_cfg["gym_action_space_json"]
+    noop_action_json = flat_cfg["gym_noop_action_json"]
 
     argv: list[str] = []
     for field_name, flag in GYMNASIUM_CHECKPOINT_COMMON_ARG_FIELDS:

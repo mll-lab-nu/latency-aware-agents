@@ -130,12 +130,17 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         pending_results: dict[int, PolicyOutput] = {}
         submit_queue: deque[RealtimeObservationTask] = deque()
 
-        def fuse_ready_prefix() -> None:
-            # Fuse strictly in observation order so action/latency records land
-            # in the same order the inline path writes them.
-            while pending_inferences and pending_inferences[0].obs_id in pending_results:
-                item = pending_inferences.popleft()
-                policy_output = pending_results.pop(item.obs_id)
+        def fuse_ready_results() -> None:
+            # A completed newer observation must enter the timeline immediately;
+            # waiting for the oldest forward pass would defeat latest_ready.
+            while pending_results:
+                obs_id, policy_output = pending_results.popitem()
+                item = next(
+                    pending_item
+                    for pending_item in pending_inferences
+                    if pending_item.obs_id == obs_id
+                )
+                pending_inferences.remove(item)
                 latency_record, event = build_simulated_action_event(
                     action_id=item.action_id,
                     obs_id=item.obs_id,
@@ -166,7 +171,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                     pending_results[completion.task.obs_id] = completion.policy_output
                 while submit_queue and pool.submit(submit_queue[0]):
                     submit_queue.popleft()
-                fuse_ready_prefix()
+                fuse_ready_results()
                 if not pending_inferences:
                     return
                 if due_raw_frame is not None and all(
@@ -356,6 +361,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
             )
         if pool is not None:
             episode_metadata["sim_inference_pool_workers"] = pool.worker_count
+        episode_metadata.update(self.action_scheduler.chunk_metrics())
         metrics = compute_episode_metrics(
             episode_id=episode_id,
             step_records=step_records,

@@ -1,0 +1,37 @@
+{
+  "teachers": [
+    {
+      "name": "g1_hurdle_sonic_residual_h025_gamma099_1m_v1",
+      "task": "g1_sonic_hurdle",
+      "source": "checkpoint",
+      "checkpoint": "results/humanoidbench_g1_sonic29d_fullres_anchor_h025_gamma099_1m/checkpoints/g1_sonic_hurdle_sonic29d_fullres_anchor_h025_1m_s1/checkpoint_p0/checkpoint_000015610_1000320.pth",
+      "max_steps_per_episode": 400,
+      "acceptance": {
+        "type": "final_info_true",
+        "key": "teacher_accepted"
+      }
+    },
+    {
+      "name": "g1_run_sonic_reference_playback_v1",
+      "task": "g1_sonic_run",
+      "source": "reference_playback",
+      "playback_config": "results/humanoidbench_g1_sonic_run_hurdle_reference_playback/generated/eval.yaml",
+      "max_steps_per_episode": 1000,
+      "acceptance": {
+        "type": "min_duration_s",
+        "value": 18.0
+      }
+    },
+    {
+      "name": "g1_balance_simple_raw_ramp_fasttd3_25m_v1",
+      "task": "g1_sonic_balance_simple",
+      "source": "checkpoint",
+      "checkpoint": "results/humanoidbench_g1_balance_control_comparison_fasttd3_25m/checkpoints/g1_sonic_balance_simple_raw_ramp_0p1s_fasttd3_25000000steps_s1/checkpoint_p0/best_000325980_20864000_reward_702.976.pth",
+      "max_steps_per_episode": 1000,
+      "acceptance": {
+        "type": "min_duration_s",
+        "value": 18.0
+      }
+    }
+  ]
+}

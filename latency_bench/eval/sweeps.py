@@ -162,6 +162,7 @@ def run_eval_sweep_from_config(
             "train_latency_steps": train_latency_steps,
             "eval_latency_steps": eval_latency_steps,
             "configured_latency_ms": configured_latency_ms,
+            "latency_type": "fixed_sweep",
         }
         latency_metrics, _ = _run_one_sweep(
             sweep_config,

@@ -15,6 +15,7 @@ from latency_bench.data.action_layouts import ActionSpec, action_spec_for_env
 from latency_bench.data.filters import (
     FILTER_PRESET_CLEAN_V1,
     accepts_episode,
+    accepts_episode_contract,
     demon_raw_score_bin_counts,
     filter_train_rows,
 )
@@ -280,6 +281,7 @@ def _filter_report_from_probe_state(
     episode_return_field: str,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     episode_return_gt: float | None = None,
+    episode_acceptance: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build final filter report from probe state and written row shards.
 
@@ -290,6 +292,7 @@ def _filter_report_from_probe_state(
         filter_preset: Filter preset name recorded in the report.
         episode_return_field: Canonical episode-return field used by the acceptance gate.
         episode_return_gt: Optional strict lower bound for accepted episode returns.
+        episode_acceptance: Explicit task-specific episode acceptance contract.
 
     Returns:
         Filter report written to metadata and ``filter_report.json``.
@@ -310,6 +313,8 @@ def _filter_report_from_probe_state(
         "val_rows_before_row_filter": sum(int(spec["episode_length"]) for spec in val_specs),
         "val_rows_after_row_filter": split_stats["val_rows"],
     }
+    if episode_acceptance is not None:
+        report["episode_acceptance"] = dict(episode_acceptance)
     if episode_return_gt is not None:
         report["episode_return_gate"] = {
             "field": episode_return_field,
@@ -564,6 +569,7 @@ def _probe_accepted_specs(
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
     episode_return_gt: float | None = None,
+    episode_acceptance: Mapping[str, Any] | None = None,
     rollout_seed_offset: int = 0,
     action_spec: ActionSpec | None = None,
     integration_name: str | None = None,
@@ -585,6 +591,7 @@ def _probe_accepted_specs(
         filter_preset: Filter preset name for episode-level gating.
         filter_kwargs: Optional overrides forwarded to the episode gate.
         episode_return_gt: Optional strict lower bound for accepted episode returns.
+        episode_acceptance: Explicit task-specific episode acceptance contract.
         action_spec: Explicit action layout carried by a generic checkpoint.
         integration_name: Integration identity used for legacy-specific rollout behavior.
     """
@@ -699,6 +706,13 @@ def _probe_accepted_specs(
                             max_steps_per_episode=int(max_steps_per_episode),
                             filter_kwargs=filter_kwargs,
                         )
+                        if episode_acceptance is not None:
+                            summary["final_info"] = step_result.info
+                            accepted = accepted and accepts_episode_contract(
+                                summary,
+                                episode_acceptance,
+                                env_fps=cfg.env_fps,
+                            )
                         accepted = accepted and _passes_episode_return_gate(
                             summary,
                             episode_return_field=resolved_action_spec.episode_return_field,
@@ -839,7 +853,7 @@ def _replay_accepted_specs(
     obs_fps = float(cfg.obs_fps)
     obs_stride_raw_frames = int(env_fps / obs_fps)
     include_state = integration_name == "gymnasium" and bool(cfg.gym_state_labels_json)
-    uses_g1_gr00t_contract = env_name == "g1_sonic_hurdle"
+    uses_g1_gr00t_contract = env_name.startswith("g1_sonic_")
     state_info_key = None
     if uses_g1_gr00t_contract:
         state_info_key = "official_gr00t_proprio"
@@ -1138,6 +1152,7 @@ def collect_teacher_dataset(
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
     episode_return_gt: float | None = None,
+    episode_acceptance: Mapping[str, Any] | None = None,
     context_window: int = 1,
     rollout_seed_offset: int = 0,
     probe_only: bool = False,
@@ -1161,6 +1176,7 @@ def collect_teacher_dataset(
         filter_preset: Filter preset name (``"none"`` or ``"clean_v1"``).
         filter_kwargs: Temporary exporter experiment arguments retained at the public boundary.
         episode_return_gt: Optional strict lower bound for accepted episode returns.
+        episode_acceptance: Explicit task-specific episode acceptance contract.
         context_window: Total image window length including the current ``image`` field.
         image_transform_config: Optional causal image transform applied during
             replay before row filtering.
@@ -1168,9 +1184,9 @@ def collect_teacher_dataset(
         Rollout metadata.
     """
     env_name = str(config["env_name"])
-    integration_name = config["integration_name"] if "integration_name" in config else env_name
-    action_spec = config["action_spec"] if "action_spec" in config else action_spec_for_env(env_name)
-    base_prompt = config["base_prompt"] if "base_prompt" in config else None
+    integration_name = config["integration_name"]
+    action_spec = config["action_spec"]
+    base_prompt = config["base_prompt"]
     image_transform_config = image_transform_config or GhostTrailConfig()
     completed_episode_indices = completed_episode_indices_from_shards(output_dir)
     probe_state = _load_probe_state(
@@ -1207,6 +1223,7 @@ def collect_teacher_dataset(
             filter_preset=filter_preset,
             filter_kwargs=filter_kwargs,
             episode_return_gt=episode_return_gt,
+            episode_acceptance=episode_acceptance,
             rollout_seed_offset=int(rollout_seed_offset),
             action_spec=action_spec,
             integration_name=integration_name,
@@ -1223,6 +1240,8 @@ def collect_teacher_dataset(
             "rollout_seed_offset": int(rollout_seed_offset),
             "filter_preset": filter_preset,
         }
+        if episode_acceptance is not None:
+            metadata["episode_acceptance"] = dict(episode_acceptance)
         if episode_return_gt is not None:
             metadata["episode_return_gate"] = {
                 "field": action_spec.episode_return_field,
@@ -1277,6 +1296,7 @@ def collect_teacher_dataset(
         filter_preset=filter_preset,
         episode_return_field=action_spec.episode_return_field,
         episode_return_gt=episode_return_gt,
+        episode_acceptance=episode_acceptance,
     )
     metadata = {
         "schema_version": SCHEMA_VERSION,

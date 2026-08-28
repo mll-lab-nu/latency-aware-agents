@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from latency_bench.core.types import (
@@ -60,6 +60,8 @@ class RealtimeActionDispatch:
     applied: bool = False
     dropped: bool = False
     profile: PipelineProfile | None = None
+    action_chunk: Any = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 def _action_event_dispatch_payload(event: ActionEvent) -> dict[str, Any]:
@@ -72,6 +74,8 @@ def _action_event_dispatch_payload(event: ActionEvent) -> dict[str, Any]:
         "latency_raw_frames": event.latency_raw_frames,
         "ready_raw_frame": event.ready_raw_frame,
     }
+    if event.action_chunk is not None:
+        payload["action_chunk"] = event.action_chunk
     profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
     if profile is not None:
         payload["profile"] = profile.to_dict()
@@ -89,6 +93,7 @@ def _action_event_from_dispatch_payload(payload: dict[str, Any]) -> RealtimeActi
         latency_raw_frames=payload["latency_raw_frames"],
         ready_raw_frame=payload["ready_raw_frame"],
         profile=profile,
+        action_chunk=payload["action_chunk"] if "action_chunk" in payload else None,
     )
 
 
@@ -98,6 +103,17 @@ def _action_event_ack_payload(event: RealtimeActionDispatch) -> dict[str, Any]:
         "applied": event.applied,
         "apply_raw_frame": event.apply_raw_frame,
     }
+    for key in (
+        "hold_last_chunk_action",
+        "stale_prefix_frames",
+        "chunk_age_raw_frames",
+        "chunk_age_ms",
+        "underflow_count",
+        "underflow_frames",
+        "underflow_duration_ms",
+    ):
+        if key in event.metadata:
+            payload[key] = event.metadata[key]
     if event.profile is not None:
         payload["profile"] = event.profile.to_dict()
     return payload

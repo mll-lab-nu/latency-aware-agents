@@ -464,6 +464,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                 latency_type=latency_type_from_source(slot.latency_source),
                 latency_source=slot.latency_source,
             )
+            | slot.action_scheduler.chunk_metrics()
             | (
                 {
                     "submitted_observation_frames": slot.buffers.submitted_observation_frames,

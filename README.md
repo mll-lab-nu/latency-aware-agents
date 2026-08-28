@@ -8,10 +8,10 @@ observation timeline, actions become ready after a latency delay, and the
 environment applies actions on the raw environment timeline.
 
 This repository owns the benchmark runtime, latency execution semantics,
-rollout/profile generation, and experiment configs. VLA training is launched
-from the companion StarVLA repository, usually through
-`examples/rl_games/bash_scripts/...`, while consuming datasets, profiles, and
-environment dependencies from this repository.
+rollout/profile generation, and experiment configs. Most VLA training is
+launched from the companion StarVLA repository. NVIDIA's official GR00T path is
+the exception: `official_gr00t` trains and runs directly from the pinned
+`third_party/Isaac-GR00T` submodule.
 
 ## Overview
 
@@ -22,8 +22,8 @@ Latency-Sensitive Bench provides:
 - teacher rollout generation and Hugging Face dataset export;
 - cross-device latency profiling, profile fitting, and profile replay;
 - memory, temporal-context, ghost-trail, and KV-memory experiment support;
-- integration points for OpenVLA, pi0, pi0.5, GR00T, WanOFT, and human realtime
-  evaluation.
+- integration points for OpenVLA, pi0, pi0.5, the existing StarVLA GR00T,
+  NVIDIA official GR00T, WanOFT, and human realtime evaluation.
 
 ## Repository Map
 
@@ -70,11 +70,12 @@ Install all model environments:
 bash install.sh --model all
 ```
 
-Accepted model names are `openvla`, `pi0`, `pi05`, `gr00t`, `wan_oft`, and
-`all`. Every invocation creates or updates the shared `latency` Conda
+Accepted model names are `openvla`, `pi0`, `pi05`, `gr00t`,
+`official_gr00t`, `wan_oft`, and `all`. Every invocation creates or updates the shared `latency` Conda
 environment for benchmark training, teacher rollout, dataset export, and
-development tools. Each selected model also creates a separate
-`starvla_rl_games_<model>` environment.
+development tools. StarVLA model targets create a separate
+`starvla_rl_games_<model>` environment; `official_gr00t` uses Isaac-GR00T's own
+uv environment.
 
 MyoChallenge 2025 is an optional Gymnasium task dependency. Install its
 pinned runtime only in environments that run those tasks:
@@ -119,6 +120,95 @@ Example StarVLA launchers:
 ../starVLA/examples/rl_games/bash_scripts/gr00t/bridge/single/demon_attack_new_lr.sh
 ../starVLA/examples/rl_games/bash_scripts/openvla/bridge/ghost_trail/final_ghost_trail_demon_attack_latency_6_memory_15_2.sh
 ../starVLA/examples/rl_games/bash_scripts/openvla/bridge/ghost_trail/final_flappy_latency_4_ablation_memory_2.sh
+```
+
+## Official GR00T Layout
+
+`gr00t` remains the existing StarVLA/Qwen implementation. The separate
+`official_gr00t` policy loads NVIDIA GR00T N1.7 directly inside one local
+inference worker process; it does not use a network policy server.
+
+Official dataset conversion and torchcodec require a system FFmpeg version
+supported by the pinned GR00T release (FFmpeg 4–7). Model loading also requires
+access to the gated `nvidia/Cosmos-Reason2-2B` backbone, even when the GR00T
+checkpoint is already local. The installer does not run `sudo`, install system
+packages, or authenticate Hugging Face.
+
+```bash
+ffmpeg -version
+hf auth login
+bash install.sh --model official_gr00t
+```
+
+The HumanoidBench integration uses a custom `NEW_EMBODIMENT` contract with a
+93D G1 proprioceptive state and a 40-step by 29D absolute body-joint action
+chunk. Training uses Isaac-GR00T's official `launch_finetune.py` entry point and
+checkpoint format. Training and closed-loop inference use the same
+latency-neutral task prompt; measured latency is represented by the action
+chunk scheduler, not appended to the language instruction.
+
+The canonical SONIC teacher index is
+[`configs/teachers/g1_sonic_gr00t.json`](configs/teachers/g1_sonic_gr00t.json).
+It is the single source of truth for the fixed hurdle, run-reference, and
+balance inputs, per-task rollout caps, and episode acceptance gates. Hurdle
+requires `teacher_accepted=true`; balance and run must survive at least 18
+seconds, which is 900 of each 1000 available raw frames at 50 Hz. The exporter
+derives each `raw` and `lerobot` output from the teacher name:
+
+```bash
+python scripts/teachers/export_g1_sonic_gr00t.py \
+  --output-root results/g1_sonic_gr00t_teachers \
+  --max-episodes 3 --force
+```
+
+The three LeRobot datasets stay separate. Pass one dataset path for single-task
+training, or combine paths with `:` for joint training; `--ds-weights-alpha 0`
+gives equal task weighting when the loader supports it. A merged root is not
+used for task filtering.
+
+A minimal end-to-end smoke run selects only the hurdle teacher and splits its
+three accepted episodes into two train and one validation episode:
+
+```bash
+python scripts/teachers/export_g1_sonic_gr00t.py \
+  --output-root outputs/official_gr00t/teachers \
+  --teacher g1_hurdle_sonic_residual_h025_gamma099_1m_v1 \
+  --max-episodes 3 --val-fraction 0.34 --device cuda --force
+
+CUDA_VISIBLE_DEVICES=0 NUM_GPUS=1 \
+BASE_MODEL_PATH=outputs/official_gr00t/models/GR00T-N1.7-3B \
+DATASET_PATH=outputs/official_gr00t/teachers/g1_hurdle_sonic_residual_h025_gamma099_1m_v1/lerobot \
+OUTPUT_DIR=outputs/official_gr00t/g1_hurdle_smoke \
+bash scripts/official_gr00t/finetune.sh \
+  --max-steps 2 --global-batch-size 1 --dataloader-num-workers 0
+```
+
+Run the official open-loop evaluator on the held-out episode:
+
+```bash
+uv run --project third_party/Isaac-GR00T python \
+  third_party/Isaac-GR00T/gr00t/data/stats.py \
+  --dataset-path outputs/official_gr00t/teachers/g1_hurdle_sonic_residual_h025_gamma099_1m_v1/lerobot__val \
+  --embodiment-tag NEW_EMBODIMENT \
+  --modality-config-path latency_bench/policy/official_gr00t_modality.py
+
+uv run --project third_party/Isaac-GR00T python \
+  third_party/Isaac-GR00T/gr00t/eval/open_loop_eval.py \
+  --dataset-path outputs/official_gr00t/teachers/g1_hurdle_sonic_residual_h025_gamma099_1m_v1/lerobot__val \
+  --embodiment-tag NEW_EMBODIMENT \
+  --model-path outputs/official_gr00t/g1_hurdle_smoke \
+  --traj-ids 0 --execution-horizon 40 --steps 80
+```
+
+For the two-step closed-loop check, set the scene and checkpoint paths in
+`configs/examples/gymnasium/g1_sonic_hurdle/official_gr00t_eval.yaml`, then run
+the realtime executor. Its acceptance artifact must report measured worker
+latency rather than a simulated zero-latency condition:
+
+```bash
+python -m latency_bench.run \
+  --config configs/examples/gymnasium/g1_sonic_hurdle/official_gr00t_eval.yaml \
+  --eval-max-steps 2
 ```
 
 ## Core Concepts

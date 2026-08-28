@@ -18,6 +18,8 @@ def compute_episode_metrics(
     frame_ms: float | None = None,
 ) -> EpisodeMetrics:
     _finalize_action_events(action_events, frame_ms=frame_ms)
+    episode_metadata = dict(metadata or {})
+    episode_metadata.update(_chunk_metrics_from_step_records(step_records))
     episode_return_env = sum(record.reward for record in step_records)
     survival_steps = len(step_records)
     game_score = _extract_game_score(step_records)
@@ -32,7 +34,7 @@ def compute_episode_metrics(
         num_actions=len(action_events),
         num_dropped_actions=sum(1 for event in action_events if event.dropped),
         num_invalid_actions=sum(1 for record in step_records if record.info.get("invalid_action")),
-        metadata=metadata,
+        metadata=episode_metadata,
     )
 
 
@@ -153,13 +155,47 @@ def active_action_step_info(
 ) -> dict[str, Any]:
     profile_metadata = profile_metadata or {}
     active_obs_frame = None if active_event is None else active_event.obs_env_step
-    return {
+    info = {
         "active_action_id": None if active_event is None else active_event.action_id,
         "active_action_obs_env_step": None if active_event is None else active_obs_frame,
         "scheduled_time_ms": float(scheduled_time_ms),
         "frame_time_ms": float(frame_ms),
         "latency_type": latency_type,
         "profile_id": profile_metadata.get("profile_id"),
+    }
+    if active_event is not None and active_event.action_chunk is not None:
+        info.update(
+            {
+                "hold_last_chunk_action": active_event.metadata["hold_last_chunk_action"],
+                "stale_prefix_frames": active_event.metadata["stale_prefix_frames"],
+                "chunk_age_raw_frames": active_event.metadata["chunk_age_raw_frames"],
+                "chunk_age_ms": active_event.metadata["chunk_age_ms"],
+                "underflow_count": active_event.metadata.get("underflow_count", 0),
+                "underflow_frames": active_event.metadata.get("underflow_frames", 0),
+                "underflow_duration_ms": active_event.metadata.get("underflow_duration_ms", 0.0),
+            }
+        )
+    return info
+
+
+def _chunk_metrics_from_step_records(step_records: list[StepRecord]) -> dict[str, Any]:
+    chunk_records = [
+        record.info
+        for record in step_records
+        if "stale_prefix_frames" in record.info
+    ]
+    if not chunk_records:
+        return {}
+    return {
+        "hold_last_chunk_action": chunk_records[0]["hold_last_chunk_action"],
+        "underflow_count": max(record.get("underflow_count", 0) for record in chunk_records),
+        "underflow_frames": max(record.get("underflow_frames", 0) for record in chunk_records),
+        "underflow_duration_ms": max(
+            record.get("underflow_duration_ms", 0.0) for record in chunk_records
+        ),
+        "stale_prefix_frames": max(record["stale_prefix_frames"] for record in chunk_records),
+        "chunk_age_raw_frames": max(record["chunk_age_raw_frames"] for record in chunk_records),
+        "chunk_age_ms": max(record["chunk_age_ms"] for record in chunk_records),
     }
 
 

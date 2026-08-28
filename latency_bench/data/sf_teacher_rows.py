@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from latency_bench.data.action_layouts import ActionSpec, action_spec_for_env, encode_action_for_env
+from latency_bench.data.action_layouts import (
+    ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+    ActionSpec,
+    action_spec_for_env,
+    encode_action_for_env,
+)
 from latency_bench.data.prompts import render_teacher_prompt
 from latency_bench.data.rollout_schema import CANONICAL_ROW_FIELDS
 from latency_bench.integrations.sample_factory.actions import to_python_action
@@ -49,15 +54,13 @@ def teacher_dataset_row(
     """
     latency_raw_frames = int(to_python_action(info["latency_raw_frames"]))
     latency_ms = float(to_python_action(info["latency_ms"]))
-    resolved_action_spec = action_spec if action_spec is not None else action_spec_for_env(env_name)
-    base_values = {
-        "image": image,
-        "env_name": str(env_name),
-        "episode_idx": int(spec["episode_idx"]),
-        "decision_step": int(decision_step),
-        "split": str(spec["split"]),
-        "seed": int(spec["seed"]),
-        "prompt": render_teacher_prompt(
+    resolved_action_spec = (
+        action_spec if action_spec is not None else action_spec_for_env(env_name)
+    )
+    prompt = (
+        base_prompt
+        if resolved_action_spec.layout == ACTION_LAYOUT_G1_SONIC_GR00T_V1
+        else render_teacher_prompt(
             env_name,
             latency_raw_frames=latency_raw_frames,
             latency_ms=latency_ms,
@@ -65,7 +68,16 @@ def teacher_dataset_row(
             obs_fps=obs_fps,
             image_transform=image_transform,
             base_prompt=base_prompt,
-        ),
+        )
+    )
+    base_values = {
+        "image": image,
+        "env_name": str(env_name),
+        "episode_idx": int(spec["episode_idx"]),
+        "decision_step": int(decision_step),
+        "split": str(spec["split"]),
+        "seed": int(spec["seed"]),
+        "prompt": prompt,
         "latency_raw_frames": latency_raw_frames,
         "latency_ms": latency_ms,
         resolved_action_spec.reward_field: float(reward),

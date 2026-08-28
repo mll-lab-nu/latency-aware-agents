@@ -112,9 +112,17 @@ def _generic_flat_cfg() -> dict:
         "gym_env_id": "MountainCar-v0",
         "gym_make_kwargs_json": json.dumps({"render_mode": "rgb_array"}),
         "gym_registration_imports_json": json.dumps([]),
+        "gym_action_space_json": json.dumps(
+            {
+                "type": "discrete",
+                "labels": ["PUSH_LEFT", "COAST", "PUSH_RIGHT"],
+                "values": [0, 1, 2],
+            }
+        ),
         "gym_action_labels_json": json.dumps(["PUSH_LEFT", "COAST", "PUSH_RIGHT"]),
         "gym_action_values_json": json.dumps([0, 1, 2]),
         "gym_noop_action_id": 1,
+        "gym_noop_action_json": json.dumps("COAST"),
         "gym_state_labels_json": "",
         "gym_base_prompt": "Drive the car up the hill.",
         "env_fps": 30.0,
@@ -332,14 +340,19 @@ def test_gymnasium_replay_exports_pre_action_state_with_stacked_observations(
     ]
 
 
+@pytest.mark.parametrize(
+    "g1_task",
+    ["g1_sonic_hurdle", "g1_sonic_run", "g1_sonic_balance_simple"],
+)
 def test_g1_replay_exports_pre_action_proprio_and_conditioned_target(
     monkeypatch,
     tmp_path,
+    g1_task,
 ):
     import torch
 
     from latency_bench.data import sf_teacher_rollout
-    from latency_bench.data.action_layouts import gymnasium_continuous_action_spec
+    from latency_bench.data.action_layouts import G1_SONIC_GR00T_ACTION_SPEC
     from latency_bench.data.hf_parquet import iter_episode_rows
     from latency_bench.data.sf_teacher_drivers import RolloutStepResult
 
@@ -409,7 +422,7 @@ def test_g1_replay_exports_pre_action_proprio_and_conditioned_target(
             frame_stack=1,
             gym_state_labels_json="",
         ),
-        env_name="g1_sonic_hurdle",
+        env_name=g1_task,
         output_dir=output_dir,
         accepted_specs=[{"episode_idx": 0, "split": "val", "seed": 7}],
         completed_episode_indices=set(),
@@ -418,9 +431,7 @@ def test_g1_replay_exports_pre_action_proprio_and_conditioned_target(
         export_image_size=None,
         image_writer_workers=0,
         row_buffer_size=1,
-        action_spec=gymnasium_continuous_action_spec(
-            [f"joint_{index}" for index in range(29)]
-        ),
+        action_spec=G1_SONIC_GR00T_ACTION_SPEC,
         base_prompt="Clear the hurdle.",
         integration_name="gymnasium",
     )
@@ -428,6 +439,34 @@ def test_g1_replay_exports_pre_action_proprio_and_conditioned_target(
     rows = list(iter_episode_rows(output_dir, "val"))
     assert [row["state"] for row in rows] == [[10.0] * 93, [11.0] * 93]
     assert [row["action"] for row in rows] == [[0.25] * 29, [1.25] * 29]
+    assert [row["prompt"] for row in rows] == ["Clear the hurdle."] * 2
+
+
+def test_g1_checkpoint_metadata_publishes_absolute_action_labels_without_residual_bounds():
+    from latency_bench.data.action_layouts import G1_SONIC_GR00T_ACTION_SPEC
+    from latency_bench.data.sf_teacher_config import _gymnasium_task_metadata
+
+    flat_cfg = _generic_flat_cfg()
+    flat_cfg["gym_task_name"] = "g1_sonic_hurdle"
+    flat_cfg["gym_action_space_json"] = json.dumps(
+        {
+            "type": "box",
+            "labels": [f"residual_{index}" for index in range(29)],
+            "low": [-1.0] * 29,
+            "high": [1.0] * 29,
+            "dtype": "float32",
+        }
+    )
+    flat_cfg["gym_noop_action_json"] = json.dumps([0.0] * 29)
+
+    metadata = _gymnasium_task_metadata(flat_cfg)
+
+    assert "noop_action" not in metadata
+    assert metadata["action_space"] == {
+        "type": "box",
+        "labels": list(G1_SONIC_GR00T_ACTION_SPEC.labels),
+        "dtype": "float32",
+    }
 
 
 def test_generic_vector_observations_keep_sample_factory_batch_dimension():

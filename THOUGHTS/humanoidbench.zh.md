@@ -94,6 +94,10 @@ raw reward、command age 和 latency metadata 只用于过滤与分析。
 `NEW_EMBODIMENT` 使用 93D state、40×29D body-target chunk 和官方 processor，
 不复制模型代码或转换 checkpoint。
 
+`results/humanoidbench_g1_sonic_run_hurdle_reference_playback/generated/eval.yaml`
+实际是 `g1_sonic_run` reference playback；目录名保留历史名称，不代表
+`run_hurdle` task。
+
 ## Latency 语义
 
 延迟在 VLA observation/inference boundary 注入，而不是 SONIC 50 Hz controller
@@ -128,6 +132,8 @@ underflow、controller compute 和 task success。fallback action 必须在实�
   planner 或 PPO 特例。
 - 不把 decoder 输出的 29D target 冒充 actor/replay 的 78D action。
 - 不增加兼容 alias、候选路径探测或隐式 fallback。
+- 当前只使用本地单 inference worker、只加载一份 GR00T；network policy server
+  留作独立的部署实验，不能与现有进程内结果直接混合比较。
 
 ## 下一步
 

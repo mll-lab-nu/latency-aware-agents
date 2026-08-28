@@ -62,6 +62,7 @@ def build_simulated_action_event(
         latency=latency_record,
         latency_raw_frames=latency_sample.action_ready_raw_frames,
         ready_raw_frame=ready_raw_frame,
+        action_chunk=policy_output.action_chunk,
         metadata=event_metadata,
     )
     apply_latency_raw_fields(

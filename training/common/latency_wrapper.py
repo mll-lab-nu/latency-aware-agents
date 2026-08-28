@@ -24,6 +24,18 @@ from latency_bench.scheduler.factory import build_persistence_policy
 from training.common.latency_config import build_latency_info
 from training.common.episode_metrics import append_episode_metrics_event
 
+_HURDLE_EPISODE_METRICS = (
+    "first_hurdle_clean_pass",
+    "hurdles_passed",
+    "hurdle_contacts",
+    "falls_or_nonfoot_ground_contact",
+    "course_complete",
+    "teacher_accepted",
+    "residual_abs_mean",
+    "residual_abs_max",
+    "residual_saturation_fraction",
+)
+
 
 def noop_action_from_space(space: gym.Space):
     if isinstance(space, Discrete):
@@ -404,6 +416,9 @@ class EpisodeMetricsWrapper(gym.Wrapper):
                 extra_stats["episode/score"] = float(info["score"])
             if info.get("pipes_passed") is not None:
                 extra_stats["episode/pipes_passed"] = float(info["pipes_passed"])
+            for key in _HURDLE_EPISODE_METRICS:
+                if key in info:
+                    extra_stats[f"episode/{key}"] = float(info[key])
             action_stats = self._issued_action_stats()
             extra_stats.update(action_stats)
 
@@ -442,6 +457,9 @@ class EpisodeMetricsWrapper(gym.Wrapper):
                 event["score"] = float(info["score"])
             if info.get("pipes_passed") is not None:
                 event["pipes_passed"] = float(info["pipes_passed"])
+            for key in _HURDLE_EPISODE_METRICS:
+                if key in info:
+                    event[key] = float(info[key])
             event.update(action_stats)
             append_episode_metrics_event(
                 self.metrics_path,

@@ -33,7 +33,15 @@ def append_episode_metrics_event(path: str | Path | None, event: dict[str, Any])
 
 
 class EpisodeMetricsAggregator:
-    def __init__(self, *, path: str | Path, rolling_window: int = 100):
+    """Tail episode events and publish aggregate training metrics."""
+
+    def __init__(
+        self,
+        *,
+        path: str | Path,
+        rolling_window: int = 100,
+        start_at_end: bool = False,
+    ):
         self.path = Path(path).expanduser()
         self.rolling_window = max(1, int(rolling_window))
         self.completed_episodes = 0
@@ -49,7 +57,9 @@ class EpisodeMetricsAggregator:
         self.length_window: deque[int] = deque(maxlen=self.rolling_window)
         self.raw_frames_window: deque[int] = deque(maxlen=self.rolling_window)
         self.latency_window: deque[int] = deque(maxlen=self.rolling_window)
-        self._offset = 0
+        self._offset = (
+            self.path.stat().st_size if start_at_end and self.path.exists() else 0
+        )
         self._pending_payloads: list[dict[str, Any]] = []
         self._wandb_initialized = False
 
@@ -193,13 +203,15 @@ def unlink_stale_episode_metrics_file(path: Any, restart_behavior: Any) -> Path:
 def start_episode_metrics_aggregator(cfg: Any):
     if os.environ.get("LATENCY_BENCH_DISABLE_EPISODE_METRICS_AGGREGATOR") == "1":
         return None, None
-    path = getattr(cfg, "episode_metrics_path", None) or episode_metrics_path_from_cfg(cfg)
+    path = cfg.episode_metrics_path or episode_metrics_path_from_cfg(cfg)
     if not path:
         return None, None
-    path_obj = unlink_stale_episode_metrics_file(
-        path, str(getattr(cfg, "restart_behavior", "overwrite") or "overwrite")
+    path_obj = unlink_stale_episode_metrics_file(path, cfg.restart_behavior)
+    aggregator = EpisodeMetricsAggregator(
+        path=path_obj,
+        rolling_window=cfg.stats_avg,
+        start_at_end=cfg.restart_behavior.lower() == "resume",
     )
-    aggregator = EpisodeMetricsAggregator(path=path_obj, rolling_window=int(getattr(cfg, "stats_avg", 100) or 100))
     stop_event = threading.Event()
     thread = threading.Thread(
         target=aggregator.run_forever,

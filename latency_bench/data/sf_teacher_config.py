@@ -13,6 +13,7 @@ import yaml
 
 from latency_bench.data.action_layouts import (
     ActionSpec,
+    G1_SONIC_GR00T_ACTION_SPEC,
     action_spec_for_env,
     gymnasium_discrete_action_spec,
     gymnasium_continuous_action_spec,
@@ -80,16 +81,16 @@ def _infer_env_name_from_sf_env(sf_env_name: str) -> str:
 def _rollout_task_contract(flat_cfg: Mapping[str, Any]) -> tuple[str, str, ActionSpec, str]:
     """Resolve task identity and semantics stored in a teacher checkpoint."""
     if flat_cfg["env"] == GYMNASIUM_SF_ENV:
-        if "gym_action_space_json" in flat_cfg:
-            action_space = json.loads(flat_cfg["gym_action_space_json"])
-            action_labels = action_space["labels"]
-        else:
-            action_space = {"type": "discrete"}
-            action_labels = json.loads(flat_cfg["gym_action_labels_json"])
+        action_space = json.loads(flat_cfg["gym_action_space_json"])
+        action_labels = action_space["labels"]
         action_spec = (
-            gymnasium_continuous_action_spec(action_labels)
-            if action_space["type"] == "box"
-            else gymnasium_discrete_action_spec(action_labels)
+            G1_SONIC_GR00T_ACTION_SPEC
+            if str(flat_cfg["gym_task_name"]).startswith("g1_sonic_")
+            else (
+                gymnasium_continuous_action_spec(action_labels)
+                if action_space["type"] == "box"
+                else gymnasium_discrete_action_spec(action_labels)
+            )
         )
         return (
             flat_cfg["gym_task_name"],
@@ -117,12 +118,14 @@ def _gymnasium_task_metadata(flat_cfg: Mapping[str, Any]) -> dict[str, Any]:
         metadata["state_space"] = {
             "labels": json.loads(flat_cfg["gym_state_labels_json"]),
         }
-    action_space = (
-        json.loads(flat_cfg["gym_action_space_json"])
-        if "gym_action_space_json" in flat_cfg
-        else {"type": "discrete"}
-    )
-    if action_space["type"] == "discrete":
+    action_space = json.loads(flat_cfg["gym_action_space_json"])
+    if str(flat_cfg["gym_task_name"]).startswith("g1_sonic_"):
+        metadata["action_space"] = {
+            "type": action_space["type"],
+            "labels": list(G1_SONIC_GR00T_ACTION_SPEC.labels),
+            "dtype": action_space["dtype"],
+        }
+    elif action_space["type"] == "discrete":
         metadata.update(
             {
                 "action_labels": json.loads(flat_cfg["gym_action_labels_json"]),

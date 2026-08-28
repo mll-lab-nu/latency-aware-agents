@@ -168,7 +168,7 @@ def _build_single_simulated_executor(
             )
         inference_pool = ProcessInferencePool(
             config=config,
-            inference_devices=_resolve_realtime_inference_devices(),
+            inference_devices=_resolve_policy_inference_devices(config),
         )
     else:
         policy = _resolve_policy(config, c.action_resolver, policy)
@@ -304,7 +304,7 @@ def _build_realtime_executor(
     latency_cfg = config["latency"]
     if resolve_latency_method(latency_cfg) != "zero":
         raise ValueError("realtime executor does not support injected latency")
-    inference_devices = _resolve_realtime_inference_devices()
+    inference_devices = _resolve_policy_inference_devices(config)
 
     def runtime_factory() -> RealtimeRuntime:
         return _build_realtime_runtime(config)
@@ -329,6 +329,13 @@ def _resolve_realtime_inference_devices() -> list[str]:
     if device_count == 0:
         raise RuntimeError("realtime inference requires at least one visible CUDA device")
     return [f"cuda:{idx}" for idx in range(device_count)]
+
+
+def _resolve_policy_inference_devices(config: dict[str, Any]) -> list[str]:
+    devices = _resolve_realtime_inference_devices()
+    if config["policy"]["type"] == "official_gr00t":
+        return devices[:1]
+    return devices
 
 
 def _build_clock(config: dict[str, Any]) -> EnvClock:

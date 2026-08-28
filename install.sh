@@ -24,7 +24,7 @@ Python 3.10, CUDA Toolkit 12.8.1, and PyTorch 2.11.0+cu128.
 
 Options:
   --tier <use|dev>         Install runtime or development dependencies (default: dev)
-  --model <name|all>       Required: openvla|pi0|pi05|gr00t|wan_oft|all
+  --model <name|all>       Required: openvla|pi0|pi05|gr00t|official_gr00t|wan_oft|all
   --skip-flash-attn        Skip FlashAttention install/check in selected model envs
   -h, --help               Show this help
 EOF
@@ -65,14 +65,14 @@ case "${INSTALL_TIER}" in
 esac
 
 case "${MODEL_TARGET}" in
-    openvla|pi0|pi05|gr00t|wan_oft|all) ;;
+    openvla|pi0|pi05|gr00t|official_gr00t|wan_oft|all) ;;
     "")
         echo "[install] --model is required" >&2
         usage >&2
         exit 1
         ;;
     *)
-        echo "[install] invalid model '${MODEL_TARGET}'; expected openvla|pi0|pi05|gr00t|wan_oft|all" >&2
+        echo "[install] invalid model '${MODEL_TARGET}'; expected openvla|pi0|pi05|gr00t|official_gr00t|wan_oft|all" >&2
         exit 1
         ;;
 esac
@@ -196,6 +196,26 @@ install_latency_env() {
     echo "[install] latency environment complete"
 }
 
+ensure_official_gr00t_uv() {
+    if command -v uv >/dev/null 2>&1; then
+        return
+    fi
+    if command -v curl >/dev/null 2>&1; then
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+    else
+        wget -qO- https://astral.sh/uv/install.sh | sh
+    fi
+    export PATH="${HOME}/.local/bin:${PATH}"
+}
+
+install_official_gr00t() {
+    ensure_official_gr00t_uv
+    echo "[install] syncing Isaac-GR00T Python 3.12 environment"
+    uv sync --project third_party/Isaac-GR00T --python 3.12
+    uv run --project third_party/Isaac-GR00T python -c \
+        'from gr00t.policy import Gr00tPolicy; print(Gr00tPolicy.__name__)'
+}
+
 ensure_conda
 persist_conda_shell_init
 
@@ -211,6 +231,14 @@ unset UV_NO_CACHE UV_LINK_MODE
 
 echo "[install] fixed stack: python=3.10 cuda=12.8.1 torch=2.11.0+cu128 model=${MODEL_TARGET}"
 install_latency_env
+
+if [[ "${MODEL_TARGET}" == "official_gr00t" || "${MODEL_TARGET}" == "all" ]]; then
+    install_official_gr00t
+fi
+
+if [[ "${MODEL_TARGET}" == "official_gr00t" ]]; then
+    exit 0
+fi
 
 BOOTSTRAP_ARGS=(
     --tier "${INSTALL_TIER}"
