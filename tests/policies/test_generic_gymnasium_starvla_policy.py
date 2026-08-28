@@ -266,30 +266,56 @@ def test_generic_checkpoint_policy_rejects_state_contract_mismatch(
         build_policy(config, ActionResolver(config["env"]))
 
 
-def test_h1_checkpoint_policy_passes_state_and_box_contract(monkeypatch, tmp_path: Path):
-    from latency_bench.core.config import load_config
+def test_synthetic_continuous_checkpoint_policy_passes_state_and_box_contract(
+    monkeypatch, tmp_path: Path
+):
     from latency_bench.policy import starvla
 
     GenericPolicyServerWrapper.instances.clear()
     monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
     monkeypatch.setattr(starvla, "_normalized_model_cfg", lambda model_cfg: model_cfg)
-    config = load_config(
-        "configs/examples/gymnasium/h1hand_balance_hard/starvla_eval.yaml"
-    )
+    config = {
+        "env": {
+            "name": "gymnasium",
+            "task_name": "synthetic_continuous",
+            "env_id": "SyntheticContinuous-v0",
+            "registration_imports": [],
+            "make_kwargs": {"render_mode": "rgb_array"},
+            "env_fps": 20,
+            "obs_fps": 20,
+            "frame_stack": 1,
+            "state_space": {"labels": ["position", "velocity"]},
+            "action_space": {
+                "type": "box",
+                "labels": ["left", "right"],
+                "low": [-1.0, -1.0],
+                "high": [1.0, 1.0],
+            },
+            "noop_action": [0.0, 0.0],
+            "base_prompt": "Move the synthetic system to its target.",
+        },
+        "policy": {
+            "type": "starvla",
+            "checkpoint_path": str(tmp_path / "checkpoint"),
+            "model_config_path": str(tmp_path / "config.full.yaml"),
+            "task_manifest_path": str(tmp_path / "manifest.json"),
+            "device": "cuda:0",
+        },
+    }
     contract = gymnasium_task_contract(config["env"])
-    task_manifest_path = tmp_path / "h1_manifest.json"
+    task_manifest_path = tmp_path / "manifest.json"
     task_manifest_path.write_text(
         json.dumps(
             {
                 "integration_name": "gymnasium",
-                "active_action_dim": 61,
+                "active_action_dim": 2,
                 "uses_state": True,
-                "state_dim": 177,
-                "state_labels": [f"state_{index:03d}" for index in range(177)],
+                "state_dim": 2,
+                "state_labels": ["position", "velocity"],
                 "state_normalization": {
                     "type": "min_max",
-                    "min": [0.0] * 177,
-                    "max": [176.0] * 177,
+                    "min": [-10.0, -10.0],
+                    "max": [10.0, 10.0],
                 },
                 "gymnasium_task": contract,
             }
@@ -304,10 +330,10 @@ def test_h1_checkpoint_policy_passes_state_and_box_contract(monkeypatch, tmp_pat
                 "gymnasium_task_contract": contract,
             }
         },
-        "framework": {"action_model": {"action_env_dim": 61, "state_dim": 177}},
+        "framework": {"action_model": {"action_env_dim": 2, "state_dim": 2}},
     }
     monkeypatch.setattr(starvla, "_load_starvla_model_config", lambda path: model_cfg)
-    state = np.arange(177, dtype=np.float32)
+    state = np.asarray([1.25, -2.5], dtype=np.float32)
 
     policy = build_policy(config, ActionResolver(config["env"]))
     output = policy.predict(
@@ -323,13 +349,13 @@ def test_h1_checkpoint_policy_passes_state_and_box_contract(monkeypatch, tmp_pat
     )
 
     wrapper = GenericPolicyServerWrapper.instances[0]
-    assert wrapper.rl_games_action_env_dim == 61
+    assert wrapper.rl_games_action_env_dim == 2
     assert wrapper.rl_games_gymnasium_action_space_type == "box"
     np.testing.assert_allclose(
         wrapper.calls[0]["examples"][0]["state"],
-        (2.0 * state / 176.0 - 1.0).reshape(1, 177),
+        (state / 10.0).reshape(1, 2),
     )
-    assert output.action.value == [0.0] * 61
+    assert output.action.value == [0.0, 0.0]
 
 
 def test_generic_policy_allows_eval_only_reset_wrapper_overrides(

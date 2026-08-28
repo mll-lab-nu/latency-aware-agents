@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from scripts.experiments import humanoidbench_sonic_alignment as alignment
+from scripts.experiments.humanoidbench import alignment
 
 
 def test_supported_task_inventory_and_reference_mapping_are_complete():

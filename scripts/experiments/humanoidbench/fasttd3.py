@@ -15,7 +15,7 @@ import onnxruntime as ort
 import mujoco
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -49,7 +49,7 @@ from scripts.experiment_runner.job_manifest import (
 )
 
 BASE_TRAIN_CONFIG = REPO_ROOT / (
-    "configs/examples/gymnasium/h1hand_balance_hard/small_model_train.yaml"
+    "configs/examples/gymnasium/g1_sonic_hurdle/fasttd3_train.yaml"
 )
 SONIC_REGISTRATION_IMPORT = "latency_bench.envs.humanoidbench_sonic"
 SONIC_PHYSICAL_RESIDUAL_DIM = len(G1_BODY_JOINT_NAMES)
@@ -208,6 +208,7 @@ def build_g1_train_config(
     wandb_name: str,
     train_for_env_steps: int,
     restart_behavior: str,
+    gamma: float = 0.999,
 ) -> dict[str, Any]:
     config = load_config(BASE_TRAIN_CONFIG)
     config["experiment"]["name"] = run_name
@@ -236,7 +237,7 @@ def build_g1_train_config(
             "fasttd3_transitions_per_update": 64,
             "fasttd3_compile": True,
             "learning_rate": 3e-4,
-            "gamma": 0.999,
+            "gamma": gamma,
             "recurrence": 1,
             "num_epochs": 1,
             "num_batches_per_epoch": 1,
@@ -381,6 +382,7 @@ def _manifest_row(
 def generate_g1_experiment(
     *,
     output_root: Path = G1_OUTPUT_ROOT,
+    gamma: float = 0.999,
 ) -> dict[str, Any]:
     output_root = output_root.expanduser()
     asset_root, decoder_path = prepare_g1_sonic_assets(G1_SONIC_ASSET_CACHE)
@@ -414,6 +416,7 @@ def generate_g1_experiment(
         wandb_name=f"{output_root.name}_{run_name}",
         train_for_env_steps=TRAIN_FOR_ENV_STEPS,
         restart_behavior="restart",
+        gamma=gamma,
     )
     eval_config = build_g1_eval_config(
         train_config=train_config,
@@ -468,7 +471,7 @@ def generate_g1_experiment(
         "replay_batch_size": 32_768,
         "transitions_per_update": 64,
         "learning_rate": 3e-4,
-        "gamma": 0.999,
+        "gamma": gamma,
         "fasttd3_compile": True,
         "final_eval_episodes": 50,
         "sonic_decoder_path": str(decoder_path),
@@ -488,8 +491,9 @@ def generate_g1_experiment(
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-root", type=Path, default=G1_OUTPUT_ROOT)
+    parser.add_argument("--gamma", type=float, default=0.99)
     args = parser.parse_args(argv)
-    summary = generate_g1_experiment(output_root=args.output_root)
+    summary = generate_g1_experiment(output_root=args.output_root, gamma=args.gamma)
     print(json.dumps(summary, indent=2))
 
 

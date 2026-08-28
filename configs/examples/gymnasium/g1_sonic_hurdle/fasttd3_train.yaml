@@ -1,0 +1,4 @@
+__base__: ../walker2d/small_model_train.yaml
+
+experiment:
+  name: gymnasium_g1_sonic_hurdle_fasttd3

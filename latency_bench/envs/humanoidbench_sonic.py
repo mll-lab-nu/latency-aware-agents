@@ -16,48 +16,90 @@ import mujoco
 import numpy as np
 import onnxruntime as ort
 from gymnasium.envs.mujoco import MujocoEnv
+from gymnasium.envs.mujoco import mujoco_rendering
 from gymnasium.spaces import Box
 from gymnasium.spaces import Dict as DictSpace
-from humanoid_bench.dmc_deps import dmc_index
+from humanoid_bench.dmc_deps import dmc_index, dmc_sizes
 from humanoid_bench.dmc_deps.dmc_wrapper import MjDataWrapper, MjModelWrapper
 from humanoid_bench.env import (
     DEFAULT_CAMERA_CONFIG,
     DEFAULT_RANDOMNESS,
+    HumanoidEnv,
     NamedIndexStructs,
     TASKS,
 )
 from humanoid_bench.robots import G1
 
-# Apply the HumanoidBench family's MuJoCo 3.3 named-index compatibility patch.
-from latency_bench.envs import humanoidbench as humanoidbench_family
 from latency_bench.envs.humanoidbench_sonic_contract import (
     G1_BODY_JOINT_NAMES,
     G1_DEFAULT_ANGLES,
     MUJOCO_INDEX_FOR_POLICY,
     POLICY_INDEX_FOR_MUJOCO,
 )
+from latency_bench.envs.humanoidbench_sonic_reference import (
+    build_encoder_observation,
+)
 from latency_bench.envs.humanoidbench_sonic_teacher import (
-    DEFAULT_HURDLE_POSITIONS,
     JUMP_STATE,
     RUN_STATE,
     SONIC_CONTROL_HZ,
     match_reference_phase,
 )
-from latency_bench.envs.humanoidbench_sonic_reference import (
-    build_encoder_observation,
-)
+
+
+# HumanoidBench's generated table targets MuJoCo 3.1.6. These fields were
+# removed or renamed in MuJoCo 3.3 before the named indexers are constructed.
+for _struct_name, _field_names in {
+    "mjmodel": ("flex_xvert0", "tex_rgb"),
+    "mjdata": ("qLDiagSqrtInv",),
+}.items():
+    for _field_name in _field_names:
+        del dmc_sizes.array_sizes[_struct_name][_field_name]
+
+
+def _add_marker_to_mujoco_33_scene(self, marker: dict[str, Any]) -> None:
+    """Add one Gymnasium marker using MuJoCo 3.3's MjvGeom fields."""
+
+    if self.scn.ngeom >= self.scn.maxgeom:
+        raise RuntimeError(f"Ran out of geoms. maxgeom: {self.scn.maxgeom}")
+
+    geom = self.scn.geoms[self.scn.ngeom]
+    mujoco.mjv_initGeom(
+        geom,
+        mujoco.mjtGeom.mjGEOM_BOX,
+        np.full(3, 0.1),
+        np.zeros(3),
+        np.eye(3).ravel(),
+        np.ones(4, dtype=np.float32),
+    )
+    geom.objtype = mujoco.mjtObj.mjOBJ_UNKNOWN
+    geom.objid = -1
+    geom.category = mujoco.mjtCatBit.mjCAT_DECOR
+    for key, value in marker.items():
+        attribute = getattr(geom, key)
+        if isinstance(attribute, np.ndarray):
+            attribute[:] = value
+        else:
+            setattr(geom, key, value)
+    self.scn.ngeom += 1
+
+
+mujoco_rendering.BaseRender._add_marker_to_scene = _add_marker_to_mujoco_33_scene
 
 G1_CONTROL_MODE_RAW = "raw_body_target"
+G1_CONTROL_MODE_DIRECT_ABSOLUTE = "direct_absolute_body_position"
 G1_CONTROL_MODE_SONIC = "sonic_token"
-G1_CONTROL_MODE_SONIC_REFERENCE = "sonic_token_reference"
 G1_CONTROL_MODE_SONIC_COMPOSED = "sonic_token_composed"
 SONIC_DECODER_MODE_ENVIRONMENT = "environment"
 SONIC_DECODER_MODE_INFERENCE_WORKER = "inference_worker"
-SONIC_REFERENCE_RESIDUAL_SCALE = 0.25
 SONIC_COMPOSED_PHYSICAL_RESIDUAL_SCALE = 0.15
 SONIC_COMPOSED_TRIGGER_DISTANCE = 1.0
 SONIC_COMPOSED_JUMP_START_PHASE = 30
 SONIC_COMPOSED_RUN_MATCH_RADIUS = 25
+GR00T_PROPRIO_DIM = 93
+GR00T_PROPRIO_INFO = "official_gr00t_proprio"
+CONDITIONED_BODY_TARGET_INFO = "conditioned_body_target"
+ACTION_TARGET_INFO = "action_target"
 
 _NO_RESET_NOISE_TASKS = {
     "bookshelf_hard",
@@ -104,6 +146,19 @@ _HAND_JOINT_NAMES = (
 
 _HAND_KP = np.ones(14, dtype=np.float64)
 _HAND_KD = np.full(14, 0.1, dtype=np.float64)
+
+# Unitree G1 ``g1_29dof_with_hand.urdf`` velocity fields, in the MuJoCo and
+# hand-name orders above. These cap the 50 Hz position target, not measured dq.
+_BODY_TARGET_VELOCITY_LIMITS = np.asarray(
+    [32, 32, 32, 20, 30, 30] * 2
+    + [32, 30, 30]
+    + [37, 37, 37, 37, 37, 22, 22] * 2,
+    dtype=np.float64,
+)
+_HAND_TARGET_VELOCITY_LIMITS = np.asarray(
+    [3.14, 12, 12, 12, 12, 12, 12] * 2,
+    dtype=np.float64,
+)
 
 _ARMATURE_5020 = 0.003609725
 _ARMATURE_7520_14 = 0.010177520
@@ -256,7 +311,7 @@ def g1_raw_reset_action(scene_path: str, *, learn_hands: bool) -> list[float]:
 class G1SonicEnv(MujocoEnv):
     """G1 task with either direct body targets or SONIC tokens."""
 
-    metadata: ClassVar[dict[str, Any]] = humanoidbench_family.HumanoidBenchEnv.metadata
+    metadata: ClassVar[dict[str, Any]] = HumanoidEnv.metadata
 
     def __init__(
         self,
@@ -270,9 +325,12 @@ class G1SonicEnv(MujocoEnv):
         sonic_reference_bundle_path: str | None = None,
         sonic_initial_reference_qpos: np.ndarray | None = None,
         raw_learn_hands: bool = True,
+        sonic_learn_hands: bool = True,
+        target_velocity_ramp_time_s: float | None = 0.1,
         render_mode: str,
         width: int,
         height: int,
+        camera_name: str | None = None,
         hurdle_height: float = 0.375,
         hurdle_count: int = 10,
         hurdle_horizon: int = 1000,
@@ -282,39 +340,45 @@ class G1SonicEnv(MujocoEnv):
         self._control_mode = control_mode
         self._sonic_initial_reference_qpos = sonic_initial_reference_qpos
         self._raw_learn_hands = raw_learn_hands
+        self._sonic_learn_hands = sonic_learn_hands
         self.robot = G1(self)
         # HumanoidBench's robot.dof means qpos length, not actuator count.
         self.robot.dof = 50
         task_class = TASKS[self._task_key]
         task_info = task_class(self.robot, None)
-        policy_observation_space = task_info.observation_space
-        composed_control = control_mode == G1_CONTROL_MODE_SONIC_COMPOSED
-        reference_control = control_mode == G1_CONTROL_MODE_SONIC_REFERENCE
-        if composed_control:
+        policy_observation_space = Box(
+            -np.inf,
+            np.inf,
+            shape=(task_info.observation_space.shape[0] + 86,),
+            dtype=task_info.observation_space.dtype,
+        )
+        if control_mode == G1_CONTROL_MODE_SONIC_COMPOSED:
             reference_bundle = np.load(sonic_reference_bundle_path)
             self._run_encoder_qpos = np.asarray(
                 reference_bundle["run_encoder_qpos"], dtype=np.float32
             )
-            self._jump_encoder_qpos = np.asarray(
-                reference_bundle["jump_encoder_qpos"], dtype=np.float32
-            )
             self._run_reference_qpos = np.asarray(
                 reference_bundle["run_reference_qpos"], dtype=np.float32
-            )
-            self._jump_reference_qpos = np.asarray(
-                reference_bundle["jump_reference_qpos"], dtype=np.float32
             )
             self._run_reference_foot_contacts = np.asarray(
                 reference_bundle["run_reference_foot_contacts"]
             )
             self._run_reference_joint_velocities = (
-                np.gradient(self._run_reference_qpos[:, 7:], axis=0) * SONIC_CONTROL_HZ
+                np.gradient(self._run_reference_qpos[:, 7:], axis=0)
+                * SONIC_CONTROL_HZ
             )
             self._reference_mode = RUN_STATE
             self._run_phase = 0
-            self._jump_phase = 0
-            self._paused_run_phase = 0
-            self._next_hurdle_index = 0
+            if self._task_key == "hurdle":
+                self._jump_encoder_qpos = np.asarray(
+                    reference_bundle["jump_encoder_qpos"], dtype=np.float32
+                )
+                self._jump_reference_qpos = np.asarray(
+                    reference_bundle["jump_reference_qpos"], dtype=np.float32
+                )
+                self._jump_phase = 0
+                self._paused_run_phase = 0
+                self._next_hurdle_index = 0
             session_options = ort.SessionOptions()
             session_options.intra_op_num_threads = 1
             session_options.inter_op_num_threads = 1
@@ -326,57 +390,27 @@ class G1SonicEnv(MujocoEnv):
             )
             self._encoder_input_name = self._encoder.get_inputs()[0].name
             self._encoder_output_name = self._encoder.get_outputs()[0].name
-            packed_observation_space = Box(
-                -np.inf,
-                np.inf,
-                shape=(policy_observation_space.shape[0] + 930 + 64 + 2,),
-                dtype=policy_observation_space.dtype,
-            )
             observation_space = DictSpace(
                 {
-                    "obs": packed_observation_space,
+                    "obs": Box(
+                        -np.inf,
+                        np.inf,
+                        shape=(task_info.observation_space.shape[0] + 930 + 64 + 2,),
+                        dtype=task_info.observation_space.dtype,
+                    ),
                     "sonic_state": Box(-np.inf, np.inf, shape=(930,), dtype=np.float32),
                     "base_token": Box(-np.inf, np.inf, shape=(64,), dtype=np.float32),
                 }
             )
-        elif reference_control:
-            reference_bundle = np.load(sonic_reference_bundle_path)
-            self._reference_tokens = np.asarray(
-                reference_bundle["reference_tokens"], dtype=np.float32
-            )
-            self._reference_qpos = np.asarray(
-                reference_bundle["reference_qpos"], dtype=np.float32
-            )
-            self._reference_phase = 0
-            packed_observation_space = Box(
-                -np.inf,
-                np.inf,
-                shape=(policy_observation_space.shape[0] + 930 + 64 + 1,),
-                dtype=policy_observation_space.dtype,
-            )
+        elif sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER:
             observation_space = DictSpace(
                 {
-                    "obs": packed_observation_space,
+                    "obs": policy_observation_space,
                     "sonic_state": Box(-np.inf, np.inf, shape=(930,), dtype=np.float32),
-                    "reference_token": Box(
-                        -np.inf, np.inf, shape=(64,), dtype=np.float32
-                    ),
-                    "reference_phase": Box(-np.inf, np.inf, shape=(1,), dtype=np.float32),
                 }
             )
         else:
-            observation_space = (
-                DictSpace(
-                    {
-                        "obs": policy_observation_space,
-                        "sonic_state": Box(
-                            -np.inf, np.inf, shape=(930,), dtype=np.float32
-                        ),
-                    }
-                )
-                if sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER
-                else policy_observation_space
-            )
+            observation_space = policy_observation_space
         super().__init__(
             model_path=scene_path,
             frame_skip=task_info.frame_skip,
@@ -384,28 +418,16 @@ class G1SonicEnv(MujocoEnv):
             render_mode=render_mode,
             width=width,
             height=height,
-            camera_name=task_info.camera_name,
+            camera_name=task_info.camera_name if camera_name is None else camera_name,
             default_camera_config=DEFAULT_CAMERA_CONFIG,
         )
-        if control_mode == G1_CONTROL_MODE_RAW:
-            action_dim = 29 + (14 if raw_learn_hands else 0)
-            self.action_space = Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
-        elif composed_control:
-            action_dim = len(G1_BODY_JOINT_NAMES)
-            self.action_space = Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
-        else:
-            action_dim = 78
-            self.action_space = Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
         self.observation_space = observation_space
         self._sonic_decoder_mode = sonic_decoder_mode
-        self.action_low = np.full(action_dim, -1.0, dtype=np.float64)
-        self.action_high = np.full(action_dim, 1.0, dtype=np.float64)
 
         if (
             control_mode
             in (
                 G1_CONTROL_MODE_SONIC,
-                G1_CONTROL_MODE_SONIC_REFERENCE,
                 G1_CONTROL_MODE_SONIC_COMPOSED,
             )
             and sonic_decoder_mode == SONIC_DECODER_MODE_ENVIRONMENT
@@ -492,6 +514,50 @@ class G1SonicEnv(MujocoEnv):
                 for name in G1_BODY_JOINT_NAMES
             ]
         ].copy()
+        if control_mode == G1_CONTROL_MODE_RAW:
+            action_dim = 29 + (14 if raw_learn_hands else 0)
+            self.action_space = Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
+        elif control_mode == G1_CONTROL_MODE_DIRECT_ABSOLUTE:
+            action_dim = 29
+            self.action_space = Box(
+                self._body_joint_ranges[:, 0][MUJOCO_INDEX_FOR_POLICY],
+                self._body_joint_ranges[:, 1][MUJOCO_INDEX_FOR_POLICY],
+                dtype=np.float32,
+            )
+        elif control_mode == G1_CONTROL_MODE_SONIC:
+            action_dim = 64 + (14 if sonic_learn_hands else 0)
+            self.action_space = Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
+        elif control_mode == G1_CONTROL_MODE_SONIC_COMPOSED:
+            action_dim = len(G1_BODY_JOINT_NAMES)
+            self.action_space = Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
+        if control_mode == G1_CONTROL_MODE_DIRECT_ABSOLUTE:
+            self.action_low = self.action_space.low.astype(np.float64)
+            self.action_high = self.action_space.high.astype(np.float64)
+        else:
+            self.action_low = np.full(action_dim, -1.0, dtype=np.float64)
+            self.action_high = np.full(action_dim, 1.0, dtype=np.float64)
+        self._target_velocity_limits = np.concatenate(
+            [_BODY_TARGET_VELOCITY_LIMITS, _HAND_TARGET_VELOCITY_LIMITS]
+        )
+        self._joint_ranges = np.concatenate(
+            [self._body_joint_ranges, self._hand_joint_ranges]
+        )
+        self._q_cmd = np.zeros(43, dtype=np.float64)
+        self._v_cmd = np.zeros(43, dtype=np.float64)
+        self._target_acceleration_limits = (
+            None
+            if target_velocity_ramp_time_s is None
+            else self._target_velocity_limits / target_velocity_ramp_time_s
+        )
+        self._command_tracking_error = 0.0
+        self._target_velocity_max_ratio = 0.0
+        self._target_acceleration_mean_ratio_per_s = 0.0
+        self._target_acceleration_max_ratio_per_s = 0.0
+        self._target_velocity_reversal_fraction = 0.0
+        self._actual_joint_velocity_max = 0.0
+        self._torque_saturation_fraction = 0.0
+        self._torque_saturation_count = 0
+        self._torque_sample_count = 0
         self._pelvis_body_id = mujoco.mj_name2id(
             self.model, mujoco.mjtObj.mjOBJ_BODY, "pelvis"
         )
@@ -517,6 +583,9 @@ class G1SonicEnv(MujocoEnv):
             else task_class(self.robot, self)
         )
         if self._task_key == "hurdle":
+            self._hurdle_x_positions = tuple(
+                self._task._hurdle_x_positions[: self._task._hurdle_count]
+            )
             for geom_id in self._task._hurdle_geom_ids:
                 self.model.geom_size[geom_id, 2] = hurdle_height * 0.5
                 self.model.geom_pos[geom_id, 2] = hurdle_height * 0.5
@@ -556,8 +625,31 @@ class G1SonicEnv(MujocoEnv):
 
     def _frame(self) -> dict[str, np.ndarray]:
         body_q, body_dq = self._body_state()
+        gravity = self._projected_gravity()
+        base_angular_velocity = self._base_angular_velocity()
+        return {
+            "angular_velocity": base_angular_velocity,
+            "body_q": body_q,
+            "body_dq": body_dq,
+            "last_action": self._last_action.copy(),
+            "gravity": gravity,
+        }
+
+    def _base_angular_velocity(self) -> np.ndarray:
+        base_velocity = np.zeros(6, dtype=np.float64)
+        mujoco.mj_objectVelocity(
+            self.model,
+            self.data,
+            mujoco.mjtObj.mjOBJ_BODY,
+            self._pelvis_body_id,
+            base_velocity,
+            1,
+        )
+        return base_velocity[:3].copy()
+
+    def _projected_gravity(self) -> np.ndarray:
         root_quaternion = self.data.qpos[3:7]
-        gravity = _rotate_by_quaternion(
+        return _rotate_by_quaternion(
             np.asarray(
                 [
                     root_quaternion[0],
@@ -568,22 +660,22 @@ class G1SonicEnv(MujocoEnv):
             ),
             np.asarray([0.0, 0.0, -1.0]),
         )
-        base_velocity = np.zeros(6, dtype=np.float64)
-        mujoco.mj_objectVelocity(
-            self.model,
-            self.data,
-            mujoco.mjtObj.mjOBJ_BODY,
-            self._pelvis_body_id,
-            base_velocity,
-            1,
-        )
-        return {
-            "angular_velocity": base_velocity[:3].copy(),
-            "body_q": body_q,
-            "body_dq": body_dq,
-            "last_action": self._last_action.copy(),
-            "gravity": gravity,
-        }
+
+    def _conditioned_body_target(self) -> np.ndarray:
+        return self._q_cmd[:29][MUJOCO_INDEX_FOR_POLICY].copy()
+
+    def _official_gr00t_proprio(self) -> np.ndarray:
+        body_q = self.data.qpos[self._body_qpos_addresses][MUJOCO_INDEX_FOR_POLICY]
+        body_dq = self.data.qvel[self._body_qvel_addresses][MUJOCO_INDEX_FOR_POLICY]
+        return np.concatenate(
+            [
+                self._base_angular_velocity(),
+                body_q,
+                body_dq,
+                self._conditioned_body_target(),
+                self._projected_gravity(),
+            ]
+        ).astype(np.float32)
 
     def _decoder_state(self) -> np.ndarray:
         frames = list(self._history)
@@ -621,22 +713,83 @@ class G1SonicEnv(MujocoEnv):
             dtype=np.float64,
         )
 
-    def _controller(
+    @staticmethod
+    def _braking_distance(
+        velocity: np.ndarray, velocity_step: np.ndarray, dt: float
+    ) -> np.ndarray:
+        speed = np.abs(velocity)
+        steps = np.maximum(np.ceil(speed / velocity_step) - 1.0, 0.0)
+        return dt * (
+            steps * speed - 0.5 * velocity_step * steps * (steps + 1.0)
+        )
+
+    def _condition_velocity(
+        self,
+        q_request: np.ndarray,
+        q_previous: np.ndarray,
+        v_previous: np.ndarray,
+        joint_ranges: np.ndarray,
+        velocity_limits: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        velocity_request = (q_request - q_previous) / self.dt
+        velocity = np.clip(velocity_request, -velocity_limits, velocity_limits)
+        if self._target_acceleration_limits is not None:
+            velocity_step = self._target_acceleration_limits * self.dt
+            velocity = np.clip(
+                velocity,
+                v_previous - velocity_step,
+                v_previous + velocity_step,
+            )
+            velocity = np.clip(
+                velocity,
+                (joint_ranges[:, 0] - q_previous) / self.dt,
+                (joint_ranges[:, 1] - q_previous) / self.dt,
+            )
+            positive = velocity > 0.0
+            positive_distance = (
+                q_previous + velocity * self.dt
+                + self._braking_distance(velocity, velocity_step, self.dt)
+            )
+            positive_violation = positive & (positive_distance > joint_ranges[:, 1])
+            negative = velocity < 0.0
+            negative_distance = (
+                q_previous + velocity * self.dt
+                - self._braking_distance(velocity, velocity_step, self.dt)
+            )
+            negative_violation = negative & (negative_distance < joint_ranges[:, 0])
+            braking_velocity = np.sign(v_previous) * np.maximum(
+                np.abs(v_previous) - velocity_step, 0.0
+            )
+            velocity = np.where(
+                positive_violation | negative_violation,
+                braking_velocity,
+                velocity,
+            )
+        else:
+            velocity = np.clip(
+                velocity,
+                (joint_ranges[:, 0] - q_previous) / self.dt,
+                (joint_ranges[:, 1] - q_previous) / self.dt,
+            )
+        return q_previous + velocity * self.dt, velocity
+
+    def _condition_targets(
         self,
         body_action_mu: np.ndarray,
         hand_action: np.ndarray | None,
         *,
-        raw_body: bool = False,
-    ) -> np.ndarray:
-        if raw_body:
-            target_mu = self._body_joint_ranges[:, 0] + (body_action_mu + 1.0) * 0.5 * (
-                self._body_joint_ranges[:, 1] - self._body_joint_ranges[:, 0]
-            )
+        raw_body: bool,
+        absolute_body: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if absolute_body:
+            body_target_request = body_action_mu
+        elif raw_body:
+            body_target_request = self._body_joint_ranges[:, 0] + (
+                body_action_mu + 1.0
+            ) * 0.5 * (self._body_joint_ranges[:, 1] - self._body_joint_ranges[:, 0])
         else:
-            target_mu = G1_DEFAULT_ANGLES + body_action_mu * _ACTION_SCALE
-        q_mu = self.data.qpos[self._body_qpos_addresses]
-        dq_mu = self.data.qvel[self._body_qvel_addresses]
-        hand_target = (
+            body_target_request = G1_DEFAULT_ANGLES + body_action_mu * _ACTION_SCALE
+        hand_target_request = (
             np.zeros(14, dtype=np.float64)
             if hand_action is None
             else self._hand_joint_ranges[:, 0]
@@ -644,18 +797,76 @@ class G1SonicEnv(MujocoEnv):
             * 0.5
             * (self._hand_joint_ranges[:, 1] - self._hand_joint_ranges[:, 0])
         )
+        body_request = np.clip(
+            body_target_request,
+            self._body_joint_ranges[:, 0],
+            self._body_joint_ranges[:, 1],
+        )
+        hand_request = np.clip(
+            hand_target_request,
+            self._hand_joint_ranges[:, 0],
+            self._hand_joint_ranges[:, 1],
+        )
+        q_request = np.concatenate([body_request, hand_request])
+        q_cmd, v_cmd = self._condition_velocity(
+            q_request,
+            self._q_cmd,
+            self._v_cmd,
+            self._joint_ranges,
+            self._target_velocity_limits,
+        )
+        acceleration = (v_cmd - self._v_cmd) / self.dt
+        self._command_tracking_error = float(
+            np.mean(
+                np.abs(q_request - q_cmd)
+                / (self._joint_ranges[:, 1] - self._joint_ranges[:, 0])
+            )
+        )
+        self._target_velocity_max_ratio = float(
+            np.max(np.abs(v_cmd) / self._target_velocity_limits)
+        )
+        self._target_acceleration_mean_ratio_per_s = float(
+            np.mean(np.abs(acceleration) / self._target_velocity_limits)
+        )
+        self._target_acceleration_max_ratio_per_s = float(
+            np.max(np.abs(acceleration) / self._target_velocity_limits)
+        )
+        self._target_velocity_reversal_fraction = float(
+            np.count_nonzero(v_cmd * self._v_cmd < 0.0) / 43
+        )
+        self._q_cmd = q_cmd
+        self._v_cmd = v_cmd
+        return q_cmd[:29], q_cmd[29:]
+
+    def _command_observation(self) -> np.ndarray:
+        q_norm = 2.0 * (
+            self._q_cmd - self._joint_ranges[:, 0]
+        ) / (self._joint_ranges[:, 1] - self._joint_ranges[:, 0]) - 1.0
+        v_norm = self._v_cmd / self._target_velocity_limits
+        return np.concatenate([q_norm, v_norm])
+
+    def _controller(
+        self,
+        body_target: np.ndarray,
+        hand_target: np.ndarray,
+    ) -> np.ndarray:
+        q_mu = self.data.qpos[self._body_qpos_addresses]
+        dq_mu = self.data.qvel[self._body_qvel_addresses]
         hand_q = self.data.qpos[self._hand_qpos_addresses]
         hand_dq = self.data.qvel[self._hand_qvel_addresses]
         ctrl = np.zeros(self.model.nu, dtype=np.float64)
-        ctrl[self._body_actuator_ids] = _KP * (target_mu - q_mu) - _KD * dq_mu
+        ctrl[self._body_actuator_ids] = _KP * (body_target - q_mu) - _KD * dq_mu
         ctrl[self._hand_actuator_ids] = (
             _HAND_KP * (hand_target - hand_q) - _HAND_KD * hand_dq
         )
-        return np.clip(
+        clipped_ctrl = np.clip(
             ctrl,
             self.model.actuator_ctrlrange[:, 0],
             self.model.actuator_ctrlrange[:, 1],
         )
+        self._torque_saturation_count += np.count_nonzero(clipped_ctrl != ctrl)
+        self._torque_sample_count += self.model.nu
+        return clipped_ctrl
 
     def set_decoded_action(self, action: np.ndarray) -> None:
         """Supply the body action decoded by Sample Factory's inference worker."""
@@ -687,23 +898,6 @@ class G1SonicEnv(MujocoEnv):
             dtype=np.float32,
         )
 
-    def _reference_observation(self) -> tuple[np.ndarray, np.ndarray]:
-        token = self._reference_tokens[self._reference_phase]
-        phase = np.asarray(
-            [self._reference_phase / len(self._reference_tokens)], dtype=np.float32
-        )
-        return token, phase
-
-    def _reference_info(self) -> dict[str, float]:
-        reference_qpos = self._reference_qpos[self._reference_phase]
-        actual_qpos = self.data.qpos[self._body_qpos_addresses]
-        return {
-            "reference_phase": float(self._reference_phase),
-            "reference_joint_rmse": float(
-                np.sqrt(np.mean((actual_qpos - reference_qpos[7:]) ** 2))
-            ),
-        }
-
     def _online_reference_token(self) -> np.ndarray:
         mode, phase = self._reference_state()
         reference_qpos = (
@@ -723,13 +917,10 @@ class G1SonicEnv(MujocoEnv):
         )
 
     def _match_reference_phase(self, candidate_phases=None) -> int:
-        actual_joint_positions = self.data.qpos[self._body_qpos_addresses]
-        actual_joint_velocities = self.data.qvel[self._body_qvel_addresses]
-        actual_foot_contacts = self._foot_contacts()
         return match_reference_phase(
-            actual_joint_positions,
-            actual_joint_velocities,
-            actual_foot_contacts,
+            self.data.qpos[self._body_qpos_addresses],
+            self.data.qvel[self._body_qvel_addresses],
+            self._foot_contacts(),
             self._run_reference_qpos,
             self._run_reference_joint_velocities,
             self._run_reference_foot_contacts,
@@ -748,15 +939,13 @@ class G1SonicEnv(MujocoEnv):
             len(self._run_reference_qpos),
             self._paused_run_phase + SONIC_COMPOSED_RUN_MATCH_RADIUS + 1,
         )
-        self._run_phase = self._match_reference_phase(
-            range(phase_start, phase_stop)
-        )
+        self._run_phase = self._match_reference_phase(range(phase_start, phase_stop))
 
     def _advance_hurdle_index(self) -> None:
         root_x = self.data.qpos[0]
         while (
-            self._next_hurdle_index < len(DEFAULT_HURDLE_POSITIONS)
-            and root_x > DEFAULT_HURDLE_POSITIONS[self._next_hurdle_index]
+            self._next_hurdle_index < len(self._hurdle_x_positions)
+            and root_x > self._hurdle_x_positions[self._next_hurdle_index]
         ):
             self._next_hurdle_index += 1
 
@@ -764,17 +953,14 @@ class G1SonicEnv(MujocoEnv):
         if self._sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER:
             decoder_action = self._pending_decoded_action
             self._pending_decoded_action = None
-        else:
-            decoder_action = self._decode(self._base_token)
-        return decoder_action
+            return decoder_action
+        return self._decode(self._base_token)
 
     def _maybe_trigger_jump(self) -> None:
         self._advance_hurdle_index()
-        if self._reference_mode == RUN_STATE and self._next_hurdle_index < len(
-            DEFAULT_HURDLE_POSITIONS
-        ):
+        if self._next_hurdle_index < len(self._hurdle_x_positions):
             distance = (
-                DEFAULT_HURDLE_POSITIONS[self._next_hurdle_index] - self.data.qpos[0]
+                self._hurdle_x_positions[self._next_hurdle_index] - self.data.qpos[0]
             )
             if 0.0 <= distance <= SONIC_COMPOSED_TRIGGER_DISTANCE:
                 self._start_jump()
@@ -804,25 +990,22 @@ class G1SonicEnv(MujocoEnv):
             self._base_token = self._online_reference_token()
             return {
                 "obs": np.concatenate(
-                    [task_observation, sonic_state, self._base_token, self._reference_phase_features()]
+                    [
+                        task_observation,
+                        sonic_state,
+                        self._base_token,
+                        self._reference_phase_features(),
+                    ]
                 ),
                 "sonic_state": sonic_state,
                 "base_token": self._base_token,
             }
-        if self._control_mode == G1_CONTROL_MODE_SONIC_REFERENCE:
-            sonic_state = self._decoder_state()
-            reference_token, reference_phase = self._reference_observation()
-            return {
-                "obs": np.concatenate(
-                    [task_observation, sonic_state, reference_token, reference_phase]
-                ),
-                "sonic_state": sonic_state,
-                "reference_token": reference_token,
-                "reference_phase": reference_phase,
-            }
+        policy_observation = np.concatenate(
+            [task_observation, self._command_observation()]
+        )
         if self._sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER:
-            return {"obs": task_observation, "sonic_state": self._decoder_state()}
-        return task_observation
+            return {"obs": policy_observation, "sonic_state": self._decoder_state()}
+        return policy_observation
 
     def reset(
         self,
@@ -832,7 +1015,11 @@ class G1SonicEnv(MujocoEnv):
     ):
         if seed is not None:
             np.random.seed(seed)
-        return super().reset(seed=seed, options=options)
+        observation, info = super().reset(seed=seed, options=options)
+        info[GR00T_PROPRIO_INFO] = self._official_gr00t_proprio()
+        info[CONDITIONED_BODY_TARGET_INFO] = self._conditioned_body_target()
+        info[ACTION_TARGET_INFO] = self._conditioned_body_target()
+        return observation, info
 
     def reset_model(self) -> Any:
         mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
@@ -842,9 +1029,6 @@ class G1SonicEnv(MujocoEnv):
         if self._control_mode == G1_CONTROL_MODE_SONIC_COMPOSED:
             init_qpos[:7] = self._run_reference_qpos[0, :7]
             init_qpos[self._body_qpos_addresses] = self._run_reference_qpos[0, 7:]
-            init_qpos[self._hand_qpos_addresses] = 0.0
-        elif self._control_mode == G1_CONTROL_MODE_SONIC_REFERENCE:
-            init_qpos[self._body_qpos_addresses] = self._reference_qpos[0, 7:]
             init_qpos[self._hand_qpos_addresses] = 0.0
         elif self._sonic_initial_reference_qpos is not None:
             init_qpos[2:7] = self._sonic_initial_reference_qpos[2:7]
@@ -859,16 +1043,19 @@ class G1SonicEnv(MujocoEnv):
         if self._control_mode == G1_CONTROL_MODE_SONIC_COMPOSED:
             self._reference_mode = RUN_STATE
             self._run_phase = 0
-            self._jump_phase = 0
-            self._paused_run_phase = 0
-            self._next_hurdle_index = 0
-        if self._control_mode == G1_CONTROL_MODE_SONIC_REFERENCE:
-            self._reference_phase = 0
+            if self._task_key == "hurdle":
+                self._jump_phase = 0
+                self._paused_run_phase = 0
+                self._next_hurdle_index = 0
         self.set_state(
             init_qpos
             + self.np_random.uniform(-randomness, randomness, size=self.model.nq),
             init_qvel,
         )
+        self._actual_joint_velocity_max = 0.0
+        self._torque_saturation_fraction = 0.0
+        self._torque_saturation_count = 0
+        self._torque_sample_count = 0
         self._last_action.fill(0.0)
         self._pending_decoded_action = None
         self._composed_residual_abs_sum = 0.0
@@ -878,19 +1065,37 @@ class G1SonicEnv(MujocoEnv):
         self._previous_composed_residual.fill(0.0)
         self._history.clear()
         task_observation = self._task.reset_model()
+        self._q_cmd = np.concatenate(
+            [
+                self.data.qpos[self._body_qpos_addresses],
+                self.data.qpos[self._hand_qpos_addresses],
+            ]
+        ).copy()
+        self._v_cmd.fill(0.0)
         self._history.append(self._frame())
         return self._observation(task_observation)
 
     def step(self, action: Any):
         action = np.asarray(action, dtype=np.float32)
         residual_smoothness_penalty = 0.0
-        if self._control_mode == G1_CONTROL_MODE_RAW:
-            body_action_mu = action[:29].astype(np.float64)
-            decoder_action = body_action_mu[MUJOCO_INDEX_FOR_POLICY]
-            hand_action = (
-                action[29:43].astype(np.float64) if self._raw_learn_hands else None
-            )
-            raw_body = True
+        absolute_body = False
+        if self._control_mode in (
+            G1_CONTROL_MODE_RAW,
+            G1_CONTROL_MODE_DIRECT_ABSOLUTE,
+        ):
+            if self._control_mode == G1_CONTROL_MODE_DIRECT_ABSOLUTE:
+                decoder_action = action[:29].astype(np.float64)
+                body_action_mu = decoder_action[POLICY_INDEX_FOR_MUJOCO]
+                hand_action = None
+                absolute_body = True
+                raw_body = False
+            else:
+                body_action_mu = action[:29].astype(np.float64)
+                decoder_action = body_action_mu[MUJOCO_INDEX_FOR_POLICY]
+                hand_action = (
+                    action[29:43].astype(np.float64) if self._raw_learn_hands else None
+                )
+                raw_body = True
         elif self._control_mode == G1_CONTROL_MODE_SONIC_COMPOSED:
             decoder_action = self._prepare_composed_action()
             body_action_mu = decoder_action[POLICY_INDEX_FOR_MUJOCO]
@@ -911,53 +1116,96 @@ class G1SonicEnv(MujocoEnv):
             )
             hand_action = None
             raw_body = False
-        elif self._sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER:
-            decoder_action = self._pending_decoded_action
-            self._pending_decoded_action = None
-            body_action_mu = decoder_action[POLICY_INDEX_FOR_MUJOCO]
-            hand_action = action[64:78].astype(np.float64)
+        elif self._control_mode == G1_CONTROL_MODE_SONIC:
+            if self._sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER:
+                decoder_action = self._pending_decoded_action
+                self._pending_decoded_action = None
+                body_action_mu = decoder_action[POLICY_INDEX_FOR_MUJOCO]
+            else:
+                decoder_action = self._decode(action[:64])
+                body_action_mu = decoder_action[POLICY_INDEX_FOR_MUJOCO]
+            hand_action = (
+                action[64:78].astype(np.float64)
+                if self._sonic_learn_hands
+                else None
+            )
             raw_body = False
+        if self._control_mode == G1_CONTROL_MODE_SONIC_COMPOSED:
+            body_target = G1_DEFAULT_ANGLES + body_action_mu * _ACTION_SCALE
+            hand_target = np.zeros(14, dtype=np.float64)
+            previous_q_cmd = self._q_cmd
+            previous_v_cmd = self._v_cmd
+            self._q_cmd = np.concatenate([body_target, hand_target])
+            self._v_cmd = (self._q_cmd - previous_q_cmd) / self.dt
+            acceleration = (self._v_cmd - previous_v_cmd) / self.dt
+            self._command_tracking_error = 0.0
+            self._target_velocity_max_ratio = float(
+                np.max(np.abs(self._v_cmd) / self._target_velocity_limits)
+            )
+            self._target_acceleration_mean_ratio_per_s = float(
+                np.mean(np.abs(acceleration) / self._target_velocity_limits)
+            )
+            self._target_acceleration_max_ratio_per_s = float(
+                np.max(np.abs(acceleration) / self._target_velocity_limits)
+            )
+            self._target_velocity_reversal_fraction = float(
+                np.count_nonzero(self._v_cmd * previous_v_cmd < 0.0) / 43
+            )
         else:
-            token = action[:64]
-            if self._control_mode == G1_CONTROL_MODE_SONIC_REFERENCE:
-                token = self._reference_tokens[self._reference_phase] + (
-                    SONIC_REFERENCE_RESIDUAL_SCALE * token
-                )
-            decoder_action = self._decode(token)
-            body_action_mu = decoder_action[POLICY_INDEX_FOR_MUJOCO]
-            hand_action = action[64:78].astype(np.float64)
-            raw_body = False
-        for _ in range(self.frame_skip):
-            self.data.ctrl[:] = self._controller(
+            body_target, hand_target = self._condition_targets(
                 body_action_mu,
                 hand_action,
                 raw_body=raw_body,
+                absolute_body=absolute_body,
             )
+        self._torque_saturation_count = 0
+        self._torque_sample_count = 0
+        self._actual_joint_velocity_max = 0.0
+        for _ in range(self.frame_skip):
+            self.data.ctrl[:] = self._controller(body_target, hand_target)
             mujoco.mj_step(self.model, self.data)
+            self._actual_joint_velocity_max = max(
+                self._actual_joint_velocity_max,
+                float(
+                    np.max(
+                        np.abs(
+                            self.data.qvel[
+                                np.concatenate(
+                                    [
+                                        self._body_qvel_addresses,
+                                        self._hand_qvel_addresses,
+                                    ]
+                                )
+                            ]
+                        )
+                    )
+                ),
+            )
             if self._task_key == "hurdle":
                 self._task._record_contacts()
+        self._torque_saturation_fraction = float(
+            self._torque_saturation_count / self._torque_sample_count
+        )
         if self._control_mode == G1_CONTROL_MODE_SONIC_COMPOSED:
             self._last_action[:] = body_action_mu[MUJOCO_INDEX_FOR_POLICY]
         else:
             self._last_action[:] = decoder_action
         self._history.append(self._frame())
-        reference_info = {}
         if self._control_mode == G1_CONTROL_MODE_SONIC_COMPOSED:
             was_running = self._reference_mode == RUN_STATE
             self._advance_composed_reference()
-            if was_running:
+            if was_running and self._task_key == "hurdle":
                 self._maybe_trigger_jump()
-        elif self._control_mode == G1_CONTROL_MODE_SONIC_REFERENCE:
-            reference_info = self._reference_info()
-            self._reference_phase = (self._reference_phase + 1) % len(
-                self._reference_tokens
-            )
         task_observation = self._task.get_obs()
         reward, info = self._task.get_reward()
-        if self._control_mode == G1_CONTROL_MODE_SONIC_COMPOSED and (
-            info["failure_penalty"]
-            or info["quality_failure_penalty"]
-            or info["timeout_penalty"]
+        if (
+            self._control_mode == G1_CONTROL_MODE_SONIC_COMPOSED
+            and self._task_key == "hurdle"
+            and (
+                info["failure_penalty"]
+                or info["quality_failure_penalty"]
+                or info["timeout_penalty"]
+            )
         ):
             residual_smoothness_penalty = 0.0
         else:
@@ -972,13 +1220,22 @@ class G1SonicEnv(MujocoEnv):
                 "per_timestep_reward": reward,
                 **info,
                 **termination_info,
+                "command_tracking_error": self._command_tracking_error,
+                "target_velocity_max_ratio": self._target_velocity_max_ratio,
+                "target_acceleration_mean_ratio_per_s": self._target_acceleration_mean_ratio_per_s,
+                "target_acceleration_max_ratio_per_s": self._target_acceleration_max_ratio_per_s,
+                "target_velocity_reversal_fraction": self._target_velocity_reversal_fraction,
+                "actual_joint_velocity_max": self._actual_joint_velocity_max,
+                "torque_saturation_fraction": self._torque_saturation_fraction,
+                GR00T_PROPRIO_INFO: self._official_gr00t_proprio(),
+                CONDITIONED_BODY_TARGET_INFO: self._conditioned_body_target(),
+                ACTION_TARGET_INFO: self._conditioned_body_target(),
                 "residual_smoothness_penalty": residual_smoothness_penalty,
                 **(
                     self._composed_residual_info()
                     if self._control_mode == G1_CONTROL_MODE_SONIC_COMPOSED
                     else {}
                 ),
-                **reference_info,
             },
         )
 

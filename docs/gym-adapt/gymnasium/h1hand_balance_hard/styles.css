@@ -1,8 +1,0 @@
-@import url("../pendulum/styles.css");
-
-.hero{background:#183640;border-bottom-color:#39a08d}
-.hero h1{letter-spacing:0}
-h2,.eyebrow,.section-kicker{letter-spacing:0}
-.media-reset{max-width:420px;margin:1.25rem auto;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.media-reset img{display:block;width:100%;height:auto}
-.media-reset figcaption{padding:.75rem .9rem;color:var(--muted);font-size:.84rem}
