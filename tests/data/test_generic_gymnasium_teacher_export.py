@@ -805,6 +805,22 @@ def test_starvla_lerobot_converter_normalizes_gymnasium_state_from_train(tmp_pat
         "pole_angle",
     ]
 
+    raw_output_dir = tmp_path / "lerobot_raw_state"
+    raw_manifest = convert_canonical_rollout_to_lerobot(
+        raw_export,
+        raw_output_dir,
+        force=True,
+        normalize_state=False,
+    )
+    raw_converted = pq.read_table(
+        raw_output_dir / "data/chunk-000/episode_000000.parquet"
+    ).to_pylist()
+    assert [row["observation.state"] for row in raw_converted] == [
+        [-2.0, 1.0],
+        [2.0, 3.0],
+    ]
+    assert raw_manifest["state_normalization"] is None
+
 
 def test_starvla_lerobot_bridge_carrier_pads_action_and_preserves_state(tmp_path):
     from latency_bench.data.exporters.starvla_lerobot import (

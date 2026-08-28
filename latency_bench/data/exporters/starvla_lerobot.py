@@ -611,6 +611,7 @@ def _convert_split(
     fps: float,
     reward_field: str,
     state_normalization: dict[str, Any] | None,
+    include_state: bool,
     density_weighting: bool = False,
 ) -> dict[str, Any]:
     """Convert one canonical rollout split into a LeRobot dataset directory.
@@ -664,15 +665,17 @@ def _convert_split(
                 "reward": float(row[reward_field]),
                 "density_weight": float(density_weights[frame_idx]),
             }
-            if state_normalization is not None:
+            if include_state:
                 state = np.asarray(row["state"], dtype=np.float32)
-                state_min = np.asarray(state_normalization["min"], dtype=np.float32)
-                state_max = np.asarray(state_normalization["max"], dtype=np.float32)
-                out_row["state"] = np.clip(
-                    2.0 * (state - state_min) / (state_max - state_min) - 1.0,
-                    -1.0,
-                    1.0,
-                ).tolist()
+                if state_normalization is not None:
+                    state_min = np.asarray(state_normalization["min"], dtype=np.float32)
+                    state_max = np.asarray(state_normalization["max"], dtype=np.float32)
+                    state = np.clip(
+                        2.0 * (state - state_min) / (state_max - state_min) - 1.0,
+                        -1.0,
+                        1.0,
+                    )
+                out_row["state"] = state.tolist()
             if "action_id" in row:
                 out_row["action_id"] = int(row["action_id"])
             if "context_images" in row and row["context_images"] is not None:
@@ -715,6 +718,8 @@ def convert_canonical_rollout_to_lerobot(
     *,
     force: bool = False,
     action_carrier: str = "native",
+    normalize_state: bool = True,
+    write_starvla_handoff: bool = True,
 ) -> dict[str, Any]:
     """Convert a canonical rollout export into train/val LeRobot datasets.
 
@@ -722,6 +727,11 @@ def convert_canonical_rollout_to_lerobot(
         raw_export_dir: Directory with canonical rollout parquet files and metadata.
         output_dir: Destination LeRobot train dataset directory.
         force: Remove existing train/val output directories before writing.
+        normalize_state: Apply the existing min-max state transform when the
+            canonical export includes a state vector. When disabled, an
+            explicit ``state`` field in canonical rows is copied as-is.
+        write_starvla_handoff: Write the existing StarVLA prompt/mixture handoff
+            files and manifest fields.
 
     Returns:
         Manifest describing the converted train dataset and validation companion.
@@ -777,10 +787,19 @@ def convert_canonical_rollout_to_lerobot(
         active_action_labels,
         action_carrier,
     )
+    train_rows = _load_rows(raw_export_dir, "train")
+    val_rows = _load_rows(raw_export_dir, "val")
     uses_state = "state_space" in gymnasium_task
+    if not normalize_state:
+        uses_state = any("state" in row for row in [*train_rows, *val_rows])
     if uses_state:
-        state_labels = list(gymnasium_task["state_space"]["labels"])
-        state_dim = len(state_labels)
+        if "state_space" in gymnasium_task:
+            state_labels = list(gymnasium_task["state_space"]["labels"])
+            state_dim = len(state_labels)
+        else:
+            state_row = next(row for row in [*train_rows, *val_rows] if "state" in row)
+            state_dim = len(state_row["state"])
+            state_labels = [f"state_{index}" for index in range(state_dim)]
     reward_field = str(metadata["reward_field"])
     rows_unit = metadata["rows_unit"]
     if rows_unit != "decision_step":
@@ -792,10 +811,8 @@ def convert_canonical_rollout_to_lerobot(
         shutil.rmtree(output_dir)
     if val_output_dir.exists() and force:
         shutil.rmtree(val_output_dir)
-    train_rows = _load_rows(raw_export_dir, "train")
-    val_rows = _load_rows(raw_export_dir, "val")
     state_normalization = None
-    if uses_state:
+    if uses_state and normalize_state:
         train_states = np.asarray([row["state"] for row in train_rows], dtype=np.float32)
         state_normalization = {
             "type": "min_max",
@@ -826,6 +843,7 @@ def convert_canonical_rollout_to_lerobot(
         fps=fps,
         reward_field=reward_field,
         state_normalization=state_normalization,
+        include_state=uses_state,
         density_weighting=True,
     )
     val_manifest = _convert_split(
@@ -842,6 +860,7 @@ def convert_canonical_rollout_to_lerobot(
         fps=fps,
         reward_field=reward_field,
         state_normalization=state_normalization,
+        include_state=uses_state,
         density_weighting=False,
     )
     handoff_contract = {
@@ -867,20 +886,21 @@ def convert_canonical_rollout_to_lerobot(
         "state_labels": state_labels,
         "state_normalization": state_normalization,
     }
-    handoff_contract["robot_type"] = _robot_type_for_env(env_name, integration_name)
-    prompt_map_path, mixture_path = _write_starvla_handoff_files(
-        output_dir,
-        val_output_dir,
-        env_name=env_name,
-        integration_name=integration_name,
-        rows=[*train_rows, *val_rows],
-    )
-    handoff_contract.update(
-        {
-            "latency_prompt_map_path": str(prompt_map_path),
-            "custom_mixtures_path": str(mixture_path),
-        }
-    )
+    if write_starvla_handoff:
+        handoff_contract["robot_type"] = _robot_type_for_env(env_name, integration_name)
+        prompt_map_path, mixture_path = _write_starvla_handoff_files(
+            output_dir,
+            val_output_dir,
+            env_name=env_name,
+            integration_name=integration_name,
+            rows=[*train_rows, *val_rows],
+        )
+        handoff_contract.update(
+            {
+                "latency_prompt_map_path": str(prompt_map_path),
+                "custom_mixtures_path": str(mixture_path),
+            }
+        )
     handoff_contract["gymnasium_task"] = gymnasium_task
     manifest = {
         **train_manifest,
