@@ -17,7 +17,7 @@ from latency_bench.utils.io import write_jsonl
 
 from latency_bench.data.action_layouts import (
     ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-    ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+    ACTION_LAYOUT_G1_SONIC_GR00T_V2,
     ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
     action_spec_for_env,
 )
@@ -412,7 +412,7 @@ def _write_episode(
             type=pa.struct([("bytes", pa.binary()), ("path", pa.string())]),
         ),
         "observation.state": pa.array(
-            [row.get("state", [0.0] * state_dim) for row in rows],
+            [row["state"] for row in rows],
             type=pa.list_(pa.float32(), state_dim),
         ),
         "action": pa.array(
@@ -746,7 +746,7 @@ def convert_canonical_rollout_to_lerobot(
     if action_layout not in (
         ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-        ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+        ACTION_LAYOUT_G1_SONIC_GR00T_V2,
     ):
         raise ValueError(f"Unsupported Gymnasium action_layout={action_layout!r}")
     active_action_labels = list(metadata["action_labels"])
@@ -757,7 +757,7 @@ def convert_canonical_rollout_to_lerobot(
         )
     continuous = action_layout in (
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-        ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+        ACTION_LAYOUT_G1_SONIC_GR00T_V2,
     )
     if continuous and action_carrier == "native":
         gymnasium_task = {

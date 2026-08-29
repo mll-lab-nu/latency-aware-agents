@@ -233,6 +233,65 @@ def test_worker_runtime_metadata_records_spawn_context(monkeypatch):
     assert "worker_torch_float32_matmul_precision" in metadata
 
 
+def test_inference_worker_seeds_before_policy_build_with_worker_offset(monkeypatch):
+    import latency_bench.core.actions as actions_mod
+    import latency_bench.policy.factory as factory_mod
+
+    class DummyActionResolver:
+        def __init__(self, env_config):
+            self.env_config = env_config
+
+    events = []
+
+    class CloseWorkerConnection:
+        def send(self, _message):
+            return None
+
+        def recv(self):
+            return "close", {}
+
+    monkeypatch.setattr(actions_mod, "ActionResolver", DummyActionResolver)
+    monkeypatch.setattr(
+        realtime_inference_worker,
+        "seed_everything",
+        lambda seed: events.append(("seed", seed)),
+    )
+    monkeypatch.setattr(
+        realtime_inference_worker,
+        "_worker_runtime_metadata",
+        lambda worker_id, start_method: {},
+    )
+    monkeypatch.setattr(
+        factory_mod,
+        "build_policy",
+        lambda config, action_resolver: events.append(("build",)) or DummyWorkerPolicy(),
+    )
+    monkeypatch.setattr(
+        realtime_inference_worker,
+        "RuntimeLatencyMeasurer",
+        SuccessfulWorkerMeasurer,
+    )
+
+    config = {"experiment": {"seed": 123}, "env": {}, "policy": {}, "latency": {}}
+    for worker_id in (0, 1, 0):
+        _inference_worker(
+            CloseWorkerConnection(),
+            config,
+            worker_id=worker_id,
+            device="cpu",
+            start_method="spawn",
+        )
+
+    assert events == [
+        ("seed", 123),
+        ("build",),
+        ("seed", 124),
+        ("build",),
+        ("seed", 123),
+        ("build",),
+    ]
+
+
 class ClosedActionEventPipe:
     def __init__(self):
         self.closed = False
@@ -893,7 +952,7 @@ def test_inference_worker_exits_when_result_pipe_is_closed(monkeypatch):
 
     _inference_worker(
         connection,
-        {"env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
         worker_id=0,
         device="cpu",
         start_method="spawn",
@@ -915,7 +974,7 @@ def test_inference_worker_returns_slim_result_without_observation_task(monkeypat
 
     _inference_worker(
         connection,
-        {"env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
         worker_id=0,
         device="cpu",
         start_method="spawn",
@@ -971,7 +1030,7 @@ def test_inference_worker_predicts_from_worker_local_observation_copy(monkeypatc
 
         _inference_worker(
             connection,
-            {"env": {}, "policy": {}, "latency": {}},
+            {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
             worker_id=0,
             device="cpu",
             start_method="spawn",
@@ -1200,7 +1259,7 @@ def test_inference_worker_reports_real_errors_when_pipe_is_open(monkeypatch):
 
     _inference_worker(
         connection,
-        {"env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
         worker_id=0,
         device="cpu",
         start_method="spawn",
@@ -1504,7 +1563,7 @@ def test_inference_worker_collect_command_runs_gc_and_keeps_serving(monkeypatch)
 
     _inference_worker(
         connection,
-        {"env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
         worker_id=0,
         device="cpu",
         start_method="spawn",

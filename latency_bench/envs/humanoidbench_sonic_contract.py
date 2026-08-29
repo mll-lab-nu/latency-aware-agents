@@ -7,7 +7,6 @@ import numpy as np
 SONIC_TOKEN_DIM = 64
 SONIC_HAND_DIM = 14
 SONIC_ACTION_DIM = SONIC_TOKEN_DIM + SONIC_HAND_DIM
-G1_GR00T_STATE_DIM = 93
 G1_GR00T_ACTION_HORIZON = 40
 
 G1_BODY_JOINT_NAMES = (
@@ -41,7 +40,24 @@ G1_BODY_JOINT_NAMES = (
     "right_wrist_pitch_joint",
     "right_wrist_yaw_joint",
 )
-G1_GR00T_ACTION_DIM = len(G1_BODY_JOINT_NAMES)
+G1_HAND_JOINT_NAMES = (
+    "left_hand_thumb_0_joint",
+    "left_hand_thumb_1_joint",
+    "left_hand_thumb_2_joint",
+    "left_hand_middle_0_joint",
+    "left_hand_middle_1_joint",
+    "left_hand_index_0_joint",
+    "left_hand_index_1_joint",
+    "right_hand_thumb_0_joint",
+    "right_hand_thumb_1_joint",
+    "right_hand_thumb_2_joint",
+    "right_hand_index_0_joint",
+    "right_hand_index_1_joint",
+    "right_hand_middle_0_joint",
+    "right_hand_middle_1_joint",
+)
+G1_GR00T_ACTION_DIM = len(G1_BODY_JOINT_NAMES) + len(G1_HAND_JOINT_NAMES)
+G1_GR00T_STATE_DIM = 3 + 3 * G1_GR00T_ACTION_DIM + 3
 
 # MuJoCo joint order -> SONIC/IsaacLab body joint order.
 MUJOCO_INDEX_FOR_POLICY = np.asarray(

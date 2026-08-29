@@ -3,12 +3,16 @@ from __future__ import annotations
 import json
 
 import pyarrow.parquet as pq
+import pytest
 
 from helpers import save_test_image
+from latency_bench.envs.humanoidbench_sonic_contract import (
+    G1_GR00T_ACTION_DIM,
+)
 
 
 def test_official_gr00t_converter_infers_raw_state_from_canonical_rows(tmp_path):
-    from latency_bench.data.action_layouts import gymnasium_continuous_action_spec
+    from latency_bench.data.action_layouts import G1_SONIC_GR00T_ACTION_SPEC
     from latency_bench.data.official_gr00t import (
         convert_canonical_rollout_to_official_gr00t,
     )
@@ -16,11 +20,12 @@ def test_official_gr00t_converter_infers_raw_state_from_canonical_rows(tmp_path)
 
     image_path = tmp_path / "image.png"
     save_test_image(image_path, 3)
-    labels = [f"joint_{index}" for index in range(29)]
-    action_spec = gymnasium_continuous_action_spec(labels)
+    labels = list(G1_SONIC_GR00T_ACTION_SPEC.labels)
+    action_spec = G1_SONIC_GR00T_ACTION_SPEC
     raw_export = tmp_path / "raw"
-    train_state = [float(index) for index in range(93)]
-    val_state = [float(index + 100) for index in range(93)]
+    state_dim = 198
+    train_state = [float(index) for index in range(state_dim)]
+    val_state = [float(index + 100) for index in range(state_dim)]
     write_parquet_splits(
         raw_export,
         [
@@ -35,7 +40,7 @@ def test_official_gr00t_converter_infers_raw_state_from_canonical_rows(tmp_path)
                 "latency_raw_frames": 0,
                 "latency_ms": 0.0,
                 "raw_reward": 1.0,
-                "action": [float(index) for index in range(29)],
+                "action": [float(index) for index in range(G1_GR00T_ACTION_DIM)],
                 "action_text": "run",
                 "state": train_state,
             }
@@ -52,7 +57,7 @@ def test_official_gr00t_converter_infers_raw_state_from_canonical_rows(tmp_path)
                 "latency_raw_frames": 1,
                 "latency_ms": 20.0,
                 "raw_reward": 2.0,
-                "action": [float(index + 1) for index in range(29)],
+                "action": [float(index + 1) for index in range(G1_GR00T_ACTION_DIM)],
                 "action_text": "run",
                 "state": val_state,
             }
@@ -64,7 +69,7 @@ def test_official_gr00t_converter_infers_raw_state_from_canonical_rows(tmp_path)
             {
                 "env_name": "g1_sonic_run",
                 "integration_name": "gymnasium",
-                "action_layout": "gymnasium_continuous_v1",
+                "action_layout": G1_SONIC_GR00T_ACTION_SPEC.layout,
                 "action_labels": labels,
                 "reward_field": "raw_reward",
                 "rows_unit": "decision_step",
@@ -96,10 +101,10 @@ def test_official_gr00t_converter_infers_raw_state_from_canonical_rows(tmp_path)
     row = pq.read_table(
         output_dir / "data/chunk-000/episode_000000.parquet"
     ).to_pylist()[0]
-    assert manifest["state_dim"] == 93
-    assert manifest["action_dim"] == 29
+    assert manifest["state_dim"] == state_dim
+    assert manifest["action_dim"] == G1_GR00T_ACTION_DIM
     assert row["observation.state"] == train_state
-    assert row["action"] == [float(index) for index in range(29)]
+    assert row["action"] == [float(index) for index in range(G1_GR00T_ACTION_DIM)]
     assert (
         output_dir
         / "videos/chunk-000/observation.image/episode_000000.mp4"
@@ -109,7 +114,9 @@ def test_official_gr00t_converter_infers_raw_state_from_canonical_rows(tmp_path)
         val_output_dir / "data/chunk-000/episode_000000.parquet"
     ).to_pylist()[0]
     assert val_row["observation.state"] == val_state
-    assert val_row["action"] == [float(index + 1) for index in range(29)]
+    assert val_row["action"] == [
+        float(index + 1) for index in range(G1_GR00T_ACTION_DIM)
+    ]
     assert (
         val_output_dir
         / "videos/chunk-000/observation.image/episode_000000.mp4"
@@ -121,8 +128,8 @@ def test_official_gr00t_converter_infers_raw_state_from_canonical_rows(tmp_path)
         "observation.image"
     ]["info"]["video.codec"] == "h264"
     modality = json.loads((output_dir / "meta/modality.json").read_text())
-    assert modality["state"]["state"]["end"] == 93
-    assert modality["action"]["action"]["end"] == 29
+    assert modality["state"]["state"]["end"] == state_dim
+    assert modality["action"]["action"]["end"] == G1_GR00T_ACTION_DIM
     assert modality["video"] == {
         "ego_view": {"original_key": "observation.image"}
     }
@@ -137,3 +144,29 @@ def test_official_gr00t_converter_infers_raw_state_from_canonical_rows(tmp_path)
     ] == 40
     assert not (output_dir / "latency_prompt_map.json").exists()
     assert not (tmp_path / "_generated_mixtures").exists()
+
+
+def test_official_gr00t_converter_rejects_a_non_g1_action_layout(tmp_path):
+    from latency_bench.data.official_gr00t import (
+        convert_canonical_rollout_to_official_gr00t,
+    )
+
+    raw_export = tmp_path / "raw"
+    raw_export.mkdir()
+    (raw_export / "metadata.json").write_text(
+        json.dumps(
+            {
+                "action_layout": "gymnasium_continuous_v1",
+                "action_labels": [
+                    f"joint_{index}" for index in range(G1_GR00T_ACTION_DIM)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="g1_sonic_gr00t_v2"):
+        convert_canonical_rollout_to_official_gr00t(
+            raw_export,
+            tmp_path / "official",
+        )

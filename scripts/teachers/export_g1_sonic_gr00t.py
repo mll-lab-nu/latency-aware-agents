@@ -28,7 +28,6 @@ from latency_bench.data.official_gr00t import (
 from latency_bench.data.sf_teacher_export import export_sample_factory_teacher_dataset
 from latency_bench.data.sf_teacher_rows import teacher_dataset_row
 from latency_bench.envs.humanoidbench_sonic_contract import (
-    G1_GR00T_ACTION_DIM,
     G1_GR00T_STATE_DIM,
 )
 
@@ -71,6 +70,7 @@ def export_checkpoint_teacher(
     row_buffer_size: int,
     context_window: int,
     latency_config_path: str | Path | None,
+    balance_teacher_observation_state: bool,
     convert: bool,
     force: bool,
 ) -> dict[str, Any]:
@@ -101,6 +101,9 @@ def export_checkpoint_teacher(
         filter_preset="none",
         episode_acceptance=job["acceptance"],
         context_window=context_window,
+        gym_gr00t_balance_teacher_observation_state=(
+            balance_teacher_observation_state
+        ),
     )
     result: dict[str, Any] = {
         "name": job["name"],
@@ -153,7 +156,7 @@ def export_reference_playback_dataset(
             episode_steps = 0
             for _ in range(max_steps_per_episode):
                 _, _, terminated, truncated, final_info = env.step(
-                    np.zeros(G1_GR00T_ACTION_DIM, dtype=np.float32)
+                    np.zeros(env.action_space.shape, dtype=np.float32)
                 )
                 episode_steps += 1
                 if terminated or truncated:
@@ -188,7 +191,7 @@ def export_reference_playback_dataset(
             for decision_step in range(max_steps_per_episode):
                 image = np.asarray(env.render())
                 _, reward, terminated, truncated, info = env.step(
-                    np.zeros(G1_GR00T_ACTION_DIM, dtype=np.float32)
+                    np.zeros(env.action_space.shape, dtype=np.float32)
                 )
                 image_path = (
                     raw_output_dir
@@ -327,6 +330,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--row-buffer-size", type=int, default=8192)
     parser.add_argument("--context-window", type=int, default=1)
     parser.add_argument("--latency-config", default="")
+    parser.add_argument("--balance-teacher-observation-state", action="store_true")
     return parser
 
 
@@ -355,6 +359,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 row_buffer_size=args.row_buffer_size,
                 context_window=args.context_window,
                 latency_config_path=args.latency_config or None,
+                balance_teacher_observation_state=(
+                    args.balance_teacher_observation_state
+                ),
                 convert=args.convert,
                 force=args.force,
             )

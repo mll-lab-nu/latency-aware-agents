@@ -17,7 +17,6 @@ from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.envs.humanoidbench_sonic_contract import (
     G1_GR00T_ACTION_DIM,
     G1_GR00T_ACTION_HORIZON,
-    G1_GR00T_STATE_DIM,
 )
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.policy.base import PolicyRunner
@@ -111,7 +110,7 @@ def _official_observation(observation: Observation, *, prompt: str) -> dict[str,
             OFFICIAL_GR00T_VIDEO_KEY: frames[-1:].reshape(1, 1, *frames.shape[1:])
         },
         "state": {
-            OFFICIAL_GR00T_STATE_KEY: state.reshape(1, 1, G1_GR00T_STATE_DIM)
+            OFFICIAL_GR00T_STATE_KEY: state.reshape(1, 1, -1)
         },
         "language": {OFFICIAL_GR00T_LANGUAGE_KEY: [[prompt]]},
     }

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from latency_bench.data.action_layouts import (
-    ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+    ACTION_LAYOUT_G1_SONIC_GR00T_V2,
     ActionSpec,
     action_spec_for_env,
     encode_action_for_env,
@@ -59,7 +59,7 @@ def teacher_dataset_row(
     )
     prompt = (
         base_prompt
-        if resolved_action_spec.layout == ACTION_LAYOUT_G1_SONIC_GR00T_V1
+        if resolved_action_spec.layout == ACTION_LAYOUT_G1_SONIC_GR00T_V2
         else render_teacher_prompt(
             env_name,
             latency_raw_frames=latency_raw_frames,

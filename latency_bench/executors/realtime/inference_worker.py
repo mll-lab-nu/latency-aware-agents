@@ -17,6 +17,7 @@ from latency_bench.executors.realtime.shared_observation import (
 from latency_bench.executors.realtime.timing import monotonic_ms
 from latency_bench.latency.hardware_info import safe_set, torch_backend_flags
 from latency_bench.latency.measurement import RuntimeLatencyMeasurer
+from training.common.utils import seed_everything
 
 
 # --- inference worker ---------------------------------------------------------
@@ -54,6 +55,7 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
         from latency_bench.core.actions import ActionResolver
         from latency_bench.policy.factory import build_policy
 
+        seed_everything(config["experiment"]["seed"] + worker_id)
         runtime_metadata = _worker_runtime_metadata(worker_id, start_method)
         worker_config = deepcopy(config)
         worker_config.setdefault("policy", {})["device"] = device
@@ -154,5 +156,4 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
         gc.unfreeze()
         if gc_was_enabled:
             gc.enable()
-
 

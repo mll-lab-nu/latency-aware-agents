@@ -232,6 +232,7 @@ def load_rollout_training_config(
     latency_config_path: str | Path | None = None,
     device_override: str | None = None,
     gym_camera_name: str | None = None,
+    gym_gr00t_balance_teacher_observation_state: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Load the rollout descriptor and metadata used for dataset export.
 
@@ -251,6 +252,8 @@ def load_rollout_training_config(
         if gym_camera_name is not None:
             make_kwargs["camera_name"] = gym_camera_name
             make_kwargs["render_mode"] = "rgb_array"
+        if gym_gr00t_balance_teacher_observation_state:
+            make_kwargs["gr00t_balance_teacher_observation_state"] = True
         if (
             "sonic_decoder_mode" in make_kwargs
             and make_kwargs["sonic_decoder_mode"] == "inference_worker"

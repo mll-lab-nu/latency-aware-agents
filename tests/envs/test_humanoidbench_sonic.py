@@ -14,6 +14,9 @@ pytest.importorskip("onnxruntime")
 from latency_bench.envs import humanoidbench_sonic as sonic
 from latency_bench.envs.humanoidbench_sonic_contract import (
     G1_DEFAULT_ANGLES,
+    G1_GR00T_ACTION_DIM,
+    G1_GR00T_STATE_DIM,
+    G1_HAND_JOINT_NAMES,
     MUJOCO_INDEX_FOR_POLICY,
     POLICY_INDEX_FOR_MUJOCO,
 )
@@ -703,7 +706,7 @@ def test_raw_reset_action_matches_default_pose_and_can_drop_hands(scene_path):
         raw.close()
 
 
-def test_direct_absolute_mode_exposes_policy_order_targets_and_93d_proprio(scene_path):
+def test_direct_absolute_mode_exposes_policy_order_targets_and_135d_proprio(scene_path):
     env = gym.make(
         sonic.G1_SONIC_ENV_SPECS["g1_sonic_run"]["env_id"],
         task_name="g1_sonic_run",
@@ -718,24 +721,43 @@ def test_direct_absolute_mode_exposes_policy_order_targets_and_93d_proprio(scene
     try:
         _, reset_info = env.reset(seed=0)
         native = env.unwrapped
-        expected_low = native._body_joint_ranges[:, 0][MUJOCO_INDEX_FOR_POLICY]
-        expected_high = native._body_joint_ranges[:, 1][MUJOCO_INDEX_FOR_POLICY]
+        expected_low = np.concatenate(
+            [
+                native._body_joint_ranges[:, 0][MUJOCO_INDEX_FOR_POLICY],
+                native._hand_joint_ranges[:, 0],
+            ]
+        )
+        expected_high = np.concatenate(
+            [
+                native._body_joint_ranges[:, 1][MUJOCO_INDEX_FOR_POLICY],
+                native._hand_joint_ranges[:, 1],
+            ]
+        )
         np.testing.assert_allclose(env.action_space.low, expected_low)
         np.testing.assert_allclose(env.action_space.high, expected_high)
-        assert env.action_space.shape == (29,)
+        assert env.action_space.shape == (43,)
         assert native.camera_name == "head_camera"
-        assert reset_info[sonic.GR00T_PROPRIO_INFO].shape == (93,)
+        assert reset_info[sonic.GR00T_PROPRIO_INFO].shape == (135,)
         assert reset_info[sonic.GR00T_PROPRIO_INFO].dtype == np.float32
+        assert G1_GR00T_ACTION_DIM == 43
+        assert G1_GR00T_STATE_DIM == 135
+        assert len(G1_HAND_JOINT_NAMES) == 14
 
-        action = native.data.qpos[native._body_qpos_addresses][
-            MUJOCO_INDEX_FOR_POLICY
-        ].copy()
+        action = np.concatenate(
+            [
+                native.data.qpos[native._body_qpos_addresses][MUJOCO_INDEX_FOR_POLICY],
+                native.data.qpos[native._hand_qpos_addresses],
+            ]
+        )
         action[0] += 0.01
+        action[29] += 0.05
         _, _, _, _, info = env.step(action.astype(np.float32))
         proprio = info[sonic.GR00T_PROPRIO_INFO]
-        target = info[sonic.CONDITIONED_BODY_TARGET_INFO]
-        np.testing.assert_allclose(info[sonic.ACTION_TARGET_INFO], target)
-        np.testing.assert_allclose(target, action, atol=1e-6)
+        body_target = info[sonic.CONDITIONED_BODY_TARGET_INFO]
+        target = info[sonic.ACTION_TARGET_INFO]
+        requested_target = np.clip(action, env.action_space.low, env.action_space.high)
+        np.testing.assert_allclose(body_target, requested_target[:29], atol=1e-6)
+        np.testing.assert_allclose(target, requested_target, atol=1e-6)
         np.testing.assert_allclose(
             proprio[:3], native._base_angular_velocity(), atol=1e-12
         )
@@ -745,12 +767,51 @@ def test_direct_absolute_mode_exposes_policy_order_targets_and_93d_proprio(scene
             atol=1e-12,
         )
         np.testing.assert_allclose(
-            proprio[32:61],
+            proprio[32:46],
+            native.data.qpos[native._hand_qpos_addresses],
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(
+            proprio[46:75],
             native.data.qvel[native._body_qvel_addresses][MUJOCO_INDEX_FOR_POLICY],
             atol=1e-12,
         )
-        np.testing.assert_allclose(proprio[61:90], target, atol=1e-12)
-        np.testing.assert_allclose(proprio[90:], native._projected_gravity(), atol=1e-12)
+        np.testing.assert_allclose(
+            proprio[75:89],
+            native.data.qvel[native._hand_qvel_addresses],
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(proprio[89:132], target, atol=1e-12)
+        np.testing.assert_allclose(proprio[132:], native._projected_gravity(), atol=1e-12)
+    finally:
+        env.close()
+
+
+def test_balance_can_expose_the_exact_teacher_observation_as_gr00t_state(scene_paths):
+    env = gym.make(
+        sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
+        task_name="g1_sonic_balance_simple",
+        scene_path=str(scene_paths["g1_sonic_balance_simple"]),
+        control_mode=sonic.G1_CONTROL_MODE_DIRECT_ABSOLUTE,
+        gr00t_balance_teacher_observation_state=True,
+        camera_name="head_camera",
+        render_mode=None,
+        width=32,
+        height=32,
+    )
+    try:
+        observation, reset_info = env.reset(seed=0)
+        assert observation.shape == (198,)
+        np.testing.assert_allclose(
+            reset_info[sonic.GR00T_PROPRIO_INFO], observation, atol=1e-6
+        )
+
+        observation, _, _, _, info = env.step(
+            reset_info[sonic.ACTION_TARGET_INFO]
+        )
+        np.testing.assert_allclose(
+            info[sonic.GR00T_PROPRIO_INFO], observation, atol=1e-6
+        )
     finally:
         env.close()
 

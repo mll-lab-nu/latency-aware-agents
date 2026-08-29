@@ -29,7 +29,8 @@ Hurdle episodes require `teacher_accepted=true`; balance and run episodes must
 last at least 18 seconds (900 raw frames at 50 Hz). The run entry is reference
 playback from the generated `eval.yaml`, not a neural-network checkpoint. All
 three exports use a latency-neutral base prompt, `head_camera`, one `ego_view`
-RGB stream at 256x256 and 50 Hz, 93D `official_gr00t_proprio`, and 29D absolute
-`action_target`; hand joints remain neutral and are not exported. Do not add
+RGB stream at 256x256 and 50 Hz, 135D `official_gr00t_proprio`, and 43D absolute
+`action_target`. Balance exports the teacher's learned hand targets; the current
+hurdle/run teachers keep the exported hand targets neutral. Do not add
 wrist, gripper, stereo, or external third-person cameras to these datasets;
 deployment camera semantics must match `head_camera`.

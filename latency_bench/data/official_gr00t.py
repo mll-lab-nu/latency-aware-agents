@@ -11,25 +11,25 @@ from typing import Any
 import pyarrow.parquet as pq
 from PIL import Image
 
+from latency_bench.data.action_layouts import G1_SONIC_GR00T_ACTION_SPEC
 from latency_bench.data.exporters.starvla_lerobot import (
     convert_canonical_rollout_to_lerobot,
 )
 from latency_bench.envs.humanoidbench_sonic_contract import (
     G1_GR00T_ACTION_DIM,
     G1_GR00T_ACTION_HORIZON,
-    G1_GR00T_STATE_DIM,
 )
 
 OFFICIAL_GR00T_EMBODIMENT_TAG = "NEW_EMBODIMENT"
 
 
-def _official_gr00t_modality_json() -> dict[str, Any]:
+def _official_gr00t_modality_json(state_dim: int) -> dict[str, Any]:
     """Return the LeRobot modality metadata consumed by Isaac-GR00T."""
     return {
         "state": {
             "state": {
                 "start": 0,
-                "end": G1_GR00T_STATE_DIM,
+                "end": state_dim,
                 "dtype": "float32",
                 "absolute": True,
                 "original_key": "observation.state",
@@ -51,12 +51,12 @@ def _official_gr00t_modality_json() -> dict[str, Any]:
     }
 
 
-def _write_official_gr00t_modality(dataset_dir: Path | str) -> Path:
+def _write_official_gr00t_modality(dataset_dir: Path | str, state_dim: int) -> Path:
     """Write the official modality metadata into one LeRobot dataset split."""
     path = Path(dataset_dir) / "meta" / "modality.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(_official_gr00t_modality_json(), indent=2) + "\n",
+        json.dumps(_official_gr00t_modality_json(state_dim), indent=2) + "\n",
         encoding="utf-8",
     )
     return path
@@ -138,7 +138,16 @@ def convert_canonical_rollout_to_official_gr00t(
     *,
     force: bool = False,
 ) -> dict[str, Any]:
-    """Convert a canonical 93D/29D rollout and write both train/val metadata."""
+    """Convert a canonical G1 rollout and write both train/val metadata."""
+    raw_metadata = json.loads(
+        Path(raw_export_dir).joinpath("metadata.json").read_text(encoding="utf-8")
+    )
+    if (
+        raw_metadata["action_layout"] != G1_SONIC_GR00T_ACTION_SPEC.layout
+        or tuple(raw_metadata["action_labels"])
+        != G1_SONIC_GR00T_ACTION_SPEC.labels
+    ):
+        raise ValueError("official GR00T requires the g1_sonic_gr00t_v2 action layout")
     manifest = convert_canonical_rollout_to_lerobot(
         raw_export_dir,
         output_dir,
@@ -147,22 +156,17 @@ def convert_canonical_rollout_to_official_gr00t(
         normalize_state=False,
         write_starvla_handoff=False,
     )
-    if manifest["state_dim"] != G1_GR00T_STATE_DIM:
-        raise ValueError(
-            "official GR00T requires a 93D state, "
-            f"got {manifest['state_dim']}"
-        )
     if manifest["action_dim"] != G1_GR00T_ACTION_DIM:
         raise ValueError(
-            "official GR00T requires a 29D action, "
+            f"official GR00T requires a {G1_GR00T_ACTION_DIM}D action, "
             f"got {manifest['action_dim']}"
         )
     output_dir = Path(output_dir)
     validation_dir = output_dir.with_name(f"{output_dir.name}__val")
     _write_official_gr00t_videos(output_dir)
     _write_official_gr00t_videos(validation_dir)
-    _write_official_gr00t_modality(output_dir)
-    _write_official_gr00t_modality(validation_dir)
+    _write_official_gr00t_modality(output_dir, manifest["state_dim"])
+    _write_official_gr00t_modality(validation_dir, manifest["state_dim"])
     manifest = {
         **manifest,
         "official_embodiment_tag": OFFICIAL_GR00T_EMBODIMENT_TAG,

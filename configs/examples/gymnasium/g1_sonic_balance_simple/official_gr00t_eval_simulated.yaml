@@ -1,0 +1,64 @@
+# Official Isaac-GR00T closed-loop evaluation for G1 SONIC Balance Simple.
+# Zero-latency virtual-clock baseline; run realtime only after this passes.
+
+experiment:
+  name: g1_sonic_balance_simple_official_gr00t_simulated
+  seed: 0
+
+executor:
+  mode: simulated
+  # Build GR00T in the Isaac-GR00T worker environment instead of this repo's
+  # evaluation process.
+  simulated_inference_pool: true
+
+env:
+  name: gymnasium
+  task_name: g1_sonic_balance_simple
+  env_id: LatencyBench/G1SonicBalanceSimple-v0
+  registration_imports:
+    - latency_bench.envs.humanoidbench_sonic
+  make_kwargs:
+    scene_path: /pfs/users/lxy/latency-sensitive-bench/results/humanoidbench_g1_sonic_assets/assets/sonic_g1/envs/scene_balance_simple.xml
+    render_mode: rgb_array
+    width: 256
+    height: 256
+    camera_name: head_camera
+    control_mode: direct_absolute_position
+    target_velocity_ramp_time_s: 0.1
+  env_fps: 50
+  # GR00T predicts 40 actions; re-plan every 20 raw frames (2.5 Hz).
+  obs_fps: 2.5
+  frame_stack: 1
+  noop_action: [-0.312, -0.312, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.669, 0.669, 0.2, 0.0, -0.363, -0.363, 0.2, 0.2, 0.0, 0.0, 0.0, 0.0, -0.2, 0.6, 0.0, 0.0, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  base_prompt: Keep the G1 humanoid balanced on the support board.
+
+latency:
+  method: zero
+  sync_cuda: false
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+  hold_last_chunk_action: true
+
+policy:
+  type: official_gr00t
+  model_path: /pfs/users/lxy/latency-sensitive-bench/outputs/official_gr00t/g1_balance_simple_gr00t_43d_v2/checkpoint-4000
+  embodiment_tag: NEW_EMBODIMENT
+  device: cuda:0
+  strict: true
+
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_max_steps: 1000
+  eval_deterministic: true
+
+logging:
+  output_dir: outputs/official_gr00t/g1_balance_simple_gr00t_43d_v2_eval_simulated_l0
+  video:
+    enabled: false
+    num_bins: 10
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
