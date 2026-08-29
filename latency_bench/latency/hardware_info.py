@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import socket
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from importlib import metadata
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 
 # GPU fields queried from nvidia-smi, in the order requested below.
@@ -88,8 +90,9 @@ def collect_hardware_fingerprint() -> dict[str, Any]:
         raising, so the result is always JSON-serializable.
     """
     gpus = _collect_gpus()
+    topology = _nvidia_smi_topology()
     return {
-        "gpu": _collect_gpu_from_gpus(gpus),
+        "gpu": _collect_gpu_from_gpus(gpus, topology),
         "gpus": gpus,
         "cpu": _collect_cpu(),
         "memory": _collect_memory(),
@@ -111,12 +114,157 @@ def _collect_gpus() -> list[dict[str, Any]]:
     return gpus
 
 
-def _collect_gpu_from_gpus(gpus: list[dict[str, Any]]) -> dict[str, Any]:
+def _collect_gpu_from_gpus(
+    gpus: list[dict[str, Any]], topology: str | None = None
+) -> dict[str, Any]:
     gpu: dict[str, Any] = dict(gpus[0]) if gpus else {}
-    topology = _nvidia_smi_topology()
     if topology:
         gpu["topology"] = topology
     return gpu
+
+
+def describe_participating_gpus(
+    *,
+    gpus: list[dict[str, Any]],
+    topology: str | None,
+    gpu_name_registry: Mapping[str, str],
+    cuda_visible_devices: str | None = None,
+) -> dict[str, Any]:
+    """Return the stable, public descriptor for the GPUs used by this process.
+
+    ``gpus`` is the complete nvidia-smi inventory. CUDA's logical order is
+    retained as ``cuda_index`` for worker mapping, while the public list is
+    canonicalized by UUID so an input ordering change cannot create a new
+    deployment identity.
+    """
+    selected = _select_visible_gpus(
+        gpus,
+        (
+            os.environ.get("CUDA_VISIBLE_DEVICES")
+            if cuda_visible_devices is None
+            else cuda_visible_devices
+        ),
+    )
+    canonical = sorted(selected, key=lambda item: item["gpu"]["uuid"])
+    deployment_gpus = [
+        {
+            "uuid": item["gpu"]["uuid"],
+            "name": item["gpu"]["name"],
+            "cuda_index": item["cuda_index"],
+        }
+        for item in canonical
+    ]
+    topology_links = _normalize_gpu_topology(
+        topology,
+        selected_indices={item["physical_index"] for item in selected},
+        gpus=gpus,
+    )
+    names = Counter(gpu_name_registry[gpu["name"]] for gpu in deployment_gpus)
+    gpu_class = "+".join(f"{count}x-{name}" for name, count in sorted(names.items()))
+    return {
+        "gpu_class": gpu_class,
+        "gpus": deployment_gpus,
+        "topology_links": topology_links,
+    }
+
+
+def public_hardware_projection(
+    fingerprint: dict[str, Any],
+    *,
+    gpu_name_registry: Mapping[str, str],
+    cuda_visible_devices: str | None = None,
+) -> dict[str, Any]:
+    """Project a full local fingerprint into the fields safe to publish."""
+    deployment = describe_participating_gpus(
+        gpus=fingerprint["gpus"],
+        topology=fingerprint["gpu"]["topology"],
+        gpu_name_registry=gpu_name_registry,
+        cuda_visible_devices=cuda_visible_devices,
+    )
+    slots = {gpu["uuid"]: gpu["cuda_index"] for gpu in deployment["gpus"]}
+    return {
+        "gpu_class": deployment["gpu_class"],
+        "gpus": [
+            {"slot": gpu["cuda_index"], "name": gpu["name"]}
+            for gpu in sorted(deployment["gpus"], key=lambda gpu: gpu["cuda_index"])
+        ],
+        "topology_links": [
+            {
+                "slot_a": slots[link["gpu_a"]],
+                "slot_b": slots[link["gpu_b"]],
+                "link": link["link"],
+            }
+            for link in deployment["topology_links"]
+        ],
+        "driver_version": fingerprint["gpu"]["driver_version"],
+        "torch": fingerprint["torch"],
+    }
+
+
+def _select_visible_gpus(
+    gpus: list[dict[str, Any]],
+    cuda_visible_devices: str | None,
+) -> list[dict[str, Any]]:
+    if cuda_visible_devices is None:
+        tokens = [str(index) for index in range(len(gpus))]
+    else:
+        tokens = [token.strip() for token in cuda_visible_devices.split(",")]
+    if tokens == [""] or tokens == ["-1"]:
+        return []
+    by_uuid = {gpu["uuid"]: (index, gpu) for index, gpu in enumerate(gpus)}
+    selected: list[dict[str, Any]] = []
+    for cuda_index, token in enumerate(tokens):
+        if token.startswith("GPU-"):
+            physical_index, gpu = by_uuid[token]
+        else:
+            physical_index = int(token)
+            gpu = gpus[physical_index]
+        selected.append(
+            {
+                "physical_index": physical_index,
+                "cuda_index": cuda_index,
+                "gpu": gpu,
+            }
+        )
+    return selected
+
+
+_GPU_TOPOLOGY_LABEL = re.compile(r"^GPU(\d+)$")
+
+
+def _normalize_gpu_topology(
+    topology: str | None,
+    *,
+    selected_indices: set[int],
+    gpus: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    if not topology:
+        return []
+    lines = [line.split() for line in topology.splitlines() if line.split()]
+    header = {
+        match.group(1): column + 1
+        for column, token in enumerate(lines[0])
+        if (match := _GPU_TOPOLOGY_LABEL.match(token))
+    }
+    rows = {
+        int(tokens[0][3:]): tokens
+        for tokens in lines[1:]
+        if tokens and _GPU_TOPOLOGY_LABEL.match(tokens[0])
+    }
+    links: list[dict[str, str]] = []
+    for left in sorted(selected_indices):
+        for right in sorted(selected_indices):
+            if left >= right:
+                continue
+            right_column = header[str(right)]
+            links.append(
+                {
+                    "gpu_a": gpus[left]["uuid"],
+                    "gpu_b": gpus[right]["uuid"],
+                    "link": rows[left][right_column],
+                }
+            )
+    return sorted(links, key=lambda link: (link["gpu_a"], link["gpu_b"]))
 
 
 def _nvidia_smi_gpus() -> list[dict[str, Any]]:
@@ -385,6 +533,9 @@ def visible_cuda_device_count() -> int:
 
     visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
     if visible_devices is None:
+        smi_gpus = _nvidia_smi_gpus()
+        if smi_gpus:
+            return len(smi_gpus)
         return int(torch.cuda.device_count())
     stripped = visible_devices.strip()
     return 0 if stripped in {"", "-1"} else len([item for item in stripped.split(",") if item.strip()])

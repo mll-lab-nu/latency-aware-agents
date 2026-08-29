@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Any
 
 from latency_bench.core.clock import ms_to_raw_frames
 
@@ -16,28 +17,40 @@ class EnvFpsCalibration:
     device_count: int
     sample_count: int
     mean_latency_ms: float
+    worker_mean_latency_ms: list[float]
+    total_capacity_fps: float
     worker_utilization_cap: float
     hit_count: int
     mean_abs_frame_error: float
 
-    def to_dict(self) -> dict[str, float | int]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 def select_env_fps_from_latency_samples(
     *,
-    latency_samples_ms: list[float],
+    latency_samples_by_slot_ms: list[list[float]],
     target_latency_frames: int,
     base_env_fps: float,
     base_obs_fps: float,
-    device_count: int,
     worker_utilization_cap: float,
 ) -> EnvFpsCalibration:
+    latency_samples_ms = [
+        sample
+        for slot_samples in latency_samples_by_slot_ms
+        for sample in slot_samples
+    ]
+    worker_mean_latency_ms = [
+        sum(slot_samples) / len(slot_samples)
+        for slot_samples in latency_samples_by_slot_ms
+    ]
+    device_count = len(latency_samples_by_slot_ms)
     sample_count = len(latency_samples_ms)
     mean_latency_ms = sum(latency_samples_ms) / sample_count
     observation_stride = base_env_fps / base_obs_fps
     ideal_env_fps = target_latency_frames * 1000.0 / mean_latency_ms
-    max_env_fps = int(device_count * observation_stride * 1000.0 * worker_utilization_cap / mean_latency_ms)
+    total_capacity_fps = sum(1000.0 / mean for mean in worker_mean_latency_ms)
+    max_env_fps = int(total_capacity_fps * observation_stride * worker_utilization_cap)
 
     best: tuple[tuple[float, float, float, int], EnvFpsCalibration] | None = None
     for env_fps in range(1, max_env_fps + 1):
@@ -62,6 +75,8 @@ def select_env_fps_from_latency_samples(
             sample_count=sample_count,
             mean_latency_ms=mean_latency_ms,
             worker_utilization_cap=worker_utilization_cap,
+            worker_mean_latency_ms=worker_mean_latency_ms,
+            total_capacity_fps=total_capacity_fps,
             hit_count=hit_count,
             mean_abs_frame_error=mean_abs_frame_error,
         )

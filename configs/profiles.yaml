@@ -1,0 +1,58 @@
+artifact_root: results/profiling
+hf_repo: latency-sensitive-bench/profiles
+
+gpu_models:
+  a100-sxm4-80gb:
+    aliases:
+      - NVIDIA A100-SXM4-80GB
+  a100-sxm4-40gb:
+    aliases:
+      - NVIDIA A100-SXM4-40GB
+  a100-pcie-80gb:
+    aliases:
+      - NVIDIA A100-PCIE-80GB
+  a100-pcie-40gb:
+    aliases:
+      - NVIDIA A100-PCIE-40GB
+  l40s:
+    aliases:
+      - L40S
+      - NVIDIA L40S
+  rtx3090:
+    aliases:
+      - RTX 3090
+      - NVIDIA GeForce RTX 3090
+  rtx4090:
+    aliases:
+      - RTX 4090
+      - NVIDIA GeForce RTX 4090
+  rtx5090:
+    aliases:
+      - RTX 5090
+      - NVIDIA GeForce RTX 5090
+  rtx-pro-6000-blackwell-ws:
+    aliases:
+      - NVIDIA RTX PRO 6000 Blackwell Workstation Edition
+  rtx-pro-6000-blackwell-server:
+    aliases:
+      - NVIDIA RTX PRO 6000 Blackwell Server Edition
+  rtx-pro-6000-blackwell-maxq-ws:
+    aliases:
+      - NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition
+
+models:
+  openvla:
+    workloads:
+      flappy:
+        base_config: configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml
+        checkpoint_path: /mnt/data/latency_data/openvla_flappy_fix_latency_2/checkpoints/steps_5000_pytorch_model.pt
+        checkpoint_kind: best
+        session_count: 5
+        n_episodes: 100
+        evaluation_seed: 0
+        target_latency_frames: 2
+        worker_utilization_cap: 0.8
+        simulation_parallel_envs: 1
+        simulation_env:
+          simulator: cpu
+          use_gpu_render: false

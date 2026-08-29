@@ -7,6 +7,7 @@ from latency_bench.latency.burst_profile import (
     build_burst_samples,
     build_hidden_regime_burst_model,
     build_hidden_regime_burst_model_from_sessions,
+    build_worker_slot_distributions_from_sessions,
 )
 
 
@@ -92,11 +93,11 @@ def test_hidden_regime_model_labels_first_to_last_spike_as_one_burst():
     values = [42.0] * 10 + [116.0, 42.0, 42.0, 116.0, 42.0, 42.0, 116.0] + [42.0] * 10
     model = build_hidden_regime_burst_model(_episode(0, values))
 
-    assert model["schema_version"] == 9
+    assert model["schema_version"] == 11
     assert model["model_type"] == "hidden_regime"
     assert model["reset_scope"] == "session"
     assert model["worker_count"] == 1
-    assert model["spike_threshold_ms"] == pytest.approx(52.5)
+    assert model["spike_threshold_ms_by_worker_slot"]["0"] == pytest.approx(52.5)
     assert model["burst_dwell_lengths"] == [7]
     assert model["burst_dwell_distribution"]["latency_ms"][0] == pytest.approx(7.0)
     assert model["burst_dwell_distribution"]["latency_ms"][-1] == pytest.approx(7.0)
@@ -105,17 +106,10 @@ def test_hidden_regime_model_labels_first_to_last_spike_as_one_burst():
         "calm": {"calm": 18, "burst": 1},
         "burst": {"calm": 1, "burst": 6},
     }
-    calm_emission = model["emission_distributions_by_regime"]["calm"]
-    assert calm_emission["count"] == 20
-    assert calm_emission["worker_service_ms"]["latency_ms"][-1] == pytest.approx(42.0)
     assert len(model["burst_rank_processes"]) == 1
     process = model["burst_rank_processes"][0]
     assert process["draw_count"] == 7
     assert process["spike_count"] == 3
-    # Above-threshold records carry the dwell's (severity, level); the rank
-    # emission keeps only the interleaved normals.
-    assert process["emission"]["count"] == 4
-    assert process["emission"]["worker_service_ms"]["latency_ms"][0] == pytest.approx(42.0)
     # One dwell -> one severity (3 of 7 serves spiked) and one level (116).
     assert process["severity"]["latency_ms"][0] == pytest.approx(3.0 / 7.0)
     assert process["severity"]["latency_ms"][-1] == pytest.approx(3.0 / 7.0)
@@ -124,6 +118,9 @@ def test_hidden_regime_model_labels_first_to_last_spike_as_one_burst():
     # All three spikes sit exactly on the dwell level: residuals are zero.
     assert process["level_residual_ms"]["latency_ms"][0] == pytest.approx(0.0)
     assert process["level_residual_ms"]["latency_ms"][-1] == pytest.approx(0.0)
+    assert model["burst_slot_rank_templates"] == [
+        {"dwell_length": 7, "slot_to_rank": {"0": 0}}
+    ]
 
 
 def test_hidden_regime_model_isolated_spike_is_a_length_one_burst():
@@ -135,9 +132,8 @@ def test_hidden_regime_model_isolated_spike_is_a_length_one_burst():
     assert model["regime_transition_counts"]["calm"] == {"calm": 38, "burst": 1}
     assert model["regime_transition_counts"]["burst"] == {"calm": 1, "burst": 0}
     process = model["burst_rank_processes"][0]
-    # The burst's only record is the spike itself: severity one, level equal
-    # to the spike, and the rank emission has no records left.
-    assert process["emission"] is None
+    # The burst's only record is the spike itself: severity one and level equal
+    # to the spike. Calm emissions live in the per-slot companion distribution.
     assert process["severity"]["latency_ms"][0] == pytest.approx(1.0)
     assert process["severity"]["latency_ms"][-1] == pytest.approx(1.0)
     assert process["level_ms"]["latency_ms"][0] == pytest.approx(70.0)
@@ -175,7 +171,7 @@ def test_hidden_regime_model_does_not_bridge_measurement_sessions():
 
     model = build_hidden_regime_burst_model_from_sessions(sessions)
 
-    assert model["spike_threshold_ms"] == pytest.approx(52.5)
+    assert model["spike_threshold_ms_by_worker_slot"]["0"] == pytest.approx(52.5)
     assert model["burst_dwell_lengths"] == [1, 1]
     assert model["regime_transition_counts"] == {
         "calm": {"calm": 18, "burst": 1},
@@ -187,27 +183,14 @@ def test_hidden_regime_model_does_not_bridge_measurement_sessions():
     assert process["severity"]["latency_ms"] == pytest.approx([1.0] * len(process["severity"]["latency_ms"]))
 
 
-def test_episode_scoped_model_fits_initial_burst_separately():
+def test_episode_scoped_model_is_not_supported():
     segments = [
         _episode(0, [70.0] + [42.0] * 10),
         _episode(1, [42.0] * 5 + [70.0] + [42.0] * 5),
     ]
 
-    model = build_hidden_regime_burst_model_from_sessions(
-        segments, reset_scope="episode"
-    )
-
-    assert model["schema_version"] == 10
-    assert model["reset_scope"] == "episode"
-    assert model["initial_regime_counts"] == {"calm": 1, "burst": 1}
-    assert model["initial_burst_residual_dwell_distribution"]["latency_ms"] == pytest.approx(
-        [1.0] * len(model["initial_burst_residual_dwell_distribution"]["latency_ms"])
-    )
-    assert model["burst_dwell_lengths"] == [1]
-    assert model["regime_transition_counts"] == {
-        "calm": {"calm": 17, "burst": 1},
-        "burst": {"calm": 2, "burst": 0},
-    }
+    with pytest.raises(TypeError):
+        build_hidden_regime_burst_model_from_sessions(segments, reset_scope="episode")
 
 
 def test_single_session_model_wrapper_matches_session_aware_fitter():
@@ -226,9 +209,46 @@ def test_hidden_regime_model_clean_trace_has_no_burst():
         "calm": {"calm": 3, "burst": 0},
         "burst": {"calm": 0, "burst": 0},
     }
-    assert model["emission_distributions_by_regime"]["calm"]["count"] == 4
+    assert "emission_distributions_by_regime" not in model
     assert model["burst_rank_processes"] == []
     assert model["ready_delta_ms"] is None
+
+
+def test_hidden_regime_uses_each_slot_steady_baseline():
+    samples = []
+    for episode_id in range(4):
+        samples.extend(
+            _episode(
+                episode_id,
+                [100.0, 10.0] * 10,
+                start_index=episode_id * 20,
+                worker_ids=[0, 1] * 10,
+            )
+        )
+
+    model = build_hidden_regime_burst_model(samples)
+    distribution = build_worker_slot_distributions_from_sessions(
+        [samples],
+        spike_threshold_ms_by_worker_slot=model[
+            "spike_threshold_ms_by_worker_slot"
+        ],
+    )
+
+    assert model["spike_threshold_ms_by_worker_slot"] == {"0": 125.0, "1": 12.5}
+    assert model["regime_step_counts"] == {"calm": 80, "burst": 0}
+    for slot, expected in (("0", 100.0), ("1", 10.0)):
+        steady = distribution["worker_slots"][slot]["steady"]
+        assert steady["count"] == 40
+        assert set(steady["worker_service_ms"]["latency_ms"]) == {expected}
+
+
+def test_slot_baseline_preserves_repeated_episode_ids_across_sessions():
+    healthy = _episode(0, [10.0] * 5)
+    degraded = _episode(0, [100.0] * 5)
+
+    model = build_hidden_regime_burst_model_from_sessions([healthy, degraded])
+
+    assert model["spike_threshold_ms_by_worker_slot"] == {"0": 12.5}
 
 
 def test_hidden_regime_model_fits_per_dwell_severity_and_level():
@@ -247,7 +267,7 @@ def test_hidden_regime_model_fits_per_dwell_severity_and_level():
     )
     model = build_hidden_regime_burst_model(_episode(0, values))
 
-    assert model["spike_threshold_ms"] == pytest.approx(52.5)
+    assert model["spike_threshold_ms_by_worker_slot"]["0"] == pytest.approx(52.5)
     assert model["burst_dwell_lengths"] == [1, 9]
     process = model["burst_rank_processes"][0]
     assert process["severity"]["latency_ms"][0] == pytest.approx(7.0 / 9.0)
@@ -261,9 +281,6 @@ def test_hidden_regime_model_fits_per_dwell_severity_and_level():
     # _episode() builds action_ready = worker_service + 1.
     assert model["ready_delta_ms"]["latency_ms"][0] == pytest.approx(1.0)
     assert model["ready_delta_ms"]["latency_ms"][-1] == pytest.approx(1.0)
-    # The rank emission keeps only the two interleaved normals.
-    assert process["emission"]["count"] == 2
-    assert process["emission"]["worker_service_ms"]["latency_ms"][-1] == pytest.approx(42.0)
 
 
 def test_hidden_regime_model_bridges_dwells_across_episodes():
@@ -297,7 +314,10 @@ def test_hidden_regime_model_fits_degraded_worker_as_one_constant_excursion():
     )
 
     # Median 44 -> threshold 55; the merged dwell runs first 80 to last 80.
-    assert model["spike_threshold_ms"] == pytest.approx(55.0)
+    assert model["spike_threshold_ms_by_worker_slot"] == {
+        "0": pytest.approx(52.5),
+        "1": pytest.approx(52.5),
+    }
     assert model["worker_count"] == 2
     assert model["burst_dwell_lengths"] == [29]
     assert len(model["burst_rank_processes"]) == 2
@@ -313,12 +333,13 @@ def test_hidden_regime_model_fits_degraded_worker_as_one_constant_excursion():
     assert healthy["draw_count"] == 14
     assert healthy["spike_count"] == 0
     # The healthy worker never spiked inside the dwell: severity zero, no
-    # level, and its serves all live in the sub-threshold emission.
+    # level; its calm distribution is fitted separately for slot 1.
     assert healthy["severity"]["latency_ms"][0] == pytest.approx(0.0)
     assert healthy["severity"]["latency_ms"][-1] == pytest.approx(0.0)
     assert healthy["level_ms"] is None
-    assert healthy["emission"]["count"] == 14
-    assert healthy["emission"]["worker_service_ms"]["latency_ms"][0] == pytest.approx(44.0)
+    assert model["burst_slot_rank_templates"] == [
+        {"dwell_length": 29, "slot_to_rank": {"0": 0, "1": 1}}
+    ]
 
 
 def test_hidden_regime_model_ranks_workers_by_in_dwell_severity():
@@ -347,7 +368,10 @@ def test_emission_quantile_grid_resolves_rare_tail():
         for index in range(1000)
     ]
     model = build_hidden_regime_burst_model(samples)
-    table = model["emission_distributions_by_regime"]["calm"]["action_ready_ms"]
+    distribution = build_worker_slot_distributions_from_sessions(
+        [samples], spike_threshold_ms_by_worker_slot={"0": 50.0}
+    )
+    table = distribution["worker_slots"]["0"]["all"]["action_ready_ms"]
 
     assert table["latency_ms"][table["quantile_levels"].index(0.998)] == pytest.approx(41.0)
     assert table["latency_ms"][table["quantile_levels"].index(0.9995)] == pytest.approx(100.0)
@@ -388,11 +412,17 @@ def test_fit_inverse_cdf_gives_the_maximum_its_own_quantile_mass():
             assert value == pytest.approx(2631.0)
 
 
-def test_build_burst_samples_uses_all_completed_worker_service_records():
+def test_build_burst_samples_keeps_dropped_service_without_inventing_e2e():
+    # Action-ready latency includes observation and IPC overhead; ready_time_ms
+    # is wall-clock bookkeeping rather than the profile sample.
     action_records = [
         _action_record(action_id=10, obs_env_step=4, ready_raw_frame=6, latency_ms=25.0, applied=True, dropped=False),
-        _action_record(action_id=11, obs_env_step=8, ready_raw_frame=11, latency_ms=70.0, applied=False, dropped=False, worker_id=1),
+        _action_record(action_id=11, obs_env_step=8, ready_raw_frame=11, latency_ms=70.0, applied=False, dropped=True, worker_id=1),
     ]
+    dropped_profile = action_records[1]["metadata"]["realtime_profile"]
+    del dropped_profile["parent_to_env_ipc_ms"]
+    del dropped_profile["env_action_recv_to_enqueue_ms"]
+    del dropped_profile["env_scheduler_update_ms"]
     metrics = [{"episode_id": 3, "num_actions": 2, "metadata": {"frame_ms": 40.0}}]
 
     samples = build_burst_samples(action_records, metrics)
@@ -407,7 +437,7 @@ def test_build_burst_samples_uses_all_completed_worker_service_records():
             "applied": True,
             "dropped": False,
             "worker_id": 0,
-            "action_ready_ms": 80.0,
+            "action_ready_ms": 53.0,
             "worker_service_ms_bin": 25,
             "worker_service_ms": 25.0,
         },
@@ -418,9 +448,9 @@ def test_build_burst_samples_uses_all_completed_worker_service_records():
             "obs_env_step": 8,
             "ready_raw_frame": 11,
             "applied": False,
-            "dropped": False,
+            "dropped": True,
             "worker_id": 1,
-            "action_ready_ms": 120.0,
+            "action_ready_ms": None,
             "worker_service_ms_bin": 70,
             "worker_service_ms": 70.0,
         },

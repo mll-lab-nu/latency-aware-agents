@@ -371,15 +371,20 @@ latency:
   seed: 0
 ```
 
-`iid` 从 profile 的 inverse-CDF distribution 独立采样；`temporal` 使用 profile
-中拟合的 hidden-regime burst model。两者都不再从旧 sampler 名称推断行为。
+`iid` 从当前 worker slot 的联合分布独立采样；`temporal` 将每个 slot 的
+steady distribution 与共享 hidden-regime burst model 结合。两者都不再从旧
+sampler 名称推断行为。
 
 Profile sampling 必须记录：
 
 ```text
-profile_path
-profile_id
-target_device
+model_id
+gpu_class
+workload_id
+instance_id
+source_run_id
+profile_ref
+hf_commit
 latency_raw_frames
 ```
 

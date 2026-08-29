@@ -106,7 +106,6 @@ def parse_eval_suites(config: dict[str, Any]) -> list[EvalSuite]:
                 metadata={
                     "suite_name": name,
                     "latency_type": "profile_sample",
-                    "profile_path": profile_path,
                     "latency_seed": latency_seed,
                 },
             )

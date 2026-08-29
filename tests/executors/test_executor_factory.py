@@ -16,12 +16,11 @@ from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.eval.driver import run_from_config
 from latency_bench.latency.burst_profile import (
     build_hidden_regime_burst_model,
-    build_hidden_regime_burst_model_from_sessions,
+    build_worker_slot_distributions_from_sessions,
 )
-from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
+from latency_bench.latency.profile import save_latency_distribution, save_profile_manifest
 from latency_bench.core.clock import EnvClock
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
-from latency_bench.utils.io import load_jsonl_records
 
 
 @register_env_adapter("normalized_noop_test")
@@ -78,31 +77,29 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
     }
 
 
-def _write_latency_profile(tmp_path, *, lifecycle: str = "consecutive") -> str:
+def _write_latency_profile(tmp_path) -> str:
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir()
-    write_latency_samples([10.0, 20.0, 30.0], profile_dir / "latencies.jsonl")
-    save_latency_distribution(
-        build_inverse_cdf_distribution([10.0, 20.0, 30.0]),
-        profile_dir / "latency_distribution.json",
-    )
     burst_samples = [
         {
             "episode_id": 0,
             "sample_index": index,
-            "worker_id": 0,
+            "worker_id": index % 2,
             "action_ready_ms": float(frames) * 40.0,
             "worker_service_ms": float(frames) * 40.0,
             "worker_service_ms_bin": frames * 40,
         }
-        for index, frames in enumerate([1, 2, 3])
+        for index, frames in enumerate([1, 1, 1, 1, 1, 1])
     ]
-    burst_model = (
-        build_hidden_regime_burst_model(burst_samples)
-        if lifecycle == "consecutive"
-        else build_hidden_regime_burst_model_from_sessions(
-            [burst_samples], reset_scope="episode"
-        )
+    burst_model = build_hidden_regime_burst_model(burst_samples)
+    save_latency_distribution(
+        build_worker_slot_distributions_from_sessions(
+            [burst_samples],
+            spike_threshold_ms_by_worker_slot=burst_model[
+                "spike_threshold_ms_by_worker_slot"
+            ],
+        ),
+        profile_dir / "latency_distribution.json",
     )
     (profile_dir / "latency_burst_model.json").write_text(
         json.dumps(burst_model, indent=2, sort_keys=True) + "\n",
@@ -110,19 +107,18 @@ def _write_latency_profile(tmp_path, *, lifecycle: str = "consecutive") -> str:
     )
     save_profile_manifest(
         {
-            "profile_id": "L_test",
-            "policy_id": "pi_test",
-            "env_id": "env_test",
-            "target_device": "test_gpu",
+            "model_id": "openvla",
+            "gpu_class": "2x-test-gpu",
+            "workload_id": "flappy",
+            "instance_id": "instance_test",
+            "source_run_id": "run_test",
             "env_fps": 25.0,
             "frame_ms": 40.0,
-            "n_samples": 3,
-            "trace_path": "latencies.jsonl",
+            "n_samples": 6,
             "distribution_path": "latency_distribution.json",
             "latency_method": "temporal",
             "sample_model_type": "hidden_regime",
             "burst_model_path": "latency_burst_model.json",
-            "measurement": {"episode_lifecycle": lifecycle},
             "summary": {},
         },
         profile_dir / "profile.json",
@@ -478,51 +474,6 @@ def test_iid_latency_eval_is_parallel_invariant_and_loads_distribution_once(tmp_
     ]
 
 
-def test_isolated_temporal_sequences_are_parallel_and_order_invariant(tmp_path):
-    profile_root = tmp_path / "model"
-    profile_root.mkdir()
-    profile_dir = _write_latency_profile(profile_root, lifecycle="isolated")
-
-    serial_config = _config(output_dir=str(tmp_path / "serial"))
-    serial_config["evaluation"]["eval_episodes"] = 4
-    serial_config["evaluation"]["eval_parallel_envs"] = 1
-    serial_config["evaluation"]["eval_max_steps"] = 6
-    serial_config["measurement"] = {"episode_lifecycle": "isolated", "cooldown_s": 30}
-    serial_config["latency"] = {
-        "method": "temporal",
-        "profile_path": profile_dir,
-        "seed": 7,
-    }
-
-    parallel_config = _config(output_dir=str(tmp_path / "parallel"))
-    parallel_config["evaluation"]["eval_episodes"] = 4
-    parallel_config["evaluation"]["eval_parallel_envs"] = 3
-    parallel_config["evaluation"]["eval_max_steps"] = 6
-    parallel_config["measurement"] = dict(serial_config["measurement"])
-    parallel_config["latency"] = dict(serial_config["latency"])
-
-    run_from_config(serial_config, episode_ids=[0, 1, 2, 3])
-    run_from_config(parallel_config, episode_ids=[3, 1, 0, 2])
-
-    def latency_sequences(output_dir: str) -> dict[int, list[float]]:
-        rows = load_jsonl_records(Path(output_dir) / "latencies.jsonl")
-        metrics = load_jsonl_records(Path(output_dir) / "episode_metrics.jsonl")
-        cursor = 0
-        sequences = {}
-        for metric in metrics:
-            count = metric["num_actions"]
-            sequences[metric["episode_id"]] = [
-                row["latency_ms"] for row in rows[cursor:cursor + count]
-            ]
-            cursor += count
-        assert cursor == len(rows)
-        return sequences
-
-    assert latency_sequences(serial_config["logging"]["output_dir"]) == latency_sequences(
-        parallel_config["logging"]["output_dir"]
-    )
-
-
 def test_simulated_parallel_explicit_subproc_builds_subproc_backend(tmp_path):
     from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
     from latency_bench.executors.env_step_backend import SubprocEnvStepBackend
@@ -791,7 +742,7 @@ def test_factory_builds_profile_sample_latency_source(tmp_path):
 
     try:
         assert executor.latency_source.latency_type == "profile_sample"
-        assert executor.latency_source.profile_metadata["profile_id"] == "L_test"
+        assert executor.latency_source.profile_metadata["model_id"] == "openvla"
     finally:
         executor.env.close()
 
@@ -904,36 +855,6 @@ def test_parallel_simulated_temporal_shares_one_machine_timeline(tmp_path):
         sources = {id(slot.latency_source) for slot in executor.slots}
         assert len(sources) == 1
         assert isinstance(executor.slots[0].latency_source, HiddenRegimeSampler)
-    finally:
-        executor.close()
-
-
-def test_parallel_simulated_isolated_temporal_uses_episode_sources(tmp_path):
-    from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
-    from latency_bench.latency.samplers import HiddenRegimeSampler
-
-    profile_dir = _write_latency_profile(tmp_path, lifecycle="isolated")
-    config = _config(output_dir=str(tmp_path))
-    config["evaluation"]["eval_episodes"] = 3
-    config["evaluation"]["eval_parallel_envs"] = 3
-    config["env"]["name"] = "tuple_action_parallel_test"
-    config["env"]["noop_action"] = (0, 0)
-    config["env"]["action_map"] = {"noop": (0, 0), "jump": (1, 0)}
-    config["policy"]["action"] = "jump"
-    config["latency"] = {
-        "method": "temporal",
-        "profile_path": profile_dir,
-        "seed": 0,
-    }
-
-    executor = build_executor(config)
-
-    try:
-        assert isinstance(executor, BatchedSimulatedLatencyExecutor)
-        assert executor.episode_latency_source_factory is not None
-        sources = {id(slot.latency_source) for slot in executor.slots}
-        assert len(sources) == 3
-        assert all(isinstance(slot.latency_source, HiddenRegimeSampler) for slot in executor.slots)
     finally:
         executor.close()
 

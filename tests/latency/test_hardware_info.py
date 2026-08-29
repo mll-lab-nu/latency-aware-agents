@@ -59,6 +59,71 @@ def test_fingerprint_records_all_gpus_and_runtime_cpu_scope(monkeypatch):
     assert fingerprint["packages"]["safetensors"] == "0.6.2"
 
 
+def test_participating_gpu_descriptor_canonicalizes_order_and_topology(monkeypatch):
+    gpus = [
+        {"uuid": "GPU-b", "name": "NVIDIA L40S"},
+        {"uuid": "GPU-a", "name": "NVIDIA L40S"},
+        {"uuid": "GPU-c", "name": "NVIDIA L40S"},
+    ]
+    topology = (
+        "GPU0 GPU1 GPU2 CPU Affinity NUMA Affinity\n"
+        "GPU0 X SYS PXB 0-3 0\n"
+        "GPU1 SYS X NV1 4-7 0\n"
+        "GPU2 PXB NV1 X 8-11 1\n"
+    )
+
+    descriptor = hardware_info.describe_participating_gpus(
+        gpus=gpus,
+        topology=topology,
+        gpu_name_registry={"NVIDIA L40S": "l40s"},
+        cuda_visible_devices="2,0",
+    )
+
+    assert descriptor == {
+        "gpu_class": "2x-l40s",
+        "gpus": [
+            {"uuid": "GPU-b", "name": "NVIDIA L40S", "cuda_index": 1},
+            {"uuid": "GPU-c", "name": "NVIDIA L40S", "cuda_index": 0},
+        ],
+        "topology_links": [
+            {"gpu_a": "GPU-b", "gpu_b": "GPU-c", "link": "PXB"},
+        ],
+    }
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "1,0")
+    current = hardware_info.describe_participating_gpus(
+        gpus=gpus,
+        topology=topology,
+        gpu_name_registry={"NVIDIA L40S": "l40s"},
+    )
+    assert [gpu["uuid"] for gpu in current["gpus"]] == ["GPU-a", "GPU-b"]
+
+
+def test_public_projection_keeps_only_deployment_identity():
+    projection = hardware_info.public_hardware_projection(
+        {
+            "gpus": [
+                {
+                    "uuid": "GPU-0",
+                    "name": "NVIDIA RTX 4090",
+                    "driver_version": "570.1",
+                },
+            ],
+            "gpu": {"topology": "GPU0 X\n", "driver_version": "570.1"},
+            "torch": {"version": "2.6.0", "cuda_version": "12.6"},
+        },
+        gpu_name_registry={"NVIDIA RTX 4090": "rtx4090"},
+    )
+
+    assert projection == {
+        "gpu_class": "1x-rtx4090",
+        "gpus": [{"slot": 0, "name": "NVIDIA RTX 4090"}],
+        "topology_links": [],
+        "driver_version": "570.1",
+        "torch": {"version": "2.6.0", "cuda_version": "12.6"},
+    }
+
+
 def test_probes_degrade_when_tools_missing(monkeypatch):
     monkeypatch.setattr(hardware_info, "_run", lambda cmd: None)  # no nvidia-smi / lscpu
     monkeypatch.setattr(hardware_info, "_torch_gpu", lambda: {})

@@ -1,8 +1,0 @@
-__base__: cross_device.yaml
-
-measurement:
-  episode_lifecycle: isolated
-  cooldown_s: 30
-
-workload:
-  id: openvla-flappy-isolated-30s

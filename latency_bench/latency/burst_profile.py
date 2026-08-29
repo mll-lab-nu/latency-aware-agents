@@ -4,6 +4,11 @@ import math
 from statistics import median
 from typing import Any, Iterator
 
+from latency_bench.logging.realtime_pipeline import (
+    PipelineProfile,
+    REALTIME_PROFILE_METADATA_KEY,
+)
+
 
 WORKER_SERVICE_STAGE_KEYS = (
     "parent_to_worker_ipc_ms",
@@ -42,9 +47,10 @@ WORKER_SERVICE_STAGE_KEYS = (
 # and the real failure mode (one worker at utilization > 1 dropping half the
 # observations) never reproduces. Inside each dwell, workers are ranked by
 # severity (in-dwell spike rate — an order statistic, no boundary), and each
-# rank pools its own excursion structure and sub-threshold emission across
-# dwells: rank-1 carries the degraded worker's near-constant slowness, lower
-# ranks carry whatever mild elevation the remaining workers actually showed.
+# rank pools its own excursion structure across dwells: rank-1 carries the
+# degraded worker's near-constant slowness, lower ranks carry whatever mild
+# elevation the remaining workers actually showed. Calm emissions are fitted
+# independently per worker slot below, so they are not duplicated here.
 # A binary "participating worker set" cannot express the observed continuum
 # (100%/0% single-worker events, 89%/7% degradations, 48%/35% host-wide
 # wobble) without a classification boundary; ranks express it directly.
@@ -96,14 +102,18 @@ BURST_MERGE_GAP_RECORDS = 30
 
 def build_burst_samples(
     action_records: list[dict[str, Any]],
-    episode_metrics_records: list[dict[str, Any]],
+    episode_metrics_records: list[dict[str, Any]] | None,
     *,
     measure_session_id: int | None = None,
 ) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
     for record, episode_id in _action_records_with_episode_ids(action_records, episode_metrics_records):
-        action_ready_ms = _action_ready_ms(record)
         worker_service_ms = _worker_service_ms(record)
+        action_ready_ms = (
+            _action_ready_ms(record)
+            if record["applied"] and not record["dropped"]
+            else None
+        )
         sample = {
             "episode_id": episode_id,
             "sample_index": len(samples),
@@ -129,41 +139,29 @@ def build_hidden_regime_burst_model(samples: list[dict[str, Any]]) -> dict[str, 
 
 def build_hidden_regime_burst_model_from_sessions(
     session_samples: list[list[dict[str, Any]]],
-    *,
-    reset_scope: str = "session",
 ) -> dict[str, Any]:
     """Fit one model while preserving independent measurement boundaries."""
     pooled_samples = [sample for samples in session_samples for sample in samples]
-    spike_threshold_ms = SPIKE_MEDIAN_MULTIPLIER * median(
-        float(sample["worker_service_ms"]) for sample in pooled_samples
-    )
+    spike_thresholds_by_slot = _worker_slot_spike_thresholds(session_samples)
 
     ordered_sessions = [
         sorted(
             samples,
-            key=lambda item: (int(item["episode_id"]), int(item["sample_index"])),
+            key=lambda item: (item["episode_id"], item["sample_index"]),
         )
         for samples in session_samples
     ]
     session_regimes = [
-        _label_regimes(ordered_samples, spike_threshold_ms)
+        _label_shared_regimes(ordered_samples, spike_thresholds_by_slot)
         for ordered_samples in ordered_sessions
     ]
 
     transition_counts = {"calm": {"calm": 0, "burst": 0}, "burst": {"calm": 0, "burst": 0}}
     regime_step_counts = {"calm": 0, "burst": 0}
-    calm_emission_samples: list[dict[str, float]] = []
     session_dwells: list[list[tuple[int, int]]] = []
     for ordered_samples, regimes in zip(ordered_sessions, session_regimes):
         for sample, regime in zip(ordered_samples, regimes):
             regime_step_counts[regime] += 1
-            if regime == "calm":
-                calm_emission_samples.append(
-                    {
-                        "action_ready_ms": float(sample["action_ready_ms"]),
-                        "worker_service_ms": float(sample["worker_service_ms"]),
-                    }
-                )
         for index in range(len(regimes) - 1):
             transition_counts[regimes[index]][regimes[index + 1]] += 1
         dwells: list[tuple[int, int]] = []
@@ -179,30 +177,17 @@ def build_hidden_regime_burst_model_from_sessions(
         end - begin + 1
         for dwells in session_dwells
         for begin, end in dwells
-        if reset_scope == "session" or begin > 0
     ]
 
-    rank_processes, ready_deltas = _fit_rank_processes_from_sessions(
-        list(zip(ordered_sessions, session_dwells)), spike_threshold_ms
+    rank_processes, ready_deltas, slot_rank_templates = _fit_rank_processes_from_sessions(
+        list(zip(ordered_sessions, session_dwells)), spike_thresholds_by_slot
     )
 
-    initial_regime_counts = {"calm": 0, "burst": 0}
-    initial_burst_residual_lengths: list[int] = []
-    if reset_scope == "episode":
-        for regimes in session_regimes:
-            initial_regime_counts[regimes[0]] += 1
-            if regimes[0] == "burst":
-                residual_length = next(
-                    (index for index, regime in enumerate(regimes) if regime != "burst"),
-                    len(regimes),
-                )
-                initial_burst_residual_lengths.append(residual_length)
-
     model = {
-        "schema_version": 9 if reset_scope == "session" else 10,
+        "schema_version": 11,
         "model_type": "hidden_regime",
-        "reset_scope": reset_scope,
-        "spike_threshold_ms": spike_threshold_ms,
+        "reset_scope": "session",
+        "spike_threshold_ms_by_worker_slot": spike_thresholds_by_slot,
         "spike_median_multiplier": SPIKE_MEDIAN_MULTIPLIER,
         "burst_merge_gap_records": BURST_MERGE_GAP_RECORDS,
         "worker_count": len({int(sample["worker_id"]) for sample in pooled_samples}),
@@ -217,30 +202,74 @@ def build_hidden_regime_burst_model_from_sessions(
             if burst_dwell_lengths
             else None
         ),
-        "emission_distributions_by_regime": {
-            "calm": (
-                _fit_joint_emission_distribution(calm_emission_samples)
-                if calm_emission_samples
-                else None
-            ),
-        },
         "burst_rank_processes": rank_processes,
-        "ready_delta_ms": _fit_inverse_cdf(ready_deltas) if ready_deltas else None,
-    }
-    if reset_scope == "episode":
-        model["initial_regime_counts"] = initial_regime_counts
-        model["initial_burst_residual_dwell_distribution"] = (
-            _fit_inverse_cdf([float(length) for length in initial_burst_residual_lengths])
-            if initial_burst_residual_lengths
+        "burst_slot_rank_templates": slot_rank_templates,
+        "ready_delta_ms": (
+            _fit_inverse_cdf(ready_deltas)
+            if rank_processes and ready_deltas
             else None
-        )
+        ),
+    }
     return model
+
+
+def build_worker_slot_distributions_from_sessions(
+    session_samples: list[list[dict[str, Any]]],
+    *,
+    spike_threshold_ms_by_worker_slot: dict[str, float],
+) -> dict[str, Any]:
+    """Fit per-slot joint distributions for IID and temporal replay.
+
+    ``all`` contains every observed sample for a slot. ``steady`` contains
+    samples in the session-level calm regime; samples inside a burst stay out
+    of the temporal baseline even when their service time is below threshold.
+    """
+    slot_samples: dict[int, dict[str, list[dict[str, float]]]] = {}
+    for samples in session_samples:
+        ordered_samples = sorted(
+            samples,
+            key=lambda item: (item["episode_id"], item["sample_index"]),
+        )
+        samples_by_slot: dict[int, list[dict[str, Any]]] = {}
+        for sample in ordered_samples:
+            samples_by_slot.setdefault(sample["worker_id"], []).append(sample)
+        for slot, slot_sample_records in samples_by_slot.items():
+            regimes = _label_regimes(
+                slot_sample_records,
+                spike_threshold_ms_by_worker_slot[str(slot)],
+            )
+            all_samples = slot_samples.setdefault(slot, {"all": [], "steady": []})
+            for sample, regime in zip(slot_sample_records, regimes):
+                if sample["action_ready_ms"] is None:
+                    continue
+                emission = {
+                    "action_ready_ms": sample["action_ready_ms"],
+                    "worker_service_ms": sample["worker_service_ms"],
+                }
+                all_samples["all"].append(emission)
+                if regime == "calm":
+                    all_samples["steady"].append(emission)
+
+    return {
+        "schema_version": 2,
+        "worker_slots": {
+            str(slot): {
+                "all": _fit_joint_emission_distribution(values["all"]),
+                "steady": (
+                    _fit_joint_emission_distribution(values["steady"])
+                    if values["steady"]
+                    else None
+                ),
+            }
+            for slot, values in sorted(slot_samples.items())
+        },
+    }
 
 
 def _fit_rank_processes_from_sessions(
     sessions: list[tuple[list[dict[str, Any]], list[tuple[int, int]]]],
-    spike_threshold_ms: float,
-) -> tuple[list[dict[str, Any]], list[float]]:
+    spike_threshold_ms_by_worker_slot: dict[str, float],
+) -> tuple[list[dict[str, Any]], list[float], list[dict[str, Any]]]:
     """Pool each severity rank's per-dwell latents across dwells.
 
     Ranking is per dwell: workers present in the dwell ordered by in-dwell
@@ -254,61 +283,65 @@ def _fit_rank_processes_from_sessions(
     rank_dwell_lengths: list[list[float]] = []
     rank_levels: list[list[float]] = []
     rank_residuals: list[list[float]] = []
-    rank_emissions: list[list[dict[str, float]]] = []
     rank_draw_counts: list[int] = []
     rank_spike_counts: list[int] = []
-    ready_deltas: list[float] = []
+    ready_deltas = [
+        sample["action_ready_ms"] - sample["worker_service_ms"]
+        for samples, _dwells in sessions
+        for sample in samples
+        if sample["action_ready_ms"] is not None
+    ]
+    slot_rank_templates: list[dict[str, Any]] = []
 
     for ordered_samples, dwells in sessions:
         for begin, end in dwells:
             by_worker: dict[int, list[dict[str, Any]]] = {}
             for sample in ordered_samples[begin:end + 1]:
-                by_worker.setdefault(int(sample["worker_id"]), []).append(sample)
+                by_worker.setdefault(sample["worker_id"], []).append(sample)
 
             def _severity(worker: int) -> tuple[float, int, int]:
                 stream = by_worker[worker]
                 spikes = sum(
-                    1 for item in stream if float(item["worker_service_ms"]) > spike_threshold_ms
+                    1
+                    for item in stream
+                    if item["worker_service_ms"]
+                    > spike_threshold_ms_by_worker_slot[str(worker)]
                 )
                 return (-spikes / len(stream), -spikes, worker)
 
-            for rank, worker in enumerate(sorted(by_worker, key=_severity)):
+            ranked_workers = sorted(by_worker, key=_severity)
+            slot_rank_templates.append(
+                {
+                    "dwell_length": end - begin + 1,
+                    "slot_to_rank": {
+                        str(worker): rank for rank, worker in enumerate(ranked_workers)
+                    },
+                }
+            )
+            for rank, worker in enumerate(ranked_workers):
                 while len(rank_severities) <= rank:
                     rank_severities.append([])
                     rank_dwell_lengths.append([])
                     rank_levels.append([])
                     rank_residuals.append([])
-                    rank_emissions.append([])
                     rank_draw_counts.append(0)
                     rank_spike_counts.append(0)
                 stream = by_worker[worker]
                 spikes = [
                     sample for sample in stream
-                    if float(sample["worker_service_ms"]) > spike_threshold_ms
+                    if sample["worker_service_ms"]
+                    > spike_threshold_ms_by_worker_slot[str(worker)]
                 ]
                 rank_draw_counts[rank] += len(stream)
                 rank_spike_counts[rank] += len(spikes)
                 rank_severities[rank].append(len(spikes) / len(stream))
-                rank_dwell_lengths[rank].append(float(end - begin + 1))
+                rank_dwell_lengths[rank].append(end - begin + 1)
                 if spikes:
-                    level = sum(float(s["worker_service_ms"]) for s in spikes) / len(spikes)
+                    level = sum(s["worker_service_ms"] for s in spikes) / len(spikes)
                     rank_levels[rank].append(level)
                     rank_residuals[rank].extend(
-                        float(s["worker_service_ms"]) - level for s in spikes
+                        s["worker_service_ms"] - level for s in spikes
                     )
-                    ready_deltas.extend(
-                        float(s["action_ready_ms"]) - float(s["worker_service_ms"])
-                        for s in spikes
-                    )
-                rank_emissions[rank].extend(
-                    {
-                        "action_ready_ms": float(sample["action_ready_ms"]),
-                        "worker_service_ms": float(sample["worker_service_ms"]),
-                    }
-                    for sample in stream
-                    if float(sample["worker_service_ms"]) <= spike_threshold_ms
-                )
-
     rank_processes = [
         {
             "draw_count": rank_draw_counts[rank],
@@ -323,15 +356,59 @@ def _fit_rank_processes_from_sessions(
             "level_residual_ms": (
                 _fit_inverse_cdf(rank_residuals[rank]) if rank_residuals[rank] else None
             ),
-            "emission": (
-                _fit_joint_emission_distribution(rank_emissions[rank])
-                if rank_emissions[rank]
-                else None
-            ),
         }
         for rank in range(len(rank_severities))
     ]
-    return rank_processes, ready_deltas
+    return rank_processes, ready_deltas, slot_rank_templates
+
+
+def _worker_slot_spike_thresholds(
+    session_samples: list[list[dict[str, Any]]],
+) -> dict[str, float]:
+    """Keep a prolonged degraded episode from redefining a slot's baseline."""
+    values_by_slot_episode: dict[int, dict[tuple[int, int], list[float]]] = {}
+    for session_id, samples in enumerate(session_samples):
+        for sample in samples:
+            episodes = values_by_slot_episode.setdefault(sample["worker_id"], {})
+            episodes.setdefault((session_id, sample["episode_id"]), []).append(
+                float(sample["worker_service_ms"])
+            )
+    return {
+        str(slot): SPIKE_MEDIAN_MULTIPLIER * min(
+            median(values) for values in episodes.values()
+        )
+        for slot, episodes in sorted(values_by_slot_episode.items())
+    }
+
+
+def _label_shared_regimes(
+    ordered_samples: list[dict[str, Any]],
+    spike_thresholds_by_slot: dict[str, float],
+) -> list[str]:
+    """Union each slot's burst dwells into one shared machine timeline."""
+    shared_regimes = ["calm"] * len(ordered_samples)
+    samples_by_slot: dict[int, list[tuple[int, dict[str, Any]]]] = {}
+    for global_index, sample in enumerate(ordered_samples):
+        samples_by_slot.setdefault(sample["worker_id"], []).append(
+            (global_index, sample)
+        )
+    for worker_slot, entries in samples_by_slot.items():
+        local_regimes = _label_regimes(
+            [sample for _, sample in entries],
+            spike_thresholds_by_slot[str(worker_slot)],
+        )
+        start: int | None = None
+        for local_index, regime in enumerate(local_regimes + ["calm"]):
+            if regime == "burst" and start is None:
+                start = local_index
+            elif regime != "burst" and start is not None:
+                first_global_index = entries[start][0]
+                last_global_index = entries[local_index - 1][0]
+                shared_regimes[first_global_index:last_global_index + 1] = [
+                    "burst"
+                ] * (last_global_index - first_global_index + 1)
+                start = None
+    return shared_regimes
 
 
 def _label_regimes(stream_samples: list[dict[str, Any]], spike_threshold_ms: float) -> list[str]:
@@ -358,8 +435,8 @@ def _worker_service_ms(record: dict[str, Any]) -> float:
 
 
 def _action_ready_ms(record: dict[str, Any]) -> float:
-    frame_ms = float(record["metadata"]["frame_ms"])
-    return float(record["ready_time_ms"]) - float(record["obs_env_step"]) * frame_ms
+    profile = PipelineProfile.coerce(record["metadata"][REALTIME_PROFILE_METADATA_KEY])
+    return float(record["latency"]["latency_ms"]) + profile.bench_overhead_ms()
 
 
 def _latency_ms_bin(latency_ms: float) -> int:

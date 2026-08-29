@@ -306,14 +306,10 @@ def _build_realtime_executor(
         raise ValueError("realtime executor does not support injected latency")
     inference_devices = _resolve_policy_inference_devices(config)
 
-    def runtime_factory() -> RealtimeRuntime:
-        return _build_realtime_runtime(config)
-
-    runtime = runtime_factory()
+    runtime = _build_realtime_runtime(config)
     video_output_dir = _video_output_dir(config) if _video_enabled(config) else None
     return RealtimeLatencyExecutor(
         runtime=runtime,
-        runtime_factory=runtime_factory,
         policy=None,
         logger=_build_trajectory_logger(config),
         config=config,

@@ -70,9 +70,11 @@ def compute_episode_metrics_from_aggregates(
 
 
 PROFILE_METADATA_KEYS = (
-    "profile_id",
-    "target_device",
-    "profile_path",
+    "model_id",
+    "gpu_class",
+    "workload_id",
+    "instance_id",
+    "source_run_id",
 )
 
 _RAW_RETURN_KEYS = (
@@ -147,13 +149,10 @@ def episode_raw_fact_metadata(
 def active_action_step_info(
     *,
     active_event: ActionEvent | None,
-    env_step: int,
     scheduled_time_ms: float,
     frame_ms: float,
     latency_type: str,
-    profile_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    profile_metadata = profile_metadata or {}
     active_obs_frame = None if active_event is None else active_event.obs_env_step
     info = {
         "active_action_id": None if active_event is None else active_event.action_id,
@@ -161,7 +160,6 @@ def active_action_step_info(
         "scheduled_time_ms": float(scheduled_time_ms),
         "frame_time_ms": float(frame_ms),
         "latency_type": latency_type,
-        "profile_id": profile_metadata.get("profile_id"),
     }
     if active_event is not None and active_event.action_chunk is not None:
         info.update(

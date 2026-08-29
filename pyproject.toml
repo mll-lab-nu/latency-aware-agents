@@ -40,9 +40,6 @@ sonic = [
     "onnxruntime-gpu[cuda,cudnn]==1.23.2",
 ]
 
-[project.scripts]
-latency-bench = "latency_bench.cross_device.protocol:main"
-
 [tool.setuptools.packages.find]
 include = ["latency_bench*", "training*"]
 

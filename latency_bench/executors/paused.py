@@ -134,7 +134,6 @@ class PausedLatencyExecutor(EpisodeExecutor):
                 active_event=self.action_scheduler.latest_applied_event,
                 frame_ms=self.clock.frame_ms,
                 latency_type=latency_type,
-                profile_metadata={},
             )
             step_records.append(record)
             if self.logger is not None:

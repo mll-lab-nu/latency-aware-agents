@@ -1,256 +1,118 @@
 from __future__ import annotations
 
-from pathlib import Path
+import fcntl
 import shutil
-import tempfile
+from pathlib import Path
 from typing import Any
 
-from latency_bench.utils.io import read_json
+
+PROFILE_FILENAMES = (
+    "profile.json",
+    "latency_distribution.json",
+    "latency_burst_model.json",
+    "hardware.json",
+    "DONE",
+)
+LOCAL_ONLY_RUN_FILES = {
+    "calibration.generated.yaml",
+    "generated.yaml",
+    "hardware.json",
+}
 
 
-def download_calibration(
-    workload: dict[str, Any],
-    target_ref: Path,
+def publish_run_and_profile(
+    spec: dict[str, Any],
+    *,
+    local_run_dir: Path,
+    local_profile_dir: Path,
+    run_ref: Path,
+    profile_ref: Path,
+) -> str:
+    from huggingface_hub import CommitOperationAdd, HfApi
+
+    operations = [
+        CommitOperationAdd(
+            path_in_repo=f"runs/{run_ref.as_posix()}/{path.relative_to(local_run_dir).as_posix()}",
+            path_or_fileobj=str(path),
+        )
+        for path in sorted(local_run_dir.rglob("*"))
+        if path.is_file()
+        and path.name not in LOCAL_ONLY_RUN_FILES
+        and path.relative_to(local_run_dir).parts[0] != "profile"
+    ]
+    operations.extend(
+        CommitOperationAdd(
+            path_in_repo=f"profiles/{profile_ref.as_posix()}/{name}",
+            path_or_fileobj=str(local_profile_dir / name),
+        )
+        for name in PROFILE_FILENAMES
+    )
+    commit = HfApi().create_commit(
+        repo_id=spec["hf_repo"],
+        repo_type="dataset",
+        operations=operations,
+        commit_message=f"profile {profile_ref.as_posix()} from {run_ref.name}",
+    )
+    return commit.oid
+
+
+def download_profile(
+    spec: dict[str, Any],
+    profile_ref: Path,
+    *,
+    hf_commit: str,
     local_dir: Path,
-) -> bool:
+) -> tuple[Path, str]:
     from huggingface_hub import HfApi, snapshot_download
 
-    remote_dir = Path("raw") / target_ref
-    api = HfApi()
-    remote_done = f"{remote_dir.as_posix()}/calibration.DONE"
-    if not api.file_exists(
-        repo_id=workload["hf_repo"],
-        filename=remote_done,
-        repo_type=workload["hf_repo_type"],
-    ):
-        return False
+    remote_dir = Path("profiles") / profile_ref
+    resolved_commit = HfApi().repo_info(
+        repo_id=spec["hf_repo"],
+        repo_type="dataset",
+        revision=hf_commit,
+    ).sha
     snapshot = Path(
         snapshot_download(
-            repo_id=workload["hf_repo"],
-            repo_type=workload["hf_repo_type"],
-            allow_patterns=[
-                f"{remote_dir.as_posix()}/calibration.json",
-                f"{remote_dir.as_posix()}/hardware.json",
-                remote_done,
-            ],
+            repo_id=spec["hf_repo"],
+            repo_type="dataset",
+            revision=resolved_commit,
+            allow_patterns=[f"{remote_dir.as_posix()}/{name}" for name in PROFILE_FILENAMES],
         )
     )
     source_dir = snapshot / remote_dir
     local_dir.mkdir(parents=True, exist_ok=True)
-    for name in (
-        "calibration.json",
-        "hardware.json",
-        "calibration.DONE",
-    ):
-        shutil.copyfile(source_dir / name, local_dir / name)
-    return True
+    profile_dir = local_dir / resolved_commit
+    with (local_dir / f".{resolved_commit}.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not (profile_dir / "DONE").exists():
+            profile_dir.mkdir(exist_ok=True)
+            for name in PROFILE_FILENAMES:
+                shutil.copyfile(source_dir / name, profile_dir / name)
+        (profile_dir / "DONE").read_bytes()
+    return profile_dir, resolved_commit
 
 
-def download_profile(workload: dict[str, Any], profile_ref: Path) -> Path:
-    from huggingface_hub import snapshot_download
-
-    remote_dir = Path("profiles") / profile_ref
-    snapshot = Path(
-        snapshot_download(
-            repo_id=workload["hf_repo"],
-            repo_type=workload["hf_repo_type"],
-            allow_patterns=f"{remote_dir.as_posix()}/**",
-        )
-    )
-    profile_dir = snapshot / remote_dir
-    (profile_dir / "DONE").read_bytes()
-    return profile_dir
-
-
-def download_raw_selection(
-    workload: dict[str, Any],
-    target_ref: Path,
-    local_dir: Path,
-    session_ids: list[int],
+def publish_simulation_dirs(
+    spec: dict[str, Any],
     *,
-    overwrite: bool = False,
-) -> None:
-    from huggingface_hub import HfApi, snapshot_download
+    local_dirs: list[Path],
+    remote_dirs: list[Path],
+) -> str:
+    from huggingface_hub import CommitOperationAdd, HfApi
 
-    remote_dir = Path("raw") / target_ref
-    api = HfApi()
-    markers = [
-        f"{remote_dir.as_posix()}/calibration.DONE",
-        *(
-            f"{remote_dir.as_posix()}/sessions/{session_id}/DONE"
-            for session_id in session_ids
-        ),
+    operations = [
+        CommitOperationAdd(
+            path_in_repo=f"{remote.as_posix()}/{path.relative_to(local).as_posix()}",
+            path_or_fileobj=str(path),
+        )
+        for local, remote in zip(local_dirs, remote_dirs)
+        for path in sorted(local.rglob("*"))
+        if path.is_file() and path.name != "generated.yaml"
     ]
-    for marker in markers:
-        if not api.file_exists(
-            repo_id=workload["hf_repo"],
-            filename=marker,
-            repo_type=workload["hf_repo_type"],
-        ):
-            raise FileNotFoundError(marker)
-
-    snapshot = Path(
-        snapshot_download(
-            repo_id=workload["hf_repo"],
-            repo_type=workload["hf_repo_type"],
-            allow_patterns=[
-                f"{remote_dir.as_posix()}/calibration.json",
-                f"{remote_dir.as_posix()}/hardware.json",
-                markers[0],
-                *(
-                    f"{remote_dir.as_posix()}/sessions/{session_id}/**"
-                    for session_id in session_ids
-                ),
-            ],
-        )
+    commit = HfApi().create_commit(
+        repo_id=spec["hf_repo"],
+        repo_type="dataset",
+        operations=operations,
+        commit_message=f"simulations under {remote_dirs[0].parent.as_posix()}",
     )
-    source_dir = snapshot / remote_dir
-    completed_local_paths = [
-        local_dir / "calibration.DONE",
-        *(local_dir / "sessions" / str(session_id) / "DONE" for session_id in session_ids),
-    ]
-    if not overwrite:
-        for completed_path in completed_local_paths:
-            if completed_path.exists():
-                raise FileExistsError(completed_path)
-
-    local_dir.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(
-        prefix=f".{local_dir.name}.download-",
-        dir=local_dir.parent,
-    ) as staging_name:
-        staging_dir = Path(staging_name)
-        for name in ("calibration.json", "hardware.json", "calibration.DONE"):
-            shutil.copyfile(source_dir / name, staging_dir / name)
-        for session_id in session_ids:
-            shutil.copytree(
-                source_dir / "sessions" / str(session_id),
-                staging_dir / "sessions" / str(session_id),
-            )
-
-        (staging_dir / "calibration.DONE").read_bytes()
-        for session_id in session_ids:
-            (staging_dir / "sessions" / str(session_id) / "DONE").read_bytes()
-
-        local_dir.mkdir(parents=True, exist_ok=True)
-        for name in ("calibration.json", "hardware.json", "calibration.DONE"):
-            destination = local_dir / name
-            if destination.exists():
-                destination.unlink()
-            shutil.move(staging_dir / name, destination)
-        for session_id in session_ids:
-            destination = local_dir / "sessions" / str(session_id)
-            if destination.exists():
-                shutil.rmtree(destination)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(staging_dir / "sessions" / str(session_id), destination)
-
-
-def download_analysis_selection(
-    workload: dict[str, Any],
-    profile_refs: list[Path],
-    real_session_ids: list[int],
-    methods: list[str],
-    latency_seeds: list[int],
-) -> Path:
-    from huggingface_hub import snapshot_download
-
-    patterns = []
-    for profile_ref in profile_refs:
-        patterns.append(f"profiles/{profile_ref.as_posix()}/**")
-        target = profile_ref.parent
-        profile = read_json(download_profile(workload, profile_ref) / "profile.json")
-        patterns.extend(
-            f"raw/{target.as_posix()}/sessions/{session_id}/**"
-            for session_id in real_session_ids
-        )
-        patterns.extend(
-            f"raw/{target.as_posix()}/sessions/{session_id}/**"
-            for session_id in profile["fit_session_ids"]
-        )
-        patterns.extend(
-            f"sim/{profile_ref.as_posix()}/{method}/{latency_seed}/**"
-            for method in methods
-            for latency_seed in latency_seeds
-        )
-    return Path(
-        snapshot_download(
-            repo_id=workload["hf_repo"],
-            repo_type=workload["hf_repo_type"],
-            allow_patterns=patterns,
-        )
-    )
-
-
-def publish_directory_leaf(
-    workload: dict[str, Any],
-    local_dir: Path,
-    remote_dir: Path,
-    *,
-    resume: bool = False,
-    overwrite: bool = False,
-) -> None:
-    from huggingface_hub import HfApi
-
-    api = HfApi()
-    remote_done = f"{remote_dir.as_posix()}/DONE"
-    if not overwrite and api.file_exists(
-        repo_id=workload["hf_repo"],
-        filename=remote_done,
-        repo_type=workload["hf_repo_type"],
-    ):
-        if resume:
-            return
-        raise FileExistsError(remote_done)
-    done = local_dir / "DONE"
-    done.read_bytes()
-    api.upload_folder(
-        repo_id=workload["hf_repo"],
-        repo_type=workload["hf_repo_type"],
-        folder_path=str(local_dir),
-        path_in_repo=remote_dir.as_posix(),
-        ignore_patterns=["DONE"],
-        delete_patterns=["**"] if overwrite else None,
-    )
-    api.upload_file(
-        repo_id=workload["hf_repo"],
-        repo_type=workload["hf_repo_type"],
-        path_or_fileobj=str(done),
-        path_in_repo=remote_done,
-    )
-
-
-def publish_calibration(
-    workload: dict[str, Any],
-    local_dir: Path,
-    remote_dir: Path,
-    *,
-    resume: bool = False,
-) -> None:
-    from huggingface_hub import HfApi
-
-    api = HfApi()
-    remote_done = f"{remote_dir.as_posix()}/calibration.DONE"
-    if api.file_exists(
-        repo_id=workload["hf_repo"],
-        filename=remote_done,
-        repo_type=workload["hf_repo_type"],
-    ):
-        if resume:
-            return
-        raise FileExistsError(remote_done)
-    done = local_dir / "calibration.DONE"
-    done.read_bytes()
-    for name in ("calibration.json", "hardware.json"):
-        api.upload_file(
-            repo_id=workload["hf_repo"],
-            repo_type=workload["hf_repo_type"],
-            path_or_fileobj=str(local_dir / name),
-            path_in_repo=f"{remote_dir.as_posix()}/{name}",
-        )
-    api.upload_file(
-        repo_id=workload["hf_repo"],
-        repo_type=workload["hf_repo_type"],
-        path_or_fileobj=str(done),
-        path_in_repo=remote_done,
-    )
+    return commit.oid

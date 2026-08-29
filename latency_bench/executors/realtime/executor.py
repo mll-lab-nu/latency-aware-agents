@@ -99,7 +99,6 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
     def __init__(
         self,
         runtime: RealtimeRuntime,
-        runtime_factory: Callable[[], RealtimeRuntime],
         policy: PolicyRunner | None,
         logger: TrajectoryLogger | None = None,
         time_fn: Callable[[], float] = time.perf_counter,
@@ -112,7 +111,6 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         video_output_dir: str | None = None,
         video_fps: float | None = None,
     ):
-        self._runtime_factory = runtime_factory
         self._install_runtime(runtime)
         self.policy = policy
         self.logger = logger
@@ -228,13 +226,6 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 flush=True,
             )
         return summary
-
-    def restart_runtime(self, cooldown_s: float) -> None:
-        """Dispose the current runtime, cool down, and install a fresh runtime."""
-        self._close_runtime(close_inference_pool=True)
-        self.sleep_fn(cooldown_s)
-        self._install_runtime(self._runtime_factory())
-        self._owns_inference_pool = True
 
     def close(self) -> None:
         self._close_runtime(close_inference_pool=self._owns_inference_pool)
@@ -413,7 +404,6 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 active_event=self.action_scheduler.latest_applied_event,
                 frame_ms=self.clock.frame_ms,
                 latency_type="measured",
-                profile_metadata=profile_metadata_from_source(self.latency_source),
                 pre_active_info={
                     "scheduled_time_ms": scheduled_time_ms,
                     "wall_elapsed_ms": current_wall_elapsed_ms,

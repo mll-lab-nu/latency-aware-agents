@@ -318,7 +318,6 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                 active_event=self.action_scheduler.latest_applied_event,
                 frame_ms=self.clock.frame_ms,
                 latency_type=latency_type,
-                profile_metadata=profile_metadata_from_source(self.latency_source),
                 pre_active_info=pre_active_info,
             )
             step_records.append(record)

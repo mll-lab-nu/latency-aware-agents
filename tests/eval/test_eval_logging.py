@@ -8,8 +8,11 @@ import pytest
 from latency_bench.core.types import Action, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
-from latency_bench.latency.burst_profile import build_hidden_regime_burst_model
-from latency_bench.latency.profile import build_inverse_cdf_distribution, save_latency_distribution, save_profile_manifest, write_latency_samples
+from latency_bench.latency.burst_profile import (
+    build_hidden_regime_burst_model,
+    build_worker_slot_distributions_from_sessions,
+)
+from latency_bench.latency.profile import save_latency_distribution, save_profile_manifest
 from latency_bench.eval.driver import run_from_config
 from latency_bench.utils.io import load_jsonl_records
 
@@ -77,7 +80,6 @@ def _config(tmp_path: Path, *, latency: dict | None = None, env_name: str = "dum
         "evaluation": {
             "eval_episodes": 1,
             "eval_max_steps": 3,
-            "replay_host": "test_replay_host",
         },
         "logging": {
             "output_dir": str(tmp_path),
@@ -91,36 +93,41 @@ def _config(tmp_path: Path, *, latency: dict | None = None, env_name: str = "dum
 def _write_profile(tmp_path: Path) -> Path:
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir()
-    write_latency_samples([10.0, 20.0, 30.0], profile_dir / "latencies.jsonl")
-    save_latency_distribution(
-        build_inverse_cdf_distribution([10.0, 20.0, 30.0]),
-        profile_dir / "latency_distribution.json",
-    )
     burst_samples = [
         {
             "episode_id": 0,
             "sample_index": index,
-            "worker_id": 0,
+            "worker_id": index % 2,
             "action_ready_ms": float(frames) * 40.0,
             "worker_service_ms": float(frames) * 40.0,
             "worker_service_ms_bin": frames * 40,
         }
-        for index, frames in enumerate([1, 2, 3])
+        for index, frames in enumerate([1, 1, 1, 1, 1, 1])
     ]
+    burst_model = build_hidden_regime_burst_model(burst_samples)
     (profile_dir / "latency_burst_model.json").write_text(
-        json.dumps(build_hidden_regime_burst_model(burst_samples), indent=2, sort_keys=True) + "\n",
+        json.dumps(burst_model, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
+    )
+    save_latency_distribution(
+        build_worker_slot_distributions_from_sessions(
+            [burst_samples],
+            spike_threshold_ms_by_worker_slot=burst_model[
+                "spike_threshold_ms_by_worker_slot"
+            ],
+        ),
+        profile_dir / "latency_distribution.json",
     )
     save_profile_manifest(
         {
-            "profile_id": "L_eval_logging",
-            "policy_id": "pi_test",
-            "env_id": "env_test",
-            "target_device": "target_gpu",
+            "model_id": "openvla",
+            "gpu_class": "2x-test-gpu",
+            "workload_id": "flappy",
+            "instance_id": "instance_test",
+            "source_run_id": "run_test",
             "env_fps": 25.0,
             "frame_ms": 40.0,
-            "n_samples": 3,
-            "trace_path": "latencies.jsonl",
+            "n_samples": 6,
             "distribution_path": "latency_distribution.json",
             "latency_method": "temporal",
             "sample_model_type": "hidden_regime",
@@ -149,7 +156,6 @@ def test_episode_metrics_log_evaluation_raw_fact_metadata(tmp_path: Path):
     assert metrics["metadata"]["env_fps"] == pytest.approx(25.0)
     assert metrics["metadata"]["obs_fps"] == pytest.approx(25.0)
     assert metrics["metadata"]["frame_ms"] == pytest.approx(40.0)
-    assert metrics["metadata"]["replay_host"] == "test_replay_host"
 
 
 def test_return_raw_is_only_from_explicit_info(tmp_path: Path):
@@ -181,8 +187,9 @@ def test_empirical_profile_metadata_is_logged(tmp_path: Path):
     latency = load_jsonl_records(tmp_path / "run" / "latencies.jsonl")[0]
 
     for record in (metrics["metadata"], action["latency"], latency):
-        assert record["profile_id"] == "L_eval_logging"
-        assert record["target_device"] == "target_gpu"
+        assert record["model_id"] == "openvla"
+        assert record["gpu_class"] == "2x-test-gpu"
+        assert record["instance_id"] == "instance_test"
 
 
 def test_simulated_latency_records_log_latency_raw_fields(tmp_path: Path):
