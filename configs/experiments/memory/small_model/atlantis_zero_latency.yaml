@@ -21,7 +21,10 @@ seeds:
 evaluation:
   eval_episodes: 100
   eval_parallel_envs: 1
-  eval_max_steps: 5000
+  eval_max_steps: 3600
+
+training:
+  train_for_env_steps: 10000000
 
 latency_settings:
   fixed_l0:
@@ -36,6 +39,6 @@ latency_settings:
 sweeps:
   frame_stack:
     frame_stack:
-      - 1
+      - 4
     obs_fps:
       - 15
