@@ -99,6 +99,33 @@ def test_build_latency_bench_config_from_training_config_uses_base_env_config(tm
     assert config["logging"]["output_dir"] == str(tmp_path / "eval_outputs")
 
 
+def test_build_latency_bench_config_switches_sonic_decoder_to_environment(
+    tmp_path: Path,
+):
+    from training.common.latency_bench_periodic_eval import (
+        build_latency_bench_config_from_training_config,
+    )
+
+    training_config = _training_config(tmp_path)
+    training_config["env"] = {
+        "name": "gymnasium",
+        "make_kwargs": {"sonic_decoder_mode": "inference_worker"},
+    }
+    training_config["logging"]["video"] = {"enabled": False}
+    training_config["training"]["fasttd3_sonic_decoder_path"] = str(
+        tmp_path / "decoder.onnx"
+    )
+
+    config = build_latency_bench_config_from_training_config(
+        training_config,
+        checkpoint_path=tmp_path / "checkpoint.pth",
+        output_dir=tmp_path / "eval_outputs",
+    )
+
+    assert config["env"]["make_kwargs"]["sonic_decoder_mode"] == "environment"
+    assert "fasttd3_sonic_decoder_path" not in config["training"]
+
+
 def test_periodic_observer_saves_checkpoint_and_defers_latency_bench_job(monkeypatch, tmp_path: Path):
     import training.common.latency_bench_periodic_eval as periodic_eval
 

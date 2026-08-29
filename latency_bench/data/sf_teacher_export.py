@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from latency_bench.data.hf_parquet import (
     cleanup_rollout_intermediates,
@@ -16,6 +16,7 @@ from latency_bench.data.hf_parquet import (
 from latency_bench.data.prompts import BASE_PROMPTS, IMAGE_TRANSFORM_CONTEXTS, TIMING_SUFFIX
 from latency_bench.data.action_layouts import (
     ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+    ACTION_LAYOUT_G1_SONIC_GR00T_V1,
     action_spec_for_env,
 )
 from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1, FILTER_PRESET_NONE
@@ -86,6 +87,7 @@ def export_sample_factory_teacher_dataset(
     checkpoint_root: str | Path,
     output_dir: Path,
     latency_config_path: str | Path | None,
+    gym_camera_name: str | None = None,
     env_name: str,
     max_episodes: int,
     max_steps_per_episode: int,
@@ -106,6 +108,7 @@ def export_sample_factory_teacher_dataset(
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
     episode_return_gt: float | None = None,
+    episode_acceptance: Mapping[str, Any] | None = None,
     hf_config_name: str = "",
     context_window: int = 1,
     rollout_seed_offset: int = 0,
@@ -118,6 +121,7 @@ def export_sample_factory_teacher_dataset(
         checkpoint_root: Experiment directory or checkpoint file path.
         output_dir: Directory receiving parquet files and metadata.
         latency_config_path: Optional latency-only YAML override.
+        gym_camera_name: Optional camera name override for Gymnasium checkpoints.
         env_name: Optional canonical environment name override.
         max_episodes: Number of episodes to collect.
         max_steps_per_episode: Raw environment frame cap per episode.
@@ -136,6 +140,7 @@ def export_sample_factory_teacher_dataset(
         hf_token: Explicit Hugging Face token.
         hf_max_shard_size: Hub upload shard size.
         episode_return_gt: Optional strict lower bound for accepted episode returns.
+        episode_acceptance: Explicit task-specific episode acceptance contract.
         context_window: Total image window length including the current ``image`` field.
         image_transform_config: Optional image transform applied during replay
             before row filtering.
@@ -147,6 +152,7 @@ def export_sample_factory_teacher_dataset(
         checkpoint_root,
         latency_config_path=latency_config_path,
         device_override=device or None,
+        gym_camera_name=gym_camera_name,
     )
     if env_name:
         if config["integration_name"] == "gymnasium":
@@ -158,7 +164,10 @@ def export_sample_factory_teacher_dataset(
         config["action_spec"] = action_spec_for_env(config["env_name"])
         config["base_prompt"] = BASE_PROMPTS[config["env_name"]]
     action_spec = config["action_spec"]
-    if action_spec.layout == ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1:
+    if action_spec.layout in (
+        ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+        ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+    ):
         filter_preset = FILTER_PRESET_NONE
     rollout_metadata = collect_teacher_dataset(
         config,
@@ -176,6 +185,7 @@ def export_sample_factory_teacher_dataset(
         filter_preset=str(filter_preset),
         filter_kwargs=filter_kwargs,
         episode_return_gt=episode_return_gt,
+        episode_acceptance=episode_acceptance,
         context_window=int(context_window),
         rollout_seed_offset=int(rollout_seed_offset),
         probe_only=bool(probe_only),
@@ -204,7 +214,6 @@ def export_sample_factory_teacher_dataset(
         ),
         "base_prompt": config["base_prompt"],
         "image_transform_prompt_contexts": IMAGE_TRANSFORM_CONTEXTS,
-        "prompt_timing_suffix": TIMING_SUFFIX,
         "max_episodes": int(max_episodes),
         "max_steps_per_episode": int(max_steps_per_episode),
         "max_steps_unit": "raw_frame",
@@ -229,6 +238,10 @@ def export_sample_factory_teacher_dataset(
     }
     if config["integration_name"] == "gymnasium":
         metadata["integration_name"] = "gymnasium"
+    if action_spec.layout != ACTION_LAYOUT_G1_SONIC_GR00T_V1:
+        metadata["prompt_timing_suffix"] = TIMING_SUFFIX
+    if episode_acceptance is not None:
+        metadata["episode_acceptance"] = dict(episode_acceptance)
     if episode_return_gt is not None:
         metadata["episode_return_gate"] = rollout_metadata["episode_return_gate"]
     with (output_dir / "metadata.json").open("w", encoding="utf-8") as handle:

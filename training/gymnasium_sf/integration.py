@@ -119,15 +119,23 @@ class ChannelFirstFrameStackWrapper(gym.Wrapper):
 
 
 class GymnasiumStateInfoWrapper(gym.Wrapper):
+    """Keep each raw Gymnasium observation beside the policy observation."""
+
+    @staticmethod
+    def _state(observation):
+        if isinstance(observation, dict):
+            observation = observation["obs"]
+        return np.asarray(observation).copy()
+
     def reset(self, **kwargs):
         observation, info = self.env.reset(**kwargs)
-        return observation, {**info, "gymnasium_state": np.asarray(observation).copy()}
+        return observation, {**info, "gymnasium_state": self._state(observation)}
 
     def step(self, action):
         observation, reward, terminated, truncated, info = self.env.step(action)
         return observation, reward, terminated, truncated, {
             **info,
-            "gymnasium_state": np.asarray(observation).copy(),
+            "gymnasium_state": self._state(observation),
         }
 
 

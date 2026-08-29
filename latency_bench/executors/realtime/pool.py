@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import multiprocessing.spawn as mp_spawn
+import sys
+import threading
 import time
 from typing import Any
 
@@ -12,8 +15,13 @@ from latency_bench.executors.realtime.messages import (
 )
 from latency_bench.executors.realtime.timing import monotonic_ms
 from latency_bench.executors.thread_env import set_thread_env_defaults
+from latency_bench.policy.official_gr00t import (
+    OFFICIAL_GR00T_SITE_PACKAGES,
+    official_gr00t_python_executable,
+)
 
 REALTIME_INFERENCE_START_METHOD = "spawn"
+_PROCESS_START_LOCK = threading.Lock()
 
 
 class ProcessInferencePool:
@@ -32,6 +40,9 @@ class ProcessInferencePool:
         self._processes: list[mp.Process] = []
         self._busy_worker_tasks: dict[int, RealtimeObservationTask] = {}
         self.closed = False
+        self.worker_python_executable = None
+        if "policy" in config and config["policy"]["type"] == "official_gr00t":
+            self.worker_python_executable = official_gr00t_python_executable()
         self._start_workers()
 
     @property
@@ -120,17 +131,31 @@ class ProcessInferencePool:
 
     def _start_workers(self) -> None:
         try:
-            for worker_id, device in enumerate(self.inference_devices):
-                parent_conn, child_conn = self._ctx.Pipe()
-                process = self._ctx.Process(
-                    target=_inference_worker,
-                    args=(child_conn, self.config, worker_id, device, self.start_method),
-                    name=f"latency-bench-realtime-inference-{worker_id}",
-                )
-                process.start()
-                child_conn.close()
-                self._connections.append(parent_conn)
-                self._processes.append(process)
+            with _PROCESS_START_LOCK:
+                previous_executable = mp_spawn.get_executable()
+                previous_sys_path = sys.path.copy()
+                try:
+                    if self.worker_python_executable is not None:
+                        site_packages = str(OFFICIAL_GR00T_SITE_PACKAGES)
+                        sys.path[:] = [
+                            site_packages,
+                            *[path for path in sys.path if path != site_packages],
+                        ]
+                        mp.set_executable(self.worker_python_executable)
+                    for worker_id, device in enumerate(self.inference_devices):
+                        parent_conn, child_conn = self._ctx.Pipe()
+                        process = self._ctx.Process(
+                            target=_inference_worker,
+                            args=(child_conn, self.config, worker_id, device, self.start_method),
+                            name=f"latency-bench-realtime-inference-{worker_id}",
+                        )
+                        process.start()
+                        child_conn.close()
+                        self._connections.append(parent_conn)
+                        self._processes.append(process)
+                finally:
+                    sys.path[:] = previous_sys_path
+                    mp.set_executable(previous_executable)
 
             for worker_id, connection in enumerate(self._connections):
                 tag, payload = connection.recv()

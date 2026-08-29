@@ -200,6 +200,7 @@ def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
     cfg = load_config("configs/base/deadly_corridor.yaml")
     cfg["experiment"]["name"] = "deadly_corridor_sf_fixed_latency_4"
     cfg["latency"] = {"method": "fixed", "fixed_latency_ms": 4 * 1000.0 / 35.0}
+    cfg["training"]["fasttd3_actor_action_l2"] = 1.0
     args = build_common_sf_args(cfg, sf_env_name="doom_deadly_corridor")
     assert "--latency-type" in args
     assert args[args.index("--latency-type") + 1] == "fixed"
@@ -208,6 +209,7 @@ def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
     assert "--eval-max-steps" in args
     assert "--experiment" in args
     assert "deadly_corridor_sf_fixed_latency_4" in args
+    assert args[args.index("--fasttd3_actor_action_l2") + 1] == "1.0"
 
 
 def test_build_common_sf_args_maps_cuda_to_sample_factory_gpu():
@@ -288,8 +290,23 @@ def test_build_common_sf_args_splits_legacy_comma_wandb_tags():
     assert args[idx : idx + 4] == ["--wandb_tags", "observation_stride", "flappy", "frame_stack"]
 
 
-def test_apply_runtime_logging_config_maps_wandb_name_to_sample_factory_unique_id():
-    cfg = SimpleNamespace()
+def test_runtime_logging_config_survives_checkpoint_load(tmp_path):
+    from sample_factory.cfg.arguments import load_from_checkpoint
+
+    experiment_dir = tmp_path / "curriculum"
+    experiment_dir.mkdir()
+    (experiment_dir / "config.json").write_text(
+        json.dumps(
+            {
+                "experiment": "curriculum",
+                "train_dir": str(tmp_path),
+                "output_dir": "stage00",
+                "wandb_unique_id": "stage00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    cfg = SimpleNamespace(experiment="curriculum", train_dir=str(tmp_path))
 
     apply_runtime_logging_config(
         cfg,
@@ -299,8 +316,13 @@ def test_apply_runtime_logging_config_maps_wandb_name_to_sample_factory_unique_i
         },
     )
 
-    assert cfg.output_dir == "outputs/latency_sweeps/train/flappy/latency_0/seed_0"
-    assert cfg.wandb_unique_id == "flappy-bird-l0-s0"
+    loaded_cfg = load_from_checkpoint(cfg)
+
+    assert (
+        loaded_cfg.output_dir
+        == "outputs/latency_sweeps/train/flappy/latency_0/seed_0"
+    )
+    assert loaded_cfg.wandb_unique_id == "flappy-bird-l0-s0"
 
 
 def test_apply_training_overrides_updates_run_name_train_dir_and_mode():
@@ -324,6 +346,15 @@ def test_apply_training_overrides_updates_run_name_train_dir_and_mode():
         "best",
     ]
     assert updated["logging"]["output_dir"] == "outputs/eval/best/flappy/latency_0/seed_0"
+
+
+@pytest.mark.parametrize("missing_section", ["backend", "experiment", "logging"])
+def test_apply_training_overrides_requires_top_level_sections(missing_section):
+    config = load_config("configs/base/flappy.yaml")
+    del config[missing_section]
+
+    with pytest.raises(KeyError, match=missing_section):
+        apply_training_overrides(config)
 
 
 def test_flappy_sf_obs_resize_single_frame_shape():
@@ -1102,6 +1133,64 @@ def test_episode_metrics_wrapper_emits_flappy_timeout_and_issued_action_debug_me
     assert event["action/issued_flap_ratio"] == pytest.approx(1.0 / 3.0)
 
 
+def test_episode_metrics_wrapper_emits_hurdle_quality_and_residual_metrics(tmp_path):
+    import json
+
+    from training.common.latency_wrapper import EpisodeMetricsWrapper
+
+    metrics_path = tmp_path / "episodes.jsonl"
+    wrapped = EpisodeMetricsWrapper(
+        _ScriptedAtariInfoEnv(
+            [
+                (
+                    1.0,
+                    True,
+                    False,
+                    {
+                        "lives": 0,
+                        "first_hurdle_clean_pass": True,
+                        "hurdles_passed": 3,
+                        "hurdle_contacts": 1,
+                        "falls_or_nonfoot_ground_contact": 0,
+                        "course_complete": False,
+                        "teacher_accepted": False,
+                        "residual_abs_mean": 0.125,
+                        "residual_abs_max": 0.75,
+                        "residual_saturation_fraction": 0.5,
+                    },
+                )
+            ]
+        ),
+        metrics_path=str(metrics_path),
+    )
+
+    wrapped.reset()
+    _, _, terminated, truncated, info = wrapped.step(0)
+
+    assert terminated is True
+    assert truncated is False
+    extra = info["episode_extra_stats"]
+    assert extra["episode/first_hurdle_clean_pass"] == 1.0
+    assert extra["episode/hurdles_passed"] == 3.0
+    assert extra["episode/hurdle_contacts"] == 1.0
+    assert extra["episode/falls_or_nonfoot_ground_contact"] == 0.0
+    assert extra["episode/course_complete"] == 0.0
+    assert extra["episode/teacher_accepted"] == 0.0
+    assert extra["episode/residual_abs_mean"] == 0.125
+    assert extra["episode/residual_abs_max"] == 0.75
+    assert extra["episode/residual_saturation_fraction"] == 0.5
+    event = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert event["first_hurdle_clean_pass"] == 1.0
+    assert event["hurdles_passed"] == 3.0
+    assert event["hurdle_contacts"] == 1.0
+    assert event["falls_or_nonfoot_ground_contact"] == 0.0
+    assert event["course_complete"] == 0.0
+    assert event["teacher_accepted"] == 0.0
+    assert event["residual_abs_mean"] == 0.125
+    assert event["residual_abs_max"] == 0.75
+    assert event["residual_saturation_fraction"] == 0.5
+
+
 def test_flappy_reward_trace_records_raw_return(tmp_path):
     import json
 
@@ -1156,6 +1245,25 @@ def test_episode_metrics_aggregator_logs_raw_visible_metrics(tmp_path):
     assert payload["episode_train/cumulative_mean_return"] == 30.0
     assert payload["episode_train/cumulative_mean_raw_return"] == 30.0
     assert [key for key in payload if "clipped" in key] == []
+
+
+def test_episode_metrics_resume_reads_only_new_events(tmp_path):
+    from training.common.episode_metrics import (
+        EpisodeMetricsAggregator,
+        append_episode_metrics_event,
+    )
+
+    path = tmp_path / "episodes.jsonl"
+    old_event = {"return": 1.0, "length": 1, "raw_frames": 1}
+    new_event = {"return": 2.0, "length": 2, "raw_frames": 2}
+    append_episode_metrics_event(path, old_event)
+    aggregator = EpisodeMetricsAggregator(path=path, start_at_end=True)
+
+    append_episode_metrics_event(path, new_event)
+
+    assert aggregator.poll_once() == 1
+    assert aggregator.completed_episodes == 1
+    assert list(aggregator.return_window) == [2.0]
 
 
 def test_episode_metrics_aggregator_logs_numeric_debug_metrics_and_omits_done_reason(tmp_path):

@@ -50,20 +50,8 @@ GYMNASIUM_CHECKPOINT_DISCRETE_ARG_FIELDS = (
 
 
 def _gymnasium_checkpoint_args(flat_cfg: Mapping[str, Any]) -> list[str]:
-    if "gym_action_space_json" in flat_cfg:
-        action_space_json = flat_cfg["gym_action_space_json"]
-        noop_action_json = flat_cfg["gym_noop_action_json"]
-    else:
-        action_labels = json.loads(flat_cfg["gym_action_labels_json"])
-        action_values = json.loads(flat_cfg["gym_action_values_json"])
-        action_space_json = json.dumps(
-            {
-                "type": "discrete",
-                "labels": action_labels,
-                "values": action_values,
-            }
-        )
-        noop_action_json = json.dumps(action_labels[int(flat_cfg["gym_noop_action_id"])])
+    action_space_json = flat_cfg["gym_action_space_json"]
+    noop_action_json = flat_cfg["gym_noop_action_json"]
 
     argv: list[str] = []
     for field_name, flag in GYMNASIUM_CHECKPOINT_COMMON_ARG_FIELDS:
@@ -147,6 +135,13 @@ def build_sample_factory_rollout_cfg(config: dict[str, Any]):
         argv.extend(["--load_checkpoint_kind", str(flat_cfg["load_checkpoint_kind"])])
     cfg = module.SAMPLE_FACTORY_CONFIG_PARSER.parse_eval(argv)
     cfg = load_from_checkpoint(cfg)
+    if integration_name == "gymnasium":
+        make_kwargs = json.loads(flat_cfg["gym_make_kwargs_json"])
+        if (
+            "sonic_decoder_mode" in make_kwargs
+            and make_kwargs["sonic_decoder_mode"] == "environment"
+        ):
+            maybe_set_cli_override(cfg, "fasttd3_sonic_decoder_path", None)
     if config["latency_override"] is not None:
         _apply_latency_to_flat_cfg(cfg, config["latency_override"])
     maybe_set_cli_override(cfg, "add_latency_info", True)

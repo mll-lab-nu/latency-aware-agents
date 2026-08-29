@@ -1,0 +1,27 @@
+__base__: small_model_train.yaml
+
+backend:
+  run_mode: eval
+
+policy:
+  type: gymnasium_sf
+  checkpoint_path: ''
+  checkpoint_kind: best
+  device: cuda
+  deterministic: true
+
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_max_steps: 1000
+  eval_deterministic: true
+  eval_latency_values: [0, 1, 2, 3, 4]
+
+logging:
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/half_cheetah/small_model_eval
+  video:
+    enabled: true
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

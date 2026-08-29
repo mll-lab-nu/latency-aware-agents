@@ -80,6 +80,13 @@ def build_latency_bench_config_from_training_config(
             "deterministic": bool(config["evaluation"].get("eval_deterministic", True)),
         },
     )
+    if (
+        env_name == "gymnasium"
+        and "sonic_decoder_mode" in config["env"]["make_kwargs"]
+        and config["env"]["make_kwargs"]["sonic_decoder_mode"] == "inference_worker"
+    ):
+        config["env"]["make_kwargs"]["sonic_decoder_mode"] = "environment"
+        config["training"].pop("fasttd3_sonic_decoder_path")
     config["logging"]["output_dir"] = str(Path(output_dir).expanduser())
     # Eval after training does not need visualization
     config["logging"]["video"]["enabled"] = False

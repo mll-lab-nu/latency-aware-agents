@@ -56,6 +56,7 @@ class PolicyOutput:
     action: Action
     raw_output: Any = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    action_chunk: Any = None
 
 
 @dataclass
@@ -87,6 +88,7 @@ class ActionEvent:
     applied: bool = False
     dropped: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+    action_chunk: Any = None
 
 
 @dataclass

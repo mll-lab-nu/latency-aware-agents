@@ -15,6 +15,7 @@ from latency_bench.data.action_layouts import ActionSpec, action_spec_for_env
 from latency_bench.data.filters import (
     FILTER_PRESET_CLEAN_V1,
     accepts_episode,
+    accepts_episode_contract,
     demon_raw_score_bin_counts,
     filter_train_rows,
 )
@@ -280,6 +281,7 @@ def _filter_report_from_probe_state(
     episode_return_field: str,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     episode_return_gt: float | None = None,
+    episode_acceptance: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build final filter report from probe state and written row shards.
 
@@ -290,6 +292,7 @@ def _filter_report_from_probe_state(
         filter_preset: Filter preset name recorded in the report.
         episode_return_field: Canonical episode-return field used by the acceptance gate.
         episode_return_gt: Optional strict lower bound for accepted episode returns.
+        episode_acceptance: Explicit task-specific episode acceptance contract.
 
     Returns:
         Filter report written to metadata and ``filter_report.json``.
@@ -310,6 +313,8 @@ def _filter_report_from_probe_state(
         "val_rows_before_row_filter": sum(int(spec["episode_length"]) for spec in val_specs),
         "val_rows_after_row_filter": split_stats["val_rows"],
     }
+    if episode_acceptance is not None:
+        report["episode_acceptance"] = dict(episode_acceptance)
     if episode_return_gt is not None:
         report["episode_return_gate"] = {
             "field": episode_return_field,
@@ -564,6 +569,7 @@ def _probe_accepted_specs(
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
     episode_return_gt: float | None = None,
+    episode_acceptance: Mapping[str, Any] | None = None,
     rollout_seed_offset: int = 0,
     action_spec: ActionSpec | None = None,
     integration_name: str | None = None,
@@ -585,6 +591,7 @@ def _probe_accepted_specs(
         filter_preset: Filter preset name for episode-level gating.
         filter_kwargs: Optional overrides forwarded to the episode gate.
         episode_return_gt: Optional strict lower bound for accepted episode returns.
+        episode_acceptance: Explicit task-specific episode acceptance contract.
         action_spec: Explicit action layout carried by a generic checkpoint.
         integration_name: Integration identity used for legacy-specific rollout behavior.
     """
@@ -699,6 +706,13 @@ def _probe_accepted_specs(
                             max_steps_per_episode=int(max_steps_per_episode),
                             filter_kwargs=filter_kwargs,
                         )
+                        if episode_acceptance is not None:
+                            summary["final_info"] = step_result.info
+                            accepted = accepted and accepts_episode_contract(
+                                summary,
+                                episode_acceptance,
+                                env_fps=cfg.env_fps,
+                            )
                         accepted = accepted and _passes_episode_return_gate(
                             summary,
                             episode_return_field=resolved_action_spec.episode_return_field,
@@ -838,7 +852,13 @@ def _replay_accepted_specs(
     env_fps = float(cfg.env_fps)
     obs_fps = float(cfg.obs_fps)
     obs_stride_raw_frames = int(env_fps / obs_fps)
-    include_state = bool(getattr(cfg, "gym_state_labels_json", ""))
+    include_state = integration_name == "gymnasium" and bool(cfg.gym_state_labels_json)
+    uses_g1_gr00t_contract = env_name.startswith("g1_sonic_")
+    state_info_key = None
+    if uses_g1_gr00t_contract:
+        state_info_key = "official_gr00t_proprio"
+    elif include_state:
+        state_info_key = "gymnasium_state"
     spec_cursor = 0
     replayed = 0
 
@@ -897,8 +917,8 @@ def _replay_accepted_specs(
                 reset_results = driver.reset_slots(initial_reset_plan)
             for slot, (obs, reset_info) in reset_results.items():
                 active_obs[slot] = obs
-                if include_state:
-                    active_states[slot] = np.asarray(reset_info["gymnasium_state"]).copy()
+                if state_info_key is not None:
+                    active_states[slot] = reset_info[state_info_key]
                 if _is_demon_ghost_trail:
                     active_ghost_streams[slot] = DemonGhostTrailStream(_ghost_trail_history_len)
                     active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
@@ -952,7 +972,11 @@ def _replay_accepted_specs(
                             spec=spec,
                             decision_step=decision_step,
                             image=str(image_path),
-                            raw_action=raw_actions[batch_idx],
+                            raw_action=(
+                                step_result.info["action_target"]
+                                if uses_g1_gr00t_contract
+                                else raw_actions[batch_idx]
+                            ),
                             info=step_result.info,
                             reward=step_result.reward,
                             env_fps=env_fps,
@@ -960,7 +984,7 @@ def _replay_accepted_specs(
                             image_transform=image_transform_config.normalized_transform(),
                             action_spec=action_spec,
                             base_prompt=base_prompt,
-                            state=active_states[slot] if include_state else None,
+                            state=active_states[slot],
                         )
                         active_episode_rows[slot].append(row)
                     rnn_states[slot] = new_rnn_states[batch_idx]
@@ -1017,10 +1041,8 @@ def _replay_accepted_specs(
                     else:
                         if life_loss_boundary:
                             active_obs[slot], reset_info = driver.continue_after_life_loss(slot)
-                            if include_state:
-                                active_states[slot] = np.asarray(
-                                    reset_info["gymnasium_state"]
-                                ).copy()
+                            if state_info_key is not None:
+                                active_states[slot] = reset_info[state_info_key]
                             if _is_demon_ghost_trail:
                                 active_ghost_streams[slot].clear()
                                 active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
@@ -1029,10 +1051,8 @@ def _replay_accepted_specs(
                             rnn_states[slot].zero_()
                         else:
                             active_obs[slot] = step_result.next_obs
-                            if include_state:
-                                active_states[slot] = np.asarray(
-                                    step_result.info["gymnasium_state"]
-                                ).copy()
+                            if state_info_key is not None:
+                                active_states[slot] = step_result.info[state_info_key]
                             if _is_demon_ghost_trail:
                                 new_raw_frames = frames_from_env_raw_rgb_info(step_result.info)
                                 for f in new_raw_frames:
@@ -1049,10 +1069,8 @@ def _replay_accepted_specs(
                         reset_results = driver.reset_slots(reset_plan)
                     for slot, (obs, reset_info) in reset_results.items():
                         active_obs[slot] = obs
-                        if include_state:
-                            active_states[slot] = np.asarray(
-                                reset_info["gymnasium_state"]
-                            ).copy()
+                        if state_info_key is not None:
+                            active_states[slot] = reset_info[state_info_key]
                         if _is_demon_ghost_trail:
                             active_ghost_streams[slot] = DemonGhostTrailStream(_ghost_trail_history_len)
                             active_image_frames[slot] = frame_from_env_raw_rgb_info(reset_info).copy()
@@ -1134,6 +1152,7 @@ def collect_teacher_dataset(
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
     filter_kwargs: dict[str, Any] | None = None,
     episode_return_gt: float | None = None,
+    episode_acceptance: Mapping[str, Any] | None = None,
     context_window: int = 1,
     rollout_seed_offset: int = 0,
     probe_only: bool = False,
@@ -1157,6 +1176,7 @@ def collect_teacher_dataset(
         filter_preset: Filter preset name (``"none"`` or ``"clean_v1"``).
         filter_kwargs: Temporary exporter experiment arguments retained at the public boundary.
         episode_return_gt: Optional strict lower bound for accepted episode returns.
+        episode_acceptance: Explicit task-specific episode acceptance contract.
         context_window: Total image window length including the current ``image`` field.
         image_transform_config: Optional causal image transform applied during
             replay before row filtering.
@@ -1164,9 +1184,9 @@ def collect_teacher_dataset(
         Rollout metadata.
     """
     env_name = str(config["env_name"])
-    integration_name = config["integration_name"] if "integration_name" in config else env_name
-    action_spec = config["action_spec"] if "action_spec" in config else action_spec_for_env(env_name)
-    base_prompt = config["base_prompt"] if "base_prompt" in config else None
+    integration_name = config["integration_name"]
+    action_spec = config["action_spec"]
+    base_prompt = config["base_prompt"]
     image_transform_config = image_transform_config or GhostTrailConfig()
     completed_episode_indices = completed_episode_indices_from_shards(output_dir)
     probe_state = _load_probe_state(
@@ -1203,6 +1223,7 @@ def collect_teacher_dataset(
             filter_preset=filter_preset,
             filter_kwargs=filter_kwargs,
             episode_return_gt=episode_return_gt,
+            episode_acceptance=episode_acceptance,
             rollout_seed_offset=int(rollout_seed_offset),
             action_spec=action_spec,
             integration_name=integration_name,
@@ -1219,6 +1240,8 @@ def collect_teacher_dataset(
             "rollout_seed_offset": int(rollout_seed_offset),
             "filter_preset": filter_preset,
         }
+        if episode_acceptance is not None:
+            metadata["episode_acceptance"] = dict(episode_acceptance)
         if episode_return_gt is not None:
             metadata["episode_return_gate"] = {
                 "field": action_spec.episode_return_field,
@@ -1273,6 +1296,7 @@ def collect_teacher_dataset(
         filter_preset=filter_preset,
         episode_return_field=action_spec.episode_return_field,
         episode_return_gt=episode_return_gt,
+        episode_acceptance=episode_acceptance,
     )
     metadata = {
         "schema_version": SCHEMA_VERSION,

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from latency_bench.latency.config import latency_type_from_config
+from training.common.utils import maybe_set_cli_override
 
 ENV_INTEGRATIONS = {
     "deadly_corridor": "training.deadly_corridor_sf.integration",
@@ -64,9 +65,9 @@ def apply_training_overrides(
     output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     updated = deepcopy(config)
-    backend_cfg = updated.setdefault("backend", {})
-    experiment_cfg = updated.setdefault("experiment", {})
-    logging_cfg = updated.setdefault("logging", {})
+    backend_cfg = updated["backend"]
+    experiment_cfg = updated["experiment"]
+    logging_cfg = updated["logging"]
     if run_name is not None:
         experiment_cfg["name"] = str(run_name)
     if train_dir is not None:
@@ -162,13 +163,13 @@ def append_cli_multi_value_arg(args: list[str], flag: str, values: Any) -> None:
 def apply_runtime_logging_config(sf_cfg: Any, logging_cfg: dict[str, Any]) -> None:
     output_dir = logging_cfg.get("output_dir")
     if output_dir:
-        sf_cfg.output_dir = str(output_dir)
+        maybe_set_cli_override(sf_cfg, "output_dir", str(output_dir))
 
     wandb_name = logging_cfg.get("wandb_name")
     if isinstance(wandb_name, str):
         wandb_name = wandb_name.strip()
     if wandb_name:
-        sf_cfg.wandb_unique_id = str(wandb_name)
+        maybe_set_cli_override(sf_cfg, "wandb_unique_id", str(wandb_name))
 
 
 def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[str]:
@@ -266,6 +267,13 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         "save_best_after",
         "stats_avg",
         "experiment_summaries_interval",
+        "fasttd3_replay_capacity",
+        "fasttd3_replay_batch_size",
+        "fasttd3_transitions_per_update",
+        "fasttd3_v_min",
+        "fasttd3_v_max",
+        "fasttd3_actor_action_l2",
+        "fasttd3_sonic_decoder_path",
     )
     bool_fields = (
         "async_rl",
@@ -283,6 +291,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         "force_envs_single_thread",
         "actor_critic_share_weights",
         "with_wandb",
+        "fasttd3_compile",
     )
     list_fields = (
         "encoder_mlp_layers",

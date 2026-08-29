@@ -1,0 +1,9 @@
+__base__:
+  - ../walker2d/small_model_eval_sf_official_10m.yaml
+  - state_contract.yaml
+
+experiment:
+  name: gymnasium_walker2d_rgb_state_small_model_eval
+
+logging:
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/walker2d_rgb_state/small_model_eval

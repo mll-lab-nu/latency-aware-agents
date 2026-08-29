@@ -7,6 +7,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from latency_bench.envs.humanoidbench_sonic_contract import G1_BODY_JOINT_NAMES
+
 
 ACTION_LAYOUT_FLAPPY_DISCRETE = "flappy_discrete"
 ACTION_LAYOUT_DEMON_ATTACK_DISCRETE = "demon_attack_discrete"
@@ -15,6 +17,7 @@ ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54 = "deadly_corridor_joint_54"
 ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6 = "defend_the_line_joint_6"
 ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1 = "gymnasium_discrete_v1"
 ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1 = "gymnasium_continuous_v1"
+ACTION_LAYOUT_G1_SONIC_GR00T_V1 = "g1_sonic_gr00t_v1"
 
 FLAPPY_ACTION_LABELS = ("NOOP", "FLAP")
 DEMON_ATTACK_ACTION_LABELS = ("NOOP", "FIRE", "RIGHT", "LEFT", "RIGHTFIRE", "LEFTFIRE")
@@ -60,6 +63,7 @@ DEFEND_THE_LINE_JOINT_6_LABELS = tuple(
     for turn in range(len(DEFEND_THE_LINE_TURN_LABELS))
     for attack in range(len(DEFEND_THE_LINE_ATTACK_LABELS))
 )
+G1_SONIC_GR00T_ACTION_LABELS = G1_BODY_JOINT_NAMES
 
 
 @dataclass(frozen=True)
@@ -118,6 +122,16 @@ ACTION_SPECS_BY_ENV = {
 }
 
 
+G1_SONIC_GR00T_ACTION_SPEC = ActionSpec(
+    layout=ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+    labels=G1_SONIC_GR00T_ACTION_LABELS,
+    row_fields=("action", "action_text"),
+    reward_field="raw_reward",
+    episode_return_field="episode_raw_return",
+    reward_semantics="raw_reward",
+)
+
+
 def action_spec_for_env(env_name: str) -> ActionSpec:
     """Return the canonical action spec for an environment.
 
@@ -127,7 +141,10 @@ def action_spec_for_env(env_name: str) -> ActionSpec:
     Returns:
         The action spec that defines row fields and label order.
     """
-    return ACTION_SPECS_BY_ENV[str(env_name)]
+    name = str(env_name)
+    if name.startswith("g1_sonic_"):
+        return G1_SONIC_GR00T_ACTION_SPEC
+    return ACTION_SPECS_BY_ENV[name]
 
 
 def gymnasium_discrete_action_spec(action_labels: Sequence[str]) -> ActionSpec:
@@ -313,7 +330,10 @@ def encode_action_for_env(
         return deadly_corridor_joint_54_action(raw_action)
     if resolved_action_spec.layout == ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6:
         return defend_the_line_joint_6_action(raw_action)
-    if resolved_action_spec.layout == ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1:
+    if resolved_action_spec.layout in (
+        ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+        ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+    ):
         action = [float(item) for item in _to_python_action(raw_action)]
         return {
             "action": action,

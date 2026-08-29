@@ -60,9 +60,16 @@ class GymnasiumEnvAdapter(EnvAdapter):
         self._observed_frames: list[np.ndarray] = []
         self._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=frame_stack)
 
+    @staticmethod
+    def _state(observation: Any) -> np.ndarray:
+        if isinstance(observation, dict):
+            observation = observation["obs"]
+        return np.asarray(observation).copy()
+
     def reset(self, seed: int | None = None) -> Observation:
         observation, info = self.gym_env.reset(seed=seed)
-        self._last_state = np.asarray(observation).copy()
+        if self.include_state:
+            self._last_state = self._state(observation)
         self.env_step = 0
         if not self._policy_frame_stack_enabled:
             self._last_frame = observation
@@ -76,7 +83,8 @@ class GymnasiumEnvAdapter(EnvAdapter):
 
     def step(self, action: Action) -> StepResult:
         observation, reward, terminated, truncated, info = self.gym_env.step(action.value)
-        self._last_state = np.asarray(observation).copy()
+        if self.include_state:
+            self._last_state = self._state(observation)
         self.env_step += 1
         if not self._policy_frame_stack_enabled:
             self._last_frame = observation

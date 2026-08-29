@@ -297,6 +297,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             "in_flight_count": pool.in_flight_count,
             "idle_worker_count": pool.idle_worker_count,
             "inference_worker_count": pool.worker_count,
+            **self.action_scheduler.chunk_metrics(),
             **(pre_episode_drain or {}),
             **episode_raw_fact_metadata(
                 mode="realtime",
@@ -565,6 +566,17 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                         target = acc.action_events[index]
                         target.applied = payload["applied"]
                         target.apply_raw_frame = payload["apply_raw_frame"]
+                        for key in (
+                            "hold_last_chunk_action",
+                            "stale_prefix_frames",
+                            "chunk_age_raw_frames",
+                            "chunk_age_ms",
+                            "underflow_count",
+                            "underflow_frames",
+                            "underflow_duration_ms",
+                        ):
+                            if key in payload:
+                                target.metadata[key] = payload[key]
                         if "profile" in payload:
                             target.metadata[REALTIME_PROFILE_METADATA_KEY].merge_dict(payload["profile"])
                 elif tag == "step":
@@ -724,6 +736,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             ready_step_float=self.clock.time_ms_to_step_float(completion.completion_time_ms),
             latency=latency_record,
             metadata=event_metadata,
+            action_chunk=completion.policy_output.action_chunk,
         )
         apply_latency_raw_fields(
             event=event,

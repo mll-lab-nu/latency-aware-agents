@@ -164,6 +164,52 @@ def test_process_inference_pool_uses_spawn_start_method(monkeypatch):
     assert pool.start_method == "spawn"
 
 
+def test_official_gr00t_pool_uses_the_pinned_submodule_python(monkeypatch):
+    starts = []
+
+    class Connection:
+        def recv(self):
+            return "ready", {}
+
+        def close(self):
+            return None
+
+    class Process:
+        def start(self):
+            starts.append(
+                (realtime_pool.mp_spawn.get_executable(), realtime_pool.sys.path.copy())
+            )
+
+        def is_alive(self):
+            return False
+
+    class Context:
+        def Pipe(self):
+            return Connection(), Connection()
+
+        def Process(self, **kwargs):
+            return Process()
+
+    monkeypatch.setattr(realtime_pool.mp, "get_context", lambda _method: Context())
+    previous_executable = realtime_pool.mp_spawn.get_executable()
+    previous_sys_path = realtime_pool.sys.path.copy()
+    sys_path_object = realtime_pool.sys.path
+
+    pool = ProcessInferencePool(
+        config={"policy": {"type": "official_gr00t"}},
+        inference_devices=["cuda:0"],
+    )
+
+    assert pool.worker_python_executable.endswith(
+        "third_party/Isaac-GR00T/.venv/bin/python"
+    )
+    assert starts[0][0] == pool.worker_python_executable.encode()
+    assert starts[0][1][0] == str(realtime_pool.OFFICIAL_GR00T_SITE_PACKAGES)
+    assert realtime_pool.mp_spawn.get_executable() == previous_executable
+    assert realtime_pool.sys.path is sys_path_object
+    assert realtime_pool.sys.path == previous_sys_path
+
+
 def test_process_inference_pool_does_not_accept_start_method(monkeypatch):
     monkeypatch.setattr(ProcessInferencePool, "_start_workers", lambda self: None)
 

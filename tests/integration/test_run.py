@@ -1120,6 +1120,7 @@ def test_main_runs_eval_latency_sweep_into_separate_output_dirs(tmp_path: Path, 
     assert latency_0_metrics["metadata"]["train_latency_steps"] == 0
     assert latency_0_metrics["metadata"]["eval_latency_steps"] == 0
     assert latency_0_metrics["metadata"]["configured_latency_ms"] == 0.0
+    assert latency_0_metrics["metadata"]["latency_type"] == "fixed_sweep"
     assert latency_0_metrics["metadata"]["config_name"] == "sweep_config"
     assert latency_0_metrics["metadata"]["run_name"] == "sweep_config"
     assert latency_0_metrics["metadata"]["output_dir"] == str(output_dir / "eval_latency_0")
@@ -1127,6 +1128,7 @@ def test_main_runs_eval_latency_sweep_into_separate_output_dirs(tmp_path: Path, 
     assert latency_3_metrics["metadata"]["train_latency_steps"] == 0
     assert latency_3_metrics["metadata"]["eval_latency_steps"] == 3
     assert latency_3_metrics["metadata"]["configured_latency_ms"] == 100.0
+    assert latency_3_metrics["metadata"]["latency_type"] == "fixed_sweep"
     assert latency_3_metrics["metadata"]["config_name"] == "sweep_config"
     assert latency_3_metrics["metadata"]["run_name"] == "sweep_config"
     assert latency_3_metrics["metadata"]["output_dir"] == str(output_dir / "eval_latency_3")
@@ -1134,12 +1136,14 @@ def test_main_runs_eval_latency_sweep_into_separate_output_dirs(tmp_path: Path, 
     assert latency_0_summary["train_latency_steps"] == 0
     assert latency_0_summary["eval_latency_steps"] == 0
     assert latency_0_summary["configured_latency_ms"] == 0.0
+    assert latency_0_summary["latency_type"] == "fixed_sweep"
     assert latency_0_summary["returns"] == [1.0]
     assert latency_0_summary["lengths"] == [1]
 
     assert latency_3_summary["train_latency_steps"] == 0
     assert latency_3_summary["eval_latency_steps"] == 3
     assert latency_3_summary["configured_latency_ms"] == 100.0
+    assert latency_3_summary["latency_type"] == "fixed_sweep"
     assert latency_3_summary["returns"] == [1.0]
     assert latency_3_summary["lengths"] == [1]
     assert results == [latency_0_summary, latency_3_summary]

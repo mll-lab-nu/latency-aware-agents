@@ -13,6 +13,7 @@ import yaml
 
 from latency_bench.data.action_layouts import (
     ActionSpec,
+    G1_SONIC_GR00T_ACTION_SPEC,
     action_spec_for_env,
     gymnasium_discrete_action_spec,
     gymnasium_continuous_action_spec,
@@ -80,16 +81,16 @@ def _infer_env_name_from_sf_env(sf_env_name: str) -> str:
 def _rollout_task_contract(flat_cfg: Mapping[str, Any]) -> tuple[str, str, ActionSpec, str]:
     """Resolve task identity and semantics stored in a teacher checkpoint."""
     if flat_cfg["env"] == GYMNASIUM_SF_ENV:
-        if "gym_action_space_json" in flat_cfg:
-            action_space = json.loads(flat_cfg["gym_action_space_json"])
-            action_labels = action_space["labels"]
-        else:
-            action_space = {"type": "discrete"}
-            action_labels = json.loads(flat_cfg["gym_action_labels_json"])
+        action_space = json.loads(flat_cfg["gym_action_space_json"])
+        action_labels = action_space["labels"]
         action_spec = (
-            gymnasium_continuous_action_spec(action_labels)
-            if action_space["type"] == "box"
-            else gymnasium_discrete_action_spec(action_labels)
+            G1_SONIC_GR00T_ACTION_SPEC
+            if str(flat_cfg["gym_task_name"]).startswith("g1_sonic_")
+            else (
+                gymnasium_continuous_action_spec(action_labels)
+                if action_space["type"] == "box"
+                else gymnasium_discrete_action_spec(action_labels)
+            )
         )
         return (
             flat_cfg["gym_task_name"],
@@ -113,16 +114,18 @@ def _gymnasium_task_metadata(flat_cfg: Mapping[str, Any]) -> dict[str, Any]:
         "obs_fps": flat_cfg["obs_fps"],
         "frame_stack": flat_cfg["frame_stack"],
     }
-    if flat_cfg.get("gym_state_labels_json"):
+    if flat_cfg["gym_state_labels_json"]:
         metadata["state_space"] = {
             "labels": json.loads(flat_cfg["gym_state_labels_json"]),
         }
-    action_space = (
-        json.loads(flat_cfg["gym_action_space_json"])
-        if "gym_action_space_json" in flat_cfg
-        else {"type": "discrete"}
-    )
-    if action_space["type"] == "discrete":
+    action_space = json.loads(flat_cfg["gym_action_space_json"])
+    if str(flat_cfg["gym_task_name"]).startswith("g1_sonic_"):
+        metadata["action_space"] = {
+            "type": action_space["type"],
+            "labels": list(G1_SONIC_GR00T_ACTION_SPEC.labels),
+            "dtype": action_space["dtype"],
+        }
+    elif action_space["type"] == "discrete":
         metadata.update(
             {
                 "action_labels": json.loads(flat_cfg["gym_action_labels_json"]),
@@ -228,6 +231,7 @@ def load_rollout_training_config(
     *,
     latency_config_path: str | Path | None = None,
     device_override: str | None = None,
+    gym_camera_name: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Load the rollout descriptor and metadata used for dataset export.
 
@@ -235,12 +239,24 @@ def load_rollout_training_config(
         checkpoint_root: Experiment directory or checkpoint file path.
         latency_config_path: Optional latency-only YAML override.
         device_override: Optional rollout device override.
+        gym_camera_name: Optional camera name override for Gymnasium checkpoints.
 
     Returns:
         Rollout descriptor and export metadata.
     """
     checkpoint = _resolve_checkpoint_root(checkpoint_root)
     flat_cfg = _read_checkpoint_config(checkpoint.experiment_dir)
+    if flat_cfg["env"] == GYMNASIUM_SF_ENV:
+        make_kwargs = json.loads(flat_cfg["gym_make_kwargs_json"])
+        if gym_camera_name is not None:
+            make_kwargs["camera_name"] = gym_camera_name
+            make_kwargs["render_mode"] = "rgb_array"
+        if (
+            "sonic_decoder_mode" in make_kwargs
+            and make_kwargs["sonic_decoder_mode"] == "inference_worker"
+        ):
+            make_kwargs["sonic_decoder_mode"] = "environment"
+        flat_cfg["gym_make_kwargs_json"] = json.dumps(make_kwargs)
     env_name, integration_name, action_spec, base_prompt = _rollout_task_contract(flat_cfg)
     config_source = str((checkpoint.experiment_dir / "config.json").resolve())
     latency_override = None

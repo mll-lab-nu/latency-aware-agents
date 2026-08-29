@@ -876,6 +876,37 @@ def _validate_gymnasium_starvla_contract(
         raise ValueError(
             "StarVLA model action_env_dim does not match the dataset manifest"
         )
+    manifest_uses_state = manifest["uses_state"]
+    if manifest_uses_state != ("state_space" in expected):
+        raise ValueError(
+            "StarVLA dataset uses_state does not match the Gymnasium state space"
+        )
+    if manifest_uses_state != model_cfg["datasets"]["vla_data"]["include_state"]:
+        raise ValueError(
+            "StarVLA dataset uses_state does not match the model include_state"
+        )
+    if manifest_uses_state:
+        state_labels = manifest["state_labels"]
+        expected_state_labels = expected["state_space"]["labels"]
+        if state_labels != expected_state_labels:
+            raise ValueError(
+                "StarVLA dataset state_labels do not match the Gymnasium state space"
+            )
+        if manifest["state_dim"] != len(state_labels):
+            raise ValueError(
+                "StarVLA dataset state_dim does not match its state_labels"
+            )
+        if (
+            model_cfg["framework"]["action_model"]["state_dim"]
+            != manifest["state_dim"]
+        ):
+            raise ValueError(
+                "StarVLA model state_dim does not match the dataset manifest"
+            )
+        if not manifest["state_normalization"]:
+            raise ValueError(
+                "StarVLA state-enabled dataset manifest is missing state_normalization"
+            )
 
 
 def build_starvla_policy(
@@ -957,7 +988,7 @@ def build_starvla_policy(
         observation_stride_raw_frames=_observation_stride_raw_frames(config),
         model_cfg=model_cfg,
         state_normalization=(
-            task_manifest.get("state_normalization")
+            task_manifest["state_normalization"]
             if integration_env_name == "gymnasium"
             else None
         ),
@@ -1042,7 +1073,7 @@ def build_live_starvla_policy(
         observation_stride_raw_frames=_observation_stride_raw_frames(config),
         model_cfg=normalized_model_cfg if integration_env_name == "gymnasium" else None,
         state_normalization=(
-            task_manifest.get("state_normalization")
+            task_manifest["state_normalization"]
             if integration_env_name == "gymnasium"
             else None
         ),

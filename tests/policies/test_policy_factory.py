@@ -49,6 +49,31 @@ def test_constant_policy_type_builds_constant_policy_runner():
     assert policy.action.is_noop
 
 
+def test_official_gr00t_policy_type_uses_the_separate_policy_builder(monkeypatch):
+    import latency_bench.policy.official_gr00t as official_gr00t
+
+    sentinel = object()
+    built = []
+
+    def build_official_gr00t_policy(config, action_resolver):
+        built.append((config, action_resolver))
+        return sentinel
+
+    monkeypatch.setattr(official_gr00t, "build_official_gr00t_policy", build_official_gr00t_policy)
+    config = _config(
+        {
+            "type": "official_gr00t",
+            "model_path": "checkpoint",
+            "embodiment_tag": "NEW_EMBODIMENT",
+            "device": "cuda:0",
+        }
+    )
+    action_resolver = ActionResolver(config["env"])
+
+    assert build_policy(config, action_resolver) is sentinel
+    assert built == [(config, action_resolver)]
+
+
 def test_unknown_policy_type_is_rejected():
     config = _config({"type": "unknown"})
 

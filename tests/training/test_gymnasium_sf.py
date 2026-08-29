@@ -55,6 +55,25 @@ class _ChannelFirstImageEnv(gym.Env):
         return np.ones((1, 2, 2), dtype=np.uint8), 0.0, False, False, {}
 
 
+class _StateTraceEnv(gym.Env):
+    observation_space = gym.spaces.Box(low=-10.0, high=10.0, shape=(1,), dtype=np.float32)
+    action_space = gym.spaces.Discrete(31)
+
+    def __init__(self):
+        self.state = 0
+        self.native_actions = []
+
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        self.state = 0
+        return np.array([self.state], dtype=np.float32), {}
+
+    def step(self, action):
+        self.native_actions.append(action)
+        self.state += 1
+        return np.array([self.state], dtype=np.float32), 0.0, False, False, {}
+
+
 def _vector_gymnasium_config():
     config = load_config(
         "configs/examples/gymnasium/inverted_pendulum/small_model_train.yaml"
@@ -115,6 +134,21 @@ def test_inverted_pendulum_rgb_state_adaptation_declares_state_contract():
     )
 
 
+def test_walker2d_rgb_state_adaptation_declares_seventeen_state_values():
+    config = load_config(
+        "configs/examples/gymnasium/walker2d_rgb_state/small_model_train.yaml"
+    )
+
+    assert config["env"]["task_name"] == "walker2d_rgb_state"
+    assert len(config["env"]["state_space"]["labels"]) == 17
+    assert config["env"]["state_space"]["labels"][:2] == [
+        "torso_height",
+        "torso_angle",
+    ]
+    assert config["env"]["action_space"]["type"] == "box"
+    assert len(config["env"]["action_space"]["labels"]) == 6
+
+
 def test_action_catalog_and_latency_decode_nonzero_noop_to_native_action():
     native_env = _NativeActionTraceEnv()
     env = GymnasiumActionCatalogWrapper(native_env, [10, 20, 30])
@@ -156,6 +190,34 @@ def test_gymnasium_state_info_wrapper_preserves_numeric_observation():
 
     np.testing.assert_array_equal(reset_info["gymnasium_state"], reset_observation)
     np.testing.assert_array_equal(step_info["gymnasium_state"], next_observation)
+
+
+def test_gymnasium_state_info_wrapper_uses_policy_state_from_dict_observation():
+    observation = {
+        "obs": np.array([1.0, 2.0]),
+        "sonic_state": np.zeros(930),
+    }
+    np.testing.assert_array_equal(
+        GymnasiumStateInfoWrapper._state(observation), observation["obs"]
+    )
+
+
+def test_gymnasium_state_is_unstacked_and_aligned_with_action():
+    native_env = _StateTraceEnv()
+    env = GymnasiumActionCatalogWrapper(
+        GymnasiumStateInfoWrapper(native_env),
+        [10, 20, 30],
+    )
+    env = ChannelFirstFrameStackWrapper(env, 2)
+
+    reset_observation, reset_info = env.reset(seed=3)
+    next_observation, _, _, _, step_info = env.step(1)
+
+    np.testing.assert_array_equal(reset_observation, [0.0, 0.0])
+    np.testing.assert_array_equal(reset_info["gymnasium_state"], [0.0])
+    np.testing.assert_array_equal(next_observation, [0.0, 1.0])
+    np.testing.assert_array_equal(step_info["gymnasium_state"], [1.0])
+    assert native_env.native_actions == [20]
 
 
 def test_sample_factory_config_round_trips_complete_task_contract():

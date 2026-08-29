@@ -9,5 +9,5 @@ completed 10,006,528 frames on H200. Its best checkpoint reached a training
 statistic of 4,212.219 and was evaluated for ten episodes at each of latency 0
 through 4. L0 achieved 3,743.507 mean return, while one or more frames of
 latency caused the zero-latency policy to fail quickly. The six native torque
-values map to a seven-dimensional OpenVLA carrier by adding one fixed zero
-padding channel. Teacher rollout and VLA training remain `NOT RUN`.
+values remain unchanged through OpenVLA training and evaluation. The RGB+state
+OpenVLA path is verified, but its return remains far below the small model.

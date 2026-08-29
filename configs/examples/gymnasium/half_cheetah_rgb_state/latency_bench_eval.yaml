@@ -1,0 +1,9 @@
+__base__:
+  - ../half_cheetah/latency_bench_eval.yaml
+  - state_contract.yaml
+
+experiment:
+  name: gymnasium_half_cheetah_rgb_state_latency_bench_eval
+
+logging:
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/half_cheetah_rgb_state/latency_bench_eval

@@ -13,7 +13,7 @@ from latency_bench.scheduler.persistence import (
     OneFrameThenNoopPolicy,
 )
 
-_SCHEDULER_ALLOWED_KEYS = frozenset({"ordering_policy", "hold_policy"})
+_SCHEDULER_ALLOWED_KEYS = frozenset({"ordering_policy", "hold_policy", "hold_last_chunk_action"})
 
 
 def build_action_scheduler(
@@ -31,6 +31,7 @@ def build_action_scheduler(
             clock=clock,
         ),
         ordering_policy=OrderingPolicy(scheduler_cfg["ordering_policy"]),
+        hold_last_chunk_action=scheduler_cfg.get("hold_last_chunk_action", False),
     )
 
 
@@ -48,5 +49,5 @@ def _raise_if_unsupported_scheduler_fields(scheduler_cfg: dict[str, Any]) -> Non
     if set(scheduler_cfg) - _SCHEDULER_ALLOWED_KEYS:
         raise ValueError(
             "scheduler contains unsupported fields; use only "
-            "['hold_policy', 'ordering_policy']"
+            "['hold_policy', 'ordering_policy', 'hold_last_chunk_action']"
         )

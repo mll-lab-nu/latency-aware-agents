@@ -5,7 +5,7 @@ backend:
   type: sample_factory
   algo: APPO
   device: cuda
-  train_dir: /mnt/checkpoints/latency-sensitive-bench/walker2d
+  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/walker2d
   restart_behavior: overwrite
   run_mode: train
 executor:
@@ -53,9 +53,6 @@ env:
     - 1.0
     - 1.0
     dtype: float32
-    openvla_carrier_dim: 7
-    openvla_padding:
-    - 0.0
   noop_action:
   - 0.0
   - 0.0

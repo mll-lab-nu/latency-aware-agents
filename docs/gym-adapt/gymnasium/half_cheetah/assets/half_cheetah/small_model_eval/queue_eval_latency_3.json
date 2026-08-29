@@ -1,0 +1,39 @@
+{
+  "checkpoint_kind": "best",
+  "checkpoint_path": "/mnt/checkpoints/latency-sensitive-bench/small_models/half_cheetah/gymnasium_half_cheetah_continuous_zero_latency_10m/checkpoint_p0/best_000019008_9732096_reward_5331.187.pth",
+  "configured_latency_ms": 150.0,
+  "eval_latency_steps": 3,
+  "experiment_name": "gymnasium_half_cheetah_continuous_zero_latency_10m",
+  "latency": 3,
+  "latency_type": "fixed",
+  "lengths": [
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000
+  ],
+  "mean_length": 1000.0,
+  "mean_return": -52.835985721498034,
+  "returns": [
+    78.63706254540138,
+    -159.8299632149162,
+    341.3765940407706,
+    -154.12974298283936,
+    273.021256255753,
+    -67.9754918822438,
+    -386.5806300768729,
+    -45.23321804291369,
+    -2.8661629228151635,
+    -404.7795609343042
+  ],
+  "seed": 2222,
+  "std_return": 232.08049396181084,
+  "timestamp_utc": "2026-08-26T12:50:02.038129+00:00",
+  "train_latency_steps": 0
+}

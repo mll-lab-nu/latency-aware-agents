@@ -28,6 +28,10 @@ def build_policy(config: dict[str, Any], action_resolver: ActionResolver) -> Pol
         from latency_bench.policy.starvla import build_starvla_policy
 
         return build_starvla_policy(config, action_resolver)
+    if policy_type == "official_gr00t":
+        from latency_bench.policy.official_gr00t import build_official_gr00t_policy
+
+        return build_official_gr00t_policy(config, action_resolver)
     raise ValueError(f"Unsupported policy.type: {policy_type}")
 
 

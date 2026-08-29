@@ -12,22 +12,40 @@ class ActionScheduler:
         noop_action: Action,
         persistence_policy: ActionPersistencePolicy,
         ordering_policy: OrderingPolicy,
+        hold_last_chunk_action: bool = False,
     ):
         self.clock = clock
         self.noop_action = noop_action
         self.persistence_policy = persistence_policy
         self.ordering_policy = OrderingPolicy(ordering_policy)
+        self.hold_last_chunk_action = hold_last_chunk_action
         self.ready_time_epsilon_ms = max(1e-9, self.clock.frame_ms * 1e-9)
         self._pending_events: list[ActionEvent] = []
         self._applied_events: list[ActionEvent] = []
         self._dropped_events_count = 0
         self._current_action = noop_action
+        self._active_chunk_event: ActionEvent | None = None
+        self._chunk_index = 0
+        self._underflow_event_ids: set[int] = set()
+        self._underflow_count = 0
+        self._underflow_frames = 0
+        self._stale_prefix_frames = 0
+        self._chunk_age_raw_frames = 0
+        self._chunk_seen = False
 
     def reset(self) -> None:
         self._pending_events.clear()
         self._applied_events.clear()
         self._dropped_events_count = 0
         self._current_action = self.noop_action
+        self._active_chunk_event = None
+        self._chunk_index = 0
+        self._underflow_event_ids.clear()
+        self._underflow_count = 0
+        self._underflow_frames = 0
+        self._stale_prefix_frames = 0
+        self._chunk_age_raw_frames = 0
+        self._chunk_seen = False
         self.persistence_policy.reset()
 
     def enqueue(self, event: ActionEvent) -> None:
@@ -63,10 +81,20 @@ class ActionScheduler:
         if selected is not None:
             selected.applied = True
             selected.apply_raw_frame = current_step
-            self._current_action = selected.action
             self._applied_events.append(selected)
-            self.persistence_policy.on_action_applied(selected.action)
+            if selected.action_chunk is None:
+                self._active_chunk_event = None
+                self._current_action = selected.action
+                self.persistence_policy.on_action_applied(selected.action)
+            else:
+                self._active_chunk_event = selected
+                self._chunk_seen = True
+                self._chunk_index = current_step - selected.obs_env_step
+                self._stale_prefix_frames = self._chunk_index
+                self._underflow_event_ids.discard(selected.action_id)
 
+        if self._active_chunk_event is not None:
+            return self._next_chunk_action(current_step)
         return self.persistence_policy.get_action_for_step(self._current_action, self.noop_action)
 
     def get_pending_events(self) -> list[ActionEvent]:
@@ -92,6 +120,39 @@ class ActionScheduler:
     def dropped_events_count(self) -> int:
         return self._dropped_events_count
 
+    @property
+    def underflow_count(self) -> int:
+        return self._underflow_count
+
+    @property
+    def underflow_frames(self) -> int:
+        return self._underflow_frames
+
+    @property
+    def underflow_duration_ms(self) -> float:
+        return self._underflow_frames * self.clock.frame_ms
+
+    @property
+    def stale_prefix_frames(self) -> int:
+        return self._stale_prefix_frames
+
+    @property
+    def chunk_age_raw_frames(self) -> int:
+        return self._chunk_age_raw_frames
+
+    def chunk_metrics(self) -> dict[str, bool | int | float]:
+        if not self._chunk_seen:
+            return {}
+        return {
+            "hold_last_chunk_action": self.hold_last_chunk_action,
+            "underflow_count": self.underflow_count,
+            "underflow_frames": self.underflow_frames,
+            "underflow_duration_ms": self.underflow_duration_ms,
+            "stale_prefix_frames": self.stale_prefix_frames,
+            "chunk_age_raw_frames": self.chunk_age_raw_frames,
+            "chunk_age_ms": self.chunk_age_raw_frames * self.clock.frame_ms,
+        }
+
     def _is_ready(self, event: ActionEvent, current_step: int, current_time_ms: float) -> bool:
         if event.ready_raw_frame is not None:
             return event.ready_raw_frame <= current_step
@@ -100,3 +161,35 @@ class ActionScheduler:
     def _mark_dropped(self, event: ActionEvent) -> None:
         event.dropped = True
         self._dropped_events_count += 1
+
+    def _next_chunk_action(self, current_step: int) -> Action:
+        event = self._active_chunk_event
+        chunk = event.action_chunk
+        self._chunk_age_raw_frames = current_step - event.obs_env_step
+        event.metadata["stale_prefix_frames"] = self._stale_prefix_frames
+        event.metadata["chunk_age_raw_frames"] = self._chunk_age_raw_frames
+        event.metadata["chunk_age_ms"] = self._chunk_age_raw_frames * self.clock.frame_ms
+        event.metadata["hold_last_chunk_action"] = self.hold_last_chunk_action
+        if self._chunk_index < len(chunk):
+            action = chunk[self._chunk_index]
+            if not isinstance(action, Action):
+                action = Action(value=action)
+            event.metadata["chunk_index"] = self._chunk_index
+            self._chunk_index += 1
+            self._current_action = action
+            return action
+
+        if event.action_id not in self._underflow_event_ids:
+            self._underflow_event_ids.add(event.action_id)
+            self._underflow_count += 1
+        self._underflow_frames += 1
+        event.metadata["underflow_count"] = self._underflow_count
+        event.metadata["underflow_frames"] = self._underflow_frames
+        event.metadata["underflow_duration_ms"] = self.underflow_duration_ms
+        if self.hold_last_chunk_action:
+            action = chunk[-1]
+            if not isinstance(action, Action):
+                action = Action(value=action)
+            self._current_action = action
+            return action
+        return self.noop_action

@@ -237,6 +237,21 @@ def filter_train_rows_clean_v1(env_name: str, rows: Sequence[Mapping[str, Any]],
     }[env_name](rows, seed=seed)
 
 
+def accepts_episode_contract(
+    summary: Mapping[str, Any],
+    contract: Mapping[str, Any],
+    *,
+    env_fps: float,
+) -> bool:
+    """Apply one explicit teacher episode acceptance contract."""
+    contract_type = contract["type"]
+    if contract_type == "final_info_true":
+        return summary["final_info"][contract["key"]] is True
+    if contract_type == "min_duration_s":
+        return summary["episode_raw_frames"] >= contract["value"] * env_fps
+    raise KeyError(contract_type)
+
+
 def accepts_episode(
     filter_preset: str,
     env_name: str,
