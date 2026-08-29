@@ -1,0 +1,14 @@
+env:
+  state_space:
+    labels:
+      - torso_height
+      - torso_angle
+      - thigh_angle
+      - leg_angle
+      - foot_angle
+      - torso_x_velocity
+      - torso_z_velocity
+      - torso_angular_velocity
+      - thigh_angular_velocity
+      - leg_angular_velocity
+      - foot_angular_velocity

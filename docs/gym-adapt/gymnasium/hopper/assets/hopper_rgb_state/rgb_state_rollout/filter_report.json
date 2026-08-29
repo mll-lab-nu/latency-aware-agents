@@ -1,0 +1,17 @@
+{
+  "accepted_episodes": 100,
+  "accepted_train_episodes": 90,
+  "accepted_val_episodes": 10,
+  "attempted_episodes": 165,
+  "episode_return_gate": {
+    "field": "episode_raw_return",
+    "operator": ">",
+    "threshold": 3000.0
+  },
+  "preset": "none",
+  "rejected_episodes": 65,
+  "train_rows_after_row_filter": 88212,
+  "train_rows_before_row_filter": 88212,
+  "val_rows_after_row_filter": 9917,
+  "val_rows_before_row_filter": 9917
+}

@@ -1,0 +1,12 @@
+{
+  "run_id": "cbbbtp12",
+  "run_url": "https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/cbbbtp12",
+  "step": 5000,
+  "epoch": 0.91,
+  "train_loss": 0.007878251373767853,
+  "validation_loss": 0.009996217675507069,
+  "validation_samples": 3200,
+  "train_grad_norm_pre_clip": 15.4678373336792,
+  "effective_batch_size": 16,
+  "source": "W&B public API summary read from the authenticated nebius-H100 session on 2026-08-28"
+}
