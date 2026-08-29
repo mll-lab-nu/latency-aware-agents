@@ -6,7 +6,6 @@ import pytest
 from latency_bench.core.types import Observation
 from latency_bench.envs.humanoidbench_sonic_contract import (
     G1_GR00T_ACTION_DIM,
-    G1_GR00T_ACTION_HORIZON,
     G1_GR00T_STATE_DIM,
 )
 from latency_bench.policy.official_gr00t import (
@@ -24,9 +23,9 @@ class _FakeGr00tPolicy:
         self.observations.append(observation)
         batch_size = len(observation["language"]["annotation.human.task_description"])
         action = np.arange(
-            batch_size * G1_GR00T_ACTION_HORIZON * G1_GR00T_ACTION_DIM,
+            batch_size * G1_GR00T_ACTION_DIM,
             dtype=np.float32,
-        ).reshape(batch_size, G1_GR00T_ACTION_HORIZON, G1_GR00T_ACTION_DIM)
+        ).reshape(batch_size, 1, G1_GR00T_ACTION_DIM)
         return {"action": action}, {"unused": True}
 
 
@@ -46,7 +45,7 @@ def _observation(state_dim: int = G1_GR00T_STATE_DIM) -> Observation:
     )
 
 
-def test_official_runner_emits_nested_input_and_40_by_43_chunk():
+def test_official_runner_emits_nested_input_and_model_action_chunk():
     assert OFFICIAL_GR00T_ACTION_KEY == "action"
     fake_policy = _FakeGr00tPolicy()
     runner = OfficialGr00tPolicyRunner(
@@ -67,7 +66,7 @@ def test_official_runner_emits_nested_input_and_40_by_43_chunk():
     assert sent["state"]["state"].shape == (1, 1, G1_GR00T_STATE_DIM)
     assert sent["state"]["state"].dtype == np.float32
     assert sent["language"]["annotation.human.task_description"] == [["run forward"]]
-    assert output.action_chunk.shape == (G1_GR00T_ACTION_HORIZON, G1_GR00T_ACTION_DIM)
+    assert output.action_chunk.shape == (1, G1_GR00T_ACTION_DIM)
     assert output.action.value.shape == (G1_GR00T_ACTION_DIM,)
     np.testing.assert_array_equal(output.action_chunk[0], output.action.value)
 
@@ -119,5 +118,5 @@ def test_official_runner_rejects_an_action_chunk_with_the_wrong_shape():
         device="cpu",
     )
 
-    with pytest.raises(ValueError, match="40, 43"):
+    with pytest.raises(ValueError, match=r"\*, 43"):
         runner.predict(_observation())
