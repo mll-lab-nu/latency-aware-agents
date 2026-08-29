@@ -335,7 +335,8 @@ def _context_decision_steps(
 
     Args:
         decision_step: Current decision step.
-        context_window: Total image window length including the current ``image`` field.
+        context_window: Total image window length. Values 0 and 1 keep only the
+            current ``image``; values above 1 add historical ``context_images``.
         available_decision_steps: Materialized decision steps ordered from oldest to newest.
 
     Returns:
@@ -380,7 +381,8 @@ def _write_filtered_episode_images(
         image_writer: Image writer shared by the rollout run.
         rows: Final rows selected for materialization.
         frames_by_decision_step: Captured frames keyed by decision step.
-        context_window: Total image window length including the current ``image`` field.
+        context_window: Total image window length. Values 0 and 1 keep only the
+            current ``image``; values above 1 add historical ``context_images``.
 
     Returns:
         Row copies with image paths written to disk.
@@ -829,7 +831,8 @@ def _replay_accepted_specs(
         image_writer_workers: Number of async image writer threads.
         row_buffer_size: Pending image write threshold.
         filter_preset: Filter preset name for train row density control.
-        context_window: Total image window length including the current ``image`` field.
+        context_window: Total image window length. Values 0 and 1 keep only the
+            current ``image``; values above 1 add historical ``context_images``.
         image_transform_config: Optional causal image transform applied before
             row filtering. Defaults to raw RGB.
         action_spec: Explicit action layout carried by a generic checkpoint.
@@ -1177,7 +1180,8 @@ def collect_teacher_dataset(
         filter_kwargs: Temporary exporter experiment arguments retained at the public boundary.
         episode_return_gt: Optional strict lower bound for accepted episode returns.
         episode_acceptance: Explicit task-specific episode acceptance contract.
-        context_window: Total image window length including the current ``image`` field.
+        context_window: Total image window length. Values 0 and 1 keep only the
+            current ``image``; values above 1 add historical ``context_images``.
         image_transform_config: Optional causal image transform applied during
             replay before row filtering.
     Returns:

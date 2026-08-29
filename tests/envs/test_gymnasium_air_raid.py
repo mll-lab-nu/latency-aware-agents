@@ -144,6 +144,7 @@ def test_scaffold_reports_pal_clock_and_native_action_meanings(monkeypatch, caps
     assert output["probe_report"]["post_step_episode_frame_number"] == 9
     assert output["env_config"]["env"]["action_order"] == ACTION_LABELS
     assert output["env_config"]["env"]["noop_action"] == "noop"
+    assert output["env_config"]["env"]["frame_stack"] == 4
     assert native_env.closed is True
 
 
@@ -151,7 +152,6 @@ def test_scaffold_reports_pal_clock_and_native_action_meanings(monkeypatch, caps
     "configs/examples/gymnasium/air_raid/latency_bench_eval.yaml",
     "configs/examples/gymnasium/air_raid/small_model_train.yaml",
     "configs/examples/gymnasium/air_raid/small_model_eval.yaml",
-    "configs/examples/gymnasium/air_raid/starvla_eval.yaml",
 ])
 def test_air_raid_configs_share_zero_latency_four_frame_contract(config_path):
     config = load_config(config_path)
@@ -179,4 +179,27 @@ def test_air_raid_random_noop_eval_variant_is_explicit():
 
     assert config["env"]["make_kwargs"]["noop_max"] == 30
     assert config["env"]["make_kwargs"]["fire_reset"] is True
+    assert config["evaluation"]["eval_max_steps"] == 3600
     assert config["logging"]["output_dir"] == "outputs/examples/gymnasium_air_raid/eval_random_noop"
+
+
+def test_air_raid_starvla_eval_uses_random_noop_fire_reset():
+    config = load_config("configs/examples/gymnasium/air_raid/starvla_eval.yaml")
+
+    assert config["env"]["make_kwargs"]["noop_max"] == 30
+    assert config["env"]["make_kwargs"]["fire_reset"] is True
+    assert config["evaluation"]["eval_max_steps"] == 3600
+
+
+@pytest.mark.parametrize(
+    "config_path",
+    [
+        "configs/examples/gymnasium/air_raid/latency_bench_eval.yaml",
+        "configs/examples/gymnasium/air_raid/small_model_eval.yaml",
+        "configs/examples/gymnasium/air_raid/starvla_eval.yaml",
+    ],
+)
+def test_air_raid_eval_budget_is_3600_raw_frames(config_path):
+    config = load_config(config_path)
+
+    assert config["evaluation"]["eval_max_steps"] == 3600

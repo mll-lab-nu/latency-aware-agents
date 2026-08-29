@@ -1343,6 +1343,25 @@ def test_write_filtered_episode_images_preserves_empty_filtered_episode(tmp_path
     assert rows == []
 
 
+def test_write_filtered_episode_images_context_zero_keeps_only_current_image(tmp_path):
+    from latency_bench.data.rollout_image_io import RolloutImageWriter
+    from latency_bench.data.sf_teacher_rollout import _write_filtered_episode_images
+
+    image_writer = RolloutImageWriter(max_workers=0, row_buffer_size=1, export_image_size=None)
+    rows = [{"image": str(tmp_path / "frame.png"), "decision_step": 0}]
+    frames = {0: np.zeros((2, 2, 3), dtype=np.uint8)}
+
+    written_rows = _write_filtered_episode_images(
+        image_writer,
+        rows,
+        frames,
+        context_window=0,
+    )
+
+    assert "context_images" not in written_rows[0]
+    assert Path(written_rows[0]["image"]).is_file()
+
+
 def test_write_filtered_episode_images_resets_context_after_decision_step_gap(tmp_path):
     from PIL import Image
     from latency_bench.data.rollout_image_io import RolloutImageWriter

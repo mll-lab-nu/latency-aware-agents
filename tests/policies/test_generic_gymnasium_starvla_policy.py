@@ -369,8 +369,6 @@ def test_generic_policy_allows_eval_only_reset_wrapper_overrides(
     monkeypatch.setattr(starvla, "_normalized_model_cfg", lambda model_cfg: model_cfg)
     monkeypatch.setattr(starvla, "_load_starvla_model_config", _read_model_config)
     config = _generic_config(tmp_path)
-    training_contract = gymnasium_task_contract(config["env"])
-    config["policy"]["gymnasium_training_task_contract"] = training_contract
     config["env"]["make_kwargs"] = {
         "render_mode": "rgb_array",
         "noop_max": 30,
