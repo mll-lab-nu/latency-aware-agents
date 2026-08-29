@@ -397,6 +397,7 @@ def _write_episode(
     *,
     action_dim: int,
     state_dim: int,
+    include_state: bool,
 ) -> None:
     """Write one LeRobot episode parquet file.
 
@@ -404,15 +405,22 @@ def _write_episode(
         path: Destination episode parquet path.
         rows: Converted LeRobot frame rows.
         action_dim: Expected action vector dimension.
+        state_dim: Expected state vector dimension.
+        include_state: Whether rows carry real state vectors.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    states = (
+        [row["state"] for row in rows]
+        if include_state
+        else [[0.0] * state_dim for _ in rows]
+    )
     columns = {
         "observation.image": pa.array(
             [{"bytes": row["image_bytes"], "path": None} for row in rows],
             type=pa.struct([("bytes", pa.binary()), ("path", pa.string())]),
         ),
         "observation.state": pa.array(
-            [row["state"] for row in rows],
+            states,
             type=pa.list_(pa.float32(), state_dim),
         ),
         "action": pa.array(
@@ -681,6 +689,7 @@ def _convert_split(
             out_rows,
             action_dim=len(action_labels),
             state_dim=state_dim,
+            include_state=include_state,
         )
     _write_metadata(
         output_dir,
