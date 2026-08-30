@@ -27,15 +27,15 @@ DATASET = REPO / "outputs/official_gr00t/datasets/humanoidbench/balance_simple/l
 VAL_DATASET = Path(f"{DATASET}__val")
 OUTPUT = REPO / (
     "outputs/official_gr00t/"
-    "g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_"
-    "frompretrained_bs128_lr1e4_15k_periodic500"
+    "g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_15k"
 )
 EVAL_CONFIG = (
     REPO
     / "configs/examples/gymnasium/g1_sonic_balance_simple/"
     "official_gr00t_eval_simulated.yaml"
 )
-WANDB_RUN_ID = os.environ["WANDB_RUN_ID"]
+WANDB_RUN_ID = "g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_15k"
+WANDB_RUN_NAME = WANDB_RUN_ID
 
 
 def train_to_next_checkpoint(step: int) -> Path:
@@ -92,6 +92,8 @@ def train_to_next_checkpoint(step: int) -> Path:
         "--save-total-limit",
         "2",
         "--use-wandb",
+        "--experiment-name",
+        WANDB_RUN_NAME,
     ]
     if step > 500:
         command.append("--resume-from-checkpoint")
@@ -172,7 +174,18 @@ def closed_loop_metrics(checkpoint: Path, step: int) -> dict[str, float]:
             "NO_ALBUMENTATIONS_UPDATE": "1",
         }
         subprocess.run(
-            ["uv", "run", "--no-sync", "python", "-m", "latency_bench.run", "--config", str(config_path)],
+            [
+                "conda",
+                "run",
+                "--no-capture-output",
+                "-n",
+                "latency",
+                "python",
+                "-m",
+                "latency_bench.run",
+                "--config",
+                str(config_path),
+            ],
             cwd=REPO,
             env=env,
             check=True,
@@ -205,6 +218,7 @@ def main() -> None:
         run = wandb.init(
             project="finetune-gr00t-n1d7",
             id=WANDB_RUN_ID,
+            name=WANDB_RUN_NAME,
             resume="allow",
         )
         run.define_metric("periodic_eval/*", step_metric="train/global_step")
