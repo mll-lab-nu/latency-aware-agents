@@ -1,0 +1,173 @@
+{
+  "source": "runtime_api_probe",
+  "gymnasium_version": "0.29.1",
+  "mujoco_version": "3.3.7",
+  "env_id": "Ant-v4",
+  "resolved_spec": {
+    "id": "Ant-v4",
+    "entry_point": "gymnasium.envs.mujoco.ant_v4:AntEnv",
+    "max_episode_steps": 1000,
+    "kwargs": {
+      "render_mode": "rgb_array"
+    }
+  },
+  "unwrapped_class": "gymnasium.envs.mujoco.ant_v4.AntEnv",
+  "metadata": {
+    "render_modes": [
+      "human",
+      "rgb_array",
+      "depth_array"
+    ],
+    "render_fps": 20
+  },
+  "action_space": {
+    "type": "Box",
+    "shape": [
+      8
+    ],
+    "low": [
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0
+    ],
+    "high": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "dtype": "float32"
+  },
+  "observation_space": {
+    "type": "Box",
+    "shape": [
+      27
+    ],
+    "dtype": "float64"
+  },
+  "reset_observation_shape": [
+    27
+  ],
+  "reset_observation_dtype": "float64",
+  "reset_info_keys": [],
+  "zero_action_step": {
+    "action": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "reward": 1.0735349741306175,
+    "terminated": false,
+    "truncated": false,
+    "info_keys": [
+      "distance_from_origin",
+      "forward_reward",
+      "reward_ctrl",
+      "reward_forward",
+      "reward_survive",
+      "x_position",
+      "x_velocity",
+      "y_position",
+      "y_velocity"
+    ]
+  },
+  "render": {
+    "shape": [
+      480,
+      480,
+      3
+    ],
+    "dtype": "uint8"
+  },
+  "unwrapped_dt_seconds": 0.05,
+  "unwrapped_frame_skip": 5,
+  "model_timestep_seconds": 0.01,
+  "native_env_fps": 20.0,
+  "render_mode": "rgb_array",
+  "action_catalog": {
+    "source": "native_ant_box",
+    "labels": [
+      "back_right_hip_torque",
+      "back_right_ankle_torque",
+      "front_left_hip_torque",
+      "front_left_ankle_torque",
+      "front_right_hip_torque",
+      "front_right_ankle_torque",
+      "back_left_hip_torque",
+      "back_left_ankle_torque"
+    ],
+    "low": [
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0
+    ],
+    "high": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "noop_action": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "state_labels": [
+    "torso_z",
+    "torso_quaternion_w",
+    "torso_quaternion_x",
+    "torso_quaternion_y",
+    "torso_quaternion_z",
+    "front_left_hip_angle",
+    "front_left_ankle_angle",
+    "front_right_hip_angle",
+    "front_right_ankle_angle",
+    "back_left_hip_angle",
+    "back_left_ankle_angle",
+    "back_right_hip_angle",
+    "back_right_ankle_angle",
+    "torso_x_velocity",
+    "torso_y_velocity",
+    "torso_z_velocity",
+    "torso_angular_velocity_x",
+    "torso_angular_velocity_y",
+    "torso_angular_velocity_z",
+    "front_left_hip_angular_velocity",
+    "front_left_ankle_angular_velocity",
+    "front_right_hip_angular_velocity",
+    "front_right_ankle_angular_velocity",
+    "back_left_hip_angular_velocity",
+    "back_left_ankle_angular_velocity",
+    "back_right_hip_angular_velocity",
+    "back_right_ankle_angular_velocity"
+  ]
+}
