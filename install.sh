@@ -138,6 +138,15 @@ persist_conda_shell_init() {
 
 ensure_latency_env() {
     local conda_action="create"
+    local -a conda_packages=(
+        "python=${PYTHON_VERSION}"
+        "cuda-toolkit=${CUDA_VERSION}"
+        pip
+        setuptools
+        wheel
+        packaging
+        "zlib=1.3.2"
+    )
     if conda env list | awk '{print $1}' | grep -qx "${LATENCY_ENV_NAME}"; then
         conda_action="install"
         echo "[install] updating existing Conda environment: ${LATENCY_ENV_NAME}"
@@ -145,18 +154,16 @@ ensure_latency_env() {
         echo "[install] creating Conda environment: ${LATENCY_ENV_NAME}"
     fi
 
+    if [[ "${MODEL_TARGET}" == "official_gr00t" || "${MODEL_TARGET}" == "all" ]]; then
+        conda_packages+=("ffmpeg=7")
+    fi
+
     conda "${conda_action}" \
         -n "${LATENCY_ENV_NAME}" \
         --override-channels \
         -c nvidia/label/cuda-12.8.1 \
         -c conda-forge \
-        "python=${PYTHON_VERSION}" \
-        "cuda-toolkit=${CUDA_VERSION}" \
-        pip \
-        setuptools \
-        wheel \
-        packaging \
-        "zlib=1.3.2" \
+        "${conda_packages[@]}" \
         -y
 }
 
@@ -180,7 +187,15 @@ install_latency_env() {
     python -m pip install pip==25.3 setuptools==80.9.0 wheel==0.47.0
     ensure_uv
     PYTHON_BIN=python bash third_party/starVLA/examples/rl_games/install/torch.sh
-    pip_install -e ".[dev]"
+    local root_package=".[dev]"
+    if [[ "${MODEL_TARGET}" == "official_gr00t" || "${MODEL_TARGET}" == "all" ]]; then
+        root_package=".[dev,sonic]"
+    fi
+    pip_install -e "${root_package}"
+    if [[ "${MODEL_TARGET}" == "official_gr00t" || "${MODEL_TARGET}" == "all" ]]; then
+        pip_install --no-deps -e third_party/humanoid-bench
+        python -c 'import humanoid_bench, mujoco, onnxruntime; print("latency Sonic imports complete")'
+    fi
     pip_install -e third_party/sample-factory
 
     for env_name in demon_attack deadly_corridor flappy; do
@@ -209,11 +224,18 @@ ensure_official_gr00t_uv() {
 }
 
 install_official_gr00t() {
+    local original_ld_library_path="${LD_LIBRARY_PATH:-}"
+    set +u
+    conda activate "${LATENCY_ENV_NAME}"
+    set -u
+    export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${CONDA_PREFIX}/lib64${original_ld_library_path:+:${original_ld_library_path}}"
     ensure_official_gr00t_uv
     echo "[install] syncing Isaac-GR00T Python 3.12 environment"
     uv sync --project third_party/Isaac-GR00T --python 3.12
     uv run --project third_party/Isaac-GR00T python -c \
-        'from gr00t.policy import Gr00tPolicy; print(Gr00tPolicy.__name__)'
+        'import gr00t, torchcodec; from gr00t.policy import Gr00tPolicy; print(Gr00tPolicy.__name__)'
+    conda deactivate
+    export LD_LIBRARY_PATH="${original_ld_library_path}"
 }
 
 ensure_conda

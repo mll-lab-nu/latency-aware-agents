@@ -9,6 +9,9 @@
 ## Current status
 
 - 新一轮 fresh 10k 正式训练已经完成，W&B 状态为 `finished`，当前没有训练进程，GPU 已释放。
+- 下一轮 fresh 15k 尚未运行；canonical W&B run/name 和输出目录均为 `g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_15k`。
+- dataset 远端布局为 `latency-sensitive-bench/humanoidbench` 的 `balance_simple/lerobot` 与 `balance_simple/lerobot__val`，固定 revision 为 `dbb954842942196e127c9acc0d776b62aa679990`；场景资源复用 `latency-sensitive-bench/g1-sonic-assets@7c0a6616c78106adf9fa54dfc40e56ea07dc7d5d`。
+- model 远端布局为同名 model repo 的 `balance_simple/checkpoint-10000/` 与 `balance_simple/checkpoint-15000/`；10k bundle 已发布，15k 仅在训练成功后由入口自动发布。
 - 10-seed 最佳/最终结果来自 checkpoint-10000：return `353.532 ± 133.571`，mean length `371.0`；相比历史 5k 最佳 `211.844` 明显提高，但仍未达到目标 500。
 - checkpoint-9500 和 checkpoint-10000 是当前仅保留的权重；10k cosine schedule 已耗尽，末次 LR 为 `2.5956e-12`，不要直接 resume 这个 optimizer/scheduler。
 - 20 个 periodic eval 均完成；每个 eval 10 episodes、一个原始 head-camera clip，invalid/dropped/underflow actions 全为 0。
@@ -24,9 +27,11 @@
 - 下一轮 fresh recipe：2 GPUs，global batch 128，peak LR `1e-4`，250 warmup steps（ratio `1/60`），覆盖 15,000 optimizer steps 的 cosine decay；约 22.31 nominal epochs。
 - 每 500 steps 保存 → validation → seeds 0–9 closed loop → 写入同一 W&B run → 恢复 optimizer/scheduler。
 
-跨机器下载、训练和模型自动上传入口：`scripts/official_gr00t/train_balance_simple_15k.sh`；周期训练与评估核心：`scripts/official_gr00t/train_balance_simple_periodic_eval.py`。
+跨机器安装、下载、训练和模型自动上传入口：`bash install.sh --model official_gr00t` 后直接运行 `bash scripts/official_gr00t/train_balance_simple_15k.sh`；周期训练与评估核心：`scripts/official_gr00t/train_balance_simple_periodic_eval.py`。安装和登录不需要 sudo。
 
 10k 正式产物：
+
+以下 10k/5k 路径是已落盘的历史目录名，保留原名仅用于定位现有文件；新的 15k W&B run、输出目录和发布路径统一使用上面的 canonical 名称。
 
 - W&B：https://wandb.ai/saberrr-zju/finetune-gr00t-n1d7/runs/fp10k1e4
 - Output：`outputs/official_gr00t/g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_frompretrained_bs128_lr1e4_10k_periodic500`

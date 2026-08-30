@@ -40,7 +40,7 @@ scheduler:
 
 policy:
   type: official_gr00t
-  model_path: outputs/official_gr00t/g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_frompretrained_bs128_lr1e4_15k_periodic500/checkpoint-15000
+  model_path: outputs/official_gr00t/g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_15k/checkpoint-15000
   embodiment_tag: NEW_EMBODIMENT
   device: cuda:0
   strict: true
@@ -52,7 +52,7 @@ evaluation:
   eval_deterministic: true
 
 logging:
-  output_dir: outputs/official_gr00t/g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_frompretrained_bs128_lr1e4_15k_periodic500/evals/eval_realtime_l0
+  output_dir: outputs/official_gr00t/g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_15k/evals/eval_realtime_l0
   video:
     enabled: false
     num_bins: 10

@@ -1,3 +1,13 @@
+---
+pretty_name: HumanoidBench Balance Simple
+task_categories:
+  - reinforcement-learning
+tags:
+  - robotics
+  - humanoid
+  - lerobot
+---
+
 # HumanoidBench Balance Simple
 
 LeRobot v2 image-parquet exports for the `g1_sonic_balance_simple` task in
@@ -6,6 +16,11 @@ HumanoidBench. The task prompt is:
 ```text
 Keep the G1 humanoid balanced on the support board.
 ```
+
+This dataset is published in the `latency-sensitive-bench/humanoidbench`
+dataset repository. HumanoidBench scene assets are not duplicated here; use
+`latency-sensitive-bench/g1-sonic-assets` at revision
+`7c0a6616c78106adf9fa54dfc40e56ea07dc7d5d`.
 
 ## Dataset contents
 
