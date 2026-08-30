@@ -195,7 +195,7 @@ class HiddenRegimeSampler(LatencySampler):
         self.rng = random.Random(seed)
         self.distributions = distributions["worker_slots"]
         self.rank_processes = model["burst_rank_processes"]
-        self.ready_delta = model["ready_delta_ms"]
+        self.pre_worker_time = model["pre_worker_time_ms"]
         self.current_episode_id: int | None = None
         self.regime = "calm"
         self._enter_burst_prob = 0.0
@@ -229,13 +229,13 @@ class HiddenRegimeSampler(LatencySampler):
             self._unassigned_ranks = []
 
         record = self._next_emission(worker_slot)
-        action_ready_ms = record["action_ready_ms"]
-        worker_service_ms = record["worker_service_ms"]
+        observation_to_action_latency_ms = record["observation_to_action_latency_ms"]
+        worker_service_time_ms = record["worker_service_time_ms"]
         return LatencySample.from_action_ready(
-            action_ready_raw_frames=self.clock.latency_ms_to_raw_frames(action_ready_ms),
-            worker_service_raw_frames=self.clock.latency_ms_to_raw_frames(worker_service_ms),
-            worker_service_ms=worker_service_ms,
-            latency_ms=action_ready_ms,
+            action_ready_raw_frames=self.clock.latency_ms_to_raw_frames(observation_to_action_latency_ms),
+            worker_service_raw_frames=self.clock.latency_ms_to_raw_frames(worker_service_time_ms),
+            worker_service_ms=worker_service_time_ms,
+            latency_ms=observation_to_action_latency_ms,
             clock=self.clock,
         )
 
@@ -344,14 +344,14 @@ class HiddenRegimeSampler(LatencySampler):
                 math.inf,
             ),
         )
-        ready_delta_ms = sample_inverse_cdf(
+        pre_worker_time_ms = sample_inverse_cdf(
             self.rng,
-            self.ready_delta["quantile_levels"],
-            self.ready_delta["latency_ms"],
+            self.pre_worker_time["quantile_levels"],
+            self.pre_worker_time["latency_ms"],
         )
         return {
-            "action_ready_ms": worker_service_ms + ready_delta_ms,
-            "worker_service_ms": worker_service_ms,
+            "observation_to_action_latency_ms": worker_service_ms + pre_worker_time_ms,
+            "worker_service_time_ms": worker_service_ms,
         }
 
     def _sample_emission(self, distribution: dict[str, Any]) -> dict[str, Any]:
@@ -361,8 +361,8 @@ class HiddenRegimeSampler(LatencySampler):
             clock=self.clock,
         )
         return {
-            "action_ready_ms": sample.latency_ms,
-            "worker_service_ms": sample.worker_service_ms,
+            "observation_to_action_latency_ms": sample.latency_ms,
+            "worker_service_time_ms": sample.worker_service_ms,
         }
 
 
@@ -373,25 +373,27 @@ def _sample_joint_emission(
     clock: EnvClock,
 ) -> LatencySample:
     rho = max(-0.999999, min(0.999999, distribution["spearman_rho"]))
-    z_action_ready = rng.normalvariate(0.0, 1.0)
-    z_worker = rho * z_action_ready + math.sqrt(1.0 - rho * rho) * rng.normalvariate(0.0, 1.0)
-    action_ready_ms = sample_inverse_cdf(
+    z_observation_to_action = rng.normalvariate(0.0, 1.0)
+    z_worker = rho * z_observation_to_action + math.sqrt(
+        1.0 - rho * rho
+    ) * rng.normalvariate(0.0, 1.0)
+    observation_to_action_latency_ms = sample_inverse_cdf(
         rng,
-        distribution["action_ready_ms"]["quantile_levels"],
-        distribution["action_ready_ms"]["latency_ms"],
-        quantile=_STANDARD_NORMAL.cdf(z_action_ready),
+        distribution["observation_to_action_latency_ms"]["quantile_levels"],
+        distribution["observation_to_action_latency_ms"]["latency_ms"],
+        quantile=_STANDARD_NORMAL.cdf(z_observation_to_action),
     )
-    worker_service_ms = sample_inverse_cdf(
+    worker_service_time_ms = sample_inverse_cdf(
         rng,
-        distribution["worker_service_ms"]["quantile_levels"],
-        distribution["worker_service_ms"]["latency_ms"],
+        distribution["worker_service_time_ms"]["quantile_levels"],
+        distribution["worker_service_time_ms"]["latency_ms"],
         quantile=_STANDARD_NORMAL.cdf(z_worker),
     )
     return LatencySample.from_action_ready(
-        action_ready_raw_frames=clock.latency_ms_to_raw_frames(action_ready_ms),
-        worker_service_raw_frames=clock.latency_ms_to_raw_frames(worker_service_ms),
-        worker_service_ms=worker_service_ms,
-        latency_ms=action_ready_ms,
+        action_ready_raw_frames=clock.latency_ms_to_raw_frames(observation_to_action_latency_ms),
+        worker_service_raw_frames=clock.latency_ms_to_raw_frames(worker_service_time_ms),
+        worker_service_ms=worker_service_time_ms,
+        latency_ms=observation_to_action_latency_ms,
         clock=clock,
     )
 
@@ -578,7 +580,7 @@ def _load_temporal_model(
     model_path = _profile_relative_path(profile_path, profile["burst_model_path"])
     model = read_json(model_path)
     contract = (model["schema_version"], model["reset_scope"])
-    if model["model_type"] != "hidden_regime" or contract != (11, "session"):
+    if model["model_type"] != "hidden_regime" or contract != (12, "session"):
         raise ValueError(
             f"Unsupported temporal burst model (model_type={model['model_type']!r}, "
             f"reset_scope={model['reset_scope']!r}, "

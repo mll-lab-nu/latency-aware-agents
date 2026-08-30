@@ -14,17 +14,17 @@ from latency_bench.latency.burst_profile import (
 def _model_sample(
     episode_id: int,
     sample_index: int,
-    action_ready_ms: float,
-    worker_service_ms: float,
+    observation_to_action_latency_ms: float,
+    worker_service_time_ms: float,
     worker_id: int = 0,
 ) -> dict:
     return {
         "episode_id": episode_id,
         "sample_index": sample_index,
         "worker_id": worker_id,
-        "action_ready_ms": action_ready_ms,
-        "worker_service_ms": worker_service_ms,
-        "worker_service_ms_bin": int(worker_service_ms // 1.0),
+        "observation_to_action_latency_ms": observation_to_action_latency_ms,
+        "worker_service_time_ms": worker_service_time_ms,
+        "worker_service_time_ms_bin": int(worker_service_time_ms // 1.0),
     }
 
 
@@ -93,7 +93,7 @@ def test_hidden_regime_model_labels_first_to_last_spike_as_one_burst():
     values = [42.0] * 10 + [116.0, 42.0, 42.0, 116.0, 42.0, 42.0, 116.0] + [42.0] * 10
     model = build_hidden_regime_burst_model(_episode(0, values))
 
-    assert model["schema_version"] == 11
+    assert model["schema_version"] == 12
     assert model["model_type"] == "hidden_regime"
     assert model["reset_scope"] == "session"
     assert model["worker_count"] == 1
@@ -211,7 +211,7 @@ def test_hidden_regime_model_clean_trace_has_no_burst():
     }
     assert "emission_distributions_by_regime" not in model
     assert model["burst_rank_processes"] == []
-    assert model["ready_delta_ms"] is None
+    assert model["pre_worker_time_ms"] is None
 
 
 def test_hidden_regime_uses_each_slot_steady_baseline():
@@ -239,7 +239,7 @@ def test_hidden_regime_uses_each_slot_steady_baseline():
     for slot, expected in (("0", 100.0), ("1", 10.0)):
         steady = distribution["worker_slots"][slot]["steady"]
         assert steady["count"] == 40
-        assert set(steady["worker_service_ms"]["latency_ms"]) == {expected}
+        assert set(steady["worker_service_time_ms"]["latency_ms"]) == {expected}
 
 
 def test_slot_baseline_preserves_repeated_episode_ids_across_sessions():
@@ -279,8 +279,8 @@ def test_hidden_regime_model_fits_per_dwell_severity_and_level():
     assert process["level_residual_ms"]["latency_ms"][0] == pytest.approx(55.0 - 466.0 / 7.0)
     assert process["level_residual_ms"]["latency_ms"][-1] == pytest.approx(130.0 - 466.0 / 7.0)
     # _episode() builds action_ready = worker_service + 1.
-    assert model["ready_delta_ms"]["latency_ms"][0] == pytest.approx(1.0)
-    assert model["ready_delta_ms"]["latency_ms"][-1] == pytest.approx(1.0)
+    assert model["pre_worker_time_ms"]["latency_ms"][0] == pytest.approx(1.0)
+    assert model["pre_worker_time_ms"]["latency_ms"][-1] == pytest.approx(1.0)
 
 
 def test_hidden_regime_model_bridges_dwells_across_episodes():
@@ -371,7 +371,7 @@ def test_emission_quantile_grid_resolves_rare_tail():
     distribution = build_worker_slot_distributions_from_sessions(
         [samples], spike_threshold_ms_by_worker_slot={"0": 50.0}
     )
-    table = distribution["worker_slots"]["0"]["all"]["action_ready_ms"]
+    table = distribution["worker_slots"]["0"]["all"]["observation_to_action_latency_ms"]
 
     assert table["latency_ms"][table["quantile_levels"].index(0.998)] == pytest.approx(41.0)
     assert table["latency_ms"][table["quantile_levels"].index(0.9995)] == pytest.approx(100.0)
@@ -412,95 +412,51 @@ def test_fit_inverse_cdf_gives_the_maximum_its_own_quantile_mass():
             assert value == pytest.approx(2631.0)
 
 
-def test_build_burst_samples_keeps_dropped_service_without_inventing_e2e():
-    # Action-ready latency includes observation and IPC overhead; ready_time_ms
-    # is wall-clock bookkeeping rather than the profile sample.
-    action_records = [
-        _action_record(action_id=10, obs_env_step=4, ready_raw_frame=6, latency_ms=25.0, applied=True, dropped=False),
-        _action_record(action_id=11, obs_env_step=8, ready_raw_frame=11, latency_ms=70.0, applied=False, dropped=True, worker_id=1),
-    ]
-    dropped_profile = action_records[1]["metadata"]["realtime_profile"]
-    del dropped_profile["parent_to_env_ipc_ms"]
-    del dropped_profile["env_action_recv_to_enqueue_ms"]
-    del dropped_profile["env_scheduler_update_ms"]
-    metrics = [{"episode_id": 3, "num_actions": 2, "metadata": {"frame_ms": 40.0}}]
+def _attempt_record(
+    *, obs_id: int, episode_id: int, obs_env_step: int,
+    worker_id: int | None, service_ms: float | None, latency_ms: float | None,
+    submitted: bool = True,
+) -> dict:
+    record = {
+        "episode_id": episode_id,
+        "obs_id": obs_id,
+        "obs_env_step": obs_env_step,
+        "submitted": submitted,
+    }
+    if submitted:
+        record["worker_id"] = worker_id
+        record["worker_service_time_ms"] = service_ms
+        record["observation_to_action_latency_ms"] = latency_ms
+    return record
 
-    samples = build_burst_samples(action_records, metrics)
 
-    assert samples == [
-        {
-            "episode_id": 3,
-            "sample_index": 0,
-            "action_id": 10,
-            "obs_env_step": 4,
-            "ready_raw_frame": 6,
-            "applied": True,
-            "dropped": False,
-            "worker_id": 0,
-            "action_ready_ms": 53.0,
-            "worker_service_ms_bin": 25,
-            "worker_service_ms": 25.0,
-        },
-        {
-            "episode_id": 3,
-            "sample_index": 1,
-            "action_id": 11,
-            "obs_env_step": 8,
-            "ready_raw_frame": 11,
-            "applied": False,
-            "dropped": True,
-            "worker_id": 1,
-            "action_ready_ms": None,
-            "worker_service_ms_bin": 70,
-            "worker_service_ms": 70.0,
-        },
+def test_build_burst_samples_filters_capacity_drops_and_keeps_attempt_order():
+    attempts = [
+        _attempt_record(episode_id=3, obs_id=12, obs_env_step=8,
+                        worker_id=1, service_ms=70.0, latency_ms=None,
+                        submitted=False),
+        _attempt_record(episode_id=3, obs_id=10, obs_env_step=4,
+                        worker_id=0, service_ms=25.0, latency_ms=53.0),
+        _attempt_record(episode_id=3, obs_id=11, obs_env_step=6,
+                        worker_id=1, service_ms=30.0, latency_ms=58.0),
     ]
 
+    samples = build_burst_samples(attempts)
 
-def test_build_burst_samples_assigns_episodes_from_metrics():
-    action_records = [
-        _action_record(action_id=0, obs_env_step=0, ready_raw_frame=1, latency_ms=10.0, applied=True, dropped=False),
-        _action_record(action_id=1, obs_env_step=1, ready_raw_frame=2, latency_ms=11.0, applied=True, dropped=False),
-        _action_record(action_id=2, obs_env_step=0, ready_raw_frame=3, latency_ms=30.0, applied=True, dropped=False),
-    ]
-    metrics = [
-        {"episode_id": 7, "num_actions": 2, "metadata": {"frame_ms": 40.0}},
-        {"episode_id": 8, "num_actions": 1, "metadata": {"frame_ms": 40.0}},
-    ]
-
-    samples = build_burst_samples(action_records, metrics)
-
-    assert [(s["episode_id"], s["action_id"]) for s in samples] == [(7, 0), (7, 1), (8, 2)]
+    assert [s["obs_id"] for s in samples] == [10, 11]
+    assert samples[0]["observation_to_action_latency_ms"] == pytest.approx(53.0)
+    assert samples[0]["worker_service_time_ms"] == pytest.approx(25.0)
 
 
 def test_build_burst_samples_records_measure_session_id():
-    action_records = [
-        _action_record(
-            action_id=0,
-            obs_env_step=0,
-            ready_raw_frame=1,
-            latency_ms=10.0,
-            applied=True,
-            dropped=False,
-        ),
-    ]
+    attempts = [_attempt_record(
+        episode_id=0, obs_id=0, obs_env_step=0,
+        worker_id=0, service_ms=10.0, latency_ms=11.0,
+    )]
 
-    samples = build_burst_samples(
-        action_records,
-        [{"episode_id": 0, "num_actions": 1, "metadata": {"frame_ms": 40.0}}],
-        measure_session_id=4,
-    )
+    samples = build_burst_samples(attempts, measure_session_id=4)
 
     assert samples[0]["measure_session_id"] == 4
-
-
-def test_build_burst_samples_rejects_metric_action_count_mismatch():
-    action_records = [
-        _action_record(action_id=0, obs_env_step=0, ready_raw_frame=1, latency_ms=10.0, applied=True, dropped=False),
-    ]
-
-    with pytest.raises(ValueError, match="episode metric num_actions sum"):
-        build_burst_samples(action_records, [{"episode_id": 0, "num_actions": 2, "metadata": {"frame_ms": 40.0}}])
 
 def test_hidden_regime_model_fits_negative_dwell_length_severity_rho():
     # A short 100%-severity blip and a long mild dwell: the fitted

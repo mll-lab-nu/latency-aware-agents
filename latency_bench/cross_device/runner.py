@@ -350,8 +350,7 @@ def _run_evaluation(spec: dict[str, Any], config_path: Path, output_dir: Path) -
 def _profile_session(session_dir: Path, session_id: int) -> dict[str, Any]:
     return {
         "measure_session_id": session_id,
-        "episode_metrics": session_dir / "episode_metrics.jsonl",
-        "actions": session_dir / "actions.jsonl",
+        "observation_attempts": session_dir / "observation_attempts.jsonl",
     }
 
 

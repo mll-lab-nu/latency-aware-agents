@@ -22,6 +22,7 @@ class RealtimeObservationTask:
     observation: Observation
     submit_env_step: int
     submit_time_ms: float
+    observation_start_time_ms: float
     profile: PipelineProfile | None = None
     shared_obs_id: int | None = None
 
@@ -33,6 +34,8 @@ class RealtimePolicyCompletion:
     policy_output: PolicyOutput
     completion_time_ms: float
     latency_record: LatencyRecord
+    observation_to_action_latency_ms: float
+    worker_service_time_ms: float
     worker_id: int
     device: str
     profile: PipelineProfile | None = None

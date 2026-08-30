@@ -98,9 +98,9 @@ def _write_profile(tmp_path: Path) -> Path:
             "episode_id": 0,
             "sample_index": index,
             "worker_id": index % 2,
-            "action_ready_ms": float(frames) * 40.0,
-            "worker_service_ms": float(frames) * 40.0,
-            "worker_service_ms_bin": frames * 40,
+            "observation_to_action_latency_ms": float(frames) * 40.0,
+            "worker_service_time_ms": float(frames) * 40.0,
+            "worker_service_time_ms_bin": frames * 40,
         }
         for index, frames in enumerate([1, 1, 1, 1, 1, 1])
     ]

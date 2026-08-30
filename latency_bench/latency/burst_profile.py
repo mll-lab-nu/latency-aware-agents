@@ -2,20 +2,7 @@ from __future__ import annotations
 
 import math
 from statistics import median
-from typing import Any, Iterator
-
-from latency_bench.logging.realtime_pipeline import (
-    PipelineProfile,
-    REALTIME_PROFILE_METADATA_KEY,
-)
-
-
-WORKER_SERVICE_STAGE_KEYS = (
-    "parent_to_worker_ipc_ms",
-    "worker_recv_overhead_ms",
-    "worker_to_parent_ipc_ms",
-)
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Hidden-regime burst model: a two-state (calm/burst) hidden Markov chain over
@@ -79,7 +66,7 @@ WORKER_SERVICE_STAGE_KEYS = (
 # Spearman rho, applied through the same Gaussian-copula draw the emission
 # joints use. Severity–level and cross-rank severity dependencies tested
 # absent, so those latents sample independently. The fitted joint emission
-# distribution per regime carries both action-ready delay and worker-service
+# distribution per regime carries both observation-to-action latency and worker-service
 # time so control staleness and worker occupancy stay correlated.
 # ---------------------------------------------------------------------------
 
@@ -101,31 +88,25 @@ BURST_MERGE_GAP_RECORDS = 30
 
 
 def build_burst_samples(
-    action_records: list[dict[str, Any]],
-    episode_metrics_records: list[dict[str, Any]] | None,
+    attempt_records: list[dict[str, Any]],
     *,
     measure_session_id: int | None = None,
 ) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
-    for record, episode_id in _action_records_with_episode_ids(action_records, episode_metrics_records):
-        worker_service_ms = _worker_service_ms(record)
-        action_ready_ms = (
-            _action_ready_ms(record)
-            if record["applied"] and not record["dropped"]
-            else None
-        )
+    for record in sorted(attempt_records, key=lambda item: item["obs_id"]):
+        if not record["submitted"]:
+            continue
+        worker_service_time_ms = record["worker_service_time_ms"]
+        observation_to_action_latency_ms = record["observation_to_action_latency_ms"]
         sample = {
-            "episode_id": episode_id,
+            "episode_id": record["episode_id"],
             "sample_index": len(samples),
-            "action_id": int(record["action_id"]),
-            "obs_env_step": int(record["obs_env_step"]),
-            "ready_raw_frame": int(record["ready_raw_frame"]),
-            "applied": bool(record["applied"]),
-            "dropped": bool(record["dropped"]),
-            "worker_id": int(record["latency"]["metadata"]["worker_id"]),
-            "action_ready_ms": action_ready_ms,
-            "worker_service_ms_bin": _latency_ms_bin(worker_service_ms),
-            "worker_service_ms": worker_service_ms,
+            "obs_id": record["obs_id"],
+            "obs_env_step": record["obs_env_step"],
+            "worker_id": record["worker_id"],
+            "observation_to_action_latency_ms": observation_to_action_latency_ms,
+            "worker_service_time_ms_bin": _latency_ms_bin(worker_service_time_ms),
+            "worker_service_time_ms": worker_service_time_ms,
         }
         if measure_session_id is not None:
             sample["measure_session_id"] = measure_session_id
@@ -147,7 +128,7 @@ def build_hidden_regime_burst_model_from_sessions(
     ordered_sessions = [
         sorted(
             samples,
-            key=lambda item: (item["episode_id"], item["sample_index"]),
+            key=lambda item: item["sample_index"],
         )
         for samples in session_samples
     ]
@@ -179,12 +160,12 @@ def build_hidden_regime_burst_model_from_sessions(
         for begin, end in dwells
     ]
 
-    rank_processes, ready_deltas, slot_rank_templates = _fit_rank_processes_from_sessions(
+    rank_processes, pre_worker_times, slot_rank_templates = _fit_rank_processes_from_sessions(
         list(zip(ordered_sessions, session_dwells)), spike_thresholds_by_slot
     )
 
     model = {
-        "schema_version": 11,
+        "schema_version": 12,
         "model_type": "hidden_regime",
         "reset_scope": "session",
         "spike_threshold_ms_by_worker_slot": spike_thresholds_by_slot,
@@ -204,9 +185,9 @@ def build_hidden_regime_burst_model_from_sessions(
         ),
         "burst_rank_processes": rank_processes,
         "burst_slot_rank_templates": slot_rank_templates,
-        "ready_delta_ms": (
-            _fit_inverse_cdf(ready_deltas)
-            if rank_processes and ready_deltas
+        "pre_worker_time_ms": (
+            _fit_inverse_cdf(pre_worker_times)
+            if rank_processes and pre_worker_times
             else None
         ),
     }
@@ -228,7 +209,7 @@ def build_worker_slot_distributions_from_sessions(
     for samples in session_samples:
         ordered_samples = sorted(
             samples,
-            key=lambda item: (item["episode_id"], item["sample_index"]),
+            key=lambda item: item["sample_index"],
         )
         samples_by_slot: dict[int, list[dict[str, Any]]] = {}
         for sample in ordered_samples:
@@ -240,18 +221,16 @@ def build_worker_slot_distributions_from_sessions(
             )
             all_samples = slot_samples.setdefault(slot, {"all": [], "steady": []})
             for sample, regime in zip(slot_sample_records, regimes):
-                if sample["action_ready_ms"] is None:
-                    continue
                 emission = {
-                    "action_ready_ms": sample["action_ready_ms"],
-                    "worker_service_ms": sample["worker_service_ms"],
+                    "observation_to_action_latency_ms": sample["observation_to_action_latency_ms"],
+                    "worker_service_time_ms": sample["worker_service_time_ms"],
                 }
                 all_samples["all"].append(emission)
                 if regime == "calm":
                     all_samples["steady"].append(emission)
 
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "worker_slots": {
             str(slot): {
                 "all": _fit_joint_emission_distribution(values["all"]),
@@ -285,11 +264,10 @@ def _fit_rank_processes_from_sessions(
     rank_residuals: list[list[float]] = []
     rank_draw_counts: list[int] = []
     rank_spike_counts: list[int] = []
-    ready_deltas = [
-        sample["action_ready_ms"] - sample["worker_service_ms"]
+    pre_worker_times = [
+        sample["observation_to_action_latency_ms"] - sample["worker_service_time_ms"]
         for samples, _dwells in sessions
         for sample in samples
-        if sample["action_ready_ms"] is not None
     ]
     slot_rank_templates: list[dict[str, Any]] = []
 
@@ -304,7 +282,7 @@ def _fit_rank_processes_from_sessions(
                 spikes = sum(
                     1
                     for item in stream
-                    if item["worker_service_ms"]
+                    if item["worker_service_time_ms"]
                     > spike_threshold_ms_by_worker_slot[str(worker)]
                 )
                 return (-spikes / len(stream), -spikes, worker)
@@ -329,7 +307,7 @@ def _fit_rank_processes_from_sessions(
                 stream = by_worker[worker]
                 spikes = [
                     sample for sample in stream
-                    if sample["worker_service_ms"]
+                    if sample["worker_service_time_ms"]
                     > spike_threshold_ms_by_worker_slot[str(worker)]
                 ]
                 rank_draw_counts[rank] += len(stream)
@@ -337,10 +315,10 @@ def _fit_rank_processes_from_sessions(
                 rank_severities[rank].append(len(spikes) / len(stream))
                 rank_dwell_lengths[rank].append(end - begin + 1)
                 if spikes:
-                    level = sum(s["worker_service_ms"] for s in spikes) / len(spikes)
+                    level = sum(s["worker_service_time_ms"] for s in spikes) / len(spikes)
                     rank_levels[rank].append(level)
                     rank_residuals[rank].extend(
-                        s["worker_service_ms"] - level for s in spikes
+                        s["worker_service_time_ms"] - level for s in spikes
                     )
     rank_processes = [
         {
@@ -359,7 +337,7 @@ def _fit_rank_processes_from_sessions(
         }
         for rank in range(len(rank_severities))
     ]
-    return rank_processes, ready_deltas, slot_rank_templates
+    return rank_processes, pre_worker_times, slot_rank_templates
 
 
 def _worker_slot_spike_thresholds(
@@ -371,7 +349,7 @@ def _worker_slot_spike_thresholds(
         for sample in samples:
             episodes = values_by_slot_episode.setdefault(sample["worker_id"], {})
             episodes.setdefault((session_id, sample["episode_id"]), []).append(
-                float(sample["worker_service_ms"])
+                float(sample["worker_service_time_ms"])
             )
     return {
         str(slot): SPIKE_MEDIAN_MULTIPLIER * min(
@@ -415,7 +393,7 @@ def _label_regimes(stream_samples: list[dict[str, Any]], spike_threshold_ms: flo
     regimes = ["calm"] * len(stream_samples)
     last_spike_index: int | None = None
     for index, sample in enumerate(stream_samples):
-        if float(sample["worker_service_ms"]) <= spike_threshold_ms:
+        if float(sample["worker_service_time_ms"]) <= spike_threshold_ms:
             continue
         if last_spike_index is not None and index - last_spike_index <= BURST_MERGE_GAP_RECORDS:
             start = last_spike_index
@@ -426,31 +404,22 @@ def _label_regimes(stream_samples: list[dict[str, Any]], spike_threshold_ms: flo
     return regimes
 
 
-def _worker_service_ms(record: dict[str, Any]) -> float:
-    profile = record["metadata"]["realtime_profile"]
-    return float(record["latency"]["latency_ms"]) + sum(
-        float(profile[key])
-        for key in WORKER_SERVICE_STAGE_KEYS
-    )
-
-
-def _action_ready_ms(record: dict[str, Any]) -> float:
-    profile = PipelineProfile.coerce(record["metadata"][REALTIME_PROFILE_METADATA_KEY])
-    return float(record["latency"]["latency_ms"]) + profile.bench_overhead_ms()
-
-
 def _latency_ms_bin(latency_ms: float) -> int:
     return int(math.floor(float(latency_ms) / LATENCY_MS_BIN_WIDTH))
 
 
 def _fit_joint_emission_distribution(samples: list[dict[str, float]]) -> dict[str, Any]:
-    action_ready_values = [float(sample["action_ready_ms"]) for sample in samples]
-    worker_values = [float(sample["worker_service_ms"]) for sample in samples]
+    observation_to_action_values = [
+        float(sample["observation_to_action_latency_ms"]) for sample in samples
+    ]
+    worker_values = [float(sample["worker_service_time_ms"]) for sample in samples]
     return {
         "count": len(samples),
-        "action_ready_ms": _fit_inverse_cdf(action_ready_values),
-        "worker_service_ms": _fit_inverse_cdf(worker_values),
-        "spearman_rho": _spearman_rho(action_ready_values, worker_values),
+        "observation_to_action_latency_ms": _fit_inverse_cdf(
+            observation_to_action_values
+        ),
+        "worker_service_time_ms": _fit_inverse_cdf(worker_values),
+        "spearman_rho": _spearman_rho(observation_to_action_values, worker_values),
     }
 
 
@@ -511,31 +480,3 @@ def _pearson(xs: list[float], ys: list[float]) -> float:
     if var_x == 0.0 or var_y == 0.0:
         return 0.0
     return sum(x * y for x, y in zip(centered_x, centered_y)) / math.sqrt(var_x * var_y)
-
-
-# ---------------------------------------------------------------------------
-# Shared
-# ---------------------------------------------------------------------------
-
-
-def _action_records_with_episode_ids(
-    action_records: list[dict[str, Any]],
-    episode_metrics_records: list[dict[str, Any]] | None,
-) -> Iterator[tuple[dict[str, Any], int]]:
-    if episode_metrics_records is None:
-        for record in action_records:
-            yield record, int(record["metadata"]["episode_id"])
-        return
-
-    cursor = 0
-    for metric in episode_metrics_records:
-        episode_id = int(metric["episode_id"])
-        num_actions = int(metric["num_actions"])
-        for record in action_records[cursor:cursor + num_actions]:
-            yield record, episode_id
-        cursor += num_actions
-    if cursor != len(action_records):
-        raise ValueError(
-            "episode metric num_actions sum "
-            f"{cursor} does not match action record count {len(action_records)}"
-        )

@@ -52,9 +52,9 @@ def _write_latency_profile(
             "episode_id": 0,
             "sample_index": index,
             "worker_id": 0,
-            "action_ready_ms": float(action_ready) * 40.0,
-            "worker_service_ms": float(worker_service) * 40.0,
-            "worker_service_ms_bin": int(float(worker_service) * 40.0),
+            "observation_to_action_latency_ms": float(action_ready) * 40.0,
+            "worker_service_time_ms": float(worker_service) * 40.0,
+            "worker_service_time_ms_bin": int(float(worker_service) * 40.0),
         }
         for index, (worker_service, action_ready) in enumerate(worker_service_sequence)
     ]
@@ -100,13 +100,18 @@ def _constant_inverse_cdf(value: float) -> dict:
     }
 
 
-def _constant_joint_emission(worker_service_ms: float, action_ready_ms: float | None = None) -> dict:
+def _constant_joint_emission(
+    worker_service_time_ms: float,
+    observation_to_action_latency_ms: float | None = None,
+) -> dict:
     return {
         "count": 10,
-        "action_ready_ms": _constant_inverse_cdf(
-            worker_service_ms if action_ready_ms is None else action_ready_ms
+        "observation_to_action_latency_ms": _constant_inverse_cdf(
+            worker_service_time_ms
+            if observation_to_action_latency_ms is None
+            else observation_to_action_latency_ms
         ),
-        "worker_service_ms": _constant_inverse_cdf(worker_service_ms),
+        "worker_service_time_ms": _constant_inverse_cdf(worker_service_time_ms),
         "spearman_rho": 0.0,
     }
 
@@ -131,10 +136,10 @@ def _hand_model(
     rank_process: dict,
     enter_burst_count: int = 1000,
     dwell: float = 1.0,
-    ready_delta_ms: float = 0.0,
+    pre_worker_time_ms: float = 0.0,
 ) -> dict:
     return {
-        "schema_version": 11,
+        "schema_version": 12,
         "model_type": "hidden_regime",
         "reset_scope": "session",
         "spike_threshold_ms_by_worker_slot": {"0": 50.0},
@@ -150,13 +155,13 @@ def _hand_model(
         "burst_slot_rank_templates": [
             {"dwell_length": int(dwell), "slot_to_rank": {"0": 0}}
         ],
-        "ready_delta_ms": _constant_inverse_cdf(ready_delta_ms),
+        "pre_worker_time_ms": _constant_inverse_cdf(pre_worker_time_ms),
     }
 
 
 def _hand_distributions(*, steady_ms: float = 40.0) -> dict:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "worker_slots": {
             "0": {
                 "all": _constant_joint_emission(steady_ms),
@@ -242,7 +247,7 @@ def test_temporal_rejects_old_burst_schema(tmp_path: Path):
 
     model_path = profile_dir / "latency_burst_model.json"
     model = json.loads(model_path.read_text(encoding="utf-8"))
-    model["schema_version"] = 10
+    model["schema_version"] = 11
     model_path.write_text(json.dumps(model), encoding="utf-8")
     with pytest.raises(ValueError, match="Unsupported temporal burst model"):
         _profile_sampler(profile_dir, seed=0)
@@ -265,7 +270,7 @@ def test_hidden_regime_sampler_severity_one_covers_the_whole_dwell():
         rank_process=_rank_process(severity=1.0, level_ms=100.0),
         enter_burst_count=40,
         dwell=4.0,
-        ready_delta_ms=7.0,
+        pre_worker_time_ms=7.0,
     )
     sampler = HiddenRegimeSampler(model, _hand_distributions(), clock=_clock(), seed=3)
     draws = [sampler.sample({"episode_id": 0, "worker_slot": 0}) for _ in range(200)]

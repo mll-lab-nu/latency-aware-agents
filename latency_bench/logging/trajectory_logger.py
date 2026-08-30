@@ -10,6 +10,7 @@ from latency_bench.utils.io import append_jsonl, load_jsonl_records, write_json,
 _OUTPUT_FILENAMES = (
     "steps.jsonl",
     "actions.jsonl",
+    "observation_attempts.jsonl",
     "e2e_latencies.jsonl",
     "realtime_pipeline_profile.jsonl",
     "realtime_pipeline_summary.json",
@@ -47,6 +48,7 @@ class TrajectoryLogger:
         self.save_latency_records = save_latency_records
         self.step_records: list[StepRecord] = []
         self.action_records: list[ActionEvent] = []
+        self.observation_attempt_records: list[dict] = []
         self.latency_records: list[LatencyRecord] = []
         self.episode_metrics: list[EpisodeMetrics] = []
         self.latency_ms_values: list[float] = []
@@ -63,6 +65,9 @@ class TrajectoryLogger:
         if self.save_latency_records:
             self.latency_records.append(record)
             self.latency_ms_values.append(float(record.latency_ms))
+
+    def log_observation_attempts(self, records) -> None:
+        self.observation_attempt_records.extend(records)
 
     def log_episode_metrics(self, metrics: EpisodeMetrics) -> None:
         """
@@ -85,6 +90,11 @@ class TrajectoryLogger:
         write_jsonl(self.output_dir / "episode_metrics.jsonl", self.episode_metrics)
 
     def _flush_episode_records(self) -> None:
+        append_jsonl(
+            self.output_dir / "observation_attempts.jsonl",
+            self.observation_attempt_records,
+        )
+        self.observation_attempt_records = []
         if self.save_step_records:
             append_jsonl(self.output_dir / "steps.jsonl", self.step_records)
             self.step_records = []

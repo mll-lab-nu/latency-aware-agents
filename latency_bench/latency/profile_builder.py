@@ -31,18 +31,17 @@ def build_profile_from_traces(
 ) -> dict[str, Any]:
     """Build one profile from independent measurement sessions.
 
-    Each session supplies ``measure_session_id``, ``episode_metrics``, and
-    ``actions``.
+    Each session supplies ``measure_session_id`` and
+    ``observation_attempts``. Capacity drops remain in the source sequence but
+    are excluded from latency emissions.
     Marginal samples are pooled, while temporal fitting preserves every
     session boundary.
     """
     sessions = [
         {
             **session,
-            "episode_metrics": Path(session["episode_metrics"]),
-            "metrics_records": load_jsonl_records(session["episode_metrics"]),
-            "actions": Path(session["actions"]),
-            "action_records": load_jsonl_records(session["actions"]),
+            "observation_attempts": Path(session["observation_attempts"]),
+            "attempt_records": load_jsonl_records(session["observation_attempts"]),
         }
         for session in sessions
     ]
@@ -60,8 +59,7 @@ def build_profile_from_traces(
     output_path.mkdir(parents=True, exist_ok=True)
     session_burst_samples = [
         build_burst_samples(
-            session["action_records"],
-            session["metrics_records"],
+            session["attempt_records"],
             measure_session_id=session["measure_session_id"],
         )
         for session in sessions
@@ -84,27 +82,29 @@ def build_profile_from_traces(
         "source_run_id": source_run_id,
         "env_fps": env_fps,
         "frame_ms": 1000.0 / env_fps,
-        "n_samples": len(burst_samples),
-        "n_action_ready_samples": sum(
-            sample["action_ready_ms"] is not None for sample in burst_samples
+        "n_observation_attempts": sum(
+            len(session["attempt_records"]) for session in sessions
         ),
-        "n_dropped_samples": sum(sample["dropped"] for sample in burst_samples),
-        "latency_kind": "e2e_latency",
+        "n_admitted_observations": len(burst_samples),
+        "n_capacity_drops": sum(
+            not record["submitted"]
+            for session in sessions
+            for record in session["attempt_records"]
+        ),
+        "latency_kind": "observation_to_action_latency",
         "latency_method": "temporal",
         "sample_model_type": burst_model["model_type"],
         "distribution_path": paths["distribution"].name,
         "burst_model_path": paths["burst_model"].name,
         "summary": compute_latency_profile_summary(
             [
-                sample["action_ready_ms"]
+                sample["observation_to_action_latency_ms"]
                 for sample in burst_samples
-                if sample["action_ready_ms"] is not None
             ],
             env_fps,
         ),
         "per_slot_summary": _worker_slot_summaries(
             burst_samples=burst_samples,
-            env_fps=env_fps,
         ),
         "provenance": metadata,
     }
@@ -116,34 +116,32 @@ def build_profile_from_traces(
 def _worker_slot_summaries(
     *,
     burst_samples: list[dict[str, Any]],
-    env_fps: float,
 ) -> dict[str, Any]:
     by_slot: dict[int, list[dict[str, Any]]] = {}
     for sample in burst_samples:
         by_slot.setdefault(sample["worker_id"], []).append(sample)
     summaries = {}
     for slot, samples in sorted(by_slot.items()):
-        action_ready_samples = [
-            sample["action_ready_ms"]
+        observation_to_action_samples = [
+            sample["observation_to_action_latency_ms"]
             for sample in samples
-            if sample["action_ready_ms"] is not None
         ]
         summaries[str(slot)] = {
-            "count": len(samples),
-            "action_ready_count": len(action_ready_samples),
-            "dropped_count": sum(sample["dropped"] for sample in samples),
-            "mean_worker_service_ms": mean(
-                [sample["worker_service_ms"] for sample in samples]
+            "admitted_count": len(samples),
+            "mean_worker_service_time_ms": mean(
+                [sample["worker_service_time_ms"] for sample in samples]
             ),
-            "p95_worker_service_ms": percentile_linear(
-                [sample["worker_service_ms"] for sample in samples], 95.0
+            "p95_worker_service_time_ms": percentile_linear(
+                [sample["worker_service_time_ms"] for sample in samples], 95.0
             ),
-            "p99_worker_service_ms": percentile_linear(
-                [sample["worker_service_ms"] for sample in samples], 99.0
+            "p99_worker_service_time_ms": percentile_linear(
+                [sample["worker_service_time_ms"] for sample in samples], 99.0
             ),
-            "mean_action_ready_ms": mean(action_ready_samples),
-            "p95_action_ready_ms": percentile_linear(
-                action_ready_samples, 95.0
+            "mean_observation_to_action_latency_ms": mean(
+                observation_to_action_samples
+            ),
+            "p95_observation_to_action_latency_ms": percentile_linear(
+                observation_to_action_samples, 95.0
             ),
         }
     return summaries

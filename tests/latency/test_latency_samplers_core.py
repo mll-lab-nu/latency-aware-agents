@@ -33,16 +33,16 @@ def _inverse_cdf(samples: list[float]) -> dict:
 def _model_sample(
     episode_id: int,
     sample_index: int,
-    action_ready_ms: float,
-    worker_service_ms: float,
+    observation_to_action_latency_ms: float,
+    worker_service_time_ms: float,
 ) -> dict:
     return {
         "episode_id": episode_id,
         "sample_index": sample_index,
         "worker_id": 0,
-        "action_ready_ms": action_ready_ms,
-        "worker_service_ms": worker_service_ms,
-        "worker_service_ms_bin": int(worker_service_ms // 1.0),
+        "observation_to_action_latency_ms": observation_to_action_latency_ms,
+        "worker_service_time_ms": worker_service_time_ms,
+        "worker_service_time_ms_bin": int(worker_service_time_ms // 1.0),
     }
 
 
@@ -121,19 +121,19 @@ def test_from_action_ready_derives_latency_ms_from_action_ready():
 def test_iid_inverse_cdf_matches_golden_numbers():
     clock = _clock()
     joint = {
-        "schema_version": 2,
+        "schema_version": 3,
         "worker_slots": {
             "0": {
                 "all": {
                     "count": 3,
-                    "action_ready_ms": _inverse_cdf([10.0, 20.0, 30.0]),
-                    "worker_service_ms": _inverse_cdf([10.0, 20.0, 30.0]),
+                    "observation_to_action_latency_ms": _inverse_cdf([10.0, 20.0, 30.0]),
+                    "worker_service_time_ms": _inverse_cdf([10.0, 20.0, 30.0]),
                     "spearman_rho": 1.0,
                 },
                 "steady": {
                     "count": 3,
-                    "action_ready_ms": _inverse_cdf([10.0, 20.0, 30.0]),
-                    "worker_service_ms": _inverse_cdf([10.0, 20.0, 30.0]),
+                    "observation_to_action_latency_ms": _inverse_cdf([10.0, 20.0, 30.0]),
+                    "worker_service_time_ms": _inverse_cdf([10.0, 20.0, 30.0]),
                     "spearman_rho": 1.0,
                 },
             }
@@ -145,17 +145,17 @@ def test_iid_inverse_cdf_matches_golden_numbers():
 
 
 def test_iid_inverse_cdf_selects_the_requested_worker_slot_joint():
-    def joint(action_ready_ms: float, worker_service_ms: float) -> dict:
+    def joint(observation_to_action_latency_ms: float, worker_service_time_ms: float) -> dict:
         return {
             "count": 1,
-            "action_ready_ms": _inverse_cdf([action_ready_ms]),
-            "worker_service_ms": _inverse_cdf([worker_service_ms]),
+            "observation_to_action_latency_ms": _inverse_cdf([observation_to_action_latency_ms]),
+            "worker_service_time_ms": _inverse_cdf([worker_service_time_ms]),
             "spearman_rho": 0.0,
         }
 
     sampler = IidInverseCdfSampler(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "worker_slots": {
                 "0": {"all": joint(10.0, 2.0), "steady": joint(10.0, 2.0)},
                 "1": {"all": joint(100.0, 40.0), "steady": joint(100.0, 40.0)},
@@ -257,9 +257,9 @@ def test_hidden_regime_burst_is_a_worker_state_not_a_merged_pattern():
             "episode_id": 0,
             "sample_index": index,
             "worker_id": worker,
-            "action_ready_ms": value + 1.0,
-            "worker_service_ms": value,
-            "worker_service_ms_bin": int(value),
+            "observation_to_action_latency_ms": value + 1.0,
+            "worker_service_time_ms": value,
+            "worker_service_time_ms_bin": int(value),
         }
         for index, (value, worker) in enumerate(zip(values, workers))
     ]

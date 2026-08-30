@@ -15,45 +15,20 @@ def _write_session(
 ) -> dict:
     session = root / str(session_id)
     session.mkdir(parents=True)
-    actions = session / "actions.jsonl"
-    metrics = session / "episode_metrics.jsonl"
-    def pipeline_profile(index: int) -> dict:
-        profile = {
-            "env_observe_ms": 0.0,
-            "env_to_parent_ipc_ms": 0.0,
-            "parent_observation_handle_ms": 0.0,
-            "parent_to_worker_ipc_ms": 0.0,
-            "worker_recv_overhead_ms": 0.0,
-            "worker_to_parent_ipc_ms": 0.0,
-            "parent_release_ms": 0.0,
-            "parent_to_env_ipc_ms": 0.0,
-            "env_action_recv_to_enqueue_ms": 0.0,
-            "env_scheduler_update_ms": 0.0,
-        }
-        if index in dropped_indices:
-            del profile["parent_to_env_ipc_ms"]
-            del profile["env_action_recv_to_enqueue_ms"]
-            del profile["env_scheduler_update_ms"]
-        return profile
-
-    actions.write_text(
+    attempts = session / "observation_attempts.jsonl"
+    attempts.write_text(
         "".join(
             json.dumps(
                 {
-                    "action_id": index,
+                    "obs_id": index,
+                    "episode_id": 0,
                     "obs_env_step": index,
-                    "ready_raw_frame": index + 1,
-                    "ready_time_ms": index * 40.0 + value,
-                    "applied": index not in dropped_indices,
-                    "dropped": index in dropped_indices,
-                    "latency": {
-                        "latency_ms": value,
-                        "metadata": {"worker_id": index % 2},
-                    },
-                    "metadata": {
-                        "frame_ms": 40.0,
-                        "realtime_profile": pipeline_profile(index),
-                    },
+                    "submitted": index not in dropped_indices,
+                    **({
+                        "worker_id": index % 2,
+                        "worker_service_time_ms": value,
+                        "observation_to_action_latency_ms": value + 3.0,
+                    } if index not in dropped_indices else {}),
                 }
             )
             + "\n"
@@ -61,17 +36,9 @@ def _write_session(
         ),
         encoding="utf-8",
     )
-    metrics.write_text(
-        json.dumps(
-            {"episode_id": 0, "num_actions": len(service_ms)}
-        )
-        + "\n",
-        encoding="utf-8",
-    )
     return {
         "measure_session_id": session_id,
-        "episode_metrics": metrics,
-        "actions": actions,
+        "observation_attempts": attempts,
     }
 
 
@@ -82,8 +49,8 @@ def test_profile_builder_emits_per_slot_bundle_and_preserves_session_boundaries(
         _write_session(
             tmp_path / "sessions",
             0,
-            [10.0, 11.0, 50.0, 12.0],
-            dropped_indices=(2,),
+            [10.0, 11.0, 50.0, 12.0, 13.0],
+            dropped_indices=(4,),
         ),
         _write_session(tmp_path / "sessions", 1, [10.0, 11.0, 60.0, 12.0]),
     ]
@@ -107,17 +74,16 @@ def test_profile_builder_emits_per_slot_bundle_and_preserves_session_boundaries(
         "latency_burst_model.json",
     }
     assert profile["source_run_id"] == "run_1"
-    assert profile["n_samples"] == 8
-    assert profile["summary"]["n_samples"] == 7
-    assert profile["n_action_ready_samples"] == 7
-    assert profile["n_dropped_samples"] == 1
+    assert profile["n_observation_attempts"] == 9
+    assert profile["n_admitted_observations"] == 8
+    assert profile["summary"]["n_samples"] == 8
+    assert profile["n_capacity_drops"] == 1
     assert set(profile["per_slot_summary"]) == {"0", "1"}
     assert (
-        profile["per_slot_summary"]["0"]["mean_worker_service_ms"]
-        > profile["per_slot_summary"]["1"]["mean_worker_service_ms"]
+        profile["per_slot_summary"]["0"]["mean_worker_service_time_ms"]
+        > profile["per_slot_summary"]["1"]["mean_worker_service_time_ms"]
     )
-    assert profile["per_slot_summary"]["0"]["action_ready_count"] == 3
-    assert profile["per_slot_summary"]["0"]["dropped_count"] == 1
+    assert profile["per_slot_summary"]["0"]["admitted_count"] == 4
     burst = json.loads((output / "latency_burst_model.json").read_text())
     assert burst["burst_dwell_lengths"] == [1, 1]
     assert len(burst["burst_slot_rank_templates"]) == 2

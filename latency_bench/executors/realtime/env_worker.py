@@ -189,6 +189,7 @@ def _env_loop_worker(
                     observation=shared_observation,
                     submit_env_step=env_step,
                     submit_time_ms=wall_elapsed_ms,
+                    observation_start_time_ms=observe_start_ms,
                     profile=profile,
                     shared_obs_id=obs_id,
                 )
