@@ -10,126 +10,158 @@
   <a class="skip-link" href="#content">Skip to content</a>
   <header class="hero">
     <div class="hero-inner">
-      <p class="eyebrow">latency-sensitive-bench / code-complete Gymnasium adaptation</p>
-      <h1>Ant: native 8-torque RGB+state control</h1>
-      <p class="lede">A task-owned wrapper and frozen Gymnasium contract carry Ant-v4's native continuous action and 27-dimensional observation through the existing Sample Factory, rollout, LeRobot, QwenOFT, and latency-bench interfaces. No environment execution or training is claimed.</p>
+      <p class="eyebrow">latency-sensitive-bench / verified Gymnasium adaptation</p>
+      <h1>Ant: native eight-torque control at zero latency</h1>
+      <p class="lede">A task-owned wrapper preserves Ant-v4's native continuous action space and ordered 27-dimensional state. The zero-latency Sample Factory policy completes the full horizon at L0, then loses locomotion and survival under a single frame of action delay.</p>
       <div class="badges">
         <span>Ant-v4 / Box(8)</span>
         <span>27D state</span>
         <span>20 Hz</span>
-        <span>native action head</span>
-        <span>execution · NOT RUN</span>
+        <span>L0 APPO · 10M</span>
+        <span>L0–L4 · VERIFIED</span>
       </div>
     </div>
   </header>
+
   <div class="layout">
     <aside class="toc">
       <a class="toc-title" href="#content">Ant</a>
       <nav>
         <a href="#status">Status</a>
         <a href="#contract">Contract</a>
-        <a href="#implementation">Implementation</a>
-        <a href="#pipeline">Pipeline</a>
-        <a href="#runbook">Runbook</a>
-        <a href="#limits">Limits</a>
+        <a href="#training">Training</a>
+        <a href="#evaluation">Evaluation</a>
+        <a href="#evidence">Evidence</a>
+        <a href="#next">Next stages</a>
       </nav>
     </aside>
+
     <main id="content">
       <section id="status">
-        <p class="section-kicker">01 · Scope and status</p>
-        <h2>Code path complete; runtime work intentionally deferred</h2>
+        <p class="section-kicker">01 · Outcome</p>
+        <h2>The native continuous small model trains successfully</h2>
         <div class="status-grid">
-          <article><span class="status verified">VERIFIED</span><h3>Wrapper and registration</h3><p><code>AntContinuousActionEnv</code> owns native clipping and applied-action recording.</p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Pipeline configs</h3><p>Train, small-model eval, latency-bench eval, and StarVLA eval resolve to one task contract.</p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Logic tests</h3><p>Fake-env tests cover action mapping, probe output, clock, state order, and Sample Factory composition.</p></article>
-          <article><span class="status notrun">NOT RUN</span><h3>Runtime and experiments</h3><p>MuJoCo probe, parity, training, rollout, conversion, VLA SFT, and closed-loop evaluation were not run.</p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Runtime probe</h3><p>Gymnasium 0.29.1 and MuJoCo 3.3.7 construct Ant-v4 and render 480×480 RGB through NVIDIA EGL.</p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Independent wrapper</h3><p><code>AntContinuousActionEnv</code> owns eight-dimensional clipping and exact <code>applied_action</code> recording.</p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Training</h3><p>Synchronous Sample Factory APPO completed 10,006,528 zero-latency environment frames.</p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Evaluation</h3><p>The best checkpoint completed L0–L4, ten deterministic episodes per latency.</p></article>
+        </div>
+        <div class="metric-strip">
+          <div><strong>5,011.315</strong><span>L0 mean return</span></div>
+          <div><strong>1,880.322</strong><span>L0 std return</span></div>
+          <div><strong>10 / 10</strong><span>L0 full episodes</span></div>
+          <div><strong>8,854 FPS</strong><span>training throughput</span></div>
         </div>
       </section>
 
       <section id="contract">
         <p class="section-kicker">02 · Frozen contract</p>
-        <h2>Ant-v4 semantics preserved without a bridge carrier</h2>
+        <h2>Ant-v4 state and action order remain native</h2>
         <div class="two-col">
           <div>
-            <h3>Version-matched API facts</h3>
+            <h3>Runtime facts</h3>
             <ul class="steps">
-              <li>Repository runtime: Gymnasium 0.29.1; selected environment: <code>Ant-v4</code>.</li>
-              <li>Action: <code>Box(-1, 1, (8,), float32)</code>; eight hip/ankle torques.</li>
-              <li>Observation: ordered native <code>Box</code> vector with 27 values.</li>
-              <li>Native step duration: 50.000 ms; time limit: 1,000 steps.</li>
-              <li>Current v5 documentation describes a different observation contract and is not used here.</li>
+              <li><code>Ant-v4</code>, Gymnasium 0.29.1, MuJoCo 3.3.7.</li>
+              <li>Observation: <code>Box(-inf, inf, (27,), float64)</code>.</li>
+              <li>Action: <code>Box(-1, 1, (8,), float32)</code>.</li>
+              <li><code>dt=0.05 s</code>, frame skip 5, model timestep 0.01 s.</li>
+              <li>Default time limit 1,000 steps; unhealthy torso height terminates early.</li>
             </ul>
           </div>
           <div>
             <h3>Adaptation decisions</h3>
             <ul class="steps">
-              <li>Native 8D continuous action head; 7D bridge is not applicable.</li>
-              <li>Pending no-op is the 8-dimensional all-zero vector.</li>
-              <li>Environment and observation clocks both use 20 Hz; stride = one raw frame.</li>
-              <li>Training latency is zero; sustained torques use <code>hold</code> and FIFO ordering.</li>
-              <li>RGB plus the complete 27D native observation is available to rollout and VLA conversion.</li>
+              <li>Native torque order: back-right hip/ankle, front-left hip/ankle, front-right hip/ankle, back-left hip/ankle.</li>
+              <li>Pending no-op: eight-dimensional all-zero vector.</li>
+              <li>20 Hz environment and observation clocks; one raw frame per observation.</li>
+              <li>Training latency: zero raw frames; sustained actions use <code>hold</code> and FIFO ordering.</li>
+              <li>RGB plus the complete ordered 27D observation is available to later VLA rollout.</li>
             </ul>
           </div>
         </div>
-        <details>
-          <summary>Constructor contract</summary>
-          <pre><code>base_env_id: Ant-v4
-render_mode: rgb_array
-base_make_kwargs:
-  use_contact_forces: false
-  exclude_current_positions_from_observation: true</code></pre>
-        </details>
-        <p>Documentation source: <a href="https://gymnasium.farama.org/v0.29.0/environments/mujoco/ant/">Gymnasium 0.29 Ant</a>.</p>
+        <div class="callout"><strong>Native head:</strong> Ant requires an eight-dimensional continuous QwenOFT action head. The seven-dimensional bridge carrier cannot represent this action space and is intentionally not used.</div>
       </section>
 
-      <section id="implementation">
-        <p class="section-kicker">03 · Generated implementation</p>
-        <h2>Task-owned files, shared generic machinery</h2>
-        <div class="evidence-ledger">
-          <article><span class="status verified">VERIFIED</span><h3>Environment</h3><p><a href="../../../../latency_bench/envs/gymnasium_ant.py"><code>gymnasium_ant.py</code></a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Probe</h3><p><a href="../../../../scripts/scaffold_gymnasium_ant.py"><code>scaffold_gymnasium_ant.py</code></a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Configs</h3><p><a href="../../../../configs/examples/gymnasium/ant/small_model_train.yaml">train</a> · <a href="../../../../configs/examples/gymnasium/ant/small_model_eval.yaml">small-model eval</a> · <a href="../../../../configs/examples/gymnasium/ant/latency_bench_eval.yaml">latency-bench</a> · <a href="../../../../configs/examples/gymnasium/ant/starvla_eval.yaml">StarVLA eval</a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Tests</h3><p><a href="../../../../tests/envs/test_gymnasium_ant_humanoid.py"><code>test_gymnasium_ant_humanoid.py</code></a></p></article>
+      <section id="training">
+        <p class="section-kicker">03 · Small-model training</p>
+        <h2>Ten million frames with the vendored MuJoCo recipe</h2>
+        <div class="metric-strip">
+          <div><strong>10,006,528</strong><span>environment frames</span></div>
+          <div><strong>seed 2222</strong><span>training seed</span></div>
+          <div><strong>5,710.194</strong><span>best training statistic</span></div>
+          <div><strong>18m 50s</strong><span>wall time</span></div>
         </div>
-      </section>
-
-      <section id="pipeline">
-        <p class="section-kicker">04 · Pipeline propagation</p>
-        <h2>One contract reaches every stage</h2>
-        <ol class="steps">
-          <li><code>GymnasiumEnvAdapter</code> exposes the native policy observation and rendered RGB.</li>
-          <li><code>training.gymnasium_sf</code> trains APPO directly in the native 8D Box action space and stores the state/action contract.</li>
-          <li>Teacher rollout records RGB, the exact applied continuous action, and the ordered 27D state.</li>
-          <li>The generic converter writes native LeRobot actions and train-derived state normalization with <code>robot_type=rl_games_gymnasium</code>.</li>
-          <li>QwenOFT sets <code>action_dim=action_env_dim=8</code>; final eval checks checkpoint, manifest, and live environment contracts before inference.</li>
-        </ol>
-        <div class="callout"><strong>State normalization:</strong> train-derived min/max normalization maps zero-range dimensions to 0 in both conversion and online evaluation, preventing constant native state fields from becoming NaN.</div>
-      </section>
-
-      <section id="runbook">
-        <p class="section-kicker">05 · Continuation runbook</p>
-        <h2>First execute the version-matched probe</h2>
-        <pre><code>MUJOCO_GL=egl PYTHONPATH=. python scripts/scaffold_gymnasium_ant.py \
-  --report-path docs/gym-adapt/gymnasium/ant/assets/api_probe.json \
-  --env-yaml-path docs/gym-adapt/gymnasium/ant/assets/env_block.yaml
-
-MUJOCO_GL=egl PYTHONPATH=. python -m training.train \
+        <p>The run uses synchronous APPO, a 64×64 tanh MLP, rollout 64, batch 1024, two epochs, learning rate 0.00295 with linear decay, normalized observations and returns, and no recurrent policy. Eight CPU rollout workers feed one H100 learner/inference process.</p>
+        <div class="media-gallery">
+          <figure><img src="assets/ant/training_curve.png" width="1440" height="810" loading="lazy" alt="Ant APPO training curve"><figcaption><span class="status verified">VERIFIED</span> Mean episode return rises from near zero to approximately 5,600 across the 10M-frame run.</figcaption></figure>
+        </div>
+        <details>
+          <summary>Training command and checkpoints</summary>
+          <pre><code>PATH=/home/lzj/miniconda3/envs/latency/bin:$PATH \
+MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=. \
+python -m training.train \
   --config configs/examples/gymnasium/ant/small_model_train.yaml</code></pre>
-        <p>After training, fill the empty artifact paths in <a href="../../../../configs/examples/gymnasium/ant/starvla_eval.yaml"><code>starvla_eval.yaml</code></a> only after rollout, conversion, and VLA training have produced matching files.</p>
+          <p>Best checkpoint: <code>best_000018616_9531392_reward_5710.194.pth</code>. Final checkpoint: <code>checkpoint_000019544_10006528.pth</code>.</p>
+        </details>
       </section>
 
-      <section id="limits">
-        <p class="section-kicker">06 · Limits</p>
-        <h2>No experimental claim yet</h2>
+      <section id="evaluation">
+        <p class="section-kicker">04 · Closed-loop latency-bench evaluation</p>
+        <h2>Strong synchronous locomotion, one-frame collapse</h2>
+        <div class="metric-strip">
+          <div><strong>5,011.315</strong><span>L0 / 0 ms</span></div>
+          <div><strong>213.065</strong><span>L1 / 50 ms</span></div>
+          <div><strong>145.893</strong><span>L2 / 100 ms</span></div>
+          <div><strong>151.059</strong><span>L3 / 150 ms</span></div>
+          <div><strong>187.202</strong><span>L4 / 200 ms</span></div>
+        </div>
+        <div class="callout warning"><strong>Interpretation:</strong> every L0 episode survives the full 1,000-step horizon, but returns vary from 1,318.7 to 6,300.4. At L1 the mean length falls to 180.3 steps and only one seed reaches the horizon. L2–L4 remain failure regimes; occasional full episodes create the non-monotonic mean-length tail but do not restore locomotion quality.</div>
+        <div class="media-gallery">
+          <figure><img src="assets/ant/eval_latency_sweep.png" width="1440" height="810" loading="lazy" alt="Ant return and survival under five action latencies"><figcaption><span class="status verified">VERIFIED</span> Return mean ± std and mean episode length over ten episodes at each latency.</figcaption></figure>
+          <figure><img src="assets/ant/eval_l0_returns.png" width="1440" height="810" loading="lazy" alt="Ant L0 returns for ten episodes"><figcaption><span class="status verified">VERIFIED</span> Individual L0 returns expose two low-return but full-length trajectories.</figcaption></figure>
+          <figure><img src="assets/ant/eval_episode_contact_sheet.png" width="1440" height="760" loading="lazy" alt="Ant L0 episode contact sheet"><figcaption><span class="status verified">VERIFIED</span> Representative L0 episode 6, return 5,948.955, 1,000 steps.</figcaption></figure>
+          <figure><video controls preload="metadata" poster="assets/ant/eval_episode_contact_sheet.png"><source src="assets/ant/small_model_eval/eval_latency_0/videos/bin_00_episode_000006.mp4" type="video/mp4">Your browser does not support embedded MP4 video.</video><figcaption><span class="status verified">VERIFIED</span> The only archived video: L0 episode 6.</figcaption></figure>
+        </div>
+        <details>
+          <summary>Evaluation command</summary>
+          <pre><code>PATH=/home/lzj/miniconda3/envs/latency/bin:$PATH \
+MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=. \
+python -m latency_bench.run \
+  --config configs/examples/gymnasium/ant/small_model_eval.yaml \
+  --checkpoint-path /mnt/checkpoints/latency-sensitive-bench/small_models/ant/gymnasium_ant_rgb_state_zero_latency_10m/checkpoint_p0/best_000018616_9531392_reward_5710.194.pth</code></pre>
+        </details>
+      </section>
+
+      <section id="evidence">
+        <p class="section-kicker">05 · Evidence ledger</p>
+        <h2>Curated runtime artifacts</h2>
+        <div class="evidence-ledger">
+          <article><span class="status verified">VERIFIED</span><h3>API probe</h3><p><a href="assets/ant/probe/api_probe.json">runtime facts</a> · <a href="assets/ant/probe/env_block.yaml">resolved env block</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Training</h3><p><a href="assets/ant/small_model/config.json">resolved config</a> · <a href="assets/ant/small_model/sf_log.txt">log</a> · <a href="assets/ant/small_model/episode_metrics.jsonl.gz">compressed metrics</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Evaluation summaries</h3><p><a href="assets/ant/small_model_eval/queue_eval_results.jsonl">all latencies</a> · <a href="assets/ant/small_model_eval/queue_eval_latency_0.json">L0 summary</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Episode records</h3><p><a href="assets/ant/small_model_eval/eval_latency_0/episode_metrics.jsonl">L0</a> · <a href="assets/ant/small_model_eval/eval_latency_1/episode_metrics.jsonl">L1</a> · <a href="assets/ant/small_model_eval/eval_latency_2/episode_metrics.jsonl">L2</a> · <a href="assets/ant/small_model_eval/eval_latency_3/episode_metrics.jsonl">L3</a> · <a href="assets/ant/small_model_eval/eval_latency_4/episode_metrics.jsonl">L4</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Reproduction</h3><p><a href="assets/ant/repro_scripts/build_release_media.py">media builder</a> · 69 focused generic-path tests passed locally before publication; 10 Ant/state tests passed remotely.</p></article>
+        </div>
+        <p>Environment facts follow the version-matched <a href="https://gymnasium.farama.org/v0.29.0/environments/mujoco/ant/">Gymnasium Ant-v4 documentation</a>. Runtime values come from the saved EGL probe rather than the newer v5 page.</p>
+      </section>
+
+      <section id="next">
+        <p class="section-kicker">06 · Next stages</p>
+        <h2>RGB+state VLA work remains unexecuted</h2>
+        <div class="status-grid">
+          <article><span class="status notrun">NOT RUN</span><h3>Teacher rollout</h3><p>No episode count or return gate has been selected. The small-model checkpoint and 27D state contract are ready.</p></article>
+          <article><span class="status notrun">NOT RUN</span><h3>Data conversion</h3><p>The generic native continuous converter supports 8D actions and maps constant state dimensions to zero.</p></article>
+          <article><span class="status notrun">NOT RUN</span><h3>QwenOFT training</h3><p>Ant requires <code>action_dim=action_env_dim=8</code>; no VLA checkpoint exists yet.</p></article>
+          <article><span class="status notrun">NOT RUN</span><h3>VLA evaluation</h3><p>The empty paths in <code>starvla_eval.yaml</code> remain intentionally unresolved until matching artifacts exist.</p></article>
+        </div>
         <ul class="steps">
-          <li><span class="status notrun">NOT RUN</span> MuJoCo is intentionally not installed in the local project environment.</li>
-          <li><span class="status notrun">NOT RUN</span> EGL rendering, zero-latency parity, APPO convergence, and checkpoint quality remain unverified.</li>
-          <li><span class="status notrun">NOT RUN</span> No return threshold, rollout size, VLA training budget, or final model path has been chosen.</li>
-          <li>The report records code/config behavior only; it does not present planned artifacts as evidence.</li>
+          <li>One APPO training seed and ten evaluation seeds per latency were run.</li>
+          <li>The policy was trained only at zero latency; the latency sweep measures out-of-distribution delay sensitivity.</li>
+          <li>Training-time best reward is not an evaluation score; all scientific claims above use latency-bench episode results.</li>
         </ul>
       </section>
     </main>
   </div>
-  <footer>Ant adaptation · code-complete 30 August 2026</footer>
+  <footer>Ant adaptation · verified 30 August 2026</footer>
 </body>
 </html>
