@@ -1,6 +1,6 @@
 MUJOCO_GL=egl uv run --project . python scripts/teachers/export_g1_sonic_gr00t.py \
     --output-root outputs/official_gr00t/teachers \
-    --teacher g1_balance_simple_raw_ramp_fasttd3_25m_43d_v2 \
+    --teacher g1_balance_simple_raw_ramp_fasttd3_25m_43d_teacher_obs198 \
     --max-episodes 100 \
     --val-fraction 0.1 \
     --split-seed 0 \
@@ -10,4 +10,5 @@ MUJOCO_GL=egl uv run --project . python scripts/teachers/export_g1_sonic_gr00t.p
     --deterministic \
     --image-writer-workers 16 \
     --row-buffer-size 8192 \
+    --balance-teacher-observation-state \
     --force

@@ -19,7 +19,7 @@ from latency_bench.envs.humanoidbench_sonic_contract import (
 )
 
 
-BALANCE_TEACHER = "g1_balance_simple_raw_ramp_fasttd3_25m_43d_v2"
+BALANCE_TEACHER = "g1_balance_simple_raw_ramp_fasttd3_25m_43d_teacher_obs198"
 HURDLE_TEACHER = "g1_hurdle_sonic_residual_h025_gamma099_1m_43d_v2"
 RUN_TEACHER = "g1_run_sonic_reference_playback_43d_v2"
 
