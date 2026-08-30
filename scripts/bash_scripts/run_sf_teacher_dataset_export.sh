@@ -31,7 +31,7 @@ Optional environment variables:
   GHOST_TRAIL_SCROLL_PX_PER_STEP  For flappy_ghost_trail, Flappy world-scroll pixels per decision step. Default: 4.0.
   GHOST_TRAIL_GROUND_FRACTION  For flappy_ghost_trail, bottom-frame occlusion band. Default: 0.22.
   IMAGE_WRITER_WORKERS Optional async PNG writer threads. Default: exporter default.
-  CONTEXT_WINDOW      Total image window. 1 keeps single-image export; N writes N-1 context_images.
+  CONTEXT_WINDOW      Total image window. 0 or 1 keeps only the current image; N>1 writes N-1 context_images.
   HF_REPO_ID          If set, upload the export to this Hugging Face dataset repo.
   HF_PRIVATE          Set to 1 to upload as private. Default: 1.
   HF_TOKEN            Hugging Face token used when HF_REPO_ID is set.

@@ -12,7 +12,7 @@ policy:
 evaluation:
   eval_episodes: 5
   eval_parallel_envs: 1
-  eval_max_steps: 5000
+  eval_max_steps: 3600
 
 logging:
   output_dir: outputs/examples/gymnasium_air_raid/latency_bench_eval

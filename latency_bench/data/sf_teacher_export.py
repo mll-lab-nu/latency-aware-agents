@@ -88,6 +88,7 @@ def export_sample_factory_teacher_dataset(
     output_dir: Path,
     latency_config_path: str | Path | None,
     gym_camera_name: str | None = None,
+    gym_make_kwargs_override: Mapping[str, Any] | None = None,
     env_name: str,
     max_episodes: int,
     max_steps_per_episode: int,
@@ -123,6 +124,7 @@ def export_sample_factory_teacher_dataset(
         output_dir: Directory receiving parquet files and metadata.
         latency_config_path: Optional latency-only YAML override.
         gym_camera_name: Optional camera name override for Gymnasium checkpoints.
+        gym_make_kwargs_override: Optional Gymnasium reset/runtime overrides.
         env_name: Optional canonical environment name override.
         max_episodes: Number of episodes to collect.
         max_steps_per_episode: Raw environment frame cap per episode.
@@ -142,7 +144,8 @@ def export_sample_factory_teacher_dataset(
         hf_max_shard_size: Hub upload shard size.
         episode_return_gt: Optional strict lower bound for accepted episode returns.
         episode_acceptance: Explicit task-specific episode acceptance contract.
-        context_window: Total image window length including the current ``image`` field.
+        context_window: Total image window length. Values 0 and 1 keep only the
+            current ``image``; values above 1 add historical ``context_images``.
         image_transform_config: Optional image transform applied during replay
             before row filtering.
 
@@ -154,6 +157,7 @@ def export_sample_factory_teacher_dataset(
         latency_config_path=latency_config_path,
         device_override=device or None,
         gym_camera_name=gym_camera_name,
+        gym_make_kwargs_override=gym_make_kwargs_override,
         gym_gr00t_balance_teacher_observation_state=(
             gym_gr00t_balance_teacher_observation_state
         ),

@@ -1,114 +1,137 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hopper · agent-assisted Gymnasium adaptation</title><link rel="stylesheet" href="styles.css"></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hopper RGB+state · Gymnasium adaptation</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
 <body>
   <a class="skip-link" href="#content">Skip to content</a>
-  <header class="hero"><div class="hero-inner">
-    <p class="eyebrow">latency-sensitive-bench / verified release example</p>
-    <h1>Hopper: a zero-latency 27-action coarse torque baseline</h1>
-    <p class="lede">A transparent record of how the agent converted three continuous joint torques into a finite categorical catalog, preserved Hopper-v4 dynamics, trained zero-latency APPO, and evaluated the final checkpoint through latency-bench.</p>
-    <div class="badges"><span>Gymnasium 0.29.1 / Hopper-v4</span><span>27 actions</span><span>zero latency / L0</span><span>APPO 1,015,808 frames</span><span class="not-run">rollout / VLA NOT RUN</span></div>
-  </div></header>
+  <header class="hero">
+    <div class="hero-inner">
+      <p class="eyebrow">latency-sensitive-bench / verified Gymnasium adaptation</p>
+      <h1>Hopper: native torque control with an ordered state contract</h1>
+      <p class="lede">The canonical Hopper adaptation now preserves its native three-dimensional torque space and eleven-dimensional proprioceptive observation through an independent task-owned wrapper.</p>
+      <div class="badges">
+        <span>Hopper-v4 / Box(3)</span><span>11D state</span><span>125 Hz</span><span>L0 APPO · 10M</span><span>L0–L4 eval</span><span>rollout / conversion VERIFIED</span><span class="not-run">VLA CLOSED-LOOP FAILED</span>
+      </div>
+    </div>
+  </header>
   <div class="layout">
-    <aside class="toc" aria-label="Page contents"><a class="toc-title" href="#content">Hopper adaptation</a><nav><a href="#status">Status</a><a href="#recon">API and decisions</a><a href="#files">Generated files</a><a href="#contract">Frozen contract</a><a href="#pipeline">Pipeline use</a><a href="#verification">Verification</a><a href="#commands">Commands</a><a href="#evidence">Evidence</a><a href="#continue">Continuation</a><a href="#limits">Isolation and limits</a></nav></aside>
+    <aside class="toc">
+      <a class="toc-title" href="#content">Hopper</a>
+      <nav><a href="#summary">Summary</a><a href="#contract">Contract</a><a href="#training">Training</a><a href="#evaluation">Evaluation</a><a href="#method">Method</a><a href="#data">Data</a><a href="#vla">VLA diagnosis</a><a href="#evidence">Evidence</a><a href="#limits">Limits</a></nav>
+    </aside>
     <main id="content">
-      <section id="status">
-        <p class="section-kicker">01 · Outcome</p><h2>What was actually completed</h2>
-        <div class="status-grid"><article><span class="status verified">VERIFIED</span><h3>Task wrapper</h3><p>Catalog IDs map to exact three-joint <code>float32</code> torques before native Hopper steps.</p></article><article><span class="status verified">VERIFIED</span><h3>Small-model training</h3><p>Zero-latency APPO completed 1,015,808 frames and produced best and latest checkpoints.</p></article><article><span class="status verified">VERIFIED</span><h3>Latency-bench evaluation</h3><p>Ten L0 closed-loop episodes produced metrics, action/step traces, latency records, and video.</p></article><article><span class="status notrun">NOT RUN</span><h3>Teacher and VLA</h3><p>No rollout dataset, conversion, SFT, or StarVLA evaluation has been run for this L0 model.</p></article></div>
-        <div class="metric-strip"><div><strong>1,015,808</strong><span>training frames</span></div><div><strong>3,623.8 FPS</strong><span>overall APPO throughput</span></div><div><strong>1,173.793</strong><span>mean L0 eval return</span></div><div><strong>0 ms</strong><span>scheduled latency</span></div></div>
-        <div class="callout warning"><strong>Quality gate:</strong> evaluation standard deviation was 333.287 and all ten episodes terminated between 279 and 532 steps. The maximum observed return was 1,781.339, so this checkpoint cannot currently supply episodes for a <code>return ≥ 3000</code> rollout.</div>
-      </section>
-
-      <section id="recon">
-        <p class="section-kicker">02 · Runtime and design</p><h2>API facts versus the finite-control experiment</h2>
-        <div class="two-col"><div><h3>API FACT</h3><ul class="steps"><li>Project pin exposes <code>Hopper-v4</code>, not current <code>v5</code>.</li><li>Action: <code>Box(-1,1,(3,),float32)</code> for thigh, leg, and foot torques.</li><li>Observation: <code>(11,) float64</code>.</li><li>Physics step: frame skip 4 × 0.002 s = 0.008 s, or 125 Hz.</li><li>RGB render: <code>(480,480,3) uint8</code>.</li><li>Default time limit 1,000; unhealthy height, angle, or state terminates earlier.</li><li>Reward is healthy + forward − control cost.</li></ul></div><div><h3>USER DECISION</h3><ul class="steps"><li>Each joint torque takes one of <code>{−1,0,+1}</code>.</li><li>The Cartesian product creates 27 ordered actions.</li><li>Labels encode thigh/leg/foot as <code>t_*</code>, <code>l_*</code>, <code>f_*</code>; n/z/p mean negative/zero/positive.</li><li>All-zero action <code>t_z_l_z_f_z</code> is catalog ID 13 and the task no-op.</li><li>One policy observation per 125 Hz physics step.</li><li>Zero latency; native reward, reset, termination, observation, and rendering retained.</li></ul></div></div>
-        <p>The <a href="assets/hopper/api_probe.json">runtime probe</a> records the pinned API. The 27-vector catalog is explicitly marked user-approved because Gymnasium does not define this discretization.</p>
-      </section>
-
-      <section id="files">
-        <p class="section-kicker">03 · Generated implementation</p><h2>How three continuous torques become one policy ID</h2>
-        <div class="file-grid"><article><code>latency_bench/envs/gymnasium_hopper.py</code><p>Registers <code>LatencyBench/HopperDiscrete-v0</code> and maps ID → three-element native torque.</p></article><article><code>scripts/scaffold_gymnasium_hopper.py</code><p>Probes the pinned MuJoCo API and emits the accepted 27-action contract.</p></article><article><code>configs/examples/gymnasium/hopper/</code><p>Contains grouped small-model train/eval, benchmark eval, and unexecuted StarVLA eval configs.</p></article><article><code>tests/envs/test_gymnasium_hopper.py</code><p>Checks vector mapping, dtype, zero torque ID, timing, probe output, and config equality.</p></article></div>
-        <p><a href="../../../../latency_bench/envs/gymnasium_hopper.py">Wrapper</a> · <a href="../../../../scripts/scaffold_gymnasium_hopper.py">Scaffold</a> · <a href="../../../../configs/examples/gymnasium/hopper/">Configs</a> · <a href="../../../../tests/envs/test_gymnasium_hopper.py">Tests</a></p>
+      <section id="summary">
+        <p class="section-kicker">01 · Technical summary</p>
+        <h2>The L0 teacher succeeds; the 5k-step VLA does not retain its gait</h2>
+        <div class="status-grid">
+          <article><span class="status verified">VERIFIED</span><h3>Independent adaptation</h3><p><code>HopperRgbStateEnv</code> owns Hopper construction, native torque clipping, and exact <code>applied_action</code> recording.</p></article>
+          <article><span class="status verified">VERIFIED</span><h3>L0 training</h3><p>Synchronous APPO completed 10,006,528 frames with a best training statistic of 3,206.405.</p></article>
+          <article><span class="status verified">VERIFIED</span><h3>L0 evaluation</h3><p>The best checkpoint averages 2,682.095 return; five of ten episodes reach the 1,000-step horizon.</p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Latency failure</h3><p>At L1–L4 every episode terminates after 9–11 steps, before sustained hopping is established.</p></article>
+          <article><span class="status notrun">FAILED EVAL</span><h3>QwenOFT VLA</h3><p>Offline L1 loss reaches 0.01000 on validation, but L0 closed-loop return is only 173.136 over 86.35 steps.</p></article>
+        </div>
+        <div class="metric-strip">
+          <div><strong>2,682.095</strong><span>L0 mean return</span></div><div><strong>900.287</strong><span>L0 std return</span></div><div><strong>740.5</strong><span>L0 mean length</span></div><div><strong>5 / 10</strong><span>L0 full episodes</span></div>
+        </div>
+        <div class="callout warning"><strong>Main result:</strong> this is a viable zero-latency teacher, not a latency-robust policy. The L1 result is not a max-step artifact: all ten episodes terminate at step 9 under Hopper's native health criteria.</div>
       </section>
 
       <section id="contract">
-        <p class="section-kicker">04 · Immutable task contract</p><h2>One 27-action mapping across training and evaluation</h2>
-        <p class="formula"><code>observation_stride = 125 / 125 = 1</code> · <code>latency_raw_frames = 0</code></p>
-        <details open><summary>Contract summary and catalog rule</summary><pre><code>env:
-  name: gymnasium
-  task_name: hopper_discrete_ternary
-  env_id: LatencyBench/HopperDiscrete-v0
-  registration_imports: [latency_bench.envs.gymnasium_hopper]
-  make_kwargs:
-    base_env_id: Hopper-v4
-    render_mode: rgb_array
-    action_values: Cartesian product of [-1.0, 0.0, 1.0] across 3 joints
-    base_make_kwargs:
-      forward_reward_weight: 1.0
-      ctrl_cost_weight: 0.001
-      healthy_reward: 1.0
-      terminate_when_unhealthy: true
-      reset_noise_scale: 0.005
-      exclude_current_positions_from_observation: true
-  env_fps: 125
-  obs_fps: 125
-  frame_stack: 1
-  noop_action: t_z_l_z_f_z
-  action_order: lexicographic t_[n|z|p]_l_[n|z|p]_f_[n|z|p]</code></pre></details>
-        <p>The full explicit 27-vector YAML is preserved in <a href="assets/hopper/env_block.yaml">env_block.yaml</a>. All four configs resolve to the same environment mapping.</p>
+        <p class="section-kicker">02 · Frozen contract</p>
+        <h2>Native 3D control and the complete 11D observation order</h2>
+        <div class="two-col">
+          <div><h3>Runtime facts</h3><ul class="steps"><li><code>Hopper-v4</code>, Gymnasium 0.29.1, MuJoCo 3.3.7.</li><li>Action: <code>Box(-1,1,(3,),float32)</code>.</li><li>Observation: <code>Box(-inf,inf,(11,),float64)</code>.</li><li><code>dt=0.008 s</code>, frame skip 4, model timestep 0.002 s.</li><li>RGB render: 480×480×3 through NVIDIA EGL.</li></ul></div>
+          <div><h3>Experiment decisions</h3><ul class="steps"><li>Torque order: thigh, leg, foot; each clipped to <code>[-1,1]</code>.</li><li>Pending no-op: <code>[0,0,0]</code>.</li><li>State order: torso height/angle, three joint angles, torso x/z/angular velocities, and three joint angular velocities.</li><li>125 Hz environment and observation clocks; one raw frame per decision.</li><li>Small-model training latency: zero raw frames.</li></ul></div>
+        </div>
+        <div class="callout"><strong>RGB+state boundary:</strong> Sample Factory trains directly on the native 11D observation. Teacher export pairs the same ordered state with raw RGB, and QwenOFT consumes the native 3D action without bridge padding.</div>
       </section>
 
-      <section id="pipeline">
-        <p class="section-kicker">05 · Contract propagation</p><h2>Where the coarse catalog is consumed</h2>
-        <div class="contract-flow"><article><h3>Gym factory</h3><p>The generic branch imports and constructs the registered Hopper wrapper.</p></article><article><h3>Catalog wrapper</h3><p>Sample Factory emits IDs 0–26; task ID 13 means zero torque.</p></article><article><h3>Native step</h3><p>The task wrapper converts the ID into the exact thigh/leg/foot vector.</p></article><article><h3>Latency-bench</h3><p>The same ordered IDs are delayed one raw tick and decoded without reordering.</p></article></div>
-        <div class="table-wrap"><table><thead><tr><th>Field</th><th>Training</th><th>Evaluation</th></tr></thead><tbody><tr><td>Registered ID + kwargs</td><td>Reconstruct Hopper-v4 wrapper</td><td>Build identical dynamics and catalog</td></tr><tr><td>27 labels and IDs</td><td>Define categorical output width</td><td>Decode checkpoint result</td></tr><tr><td>Torque vectors</td><td>Map catalog ID to native Box action</td><td>Preserve exact action semantics</td></tr><tr><td>No-op ID 13</td><td>Define the zero-action contract</td><td>Retain the same catalog identity</td></tr><tr><td>125 Hz clock</td><td>One observation per raw tick</td><td>Apply each action without delay</td></tr></tbody></table></div>
+      <section id="training">
+        <p class="section-kicker">03 · Small-model training</p>
+        <h2>The official MuJoCo recipe reaches a strong but variable policy</h2>
+        <div class="metric-strip"><div><strong>10,006,528</strong><span>environment frames</span></div><div><strong>10,382 FPS</strong><span>mean throughput</span></div><div><strong>3,206.405</strong><span>best training statistic</span></div><div><strong>seed 3333</strong><span>training seed</span></div></div>
+        <p>The synchronous APPO run uses a 64×64 tanh MLP, rollout 64, batch 1,024, two epochs, learning rate 0.00295 with linear decay, and normalized inputs and returns. The curve shows rapid learning followed by substantial episode-window variance, consistent with occasional falls.</p>
+        <div class="media-gallery"><figure><img src="assets/hopper_rgb_state/training_curve.png" width="1440" height="810" loading="lazy" alt="Hopper RGB plus state APPO training curve"><figcaption><span class="status verified">VERIFIED</span> L0 training across 10M environment frames.</figcaption></figure></div>
+        <details><summary>Training command and checkpoint</summary><pre><code>MUJOCO_GL=egl PYTHONPATH=. conda run -n latency \
+  python -m training.train \
+  --config configs/examples/gymnasium/hopper_rgb_state/small_model_train.yaml</code></pre><p>Best checkpoint: <code>/mnt/checkpoints/latency-sensitive-bench/small_models/hopper_rgb_state/gymnasium_hopper_rgb_state_zero_latency_10m/checkpoint_p0/best_000011992_6139904_reward_3206.405.pth</code>.</p></details>
       </section>
 
-      <section id="verification">
-        <p class="section-kicker">06 · Verification gates</p><h2>Vector semantics before learning</h2>
-        <div class="verification-grid"><article><span class="status verified">VERIFIED</span><h3>Focused tests</h3><p>Hopper and the generic Gymnasium contract tests cover the zero-latency configuration.</p></article><article><span class="status verified">VERIFIED</span><h3>Zero-latency parity</h3><p>Seed 123 and eight catalog vectors matched direct Hopper observations, rewards, and endings exactly.</p></article><article><span class="status verified">VERIFIED</span><h3>L0 scheduling</h3><p>Issued actions are applied in the same raw frame; no delayed no-op is inserted.</p></article><article><span class="status verified">VERIFIED</span><h3>Runtime shapes</h3><p>Observation remained 11-D float64; native action remained three-D float32; RGB remained 480×480.</p></article></div>
-        <p><a href="assets/hopper/focused_tests.txt">Tests</a> · <a href="assets/hopper/zero_latency_parity.json">Parity</a></p>
+      <section id="evaluation">
+        <p class="section-kicker">04 · Closed-loop evaluation</p>
+        <h2>A single delayed frame prevents the learned gait from starting</h2>
+        <div class="metric-strip"><div><strong>2,682.095</strong><span>L0 / 0 ms return</span></div><div><strong>8.647</strong><span>L1 / 8 ms return</span></div><div><strong>8.140</strong><span>L2 / 16 ms return</span></div><div><strong>9.122</strong><span>L3 / 24 ms return</span></div><div><strong>10.225</strong><span>L4 / 32 ms return</span></div></div>
+        <p>The latency sweep should be read jointly with episode length. L0 contains two distinct modes: five complete runs around 3,570 return and five early falls around 1,680–1,850. Every delayed condition instead fails during initialization; the small increase from L2 to L4 only reflects one or two additional healthy-reward steps, not improved locomotion.</p>
+        <div class="media-gallery">
+          <figure><img src="assets/hopper_rgb_state/eval_latency_sweep.png" width="1440" height="1080" loading="lazy" alt="Hopper return and episode length under L0 through L4 action latency"><figcaption><span class="status verified">VERIFIED</span> Return and termination length, ten episodes per latency.</figcaption></figure>
+          <figure><img src="assets/hopper_rgb_state/eval_l0_episodes.png" width="1440" height="810" loading="lazy" alt="Hopper L0 return for ten episodes with early terminations hatched"><figcaption><span class="status verified">VERIFIED</span> L0 is bimodal: solid bars reach 1,000 steps; hatched bars terminate at 453–498 steps.</figcaption></figure>
+          <figure><img src="assets/hopper_rgb_state/eval_episode_contact_sheet.png" width="960" height="520" loading="lazy" alt="Hopper L0 full-episode contact sheet"><figcaption><span class="status verified">VERIFIED</span> Full L0 episode 0, return 3,587.069 over 1,000 steps.</figcaption></figure>
+          <figure><video controls preload="metadata" poster="assets/hopper_rgb_state/eval_episode_contact_sheet.png"><source src="assets/hopper_rgb_state/small_model_eval/eval_latency_0/videos/bin_00_episode_000000.mp4" type="video/mp4">Your browser does not support embedded MP4 video.</video><figcaption><span class="status verified">VERIFIED</span> The only archived video: L0 episode 0, 1,000 steps.</figcaption></figure>
+        </div>
+        <details><summary>Evaluation command</summary><pre><code>MUJOCO_GL=egl PYTHONPATH=. conda run -n latency \
+  python -m latency_bench.run \
+  --config configs/examples/gymnasium/hopper_rgb_state/small_model_eval.yaml \
+  --checkpoint-path /mnt/checkpoints/latency-sensitive-bench/small_models/hopper_rgb_state/gymnasium_hopper_rgb_state_zero_latency_10m/checkpoint_p0/best_000011992_6139904_reward_3206.405.pth</code></pre></details>
       </section>
 
-      <section id="commands">
-        <p class="section-kicker">07 · Command ledger</p><h2>Exact agent-executed commands</h2>
-        <div class="server-card"><span class="status verified">VERIFIED SERVER</span><p><strong>nebius-H200:</strong> Conda <code>latency</code>, Python 3.10.20, Torch 2.11.0+cu128, NVIDIA H200, Gymnasium 0.29.1, MuJoCo 3.3.7, Sample Factory 2.1.1; headless rendering used EGL.</p></div>
-        <details><summary>Task dependency and focused tests — VERIFIED</summary><pre><code>conda activate latency
-uv pip install "gymnasium[mujoco]==0.29.1" "mujoco==3.3.7"
-python -m pip check
+      <section id="method">
+        <p class="section-kicker">05 · Method and definitions</p>
+        <h2>Returns and lengths are environment-native closed-loop outcomes</h2>
+        <ul class="steps"><li>Each latency uses ten deterministic episode IDs and seed 3333.</li><li>Latency is measured in raw Hopper frames: L1 is 8 ms, L2 16 ms, L3 24 ms, and L4 32 ms.</li><li>The scheduler holds the current action and applies issued actions in FIFO order once ready.</li><li>Return is the sum of native healthy, forward, and control-cost rewards.</li><li>Length is raw environment steps before unhealthy termination or the 1,000-step TimeLimit.</li></ul>
+      </section>
 
-MUJOCO_GL=egl pytest -q \
-  tests/envs/test_gymnasium_hopper.py \
-  tests/envs/test_gymnasium_lunar_lander.py \
-  tests/envs/test_gymnasium_pendulum.py \
-  tests/envs/test_gymnasium_env_adapter.py \
-  tests/training/test_gymnasium_sf.py \
-  tests/policies/test_generic_gymnasium_starvla_policy.py</code></pre></details>
-        <details><summary>Probe and zero-latency parity — VERIFIED</summary><pre><code>MUJOCO_GL=egl python scripts/scaffold_gymnasium_hopper.py \
-  --report-path /workspace/hopper-adapt/api_probe.json \
-  --env-yaml-path /workspace/hopper-adapt/env_block.yaml
-MUJOCO_GL=egl python artifacts/hopper/repro_scripts/zero_latency_parity.py</code></pre></details>
-        <details open><summary>Complete zero-latency APPO training — VERIFIED</summary><pre><code>MUJOCO_GL=egl WANDB_MODE=disabled python -m training.train \
-  --config configs/examples/gymnasium/hopper/small_model_train.yaml</code></pre><p>Completed 1,015,808 frames at 3,623.8 FPS. Latest checkpoint: <code>outputs/examples/gymnasium_hopper/checkpoints/gymnasium_hopper_discrete_ternary_zero_latency/checkpoint_p0/checkpoint_000001984_1015808.pth</code>.</p></details>
-        <details open><summary>Ten-episode zero-latency evaluation — VERIFIED</summary><pre><code>MUJOCO_GL=egl python -m latency_bench.run \
-  --config configs/examples/gymnasium/hopper/small_model_eval.yaml \
-  --checkpoint-path outputs/examples/gymnasium_hopper/checkpoints/\
-gymnasium_hopper_discrete_ternary_zero_latency/checkpoint_p0/\
-checkpoint_000001984_1015808.pth \
-  --episode-start 0 --episode-count 10</code></pre><p>Mean return 1,173.793, standard deviation 333.287, mean length 375.0, scheduled latency 0 ms.</p></details>
+      <section id="data">
+        <p class="section-kicker">06 · Teacher data</p>
+        <h2>The best checkpoint yields 100 high-return L0 trajectories</h2>
+        <div class="metric-strip"><div><strong>100 / 165</strong><span>accepted / attempted</span></div><div><strong>3,036–3,713</strong><span>accepted return range</span></div><div><strong>88,212</strong><span>train rows</span></div><div><strong>9,917</strong><span>validation rows</span></div></div>
+        <div class="two-col">
+          <div><h3>Rollout contract</h3><ul class="steps"><li>Explicit best checkpoint, latency zero, and maximum 1,000 raw frames.</li><li>Strict episode gate: native return greater than 3,000; <code>filter=none</code>.</li><li>100 accepted episodes from 165 attempts; accepted lengths range from 816 to 1,000 steps.</li><li>Each row stores one 224×224 raw RGB image, the ordered 11D state, and the exact applied 3D action.</li><li>No context images or row-level filtering.</li></ul></div>
+          <div><h3>Converted dataset</h3><ul class="steps"><li>90 train episodes and 10 validation episodes.</li><li>Native action carrier: <code>action_dim=active_action_dim=3</code>.</li><li><code>uses_state=true</code>, <code>state_dim=11</code>, train-derived min/max normalization.</li><li><code>robot_type=rl_games_gymnasium</code> with one latency prompt at L0.</li><li>No OpenVLA bridge padding or carrier dimension.</li></ul></div>
+        </div>
+        <div class="callout"><strong>Hugging Face:</strong> the verified raw export is published at <a href="https://huggingface.co/datasets/latency-sensitive-bench/extra-envs-rollouts/tree/main/Hopper/hopper_rgb_state_l0_return_gt3000_100ep">Hopper/hopper_rgb_state_l0_return_gt3000_100ep</a>. The two parquet LFS SHA256 values and downloaded metadata bytes match the server source.</div>
+      </section>
+
+      <section id="vla">
+        <p class="section-kicker">07 · VLA training and failure diagnosis</p>
+        <h2>Low offline loss does not survive closed-loop Hopper control</h2>
+        <div class="metric-strip"><div><strong>0.00788</strong><span>final train loss</span></div><div><strong>0.01000</strong><span>final validation loss</span></div><div><strong>173.136</strong><span>VLA L0 mean return</span></div><div><strong>86.35</strong><span>VLA L0 mean length</span></div></div>
+        <p>QwenOFT completed 5,000 SFT steps and produced a numerically clean offline fit, but all 20 L0 evaluation episodes terminate after 82–93 environment steps. At L2, all 20 episodes terminate at step 10 with mean return 9.513. A same-seed small-model control reaches 2,971.510 mean return and 820.3 mean length, with 13 of 20 episodes reaching the 1,000-step limit.</p>
+        <div class="media-gallery"><figure><img src="assets/hopper_rgb_state/vla_failure_diagnostic.png" width="2160" height="696" loading="lazy" alt="Hopper VLA failure diagnosis showing training-manifold distance, action error by episode phase, and teacher-prefix intervention"><figcaption><span class="status verified">VERIFIED</span> Same-seed closed-loop diagnosis. Bars aggregate 20 deterministic episodes.</figcaption></figure></div>
+        <div class="two-col">
+          <div><h3>What was ruled out</h3><ul class="steps"><li>State/action dimensions, ordering, normalization, prompt, final checkpoint, and L0 timing match the frozen contract.</li><li>Replaying recorded actions reproduces rewards and positions exactly, ruling out logger or action-application mismatch.</li><li>The policy changes when the state changes; the 11D state interface is active rather than silently replaced by zeros.</li><li>Initial evaluation states are covered by training initial states, and the same evaluation seeds do not rescue the VLA.</li></ul></div>
+          <div><h3>Primary failure mechanism</h3><ul class="steps"><li>VLA online states leave the teacher-data manifold: median normalized nearest-state distance is 0.168, versus 0.005 for successful teacher control.</li><li>Nearest-state action MAE rises from 0.049 in steps 0–9 to 0.138 after step 50; the foot dimension contributes 0.266 MAE late in the episode.</li><li>The VLA foot-action mean flips from the teacher's −0.120 to +0.335, while thigh saturation disappears.</li><li>A teacher prefix of 1, 3, 10, or 50 steps does not improve survival; after a 50-step teacher prefix, VLA takeover still fails at mean total length 85.5.</li></ul></div>
+        </div>
+        <div class="callout warning"><strong>Conclusion:</strong> this is closed-loop covariate shift under one-step behavior cloning, not evidence that RGB+state input is invalid. The return-gated dataset contains successful trajectories but almost no recovery or pre-fall correction states. Aggregate validation loss is dominated by steady-gait rows and does not expose the phase-specific control errors that push the policy out of distribution.</div>
+        <h3>Most direct corrective experiment</h3>
+        <ol class="steps"><li>Roll out the current VLA and label its visited states with the small-model teacher (DAgger-style aggregation), including pre-fall and recovery states.</li><li>Oversample initialization, gait transitions, and recovery corrections instead of uniformly sampling long steady-gait episodes.</li><li>Track phase-specific action error and short closed-loop survival during training; do not select a model from aggregate one-step loss alone.</li><li>Retrain on the augmented data before increasing SFT duration. More epochs over the same success-only distribution are unlikely to fix the failure.</li></ol>
       </section>
 
       <section id="evidence">
-        <p class="section-kicker">08 · Evidence ledger</p><h2>Curated evidence from the real run</h2>
-        <div class="evidence-ledger"><article><span class="status verified">VERIFIED</span><h3>Probe</h3><p><a href="assets/hopper/api_probe.json">API JSON</a> · <a href="assets/hopper/env_block.yaml">env YAML</a></p></article><article><span class="status verified">VERIFIED</span><h3>Training</h3><p><a href="assets/hopper/small_model/config.json">config</a> · <a href="assets/hopper/small_model/sf_log.txt">log</a> · <a href="assets/hopper/small_model/episode_metrics.jsonl.gz">metrics</a></p></article><article><span class="status verified">VERIFIED</span><h3>Evaluation</h3><p><a href="assets/hopper/small_model_eval/queue_eval_latency_0.json">summary</a> · <a href="assets/hopper/small_model_eval/episode_metrics.jsonl">episodes</a> · <a href="assets/hopper/eval_stdout.txt">stdout</a></p></article><article><span class="status verified">VERIFIED</span><h3>Reproduction</h3><p><a href="assets/hopper/repro_scripts/zero_latency_parity.py">parity</a> · <a href="assets/hopper/repro_scripts/build_release_media.py">media</a></p></article></div>
-        <div class="media-pair"><figure><img src="assets/hopper/reset.png" width="480" height="480" loading="lazy" alt="Hopper-v4 immediately after reset"><figcaption><span class="status verified">VERIFIED</span> Seeded reset render.</figcaption></figure><figure><img src="assets/hopper/torque_catalog_trace.gif" width="480" height="480" loading="lazy" alt="Hopper responding to coarse catalog torques"><figcaption><span class="status verified">VERIFIED</span> Catalog-to-native torque trace.</figcaption></figure></div>
-        <div class="media-gallery"><figure><img src="assets/hopper/training_curve.png" width="1440" height="810" loading="lazy" alt="Hopper zero-latency training return across one million frames"><figcaption><span class="status verified">VERIFIED</span> L0 APPO training curve.</figcaption></figure><figure><img src="assets/hopper/eval_returns.png" width="1440" height="810" loading="lazy" alt="Ten Hopper zero-latency evaluation returns"><figcaption><span class="status verified">VERIFIED</span> Per-episode L0 returns.</figcaption></figure><figure><img src="assets/hopper/eval_episode_contact_sheet.png" width="960" height="520" loading="lazy" alt="Eight frames across a Hopper L0 evaluation episode"><figcaption><span class="status verified">VERIFIED</span> Contact sheet from L0 episode 0.</figcaption></figure><figure><video controls preload="metadata" poster="assets/hopper/eval_episode_contact_sheet.png" aria-label="Complete Hopper zero-latency evaluation"><source src="assets/hopper/small_model_eval/videos/bin_00_episode_000000.mp4" type="video/mp4">Your browser does not support embedded MP4 video.</video><figcaption><span class="status verified">VERIFIED</span> Complete small-model episode under zero latency.</figcaption></figure></div>
-        <p>Full checkpoints and raw records remain in ignored <code>outputs/examples/gymnasium_hopper/</code>; curated evidence only is duplicated here.</p>
+        <p class="section-kicker">08 · Evidence</p>
+        <h2>Compact artifacts preserve every reported claim</h2>
+        <div class="evidence-ledger">
+          <article><span class="status verified">VERIFIED</span><h3>API and contract</h3><p><a href="assets/hopper_rgb_state/adaptation/api_probe.json">runtime probe</a> · <a href="assets/hopper_rgb_state/adaptation/env_block.yaml">frozen env block</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Training</h3><p><a href="assets/hopper_rgb_state/small_model/config.json">resolved config</a> · <a href="assets/hopper_rgb_state/small_model/sf_log.txt">log</a> · <a href="assets/hopper_rgb_state/small_model/episode_metrics.jsonl.gz">metrics</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Evaluation</h3><p><a href="assets/hopper_rgb_state/small_model_eval/queue_eval_results.jsonl">all summaries</a> · <a href="assets/hopper_rgb_state/small_model_eval/eval_latency_0/episode_metrics.jsonl">L0 episodes</a> · <a href="assets/hopper_rgb_state/small_model_eval/eval_latency_1/episode_metrics.jsonl">L1 episodes</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Rollout and conversion</h3><p><a href="assets/hopper_rgb_state/rgb_state_rollout/metadata.json">rollout metadata</a> · <a href="assets/hopper_rgb_state/rgb_state_rollout/filter_report.json">filter report</a> · <a href="assets/hopper_rgb_state/vla_dataset/manifest.json">LeRobot manifest</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>VLA train and evaluation</h3><p><a href="assets/hopper_rgb_state/vla_training/final_wandb_summary.json">final W&amp;B summary</a> · <a href="https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/cbbbtp12">online run</a> · <a href="assets/hopper_rgb_state/vla_eval/queue_eval_results.jsonl">L0/L2 summaries</a> · <a href="assets/hopper_rgb_state/vla_eval/eval_latency_0/episode_metrics.jsonl">L0 episodes</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Failure diagnosis</h3><p><a href="assets/hopper_rgb_state/diagnostics/state_action_diagnostic.json">state/action analysis</a> · <a href="assets/hopper_rgb_state/diagnostics/modality_sensitivity.json">state sensitivity</a> · <a href="assets/hopper_rgb_state/diagnostics/teacher_prefix_50.json">teacher-prefix intervention</a> · <a href="assets/hopper_rgb_state/diagnostics/teacher_same_seed_summary.jsonl">same-seed teacher</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Reproduction</h3><p><a href="assets/hopper_rgb_state/repro_scripts/build_release_media.py">media builder</a> · 18 focused tests passed locally and remotely</p></article>
+        </div>
+        <p>The runtime contract follows the <a href="https://gymnasium.farama.org/environments/mujoco/hopper/">Gymnasium Hopper specification</a>. The training recipe follows the vendored Sample Factory MuJoCo configuration and is compared against its published <a href="https://huggingface.co/andrewzhang505/sample-factory-2-mujoco-hopper">Hopper model record</a>.</p>
       </section>
 
-      <section id="continue"><p class="section-kicker">09 · Optional continuation</p><h2>Rollout and VLA remain intentionally unexecuted</h2><div class="callout warning"><strong>NOT RUN:</strong> teacher rollout, conversion, OpenVLA SFT, and StarVLA evaluation. The current L0 checkpoint produced no <code>return ≥ 3000</code> episode in its ten-episode evaluation, so the proposed quality-gated rollout must wait for a stronger teacher. A future categorical VLA would have <code>active_action_dim=27</code>; it would not output the original continuous three-vector.</div></section>
-      <section id="limits"><p class="section-kicker">10 · Isolation and limitations</p><h2>Release boundary</h2><ul class="steps"><li>The experiment changes Hopper's public action interface from continuous Box(3) to a user-approved 27-class catalog.</li><li>Catalog resolution is coarse: each joint has only −1, 0, or +1 torque.</li><li>The pinned task is Hopper-v4; current v5 fixes and metadata are not mixed in.</li><li>MuJoCo remains task-specific and is not added to base <code>pyproject.toml</code>.</li><li>Legacy environment paths remain untouched.</li><li>Only one seed and one latency were evaluated; observed return variance is substantial.</li></ul><p>See the <a href="../../../gymnasium_adapter.md">normative guide</a> and <a href="../README.md">examples index</a>.</p></section>
+      <section id="limits">
+        <p class="section-kicker">09 · Limitations and next step</p>
+        <h2>The teacher is usable at L0; the current VLA is not</h2>
+        <ul class="steps"><li>One teacher-training seed and one VLA-training run were evaluated; neither result establishes multi-seed robustness.</li><li>The small-model training statistic 3,206.405 is not an evaluation mean; its original closed-loop L0 mean is 2,682.095.</li><li>Small-model L1–L4 and VLA L2 measure immediate unhealthy termination, not a degraded stable gait.</li><li>The return gate excludes low-return failures but also removes the recovery distribution needed by an imperfect learned controller.</li><li>The diagnostic nearest-neighbor action error is an interpretable teacher-reference proxy, not a counterfactual ground-truth action for every off-manifold state.</li></ul>
+      </section>
     </main>
   </div>
-  <footer>Hopper adaptation record · synchronized code, config, tests, training, evaluation, and media evidence · 22 August 2026</footer>
-</body></html>
+  <footer>Hopper RGB+state adaptation · verified 28 August 2026</footer>
+</body>
+</html>

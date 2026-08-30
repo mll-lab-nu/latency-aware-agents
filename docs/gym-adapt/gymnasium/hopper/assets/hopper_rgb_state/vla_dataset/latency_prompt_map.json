@@ -1,0 +1,7 @@
+{
+  "0": {
+    "prompt": "Move the Hopper robot forward while keeping its torso upright. Predict three continuous torques in [-1, 1] ordered as thigh, leg, and foot. Current action latency is 0 raw frames (0.00 ms).  The environment runs at 125 FPS and observations are emitted at 125 FPS. Choose the best next action.",
+    "latency_raw_frames": 0,
+    "latency_ms": 0.0
+  }
+}
