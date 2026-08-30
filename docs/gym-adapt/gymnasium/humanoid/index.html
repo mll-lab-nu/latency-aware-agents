@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Humanoid · Gymnasium adaptation</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="hero">
+    <div class="hero-inner">
+      <p class="eyebrow">latency-sensitive-bench / code-complete Gymnasium adaptation</p>
+      <h1>Humanoid: native 17-torque RGB+state control</h1>
+      <p class="lede">A task-owned wrapper and frozen Gymnasium contract carry Humanoid-v4's native continuous action and 376-dimensional observation through the existing Sample Factory, rollout, LeRobot, QwenOFT, and latency-bench interfaces. No environment execution or training is claimed.</p>
+      <div class="badges">
+        <span>Humanoid-v4 / Box(17)</span>
+        <span>376D state</span>
+        <span>66.66666666666667 Hz</span>
+        <span>native action head</span>
+        <span>execution · NOT RUN</span>
+      </div>
+    </div>
+  </header>
+  <div class="layout">
+    <aside class="toc">
+      <a class="toc-title" href="#content">Humanoid</a>
+      <nav>
+        <a href="#status">Status</a>
+        <a href="#contract">Contract</a>
+        <a href="#implementation">Implementation</a>
+        <a href="#pipeline">Pipeline</a>
+        <a href="#runbook">Runbook</a>
+        <a href="#limits">Limits</a>
+      </nav>
+    </aside>
+    <main id="content">
+      <section id="status">
+        <p class="section-kicker">01 · Scope and status</p>
+        <h2>Code path complete; runtime work intentionally deferred</h2>
+        <div class="status-grid">
+          <article><span class="status verified">VERIFIED</span><h3>Wrapper and registration</h3><p><code>HumanoidContinuousActionEnv</code> owns native clipping and applied-action recording.</p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Pipeline configs</h3><p>Train, small-model eval, latency-bench eval, and StarVLA eval resolve to one task contract.</p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Logic tests</h3><p>Fake-env tests cover action mapping, probe output, clock, state order, and Sample Factory composition.</p></article>
+          <article><span class="status notrun">NOT RUN</span><h3>Runtime and experiments</h3><p>MuJoCo probe, parity, training, rollout, conversion, VLA SFT, and closed-loop evaluation were not run.</p></article>
+        </div>
+      </section>
+
+      <section id="contract">
+        <p class="section-kicker">02 · Frozen contract</p>
+        <h2>Humanoid-v4 semantics preserved without a bridge carrier</h2>
+        <div class="two-col">
+          <div>
+            <h3>Version-matched API facts</h3>
+            <ul class="steps">
+              <li>Repository runtime: Gymnasium 0.29.1; selected environment: <code>Humanoid-v4</code>.</li>
+              <li>Action: <code>Box(-0.4, 0.4, (17,), float32)</code>; seventeen abdomen, hip, knee, shoulder, and elbow torques.</li>
+              <li>Observation: ordered native <code>Box</code> vector with 376 values.</li>
+              <li>Native step duration: 15.000 ms; time limit: 1,000 steps.</li>
+              <li>Current v5 documentation describes a different observation contract and is not used here.</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Adaptation decisions</h3>
+            <ul class="steps">
+              <li>Native 17D continuous action head; 7D bridge is not applicable.</li>
+              <li>Pending no-op is the 17-dimensional all-zero vector.</li>
+              <li>Environment and observation clocks both use 66.66666666666667 Hz; stride = one raw frame.</li>
+              <li>Training latency is zero; sustained torques use <code>hold</code> and FIFO ordering.</li>
+              <li>RGB plus the complete 376D native observation is available to rollout and VLA conversion.</li>
+            </ul>
+          </div>
+        </div>
+        <details>
+          <summary>Constructor contract</summary>
+          <pre><code>base_env_id: Humanoid-v4
+render_mode: rgb_array
+base_make_kwargs:
+  exclude_current_positions_from_observation: true</code></pre>
+        </details>
+        <p>Documentation source: <a href="https://gymnasium.farama.org/v0.29.0/environments/mujoco/humanoid/">Gymnasium 0.29 Humanoid</a>.</p>
+      </section>
+
+      <section id="implementation">
+        <p class="section-kicker">03 · Generated implementation</p>
+        <h2>Task-owned files, shared generic machinery</h2>
+        <div class="evidence-ledger">
+          <article><span class="status verified">VERIFIED</span><h3>Environment</h3><p><a href="../../../../latency_bench/envs/gymnasium_humanoid.py"><code>gymnasium_humanoid.py</code></a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Probe</h3><p><a href="../../../../scripts/scaffold_gymnasium_humanoid.py"><code>scaffold_gymnasium_humanoid.py</code></a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Configs</h3><p><a href="../../../../configs/examples/gymnasium/humanoid/small_model_train.yaml">train</a> · <a href="../../../../configs/examples/gymnasium/humanoid/small_model_eval.yaml">small-model eval</a> · <a href="../../../../configs/examples/gymnasium/humanoid/latency_bench_eval.yaml">latency-bench</a> · <a href="../../../../configs/examples/gymnasium/humanoid/starvla_eval.yaml">StarVLA eval</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Tests</h3><p><a href="../../../../tests/envs/test_gymnasium_ant_humanoid.py"><code>test_gymnasium_ant_humanoid.py</code></a></p></article>
+        </div>
+      </section>
+
+      <section id="pipeline">
+        <p class="section-kicker">04 · Pipeline propagation</p>
+        <h2>One contract reaches every stage</h2>
+        <ol class="steps">
+          <li><code>GymnasiumEnvAdapter</code> exposes the native policy observation and rendered RGB.</li>
+          <li><code>training.gymnasium_sf</code> trains APPO directly in the native 17D Box action space and stores the state/action contract.</li>
+          <li>Teacher rollout records RGB, the exact applied continuous action, and the ordered 376D state.</li>
+          <li>The generic converter writes native LeRobot actions and train-derived state normalization with <code>robot_type=rl_games_gymnasium</code>.</li>
+          <li>QwenOFT sets <code>action_dim=action_env_dim=17</code>; final eval checks checkpoint, manifest, and live environment contracts before inference.</li>
+        </ol>
+        <div class="callout"><strong>State normalization:</strong> train-derived min/max normalization maps zero-range dimensions to 0 in both conversion and online evaluation, preventing Humanoid's constant world-body fields from becoming NaN.</div>
+      </section>
+
+      <section id="runbook">
+        <p class="section-kicker">05 · Continuation runbook</p>
+        <h2>First execute the version-matched probe</h2>
+        <pre><code>MUJOCO_GL=egl PYTHONPATH=. python scripts/scaffold_gymnasium_humanoid.py \
+  --report-path docs/gym-adapt/gymnasium/humanoid/assets/api_probe.json \
+  --env-yaml-path docs/gym-adapt/gymnasium/humanoid/assets/env_block.yaml
+
+MUJOCO_GL=egl PYTHONPATH=. python -m training.train \
+  --config configs/examples/gymnasium/humanoid/small_model_train.yaml</code></pre>
+        <p>After training, fill the empty artifact paths in <a href="../../../../configs/examples/gymnasium/humanoid/starvla_eval.yaml"><code>starvla_eval.yaml</code></a> only after rollout, conversion, and VLA training have produced matching files.</p>
+      </section>
+
+      <section id="limits">
+        <p class="section-kicker">06 · Limits</p>
+        <h2>No experimental claim yet</h2>
+        <ul class="steps">
+          <li><span class="status notrun">NOT RUN</span> MuJoCo is intentionally not installed in the local project environment.</li>
+          <li><span class="status notrun">NOT RUN</span> EGL rendering, zero-latency parity, APPO convergence, and checkpoint quality remain unverified.</li>
+          <li><span class="status notrun">NOT RUN</span> No return threshold, rollout size, VLA training budget, or final model path has been chosen.</li>
+          <li>The report records code/config behavior only; it does not present planned artifacts as evidence.</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+  <footer>Humanoid adaptation · code-complete 30 August 2026</footer>
+</body>
+</html>

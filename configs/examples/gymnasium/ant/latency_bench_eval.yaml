@@ -1,0 +1,22 @@
+__base__: small_model_train.yaml
+
+experiment:
+  name: gymnasium_ant_rgb_state_latency_bench_eval
+
+backend:
+  run_mode: eval
+
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_max_steps: 1000
+  eval_latency_values: [0, 1, 2, 3, 4]
+
+logging:
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/ant/latency_bench_eval
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

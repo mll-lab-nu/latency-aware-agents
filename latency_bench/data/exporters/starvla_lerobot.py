@@ -22,6 +22,7 @@ from latency_bench.data.action_layouts import (
     action_spec_for_env,
 )
 from latency_bench.data.filters import density_weights_clean_v1
+from latency_bench.data.state_normalization import min_max_normalize_state
 
 STATE_DIM = 1
 BRIDGE_ACTION_DIM = 7
@@ -668,11 +669,7 @@ def _convert_split(
                 if state_normalization is not None:
                     state_min = np.asarray(state_normalization["min"], dtype=np.float32)
                     state_max = np.asarray(state_normalization["max"], dtype=np.float32)
-                    state = np.clip(
-                        2.0 * (state - state_min) / (state_max - state_min) - 1.0,
-                        -1.0,
-                        1.0,
-                    )
+                    state = min_max_normalize_state(state, state_min, state_max)
                 out_row["state"] = state.tolist()
             if "action_id" in row:
                 out_row["action_id"] = int(row["action_id"])

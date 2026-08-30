@@ -16,6 +16,7 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.data.ghost_trail import GhostTrailConfig, build_flappy_ghost_trail_window
+from latency_bench.data.state_normalization import min_max_normalize_state
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.envs.gymnasium_task import (
     gymnasium_action_space_contract,
@@ -265,11 +266,7 @@ class StarVlaPolicyRunner(PolicyRunner):
                 )
                 state_min = np.asarray(self._state_normalization["min"], dtype=np.float32)
                 state_max = np.asarray(self._state_normalization["max"], dtype=np.float32)
-                state = np.clip(
-                    2.0 * (state - state_min) / (state_max - state_min) - 1.0,
-                    -1.0,
-                    1.0,
-                )
+                state = min_max_normalize_state(state, state_min, state_max)
                 example["state"] = state.reshape(1, self._state_dim)
             else:
                 example["state"] = np.zeros((1, self._state_dim), dtype=np.float32)
