@@ -269,7 +269,7 @@ workload:
 Profiles are stored under:
 
 ```text
-profiles/<device>/<instance>/<workload>/<revision>/profile.json
+profiles/<model>/<gpu-deployment>/<workload>/<physical-instance>/profile.json
 ```
 
 They can be collected on one machine and replayed on another machine for
@@ -362,34 +362,24 @@ Owner depends on the path:
 
 ### 5. Profile A New Machine
 
-Run the target-machine profile workflow:
+Expose the GPUs that participate in inference and run the one-shot profiler:
 
 ```bash
-cd latency-sensitive-bench
-
-SESSIONS="0 1 2 3 4" \
-FIT_SESSIONS="0 1 2 3 4" \
-PROFILE_REVISION=fit-0-4 \
-METHOD=temporal \
-LATENCY_SEEDS="0 1 2" \
-bash start.sh
+CUDA_VISIBLE_DEVICES=0,1 \
+bash scripts/profile.sh run \
+  --model openvla \
+  --workload flappy \
+  --publish
 ```
 
-This measures real sessions, publishes raw traces, fits `profile.json`, uploads
-the profile, runs profile-shaped simulation, and publishes simulation results.
-
-Resolve or download a published profile:
+Resolve the exact published deployment profile:
 
 ```bash
-latency-bench profile resolve --hardware auto --revision latest
-
-PROFILE_REF='rtx4090/<instance-id>/openvla-flappy/fit-0-4' \
-  bash scripts/bash_scripts/cross_device/download_profile.sh
+bash scripts/profile.sh resolve --model openvla --workload flappy
 ```
 
-Detailed guides:
-[docs/new_machine_profile_train.md](docs/new_machine_profile_train.md) and
-[docs/openvla_cross_device_handoff.md](docs/openvla_cross_device_handoff.md).
+See [the profiling guide](docs/profiling.md) for multi-GPU identity, artifact
+layout, publishing, commit-pinned replay, and adding presets.
 
 ### 6. Run Human Realtime Evaluation
 
@@ -416,8 +406,8 @@ runs a browser-local prototype with local latency scheduling and export.
 | Train mixed-latency VLA baselines | StarVLA `bridge/mixed` scripts consuming latency-labeled datasets |
 | Compare memory and temporal-context methods | `scripts/experiments/memory/*` plus StarVLA ghost-trail/KV-memory scripts |
 | Build fixed-latency and ghost-trail rollout datasets | `scripts/bash_scripts/rollout_data/*` and `scripts/bash_scripts/ghost_trail/*` |
-| Profile a new deployment machine | `bash start.sh` and `bash cross_device.sh ...` |
-| Replay a target device profile on another machine | `cross_device.sh sim --profile-ref ... --method temporal` |
+| Profile a new deployment machine | `bash scripts/profile.sh run --model openvla --workload flappy` |
+| Replay a target deployment profile | `bash scripts/profile.sh simulate ... --method temporal` |
 | Compare humans and VLAs under changing latency | Pyodide human eval plus StarVLA jitter-eval extension |
 
 ## Agent-Assisted Gymnasium Adaptation
@@ -455,9 +445,7 @@ Create a self-contained report at docs/gym-adapt/gymnasium/[TASK_NAME]/index.htm
 - [Standard rollout, SFT, and eval pipeline](docs/standard_pipeline.md)
 - [Gymnasium adaptation guide](docs/gymnasium_adapter.md) & [agent-assisted adaptation examples](docs/gym-adapt/gymnasium/README.md)
 - [Memory and KV-memory design](docs/memory.md)
-- [New-machine profile and training handoff](docs/new_machine_profile_train.md)
-- [Cross-device profile handoff](docs/openvla_cross_device_handoff.md)
-- [Cross-device protocol runbook](docs/experiments/cross_device_protocol_runbook.md)
+- [Deployment latency profiling](docs/profiling.md)
 - [WanOFT StarVLA eval](docs/starvla_wan_oft_eval.md)
 - [Realtime pipeline logging](docs/realtime_pipeline_logging.md)
 

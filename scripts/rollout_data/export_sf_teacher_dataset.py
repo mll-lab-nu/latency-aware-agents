@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -44,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Optional Gymnasium camera_name override, e.g. head_camera.",
     )
+    parser.add_argument(
+        "--gym-make-kwargs-json",
+        default="",
+        help="Optional Gymnasium make_kwargs overrides for rollout reset/runtime settings.",
+    )
     parser.add_argument("--env-name", default="", choices=["", "deadly_corridor", "defend_the_line", "demon_attack", "flappy"])
     parser.add_argument("--max-episodes", type=int, required=True)
     parser.add_argument(
@@ -61,7 +67,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--export-image-size", type=str, default="")
     parser.add_argument("--image-writer-workers", type=int, default=0)
     parser.add_argument("--row-buffer-size", type=int, default=8192)
-    parser.add_argument("--context-window", type=int, default=1)
+    parser.add_argument(
+        "--context-window",
+        type=int,
+        default=1,
+        help="0 or 1 keeps only the current image; N>1 writes N-1 context images.",
+    )
     parser.add_argument("--push-to-hub", action="store_true")
     parser.add_argument("--hf-repo-id", type=str, default="")
     parser.add_argument("--hf-private", action="store_true")
@@ -129,6 +140,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_dir=output_dir,
         latency_config_path=args.latency_config or None,
         gym_camera_name=args.gym_camera_name or None,
+        gym_make_kwargs_override=(
+            json.loads(args.gym_make_kwargs_json)
+            if args.gym_make_kwargs_json
+            else None
+        ),
         env_name=str(args.env_name),
         max_episodes=int(args.max_episodes),
         max_steps_per_episode=int(args.max_steps_per_episode),

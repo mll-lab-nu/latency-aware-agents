@@ -16,7 +16,7 @@ from latency_bench.data.hf_parquet import (
 from latency_bench.data.prompts import BASE_PROMPTS, IMAGE_TRANSFORM_CONTEXTS, TIMING_SUFFIX
 from latency_bench.data.action_layouts import (
     ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-    ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+    ACTION_LAYOUT_G1_SONIC_GR00T_V2,
     action_spec_for_env,
 )
 from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1, FILTER_PRESET_NONE
@@ -88,6 +88,7 @@ def export_sample_factory_teacher_dataset(
     output_dir: Path,
     latency_config_path: str | Path | None,
     gym_camera_name: str | None = None,
+    gym_make_kwargs_override: Mapping[str, Any] | None = None,
     env_name: str,
     max_episodes: int,
     max_steps_per_episode: int,
@@ -114,6 +115,7 @@ def export_sample_factory_teacher_dataset(
     rollout_seed_offset: int = 0,
     probe_only: bool = False,
     image_transform_config: GhostTrailConfig | None = None,
+    gym_gr00t_balance_teacher_observation_state: bool = False,
 ) -> dict[str, Any]:
     """Collect and write a canonical Sample Factory teacher dataset.
 
@@ -122,6 +124,7 @@ def export_sample_factory_teacher_dataset(
         output_dir: Directory receiving parquet files and metadata.
         latency_config_path: Optional latency-only YAML override.
         gym_camera_name: Optional camera name override for Gymnasium checkpoints.
+        gym_make_kwargs_override: Optional Gymnasium reset/runtime overrides.
         env_name: Optional canonical environment name override.
         max_episodes: Number of episodes to collect.
         max_steps_per_episode: Raw environment frame cap per episode.
@@ -141,7 +144,8 @@ def export_sample_factory_teacher_dataset(
         hf_max_shard_size: Hub upload shard size.
         episode_return_gt: Optional strict lower bound for accepted episode returns.
         episode_acceptance: Explicit task-specific episode acceptance contract.
-        context_window: Total image window length including the current ``image`` field.
+        context_window: Total image window length. Values 0 and 1 keep only the
+            current ``image``; values above 1 add historical ``context_images``.
         image_transform_config: Optional image transform applied during replay
             before row filtering.
 
@@ -153,6 +157,10 @@ def export_sample_factory_teacher_dataset(
         latency_config_path=latency_config_path,
         device_override=device or None,
         gym_camera_name=gym_camera_name,
+        gym_make_kwargs_override=gym_make_kwargs_override,
+        gym_gr00t_balance_teacher_observation_state=(
+            gym_gr00t_balance_teacher_observation_state
+        ),
     )
     if env_name:
         if config["integration_name"] == "gymnasium":
@@ -166,7 +174,7 @@ def export_sample_factory_teacher_dataset(
     action_spec = config["action_spec"]
     if action_spec.layout in (
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-        ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+        ACTION_LAYOUT_G1_SONIC_GR00T_V2,
     ):
         filter_preset = FILTER_PRESET_NONE
     rollout_metadata = collect_teacher_dataset(
@@ -238,7 +246,7 @@ def export_sample_factory_teacher_dataset(
     }
     if config["integration_name"] == "gymnasium":
         metadata["integration_name"] = "gymnasium"
-    if action_spec.layout != ACTION_LAYOUT_G1_SONIC_GR00T_V1:
+    if action_spec.layout != ACTION_LAYOUT_G1_SONIC_GR00T_V2:
         metadata["prompt_timing_suffix"] = TIMING_SUFFIX
     if episode_acceptance is not None:
         metadata["episode_acceptance"] = dict(episode_acceptance)

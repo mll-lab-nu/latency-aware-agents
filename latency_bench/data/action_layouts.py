@@ -7,7 +7,11 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from latency_bench.envs.humanoidbench_sonic_contract import G1_BODY_JOINT_NAMES
+from latency_bench.envs.humanoidbench_sonic_contract import (
+    G1_BODY_JOINT_NAMES,
+    G1_HAND_JOINT_NAMES,
+    MUJOCO_INDEX_FOR_POLICY,
+)
 
 
 ACTION_LAYOUT_FLAPPY_DISCRETE = "flappy_discrete"
@@ -17,7 +21,7 @@ ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54 = "deadly_corridor_joint_54"
 ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6 = "defend_the_line_joint_6"
 ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1 = "gymnasium_discrete_v1"
 ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1 = "gymnasium_continuous_v1"
-ACTION_LAYOUT_G1_SONIC_GR00T_V1 = "g1_sonic_gr00t_v1"
+ACTION_LAYOUT_G1_SONIC_GR00T_V2 = "g1_sonic_gr00t_v2"
 
 FLAPPY_ACTION_LABELS = ("NOOP", "FLAP")
 DEMON_ATTACK_ACTION_LABELS = ("NOOP", "FIRE", "RIGHT", "LEFT", "RIGHTFIRE", "LEFTFIRE")
@@ -63,7 +67,9 @@ DEFEND_THE_LINE_JOINT_6_LABELS = tuple(
     for turn in range(len(DEFEND_THE_LINE_TURN_LABELS))
     for attack in range(len(DEFEND_THE_LINE_ATTACK_LABELS))
 )
-G1_SONIC_GR00T_ACTION_LABELS = G1_BODY_JOINT_NAMES
+G1_SONIC_GR00T_ACTION_LABELS = tuple(
+    G1_BODY_JOINT_NAMES[index] for index in MUJOCO_INDEX_FOR_POLICY
+) + G1_HAND_JOINT_NAMES
 
 
 @dataclass(frozen=True)
@@ -123,7 +129,7 @@ ACTION_SPECS_BY_ENV = {
 
 
 G1_SONIC_GR00T_ACTION_SPEC = ActionSpec(
-    layout=ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+    layout=ACTION_LAYOUT_G1_SONIC_GR00T_V2,
     labels=G1_SONIC_GR00T_ACTION_LABELS,
     row_fields=("action", "action_text"),
     reward_field="raw_reward",
@@ -332,7 +338,7 @@ def encode_action_for_env(
         return defend_the_line_joint_6_action(raw_action)
     if resolved_action_spec.layout in (
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-        ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+        ACTION_LAYOUT_G1_SONIC_GR00T_V2,
     ):
         action = [float(item) for item in _to_python_action(raw_action)]
         return {

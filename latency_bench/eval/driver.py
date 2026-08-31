@@ -8,15 +8,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from training.common.utils import seed_everything
-from latency_bench.core.types import EpisodeLifecycle, EpisodeMetrics, ExecutorMode
+from latency_bench.core.types import EpisodeMetrics, ExecutorMode
 from latency_bench.eval.config import _episode_seed, _eval_episodes, _eval_max_steps
 from latency_bench.eval.reporting import _write_non_sweep_summary
 from latency_bench.executors.base import BatchedExecutor
 from latency_bench.executors.factory import build_executor
-from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor
 from latency_bench.executors.realtime_warmup import plot_realtime_eval_latency
 from latency_bench.latency.config import latency_type_from_config
 from latency_bench.logging.action_trace_replay import record_videos_from_action_trace
@@ -50,27 +49,7 @@ def run_from_config(
     metrics = []
     warmup_metadata_by_episode: dict[int, dict[str, Any]] = {}
     try:
-        if (
-            _episode_lifecycle(config) == EpisodeLifecycle.ISOLATED
-            and ExecutorMode(config["executor"]["mode"]) == ExecutorMode.REALTIME
-        ):
-            realtime_executor = cast(RealtimeLatencyExecutor, executor)
-            for episode_id in selected_episode_ids:
-                realtime_executor.restart_runtime(config["measurement"]["cooldown_s"])
-                warmup_metadata_by_episode[episode_id] = realtime_executor.run_warmup(
-                    artifact_dir=Path(logging_cfg["output_dir"])
-                    / "warmup"
-                    / f"episode_{episode_id:06d}",
-                )
-                episode_metrics = realtime_executor.run_episode(
-                    episode_id=episode_id,
-                    seed=_episode_seed(config, episode_id),
-                    eval_max_steps=eval_max_steps,
-                )
-                metrics.append(episode_metrics)
-                if on_episode_complete is not None:
-                    on_episode_complete(episode_metrics)
-        elif isinstance(executor, BatchedExecutor):
+        if isinstance(executor, BatchedExecutor):
             warmup_metadata = executor.run_warmup()
             run_episodes_kwargs: dict[str, Any] = {
                 "episode_ids": selected_episode_ids,
@@ -123,12 +102,6 @@ def run_from_config(
     return metrics
 
 
-def _episode_lifecycle(config: dict[str, Any]) -> EpisodeLifecycle:
-    if "measurement" not in config:
-        return EpisodeLifecycle.CONSECUTIVE
-    return EpisodeLifecycle(config["measurement"]["episode_lifecycle"])
-
-
 def _record_realtime_eval_latency_plot(config: dict[str, Any], executor: Any) -> None:
     if ExecutorMode(config["executor"]["mode"]) != ExecutorMode.REALTIME:
         return
@@ -171,7 +144,6 @@ def _evaluation_raw_fact_metadata(config: dict[str, Any], episode_id: int) -> di
     env_cfg = config.get("env", {})
     policy_cfg = config.get("policy", {})
     latency_cfg = config.get("latency", {})
-    evaluation_cfg = config.get("evaluation", {})
     executor_cfg = config.get("executor", {})
     env_fps = float(env_cfg["env_fps"]) if "env_fps" in env_cfg else None
     obs_fps = float(env_cfg["obs_fps"]) if "obs_fps" in env_cfg else None
@@ -187,11 +159,13 @@ def _evaluation_raw_fact_metadata(config: dict[str, Any], episode_id: int) -> di
         "episode_seed": _episode_seed(config, episode_id),
         "policy_id": _metadata_id(policy_cfg, "policy_id", "id", "type"),
         "env_id": _metadata_id(env_cfg, "env_id", "id", "name"),
-        "profile_id": latency_cfg.get("profile_id"),
-        "target_device": latency_cfg.get("target_device"),
+        "model_id": latency_cfg.get("model_id"),
+        "gpu_class": latency_cfg.get("gpu_class"),
+        "workload_id": latency_cfg.get("workload_id"),
         "instance_id": latency_cfg.get("instance_id"),
-        "instance_origin": latency_cfg.get("instance_origin"),
-        "replay_host": latency_cfg.get("replay_host", evaluation_cfg.get("replay_host")),
+        "source_run_id": latency_cfg.get("source_run_id"),
+        "profile_ref": latency_cfg.get("profile_ref"),
+        "hf_commit": latency_cfg.get("hf_commit"),
         "env_fps": env_fps,
         "obs_fps": obs_fps,
         "frame_ms": frame_ms,

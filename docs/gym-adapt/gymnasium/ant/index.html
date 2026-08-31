@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ant · Gymnasium adaptation</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="hero">
+    <div class="hero-inner">
+      <p class="eyebrow">latency-sensitive-bench / verified Gymnasium adaptation</p>
+      <h1>Ant: native eight-torque control at zero latency</h1>
+      <p class="lede">A task-owned wrapper preserves Ant-v4's native continuous action space and ordered 27-dimensional state. The completed pipeline carries RGB, state, and native eight-dimensional torques through teacher rollout, QwenOFT training, and final-checkpoint latency-bench evaluation.</p>
+      <div class="badges">
+        <span>Ant-v4 / Box(8)</span>
+        <span>27D state</span>
+        <span>20 Hz</span>
+        <span>L0 APPO · 10M</span>
+        <span>L0–L4 · VERIFIED</span>
+        <span>RGB+state QwenVLA · VERIFIED</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="toc">
+      <a class="toc-title" href="#content">Ant</a>
+      <nav>
+        <a href="#status">Status</a>
+        <a href="#contract">Contract</a>
+        <a href="#training">Training</a>
+        <a href="#evaluation">Small-model eval</a>
+        <a href="#vla">RGB+state VLA</a>
+        <a href="#evidence">Evidence</a>
+        <a href="#limits">Limits</a>
+      </nav>
+    </aside>
+
+    <main id="content">
+      <section id="status">
+        <p class="section-kicker">01 · Outcome</p>
+        <h2>The native continuous pipeline succeeds end to end at L0</h2>
+        <div class="status-grid">
+          <article><span class="status verified">VERIFIED</span><h3>Runtime probe</h3><p>Gymnasium 0.29.1 and MuJoCo 3.3.7 construct Ant-v4 and render 480×480 RGB through NVIDIA EGL.</p></article>
+          <article><span class="status verified">VERIFIED</span><h3>RGB+state VLA</h3><p>100 gated teacher episodes, native conversion, 5k QwenOFT training, and L0/L2 final-checkpoint evaluation completed.</p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Training</h3><p>Synchronous Sample Factory APPO completed 10,006,528 zero-latency environment frames.</p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Evaluation</h3><p>The best checkpoint completed L0–L4, ten deterministic episodes per latency.</p></article>
+        </div>
+        <div class="metric-strip">
+          <div><strong>5,011.315</strong><span>L0 mean return</span></div>
+          <div><strong>1,880.322</strong><span>L0 std return</span></div>
+          <div><strong>10 / 10</strong><span>L0 full episodes</span></div>
+          <div><strong>8,854 FPS</strong><span>training throughput</span></div>
+        </div>
+      </section>
+
+      <section id="contract">
+        <p class="section-kicker">02 · Frozen contract</p>
+        <h2>Ant-v4 state and action order remain native</h2>
+        <div class="two-col">
+          <div>
+            <h3>Runtime facts</h3>
+            <ul class="steps">
+              <li><code>Ant-v4</code>, Gymnasium 0.29.1, MuJoCo 3.3.7.</li>
+              <li>Observation: <code>Box(-inf, inf, (27,), float64)</code>.</li>
+              <li>Action: <code>Box(-1, 1, (8,), float32)</code>.</li>
+              <li><code>dt=0.05 s</code>, frame skip 5, model timestep 0.01 s.</li>
+              <li>Default time limit 1,000 steps; unhealthy torso height terminates early.</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Adaptation decisions</h3>
+            <ul class="steps">
+              <li>Native torque order: back-right hip/ankle, front-left hip/ankle, front-right hip/ankle, back-left hip/ankle.</li>
+              <li>Pending no-op: eight-dimensional all-zero vector.</li>
+              <li>20 Hz environment and observation clocks; one raw frame per observation.</li>
+              <li>Training latency: zero raw frames; sustained actions use <code>hold</code> and FIFO ordering.</li>
+              <li>RGB plus the complete ordered 27D observation is carried through rollout, conversion, training, and live VLA evaluation.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="callout"><strong>Native head:</strong> Ant requires an eight-dimensional continuous QwenOFT action head. The seven-dimensional bridge carrier cannot represent this action space and is intentionally not used.</div>
+      </section>
+
+      <section id="training">
+        <p class="section-kicker">03 · Small-model training</p>
+        <h2>Ten million frames with the vendored MuJoCo recipe</h2>
+        <div class="metric-strip">
+          <div><strong>10,006,528</strong><span>environment frames</span></div>
+          <div><strong>seed 2222</strong><span>training seed</span></div>
+          <div><strong>5,710.194</strong><span>best training statistic</span></div>
+          <div><strong>18m 50s</strong><span>wall time</span></div>
+        </div>
+        <p>The run uses synchronous APPO, a 64×64 tanh MLP, rollout 64, batch 1024, two epochs, learning rate 0.00295 with linear decay, normalized observations and returns, and no recurrent policy. Eight CPU rollout workers feed one H100 learner/inference process.</p>
+        <div class="media-gallery">
+          <figure><img src="assets/ant/training_curve.png" width="1440" height="810" loading="lazy" alt="Ant APPO training curve"><figcaption><span class="status verified">VERIFIED</span> Mean episode return rises from near zero to approximately 5,600 across the 10M-frame run.</figcaption></figure>
+        </div>
+        <details>
+          <summary>Training command and checkpoints</summary>
+          <pre><code>PATH=/home/lzj/miniconda3/envs/latency/bin:$PATH \
+MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=. \
+python -m training.train \
+  --config configs/examples/gymnasium/ant/small_model_train.yaml</code></pre>
+          <p>Best checkpoint: <code>best_000018616_9531392_reward_5710.194.pth</code>. Final checkpoint: <code>checkpoint_000019544_10006528.pth</code>.</p>
+        </details>
+      </section>
+
+      <section id="evaluation">
+        <p class="section-kicker">04 · Closed-loop latency-bench evaluation</p>
+        <h2>Strong synchronous locomotion, one-frame collapse</h2>
+        <div class="metric-strip">
+          <div><strong>5,011.315</strong><span>L0 / 0 ms</span></div>
+          <div><strong>213.065</strong><span>L1 / 50 ms</span></div>
+          <div><strong>145.893</strong><span>L2 / 100 ms</span></div>
+          <div><strong>151.059</strong><span>L3 / 150 ms</span></div>
+          <div><strong>187.202</strong><span>L4 / 200 ms</span></div>
+        </div>
+        <div class="callout warning"><strong>Interpretation:</strong> every L0 episode survives the full 1,000-step horizon, but returns vary from 1,318.7 to 6,300.4. At L1 the mean length falls to 180.3 steps and only one seed reaches the horizon. L2–L4 remain failure regimes; occasional full episodes create the non-monotonic mean-length tail but do not restore locomotion quality.</div>
+        <div class="media-gallery">
+          <figure><img src="assets/ant/eval_latency_sweep.png" width="1440" height="810" loading="lazy" alt="Ant return and survival under five action latencies"><figcaption><span class="status verified">VERIFIED</span> Return mean ± std and mean episode length over ten episodes at each latency.</figcaption></figure>
+          <figure><img src="assets/ant/eval_l0_returns.png" width="1440" height="810" loading="lazy" alt="Ant L0 returns for ten episodes"><figcaption><span class="status verified">VERIFIED</span> Individual L0 returns expose two low-return but full-length trajectories.</figcaption></figure>
+          <figure><img src="assets/ant/eval_episode_contact_sheet.png" width="1440" height="760" loading="lazy" alt="Ant L0 episode contact sheet"><figcaption><span class="status verified">VERIFIED</span> Representative L0 episode 6, return 5,948.955, 1,000 steps.</figcaption></figure>
+          <figure><video controls preload="metadata" poster="assets/ant/eval_episode_contact_sheet.png"><source src="assets/ant/small_model_eval/eval_latency_0/videos/bin_00_episode_000006.mp4" type="video/mp4">Your browser does not support embedded MP4 video.</video><figcaption><span class="status verified">VERIFIED</span> The only archived video: L0 episode 6.</figcaption></figure>
+        </div>
+        <details>
+          <summary>Evaluation command</summary>
+          <pre><code>PATH=/home/lzj/miniconda3/envs/latency/bin:$PATH \
+MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=. \
+python -m latency_bench.run \
+  --config configs/examples/gymnasium/ant/small_model_eval.yaml \
+  --checkpoint-path /mnt/checkpoints/latency-sensitive-bench/small_models/ant/gymnasium_ant_rgb_state_zero_latency_10m/checkpoint_p0/best_000018616_9531392_reward_5710.194.pth</code></pre>
+        </details>
+      </section>
+
+      <section id="vla">
+        <p class="section-kicker">05 · RGB+state QwenVLA</p>
+        <h2>Native 8D imitation succeeds synchronously</h2>
+        <div class="metric-strip">
+          <div><strong>100 / 108</strong><span>accepted / attempted episodes</span></div>
+          <div><strong>88,667 / 10,000</strong><span>train / validation rows</span></div>
+          <div><strong>0.01079</strong><span>final train L1</span></div>
+          <div><strong>0.01522</strong><span>final validation L1</span></div>
+        </div>
+        <div class="two-col">
+          <div>
+            <h3>Teacher data contract</h3>
+            <ul class="steps">
+              <li>Strict episode gate: canonical return greater than 3,000; 100 accepted from 108 completed probes.</li>
+              <li>90 train and 10 validation episodes; 98,667 total decision-step rows.</li>
+              <li>One 224×224 raw RGB image plus the normalized ordered 27D state per row.</li>
+              <li>Native eight-dimensional applied torque; no seven-dimensional bridge or padding.</li>
+              <li>All converted state/action vectors are finite and bounded in <code>[-1,1]</code>.</li>
+            </ul>
+          </div>
+          <div>
+            <h3>QwenOFT training</h3>
+            <ul class="steps">
+              <li>Qwen3-VL-4B-Instruct backbone with a native 8D MLP action head and 27D state input.</li>
+              <li>5,000 steps, L1 action loss, action horizon 1, batch 16×1, seed 42.</li>
+              <li>ZeRO-2 CPU optimizer offload on one H100; final <code>.pt</code> checkpoint only.</li>
+              <li>Final gradient norm before clipping: 9.496; epoch 0.90.</li>
+              <li><a href="https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/ibwa55gz">W&B run ibwa55gz</a>.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="media-gallery">
+          <figure><img src="assets/ant/vla_training_curve.png" width="1440" height="810" loading="lazy" alt="Ant QwenOFT training and validation loss"><figcaption><span class="status verified">VERIFIED</span> Offline train/validation L1 and gradient norm at 500-step checkpoints.</figcaption></figure>
+        </div>
+        <div class="metric-strip">
+          <div><strong>5,565.287</strong><span>QwenVLA L0 mean</span></div>
+          <div><strong>1,351.051</strong><span>QwenVLA L0 std</span></div>
+          <div><strong>96.382</strong><span>QwenVLA L2 mean</span></div>
+          <div><strong>70.5</strong><span>QwenVLA L2 mean length</span></div>
+        </div>
+        <div class="callout"><strong>Closed-loop result:</strong> at L0, 19 of 20 episodes reach 1,000 steps and the mean return is 5,565.287. This numerically exceeds the small model's 10-episode mean of 5,011.315, although the sample counts differ and it is not a paired policy comparison. At L2, all 20 episodes terminate within 161 steps and mean return collapses to 96.382.</div>
+        <div class="media-gallery">
+          <figure><img src="assets/ant/vla_eval_returns.png" width="1440" height="810" loading="lazy" alt="Ant RGB plus state QwenVLA L0 and L2 returns and survival"><figcaption><span class="status verified">VERIFIED</span> Final <code>steps_5000_pytorch_model.pt</code>, 20 closed-loop episodes per latency.</figcaption></figure>
+        </div>
+        <details>
+          <summary>Final-checkpoint evaluation contract</summary>
+          <pre><code>MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=.:third_party/starVLA \
+python -m latency_bench.run \
+  --config configs/examples/gymnasium/ant/starvla_eval.yaml</code></pre>
+          <p>The evaluation uses the saved model config, converted dataset manifest, latency prompt map, and final checkpoint. No training-time best model is selected.</p>
+        </details>
+      </section>
+
+      <section id="evidence">
+        <p class="section-kicker">06 · Evidence ledger</p>
+        <h2>Curated runtime artifacts</h2>
+        <div class="evidence-ledger">
+          <article><span class="status verified">VERIFIED</span><h3>API probe</h3><p><a href="assets/ant/probe/api_probe.json">runtime facts</a> · <a href="assets/ant/probe/env_block.yaml">resolved env block</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Training</h3><p><a href="assets/ant/small_model/config.json">resolved config</a> · <a href="assets/ant/small_model/sf_log.txt">log</a> · <a href="assets/ant/small_model/episode_metrics.jsonl.gz">compressed metrics</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Evaluation summaries</h3><p><a href="assets/ant/small_model_eval/queue_eval_results.jsonl">all latencies</a> · <a href="assets/ant/small_model_eval/queue_eval_latency_0.json">L0 summary</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Episode records</h3><p><a href="assets/ant/small_model_eval/eval_latency_0/episode_metrics.jsonl">L0</a> · <a href="assets/ant/small_model_eval/eval_latency_1/episode_metrics.jsonl">L1</a> · <a href="assets/ant/small_model_eval/eval_latency_2/episode_metrics.jsonl">L2</a> · <a href="assets/ant/small_model_eval/eval_latency_3/episode_metrics.jsonl">L3</a> · <a href="assets/ant/small_model_eval/eval_latency_4/episode_metrics.jsonl">L4</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>RGB+state dataset</h3><p><a href="assets/ant/rgb_state_rollout/metadata.json">rollout metadata</a> · <a href="assets/ant/rgb_state_rollout/filter_report.json">return gate</a> · <a href="assets/ant/vla_dataset/manifest.json">converted manifest</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>QwenOFT training</h3><p><a href="assets/ant/vla_training/config.yaml">run config</a> · <a href="assets/ant/vla_training/config.full.yaml">full config</a> · <a href="assets/ant/vla_training/final_wandb_summary.json">W&B summary</a> · <a href="assets/ant/vla_training/wandb_history.jsonl">loss history</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>QwenVLA evaluation</h3><p><a href="assets/ant/vla_eval/queue_eval_results.jsonl">L0/L2 summaries</a> · <a href="assets/ant/vla_eval/eval_latency_0/episode_metrics.jsonl">L0 episodes</a> · <a href="assets/ant/vla_eval/eval_latency_2/episode_metrics.jsonl">L2 episodes</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Reproduction</h3><p><a href="assets/ant/repro_scripts/build_release_media.py">media builder</a> · focused generic-path and Ant contract tests pass locally.</p></article>
+        </div>
+        <p>Environment facts follow the version-matched <a href="https://gymnasium.farama.org/v0.29.0/environments/mujoco/ant/">Gymnasium Ant-v4 documentation</a>. Runtime values come from the saved EGL probe rather than the newer v5 page.</p>
+      </section>
+
+      <section id="limits">
+        <p class="section-kicker">07 · Limits</p>
+        <h2>What this result establishes—and what it does not</h2>
+        <ul class="steps">
+          <li>One APPO seed and one QwenOFT seed were trained; small-model evaluation uses 10 episodes per latency and VLA evaluation uses 20.</li>
+          <li>The teacher dataset contains only return-gated successful behavior, so recovery and near-fall coverage remain limited.</li>
+          <li>The VLA L0 mean is high, but two full/partial episodes return only 1,549 and 1,816; synchronous robustness is not uniform.</li>
+          <li>The model was trained only at zero latency. L2 confirms that strong offline imitation and L0 control do not imply delay robustness.</li>
+          <li>No VLA checkpoint or rollout data is copied into Git; the report preserves compact configs, manifests, summaries, and per-episode metrics.</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+  <footer>Ant adaptation · RGB+state VLA verified 31 August 2026</footer>
+</body>
+</html>

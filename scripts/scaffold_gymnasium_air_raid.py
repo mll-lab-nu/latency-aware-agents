@@ -109,7 +109,7 @@ def build_air_raid_env_config(
             },
             "env_fps": AIR_RAID_ENV_FPS,
             "obs_fps": AIR_RAID_ENV_FPS / 4,
-            "frame_stack": 1,
+            "frame_stack": 4,
             "noop_action": "noop",
             "action_map": dict(zip(ACTION_LABELS, range(6))),
             "action_order": ACTION_LABELS,

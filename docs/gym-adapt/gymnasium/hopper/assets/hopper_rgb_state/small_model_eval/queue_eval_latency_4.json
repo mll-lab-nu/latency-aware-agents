@@ -1,0 +1,39 @@
+{
+  "checkpoint_kind": "best",
+  "checkpoint_path": "/mnt/checkpoints/latency-sensitive-bench/small_models/hopper_rgb_state/gymnasium_hopper_rgb_state_zero_latency_10m/checkpoint_p0/best_000011992_6139904_reward_3206.405.pth",
+  "configured_latency_ms": 32.0,
+  "eval_latency_steps": 4,
+  "experiment_name": "gymnasium_hopper_rgb_state_zero_latency_10m",
+  "latency": 4,
+  "latency_type": "fixed",
+  "lengths": [
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11
+  ],
+  "mean_length": 11.0,
+  "mean_return": 10.224768626261092,
+  "returns": [
+    10.176097199374057,
+    10.038704833030952,
+    10.227885485193221,
+    10.249394273504436,
+    10.25470447809609,
+    10.280825461320443,
+    10.122794853441567,
+    10.263861255295907,
+    10.281118035207736,
+    10.352300388146501
+  ],
+  "seed": 3333,
+  "std_return": 0.08544576900365378,
+  "timestamp_utc": "2026-08-28T02:48:04.243995+00:00",
+  "train_latency_steps": 0
+}

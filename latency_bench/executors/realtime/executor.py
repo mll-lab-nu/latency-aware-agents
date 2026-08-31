@@ -80,6 +80,7 @@ class _EpisodeAccumulators:
     step_records: list[StepRecord] = field(default_factory=list)
     action_events: list[ActionEvent] = field(default_factory=list)
     latency_values_ms: list[float] = field(default_factory=list)
+    observation_attempts: dict[int, dict[str, Any]] = field(default_factory=dict)
     submitted_observation_frames: int = 0
     dropped_observation_count: int = 0
     env_deadline_miss_count: int = 0
@@ -99,7 +100,6 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
     def __init__(
         self,
         runtime: RealtimeRuntime,
-        runtime_factory: Callable[[], RealtimeRuntime],
         policy: PolicyRunner | None,
         logger: TrajectoryLogger | None = None,
         time_fn: Callable[[], float] = time.perf_counter,
@@ -112,7 +112,6 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         video_output_dir: str | None = None,
         video_fps: float | None = None,
     ):
-        self._runtime_factory = runtime_factory
         self._install_runtime(runtime)
         self.policy = policy
         self.logger = logger
@@ -191,6 +190,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                         observation=shared_observation,
                         submit_env_step=observation.env_step,
                         submit_time_ms=0.0,
+                        observation_start_time_ms=observe_start_ms,
                         profile=profile,
                         shared_obs_id=obs_id,
                     )
@@ -228,13 +228,6 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 flush=True,
             )
         return summary
-
-    def restart_runtime(self, cooldown_s: float) -> None:
-        """Dispose the current runtime, cool down, and install a fresh runtime."""
-        self._close_runtime(close_inference_pool=True)
-        self.sleep_fn(cooldown_s)
-        self._install_runtime(self._runtime_factory())
-        self._owns_inference_pool = True
 
     def close(self) -> None:
         self._close_runtime(close_inference_pool=self._owns_inference_pool)
@@ -279,11 +272,20 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             now_ms=self._wall_elapsed_ms(),
             action_events=acc.action_events,
             latency_values_ms=acc.latency_values_ms,
+            observation_attempts=acc.observation_attempts,
             enqueue_released_actions=enqueue_released_actions,
             release_observation=release_observation,
         )
         elapsed_s = self.time_fn() - self._episode_start_s
         actual_env_fps = None if elapsed_s <= 0 else len(acc.step_records) / elapsed_s
+        in_flight_count = pool.in_flight_count
+        idle_worker_count = pool.idle_worker_count
+        if self.logger is not None:
+            self._drain_in_flight_observation_attempts(
+                pool=pool,
+                observation_attempts=acc.observation_attempts,
+                release_observation=release_observation,
+            )
         metadata = {
             "submitted_observation_frames": acc.submitted_observation_frames,
             "dropped_observation_count": acc.dropped_observation_count,
@@ -294,8 +296,8 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             "actual_env_fps": actual_env_fps,
             "env_deadline_miss_count": acc.env_deadline_miss_count,
             "max_wall_clock_lag_ms": acc.max_wall_clock_lag_ms,
-            "in_flight_count": pool.in_flight_count,
-            "idle_worker_count": pool.idle_worker_count,
+            "in_flight_count": in_flight_count,
+            "idle_worker_count": idle_worker_count,
             "inference_worker_count": pool.worker_count,
             **self.action_scheduler.chunk_metrics(),
             **(pre_episode_drain or {}),
@@ -317,6 +319,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             frame_ms=self.clock.frame_ms,
         )
         if self.logger is not None:
+            self.logger.log_observation_attempts(acc.observation_attempts.values())
             self.logger.log_episode_metrics(metrics)
         return metrics
 
@@ -358,6 +361,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 now_ms=current_wall_elapsed_ms,
                 action_events=acc.action_events,
                 latency_values_ms=acc.latency_values_ms,
+                observation_attempts=acc.observation_attempts,
                 enqueue_released_actions=True,
                 release_observation=None,
             )
@@ -370,7 +374,14 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                     submit_time_ms=current_wall_elapsed_ms,
                     wall_clock_lag_ms=wall_clock_lag_ms,
                 )
-                if pool.submit(task):
+                submitted = pool.submit(task)
+                self._record_observation_attempt(
+                    acc=acc,
+                    episode_id=episode_id,
+                    task=task,
+                    submitted=submitted,
+                )
+                if submitted:
                     if task.profile is not None:
                         task.profile.parent_observation_handle_ms = (
                             monotonic_ms() - task.profile.parent_observation_handle_start_ms
@@ -413,7 +424,6 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 active_event=self.action_scheduler.latest_applied_event,
                 frame_ms=self.clock.frame_ms,
                 latency_type="measured",
-                profile_metadata=profile_metadata_from_source(self.latency_source),
                 pre_active_info={
                     "scheduled_time_ms": scheduled_time_ms,
                     "wall_elapsed_ms": current_wall_elapsed_ms,
@@ -495,6 +505,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                     now_ms=now_ms,
                     action_events=acc.action_events,
                     latency_values_ms=acc.latency_values_ms,
+                    observation_attempts=acc.observation_attempts,
                     enqueue_released_actions=False,
                     release_observation=release_observation,
                 )
@@ -534,11 +545,21 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                         observation=incoming_task.observation,
                         submit_env_step=incoming_task.submit_env_step,
                         submit_time_ms=incoming_task.submit_time_ms,
+                        observation_start_time_ms=(
+                            incoming_task.observation_start_time_ms
+                        ),
                         profile=profile,
                         shared_obs_id=incoming_task.shared_obs_id,
                     )
                     self._next_obs_id += 1
-                    if pool.submit(task):
+                    submitted = pool.submit(task)
+                    self._record_observation_attempt(
+                        acc=acc,
+                        episode_id=episode_id,
+                        task=task,
+                        submitted=submitted,
+                    )
+                    if submitted:
                         if task.profile is not None:
                             task.profile.parent_observation_handle_ms = (
                                 monotonic_ms() - task.profile.parent_observation_handle_start_ms
@@ -654,6 +675,24 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             if pool.in_flight_count:
                 self.sleep_fn(0.001)
 
+    def _drain_in_flight_observation_attempts(
+        self,
+        *,
+        pool: Any,
+        observation_attempts: dict[int, dict[str, Any]],
+        release_observation: Callable[[int | None], None] | None,
+    ) -> None:
+        while pool.in_flight_count:
+            for completion in pool.drain_completed(self._wall_elapsed_ms()):
+                self._record_observation_completion(
+                    completion=completion,
+                    observation_attempts=observation_attempts,
+                )
+                if release_observation is not None:
+                    release_observation(completion.task.shared_obs_id)
+            if pool.in_flight_count:
+                self.sleep_fn(0.001)
+
     def _drain_and_release_results(
         self,
         *,
@@ -662,11 +701,16 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         now_ms: float,
         action_events: list[ActionEvent],
         latency_values_ms: list[float],
+        observation_attempts: dict[int, dict[str, Any]],
         enqueue_released_actions: bool,
         release_observation: Callable[[int | None], None] | None,
     ) -> list[ActionEvent]:
         released_events: list[ActionEvent] = []
         for completion in pool.drain_completed(now_ms):
+            self._record_observation_completion(
+                completion=completion,
+                observation_attempts=observation_attempts,
+            )
             if release_observation is not None:
                 release_observation(completion.task.shared_obs_id)
             ignored = coordinator.add_completion(int(completion.task.obs_id), completion)
@@ -700,6 +744,37 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 self.action_scheduler.enqueue(event)
             released_events.append(event)
         return released_events
+
+    @staticmethod
+    def _record_observation_attempt(
+        *,
+        acc: _EpisodeAccumulators,
+        episode_id: int,
+        task: RealtimeObservationTask,
+        submitted: bool,
+    ) -> None:
+        acc.observation_attempts[task.obs_id] = {
+            "episode_id": episode_id,
+            "obs_id": task.obs_id,
+            "obs_env_step": task.submit_env_step,
+            "submitted": submitted,
+        }
+
+    @staticmethod
+    def _record_observation_completion(
+        *,
+        completion: RealtimePolicyCompletion,
+        observation_attempts: dict[int, dict[str, Any]],
+    ) -> None:
+        observation_attempts[completion.task.obs_id].update(
+            {
+                "worker_id": completion.worker_id,
+                "observation_to_action_latency_ms": (
+                    completion.observation_to_action_latency_ms
+                ),
+                "worker_service_time_ms": completion.worker_service_time_ms,
+            }
+        )
 
     def _record_completion_event(
         self,
@@ -785,6 +860,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             observation=observation,
             submit_env_step=env_step,
             submit_time_ms=submit_time_ms,
+            observation_start_time_ms=observe_start_ms,
             profile=profile,
         )
 

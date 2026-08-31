@@ -101,6 +101,8 @@ class FakeInferencePool:
                         policy_output=self.policy.predict(task.observation),
                         completion_time_ms=0.0,
                         latency_record=LatencyRecord(obs_id=task.obs_id, latency_ms=0.0),
+                        observation_to_action_latency_ms=0.0,
+                        worker_service_time_ms=0.0,
                         worker_id=worker_id,
                         device=f"fake:{worker_id}",
                     )

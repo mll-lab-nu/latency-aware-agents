@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -12,6 +13,15 @@ from scripts.teachers.export_g1_sonic_gr00t import (
     _load_manifest,
     _selected_jobs,
 )
+from latency_bench.envs.humanoidbench_sonic_contract import (
+    G1_GR00T_ACTION_DIM,
+    G1_GR00T_STATE_DIM,
+)
+
+
+BALANCE_TEACHER = "g1_balance_simple_raw_ramp_fasttd3_25m_43d_teacher_obs198"
+HURDLE_TEACHER = "g1_hurdle_sonic_residual_h025_gamma099_1m_43d_v2"
+RUN_TEACHER = "g1_run_sonic_reference_playback_43d_v2"
 
 
 def test_g1_sonic_manifest_defines_jobs_and_acceptance_contracts():
@@ -19,22 +29,20 @@ def test_g1_sonic_manifest_defines_jobs_and_acceptance_contracts():
         _load_manifest(Path("configs/teachers/g1_sonic_gr00t.json")), None
     )
     assert {job["name"] for job in jobs} == {
-        "g1_hurdle_sonic_residual_h025_gamma099_1m_v1",
-        "g1_run_sonic_reference_playback_v1",
-        "g1_balance_simple_raw_ramp_fasttd3_25m_v1",
+        HURDLE_TEACHER,
+        RUN_TEACHER,
+        BALANCE_TEACHER,
     }
     by_name = {job["name"]: job for job in jobs}
-    assert by_name["g1_hurdle_sonic_residual_h025_gamma099_1m_v1"]["acceptance"] == {
+    assert by_name[HURDLE_TEACHER]["acceptance"] == {
         "type": "final_info_true",
         "key": "teacher_accepted",
     }
-    assert by_name["g1_balance_simple_raw_ramp_fasttd3_25m_v1"]["acceptance"] == {
+    assert by_name[BALANCE_TEACHER]["acceptance"] == {
         "type": "min_duration_s",
         "value": 18.0,
     }
-    assert by_name["g1_run_sonic_reference_playback_v1"]["source"] == (
-        "reference_playback"
-    )
+    assert by_name[RUN_TEACHER]["source"] == "reference_playback"
 
 
 def test_g1_sonic_manifest_derives_output_dirs_and_applies_gates():
@@ -69,15 +77,18 @@ def test_g1_sonic_manifest_derives_output_dirs_and_applies_gates():
 
 def test_reference_playback_probes_before_writing_rows(monkeypatch, tmp_path):
     class FakeEnv:
+        action_space = SimpleNamespace(shape=(29,))
+
         def reset(self, *, seed):
             self.seed = seed
             self.step_count = 0
             return {}, {
-                "official_gr00t_proprio": np.zeros(93, dtype=np.float32),
-                "action_target": np.zeros(29, dtype=np.float32),
+                "official_gr00t_proprio": np.zeros(G1_GR00T_STATE_DIM, dtype=np.float32),
+                "action_target": np.zeros(G1_GR00T_ACTION_DIM, dtype=np.float32),
             }
 
         def step(self, action):
+            assert action.shape == self.action_space.shape
             self.step_count += 1
             terminated = self.step_count >= (1 if self.seed == 0 else 2)
             return (
@@ -87,10 +98,10 @@ def test_reference_playback_probes_before_writing_rows(monkeypatch, tmp_path):
                 False,
                 {
                     "official_gr00t_proprio": np.full(
-                        93, self.step_count, dtype=np.float32
+                        G1_GR00T_STATE_DIM, self.step_count, dtype=np.float32
                     ),
                     "action_target": np.full(
-                        29, self.step_count, dtype=np.float32
+                        G1_GR00T_ACTION_DIM, self.step_count, dtype=np.float32
                     ),
                 },
             )

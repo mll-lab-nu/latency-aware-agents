@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 ROOT = Path(__file__).resolve().parents[1]
 TRAIN_STDOUT = ROOT / "training_stdout.txt"
 EVAL_METRICS = ROOT / "small_model_eval_random_noop" / "episode_metrics.jsonl"
+VLA_EVAL = ROOT / "vla_eval" / "step_5000.json"
 
 
 def strip_ansi(text: str) -> str:
@@ -69,9 +70,29 @@ def plot_eval_returns() -> None:
     plt.close(fig)
 
 
+def plot_vla_eval() -> None:
+    result = json.loads(VLA_EVAL.read_text())
+    latencies = [0, 2]
+    rows = [result["per_latency"][f"gymnasium/latency_{latency}"] for latency in latencies]
+
+    plt.style.use("seaborn-v0_8-whitegrid")
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.5))
+    labels = [f"L{latency}" for latency in latencies]
+    axes[0].bar(labels, [row["mean_reward"] for row in rows], color="#476f87")
+    axes[0].set(ylabel="Mean return", title="Step-5000 VLA return")
+    axes[1].bar(labels, [row["mean_length"] for row in rows], color="#147a80")
+    axes[1].axhline(3600, color="#b46a2a", linestyle="--", linewidth=1.5)
+    axes[1].set(ylabel="Mean raw frames", title="Step-5000 VLA episode length")
+    fig.suptitle("AirRaid · QwenOFT latency-bench evaluation")
+    fig.tight_layout()
+    fig.savefig(ROOT / "vla_eval.png", dpi=180)
+    plt.close(fig)
+
+
 def main() -> None:
     plot_training_curve()
     plot_eval_returns()
+    plot_vla_eval()
 
 
 if __name__ == "__main__":

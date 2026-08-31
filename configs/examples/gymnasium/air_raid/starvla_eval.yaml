@@ -3,6 +3,11 @@ __base__: latency_bench_eval.yaml
 experiment:
   name: gymnasium_air_raid_starvla_l0
 
+env:
+  make_kwargs:
+    noop_max: 30
+    fire_reset: true
+
 policy:
   type: starvla
   checkpoint_path: third_party/starVLA/results/Checkpoints/air_raid_l0_openvla_sft/checkpoints/steps_2000_model.safetensors
@@ -15,7 +20,7 @@ policy:
 evaluation:
   eval_episodes: 10
   eval_parallel_envs: 1
-  eval_max_steps: 5000
+  eval_max_steps: 3600
 
 logging:
   output_dir: outputs/examples/gymnasium_air_raid/starvla_eval

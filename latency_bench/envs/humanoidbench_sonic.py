@@ -1,7 +1,7 @@
 """SONIC-aligned G1 task environments.
 
 The robot, PD controller, and 64D SONIC interface are shared by all tasks.
-The raw baseline uses the same scene and controller with a direct 29D body
+The raw baseline uses the same scene and controller with a direct body
 target and optional hand controls, so the two policies differ only at the
 policy interface.
 """
@@ -33,6 +33,8 @@ from humanoid_bench.robots import G1
 from latency_bench.envs.humanoidbench_sonic_contract import (
     G1_BODY_JOINT_NAMES,
     G1_DEFAULT_ANGLES,
+    G1_GR00T_STATE_DIM,
+    G1_HAND_JOINT_NAMES,
     MUJOCO_INDEX_FOR_POLICY,
     POLICY_INDEX_FOR_MUJOCO,
 )
@@ -87,7 +89,7 @@ def _add_marker_to_mujoco_33_scene(self, marker: dict[str, Any]) -> None:
 mujoco_rendering.BaseRender._add_marker_to_scene = _add_marker_to_mujoco_33_scene
 
 G1_CONTROL_MODE_RAW = "raw_body_target"
-G1_CONTROL_MODE_DIRECT_ABSOLUTE = "direct_absolute_body_position"
+G1_CONTROL_MODE_DIRECT_ABSOLUTE = "direct_absolute_position"
 G1_CONTROL_MODE_SONIC = "sonic_token"
 G1_CONTROL_MODE_SONIC_COMPOSED = "sonic_token_composed"
 SONIC_DECODER_MODE_ENVIRONMENT = "environment"
@@ -96,7 +98,7 @@ SONIC_COMPOSED_PHYSICAL_RESIDUAL_SCALE = 0.15
 SONIC_COMPOSED_TRIGGER_DISTANCE = 1.0
 SONIC_COMPOSED_JUMP_START_PHASE = 30
 SONIC_COMPOSED_RUN_MATCH_RADIUS = 25
-GR00T_PROPRIO_DIM = 93
+GR00T_PROPRIO_DIM = G1_GR00T_STATE_DIM
 GR00T_PROPRIO_INFO = "official_gr00t_proprio"
 CONDITIONED_BODY_TARGET_INFO = "conditioned_body_target"
 ACTION_TARGET_INFO = "action_target"
@@ -126,23 +128,6 @@ G1_SONIC_ENV_SPECS = {
     }
     for task_key in G1_SONIC_SUPPORTED_TASKS
 }
-
-_HAND_JOINT_NAMES = (
-    "left_hand_thumb_0_joint",
-    "left_hand_thumb_1_joint",
-    "left_hand_thumb_2_joint",
-    "left_hand_middle_0_joint",
-    "left_hand_middle_1_joint",
-    "left_hand_index_0_joint",
-    "left_hand_index_1_joint",
-    "right_hand_thumb_0_joint",
-    "right_hand_thumb_1_joint",
-    "right_hand_thumb_2_joint",
-    "right_hand_index_0_joint",
-    "right_hand_index_1_joint",
-    "right_hand_middle_0_joint",
-    "right_hand_middle_1_joint",
-)
 
 _HAND_KP = np.ones(14, dtype=np.float64)
 _HAND_KD = np.full(14, 0.1, dtype=np.float64)
@@ -290,14 +275,14 @@ def g1_raw_reset_action(scene_path: str, *, learn_hands: bool) -> list[float]:
     """Return normalized raw targets for the pose used by ``reset_model``."""
 
     model = mujoco.MjModel.from_xml_path(str(scene_path))
-    joint_names = G1_BODY_JOINT_NAMES + (_HAND_JOINT_NAMES if learn_hands else ())
+    joint_names = G1_BODY_JOINT_NAMES + (G1_HAND_JOINT_NAMES if learn_hands else ())
     joint_ids = [
         mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
         for name in joint_names
     ]
     reset_positions = (
         np.concatenate(
-            [G1_DEFAULT_ANGLES, np.zeros(len(_HAND_JOINT_NAMES), dtype=np.float64)]
+            [G1_DEFAULT_ANGLES, np.zeros(len(G1_HAND_JOINT_NAMES), dtype=np.float64)]
         )
         if learn_hands
         else G1_DEFAULT_ANGLES
@@ -326,6 +311,7 @@ class G1SonicEnv(MujocoEnv):
         sonic_initial_reference_qpos: np.ndarray | None = None,
         raw_learn_hands: bool = True,
         sonic_learn_hands: bool = True,
+        gr00t_balance_teacher_observation_state: bool = False,
         target_velocity_ramp_time_s: float | None = 0.1,
         render_mode: str,
         width: int,
@@ -341,6 +327,9 @@ class G1SonicEnv(MujocoEnv):
         self._sonic_initial_reference_qpos = sonic_initial_reference_qpos
         self._raw_learn_hands = raw_learn_hands
         self._sonic_learn_hands = sonic_learn_hands
+        self._gr00t_balance_teacher_observation_state = (
+            gr00t_balance_teacher_observation_state
+        )
         self.robot = G1(self)
         # HumanoidBench's robot.dof means qpos length, not actuator count.
         self.robot.dof = 50
@@ -467,7 +456,7 @@ class G1SonicEnv(MujocoEnv):
                 self.model.jnt_qposadr[
                     mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, name)
                 ]
-                for name in _HAND_JOINT_NAMES
+                for name in G1_HAND_JOINT_NAMES
             ],
             dtype=np.int64,
         )
@@ -476,7 +465,7 @@ class G1SonicEnv(MujocoEnv):
                 self.model.jnt_dofadr[
                     mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, name)
                 ]
-                for name in _HAND_JOINT_NAMES
+                for name in G1_HAND_JOINT_NAMES
             ],
             dtype=np.int64,
         )
@@ -498,14 +487,14 @@ class G1SonicEnv(MujocoEnv):
                     mujoco.mjtObj.mjOBJ_ACTUATOR,
                     name.removesuffix("_joint"),
                 )
-                for name in _HAND_JOINT_NAMES
+                for name in G1_HAND_JOINT_NAMES
             ],
             dtype=np.int64,
         )
         self._hand_joint_ranges = self.model.jnt_range[
             [
                 mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, name)
-                for name in _HAND_JOINT_NAMES
+                for name in G1_HAND_JOINT_NAMES
             ]
         ].copy()
         self._body_joint_ranges = self.model.jnt_range[
@@ -518,10 +507,20 @@ class G1SonicEnv(MujocoEnv):
             action_dim = 29 + (14 if raw_learn_hands else 0)
             self.action_space = Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
         elif control_mode == G1_CONTROL_MODE_DIRECT_ABSOLUTE:
-            action_dim = 29
+            action_dim = 43
             self.action_space = Box(
-                self._body_joint_ranges[:, 0][MUJOCO_INDEX_FOR_POLICY],
-                self._body_joint_ranges[:, 1][MUJOCO_INDEX_FOR_POLICY],
+                np.concatenate(
+                    [
+                        self._body_joint_ranges[:, 0][MUJOCO_INDEX_FOR_POLICY],
+                        self._hand_joint_ranges[:, 0],
+                    ]
+                ),
+                np.concatenate(
+                    [
+                        self._body_joint_ranges[:, 1][MUJOCO_INDEX_FOR_POLICY],
+                        self._hand_joint_ranges[:, 1],
+                    ]
+                ),
                 dtype=np.float32,
             )
         elif control_mode == G1_CONTROL_MODE_SONIC:
@@ -665,15 +664,34 @@ class G1SonicEnv(MujocoEnv):
     def _conditioned_body_target(self) -> np.ndarray:
         return self._q_cmd[:29][MUJOCO_INDEX_FOR_POLICY].copy()
 
+    def _conditioned_target(self) -> np.ndarray:
+        return np.concatenate(
+            [self._conditioned_body_target(), self._q_cmd[29:]]
+        )
+
     def _official_gr00t_proprio(self) -> np.ndarray:
-        body_q = self.data.qpos[self._body_qpos_addresses][MUJOCO_INDEX_FOR_POLICY]
-        body_dq = self.data.qvel[self._body_qvel_addresses][MUJOCO_INDEX_FOR_POLICY]
+        if self._gr00t_balance_teacher_observation_state:
+            return np.concatenate(
+                [self._task.get_obs(), self._command_observation()]
+            ).astype(np.float32)
+        q = np.concatenate(
+            [
+                self.data.qpos[self._body_qpos_addresses][MUJOCO_INDEX_FOR_POLICY],
+                self.data.qpos[self._hand_qpos_addresses],
+            ]
+        )
+        dq = np.concatenate(
+            [
+                self.data.qvel[self._body_qvel_addresses][MUJOCO_INDEX_FOR_POLICY],
+                self.data.qvel[self._hand_qvel_addresses],
+            ]
+        )
         return np.concatenate(
             [
                 self._base_angular_velocity(),
-                body_q,
-                body_dq,
-                self._conditioned_body_target(),
+                q,
+                dq,
+                self._conditioned_target(),
                 self._projected_gravity(),
             ]
         ).astype(np.float32)
@@ -780,9 +798,9 @@ class G1SonicEnv(MujocoEnv):
         hand_action: np.ndarray | None,
         *,
         raw_body: bool,
-        absolute_body: bool = False,
+        absolute_position: bool = False,
     ) -> tuple[np.ndarray, np.ndarray]:
-        if absolute_body:
+        if absolute_position:
             body_target_request = body_action_mu
         elif raw_body:
             body_target_request = self._body_joint_ranges[:, 0] + (
@@ -790,14 +808,16 @@ class G1SonicEnv(MujocoEnv):
             ) * 0.5 * (self._body_joint_ranges[:, 1] - self._body_joint_ranges[:, 0])
         else:
             body_target_request = G1_DEFAULT_ANGLES + body_action_mu * _ACTION_SCALE
-        hand_target_request = (
-            np.zeros(14, dtype=np.float64)
-            if hand_action is None
-            else self._hand_joint_ranges[:, 0]
-            + (hand_action + 1.0)
-            * 0.5
-            * (self._hand_joint_ranges[:, 1] - self._hand_joint_ranges[:, 0])
-        )
+        if hand_action is None:
+            hand_target_request = np.zeros(14, dtype=np.float64)
+        elif absolute_position:
+            hand_target_request = hand_action
+        else:
+            hand_target_request = self._hand_joint_ranges[:, 0] + (
+                hand_action + 1.0
+            ) * 0.5 * (
+                self._hand_joint_ranges[:, 1] - self._hand_joint_ranges[:, 0]
+            )
         body_request = np.clip(
             body_target_request,
             self._body_joint_ranges[:, 0],
@@ -1019,7 +1039,7 @@ class G1SonicEnv(MujocoEnv):
         observation, info = super().reset(seed=seed, options=options)
         info[GR00T_PROPRIO_INFO] = self._official_gr00t_proprio()
         info[CONDITIONED_BODY_TARGET_INFO] = self._conditioned_body_target()
-        info[ACTION_TARGET_INFO] = self._conditioned_body_target()
+        info[ACTION_TARGET_INFO] = self._conditioned_target()
         return observation, info
 
     def reset_model(self) -> Any:
@@ -1079,7 +1099,7 @@ class G1SonicEnv(MujocoEnv):
     def step(self, action: Any):
         action = np.asarray(action, dtype=np.float32)
         residual_smoothness_penalty = 0.0
-        absolute_body = False
+        absolute_position = False
         if self._control_mode in (
             G1_CONTROL_MODE_RAW,
             G1_CONTROL_MODE_DIRECT_ABSOLUTE,
@@ -1087,8 +1107,8 @@ class G1SonicEnv(MujocoEnv):
             if self._control_mode == G1_CONTROL_MODE_DIRECT_ABSOLUTE:
                 decoder_action = action[:29].astype(np.float64)
                 body_action_mu = decoder_action[POLICY_INDEX_FOR_MUJOCO]
-                hand_action = None
-                absolute_body = True
+                hand_action = action[29:43].astype(np.float64)
+                absolute_position = True
                 raw_body = False
             else:
                 body_action_mu = action[:29].astype(np.float64)
@@ -1135,7 +1155,7 @@ class G1SonicEnv(MujocoEnv):
             body_action_mu,
             hand_action,
             raw_body=raw_body,
-            absolute_body=absolute_body,
+            absolute_position=absolute_position,
         )
         self._torque_saturation_count = 0
         self._torque_sample_count = 0
@@ -1208,7 +1228,7 @@ class G1SonicEnv(MujocoEnv):
                 "torque_saturation_fraction": self._torque_saturation_fraction,
                 GR00T_PROPRIO_INFO: self._official_gr00t_proprio(),
                 CONDITIONED_BODY_TARGET_INFO: self._conditioned_body_target(),
-                ACTION_TARGET_INFO: self._conditioned_body_target(),
+                ACTION_TARGET_INFO: self._conditioned_target(),
                 "residual_smoothness_penalty": residual_smoothness_penalty,
                 **(
                     self._composed_residual_info()

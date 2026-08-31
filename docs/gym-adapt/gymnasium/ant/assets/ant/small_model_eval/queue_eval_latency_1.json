@@ -1,0 +1,39 @@
+{
+  "checkpoint_kind": "best",
+  "checkpoint_path": "/mnt/checkpoints/latency-sensitive-bench/small_models/ant/gymnasium_ant_rgb_state_zero_latency_10m/checkpoint_p0/best_000018616_9531392_reward_5710.194.pth",
+  "configured_latency_ms": 50.0,
+  "eval_latency_steps": 1,
+  "experiment_name": "gymnasium_ant_rgb_state_zero_latency_10m",
+  "latency": 1,
+  "latency_type": "fixed_sweep",
+  "lengths": [
+    101,
+    1000,
+    93,
+    60,
+    85,
+    143,
+    108,
+    55,
+    83,
+    75
+  ],
+  "mean_length": 180.3,
+  "mean_return": 213.06512962068092,
+  "returns": [
+    231.99101119373302,
+    716.4665822498982,
+    150.43741695112217,
+    121.10798725065075,
+    188.87290038439315,
+    205.25764379573826,
+    151.3070680770511,
+    102.32679912731437,
+    129.37798217362572,
+    133.50590500328252
+  ],
+  "seed": 2222,
+  "std_return": 172.10636931722357,
+  "timestamp_utc": "2026-08-30T07:49:23.603846+00:00",
+  "train_latency_steps": 0
+}

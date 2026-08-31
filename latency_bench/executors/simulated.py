@@ -266,6 +266,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                             observation=policy_observation,
                             submit_env_step=raw_frame,
                             submit_time_ms=current_time_ms,
+                            observation_start_time_ms=time.perf_counter() * 1000.0,
                         )
                         if not pool.submit(task):
                             submit_queue.append(task)
@@ -318,7 +319,6 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                 active_event=self.action_scheduler.latest_applied_event,
                 frame_ms=self.clock.frame_ms,
                 latency_type=latency_type,
-                profile_metadata=profile_metadata_from_source(self.latency_source),
                 pre_active_info=pre_active_info,
             )
             step_records.append(record)

@@ -374,16 +374,21 @@ latency:
   seed: 0
 ```
 
-`iid` draws from the profile inverse-CDF distribution. `temporal` replays the
-profile's fitted hidden-regime burst model. Neither method infers its behavior
-from a legacy sampler name.
+`iid` draws from the selected worker slot's fitted joint distribution.
+`temporal` combines each slot's steady distribution with the shared fitted
+hidden-regime burst model. Neither method infers behavior from a legacy sampler
+name.
 
 Profile sampling must log:
 
 ```text
-profile_path
-profile_id
-target_device
+model_id
+gpu_class
+workload_id
+instance_id
+source_run_id
+profile_ref
+hf_commit
 latency_raw_frames
 ```
 

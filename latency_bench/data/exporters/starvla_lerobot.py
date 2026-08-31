@@ -17,11 +17,12 @@ from latency_bench.utils.io import write_jsonl
 
 from latency_bench.data.action_layouts import (
     ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-    ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+    ACTION_LAYOUT_G1_SONIC_GR00T_V2,
     ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
     action_spec_for_env,
 )
 from latency_bench.data.filters import density_weights_clean_v1
+from latency_bench.data.state_normalization import min_max_normalize_state
 
 STATE_DIM = 1
 BRIDGE_ACTION_DIM = 7
@@ -397,6 +398,7 @@ def _write_episode(
     *,
     action_dim: int,
     state_dim: int,
+    include_state: bool,
 ) -> None:
     """Write one LeRobot episode parquet file.
 
@@ -404,15 +406,22 @@ def _write_episode(
         path: Destination episode parquet path.
         rows: Converted LeRobot frame rows.
         action_dim: Expected action vector dimension.
+        state_dim: Expected state vector dimension.
+        include_state: Whether rows carry real state vectors.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    states = (
+        [row["state"] for row in rows]
+        if include_state
+        else [[0.0] * state_dim for _ in rows]
+    )
     columns = {
         "observation.image": pa.array(
             [{"bytes": row["image_bytes"], "path": None} for row in rows],
             type=pa.struct([("bytes", pa.binary()), ("path", pa.string())]),
         ),
         "observation.state": pa.array(
-            [row.get("state", [0.0] * state_dim) for row in rows],
+            states,
             type=pa.list_(pa.float32(), state_dim),
         ),
         "action": pa.array(
@@ -660,11 +669,7 @@ def _convert_split(
                 if state_normalization is not None:
                     state_min = np.asarray(state_normalization["min"], dtype=np.float32)
                     state_max = np.asarray(state_normalization["max"], dtype=np.float32)
-                    state = np.clip(
-                        2.0 * (state - state_min) / (state_max - state_min) - 1.0,
-                        -1.0,
-                        1.0,
-                    )
+                    state = min_max_normalize_state(state, state_min, state_max)
                 out_row["state"] = state.tolist()
             if "action_id" in row:
                 out_row["action_id"] = int(row["action_id"])
@@ -681,6 +686,7 @@ def _convert_split(
             out_rows,
             action_dim=len(action_labels),
             state_dim=state_dim,
+            include_state=include_state,
         )
     _write_metadata(
         output_dir,
@@ -746,7 +752,7 @@ def convert_canonical_rollout_to_lerobot(
     if action_layout not in (
         ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-        ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+        ACTION_LAYOUT_G1_SONIC_GR00T_V2,
     ):
         raise ValueError(f"Unsupported Gymnasium action_layout={action_layout!r}")
     active_action_labels = list(metadata["action_labels"])
@@ -757,7 +763,7 @@ def convert_canonical_rollout_to_lerobot(
         )
     continuous = action_layout in (
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-        ACTION_LAYOUT_G1_SONIC_GR00T_V1,
+        ACTION_LAYOUT_G1_SONIC_GR00T_V2,
     )
     if continuous and action_carrier == "native":
         gymnasium_task = {

@@ -136,7 +136,6 @@ def test_parse_iid_eval_suites_uses_explicit_name_and_profile_provenance(tmp_pat
     assert suites[0].metadata == {
         "suite_name": "rtx_3090",
         "latency_type": "profile_sample",
-        "profile_path": str(profile_path),
         "latency_seed": 42,
     }
 
@@ -177,7 +176,7 @@ def test_iid_suite_summary_retains_profile_provenance(monkeypatch, tmp_path: Pat
     summaries = eval_sweeps.run_eval_suites_from_config(config, progress=False)
 
     assert summaries[0]["latency_type"] == "profile_sample"
-    assert summaries[0]["profile_path"] == str(profile_path)
+    assert "profile_path" not in summaries[0]
     assert summaries[0]["latency_seed"] == 42
     summary_path = tmp_path / "rtx_3090" / "queue_eval_latency_rtx_3090.json"
     assert json.loads(summary_path.read_text(encoding="utf-8"))["latency_seed"] == 42

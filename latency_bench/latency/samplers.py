@@ -126,18 +126,15 @@ class UniformSampler(LatencySampler):
 class IidInverseCdfSampler(LatencySampler):
     latency_type = "profile_sample"
 
-    def __init__(self, distribution: dict[str, Any], *, clock: EnvClock, seed: int | None = None):
-        self.distribution = distribution
+    def __init__(self, distributions: dict[str, Any], *, clock: EnvClock, seed: int | None = None):
+        self.distributions = distributions["worker_slots"]
         self.clock = clock
         self.rng = random.Random(seed)
 
     def sample(self, context: dict[str, Any] | None = None) -> LatencySample:
-        latency_ms = sample_inverse_cdf(
-            self.rng,
-            self.distribution["quantile_levels"],
-            self.distribution["latency_ms"],
-        )
-        return LatencySample.from_latency_ms(latency_ms, clock=self.clock)
+        worker_slot = context["worker_slot"]
+        distribution = self.distributions[str(worker_slot)]["all"]
+        return _sample_joint_emission(distribution, rng=self.rng, clock=self.clock)
 
 
 _STANDARD_NORMAL = NormalDist()
@@ -165,10 +162,9 @@ class HiddenRegimeSampler(LatencySampler):
     alternate spike/calm — so replaying the merged pattern iid over slots
     spreads the slowness across workers and no single worker saturates; the
     real failure mode (a slow worker at utilization > 1 shedding half the
-    observations) then never reproduces. At entry the serving slot takes the
-    top severity rank (a dwell starts at its first spike, which belongs to
-    the most degraded worker); any other slot draws one of the remaining
-    ranks uniformly the first time it serves inside the dwell. Each slot then
+    observations) then never reproduces. At entry an empirical slot-to-rank
+    template sampled from a fitted dwell fixes the rank assignment for that
+    dwell. Each slot then
     draws its rank's two per-dwell latents once — severity (its fraction of
     above-threshold serves for this whole dwell) and level (this dwell's mean
     above-threshold service) — and every serve inside the dwell is above
@@ -186,43 +182,38 @@ class HiddenRegimeSampler(LatencySampler):
     """
     latency_type = "profile_sample"
 
-    def __init__(self, model: dict[str, Any], *, clock: EnvClock, seed: int | None = None):
+    def __init__(
+        self,
+        model: dict[str, Any],
+        distributions: dict[str, Any],
+        *,
+        clock: EnvClock,
+        seed: int | None = None,
+    ):
         self.model = model
         self.clock = clock
         self.rng = random.Random(seed)
-        self.emissions = model["emission_distributions_by_regime"]
-        self.rank_processes = model.get("burst_rank_processes") or []
-        self.ready_delta = model.get("ready_delta_ms")
+        self.distributions = distributions["worker_slots"]
+        self.rank_processes = model["burst_rank_processes"]
+        self.pre_worker_time = model["pre_worker_time_ms"]
         self.current_episode_id: int | None = None
         self.regime = "calm"
         self._enter_burst_prob = 0.0
         self._burst_remaining = 0
         self._dwell_z = 0.0
+        self._slot_to_rank: dict[int, int] = {}
         self._unassigned_ranks: list[int] = []
         self._slot_states: dict[int, dict[str, Any]] = {}
 
     def sample(self, context: dict[str, Any] | None = None) -> LatencySample:
-        episode_id = int(context["episode_id"])
-        worker_slot = int(context["worker_slot"])
+        episode_id = context["episode_id"]
+        worker_slot = context["worker_slot"]
         first_draw = self.current_episode_id is None
         new_episode = episode_id != self.current_episode_id
         if new_episode:
             self.current_episode_id = episode_id
             self._enter_burst_prob = self._episode_transition_prob("calm", "burst")
-            if self.model["reset_scope"] == "episode":
-                self.regime = "calm"
-                self._burst_remaining = 0
-                self._slot_states.clear()
-                self._unassigned_ranks = []
-                initial_counts = self.model["initial_regime_counts"]
-                total = initial_counts["calm"] + initial_counts["burst"]
-                if self.rng.randrange(total) < initial_counts["burst"]:
-                    self.regime = "burst"
-                    self._burst_remaining = self._sample_dwell(
-                        self.model["initial_burst_residual_dwell_distribution"]
-                    ) - 1
-                    self._begin_dwell(entry_slot=worker_slot)
-        if first_draw or (new_episode and self.model["reset_scope"] == "episode"):
+        if first_draw:
             pass
         elif self.regime == "calm":
             if self.rng.random() < self._enter_burst_prob:
@@ -234,16 +225,17 @@ class HiddenRegimeSampler(LatencySampler):
         else:
             self.regime = "calm"
             self._slot_states.clear()
+            self._slot_to_rank = {}
             self._unassigned_ranks = []
 
         record = self._next_emission(worker_slot)
-        action_ready_ms = float(record["action_ready_ms"])
-        worker_service_ms = float(record["worker_service_ms"])
+        observation_to_action_latency_ms = record["observation_to_action_latency_ms"]
+        worker_service_time_ms = record["worker_service_time_ms"]
         return LatencySample.from_action_ready(
-            action_ready_raw_frames=self.clock.latency_ms_to_raw_frames(action_ready_ms),
-            worker_service_raw_frames=self.clock.latency_ms_to_raw_frames(worker_service_ms),
-            worker_service_ms=worker_service_ms,
-            latency_ms=action_ready_ms,
+            action_ready_raw_frames=self.clock.latency_ms_to_raw_frames(observation_to_action_latency_ms),
+            worker_service_raw_frames=self.clock.latency_ms_to_raw_frames(worker_service_time_ms),
+            worker_service_ms=worker_service_time_ms,
+            latency_ms=observation_to_action_latency_ms,
             clock=self.clock,
         )
 
@@ -253,10 +245,8 @@ class HiddenRegimeSampler(LatencySampler):
             # spikes we have no emission distribution for.
             return 0.0 if target == "burst" else 1.0
         counts = self.model["regime_transition_counts"][source]
-        if self.model["reset_scope"] == "episode" and counts[target] == 0:
-            return 0.0
-        switch = self.rng.gammavariate(float(counts[target]) + 0.5, 1.0)
-        stay = self.rng.gammavariate(float(counts[source]) + 0.5, 1.0)
+        switch = self.rng.gammavariate(counts[target] + 0.5, 1.0)
+        stay = self.rng.gammavariate(counts[source] + 0.5, 1.0)
         return switch / (switch + stay)
 
     def _sample_burst_dwell(self) -> int:
@@ -272,8 +262,19 @@ class HiddenRegimeSampler(LatencySampler):
         )))
 
     def _begin_dwell(self, *, entry_slot: int) -> None:
-        self._slot_states = {entry_slot: self._new_slot_state(0)}
-        self._unassigned_ranks = list(range(1, len(self.rank_processes)))
+        template = self.rng.choice(self.model["burst_slot_rank_templates"])
+        self._slot_to_rank = {
+            int(slot): int(rank)
+            for slot, rank in template["slot_to_rank"].items()
+        }
+        assigned_ranks = set(self._slot_to_rank.values())
+        self._unassigned_ranks = [
+            rank
+            for rank in range(len(self.rank_processes))
+            if rank not in assigned_ranks
+        ]
+        self._slot_states = {}
+        self._slot_state(entry_slot)
 
     def _new_slot_state(self, rank: int | None) -> dict[str, Any]:
         if rank is None:
@@ -281,7 +282,7 @@ class HiddenRegimeSampler(LatencySampler):
             # observed for such a slot, so it stays calm through the dwell.
             return {"rank": None, "severity": 0.0, "level": 0.0}
         process = self.rank_processes[rank]
-        rho = max(-0.999999, min(0.999999, float(process["dwell_length_spearman_rho"])))
+        rho = max(-0.999999, min(0.999999, process["dwell_length_spearman_rho"]))
         z_severity = rho * self._dwell_z + math.sqrt(1.0 - rho * rho) * self.rng.normalvariate(0.0, 1.0)
         severity = sample_inverse_cdf(
             self.rng,
@@ -289,10 +290,10 @@ class HiddenRegimeSampler(LatencySampler):
             process["severity"]["latency_ms"],
             quantile=_STANDARD_NORMAL.cdf(z_severity),
         )
-        level = process.get("level_ms")
+        level = process["level_ms"]
         return {
             "rank": rank,
-            "severity": float(severity),
+            "severity": severity,
             "level": (
                 sample_inverse_cdf(
                     self.rng, level["quantile_levels"], level["latency_ms"]
@@ -305,7 +306,9 @@ class HiddenRegimeSampler(LatencySampler):
     def _slot_state(self, worker_slot: int) -> dict[str, Any]:
         state = self._slot_states.get(worker_slot)
         if state is None:
-            if self._unassigned_ranks:
+            if worker_slot in self._slot_to_rank:
+                rank = self._slot_to_rank[worker_slot]
+            elif self._unassigned_ranks:
                 index = self.rng.randrange(len(self._unassigned_ranks))
                 rank = self._unassigned_ranks.pop(index)
             else:
@@ -315,20 +318,16 @@ class HiddenRegimeSampler(LatencySampler):
         return state
 
     def _next_emission(self, worker_slot: int) -> dict[str, Any]:
+        steady = self.distributions[str(worker_slot)]["steady"]
         if self.regime != "burst" or not self.rank_processes:
-            return self._sample_emission(self.emissions["calm"])
+            return self._sample_emission(steady)
         state = self._slot_state(worker_slot)
         if state["rank"] is not None and self.rng.random() < state["severity"]:
-            return self._emit_spike(state)
-        rank = state["rank"]
-        if rank is not None:
-            emission = self.rank_processes[rank].get("emission")
-            if emission is not None:
-                return self._sample_emission(emission)
-        return self._sample_emission(self.emissions["calm"])
+            return self._emit_spike(state, worker_slot)
+        return self._sample_emission(steady)
 
-    def _emit_spike(self, state: dict[str, Any]) -> dict[str, Any]:
-        residual = self.rank_processes[state["rank"]].get("level_residual_ms")
+    def _emit_spike(self, state: dict[str, Any], worker_slot: int) -> dict[str, Any]:
+        residual = self.rank_processes[state["rank"]]["level_residual_ms"]
         worker_service_ms = state["level"] + (
             sample_inverse_cdf(
                 self.rng, residual["quantile_levels"], residual["latency_ms"]
@@ -340,38 +339,63 @@ class HiddenRegimeSampler(LatencySampler):
         # from a hotter dwell's pool from dipping a mild level below it.
         worker_service_ms = max(
             worker_service_ms,
-            math.nextafter(float(self.model["spike_threshold_ms"]), math.inf),
+            math.nextafter(
+                self.model["spike_threshold_ms_by_worker_slot"][str(worker_slot)],
+                math.inf,
+            ),
         )
-        ready_delta_ms = sample_inverse_cdf(
+        pre_worker_time_ms = sample_inverse_cdf(
             self.rng,
-            self.ready_delta["quantile_levels"],
-            self.ready_delta["latency_ms"],
+            self.pre_worker_time["quantile_levels"],
+            self.pre_worker_time["latency_ms"],
         )
         return {
-            "action_ready_ms": worker_service_ms + ready_delta_ms,
-            "worker_service_ms": worker_service_ms,
+            "observation_to_action_latency_ms": worker_service_ms + pre_worker_time_ms,
+            "worker_service_time_ms": worker_service_ms,
         }
 
     def _sample_emission(self, distribution: dict[str, Any]) -> dict[str, Any]:
-        rho = max(-0.999999, min(0.999999, float(distribution["spearman_rho"])))
-        z_action_ready = self.rng.normalvariate(0.0, 1.0)
-        z_worker = rho * z_action_ready + math.sqrt(1.0 - rho * rho) * self.rng.normalvariate(0.0, 1.0)
-        action_ready_ms = sample_inverse_cdf(
-            self.rng,
-            distribution["action_ready_ms"]["quantile_levels"],
-            distribution["action_ready_ms"]["latency_ms"],
-            quantile=_STANDARD_NORMAL.cdf(z_action_ready),
-        )
-        worker_service_ms = sample_inverse_cdf(
-            self.rng,
-            distribution["worker_service_ms"]["quantile_levels"],
-            distribution["worker_service_ms"]["latency_ms"],
-            quantile=_STANDARD_NORMAL.cdf(z_worker),
+        sample = _sample_joint_emission(
+            distribution,
+            rng=self.rng,
+            clock=self.clock,
         )
         return {
-            "action_ready_ms": action_ready_ms,
-            "worker_service_ms": worker_service_ms,
+            "observation_to_action_latency_ms": sample.latency_ms,
+            "worker_service_time_ms": sample.worker_service_ms,
         }
+
+
+def _sample_joint_emission(
+    distribution: dict[str, Any],
+    *,
+    rng: random.Random,
+    clock: EnvClock,
+) -> LatencySample:
+    rho = max(-0.999999, min(0.999999, distribution["spearman_rho"]))
+    z_observation_to_action = rng.normalvariate(0.0, 1.0)
+    z_worker = rho * z_observation_to_action + math.sqrt(
+        1.0 - rho * rho
+    ) * rng.normalvariate(0.0, 1.0)
+    observation_to_action_latency_ms = sample_inverse_cdf(
+        rng,
+        distribution["observation_to_action_latency_ms"]["quantile_levels"],
+        distribution["observation_to_action_latency_ms"]["latency_ms"],
+        quantile=_STANDARD_NORMAL.cdf(z_observation_to_action),
+    )
+    worker_service_time_ms = sample_inverse_cdf(
+        rng,
+        distribution["worker_service_time_ms"]["quantile_levels"],
+        distribution["worker_service_time_ms"]["latency_ms"],
+        quantile=_STANDARD_NORMAL.cdf(z_worker),
+    )
+    return LatencySample.from_action_ready(
+        action_ready_raw_frames=clock.latency_ms_to_raw_frames(observation_to_action_latency_ms),
+        worker_service_raw_frames=clock.latency_ms_to_raw_frames(worker_service_time_ms),
+        worker_service_ms=worker_service_time_ms,
+        latency_ms=observation_to_action_latency_ms,
+        clock=clock,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -438,7 +462,7 @@ def build_sampler(latency_cfg: dict[str, Any], *, clock: EnvClock) -> LatencySam
         profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
         profile = load_profile_manifest(profile_path)
         sampler = _build_temporal(profile, profile_path=profile_path, clock=clock, seed=seed)
-        profile_metadata = _profile_metadata(profile, profile_path)
+        profile_metadata = _profile_metadata(profile)
     else:
         raise ValueError(f"Unsupported latency method: {method}")
 
@@ -455,9 +479,8 @@ def build_episode_sampler_factory(
 ) -> Callable[[int], LatencySampler] | None:
     """Return a per-episode sampler builder deriving a stream seed per episode.
 
-    Seeded stochastic methods get independent episode streams. Temporal models
-    do so only when their fitted lifecycle is episode-scoped; session-scoped
-    machine state continues to use the shared sampler.
+    Seeded IID methods get independent episode streams. Temporal models retain
+    machine state across episodes and therefore use one shared sampler.
     """
     method = resolve_latency_method(latency_cfg)
     if method == "iid":
@@ -483,10 +506,8 @@ def build_episode_sampler_factory(
     if method == "temporal":
         profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
         profile = load_profile_manifest(profile_path)
-        model = _load_temporal_model(profile, profile_path=profile_path)
-        if model["reset_scope"] == "session":
-            return None
-        seed = latency_cfg["seed"]
+        _load_temporal_model(profile, profile_path=profile_path)
+        return None
     elif method not in SEEDED_STOCHASTIC_METHODS or "seed" not in latency_cfg:
         return None
     else:
@@ -521,14 +542,16 @@ def _load_iid_profile(
     distribution_path = _profile_relative_path(
         resolved_profile_path, profile["distribution_path"]
     )
-    return read_json(distribution_path), _profile_metadata(profile, resolved_profile_path)
+    return read_json(distribution_path), _profile_metadata(profile)
 
 
-def _profile_metadata(profile: dict[str, Any], profile_path: Path) -> dict[str, Any]:
+def _profile_metadata(profile: dict[str, Any]) -> dict[str, Any]:
     return {
-        "profile_id": profile["profile_id"],
-        "target_device": profile["target_device"],
-        "profile_path": str(profile_path),
+        "model_id": profile["model_id"],
+        "gpu_class": profile["gpu_class"],
+        "workload_id": profile["workload_id"],
+        "instance_id": profile["instance_id"],
+        "source_run_id": profile["source_run_id"],
     }
 
 
@@ -540,7 +563,15 @@ def _build_temporal(
     seed: int | None,
 ) -> LatencySampler:
     model = _load_temporal_model(profile, profile_path=profile_path)
-    return HiddenRegimeSampler(model, clock=clock, seed=seed)
+    distribution_path = _profile_relative_path(
+        profile_path, profile["distribution_path"]
+    )
+    return HiddenRegimeSampler(
+        model,
+        read_json(distribution_path),
+        clock=clock,
+        seed=seed,
+    )
 
 
 def _load_temporal_model(
@@ -548,23 +579,12 @@ def _load_temporal_model(
 ) -> dict[str, Any]:
     model_path = _profile_relative_path(profile_path, profile["burst_model_path"])
     model = read_json(model_path)
-    contract = (model.get("schema_version"), model.get("reset_scope"))
-    supported_contract = contract in {(9, "session"), (10, "episode")}
-    lifecycle_matches = (
-        contract == (9, "session") and "measurement" not in profile
-    ) or contract == {
-        "consecutive": (9, "session"),
-        "isolated": (10, "episode"),
-    }[profile["measurement"]["episode_lifecycle"]]
-    if (
-        model.get("model_type") != "hidden_regime"
-        or not supported_contract
-        or not lifecycle_matches
-    ):
+    contract = (model["schema_version"], model["reset_scope"])
+    if model["model_type"] != "hidden_regime" or contract != (12, "session"):
         raise ValueError(
-            f"Unsupported temporal burst model (model_type={model.get('model_type')!r}, "
-            f"reset_scope={model.get('reset_scope')!r}, "
-            f"schema_version={model.get('schema_version')!r}) at {model_path}; "
+            f"Unsupported temporal burst model (model_type={model['model_type']!r}, "
+            f"reset_scope={model['reset_scope']!r}, "
+            f"schema_version={model['schema_version']!r}) at {model_path}; "
             "rebuild the profile from its measure artifacts with "
             "latency_bench.latency.profile_builder."
         )
@@ -588,5 +608,9 @@ def _resolve_profile_manifest_path(profile_path: str | Path) -> Path:
 def _profile_relative_path(profile_path: Path, artifact_path: str) -> Path:
     path = Path(artifact_path)
     if path.is_absolute():
-        return path
-    return profile_path.parent / path
+        raise ValueError(f"Profile companion path must be relative: {artifact_path}")
+    profile_root = profile_path.parent.resolve()
+    resolved = (profile_root / path).resolve()
+    if not resolved.is_relative_to(profile_root):
+        raise ValueError(f"Profile companion path escapes profile directory: {artifact_path}")
+    return resolved

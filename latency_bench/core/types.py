@@ -11,11 +11,6 @@ class ExecutorMode(str, Enum):
     REALTIME = "realtime"
 
 
-class EpisodeLifecycle(str, Enum):
-    CONSECUTIVE = "consecutive"
-    ISOLATED = "isolated"
-
-
 class ActionHoldPolicy(str, Enum):
     ONE_FRAME_THEN_NOOP = "one_frame_then_noop"
     HOLD = "hold"
@@ -68,9 +63,11 @@ class LatencyRecord:
     inference_ms: float | None = None
     device: str | None = None
     latency_type: str | None = None
-    profile_id: str | None = None
-    target_device: str | None = None
-    profile_path: str | None = None
+    model_id: str | None = None
+    gpu_class: str | None = None
+    workload_id: str | None = None
+    instance_id: str | None = None
+    source_run_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

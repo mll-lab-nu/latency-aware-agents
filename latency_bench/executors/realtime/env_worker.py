@@ -189,6 +189,7 @@ def _env_loop_worker(
                     observation=shared_observation,
                     submit_env_step=env_step,
                     submit_time_ms=wall_elapsed_ms,
+                    observation_start_time_ms=observe_start_ms,
                     profile=profile,
                     shared_obs_id=obs_id,
                 )
@@ -237,7 +238,6 @@ def _env_loop_worker(
                         active_event=action_scheduler.latest_applied_event,
                         frame_ms=clock.frame_ms,
                         latency_type="measured",
-                        profile_metadata={},
                         pre_active_info={
                             "scheduled_time_ms": scheduled_time_ms,
                             "wall_elapsed_ms": wall_elapsed_ms,

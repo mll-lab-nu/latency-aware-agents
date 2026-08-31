@@ -32,13 +32,21 @@ def test_calibrate_env_fps_from_saturated_latency_uses_probe_samples(tmp_path, m
     for key in THREAD_ENV_DEFAULTS:
         monkeypatch.delenv(key, raising=False)
 
-    def fake_probe(*, config_path, samples, skip, period_ms):
+    def fake_probe(*, config_path, samples, skip, period_ms, devices):
+        assert devices == ["cuda:0", "cuda:1"]
         return {
             "period_ms": period_ms,
             "sample_count": samples,
             "skip": skip,
             "latency_samples_ms": [34.0 for _ in range(samples - skip)],
+            "latency_samples_by_slot_ms": [
+                [34.0 for _ in range(samples - skip)] for _ in devices
+            ],
             "total_latency_ms": {"n": samples - skip, "mean": 34.0, "median": 34.0, "p90": 34.0, "p95": 34.0},
+            "latency_by_slot_summary": [
+                {"n": samples - skip, "mean": 34.0, "median": 34.0, "p90": 34.0, "p95": 34.0}
+                for _ in devices
+            ],
             "policy_build_example_ms": {"n": samples - skip, "mean": 1.0, "median": 1.0, "p90": 1.0, "p95": 1.0},
             "policy_wrapper_predict_action_ms": {"n": samples - skip, "mean": 32.0, "median": 32.0, "p90": 32.0, "p95": 32.0},
             "policy_decode_ms": {"n": samples - skip, "mean": 1.0, "median": 1.0, "p90": 1.0, "p95": 1.0},

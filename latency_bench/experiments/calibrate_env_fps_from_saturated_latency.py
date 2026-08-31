@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import json
 import multiprocessing as mp
 import statistics
@@ -37,19 +36,20 @@ def calibrate_env_fps_from_saturated_latency(
         samples=samples,
         skip=skip,
         period_ms=0.0,
+        devices=[f"cuda:{index}" for index in range(visible_cuda_device_count())],
     )
     calibration = select_env_fps_from_latency_samples(
-        latency_samples_ms=saturated["latency_samples_ms"],
+        latency_samples_by_slot_ms=saturated["latency_samples_by_slot_ms"],
         target_latency_frames=target_latency_frames,
         base_env_fps=float(config["env"]["env_fps"]),
         base_obs_fps=float(config["env"]["obs_fps"]),
-        device_count=visible_cuda_device_count(),
         worker_utilization_cap=worker_utilization_cap,
     )
     payload: dict[str, Any] = {
         **calibration.to_dict(),
         "calibration_source": "saturated_policy_latency",
         "saturated_latency_summary": saturated["total_latency_ms"],
+        "saturated_latency_by_slot_summary": saturated["latency_by_slot_summary"],
         "policy_stage_summary": {
             "policy_build_example_ms": saturated["policy_build_example_ms"],
             "policy_wrapper_predict_action_ms": saturated["policy_wrapper_predict_action_ms"],
@@ -64,6 +64,7 @@ def calibrate_env_fps_from_saturated_latency(
             samples=samples,
             skip=skip,
             period_ms=float(paced_period_ms),
+            devices=[f"cuda:{index}" for index in range(visible_cuda_device_count())],
         )
         payload["paced_period_ms"] = float(paced_period_ms)
         payload["paced_latency_summary"] = paced["total_latency_ms"]
@@ -83,24 +84,58 @@ def _run_spawned_latency_probe(
     samples: int,
     skip: int,
     period_ms: float,
+    devices: list[str],
 ) -> dict[str, Any]:
     ctx = mp.get_context("spawn")
-    parent, child = ctx.Pipe()
-    process = ctx.Process(target=_probe_child_main, args=(child, config_path, samples, skip, period_ms))
-    process.start()
-    child.close()
-    result = parent.recv()
-    process.join()
-    return result
+    probes = []
+    for device in devices:
+        parent, child = ctx.Pipe()
+        process = ctx.Process(
+            target=_probe_child_main,
+            args=(child, config_path, samples, skip, period_ms, device),
+        )
+        process.start()
+        child.close()
+        probes.append((parent, process))
+    results = [parent.recv() for parent, _process in probes]
+    for _parent, process in probes:
+        process.join()
+    slot_samples = [result["latency_samples_ms"] for result in results]
+    return {
+        "period_ms": float(period_ms),
+        "sample_count": int(samples),
+        "skip": int(skip),
+        "latency_samples_by_slot_ms": slot_samples,
+        "latency_samples_ms": [sample for samples in slot_samples for sample in samples],
+        "total_latency_ms": _summary([sample for samples in slot_samples for sample in samples]),
+        "latency_by_slot_summary": [result["total_latency_ms"] for result in results],
+        "policy_build_example_ms": _summary(
+            [value for result in results for value in result["policy_build_example_ms"]]
+        ),
+        "policy_wrapper_predict_action_ms": _summary(
+            [value for result in results for value in result["policy_wrapper_predict_action_ms"]]
+        ),
+        "policy_decode_ms": _summary(
+            [value for result in results for value in result["policy_decode_ms"]]
+        ),
+    }
 
 
-def _probe_child_main(connection: Any, config_path: Path, samples: int, skip: int, period_ms: float) -> None:
+def _probe_child_main(
+    connection: Any,
+    config_path: Path,
+    samples: int,
+    skip: int,
+    period_ms: float,
+    device: str,
+) -> None:
     config = load_config(config_path)
     result = measure_policy_latency_in_current_process(
         config=config,
         samples=samples,
         skip=skip,
         period_ms=period_ms,
+        device=device,
         sleep_fn=time.sleep,
     )
     connection.send(result)
@@ -113,6 +148,7 @@ def measure_policy_latency_in_current_process(
     samples: int,
     skip: int,
     period_ms: float,
+    device: str,
     sleep_fn,
 ) -> dict[str, Any]:
     from latency_bench.core.actions import ActionResolver
@@ -121,7 +157,8 @@ def measure_policy_latency_in_current_process(
     from latency_bench.policy.factory import build_policy
 
     worker_config = deepcopy(config)
-    worker_config["policy"]["device"] = worker_config["latency"]["device"]
+    worker_config["policy"]["device"] = device
+    worker_config["latency"]["device"] = device
     action_resolver = ActionResolver(worker_config["env"])
     env = build_env_adapter(worker_config, action_resolver.noop_action)
     policy = build_policy(worker_config, action_resolver)
@@ -185,29 +222,3 @@ def _summary(values: list[float]) -> dict[str, float | int]:
         "min": ordered[0],
         "max": ordered[-1],
     }
-
-
-
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Calibrate env_fps from saturated policy latency samples.")
-    parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--target-latency-frames", type=int, required=True)
-    parser.add_argument("--worker-utilization-cap", type=float, required=True)
-    parser.add_argument("--samples", type=int, default=DEFAULT_SAMPLES)
-    parser.add_argument("--skip", type=int, default=DEFAULT_SKIP)
-    parser.add_argument("--paced-period-ms", type=float)
-    args = parser.parse_args(argv)
-    calibrate_env_fps_from_saturated_latency(
-        config_path=args.config,
-        output=args.output,
-        target_latency_frames=args.target_latency_frames,
-        worker_utilization_cap=args.worker_utilization_cap,
-        samples=args.samples,
-        skip=args.skip,
-        paced_period_ms=args.paced_period_ms,
-    )
-
-
-if __name__ == "__main__":
-    main()

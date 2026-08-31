@@ -38,7 +38,7 @@ class ProcessInferencePool:
         self._ctx = mp.get_context(self.start_method)
         self._connections: list[Any] = []
         self._processes: list[mp.Process] = []
-        self._busy_worker_tasks: dict[int, RealtimeObservationTask] = {}
+        self._busy_worker_tasks: dict[int, tuple[RealtimeObservationTask, float]] = {}
         self.closed = False
         self.worker_python_executable = None
         if "policy" in config and config["policy"]["type"] == "official_gr00t":
@@ -84,6 +84,7 @@ class ProcessInferencePool:
         self._raise_if_closed()
         for worker_id in range(len(self.inference_devices)):
             if worker_id not in self._busy_worker_tasks:
+                worker_service_start_time_ms = monotonic_ms()
                 if task.profile is not None:
                     task.profile.parent_to_worker_send_start_ms = monotonic_ms()
                 self._connections[worker_id].send(("predict", {"task": task}))
@@ -91,7 +92,10 @@ class ProcessInferencePool:
                     task.profile.parent_to_worker_send_call_ms = (
                         monotonic_ms() - task.profile.parent_to_worker_send_start_ms
                     )
-                self._busy_worker_tasks[worker_id] = task
+                self._busy_worker_tasks[worker_id] = (
+                    task,
+                    worker_service_start_time_ms,
+                )
                 return True
         return False
 
@@ -173,7 +177,10 @@ class ProcessInferencePool:
             while connection.poll():
                 tag, payload = connection.recv()
                 if tag == "result":
-                    task = self._busy_worker_tasks.pop(worker_id)
+                    result_received_time_ms = monotonic_ms()
+                    task, worker_service_start_time_ms = self._busy_worker_tasks.pop(
+                        worker_id
+                    )
                     result = payload["result"]
                     profile = task.profile
                     if profile is not None and result.profile is not None:
@@ -187,6 +194,14 @@ class ProcessInferencePool:
                             policy_output=result.policy_output,
                             completion_time_ms=result.completion_time_ms,
                             latency_record=result.latency_record,
+                            observation_to_action_latency_ms=(
+                                result_received_time_ms
+                                - task.observation_start_time_ms
+                            ),
+                            worker_service_time_ms=(
+                                result_received_time_ms
+                                - worker_service_start_time_ms
+                            ),
                             worker_id=worker_id,
                             device=self.inference_devices[worker_id],
                             profile=profile,

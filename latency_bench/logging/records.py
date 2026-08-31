@@ -33,7 +33,6 @@ def build_step_record(
     active_event: ActionEvent | None,
     frame_ms: float,
     latency_type: str,
-    profile_metadata: dict[str, Any],
     pre_active_info: dict[str, Any] | None = None,
 ) -> StepRecord:
     step_info = step_record_info(info)
@@ -42,11 +41,9 @@ def build_step_record(
     step_info.update(
         active_action_step_info(
             active_event=active_event,
-            env_step=env_step,
             scheduled_time_ms=scheduled_time_ms,
             frame_ms=frame_ms,
             latency_type=latency_type,
-            profile_metadata=profile_metadata,
         )
     )
     return StepRecord(

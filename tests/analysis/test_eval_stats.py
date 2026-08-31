@@ -93,7 +93,7 @@ def test_summarize_eval_run_computes_population_stats_and_metadata(tmp_path: Pat
                 "metadata": {
                     "mode": "realtime",
                     "policy_id": "pi0",
-                    "target_device": "RTX_3090",
+                    "gpu_class": "1x-rtx3090",
                     "env_fps": 25.0,
                 },
             },
@@ -103,7 +103,7 @@ def test_summarize_eval_run_computes_population_stats_and_metadata(tmp_path: Pat
                 "metadata": {
                     "mode": "realtime",
                     "policy_id": "pi0",
-                    "target_device": "RTX_4090",
+                    "gpu_class": "1x-rtx4090",
                     "env_fps": 25.0,
                 },
             },
@@ -125,7 +125,7 @@ def test_summarize_eval_run_computes_population_stats_and_metadata(tmp_path: Pat
     assert summary["length_field"] == "survival_steps"
     assert summary["mode"] == "realtime"
     assert summary["policy_id"] == "pi0"
-    assert summary["target_device"] == "RTX_3090;RTX_4090"
+    assert summary["gpu_class"] == "1x-rtx3090;1x-rtx4090"
     assert summary["env_fps"] == pytest.approx(25.0)
 
 

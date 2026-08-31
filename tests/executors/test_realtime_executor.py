@@ -131,6 +131,12 @@ class ScriptedInferencePool:
                             device=script.device,
                             metadata={"worker_id": script.worker_id},
                         ),
+                        observation_to_action_latency_ms=(
+                            script.ready_time_ms - task.submit_time_ms
+                        ),
+                        worker_service_time_ms=(
+                            script.ready_time_ms - task.submit_time_ms
+                        ),
                         worker_id=script.worker_id,
                         device=script.device,
                         profile=task.profile,
@@ -224,13 +230,73 @@ def test_worker_runtime_metadata_records_spawn_context(monkeypatch):
 
     assert metadata["worker_id"] == 2
     assert metadata["worker_start_method"] == "spawn"
-    assert metadata["worker_python_executable"]
     assert metadata["worker_torch_version"]
     assert "worker_torch_cuda_version" in metadata
-    assert metadata["worker_cuda_visible_devices"] == "0,1"
     assert isinstance(metadata["worker_cuda_device_count"], int)
+    assert "worker_pid" not in metadata
+    assert "worker_python_executable" not in metadata
+    assert "worker_cuda_visible_devices" not in metadata
     assert "worker_cuda_flash_sdp_enabled" in metadata
     assert "worker_torch_float32_matmul_precision" in metadata
+
+
+def test_inference_worker_seeds_before_policy_build_with_worker_offset(monkeypatch):
+    import latency_bench.core.actions as actions_mod
+    import latency_bench.policy.factory as factory_mod
+
+    class DummyActionResolver:
+        def __init__(self, env_config):
+            self.env_config = env_config
+
+    events = []
+
+    class CloseWorkerConnection:
+        def send(self, _message):
+            return None
+
+        def recv(self):
+            return "close", {}
+
+    monkeypatch.setattr(actions_mod, "ActionResolver", DummyActionResolver)
+    monkeypatch.setattr(
+        realtime_inference_worker,
+        "seed_everything",
+        lambda seed: events.append(("seed", seed)),
+    )
+    monkeypatch.setattr(
+        realtime_inference_worker,
+        "_worker_runtime_metadata",
+        lambda worker_id, start_method: {},
+    )
+    monkeypatch.setattr(
+        factory_mod,
+        "build_policy",
+        lambda config, action_resolver: events.append(("build",)) or DummyWorkerPolicy(),
+    )
+    monkeypatch.setattr(
+        realtime_inference_worker,
+        "RuntimeLatencyMeasurer",
+        SuccessfulWorkerMeasurer,
+    )
+
+    config = {"experiment": {"seed": 123}, "env": {}, "policy": {}, "latency": {}}
+    for worker_id in (0, 1, 0):
+        _inference_worker(
+            CloseWorkerConnection(),
+            config,
+            worker_id=worker_id,
+            device="cpu",
+            start_method="spawn",
+        )
+
+    assert events == [
+        ("seed", 123),
+        ("build",),
+        ("seed", 124),
+        ("build",),
+        ("seed", 123),
+        ("build",),
+    ]
 
 
 class ClosedActionEventPipe:
@@ -406,6 +472,8 @@ class LateCompletionAfterFinalizePool:
                 policy_output=PolicyOutput(action=Action("late")),
                 completion_time_ms=now_ms,
                 latency_record=LatencyRecord(obs_id=task.obs_id, latency_ms=1.0),
+                observation_to_action_latency_ms=1.0,
+                worker_service_time_ms=1.0,
                 worker_id=0,
                 device="cpu",
                 profile=task.profile,
@@ -588,7 +656,6 @@ def _executor(
     )
     return RealtimeLatencyExecutor(
         runtime=runtime,
-        runtime_factory=lambda: runtime,
         policy=ConstantPolicyRunner(Action("unused")),
         logger=logger,
         time_fn=fake_clock.time,
@@ -597,73 +664,6 @@ def _executor(
         video_recorder=video_recorder,
         config=config,
     )
-
-
-def test_restart_runtime_rebuilds_owned_resources_and_preserves_session_state(
-    monkeypatch,
-    tmp_path,
-):
-    fake_clock = FakeClock()
-    runtimes = []
-    noop = Action("noop", name="noop", is_noop=True)
-
-    def build_runtime():
-        env = DummyEnvAdapter(env_fps=30.0, max_steps=2, noop_action=noop)
-        clock = EnvClock(env_fps=30.0, obs_fps=30.0)
-        runtime = RealtimeRuntime(
-            env=env,
-            decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-            latency_source=ZeroSampler(clock=clock),
-            action_scheduler=ActionScheduler(
-                clock=clock,
-                noop_action=noop,
-                persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
-                ordering_policy=OrderingPolicy.LATEST_READY,
-            ),
-            clock=clock,
-        )
-        runtimes.append(runtime)
-        return runtime
-
-    logger = TrajectoryLogger(
-        tmp_path,
-        save_step_records=True,
-        save_action_records=True,
-        save_latency_records=True,
-    )
-    old_pool = ScriptedInferencePool([], num_workers=1)
-    new_pool = ScriptedInferencePool([], num_workers=1)
-    monkeypatch.setattr(realtime_executor, "ProcessInferencePool", lambda **_kwargs: new_pool)
-    executor = RealtimeLatencyExecutor(
-        runtime=build_runtime(),
-        runtime_factory=build_runtime,
-        policy=None,
-        logger=logger,
-        time_fn=fake_clock.time,
-        sleep_fn=fake_clock.sleep,
-        inference_pool=old_pool,
-        config={"logging": {"output_dir": str(tmp_path)}},
-        inference_devices=["cuda:0"],
-    )
-    executor._next_obs_id = 17
-    executor._next_action_id = 11
-
-    executor.restart_runtime(60)
-
-    assert old_pool.closed
-    assert runtimes[0].env.closed
-    assert fake_clock.sleeps == [60.0]
-    assert executor.env is runtimes[1].env
-    assert executor.inference_pool is None
-    assert executor.logger is logger
-    assert executor._next_obs_id == 17
-    assert executor._next_action_id == 11
-    assert executor._ensure_inference_pool() is new_pool
-
-    executor.close()
-
-    assert new_pool.closed
-    assert runtimes[1].env.closed
 
 
 def test_env_process_ignores_late_action_when_pipe_is_closed(monkeypatch):
@@ -710,6 +710,7 @@ def test_env_process_drains_ready_results_before_submitting_observation(monkeypa
         observation=Observation(data=None, env_step=0, sim_time_ms=0.0),
         submit_env_step=0,
         submit_time_ms=0.0,
+        observation_start_time_ms=0.0,
         shared_obs_id=0,
     )
     parent_conn = QueuedEnvMessagePipe(
@@ -760,6 +761,7 @@ def test_env_process_does_not_enqueue_released_actions_on_parent_scheduler(monke
         observation=Observation(data=None, env_step=0, sim_time_ms=0.0),
         submit_env_step=0,
         submit_time_ms=0.0,
+        observation_start_time_ms=0.0,
         shared_obs_id=0,
     )
     parent_conn = QueuedEnvMessagePipe(
@@ -803,12 +805,16 @@ def test_env_process_does_not_enqueue_released_actions_on_parent_scheduler(monke
     assert ("release_observation", {"obs_id": 0}) in parent_conn.sent
 
 
-def test_env_process_releases_in_flight_observations_before_close_after_episode_done(monkeypatch):
+def test_env_process_records_tail_attempt_and_releases_observation_before_close(
+    monkeypatch,
+    tmp_path,
+):
     task = RealtimeObservationTask(
         obs_id=0,
         observation=Observation(data=None, env_step=0, sim_time_ms=0.0),
         submit_env_step=0,
         submit_time_ms=0.0,
+        observation_start_time_ms=0.0,
         shared_obs_id=42,
     )
     parent_conn = QueuedEnvMessagePipe(
@@ -832,7 +838,13 @@ def test_env_process_releases_in_flight_observations_before_close_after_episode_
         ]
     )
     pool = LateCompletionAfterFinalizePool()
-    executor = _executor(pool=pool, max_steps=1)
+    logger = TrajectoryLogger(
+        tmp_path,
+        save_step_records=True,
+        save_action_records=True,
+        save_latency_records=True,
+    )
+    executor = _executor(pool=pool, max_steps=1, logger=logger)
 
     monkeypatch.setattr(realtime_executor.mp, "get_context", lambda _method: QueuedEnvMessageContext(parent_conn))
 
@@ -845,6 +857,21 @@ def test_env_process_releases_in_flight_observations_before_close_after_episode_
 
     assert metrics.num_actions == 0
     assert parent_conn.sent.index(("release_observation", {"obs_id": 42})) < parent_conn.sent.index(("close", {}))
+    attempts = [
+        json.loads(line)
+        for line in (tmp_path / "observation_attempts.jsonl").read_text().splitlines()
+    ]
+    assert attempts == [
+        {
+            "episode_id": 0,
+            "obs_env_step": 0,
+            "obs_id": 0,
+            "observation_to_action_latency_ms": 1.0,
+            "submitted": True,
+            "worker_id": 0,
+            "worker_service_time_ms": 1.0,
+        }
+    ]
 
 
 def test_inference_pool_closes_connections_after_workers_exit():
@@ -888,12 +915,13 @@ def test_inference_worker_exits_when_result_pipe_is_closed(monkeypatch):
         observation=Observation(data=object(), env_step=0, sim_time_ms=0.0),
         submit_env_step=0,
         submit_time_ms=0.0,
+        observation_start_time_ms=0.0,
     )
     connection = BrokenResultConnection(task)
 
     _inference_worker(
         connection,
-        {"env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
         worker_id=0,
         device="cpu",
         start_method="spawn",
@@ -909,13 +937,14 @@ def test_inference_worker_returns_slim_result_without_observation_task(monkeypat
         observation=Observation(data={"pixels": "large"}, env_step=3, sim_time_ms=100.0),
         submit_env_step=3,
         submit_time_ms=100.0,
+        observation_start_time_ms=100.0,
     )
     connection = RecordingWorkerConnection(task)
     connection.commands.append(("close", {}))
 
     _inference_worker(
         connection,
-        {"env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
         worker_id=0,
         device="cpu",
         start_method="spawn",
@@ -965,13 +994,14 @@ def test_inference_worker_predicts_from_worker_local_observation_copy(monkeypatc
             observation=shared_observation,
             submit_env_step=3,
             submit_time_ms=100.0,
+            observation_start_time_ms=100.0,
         )
         connection = RecordingWorkerConnection(task)
         connection.commands.append(("close", {}))
 
         _inference_worker(
             connection,
-            {"env": {}, "policy": {}, "latency": {}},
+            {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
             worker_id=0,
             device="cpu",
             start_method="spawn",
@@ -1119,6 +1149,7 @@ def test_process_inference_pool_reconstructs_completion_from_busy_task(monkeypat
         observation=Observation(data="obs", env_step=4, sim_time_ms=120.0),
         submit_env_step=4,
         submit_time_ms=120.0,
+        observation_start_time_ms=5.0,
         profile=PipelineProfile(parent_observation_handle_ms=2.0),
     )
     result = RealtimePolicyResult(
@@ -1131,7 +1162,7 @@ def test_process_inference_pool_reconstructs_completion_from_busy_task(monkeypat
     pool.closed = False
     pool._connections = [ReadyResultConnection(result)]
     pool.inference_devices = ["cpu"]
-    pool._busy_worker_tasks = {0: task}
+    pool._busy_worker_tasks = {0: (task, 10.0)}
 
     completions = pool._drain_all_ready()
 
@@ -1143,6 +1174,8 @@ def test_process_inference_pool_reconstructs_completion_from_busy_task(monkeypat
     assert completions[0].profile.parent_observation_handle_ms == 2.0
     assert completions[0].profile.worker_recv_overhead_ms == 3.0
     assert completions[0].profile.worker_to_parent_ipc_ms == 3.0
+    assert completions[0].observation_to_action_latency_ms == 15.0
+    assert completions[0].worker_service_time_ms == 10.0
 
 
 def test_action_dispatch_and_ack_payloads_are_scheduler_slim():
@@ -1195,12 +1228,13 @@ def test_inference_worker_reports_real_errors_when_pipe_is_open(monkeypatch):
         observation=Observation(data=object(), env_step=0, sim_time_ms=0.0),
         submit_env_step=0,
         submit_time_ms=0.0,
+        observation_start_time_ms=0.0,
     )
     connection = RecordingWorkerConnection(task)
 
     _inference_worker(
         connection,
-        {"env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
         worker_id=0,
         device="cpu",
         start_method="spawn",
@@ -1243,6 +1277,86 @@ def test_realtime_drops_observation_when_all_workers_are_busy():
     assert metrics.metadata["submitted_observation_frames"] == 1
     assert metrics.metadata["dropped_observation_count"] == 2
     assert executor.logger is None
+
+
+def test_realtime_logs_capacity_drops_and_tail_completion_in_attempt_order(tmp_path):
+    pool = ScriptedInferencePool(
+        [CompletionScript(Action("slow"), ready_time_ms=1000.0, worker_id=0, device="cpu")],
+        num_workers=1,
+    )
+    logger = TrajectoryLogger(
+        tmp_path,
+        save_step_records=True,
+        save_action_records=True,
+        save_latency_records=True,
+    )
+    executor = _executor(pool=pool, max_steps=3, logger=logger)
+
+    metrics = executor.run_episode(episode_id=4, eval_max_steps=3)
+
+    attempts = [
+        json.loads(line)
+        for line in (tmp_path / "observation_attempts.jsonl").read_text().splitlines()
+    ]
+    assert attempts == [
+        {
+            "episode_id": 4,
+            "obs_env_step": 0,
+            "obs_id": 0,
+            "observation_to_action_latency_ms": 1000.0,
+            "submitted": True,
+            "worker_id": 0,
+            "worker_service_time_ms": 1000.0,
+        },
+        {
+            "episode_id": 4,
+            "obs_env_step": 1,
+            "obs_id": 1,
+            "submitted": False,
+        },
+        {
+            "episode_id": 4,
+            "obs_env_step": 2,
+            "obs_id": 2,
+            "submitted": False,
+        },
+    ]
+    assert metrics.num_actions == 0
+
+
+def test_realtime_attempt_trace_uses_observation_order_for_out_of_order_results(tmp_path):
+    pool = ScriptedInferencePool(
+        [
+            CompletionScript(Action("first"), ready_time_ms=80.0, worker_id=0, device="cpu:0"),
+            CompletionScript(Action("second"), ready_time_ms=34.0, worker_id=1, device="cpu:1"),
+        ],
+        num_workers=2,
+    )
+    logger = TrajectoryLogger(
+        tmp_path,
+        save_step_records=True,
+        save_action_records=True,
+        save_latency_records=True,
+    )
+    executor = _executor(
+        pool=pool,
+        ordering_policy=OrderingPolicy.LATEST_READY,
+        max_steps=4,
+        logger=logger,
+    )
+
+    executor.run_episode(episode_id=0, eval_max_steps=4)
+
+    attempts = [
+        json.loads(line)
+        for line in (tmp_path / "observation_attempts.jsonl").read_text().splitlines()
+    ]
+    assert [row["obs_id"] for row in attempts[:2]] == [0, 1]
+    assert [row["worker_id"] for row in attempts[:2]] == [0, 1]
+    assert attempts[0]["observation_to_action_latency_ms"] == 80.0
+    assert attempts[1]["observation_to_action_latency_ms"] == pytest.approx(
+        34.0 - 1000.0 / 30.0
+    )
 
 
 def test_realtime_records_inference_worker_count_in_episode_metadata():
@@ -1494,6 +1608,7 @@ def test_inference_worker_collect_command_runs_gc_and_keeps_serving(monkeypatch)
         observation=Observation(data=object(), env_step=0, sim_time_ms=0.0),
         submit_env_step=0,
         submit_time_ms=0.0,
+        observation_start_time_ms=0.0,
     )
     connection = RecordingWorkerConnection(task)
     connection.commands.insert(0, ("collect", {}))
@@ -1504,7 +1619,7 @@ def test_inference_worker_collect_command_runs_gc_and_keeps_serving(monkeypatch)
 
     _inference_worker(
         connection,
-        {"env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
         worker_id=0,
         device="cpu",
         start_method="spawn",

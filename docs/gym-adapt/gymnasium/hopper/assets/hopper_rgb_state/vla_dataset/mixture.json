@@ -1,0 +1,16 @@
+{
+  "hopper_rgb_state_l0_return_gt3000_100ep": [
+    [
+      "hopper_rgb_state_l0_return_gt3000_100ep",
+      1.0,
+      "rl_games_gymnasium"
+    ]
+  ],
+  "hopper_rgb_state_l0_return_gt3000_100ep__val": [
+    [
+      "hopper_rgb_state_l0_return_gt3000_100ep__val",
+      1.0,
+      "rl_games_gymnasium"
+    ]
+  ]
+}

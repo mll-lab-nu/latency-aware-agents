@@ -311,7 +311,6 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                         active_event=slot.action_scheduler.latest_applied_event,
                         frame_ms=self.clock.frame_ms,
                         latency_type=latency_type_from_source(slot.latency_source),
-                        profile_metadata=profile_metadata_from_source(slot.latency_source),
                     )
                     slot.buffers.step_records.append(record)
                     slot.buffers.record_step(reward=float(result.reward), info=record.info)

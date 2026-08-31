@@ -16,8 +16,6 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.envs.humanoidbench_sonic_contract import (
     G1_GR00T_ACTION_DIM,
-    G1_GR00T_ACTION_HORIZON,
-    G1_GR00T_STATE_DIM,
 )
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.policy.base import PolicyRunner
@@ -78,15 +76,14 @@ class OfficialGr00tPolicyRunner(PolicyRunner):
         action_dict, info = self._policy.get_action(batch)
         del info
         chunks = np.asarray(action_dict[OFFICIAL_GR00T_ACTION_KEY])
-        expected_shape = (
-            len(observations),
-            G1_GR00T_ACTION_HORIZON,
-            G1_GR00T_ACTION_DIM,
-        )
-        if chunks.shape != expected_shape:
+        if (
+            chunks.ndim != 3
+            or chunks.shape[0] != len(observations)
+            or chunks.shape[2] != G1_GR00T_ACTION_DIM
+        ):
             raise ValueError(
                 "official GR00T action contract requires "
-                f"shape {expected_shape}, got {chunks.shape}"
+                f"shape ({len(observations)}, *, {G1_GR00T_ACTION_DIM}), got {chunks.shape}"
             )
         return [
             PolicyOutput(
@@ -111,7 +108,7 @@ def _official_observation(observation: Observation, *, prompt: str) -> dict[str,
             OFFICIAL_GR00T_VIDEO_KEY: frames[-1:].reshape(1, 1, *frames.shape[1:])
         },
         "state": {
-            OFFICIAL_GR00T_STATE_KEY: state.reshape(1, 1, G1_GR00T_STATE_DIM)
+            OFFICIAL_GR00T_STATE_KEY: state.reshape(1, 1, -1)
         },
         "language": {OFFICIAL_GR00T_LANGUAGE_KEY: [[prompt]]},
     }
