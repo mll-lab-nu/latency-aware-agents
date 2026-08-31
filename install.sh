@@ -4,6 +4,7 @@ set -euo pipefail
 INSTALL_TIER="dev"
 MODEL_TARGET=""
 SKIP_FLASH_ATTN="false"
+RUN_VALIDATE="true"
 PYTHON_VERSION="3.10"
 CUDA_VERSION="12.8.1"
 LATENCY_ENV_NAME="latency"
@@ -25,6 +26,7 @@ Python 3.10, CUDA Toolkit 12.8.1, and PyTorch 2.11.0+cu128.
 Options:
   --tier <use|dev>         Install runtime or development dependencies (default: dev)
   --model <name|all>       Required: openvla|pi0|pi05|gr00t|official_gr00t|wan_oft|all
+  --skip-validate          Skip final validation in selected model envs
   --skip-flash-attn        Skip FlashAttention install/check in selected model envs
   -h, --help               Show this help
 EOF
@@ -42,6 +44,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-flash-attn)
             SKIP_FLASH_ATTN="true"
+            shift
+            ;;
+        --skip-validate)
+            RUN_VALIDATE="false"
             shift
             ;;
         -h|--help)
@@ -212,8 +218,12 @@ install_official_gr00t() {
     ensure_official_gr00t_uv
     echo "[install] syncing Isaac-GR00T Python 3.12 environment"
     uv sync --project third_party/Isaac-GR00T --python 3.12
-    uv run --project third_party/Isaac-GR00T python -c \
-        'from gr00t.policy import Gr00tPolicy; print(Gr00tPolicy.__name__)'
+    if [[ "${RUN_VALIDATE}" == "true" ]]; then
+        uv run --project third_party/Isaac-GR00T python -c \
+            'from gr00t.policy import Gr00tPolicy; print(Gr00tPolicy.__name__)'
+    else
+        echo "[install] skipping official_gr00t validation"
+    fi
 }
 
 ensure_conda
@@ -247,6 +257,9 @@ BOOTSTRAP_ARGS=(
 
 if [[ "${SKIP_FLASH_ATTN}" == "true" ]]; then
     BOOTSTRAP_ARGS+=(--skip-flash-attn)
+fi
+if [[ "${RUN_VALIDATE}" == "false" ]]; then
+    BOOTSTRAP_ARGS+=(--skip-validate)
 fi
 
 bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "${BOOTSTRAP_ARGS[@]}"
