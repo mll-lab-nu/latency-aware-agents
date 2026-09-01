@@ -2,7 +2,8 @@
 
 > 任务：`Isaac-Extreme-Parkour-{Teacher,Student}-Unitree-Go2-v0`
 >
-> Extreme Parkour fork：当前优化 worktree base `44dc7c862c920153e77de5cf739b3e73b2f88a2b`；
+> Extreme Parkour fork：优化 base commit `4265e663627a3f5e50a076508b78cfdad05b2b39`；
+> 当前 follow-up diff 恢复 student height scanner 的 20 ms `update_period`，并启用 cuDNN benchmark；
 > zero-delay commit `991c4b02aa08a802e57d01924ef2f3826d0d7334`；upstream base
 > `d6766d8883cffe427f2d4c087717d4eca1f23d8c`
 >
@@ -10,8 +11,8 @@
 >
 > Isaac Sim：5.0.0；PyTorch：2.7.0 + cu128
 >
-> 状态：依赖已固定；优化后 teacher/student 双卡 smoke、目标容量 A/B 和精确
-> resume 已通过。优化 diff 按要求留在 worktree 供 review，尚未 commit/push，也尚未启动正式训练。
+> 状态：依赖和优化 base commit 已固定；teacher/student 双卡 smoke、目标容量 A/B、精确 resume
+> 和第二轮 free-lunch 筛选已完成。follow-up 尚待 review/commit；未启动正式训练。
 
 ## 1. 目标与实验口径
 
@@ -178,7 +179,8 @@ zero-delay 实验设置，也不声明相对原始错误 DDP 的吞吐加速。
 `research/zero-delay-go2` 在其上增加 zero-delay commit
 `991c4b02aa08a802e57d01924ef2f3826d0d7334` 和 `.gitignore` commit `44dc7c862c920153e77de5cf739b3e73b2f88a2b`，
 包含关闭 student action delay、读取最新 depth frame、关闭 headless depth debug window，以及
-两个既有 Python/config bug 修复。上游 PR compare
+两个既有 Python/config bug 修复。性能优化已提交为 `4265e663627a3f5e50a076508b78cfdad05b2b39`
+并由父仓 `ff70f83fcaac4534bffb4bd415d97972d442f949` 固定。上游 PR compare
 入口是 [master...mindorigin150:fix/extreme-parkour-ddp](https://github.com/CAI23sbP/Isaaclab_Parkour/compare/master...mindorigin150:Isaaclab_Parkour:fix/extreme-parkour-ddp?expand=1)。
 
 ## 4. Worktree 与 submodule
@@ -199,12 +201,13 @@ git -C third_party/Isaaclab_Parkour rev-parse HEAD
 
 ```text
 46dff135f44683f031edf346e544fcfd8456b2bb
-44dc7c862c920153e77de5cf739b3e73b2f88a2b
+4265e663627a3f5e50a076508b78cfdad05b2b39
 ```
 
 Parkour submodule URL 固定为 `git@github.com:mindorigin150/Isaaclab_Parkour.git`。fresh checkout
 不再执行 `git apply`；commit 不匹配时直接检查 submodule URL/gitlink，不静默改用其他 revision。
-正式启动前必须先将本轮优化 diff commit，再把本节的 Parkour commit 和父仓 gitlink 更新为同一精确值。
+当前 review worktree 相对 Parkour base 只允许存在 student height-scanner 100 ms → 20 ms、启用
+cuDNN benchmark 两处一行 follow-up；正式启动前必须先提交并同步更新本节 revision 与父仓 gitlink。
 
 ## 5. 环境安装
 
@@ -338,10 +341,32 @@ A/B 保持相同 DDP 布局、总 env 数、rollout horizon、优化器、PPO ep
 
 保留的改动只删除等价热路工作：GPU terrain mask 取代每步 NumPy/CPU 往返，metrics
 保持在 GPU 并在 reset 时只做一次 host sync，zero-delay action 绕过无用 FIFO，静态 privileged
-latent 缓存，history 就地滑动，depth 批处理，camera/height sensor 与已有 10 Hz 消费节拍对齐，
-并在同一节拍复用固定 teacher 的 scan latent。纯张量新旧路径逐元素等价检查已通过。
+latent 缓存，history 就地滑动，depth 批处理，camera update 与已有 10 Hz 消费节拍对齐，
+并在同一节拍复用固定 teacher 的 scan latent。height scanner 保持 20 ms；纯张量新旧路径
+逐元素等价检查已通过。
 
-### 6.5 checkpoint resume smoke
+### 6.5 第二轮 free-lunch 筛选
+
+筛选门槛固定为双卡端到端稳态提升至少 1%；低于门槛的实验代码全部回退：
+
+| candidate | 语义检查 | 目标容量结果 | 结论 |
+|---|---|---|---|
+| height scanner `update_period` 20 ms → 100 ms | 当前 `lazy_sensor_update=True`，只有 observation 每 5 步读取时才 raycast | 单卡 collection 2.076 s → 2.117 s | 恢复 20 ms；没有省掉 80% raycast |
+| goal/env 张量清理、actor concat、teacher scan cache、日志同步合并 | strict-equivalence probes 逐值通过 | teacher DDP 2.057 s → 2.061 s（-0.18%） | 未过门槛，全部回退 |
+| 最小 student clone/host-sync 清理 | 日志值和顺序逐值一致 | 两组 DDP 端到端 FPS 6971 → 6922、6945 → 6912（-0.70%、-0.48%） | 未过门槛，回退 |
+| `nn.Module.compile` actor | 非 exact；最大绝对误差 `1.16e-4`，默认 `allclose` 失败 | actor 284.4 us → 257.6 us；actor-only +9.4%，预计端到端不足 1% | 不进入训练路径 |
+| `torch.backends.cudnn.benchmark=True` | forward exact；backward 最大绝对误差 `7.96e-13`，默认 `allclose` 通过 | student DDP 端到端 +1.26%～+1.64% | 启用 |
+
+height scanner 恢复 20 ms；cuDNN benchmark 已启用，接受 backward 约 `8e-13` 的最大绝对差异。
+
+20-iteration DDP 证据 runs 分别为 teacher `2026-09-01_20-32-25_strict_ddp_baseline_teacher_3072`
+/ `2026-09-01_20-33-53_strict_ddp_candidate_teacher_3072`，student baseline
+`2026-09-01_20-35-44_strict_ddp_baseline_student_96`、`2026-09-01_20-43-26_strict_ddp_baseline2_student_96`，
+minimal candidate `2026-09-01_20-41-03_strict_ddp_minimal_student_96`、
+`2026-09-01_20-45-23_strict_ddp_minimal2_student_96`，以及 cuDNN
+`2026-09-01_20-48-58_cudnn_benchmark_student_96`。
+
+### 6.6 checkpoint resume smoke
 
 Teacher/Student 均已用优化 profile 的 `model_4.pt` 完成双卡精确 resume smoke，
 分别由 runs `2026-09-01_19-38-22_smoke_resume_teacher_strict_opt` 和
@@ -419,11 +444,11 @@ student evaluation 同样需要 `--enable_cameras`，并在进程环境中预加
 
 | 项目 | 状态/结果 |
 |---|---|
-| worktree | `/pfs/users/lxy/latency-sensitive-bench-parkour`；branch `research/extreme-parkour-lab`；base `8470a50b` |
+| worktree | `/pfs/users/lxy/latency-sensitive-bench-parkour`；branch `research/extreme-parkour-lab`；base `ff70f83f` |
 | GPU | 2× 97,887 MiB Blackwell，compute capability 12.0，driver 580.159.04；P2P read/write OK |
-| Isaac Lab / Parkour | `46dff135...` pinned；Parkour 优化 worktree base `44dc7c8...`，upstream base `d6766d88...` |
+| Isaac Lab / Parkour | `46dff135...` pinned；Parkour optimization `4265e66...` pinned，upstream base `d6766d88...` |
 | Python/Torch/Isaac Sim | Python 3.11；Torch 2.7.0+cu128；Isaac Sim 5.0.0；安装完成 |
-| fork branches | `fix/extreme-parkour-ddp`=`e3fe6e3d...`；`research/zero-delay-go2`=`44dc7c8...`；均已发布 |
+| fork branches | `fix/extreme-parkour-ddp`=`e3fe6e3d...`；`research/zero-delay-go2`=`44dc7c8...`；`master`=`4265e66...`；均已发布 |
 | upstream PR | compare/create form 已就绪；GitHub App 对 upstream 只有 read 权限，API create PR 返回 403 |
 | 单卡 teacher/student smoke | 通过；runs `2026-09-01_16-27-46_smoke_single` / `2026-09-01_16-42-32_smoke_single_student` |
 | teacher DDP smoke | 通过；run `2026-09-01_16-35-39_smoke_ddp_teacher`；384 timesteps |
@@ -434,7 +459,9 @@ student evaluation 同样需要 `--enable_cameras`，并在进程环境中预加
 | student 96 env/rank profile | baseline 6,192 FPS；optimized run `2026-09-01_19-36-56_profile_student_strict_opt_final_ddp_96` 6,958.5 FPS，+12.4% |
 | teacher/student exact resume | 通过；优化 profile 的 `model_4.pt` 均从 iteration 4 继续训练 1 iteration |
 | camera teardown | current keyboard unsubscribe API 单卡实跑通过，无退出 `AttributeError` |
-| 优化代码 pin | pending review/commit；当前按要求只保留 worktree diff，未 commit/push |
+| 优化代码 pin | base `4265e66...` 已 commit/push，父仓 `ff70f83...` 已固定；scanner/cuDNN follow-up 待 review/commit |
+| 第二轮 strict free lunch | teacher/student 双卡均未稳定超过 1% 端到端门槛；实验代码已回退 |
+| allclose candidates | compile 因默认 `allclose` 失败而拒绝；cuDNN benchmark +1.26%～+1.64%，已启用，backward 最大绝对差异 `7.96e-13` |
 | teacher 15k | 未启动（按要求停在 preflight） |
 | student 5k | pending |
 | fixed evaluation | pending |
