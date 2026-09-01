@@ -1,0 +1,40 @@
+env:
+  name: gymnasium
+  task_name: swimmer_rgb_state
+  env_id: LatencyBench/SwimmerContinuous-v0
+  registration_imports:
+  - latency_bench.envs.gymnasium_swimmer
+  make_kwargs:
+    render_mode: rgb_array
+    base_make_kwargs:
+      exclude_current_positions_from_observation: true
+  env_fps: 25.0
+  obs_fps: 25.0
+  frame_stack: 1
+  state_space:
+    labels:
+    - front_tip_angle
+    - first_rotor_angle
+    - second_rotor_angle
+    - front_tip_x_velocity
+    - front_tip_y_velocity
+    - front_tip_angular_velocity
+    - first_rotor_angular_velocity
+    - second_rotor_angular_velocity
+  action_space:
+    type: box
+    labels:
+    - first_rotor_torque
+    - second_rotor_torque
+    low:
+    - -1.0
+    - -1.0
+    high:
+    - 1.0
+    - 1.0
+    dtype: float32
+  noop_action:
+  - 0.0
+  - 0.0
+  base_prompt: Make the Swimmer move forward as fast as possible. Predict two continuous
+    torques in [-1, 1] ordered as the first rotor and the second rotor.
