@@ -8,6 +8,7 @@ from typing import Any
 import yaml
 
 from latency_bench.core.config import load_config
+from latency_bench.eval.config import apply_runtime_overrides
 
 
 def calibration_config(
@@ -99,10 +100,13 @@ def eval_command(spec: dict[str, Any], config_path: Path, output_dir: Path) -> l
 
 def _base_config(spec: dict[str, Any], output_dir: Path) -> dict[str, Any]:
     config = deepcopy(load_config(spec["base_config"]))
-    config["policy"]["checkpoint_path"] = spec["checkpoint_path"]
+    apply_runtime_overrides(
+        config,
+        checkpoint_path=spec["checkpoint_path"],
+        output_dir=output_dir,
+    )
     config["experiment"]["seed"] = spec["evaluation_seed"]
     config["evaluation"]["eval_episodes"] = spec["n_episodes"]
-    config["logging"]["output_dir"] = str(output_dir)
     return config
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import json
+import os
 from dataclasses import dataclass
 
 import numpy as np
@@ -172,6 +173,7 @@ def test_process_inference_pool_uses_spawn_start_method(monkeypatch):
 
 def test_official_gr00t_pool_uses_the_pinned_submodule_python(monkeypatch):
     starts = []
+    process_args = []
 
     class Connection:
         def recv(self):
@@ -181,10 +183,14 @@ def test_official_gr00t_pool_uses_the_pinned_submodule_python(monkeypatch):
             return None
 
     class Process:
+        def __init__(self, args):
+            self.args = args
+
         def start(self):
             starts.append(
                 (realtime_pool.mp_spawn.get_executable(), realtime_pool.sys.path.copy())
             )
+            process_args.append(self.args)
 
         def is_alive(self):
             return False
@@ -194,23 +200,38 @@ def test_official_gr00t_pool_uses_the_pinned_submodule_python(monkeypatch):
             return Connection(), Connection()
 
         def Process(self, **kwargs):
-            return Process()
+            return Process(kwargs["args"])
 
     monkeypatch.setattr(realtime_pool.mp, "get_context", lambda _method: Context())
+    worker_sys_path = [
+        "/repo",
+        "/usr/lib/python3.12",
+        "/usr/lib/python3.12/lib-dynload",
+        "/gr00t/lib/python3.12/site-packages",
+    ]
+    monkeypatch.setattr(
+        realtime_pool,
+        "official_gr00t_worker_sys_path",
+        lambda: worker_sys_path,
+    )
     previous_executable = realtime_pool.mp_spawn.get_executable()
     previous_sys_path = realtime_pool.sys.path.copy()
     sys_path_object = realtime_pool.sys.path
 
     pool = ProcessInferencePool(
         config={"policy": {"type": "official_gr00t"}},
-        inference_devices=["cuda:0"],
+        inference_devices=["cuda:0", "cuda:1"],
     )
 
     assert pool.worker_python_executable.endswith(
         "third_party/Isaac-GR00T/.venv/bin/python"
     )
-    assert starts[0][0] == pool.worker_python_executable.encode()
-    assert starts[0][1][0] == str(realtime_pool.OFFICIAL_GR00T_SITE_PACKAGES)
+    assert all(os.fsdecode(executable) == pool.worker_python_executable for executable, _ in starts)
+    assert all(path == worker_sys_path for _, path in starts)
+    assert [(args[2], args[3]) for args in process_args] == [
+        (0, "cuda:0"),
+        (1, "cuda:1"),
+    ]
     assert realtime_pool.mp_spawn.get_executable() == previous_executable
     assert realtime_pool.sys.path is sys_path_object
     assert realtime_pool.sys.path == previous_sys_path
@@ -297,6 +318,54 @@ def test_inference_worker_seeds_before_policy_build_with_worker_offset(monkeypat
         ("seed", 123),
         ("build",),
     ]
+
+
+def test_inference_worker_selects_cuda_device_before_policy_build(monkeypatch):
+    import torch
+    import latency_bench.core.actions as actions_mod
+    import latency_bench.policy.factory as factory_mod
+
+    events = []
+
+    class Connection:
+        def send(self, _message):
+            return None
+
+        def recv(self):
+            return "close", {}
+
+    monkeypatch.setattr(torch.cuda, "set_device", lambda device: events.append(("device", device)))
+    monkeypatch.setattr(actions_mod, "ActionResolver", lambda _config: object())
+    monkeypatch.setattr(
+        realtime_inference_worker,
+        "seed_everything",
+        lambda _seed: events.append(("seed",)),
+    )
+    monkeypatch.setattr(
+        realtime_inference_worker,
+        "_worker_runtime_metadata",
+        lambda _worker_id, _start_method: events.append(("metadata",)) or {},
+    )
+    monkeypatch.setattr(
+        factory_mod,
+        "build_policy",
+        lambda _config, _resolver: events.append(("build",)) or DummyWorkerPolicy(),
+    )
+    monkeypatch.setattr(
+        realtime_inference_worker,
+        "RuntimeLatencyMeasurer",
+        SuccessfulWorkerMeasurer,
+    )
+
+    _inference_worker(
+        Connection(),
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
+        worker_id=1,
+        device="cuda:1",
+        start_method="spawn",
+    )
+
+    assert events == [("device", "cuda:1"), ("seed",), ("metadata",), ("build",)]
 
 
 class ClosedActionEventPipe:

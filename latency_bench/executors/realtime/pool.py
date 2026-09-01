@@ -16,8 +16,8 @@ from latency_bench.executors.realtime.messages import (
 from latency_bench.executors.realtime.timing import monotonic_ms
 from latency_bench.executors.thread_env import set_thread_env_defaults
 from latency_bench.policy.official_gr00t import (
-    OFFICIAL_GR00T_SITE_PACKAGES,
     official_gr00t_python_executable,
+    official_gr00t_worker_sys_path,
 )
 
 REALTIME_INFERENCE_START_METHOD = "spawn"
@@ -41,8 +41,10 @@ class ProcessInferencePool:
         self._busy_worker_tasks: dict[int, tuple[RealtimeObservationTask, float]] = {}
         self.closed = False
         self.worker_python_executable = None
+        self.worker_sys_path = None
         if "policy" in config and config["policy"]["type"] == "official_gr00t":
             self.worker_python_executable = official_gr00t_python_executable()
+            self.worker_sys_path = official_gr00t_worker_sys_path()
         self._start_workers()
 
     @property
@@ -140,11 +142,7 @@ class ProcessInferencePool:
                 previous_sys_path = sys.path.copy()
                 try:
                     if self.worker_python_executable is not None:
-                        site_packages = str(OFFICIAL_GR00T_SITE_PACKAGES)
-                        sys.path[:] = [
-                            site_packages,
-                            *[path for path in sys.path if path != site_packages],
-                        ]
+                        sys.path[:] = self.worker_sys_path
                         mp.set_executable(self.worker_python_executable)
                     for worker_id, device in enumerate(self.inference_devices):
                         parent_conn, child_conn = self._ctx.Pipe()

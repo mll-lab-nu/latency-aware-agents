@@ -228,12 +228,6 @@ def run_simulation(
 def _collect_deployment(spec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     fingerprint = collect_hardware_fingerprint()
     names = gpu_name_registry(spec["gpu_models"])
-    selected = describe_participating_gpus(
-        gpus=fingerprint["gpus"],
-        topology=fingerprint["gpu"]["topology"],
-        gpu_name_registry=names,
-    )
-    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(gpu["uuid"] for gpu in selected["gpus"])
     deployment = describe_participating_gpus(
         gpus=fingerprint["gpus"],
         topology=fingerprint["gpu"]["topology"],
@@ -253,6 +247,16 @@ def _calibrate(
     calibration_path = source_dir / "calibration.json"
     if (source_dir / "calibration.DONE").exists():
         return read_json(calibration_path)
+    if not spec["calibrate_env_fps"]:
+        base_config = calibration_config(spec, deployment, source_dir / "calibration_probe")
+        calibration = {
+            "selected_env_fps": base_config["env"]["env_fps"],
+            "selected_obs_fps": base_config["env"]["obs_fps"],
+            "calibration_source": "fixed_workload_cadence",
+        }
+        write_json(calibration_path, calibration)
+        (source_dir / "calibration.DONE").touch()
+        return calibration
     config_path = source_dir / "calibration.generated.yaml"
     write_generated_config(
         config_path,

@@ -21,14 +21,23 @@ for ARG in "$@"; do
   esac
   PREVIOUS="${ARG}"
 done
-CONDA_ENV="${MODEL:+starvla_rl_games_${MODEL}}"
-CONDA_ENV="${CONDA_ENV:-latency}"
+if [[ "${MODEL}" == "official_gr00t" || -z "${MODEL}" ]]; then
+  CONDA_ENV="latency"
+  export LATENCY_BENCH_ENV_BACKEND_START_METHOD=spawn
+else
+  CONDA_ENV="starvla_rl_games_${MODEL}"
+fi
 
 set +u
 if [[ -d "/venv/${CONDA_ENV}" ]]; then
   conda activate "/venv/${CONDA_ENV}"
 else
-  conda activate "${CONDA_ENV}"
+  CONDA_ENV_PREFIX="$(conda env list | awk -v suffix="/${CONDA_ENV}" '$NF ~ suffix "$" { print $NF; exit }')"
+  if [[ -n "${CONDA_ENV_PREFIX}" ]]; then
+    conda activate "${CONDA_ENV_PREFIX}"
+  else
+    conda activate "${CONDA_ENV}"
+  fi
 fi
 set -u
 

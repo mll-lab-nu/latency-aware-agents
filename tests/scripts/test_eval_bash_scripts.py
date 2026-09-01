@@ -1045,17 +1045,29 @@ def test_starvla_rl_games_hfd_raw_download_convert_dry_run_defaults_to_all_datas
     assert "latency-sensitive-bench/deadly_corridor_fixed_l2_fs6" in result.stdout
 
 
-def test_profile_launcher_activates_selected_model_environment(tmp_path):
+@pytest.mark.parametrize(
+    ("model", "expected_environment"),
+    [("pi05", "starvla_rl_games_pi05"), ("official_gr00t", "latency_prefix")],
+)
+def test_profile_launcher_activates_selected_model_environment(
+    tmp_path, model, expected_environment
+):
     prefix = tmp_path / "conda"
     fake_bin = tmp_path / "bin"
     calls_path = tmp_path / "calls.log"
     conda_bin = fake_bin / "conda"
-    _write_fake_conda_installation(prefix, conda_bin, calls_path)
+    _write_fake_conda_installation(
+        prefix,
+        conda_bin,
+        calls_path,
+        latency_env_exists=model == "official_gr00t",
+    )
     _write_executable(
         fake_bin / "python",
         """#!/usr/bin/env bash
 set -euo pipefail
 printf 'python %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
+printf 'start_method=%s\\n' "${LATENCY_BENCH_ENV_BACKEND_START_METHOD:-}" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
 """,
     )
 
@@ -1065,7 +1077,7 @@ printf 'python %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
             str(REPO_ROOT / "scripts/profile.sh"),
             "list",
             "--model",
-            "pi05",
+            model,
             "--workload",
             "flappy",
         ],
@@ -1082,11 +1094,18 @@ printf 'python %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
 
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
-    assert "conda activate starvla_rl_games_pi05" in calls
+    expected_environment = (
+        str(prefix / "envs" / "latency")
+        if expected_environment == "latency_prefix"
+        else expected_environment
+    )
+    assert f"conda activate {expected_environment}" in calls
     assert (
         "python -m latency_bench.cross_device.protocol "
-        "list --model pi05 --workload flappy"
+        f"list --model {model} --workload flappy"
     ) in calls
+    if model == "official_gr00t":
+        assert "start_method=spawn" in calls
 
 
 

@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -50,7 +51,105 @@ def test_registry_has_one_openvla_flappy_preset():
 
     assert spec["session_count"] == 5
     assert spec["n_episodes"] == 100
+    assert spec["calibrate_env_fps"] is True
     assert spec["artifact_root"] == "results/profiling"
+
+
+def test_registry_has_balance_official_gr00t_preset():
+    spec = load_profile_spec(
+        "configs/profiles.yaml", "official_gr00t", "g1_sonic_balance_simple"
+    )
+
+    assert spec["session_count"] == 5
+    assert spec["n_episodes"] == 100
+    assert spec["evaluation_seed"] == 0
+    assert spec["simulation_parallel_envs"] == 1
+    assert spec["calibrate_env_fps"] is False
+    assert spec["simulation_env"] == {}
+    assert spec["checkpoint_path"].endswith("checkpoint-10000")
+    assert spec["gpu_models"]["rpbzzz6"]["aliases"] == ["NVIDIA RPBZZZ6"]
+
+
+def test_deployment_collection_preserves_cuda_device_selector(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
+    monkeypatch.setattr(
+        runner,
+        "collect_hardware_fingerprint",
+        lambda: {
+            "gpu": {"topology": None},
+            "gpus": [
+                {"uuid": "GPU-b", "name": "NVIDIA RPBZZZ6"},
+                {"uuid": "GPU-a", "name": "NVIDIA RPBZZZ6"},
+            ],
+        },
+    )
+
+    deployment, fingerprint = runner._collect_deployment(
+        {"gpu_models": {"rpbzzz6": {"aliases": ["NVIDIA RPBZZZ6"]}}}
+    )
+
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "0,1"
+    assert [(gpu["uuid"], gpu["cuda_index"]) for gpu in deployment["gpus"]] == [
+        ("GPU-a", 1),
+        ("GPU-b", 0),
+    ]
+    assert fingerprint["gpu_deployment"] == deployment
+
+
+def test_official_gr00t_runtime_checkpoint_override_uses_model_path():
+    spec = load_profile_spec(
+        "configs/profiles.yaml", "official_gr00t", "g1_sonic_balance_simple"
+    )
+    config = simulation_config(
+        spec,
+        output_dir=Path("results/profiling/test"),
+        profile_path=Path("profile.json"),
+        profile_ref=Path("official_gr00t/2x-rpbzzz6/g1_sonic_balance_simple/instance_abc"),
+        profile={
+            "model_id": "official_gr00t",
+            "gpu_class": "2x-rpbzzz6",
+            "workload_id": "g1_sonic_balance_simple",
+            "instance_id": "instance_abc",
+            "source_run_id": "run_1",
+            "env_fps": 50,
+            "per_slot_summary": {"0": {}, "1": {}},
+            "summary": {"mean_ms": 50.0, "std_ms": 4.0},
+        },
+        method="fixed",
+        latency_seed=7,
+        hf_commit="sha_123",
+    )
+
+    assert config["policy"]["model_path"] == spec["checkpoint_path"]
+    assert "checkpoint_path" not in config["policy"]
+    assert config["env"]["env_fps"] == 50
+    assert config["env"]["obs_fps"] == 50
+
+
+def test_fixed_workload_cadence_skips_policy_calibration(tmp_path, monkeypatch):
+    spec = load_profile_spec(
+        "configs/profiles.yaml", "official_gr00t", "g1_sonic_balance_simple"
+    )
+    monkeypatch.setattr(
+        runner,
+        "calibrate_env_fps_from_saturated_latency",
+        lambda **_kwargs: pytest.fail("fixed cadence must skip policy calibration"),
+    )
+
+    calibration = runner._calibrate(
+        spec,
+        {"gpu_class": "2x-rpbzzz6", "instance_id": "instance_abc"},
+        tmp_path,
+    )
+
+    assert calibration == {
+        "selected_env_fps": 50,
+        "selected_obs_fps": 50,
+        "calibration_source": "fixed_workload_cadence",
+    }
+    assert json.loads((tmp_path / "calibration.json").read_text()) == calibration
+    assert (tmp_path / "calibration.DONE").exists()
+    assert not (tmp_path / "calibration.generated.yaml").exists()
 
 
 def test_resume_run_id_cannot_escape_artifact_root():

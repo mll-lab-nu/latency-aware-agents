@@ -39,6 +39,9 @@ gpu_models:
   rtx-pro-6000-blackwell-maxq-ws:
     aliases:
       - NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition
+  rpbzzz6:
+    aliases:
+      - NVIDIA RPBZZZ6
 
 models:
   openvla:
@@ -50,9 +53,22 @@ models:
         session_count: 5
         n_episodes: 100
         evaluation_seed: 0
+        calibrate_env_fps: true
         target_latency_frames: 2
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_env:
           simulator: cpu
           use_gpu_render: false
+  official_gr00t:
+    workloads:
+      g1_sonic_balance_simple:
+        base_config: configs/examples/gymnasium/g1_sonic_balance_simple/official_gr00t_eval.yaml
+        checkpoint_path: outputs/official_gr00t/g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_frompretrained_bs128_lr1e4_10k_periodic500/checkpoint-10000
+        checkpoint_kind: latest
+        session_count: 5
+        n_episodes: 100
+        evaluation_seed: 0
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_env: {}

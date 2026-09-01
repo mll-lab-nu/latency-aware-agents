@@ -50,6 +50,10 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
         from latency_bench.core.actions import ActionResolver
         from latency_bench.policy.factory import build_policy
 
+        if device.startswith("cuda"):
+            import torch
+
+            torch.cuda.set_device(device)
         seed_everything(config["experiment"]["seed"] + worker_id)
         runtime_metadata = _worker_runtime_metadata(worker_id, start_method)
         worker_config = deepcopy(config)

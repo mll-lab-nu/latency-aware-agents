@@ -6,6 +6,8 @@ GR00T path independent from the official Python 3.12 environment.
 """
 from __future__ import annotations
 
+import json
+import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -23,9 +25,6 @@ from latency_bench.policy.base import PolicyRunner
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OFFICIAL_GR00T_ROOT = REPO_ROOT / "third_party" / "Isaac-GR00T"
 OFFICIAL_GR00T_PYTHON = OFFICIAL_GR00T_ROOT / ".venv" / "bin" / "python"
-OFFICIAL_GR00T_SITE_PACKAGES = (
-    OFFICIAL_GR00T_ROOT / ".venv" / "lib" / "python3.12" / "site-packages"
-)
 
 OFFICIAL_GR00T_PROPRIO_INFO_KEY = "official_gr00t_proprio"
 OFFICIAL_GR00T_VIDEO_KEY = "ego_view"
@@ -43,6 +42,21 @@ def _load_gr00t_policy() -> type[Any]:
 
 def official_gr00t_python_executable() -> str:
     return str(OFFICIAL_GR00T_PYTHON)
+
+
+def official_gr00t_worker_sys_path() -> list[str]:
+    paths = json.loads(
+        subprocess.check_output(
+            [
+                official_gr00t_python_executable(),
+                "-I",
+                "-c",
+                "import json, sys; print(json.dumps(sys.path))",
+            ],
+            text=True,
+        )
+    )
+    return [str(REPO_ROOT), *paths]
 
 
 class OfficialGr00tPolicyRunner(PolicyRunner):
@@ -162,8 +176,8 @@ def build_official_gr00t_policy(
 
 
 __all__ = [
-    "OFFICIAL_GR00T_SITE_PACKAGES",
     "OfficialGr00tPolicyRunner",
     "build_official_gr00t_policy",
     "official_gr00t_python_executable",
+    "official_gr00t_worker_sys_path",
 ]

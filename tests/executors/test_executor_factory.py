@@ -669,19 +669,21 @@ def test_realtime_devices_follow_torch_visible_count_when_env_is_unset(monkeypat
     assert executor_factory._resolve_realtime_inference_devices() == ["cuda:0", "cuda:1"]
 
 
-def test_official_gr00t_uses_one_inference_worker_for_one_model_copy(monkeypatch):
+def test_official_gr00t_uses_every_visible_gpu(monkeypatch, tmp_path):
     monkeypatch.setattr(
         executor_factory,
         "_resolve_realtime_inference_devices",
         lambda: ["cuda:0", "cuda:1"],
     )
+    config = _config(mode="realtime", output_dir=str(tmp_path))
+    config["policy"] = {"type": "official_gr00t"}
 
-    assert executor_factory._resolve_policy_inference_devices(
-        {"policy": {"type": "official_gr00t"}}
-    ) == ["cuda:0"]
-    assert executor_factory._resolve_policy_inference_devices(
-        {"policy": {"type": "starvla"}}
-    ) == ["cuda:0", "cuda:1"]
+    executor = build_executor(config)
+
+    try:
+        assert executor.inference_devices == ["cuda:0", "cuda:1"]
+    finally:
+        executor.env.close()
 
 
 def test_factory_builds_realtime_with_zero_injected_latency(monkeypatch, tmp_path):

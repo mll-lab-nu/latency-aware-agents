@@ -4,7 +4,7 @@
 
 把 realtime profiling 记录成一个完整、按 observation 顺序排列的 request sequence，明确 latency 的边界，并让 simulated worker 的 admission、busy state 和 capacity drop 从前序 inference 自然产生。
 
-本轮只修正 profiling data collection 和 profile input；保留已经做过 sim2real 验证的 IID/temporal 两种 modeling，不同时简化 hidden-regime。操作说明之后迁移到 `docs/profiling/cookbook.md`；术语和设计说明放在同目录的设计文档中。
+本轮只修正 profiling data collection 和 profile input；保留已经做过 sim2real 验证的 IID/temporal 两种 modeling，不同时简化 hidden-regime。用户操作说明维护在 `docs/profiling/cookbook.md`；术语和设计说明放在同目录的设计文档中。
 
 ## Current status
 
@@ -123,7 +123,7 @@ temporal 不直接采样 drop。每个 generated request 先经过 worker admiss
 - episode tail completions 被保留；
 - IID/temporal builder 和 sampler 能读取新 schema，并保留 measurement session boundary。
 
-仍待真实 profiling run 验证：用 service time 和 arrival cadence 推导出的 worker busy/drop 结构是否与 realtime trace 一致；新 sequence 重新生成 IID/temporal profile 后，再分别运行 simulated 和 realtime 对照实验。
+双 GPU Balance smoke 已验证 realtime trace 能记录两个 worker slot、capacity drop，并生成 per-slot temporal profile。仍待运行完整的 5×100 profiling，再分别运行 simulated 和 realtime 对照实验。
 
 旧 realtime return 不变，旧 IID/temporal 数值也不原地改写；变化来自新 sequence 重新拟合后的 profile。temporal 是否继续优于 IID，要在数据修正后重新验证。
 
@@ -138,7 +138,6 @@ temporal 不直接采样 drop。每个 generated request 先经过 worker admiss
 
 - hidden-regime 的简化和删除 rank/copula 等机制；
 - exact trace replay；
-- 将当前 `docs/profiling.md` 迁移为 `docs/profiling/cookbook.md`；
 - 在 `docs/profiling/` 增加完整设计文档。
 
 ## Implementation and verification
@@ -147,4 +146,4 @@ temporal 不直接采样 drop。每个 generated request 先经过 worker admiss
 - Profile builder 已切换到 canonical sequence；distribution schema 为 3，hidden-regime schema 为 12，旧 schema 不提供 compatibility path。
 - 新 manifest 记录 `n_observation_attempts`、`n_admitted_observations` 和 `n_capacity_drops`；per-slot summary 只统计 admitted jobs。
 - 当前聚焦回归：realtime/logging `50 passed`；profile/burst/sampler/cross-device `68 passed`。
-- 尚未运行新的真实 profiling 或 sim2real 实验，因此本文档不宣称新的 latency distribution 或 performance result。
+- 尚未运行完整的 5×100 profiling 或 sim2real 实验，因此本文档不宣称新的 latency distribution 或 performance result。
