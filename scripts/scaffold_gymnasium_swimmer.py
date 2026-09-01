@@ -28,7 +28,11 @@ STATE_LABELS = [
 
 
 def build_swimmer_probe_report(*, env_id: str, render_mode: str) -> dict:
-    env = gym.make(env_id, render_mode=render_mode)
+    env = gym.make(
+        env_id,
+        render_mode=render_mode,
+        base_make_kwargs={"exclude_current_positions_from_observation": True},
+    )
     observation, reset_info = env.reset(seed=0)
     rendered_frame = env.render()
     zero_action = np.zeros(env.action_space.shape, dtype=env.action_space.dtype)
