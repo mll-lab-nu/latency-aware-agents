@@ -97,7 +97,7 @@ training:
   initial_stddev: 1.0
   actor_critic_share_weights: true
   shuffle_minibatches: false
-  value_bootstrap: true
+  value_bootstrap: false
   normalize_input: true
   normalize_returns: true
   decorrelate_experience_max_seconds: 10

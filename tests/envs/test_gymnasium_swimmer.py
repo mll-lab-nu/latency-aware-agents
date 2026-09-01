@@ -145,6 +145,7 @@ def test_swimmer_training_uses_vendored_sample_factory_mujoco_recipe():
     assert cfg.rollout == 64
     assert cfg.recurrence == 1
     assert cfg.async_rl is True
+    assert cfg.value_bootstrap is False
     assert contract["action_space"]["labels"] == scaffold.ACTION_LABELS
     assert contract["state_space"]["labels"] == scaffold.STATE_LABELS
 
