@@ -132,8 +132,8 @@ underflow、controller compute 和 task success。fallback action 必须在实�
   planner 或 PPO 特例。
 - 不把 decoder 输出的 29D target 冒充 actor/replay 的 78D action。
 - 不增加兼容 alias、候选路径探测或隐式 fallback。
-- 当前只使用本地单 inference worker、只加载一份 GR00T；network policy server
-  留作独立的部署实验，不能与现有进程内结果直接混合比较。
+- 当前每张可见 GPU 使用一个本地 inference worker、各加载一份 GR00T；network
+  policy server 留作独立的部署实验，不能与现有进程内结果直接混合比较。
 
 ## 下一步
 

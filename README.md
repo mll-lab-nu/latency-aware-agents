@@ -134,8 +134,8 @@ Example StarVLA launchers:
 ## Official GR00T Layout
 
 `gr00t` remains the existing StarVLA/Qwen implementation. The separate
-`official_gr00t` policy loads NVIDIA GR00T N1.7 directly inside one local
-inference worker process; it does not use a network policy server.
+`official_gr00t` policy loads one NVIDIA GR00T N1.7 instance per visible GPU
+inside local inference worker processes; it does not use a network policy server.
 
 Official dataset conversion and torchcodec require a system FFmpeg version
 supported by the pinned GR00T release (FFmpeg 4–7). Model loading also requires
@@ -387,8 +387,8 @@ Resolve the exact published deployment profile:
 bash scripts/profile.sh resolve --model openvla --workload flappy
 ```
 
-See [the profiling guide](docs/profiling.md) for multi-GPU identity, artifact
-layout, publishing, commit-pinned replay, and adding presets.
+See [the profiling guide](docs/profiling/cookbook.md) for multi-GPU identity,
+artifact layout, publishing, commit-pinned replay, and adding presets.
 
 ### 6. Run Human Realtime Evaluation
 
@@ -454,7 +454,7 @@ Create a self-contained report at docs/gym-adapt/gymnasium/[TASK_NAME]/index.htm
 - [Standard rollout, SFT, and eval pipeline](docs/standard_pipeline.md)
 - [Gymnasium adaptation guide](docs/gymnasium_adapter.md) & [agent-assisted adaptation examples](docs/gym-adapt/gymnasium/README.md)
 - [Memory and KV-memory design](docs/memory.md)
-- [Deployment latency profiling](docs/profiling.md)
+- [Deployment latency profiling](docs/profiling/cookbook.md)
 - [WanOFT StarVLA eval](docs/starvla_wan_oft_eval.md)
 - [Realtime pipeline logging](docs/realtime_pipeline_logging.md)
 
