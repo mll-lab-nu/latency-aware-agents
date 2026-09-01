@@ -15,3 +15,6 @@
 [submodule "third_party/humanoid-bench"]
 	path = third_party/humanoid-bench
 	url = https://github.com/mindorigin150/humanoid-bench.git
+[submodule "third_party/MIKASA-Robo"]
+	path = third_party/MIKASA-Robo
+	url = git@github.com:mindorigin150/MIKASA-Robo.git

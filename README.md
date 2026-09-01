@@ -25,6 +25,14 @@ Latency-Sensitive Bench provides:
 - integration points for OpenVLA, pi0, pi0.5, the existing StarVLA GR00T,
   NVIDIA official GR00T, WanOFT, and human realtime evaluation.
 
+The current manipulation research path integrates the MIKASA
+`InterceptGrabFast-VLA-v0` task as a zero-delay H1 baseline: an official 7D
+state PPO teacher produces demonstrations, StarVLA trains a QwenOFT policy on
+the resulting LeRobot v3 dataset, and PPO/VLA policies are evaluated at the
+task's native 20 Hz (50 ms) control cadence. See the executable
+[`program/MIKASA.md`](program/MIKASA.md) runbook and the deferred latency
+[`program/PROPOSAL.md`](program/PROPOSAL.md).
+
 ## Repository Map
 
 ```text

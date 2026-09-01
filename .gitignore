@@ -18,6 +18,7 @@ results_old
 teacher_datasets/
 checkpoints/
 checkpoints_*/
+/oracle_checkpoints/
 logs/
 !docs/gym-adapt/assets/inverted_pendulum/logs/
 !docs/gym-adapt/assets/inverted_pendulum/logs/**
