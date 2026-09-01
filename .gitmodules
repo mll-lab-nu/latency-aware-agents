@@ -21,3 +21,9 @@
 [submodule "third_party/HAIC"]
 	path = third_party/HAIC
 	url = git@github.com:mindorigin150/HAIC.git
+[submodule "third_party/IsaacLab"]
+	path = third_party/IsaacLab
+	url = https://github.com/isaac-sim/IsaacLab.git
+[submodule "third_party/Isaaclab_Parkour"]
+	path = third_party/Isaaclab_Parkour
+	url = git@github.com:mindorigin150/Isaaclab_Parkour.git
