@@ -1,0 +1,12 @@
+[
+  {"step": 500, "text_bin_validation_loss": 0.2117676139, "continuous_validation_loss": 0.1603012681},
+  {"step": 1000, "text_bin_validation_loss": 0.1192244887, "continuous_validation_loss": 0.1179268062},
+  {"step": 1500, "text_bin_validation_loss": 0.0870891511, "continuous_validation_loss": 0.0801942647},
+  {"step": 2000, "text_bin_validation_loss": 0.0784668326, "continuous_validation_loss": 0.0775028244},
+  {"step": 2500, "text_bin_validation_loss": 0.0614698268, "continuous_validation_loss": 0.0660077557},
+  {"step": 3000, "text_bin_validation_loss": 0.0502404533, "continuous_validation_loss": 0.0526477210},
+  {"step": 3500, "text_bin_validation_loss": 0.0407069735, "continuous_validation_loss": 0.0418445542},
+  {"step": 4000, "text_bin_validation_loss": 0.0334659331, "continuous_validation_loss": 0.0410117544},
+  {"step": 4500, "text_bin_validation_loss": 0.0282997396, "continuous_validation_loss": 0.0323245823},
+  {"step": 5000, "text_bin_validation_loss": 0.0266080927, "continuous_validation_loss": 0.0307727940}
+]
