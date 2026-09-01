@@ -24,7 +24,7 @@ env:
       exclude_current_positions_from_observation: true
   env_fps: 25.0
   obs_fps: 25.0
-  frame_stack: 1
+  frame_stack: 4
   state_space:
     labels:
       - front_tip_angle
@@ -85,7 +85,7 @@ training:
   kl_loss_coeff: 0.1
   reward_scale: 1.0
   reward_clip: 1000.0
-  async_rl: false
+  async_rl: true
   serial_mode: false
   batched_sampling: false
   with_vtrace: false

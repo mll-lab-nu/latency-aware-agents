@@ -120,6 +120,7 @@ def test_swimmer_configs_preserve_native_rgb_state_contract():
         "base_make_kwargs": {"exclude_current_positions_from_observation": True},
     }
     assert EnvClock(env_fps=env["env_fps"], obs_fps=env["obs_fps"]).obs_stride_raw_frames == 1
+    assert env["frame_stack"] == 4
     assert env["action_space"] == {
         "type": "box",
         "labels": scaffold.ACTION_LABELS,
@@ -143,7 +144,7 @@ def test_swimmer_training_uses_vendored_sample_factory_mujoco_recipe():
     assert cfg.learning_rate == pytest.approx(0.00295)
     assert cfg.rollout == 64
     assert cfg.recurrence == 1
-    assert cfg.async_rl is False
+    assert cfg.async_rl is True
     assert contract["action_space"]["labels"] == scaffold.ACTION_LABELS
     assert contract["state_space"]["labels"] == scaffold.STATE_LABELS
 
