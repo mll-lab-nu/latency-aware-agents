@@ -18,3 +18,6 @@
 [submodule "third_party/MIKASA-Robo"]
 	path = third_party/MIKASA-Robo
 	url = https://github.com/mindorigin150/MIKASA-Robo.git
+[submodule "third_party/HAIC"]
+	path = third_party/HAIC
+	url = git@github.com:mindorigin150/HAIC.git
