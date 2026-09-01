@@ -142,6 +142,84 @@ def plot_vla_failure_diagnostic() -> None:
     plt.close(fig)
 
 
+def plot_continuous_projector_training_loss() -> None:
+    rows = json.loads((ROOT / "vla_training_continuous_projector" / "loss_anchors.json").read_text())
+    steps = [row["step"] for row in rows]
+    train_loss = [row["train_loss"] for row in rows]
+    validation_loss = [row["validation_loss"] for row in rows]
+    fig, ax = plt.subplots(figsize=(12, 6.75), dpi=120)
+    ax.plot(steps, train_loss, color="#476f87", marker="o", linewidth=2.5, label="Train L1")
+    ax.plot(
+        steps,
+        validation_loss,
+        color="#b46a2a",
+        marker="s",
+        linestyle="--",
+        linewidth=2.5,
+        label="Held-out L1",
+    )
+    ax.set(
+        title="Hopper continuous-projector QwenOFT loss",
+        xlabel="Training step",
+        ylabel="Action L1 loss",
+    )
+    ax.legend(frameon=False)
+    ax.grid(alpha=0.2)
+    fig.tight_layout()
+    fig.savefig(ROOT / "vla_continuous_projector_training_loss.png")
+    plt.close(fig)
+
+
+def plot_vla_state_encoding_comparison() -> None:
+    old = [
+        json.loads((ROOT / "vla_eval" / f"queue_eval_latency_{latency}.json").read_text())
+        for latency in (0, 2)
+    ]
+    continuous = [
+        json.loads(
+            (ROOT / "vla_eval_continuous_projector" / f"queue_eval_latency_{latency}.json").read_text()
+        )
+        for latency in (0, 2)
+    ]
+    labels = ["L0 · 0 ms", "L2 · 16 ms"]
+    x = np.arange(len(labels))
+    width = 0.34
+    fig, (return_ax, length_ax) = plt.subplots(1, 2, figsize=(12, 6.75), dpi=120)
+    for ax, field, title, ylabel in (
+        (return_ax, "mean_return", "Closed-loop return", "Mean return · 20 episodes"),
+        (length_ax, "mean_length", "Episode length", "Mean environment steps · 20 episodes"),
+    ):
+        old_values = [row[field] for row in old]
+        continuous_values = [row[field] for row in continuous]
+        old_bars = ax.bar(
+            x - width / 2,
+            old_values,
+            width,
+            color="#93a69a",
+            edgecolor="#182018",
+            label="256-bin text state",
+        )
+        continuous_bars = ax.bar(
+            x + width / 2,
+            continuous_values,
+            width,
+            color="#b46a2a",
+            edgecolor="#182018",
+            hatch="//",
+            label="Continuous projector",
+        )
+        ax.bar_label(old_bars, labels=[f"{value:.1f}" for value in old_values], padding=4)
+        ax.bar_label(continuous_bars, labels=[f"{value:.1f}" for value in continuous_values], padding=4)
+        ax.set_xticks(x, labels)
+        ax.set(title=title, ylabel=ylabel)
+        ax.grid(axis="y", alpha=0.2)
+    return_ax.legend(frameon=False)
+    fig.suptitle("Hopper QwenOFT state encoding comparison · same seeds and checkpoint step")
+    fig.tight_layout()
+    fig.savefig(ROOT / "vla_state_encoding_comparison.png")
+    plt.close(fig)
+
+
 def build_contact_sheet() -> None:
     manifest_path = ROOT / "small_model_eval" / "eval_latency_0" / "videos" / "manifest.jsonl"
     manifest = json.loads(manifest_path.read_text().splitlines()[0])
@@ -168,4 +246,6 @@ if __name__ == "__main__":
     plot_latency_sweep()
     plot_l0_episodes()
     plot_vla_failure_diagnostic()
+    plot_continuous_projector_training_loss()
+    plot_vla_state_encoding_comparison()
     build_contact_sheet()

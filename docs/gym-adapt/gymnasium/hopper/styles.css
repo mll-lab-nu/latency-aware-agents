@@ -1,1 +1,3 @@
 @import url("../pendulum/styles.css");
+
+.callout a { overflow-wrap: anywhere; }
