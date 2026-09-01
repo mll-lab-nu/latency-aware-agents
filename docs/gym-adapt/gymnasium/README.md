@@ -12,7 +12,8 @@ separate `env.name: gymnasium` path.
 | Hopper Continuous | Native continuous `Box(3)` torques | L0 continuous APPO training and best-checkpoint evaluation | [Open report](hopper_continuous/index.html) |
 | Walker2D | Native continuous `Box(6)` torques | Continuous APPO, L0–L4 evaluation, 7D OpenVLA carrier | [Open report](walker2d/index.html) |
 | HalfCheetah | Native continuous `Box(6)` torques | L0 APPO, RGB+17D-state rollout/conversion, 5k QwenOFT, L0/L2 VLA evaluation | [Open report](half_cheetah/index.html) |
-| Ant | Native continuous `Box(8)` torques + 27D state | EGL probe, L0 APPO 10M training, best-checkpoint L0-L4 evaluation | [Open report](ant/index.html) |
+| Ant | Native continuous `Box(8)` torques + 27D state | L0 APPO/eval, 100 gated teacher episodes, native conversion, 5k QwenOFT, final-checkpoint L0/L2 VLA evaluation | [Open report](ant/index.html) |
+| Swimmer | Native continuous `Box(2)` torques + 8D state | MuJoCo 3 compatibility wrapper, 4-frame L0 APPO training, best-checkpoint L0-L4 evaluation | [Open report](swimmer/index.html) |
 | Humanoid | Native continuous `Box(17)` torques + 376D state | Wrapper, configs, probe scaffold, and semantic tests; runtime stages not run | [Open report](humanoid/index.html) |
 | AirRaid | Native `Discrete(6)` Atari actions | Probe, CHW wrapper, PAL L1 APPO training, original + random-noop evaluation | [Open report](air_raid/index.html) |
 | Asterix | Native `Discrete(9)` Atari actions | Probe, random-noop CHW wrapper, NTSC L1 APPO training, small-model evaluation | [Open report](asterix/index.html) |

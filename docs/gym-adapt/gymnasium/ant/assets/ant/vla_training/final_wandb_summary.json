@@ -1,0 +1,11 @@
+{
+  "run_id": "ibwa55gz",
+  "run_name": "ant_rgb_state_l0_return_gt3000_100ep_openvla_native_sft_5k",
+  "run_url": "https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/ibwa55gz",
+  "state": "finished",
+  "train_loss": 0.010788707993924618,
+  "eval_loss": 0.015223593451082706,
+  "train_grad_norm_pre_clip": 9.496246337890623,
+  "epoch": 0.9,
+  "history_rows": 15
+}

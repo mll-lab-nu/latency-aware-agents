@@ -1,0 +1,39 @@
+{
+  "checkpoint_kind": "best",
+  "checkpoint_path": "/mnt/checkpoints/latency-sensitive-bench/small_models/swimmer/gymnasium_swimmer_rgb_state_zero_latency_10m/checkpoint_p0/best_000005288_2707456_reward_17.123.pth",
+  "configured_latency_ms": 160.0,
+  "eval_latency_steps": 4,
+  "experiment_name": "gymnasium_swimmer_rgb_state_zero_latency_10m",
+  "latency": 4,
+  "latency_type": "fixed_sweep",
+  "lengths": [
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000
+  ],
+  "mean_length": 1000.0,
+  "mean_return": 16.908072136922648,
+  "returns": [
+    15.94608493107897,
+    17.936517876660492,
+    16.261977988197653,
+    17.327191826078135,
+    17.47900355877616,
+    17.168805019389396,
+    16.386822064106372,
+    17.22785190388024,
+    16.95480929139771,
+    16.391656909661336
+  ],
+  "seed": 2222,
+  "std_return": 0.6010817829070858,
+  "timestamp_utc": "2026-09-01T04:22:57.397759+00:00",
+  "train_latency_steps": 0
+}

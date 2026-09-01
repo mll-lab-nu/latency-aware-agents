@@ -1,0 +1,115 @@
+{
+  "source": "runtime_api_probe",
+  "gymnasium_version": "0.29.1",
+  "mujoco_version": "3.3.7",
+  "env_id": "LatencyBench/SwimmerContinuous-v0",
+  "resolved_spec": {
+    "id": "LatencyBench/SwimmerContinuous-v0",
+    "entry_point": "<function make_latency_sensitive_swimmer_env at 0x774d861aa3b0>",
+    "max_episode_steps": 1000,
+    "kwargs": {
+      "render_mode": "rgb_array",
+      "base_make_kwargs": {
+        "exclude_current_positions_from_observation": true
+      }
+    }
+  },
+  "unwrapped_class": "latency_bench.envs.gymnasium_swimmer.SwimmerV4Mujoco3Env",
+  "metadata": {
+    "render_modes": [
+      "human",
+      "rgb_array",
+      "depth_array"
+    ],
+    "render_fps": 25
+  },
+  "action_space": {
+    "type": "Box",
+    "shape": [
+      2
+    ],
+    "low": [
+      -1.0,
+      -1.0
+    ],
+    "high": [
+      1.0,
+      1.0
+    ],
+    "dtype": "float32"
+  },
+  "observation_space": {
+    "type": "Box",
+    "shape": [
+      8
+    ],
+    "dtype": "float64"
+  },
+  "reset_observation_shape": [
+    8
+  ],
+  "reset_observation_dtype": "float64",
+  "reset_info_keys": [],
+  "zero_action_step": {
+    "action": [
+      0.0,
+      0.0
+    ],
+    "reward": 0.01851271572469535,
+    "terminated": false,
+    "truncated": false,
+    "info_keys": [
+      "applied_action",
+      "distance_from_origin",
+      "forward_reward",
+      "reward_ctrl",
+      "reward_fwd",
+      "x_position",
+      "x_velocity",
+      "y_position",
+      "y_velocity"
+    ]
+  },
+  "render": {
+    "shape": [
+      480,
+      480,
+      3
+    ],
+    "dtype": "uint8"
+  },
+  "unwrapped_dt_seconds": 0.04,
+  "unwrapped_frame_skip": 4,
+  "model_timestep_seconds": 0.01,
+  "native_env_fps": 25.0,
+  "render_mode": "rgb_array",
+  "action_catalog": {
+    "source": "native_swimmer_box",
+    "labels": [
+      "first_rotor_torque",
+      "second_rotor_torque"
+    ],
+    "low": [
+      -1.0,
+      -1.0
+    ],
+    "high": [
+      1.0,
+      1.0
+    ],
+    "noop_action": [
+      0.0,
+      0.0
+    ]
+  },
+  "state_labels": [
+    "front_tip_angle",
+    "first_rotor_angle",
+    "second_rotor_angle",
+    "front_tip_x_velocity",
+    "front_tip_y_velocity",
+    "front_tip_angular_velocity",
+    "first_rotor_angular_velocity",
+    "second_rotor_angular_velocity"
+  ]
+}
