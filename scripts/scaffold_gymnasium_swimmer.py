@@ -10,6 +10,8 @@ import gymnasium as gym
 import numpy as np
 import yaml
 
+from latency_bench.envs.gymnasium_swimmer import GYMNASIUM_SWIMMER_ENV_ID
+
 
 ACTION_LABELS = ["first_rotor_torque", "second_rotor_torque"]
 NOOP_ACTION = [0.0] * len(ACTION_LABELS)
@@ -87,7 +89,7 @@ def build_swimmer_probe_report(*, env_id: str, render_mode: str) -> dict:
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Probe Swimmer's native latency-sensitive contract.")
-    parser.add_argument("--env-id", default="Swimmer-v4")
+    parser.add_argument("--env-id", default=GYMNASIUM_SWIMMER_ENV_ID)
     parser.add_argument("--render-mode", default="rgb_array")
     parser.add_argument("--report-path", type=Path)
     parser.add_argument("--env-yaml-path", type=Path)

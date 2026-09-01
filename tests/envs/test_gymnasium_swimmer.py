@@ -55,13 +55,12 @@ def test_swimmer_wrapper_clips_and_records_native_torques(monkeypatch):
     native_env = _SwimmerProbeEnv()
     captured = {}
 
-    def fake_make(env_id, **kwargs):
-        captured.update({"env_id": env_id, "kwargs": kwargs})
+    def fake_env(**kwargs):
+        captured.update(kwargs)
         return native_env
 
-    monkeypatch.setattr(gymnasium_swimmer.gym, "make", fake_make)
+    monkeypatch.setattr(gymnasium_swimmer, "SwimmerV4Mujoco3Env", fake_env)
     env = gymnasium_swimmer.SwimmerContinuousActionEnv(
-        base_env_id="Swimmer-v4",
         render_mode="rgb_array",
         base_make_kwargs={"exclude_current_positions_from_observation": True},
     )
@@ -69,11 +68,8 @@ def test_swimmer_wrapper_clips_and_records_native_torques(monkeypatch):
 
     expected = np.asarray([-1.0, 1.0], dtype=np.float32)
     assert captured == {
-        "env_id": "Swimmer-v4",
-        "kwargs": {
-            "render_mode": "rgb_array",
-            "exclude_current_positions_from_observation": True,
-        },
+        "render_mode": "rgb_array",
+        "exclude_current_positions_from_observation": True,
     }
     assert np.array_equal(native_env.actions[0], expected)
     assert info["applied_action"] == expected.tolist()
@@ -120,7 +116,6 @@ def test_swimmer_configs_preserve_native_rgb_state_contract():
     assert env["env_id"] == gymnasium_swimmer.GYMNASIUM_SWIMMER_ENV_ID
     assert env["registration_imports"] == ["latency_bench.envs.gymnasium_swimmer"]
     assert env["make_kwargs"] == {
-        "base_env_id": "Swimmer-v4",
         "render_mode": "rgb_array",
         "base_make_kwargs": {"exclude_current_positions_from_observation": True},
     }

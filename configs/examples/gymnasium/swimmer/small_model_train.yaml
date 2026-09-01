@@ -19,7 +19,6 @@ env:
   env_id: LatencyBench/SwimmerContinuous-v0
   registration_imports: [latency_bench.envs.gymnasium_swimmer]
   make_kwargs:
-    base_env_id: Swimmer-v4
     render_mode: rgb_array
     base_make_kwargs:
       exclude_current_positions_from_observation: true
