@@ -18,3 +18,9 @@
 [submodule "third_party/MIKASA-Robo"]
 	path = third_party/MIKASA-Robo
 	url = https://github.com/mindorigin150/MIKASA-Robo.git
+[submodule "third_party/IsaacLab"]
+	path = third_party/IsaacLab
+	url = https://github.com/isaac-sim/IsaacLab.git
+[submodule "third_party/Isaaclab_Parkour"]
+	path = third_party/Isaaclab_Parkour
+	url = git@github.com:mindorigin150/Isaaclab_Parkour.git
