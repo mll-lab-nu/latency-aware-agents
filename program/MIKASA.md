@@ -188,15 +188,16 @@ scp /pfs/users/lxy/latency-sensitive-bench/.env \
 ssh "${REMOTE_HOST}" "chmod 600 ~/${REMOTE_DIR}/.env"
 ```
 
-不要打印 `.env`，不要把它加入 Git/W&B artifact。rsync 已经包含当前两个 vendor 目录中已应用的
-patch，因此不要在远端重复应用；也不要做与上述 RLDS nested submodule 无关的广义 submodule
-update。StarVLA bootstrap 还会直接安装上面两个固定 top-level submodule，所以它们也必须在 rsync
-前初始化。若从 fresh clone 开始，只初始化上述三个依赖，并把 RLDS builder 固定到该 commit，
-然后执行：
+不要打印 `.env`，不要把它加入 Git/W&B artifact。当前 superproject 已固定包含集成代码的
+MIKASA/StarVLA submodule revision，不需要再应用 vendor patch；也不要做与上述依赖无关的广义
+submodule update。StarVLA bootstrap 还会直接安装上面两个固定 top-level submodule，所以它们也
+必须在 rsync 前初始化。若从 fresh clone 开始，额外先初始化两个 vendor submodule：
 
 ```bash
-bash scripts/mikasa/apply_vendor_patches.sh
+git submodule update --init third_party/MIKASA-Robo third_party/starVLA
 ```
+
+然后执行本节前面的 top-level dependency 与 RLDS builder 初始化命令。
 
 ### 3.3 远端 preflight
 
@@ -793,11 +794,11 @@ baseline failure，不把 action-loss eval 冒充环境成功率。
 | dataset episodes/transitions/length | NPZ audit passed；275 episodes，9,859 transitions，mean/min/max length `35.851/24/57`，275 unique seeds，all success，actions clipped to `[-1,1]` |
 | LeRobot train/val counts | Phase 2 gate passed；train 250 episodes / 8,911 frames，val 25 / 948 frames，20 FPS；两套 `info/stats/modality.json` 与 `mikasa_intercept_grab_fast_h1.json` mixture verified |
 | SFT microbatch/accumulation/global batch | OOM profile selected `8/8/64` with `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`；mb64/32 true forward OOM，mb16 later OOM at step 88；selected mb8 run passed beyond that point |
-| SFT W&B run / final checkpoint | running；run id `mikasa_grabfast_h1_gb64_mb8_ga8_expandable`；W&B [`3qt4k7nc`](https://wandb.ai/saberrr-zju/starvla_mikasa/runs/3qt4k7nc)；5,000 steps，actual epochs `35.91`；resolved config 与 stdout 共同确认 `per_device_batch_size=8`、accumulation `8`、total/global batch `64` |
-| SFT live snapshot | `2026-09-01 03:43 UTC` at `3960/5000`（79.2%），elapsed `6:00:03`，progress ETA `1:42:10`；GPU memory about 96,882 MiB；`mikasa_sft_mb8_expandable` 与 `mikasa_sft_followthrough` tmux sessions active；训练日志 `logs/mikasa/sft_mb8_ga8_expandable.log` 无 OOM、Traceback 或 ERROR |
-| SFT held-out action loss | step `500/1000/1500/2000/2500/3000/3500` 均完成 800-sample action-loss 与 classification eval；train loss `0.072997/0.063220/0.045567/0.040993/0.037294/0.026909/0.023618`；eval loss `0.115920/0.111115/0.105102/0.092906/0.095080/0.091598/0.094032`；每次 eval `12.80–18.68 s`，所有值 finite |
-| SFT final artifacts | pending；训练完成后必须核对 `config.full.yaml`、`checkpoints/steps_5000_state/`、`checkpoints/steps_5000_pytorch_model.pt` 和日志 `EXIT_STATUS=0` |
-| VLA canonical 50-episode SR | pending；`mikasa_sft_followthrough` 正等待训练结束，随后在 port `10093` 启动 bf16 policy server 并运行 canonical 50 episodes；接力已启用失败即停且最终执行 `success_once >= 25/50` 断言；日志为 `logs/mikasa/sft_followthrough.log`、`logs/mikasa/vla_policy_server.log`、`logs/mikasa/vla_eval.log` |
+| SFT W&B run / final checkpoint | passed；run id `mikasa_grabfast_h1_gb64_mb8_ga8_expandable`；W&B [`3qt4k7nc`](https://wandb.ai/saberrr-zju/starvla_mikasa/runs/3qt4k7nc) 已同步；5,000 steps，actual epochs `35.91`；resolved config 与 stdout 共同确认 `per_device_batch_size=8`、accumulation `8`、total/global batch `64` |
+| SFT completed runtime | `5000/5000`，elapsed `7:36:30`，mean `5.48 s/step`；训练日志 `logs/mikasa/sft_mb8_ga8_expandable.log` 以 `EXIT_STATUS=0` 结束，无 OOM、Traceback 或 ERROR |
+| SFT held-out action loss | step `500..5000` 每 500 steps 均完成 800-sample action-loss 与 classification eval；train loss `0.072997/0.063220/0.045567/0.040993/0.037294/0.026909/0.023618/0.018658/0.012922/0.008939`；eval loss `0.115920/0.111115/0.105102/0.092906/0.095080/0.091598/0.094032/0.098793/0.095458/0.093039`；所有值 finite |
+| SFT final artifacts | passed；`third_party/starVLA/results/Checkpoints/mikasa_grabfast_h1_gb64_mb8_ga8_expandable/config.full.yaml`、同目录 `checkpoints/steps_5000_state/` 与 `checkpoints/steps_5000_pytorch_model.pt`（9,785,060,075 bytes）均存在 |
+| VLA canonical 50-episode SR | passed `27/50`（`54%`），mean return `22.326`；fixed seeds `4242424242..4242424291`，returns all finite；summary `outputs/mikasa/vla_h1_zero_delay_eval/summary.json`；部署端在既有 MIKASA data registry 注册 checkpoint 的 train mixture 后，strict follow-through 写出 `FOLLOWTHROUGH_EXIT_STATUS=0` |
 
 ## 9. 本轮明确 deferred
 

@@ -30,7 +30,8 @@ The current manipulation research path integrates the MIKASA
 state PPO teacher produces demonstrations, StarVLA trains a QwenOFT policy on
 the resulting LeRobot v3 dataset, and PPO/VLA policies are evaluated at the
 task's native 20 Hz (50 ms) control cadence. See the executable
-[`program/MIKASA.md`](program/MIKASA.md) runbook and the deferred latency
+[`docs/mikasa/cookbook.md`](docs/mikasa/cookbook.md) reproduction guide, the executable
+[`program/MIKASA.md`](program/MIKASA.md) runbook, and the deferred latency
 [`program/PROPOSAL.md`](program/PROPOSAL.md).
 
 ## Repository Map

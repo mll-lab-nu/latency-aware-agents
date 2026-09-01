@@ -42,21 +42,17 @@ def test_prepare_starvla_dataset_writes_exact_h1_modalities(tmp_path: Path):
     assert mixtures[VAL_NAME] == [[VAL_NAME, 1.0, "mikasa_franka_h1"]]
 
 
-def test_starvla_patch_exposes_training_and_deployment_contracts(tmp_path: Path):
-    subprocess.run(
-        ["git", "apply", str(Path.cwd() / "patches/starvla-mikasa-h1.patch")],
-        cwd=tmp_path,
-        check=True,
-    )
+def test_starvla_exposes_training_and_deployment_contracts():
+    starvla_root = Path("third_party/starVLA")
     config = yaml.safe_load(
-        (tmp_path / "examples/MIKASA/train_files/starvla_qwenoft_intercept_grab_fast_h1.yaml").read_text()
+        (starvla_root / "examples/MIKASA/train_files/starvla_qwenoft_intercept_grab_fast_h1.yaml").read_text()
     )
 
     assert config["datasets"]["vla_data"]["lerobot_version"] == "v3.0"
     assert config["framework"]["action_model"]["action_horizon"] == 1
 
     module = ast.parse(
-        (tmp_path / "examples/MIKASA/train_files/data_registry/data_config.py").read_text()
+        (starvla_root / "examples/MIKASA/train_files/data_registry/data_config.py").read_text()
     )
     data_config = next(
         node
@@ -71,3 +67,11 @@ def test_starvla_patch_exposes_training_and_deployment_contracts(tmp_path: Path)
         if isinstance(target, ast.Name)
     }
     assert class_attributes["embodiment_tag"] == "EmbodimentTag.NEW_EMBODIMENT"
+
+    mixtures = next(
+        ast.literal_eval(node.value)
+        for node in module.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "DATASET_NAMED_MIXTURES" for target in node.targets)
+    )
+    assert mixtures[TRAIN_NAME] == [(TRAIN_NAME, 1.0, "mikasa_franka_h1")]
