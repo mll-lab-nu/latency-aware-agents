@@ -170,3 +170,100 @@ def test_official_gr00t_converter_rejects_a_non_g1_action_layout(tmp_path):
             raw_export,
             tmp_path / "official",
         )
+
+
+def test_official_gr00t_converter_rejects_misordered_action_labels(tmp_path):
+    from latency_bench.data.action_layouts import G1_SONIC_GR00T_ACTION_SPEC
+    from latency_bench.data.official_gr00t import (
+        convert_canonical_rollout_to_official_gr00t,
+    )
+
+    raw_export = tmp_path / "raw"
+    raw_export.mkdir()
+    (raw_export / "metadata.json").write_text(
+        json.dumps(
+            {
+                "action_layout": G1_SONIC_GR00T_ACTION_SPEC.layout,
+                "action_labels": list(reversed(G1_SONIC_GR00T_ACTION_SPEC.labels)),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="action labels"):
+        convert_canonical_rollout_to_official_gr00t(
+            raw_export,
+            tmp_path / "official",
+        )
+
+
+def test_official_gr00t_dataset_converter_supports_parkour_contract(tmp_path):
+    from latency_bench.data.action_layouts import (
+        GO2_PARKOUR_TERRAIN_LATENT_ACTION_SPEC,
+    )
+    from latency_bench.data.official_gr00t import (
+        convert_canonical_rollout_to_official_gr00t_dataset,
+    )
+    from latency_bench.data.hf_parquet import write_parquet_splits
+
+    image_path = tmp_path / "image.png"
+    save_test_image(image_path, 5)
+    action_spec = GO2_PARKOUR_TERRAIN_LATENT_ACTION_SPEC
+    raw_export = tmp_path / "raw"
+    state = [float(index) for index in range(53)]
+    action = [float(index) for index in range(32)]
+    row = {
+        "image": str(image_path),
+        "env_name": "extreme_parkour_go2",
+        "episode_idx": 0,
+        "decision_step": 0,
+        "split": "train",
+        "seed": 0,
+        "prompt": "Traverse the parkour course.",
+        "latency_raw_frames": 0,
+        "latency_ms": 0.0,
+        "raw_reward": 1.0,
+        "action": action,
+        "action_text": str(action),
+        "state": state,
+    }
+    write_parquet_splits(raw_export, [row], [], action_spec=action_spec)
+    (raw_export / "metadata.json").write_text(
+        json.dumps(
+            {
+                "env_name": "extreme_parkour_go2",
+                "integration_name": "isaaclab_parkour",
+                "action_layout": "go2_parkour_terrain_latent_v1",
+                "action_labels": list(action_spec.labels),
+                "state_labels": [f"state_{i}" for i in range(53)],
+                "reward_field": "raw_reward",
+                "rows_unit": "decision_step",
+                "obs_fps": 10.0,
+                "obs_stride_raw_frames": 5,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output_dir = tmp_path / "official"
+    manifest = convert_canonical_rollout_to_official_gr00t_dataset(
+        raw_export,
+        output_dir,
+        action_dim=32,
+        action_horizon=1,
+        modality_config="latency_bench/policy/official_gr00t_parkour_modality.py",
+        embodiment_tag="NEW_EMBODIMENT",
+        action_layout="go2_parkour_terrain_latent_v1",
+        action_labels=action_spec.labels,
+        force=True,
+    )
+
+    assert manifest["action_dim"] == 32
+    assert manifest["state_dim"] == 53
+    assert manifest["official_action_horizon"] == 1
+    assert manifest["official_modality_config"].endswith(
+        "official_gr00t_parkour_modality.py"
+    )
+    modality = json.loads((output_dir / "meta/modality.json").read_text())
+    assert modality["state"]["state"]["end"] == 53
+    assert modality["action"]["action"]["end"] == 32

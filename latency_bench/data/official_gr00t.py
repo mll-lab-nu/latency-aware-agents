@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,7 @@ from latency_bench.envs.humanoidbench_sonic_contract import (
 OFFICIAL_GR00T_EMBODIMENT_TAG = "NEW_EMBODIMENT"
 
 
-def _official_gr00t_modality_json(state_dim: int) -> dict[str, Any]:
+def _official_gr00t_modality_json(state_dim: int, action_dim: int) -> dict[str, Any]:
     """Return the LeRobot modality metadata consumed by Isaac-GR00T."""
     return {
         "state": {
@@ -38,7 +39,7 @@ def _official_gr00t_modality_json(state_dim: int) -> dict[str, Any]:
         "action": {
             "action": {
                 "start": 0,
-                "end": G1_GR00T_ACTION_DIM,
+                "end": action_dim,
                 "dtype": "float32",
                 "absolute": True,
                 "original_key": "action",
@@ -51,12 +52,14 @@ def _official_gr00t_modality_json(state_dim: int) -> dict[str, Any]:
     }
 
 
-def _write_official_gr00t_modality(dataset_dir: Path | str, state_dim: int) -> Path:
+def _write_official_gr00t_modality(
+    dataset_dir: Path | str, state_dim: int, action_dim: int
+) -> Path:
     """Write the official modality metadata into one LeRobot dataset split."""
     path = Path(dataset_dir) / "meta" / "modality.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(_official_gr00t_modality_json(state_dim), indent=2) + "\n",
+        json.dumps(_official_gr00t_modality_json(state_dim, action_dim), indent=2) + "\n",
         encoding="utf-8",
     )
     return path
@@ -132,22 +135,30 @@ def _write_official_gr00t_videos(dataset_dir: Path) -> None:
     info_path.write_text(json.dumps(info, indent=2), encoding="utf-8")
 
 
-def convert_canonical_rollout_to_official_gr00t(
+def convert_canonical_rollout_to_official_gr00t_dataset(
     raw_export_dir: Path | str,
     output_dir: Path | str,
     *,
+    action_dim: int,
+    action_horizon: int,
+    modality_config: str,
+    embodiment_tag: str,
+    action_layout: str,
+    action_labels: Sequence[str],
     force: bool = False,
 ) -> dict[str, Any]:
-    """Convert a canonical G1 rollout and write both train/val metadata."""
+    """Convert a dimension-driven canonical rollout for Isaac-GR00T."""
     raw_metadata = json.loads(
         Path(raw_export_dir).joinpath("metadata.json").read_text(encoding="utf-8")
     )
-    if (
-        raw_metadata["action_layout"] != G1_SONIC_GR00T_ACTION_SPEC.layout
-        or tuple(raw_metadata["action_labels"])
-        != G1_SONIC_GR00T_ACTION_SPEC.labels
-    ):
-        raise ValueError("official GR00T requires the g1_sonic_gr00t_v2 action layout")
+    if raw_metadata["action_layout"] != action_layout:
+        raise ValueError(
+            f"official GR00T requires the {action_layout} action layout"
+        )
+    if raw_metadata["action_labels"] != list(action_labels):
+        raise ValueError(
+            "official GR00T action labels do not match the configured order"
+        )
     manifest = convert_canonical_rollout_to_lerobot(
         raw_export_dir,
         output_dir,
@@ -156,22 +167,22 @@ def convert_canonical_rollout_to_official_gr00t(
         normalize_state=False,
         write_starvla_handoff=False,
     )
-    if manifest["action_dim"] != G1_GR00T_ACTION_DIM:
+    if manifest["action_dim"] != action_dim:
         raise ValueError(
-            f"official GR00T requires a {G1_GR00T_ACTION_DIM}D action, "
+            f"official GR00T requires a {action_dim}D action, "
             f"got {manifest['action_dim']}"
         )
     output_dir = Path(output_dir)
     validation_dir = output_dir.with_name(f"{output_dir.name}__val")
     _write_official_gr00t_videos(output_dir)
     _write_official_gr00t_videos(validation_dir)
-    _write_official_gr00t_modality(output_dir, manifest["state_dim"])
-    _write_official_gr00t_modality(validation_dir, manifest["state_dim"])
+    _write_official_gr00t_modality(output_dir, manifest["state_dim"], action_dim)
+    _write_official_gr00t_modality(validation_dir, manifest["state_dim"], action_dim)
     manifest = {
         **manifest,
-        "official_embodiment_tag": OFFICIAL_GR00T_EMBODIMENT_TAG,
-        "official_action_horizon": G1_GR00T_ACTION_HORIZON,
-        "official_modality_config": "latency_bench/policy/official_gr00t_modality.py",
+        "official_embodiment_tag": embodiment_tag,
+        "official_action_horizon": action_horizon,
+        "official_modality_config": modality_config,
     }
     output_dir.joinpath("manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
@@ -180,9 +191,9 @@ def convert_canonical_rollout_to_official_gr00t(
     validation_manifest = json.loads(validation_manifest_path.read_text(encoding="utf-8"))
     validation_manifest.update(
         {
-            "official_embodiment_tag": OFFICIAL_GR00T_EMBODIMENT_TAG,
-            "official_action_horizon": G1_GR00T_ACTION_HORIZON,
-            "official_modality_config": "latency_bench/policy/official_gr00t_modality.py",
+            "official_embodiment_tag": embodiment_tag,
+            "official_action_horizon": action_horizon,
+            "official_modality_config": modality_config,
         }
     )
     validation_manifest_path.write_text(
@@ -191,7 +202,28 @@ def convert_canonical_rollout_to_official_gr00t(
     return manifest
 
 
+def convert_canonical_rollout_to_official_gr00t(
+    raw_export_dir: Path | str,
+    output_dir: Path | str,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Convert the existing G1 SONIC rollout format for Isaac-GR00T."""
+    return convert_canonical_rollout_to_official_gr00t_dataset(
+        raw_export_dir,
+        output_dir,
+        action_dim=G1_GR00T_ACTION_DIM,
+        action_horizon=G1_GR00T_ACTION_HORIZON,
+        modality_config="latency_bench/policy/official_gr00t_modality.py",
+        embodiment_tag=OFFICIAL_GR00T_EMBODIMENT_TAG,
+        action_layout=G1_SONIC_GR00T_ACTION_SPEC.layout,
+        action_labels=G1_SONIC_GR00T_ACTION_SPEC.labels,
+        force=force,
+    )
+
+
 __all__ = [
     "OFFICIAL_GR00T_EMBODIMENT_TAG",
     "convert_canonical_rollout_to_official_gr00t",
+    "convert_canonical_rollout_to_official_gr00t_dataset",
 ]

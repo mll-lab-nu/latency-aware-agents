@@ -16,16 +16,17 @@ from latency_bench.policy.official_gr00t import (
 
 
 class _FakeGr00tPolicy:
-    def __init__(self) -> None:
+    def __init__(self, action_dim: int = G1_GR00T_ACTION_DIM) -> None:
         self.observations = []
+        self.action_dim = action_dim
 
     def get_action(self, observation):
         self.observations.append(observation)
         batch_size = len(observation["language"]["annotation.human.task_description"])
         action = np.arange(
-            batch_size * G1_GR00T_ACTION_DIM,
+            batch_size * self.action_dim,
             dtype=np.float32,
-        ).reshape(batch_size, 1, G1_GR00T_ACTION_DIM)
+        ).reshape(batch_size, 1, self.action_dim)
         return {"action": action}, {"unused": True}
 
 
@@ -54,6 +55,8 @@ def test_official_runner_emits_nested_input_and_model_action_chunk():
         model_path="checkpoint",
         embodiment_tag="NEW_EMBODIMENT",
         device="cuda:0",
+        action_dim=G1_GR00T_ACTION_DIM,
+        state_info_key=OFFICIAL_GR00T_PROPRIO_INFO_KEY,
     )
 
     output = runner.predict(_observation())
@@ -80,6 +83,8 @@ def test_official_runner_requires_the_exact_proprioception_field():
         model_path="checkpoint",
         embodiment_tag="NEW_EMBODIMENT",
         device="cpu",
+        action_dim=G1_GR00T_ACTION_DIM,
+        state_info_key=OFFICIAL_GR00T_PROPRIO_INFO_KEY,
     )
 
     with pytest.raises(KeyError, match=OFFICIAL_GR00T_PROPRIO_INFO_KEY):
@@ -94,6 +99,8 @@ def test_official_runner_preserves_the_model_state_dimension():
         model_path="checkpoint",
         embodiment_tag="NEW_EMBODIMENT",
         device="cpu",
+        action_dim=G1_GR00T_ACTION_DIM,
+        state_info_key=OFFICIAL_GR00T_PROPRIO_INFO_KEY,
     )
 
     runner.predict(_observation(198))
@@ -116,7 +123,35 @@ def test_official_runner_rejects_an_action_chunk_with_the_wrong_shape():
         model_path="checkpoint",
         embodiment_tag="NEW_EMBODIMENT",
         device="cpu",
+        action_dim=G1_GR00T_ACTION_DIM,
+        state_info_key=OFFICIAL_GR00T_PROPRIO_INFO_KEY,
     )
 
     with pytest.raises(ValueError, match=r"\*, 43"):
         runner.predict(_observation())
+
+
+def test_official_runner_supports_parkour_action_and_state_contract():
+    action_dim = 32
+    state_dim = 53
+    state_info_key = "parkour_proprio"
+    fake_policy = _FakeGr00tPolicy(action_dim=action_dim)
+    observation = _observation(state_dim)
+    observation.metadata[state_info_key] = observation.metadata.pop(
+        OFFICIAL_GR00T_PROPRIO_INFO_KEY
+    )
+    runner = OfficialGr00tPolicyRunner(
+        policy=fake_policy,
+        prompt="Traverse the parkour course.",
+        model_path="checkpoint",
+        embodiment_tag="NEW_EMBODIMENT",
+        device="cuda:1",
+        action_dim=action_dim,
+        state_info_key=state_info_key,
+    )
+
+    output = runner.predict(observation)
+
+    assert fake_policy.observations[0]["state"]["state"].shape == (1, 1, state_dim)
+    assert output.action_chunk.shape == (1, action_dim)
+    assert output.action.value.shape == (action_dim,)

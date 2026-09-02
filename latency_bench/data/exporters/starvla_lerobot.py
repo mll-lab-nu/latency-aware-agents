@@ -17,8 +17,9 @@ from latency_bench.utils.io import write_jsonl
 
 from latency_bench.data.action_layouts import (
     ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-    ACTION_LAYOUT_G1_SONIC_GR00T_V2,
     ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
+    ACTION_LAYOUT_G1_SONIC_GR00T_V2,
+    ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_V1,
     action_spec_for_env,
 )
 from latency_bench.data.filters import density_weights_clean_v1
@@ -636,7 +637,8 @@ def _convert_split(
     for new_episode_idx, episode_rows in enumerate(_episode_groups(rows)):
         density_weights = (
             density_weights_clean_v1(env_name, episode_rows)
-            if density_weighting and integration_name != "gymnasium"
+            if density_weighting
+            and integration_name not in {"gymnasium", "isaaclab_parkour"}
             else [1.0] * len(episode_rows)
         )
         out_rows = []
@@ -741,7 +743,7 @@ def convert_canonical_rollout_to_lerobot(
     integration_name = (
         metadata["integration_name"] if "integration_name" in metadata else env_name
     )
-    if integration_name != "gymnasium":
+    if integration_name not in {"gymnasium", "isaaclab_parkour"}:
         return _convert_legacy_export(
             raw_export_dir,
             output_dir,
@@ -749,51 +751,65 @@ def convert_canonical_rollout_to_lerobot(
             force=force,
         )
     action_layout = metadata["action_layout"]
-    if action_layout not in (
-        ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
-        ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-        ACTION_LAYOUT_G1_SONIC_GR00T_V2,
-    ):
-        raise ValueError(f"Unsupported Gymnasium action_layout={action_layout!r}")
     active_action_labels = list(metadata["action_labels"])
-    gymnasium_task = metadata["gymnasium_task"]
-    if env_name != gymnasium_task["task_name"]:
-        raise ValueError(
-            "Canonical Gymnasium env_name does not match gymnasium_task.task_name"
+    gymnasium_task = None
+    if integration_name == "gymnasium":
+        if action_layout not in (
+            ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
+            ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+            ACTION_LAYOUT_G1_SONIC_GR00T_V2,
+        ):
+            raise ValueError(f"Unsupported Gymnasium action_layout={action_layout!r}")
+        gymnasium_task = metadata["gymnasium_task"]
+        if env_name != gymnasium_task["task_name"]:
+            raise ValueError(
+                "Canonical Gymnasium env_name does not match gymnasium_task.task_name"
+            )
+        continuous = action_layout in (
+            ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+            ACTION_LAYOUT_G1_SONIC_GR00T_V2,
         )
-    continuous = action_layout in (
-        ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-        ACTION_LAYOUT_G1_SONIC_GR00T_V2,
-    )
-    if continuous and action_carrier == "native":
-        gymnasium_task = {
-            **gymnasium_task,
-            "action_space": {
-                key: value
-                for key, value in gymnasium_task["action_space"].items()
-                if key not in {"openvla_carrier_dim", "openvla_padding"}
-            },
-        }
-    task_action_labels = (
-        gymnasium_task["action_space"]["labels"]
-        if continuous
-        else gymnasium_task["action_labels"]
-    )
-    if active_action_labels != task_action_labels:
-        raise ValueError(
-            "Canonical Gymnasium action_labels do not match gymnasium_task action-space labels"
+        if continuous and action_carrier == "native":
+            gymnasium_task = {
+                **gymnasium_task,
+                "action_space": {
+                    key: value
+                    for key, value in gymnasium_task["action_space"].items()
+                    if key not in {"openvla_carrier_dim", "openvla_padding"}
+                },
+            }
+        task_action_labels = (
+            gymnasium_task["action_space"]["labels"]
+            if continuous
+            else gymnasium_task["action_labels"]
         )
+        if active_action_labels != task_action_labels:
+            raise ValueError(
+                "Canonical Gymnasium action_labels do not match gymnasium_task action-space labels"
+            )
+    else:
+        if action_layout != ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_V1:
+            raise ValueError(
+                f"Unsupported IsaacLab Parkour action_layout={action_layout!r}"
+            )
+        continuous = True
     action_labels, active_action_dim, state_dim, state_labels = _action_carrier_spec(
         active_action_labels,
         action_carrier,
     )
     train_rows = _load_rows(raw_export_dir, "train")
     val_rows = _load_rows(raw_export_dir, "val")
-    uses_state = "state_space" in gymnasium_task
+    if integration_name == "isaaclab_parkour":
+        uses_state = True
+    else:
+        uses_state = "state_space" in gymnasium_task
     if not normalize_state:
         uses_state = any("state" in row for row in [*train_rows, *val_rows])
     if uses_state:
-        if "state_space" in gymnasium_task:
+        if integration_name == "isaaclab_parkour":
+            state_labels = list(metadata["state_labels"])
+            state_dim = len(state_labels)
+        elif "state_space" in gymnasium_task:
             state_labels = list(gymnasium_task["state_space"]["labels"])
             state_dim = len(state_labels)
         else:
@@ -901,7 +917,8 @@ def convert_canonical_rollout_to_lerobot(
                 "custom_mixtures_path": str(mixture_path),
             }
         )
-    handoff_contract["gymnasium_task"] = gymnasium_task
+    if gymnasium_task is not None:
+        handoff_contract["gymnasium_task"] = gymnasium_task
     manifest = {
         **train_manifest,
         **handoff_contract,

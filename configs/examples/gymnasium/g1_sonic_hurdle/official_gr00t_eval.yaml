@@ -46,6 +46,8 @@ policy:
   embodiment_tag: NEW_EMBODIMENT
   device: cuda:0
   strict: true
+  action_dim: 43
+  state_info_key: official_gr00t_proprio
 
 evaluation:
   eval_episodes: 1

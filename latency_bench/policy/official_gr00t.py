@@ -16,9 +16,6 @@ import numpy as np
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import Action, Observation, PolicyOutput
-from latency_bench.envs.humanoidbench_sonic_contract import (
-    G1_GR00T_ACTION_DIM,
-)
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.policy.base import PolicyRunner
 
@@ -70,12 +67,16 @@ class OfficialGr00tPolicyRunner(PolicyRunner):
         model_path: str,
         embodiment_tag: str,
         device: str,
+        action_dim: int,
+        state_info_key: str,
     ) -> None:
         self._policy = policy
         self._prompt = prompt
         self._model_path = model_path
         self._embodiment_tag = embodiment_tag
         self._device = device
+        self._action_dim = action_dim
+        self._state_info_key = state_info_key
 
     def predict(self, observation: Observation) -> PolicyOutput:
         return self.predict_batch([observation])[0]
@@ -83,7 +84,11 @@ class OfficialGr00tPolicyRunner(PolicyRunner):
     def predict_batch(self, observations: Sequence[Observation]) -> list[PolicyOutput]:
         batch = _batch_official_observations(
             [
-                _official_observation(observation, prompt=self._prompt)
+                _official_observation(
+                    observation,
+                    prompt=self._prompt,
+                    state=observation.metadata[self._state_info_key],
+                )
                 for observation in observations
             ]
         )
@@ -93,11 +98,11 @@ class OfficialGr00tPolicyRunner(PolicyRunner):
         if (
             chunks.ndim != 3
             or chunks.shape[0] != len(observations)
-            or chunks.shape[2] != G1_GR00T_ACTION_DIM
+            or chunks.shape[2] != self._action_dim
         ):
             raise ValueError(
                 "official GR00T action contract requires "
-                f"shape ({len(observations)}, *, {G1_GR00T_ACTION_DIM}), got {chunks.shape}"
+                f"shape ({len(observations)}, *, {self._action_dim}), got {chunks.shape}"
             )
         return [
             PolicyOutput(
@@ -114,9 +119,10 @@ class OfficialGr00tPolicyRunner(PolicyRunner):
         ]
 
 
-def _official_observation(observation: Observation, *, prompt: str) -> dict[str, Any]:
+def _official_observation(
+    observation: Observation, *, prompt: str, state: np.ndarray
+) -> dict[str, Any]:
     frames = observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
-    state = observation.metadata[OFFICIAL_GR00T_PROPRIO_INFO_KEY]
     return {
         "video": {
             OFFICIAL_GR00T_VIDEO_KEY: frames[-1:].reshape(1, 1, *frames.shape[1:])
@@ -160,6 +166,8 @@ def build_official_gr00t_policy(
     model_path = policy_cfg["model_path"]
     embodiment_tag = policy_cfg["embodiment_tag"]
     device = policy_cfg["device"]
+    action_dim = policy_cfg["action_dim"]
+    state_info_key = policy_cfg["state_info_key"]
     official_policy = _load_gr00t_policy()(
         model_path=model_path,
         embodiment_tag=embodiment_tag,
@@ -172,6 +180,8 @@ def build_official_gr00t_policy(
         model_path=model_path,
         embodiment_tag=embodiment_tag,
         device=device,
+        action_dim=action_dim,
+        state_info_key=state_info_key,
     )
 
 

@@ -1,0 +1,21 @@
+experiment:
+  name: extreme_parkour_go2_official_gr00t_l0
+  seed: 2
+
+env:
+  name: extreme_parkour_go2
+  noop_action: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  base_prompt: Traverse the parkour course and follow each waypoint.
+
+latency:
+  method: zero
+  sync_cuda: false
+
+policy:
+  type: official_gr00t
+  model_path: /pfs/users/lxy/latency-sensitive-bench/outputs/official_gr00t/extreme_parkour_go2_latent_h1_5k/checkpoint-5000
+  embodiment_tag: NEW_EMBODIMENT
+  device: cuda:1
+  strict: true
+  action_dim: 32
+  state_info_key: parkour_proprio
