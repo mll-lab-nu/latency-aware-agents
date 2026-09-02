@@ -9,7 +9,6 @@ separate `env.name: gymnasium` path.
 | Pendulum | Continuous `Box(1)` torque | Probe, wrapper, L1 APPO training, small-model evaluation | [Open report](pendulum/index.html) |
 | Lunar Lander | Native `Discrete(4)` engines | Probe, direct L1 APPO training, small-model evaluation | [Open report](lunar_lander/index.html) |
 | Hopper | Native continuous `Box(3)` torques + 11D state | L0 APPO/eval, 100 gated teacher episodes, native conversion, text-bin/continuous-projector 5k QwenOFT comparison | [Open report](hopper/index.html) |
-| Hopper Continuous | Native continuous `Box(3)` torques | L0 continuous APPO training and best-checkpoint evaluation | [Open report](hopper_continuous/index.html) |
 | Walker2D | Native continuous `Box(6)` torques + 17D state | Continuous APPO, L0–L4 evaluation, native 6D OpenVLA, text-bin/continuous-projector L0/L2 comparison | [Open report](walker2d/index.html) |
 | HalfCheetah | Native continuous `Box(6)` torques | L0 APPO, RGB+17D-state rollout/conversion, 5k QwenOFT, L0/L2 VLA evaluation | [Open report](half_cheetah/index.html) |
 | Ant | Native continuous `Box(8)` torques + 27D state | L0 APPO/eval, 100 gated teacher episodes, native conversion, 5k QwenOFT, final-checkpoint L0/L2 VLA evaluation | [Open report](ant/index.html) |
