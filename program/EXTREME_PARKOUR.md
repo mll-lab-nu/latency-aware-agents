@@ -524,7 +524,7 @@ student evaluation 同样需要 `--enable_cameras`，并在进程环境中预加
 `model_14999.pt` 的 teacher actor，将官方 GR00T-N1.7-3B 放在原 depth encoder 的位置：
 
 ```text
-robot RGB 256x256 @ 10 Hz + current proprio 53D + fixed prompt
+robot RGB 256x150 @ 10 Hz + current proprio 53D + fixed prompt
   -> swappable PolicyRunner
   -> terrain latent 32D + normalized current/next yaw 2D, H1
   -> fixed teacher actor @ 50 Hz
@@ -535,6 +535,18 @@ robot RGB 256x256 @ 10 Hz + current proprio 53D + fixed prompt
 来自同一 teacher checkpoint 的 `actor.infer_scandots_latent(obs)`，后 2D 是 teacher actor
 使用的 current/next yaw 除以 `1.5`。proprio 的 yaw 两维在送入 VLA 前置零，避免 oracle
 waypoint 从 state 旁路进入模型。
+
+VLA RGB 数据契约固定为：相机输出 `256x150`，采样率 `10 Hz`，水平/垂直视场角约为
+`87°x58°`，保持原 depth 相机的光学视野比例。相机的 `clipping_range` 为 `0.1--100 m`；
+RGB 保留真实远景，不用原 depth raycaster 的 `2 m` 最大距离模拟 RGB。Isaac Sim 5.0 /
+Isaac Lab 2.2 没有 camera scene partition，因此采集器采用两遍 tiled render：第一遍同时
+取得 RGB 和 `instance_segmentation_fast`，第二遍只在 Fabric 中隐藏 17 个共享 Go2 mesh
+prototype；最终用第一遍中本 env 的 robot surface pixel 覆盖无机器人背景。输出保留自身
+可见机体表面，但移除自身及其他 env 机器人的阴影、反射和几何，不改 robot root state，
+也不引入自定义 CUDA kernel。强制重叠的 2-env smoke 验证了邻居消失、物理状态逐位不变且
+visibility 恢复；50-env 相机路径中位耗时由约 `23 ms` 增至 `53 ms`（`2.32x`）。实际
+collector smoke 已完成 1 个 8-env episode，共写出 85 张 `256x150` RGB frame 和 85 行
+manifest；正式 250/25 数据仍须在本修复后重新采集。
 
 ### 11.1 Canonical teacher 与 oracle gate
 
@@ -567,6 +579,11 @@ waypoint progress 低于同场景 teacher 的 50%，停止后续采集；不自�
 collector 继续运行 oracle episode，仅提交触发 `cur_goal_idx >= num_goals` success termination
 的轨迹，不把终点前摔倒或 timeout 当成功。它写 10 Hz PNG 与原子 JSONL episode shards，按
 split seed 0 得到精确 250 train / 25 validation episodes：
+
+修复前生成的 `outputs/official_gr00t/extreme_parkour_go2/raw` 和
+`outputs/official_gr00t/extreme_parkour_go2/lerobot` 均视为污染数据，必须整套重建，不能
+继续转换、混用或用于训练。collector 要求 `--output_dir` 是空的、不存在的目录；完成相机
+smoke 后再执行以下采集和转换命令。训练进程与 checkpoint 不属于本节数据修复范围。
 
 ```bash
 cd "${PARKOUR_ROOT}"
