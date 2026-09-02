@@ -632,79 +632,84 @@ finite，且 GR00T mean normalized waypoint progress 至少达到同一 50-env t
 在该 gate 通过前，不启动正式 DAgger run、latency scheduler、profile、raw-action track 或
 HAIC VLA。
 
-## 12. 完整 VLA student 替换与 DAgger
+## 12. 固定 teacher actor 的 latent-only DAgger
 
-原 student 并不是“冻结 teacher actor，只训练视觉 encoder”。它复制 teacher actor，然后在
-student 自己访问到的状态分布上同时更新 depth encoder 和该 actor；真正固定的是 Isaac Lab
-的 12D joint-position action/PD 执行层。因此完整替换是：
+DAgger 只更新已经通过 SFT gate 的 VLA，固定同一个 teacher actor 用于 rollout 和评测：
 
 ```text
 RGB + masked proprio -> trainable VLA -> latent32 + normalized yaw2
-                                      -> trainable copy of teacher actor -> joint target12
+                                      -> fixed teacher actor -> joint action12 (rollout only)
                                       -> fixed joint-position/PD controller -> Go2
 ```
 
-teacher actor 只负责给相同 visited pre-action states 生成 12D action labels。环境始终执行
-student action。每个 10 Hz VLA 输出持有 5 个 50 Hz control steps；训练时只有当
-`abs(wrap_to_pi(1.5 * predicted_current_yaw - oracle_current_yaw)) < 0.6` 时 actor 才接收预测
-current/next yaw，否则接收该步 oracle yaw。评测不使用该 gate，始终接收预测 yaw。
+SFT collection、DAgger collection 和 evaluation 全部使用
+`Isaac-Extreme-Parkour-VLA-Unitree-Go2-v0` 这个 canonical env 1。DAgger 唯一改变的是由当前
+VLA 控制机器人，并把并行环境数从 50 覆盖为 192；不切换到原 depth-student env 2。
 
 Actor 与 history encoder 的唯一实现位于 Isaaclab_Parkour 的
-`parkour_isaaclab/actor.py`，该模块只依赖 PyTorch；RSL-RL 和 GR00T DAgger 训练共同导入它，
-不再由 latency-sensitive-bench 复制网络。保存后的 GR00T checkpoint 在推理加载时关闭
-`parkour_dagger`，34D 输出走通用 processor 反归一化，因此部署不需要 teacher checkpoint、
+`parkour_isaaclab/actor.py`，该模块只依赖 PyTorch；Isaac collector/evaluator 使用它，GR00T
+训练不导入或更新它，不再由 latency-sensitive-bench 复制网络。保存后的 GR00T checkpoint
+是标准 34D VLA checkpoint，输出走通用 processor 反归一化；部署不需要 teacher checkpoint、
 Isaaclab_Parkour 或 latency-sensitive-bench 的 Actor 代码。
 
-联合目标严格保留原 student 的两个 L2 项：5 个 control steps 上逐样本 12D action error 的
-vector norm mean，加 2D yaw error 的 vector norm mean；不添加 terrain-latent MSE。VLA 和
-actor 都进入同一个 AdamW optimizer，joint-position/PD controller 不训练。
+训练只使用标准 34D SFT latent/yaw loss：32D terrain latent 加 2D normalized current/next
+yaw；不添加 12D action loss，也不训练或保存 student actor。固定 normalization stats 与
+bootstrap 数据一致。
 
-### 12.1 与原 5k student 的数据/更新预算对齐
+### 12.1 有界 DAgger 预算
 
 原配置每个 iteration 是 `192 envs × 120 control steps = 23,040` 个 50 Hz transitions；depth
 每 5 步更新一次，所以等价为 `4,608` 个 10 Hz perception samples。5,000 iterations 总计：
 
 | quantity | 每轮 | 10 轮总计 |
 |---|---:|---:|
-| 10 Hz VLA rows | 2,304,000 | 23,040,000 |
-| 50 Hz teacher action labels | 11,520,000 | 115,200,000 |
+| 10 Hz VLA rows | 64,000 | 640,000 |
+| 50 Hz rollout control steps | 320,000 | 3,200,000 |
 | optimizer updates | 500 | 5,000 |
 
-GR00T 使用 global batch `128`、gradient accumulation `36`，因此每个 optimizer update 正好
-消费 `4,608` 个 VLA rows；每行携带 5 个 teacher action labels。每轮只训练当轮 student
-rollout，不做 replay。dataloader workers 固定为 `0`，使 2,250 个 1,024-row shards 在两个
-DDP ranks 间各分 1,125 个，保证整轮恰好无重复、无遗漏地消费一次。模型、actor、optimizer
-和 scheduler 从上轮 checkpoint 继续。
+GR00T 使用 global batch `128`、gradient accumulation `1`，因此每轮
+`500 × 128 = 64,000` rows 恰好消费一次；每行携带一个 oracle 34D latent/yaw target。每轮
+只训练当轮 current-VLA rollout，不做 replay。collector 和 GR00T shard 均为 1,000 rows，每轮
+64 shards；模型、optimizer 和 scheduler 从上轮 checkpoint 继续，teacher actor 始终从固定
+teacher checkpoint 加载。
 
 ### 12.2 数据与 round driver
 
-DAgger collector 严格复现原 student 的两个 rollout ranks：每个 rank 使用 zero-delay
-student training terrain、96 camera envs，seed 分别为 1/2。两个 rank 串行采集以避免
-Isaac 与 GR00T 争用同一对 GPU，但保留原始 RNG/terrain population 和每轮 192 envs
-的数据分布。每个原子
+DAgger collector 使用一个 canonical env 1 进程、192 camera envs 和 seed 1；与 SFT/eval
+相比只改变 rollout policy 和并行环境数。每个原子
 shard 是 `episode.npz + episode.mp4`，不落逐帧 PNG；numeric payload 保存
-`state[53]`、`action[34]`、`actor_observation[5,753]`、`teacher_action[5,12]` 和
-`termination[5]`。每行始终保留全部 5 个 teacher labels，包括 failure/timeout 标记处；
-`termination` 只写入 parquet 供诊断，不进入 GR00T model metadata、不屏蔽 loss，也不重置
-5-step cadence，这与原 student runner 的监督语义一致。LeRobot parquet 直接保留这些诊断列，
+`state[53]`、`action[34]` 和 `termination[5]`。每行保存一个 oracle 34D latent/yaw target，
+包括 failure/timeout 标记处；
+`termination` 只写入 parquet 供诊断，不进入标准 34D loss、不屏蔽 loss，也不重置 5-step
+cadence。LeRobot parquet 直接保留这些诊断列，
 并逐字节复制由 bootstrap 数据现有 fingerprint-aware stats 流程生成的固定 normalization
 stats，DAgger round 不重新计算 stats。
 
-完成 250/25 bootstrap 数据和上节 5k SFT 后，以下入口依次执行 10 轮采集、转换、500-step
-联合训练和 seed-2/50-env 固定评测：
+完成 250/25 bootstrap 数据和上节 5k SFT 后，以下入口先在 env 1 执行 round-0
+step-0/50-env baseline，再依次执行 10 轮 env 1 的 192-env 采集、转换、500-step
+latent-only 训练和 env 1 的 seed-2/50-env 固定评测：
 
 ```bash
 cd /pfs/users/lxy/latency-sensitive-bench
 uv run --project . python scripts/official_gr00t/train_parkour_dagger.py
 ```
 
-round 边界中断后用 `--start-round N`（零起始）继续；目标
-`checkpoint-{(N+1)*500}/parkour_student_actor.pt` 已存在时不会重复训练该
+step-0 结果保存为 `round_00/eval_before/vla-eval.json`。每次 round eval 都把 `reward`、`episode_length`、`normalized_waypoint_progress` 和
+`edge_violation` 的 mean/std 写入同一个 W&B run 的 `dagger_eval/*` namespace，并以
+`train/global_step=0, 500, ..., 5000` 对齐，因此完整 run 一共 11 个 eval 点。round 边界中断
+后用 `--start-round N`（零起始）继续；目标
+`checkpoint-{(N+1)*500}/.dagger-round-complete` 已由成功返回的训练子进程原子写入时不会重复训练该
 round。round 内采集中断不能只按 row count
 续采，因为重新启动 Isaac 会回到相同 seed 的初始状态、从而重复 deterministic prefix；程序
 会明确失败，必须由操作者先保留或清理该 round 的 partial directory 后从空目录重采。
-默认输出根目录是 `outputs/official_gr00t/extreme_parkour_go2_dagger`，最终联合 checkpoint 是
-`training/checkpoint-5000`，其中另存可直接供 Isaac collector/evaluator 加载的
-`parkour_student_actor.pt`。
+每轮 eval 子进程正常结束后只保留 checkpoint、eval 结果、policy 配置和小型
+`dataset_manifest.json`；该轮 `raw/` 与 `lerobot/` 立即删除。失败路径不清理，便于定位和
+续跑。
+默认输出根目录是 `outputs/official_gr00t/extreme_parkour_go2_dagger`，最终 VLA checkpoint 是
+`training/checkpoint-5000`。
 
-本轮只实现并验证 pipeline，没有启动约 23.04M RGB rows、115.2M teacher labels 的正式 run。
+2026-09-03 的真实 smoke 已验证：SFT `checkpoint-5000` 可直接初始化
+`Gr00tPolicy`，旧的 `haic_dagger` processor 参数错误不再出现；collector 随后以
+`UnitreeGo2ParkourVlaEnvCfg` 创建 192 个 canonical env 1，并成功写出一个 192-row shard。
+该 shard 包含 finite 的 `state[192,53]`、`action[192,34]`、
+`termination[192,5]` 以及 MP4。尚未启动正式 640k-row / 3.2M-control-step run。

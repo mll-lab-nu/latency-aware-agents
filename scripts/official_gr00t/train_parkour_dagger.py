@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
+import wandb
 import yaml
 
 
@@ -24,10 +27,20 @@ DAGGER_ROUNDS = 10
 UPDATES_PER_ROUND = 500
 TOTAL_UPDATES = DAGGER_ROUNDS * UPDATES_PER_ROUND
 GLOBAL_BATCH_SIZE = 128
-GRADIENT_ACCUMULATION_STEPS = 36
-COLLECTOR_RANKS = 2
-ENVS_PER_COLLECTOR_RANK = 96
-PARKOUR_DAGGER_ROWS_PER_ROUND = 2_304_000
+GRADIENT_ACCUMULATION_STEPS = 1
+DAGGER_ENVS = 192
+PARKOUR_DAGGER_ROWS_PER_ROUND = (
+    UPDATES_PER_ROUND * GLOBAL_BATCH_SIZE * GRADIENT_ACCUMULATION_STEPS
+)
+PARKOUR_DAGGER_SHARD_ROWS = 1_000
+DEFAULT_INFERENCE_BATCH_SIZE = 32
+CHECKPOINT_COMPLETE_MARKER = ".dagger-round-complete"
+EVAL_METRICS = (
+    "reward",
+    "episode_length",
+    "normalized_waypoint_progress",
+    "edge_violation",
+)
 
 DEFAULT_TEACHER_CHECKPOINT = PARKOUR_ROOT / (
     "logs/rsl_rl/unitree_go2_parkour/"
@@ -76,8 +89,8 @@ def collector_command(
     num_envs: int,
     seed: int,
     round_index: int,
-    student_actor_checkpoint: Path | None,
     dagger_row_budget: int = PARKOUR_DAGGER_ROWS_PER_ROUND,
+    inference_batch_size: int = DEFAULT_INFERENCE_BATCH_SIZE,
 ) -> list[str]:
     command = [
         str(parkour_python),
@@ -95,19 +108,22 @@ def collector_command(
         "--inference_device",
         inference_device,
         "--inference_batch_size",
-        "8",
+        str(inference_batch_size),
         "--num_envs",
         str(num_envs),
         "--seed",
         str(seed),
-        "--dagger_round",
-        str(round_index),
     ]
     if mode == "dagger-collect":
-        command.extend(["--dagger_row_budget", str(dagger_row_budget)])
-    if student_actor_checkpoint is not None:
         command.extend(
-            ["--student_actor_checkpoint", str(student_actor_checkpoint)]
+            [
+                "--dagger_round",
+                str(round_index),
+                "--dagger_shard_rows",
+                str(PARKOUR_DAGGER_SHARD_ROWS),
+                "--dagger_row_budget",
+                str(dagger_row_budget),
+            ]
         )
     return command
 
@@ -137,7 +153,6 @@ def prepare_command(
 def training_command(
     *,
     bootstrap_checkpoint: Path,
-    teacher_checkpoint: Path,
     dataset_dir: Path,
     training_output: Path,
     round_index: int,
@@ -161,9 +176,6 @@ def training_command(
         str(training_output),
         "--max-state-dim",
         "53",
-        "--parkour-dagger",
-        "--parkour-actor-checkpoint",
-        str(teacher_checkpoint),
         "--action-horizon",
         "1",
         "--fixed-action-noise-seed",
@@ -191,14 +203,16 @@ def training_command(
         str(GRADIENT_ACCUMULATION_STEPS),
         "--episode-sampling-rate",
         "1.0",
+        "--shard-size",
+        str(PARKOUR_DAGGER_SHARD_ROWS),
         "--dataloader-num-workers",
-        "0",
+        "8",
         "--save-steps",
         str(UPDATES_PER_ROUND),
         "--stop-every-steps",
         str(UPDATES_PER_ROUND),
         "--save-total-limit",
-        str(DAGGER_ROUNDS),
+        "2",
         "--use-wandb",
     ]
     if round_index > 0:
@@ -211,7 +225,62 @@ def training_command(
     return command
 
 
+def read_eval_metrics(eval_path: Path) -> dict[str, float]:
+    result = json.loads(eval_path.read_text(encoding="utf-8"))
+    return {
+        f"dagger_eval/{metric}_{stat}": result[metric][stat]
+        for metric in EVAL_METRICS
+        for stat in ("mean", "std")
+    }
+
+
+def log_eval_metrics(eval_path: Path, *, step: int, run_id: str) -> None:
+    run = wandb.init(
+        project="finetune-gr00t-n1d7",
+        id=run_id,
+        resume="allow",
+    )
+    run.define_metric("dagger_eval/*", step_metric="train/global_step")
+    run.log({"train/global_step": step, **read_eval_metrics(eval_path)})
+    run.finish()
+    wandb.teardown()
+
+
+def evaluate_checkpoint(
+    args: argparse.Namespace,
+    *,
+    policy_config: Path,
+    output_dir: Path,
+    step: int,
+    environment: dict[str, str],
+) -> None:
+    subprocess.run(
+        collector_command(
+            args.parkour_python,
+            mode="vla-eval",
+            teacher_checkpoint=args.teacher_checkpoint,
+            policy_config=policy_config,
+            output_dir=output_dir,
+            inference_device=args.inference_device,
+            num_envs=50,
+            seed=2,
+            round_index=step // UPDATES_PER_ROUND,
+            inference_batch_size=args.inference_batch_size,
+        ),
+        cwd=PARKOUR_ROOT,
+        env=environment,
+        check=True,
+    )
+    log_eval_metrics(output_dir / "vla-eval.json", step=step, run_id=args.wandb_run_id)
+
+
 def run_pipeline(args: argparse.Namespace) -> None:
+    args.teacher_checkpoint = args.teacher_checkpoint.resolve()
+    args.bootstrap_checkpoint = args.bootstrap_checkpoint.resolve()
+    args.bootstrap_dataset = args.bootstrap_dataset.resolve()
+    args.output_root = args.output_root.resolve()
+    args.policy_config = args.policy_config.resolve()
+    args.parkour_python = args.parkour_python.resolve()
     training_output = args.output_root / "training"
     parkour_env = os.environ | {
         "PYTHONPATH": str(REPO_ROOT),
@@ -221,11 +290,10 @@ def run_pipeline(args: argparse.Namespace) -> None:
         "CUDA_VISIBLE_DEVICES": "0,1",
         "NO_ALBUMENTATIONS_UPDATE": "1",
         "PYTHONPATH": f"{PARKOUR_ROOT}{os.pathsep}{REPO_ROOT}",
-        "WANDB_RUN_ID": "extreme_parkour_go2_vla_dagger_joint_5k",
+        "WANDB_RUN_ID": args.wandb_run_id,
         "WANDB_RESUME": "allow",
     }
-
-    for round_index in range(args.start_round, DAGGER_ROUNDS):
+    for round_index in range(args.start_round, args.end_round):
         round_dir = args.output_root / f"round_{round_index:02d}"
         raw_dir = round_dir / "raw"
         dataset_dir = round_dir / "lerobot"
@@ -235,38 +303,37 @@ def run_pipeline(args: argparse.Namespace) -> None:
             if round_index == 0
             else checkpoint_dir(training_output, round_index)
         )
-        current_actor = (
-            None
-            if round_index == 0
-            else current_model / "parkour_student_actor.pt"
-        )
         write_policy_config(
             args.policy_config,
             policy_config,
             model_path=current_model,
             inference_device=args.inference_device,
         )
-        for collector_rank in range(COLLECTOR_RANKS):
-            subprocess.run(
-                collector_command(
-                    args.parkour_python,
-                    mode="dagger-collect",
-                    teacher_checkpoint=args.teacher_checkpoint,
-                    policy_config=policy_config,
-                    output_dir=raw_dir / f"rank_{collector_rank:02d}",
-                    inference_device=args.inference_device,
-                    num_envs=ENVS_PER_COLLECTOR_RANK,
-                    seed=collector_rank + 1,
-                    round_index=round_index,
-                    student_actor_checkpoint=current_actor,
-                    dagger_row_budget=(
-                        PARKOUR_DAGGER_ROWS_PER_ROUND // COLLECTOR_RANKS
-                    ),
-                ),
-                cwd=PARKOUR_ROOT,
-                env=parkour_env,
-                check=True,
+        if round_index == 0:
+            evaluate_checkpoint(
+                args,
+                policy_config=policy_config,
+                output_dir=round_dir / "eval_before",
+                step=0,
+                environment=parkour_env,
             )
+        subprocess.run(
+            collector_command(
+                args.parkour_python,
+                mode="dagger-collect",
+                teacher_checkpoint=args.teacher_checkpoint,
+                policy_config=policy_config,
+                output_dir=raw_dir,
+                inference_device=args.inference_device,
+                num_envs=DAGGER_ENVS,
+                seed=1,
+                round_index=round_index,
+                inference_batch_size=args.inference_batch_size,
+            ),
+            cwd=PARKOUR_ROOT,
+            env=parkour_env,
+            check=True,
+        )
         subprocess.run(
             prepare_command(
                 raw_dir,
@@ -278,11 +345,11 @@ def run_pipeline(args: argparse.Namespace) -> None:
             check=True,
         )
         trained_model = checkpoint_dir(training_output, round_index + 1)
-        if not (trained_model / "parkour_student_actor.pt").is_file():
+        complete_marker = trained_model / CHECKPOINT_COMPLETE_MARKER
+        if not complete_marker.is_file():
             subprocess.run(
                 training_command(
                     bootstrap_checkpoint=args.bootstrap_checkpoint,
-                    teacher_checkpoint=args.teacher_checkpoint,
                     dataset_dir=dataset_dir,
                     training_output=training_output,
                     round_index=round_index,
@@ -291,6 +358,9 @@ def run_pipeline(args: argparse.Namespace) -> None:
                 env=training_env,
                 check=True,
             )
+            temporary_marker = trained_model / f"{CHECKPOINT_COMPLETE_MARKER}.tmp"
+            temporary_marker.write_text("complete\n", encoding="utf-8")
+            temporary_marker.replace(complete_marker)
 
         eval_policy_config = round_dir / "eval_policy.yaml"
         write_policy_config(
@@ -299,25 +369,16 @@ def run_pipeline(args: argparse.Namespace) -> None:
             model_path=trained_model,
             inference_device=args.inference_device,
         )
-        subprocess.run(
-            collector_command(
-                args.parkour_python,
-                mode="dagger-eval",
-                teacher_checkpoint=args.teacher_checkpoint,
-                policy_config=eval_policy_config,
-                output_dir=round_dir / "eval",
-                inference_device=args.inference_device,
-                num_envs=50,
-                seed=2,
-                round_index=round_index,
-                student_actor_checkpoint=(
-                    trained_model / "parkour_student_actor.pt"
-                ),
-            ),
-            cwd=PARKOUR_ROOT,
-            env=parkour_env,
-            check=True,
+        evaluate_checkpoint(
+            args,
+            policy_config=eval_policy_config,
+            output_dir=round_dir / "eval",
+            step=(round_index + 1) * UPDATES_PER_ROUND,
+            environment=parkour_env,
         )
+        shutil.copy2(dataset_dir / "manifest.json", round_dir / "dataset_manifest.json")
+        shutil.rmtree(raw_dir)
+        shutil.rmtree(dataset_dir)
 
 
 def main() -> None:
@@ -329,7 +390,16 @@ def main() -> None:
     parser.add_argument("--policy-config", type=Path, default=DEFAULT_POLICY_CONFIG)
     parser.add_argument("--parkour-python", type=Path, default=DEFAULT_PARKOUR_PYTHON)
     parser.add_argument("--inference-device", default="cuda:1")
+    parser.add_argument(
+        "--wandb-run-id", default="extreme_parkour_go2_vla_dagger_latent_5k"
+    )
+    parser.add_argument(
+        "--inference-batch-size",
+        type=int,
+        default=DEFAULT_INFERENCE_BATCH_SIZE,
+    )
     parser.add_argument("--start-round", type=int, default=0)
+    parser.add_argument("--end-round", type=int, default=DAGGER_ROUNDS)
     run_pipeline(parser.parse_args())
 
 

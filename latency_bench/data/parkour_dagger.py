@@ -15,22 +15,13 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from latency_bench.data.action_layouts import (
     GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC,
 )
-from latency_bench.data.official_gr00t import _write_official_gr00t_modality
-
-
 PARKOUR_VLA_STATE_DIM = 53
 PARKOUR_VLA_ACTION_DIM = 34
-PARKOUR_ACTOR_OBSERVATION_HORIZON = 5
-PARKOUR_ACTOR_OBSERVATION_DIM = 753
-PARKOUR_TEACHER_ACTION_DIM = 12
-
-PARKOUR_DAGGER_LABELS_PER_ROW = PARKOUR_ACTOR_OBSERVATION_HORIZON
+PARKOUR_CONTROL_REPEAT = 5
 
 _SHARD_ROOT = "rollout_shards"
 _SHARD_PREFIX = "episode_"
@@ -39,8 +30,6 @@ _CHUNK_SIZE = 1000
 _NUMERIC_FIELDS = (
     "state",
     "action",
-    "actor_observation",
-    "teacher_action",
     "termination",
 )
 
@@ -66,7 +55,7 @@ def write_parkour_dagger_shard(
 ) -> Path:
     """Atomically commit one numeric NPZ + MP4 Parkour DAgger shard.
 
-    ``arrays`` must contain the five numeric fields named by
+    ``arrays`` must contain the three numeric fields named by
     ``_NUMERIC_FIELDS``.
     """
     payload = {name: arrays[name] for name in _NUMERIC_FIELDS}
@@ -87,8 +76,8 @@ def write_parkour_dagger_shard(
 def _shard_dirs(output_dir: Path | str, split: str) -> list[Path]:
     return sorted(
         path
-        for path in Path(output_dir).glob(
-            f"**/{_SHARD_ROOT}/{split}/{_SHARD_PREFIX}*"
+        for path in (Path(output_dir) / _SHARD_ROOT / split).glob(
+            f"{_SHARD_PREFIX}*"
         )
         if path.is_dir()
     )
@@ -106,7 +95,11 @@ def _iter_parkour_dagger_shards(
         yield arrays, shard_dir / "episode.mp4"
 
 
-def _episode_table(arrays: Mapping[str, Any], episode_index: int) -> pa.Table:
+def _episode_table(arrays: Mapping[str, Any], episode_index: int):
+    # Isaac Lab's collector environment does not ship pyarrow; keep this
+    # import at the conversion boundary so collection can run without it.
+    import pyarrow as pa
+
     row_count = arrays["state"].shape[0]
     image_type = pa.struct([("bytes", pa.binary()), ("path", pa.string())])
     return pa.table(
@@ -123,27 +116,9 @@ def _episode_table(arrays: Mapping[str, Any], episode_index: int) -> pa.Table:
                 arrays["action"].tolist(),
                 type=pa.list_(pa.float32(), PARKOUR_VLA_ACTION_DIM),
             ),
-            "actor_observation": pa.array(
-                arrays["actor_observation"].tolist(),
-                type=pa.list_(
-                    pa.list_(pa.float32(), PARKOUR_ACTOR_OBSERVATION_DIM),
-                    PARKOUR_ACTOR_OBSERVATION_HORIZON,
-                ),
-            ),
-            "teacher_action": pa.array(
-                arrays["teacher_action"].tolist(),
-                type=pa.list_(
-                    pa.list_(pa.float32(), PARKOUR_TEACHER_ACTION_DIM),
-                    PARKOUR_ACTOR_OBSERVATION_HORIZON,
-                ),
-            ),
-            "oracle_yaw": pa.array(
-                (1.5 * arrays["action"][:, -2:]).tolist(),
-                type=pa.list_(pa.float32(), 2),
-            ),
             "termination": pa.array(
                 arrays["termination"].tolist(),
-                type=pa.list_(pa.bool_(), PARKOUR_ACTOR_OBSERVATION_HORIZON),
+                type=pa.list_(pa.bool_(), PARKOUR_CONTROL_REPEAT),
             ),
             "timestamp": pa.array(
                 np.arange(row_count, dtype=np.float64) / _DATASET_FPS,
@@ -156,7 +131,6 @@ def _episode_table(arrays: Mapping[str, Any], episode_index: int) -> pa.Table:
                 np.arange(row_count, dtype=np.int64), type=pa.int64()
             ),
             "task_index": pa.array([0 for _ in range(row_count)], type=pa.int64()),
-            "done": pa.array(arrays["termination"][:, -1], type=pa.bool_()),
         }
     )
 
@@ -196,30 +170,14 @@ def _write_info(
             "shape": [PARKOUR_VLA_ACTION_DIM],
             "names": list(GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.labels),
         },
-        "actor_observation": {
-            "dtype": "tensor",
-            "shape": [
-                PARKOUR_ACTOR_OBSERVATION_HORIZON,
-                PARKOUR_ACTOR_OBSERVATION_DIM,
-            ],
-        },
-        "teacher_action": {
-            "dtype": "tensor",
-            "shape": [
-                PARKOUR_ACTOR_OBSERVATION_HORIZON,
-                PARKOUR_TEACHER_ACTION_DIM,
-            ],
-        },
-        "oracle_yaw": {"dtype": "tensor", "shape": [2]},
         "termination": {
             "dtype": "mask",
-            "shape": [PARKOUR_ACTOR_OBSERVATION_HORIZON],
+            "shape": [PARKOUR_CONTROL_REPEAT],
         },
         "timestamp": {"dtype": "float64", "shape": [1]},
         "episode_index": {"dtype": "int64", "shape": [1]},
         "frame_index": {"dtype": "int64", "shape": [1]},
         "task_index": {"dtype": "int64", "shape": [1]},
-        "done": {"dtype": "bool", "shape": [1]},
     }
     info = {
         "codebase_version": "v2.0",
@@ -267,6 +225,11 @@ def _convert_split(
     split: str,
     force: bool,
 ) -> dict[str, Any]:
+    # Isaac Lab's collector environment does not ship pyarrow; keep this
+    # import at the conversion boundary so collection can run without it.
+    import pyarrow.parquet as pq
+    from latency_bench.data.official_gr00t import _write_official_gr00t_modality
+
     if output_dir.exists() and force:
         shutil.rmtree(output_dir)
     episode_lengths: list[int] = []
@@ -326,22 +289,13 @@ def convert_parkour_dagger_shards_to_lerobot(
         )
     manifest = {
         **train_manifest,
-        "format": "parkour_dagger_lerobot_v2_video_numeric_parquet",
+        "format": "parkour_dagger_lerobot_v3_video_latent_parquet",
         "source": str(raw_dir),
         "action_layout": GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.layout,
         "action_labels": list(GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.labels),
         "action_dim": PARKOUR_VLA_ACTION_DIM,
         "state_dim": PARKOUR_VLA_STATE_DIM,
-        "actor_observation_shape": [
-            PARKOUR_ACTOR_OBSERVATION_HORIZON,
-            PARKOUR_ACTOR_OBSERVATION_DIM,
-        ],
-        "teacher_action_shape": [
-            PARKOUR_ACTOR_OBSERVATION_HORIZON,
-            PARKOUR_TEACHER_ACTION_DIM,
-        ],
-        "termination_shape": [PARKOUR_ACTOR_OBSERVATION_HORIZON],
-        "teacher_labels": train_rows * PARKOUR_DAGGER_LABELS_PER_ROW,
+        "termination_shape": [PARKOUR_CONTROL_REPEAT],
     }
     if val_manifest is not None:
         manifest.update(
