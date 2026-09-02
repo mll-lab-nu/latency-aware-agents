@@ -542,7 +542,13 @@ def _load_iid_profile(
     distribution_path = _profile_relative_path(
         resolved_profile_path, profile["distribution_path"]
     )
-    return read_json(distribution_path), _profile_metadata(profile)
+    distribution = read_json(distribution_path)
+    if distribution["schema_version"] != 3:
+        raise ValueError(
+            f"Unsupported IID latency distribution schema_version={distribution['schema_version']!r} "
+            f"at {distribution_path}; rebuild the profile with latency_bench.latency.profile_builder."
+        )
+    return distribution, _profile_metadata(profile)
 
 
 def _profile_metadata(profile: dict[str, Any]) -> dict[str, Any]:

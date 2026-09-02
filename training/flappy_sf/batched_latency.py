@@ -15,6 +15,10 @@ from latency_bench.core.latency_distribution import (
 )
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from training.common.latency_config import build_latency_info
+from training.common.latency_config import (
+    build_iid_profile_sampler,
+    profile_sampler_max_latency_raw_frames,
+)
 from training.common.utils import batch_indices, seed_values
 
 
@@ -39,6 +43,8 @@ class BatchedFlappyLatencyScheduler:
         hold_policy: str | ActionHoldPolicy,
         ordering_policy: str | OrderingPolicy,
         latency_distribution_spec: LatencyDistributionSpec | None,
+        profile_path: str | None = None,
+        profile_worker_slot: int | None = None,
         sample_distribution_per_episode: bool = False,
         seeds: Sequence[int],
         env_reset_seed_bases: Sequence[int],
@@ -48,6 +54,8 @@ class BatchedFlappyLatencyScheduler:
         self.batch_size = int(batch_size)
         self.fixed_latency_raw_frames = int(fixed_latency_raw_frames)
         self.latency_distribution_spec = latency_distribution_spec
+        self.profile_path = profile_path
+        self.profile_worker_slot = profile_worker_slot
         self.sample_distribution_per_episode = bool(sample_distribution_per_episode)
         self.latency_distribution_label = (
             None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
@@ -72,6 +80,21 @@ class BatchedFlappyLatencyScheduler:
         self.base_latency_seeds = np.asarray([int(seed) for seed in seeds], dtype=np.int64)
         self.env_reset_seed_bases = np.asarray([int(seed) for seed in env_reset_seed_bases], dtype=np.int64)
         self.add_latency_info = bool(add_latency_info)
+        self.profile_samplers = [
+            build_iid_profile_sampler(
+                profile_path,
+                seed=int(seed),
+                env_fps=self.clock.env_fps,
+                obs_fps=self.clock.obs_fps,
+            )
+            for seed in self.base_latency_seeds
+        ] if profile_path is not None else [None for _ in range(self.batch_size)]
+        if profile_path is not None:
+            self.max_frame_latency = profile_sampler_max_latency_raw_frames(
+                self.profile_samplers[0],
+                worker_slot=profile_worker_slot,
+                env_fps=self.clock.env_fps,
+            )
 
         self.episode_idx = np.zeros(self.batch_size, dtype=np.int64)
         self.env_step_idx = np.zeros(self.batch_size, dtype=np.int64)
@@ -129,7 +152,7 @@ class BatchedFlappyLatencyScheduler:
         active = np.asarray(active_mask, dtype=np.bool_).reshape(-1)
         active_indices = np.flatnonzero(active)
         latency_raw_frames = np.full(self.batch_size, int(self.fixed_latency_raw_frames), dtype=np.int64)
-        if self.latency_distribution_spec is not None:
+        if self.latency_distribution_spec is not None or self.profile_path is not None:
             for agent_idx in active_indices:
                 latency_raw_frames[agent_idx] = self._next_latency_raw_frames(int(agent_idx))
         self.current_latency_raw_frames[active] = latency_raw_frames[active]
@@ -254,6 +277,14 @@ class BatchedFlappyLatencyScheduler:
         return selected, actions
 
     def _next_latency_raw_frames(self, agent_idx: int) -> int:
+        if self.profile_samplers[agent_idx] is not None:
+            sample = self.profile_samplers[agent_idx].sample(
+                {
+                    "episode_id": int(self.episode_idx[agent_idx]),
+                    "worker_slot": self.profile_worker_slot,
+                }
+            )
+            return int(sample.action_ready_raw_frames)
         if self.latency_distribution_spec is not None:
             if self.sample_distribution_per_episode:
                 return self.current_latency_raw_frames[agent_idx]

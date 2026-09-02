@@ -196,6 +196,7 @@ __global__ void demon_decision_begin_kernel(
     int64_t* __restrict__ decision_raw_frames_advanced,
     bool* __restrict__ still_active,
     int64_t* __restrict__ latency_rng_state,
+    int64_t* __restrict__ profile_latency_raw_frames,
     int64_t fixed_latency_raw_frames,
     int64_t latency_distribution_type,
     double latency_distribution_mean,
@@ -224,7 +225,9 @@ __global__ void demon_decision_begin_kernel(
         return;
     }
 
-    const int64_t latency = latency_distribution_type == 3
+    const int64_t latency = latency_distribution_type == 4
+        ? profile_latency_raw_frames[env]
+        : latency_distribution_type == 3
         ? current_latency_raw_frames[env]
         : sample_latency_raw_frames(
             fixed_latency_raw_frames,
@@ -651,6 +654,7 @@ step_decision(const bool episodic_life,
               int64_t* decision_raw_frames_advanced,
               int64_t* episode_step_idx,
               int64_t* latency_rng_state,
+              int64_t* profile_latency_raw_frames,
               cule::atari::Action* action_set,
               cule::atari::Action* raw_action_values,
               bool* still_active,
@@ -688,6 +692,7 @@ step_decision(const bool episodic_life,
         decision_raw_frames_advanced,
         still_active,
         latency_rng_state,
+        profile_latency_raw_frames,
         fixed_latency_raw_frames,
         latency_distribution_type,
         latency_distribution_mean,

@@ -320,13 +320,20 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
             args.append(f"--{field}")
             args.extend(str(item) for item in training_cfg[field])
 
-    append_cli_arg(args, "--latency-type", latency_type_from_config(latency_cfg))
+    latency_method = latency_cfg["method"]
+    append_cli_arg(
+        args,
+        "--latency-type",
+        "iid" if latency_method == "iid" else latency_type_from_config(latency_cfg),
+    )
     append_cli_arg(args, "--fixed-latency-ms", latency_cfg.get("fixed_latency_ms"))
     append_cli_arg(args, "--mean-latency-ms", latency_cfg.get("mean_latency_ms"))
     append_cli_arg(args, "--std-latency-ms", latency_cfg.get("std_latency_ms"))
     append_cli_arg(args, "--min-latency-ms", latency_cfg.get("min_latency_ms"))
     append_cli_arg(args, "--max-latency-ms", latency_cfg.get("max_latency_ms"))
     append_cli_arg(args, "--latency-seed", latency_cfg.get("seed"))
+    append_cli_arg(args, "--latency-profile-path", latency_cfg.get("profile_path"))
+    append_cli_arg(args, "--latency-profile-worker-slot", latency_cfg.get("profile_worker_slot"))
     append_cli_arg(args, "--add-latency-info", latency_cfg.get("add_latency_info", False))
     append_cli_arg(args, "--max-pending-actions", latency_cfg.get("max_pending_actions"))
 

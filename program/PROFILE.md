@@ -112,6 +112,28 @@ temporal 不直接采样 drop。每个 generated request 先经过 worker admiss
 
 本轮先保持现有 hidden-regime 算法，只修正它的输入顺序和 measurement boundary；算法简化是后续独立实验，不能和数据修正混在同一次归因中。
 
+## Sample Factory small-model training
+
+Sample Factory small-model training 支持 `iid` profile replay：
+
+```yaml
+latency:
+  method: iid
+  profile_path: results/profiling/profiles/<model>/<gpu>/<workload>/<instance>/profile.json
+  profile_worker_slot: 0
+  seed: 42
+```
+
+训练读取 canonical profile 的指定 `worker_slots/<slot>/all` 联合分布，并使用其中的
+`observation_to_action_latency_ms` 作为 action queue latency。每个训练 env 使用独立的
+seeded IID stream；`profile_worker_slot` 必须明确指定，不会在 slots 之间隐式切换。
+
+这是 action-only training replay：`worker_service_time` 不会驱动 Sample Factory 的 worker
+occupancy 或 capacity drop。需要完整 admission、service 和 drop 语义时，使用
+`latency_bench` 的 simulated executor replay。Sample Factory training 当前不支持
+`temporal`；旧的 top-level inverse-CDF profile 也不属于 canonical training 输入，必须先
+按本文件定义重新生成 profile artifacts。
+
 ## Verification
 
 当前回归已经验证：

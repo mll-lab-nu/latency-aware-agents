@@ -427,6 +427,8 @@ __global__ void flappy_latency_begin_kernel(
     double latency_distribution_std,
     double latency_distribution_min,
     double latency_distribution_max,
+    const int64_t* __restrict__ profile_latency_raw_frames,
+    int64_t use_profile_latency,
     int batch_size,
     int queue_capacity) {
     const int env = blockIdx.x * blockDim.x + threadIdx.x;
@@ -434,7 +436,9 @@ __global__ void flappy_latency_begin_kernel(
         return;
     }
 
-    const int64_t latency = latency_distribution_type == 3
+    const int64_t latency = use_profile_latency != 0
+        ? profile_latency_raw_frames[env]
+        : latency_distribution_type == 3
         ? current_latency_raw_frames[env]
         : sample_latency_raw_frames(
             fixed_latency_raw_frames,
@@ -613,6 +617,8 @@ __global__ void flappy_latency_core_decision_kernel(
     double latency_distribution_std,
     double latency_distribution_min,
     double latency_distribution_max,
+    const int64_t* __restrict__ profile_latency_raw_frames,
+    int64_t use_profile_latency,
     int64_t obs_stride_raw_frames,
     int64_t hold_duration,
     int64_t ordering_policy,
@@ -640,7 +646,9 @@ __global__ void flappy_latency_core_decision_kernel(
     int64_t raw_frames_advanced = 0;
 
     if (active[env]) {
-        const int64_t latency = latency_distribution_type == 3
+        const int64_t latency = use_profile_latency != 0
+            ? profile_latency_raw_frames[env]
+            : latency_distribution_type == 3
             ? current_latency_raw_frames[env]
             : sample_latency_raw_frames(
                 fixed_latency_raw_frames,
@@ -1086,6 +1094,7 @@ void flappy_latency_begin_cuda(
     torch::Tensor decision_latency_raw_frames,
     torch::Tensor decision_ready_raw_frames,
     torch::Tensor latency_rng_state,
+    torch::Tensor profile_latency_raw_frames,
     int64_t fixed_latency_raw_frames,
     int64_t latency_distribution_type,
     double latency_distribution_mean,
@@ -1117,6 +1126,8 @@ void flappy_latency_begin_cuda(
         latency_distribution_std,
         latency_distribution_min,
         latency_distribution_max,
+        profile_latency_raw_frames.data_ptr<int64_t>(),
+        latency_distribution_type == 4 ? 1 : 0,
         static_cast<int>(batch_size),
         static_cast<int>(queue_capacity));
 }
@@ -1257,6 +1268,7 @@ void flappy_latency_core_decision_cuda(
     torch::Tensor reset_upper_pipe_xy,
     torch::Tensor reset_lower_pipe_xy,
     torch::Tensor latency_rng_state,
+    torch::Tensor profile_latency_raw_frames,
     int64_t fixed_latency_raw_frames,
     int64_t latency_distribution_type,
     double latency_distribution_mean,
@@ -1322,6 +1334,8 @@ void flappy_latency_core_decision_cuda(
         latency_distribution_std,
         latency_distribution_min,
         latency_distribution_max,
+        profile_latency_raw_frames.data_ptr<int64_t>(),
+        latency_distribution_type == 4 ? 1 : 0,
         obs_stride_raw_frames,
         hold_duration,
         ordering_policy,

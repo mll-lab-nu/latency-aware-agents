@@ -67,10 +67,15 @@ class CudaLatencyScheduler:
         latency_distribution_spec: LatencyDistributionSpec | None = None,
         sample_distribution_per_episode: bool = False,
         max_pending_actions: int | None = None,
+        latency_samplers: Sequence[Any] | None = None,
+        profile_worker_slot: int | None = None,
+        profile_max_latency_raw_frames: int | None = None,
     ) -> None:
         self.batch_size = int(batch_size)
         self.fixed_latency_raw_frames = int(fixed_latency_raw_frames)
         self.latency_distribution_spec = latency_distribution_spec
+        self.latency_samplers = None if latency_samplers is None else list(latency_samplers)
+        self.profile_worker_slot = profile_worker_slot
         self.sample_distribution_per_episode = bool(sample_distribution_per_episode)
         self.latency_distribution_label = (
             None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
@@ -78,7 +83,11 @@ class CudaLatencyScheduler:
         self.max_frame_latency = (
             distribution_max_frame_latency(self.latency_distribution_spec)
             if self.latency_distribution_spec is not None
-            else int(self.fixed_latency_raw_frames)
+            else int(
+                self.fixed_latency_raw_frames
+                if profile_max_latency_raw_frames is None
+                else profile_max_latency_raw_frames
+            )
         )
         self.max_pending_actions = None if max_pending_actions is None else int(max_pending_actions)
         self.clock = EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
@@ -142,7 +151,14 @@ class CudaLatencyScheduler:
         self._decision_queued_actions = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
         self._decision_timeout = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
         self._raw_actions = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
-        reset_latency = 0 if self.latency_distribution_spec is not None else int(self.fixed_latency_raw_frames)
+        self._profile_latency_raw_frames = torch.zeros(
+            self.batch_size, dtype=torch.int64, device=self.device
+        )
+        reset_latency = (
+            0
+            if self.latency_distribution_spec is not None or self.latency_samplers is not None
+            else int(self.fixed_latency_raw_frames)
+        )
         self._latency_raw_frames_cpu = np.full(self.batch_size, reset_latency, dtype=np.int64)
 
     def reset(
@@ -239,6 +255,7 @@ class CudaLatencyScheduler:
     def begin_decision(self, actions: torch.Tensor, active_mask: torch.Tensor) -> None:
         action_t = actions.to(device=self.device, dtype=torch.int64).reshape(-1).contiguous()
         active = active_mask.to(device=self.device, dtype=torch.bool).reshape(-1).contiguous()
+        self._sample_profile_latencies(active)
         self.ext.flappy_latency_begin(
             action_t,
             active,
@@ -254,6 +271,7 @@ class CudaLatencyScheduler:
             self._decision_latency_raw_frames,
             self._decision_ready_raw_frames,
             self.latency_rng_state,
+            self._profile_latency_raw_frames,
             int(self.fixed_latency_raw_frames),
             int(self.latency_distribution_type),
             float(self.latency_distribution_mean),
@@ -303,6 +321,7 @@ class CudaLatencyScheduler:
         action_t = actions.to(device=self.device, dtype=torch.int64).reshape(-1).contiguous()
         active = active_mask.to(device=self.device, dtype=torch.bool).reshape(-1).contiguous()
         episode_steps = episode_step_idx.view(-1)
+        self._sample_profile_latencies(active)
         reset_pipes_in_kernel = self.clock.obs_stride_raw_frames > 1
         if reset_pipes_in_kernel:
             reset_upper_pipe_xy, reset_lower_pipe_xy, reset_pipe_slot_capacity = core.prepare_pipe_resets_for_decision(
@@ -355,6 +374,7 @@ class CudaLatencyScheduler:
             reset_upper_pipe_xy,
             reset_lower_pipe_xy,
             self.latency_rng_state,
+            self._profile_latency_raw_frames,
             int(self.fixed_latency_raw_frames),
             int(self.latency_distribution_type),
             float(self.latency_distribution_mean),
@@ -502,6 +522,8 @@ class CudaLatencyScheduler:
         )
 
     def _latency_distribution_type(self) -> int:
+        if self.latency_samplers is not None:
+            return 4
         if self.latency_distribution_spec is None:
             return 0
         if self.sample_distribution_per_episode:
@@ -515,6 +537,8 @@ class CudaLatencyScheduler:
         )
 
     def _reset_latency_for_agent(self, agent_idx: int) -> int:
+        if self.latency_samplers is not None:
+            return 0
         if self.latency_distribution_spec is None:
             return int(self.fixed_latency_raw_frames)
         if self.sample_distribution_per_episode:
@@ -524,6 +548,23 @@ class CudaLatencyScheduler:
             )
             return int(make_latency_distribution_sampler(self.latency_distribution_spec, seed=seed).sample_frame())
         return 0
+
+    def _sample_profile_latencies(self, active: torch.Tensor) -> None:
+        if self.latency_samplers is None:
+            return
+        active_cpu = active.detach().cpu().numpy()
+        sampled = np.zeros(self.batch_size, dtype=np.int64)
+        for agent_idx in np.flatnonzero(active_cpu):
+            sample = self.latency_samplers[int(agent_idx)].sample(
+                {
+                    "episode_id": int(self.episode_idx_cpu[int(agent_idx)]),
+                    "worker_slot": self.profile_worker_slot,
+                }
+            )
+            sampled[int(agent_idx)] = int(sample.action_ready_raw_frames)
+        self._profile_latency_raw_frames.copy_(
+            torch.as_tensor(sampled, dtype=torch.int64, device=self.device)
+        )
 
     def _indices(self, indices: Sequence[int] | np.ndarray | torch.Tensor | None) -> list[int]:
         return batch_indices(indices, batch_size=self.batch_size)

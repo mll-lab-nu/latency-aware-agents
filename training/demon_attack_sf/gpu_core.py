@@ -429,6 +429,7 @@ class CudaDemonAttackCore:
         action_t = torch.as_tensor(actions, dtype=torch.int64, device=self.device).reshape(-1).contiguous()
         active_t = torch.as_tensor(active_mask, dtype=torch.bool, device=self.device).reshape(-1).contiguous()
         episode_steps = episode_step_idx.view(-1)
+        latency._sample_profile_latencies(active_t)
         self.env.step_decision(
             bool(self.terminal_on_life_loss),
             int(latency.clock.obs_stride_raw_frames),
@@ -473,6 +474,7 @@ class CudaDemonAttackCore:
             self._decision_raw_frames_advanced.data_ptr(),
             episode_steps.data_ptr(),
             latency.latency_rng_state.data_ptr(),
+            latency._profile_latency_raw_frames.data_ptr(),
             self.action_set.data_ptr(),
             self._raw_action_values.data_ptr(),
             self._decision_still_active.data_ptr(),

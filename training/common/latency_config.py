@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from latency_bench.core.clock import ms_to_raw_frames
+from latency_bench.core.clock import EnvClock, ms_to_raw_frames
 from latency_bench.core.latency_distribution import LatencyDistributionSpec
+from latency_bench.latency.samplers import build_sampler
 
 from training.common.utils import env_instance_seed
 
@@ -19,6 +20,8 @@ class SampleFactoryLatencyParams:
     fixed_latency_raw_frames: int
     latency_distribution_spec: LatencyDistributionSpec | None
     sample_distribution_per_episode: bool = False
+    profile_path: str | None = None
+    profile_worker_slot: int | None = None
 
 
 def sample_factory_latency_seed_from_flat_config(
@@ -93,6 +96,13 @@ def sample_factory_latency_params_from_flat_config(cfg: Any, *, env_fps: float) 
             fixed_latency_raw_frames=latency_ms_to_raw_frames(cfg.fixed_latency_ms, env_fps=env_fps),
             latency_distribution_spec=None,
         )
+    if latency_type == "iid":
+        return SampleFactoryLatencyParams(
+            fixed_latency_raw_frames=0,
+            latency_distribution_spec=None,
+            profile_path=cfg.latency_profile_path,
+            profile_worker_slot=cfg.latency_profile_worker_slot,
+        )
     return SampleFactoryLatencyParams(
         fixed_latency_raw_frames=0,
         latency_distribution_spec=latency_distribution_spec_from_flat_config(cfg, env_fps=env_fps),
@@ -119,3 +129,22 @@ def latency_distribution_spec_from_flat_config(cfg: Any, *, env_fps: float) -> L
             max=latency_ms_to_raw_frame_value(cfg.max_latency_ms, env_fps=env_fps),
         )
     raise ValueError(f"Sample Factory latency_distribution_spec does not support latency_type={latency_type}")
+
+
+def build_iid_profile_sampler(
+    profile_path: str,
+    *,
+    seed: int,
+    env_fps: float,
+    obs_fps: float,
+):
+    return build_sampler(
+        {"method": "iid", "profile_path": profile_path, "seed": int(seed)},
+        clock=EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps)),
+    )
+
+
+def profile_sampler_max_latency_raw_frames(sampler: Any, *, worker_slot: int, env_fps: float) -> int:
+    distribution = sampler.distributions[str(worker_slot)]["all"]
+    latency_ms = max(distribution["observation_to_action_latency_ms"]["latency_ms"])
+    return latency_ms_to_raw_frames(latency_ms, env_fps=env_fps)

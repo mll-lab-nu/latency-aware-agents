@@ -120,3 +120,27 @@ bash scripts/profile.sh simulate \
 Replay methods are `temporal`, `iid`, `fixed`, and `normal`.
 `resolve` and `simulate` use `main` by default; pass `--hf-commit` to pin a
 published profile for a reproducible experiment.
+
+## Train a small model with IID profile latency
+
+Sample Factory training can use the same canonical profile manifest with IID sampling:
+
+```yaml
+latency:
+  method: iid
+  profile_path: results/profiling/profiles/<model>/<gpu>/<workload>/<instance>/profile.json
+  profile_worker_slot: 0
+  seed: 42
+```
+
+`profile_worker_slot` selects one real worker slot from the profile. Every training
+environment samples that slot's `all` distribution with its own deterministic stream.
+The sampled `observation_to_action_latency_ms` is converted to the training environment's
+raw-frame clock and applied by the existing action queue.
+
+This training mode is intentionally action-only: it does not model worker service
+occupancy or capacity drops. Use `simulate --method iid` when those worker-pool effects
+are required. Sample Factory training currently supports `iid` only; temporal burst
+replay remains an executor-level feature. Profiles must use the canonical schema 3
+distribution generated from `observation_attempts.jsonl`; older single-array profile
+artifacts must be rebuilt before training.

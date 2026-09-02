@@ -21,7 +21,11 @@ from latency_bench.core.types import Action, ActionEvent, ActionHoldPolicy, Late
 from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.factory import build_persistence_policy
-from training.common.latency_config import build_latency_info
+from training.common.latency_config import (
+    build_iid_profile_sampler,
+    build_latency_info,
+    profile_sampler_max_latency_raw_frames,
+)
 from training.common.episode_metrics import append_episode_metrics_event
 
 _HURDLE_EPISODE_METRICS = (
@@ -72,12 +76,17 @@ class ActionLatencyWrapper(gym.Wrapper):
         add_latency_info: bool = True,
         latency_distribution_spec: LatencyDistributionSpec | None = None,
         sample_distribution_per_episode: bool = False,
+        profile_path: str | None = None,
+        profile_worker_slot: int | None = None,
         max_pending_actions: int | None = None,
     ):
         super().__init__(env)
+        self.base_latency_seed = int(seed)
         self.fixed_latency_raw_frames = int(fixed_latency_raw_frames)
         self.latency_distribution_spec = latency_distribution_spec
         self.sample_distribution_per_episode = bool(sample_distribution_per_episode)
+        self.profile_path = profile_path
+        self.profile_worker_slot = profile_worker_slot
         self.latency_distribution_label = (
             None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
         )
@@ -87,15 +96,27 @@ class ActionLatencyWrapper(gym.Wrapper):
             if self.latency_distribution_spec is not None
             else int(self.fixed_latency_raw_frames)
         )
+        self.noop_action = noop_action_from_space(env.action_space)
+        self.clock = EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
+        self.profile_sampler = None
+        if self.profile_path is not None:
+            self.profile_sampler = build_iid_profile_sampler(
+                self.profile_path,
+                seed=self.base_latency_seed,
+                env_fps=self.clock.env_fps,
+                obs_fps=self.clock.obs_fps,
+            )
+            self.max_frame_latency = profile_sampler_max_latency_raw_frames(
+                self.profile_sampler,
+                worker_slot=self.profile_worker_slot,
+                env_fps=self.clock.env_fps,
+            )
         self.max_pending_actions = None if max_pending_actions is None else int(max_pending_actions)
         if self.max_pending_actions is not None and self.max_pending_actions < self.max_frame_latency + 1:
             raise ValueError(
                 "latency.max_pending_actions must be at least train_distribution.max + 1 "
                 f"({self.max_frame_latency + 1})"
             )
-
-        self.noop_action = noop_action_from_space(env.action_space)
-        self.clock = EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
         self.hold_policy = ActionHoldPolicy(hold_policy)
         self.ordering_policy = OrderingPolicy(ordering_policy)
         self.action_scheduler = ActionScheduler(
@@ -104,7 +125,6 @@ class ActionLatencyWrapper(gym.Wrapper):
             persistence_policy=build_persistence_policy(self.hold_policy, clock=self.clock),
             ordering_policy=self.ordering_policy,
         )
-        self.base_latency_seed = int(seed)
         self.latency_distribution_sampler = None
         self.env_reset_seed_base = None if env_reset_seed_base is None else int(env_reset_seed_base)
         self.current_latency_raw_frames = 0
@@ -115,6 +135,14 @@ class ActionLatencyWrapper(gym.Wrapper):
         self._next_action_id = 0
 
     def _next_latency_raw_frames(self) -> int:
+        if self.profile_sampler is not None:
+            sample = self.profile_sampler.sample(
+                {
+                    "episode_id": int(self.episode_idx),
+                    "worker_slot": self.profile_worker_slot,
+                }
+            )
+            return int(sample.action_ready_raw_frames)
         if self.latency_distribution_spec is not None:
             if self.sample_distribution_per_episode:
                 return int(self.current_latency_raw_frames)

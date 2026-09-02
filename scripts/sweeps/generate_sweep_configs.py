@@ -65,6 +65,8 @@ LATENCY_KEYS = (
     "min_latency_ms",
     "max_latency_ms",
     "seed",
+    "profile_path",
+    "profile_worker_slot",
     "per_episode",
     "add_latency_info",
     "max_pending_actions",
@@ -239,6 +241,8 @@ def _apply_latency_setting(config: dict[str, Any], setting: dict[str, Any], seed
         "min_latency_ms",
         "max_latency_ms",
         "seed",
+        "profile_path",
+        "profile_worker_slot",
         "per_episode",
     ):
         latency_cfg.pop(key, None)
@@ -246,6 +250,13 @@ def _apply_latency_setting(config: dict[str, Any], setting: dict[str, Any], seed
     if kind == "fixed":
         latency_cfg["method"] = "fixed"
         latency_cfg["fixed_latency_ms"] = float(setting["frames"]) * _frame_ms(config)
+    elif kind == "iid":
+        latency_cfg.update(
+            method="iid",
+            profile_path=str(setting["profile_path"]),
+            profile_worker_slot=int(setting["profile_worker_slot"]),
+            seed=int(seed),
+        )
     else:
         spec = _latency_distribution_spec(kind, setting)
         latency_cfg.update(
@@ -273,6 +284,8 @@ def _latency_manifest_fields(setting: dict[str, Any]) -> dict[str, str]:
     }
     if row["latency_kind"] == "fixed":
         row["latency_fixed_frames"] = _number_label(setting["frames"])
+        return row
+    if row["latency_kind"] == "iid":
         return row
     if row["latency_kind"] in {"normal", "mixed_normal"}:
         row["latency_mean_frames"] = _number_label(setting["mean"])
@@ -325,10 +338,14 @@ def _matched_eval_suites(setting: dict[str, Any]) -> dict[str, list[list[Any]]]:
             "uniform": [[setting["min"], setting["max"]]],
         }
 
+    def iid_suite() -> dict[str, list[list[Any]]]:
+        return {"fixed": [], "normal": [], "uniform": []}
+
     builders = {
         "fixed": fixed_suite,
         "normal": normal_suite,
         "uniform": uniform_suite,
+        "iid": iid_suite,
     }
     return builders[setting["kind"]]()
 

@@ -222,6 +222,22 @@ def test_build_common_sf_args_maps_cuda_to_sample_factory_gpu():
     assert args[args.index("--device") + 1] == "gpu"
 
 
+def test_build_common_sf_args_emits_iid_profile_settings(tmp_path):
+    cfg = load_config("configs/base/deadly_corridor.yaml")
+    cfg["latency"] = {
+        "method": "iid",
+        "profile_path": str(tmp_path / "profile.json"),
+        "profile_worker_slot": 0,
+        "seed": 42,
+    }
+
+    args = build_common_sf_args(cfg, sf_env_name="doom_deadly_corridor")
+
+    assert args[args.index("--latency-type") + 1] == "iid"
+    assert args[args.index("--latency-profile-path") + 1] == str(tmp_path / "profile.json")
+    assert args[args.index("--latency-profile-worker-slot") + 1] == "0"
+
+
 def test_flappy_sf_cli_maps_explicit_env_max_episode_steps():
     from training.flappy_sf.integration import build_cli_args_from_config
 
@@ -561,6 +577,68 @@ def test_action_latency_wrapper_exposes_fixed_non_zero_latency():
     _, _, _, _, step_info = wrapped.step(0)
     assert step_info["latency_raw_frames"] == 4
     wrapped.close()
+
+
+def test_action_latency_wrapper_uses_iid_profile_action_latency(tmp_path):
+    import gymnasium as gym
+
+    from training.common.latency_wrapper import ActionLatencyWrapper
+
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    (profile_dir / "profile.json").write_text(
+        json.dumps(
+            {
+                "model_id": "model",
+                "gpu_class": "gpu",
+                "workload_id": "workload",
+                "instance_id": "instance",
+                "source_run_id": "run",
+                "distribution_path": "latency_distribution.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (profile_dir / "latency_distribution.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 3,
+                "worker_slots": {
+                    "0": {
+                        "all": {
+                            "spearman_rho": 0.0,
+                            "observation_to_action_latency_ms": {
+                                "quantile_levels": [0.0, 1.0],
+                                "latency_ms": [20.0, 20.0],
+                            },
+                            "worker_service_time_ms": {
+                                "quantile_levels": [0.0, 1.0],
+                                "latency_ms": [10.0, 10.0],
+                            },
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    env = gym.make("CartPole-v1")
+    wrapped = ActionLatencyWrapper(
+        env,
+        env_fps=30,
+        obs_fps=30,
+        profile_path=str(profile_dir),
+        profile_worker_slot=0,
+        seed=42,
+    )
+    try:
+        wrapped.reset(seed=123)
+        values = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(4)]
+    finally:
+        wrapped.close()
+
+    assert values == [1, 1, 1, 1]
 
 
 def test_action_latency_wrapper_distribution_samples_deterministically():

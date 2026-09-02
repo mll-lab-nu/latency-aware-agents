@@ -19,6 +19,8 @@ from latency_bench.envs.flappy import (
     FlappyTorchObservationPipeline,
 )
 from training.common.latency_config import (
+    build_iid_profile_sampler,
+    profile_sampler_max_latency_raw_frames,
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
@@ -127,6 +129,23 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             for agent_idx in range(self.num_agents)
         ]
         latency_params = sample_factory_latency_params_from_flat_config(self.cfg, env_fps=self.clock.env_fps)
+        profile_samplers = None
+        profile_max_latency_raw_frames = None
+        if latency_params.profile_path is not None:
+            profile_samplers = [
+                build_iid_profile_sampler(
+                    latency_params.profile_path,
+                    seed=latency_seeds[agent_idx],
+                    env_fps=self.clock.env_fps,
+                    obs_fps=self.clock.obs_fps,
+                )
+                for agent_idx in range(self.num_agents)
+            ]
+            profile_max_latency_raw_frames = profile_sampler_max_latency_raw_frames(
+                profile_samplers[0],
+                worker_slot=latency_params.profile_worker_slot,
+                env_fps=self.clock.env_fps,
+            )
         max_pending_actions = getattr(self.cfg, "max_pending_actions", None)
         latency_kwargs = {
             "batch_size": self.num_agents,
@@ -145,12 +164,17 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 latency_distribution_spec=latency_params.latency_distribution_spec,
                 sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
                 max_pending_actions=max_pending_actions,
+                latency_samplers=profile_samplers,
+                profile_worker_slot=latency_params.profile_worker_slot,
+                profile_max_latency_raw_frames=profile_max_latency_raw_frames,
                 device=self.render_device,
             )
         else:
             self.latency = BatchedFlappyLatencyScheduler(
                 **latency_kwargs,
                 latency_distribution_spec=latency_params.latency_distribution_spec,
+                profile_path=latency_params.profile_path,
+                profile_worker_slot=latency_params.profile_worker_slot,
                 sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
                 max_pending_actions=max_pending_actions,
             )

@@ -90,6 +90,7 @@ class AtariEnv : public cule::atari::wrapper
                          int64_t* decision_raw_frames_advanced,
                          int64_t* episode_step_idx,
                          int64_t* latency_rng_state,
+                         int64_t* profile_latency_raw_frames,
                          cule::atari::Action* action_set,
                          cule::atari::Action* raw_action_values,
                          bool* still_active,

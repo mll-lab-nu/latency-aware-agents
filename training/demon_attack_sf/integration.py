@@ -175,6 +175,8 @@ def make_demon_attack_sf_env(
         ordering_policy=cfg.ordering_policy,
         latency_distribution_spec=latency_params.latency_distribution_spec,
         sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
+        profile_path=latency_params.profile_path,
+        profile_worker_slot=latency_params.profile_worker_slot,
         seed=latency_seed,
         env_reset_seed_base=wrapper_seed + 104729,
         add_latency_info=cfg.add_latency_info,
@@ -273,6 +275,8 @@ def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-latency-ms", dest="min_latency_ms", type=float)
     parser.add_argument("--max-latency-ms", dest="max_latency_ms", type=float)
     parser.add_argument("--latency-seed", dest="latency_seed", type=int)
+    parser.add_argument("--latency-profile-path", dest="latency_profile_path", type=str)
+    parser.add_argument("--latency-profile-worker-slot", dest="latency_profile_worker_slot", type=int)
     parser.add_argument("--add-latency-info", type=str2bool, default=False)
     parser.add_argument("--max-pending-actions", dest="max_pending_actions", type=int)
     parser.add_argument(
