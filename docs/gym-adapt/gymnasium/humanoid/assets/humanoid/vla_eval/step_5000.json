@@ -1,0 +1,28 @@
+{
+  "checkpoint": "steps_5000_pytorch_model.pt",
+  "episodes_per_latency": 20,
+  "max_steps": 1000,
+  "invalid_or_dropped_actions": 0,
+  "per_latency": {
+    "0": {
+      "latency_ms": 0,
+      "mean_return": 233.191,
+      "std_return": 34.075,
+      "median_return": 231.909,
+      "mean_length": 45.5,
+      "min_length": 38,
+      "max_length": 61,
+      "full_episodes": 0
+    },
+    "2": {
+      "latency_ms": 30,
+      "mean_return": 223.524,
+      "std_return": 50.154,
+      "median_return": 208.914,
+      "mean_length": 44.1,
+      "min_length": 34,
+      "max_length": 69,
+      "full_episodes": 0
+    }
+  }
+}
