@@ -2,7 +2,7 @@
 
 > 任务：`Isaac-Extreme-Parkour-{Teacher,Student}-Unitree-Go2-v0`
 >
-> Extreme Parkour fork：当前 commit `0fc5411818697fbc8c8f40c363119a5cd0fbd07b`；
+> Extreme Parkour fork：当前 commit `6caa34adf73a0a1acc366bfee81320fc1e202618`；
 > 性能优化 base `4265e663627a3f5e50a076508b78cfdad05b2b39`，后续恢复 student height
 > scanner 的 20 ms `update_period`、启用 cuDNN benchmark，并将 teacher PhysX partitions 设为 4；
 > zero-delay commit `991c4b02aa08a802e57d01924ef2f3826d0d7334`；upstream base
@@ -15,7 +15,7 @@
 > 状态：依赖、双卡 smoke、目标容量 A/B 和精确 resume 已完成。首个 adaptive-LR teacher
 > 正式 run 已确认 collapse，并在 iteration 1418 停止；fixed-LR teacher 已通过 iteration
 > 100/300/1000 门禁并正常完成 15k；Teacher evaluation 已通过
-> 32D terrain-latent VLA 的 RGB collector、LeRobot/GR00T 数据转换、5k 训练入口和
+> 34D terrain-latent+yaw VLA 的 RGB collector、LeRobot/GR00T 数据转换、5k 训练入口和
 > zero-delay evaluator 已实现；单卡 8-env oracle、1+1 episode 数据、1-step GR00T 训练及
 > 闭环推理 smoke 已通过，尚未运行正式 250/25、5k 和 50-env VLA gate。
 
@@ -207,7 +207,7 @@ git -C third_party/Isaaclab_Parkour rev-parse HEAD
 
 ```text
 46dff135f44683f031edf346e544fcfd8456b2bb
-0fc5411818697fbc8c8f40c363119a5cd0fbd07b
+6caa34adf73a0a1acc366bfee81320fc1e202618
 ```
 
 Parkour submodule URL 固定为 `git@github.com:mindorigin150/Isaaclab_Parkour.git`。fresh checkout
@@ -518,23 +518,23 @@ student evaluation 同样需要 `--enable_cameras`，并在进程环境中预加
 - `empirical_normalization=True` 的 teacher-to-student 双 normalizer 数据流；当前两个正式配置均关闭；
 - 为 future backend、robot 或第三张 GPU 增加抽象。
 
-## 11. 32D terrain-latent VLA zero-delay baseline
+## 11. 34D perception VLA zero-delay bootstrap
 
-VLA 不直接承担 50 Hz 关节平衡控制。benchmark 冻结 `model_14999.pt` 的 teacher actor，
-将官方 GR00T-N1.7-3B 放在原 height-scan encoder 的位置：
+这一步是进入 DAgger 前的额外 bootstrap，不是原 paper 的训练阶段。它先冻结
+`model_14999.pt` 的 teacher actor，将官方 GR00T-N1.7-3B 放在原 depth encoder 的位置：
 
 ```text
 robot RGB 256x256 @ 10 Hz + current proprio 53D + fixed prompt
   -> swappable PolicyRunner
-  -> terrain latent 32D, H1
+  -> terrain latent 32D + normalized current/next yaw 2D, H1
   -> fixed teacher actor @ 50 Hz
   -> raw Go2 joint action 12D
 ```
 
-固定 prompt 为 `Traverse the parkour course and follow each waypoint.`。32D label 是同一
-teacher checkpoint 的 `actor.infer_scandots_latent(obs)`；它绑定该 low-level actor，不声称
-跨 controller 或跨 robot。其他支持 RGB、state 和连续 action head 的 VLA 可复用同一
-LeRobot 数据与 evaluator，只替换 `PolicyRunner` adapter 和 checkpoint。
+固定 prompt 为 `Traverse the parkour course and follow each waypoint.`。34D label 的前 32D
+来自同一 teacher checkpoint 的 `actor.infer_scandots_latent(obs)`，后 2D 是 teacher actor
+使用的 current/next yaw 除以 `1.5`。proprio 的 yaw 两维在送入 VLA 前置零，避免 oracle
+waypoint 从 state 旁路进入模型。
 
 ### 11.1 Canonical teacher 与 oracle gate
 
@@ -582,7 +582,7 @@ uv run --project . python scripts/official_gr00t/prepare_parkour_dataset.py \
   outputs/official_gr00t/extreme_parkour_go2/lerobot
 ```
 
-finalizer 流式生成 canonical parquet、train/validation LeRobot videos、53D state/32D action
+finalizer 流式生成 canonical parquet、train/validation LeRobot videos、53D state/34D action
 modality metadata，并对两套 dataset 运行 `gr00t.data.stats`。缺字段、错误 action layout 或错误
 model output dimension 直接失败，不使用别名、零 state 或其他 fallback。
 
@@ -597,7 +597,8 @@ bash scripts/bash_scripts/train_go2_parkour_vla_5k.sh
 ```
 
 最终 evaluator 在 Isaac GPU 与独立 GR00T Python worker 之间复用现有 inference pool；50 个
-环境按 batch 8 同步预测，全部 latent 返回前仿真不前进，因此该阶段定义为 zero-delay：
+环境按 batch 8 同步预测，全部 34D perception 输出返回前仿真不前进，因此该阶段定义为
+zero-delay。actor 连续 5 个 control steps 使用同一 latent/yaw，并将预测 yaw 乘回 `1.5`：
 
 ```bash
 cd "${PARKOUR_ROOT}"
@@ -611,4 +612,82 @@ PYTHONPATH="${REPO_ROOT}" OMNI_KIT_ACCEPT_EULA=YES \
 
 输出仍为 reward、episode length、normalized waypoint progress、edge violation。四项必须
 finite，且 GR00T mean normalized waypoint progress 至少达到同一 50-env teacher 的 50%。
-在该 gate 通过前，不启动 latency scheduler、profile、DAgger、raw-action track 或 HAIC VLA。
+在该 gate 通过前，不启动正式 DAgger run、latency scheduler、profile、raw-action track 或
+HAIC VLA。
+
+## 12. 完整 VLA student 替换与 DAgger
+
+原 student 并不是“冻结 teacher actor，只训练视觉 encoder”。它复制 teacher actor，然后在
+student 自己访问到的状态分布上同时更新 depth encoder 和该 actor；真正固定的是 Isaac Lab
+的 12D joint-position action/PD 执行层。因此完整替换是：
+
+```text
+RGB + masked proprio -> trainable VLA -> latent32 + normalized yaw2
+                                      -> trainable copy of teacher actor -> joint target12
+                                      -> fixed joint-position/PD controller -> Go2
+```
+
+teacher actor 只负责给相同 visited pre-action states 生成 12D action labels。环境始终执行
+student action。每个 10 Hz VLA 输出持有 5 个 50 Hz control steps；训练时只有当
+`abs(wrap_to_pi(1.5 * predicted_current_yaw - oracle_current_yaw)) < 0.6` 时 actor 才接收预测
+current/next yaw，否则接收该步 oracle yaw。评测不使用该 gate，始终接收预测 yaw。
+
+Actor 与 history encoder 的唯一实现位于 Isaaclab_Parkour 的
+`parkour_isaaclab/actor.py`，该模块只依赖 PyTorch；RSL-RL 和 GR00T DAgger 训练共同导入它，
+不再由 latency-sensitive-bench 复制网络。保存后的 GR00T checkpoint 在推理加载时关闭
+`parkour_dagger`，34D 输出走通用 processor 反归一化，因此部署不需要 teacher checkpoint、
+Isaaclab_Parkour 或 latency-sensitive-bench 的 Actor 代码。
+
+联合目标严格保留原 student 的两个 L2 项：5 个 control steps 上逐样本 12D action error 的
+vector norm mean，加 2D yaw error 的 vector norm mean；不添加 terrain-latent MSE。VLA 和
+actor 都进入同一个 AdamW optimizer，joint-position/PD controller 不训练。
+
+### 12.1 与原 5k student 的数据/更新预算对齐
+
+原配置每个 iteration 是 `192 envs × 120 control steps = 23,040` 个 50 Hz transitions；depth
+每 5 步更新一次，所以等价为 `4,608` 个 10 Hz perception samples。5,000 iterations 总计：
+
+| quantity | 每轮 | 10 轮总计 |
+|---|---:|---:|
+| 10 Hz VLA rows | 2,304,000 | 23,040,000 |
+| 50 Hz teacher action labels | 11,520,000 | 115,200,000 |
+| optimizer updates | 500 | 5,000 |
+
+GR00T 使用 global batch `128`、gradient accumulation `36`，因此每个 optimizer update 正好
+消费 `4,608` 个 VLA rows；每行携带 5 个 teacher action labels。每轮只训练当轮 student
+rollout，不做 replay。dataloader workers 固定为 `0`，使 2,250 个 1,024-row shards 在两个
+DDP ranks 间各分 1,125 个，保证整轮恰好无重复、无遗漏地消费一次。模型、actor、optimizer
+和 scheduler 从上轮 checkpoint 继续。
+
+### 12.2 数据与 round driver
+
+DAgger collector 严格复现原 student 的两个 rollout ranks：每个 rank 使用 zero-delay
+student training terrain、96 camera envs，seed 分别为 1/2。两个 rank 串行采集以避免
+Isaac 与 GR00T 争用同一对 GPU，但保留原始 RNG/terrain population 和每轮 192 envs
+的数据分布。每个原子
+shard 是 `episode.npz + episode.mp4`，不落逐帧 PNG；numeric payload 保存
+`state[53]`、`action[34]`、`actor_observation[5,753]`、`teacher_action[5,12]` 和
+`termination[5]`。每行始终保留全部 5 个 teacher labels，包括 failure/timeout 标记处；
+`termination` 只写入 parquet 供诊断，不进入 GR00T model metadata、不屏蔽 loss，也不重置
+5-step cadence，这与原 student runner 的监督语义一致。LeRobot parquet 直接保留这些诊断列，
+并逐字节复制由 bootstrap 数据现有 fingerprint-aware stats 流程生成的固定 normalization
+stats，DAgger round 不重新计算 stats。
+
+完成 250/25 bootstrap 数据和上节 5k SFT 后，以下入口依次执行 10 轮采集、转换、500-step
+联合训练和 seed-2/50-env 固定评测：
+
+```bash
+cd /pfs/users/lxy/latency-sensitive-bench
+uv run --project . python scripts/official_gr00t/train_parkour_dagger.py
+```
+
+round 边界中断后用 `--start-round N`（零起始）继续；目标
+`checkpoint-{(N+1)*500}/parkour_student_actor.pt` 已存在时不会重复训练该
+round。round 内采集中断不能只按 row count
+续采，因为重新启动 Isaac 会回到相同 seed 的初始状态、从而重复 deterministic prefix；程序
+会明确失败，必须由操作者先保留或清理该 round 的 partial directory 后从空目录重采。
+默认输出根目录是 `outputs/official_gr00t/extreme_parkour_go2_dagger`，最终联合 checkpoint 是
+`training/checkpoint-5000`，其中另存可直接供 Isaac collector/evaluator 加载的
+`parkour_student_actor.pt`。
+
+本轮只实现并验证 pipeline，没有启动约 23.04M RGB rows、115.2M teacher labels 的正式 run。

@@ -19,7 +19,7 @@ from latency_bench.data.action_layouts import (
     ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
     ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
     ACTION_LAYOUT_G1_SONIC_GR00T_V2,
-    ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_V1,
+    ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_YAW_V1,
     action_spec_for_env,
 )
 from latency_bench.data.filters import density_weights_clean_v1
@@ -788,7 +788,7 @@ def convert_canonical_rollout_to_lerobot(
                 "Canonical Gymnasium action_labels do not match gymnasium_task action-space labels"
             )
     else:
-        if action_layout != ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_V1:
+        if action_layout != ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_YAW_V1:
             raise ValueError(
                 f"Unsupported IsaacLab Parkour action_layout={action_layout!r}"
             )

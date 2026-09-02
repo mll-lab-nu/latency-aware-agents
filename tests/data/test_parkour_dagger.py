@@ -1,0 +1,155 @@
+from __future__ import annotations
+
+import json
+import subprocess
+
+import numpy as np
+import pyarrow.parquet as pq
+import pytest
+
+from helpers import save_test_image
+
+
+def _dagger_arrays() -> dict[str, np.ndarray]:
+    return {
+        "state": np.arange(53, dtype=np.float32).reshape(1, 53),
+        "action": np.arange(34, dtype=np.float32).reshape(1, 34),
+        "actor_observation": np.arange(5 * 753, dtype=np.float32).reshape(
+            1, 5, 753
+        ),
+        "teacher_action": np.arange(5 * 12, dtype=np.float32).reshape(1, 5, 12),
+        "termination": np.asarray([[False, False, False, False, True]]),
+        "image_shape": np.asarray([2, 2, 3], dtype=np.int64),
+    }
+
+
+def _save_test_video(image, video):
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-loglevel",
+            "error",
+            "-y",
+            "-loop",
+            "1",
+            "-i",
+            str(image),
+            "-t",
+            "0.1",
+            "-r",
+            "10",
+            str(video),
+        ],
+        check=True,
+    )
+
+
+def test_parkour_dagger_shard_requires_all_training_fields(tmp_path):
+    from latency_bench.data.parkour_dagger import write_parkour_dagger_shard
+
+    arrays = _dagger_arrays()
+    del arrays["teacher_action"]
+    image = tmp_path / "frame.png"
+    video = tmp_path / "episode.mp4"
+    save_test_image(image, 7)
+    _save_test_video(image, video)
+    with pytest.raises(KeyError):
+        write_parkour_dagger_shard(
+            tmp_path,
+            split="train",
+            episode_idx=0,
+            arrays=arrays,
+            video_path=video,
+        )
+
+
+def test_parkour_dagger_converter_writes_video_and_numeric_parquet(tmp_path):
+    from latency_bench.data.parkour_dagger import (
+        convert_parkour_dagger_shards_to_lerobot,
+        write_parkour_dagger_shard,
+    )
+
+    image = tmp_path / "frame.png"
+    video = tmp_path / "episode.mp4"
+    raw = tmp_path / "raw"
+    save_test_image(image, 7)
+    _save_test_video(image, video)
+    for rank in range(2):
+        write_parkour_dagger_shard(
+            raw / f"rank_{rank:02d}",
+            split="train",
+            episode_idx=0,
+            arrays=_dagger_arrays(),
+            video_path=video,
+        )
+    with np.load(
+        raw / "rank_00/rollout_shards/train/episode_000000/episode.npz"
+    ) as payload:
+        assert set(payload.files) == {*_dagger_arrays(), "image_shape"}
+    output = tmp_path / "lerobot"
+    manifest = convert_parkour_dagger_shards_to_lerobot(
+        raw,
+        output,
+        force=True,
+        expected_rows=2,
+        round_index=0,
+    )
+    assert manifest["action_dim"] == 34
+    assert manifest["state_dim"] == 53
+    assert manifest["teacher_labels"] == 10
+    assert not list(output.rglob("*.png"))
+    assert (
+        output / "videos/chunk-000/observation.image/episode_000000.mp4"
+    ).is_file()
+    row = pq.read_table(
+        output / "data/chunk-000/episode_000000.parquet"
+    ).to_pylist()[0]
+    assert len(row["observation.state"]) == 53
+    assert len(row["action"]) == 34
+    assert len(row["actor_observation"]) == 5
+    assert len(row["actor_observation"][0]) == 753
+    assert len(row["teacher_action"]) == 5
+    assert len(row["teacher_action"][0]) == 12
+    assert row["oracle_yaw"] == [48.0, 49.5]
+    assert row["termination"] == [False, False, False, False, True]
+    info = json.loads((output / "meta/info.json").read_text())
+    assert info["features"]["observation.image"]["dtype"] == "video"
+    assert info["features"]["actor_observation"]["dtype"] == "tensor"
+    assert info["features"]["teacher_action"]["dtype"] == "tensor"
+    task = json.loads((output / "meta/tasks.jsonl").read_text())
+    assert task["task"] == "Traverse the parkour course and follow each waypoint."
+
+
+def test_dagger_prepare_copies_bootstrap_stats_without_recomputing(
+    tmp_path, monkeypatch
+):
+    from scripts.official_gr00t import prepare_parkour_dataset as prepare_module
+
+    source = tmp_path / "bootstrap/meta/stats.json"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b'{"fixed": [1.0]}\n')
+    output = tmp_path / "lerobot"
+
+    def fake_convert(*args, **kwargs):
+        (output / "meta").mkdir(parents=True)
+        return {"dataset_name": output.name}
+
+    monkeypatch.setattr(
+        prepare_module, "convert_parkour_dagger_shards_to_lerobot", fake_convert
+    )
+    monkeypatch.setattr(
+        prepare_module.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("DAgger stats must not be recomputed"),
+    )
+
+    manifest = prepare_module.prepare_parkour_dataset(
+        tmp_path / "raw",
+        output,
+        force=False,
+        dagger=True,
+        normalization_source=tmp_path / "bootstrap",
+    )
+
+    assert manifest == {"dataset_name": "lerobot"}
+    assert (output / "meta/stats.json").read_bytes() == source.read_bytes()

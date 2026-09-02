@@ -4,7 +4,7 @@ experiment:
 
 env:
   name: extreme_parkour_go2
-  noop_action: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  noop_action: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
   base_prompt: Traverse the parkour course and follow each waypoint.
 
 latency:
@@ -17,5 +17,5 @@ policy:
   embodiment_tag: NEW_EMBODIMENT
   device: cuda:1
   strict: true
-  action_dim: 32
+  action_dim: 34
   state_info_key: parkour_proprio

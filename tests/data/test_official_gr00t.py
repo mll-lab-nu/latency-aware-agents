@@ -199,7 +199,7 @@ def test_official_gr00t_converter_rejects_misordered_action_labels(tmp_path):
 
 def test_official_gr00t_dataset_converter_supports_parkour_contract(tmp_path):
     from latency_bench.data.action_layouts import (
-        GO2_PARKOUR_TERRAIN_LATENT_ACTION_SPEC,
+        GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC,
     )
     from latency_bench.data.official_gr00t import (
         convert_canonical_rollout_to_official_gr00t_dataset,
@@ -208,10 +208,10 @@ def test_official_gr00t_dataset_converter_supports_parkour_contract(tmp_path):
 
     image_path = tmp_path / "image.png"
     save_test_image(image_path, 5)
-    action_spec = GO2_PARKOUR_TERRAIN_LATENT_ACTION_SPEC
+    action_spec = GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC
     raw_export = tmp_path / "raw"
     state = [float(index) for index in range(53)]
-    action = [float(index) for index in range(32)]
+    action = [float(index) for index in range(34)]
     row = {
         "image": str(image_path),
         "env_name": "extreme_parkour_go2",
@@ -233,7 +233,7 @@ def test_official_gr00t_dataset_converter_supports_parkour_contract(tmp_path):
             {
                 "env_name": "extreme_parkour_go2",
                 "integration_name": "isaaclab_parkour",
-                "action_layout": "go2_parkour_terrain_latent_v1",
+                "action_layout": "go2_parkour_terrain_latent_yaw_v1",
                 "action_labels": list(action_spec.labels),
                 "state_labels": [f"state_{i}" for i in range(53)],
                 "reward_field": "raw_reward",
@@ -249,16 +249,16 @@ def test_official_gr00t_dataset_converter_supports_parkour_contract(tmp_path):
     manifest = convert_canonical_rollout_to_official_gr00t_dataset(
         raw_export,
         output_dir,
-        action_dim=32,
+        action_dim=34,
         action_horizon=1,
         modality_config="latency_bench/policy/official_gr00t_parkour_modality.py",
         embodiment_tag="NEW_EMBODIMENT",
-        action_layout="go2_parkour_terrain_latent_v1",
+        action_layout="go2_parkour_terrain_latent_yaw_v1",
         action_labels=action_spec.labels,
         force=True,
     )
 
-    assert manifest["action_dim"] == 32
+    assert manifest["action_dim"] == 34
     assert manifest["state_dim"] == 53
     assert manifest["official_action_horizon"] == 1
     assert manifest["official_modality_config"].endswith(
@@ -266,4 +266,4 @@ def test_official_gr00t_dataset_converter_supports_parkour_contract(tmp_path):
     )
     modality = json.loads((output_dir / "meta/modality.json").read_text())
     assert modality["state"]["state"]["end"] == 53
-    assert modality["action"]["action"]["end"] == 32
+    assert modality["action"]["action"]["end"] == 34

@@ -22,7 +22,6 @@ CUDA_VISIBLE_DEVICES=0,1 NO_ALBUMENTATIONS_UPDATE=1 \
   --num-gpus 2 \
   --output-dir "${OUTPUT}" \
   --max-state-dim 53 \
-  --state-history-length 1 \
   --action-horizon 1 \
   --fixed-action-noise-seed 0 \
   --one-step-action-regression \
@@ -41,5 +40,4 @@ CUDA_VISIBLE_DEVICES=0,1 NO_ALBUMENTATIONS_UPDATE=1 \
   --dataloader-num-workers 8 \
   --save-steps 500 \
   --save-total-limit 2 \
-  --use-wandb \
-  --experiment-name extreme_parkour_go2_latent_h1_5k
+  --use-wandb
