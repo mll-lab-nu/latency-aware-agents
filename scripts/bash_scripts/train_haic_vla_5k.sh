@@ -11,4 +11,4 @@ set +a
 export PATH="${HAIC_VLA_FFMPEG_PREFIX}/bin:${PATH}"
 export LD_LIBRARY_PATH="${HAIC_VLA_FFMPEG_PREFIX}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 exec "${REPO_ROOT}/third_party/Isaac-GR00T/.venv/bin/python" \
-  scripts/official_gr00t/train_haic_dagger.py --run-bootstrap "$@"
+  scripts/official_gr00t/train_haic_dagger.py "$@"

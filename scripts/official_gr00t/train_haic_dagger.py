@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 
+import wandb
 import yaml
 
 
@@ -30,13 +32,19 @@ UPDATES_PER_ROUND = 500
 TOTAL_UPDATES = DAGGER_ROUNDS * UPDATES_PER_ROUND
 GLOBAL_BATCH_SIZE = 64
 BOOTSTRAP_GRADIENT_ACCUMULATION_STEPS = 2
-GRADIENT_ACCUMULATION_STEPS = 72
+GRADIENT_ACCUMULATION_STEPS = 2
 COLLECTOR_RANKS = 2
 ENVS_PER_COLLECTOR_RANK = 96
-HAIC_DAGGER_ROWS_PER_ROUND = 2_304_000
+HAIC_DAGGER_ROWS_PER_ROUND = (
+    UPDATES_PER_ROUND * GLOBAL_BATCH_SIZE * GRADIENT_ACCUMULATION_STEPS
+)
 HAIC_DAGGER_ROWS_PER_COLLECTOR = HAIC_DAGGER_ROWS_PER_ROUND // COLLECTOR_RANKS
+HAIC_DAGGER_SHARD_ROWS = 1_000
+DEFAULT_INFERENCE_BATCH_SIZE = 32
+CHECKPOINT_COMPLETE_MARKER = ".dagger-round-complete"
 EVAL_ENVS = 50
 HAIC_CONTROL_STEPS_PER_VLA = 5
+DEFAULT_WANDB_RUN_ID = "haic_pull_cart_vla_dagger_latent_5k"
 
 DEFAULT_TEACHER_CHECKPOINT = REPO_ROOT / (
     "outputs/haic/phase1_teacher/checkpoint_final.pt"
@@ -64,25 +72,6 @@ def write_policy_config(
     destination.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
 
-def export_teacher_actor(
-    haic_python: Path,
-    teacher_checkpoint: Path,
-    output_path: Path,
-) -> Path:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    _run(
-        [
-            str(haic_python),
-            "-m",
-            "active_adaptation.learning.ppo.haic_actor",
-            str(teacher_checkpoint),
-            str(output_path),
-        ],
-        cwd=HAIC_ROOT,
-    )
-    return output_path
-
-
 def collector_command(
     haic_python: Path,
     *,
@@ -95,10 +84,10 @@ def collector_command(
     round_index: int,
     policy_config: Path | None = None,
     split: str | None = None,
-    student_actor_checkpoint: Path | None = None,
     row_budget: int | None = None,
     episode_budget: int | None = None,
     max_steps: int | None = None,
+    inference_batch_size: int = DEFAULT_INFERENCE_BATCH_SIZE,
 ) -> list[str]:
     command = [
         str(haic_python),
@@ -114,7 +103,7 @@ def collector_command(
         "--inference-device",
         inference_device,
         "--inference-batch-size",
-        "8",
+        str(inference_batch_size),
         "--num-envs",
         str(num_envs),
         "--seed",
@@ -134,8 +123,8 @@ def collector_command(
         command.extend(["--episode-budget", str(episode_budget)])
     if max_steps is not None:
         command.extend(["--max-steps", str(max_steps)])
-    if student_actor_checkpoint is not None:
-        command.extend(["--student-actor-checkpoint", str(student_actor_checkpoint)])
+    if mode == "dagger-collect":
+        command.extend(["--dagger-shard-rows", str(HAIC_DAGGER_SHARD_ROWS)])
     return command
 
 
@@ -173,7 +162,6 @@ def _training_flags(
     max_steps: int,
     gradient_accumulation_steps: int,
     checkpoint_interval: int,
-    teacher_checkpoint: Path | None,
     resume_checkpoint: Path | None,
 ) -> list[str]:
     command = [
@@ -198,7 +186,7 @@ def _training_flags(
         "--max-state-dim",
         "605",
         "--max-action-dim",
-        "275",
+        "256",
         "--action-horizon",
         "1",
         "--fixed-action-noise-seed",
@@ -226,6 +214,8 @@ def _training_flags(
         str(gradient_accumulation_steps),
         "--episode-sampling-rate",
         "1.0",
+        "--shard-size",
+        str(HAIC_DAGGER_SHARD_ROWS),
         "--dataloader-num-workers",
         "0",
         "--save-steps",
@@ -236,8 +226,6 @@ def _training_flags(
         "2",
         "--use-wandb",
     ]
-    if teacher_checkpoint is not None:
-        command.extend(["--haic-dagger", "--haic-actor-checkpoint", str(teacher_checkpoint)])
     if resume_checkpoint is not None:
         command.extend(["--resume-checkpoint-path", str(resume_checkpoint)])
     return command
@@ -259,7 +247,6 @@ def bootstrap_training_command(
         max_steps=max_steps,
         gradient_accumulation_steps=gradient_accumulation_steps,
         checkpoint_interval=max_steps,
-        teacher_checkpoint=None,
         resume_checkpoint=None,
     )
 
@@ -267,7 +254,6 @@ def bootstrap_training_command(
 def training_command(
     *,
     bootstrap_checkpoint: Path,
-    actor_checkpoint: Path,
     dataset_dir: Path,
     training_output: Path,
     resume_checkpoint: Path | None,
@@ -283,7 +269,6 @@ def training_command(
         max_steps=max_steps,
         gradient_accumulation_steps=gradient_accumulation_steps,
         checkpoint_interval=checkpoint_interval,
-        teacher_checkpoint=actor_checkpoint,
         resume_checkpoint=resume_checkpoint,
     )
 
@@ -296,6 +281,76 @@ def _run(command: list[str], *, cwd: Path, env: dict[str, str] | None = None) ->
     if env is not None:
         process_env.update(env)
     subprocess.run(command, cwd=cwd, env=process_env, check=True)
+
+
+def read_eval_metrics(eval_path: Path) -> dict[str, int | float]:
+    result = json.loads(eval_path.read_text(encoding="utf-8"))
+    return {
+        "dagger_eval/success_rate": result["success_rate"],
+        "dagger_eval/episodes": result["episodes"],
+        "dagger_eval/successes": result["successes"],
+        "dagger_eval/steps": result["steps"],
+    }
+
+
+def log_eval_metrics(
+    eval_path: Path, *, step: int, run_id: str, mode: str | None = None
+) -> None:
+    init_kwargs = {
+        "project": "finetune-gr00t-n1d7",
+        "id": run_id,
+        "resume": "allow",
+    }
+    if mode is not None:
+        init_kwargs["mode"] = mode
+    run = wandb.init(**init_kwargs)
+    run.define_metric("dagger_eval/*", step_metric="train/global_step")
+    run.log({"train/global_step": step, **read_eval_metrics(eval_path)})
+    run.finish()
+    wandb.teardown()
+
+
+def evaluate_checkpoint(
+    args: argparse.Namespace,
+    *,
+    policy_config: Path,
+    output_dir: Path,
+    step: int,
+    environment: dict[str, str],
+    num_envs: int = EVAL_ENVS,
+) -> None:
+    subprocess.run(
+        collector_command(
+            args.haic_python,
+            mode="dagger-eval",
+            teacher_checkpoint=args.teacher_checkpoint,
+            output_dir=output_dir,
+            inference_device=args.inference_device,
+            num_envs=num_envs,
+            seed=0,
+            round_index=step // UPDATES_PER_ROUND,
+            policy_config=policy_config,
+            max_steps=args.eval_max_steps,
+            inference_batch_size=args.inference_batch_size,
+        ),
+        cwd=HAIC_ROOT,
+        env=environment,
+        check=True,
+    )
+    log_eval_metrics(
+        output_dir / "dagger-eval.json",
+        step=step,
+        run_id=args.wandb_run_id,
+        mode=environment.get("WANDB_MODE"),
+    )
+
+
+def archive_and_remove_round_data(
+    round_dir: Path, raw_dir: Path, dataset_dir: Path
+) -> None:
+    shutil.copy2(dataset_dir / "manifest.json", round_dir / "dataset_manifest.json")
+    shutil.rmtree(raw_dir)
+    shutil.rmtree(dataset_dir)
 
 
 def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
@@ -317,6 +372,7 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
                 round_index=0,
                 split=split,
                 episode_budget=episodes,
+                inference_batch_size=args.inference_batch_size,
             ),
             cwd=HAIC_ROOT,
         )
@@ -337,6 +393,8 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
             "CUDA_VISIBLE_DEVICES": "0",
             "NO_ALBUMENTATIONS_UPDATE": "1",
             "PYTHONPATH": f"{HAIC_ROOT}{os.pathsep}{REPO_ROOT}",
+            "WANDB_RUN_ID": f"{args.wandb_run_id}_sft",
+            "WANDB_RESUME": "allow",
             **({"WANDB_MODE": "offline"} if smoke else {}),
         },
     )
@@ -345,11 +403,6 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
 
 def run_smoke(args: argparse.Namespace) -> None:
     bootstrap_checkpoint = run_bootstrap(args, smoke=True)
-    actor_checkpoint = export_teacher_actor(
-        args.haic_python,
-        args.teacher_checkpoint,
-        args.output_root / "haic_teacher_actor.pt",
-    )
     round_dir = args.output_root / "smoke_round_00"
     raw_dir = round_dir / "raw"
     dataset_dir = round_dir / "lerobot"
@@ -359,6 +412,18 @@ def run_smoke(args: argparse.Namespace) -> None:
         policy_config,
         model_path=bootstrap_checkpoint,
         inference_device=args.inference_device,
+    )
+    smoke_environment = os.environ | {
+        "PYTHONPATH": f"{HAIC_ROOT}{os.pathsep}{REPO_ROOT}",
+        "WANDB_MODE": "offline",
+    }
+    evaluate_checkpoint(
+        args,
+        policy_config=policy_config,
+        output_dir=round_dir / "eval_before",
+        step=0,
+        environment=smoke_environment,
+        num_envs=1,
     )
     _run(
         collector_command(
@@ -373,6 +438,7 @@ def run_smoke(args: argparse.Namespace) -> None:
             policy_config=policy_config,
             split="train",
             row_budget=64,
+            inference_batch_size=args.inference_batch_size,
         ),
         cwd=HAIC_ROOT,
     )
@@ -391,7 +457,6 @@ def run_smoke(args: argparse.Namespace) -> None:
     _run(
         training_command(
             bootstrap_checkpoint=bootstrap_checkpoint,
-            actor_checkpoint=actor_checkpoint,
             dataset_dir=dataset_dir,
             training_output=training_output,
             resume_checkpoint=None,
@@ -404,6 +469,8 @@ def run_smoke(args: argparse.Namespace) -> None:
             "CUDA_VISIBLE_DEVICES": "0",
             "NO_ALBUMENTATIONS_UPDATE": "1",
             "PYTHONPATH": f"{HAIC_ROOT}{os.pathsep}{REPO_ROOT}",
+            "WANDB_RUN_ID": args.wandb_run_id,
+            "WANDB_RESUME": "allow",
             "WANDB_MODE": "offline",
         },
     )
@@ -417,7 +484,6 @@ def run_smoke(args: argparse.Namespace) -> None:
     _run(
         training_command(
             bootstrap_checkpoint=bootstrap_checkpoint,
-            actor_checkpoint=actor_checkpoint,
             dataset_dir=dataset_dir,
             training_output=training_output,
             resume_checkpoint=checkpoint_dir(training_output, 1),
@@ -430,38 +496,45 @@ def run_smoke(args: argparse.Namespace) -> None:
             "CUDA_VISIBLE_DEVICES": "0",
             "NO_ALBUMENTATIONS_UPDATE": "1",
             "PYTHONPATH": f"{HAIC_ROOT}{os.pathsep}{REPO_ROOT}",
+            "WANDB_RUN_ID": args.wandb_run_id,
+            "WANDB_RESUME": "allow",
             "WANDB_MODE": "offline",
         },
     )
-    _run(
-        collector_command(
-            args.haic_python,
-            mode="dagger-eval",
-            teacher_checkpoint=args.teacher_checkpoint,
-            output_dir=round_dir / "eval",
-            inference_device=args.inference_device,
-            num_envs=1,
-            seed=0,
-            round_index=0,
-            policy_config=eval_policy_config,
-            student_actor_checkpoint=training_output / "checkpoint-2/haic_student_actor.pt",
-            max_steps=600,
-        ),
-        cwd=HAIC_ROOT,
+    evaluate_checkpoint(
+        args,
+        policy_config=eval_policy_config,
+        output_dir=round_dir / "eval",
+        step=2,
+        environment=smoke_environment,
+        num_envs=1,
     )
 
 
 def run_pipeline(args: argparse.Namespace) -> None:
+    args.teacher_checkpoint = args.teacher_checkpoint.resolve()
+    args.base_model = args.base_model.resolve()
+    args.output_root = args.output_root.resolve()
+    args.policy_config = args.policy_config.resolve()
+    args.haic_python = args.haic_python.resolve()
     bootstrap_checkpoint = args.bootstrap_checkpoint
     if args.run_bootstrap:
         bootstrap_checkpoint = run_bootstrap(args, smoke=False)
-    actor_checkpoint = export_teacher_actor(
-        args.haic_python,
-        args.teacher_checkpoint,
-        args.output_root / "haic_teacher_actor.pt",
-    )
+    bootstrap_checkpoint = bootstrap_checkpoint.resolve()
+    args.bootstrap_dataset = args.bootstrap_dataset.resolve()
     training_output = args.output_root / "training"
-    for round_index in range(args.start_round, DAGGER_ROUNDS):
+    haic_environment = os.environ | {
+        "PYTHONPATH": f"{HAIC_ROOT}{os.pathsep}{REPO_ROOT}",
+        "OMNI_KIT_ACCEPT_EULA": "YES",
+    }
+    training_environment = os.environ | {
+        "CUDA_VISIBLE_DEVICES": "0",
+        "NO_ALBUMENTATIONS_UPDATE": "1",
+        "PYTHONPATH": f"{HAIC_ROOT}{os.pathsep}{REPO_ROOT}",
+        "WANDB_RUN_ID": args.wandb_run_id,
+        "WANDB_RESUME": "allow",
+    }
+    for round_index in range(args.start_round, args.end_round):
         round_dir = args.output_root / f"round_{round_index:02d}"
         raw_dir = round_dir / "raw"
         dataset_dir = round_dir / "lerobot"
@@ -470,11 +543,10 @@ def run_pipeline(args: argparse.Namespace) -> None:
             if round_index == 0
             else checkpoint_dir(training_output, round_index * UPDATES_PER_ROUND)
         )
-        current_actor = (
-            None
-            if round_index == 0
-            else current_model / "haic_student_actor.pt"
+        trained_model = checkpoint_dir(
+            training_output, (round_index + 1) * UPDATES_PER_ROUND
         )
+        complete_marker = trained_model / CHECKPOINT_COMPLETE_MARKER
         policy_config = round_dir / "collector_policy.yaml"
         write_policy_config(
             args.policy_config,
@@ -482,54 +554,67 @@ def run_pipeline(args: argparse.Namespace) -> None:
             model_path=current_model,
             inference_device=args.inference_device,
         )
-        for collector_rank in range(COLLECTOR_RANKS):
-            _run(
-                collector_command(
-                    args.haic_python,
-                    mode="dagger-collect",
-                    teacher_checkpoint=args.teacher_checkpoint,
-                    output_dir=raw_dir / f"rank_{collector_rank:02d}",
-                    inference_device=args.inference_device,
-                    num_envs=ENVS_PER_COLLECTOR_RANK,
-                    seed=collector_rank + 1,
-                    round_index=round_index,
+        if not complete_marker.is_file():
+            if raw_dir.exists():
+                shutil.rmtree(raw_dir)
+            if dataset_dir.exists():
+                shutil.rmtree(dataset_dir)
+            if trained_model.exists():
+                shutil.rmtree(trained_model)
+            if round_index == 0:
+                evaluate_checkpoint(
+                    args,
                     policy_config=policy_config,
-                    split="train",
-                    student_actor_checkpoint=current_actor,
-                    row_budget=HAIC_DAGGER_ROWS_PER_COLLECTOR,
+                    output_dir=round_dir / "eval_before",
+                    step=0,
+                    environment=haic_environment,
+                )
+            for collector_rank in range(COLLECTOR_RANKS):
+                subprocess.run(
+                    collector_command(
+                        args.haic_python,
+                        mode="dagger-collect",
+                        teacher_checkpoint=args.teacher_checkpoint,
+                        output_dir=raw_dir / f"rank_{collector_rank:02d}",
+                        inference_device=args.inference_device,
+                        num_envs=ENVS_PER_COLLECTOR_RANK,
+                        seed=collector_rank + 1,
+                        round_index=round_index,
+                        policy_config=policy_config,
+                        split="train",
+                        row_budget=HAIC_DAGGER_ROWS_PER_COLLECTOR,
+                        inference_batch_size=args.inference_batch_size,
+                    ),
+                    cwd=HAIC_ROOT,
+                    env=haic_environment,
+                    check=True,
+                )
+            subprocess.run(
+                prepare_command(
+                    raw_dir,
+                    dataset_dir,
+                    dagger=True,
+                    round_index=round_index,
+                    expected_rows=HAIC_DAGGER_ROWS_PER_ROUND,
+                    normalization_source=args.bootstrap_dataset,
                 ),
-                cwd=HAIC_ROOT,
+                cwd=REPO_ROOT,
+                check=True,
             )
-        _run(
-            prepare_command(
-                raw_dir,
-                dataset_dir,
-                dagger=True,
-                round_index=round_index,
-                expected_rows=HAIC_DAGGER_ROWS_PER_ROUND,
-                normalization_source=args.bootstrap_dataset,
-            ),
-            cwd=REPO_ROOT,
-        )
-        _run(
-            training_command(
-                bootstrap_checkpoint=bootstrap_checkpoint,
-                actor_checkpoint=actor_checkpoint,
-                dataset_dir=dataset_dir,
-                training_output=training_output,
-                resume_checkpoint=(current_model if round_index > 0 else None),
-            ),
-            cwd=REPO_ROOT,
-            env={
-                "CUDA_VISIBLE_DEVICES": "0",
-                "NO_ALBUMENTATIONS_UPDATE": "1",
-                "PYTHONPATH": f"{HAIC_ROOT}{os.pathsep}{REPO_ROOT}",
-                "WANDB_RESUME": "allow",
-            },
-        )
-        trained_model = checkpoint_dir(
-            training_output, (round_index + 1) * UPDATES_PER_ROUND
-        )
+            subprocess.run(
+                training_command(
+                    bootstrap_checkpoint=bootstrap_checkpoint,
+                    dataset_dir=dataset_dir,
+                    training_output=training_output,
+                    resume_checkpoint=(current_model if round_index > 0 else None),
+                ),
+                cwd=REPO_ROOT,
+                env=training_environment,
+                check=True,
+            )
+            temporary_marker = trained_model / f"{CHECKPOINT_COMPLETE_MARKER}.tmp"
+            temporary_marker.write_text("complete\n", encoding="utf-8")
+            temporary_marker.replace(complete_marker)
         eval_policy_config = round_dir / "eval_policy.yaml"
         write_policy_config(
             args.policy_config,
@@ -537,24 +622,14 @@ def run_pipeline(args: argparse.Namespace) -> None:
             model_path=trained_model,
             inference_device=args.inference_device,
         )
-        _run(
-            collector_command(
-                args.haic_python,
-                mode="dagger-eval",
-                teacher_checkpoint=args.teacher_checkpoint,
-                output_dir=round_dir / "eval",
-                inference_device=args.inference_device,
-                num_envs=EVAL_ENVS,
-                seed=0,
-                round_index=round_index,
-                policy_config=eval_policy_config,
-                split="val",
-                student_actor_checkpoint=trained_model / "haic_student_actor.pt",
-            ),
-            cwd=HAIC_ROOT,
+        evaluate_checkpoint(
+            args,
+            policy_config=eval_policy_config,
+            output_dir=round_dir / "eval",
+            step=(round_index + 1) * UPDATES_PER_ROUND,
+            environment=haic_environment,
         )
-        shutil.rmtree(raw_dir)
-        shutil.rmtree(dataset_dir)
+        archive_and_remove_round_data(round_dir, raw_dir, dataset_dir)
 
 
 def main() -> None:
@@ -566,8 +641,16 @@ def main() -> None:
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--haic-python", type=Path, default=DEFAULT_HAIC_PYTHON)
     parser.add_argument("--inference-device", default="cuda:0")
+    parser.add_argument(
+        "--inference-batch-size",
+        type=int,
+        default=DEFAULT_INFERENCE_BATCH_SIZE,
+    )
+    parser.add_argument("--eval-max-steps", type=int, default=1_000)
     parser.add_argument("--policy-config", type=Path, default=DEFAULT_POLICY_CONFIG)
+    parser.add_argument("--wandb-run-id", default=DEFAULT_WANDB_RUN_ID)
     parser.add_argument("--start-round", type=int, default=0)
+    parser.add_argument("--end-round", type=int, default=DAGGER_ROUNDS)
     parser.add_argument("--run-bootstrap", action="store_true")
     parser.add_argument("--smoke", action="store_true")
     args = parser.parse_args()

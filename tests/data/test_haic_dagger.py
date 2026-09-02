@@ -13,7 +13,7 @@ from helpers import save_test_image
 def _bootstrap_arrays(rows: int = 2) -> dict[str, np.ndarray]:
     return {
         "state": np.arange(rows * 605, dtype=np.float32).reshape(rows, 605),
-        "action": np.arange(rows * 275, dtype=np.float32).reshape(rows, 275),
+        "action": np.arange(rows * 256, dtype=np.float32).reshape(rows, 256),
         "image_shape": np.asarray([2, 2, 3], dtype=np.int64),
     }
 
@@ -21,14 +21,7 @@ def _bootstrap_arrays(rows: int = 2) -> dict[str, np.ndarray]:
 def _dagger_arrays(rows: int = 2) -> dict[str, np.ndarray]:
     return {
         **_bootstrap_arrays(rows),
-        "actor_input": np.arange(rows * 5 * 605, dtype=np.float32).reshape(
-            rows, 5, 605
-        ),
-        "teacher_action": np.arange(rows * 5 * 23, dtype=np.float32).reshape(
-            rows, 5, 23
-        ),
         "termination": np.asarray([[False, False, False, False, True]] * rows),
-        "is_init": np.asarray([[True, False, False, False, False]] * rows),
     }
 
 
@@ -76,24 +69,20 @@ def test_haic_dagger_converter_keeps_exact_numeric_contract(tmp_path):
         raw, output, force=True, expected_rows=2, round_index=0
     )
     assert manifest["state_dim"] == 605
-    assert manifest["action_dim"] == 275
-    assert manifest["teacher_labels"] == 10
+    assert manifest["action_dim"] == 256
+    assert manifest["teacher_latent_dim"] == 256
+    assert manifest["termination_counts"] == [0, 0, 0, 0, 2]
     row = pq.read_table(output / "data/chunk-000/episode_000000.parquet").to_pylist()[0]
     assert len(row["observation.state"]) == 605
-    assert len(row["action"]) == 275
-    assert len(row["actor_input"]) == 5
-    assert len(row["actor_input"][0]) == 605
-    assert len(row["teacher_action"]) == 5
-    assert len(row["teacher_action"][0]) == 23
+    assert len(row["action"]) == 256
+    np.testing.assert_array_equal(row["action"], _bootstrap_arrays()["action"][0])
     assert row["done"] is True
-    assert row["is_init"] == [True, False, False, False, False]
     info = json.loads((output / "meta/info.json").read_text())
-    assert info["features"]["action"]["shape"] == [275]
-    assert info["features"]["actor_input"]["shape"] == [5, 605]
-    assert info["features"]["teacher_action"]["shape"] == [5, 23]
-    assert "privileged_target" not in row
+    assert info["features"]["action"]["shape"] == [256]
+    assert "actor_input" not in row
+    assert "teacher_action" not in row
+    assert "is_init" not in row
     assert "object_target" not in row
-    assert "privileged_target" not in info["features"]
     assert "object_target" not in info["features"]
 
 
@@ -131,6 +120,39 @@ def test_haic_bootstrap_converter_omits_dagger_targets(tmp_path):
     }
 
 
+def test_haic_dagger_prepare_copies_bootstrap_stats(tmp_path, monkeypatch):
+    from scripts.official_gr00t import prepare_haic_dataset as prepare_module
+
+    source = tmp_path / "bootstrap/meta/stats.json"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b'{"fixed": [1.0]}\n')
+    output = tmp_path / "lerobot"
+
+    def fake_convert(*args, **kwargs):
+        (output / "meta").mkdir(parents=True)
+        return {"dataset_name": output.name}
+
+    monkeypatch.setattr(
+        prepare_module, "convert_haic_dagger_shards_to_lerobot", fake_convert
+    )
+    monkeypatch.setattr(
+        prepare_module.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("DAgger stats must not be recomputed"),
+    )
+
+    manifest = prepare_module.prepare_haic_dataset(
+        tmp_path / "raw",
+        output,
+        force=False,
+        dagger=True,
+        normalization_source=tmp_path / "bootstrap",
+    )
+
+    assert manifest == {"dataset_name": "lerobot"}
+    assert (output / "meta/stats.json").read_bytes() == source.read_bytes()
+
+
 def test_haic_dagger_shard_requires_all_fields(tmp_path):
     from latency_bench.data.haic_dagger import write_haic_dagger_shard
 
@@ -139,7 +161,7 @@ def test_haic_dagger_shard_requires_all_fields(tmp_path):
     save_test_image(image, 7)
     _save_test_video(image, video)
     arrays = _dagger_arrays()
-    del arrays["is_init"]
+    del arrays["termination"]
     with pytest.raises(KeyError):
         write_haic_dagger_shard(
             tmp_path,

@@ -17,5 +17,5 @@ policy:
   embodiment_tag: NEW_EMBODIMENT
   device: cuda:0
   strict: true
-  action_dim: 275
+  action_dim: 256
   state_info_key: haic_state

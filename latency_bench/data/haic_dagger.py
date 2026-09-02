@@ -18,27 +18,15 @@ import numpy as np
 
 
 HAIC_VLA_STATE_DIM = 605
-HAIC_PRIVILEGED_FEATURE_DIM = 256
-HAIC_OBJECT_TARGET_DIM = 19
-HAIC_VLA_ACTION_DIM = HAIC_PRIVILEGED_FEATURE_DIM + HAIC_OBJECT_TARGET_DIM
-HAIC_ACTOR_OBSERVATION_HORIZON = 5
-HAIC_ACTOR_INPUT_DIM = HAIC_VLA_STATE_DIM
-HAIC_TEACHER_ACTION_DIM = 23
-HAIC_DAGGER_LABELS_PER_ROW = HAIC_ACTOR_OBSERVATION_HORIZON
+HAIC_TEACHER_LATENT_DIM = 256
+HAIC_VLA_ACTION_DIM = HAIC_TEACHER_LATENT_DIM
 
 _SHARD_ROOT = "rollout_shards"
 _SHARD_PREFIX = "episode_"
 _DATASET_FPS = 10.0
 _CHUNK_SIZE = 1000
 _BOOTSTRAP_FIELDS = ("state", "action")
-_DAGGER_FIELDS = (
-    "state",
-    "action",
-    "actor_input",
-    "teacher_action",
-    "termination",
-    "is_init",
-)
+_DAGGER_FIELDS = ("state", "action", "termination")
 
 
 def _haic_shard_dir(output_dir: Path | str, split: str, episode_idx: int) -> Path:
@@ -166,29 +154,6 @@ def _episode_table(
         ),
         "task_index": pa.array([0 for _ in range(row_count)], type=pa.int64()),
     }
-    if dagger:
-        columns.update(
-            {
-                "actor_input": pa.array(
-                    arrays["actor_input"].tolist(),
-                    type=pa.list_(
-                        pa.list_(pa.float32(), HAIC_ACTOR_INPUT_DIM),
-                        HAIC_ACTOR_OBSERVATION_HORIZON,
-                    ),
-                ),
-                "teacher_action": pa.array(
-                    arrays["teacher_action"].tolist(),
-                    type=pa.list_(
-                        pa.list_(pa.float32(), HAIC_TEACHER_ACTION_DIM),
-                        HAIC_ACTOR_OBSERVATION_HORIZON,
-                    ),
-                ),
-                "is_init": pa.array(
-                    arrays["is_init"].tolist(),
-                    type=pa.list_(pa.bool_(), HAIC_ACTOR_OBSERVATION_HORIZON),
-                ),
-            }
-        )
     columns["done"] = pa.array(
         arrays["termination"][:, -1] if dagger else np.zeros(row_count, dtype=bool),
         type=pa.bool_(),
@@ -201,7 +166,6 @@ def _write_info(
     *,
     episode_lengths: list[int],
     image_shape: tuple[int, int, int],
-    dagger: bool,
 ) -> None:
     height, width, channels = image_shape
     features: dict[str, Any] = {
@@ -229,11 +193,7 @@ def _write_info(
             "dtype": "float32",
             "shape": [HAIC_VLA_ACTION_DIM],
             "names": [
-                *(
-                    f"privileged_feature_{index}"
-                    for index in range(HAIC_PRIVILEGED_FEATURE_DIM)
-                ),
-                *(f"object_target_{index}" for index in range(HAIC_OBJECT_TARGET_DIM)),
+                *(f"teacher_latent_{index}" for index in range(HAIC_TEACHER_LATENT_DIM)),
             ],
         },
         "timestamp": {"dtype": "float64", "shape": [1]},
@@ -242,26 +202,6 @@ def _write_info(
         "task_index": {"dtype": "int64", "shape": [1]},
         "done": {"dtype": "bool", "shape": [1]},
     }
-    if dagger:
-        features.update(
-            {
-                "actor_input": {
-                    "dtype": "tensor",
-                    "shape": [HAIC_ACTOR_OBSERVATION_HORIZON, HAIC_ACTOR_INPUT_DIM],
-                },
-                "teacher_action": {
-                    "dtype": "tensor",
-                    "shape": [
-                        HAIC_ACTOR_OBSERVATION_HORIZON,
-                        HAIC_TEACHER_ACTION_DIM,
-                    ],
-                },
-                "is_init": {
-                    "dtype": "mask",
-                    "shape": [HAIC_ACTOR_OBSERVATION_HORIZON],
-                },
-            }
-        )
     info = {
         "codebase_version": "v2.0",
         "fps": _DATASET_FPS,
@@ -316,6 +256,7 @@ def _convert_split(
     fields = _DAGGER_FIELDS if dagger else _BOOTSTRAP_FIELDS
     episode_lengths: list[int] = []
     image_shape: tuple[int, int, int] | None = None
+    termination_counts = None
     for episode_index, (arrays, source_video) in enumerate(
         _iter_shards(raw_dir, split, fields=fields)
     ):
@@ -333,13 +274,19 @@ def _convert_split(
         shutil.copyfile(source_video, video_path)
         image_shape = tuple(arrays["image_shape"].tolist())
         episode_lengths.append(arrays["state"].shape[0])
+        if dagger:
+            counts = arrays["termination"].sum(axis=0)
+            termination_counts = (
+                counts
+                if termination_counts is None
+                else termination_counts + counts
+            )
     if image_shape is None:
         raise ValueError(f"HAIC {split!r} split has no committed shards")
     _write_info(
         output_dir,
         episode_lengths=episode_lengths,
         image_shape=image_shape,
-        dagger=dagger,
     )
     from latency_bench.data.official_gr00t import _write_official_gr00t_modality
 
@@ -348,12 +295,15 @@ def _convert_split(
         HAIC_VLA_STATE_DIM,
         HAIC_VLA_ACTION_DIM,
     )
-    return {
+    manifest = {
         "dataset_name": output_dir.name,
         "split": split,
         "episodes": len(episode_lengths),
         "frames": int(sum(episode_lengths)),
     }
+    if termination_counts is not None:
+        manifest["termination_counts"] = termination_counts.astype(int).tolist()
+    return manifest
 
 
 def _convert_haic_shards_to_lerobot(
@@ -385,31 +335,15 @@ def _convert_haic_shards_to_lerobot(
     manifest: dict[str, Any] = {
         **train_manifest,
         "format": (
-            f"haic_{'dagger' if dagger else 'bootstrap'}_lerobot_v1_"
+            f"haic_{'dagger' if dagger else 'bootstrap'}_lerobot_v2_"
             "video_numeric_parquet"
         ),
         "source": str(raw_dir),
         "action_dim": HAIC_VLA_ACTION_DIM,
         "state_dim": HAIC_VLA_STATE_DIM,
-        "privileged_feature_dim": HAIC_PRIVILEGED_FEATURE_DIM,
-        "object_target_dim": HAIC_OBJECT_TARGET_DIM,
+        "teacher_latent_dim": HAIC_TEACHER_LATENT_DIM,
         "dagger": dagger,
     }
-    if dagger:
-        manifest.update(
-            {
-                "actor_input_shape": [
-                    HAIC_ACTOR_OBSERVATION_HORIZON,
-                    HAIC_ACTOR_INPUT_DIM,
-                ],
-                "teacher_action_shape": [
-                    HAIC_ACTOR_OBSERVATION_HORIZON,
-                    HAIC_TEACHER_ACTION_DIM,
-                ],
-                "is_init_shape": [HAIC_ACTOR_OBSERVATION_HORIZON],
-                "teacher_labels": train_rows * HAIC_DAGGER_LABELS_PER_ROW,
-            }
-        )
     if val_manifest is not None:
         manifest.update(
             {
@@ -469,12 +403,7 @@ def convert_haic_bootstrap_shards_to_lerobot(
 
 
 __all__ = [
-    "HAIC_ACTOR_INPUT_DIM",
-    "HAIC_ACTOR_OBSERVATION_HORIZON",
-    "HAIC_DAGGER_LABELS_PER_ROW",
-    "HAIC_OBJECT_TARGET_DIM",
-    "HAIC_PRIVILEGED_FEATURE_DIM",
-    "HAIC_TEACHER_ACTION_DIM",
+    "HAIC_TEACHER_LATENT_DIM",
     "HAIC_VLA_ACTION_DIM",
     "HAIC_VLA_STATE_DIM",
     "convert_haic_bootstrap_shards_to_lerobot",

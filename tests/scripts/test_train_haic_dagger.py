@@ -1,4 +1,7 @@
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 import scripts.official_gr00t.train_haic_dagger as train_haic_dagger
 from scripts.official_gr00t.train_haic_dagger import (
@@ -8,16 +11,21 @@ from scripts.official_gr00t.train_haic_dagger import (
     BOOTSTRAP_VAL_EPISODES,
     COLLECTOR_RANKS,
     DAGGER_ROUNDS,
+    DEFAULT_INFERENCE_BATCH_SIZE,
     ENVS_PER_COLLECTOR_RANK,
     GLOBAL_BATCH_SIZE,
     GRADIENT_ACCUMULATION_STEPS,
+    HAIC_DAGGER_SHARD_ROWS,
     HAIC_DAGGER_ROWS_PER_COLLECTOR,
     HAIC_DAGGER_ROWS_PER_ROUND,
     UPDATES_PER_ROUND,
+    archive_and_remove_round_data,
     bootstrap_training_command,
     checkpoint_dir,
     collector_command,
+    log_eval_metrics,
     prepare_command,
+    read_eval_metrics,
     training_command,
     write_policy_config,
 )
@@ -51,8 +59,11 @@ def test_haic_pipeline_constants_are_single_gpu_and_paper_scale():
     assert BOOTSTRAP_GRADIENT_ACCUMULATION_STEPS == 2
     assert DAGGER_ROUNDS == 10
     assert UPDATES_PER_ROUND == 500
-    assert GRADIENT_ACCUMULATION_STEPS == 72
+    assert GRADIENT_ACCUMULATION_STEPS == 2
     assert COLLECTOR_RANKS * HAIC_DAGGER_ROWS_PER_COLLECTOR == HAIC_DAGGER_ROWS_PER_ROUND
+    assert HAIC_DAGGER_ROWS_PER_ROUND == 64_000
+    assert HAIC_DAGGER_ROWS_PER_COLLECTOR == 32_000
+    assert HAIC_DAGGER_SHARD_ROWS == 1_000
     assert COLLECTOR_RANKS * ENVS_PER_COLLECTOR_RANK == 192
 
 
@@ -73,7 +84,14 @@ def test_haic_commands_encode_smoke_and_resume_contract():
     assert first[first.index("--num-envs") + 1] == "8"
     assert first[first.index("--row-budget") + 1] == "64"
     assert first[first.index("--vla-cadence") + 1] == "5"
+    assert first[first.index("--inference-batch-size") + 1] == str(
+        DEFAULT_INFERENCE_BATCH_SIZE
+    )
+    assert first[first.index("--dagger-shard-rows") + 1] == str(
+        HAIC_DAGGER_SHARD_ROWS
+    )
     assert first[first.index("--policy-config") + 1] == "policy.yaml"
+    assert "--student-actor-checkpoint" not in first
 
     prep = prepare_command(
         Path("raw"),
@@ -88,7 +106,6 @@ def test_haic_commands_encode_smoke_and_resume_contract():
 
     train = training_command(
         bootstrap_checkpoint=Path("bootstrap/checkpoint-1"),
-        actor_checkpoint=teacher,
         dataset_dir=Path("dataset"),
         training_output=Path("output"),
         resume_checkpoint=Path("output/checkpoint-500"),
@@ -97,9 +114,12 @@ def test_haic_commands_encode_smoke_and_resume_contract():
     )
     assert train[train.index("--num-gpus") + 1] == "1"
     assert train[train.index("--max-state-dim") + 1] == "605"
-    assert train[train.index("--max-action-dim") + 1] == "275"
+    assert train[train.index("--max-action-dim") + 1] == "256"
     assert train[train.index("--gradient-accumulation-steps") + 1] == "1"
     assert train[-2:] == ["--resume-checkpoint-path", "output/checkpoint-500"]
+    assert "--haic-dagger" not in train
+    assert "--haic-actor-checkpoint" not in train
+    assert train[train.index("--shard-size") + 1] == str(HAIC_DAGGER_SHARD_ROWS)
 
     bootstrap = bootstrap_training_command(
         base_model=Path("base"),
@@ -114,10 +134,154 @@ def test_haic_commands_encode_smoke_and_resume_contract():
     assert checkpoint_dir(Path("output"), 5_000) == Path("output/checkpoint-5000")
 
 
+def test_read_eval_metrics_flattens_haic_eval_json(tmp_path):
+    eval_path = tmp_path / "dagger-eval.json"
+    eval_path.write_text(
+        '{"steps":1000,"episodes":50,"successes":45,"success_rate":0.9}\n'
+    )
+
+    assert read_eval_metrics(eval_path) == {
+        "dagger_eval/steps": 1000,
+        "dagger_eval/episodes": 50,
+        "dagger_eval/successes": 45,
+        "dagger_eval/success_rate": 0.9,
+    }
+
+
+def test_log_eval_metrics_uses_training_step_and_run(tmp_path, monkeypatch):
+    eval_path = tmp_path / "dagger-eval.json"
+    eval_path.write_text(
+        '{"steps":1000,"episodes":50,"successes":45,"success_rate":0.9}\n'
+    )
+    calls = {}
+
+    class Run:
+        def define_metric(self, name, *, step_metric):
+            calls["metric"] = (name, step_metric)
+
+        def log(self, metrics):
+            calls["log"] = metrics
+
+        def finish(self):
+            pass
+
+    monkeypatch.setattr(
+        train_haic_dagger.wandb,
+        "init",
+        lambda **kwargs: calls.setdefault("init", kwargs) and Run(),
+    )
+    monkeypatch.setattr(train_haic_dagger.wandb, "teardown", lambda: None)
+
+    log_eval_metrics(eval_path, step=500, run_id="latent-only")
+
+    assert calls["init"] == {
+        "project": "finetune-gr00t-n1d7",
+        "id": "latent-only",
+        "resume": "allow",
+    }
+    assert calls["metric"] == ("dagger_eval/*", "train/global_step")
+    assert calls["log"]["train/global_step"] == 500
+    assert calls["log"]["dagger_eval/success_rate"] == 0.9
+
+
+def test_archive_and_remove_round_data(tmp_path):
+    round_dir = tmp_path / "round_00"
+    raw_dir = round_dir / "raw"
+    dataset_dir = round_dir / "lerobot"
+    raw_dir.mkdir(parents=True)
+    dataset_dir.mkdir()
+    (raw_dir / "shard.npz").write_bytes(b"raw")
+    (dataset_dir / "manifest.json").write_text('{"frames": 64000}\n')
+
+    archive_and_remove_round_data(round_dir, raw_dir, dataset_dir)
+
+    assert (round_dir / "dataset_manifest.json").read_text() == '{"frames": 64000}\n'
+    assert not raw_dir.exists()
+    assert not dataset_dir.exists()
+
+
+def test_pipeline_restarts_partial_round_and_reuses_completed_training(
+    tmp_path, monkeypatch
+):
+    output_root = tmp_path / "run"
+    policy_config = tmp_path / "policy.yaml"
+    policy_config.write_text(
+        "policy:\n  model_path: old\n  device: cuda:0\n  action_dim: 256\n"
+    )
+    args = SimpleNamespace(
+        teacher_checkpoint=tmp_path / "teacher.pt",
+        base_model=tmp_path / "base-model",
+        bootstrap_checkpoint=tmp_path / "bootstrap/checkpoint-5000",
+        bootstrap_dataset=tmp_path / "bootstrap/lerobot",
+        output_root=output_root,
+        policy_config=policy_config,
+        haic_python=tmp_path / "haic-python",
+        inference_device="cuda:0",
+        inference_batch_size=32,
+        eval_max_steps=1_000,
+        wandb_run_id="haic-test",
+        start_round=0,
+        end_round=1,
+        run_bootstrap=False,
+    )
+    round_dir = output_root / "round_00"
+    raw_dir = round_dir / "raw"
+    dataset_dir = round_dir / "lerobot"
+    trained_model = output_root / "training/checkpoint-500"
+    for path in (raw_dir, dataset_dir, trained_model):
+        path.mkdir(parents=True)
+        (path / "partial").write_text("stale\n")
+
+    calls = {"collect": 0, "prepare": 0, "train": 0}
+
+    def fake_run(command, **kwargs):
+        if str(train_haic_dagger.HAIC_SCRIPT) in command:
+            calls["collect"] += 1
+            Path(command[command.index("--output-dir") + 1]).mkdir(parents=True)
+        elif str(train_haic_dagger.PREPARE_SCRIPT) in command:
+            calls["prepare"] += 1
+            output = Path(
+                command[command.index(str(train_haic_dagger.PREPARE_SCRIPT)) + 2]
+            )
+            (output / "meta").mkdir(parents=True)
+            (output / "manifest.json").write_text('{"frames": 64000}\n')
+        elif str(train_haic_dagger.FINETUNE_SCRIPT) in command:
+            calls["train"] += 1
+            trained_model.mkdir(parents=True)
+            (trained_model / "trainer_state.json").write_text("{}\n")
+
+    eval_steps = []
+    fail_after_training = {"enabled": True}
+
+    def fake_evaluate(*_args, step, **_kwargs):
+        eval_steps.append(step)
+        if step == 500 and fail_after_training["enabled"]:
+            raise RuntimeError("interrupted after training")
+
+    monkeypatch.setattr(train_haic_dagger.subprocess, "run", fake_run)
+    monkeypatch.setattr(train_haic_dagger, "evaluate_checkpoint", fake_evaluate)
+
+    with pytest.raises(RuntimeError, match="interrupted after training"):
+        train_haic_dagger.run_pipeline(args)
+
+    marker = trained_model / train_haic_dagger.CHECKPOINT_COMPLETE_MARKER
+    assert marker.read_text() == "complete\n"
+    assert not (trained_model / "partial").exists()
+
+    fail_after_training["enabled"] = False
+    train_haic_dagger.run_pipeline(args)
+
+    assert calls == {"collect": 2, "prepare": 1, "train": 1}
+    assert eval_steps == [0, 500, 500]
+    assert (round_dir / "dataset_manifest.json").is_file()
+    assert not raw_dir.exists()
+    assert not dataset_dir.exists()
+
+
 def test_haic_policy_config_points_at_selected_vla(tmp_path):
     source = tmp_path / "source.yaml"
     source.write_text(
-        "policy:\n  model_path: old\n  device: cuda:9\n  action_dim: 275\n"
+        "policy:\n  model_path: old\n  device: cuda:9\n  action_dim: 256\n"
     )
     destination = tmp_path / "runtime.yaml"
     write_policy_config(
@@ -129,3 +293,4 @@ def test_haic_policy_config_points_at_selected_vla(tmp_path):
     contents = destination.read_text()
     assert "model_path: checkpoint-2" in contents
     assert "device: cuda:0" in contents
+    assert "action_dim: 256" in contents
