@@ -1,26 +1,19 @@
-# HAIC / PullCart zero-delay 原生复现手册
+# HAIC / PullCart 原生 teacher 与 VLA student 手册
 
-状态：HAIC 已作为 fork submodule 接入；单卡/双卡 profile、双卡 teacher smoke、checkpoint 保存、finetune 加载与最终 eval 链路均已通过。正式 teacher/student 长训尚未启动。本文件是唯一执行记录和事实来源；未写入的结果不能视为通过。
+状态：HAIC 已作为 fork submodule 接入；正式 500M teacher 长训已完成，但 final 和全部周期 checkpoint 均未通过 `eval/success == 1.0` gate，因此未启动原生 `ppo_haic_finetune` student。VLA 已替代原生 student 接入 bootstrap + DAgger pipeline，远端真实模型 smoke 已通过；正式 VLA 训练尚未启动。本文件是唯一执行记录和事实来源；未写入的结果不能视为通过。
 
 ## 1. 固定口径
 
-- 上游仓库：`https://github.com/ldt29/HAIC`，fork submodule：`git@github.com:mindorigin150/HAIC.git`，当前基线 `e262500ee0e68e9d82f399aa18a4c10bf5b4ca1a`。分布式改动先在 submodule 内提交，父仓库随后再提交新的 gitlink；上游仓库级未发现 LICENSE。
 - 任务：`G1/haic/pull_cart`，PullCart motion `data/motion/g1/mirobotA/pull_cart/motion.npz`。
 - 原生时间：physics 200 Hz / 5 ms，policy 50 Hz / 20 ms，decimation 4；motion 561 帧 / 11.22 s；动作是 23 个非 wrist 关节。
 - 训练路线：`ppo_haic_train` 同一在线 rollout 同时训练 privileged teacher、privileged target world model/adapter，并将 teacher 均值蒸馏到 student；不是离线 BC。随后用通过 phase-1 checkpoint 的 `ppo_haic_finetune` 做 student on-policy PPO + online adaptation。
 - 延迟语义：上游 `JointPosition` 在 reset 为每个环境采样一次并在整个 episode 固定 FIFO delay，不是每个 action 重采样；默认代码 `[2,6]` physics ticks，即 10–30 ms。论文附录写 `U[40,120] ms`，与当前代码不一致。
 - 本项目的 latency 定义覆盖 observation→action-ready/apply 的完整区间，已包含 actuation delay；因此内部配置固定为 `task.action.min_delay=0`、`task.action.max_delay=0`，不重复计时。动作平滑也固定关闭：`task.action.alpha=1.0`。后续 latency 由 benchmark scheduler 单独注入，本轮不接入 scheduler。
-- 固定 seed：`0`。本轮不做 RGB/VLA、离线 demonstrations、dataset 转换、延迟扫描或其他任务。
+- 固定 seed：`0`。原生 teacher 复现阶段不做延迟扫描或其他任务；后续 VLA student 仍保持任务内部 zero-delay，视觉和状态契约见 Phase 2。
 
 ## 2. 官方 baseline、预算与性能结论
 
 ### 2.1 官方到底是不是 800M
-
-- 官方 release 的 [`cfg/train.yaml`](https://github.com/ldt29/HAIC/blob/e262500ee0e68e9d82f399aa18a4c10bf5b4ca1a/cfg/train.yaml#L13) 默认 `total_frames=800_000_000`，README 的 teacher/student 命令都没有覆盖该值，所以“直接跑官方命令”的代码口径确实是每次 800M frames。
-- 论文没有声明“每阶段必须 800M”。论文只报告两阶段训练在单张 RTX 4090 上合计约 8 小时，并在 Table XII 给出 4096 environments、32-step horizon、8 minibatches、3 epochs；见[论文实现细节](https://arxiv.org/pdf/2602.11758#page=6)与[附录超参数](https://arxiv.org/pdf/2602.11758#page=17)。
-- 论文 Fig. 8 的 3,800 `training steps` 是 **Push Cart w/ Box 的方法消融曲线**，不是本任务 PullCart 的公开停止条件，也不是 3,800 environment steps。
-- 官方没有发布 PullCart checkpoint、逐 checkpoint 成功率、wall-clock 日志或“800M 才收敛”的证据。因此 800M 是 release config 的上限，不应当当作不可提前停止的科学结论。
-- 官方 baseline 是同配置从头重训的 HDMI：`HDMI(sim)` 使用 privileged object state 作为 sim-to-sim 上界，`HDMI*` 是只用 proprioception history 的 real-world 下界；不是另一套更短的 HAIC 训练预算。
 
 当前执行策略：teacher 和 finetune 各以 500M 为 cap，保留周期 checkpoint；优先按完整 episode 的 `eval/success == 1.0` 选择最早通过的 checkpoint。500M 不是“官方新 baseline”，而是用验收 gate 换 wall-clock 的工程上限。若较早 checkpoint 已通过就停止；若全部失败，不伪称复现成功。
 
@@ -38,6 +31,8 @@
 本机 Isaac Sim 5.1/G1 在 NCCL P2P/SHM transport 下可复现 illegal memory access；IsaacLab 也有相同版本、G1 和双卡组合的[公开 issue](https://github.com/isaac-sim/IsaacLab/issues/4011)。本机验证命令需要 `NCCL_P2P_DISABLE=1 NCCL_SHM_DISABLE=1`，因此 NCCL 走 socket；这是当前双卡收益有限的硬件/runtime 条件，不把它隐藏成算法问题。
 
 ### 2.3 实测 profile
+
+本节全部数字都是 native PPO rollout/learner 性能，不包含 VLA camera、跨进程推理或 MP4 编码，不能作为 VLA collector 吞吐量。
 
 统一 profile：PullCart、zero delay、seed 0、global 4096 env、32 horizon、8 minibatches、5,242,880 global frames；前 5 iterations 作为 warm-up，不含 1000-step final eval。
 
@@ -111,9 +106,11 @@ torchrun --standalone --nproc_per_node=2 scripts/train.py \
 ```text
 /home/xinyuan/HAIC
 /home/xinyuan/haic_runs
+/home/xinyuan/latency-sensitive-bench-mikasa-h1
+/home/xinyuan/latency-sensitive-bench-mikasa-h1/third_party/Isaac-GR00T/.venv
 ```
 
-要求：Python 3.11、Isaac Sim 5.1.0、IsaacLab v2.3.2、Git LFS；`HAIC` 外部 checkout 必须保持上述 commit。
+要求：Python 3.11、Isaac Sim 5.1.0、IsaacLab v2.3.2、Git LFS；`HAIC` 外部 checkout 必须保持 fork commit `73976dbaf42494fa20d385599758eced7f7a16ce`。
 
 通用环境：
 
@@ -248,23 +245,72 @@ teacher/student 的 YAML 由原生 `scripts/eval.py` 写入其 `scripts/eval/G1P
 
 若最终 checkpoint 未通过，逐个评估已有周期 checkpoint；按成功率优先、tracking error 次之选择。若没有 checkpoint 通过，停止并记录证据，不临时调参或修改 reward/任务定义。
 
+### Phase 2：用 VLA 替代原生 student
+
+控制链保持 HAIC 原有 teacher、归一化和 50 Hz actor 结构，只替换 privileged latent 的来源：
+
+```text
+256×256 RGB + 605D normalized command/policy state @ 10 Hz
+  -> VLA 输出 275D = 256D privileged latent + 19D object target
+  -> 原生 actor_adapt: 605D state + 256D latent -> 23D action @ 50 Hz
+```
+
+每个 VLA 输出保持 5 个 HAIC control steps。runtime 从 `policy_config` 创建 LatencyBench
+inference worker，因此可替换为任何遵守相同 observation/policy 接口并输出 275D action 的 VLA；
+当前提供并验收的训练 backend 是 official GR00T N1.7。换用其他训练 backend 时仍必须产生同一
+275D 输出和可供 runtime 加载的 checkpoint，不能静默改变维度或字段含义。
+
+原生 `eval/success == 1.0` gate 只控制是否启动原生 `ppo_haic_finetune`；按当前 VLA 替换路线，
+phase-1 final teacher 是固定的 privileged label source。smoke 的验收目标是数据、权重和闭环执行
+完整，不把 2-step 模型的成功率当作策略质量结论。
+
+训练分两段：
+
+- bootstrap 从 privileged teacher 的成功 episode 采集 RGB、605D state 和 275D target；正式配置为 250 个 train episode、25 个 val episode、global batch 64、gradient accumulation 2 和 5,000 updates；train/val 是对同一 raw 目录的两次显式 split 采集；
+- DAgger 用当前 VLA latent + trainable `actor_adapt` 驱动环境，同时记录每个 10 Hz decision 对应的 `actor_input[5,605]`、`teacher_action[5,23]`、`termination[5]` 和 `is_init[5]`。正式配置为 10 轮，每轮两个顺序 collector，各 96 env / 1,152,000 rows，合计 2,304,000 rows、gradient accumulation 72 和 500 updates，总计 5,000 updates；每轮 checkpoint 继续下一轮采集，eval 使用 50 env / seed 0；
+- 每轮 eval 后删除该轮 raw shard 和 LeRobot dataset，保留 checkpoint、eval 结果和 policy config。
+
+bootstrap 和 DAgger 都写原子 `NPZ + MP4` shard，再转换为 video-backed LeRobot Parquet。
+GR00T 训练从 canonical `action[275]` 拆出 256D privileged target 和 19D object target，不保存重复列。
+DAgger loss 同时训练 VLA 输出和小型 HAIC actor；checkpoint 额外导出
+`haic_student_actor.pt`，供下一轮 rollout 和最终 eval 使用。
+
+远端 `.env` 必须定义有效的 `HF_TOKEN` 和 FFmpeg runtime prefix：
+
+```bash
+HF_TOKEN=...
+HAIC_VLA_FFMPEG_PREFIX=/home/xinyuan/.cache/latency-sensitive-bench/ffmpeg7
+```
+
+launcher 会 source `.env`，并把该 prefix 的 `bin`/`lib` 加入 `PATH`/`LD_LIBRARY_PATH`。
+正式入口如下；必须在 code review 和用户确认后执行：
+
+```bash
+bash scripts/bash_scripts/train_haic_vla_5k.sh \
+  --teacher-checkpoint /home/xinyuan/haic_runs/phase1_teacher/wandb/latest-run/files/checkpoint_final.pt \
+  --base-model /home/xinyuan/latency-sensitive-bench-mikasa-h1/outputs/official_gr00t/models/GR00T-N1.7-3B \
+  --output-root /home/xinyuan/haic_runs/haic_pull_cart_vla_dagger \
+  --haic-python /home/xinyuan/miniconda3/envs/haic/bin/python
+```
+
+2026-09-02/03 的远端 smoke 已真实完成：bootstrap train/val 为 52/16 frames；GR00T/Cosmos
+checkpoint shards 实际加载并完成 bootstrap step；VLA rollout 采集 64 rows / 320 teacher labels；
+DAgger 从 global step 1 恢复到 2，初始 actor 与 teacher checkpoint 逐项一致，第二步出现约
+`1.001e-4` 的有效权重更新；最终闭环 eval 跑满 600 control steps 并退出 0。2-step smoke 的
+success rate 不作为策略性能结论。对应临时输出已于 2026-09-03 清理，正式训练未启动。
+
+采集本身的实测 smoke 耗时约 38–41 秒，其中约 25 秒是 Isaac Sim 冷启动；此前分钟级假卡顿
+来自依赖异常后的慢 cleanup。训练和 resume 的主要等待来自 3B model 与约 15 GB optimizer
+checkpoint 的磁盘加载/保存，不属于 rollout 采集耗时。
+
 ## 5. 实际运行记录
 
 | 阶段 | 状态 | PID/session | 日志 / checkpoint / 结果 |
 |---|---|---|---|
-| 本地 worktree | submodule 改动待用户 review/commit | — | 分支 `research/haic-pull-cart-zero`；HAIC 基线 `e262500ee0e68e9d82f399aa18a4c10bf5b4ca1a` |
-| 远端硬件预检 | 已通过 | — | hostname `computeinstance-u00mv1dams6a8gc51r`；1× RTX PRO 6000 Blackwell 97887 MiB；driver `580.173.02`；约 325 GB 可用 |
-| HAIC checkout | 已通过 | — | `/home/xinyuan/HAIC`，commit `e262500ee0e68e9d82f399aa18a4c10bf5b4ca1a`；`git-lfs/3.6.1`，8 个 LFS object，`git lfs fsck` OK；PullCart `motion.npz` 1,040,842 bytes；外部 checkout 有未跟踪 `asset_meta.json`，不纳入本仓库 |
-| 安装 | 已通过 | — | `/home/xinyuan/haic_setup.log` 记录初次 IsaacLab flat-layout 安装失败；随后 IsaacLab v2.3.2 commit `37ddf626871758333d6ed89cf64ad702aef127d0` 用其安装脚本/`source/isaaclab` editable 安装成功；HAIC editable 成功；`isaacsim 5.1.0.0`、`isaaclab 0.54.2`、`active-adaptation 0.0.0`、`torch 2.7.0+cu128`、`torchrl 0.7.0` 导入通过 |
-| Phase 0 runtime smoke | 已通过 | 根侧 outer PID `3962889/3962891`；关闭拖到 kill-after | `/home/xinyuan/haic_runs/phase0_runtime_smoke_fixed/stdout.log`；系统 GL/Vulkan 栈识别 GPU 并输出 `RESET_OK`、`STEP_OK` finite、`ACTION_OK [1, 23]`，无 `ERROR_INCOMPATIBLE_DRIVER`、GLU 或 CUDA/USD/LFS/NaN failure |
-| Phase 1 256 env / 5M | 工程 smoke 已通过（未跑满 5M；用户确认稳定后主动停止） | v1 outer PID `3964294` 已精确停止；v2 outer PID `3965590` 已精确停止于约 `308/610` | v1 `/home/xinyuan/haic_logs/phase1_smoke_offline_named.log` 约 `20/610` 后停止，timeout 估算不足、无 checkpoint；v2 `/home/xinyuan/haic_logs/phase1_smoke_v2.log` 约 4.5 s/iteration，`308/610` 后用户确认稳定并停止；W&B offline run `df3dkvt8` / `v2-G1PullCart-ppo_haic-2026-09-01-08-41`；resolved `/home/xinyuan/haic_runs/phase1_smoke_v2/.hydra/config.yaml` 与 overrides；`checkpoint_300.pt` 18,231,330 bytes，TOP_KEYS=`cfg,env,policy,vecnorm,wandb`，110 floating tensors，`NONFINITE=0`；配置核对为 G1PullCart/256/5M/seed0/0/0/1.0；无 `checkpoint_final.pt`，未执行 trainer final eval 或正式 eval gate |
+| Phase 0 runtime smoke | 已通过；临时产物已清理 | — | 系统 GL/Vulkan 栈识别 GPU 并完成 finite reset/step/action；2026-09-03 清理 smoke 日志与输出 |
+| Phase 1 256 env / 5M | 工程 smoke 已通过；临时产物已清理 | — | 运行到约 `308/610` 后用户确认稳定并停止；checkpoint finite、zero-delay 配置核对通过；2026-09-03 清理 smoke 日志与输出 |
 | 远端 rollout 优化 profile | 已通过 | 已停止，GPU 空闲 | 同机原始/优化/partitions/contact/replication A/B 路径见 2.4；最终保留 e2e +11.0%，无 nonfinite 或 PhysX/CUDA error |
-| Phase 1 4096 env / 500M teacher cap | 已准备但未启动 | — | 命令见上；不存在 teacher checkpoint 或 eval 结果 |
-| native `ppo_haic_finetune` | 已准备但未启动 | — | 必须先通过 teacher eval gate；命令见上 |
-| teacher/student eval gate | 已准备但未启动 | — | 原生 `scripts/eval.py`；不存在 `eval/success`、`episode_cnt` 或 student 结果 |
-
-## 6. 明确 deferred
-
-- fixed/realtime latency sweep、benchmark scheduler 接入和 latency-aware teacher 对比；
-- RGB/VLA、offline dataset、视觉 student 和真实机器人部署；
-- PushCart、其他 HAIC task、论文与当前代码 delay discrepancy 的额外消融。
+| Phase 1 4096 env / 500M teacher cap | 已完成，训练退出码 0 | tmux `haic_teacher`，outer PID `4003533`，已自然退出 | `/home/xinyuan/haic_runs/phase1_teacher/stdout.log`；W&B online run `m4s51yy5` / `https://wandb.ai/saberrr-zju/haic/runs/m4s51yy5`；4096 env、499,908,608 实际 global frames、3814 iterations、seed 0、zero delay、`alpha=1.0`；W&B runtime 18,116 s（5:01:56），12 个周期 checkpoint 和 `checkpoint_final.pt` 均已保存；trainer 内置 final eval `success=0.9296875`、`episode_cnt=4626`、metrics finite |
+| native `ppo_haic_finetune` | 未启动 | — | teacher final 和全部周期 checkpoint 均未通过 gate；按既定条件停止，不用失败 checkpoint 启动 student |
+| teacher/student eval gate | teacher 未通过；student 未执行 | 所有 eval 已自然退出，退出码均为 0 | 原生 2048-env `scripts/eval.py`：final `success=0.93896484375`、`episode_cnt=2308`；`checkpoint_300` 至 `checkpoint_3600` 的 success 依次为 `0.48193359375, 0.73291015625, 0.82373046875, 0.818359375, 0.8525390625, 0.8701171875, 0.9140625, 0.91162109375, 0.9306640625, 0.92529296875, 0.9345703125, 0.93310546875`；13 次 eval 各 96 个数值 metrics 全部 finite，但没有 `success == 1.0`；汇总 `/home/xinyuan/haic_runs/phase1_eval_teacher/periodic_summary.tsv`，逐 checkpoint stdout 位于同目录 `periodic/checkpoint_*/stdout.log` |
+| VLA bootstrap + DAgger smoke | 已通过；临时产物已清理 | 所有进程自然退出 | 真实加载 GR00T/Cosmos、完成 bootstrap/DAgger train、checkpoint resume 和 600-step 闭环 eval；actor 权重来源、更新和 finite 状态均已核对；正式 VLA 训练未启动 |

@@ -1,0 +1,21 @@
+experiment:
+  name: haic_pull_cart_official_gr00t
+  seed: 0
+
+env:
+  name: haic_pull_cart
+  noop_action: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  base_prompt: Pull the cart along the reference motion.
+
+latency:
+  method: zero
+  sync_cuda: false
+
+policy:
+  type: official_gr00t
+  model_path: outputs/official_gr00t/haic_pull_cart_vla_dagger/bootstrap/training/checkpoint-5000
+  embodiment_tag: NEW_EMBODIMENT
+  device: cuda:0
+  strict: true
+  action_dim: 275
+  state_info_key: haic_state
