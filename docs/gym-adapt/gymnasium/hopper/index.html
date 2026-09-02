@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Hopper RGB+state · Gymnasium adaptation</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260901">
 </head>
 <body>
   <a class="skip-link" href="#content">Skip to content</a>
@@ -12,32 +12,33 @@
     <div class="hero-inner">
       <p class="eyebrow">latency-sensitive-bench / verified Gymnasium adaptation</p>
       <h1>Hopper: native torque control with an ordered state contract</h1>
-      <p class="lede">The canonical Hopper adaptation now preserves its native three-dimensional torque space and eleven-dimensional proprioceptive observation through an independent task-owned wrapper.</p>
+      <p class="lede">The canonical Hopper adaptation preserves native three-dimensional torque control and an ordered eleven-dimensional state. A controlled QwenOFT rerun shows that projecting the continuous state directly into action queries recovers much of the lost gait, but not the teacher's full closed-loop performance.</p>
       <div class="badges">
-        <span>Hopper-v4 / Box(3)</span><span>11D state</span><span>125 Hz</span><span>L0 APPO · 10M</span><span>L0–L4 eval</span><span>rollout / conversion VERIFIED</span><span class="not-run">VLA CLOSED-LOOP FAILED</span>
+        <span>Hopper-v4 / Box(3)</span><span>11D state</span><span>125 Hz</span><span>L0 APPO · 10M</span><span>L0–L4 eval</span><span>rollout / conversion VERIFIED</span><span>CONTINUOUS VLA IMPROVED</span>
       </div>
     </div>
   </header>
   <div class="layout">
     <aside class="toc">
       <a class="toc-title" href="#content">Hopper</a>
-      <nav><a href="#summary">Summary</a><a href="#contract">Contract</a><a href="#training">Training</a><a href="#evaluation">Evaluation</a><a href="#method">Method</a><a href="#data">Data</a><a href="#vla">VLA diagnosis</a><a href="#evidence">Evidence</a><a href="#limits">Limits</a></nav>
+      <nav><a href="#summary">Summary</a><a href="#contract">Contract</a><a href="#training">Training</a><a href="#evaluation">Evaluation</a><a href="#method">Method</a><a href="#data">Data</a><a href="#vla">VLA comparison</a><a href="#evidence">Evidence</a><a href="#limits">Limits</a></nav>
     </aside>
     <main id="content">
       <section id="summary">
         <p class="section-kicker">01 · Technical summary</p>
-        <h2>The L0 teacher succeeds; the 5k-step VLA does not retain its gait</h2>
+        <h2>Continuous state recovers much of the gait, but not teacher-level control</h2>
         <div class="status-grid">
           <article><span class="status verified">VERIFIED</span><h3>Independent adaptation</h3><p><code>HopperRgbStateEnv</code> owns Hopper construction, native torque clipping, and exact <code>applied_action</code> recording.</p></article>
           <article><span class="status verified">VERIFIED</span><h3>L0 training</h3><p>Synchronous APPO completed 10,006,528 frames with a best training statistic of 3,206.405.</p></article>
           <article><span class="status verified">VERIFIED</span><h3>L0 evaluation</h3><p>The best checkpoint averages 2,682.095 return; five of ten episodes reach the 1,000-step horizon.</p></article>
           <article><span class="status verified">VERIFIED</span><h3>Latency failure</h3><p>At L1–L4 every episode terminates after 9–11 steps, before sustained hopping is established.</p></article>
-          <article><span class="status notrun">FAILED EVAL</span><h3>QwenOFT VLA</h3><p>Offline L1 loss reaches 0.01000 on validation, but L0 closed-loop return is only 173.136 over 86.35 steps.</p></article>
+          <article><span class="status notrun">FAILED EVAL</span><h3>Text-bin QwenOFT</h3><p>Offline validation L1 reaches 0.01000, but L0 closed-loop return is only 173.136 over 86.35 steps.</p></article>
+          <article><span class="status verified">IMPROVED</span><h3>Continuous-state QwenOFT</h3><p>The isolated projector rerun reaches 1,419.935 return over 410.5 steps at L0, an 8.2× return improvement.</p></article>
         </div>
         <div class="metric-strip">
-          <div><strong>2,682.095</strong><span>L0 mean return</span></div><div><strong>900.287</strong><span>L0 std return</span></div><div><strong>740.5</strong><span>L0 mean length</span></div><div><strong>5 / 10</strong><span>L0 full episodes</span></div>
+          <div><strong>1,419.935</strong><span>continuous VLA L0 return</span></div><div><strong>410.5</strong><span>continuous VLA L0 length</span></div><div><strong>315.890</strong><span>continuous VLA L2 return</span></div><div><strong>47.8%</strong><span>of same-seed teacher L0 return</span></div>
         </div>
-        <div class="callout warning"><strong>Main result:</strong> this is a viable zero-latency teacher, not a latency-robust policy. The L1 result is not a max-step artifact: all ten episodes terminate at step 9 under Hopper's native health criteria.</div>
+        <div class="callout warning"><strong>Main result:</strong> continuous state encoding is a material part of the Hopper failure. It improves L0 return 8.2× and L2 return 33.2× without changing data, loss, budget, or action head. It is not a complete solution: all 20 continuous-state L0 episodes still terminate before 1,000 steps, and mean L0 return remains 52.2% below the same-seed teacher.</div>
       </section>
 
       <section id="contract">
@@ -81,7 +82,7 @@
       <section id="method">
         <p class="section-kicker">05 · Method and definitions</p>
         <h2>Returns and lengths are environment-native closed-loop outcomes</h2>
-        <ul class="steps"><li>Each latency uses ten deterministic episode IDs and seed 3333.</li><li>Latency is measured in raw Hopper frames: L1 is 8 ms, L2 16 ms, L3 24 ms, and L4 32 ms.</li><li>The scheduler holds the current action and applies issued actions in FIFO order once ready.</li><li>Return is the sum of native healthy, forward, and control-cost rewards.</li><li>Length is raw environment steps before unhealthy termination or the 1,000-step TimeLimit.</li></ul>
+        <ul class="steps"><li>Each small-model latency uses ten deterministic episode IDs and seed 3333; each VLA comparison uses the same 20 deterministic episode IDs and seed 3333.</li><li>Latency is measured in raw Hopper frames: L1 is 8 ms, L2 16 ms, L3 24 ms, and L4 32 ms.</li><li>The scheduler holds the current action and applies issued actions in FIFO order once ready.</li><li>Return is the sum of native healthy, forward, and control-cost rewards.</li><li>Length is raw environment steps before unhealthy termination or the 1,000-step TimeLimit.</li><li>The VLA ablation changes only state encoding and run identity: both checkpoints use the same QwenOFT backbone, teacher data, native 3D action, L1 loss, 5,000 steps, batch 16, and action horizon 1.</li></ul>
       </section>
 
       <section id="data">
@@ -96,18 +97,42 @@
       </section>
 
       <section id="vla">
-        <p class="section-kicker">07 · VLA training and failure diagnosis</p>
-        <h2>Low offline loss does not survive closed-loop Hopper control</h2>
-        <div class="metric-strip"><div><strong>0.00788</strong><span>final train loss</span></div><div><strong>0.01000</strong><span>final validation loss</span></div><div><strong>173.136</strong><span>VLA L0 mean return</span></div><div><strong>86.35</strong><span>VLA L0 mean length</span></div></div>
-        <p>QwenOFT completed 5,000 SFT steps and produced a numerically clean offline fit, but all 20 L0 evaluation episodes terminate after 82–93 environment steps. At L2, all 20 episodes terminate at step 10 with mean return 9.513. A same-seed small-model control reaches 2,971.510 mean return and 820.3 mean length, with 13 of 20 episodes reaching the 1,000-step limit.</p>
+        <p class="section-kicker">07 · Controlled VLA comparison</p>
+        <h2>Direct continuous state substantially improves closed-loop control</h2>
+        <div class="metric-strip"><div><strong>8.2×</strong><span>L0 return vs text bins</span></div><div><strong>4.75×</strong><span>L0 episode length</span></div><div><strong>33.2×</strong><span>L2 return vs text bins</span></div><div><strong>12.36×</strong><span>L2 episode length</span></div></div>
+        <p>The continuous-state run removes the 256-bin numeric string from the prompt and adds a learned <code>11 → hidden_dim</code> projection to every action-query embedding. All other experiment settings remain fixed. At L0, mean return rises from 173.136 to 1,419.935 and mean length from 86.35 to 410.5. At L2, return rises from 9.513 to 315.890 and length from 10.0 to 123.6.</p>
+        <div class="media-gallery">
+          <figure><img src="assets/hopper_rgb_state/vla_state_encoding_comparison.png" width="1440" height="810" loading="lazy" alt="Hopper QwenOFT text-bin and continuous-projector return and length comparison at L0 and L2"><figcaption><span class="status verified">VERIFIED</span> Same seed, 20 episodes per latency, final 5,000-step checkpoints. Bars show mean return and environment steps.</figcaption></figure>
+          <figure><img src="assets/hopper_rgb_state/vla_continuous_projector_training_loss.png" width="1440" height="810" loading="lazy" alt="Hopper continuous-projector QwenOFT training and validation L1 loss"><figcaption><span class="status verified">VERIFIED</span> Train and held-out action L1 at each 500-step evaluation, 3,200 held-out samples per point.</figcaption></figure>
+        </div>
+        <div class="two-col">
+          <div><h3>What the ablation establishes</h3><ul class="steps"><li>The continuous projector uses the same normalized 11D values already present in the LeRobot rows and live evaluator.</li><li>The projector is registered under the existing action model and uses the same action-head learning rate.</li><li>No rollout, conversion, action decoder, loss weighting, or latency contract changed.</li><li>The saved checkpoint contains both <code>action_model.state_projector.weight</code> and <code>bias</code>.</li></ul></div>
+          <div><h3>What remains unresolved</h3><ul class="steps"><li>No continuous-state L0 episode reaches 1,000 steps; lengths range from 240 to 746.</li><li>L0 return reaches 47.8% of the same-seed teacher and length reaches 50.0%.</li><li>L2 remains fragile: all episodes terminate at 122–125 steps despite the large improvement over ten steps.</li><li>Only one training run and one evaluation seed block have been tested.</li></ul></div>
+        </div>
+        <div class="callout"><strong>Offline/online reversal:</strong> the continuous run has a worse final validation L1 than the text-bin run, 0.01554 versus 0.01000, yet its L0 closed-loop return is 8.2× higher. Aggregate one-step validation loss would select the worse controller.</div>
+        <details><summary>Continuous-state training and evaluation overrides</summary><pre><code>framework.action_model.loss_type=l1
+framework.action_model.state_encoding=continuous_projector
+trainer.max_train_steps=5000
+datasets.vla_data.per_device_batch_size=16
+trainer.gradient_accumulation_steps=1
+
+MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=. \
+python -m latency_bench.run \
+  --config configs/examples/gymnasium/hopper_rgb_state/starvla_eval.yaml \
+  --checkpoint-path /mnt/checkpoints/latency-sensitive-bench/openvla_runs/hopper_rgb_state_l0_return_gt3000_100ep_openvla_native_continuous_projector_sft_5k/checkpoints/steps_5000_pytorch_model.pt \
+  --model-config-path /mnt/checkpoints/latency-sensitive-bench/openvla_runs/hopper_rgb_state_l0_return_gt3000_100ep_openvla_native_continuous_projector_sft_5k/config.full.yaml \
+  --output-dir /mnt/results/latency-sensitive-bench/tasks/hopper_rgb_state/starvla_eval_continuous_projector</code></pre></details>
+        <h3>Original text-bin failure diagnosis</h3>
+        <div class="metric-strip"><div><strong>0.00788</strong><span>text-bin final train loss</span></div><div><strong>0.01000</strong><span>text-bin validation loss</span></div><div><strong>173.136</strong><span>text-bin L0 return</span></div><div><strong>86.35</strong><span>text-bin L0 length</span></div></div>
+        <p>The original QwenOFT run terminates after 82–93 steps at L0 and after exactly 10 steps at L2. A same-seed small-model control reaches 2,971.510 mean return and 820.3 mean length, with 13 of 20 episodes reaching the 1,000-step limit. The following diagnostics remain valid for that baseline and explain why better state conditioning alone does not close the full gap.</p>
         <div class="media-gallery"><figure><img src="assets/hopper_rgb_state/vla_failure_diagnostic.png" width="2160" height="696" loading="lazy" alt="Hopper VLA failure diagnosis showing training-manifold distance, action error by episode phase, and teacher-prefix intervention"><figcaption><span class="status verified">VERIFIED</span> Same-seed closed-loop diagnosis. Bars aggregate 20 deterministic episodes.</figcaption></figure></div>
         <div class="two-col">
           <div><h3>What was ruled out</h3><ul class="steps"><li>State/action dimensions, ordering, normalization, prompt, final checkpoint, and L0 timing match the frozen contract.</li><li>Replaying recorded actions reproduces rewards and positions exactly, ruling out logger or action-application mismatch.</li><li>The policy changes when the state changes; the 11D state interface is active rather than silently replaced by zeros.</li><li>Initial evaluation states are covered by training initial states, and the same evaluation seeds do not rescue the VLA.</li></ul></div>
           <div><h3>Primary failure mechanism</h3><ul class="steps"><li>VLA online states leave the teacher-data manifold: median normalized nearest-state distance is 0.168, versus 0.005 for successful teacher control.</li><li>Nearest-state action MAE rises from 0.049 in steps 0–9 to 0.138 after step 50; the foot dimension contributes 0.266 MAE late in the episode.</li><li>The VLA foot-action mean flips from the teacher's −0.120 to +0.335, while thigh saturation disappears.</li><li>A teacher prefix of 1, 3, 10, or 50 steps does not improve survival; after a 50-step teacher prefix, VLA takeover still fails at mean total length 85.5.</li></ul></div>
         </div>
-        <div class="callout warning"><strong>Conclusion:</strong> this is closed-loop covariate shift under one-step behavior cloning, not evidence that RGB+state input is invalid. The return-gated dataset contains successful trajectories but almost no recovery or pre-fall correction states. Aggregate validation loss is dominated by steady-gait rows and does not expose the phase-specific control errors that push the policy out of distribution.</div>
+        <div class="callout warning"><strong>Updated conclusion:</strong> text-token state representation was a major failure contributor, while the remaining teacher gap is consistent with closed-loop covariate shift under success-only one-step behavior cloning. The return-gated dataset still contains almost no recovery or pre-fall correction states.</div>
         <h3>Most direct corrective experiment</h3>
-        <ol class="steps"><li>Roll out the current VLA and label its visited states with the small-model teacher (DAgger-style aggregation), including pre-fall and recovery states.</li><li>Oversample initialization, gait transitions, and recovery corrections instead of uniformly sampling long steady-gait episodes.</li><li>Track phase-specific action error and short closed-loop survival during training; do not select a model from aggregate one-step loss alone.</li><li>Retrain on the augmented data before increasing SFT duration. More epochs over the same success-only distribution are unlikely to fix the failure.</li></ol>
+        <ol class="steps"><li>Use the continuous-projector checkpoint—not the text-bin baseline—as the next rollout policy.</li><li>Label its visited states with the small-model teacher, including pre-fall and recovery states, then retrain on the aggregated data.</li><li>Track short closed-loop L0 survival during training; validation L1 alone ranks these two models incorrectly.</li><li>Evaluate recovery-data training at both L0 and L2 before changing architecture or extending the SFT budget.</li></ol>
       </section>
 
       <section id="evidence">
@@ -119,6 +144,7 @@
           <article><span class="status verified">VERIFIED</span><h3>Evaluation</h3><p><a href="assets/hopper_rgb_state/small_model_eval/queue_eval_results.jsonl">all summaries</a> · <a href="assets/hopper_rgb_state/small_model_eval/eval_latency_0/episode_metrics.jsonl">L0 episodes</a> · <a href="assets/hopper_rgb_state/small_model_eval/eval_latency_1/episode_metrics.jsonl">L1 episodes</a></p></article>
           <article><span class="status verified">VERIFIED</span><h3>Rollout and conversion</h3><p><a href="assets/hopper_rgb_state/rgb_state_rollout/metadata.json">rollout metadata</a> · <a href="assets/hopper_rgb_state/rgb_state_rollout/filter_report.json">filter report</a> · <a href="assets/hopper_rgb_state/vla_dataset/manifest.json">LeRobot manifest</a></p></article>
           <article><span class="status verified">VERIFIED</span><h3>VLA train and evaluation</h3><p><a href="assets/hopper_rgb_state/vla_training/final_wandb_summary.json">final W&amp;B summary</a> · <a href="https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/cbbbtp12">online run</a> · <a href="assets/hopper_rgb_state/vla_eval/queue_eval_results.jsonl">L0/L2 summaries</a> · <a href="assets/hopper_rgb_state/vla_eval/eval_latency_0/episode_metrics.jsonl">L0 episodes</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>Continuous-state VLA</h3><p><a href="assets/hopper_rgb_state/vla_training_continuous_projector/wandb-summary.json">final W&amp;B summary</a> · <a href="https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/ppslkj60">online run</a> · <a href="assets/hopper_rgb_state/vla_training_continuous_projector/loss_anchors.json">loss anchors</a> · <a href="assets/hopper_rgb_state/vla_eval_continuous_projector/queue_eval_results.jsonl">L0/L2 summaries</a> · <a href="assets/hopper_rgb_state/vla_eval_continuous_projector/eval_latency_0/episode_metrics.jsonl">L0 episodes</a></p></article>
           <article><span class="status verified">VERIFIED</span><h3>Failure diagnosis</h3><p><a href="assets/hopper_rgb_state/diagnostics/state_action_diagnostic.json">state/action analysis</a> · <a href="assets/hopper_rgb_state/diagnostics/modality_sensitivity.json">state sensitivity</a> · <a href="assets/hopper_rgb_state/diagnostics/teacher_prefix_50.json">teacher-prefix intervention</a> · <a href="assets/hopper_rgb_state/diagnostics/teacher_same_seed_summary.jsonl">same-seed teacher</a></p></article>
           <article><span class="status verified">VERIFIED</span><h3>Reproduction</h3><p><a href="assets/hopper_rgb_state/repro_scripts/build_release_media.py">media builder</a> · 18 focused tests passed locally and remotely</p></article>
         </div>
@@ -127,11 +153,11 @@
 
       <section id="limits">
         <p class="section-kicker">09 · Limitations and next step</p>
-        <h2>The teacher is usable at L0; the current VLA is not</h2>
-        <ul class="steps"><li>One teacher-training seed and one VLA-training run were evaluated; neither result establishes multi-seed robustness.</li><li>The small-model training statistic 3,206.405 is not an evaluation mean; its original closed-loop L0 mean is 2,682.095.</li><li>Small-model L1–L4 and VLA L2 measure immediate unhealthy termination, not a degraded stable gait.</li><li>The return gate excludes low-return failures but also removes the recovery distribution needed by an imperfect learned controller.</li><li>The diagnostic nearest-neighbor action error is an interpretable teacher-reference proxy, not a counterfactual ground-truth action for every off-manifold state.</li></ul>
+        <h2>The continuous-state VLA is improved, not yet a replacement teacher</h2>
+        <ul class="steps"><li>One teacher-training seed and one run per VLA state encoding were evaluated; the ablation does not establish multi-seed robustness.</li><li>The small-model training statistic 3,206.405 is not an evaluation mean; the same-seed teacher control used for the VLA comparison is 2,971.510 return over 820.3 steps.</li><li>The continuous-state result isolates representation, but the randomly initialized projector adds parameters absent from the text-bin model.</li><li>No continuous-state episode reaches the 1,000-step horizon, so the model remains unsuitable as the final Hopper teacher.</li><li>The return gate excludes low-return failures and recovery behavior needed by an imperfect learned controller.</li><li>The diagnostic nearest-neighbor action error is an interpretable teacher-reference proxy, not a counterfactual ground-truth action for every off-manifold state.</li></ul>
       </section>
     </main>
   </div>
-  <footer>Hopper RGB+state adaptation · verified 28 August 2026</footer>
+  <footer>Hopper RGB+state adaptation · continuous-state VLA verified 1 September 2026</footer>
 </body>
 </html>

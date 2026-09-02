@@ -146,6 +146,9 @@ def test_hopper_rgb_state_starvla_eval_uses_final_checkpoint():
     config = load_config("configs/examples/gymnasium/hopper_rgb_state/starvla_eval.yaml")
 
     assert config["policy"]["checkpoint_path"].endswith("steps_5000_pytorch_model.pt")
+    assert "continuous_projector_sft_5k" in config["policy"]["checkpoint_path"]
+    assert "continuous_projector_sft_5k" in config["policy"]["model_config_path"]
+    assert config["logging"]["output_dir"].endswith("starvla_eval_continuous_projector")
     assert config["evaluation"]["eval_latency_values"] == [0, 2]
     assert config["evaluation"]["eval_episodes"] == 20
     assert config["evaluation"]["eval_max_steps"] == 1000

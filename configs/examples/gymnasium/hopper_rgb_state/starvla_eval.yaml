@@ -1,12 +1,12 @@
 __base__: latency_bench_eval.yaml
 
 experiment:
-  name: gymnasium_hopper_rgb_state_starvla_eval
+  name: gymnasium_hopper_rgb_state_starvla_continuous_projector_eval
 
 policy:
   type: starvla
-  checkpoint_path: /mnt/checkpoints/latency-sensitive-bench/openvla_runs/hopper_rgb_state_l0_return_gt3000_100ep_openvla_native_sft_5k/checkpoints/steps_5000_pytorch_model.pt
-  model_config_path: /mnt/checkpoints/latency-sensitive-bench/openvla_runs/hopper_rgb_state_l0_return_gt3000_100ep_openvla_native_sft_5k/config.full.yaml
+  checkpoint_path: /mnt/checkpoints/latency-sensitive-bench/openvla_runs/hopper_rgb_state_l0_return_gt3000_100ep_openvla_native_continuous_projector_sft_5k/checkpoints/steps_5000_pytorch_model.pt
+  model_config_path: /mnt/checkpoints/latency-sensitive-bench/openvla_runs/hopper_rgb_state_l0_return_gt3000_100ep_openvla_native_continuous_projector_sft_5k/config.full.yaml
   task_manifest_path: /mnt/data/latency-sensitive-bench/vla_datasets/rl_games/hopper_rgb_state_l0_return_gt3000_100ep/manifest.json
   device: cuda
   latency_prompt_map_path: /mnt/data/latency-sensitive-bench/vla_datasets/rl_games/hopper_rgb_state_l0_return_gt3000_100ep/latency_prompt_map.json
@@ -17,4 +17,4 @@ evaluation:
   eval_latency_values: [0, 2]
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/hopper_rgb_state/starvla_eval
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/hopper_rgb_state/starvla_eval_continuous_projector

@@ -1,2 +1,3 @@
 @import url("../walker2d/styles.css");
-.notrun{color:#5d6971;background:#f0f1f2}
+.verified{color:var(--good);background:var(--good-bg)}
+.failed{color:var(--not);background:var(--not-bg)}

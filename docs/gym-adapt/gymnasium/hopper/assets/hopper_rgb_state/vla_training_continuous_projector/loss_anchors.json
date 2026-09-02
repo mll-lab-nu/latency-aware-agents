@@ -1,0 +1,12 @@
+[
+  {"step": 500, "train_loss": 0.1140035614, "validation_loss": 0.1282654256},
+  {"step": 1000, "train_loss": 0.0753321052, "validation_loss": 0.0872587487},
+  {"step": 1500, "train_loss": 0.0627371222, "validation_loss": 0.0647903532},
+  {"step": 2000, "train_loss": 0.0569745302, "validation_loss": 0.0576554909},
+  {"step": 2500, "train_loss": 0.0459582284, "validation_loss": 0.0426439941},
+  {"step": 3000, "train_loss": 0.0314183943, "validation_loss": 0.0314464606},
+  {"step": 3500, "train_loss": 0.0272680819, "validation_loss": 0.0312009696},
+  {"step": 4000, "train_loss": 0.0142246690, "validation_loss": 0.0193983689},
+  {"step": 4500, "train_loss": 0.0198110752, "validation_loss": 0.0168763157},
+  {"step": 5000, "train_loss": 0.0148897525, "validation_loss": 0.0155374883}
+]

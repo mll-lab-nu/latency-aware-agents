@@ -14,8 +14,7 @@
 >
 > 状态：依赖、双卡 smoke、目标容量 A/B 和精确 resume 已完成。首个 adaptive-LR teacher
 > 正式 run 已确认 collapse，并在 iteration 1418 停止；fixed-LR teacher 已通过 iteration
-> 100/300/1000 门禁并正常完成 15k；Teacher evaluation 已通过；Student 在外部硬终止后
-> 已从 `model_2200.pt` 恢复，继续训练到 iteration 4999。
+> 100/300/1000 门禁并正常完成 15k；Teacher evaluation 已通过
 > 32D terrain-latent VLA 的 RGB collector、LeRobot/GR00T 数据转换、5k 训练入口和
 > zero-delay evaluator 已实现；单卡 8-env oracle、1+1 episode 数据、1-step GR00T 训练及
 > 闭环推理 smoke 已通过，尚未运行正式 250/25、5k 和 50-env VLA gate。

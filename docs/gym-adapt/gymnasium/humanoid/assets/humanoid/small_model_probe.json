@@ -1,0 +1,13 @@
+{
+  "checkpoint": "best_000017672_9048064_reward_5613.319.pth",
+  "latency_raw_frames": 0,
+  "episodes": 20,
+  "max_steps": 1000,
+  "mean_return": 5571.3,
+  "median_return": 6388.6,
+  "full_episodes": 8,
+  "return_gate": 5000,
+  "episodes_above_gate": 15,
+  "shortest_accepted_episode_steps": 794,
+  "purpose": "rollout threshold selection probe"
+}
