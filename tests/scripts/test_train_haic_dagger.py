@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -57,6 +58,8 @@ def test_main_resolves_bootstrap_paths_from_output_root(monkeypatch):
     )
     assert captured["actor_checkpoint"] == root / "bootstrap/actor_adapt.pt"
     assert captured["end_round"] == 1
+    assert captured["collector_devices"] is None
+    assert captured["collector_num_envs"] == ENVS_PER_COLLECTOR_RANK
 
 
 def test_haic_pipeline_constants_are_single_gpu_and_paper_scale():
@@ -140,6 +143,21 @@ def test_haic_commands_encode_smoke_and_resume_contract():
     assert train[train.index("--experiment-name") + 1] == "haic-test"
     assert train[train.index("--learning-rate") + 1] == "0.00005"
     assert train[train.index("--shard-size") + 1] == str(HAIC_DAGGER_SHARD_ROWS)
+
+    dual_device = collector_command(
+        Path("haic-python"),
+        mode="dagger-collect",
+        teacher_checkpoint=teacher,
+        output_dir=Path("raw/rank_01"),
+        inference_device="cuda:1",
+        simulation_device="cuda:1",
+        num_envs=48,
+        seed=2,
+        round_index=0,
+    )
+    assert dual_device[dual_device.index("--device") + 1] == "cuda:1"
+    assert dual_device[dual_device.index("--inference-device") + 1] == "cuda:1"
+    assert dual_device[dual_device.index("--num-envs") + 1] == "48"
 
     bootstrap = bootstrap_training_command(
         base_model=Path("base"),
@@ -243,6 +261,8 @@ def test_pipeline_restarts_partial_round_and_reuses_completed_training(
         policy_config=policy_config,
         haic_python=tmp_path / "haic-python",
         inference_device="cuda:0",
+        collector_devices=None,
+        collector_num_envs=ENVS_PER_COLLECTOR_RANK,
         inference_batch_size=32,
         eval_max_steps=1_000,
         wandb_run_id="haic-test",
@@ -333,6 +353,83 @@ def test_pipeline_restarts_partial_round_and_reuses_completed_training(
         assert (current_round_dir / "lerobot").exists()
 
 
+def test_parallel_collectors_bind_devices_and_block_prepare_on_failure(
+    tmp_path, monkeypatch
+):
+    output_root = tmp_path / "run"
+    policy_config = tmp_path / "policy.yaml"
+    policy_config.write_text(
+        "policy:\n  model_path: old\n  device: cuda:0\n  action_dim: 256\n"
+    )
+    args = SimpleNamespace(
+        teacher_checkpoint=tmp_path / "teacher.pt",
+        base_model=tmp_path / "base-model",
+        bootstrap_checkpoint=tmp_path / "bootstrap/checkpoint-5000",
+        bootstrap_dataset=tmp_path / "bootstrap/lerobot",
+        actor_checkpoint=tmp_path / "bootstrap/actor_adapt.pt",
+        output_root=output_root,
+        policy_config=policy_config,
+        haic_python=tmp_path / "haic-python",
+        inference_device="cuda:0",
+        collector_devices=["cuda:1", "cuda:0"],
+        collector_num_envs=48,
+        inference_batch_size=32,
+        eval_max_steps=1_000,
+        wandb_run_id="haic-test",
+        start_round=0,
+        end_round=1,
+        run_bootstrap=False,
+    )
+    launched = []
+
+    class Process:
+        def __init__(self, command, *, cwd, env):
+            self.command = command
+            self.env = env
+            self.return_code = 1 if not launched else 0
+            self.running = True
+            self.terminated = False
+            launched.append(self)
+
+        def wait(self):
+            self.running = False
+            return self.return_code
+
+        def poll(self):
+            return None if self.running else self.return_code
+
+        def terminate(self):
+            self.terminated = True
+            self.running = False
+
+    monkeypatch.setattr(train_haic_dagger.subprocess, "Popen", Process)
+    monkeypatch.setattr(
+        train_haic_dagger, "evaluate_checkpoint", lambda *args, **kwargs: None
+    )
+    prepare_calls = []
+    monkeypatch.setattr(
+        train_haic_dagger,
+        "_run",
+        lambda *args, **kwargs: prepare_calls.append((args, kwargs)),
+    )
+
+    with pytest.raises(subprocess.CalledProcessError):
+        train_haic_dagger.run_pipeline(args)
+
+    assert len(launched) == 2
+    assert [process.env["LOCAL_RANK"] for process in launched] == ["1", "0"]
+    assert [
+        process.command[process.command.index("--device") + 1]
+        for process in launched
+    ] == ["cuda:1", "cuda:0"]
+    assert [
+        process.command[process.command.index("--inference-device") + 1]
+        for process in launched
+    ] == ["cuda:1", "cuda:0"]
+    assert launched[1].terminated is True
+    assert prepare_calls == []
+
+
 def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypatch):
     output_root = tmp_path / "run"
     policy_config = tmp_path / "policy.yaml"
@@ -357,6 +454,8 @@ def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypa
         policy_config=policy_config,
         haic_python=tmp_path / "haic-python",
         inference_device="cuda:0",
+        collector_devices=None,
+        collector_num_envs=ENVS_PER_COLLECTOR_RANK,
         inference_batch_size=32,
         eval_max_steps=1_000,
         wandb_run_id="haic-test",

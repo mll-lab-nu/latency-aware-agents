@@ -92,6 +92,7 @@ def collector_command(
     num_envs: int,
     seed: int,
     round_index: int,
+    simulation_device: str = "cuda:0",
     policy_config: Path | None = None,
     split: str | None = None,
     row_budget: int | None = None,
@@ -105,7 +106,7 @@ def collector_command(
         mode,
         "--headless",
         "--device",
-        "cuda:0",
+        simulation_device,
         "--teacher-checkpoint",
         str(teacher_checkpoint),
         "--output-dir",
@@ -648,26 +649,82 @@ def run_pipeline(args: argparse.Namespace) -> None:
                     step=0,
                     environment=haic_environment,
                 )
+            collector_commands = []
+            collector_environments = []
             for collector_rank in range(COLLECTOR_RANKS):
-                subprocess.run(
+                collector_device = (
+                    None
+                    if args.collector_devices is None
+                    else args.collector_devices[collector_rank]
+                )
+                collector_commands.append(
                     collector_command(
                         args.haic_python,
                         mode="dagger-collect",
                         teacher_checkpoint=args.teacher_checkpoint,
                         output_dir=raw_dir / f"rank_{collector_rank:02d}",
-                        inference_device=args.inference_device,
-                        num_envs=ENVS_PER_COLLECTOR_RANK,
+                        inference_device=(
+                            args.inference_device
+                            if collector_device is None
+                            else collector_device
+                        ),
+                        simulation_device=(
+                            "cuda:0" if collector_device is None else collector_device
+                        ),
+                        num_envs=args.collector_num_envs,
                         seed=collector_rank + 1,
                         round_index=round_index,
                         policy_config=policy_config,
                         split="train",
                         row_budget=HAIC_DAGGER_ROWS_PER_COLLECTOR,
                         inference_batch_size=args.inference_batch_size,
-                    ),
+                    )
+                )
+                collector_environments.append(
+                    haic_environment
+                    | (
+                        {"LOCAL_RANK": collector_device.split(":", 1)[1]}
+                        if args.collector_devices is not None
+                        else {}
+                    )
+                )
+            if args.collector_devices is None:
+                subprocess.run(
+                    collector_commands[0],
                     cwd=HAIC_ROOT,
-                    env=haic_environment,
+                    env=collector_environments[0],
                     check=True,
                 )
+                subprocess.run(
+                    collector_commands[1],
+                    cwd=HAIC_ROOT,
+                    env=collector_environments[1],
+                    check=True,
+                )
+            else:
+                processes = []
+                try:
+                    for command, environment in zip(
+                        collector_commands, collector_environments
+                    ):
+                        processes.append(
+                            subprocess.Popen(
+                                command,
+                                cwd=HAIC_ROOT,
+                                env=environment,
+                            )
+                        )
+                    for process, command in zip(processes, collector_commands):
+                        return_code = process.wait()
+                        if return_code:
+                            raise subprocess.CalledProcessError(return_code, command)
+                except BaseException:
+                    for process in processes:
+                        if process.poll() is None:
+                            process.terminate()
+                    for process in processes:
+                        process.wait()
+                    raise
             _run(
                 prepare_command(
                     raw_dir,
@@ -735,6 +792,21 @@ def main() -> None:
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--haic-python", type=Path, default=DEFAULT_HAIC_PYTHON)
     parser.add_argument("--inference-device", default="cuda:0")
+    parser.add_argument(
+        "--collector-devices",
+        nargs=COLLECTOR_RANKS,
+        default=None,
+        help=(
+            "Run both collectors in parallel on these devices; omitted keeps serial "
+            "single-GPU collection."
+        ),
+    )
+    parser.add_argument(
+        "--collector-num-envs",
+        type=int,
+        default=ENVS_PER_COLLECTOR_RANK,
+        help="Number of environments per DAgger collector for render A/B tests.",
+    )
     parser.add_argument(
         "--inference-batch-size",
         type=int,

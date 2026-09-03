@@ -85,11 +85,11 @@ def write_policy_config(
     destination: Path,
     *,
     model_path: Path,
-    inference_device: str,
+    inference_device: list[str],
 ) -> None:
     config = yaml.safe_load(source.read_text(encoding="utf-8"))
     config["policy"]["model_path"] = str(model_path)
-    config["policy"]["device"] = inference_device
+    config["policy"]["device"] = inference_device[0]
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
@@ -101,7 +101,7 @@ def collector_command(
     teacher_checkpoint: Path,
     policy_config: Path,
     output_dir: Path,
-    inference_device: str,
+    inference_device: list[str],
     num_envs: int,
     seed: int,
     round_index: int,
@@ -123,8 +123,6 @@ def collector_command(
         str(policy_config),
         "--output_dir",
         str(output_dir),
-        "--inference_device",
-        inference_device,
         "--inference_batch_size",
         str(inference_batch_size),
         "--num_envs",
@@ -132,6 +130,8 @@ def collector_command(
         "--seed",
         str(seed),
     ]
+    for device in inference_device:
+        command.extend(["--inference_device", device])
     if mode == "dagger-collect":
         command.extend(
             [
@@ -505,7 +505,7 @@ def main() -> None:
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--policy-config", type=Path, default=DEFAULT_POLICY_CONFIG)
     parser.add_argument("--parkour-python", type=Path, default=DEFAULT_PARKOUR_PYTHON)
-    parser.add_argument("--inference-device", default="cuda:1")
+    parser.add_argument("--inference-device", action="append")
     parser.add_argument(
         "--wandb-run-id", default="extreme_parkour_go2_vla_dagger_action_yaw_5k"
     )
@@ -518,6 +518,8 @@ def main() -> None:
     parser.add_argument("--end-round", type=int, default=1)
     parser.add_argument("--run-bootstrap", action="store_true")
     args = parser.parse_args()
+    if args.inference_device is None:
+        args.inference_device = ["cuda:1"]
     if args.bootstrap_checkpoint is None and not args.run_bootstrap:
         args.bootstrap_checkpoint = bootstrap_checkpoint_dir(
             args.output_root / "bootstrap" / "training",

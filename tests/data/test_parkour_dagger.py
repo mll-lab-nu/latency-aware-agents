@@ -10,13 +10,15 @@ import pytest
 from helpers import save_test_image
 
 
-def _dagger_arrays() -> dict[str, np.ndarray]:
+def _dagger_arrays(rows: int = 1) -> dict[str, np.ndarray]:
+    termination = np.zeros((rows, 5), dtype=bool)
+    termination[:, -1] = True
     return {
-        "state": np.arange(53, dtype=np.float32).reshape(1, 53),
-        "action": np.arange(34, dtype=np.float32).reshape(1, 34),
-        "termination": np.asarray([[False, False, False, False, True]]),
-        "actor_observation": np.arange(5 * 753, dtype=np.float32).reshape(
-            1, 5, 753
+        "state": np.arange(rows * 53, dtype=np.float32).reshape(rows, 53),
+        "action": np.arange(rows * 34, dtype=np.float32).reshape(rows, 34),
+        "termination": termination,
+        "actor_observation": np.arange(rows * 5 * 753, dtype=np.float32).reshape(
+            rows, 5, 753
         ),
         "image_shape": np.asarray([2, 2, 3], dtype=np.int64),
     }
@@ -112,9 +114,91 @@ def test_parkour_dagger_converter_writes_video_and_numeric_parquet(tmp_path):
     info = json.loads((output / "meta/info.json").read_text())
     assert info["features"]["observation.image"]["dtype"] == "video"
     assert info["features"]["actor_observation"]["shape"] == [5, 753]
+    assert "reward" not in info["features"]
     assert "teacher_action" not in info["features"]
     task = json.loads((output / "meta/tasks.jsonl").read_text())
     assert task["task"] == "Traverse the parkour course and follow each waypoint."
+
+
+def test_parkour_video_bootstrap_preserves_rollout_schema(tmp_path):
+    from latency_bench.data.parkour_dagger import (
+        convert_parkour_dagger_shards_to_lerobot,
+        write_parkour_dagger_shard,
+    )
+
+    image = tmp_path / "frame.png"
+    video = tmp_path / "episode.mp4"
+    raw = tmp_path / "raw"
+    save_test_image(image, 7)
+    _save_test_video(image, video)
+    arrays = _dagger_arrays(rows=2)
+    arrays["raw_reward"] = np.asarray([2.5, 3.5], dtype=np.float32)
+    write_parkour_dagger_shard(
+        raw,
+        split="train",
+        episode_idx=0,
+        arrays=arrays,
+        video_path=video,
+    )
+    write_parkour_dagger_shard(
+        raw,
+        split="val",
+        episode_idx=1,
+        arrays=arrays,
+        video_path=video,
+    )
+
+    output = tmp_path / "lerobot"
+    manifest = convert_parkour_dagger_shards_to_lerobot(
+        raw,
+        output,
+        force=True,
+        video_shards=True,
+    )
+    rows = pq.read_table(
+        output / "data/chunk-000/episode_000000.parquet"
+    ).to_pylist()
+    assert set(rows[0]) == {
+        "observation.image",
+        "observation.state",
+        "action",
+        "termination",
+        "actor_observation",
+        "timestamp",
+        "episode_index",
+        "frame_index",
+        "task_index",
+        "latency",
+        "latency_raw_frames",
+        "done",
+        "reward",
+        "density_weight",
+    }
+    assert [row["reward"] for row in rows] == [2.5, 3.5]
+    assert [row["done"] for row in rows] == [False, True]
+    assert [row["density_weight"] for row in rows] == [1.0, 1.0]
+    assert [row["latency"] for row in rows] == [0, 0]
+    assert [row["latency_raw_frames"] for row in rows] == [0, 0]
+    info = json.loads((output / "meta/info.json").read_text())
+    assert "latency" in info["features"]
+    assert "latency_raw_frames" not in info["features"]
+    assert "done" not in info["features"]
+    assert "reward" not in info["features"]
+    assert manifest["integration_name"] == "isaaclab_parkour"
+    assert manifest["rows_unit"] == "decision_step"
+    assert manifest["obs_fps"] == 10
+    assert manifest["obs_stride_raw_frames"] == 5
+    assert manifest["state_labels"] == [
+        f"parkour_proprio_{index}" for index in range(53)
+    ]
+    assert manifest["official_action_horizon"] == 1
+    validation_manifest = json.loads(
+        (output.with_name(f"{output.name}__val") / "manifest.json").read_text()
+    )
+    assert validation_manifest["dataset_name"] == "lerobot__val"
+    assert validation_manifest["split"] == "val"
+    assert validation_manifest["training_dataset_name"] == "lerobot"
+    assert validation_manifest["official_action_horizon"] == 1
 
 
 def test_parkour_bootstrap_rows_preserve_actor_observation_and_termination(tmp_path):
@@ -195,3 +279,39 @@ def test_dagger_prepare_copies_bootstrap_stats(tmp_path, monkeypatch):
     assert commands == []
     assert (output / "meta/stats.json").read_bytes() == bootstrap_stats
     assert (val_output / "meta/stats.json").read_bytes() == bootstrap_stats
+
+
+def test_video_shard_prepare_runs_stats_for_train_and_validation(tmp_path, monkeypatch):
+    from scripts.official_gr00t import prepare_parkour_dataset as prepare_module
+
+    output = tmp_path / "lerobot"
+    val_output = tmp_path / "lerobot__val"
+    calls = []
+
+    def fake_convert(*args, **kwargs):
+        assert kwargs["video_shards"] is True
+        output.mkdir(parents=True)
+        val_output.mkdir(parents=True)
+        return {"dataset_name": output.name}
+
+    monkeypatch.setattr(
+        prepare_module, "convert_parkour_dagger_shards_to_lerobot", fake_convert
+    )
+    monkeypatch.setattr(
+        prepare_module.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append(command),
+    )
+
+    manifest = prepare_module.prepare_parkour_dataset(
+        tmp_path / "raw",
+        output,
+        force=False,
+        video_shards=True,
+    )
+
+    assert manifest == {"dataset_name": "lerobot"}
+    assert [command[command.index("--dataset-path") + 1] for command in calls] == [
+        str(output),
+        str(val_output),
+    ]

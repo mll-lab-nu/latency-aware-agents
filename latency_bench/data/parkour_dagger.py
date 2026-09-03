@@ -34,8 +34,6 @@ _NUMERIC_FIELDS = (
     "termination",
     "actor_observation",
 )
-
-
 def _parkour_dagger_shard_dir(
     output_dir: Path | str,
     split: str,
@@ -61,6 +59,8 @@ def write_parkour_dagger_shard(
     ``_NUMERIC_FIELDS``.
     """
     payload = {name: arrays[name] for name in _NUMERIC_FIELDS}
+    if "raw_reward" in arrays:
+        payload["raw_reward"] = arrays["raw_reward"]
     payload["image_shape"] = arrays["image_shape"]
 
     target = _parkour_dagger_shard_dir(output_dir, split, episode_idx)
@@ -93,55 +93,76 @@ def _iter_parkour_dagger_shards(
     for shard_dir in _shard_dirs(output_dir, split):
         with np.load(shard_dir / "episode.npz", allow_pickle=False) as payload:
             arrays = {name: payload[name] for name in _NUMERIC_FIELDS}
+            if "raw_reward" in payload.files:
+                arrays["raw_reward"] = payload["raw_reward"]
             arrays["image_shape"] = payload["image_shape"]
         yield arrays, shard_dir / "episode.mp4"
 
 
-def _episode_table(arrays: Mapping[str, Any], episode_index: int):
+def _episode_table(
+    arrays: Mapping[str, Any], episode_index: int, *, include_bootstrap_fields: bool
+):
     # Isaac Lab's collector environment does not ship pyarrow; keep this
     # import at the conversion boundary so collection can run without it.
     import pyarrow as pa
 
     row_count = arrays["state"].shape[0]
     image_type = pa.struct([("bytes", pa.binary()), ("path", pa.string())])
-    return pa.table(
-        {
-            "observation.image": pa.array(
-                [{"bytes": None, "path": None} for _ in range(row_count)],
-                type=image_type,
+    columns = {
+        "observation.image": pa.array(
+            [{"bytes": None, "path": None} for _ in range(row_count)],
+            type=image_type,
+        ),
+        "observation.state": pa.array(
+            arrays["state"].tolist(),
+            type=pa.list_(pa.float32(), PARKOUR_VLA_STATE_DIM),
+        ),
+        "action": pa.array(
+            arrays["action"].tolist(),
+            type=pa.list_(pa.float32(), PARKOUR_VLA_ACTION_DIM),
+        ),
+        "termination": pa.array(
+            arrays["termination"].tolist(),
+            type=pa.list_(pa.bool_(), PARKOUR_CONTROL_REPEAT),
+        ),
+        "actor_observation": pa.array(
+            arrays["actor_observation"].tolist(),
+            type=pa.list_(
+                pa.list_(pa.float32(), PARKOUR_ACTOR_OBSERVATION_DIM),
+                PARKOUR_CONTROL_REPEAT,
             ),
-            "observation.state": pa.array(
-                arrays["state"].tolist(),
-                type=pa.list_(pa.float32(), PARKOUR_VLA_STATE_DIM),
-            ),
-            "action": pa.array(
-                arrays["action"].tolist(),
-                type=pa.list_(pa.float32(), PARKOUR_VLA_ACTION_DIM),
-            ),
-            "termination": pa.array(
-                arrays["termination"].tolist(),
-                type=pa.list_(pa.bool_(), PARKOUR_CONTROL_REPEAT),
-            ),
-            "actor_observation": pa.array(
-                arrays["actor_observation"].tolist(),
-                type=pa.list_(
-                    pa.list_(pa.float32(), PARKOUR_ACTOR_OBSERVATION_DIM),
-                    PARKOUR_CONTROL_REPEAT,
+        ),
+        "timestamp": pa.array(
+            np.arange(row_count, dtype=np.float64) / _DATASET_FPS,
+            type=pa.float64(),
+        ),
+        "episode_index": pa.array(
+            [episode_index for _ in range(row_count)], type=pa.int64()
+        ),
+        "frame_index": pa.array(
+            np.arange(row_count, dtype=np.int64), type=pa.int64()
+        ),
+        "task_index": pa.array([0 for _ in range(row_count)], type=pa.int64()),
+    }
+    if include_bootstrap_fields:
+        done = np.zeros(row_count, dtype=bool)
+        done[-1] = True
+        columns.update(
+            {
+                "latency": pa.array(
+                    np.zeros(row_count, dtype=np.int64), type=pa.int64()
                 ),
-            ),
-            "timestamp": pa.array(
-                np.arange(row_count, dtype=np.float64) / _DATASET_FPS,
-                type=pa.float64(),
-            ),
-            "episode_index": pa.array(
-                [episode_index for _ in range(row_count)], type=pa.int64()
-            ),
-            "frame_index": pa.array(
-                np.arange(row_count, dtype=np.int64), type=pa.int64()
-            ),
-            "task_index": pa.array([0 for _ in range(row_count)], type=pa.int64()),
-        }
-    )
+                "latency_raw_frames": pa.array(
+                    np.zeros(row_count, dtype=np.int64), type=pa.int64()
+                ),
+                "done": pa.array(done, type=pa.bool_()),
+                "reward": pa.array(arrays["raw_reward"], type=pa.float32()),
+                "density_weight": pa.array(
+                    np.ones(row_count, dtype=np.float32), type=pa.float32()
+                ),
+            }
+        )
+    return pa.table(columns)
 
 
 def _write_info(
@@ -149,6 +170,7 @@ def _write_info(
     *,
     episode_lengths: list[int],
     image_shape: tuple[int, int, int],
+    include_bootstrap_fields: bool,
 ) -> None:
     height, width, channels = image_shape
     features = {
@@ -199,6 +221,8 @@ def _write_info(
         "frame_index": {"dtype": "int64", "shape": [1]},
         "task_index": {"dtype": "int64", "shape": [1]},
     }
+    if include_bootstrap_fields:
+        features["latency"] = {"dtype": "int64", "shape": [1]}
     info = {
         "codebase_version": "v2.0",
         "fps": _DATASET_FPS,
@@ -244,6 +268,7 @@ def _convert_split(
     *,
     split: str,
     force: bool,
+    include_bootstrap_fields: bool,
 ) -> dict[str, Any]:
     # Isaac Lab's collector environment does not ship pyarrow; keep this
     # import at the conversion boundary so collection can run without it.
@@ -260,7 +285,14 @@ def _convert_split(
         episode_dir = output_dir / f"data/chunk-{episode_index // _CHUNK_SIZE:03d}"
         parquet_path = episode_dir / f"episode_{episode_index:06d}.parquet"
         episode_dir.mkdir(parents=True, exist_ok=True)
-        pq.write_table(_episode_table(arrays, episode_index), parquet_path)
+        pq.write_table(
+            _episode_table(
+                arrays,
+                episode_index,
+                include_bootstrap_fields=include_bootstrap_fields,
+            ),
+            parquet_path,
+        )
         video_path = output_dir / (
             f"videos/chunk-{episode_index // _CHUNK_SIZE:03d}/observation.image/"
             f"episode_{episode_index:06d}.mp4"
@@ -271,7 +303,12 @@ def _convert_split(
         episode_lengths.append(arrays["state"].shape[0])
     if image_shape is None:
         raise ValueError(f"Parkour DAgger split {split!r} has no committed shards")
-    _write_info(output_dir, episode_lengths=episode_lengths, image_shape=image_shape)
+    _write_info(
+        output_dir,
+        episode_lengths=episode_lengths,
+        image_shape=image_shape,
+        include_bootstrap_fields=include_bootstrap_fields,
+    )
     _write_official_gr00t_modality(
         output_dir,
         PARKOUR_VLA_STATE_DIM,
@@ -292,15 +329,28 @@ def convert_parkour_dagger_shards_to_lerobot(
     force: bool = False,
     expected_rows: int | None = None,
     round_index: int | None = None,
+    video_shards: bool = False,
 ) -> dict[str, Any]:
     """Convert committed NPZ+MP4 DAgger shards to LeRobot datasets."""
     raw_dir = Path(raw_dir)
     output_dir = Path(output_dir)
-    train_manifest = _convert_split(raw_dir, output_dir, split="train", force=force)
+    train_manifest = _convert_split(
+        raw_dir,
+        output_dir,
+        split="train",
+        force=force,
+        include_bootstrap_fields=video_shards,
+    )
     val_dir = output_dir.with_name(f"{output_dir.name}__val")
     val_manifest = None
     if _shard_dirs(raw_dir, "val"):
-        val_manifest = _convert_split(raw_dir, val_dir, split="val", force=force)
+        val_manifest = _convert_split(
+            raw_dir,
+            val_dir,
+            split="val",
+            force=force,
+            include_bootstrap_fields=video_shards,
+        )
     train_rows = train_manifest["frames"]
     if expected_rows is not None and train_rows != expected_rows:
         raise ValueError(
@@ -309,7 +359,11 @@ def convert_parkour_dagger_shards_to_lerobot(
         )
     manifest = {
         **train_manifest,
-        "format": "parkour_dagger_lerobot_v4_video_actor_observation_parquet",
+        "format": (
+            "parkour_video_bootstrap_lerobot_v1"
+            if video_shards
+            else "parkour_dagger_lerobot_v4_video_actor_observation_parquet"
+        ),
         "source": str(raw_dir),
         "action_layout": GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.layout,
         "action_labels": list(GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.labels),
@@ -321,6 +375,36 @@ def convert_parkour_dagger_shards_to_lerobot(
             PARKOUR_ACTOR_OBSERVATION_DIM,
         ],
     }
+    bootstrap_contract = None
+    if video_shards:
+        state_labels = [
+            f"parkour_proprio_{index}" for index in range(PARKOUR_VLA_STATE_DIM)
+        ]
+        bootstrap_contract = {
+            "env_name": "extreme_parkour_go2",
+            "task_prompts": [
+                "Traverse the parkour course and follow each waypoint."
+            ],
+            "integration_name": "isaaclab_parkour",
+            "task_name": "extreme_parkour_go2",
+            "carrier_action_labels": list(
+                GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.labels
+            ),
+            "active_action_dim": PARKOUR_VLA_ACTION_DIM,
+            "action_carrier": "native",
+            "rows_unit": "decision_step",
+            "obs_fps": int(_DATASET_FPS),
+            "obs_stride_raw_frames": PARKOUR_CONTROL_REPEAT,
+            "uses_state": True,
+            "state_labels": state_labels,
+            "state_normalization": None,
+            "official_embodiment_tag": "NEW_EMBODIMENT",
+            "official_action_horizon": 1,
+            "official_modality_config": (
+                "latency_bench/policy/official_gr00t_parkour_modality.py"
+            ),
+        }
+        manifest.update(bootstrap_contract)
     if val_manifest is not None:
         manifest.update(
             {
@@ -338,6 +422,32 @@ def convert_parkour_dagger_shards_to_lerobot(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     temporary.replace(manifest_path)
+    if val_manifest is not None and bootstrap_contract is not None:
+        validation_manifest = {
+            **val_manifest,
+            "format": "parkour_video_bootstrap_lerobot_v1",
+            "source": str(raw_dir),
+            "action_layout": GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.layout,
+            "action_labels": list(
+                GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.labels
+            ),
+            "action_dim": PARKOUR_VLA_ACTION_DIM,
+            "state_dim": PARKOUR_VLA_STATE_DIM,
+            "termination_shape": [PARKOUR_CONTROL_REPEAT],
+            "actor_observation_shape": [
+                PARKOUR_CONTROL_REPEAT,
+                PARKOUR_ACTOR_OBSERVATION_DIM,
+            ],
+            **bootstrap_contract,
+            "training_dataset_name": train_manifest["dataset_name"],
+        }
+        validation_manifest_path = val_dir / "manifest.json"
+        temporary = validation_manifest_path.with_name("manifest.json.tmp")
+        temporary.write_text(
+            json.dumps(validation_manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(validation_manifest_path)
     return manifest
 
 

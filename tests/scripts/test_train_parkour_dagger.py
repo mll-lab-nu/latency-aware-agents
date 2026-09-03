@@ -63,7 +63,7 @@ def test_commands_preserve_round_resume_contract():
         teacher_checkpoint=teacher,
         policy_config=Path("policy.yaml"),
         output_dir=Path("raw"),
-        inference_device="cuda:1",
+        inference_device=["cuda:1"],
         num_envs=DAGGER_ENVS,
         seed=1,
         round_index=0,
@@ -154,7 +154,7 @@ def test_commands_preserve_round_resume_contract():
         teacher_checkpoint=teacher,
         policy_config=Path("policy.yaml"),
         output_dir=Path("eval"),
-        inference_device="cuda:1",
+        inference_device=["cuda:1"],
         num_envs=50,
         seed=2,
         round_index=0,
@@ -169,6 +169,26 @@ def test_commands_preserve_round_resume_contract():
         PARKOUR_EVAL_MAX_EPISODE_STEPS
     )
     assert checkpoint_dir(output, 10) == output / "checkpoint-5000"
+
+
+def test_collector_command_repeats_explicit_inference_devices():
+    command = collector_command(
+        Path("python"),
+        mode="dagger-collect",
+        teacher_checkpoint=Path("teacher.pt"),
+        policy_config=Path("policy.yaml"),
+        output_dir=Path("raw"),
+        inference_device=["cuda:0", "cuda:1"],
+        num_envs=192,
+        seed=1,
+        round_index=0,
+    )
+
+    assert [
+        command[index + 1]
+        for index, value in enumerate(command)
+        if value == "--inference_device"
+    ] == ["cuda:0", "cuda:1"]
 
 
 def test_bootstrap_command_starts_from_gr00t_base_without_replay():
@@ -260,7 +280,7 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
         output_root=output_root,
         policy_config=policy_config,
         parkour_python=Path("/usr/bin/python"),
-        inference_device="cuda:1",
+        inference_device=["cuda:1"],
         inference_batch_size=32,
         wandb_run_id="action-yaw",
         start_round=0,
@@ -355,7 +375,7 @@ def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypa
         output_root=output_root,
         policy_config=policy_config,
         parkour_python=Path("/usr/bin/python"),
-        inference_device="cuda:1",
+        inference_device=["cuda:1"],
         inference_batch_size=32,
         wandb_run_id="action-yaw",
         start_round=0,

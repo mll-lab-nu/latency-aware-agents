@@ -270,6 +270,11 @@ VLA 替换路线，phase-1 final teacher 是固定的 privileged label source。
 - DAgger 流程是 `step-0 eval -> rollout -> training -> eval`。当前默认只执行 round 0：两个顺序 collector 各 32,000 rows，合计 64,000 rows、gradient accumulation 2 和 500 updates。采样权重固定为 50% action-rich bootstrap replay + 50% 累积 DAgger 数据，bootstrap prior 不随 round 数稀释；eval 始终使用 100 env / seed 0，每个 env 只统计从 motion frame 0 开始的首个 episode；
 - DAgger collector 使用 inference batch 32、1,000-row shard；每个 round eval 后删除 raw shard，保留 LeRobot dataset、dataset manifest、training dataset manifest、checkpoint、eval 结果和 policy config。
 
+正式远端单 GPU 默认仍串行运行两个 collector。短 A/B 可用
+`--collector-num-envs 32|48|96` 比较相同 row budget 的 wall time。若迁移到双 GPU 节点，可显式传
+`--collector-devices cuda:0 cuda:1`，两个 seed/rank 会并行运行并分别绑定 sim、GR00T 和
+`LOCAL_RANK`；该选项不设置分布式 `WORLD_SIZE`，默认路径也不会自动启用它。
+
 预算和预计耗时（同一张 RTX PRO 6000 上按已有 Parkour profile 外推，正式 HAIC 运行前需做短 batch profile）如下：
 
 | 阶段 | optimizer updates | microsteps | rows / exposure | 预计耗时 |

@@ -31,25 +31,45 @@ def prepare_parkour_dataset(
     *,
     force: bool,
     dagger: bool = False,
+    video_shards: bool = False,
     round_index: int | None = None,
     expected_rows: int | None = None,
     normalization_source: Path | None = None,
 ) -> dict:
-    if dagger:
+    if dagger or video_shards:
         manifest = convert_parkour_dagger_shards_to_lerobot(
             raw_dir,
             output_dir,
             force=force,
             expected_rows=expected_rows,
             round_index=round_index,
+            video_shards=video_shards,
         )
-        source_stats = normalization_source / "meta/stats.json"
-        for dataset_dir in (
-            output_dir,
-            output_dir.with_name(f"{output_dir.name}__val"),
-        ):
-            if dataset_dir.exists():
+        dataset_dirs = [output_dir]
+        val_dir = output_dir.with_name(f"{output_dir.name}__val")
+        if val_dir.exists():
+            dataset_dirs.append(val_dir)
+        if dagger:
+            source_stats = normalization_source / "meta/stats.json"
+            for dataset_dir in dataset_dirs:
                 shutil.copy2(source_stats, dataset_dir / "meta/stats.json")
+            return manifest
+        for dataset_dir in dataset_dirs:
+            subprocess.run(
+                [
+                    str(GR00T_PYTHON),
+                    "-m",
+                    "gr00t.data.stats",
+                    "--dataset-path",
+                    str(dataset_dir),
+                    "--embodiment-tag",
+                    "NEW_EMBODIMENT",
+                    "--modality-config-path",
+                    MODALITY_CONFIG,
+                ],
+                cwd=REPO_ROOT,
+                check=True,
+            )
         return manifest
     write_parquet_splits_from_shards(
         raw_dir,
@@ -97,6 +117,11 @@ def main() -> None:
     parser.add_argument("output_dir", type=Path)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dagger", action="store_true")
+    parser.add_argument(
+        "--video-shards",
+        action="store_true",
+        help="Read atomic Parkour NPZ+MP4 shards and compute dataset stats.",
+    )
     parser.add_argument("--round-index", type=int)
     parser.add_argument("--expected-rows", type=int)
     parser.add_argument("--normalization-source", type=Path)
@@ -106,6 +131,7 @@ def main() -> None:
         args.output_dir.resolve(),
         force=args.force,
         dagger=args.dagger,
+        video_shards=args.video_shards,
         round_index=args.round_index,
         expected_rows=args.expected_rows,
         normalization_source=args.normalization_source,

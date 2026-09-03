@@ -377,8 +377,9 @@ waypoint progress 低于同场景 teacher 的 50%，停止后续采集；不自�
 ### 11.2 250/25 数据与 LeRobot 转换
 
 collector 继续运行 oracle episode，仅提交触发 `cur_goal_idx >= num_goals` success termination
-的轨迹，不把终点前摔倒或 timeout 当成功。它写 10 Hz PNG 与原子 JSONL episode shards，按
-split seed 0 得到精确 250 train / 25 validation episodes：
+的轨迹，不把终点前摔倒或 timeout 当成功。它在内存中暂存 episode，并以原子 NPZ+MP4
+shards 写出 10 Hz RGB、5×50 Hz actor observation、termination 和 reward；按 split seed 0
+得到精确 250 train / 25 validation episodes：
 
 修复前生成的 `outputs/official_gr00t/extreme_parkour_go2/raw` 和
 `outputs/official_gr00t/extreme_parkour_go2/lerobot` 缺少 action objective 所需的 5×50 Hz
@@ -397,10 +398,11 @@ PYTHONPATH="${REPO_ROOT}" OMNI_KIT_ACCEPT_EULA=YES \
 cd "${REPO_ROOT}"
 uv run --project . python scripts/official_gr00t/prepare_parkour_dataset.py \
   outputs/official_gr00t/extreme_parkour_go2_action_data/raw \
-  outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot
+  outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot \
+  --video-shards
 ```
 
-finalizer 流式生成 canonical parquet、train/validation LeRobot videos、53D state/34D action、
+finalizer 直接从 NPZ+MP4 shards 生成 train/validation LeRobot parquet/videos、53D state/34D action、
 `actor_observation[5,753]` 和 `termination[5]`，并对两套 dataset 运行 `gr00t.data.stats`。缺字段、错误 action layout 或错误
 model output dimension 直接失败，不使用别名、零 state 或其他 fallback。
 
@@ -508,6 +510,11 @@ reset observation 同时从新 root pose 和新 goals 立即重算 wrapped GT ya
 LeRobot parquet 直接保留这些诊断列，
 并逐字节复制由 bootstrap 数据现有 fingerprint-aware stats 流程生成的固定 normalization
 stats，DAgger round 不重新计算 stats。
+
+默认仍由 GPU 0 运行 Isaac Sim、GPU 1 运行一个 GR00T worker。双 worker A/B 显式重复
+`--inference-device`，例如 `--inference-device cuda:0 --inference-device cuda:1`；collector
+按全局 env slot 固定 worker affinity，不在不同请求或 reset 后迁移 slot。正式使用双 worker
+前先以相同 row budget 比较外部 wall time，未达到 20% 提升则保留默认单 worker。
 
 旧 latent-only `checkpoint-5000` 不再作为初始化。以下入口先用上节重新采集的 action-rich
 bootstrap dataset，从 GR00T base fresh 训练 5k action+yaw bootstrap；随后在 env 1 执行 step-0
