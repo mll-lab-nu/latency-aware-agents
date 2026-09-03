@@ -13,7 +13,7 @@ latency:
 
 policy:
   type: official_gr00t
-  model_path: outputs/official_gr00t/haic_pull_cart_vla_dagger/bootstrap/training/checkpoint-5000
+  model_path: outputs/official_gr00t/haic_pull_cart_vla_action_h40_dagger/training/haic_pull_cart_vla_dagger_action_h40_official_sampler_5k/checkpoint-5000
   embodiment_tag: NEW_EMBODIMENT
   device: cuda:0
   strict: true

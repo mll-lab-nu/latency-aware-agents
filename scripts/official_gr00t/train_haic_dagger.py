@@ -45,13 +45,15 @@ DEFAULT_INFERENCE_BATCH_SIZE = 32
 CHECKPOINT_COMPLETE_MARKER = ".dagger-round-complete"
 EVAL_ENVS = 100
 HAIC_CONTROL_STEPS_PER_VLA = 5
-DEFAULT_WANDB_RUN_ID = "haic_pull_cart_vla_dagger_action_5k"
+DEFAULT_WANDB_RUN_ID = "haic_pull_cart_vla_dagger_action_h40_official_sampler_5k"
 
 DEFAULT_TEACHER_CHECKPOINT = REPO_ROOT / (
     "outputs/haic/phase1_teacher/checkpoint_final.pt"
 )
 DEFAULT_BASE_MODEL = REPO_ROOT / "outputs/official_gr00t/models/GR00T-N1.7-3B"
-DEFAULT_OUTPUT_ROOT = REPO_ROOT / "outputs/official_gr00t/haic_pull_cart_vla_action_dagger"
+DEFAULT_OUTPUT_ROOT = REPO_ROOT / (
+    "outputs/official_gr00t/haic_pull_cart_vla_action_h40_dagger"
+)
 DEFAULT_HAIC_PYTHON = Path("/pfs/users/lxy/conda/envs/haic/bin/python")
 
 
@@ -134,8 +136,6 @@ def collector_command(
         command.extend(["--episode-budget", str(episode_budget)])
     if max_steps is not None:
         command.extend(["--max-steps", str(max_steps)])
-    if mode == "dagger-collect":
-        command.extend(["--dagger-shard-rows", str(HAIC_DAGGER_SHARD_ROWS)])
     return command
 
 
@@ -204,14 +204,14 @@ def _training_flags(
         "--max-action-dim",
         "256",
         "--action-horizon",
-        "1",
+        "40",
+        "--num-inference-timesteps",
+        "4",
+        "--allow-padding",
         "--action-objective",
         "haic",
         "--action-actor-checkpoint",
         str(actor_checkpoint),
-        "--fixed-action-noise-seed",
-        "0",
-        "--one-step-action-regression",
         "--action-head-dropout",
         "0",
         "--state-dropout-prob",

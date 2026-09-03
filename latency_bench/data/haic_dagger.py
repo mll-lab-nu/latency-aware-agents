@@ -20,13 +20,13 @@ import numpy as np
 HAIC_VLA_STATE_DIM = 605
 HAIC_TEACHER_LATENT_DIM = 256
 HAIC_VLA_ACTION_DIM = HAIC_TEACHER_LATENT_DIM
-HAIC_CONTROL_REPEAT = 5
+HAIC_ACTION_HORIZON = 40
 HAIC_TEACHER_ACTION_DIM = 23
 HAIC_ACTOR_INPUT_DIM = HAIC_VLA_STATE_DIM
 
 _SHARD_ROOT = "rollout_shards"
 _SHARD_PREFIX = "episode_"
-_DATASET_FPS = 10.0
+_DATASET_FPS = 50.0
 _CHUNK_SIZE = 1000
 _NUMERIC_FIELDS = (
     "state",
@@ -152,23 +152,17 @@ def _episode_table(
             arrays["action"].tolist(),
             type=pa.list_(pa.float32(), HAIC_VLA_ACTION_DIM),
         ),
-        "actor_input": pa.array(
+        "haic_actor_input": pa.array(
             arrays["actor_input"].tolist(),
-            type=pa.list_(
-                pa.list_(pa.float32(), HAIC_ACTOR_INPUT_DIM),
-                HAIC_CONTROL_REPEAT,
-            ),
+            type=pa.list_(pa.float32(), HAIC_ACTOR_INPUT_DIM),
         ),
-        "teacher_action": pa.array(
+        "haic_teacher_action": pa.array(
             arrays["teacher_action"].tolist(),
-            type=pa.list_(
-                pa.list_(pa.float32(), HAIC_TEACHER_ACTION_DIM),
-                HAIC_CONTROL_REPEAT,
-            ),
+            type=pa.list_(pa.float32(), HAIC_TEACHER_ACTION_DIM),
         ),
-        "termination": pa.array(
+        "haic_termination": pa.array(
             arrays["termination"].tolist(),
-            type=pa.list_(pa.bool_(), HAIC_CONTROL_REPEAT),
+            type=pa.bool_(),
         ),
         "timestamp": pa.array(
             np.arange(row_count, dtype=np.float64) / _DATASET_FPS,
@@ -182,10 +176,7 @@ def _episode_table(
         ),
         "task_index": pa.array([0 for _ in range(row_count)], type=pa.int64()),
     }
-    columns["done"] = pa.array(
-        arrays["termination"].any(axis=1),
-        type=pa.bool_(),
-    )
+    columns["done"] = pa.array(arrays["termination"], type=pa.bool_())
     return pa.table(columns)
 
 
@@ -224,31 +215,24 @@ def _write_info(
                 *(f"teacher_latent_{index}" for index in range(HAIC_TEACHER_LATENT_DIM)),
             ],
         },
-        "actor_input": {
+        "haic_actor_input": {
             "dtype": "float32",
-            "shape": [HAIC_CONTROL_REPEAT, HAIC_ACTOR_INPUT_DIM],
+            "shape": [HAIC_ACTOR_INPUT_DIM],
             "names": [
-                [
-                    f"actor_input_{step}_{index}"
-                    for index in range(HAIC_ACTOR_INPUT_DIM)
-                ]
-                for step in range(HAIC_CONTROL_REPEAT)
+                f"actor_input_{index}" for index in range(HAIC_ACTOR_INPUT_DIM)
             ],
         },
-        "teacher_action": {
+        "haic_teacher_action": {
             "dtype": "float32",
-            "shape": [HAIC_CONTROL_REPEAT, HAIC_TEACHER_ACTION_DIM],
+            "shape": [HAIC_TEACHER_ACTION_DIM],
             "names": [
-                [
-                    f"teacher_action_{step}_{index}"
-                    for index in range(HAIC_TEACHER_ACTION_DIM)
-                ]
-                for step in range(HAIC_CONTROL_REPEAT)
+                f"teacher_action_{index}"
+                for index in range(HAIC_TEACHER_ACTION_DIM)
             ],
         },
-        "termination": {
+        "haic_termination": {
             "dtype": "mask",
-            "shape": [HAIC_CONTROL_REPEAT],
+            "shape": [1],
         },
         "timestamp": {"dtype": "float64", "shape": [1]},
         "episode_index": {"dtype": "int64", "shape": [1]},
@@ -328,7 +312,7 @@ def _convert_split(
         shutil.copyfile(source_video, video_path)
         image_shape = tuple(arrays["image_shape"].tolist())
         episode_lengths.append(arrays["state"].shape[0])
-        counts = arrays["termination"].sum(axis=0)
+        counts = arrays["termination"].sum()
         termination_counts = (
             counts
             if termination_counts is None
@@ -355,7 +339,7 @@ def _convert_split(
         "frames": int(sum(episode_lengths)),
     }
     if termination_counts is not None:
-        manifest["termination_counts"] = termination_counts.astype(int).tolist()
+        manifest["termination_count"] = int(termination_counts)
     return manifest
 
 
@@ -396,9 +380,10 @@ def _convert_haic_shards_to_lerobot(
         "state_dim": HAIC_VLA_STATE_DIM,
         "teacher_latent_dim": HAIC_TEACHER_LATENT_DIM,
         "teacher_action_dim": HAIC_TEACHER_ACTION_DIM,
-        "actor_input_shape": [HAIC_CONTROL_REPEAT, HAIC_ACTOR_INPUT_DIM],
-        "teacher_action_shape": [HAIC_CONTROL_REPEAT, HAIC_TEACHER_ACTION_DIM],
-        "termination_shape": [HAIC_CONTROL_REPEAT],
+        "action_horizon": HAIC_ACTION_HORIZON,
+        "actor_input_shape": [HAIC_ACTOR_INPUT_DIM],
+        "teacher_action_shape": [HAIC_TEACHER_ACTION_DIM],
+        "termination_shape": [],
         "dagger": dagger,
     }
     if val_manifest is not None:
@@ -463,7 +448,7 @@ __all__ = [
     "HAIC_TEACHER_LATENT_DIM",
     "HAIC_TEACHER_ACTION_DIM",
     "HAIC_ACTOR_INPUT_DIM",
-    "HAIC_CONTROL_REPEAT",
+    "HAIC_ACTION_HORIZON",
     "HAIC_VLA_ACTION_DIM",
     "HAIC_VLA_STATE_DIM",
     "convert_haic_bootstrap_shards_to_lerobot",

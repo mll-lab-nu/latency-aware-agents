@@ -16,6 +16,7 @@ from scripts.official_gr00t.train_haic_dagger import (
     COLLECTOR_RANKS,
     DAGGER_ROUNDS,
     DEFAULT_INFERENCE_BATCH_SIZE,
+    DEFAULT_WANDB_RUN_ID,
     ENVS_PER_COLLECTOR_RANK,
     EVAL_ENVS,
     GLOBAL_BATCH_SIZE,
@@ -54,7 +55,7 @@ def test_main_resolves_bootstrap_paths_from_output_root(monkeypatch):
     assert captured["bootstrap_dataset"] == root / "bootstrap/lerobot"
     assert captured["bootstrap_checkpoint"] == (
         root
-        / "bootstrap/training/haic_pull_cart_vla_dagger_action_5k_sft/checkpoint-5000"
+        / f"bootstrap/training/{DEFAULT_WANDB_RUN_ID}_sft/checkpoint-5000"
     )
     assert captured["actor_checkpoint"] == root / "bootstrap/actor_adapt.pt"
     assert captured["end_round"] == DAGGER_ROUNDS
@@ -99,9 +100,6 @@ def test_haic_commands_encode_smoke_and_resume_contract():
     assert first[first.index("--inference-batch-size") + 1] == str(
         DEFAULT_INFERENCE_BATCH_SIZE
     )
-    assert first[first.index("--dagger-shard-rows") + 1] == str(
-        HAIC_DAGGER_SHARD_ROWS
-    )
     assert first[first.index("--policy-config") + 1] == "policy.yaml"
     assert "--student-actor-checkpoint" not in first
 
@@ -136,6 +134,11 @@ def test_haic_commands_encode_smoke_and_resume_contract():
     assert train[train.index("--num-gpus") + 1] == "1"
     assert train[train.index("--max-state-dim") + 1] == "605"
     assert train[train.index("--max-action-dim") + 1] == "256"
+    assert train[train.index("--action-horizon") + 1] == "40"
+    assert train[train.index("--num-inference-timesteps") + 1] == "4"
+    assert "--allow-padding" in train
+    assert "--fixed-action-noise-seed" not in train
+    assert "--one-step-action-regression" not in train
     assert train[train.index("--gradient-accumulation-steps") + 1] == "1"
     assert train[-2:] == ["--resume-checkpoint-path", "output/checkpoint-500"]
     assert train[train.index("--action-objective") + 1] == "haic"
@@ -172,6 +175,11 @@ def test_haic_commands_encode_smoke_and_resume_contract():
     ] == str(BOOTSTRAP_GRADIENT_ACCUMULATION_STEPS)
     assert "--replay-bootstrap-dataset" not in bootstrap
     assert bootstrap[bootstrap.index("--action-objective") + 1] == "haic"
+    assert bootstrap[bootstrap.index("--action-horizon") + 1] == "40"
+    assert bootstrap[bootstrap.index("--num-inference-timesteps") + 1] == "4"
+    assert "--allow-padding" in bootstrap
+    assert "--fixed-action-noise-seed" not in bootstrap
+    assert "--one-step-action-regression" not in bootstrap
     assert bootstrap[bootstrap.index("--experiment-name") + 1] == "haic-test_sft"
     assert checkpoint_dir(Path("output"), 5_000) == Path("output/checkpoint-5000")
 

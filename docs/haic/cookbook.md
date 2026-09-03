@@ -9,12 +9,16 @@ runtime diagnostics, and the historical latent-only attempts.
 - Environment: `G1/haic/pull_cart`, seed 0, zero delay, native 50 Hz control.
 - Teacher: native HAIC PPO with a 605D normalized policy state. The completed
   500M-frame teacher is the fixed label source for the VLA route.
-- VLA input/output: 256x256 RGB plus the 605D state at 10 Hz, predicting a 256D
-  privileged latent. A frozen native `actor_adapt` consumes that latent and the
-  five 50 Hz actor states to produce the 23D motor action.
+- VLA input/output: 256x256 RGB plus the 605D state at 10 Hz, predicting a
+  `[40, 256]` privileged-latent chunk. A frozen native `actor_adapt` consumes
+  chunk entries 0 through 4 with the corresponding current 50 Hz actor states;
+  the VLA then replans. One latent is not repeated five times.
 - Bootstrap: 250 successful train episodes and 25 validation episodes, fresh
   action-only SFT from the official GR00T base; the loss is 23D motor-action
   MSE through the frozen actor.
+- Sampler: explicitly use the official defaults of horizon 40, fresh Gaussian
+  noise, and four Euler steps. The objective remains custom action-only rather
+  than the official random-time velocity MSE.
 - DAgger: 10 rounds, 500 optimizer updates per round, fixed 50/50 bootstrap and
   accumulated DAgger sampling. Every round uses zero-delay rollout and a fixed
   first-episode-per-environment evaluation.
@@ -74,11 +78,18 @@ teacher rollout -> NPZ + MP4 shards -> video-backed LeRobot
 action-only SFT -> DAgger round 0..9 -> fixed-seed evaluation
 ```
 
-Each row carries RGB, 605D state, 256D teacher latent, five-step actor input,
-23D teacher action, and a termination mask. The latent is used to execute the
-frozen actor during collection and to compute the action loss; it is not a
-training target in the action-only recipe. Keep the fixed actor outside the VLA
-checkpoint.
+Each raw row is one 50 Hz step carrying RGB, 605D state, 256D teacher latent,
+605D actor input, 23D teacher action, and a scalar termination flag. Training
+assembles 40-step windows and pads episode tails, with post-terminal entries
+masked from the loss. The action-only recipe starts from fresh Gaussian noise,
+runs the same four-step Euler sampler used by inference with gradients enabled,
+then computes the 23D motor-action MSE through the frozen actor. The teacher
+latent is stored for chunk labels/data provenance but is not the optimized
+target. Keep the fixed actor outside the VLA checkpoint.
+
+The frozen-actor gate must feed a fresh teacher latent at every 50 Hz control
+step. This oracle reaches 94/100; holding one teacher latent for five steps is
+a different, invalid test and previously produced the misleading 18/100 result.
 
 The round lifecycle is:
 
@@ -94,8 +105,8 @@ zero-based round number.
 ## Status and artifacts
 
 The native 500M-frame teacher is complete and accepted as the VLA label source.
-The fresh action-only bootstrap is currently in progress; therefore no HAIC VLA
-is marked publishable. Planned model and dataset paths, plus old source
+The previous action-only runs are invalidated, and no formal h40 retraining is
+currently running; therefore no HAIC VLA is marked publishable. Planned model and dataset paths, plus old source
 provenance, are tracked in the [artifact registry](../artifacts.md).
 
 The reader workflow requires an online Hugging Face token and the FFmpeg

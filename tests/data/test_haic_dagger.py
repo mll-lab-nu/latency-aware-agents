@@ -14,22 +14,17 @@ def _bootstrap_arrays(rows: int = 2) -> dict[str, np.ndarray]:
     return {
         "state": np.arange(rows * 605, dtype=np.float32).reshape(rows, 605),
         "action": np.arange(rows * 256, dtype=np.float32).reshape(rows, 256),
-        "actor_input": np.arange(rows * 5 * 605, dtype=np.float32).reshape(
-            rows, 5, 605
-        ),
-        "teacher_action": np.arange(rows * 5 * 23, dtype=np.float32).reshape(
-            rows, 5, 23
-        ),
-        "termination": np.zeros((rows, 5), dtype=bool),
+        "actor_input": np.arange(rows * 605, dtype=np.float32).reshape(rows, 605),
+        "teacher_action": np.arange(rows * 23, dtype=np.float32).reshape(rows, 23),
+        "termination": np.zeros(rows, dtype=bool),
         "image_shape": np.asarray([2, 2, 3], dtype=np.int64),
     }
 
 
 def _dagger_arrays(rows: int = 2) -> dict[str, np.ndarray]:
-    return {
-        **_bootstrap_arrays(rows),
-        "termination": np.asarray([[False, False, False, False, True]] * rows),
-    }
+    arrays = _bootstrap_arrays(rows)
+    arrays["termination"][-1] = True
+    return arrays
 
 
 def _save_test_video(image, video):
@@ -44,9 +39,9 @@ def _save_test_video(image, video):
             "-i",
             str(image),
             "-t",
-            "0.2",
+            "0.04",
             "-r",
-            "10",
+            "50",
             str(video),
         ],
         check=True,
@@ -79,23 +74,25 @@ def test_haic_dagger_converter_keeps_exact_numeric_contract(tmp_path):
     assert manifest["action_dim"] == 256
     assert manifest["teacher_latent_dim"] == 256
     assert manifest["teacher_action_dim"] == 23
-    assert manifest["actor_input_shape"] == [5, 605]
-    assert manifest["teacher_action_shape"] == [5, 23]
-    assert manifest["termination_shape"] == [5]
-    assert manifest["termination_counts"] == [0, 0, 0, 0, 2]
+    assert manifest["action_horizon"] == 40
+    assert manifest["actor_input_shape"] == [605]
+    assert manifest["teacher_action_shape"] == [23]
+    assert manifest["termination_shape"] == []
+    assert manifest["termination_count"] == 1
     row = pq.read_table(output / "data/chunk-000/episode_000000.parquet").to_pylist()[0]
     assert len(row["observation.state"]) == 605
     assert len(row["action"]) == 256
-    assert np.asarray(row["actor_input"]).shape == (5, 605)
-    assert np.asarray(row["teacher_action"]).shape == (5, 23)
-    assert np.asarray(row["termination"]).shape == (5,)
+    assert np.asarray(row["haic_actor_input"]).shape == (605,)
+    assert np.asarray(row["haic_teacher_action"]).shape == (23,)
+    assert row["haic_termination"] is False
     np.testing.assert_array_equal(row["action"], _bootstrap_arrays()["action"][0])
-    assert row["done"] is True
+    assert row["done"] is False
     info = json.loads((output / "meta/info.json").read_text())
     assert info["features"]["action"]["shape"] == [256]
-    assert info["features"]["actor_input"]["shape"] == [5, 605]
-    assert info["features"]["teacher_action"]["shape"] == [5, 23]
-    assert info["features"]["termination"]["shape"] == [5]
+    assert info["fps"] == 50.0
+    assert info["features"]["haic_actor_input"]["shape"] == [605]
+    assert info["features"]["haic_teacher_action"]["shape"] == [23]
+    assert info["features"]["haic_termination"]["shape"] == [1]
     assert "object_target" not in info["features"]
 
 
@@ -125,9 +122,9 @@ def test_haic_bootstrap_converter_keeps_action_distillation_targets(tmp_path):
         "observation.image",
         "observation.state",
         "action",
-        "actor_input",
-        "teacher_action",
-        "termination",
+        "haic_actor_input",
+        "haic_teacher_action",
+        "haic_termination",
         "timestamp",
         "episode_index",
         "frame_index",
