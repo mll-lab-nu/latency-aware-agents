@@ -34,6 +34,23 @@ task's native 20 Hz (50 ms) control cadence. See the executable
 [`program/MIKASA.md`](program/MIKASA.md) runbook, and the deferred latency
 [`program/PROPOSAL.md`](program/PROPOSAL.md).
 
+## Supported Task Types
+
+The supported zero-latency task surface currently contains these four end-to-end
+teacher-to-VLA pipelines. Each guide starts with the task-owned entrypoints in
+`scripts/tasks/<task>/` and records the task-specific action interface.
+
+| Task type | Status |
+| --- | --- |
+| [MIKASA Intercept Grab Fast (H1)](docs/mikasa/cookbook.md) | Baseline reproduced; teacher, dataset, and VLA published |
+| [HumanoidBench Balance Simple (G1)](docs/humanoidbench/cookbook.md) | Teacher, dataset, and 10k VLA published; fresh 15k run pending |
+| [Extreme Parkour (Go2)](docs/extreme_parkour/cookbook.md) | Teacher verified; action+yaw VLA pipeline in progress |
+| [HAIC Pull Cart (G1)](docs/haic/cookbook.md) | Teacher verified; action-only VLA pipeline in progress |
+
+Older game benchmarks and generic model adapters remain available as separate
+research paths: [historical game workflows](docs/standard_pipeline.md#older-game-and-generic-adapter-paths),
+[Gymnasium adaptation](docs/gymnasium_adapter.md), and [latency profiling](docs/profiling/cookbook.md).
+
 ## Repository Map
 
 ```text
@@ -451,7 +468,8 @@ Create a self-contained report at docs/gym-adapt/gymnasium/[TASK_NAME]/index.htm
 ## Documentation
 
 - [Latency execution semantics](docs/latency_execution_semantics_en.md)
-- [Standard rollout, SFT, and eval pipeline](docs/standard_pipeline.md)
+- [Supported-task standard pipeline](docs/standard_pipeline.md)
+- [Artifact registry](docs/artifacts.md)
 - [Gymnasium adaptation guide](docs/gymnasium_adapter.md) & [agent-assisted adaptation examples](docs/gym-adapt/gymnasium/README.md)
 - [Memory and KV-memory design](docs/memory.md)
 - [Deployment latency profiling](docs/profiling/cookbook.md)
@@ -468,8 +486,18 @@ The project uses Hugging Face repositories for public artifacts:
 - model checkpoints;
 - device profiles in `latency-sensitive-bench/profiles`.
 
-Exact dataset and checkpoint names are recorded in the corresponding StarVLA
-bash scripts and experiment runbooks.
+The four supported task pipelines use the shared Hugging Face organization
+[`latency-sensitive-bench`](https://huggingface.co/latency-sensitive-bench),
+with centralized developer repositories for new artifacts:
+
+- [benchmark-models](https://huggingface.co/latency-sensitive-bench/benchmark-models)
+  stores small-policy teachers and VLA inference bundles under task prefixes.
+- [benchmark-datasets](https://huggingface.co/datasets/latency-sensitive-bench/benchmark-datasets)
+  stores accepted teacher rollouts and converted train/validation datasets.
+
+The exact task paths, source revisions, and publication status are recorded in
+the [artifact registry](docs/artifacts.md). Existing task-specific repositories
+remain available as provenance and are not rewritten by the central layout.
 
 ## Citation
 

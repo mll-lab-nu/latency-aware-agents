@@ -1,140 +1,141 @@
-# Data Collection
-```bash
-git clone --recurse-submodules https://github.com/ZihanWang314/latency-sensitive-bench.git
-cd latency-sensitive-bench
+# Standard zero-latency pipeline
 
-# --- env setup ---
-bash install.sh --tier use --model openvla
-conda activate latency
+The four supported benchmark tasks share the same outer experiment:
 
-# --- small model checkpoints download ---
-# flappy
-hf download latency-sensitive-bench/latency-checkpoints \
-  --repo-type model \
-  --include "checkpoints/flappy_sf_same_latency_l0_seed0/**" \
-  --local-dir ./
-  
-# demon attack
-hf download latency-sensitive-bench/latency-checkpoints \
-  --repo-type model \
-  --include "checkpoints_old/demon_attack_sf_same_latency_l0_seed0/**" \
-  --local-dir ./
-
-# --- collect data ---
-# flappy
-# cost about 14KMiB GPU memories
-MAX_EPISODES=200 \
-MAX_STEPS=3600 \
-VAL_FRACTION=0.1 \
-FILTER_PRESET=clean_v1 \
-DEVICE=cuda \
-NUM_ENVS=2048 \
-REPLAY_NUM_ENVS=16 \
-IMAGE_WRITER_WORKERS=32 \
-bash scripts/bash_scripts/run_sf_teacher_dataset_export.sh \
-  checkpoints/flappy_sf_same_latency_l0_seed0 \
-  outputs/teacher_datasets/flappy_fix_latency_0_200ep
-  
-# demon attack
-MAX_EPISODES=200 \
-MAX_STEPS=3600 \
-VAL_FRACTION=0.1 \
-FILTER_PRESET=clean_v1 \
-DEVICE=cuda \
-NUM_ENVS=128 \
-REPLAY_NUM_ENVS=16 \
-IMAGE_WRITER_WORKERS=32 \
-bash scripts/bash_scripts/run_sf_teacher_dataset_export.sh \
-  checkpoints/demon_attack_sf_same_latency_l0_seed0 \
-  outputs/teacher_datasets/demon_attack_fix_latency_0_200ep
-  
-# --- push to hf ---
-hf upload latency-sensitive-bench/demon_attack_200ep \
-  outputs/teacher_datasets/demon_attack_fix_latency_0_200ep \
-  demon_attack_fix_latency_0_200ep \
-  --repo-type dataset \
-  --exclude "sample_factory_init.log" \
-  --commit-message "Upload demon attack fixed latency 0 teacher dataset"
+```text
+small-policy RL teacher
+  -> accepted teacher checkpoint
+  -> successful teacher rollouts
+  -> task dataset conversion
+  -> VLA SFT
+  -> optional task-specific DAgger
+  -> zero-latency evaluation
 ```
 
-# SFT Training
-```bash
-# Run from the latency-sensitive-bench repository root.
-bash install.sh \
-  --tier dev \
-  --model openvla \
-  --env all
+The task implementations do not have identical observation or action spaces.
+The common part is the order of the stages and the acceptance boundary between
+them. Use the task guide for the exact environment, dimensions, and gates.
 
-conda activate starvla_rl_games_openvla
-cd third_party/starVLA
+## Reader quick start
 
-# --- data prepare ---
-# flappy
-hf download latency-sensitive-bench/flappy_200ep \
-  --repo-type dataset \
-  --include "flappy_fix_latency_0_200ep/**" \
-  --local-dir /workspace/starVLA/data/raw/flappy_fix_latency_0_200ep
-  
-python examples/rl_games/data_conversion/convert_flappy_to_starvla_lerobot.py \
-  --dataset-name data/raw/flappy_fix_latency_0_200ep \
-  --source-fps 30 \
-  --obs-stride-raw-frames 1 \
-  --source-latency-column latency_raw_frames \
-  --target-latency-unit raw_frames \
-  --output-dir data/flappy_fix_latency_0_200ep/flappy_train__bridge \
-  --action-carrier bridge \
-  --force
-  
-# demon attack
-hf download latency-sensitive-bench/demon_attack_200ep \
-  --repo-type dataset \
-  --include "demon_attack_fix_latency_0_200ep/**" \
-  --local-dir /workspace/starVLA/data/raw
+Run commands from the repository root after installing the task's dependencies.
+Every task owns two readable entrypoints:
 
-python examples/rl_games/data_conversion/convert_demon_attack_to_starvla_lerobot.py \
-  --dataset-name data/raw/demon_attack_fix_latency_0_200ep \
-  --source-fps 15 \
-  --obs-stride-raw-frames 4 \
-  --source-latency-column latency_raw_frames \
-  --target-latency-unit raw_frames \
-  --output-dir data/demon_attack_fix_latency_0_200ep/demon_attack_train__bridge \
-  --action-carrier bridge \
-  --force 
+| Task | Train the small-policy teacher | Train and evaluate the VLA |
+| --- | --- | --- |
+| MIKASA Intercept Grab Fast | `bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy.sh` | `bash scripts/tasks/mikasa_intercept_grab_fast/train_vla.sh /absolute/path/to/final_success_ckpt.pt` |
+| HumanoidBench Balance Simple | `bash scripts/tasks/humanoidbench_balance_simple/train_small_policy.sh` | `bash scripts/tasks/humanoidbench_balance_simple/train_vla.sh /absolute/path/to/teacher.pt` |
+| Extreme Parkour Go2 | `bash scripts/tasks/extreme_parkour_go2/train_small_policy.sh` | `bash scripts/tasks/extreme_parkour_go2/train_vla.sh /absolute/path/to/model_14999.pt` |
+| HAIC Pull Cart G1 | `bash scripts/tasks/haic_pull_cart/train_small_policy.sh` | `bash scripts/tasks/haic_pull_cart/train_vla.sh /absolute/path/to/checkpoint_final.pt` |
 
-# --- checkpoints prepare ---
-hf download Qwen/Qwen3-VL-4B-Instruct  \
-  --local-dir playground/Pretrained_models/Qwen3-VL-4B-Instruct
-  
-hf download StarVLA/Qwen3VL-OFT-Bridge-RT-1  \
-  --local-dir playground/Pretrained_models/Qwen3VL-OFT-Bridge-RT-1
-  
-# --- fix latency training ---
-bash commands/train_<env>_attack_openvla.sh
-  
-# --- checkpoints upload ---
-# flappy
-hf upload latency-sensitive-bench/openvla_flappy_fix_latency_200ep \
-  results/Checkpoints/flappy_fix_latency_0_200ep \
-  ./flappy_fix_latency_0_200ep \
-  --exclude "wandb/**" \
-  --repo-type model
-  
-# demon attack
-hf upload latency-sensitive-bench/openvla_demon_attack_fix_latency_200ep \
-  results/Checkpoints/demon_attack_fix_latency_0_200ep \
-  ./demon_attack_fix_latency_0_200ep \
-  --exclude "wandb/**" \
-  --repo-type model
+`train_small_policy.sh` runs the native RL recipe and leaves the checkpoint in
+the task output directory. Inspect the reported path and use that exact file as
+the positional argument to `train_vla.sh`; an unverified or implicit `latest`
+checkpoint is not accepted. `train_vla.sh` owns rollout collection, conversion,
+SFT, task-specific DAgger, and the final zero-latency evaluation. It does not
+upload files to Hugging Face automatically.
+
+Parkour and HAIC run SFT followed by all ten DAgger rounds by default. To stop
+after SFT, pass `--end-round 0`; to resume a later round, pass `--resume` and
+the explicit bootstrap/checkpoint arguments documented in the task cookbook
+and use a zero-based round range ending at `10`.
+
+## Stage contracts
+
+### 1. Train and accept the teacher
+
+The small policy is trained with privileged state in the native task
+environment. Its checkpoint is the label source for all later stages. Run the
+task's teacher gate before collecting data. If the gate fails, keep the output
+for diagnosis and do not start VLA training from it.
+
+The teacher run is zero-delay: the task applies the current policy output at its
+native control cadence. This is the baseline used by all four guides; latency
+sweeps and deployment profiles are separate experiments.
+
+### 2. Collect accepted demonstrations
+
+The VLA dataset is collected only from an accepted teacher checkpoint. The
+collector writes successful episodes into the task's output tree and records
+the task observation/action contract. The train/validation split is fixed by
+the task guide rather than chosen after training.
+
+The labels are not interchangeable across tasks:
+
+| Task | VLA label/interface |
+| --- | --- |
+| MIKASA | Direct 7D current action |
+| Balance Simple | Official GR00T 198D state to 43D action, H40 repeat-current |
+| Extreme Parkour | 34D terrain latent plus yaw, then fixed actor to 12D motor action |
+| HAIC Pull Cart | 256D latent, then frozen `actor_adapt` with 605D state to 23D motor action |
+
+### 3. Convert and train the VLA
+
+Each task-owned VLA entrypoint converts its accepted rollouts to the format
+required by its training backend, trains the documented SFT recipe, and writes
+an inference checkpoint. Parkour and HAIC use their fixed actor only to define
+the action-level objective; that actor is not part of the VLA checkpoint.
+
+### 4. Run DAgger where the task requires it
+
+MIKASA and Balance finish at the SFT model and final evaluation. Parkour and
+HAIC collect current-VLA rollouts against the fixed privileged teacher and
+aggregate them with the bootstrap data for rounds 0 through 9. Each completed
+round keeps its converted dataset, checkpoint, manifest, and evaluation result;
+raw shards may be removed after conversion.
+
+An interrupted collection is restarted from an empty partial round directory,
+not from a row count. An interrupted completed round resumes from its explicit
+checkpoint and round number. The task runners fail at missing or incompatible
+artifacts instead of substituting another checkpoint.
+
+### 5. Evaluate zero latency
+
+The final evaluation uses the task's native zero-delay environment and the
+documented fixed seeds/episode count. It is the policy-quality gate. Offline
+action or latent loss is useful for diagnosis but is not a replacement for the
+closed-loop result.
+
+## Developer artifact workflow
+
+Keep large artifacts outside the source tree when possible. A task run should
+leave these durable outputs:
+
+```text
+<output-root>/
+  teacher/       # accepted small-policy checkpoint and gate summary
+  dataset/       # raw/converted train and validation data
+  sft/           # VLA inference checkpoint and training metadata
+  dagger/        # Parkour/HAIC rounds, if applicable
+  eval/          # final zero-latency metrics
 ```
-# Eval
-```bash
-# follow data collection pipeline to setup env
 
-# flappy
-python -m latency_bench.run \
-  --config configs/experiments/flappy/starvla_openvla_flappy_fix_latency.yaml
+Publish only the inference bundle, accepted dataset, and concise evaluation
+evidence. Do not publish optimizer state, W&B caches, temporary raw shards, or
+machine-specific absolute paths. The central artifact layout and historical
+source revisions are recorded in [the artifact registry](artifacts.md).
 
-# demon attack
-python -m latency_bench.run \
-  --config configs/experiments/demon_attack/starvla_demon_attack_fix_latency.yaml
-```
+Publishing is an explicit developer operation with the Hugging Face CLI. The
+two central repositories are:
+
+- models: `latency-sensitive-bench/benchmark-models`;
+- datasets: `latency-sensitive-bench/benchmark-datasets`.
+
+Use the task cookbook to identify the exact local source directories and the
+registry path. A reader can reproduce a run without organization write access;
+only the publish step requires it.
+
+## Older game and generic adapter paths
+
+The original Flappy Bird, Demon Attack, and Deadly Corridor experiments remain
+supported as research workflows, but are not part of the four-task table above.
+Their existing rollout exporters, StarVLA conversion scripts, latency configs,
+and model-family launchers remain under `scripts/bash_scripts/` and the sibling
+StarVLA checkout. Start with the historical commands in the repository history
+or adapt the task-specific scripts under `scripts/experiments/`.
+
+For new Gymnasium environments, use the separate [Gymnasium adaptation guide](gymnasium_adapter.md)
+and its generated contract report. For latency semantics and device profiles,
+use [latency execution semantics](latency_execution_semantics_en.md) and the
+[profiling cookbook](profiling/cookbook.md); do not add latency to this
+zero-delay training pipeline implicitly.

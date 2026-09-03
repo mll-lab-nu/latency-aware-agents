@@ -7,11 +7,12 @@
 > 首个 adaptive-LR teacher正式 run 已确认 collapse，并在 iteration 1418 停止；fixed-LR teacher 已通过 iteration
 > 100/300/1000 门禁并正常完成 15k；Teacher evaluation 已通过。
 > 34D terrain-latent+yaw VLA 的 RGB collector、LeRobot/GR00T 数据转换、5k 训练入口和
-> zero-delay evaluator 已实现；单卡 8-env oracle、1+1 episode 数据、1-step GR00T 训练及
-> 闭环推理 smoke、旧 latent-only 正式 250/25 bootstrap 和 5k SFT 已完成；旧 latent-only DAgger 在
-> `0.245 -> 0.088` 后确认没有直接约束最终 motor action。action+yaw objective、完整 5×50 Hz
-> actor observation、fresh action+yaw bootstrap 和固定 50/50 replay 已实现；下一次先训练
-> action+yaw bootstrap，再只执行 round 0。
+> zero-delay evaluator 已实现；固定-LR teacher 已通过，旧 latent-only bootstrap/SFT/DAgger
+> 仅作为历史证据。action+yaw objective、完整 5×50 Hz actor observation、fresh bootstrap
+> 和固定 50/50 replay 已实现；当前 task-owned 入口默认执行 SFT 及 round 0--9。
+
+读者复现入口见 [`docs/extreme_parkour/cookbook.md`](../docs/extreme_parkour/cookbook.md)，跨任务阶段契约见
+[`docs/standard_pipeline.md`](../docs/standard_pipeline.md)。
 
 ## 1. 目标与实验口径
 
@@ -409,12 +410,13 @@ model output dimension 直接失败，不使用别名、零 state 或其他 fall
 ### 11.3 旧 latent-only GR00T 5k 与最终闭环评测
 
 已完成的 latent bootstrap 使用 fresh `GR00T-N1.7-3B`、2 GPUs、global batch 128、LR `1e-4`、
-H1、5k steps、one-step regression、vision tuning、BF16、action/state dropout 0。以下是历史
-复现入口；它只保留为历史结果，section 12 不再加载或续训该 checkpoint：
+H1、5k steps、one-step regression、vision tuning、BF16、action/state dropout 0。该结果只保留
+作历史证据，section 12 不再加载或续训该 checkpoint；旧 shell wrapper 已删除，当前入口为：
 
 ```bash
 cd "${REPO_ROOT}"
-bash scripts/bash_scripts/train_go2_parkour_vla_5k.sh
+bash scripts/tasks/extreme_parkour_go2/train_vla.sh \
+  /absolute/path/to/model_14999.pt --end-round 0
 ```
 
 最终 evaluator 在 Isaac GPU 与独立 GR00T Python worker 之间复用现有 inference pool；50 个
@@ -516,22 +518,23 @@ stats，DAgger round 不重新计算 stats。
 按全局 env slot 固定 worker affinity，不在不同请求或 reset 后迁移 slot。正式使用双 worker
 前先以相同 row budget 比较外部 wall time，未达到 20% 提升则保留默认单 worker。
 
-旧 latent-only `checkpoint-5000` 不再作为初始化。以下入口先用上节重新采集的 action-rich
+旧 latent-only `checkpoint-5000` 不再作为初始化。当前读者入口先用上节重新采集的 action-rich
 bootstrap dataset，从 GR00T base fresh 训练 5k action+yaw bootstrap；随后在 env 1 执行 step-0
-baseline，再只执行 round 0 的 192-env 采集、转换、
-500-step action+yaw 训练和 seed-2 固定评测。每个 eval 使用 50 个并行环境、严格统计 100 个 episode，单 episode
-最多 1,500 control steps：
+baseline，并默认执行 round 0--9 的 192-env 采集、转换、500-step action+yaw 训练和 seed-2
+固定评测。每个 eval 使用 50 个并行环境、严格统计 100 个 episode，单 episode 最多 1,500
+control steps：
 
 ```bash
 cd /pfs/users/lxy/latency-sensitive-bench
-uv run --project . python scripts/official_gr00t/train_parkour_dagger.py \
-  --run-bootstrap
+bash scripts/tasks/extreme_parkour_go2/train_vla.sh \
+  /absolute/path/to/model_14999.pt
 ```
 
-step-0 结果保存为 `round_00/eval_before/vla-eval.json`。每次 round eval 都把 `reward`、`episode_length`、`normalized_waypoint_progress` 和
+step-0 结果保存为 `bootstrap/vla_eval/vla-eval.json`。每次 round eval 都把 `reward`、`episode_length`、`normalized_waypoint_progress` 和
 `edge_violation` 的 mean/std 写入同一个 W&B run 的 `dagger_eval/*` namespace，并以
-`train/global_step=0, 500` 对齐。默认 `--end-round 1`；只有 round 0 明确改善后，才用
-`--start-round 1 --end-round 2` 启动下一轮。round 边界中断
+`train/global_step=0, 500, ..., 5000` 对齐。默认执行 `--end-round 10`；仅做 SFT 时使用
+`--end-round 0`，续跑时用
+task-owned wrapper 使用 `--resume --start-round N --end-round 10` 启动剩余轮次。round 边界中断
 后用 `--start-round N`（零起始）继续；目标
 `checkpoint-{(N+1)*500}/.dagger-round-complete` 已由成功返回的训练子进程原子写入时不会重复训练该
 round。round 内采集中断不能只按 row count

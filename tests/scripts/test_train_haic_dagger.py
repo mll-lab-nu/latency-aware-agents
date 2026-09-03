@@ -57,7 +57,7 @@ def test_main_resolves_bootstrap_paths_from_output_root(monkeypatch):
         / "bootstrap/training/haic_pull_cart_vla_dagger_action_5k_sft/checkpoint-5000"
     )
     assert captured["actor_checkpoint"] == root / "bootstrap/actor_adapt.pt"
-    assert captured["end_round"] == 1
+    assert captured["end_round"] == DAGGER_ROUNDS
     assert captured["collector_devices"] is None
     assert captured["collector_num_envs"] == ENVS_PER_COLLECTOR_RANK
 

@@ -177,6 +177,17 @@ def prepare_command(
     ]
 
 
+def bootstrap_prepare_command(raw_dir: Path, dataset_dir: Path) -> list[str]:
+    return [
+        sys.executable,
+        str(PREPARE_SCRIPT),
+        str(raw_dir),
+        str(dataset_dir),
+        "--force",
+        "--video-shards",
+    ]
+
+
 def training_command(
     *,
     bootstrap_checkpoint: Path,
@@ -187,6 +198,7 @@ def training_command(
     experiment_name: str,
     actor_checkpoint: Path,
     max_steps: int = TOTAL_UPDATES,
+    stop_every_steps: int = UPDATES_PER_ROUND,
 ) -> list[str]:
     command = [
         str(GROOT_ROOT / ".venv/bin/torchrun"),
@@ -247,7 +259,7 @@ def training_command(
         "--save-steps",
         str(UPDATES_PER_ROUND),
         "--stop-every-steps",
-        str(UPDATES_PER_ROUND),
+        str(stop_every_steps),
         "--save-total-limit",
         "2",
         "--use-wandb",
@@ -281,6 +293,7 @@ def bootstrap_training_command(
         experiment_name=experiment_name,
         actor_checkpoint=actor_checkpoint,
         max_steps=BOOTSTRAP_UPDATES,
+        stop_every_steps=BOOTSTRAP_UPDATES,
     )
 
 
@@ -294,8 +307,69 @@ def read_eval_metrics(eval_path: Path) -> dict[str, float]:
 
 
 def run_bootstrap(args: argparse.Namespace) -> Path:
+    bootstrap_root = args.output_root / "bootstrap"
+    raw_dir = bootstrap_root / "raw"
+    parkour_env = os.environ | {
+        "PYTHONPATH": str(REPO_ROOT),
+        "OMNI_KIT_ACCEPT_EULA": "YES",
+    }
+    for mode in ("teacher-eval", "oracle-eval"):
+        subprocess.run(
+            collector_command(
+                args.parkour_python,
+                mode=mode,
+                teacher_checkpoint=args.teacher_checkpoint,
+                policy_config=args.policy_config,
+                output_dir=bootstrap_root / mode,
+                inference_device=args.inference_device,
+                num_envs=50,
+                seed=2,
+                round_index=0,
+                inference_batch_size=args.inference_batch_size,
+            ),
+            cwd=PARKOUR_ROOT,
+            env=parkour_env,
+            check=True,
+        )
+    teacher_progress = json.loads(
+        (bootstrap_root / "teacher-eval/teacher-eval.json").read_text(
+            encoding="utf-8"
+        )
+    )["normalized_waypoint_progress"]["mean"]
+    oracle_progress = json.loads(
+        (bootstrap_root / "oracle-eval/oracle-eval.json").read_text(
+            encoding="utf-8"
+        )
+    )["normalized_waypoint_progress"]["mean"]
+    if oracle_progress < teacher_progress * 0.5:
+        raise RuntimeError(
+            "Parkour oracle normalized waypoint progress is below 50% of teacher"
+        )
+    subprocess.run(
+        collector_command(
+            args.parkour_python,
+            mode="collect",
+            teacher_checkpoint=args.teacher_checkpoint,
+            policy_config=args.policy_config,
+            output_dir=raw_dir,
+            inference_device=args.inference_device,
+            num_envs=50,
+            seed=0,
+            round_index=0,
+            inference_batch_size=args.inference_batch_size,
+        ),
+        cwd=PARKOUR_ROOT,
+        env=parkour_env,
+        check=True,
+    )
+    subprocess.run(
+        bootstrap_prepare_command(raw_dir, args.bootstrap_dataset),
+        cwd=REPO_ROOT,
+        env=os.environ | {"PYTHONPATH": str(REPO_ROOT)},
+        check=True,
+    )
     experiment_name = f"{args.wandb_run_id}_sft"
-    training_output = args.output_root / "bootstrap" / "training"
+    training_output = bootstrap_root / "training"
     subprocess.run(
         bootstrap_training_command(
             base_model=args.base_model,
@@ -385,6 +459,26 @@ def run_pipeline(args: argparse.Namespace) -> None:
         "WANDB_NAME": args.wandb_run_id,
         "WANDB_RESUME": "allow",
     }
+    first_round_marker = (
+        checkpoint_dir(training_run_output, 1) / CHECKPOINT_COMPLETE_MARKER
+    )
+    if args.start_round == 0 and (
+        args.end_round == 0 or not first_round_marker.is_file()
+    ):
+        bootstrap_policy_config = args.output_root / "bootstrap/eval_policy.yaml"
+        write_policy_config(
+            args.policy_config,
+            bootstrap_policy_config,
+            model_path=bootstrap_checkpoint,
+            inference_device=args.inference_device,
+        )
+        evaluate_checkpoint(
+            args,
+            policy_config=bootstrap_policy_config,
+            output_dir=args.output_root / "bootstrap/vla_eval",
+            step=0,
+            environment=parkour_env,
+        )
     for round_index in range(args.start_round, args.end_round):
         round_dir = args.output_root / f"round_{round_index:02d}"
         raw_dir = round_dir / "raw"
@@ -401,14 +495,6 @@ def run_pipeline(args: argparse.Namespace) -> None:
             model_path=current_model,
             inference_device=args.inference_device,
         )
-        if round_index == 0:
-            evaluate_checkpoint(
-                args,
-                policy_config=policy_config,
-                output_dir=round_dir / "eval_before",
-                step=0,
-                environment=parkour_env,
-            )
         subprocess.run(
             collector_command(
                 args.parkour_python,
@@ -515,7 +601,7 @@ def main() -> None:
         default=DEFAULT_INFERENCE_BATCH_SIZE,
     )
     parser.add_argument("--start-round", type=int, default=0)
-    parser.add_argument("--end-round", type=int, default=1)
+    parser.add_argument("--end-round", type=int, default=DAGGER_ROUNDS)
     parser.add_argument("--run-bootstrap", action="store_true")
     args = parser.parse_args()
     if args.inference_device is None:

@@ -1,0 +1,21 @@
+__base__: fasttd3_train.yaml
+
+backend:
+  run_mode: eval
+  extra_args: [--load_checkpoint_kind, best]
+
+policy:
+  type: gymnasium_sf
+  checkpoint_kind: best
+  device: cuda
+  deterministic: true
+
+evaluation:
+  eval_latency_values: [0]
+
+logging:
+  output_dir: outputs/tasks/humanoidbench_balance_simple/eval_best_l0
+  video:
+    enabled: true
+  save_step_records: true
+  save_action_records: true

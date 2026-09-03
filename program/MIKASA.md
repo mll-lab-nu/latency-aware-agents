@@ -6,7 +6,8 @@
 >
 > StarVLA：commit `823cd2cdd4fc3934c9d89ac96c03c23b07cd8004`
 >
-> 状态：代码和入口已搭好，尚未在目标服务器执行 GPU 训练。下一 session 从 Phase 0 开始。
+> 状态：zero-delay PPO teacher、275 条成功轨迹、250/25 LeRobot、5k QwenOFT SFT 和
+> canonical VLA 验收均已完成；当前复现入口见 [`docs/mikasa/cookbook.md`](../docs/mikasa/cookbook.md)。
 
 ## 1. 目标与不可更改的实验口径
 
@@ -37,8 +38,8 @@ privileged-state PPO，再用它生成 GrabFast demonstrations。它不是复刻
 - 最终 teacher gate：官方 trainer gate 加独立 canonical 100-episode gate，两者都要通过。
 - 最终 VLA baseline gate：canonical zero-delay 50 episodes，至少 25 次 `success_once`。
 
-本手册不要求先新增 wrapper 或抽象。现有底层入口已经能接收所需参数；下一 session 只有在真实
-命令被证明不可用时才修改代码。
+本手册记录底层实验命令和历史证据；读者复现使用 task-owned
+`scripts/tasks/mikasa_intercept_grab_fast/` 入口，避免重复拼接环境变量。
 
 ## 2. 已核对的关键事实
 
@@ -752,30 +753,18 @@ Phase 3 gate：5,000 optimizer steps 完成；global batch 被日志确认是 64
 run 和 50-episode JSON 均存在；canonical `success_once >= 25/50`。未达到 50% 时如实报告
 baseline failure，不把 action-loss eval 冒充环境成功率。
 
-## 7. 下一 session 的 `/goal` 执行顺序
+## 7. 当前复现入口
 
-下一 session 的 goal 应设为：
+完整的读者路径和跨任务阶段契约见
+[`docs/standard_pipeline.md`](../docs/standard_pipeline.md)。本任务的两个入口是：
 
-```text
-在指定服务器上完成 InterceptGrabFast-VLA-v0 的严格 zero-delay PPO teacher、
-275 条成功轨迹、单卡 ZeRO-2 QwenOFT H1 5k-step SFT 和 canonical 验收；
-不得绕过任一 gate。
+```bash
+bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy.sh
+bash scripts/tasks/mikasa_intercept_grab_fast/train_vla.sh /absolute/path/to/final_success_ckpt.pt
 ```
 
-严格按以下顺序推进：
-
-1. rsync 工作树和安全复制 `.env`；记录远端硬件与网络。
-2. 安装/验证 MIKASA 和 StarVLA 环境，完成两个 runtime smoke。
-3. PPO 5M engineering smoke。
-4. 默认 PPO 正式训练，最多 150M；严格评估候选 teacher。
-5. 仅在默认失败后执行有限 PPO 调参；teacher 不达 95/100 就停止。
-6. 收集 275 successful episodes，完成 NPZ audit。
-7. 导出 250 train / 25 validation LeRobot datasets，完成 schema/count gate。
-8. 下载/确认 QwenOFT initialization；按 OOM ladder profile 最大 microbatch。
-9. 单卡 ZeRO-2、global batch 64、5,000 steps SFT。
-10. canonical zero-delay 50-episode VLA eval，写回所有结果。
-
-每完成一个 phase，原位更新下面的记录；不要另建重复 handoff 文档。
+第二条命令从显式验收的 teacher checkpoint 开始，完成数据采集/转换、SFT 和
+canonical zero-delay eval。底层命令仍保留在上文，便于定位环境或数据问题。
 
 ## 8. 实际运行记录
 

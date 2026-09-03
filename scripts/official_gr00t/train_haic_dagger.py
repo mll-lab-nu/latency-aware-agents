@@ -606,6 +606,27 @@ def run_pipeline(args: argparse.Namespace) -> None:
         "WANDB_RUN_ID": args.wandb_run_id,
         "WANDB_RESUME": "allow",
     }
+    first_round_marker = (
+        checkpoint_dir(training_run_output, UPDATES_PER_ROUND)
+        / CHECKPOINT_COMPLETE_MARKER
+    )
+    if args.start_round == 0 and (
+        args.end_round == 0 or not first_round_marker.is_file()
+    ):
+        bootstrap_policy_config = args.output_root / "bootstrap/eval_policy.yaml"
+        write_policy_config(
+            args.policy_config,
+            bootstrap_policy_config,
+            model_path=bootstrap_checkpoint,
+            inference_device=args.inference_device,
+        )
+        evaluate_checkpoint(
+            args,
+            policy_config=bootstrap_policy_config,
+            output_dir=args.output_root / "bootstrap/vla_eval",
+            step=0,
+            environment=haic_environment,
+        )
     for round_index in range(args.start_round, args.end_round):
         round_dir = args.output_root / f"round_{round_index:02d}"
         raw_dir = round_dir / "raw"
@@ -641,14 +662,6 @@ def run_pipeline(args: argparse.Namespace) -> None:
                 shutil.rmtree(dataset_dir)
             if trained_model.exists():
                 shutil.rmtree(trained_model)
-            if round_index == 0:
-                evaluate_checkpoint(
-                    args,
-                    policy_config=policy_config,
-                    output_dir=round_dir / "eval_before",
-                    step=0,
-                    environment=haic_environment,
-                )
             collector_commands = []
             collector_environments = []
             for collector_rank in range(COLLECTOR_RANKS):
@@ -816,7 +829,7 @@ def main() -> None:
     parser.add_argument("--policy-config", type=Path, default=DEFAULT_POLICY_CONFIG)
     parser.add_argument("--wandb-run-id", default=DEFAULT_WANDB_RUN_ID)
     parser.add_argument("--start-round", type=int, default=0)
-    parser.add_argument("--end-round", type=int, default=1)
+    parser.add_argument("--end-round", type=int, default=DAGGER_ROUNDS)
     parser.add_argument("--run-bootstrap", action="store_true")
     parser.add_argument("--smoke", action="store_true")
     args = parser.parse_args()

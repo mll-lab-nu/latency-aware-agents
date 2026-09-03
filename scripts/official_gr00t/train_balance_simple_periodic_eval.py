@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train balance_simple from GR00T-N1.7 for 15k steps with periodic eval."""
+"""Train balance_simple from GR00T-N1.7 with periodic zero-delay eval."""
 
 from __future__ import annotations
 
@@ -22,32 +22,30 @@ from gr00t.policy import Gr00tPolicy
 
 REPO = Path(__file__).resolve().parents[2]
 GROOT = REPO / "third_party/Isaac-GR00T"
-BASE_MODEL = REPO / "outputs/official_gr00t/models/GR00T-N1.7-3B"
-DATASET = REPO / "outputs/official_gr00t/datasets/humanoidbench/balance_simple/lerobot"
-VAL_DATASET = Path(f"{DATASET}__val")
-OUTPUT = REPO / (
-    "outputs/official_gr00t/"
-    "g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_15k"
-)
 EVAL_CONFIG = (
     REPO
     / "configs/examples/gymnasium/g1_sonic_balance_simple/"
     "official_gr00t_eval_simulated.yaml"
 )
-WANDB_RUN_ID = "g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_15k"
-WANDB_RUN_NAME = WANDB_RUN_ID
 
 
-def train_to_next_checkpoint(step: int) -> Path:
+def train_to_next_checkpoint(
+    *,
+    base_model: Path,
+    dataset: Path,
+    output: Path,
+    run_id: str,
+    step: int,
+) -> Path:
     command = [
         str(GROOT / ".venv/bin/torchrun"),
         "--standalone",
         "--nproc_per_node=2",
         str(GROOT / "gr00t/experiment/launch_finetune.py"),
         "--base-model-path",
-        str(BASE_MODEL),
+        str(base_model),
         "--dataset-path",
-        str(DATASET),
+        str(dataset),
         "--embodiment-tag",
         "NEW_EMBODIMENT",
         "--modality-config-path",
@@ -55,7 +53,7 @@ def train_to_next_checkpoint(step: int) -> Path:
         "--num-gpus",
         "2",
         "--output-dir",
-        str(OUTPUT),
+        str(output),
         "--max-state-dim",
         "198",
         "--action-horizon",
@@ -93,7 +91,7 @@ def train_to_next_checkpoint(step: int) -> Path:
         "2",
         "--use-wandb",
         "--experiment-name",
-        WANDB_RUN_NAME,
+        run_id,
     ]
     if step > 500:
         command.append("--resume-from-checkpoint")
@@ -101,20 +99,20 @@ def train_to_next_checkpoint(step: int) -> Path:
     env = os.environ | {
         "CUDA_VISIBLE_DEVICES": "0,1",
         "NO_ALBUMENTATIONS_UPDATE": "1",
-        "WANDB_RUN_ID": WANDB_RUN_ID,
+        "WANDB_RUN_ID": run_id,
         "WANDB_RESUME": "allow",
     }
     subprocess.run(command, cwd=REPO, env=env, check=True)
-    return OUTPUT / f"checkpoint-{step}"
+    return output / f"checkpoint-{step}"
 
 
-def validation_metrics(checkpoint: Path) -> dict[str, float]:
+def validation_metrics(checkpoint: Path, val_dataset: Path) -> dict[str, float]:
     policy = Gr00tPolicy(
         embodiment_tag="NEW_EMBODIMENT",
         model_path=checkpoint,
         device="cuda:0",
     )
-    loader = LeRobotEpisodeLoader(VAL_DATASET, policy.get_modality_config())
+    loader = LeRobotEpisodeLoader(val_dataset, policy.get_modality_config())
     episode = loader[0]
     count = min(128, len(episode) - 39)
     states = np.stack(episode["state.state"].iloc[:count]).astype(np.float32)[:, None]
@@ -156,9 +154,15 @@ def validation_metrics(checkpoint: Path) -> dict[str, float]:
     return metrics
 
 
-def closed_loop_metrics(checkpoint: Path, step: int) -> dict[str, float]:
-    config = yaml.safe_load(EVAL_CONFIG.read_text())
-    eval_output = OUTPUT / "evals" / f"eval_step{step}"
+def closed_loop_metrics(
+    checkpoint: Path,
+    step: int,
+    *,
+    output: Path,
+    eval_config: Path,
+) -> dict[str, float]:
+    config = yaml.safe_load(eval_config.read_text())
+    eval_output = output / "evals" / f"eval_step{step}"
     config["experiment"]["name"] = f"balance_simple_gr00t_step{step}"
     config["policy"]["model_path"] = str(checkpoint)
     config["logging"]["output_dir"] = str(eval_output)
@@ -203,22 +207,41 @@ def closed_loop_metrics(checkpoint: Path, step: int) -> dict[str, float]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--base-model-path", type=Path, required=True)
+    parser.add_argument("--dataset-path", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--run-id", required=True)
     parser.add_argument("--start-step", type=int, default=500)
     args = parser.parse_args()
 
+    val_dataset = Path(f"{args.dataset_path}__val")
+
     for step in range(args.start_step, 15001, 500):
-        checkpoint = train_to_next_checkpoint(step)
-        metrics = validation_metrics(checkpoint)
+        checkpoint = train_to_next_checkpoint(
+            base_model=args.base_model_path,
+            dataset=args.dataset_path,
+            output=args.output_dir,
+            run_id=args.run_id,
+            step=step,
+        )
+        metrics = validation_metrics(checkpoint, val_dataset)
         gc.collect()
         torch.cuda.empty_cache()
-        metrics.update(closed_loop_metrics(checkpoint, step))
+        metrics.update(
+            closed_loop_metrics(
+                checkpoint,
+                step,
+                output=args.output_dir,
+                eval_config=EVAL_CONFIG,
+            )
+        )
         metrics["epochs"] = step * 128 / 86048
         print(json.dumps({"step": step, **metrics}, indent=2), flush=True)
 
         run = wandb.init(
             project="finetune-gr00t-n1d7",
-            id=WANDB_RUN_ID,
-            name=WANDB_RUN_NAME,
+            id=args.run_id,
+            name=args.run_id,
             resume="allow",
         )
         run.define_metric("periodic_eval/*", step_metric="train/global_step")

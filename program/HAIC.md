@@ -2,8 +2,11 @@
 
 状态：HAIC 已作为 fork submodule 接入；正式 500M teacher 长训已完成。旧 256D latent-only
 bootstrap/DAgger 的 step 0、round 0、1、2 均为 `0/100`，已在 round 3 停止且原输出完整保留。
-action-only 数据、loss、固定 actor 导出和 oracle gate 已实现；下一次从 GR00T base fresh bootstrap，
-只执行 round 0。
+action-only 数据、loss、固定 actor 导出和 oracle gate 已实现；正式 fresh bootstrap +
+round 0 已于 2026-09-03 15:06:09 UTC 完成，随后从 checkpoint-500 续跑 round 1--9。
+
+读者复现入口见 [`docs/haic/cookbook.md`](../docs/haic/cookbook.md)，跨任务阶段契约见
+[`docs/standard_pipeline.md`](../docs/standard_pipeline.md)。
 
 ## 1. 固定口径
 
@@ -267,7 +270,7 @@ VLA 替换路线，phase-1 final teacher 是固定的 privileged label source。
 
 - bootstrap 从 GR00T-N1.7-3B fresh base 开始。privileged teacher 的成功 episode 每个 10 Hz row 除 RGB、605D state 和兼容 VLA 输出的 256D latent 外，还保存 `actor_input[5,605]`、`teacher_action[5,23]` 和 `termination[5]`；正式配置为 250 个 train episode、25 个 val episode、global batch 64、gradient accumulation 2、peak LR `5e-5` 和 5,000 optimizer updates；
 - bootstrap 与 DAgger 都只优化 23D motor-action MSE，不再优化 256D latent MSE。VLA latent 与每个 50 Hz actor input 送入同一个冻结 `actor_adapt`；terminal action 保留，terminal 后子步由累计 mask 排除。actor 不进入 optimizer、GR00T model 或 checkpoint；
-- DAgger 流程是 `step-0 eval -> rollout -> training -> eval`。当前默认只执行 round 0：两个顺序 collector 各 32,000 rows，合计 64,000 rows、gradient accumulation 2 和 500 updates。采样权重固定为 50% action-rich bootstrap replay + 50% 累积 DAgger 数据，bootstrap prior 不随 round 数稀释；eval 始终使用 100 env / seed 0，每个 env 只统计从 motion frame 0 开始的首个 episode；
+- DAgger 流程是 `step-0 eval -> rollout -> training -> eval`。当前 task-owned 入口默认执行 round 0--9；每轮两个顺序 collector 各 32,000 rows，合计 64,000 rows、gradient accumulation 2 和 500 updates。采样权重固定为 50% action-rich bootstrap replay + 50% 累积 DAgger 数据，bootstrap prior 不随 round 数稀释；eval 始终使用 100 env / seed 0，每个 env 只统计从 motion frame 0 开始的首个 episode；
 - DAgger collector 使用 inference batch 32、1,000-row shard；每个 round eval 后删除 raw shard，保留 LeRobot dataset、dataset manifest、training dataset manifest、checkpoint、eval 结果和 policy config。
 
 正式远端单 GPU 默认仍串行运行两个 collector。短 A/B 可用
@@ -306,21 +309,18 @@ HF_TOKEN=...
 HAIC_VLA_FFMPEG_PREFIX=/home/xinyuan/.cache/latency-sensitive-bench/ffmpeg7
 ```
 
-launcher 会 source `.env`，并把该 prefix 的 `bin`/`lib` 加入 `PATH`/`LD_LIBRARY_PATH`。
-正式入口如下；必须在 code review 和用户确认后执行：
+入口不读取 `.env`；调用前由当前 shell 提供 W&B/Hugging Face 凭据，并把该 prefix 的
+`bin`/`lib` 加入 `PATH`/`LD_LIBRARY_PATH`。
+正式入口如下；默认执行完整 10 轮，`--end-round 0` 仅执行 bootstrap/SFT：
 
 ```bash
-bash scripts/bash_scripts/train_haic_vla_5k.sh \
-  --run-bootstrap \
-  --teacher-checkpoint /home/xinyuan/haic_runs/phase1_teacher/wandb/latest-run/files/checkpoint_final.pt \
-  --base-model /home/xinyuan/latency-sensitive-bench-mikasa-h1/outputs/official_gr00t/models/GR00T-N1.7-3B \
-  --output-root /home/xinyuan/haic_runs/haic_pull_cart_vla_action_dagger_round0 \
-  --haic-python /home/xinyuan/miniconda3/envs/haic/bin/python
+bash scripts/tasks/haic_pull_cart/train_vla.sh \
+  /absolute/path/to/checkpoint_final.pt
 ```
 
-fresh run 显式传 `--run-bootstrap`，它会先执行 frozen-actor oracle eval，再重新采集并训练 action-only bootstrap；旧 latent checkpoint 不得作为初始化。续跑使用
-`--bootstrap-checkpoint`、`--bootstrap-dataset`、`--actor-checkpoint` 和 `--start-round N`。`--end-round` 是右开上界，
-默认 1，即只执行 round 0。训练子进程成功返回后才原子写入
+fresh run 会先执行 frozen-actor oracle eval，再重新采集并训练 action-only bootstrap；旧 latent checkpoint 不得作为初始化。task-owned wrapper 续跑使用
+`--resume`、`--bootstrap-checkpoint`、`--bootstrap-dataset`、`--actor-checkpoint` 和 `--start-round N`。`--end-round` 是右开上界，
+默认 10，即执行 round 0--9；传 `--end-round 0` 只完成 bootstrap/SFT。训练子进程成功返回后才原子写入
 round-complete marker；用同一 `--start-round N` 重试未完成轮次时，会重新采集该轮数据。
 已完成并归档的 round 只删除 raw，保留 `lerobot/` 供后续 DAgger round 聚合训练；旧 current-only DAgger
 输出缺少可复用的 round `lerobot/` 和聚合训练 manifest，不能作为该流程的 resume 根目录。
@@ -338,3 +338,6 @@ round-complete marker；用同一 `--start-round N` 重试未完成轮次时，�
 | Phase 2 DAgger current-only 尝试 | 不作为正式 DAgger 结果；已停止并清理 DAgger 残留 | tmux `haic_vla_5k` 旧会话已停止；outer PID `241017` 已停止 | 2026-09-03 01:29:38 UTC 曾从现有 bootstrap `checkpoint-5000`、dataset 和 `--start-round 0` 恢复；旧 driver 只训练当前 round，缺少 bootstrap/历史 round 聚合，因此不能作为正式聚合 DAgger resume 根目录；2026-09-03 已删除旧 `round_*`、`training` 和 top-level DAgger stdout/exit_code，保留 `bootstrap/lerobot` 与 `bootstrap/training/checkpoint-5000` |
 | Phase 2 DAgger 聚合修复、旧 eval 口径 | 已停止，结果作废 | tmux `haic_vla_5k` 已停止；driver PID `268530` 已退出 | 2026-09-03 03:34:56 UTC 从保留 bootstrap checkpoint/dataset 和 `--start-round 0 --end-round 10` 重启；W&B run `haic_pull_cart_vla_dagger_latent_5k_aggfix_20260903` 完成 round 0–3 并保存 `checkpoint-2000`，于 round 4 collector rank 1 期间按用户要求停止；该 run 的 eval 在固定 1,000 steps 内重复统计 auto-reset episode，导致 episode 分母不固定，不作为正式 DAgger 结果；旧输出保留在 `/home/xinyuan/haic_runs/haic_pull_cart_vla_dagger` |
 | Phase 2 latent-only 100-full-episode run | 已停止，输出保留，结果作废 | tmux `haic_vla_5k_eval100` 已停止 | 输出 `/home/xinyuan/haic_runs/haic_pull_cart_vla_dagger_eval100`；step 0、round 0、round 1、round 2 均为 `episodes=100`、`successes=0`、`success_rate=0.0`；原 run 在 round 3 期间停止。它仍监督 latent 且使用会逐轮稀释 bootstrap 的聚合比例，不能 resume 到 action-only 流程。 |
+| Phase 2 action-only fresh bootstrap + round 0 首次启动 | bootstrap dataset stats 阶段失败，退出码 1；部分输出已清理 | tmux `haic_vla_action_round0` 已退出；driver PID `382808` | 2026-09-03 12:01:18 UTC 启动；oracle eval 为 `20/100`，250 train + 25 val episode 已采完；远端漏同步定义 `OBJECTIVE_COLUMNS` 的 GR00T loader，导致 stats import 失败；缺失依赖已补齐并通过远端 import 自检，随后从 bootstrap fresh 重启 |
+| Phase 2 action-only fresh bootstrap + round 0 重启 | 已完成，退出码 0 | tmux `haic_vla_action_round0` 已自然退出；driver PID `398191` | 2026-09-03 12:09:55--15:06:09 UTC，耗时 2:56:14；oracle `18/100`；bootstrap 为 250 train / 25 val、13,345 / 549 rows，5,000-step W&B `haic_pull_cart_vla_dagger_action_5k_sft` 的 `train_loss=0.0340958696`；step 0 与 round 0 均为 `0/100`；round 0 为 64,000 rows、500 updates，W&B `haic_pull_cart_vla_dagger_action_5k` 的 `train_loss=0.326223280`；两个 checkpoint 各 1,030 个 tensors 全部 finite，round-complete marker、dataset/training manifests、final eval 均存在，raw 已删除，fatal log scan clean；输出 `/home/xinyuan/haic_runs/haic_pull_cart_vla_action_dagger_round0` |
+| Phase 2 action-only DAgger round 1--9 resume | 运行中；从 checkpoint-500 恢复，目标累计 5,000 updates | tmux `haic_vla_action_round1_9`；driver PID `646045` | 2026-09-03 15:10:37 UTC 启动；显式 `--start-round 1 --end-round 10`，复用同一 bootstrap dataset、actor、训练根目录和 W&B run `haic_pull_cart_vla_dagger_action_5k`；按 round 0 实测预计 21:25--21:45 UTC 完成 |
