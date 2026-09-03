@@ -34,6 +34,8 @@ PARKOUR_DAGGER_ROWS_PER_ROUND = (
 )
 PARKOUR_DAGGER_SHARD_ROWS = 1_000
 DEFAULT_INFERENCE_BATCH_SIZE = 32
+PARKOUR_EVAL_EPISODES = 100
+PARKOUR_EVAL_MAX_EPISODE_STEPS = 1500
 CHECKPOINT_COMPLETE_MARKER = ".dagger-round-complete"
 EVAL_METRICS = (
     "reward",
@@ -103,6 +105,8 @@ def collector_command(
     round_index: int,
     dagger_row_budget: int = PARKOUR_DAGGER_ROWS_PER_ROUND,
     inference_batch_size: int = DEFAULT_INFERENCE_BATCH_SIZE,
+    eval_episodes: int = PARKOUR_EVAL_EPISODES,
+    max_episode_steps: int = PARKOUR_EVAL_MAX_EPISODE_STEPS,
 ) -> list[str]:
     command = [
         str(parkour_python),
@@ -135,6 +139,15 @@ def collector_command(
                 str(PARKOUR_DAGGER_SHARD_ROWS),
                 "--dagger_row_budget",
                 str(dagger_row_budget),
+            ]
+        )
+    elif mode.endswith("-eval"):
+        command.extend(
+            [
+                "--eval_episodes",
+                str(eval_episodes),
+                "--max_episode_steps",
+                str(max_episode_steps),
             ]
         )
     return command

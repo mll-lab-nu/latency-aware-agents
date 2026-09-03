@@ -12,11 +12,14 @@ from scripts.official_gr00t.train_parkour_dagger import (
     DAGGER_ROUNDS,
     DEFAULT_INFERENCE_BATCH_SIZE,
     GRADIENT_ACCUMULATION_STEPS,
+    PARKOUR_EVAL_EPISODES,
+    PARKOUR_EVAL_MAX_EPISODE_STEPS,
     PARKOUR_DAGGER_ROWS_PER_ROUND,
     PARKOUR_DAGGER_SHARD_ROWS,
     checkpoint_dir,
     collector_command,
     read_eval_metrics,
+    prepare_command,
     training_command,
     training_dataset_dirs,
 )
@@ -57,6 +60,12 @@ def test_commands_preserve_round_resume_contract():
         round_index=1,
         experiment_name="latent-only",
     )
+    prepare = prepare_command(
+        Path("raw"),
+        Path("dataset"),
+        round_index=0,
+        normalization_source=bootstrap_dataset,
+    )
 
     assert training_dataset_dirs(Path("bc"), Path("out"), 1) == [
         Path("bc"),
@@ -76,6 +85,9 @@ def test_commands_preserve_round_resume_contract():
     )
     assert first_collect[first_collect.index("--dagger_row_budget") + 1] == str(
         PARKOUR_DAGGER_ROWS_PER_ROUND
+    )
+    assert prepare[prepare.index("--normalization-source") + 1] == str(
+        bootstrap_dataset
     )
     assert "--student_actor_checkpoint" not in first_collect
     assert "--resume-checkpoint-path" not in first_train
@@ -117,6 +129,12 @@ def test_commands_preserve_round_resume_contract():
     assert "--dagger_round" not in eval_command
     assert "--dagger_shard_rows" not in eval_command
     assert "--dagger_row_budget" not in eval_command
+    assert eval_command[eval_command.index("--eval_episodes") + 1] == str(
+        PARKOUR_EVAL_EPISODES
+    )
+    assert eval_command[eval_command.index("--max_episode_steps") + 1] == str(
+        PARKOUR_EVAL_MAX_EPISODE_STEPS
+    )
     assert checkpoint_dir(output, 10) == output / "checkpoint-5000"
 
 

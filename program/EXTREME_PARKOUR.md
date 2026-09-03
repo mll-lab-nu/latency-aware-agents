@@ -2,22 +2,14 @@
 
 > 任务：`Isaac-Extreme-Parkour-{Teacher,Student}-Unitree-Go2-v0`
 >
-> Extreme Parkour fork：当前 commit `6caa34adf73a0a1acc366bfee81320fc1e202618`；
-> 性能优化 base `4265e663627a3f5e50a076508b78cfdad05b2b39`，后续恢复 student height
-> scanner 的 20 ms `update_period`、启用 cuDNN benchmark，并将 teacher PhysX partitions 设为 4；
-> zero-delay commit `991c4b02aa08a802e57d01924ef2f3826d0d7334`；upstream base
-> `d6766d8883cffe427f2d4c087717d4eca1f23d8c`
->
-> Isaac Lab：v2.2.0，commit `46dff135f44683f031edf346e544fcfd8456b2bb`
->
 > Isaac Sim：5.0.0；PyTorch：2.7.0 + cu128
 >
-> 状态：依赖、双卡 smoke、目标容量 A/B 和精确 resume 已完成。首个 adaptive-LR teacher
-> 正式 run 已确认 collapse，并在 iteration 1418 停止；fixed-LR teacher 已通过 iteration
-> 100/300/1000 门禁并正常完成 15k；Teacher evaluation 已通过
+> 首个 adaptive-LR teacher正式 run 已确认 collapse，并在 iteration 1418 停止；fixed-LR teacher 已通过 iteration
+> 100/300/1000 门禁并正常完成 15k；Teacher evaluation 已通过。
 > 34D terrain-latent+yaw VLA 的 RGB collector、LeRobot/GR00T 数据转换、5k 训练入口和
 > zero-delay evaluator 已实现；单卡 8-env oracle、1+1 episode 数据、1-step GR00T 训练及
-> 闭环推理 smoke 已通过，尚未运行正式 250/25、5k 和 50-env VLA gate。
+> 闭环推理 smoke、正式 250/25 bootstrap 和 5k SFT 已完成；旧 DAgger run 已确认受 yaw
+> MTS、reset phase 和 normalization 问题污染，修复及清理已完成，等待重新训练。
 
 ## 1. 目标与实验口径
 
@@ -65,7 +57,7 @@ privileged teacher、depth student 和 `parkour` / `hurdle` / `step` / `gap` 等
 
 官方配置的 `max_iterations=50000` 是默认最大更新次数，不是 README 推荐的复现预算。
 按优化后本机短 profile，`15k teacher + 5k student` 的纯训练 ETA 约 14.3 h
-（teacher 9.74 h + student 4.60 h）；正式排期预留 16 h。
+（teacher 9.74 h + student 4.60 h）；
 
 ## 2. 上游 delay 到底做了什么
 
@@ -138,16 +130,6 @@ network input = depth_buffer[:, -2]
 改为 `depth_buffer[:, -1]`，即每次 inference 使用当次最新可用帧。这里的 zero-delay 不等于
 把相机或网络改成 50 Hz。
 
-### 2.4 名字里有 delay、但不属于 latency 的状态
-
-以下内容保持不动：
-
-- `reach_goal_delay=0.1`：到达 waypoint 后的 goal 切换 debounce，不是通信或执行 delay；
-- proprio/action history：recurrent policy 的输入状态，不是 delay queue；
-- physics decimation：一个 action 持续 4 个 physics substeps，是 50 Hz 控制定义；
-- domain randomization、camera pose noise、push 和 friction：鲁棒性训练，不是 temporal latency；
-- 10 Hz depth cadence：传感/推理频率，和额外 frame delivery latency 分开记录。
-
 ### 2.5 checkpoint 口径
 
 社区公开 teacher/student checkpoints 只用于安装和模型加载 smoke。当前代码默认 student 带
@@ -176,45 +158,6 @@ RAM: 1.8 TiB
 teacher: 3072 env/rank * 2 = 6144 total
 student:   96 env/rank * 2 =  192 total
 ```
-
-社区原始 DDP 只同步主 PPO policy。fork 的 `fix/extreme-parkour-ddp` 分支在 commit
-`e3fe6e3d3b62adbaf355f337732ea3b125e6d37d` 补齐 teacher/student 辅助网络同步和精确
-checkpoint resume，并包含当前 runtime 必需的兼容修复。这些是 correctness infra，不包含
-zero-delay 实验设置，也不声明相对原始错误 DDP 的吞吐加速。
-
-`research/zero-delay-go2` 在其上增加 zero-delay commit
-`991c4b02aa08a802e57d01924ef2f3826d0d7334` 和 `.gitignore` commit `44dc7c862c920153e77de5cf739b3e73b2f88a2b`，
-包含关闭 student action delay、读取最新 depth frame、关闭 headless depth debug window，以及
-两个既有 Python/config bug 修复。性能优化已提交为 `4265e663627a3f5e50a076508b78cfdad05b2b39`
-并由父仓 `ff70f83fcaac4534bffb4bd415d97972d442f949` 固定。上游 PR compare
-入口是 [master...mindorigin150:fix/extreme-parkour-ddp](https://github.com/CAI23sbP/Isaaclab_Parkour/compare/master...mindorigin150:Isaaclab_Parkour:fix/extreme-parkour-ddp?expand=1)。
-
-## 4. Worktree 与 submodule
-
-固定 worktree：
-
-```bash
-export PARKOUR_ROOT=/pfs/users/lxy/latency-sensitive-bench
-cd "${PARKOUR_ROOT}"
-
-git submodule sync --recursive
-git submodule update --init --recursive
-git -C third_party/IsaacLab rev-parse HEAD
-git -C third_party/Isaaclab_Parkour rev-parse HEAD
-```
-
-期望输出分别为：
-
-```text
-46dff135f44683f031edf346e544fcfd8456b2bb
-6caa34adf73a0a1acc366bfee81320fc1e202618
-```
-
-Parkour submodule URL 固定为 `git@github.com:mindorigin150/Isaaclab_Parkour.git`。fresh checkout
-不再执行 `git apply`；commit 不匹配时直接检查 submodule URL/gitlink，不静默改用其他 revision。
-当前实验 workspace 的父仓是 `master@37641dc8cc6faae6f8a65979b7d9e6676f1784ea`，Parkour
-submodule 是 `master@0fc5411818697fbc8c8f40c363119a5cd0fbd07b`。本轮 fixed-LR 对照只允许
-Teacher runner config 中的 `schedule` 一行实验修改，不混入其他训练语义变化。
 
 ## 5. 环境安装
 
@@ -277,64 +220,6 @@ PY
   "${PARKOUR_ROOT}/third_party/Isaaclab_Parkour/scripts/rsl_rl/modules"
 ```
 
-### 6.2 单卡训练 smoke
-
-从 Parkour submodule 根目录各跑 1 iteration：
-
-```bash
-cd "${PARKOUR_ROOT}/third_party/Isaaclab_Parkour"
-
-OMNI_KIT_ACCEPT_EULA=YES "${PARKOUR_PY}" scripts/rsl_rl/train.py \
-  --task Isaac-Extreme-Parkour-Teacher-Unitree-Go2-v0 \
-  --num_envs 8 --max_iterations 1 --seed 1 \
-  --run_name smoke_single --headless
-
-LD_PRELOAD="${PARKOUR_ENV}/lib/libGLU.so.1" \
-OMNI_KIT_ACCEPT_EULA=YES "${PARKOUR_PY}" scripts/rsl_rl/train.py \
-  --task Isaac-Extreme-Parkour-Student-Unitree-Go2-v0 \
-  --num_envs 1 --max_iterations 1 --seed 1 --enable_cameras \
-  --load_run 2026-09-01_16-27-46_smoke_single --checkpoint model_0.pt \
-  --run_name smoke_single_student --headless
-```
-
-### 6.3 双卡同步 smoke
-
-当前 torch cu128 wheel 自带 NCCL 2.26.2，在本机 CUDA 13/Blackwell 上会在两 rank communicator
-初始化时挂起。预加载系统 NCCL 2.28.3 后，独立 `all_reduce` 和两类训练均通过。因此本节点上的
-所有 DDP 命令都必须显式使用 `/lib/x86_64-linux-gnu/libnccl.so.2`。
-
-teacher 跑 1 iteration：
-
-```bash
-cd "${PARKOUR_ROOT}/third_party/Isaaclab_Parkour"
-
-LD_PRELOAD=/lib/x86_64-linux-gnu/libnccl.so.2 NCCL_DEBUG=WARN \
-OMNI_KIT_ACCEPT_EULA=YES "${PARKOUR_PY}" -m torch.distributed.run \
-  --standalone --nnodes=1 --nproc_per_node=2 \
-  scripts/rsl_rl/train.py \
-  --task Isaac-Extreme-Parkour-Teacher-Unitree-Go2-v0 \
-  --distributed --headless --seed 1 \
-  --num_envs 8 --max_iterations 1 \
-  --run_name smoke_ddp_teacher
-```
-
-student 显式加载这个 teacher checkpoint，也跑 1 iteration：
-
-```bash
-LD_PRELOAD="${PARKOUR_ENV}/lib/libGLU.so.1:/lib/x86_64-linux-gnu/libnccl.so.2" \
-NCCL_DEBUG=WARN OMNI_KIT_ACCEPT_EULA=YES \
-"${PARKOUR_PY}" -m torch.distributed.run \
-  --standalone --nnodes=1 --nproc_per_node=2 \
-  scripts/rsl_rl/train.py \
-  --task Isaac-Extreme-Parkour-Student-Unitree-Go2-v0 \
-  --distributed --headless --seed 1 --enable_cameras \
-  --num_envs 1 --max_iterations 1 \
-  --load_run 2026-09-01_16-35-39_smoke_ddp_teacher --checkpoint model_0.pt \
-  --run_name smoke_ddp_student
-```
-
-smoke 只验证两卡 environment、NCCL、camera、broadcast/all-reduce 和 checkpoint；不能当成正式模型。
-
 ### 6.4 目标容量短 profile
 
 正式训练前各跑 5 iterations，丢弃 iteration 0，以 iterations 1--4 的中位数记录稳态。
@@ -352,32 +237,6 @@ latent 缓存，history 就地滑动，depth 批处理，camera update 与已有
 并在同一节拍复用固定 teacher 的 scan latent。height scanner 保持 20 ms；纯张量新旧路径
 逐元素等价检查已通过。
 
-### 6.5 第二轮 free-lunch 筛选
-
-筛选门槛固定为双卡端到端稳态提升至少 1%；低于门槛的实验代码全部回退：
-
-| candidate | 语义检查 | 目标容量结果 | 结论 |
-|---|---|---|---|
-| height scanner `update_period` 20 ms → 100 ms | 当前 `lazy_sensor_update=True`，只有 observation 每 5 步读取时才 raycast | 单卡 collection 2.076 s → 2.117 s | 恢复 20 ms；没有省掉 80% raycast |
-| goal/env 张量清理、actor concat、teacher scan cache、日志同步合并 | strict-equivalence probes 逐值通过 | teacher DDP 2.057 s → 2.061 s（-0.18%） | 未过门槛，全部回退 |
-| 最小 student clone/host-sync 清理 | 日志值和顺序逐值一致 | 两组 DDP 端到端 FPS 6971 → 6922、6945 → 6912（-0.70%、-0.48%） | 未过门槛，回退 |
-| `nn.Module.compile` actor | 非 exact；最大绝对误差 `1.16e-4`，默认 `allclose` 失败 | actor 284.4 us → 257.6 us；actor-only +9.4%，预计端到端不足 1% | 不进入训练路径 |
-| `torch.backends.cudnn.benchmark=True` | forward exact；backward 最大绝对误差 `7.96e-13`，默认 `allclose` 通过 | student DDP 端到端 +1.26%～+1.64% | 启用 |
-
-height scanner 恢复 20 ms；cuDNN benchmark 已启用，接受 backward 约 `8e-13` 的最大绝对差异。
-
-20-iteration DDP 证据 runs 分别为 teacher `2026-09-01_20-32-25_strict_ddp_baseline_teacher_3072`
-/ `2026-09-01_20-33-53_strict_ddp_candidate_teacher_3072`，student baseline
-`2026-09-01_20-35-44_strict_ddp_baseline_student_96`、`2026-09-01_20-43-26_strict_ddp_baseline2_student_96`，
-minimal candidate `2026-09-01_20-41-03_strict_ddp_minimal_student_96`、
-`2026-09-01_20-45-23_strict_ddp_minimal2_student_96`，以及 cuDNN
-`2026-09-01_20-48-58_cudnn_benchmark_student_96`。
-
-### 6.6 checkpoint resume smoke
-
-Teacher/Student 均已用优化 profile 的 `model_4.pt` 完成双卡精确 resume smoke，
-分别由 runs `2026-09-01_19-38-22_smoke_resume_teacher_strict_opt` 和
-`2026-09-01_19-39-08_smoke_resume_student_strict_opt` 从 iteration 4 继续训练。
 
 ## 7. 正式双卡训练
 
@@ -401,17 +260,6 @@ WANDB_MODE=online OMNI_KIT_ACCEPT_EULA=YES \
   --logger wandb --log_project_name isaaclab-parkour
 ```
 
-门禁使用 W&B 未舍入指标：
-
-- iteration 100：不能连续 20 iterations 同时出现 mean reward 接近零、mean episode length < 20；
-- iteration 300：最后 50 iterations 的 median reward > 0.05、median episode length > 100；
-- iteration 1000：上述状态保持，无 NaN/Inf，`Loss/learning_rate` 始终为 `2e-4`。
-
-任一门禁失败即停止，不自动改 reward、curriculum、Dagger、PhysX partitions 或其他参数。通过
-iteration 1000 后，按最近 100 iterations 的中位耗时估算剩余 ETA，并进入事件驱动等待：正常
-训练睡到预计完成时间；进程退出、Traceback、NCCL/CUDA/NaN 或再次出现持续零奖励 collapse 时
-提前唤醒。完成后记录 rank 0 输出的确切 run directory 和最终 checkpoint，不使用目录 glob
-或 `latest`。
 
 ### 7.2 Student
 
@@ -432,24 +280,6 @@ NCCL_DEBUG=WARN WANDB_MODE=online OMNI_KIT_ACCEPT_EULA=YES \
   --logger wandb --log_project_name isaaclab-parkour
 ```
 
-student runner 因 distillation 类型会加载 teacher model；这里不传 `--resume`，避免把 teacher
-optimizer 状态解释成 student resume。
-
-iteration 100 门禁已通过：total loss 从 iteration 0 的 `4.9011` 降至 `2.9893`，depth actor
-loss `2.1700`、yaw loss `0.8193`，吞吐 `5559 steps/s`，无 NaN/Inf 或进程错误。最近 100
-iterations 中位耗时为 `4.220s`，预计约 `2026-09-02 08:03 UTC` 完成；之后使用与 Teacher
-相同的事件驱动等待，正常结束或新出现 Traceback、NCCL/CUDA/NaN、worker 退出时唤醒。
-
-首次 Student 进程在 iteration 2286 后于 `2026-09-02 04:52 UTC` 被外部硬终止：最后指标
-total loss `1.0828`，没有 traceback、OOM、NCCL/CUDA 错误或 wrapper exit marker；系统和
-GPU 资源均充足，tmux server 与其他 session 正常，仅 Student session 消失。最后完整保存点
-是 `model_2200.pt`，其 Student 网络、depth encoder/actor、optimizer 和 iteration 均完整。
-续跑使用 `--resume --load_run 2026-09-02_10-10-50_student_zero_delay_ddp_seed1_5k
---checkpoint model_2200.pt --max_iterations 2800`；runner 从 iteration 2200 计到 4999，并创建
-run `2026-09-02_13-02-16_student_zero_delay_ddp_seed1_5k_resume2200`。恢复后的 iteration
-2200 total loss `0.9842`，iteration 2220 为 `1.1273`；最近 20 iterations 中位耗时
-`4.045s`，新 ETA 为 `2026-09-02 08:11 UTC`。
-
 ## 8. 固定评测
 
 正式评测继续使用上游 `evaluation.py` 的 256 envs、1500 steps，以及四项输出：
@@ -469,36 +299,15 @@ episode。不要用 A1 论文图表或 Robot Parkour 五技能数值作为 Go2 g
 student evaluation 同样需要 `--enable_cameras`，并在进程环境中预加载
 `${PARKOUR_ENV}/lib/libGLU.so.1`；所有 checkpoint 都写出精确绝对路径，不使用 `latest`。
 
-本轮通过条件：
-
-- teacher 15k / student 5k runs 正常结束；
-- rank 0 checkpoints 可由对应 play/evaluation 入口显式加载；
-- reward、episode length、waypoint progress、edge violation 全部 finite；
-- waypoint progress 非零；
-- action runtime probe 证明同拍施加；
-- depth runtime probe 证明每 5 步读取当次 buffer 最新帧。
-
 ## 9. 实际运行记录
 
 | 项目 | 状态/结果 |
 |---|---|
-| worktree | `/pfs/users/lxy/latency-sensitive-bench`；`master@37641dc8` |
-| GPU | 2× 97,887 MiB Blackwell，compute capability 12.0，driver 580.159.04；P2P read/write OK |
-| Isaac Lab / Parkour | `46dff135...` pinned；Parkour `0fc54118...`，optimization base `4265e66...` |
 | Python/Torch/Isaac Sim | Python 3.11；Torch 2.7.0+cu128；Isaac Sim 5.0.0；安装完成 |
-| fork branches | `fix/extreme-parkour-ddp`=`e3fe6e3d...`；`research/zero-delay-go2`=`44dc7c8...`；`master`=`0fc54118...`；均已发布 |
-| upstream PR | compare/create form 已就绪；GitHub App 对 upstream 只有 read 权限，API create PR 返回 403 |
-| 单卡 teacher/student smoke | 通过；runs `2026-09-01_16-27-46_smoke_single` / `2026-09-01_16-42-32_smoke_single_student` |
-| teacher DDP smoke | 通过；run `2026-09-01_16-35-39_smoke_ddp_teacher`；384 timesteps |
-| student DDP smoke | 通过；run `2026-09-01_16-43-57_smoke_ddp_student`；48 timesteps |
-| optimized teacher/student DDP smoke | 通过；runs `2026-09-01_19-27-20_smoke_strict_opt_teacher_ddp` / `2026-09-01_19-28-07_smoke_strict_opt_student_ddp` |
-| teacher 3072 env/rank capacity smoke | 通过；run `2026-09-01_16-47-41_capacity_ddp_teacher_3072`；1 iteration、147,456 timesteps、42,506 FPS；`model_0.pt` 可加载 |
 | teacher 3072 env/rank profile | baseline 54,056 FPS；optimized run `2026-09-01_19-35-52_profile_teacher_strict_opt_final_ddp_3072` 63,390 FPS，+17.3% |
 | student 96 env/rank profile | baseline 6,192 FPS；optimized run `2026-09-01_19-36-56_profile_student_strict_opt_final_ddp_96` 6,958.5 FPS，+12.4% |
 | teacher/student exact resume | 通过；优化 profile 的 `model_4.pt` 均从 iteration 4 继续训练 1 iteration |
 | camera teardown | current keyboard unsubscribe API 单卡实跑通过，无退出 `AttributeError` |
-| 优化代码 pin | base `4265e66...`；scanner/cuDNN/partitions follow-up 位于 Parkour `0fc54118...` |
-| 第二轮 strict free lunch | teacher/student 双卡均未稳定超过 1% 端到端门槛；实验代码已回退 |
 | allclose candidates | compile 因默认 `allclose` 失败而拒绝；cuDNN benchmark +1.26%～+1.64%，已启用，backward 最大绝对差异 `7.96e-13` |
 | teacher adaptive 15k | **failed/collapsed**；run `2026-09-01_23-53-57_teacher_zero_delay_ddp_seed1_15k`；[W&B `vjsucm5x`](https://wandb.ai/saberrr-zju/isaaclab-parkour/runs/vjsucm5x)；console `logs/teacher_zero_delay_ddp_seed1_15k.console.log`；LR iteration 5 达 `1e-2`，value loss iteration 12 达 `9.6582`，reward iteration 24 峰值 `0.2307` 后下降并从约 iteration 80 持续为零；iteration 1418 人工停止，episode length `11.09` |
 | teacher fixed 15k | **completed；exit 0**；run `2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k`；checkpoint `model_14999.pt`；[W&B `8lpfqa6a`](https://wandb.ai/saberrr-zju/isaaclab-parkour/runs/8lpfqa6a)；console `logs/teacher_zero_delay_fixed_lr_ddp_seed1_15k.console.log`；保存配置已确认 `schedule=fixed`、LR `2e-4`；gates 100/300/1000 均通过；iteration 14999 reward `19.59`、episode length `710.00`、terrain level `6.0593`、value loss `0.0049`；训练于 `2026-09-02 02:07 UTC` 正常结束，未复现 collapse |
@@ -506,17 +315,6 @@ student evaluation 同样需要 `--enable_cameras`，并在进程环境中预加
 | teacher fixed evaluation | **passed**；checkpoint `model_14999.pt`；console `logs/eval_teacher_fixed_lr_seed1_model_14999.console.log`；reward `23.14±6.02`、episode length `907.95±296.15`、normalized waypoint progress `1.00±0.01`、edge violation `0.19±0.42` |
 | student fixed evaluation | pending |
 
-## 10. 本轮明确 deferred
-
-- 通用 `latency_bench` EnvAdapter 与 scheduler/executor 接入；Parkour VLA 已直接复用
-  `PolicyRunner` 和 `ProcessInferencePool` 作为模型边界；
-- fixed/profile/distribution/temporal latency sweep；
-- 上游 action FIFO、旧 depth frame 或 latency-aware retraining；
-- Robot Parkour Learning 五技能、官方 A1 Isaac Gym 复现；
-- sim2sim、sim2real 和真机部署；
-- 更长稳态 profile、Nsight kernel trace 和 Student camera pipeline 进一步深挖；
-- `empirical_normalization=True` 的 teacher-to-student 双 normalizer 数据流；当前两个正式配置均关闭；
-- 为 future backend、robot 或第三张 GPU 增加抽象。
 
 ## 11. 34D perception VLA zero-delay bootstrap
 
@@ -603,7 +401,7 @@ finalizer 流式生成 canonical parquet、train/validation LeRobot videos、53D
 modality metadata，并对两套 dataset 运行 `gr00t.data.stats`。缺字段、错误 action layout 或错误
 model output dimension 直接失败，不使用别名、零 state 或其他 fallback。
 
-### 11.3 GR00T 5k 与最终闭环 gate
+### 11.3 GR00T 5k 与最终闭环评测
 
 正式训练固定 fresh `GR00T-N1.7-3B`、2 GPUs、global batch 128、LR `1e-4`、H1、5k steps、
 one-step regression、vision tuning、BF16、action/state dropout 0：
@@ -615,34 +413,37 @@ bash scripts/bash_scripts/train_go2_parkour_vla_5k.sh
 
 最终 evaluator 在 Isaac GPU 与独立 GR00T Python worker 之间复用现有 inference pool；50 个
 环境按 batch 8 同步预测，全部 34D perception 输出返回前仿真不前进，因此该阶段定义为
-zero-delay。actor 连续 5 个 control steps 使用同一 latent/yaw，并将预测 yaw 乘回 `1.5`：
+zero-delay。actor 连续 5 个 control steps 使用同一 latent/yaw，并将预测 yaw 乘回 `1.5`。
+环境自动 reset 后继续参与评测，直到累计恰好 100 个 episode；每个 episode 独立最多 1,500
+个 50 Hz control steps（30 秒）。初始 terrain assignment 固定后，eval reset 不再按被测 policy
+表现升降 terrain level，因此各 checkpoint 使用同一评测分布：
 
 ```bash
 cd "${PARKOUR_ROOT}"
 PYTHONPATH="${REPO_ROOT}" OMNI_KIT_ACCEPT_EULA=YES \
   "${PARKOUR_PY}" scripts/rsl_rl/parkour_vla.py vla-eval \
   --headless --seed 2 --num_envs 50 --checkpoint "${TEACHER_CKPT}" \
+  --eval_episodes 100 --max_episode_steps 1500 \
   --policy_config "${REPO_ROOT}/configs/examples/extreme_parkour/official_gr00t_eval.yaml" \
   --inference_device cuda:1 --inference_batch_size 8 \
   --output_dir "${REPO_ROOT}/outputs/official_gr00t/extreme_parkour_go2/eval"
 ```
 
 输出仍为 reward、episode length、normalized waypoint progress、edge violation。四项必须
-finite，且 GR00T mean normalized waypoint progress 至少达到同一 50-env teacher 的 50%。
-在该 gate 通过前，不启动正式 DAgger run、latency scheduler、profile、raw-action track 或
-HAIC VLA。此前记录的 clean SFT checkpoint-5000 progress `0.6850±0.3393` 来自旧 evaluator：
+finite。此前记录的 clean SFT checkpoint-5000 progress `0.6850±0.3393` 来自旧 evaluator：
 每 5 个 control steps 只有第 1 步使用 VLA 预测 yaw，后 4 步错误复用了 observation 中的
 privileged yaw，因此该结果无效。commit `658cd53` 修复为 5 步持续使用预测 yaw 后，同一
-checkpoint 在 seed 2、50 env、batch 32 下重测 progress 为 `0.2325±0.2165`，未通过 SFT
-gate；结果见 `outputs/official_gr00t/extreme_parkour_go2_dagger/round_00/eval_before/vla-eval.json`。
+checkpoint 在 seed 2、50 env、batch 32 下重测 progress 为 `0.2325±0.2165`；该结果来自旧的
+50-episode evaluator，仅保留为历史诊断值。
 
 ## 12. 固定 teacher actor 的 latent-only DAgger
 
-DAgger 只更新已经通过 SFT gate 的 VLA，固定同一个 teacher actor 用于 rollout 和评测：
+DAgger 从现有 SFT VLA 开始迭代，固定同一个 teacher actor 用于 rollout 和评测：
 
 ```text
 RGB + masked proprio -> trainable VLA -> latent32 + normalized yaw2
-                                      -> fixed teacher actor -> joint action12 (rollout only)
+                                      -> paper MTS yaw -> fixed teacher actor
+                                      -> joint action12 (rollout only)
                                       -> fixed joint-position/PD controller -> Go2
 ```
 
@@ -657,8 +458,12 @@ Actor 与 history encoder 的唯一实现位于 Isaaclab_Parkour 的
 Isaaclab_Parkour 或 latency-sensitive-bench 的 Actor 代码。
 
 训练只使用标准 34D SFT latent/yaw loss：32D terrain latent 加 2D normalized current/next
-yaw；不添加 12D action loss，也不训练或保存 student actor。固定 normalization stats 与
-bootstrap 数据一致。
+yaw；current/next GT yaw 统一 wrap 到 `[-pi, pi]` 后除以 `1.5`。VLA 输入中的 yaw 两维在 SFT
+和 DAgger 都置零。DAgger rollout 按原论文 MTS 比较 predicted current yaw 与 GT current yaw
+的环形误差：误差小于 `0.6 rad` 时给低层 actor 整对 predicted yaw，否则整对使用 GT yaw；
+环境始终由 student motor action 推进。最终 eval 始终使用 predicted yaw，不使用 MTS fallback。
+不添加 12D action loss，也不训练或保存 student actor。固定 normalization stats 与 bootstrap
+数据一致。
 
 ### 12.1 有界 DAgger 预算
 
@@ -685,14 +490,17 @@ DAgger collector 使用一个 canonical env 1 进程、192 camera envs 和 seed 
 shard 是 `episode.npz + episode.mp4`，不落逐帧 PNG；numeric payload 保存
 `state[53]`、`action[34]` 和 `termination[5]`。每行保存一个 oracle 34D latent/yaw target，
 包括 failure/timeout 标记处；
-`termination` 只写入 parquet 供诊断，不进入标准 34D loss、不屏蔽 loss，也不重置 5-step
-cadence。LeRobot parquet 直接保留这些诊断列，
+`termination` 只写入 parquet 供诊断，不进入标准 34D loss，也不屏蔽 loss。每个全局 10 Hz
+block 为全部环境刷新 VLA；block 中 reset 的环境立即刷新，避免 per-env phase 锁相后退出采样池。
+reset observation 同时从新 root pose 和新 goals 立即重算 wrapped GT yaw，不复用上一 episode 缓存。
+LeRobot parquet 直接保留这些诊断列，
 并逐字节复制由 bootstrap 数据现有 fingerprint-aware stats 流程生成的固定 normalization
 stats，DAgger round 不重新计算 stats。
 
 完成 250/25 bootstrap 数据和上节 5k SFT 后，以下入口先在 env 1 执行 round-0
-step-0/50-env baseline，再依次执行 10 轮 env 1 的 192-env 采集、转换、500-step
-latent-only 训练和 env 1 的 seed-2/50-env 固定评测：
+step-0 baseline，再依次执行 10 轮 env 1 的 192-env 采集、转换、500-step latent-only 训练和
+env 1 的 seed-2 固定评测。每个 eval 使用 50 个并行环境、严格统计 100 个 episode，单 episode
+最多 1,500 control steps：
 
 ```bash
 cd /pfs/users/lxy/latency-sensitive-bench
@@ -712,10 +520,9 @@ round。round 内采集中断不能只按 row count
 旧 current-only DAgger 输出缺少可复用的 round `lerobot/` 和聚合训练 manifest，不能作为该流程的
 resume 根目录；重新跑时使用新的 output root 或先清掉旧 round/checkpoint。
 默认输出根目录是 `outputs/official_gr00t/extreme_parkour_go2_dagger`，最终 VLA checkpoint 是
-`training/checkpoint-5000`。
+`training/<wandb-run-id>/checkpoint-5000`。
 
-2026-09-03 的真实 smoke 已验证：SFT `checkpoint-5000` 可直接初始化
-`Gr00tPolicy`，旧的 `haic_dagger` processor 参数错误不再出现；collector 随后以
-`UnitreeGo2ParkourVlaEnvCfg` 创建 192 个 canonical env 1，并成功写出一个 192-row shard。
-该 shard 包含 finite 的 `state[192,53]`、`action[192,34]`、
-`termination[192,5]` 以及 MP4。尚未启动正式 640k-row / 3.2M-control-step run。
+2026-09-03 的旧 DAgger 与 statsfix run 均未使用论文 MTS，且 collector 存在 reset phase
+锁相；旧 normalization run 还会裁剪超出 bootstrap 范围的 yaw。旧 run 的 round-0 progress
+分别从 `0.2225` 降至 `0.0700`、从 `0.2300` 降至 `0.1475`，全部数据和 checkpoint 作废，
+不能用于 resume 或后续聚合训练。

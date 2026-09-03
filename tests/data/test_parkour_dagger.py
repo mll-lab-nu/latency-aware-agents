@@ -112,18 +112,20 @@ def test_parkour_dagger_converter_writes_video_and_numeric_parquet(tmp_path):
     assert task["task"] == "Traverse the parkour course and follow each waypoint."
 
 
-def test_dagger_prepare_copies_bootstrap_stats_without_recomputing(
-    tmp_path, monkeypatch
-):
+def test_dagger_prepare_copies_bootstrap_stats(tmp_path, monkeypatch):
     from scripts.official_gr00t import prepare_parkour_dataset as prepare_module
 
-    source = tmp_path / "bootstrap/meta/stats.json"
-    source.parent.mkdir(parents=True)
-    source.write_bytes(b'{"fixed": [1.0]}\n')
     output = tmp_path / "lerobot"
+    val_output = tmp_path / "lerobot__val"
+    bootstrap = tmp_path / "bootstrap"
+    (bootstrap / "meta").mkdir(parents=True)
+    bootstrap_stats = b'{"action":{"mean":[1.0]}}\n'
+    (bootstrap / "meta/stats.json").write_bytes(bootstrap_stats)
+    commands = []
 
     def fake_convert(*args, **kwargs):
         (output / "meta").mkdir(parents=True)
+        (val_output / "meta").mkdir(parents=True)
         return {"dataset_name": output.name}
 
     monkeypatch.setattr(
@@ -132,7 +134,7 @@ def test_dagger_prepare_copies_bootstrap_stats_without_recomputing(
     monkeypatch.setattr(
         prepare_module.subprocess,
         "run",
-        lambda *args, **kwargs: pytest.fail("DAgger stats must not be recomputed"),
+        lambda command, **kwargs: commands.append(command),
     )
 
     manifest = prepare_module.prepare_parkour_dataset(
@@ -140,8 +142,10 @@ def test_dagger_prepare_copies_bootstrap_stats_without_recomputing(
         output,
         force=False,
         dagger=True,
-        normalization_source=tmp_path / "bootstrap",
+        normalization_source=bootstrap,
     )
 
     assert manifest == {"dataset_name": "lerobot"}
-    assert (output / "meta/stats.json").read_bytes() == source.read_bytes()
+    assert commands == []
+    assert (output / "meta/stats.json").read_bytes() == bootstrap_stats
+    assert (val_output / "meta/stats.json").read_bytes() == bootstrap_stats

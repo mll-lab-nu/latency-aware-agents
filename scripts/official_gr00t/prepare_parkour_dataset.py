@@ -35,8 +35,6 @@ def prepare_parkour_dataset(
     expected_rows: int | None = None,
     normalization_source: Path | None = None,
 ) -> dict:
-    if dagger and normalization_source is None:
-        raise TypeError("--normalization-source is required for --dagger")
     if dagger:
         manifest = convert_parkour_dagger_shards_to_lerobot(
             raw_dir,
@@ -69,11 +67,12 @@ def prepare_parkour_dataset(
         action_labels=GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.labels,
         force=force,
     )
-    dataset_dirs = [output_dir]
-    val_dir = output_dir.with_name(f"{output_dir.name}__val")
-    if val_dir.exists():
-        dataset_dirs.append(val_dir)
-    for dataset_dir in dataset_dirs:
+    for dataset_dir in (
+        output_dir,
+        output_dir.with_name(f"{output_dir.name}__val"),
+    ):
+        if not dataset_dir.exists():
+            continue
         subprocess.run(
             [
                 str(GR00T_PYTHON),
