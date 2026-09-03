@@ -14,6 +14,13 @@ def _bootstrap_arrays(rows: int = 2) -> dict[str, np.ndarray]:
     return {
         "state": np.arange(rows * 605, dtype=np.float32).reshape(rows, 605),
         "action": np.arange(rows * 256, dtype=np.float32).reshape(rows, 256),
+        "actor_input": np.arange(rows * 5 * 605, dtype=np.float32).reshape(
+            rows, 5, 605
+        ),
+        "teacher_action": np.arange(rows * 5 * 23, dtype=np.float32).reshape(
+            rows, 5, 23
+        ),
+        "termination": np.zeros((rows, 5), dtype=bool),
         "image_shape": np.asarray([2, 2, 3], dtype=np.int64),
     }
 
@@ -71,22 +78,28 @@ def test_haic_dagger_converter_keeps_exact_numeric_contract(tmp_path):
     assert manifest["state_dim"] == 605
     assert manifest["action_dim"] == 256
     assert manifest["teacher_latent_dim"] == 256
+    assert manifest["teacher_action_dim"] == 23
+    assert manifest["actor_input_shape"] == [5, 605]
+    assert manifest["teacher_action_shape"] == [5, 23]
+    assert manifest["termination_shape"] == [5]
     assert manifest["termination_counts"] == [0, 0, 0, 0, 2]
     row = pq.read_table(output / "data/chunk-000/episode_000000.parquet").to_pylist()[0]
     assert len(row["observation.state"]) == 605
     assert len(row["action"]) == 256
+    assert np.asarray(row["actor_input"]).shape == (5, 605)
+    assert np.asarray(row["teacher_action"]).shape == (5, 23)
+    assert np.asarray(row["termination"]).shape == (5,)
     np.testing.assert_array_equal(row["action"], _bootstrap_arrays()["action"][0])
     assert row["done"] is True
     info = json.loads((output / "meta/info.json").read_text())
     assert info["features"]["action"]["shape"] == [256]
-    assert "actor_input" not in row
-    assert "teacher_action" not in row
-    assert "is_init" not in row
-    assert "object_target" not in row
+    assert info["features"]["actor_input"]["shape"] == [5, 605]
+    assert info["features"]["teacher_action"]["shape"] == [5, 23]
+    assert info["features"]["termination"]["shape"] == [5]
     assert "object_target" not in info["features"]
 
 
-def test_haic_bootstrap_converter_omits_dagger_targets(tmp_path):
+def test_haic_bootstrap_converter_keeps_action_distillation_targets(tmp_path):
     from latency_bench.data.haic_dagger import (
         convert_haic_bootstrap_shards_to_lerobot,
         write_haic_bootstrap_shard,
@@ -112,6 +125,9 @@ def test_haic_bootstrap_converter_omits_dagger_targets(tmp_path):
         "observation.image",
         "observation.state",
         "action",
+        "actor_input",
+        "teacher_action",
+        "termination",
         "timestamp",
         "episode_index",
         "frame_index",

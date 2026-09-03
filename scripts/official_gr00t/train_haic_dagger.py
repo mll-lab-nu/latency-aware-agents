@@ -17,6 +17,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HAIC_ROOT = REPO_ROOT / "third_party/HAIC"
 HAIC_SCRIPT = HAIC_ROOT / "scripts/haic_vla.py"
+HAIC_ACTOR_MODULE = "active_adaptation.learning.ppo.haic_actor"
 GROOT_ROOT = REPO_ROOT / "third_party/Isaac-GR00T"
 GR00T_PYTHON = GROOT_ROOT / ".venv/bin/python"
 PREPARE_SCRIPT = REPO_ROOT / "scripts/official_gr00t/prepare_haic_dataset.py"
@@ -44,18 +45,27 @@ DEFAULT_INFERENCE_BATCH_SIZE = 32
 CHECKPOINT_COMPLETE_MARKER = ".dagger-round-complete"
 EVAL_ENVS = 100
 HAIC_CONTROL_STEPS_PER_VLA = 5
-DEFAULT_WANDB_RUN_ID = "haic_pull_cart_vla_dagger_latent_5k"
+DEFAULT_WANDB_RUN_ID = "haic_pull_cart_vla_dagger_action_5k"
 
 DEFAULT_TEACHER_CHECKPOINT = REPO_ROOT / (
     "outputs/haic/phase1_teacher/checkpoint_final.pt"
 )
 DEFAULT_BASE_MODEL = REPO_ROOT / "outputs/official_gr00t/models/GR00T-N1.7-3B"
-DEFAULT_OUTPUT_ROOT = REPO_ROOT / "outputs/official_gr00t/haic_pull_cart_vla_dagger"
+DEFAULT_OUTPUT_ROOT = REPO_ROOT / "outputs/official_gr00t/haic_pull_cart_vla_action_dagger"
 DEFAULT_HAIC_PYTHON = Path("/pfs/users/lxy/conda/envs/haic/bin/python")
 
 
 def checkpoint_dir(training_output: Path, completed_updates: int) -> Path:
     return training_output / f"checkpoint-{completed_updates}"
+
+
+def training_dataset_dirs(
+    output_root: Path, round_index: int
+) -> list[Path]:
+    return [
+        output_root / f"round_{index:02d}" / "lerobot"
+        for index in range(round_index + 1)
+    ]
 
 
 def write_policy_config(
@@ -157,8 +167,11 @@ def prepare_command(
 def _training_flags(
     *,
     base_model: Path,
-    dataset_dir: Path,
+    dataset_dirs: list[Path],
+    actor_checkpoint: Path,
+    replay_dataset: Path | None,
     output_dir: Path,
+    experiment_name: str,
     max_steps: int,
     gradient_accumulation_steps: int,
     checkpoint_interval: int,
@@ -174,7 +187,7 @@ def _training_flags(
         "--base-model-path",
         str(base_model),
         "--dataset-path",
-        str(dataset_dir),
+        os.pathsep.join(str(path) for path in dataset_dirs),
         "--embodiment-tag",
         "NEW_EMBODIMENT",
         "--modality-config-path",
@@ -183,12 +196,18 @@ def _training_flags(
         "1",
         "--output-dir",
         str(output_dir),
+        "--experiment-name",
+        experiment_name,
         "--max-state-dim",
         "605",
         "--max-action-dim",
         "256",
         "--action-horizon",
         "1",
+        "--action-objective",
+        "haic",
+        "--action-actor-checkpoint",
+        str(actor_checkpoint),
         "--fixed-action-noise-seed",
         "0",
         "--one-step-action-regression",
@@ -203,7 +222,7 @@ def _training_flags(
         "--optim",
         "adamw_torch_fused",
         "--learning-rate",
-        "0.0001",
+        "0.00005",
         "--warmup-ratio",
         "0.025",
         "--max-steps",
@@ -226,6 +245,8 @@ def _training_flags(
         "2",
         "--use-wandb",
     ]
+    if replay_dataset is not None:
+        command.extend(["--replay-bootstrap-dataset", str(replay_dataset)])
     if resume_checkpoint is not None:
         command.extend(["--resume-checkpoint-path", str(resume_checkpoint)])
     return command
@@ -235,15 +256,20 @@ def bootstrap_training_command(
     *,
     base_model: Path,
     dataset_dir: Path,
+    actor_checkpoint: Path,
     training_output: Path,
+    experiment_name: str,
     max_steps: int = BOOTSTRAP_UPDATES,
     gradient_accumulation_steps: int = BOOTSTRAP_GRADIENT_ACCUMULATION_STEPS,
 ) -> list[str]:
     """Build the single-GPU privileged-oracle bootstrap training command."""
     return _training_flags(
         base_model=base_model,
-        dataset_dir=dataset_dir,
+        dataset_dirs=[dataset_dir],
+        actor_checkpoint=actor_checkpoint,
+        replay_dataset=None,
         output_dir=training_output,
+        experiment_name=experiment_name,
         max_steps=max_steps,
         gradient_accumulation_steps=gradient_accumulation_steps,
         checkpoint_interval=max_steps,
@@ -254,8 +280,11 @@ def bootstrap_training_command(
 def training_command(
     *,
     bootstrap_checkpoint: Path,
-    dataset_dir: Path,
+    replay_dataset: Path,
+    dataset_dirs: list[Path],
+    actor_checkpoint: Path,
     training_output: Path,
+    experiment_name: str,
     resume_checkpoint: Path | None,
     max_steps: int = TOTAL_UPDATES,
     gradient_accumulation_steps: int = GRADIENT_ACCUMULATION_STEPS,
@@ -264,8 +293,11 @@ def training_command(
     """Build one HAIC DAgger training command with exact round resume."""
     return _training_flags(
         base_model=bootstrap_checkpoint,
-        dataset_dir=dataset_dir,
+        dataset_dirs=dataset_dirs,
+        actor_checkpoint=actor_checkpoint,
+        replay_dataset=replay_dataset,
         output_dir=training_output,
+        experiment_name=experiment_name,
         max_steps=max_steps,
         gradient_accumulation_steps=gradient_accumulation_steps,
         checkpoint_interval=checkpoint_interval,
@@ -298,6 +330,7 @@ def log_eval_metrics(
     init_kwargs = {
         "project": "finetune-gr00t-n1d7",
         "id": run_id,
+        "name": run_id,
         "resume": "allow",
     }
     if mode is not None:
@@ -344,12 +377,11 @@ def evaluate_checkpoint(
     )
 
 
-def archive_and_remove_round_data(
+def archive_and_remove_raw_data(
     round_dir: Path, raw_dir: Path, dataset_dir: Path
 ) -> None:
     shutil.copy2(dataset_dir / "manifest.json", round_dir / "dataset_manifest.json")
     shutil.rmtree(raw_dir)
-    shutil.rmtree(dataset_dir)
 
 
 def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
@@ -358,6 +390,31 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
     dataset_dir = output_root / "lerobot"
     episodes_train = 2 if smoke else BOOTSTRAP_TRAIN_EPISODES
     episodes_val = 1 if smoke else BOOTSTRAP_VAL_EPISODES
+    _run(
+        collector_command(
+            args.haic_python,
+            mode="oracle-eval",
+            teacher_checkpoint=args.teacher_checkpoint,
+            output_dir=output_root / "oracle_eval",
+            inference_device=args.inference_device,
+            num_envs=1 if smoke else EVAL_ENVS,
+            seed=0,
+            round_index=0,
+            max_steps=args.eval_max_steps,
+            inference_batch_size=args.inference_batch_size,
+        ),
+        cwd=HAIC_ROOT,
+    )
+    _run(
+        [
+            str(args.haic_python),
+            "-m",
+            HAIC_ACTOR_MODULE,
+            str(args.teacher_checkpoint),
+            str(args.actor_checkpoint),
+        ],
+        cwd=HAIC_ROOT,
+    )
     for split, episodes, seed in (("train", episodes_train, 0), ("val", episodes_val, 1)):
         _run(
             collector_command(
@@ -380,11 +437,14 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
         cwd=REPO_ROOT,
     )
     training_output = output_root / "training"
+    experiment_name = f"{args.wandb_run_id}_sft"
     _run(
         bootstrap_training_command(
             base_model=args.base_model,
             dataset_dir=dataset_dir,
+            actor_checkpoint=args.actor_checkpoint,
             training_output=training_output,
+            experiment_name=experiment_name,
             max_steps=1 if smoke else BOOTSTRAP_UPDATES,
         ),
         cwd=REPO_ROOT,
@@ -392,12 +452,14 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
             "CUDA_VISIBLE_DEVICES": "0",
             "NO_ALBUMENTATIONS_UPDATE": "1",
             "PYTHONPATH": f"{HAIC_ROOT}{os.pathsep}{REPO_ROOT}",
-            "WANDB_RUN_ID": f"{args.wandb_run_id}_sft",
+            "WANDB_RUN_ID": experiment_name,
             "WANDB_RESUME": "allow",
             **({"WANDB_MODE": "offline"} if smoke else {}),
         },
     )
-    return training_output / f"checkpoint-{1 if smoke else BOOTSTRAP_UPDATES}"
+    return training_output / experiment_name / (
+        f"checkpoint-{1 if smoke else BOOTSTRAP_UPDATES}"
+    )
 
 
 def run_smoke(args: argparse.Namespace) -> None:
@@ -453,11 +515,16 @@ def run_smoke(args: argparse.Namespace) -> None:
         cwd=REPO_ROOT,
     )
     training_output = round_dir / "training"
+    training_run_output = training_output / args.wandb_run_id
+    smoke_datasets = [dataset_dir]
     _run(
         training_command(
             bootstrap_checkpoint=bootstrap_checkpoint,
-            dataset_dir=dataset_dir,
+            replay_dataset=args.output_root / "bootstrap/lerobot",
+            dataset_dirs=smoke_datasets,
+            actor_checkpoint=args.actor_checkpoint,
             training_output=training_output,
+            experiment_name=args.wandb_run_id,
             resume_checkpoint=None,
             max_steps=1,
             gradient_accumulation_steps=1,
@@ -477,15 +544,18 @@ def run_smoke(args: argparse.Namespace) -> None:
     write_policy_config(
         args.policy_config,
         eval_policy_config,
-        model_path=training_output / "checkpoint-2",
+        model_path=training_run_output / "checkpoint-2",
         inference_device=args.inference_device,
     )
     _run(
         training_command(
             bootstrap_checkpoint=bootstrap_checkpoint,
-            dataset_dir=dataset_dir,
+            replay_dataset=args.output_root / "bootstrap/lerobot",
+            dataset_dirs=smoke_datasets,
+            actor_checkpoint=args.actor_checkpoint,
             training_output=training_output,
-            resume_checkpoint=checkpoint_dir(training_output, 1),
+            experiment_name=args.wandb_run_id,
+            resume_checkpoint=checkpoint_dir(training_run_output, 1),
             max_steps=2,
             gradient_accumulation_steps=1,
             checkpoint_interval=1,
@@ -516,12 +586,14 @@ def run_pipeline(args: argparse.Namespace) -> None:
     args.output_root = args.output_root.resolve()
     args.policy_config = args.policy_config.resolve()
     args.haic_python = args.haic_python.resolve()
+    args.actor_checkpoint = args.actor_checkpoint.resolve()
     bootstrap_checkpoint = args.bootstrap_checkpoint
     if args.run_bootstrap:
         bootstrap_checkpoint = run_bootstrap(args, smoke=False)
     bootstrap_checkpoint = bootstrap_checkpoint.resolve()
     args.bootstrap_dataset = args.bootstrap_dataset.resolve()
     training_output = args.output_root / "training"
+    training_run_output = training_output / args.wandb_run_id
     haic_environment = os.environ | {
         "PYTHONPATH": f"{HAIC_ROOT}{os.pathsep}{REPO_ROOT}",
         "OMNI_KIT_ACCEPT_EULA": "YES",
@@ -540,12 +612,20 @@ def run_pipeline(args: argparse.Namespace) -> None:
         current_model = (
             bootstrap_checkpoint
             if round_index == 0
-            else checkpoint_dir(training_output, round_index * UPDATES_PER_ROUND)
+            else checkpoint_dir(training_run_output, round_index * UPDATES_PER_ROUND)
         )
         trained_model = checkpoint_dir(
-            training_output, (round_index + 1) * UPDATES_PER_ROUND
+            training_run_output, (round_index + 1) * UPDATES_PER_ROUND
         )
         complete_marker = trained_model / CHECKPOINT_COMPLETE_MARKER
+        datasets = training_dataset_dirs(args.output_root, round_index)
+        training_datasets_path = round_dir / "training_datasets.json"
+        training_datasets_manifest = {
+            "round_index": round_index,
+            "datasets": [str(path) for path in datasets],
+            "replay_dataset": str(args.bootstrap_dataset),
+            "replay_ratio": 0.5,
+        }
         policy_config = round_dir / "collector_policy.yaml"
         write_policy_config(
             args.policy_config,
@@ -588,7 +668,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
                     env=haic_environment,
                     check=True,
                 )
-            subprocess.run(
+            _run(
                 prepare_command(
                     raw_dir,
                     dataset_dir,
@@ -598,22 +678,36 @@ def run_pipeline(args: argparse.Namespace) -> None:
                     normalization_source=args.bootstrap_dataset,
                 ),
                 cwd=REPO_ROOT,
-                check=True,
             )
             subprocess.run(
                 training_command(
                     bootstrap_checkpoint=bootstrap_checkpoint,
-                    dataset_dir=dataset_dir,
+                    replay_dataset=args.bootstrap_dataset,
+                    dataset_dirs=datasets,
+                    actor_checkpoint=args.actor_checkpoint,
                     training_output=training_output,
+                    experiment_name=args.wandb_run_id,
                     resume_checkpoint=(current_model if round_index > 0 else None),
                 ),
                 cwd=REPO_ROOT,
                 env=training_environment,
                 check=True,
             )
+            training_datasets_path.write_text(
+                json.dumps(training_datasets_manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
             temporary_marker = trained_model / f"{CHECKPOINT_COMPLETE_MARKER}.tmp"
             temporary_marker.write_text("complete\n", encoding="utf-8")
             temporary_marker.replace(complete_marker)
+        else:
+            recorded_training_datasets = json.loads(
+                training_datasets_path.read_text(encoding="utf-8")
+            )
+            if recorded_training_datasets != training_datasets_manifest:
+                raise RuntimeError(
+                    f"{complete_marker} was produced with a different DAgger dataset aggregate"
+                )
         eval_policy_config = round_dir / "eval_policy.yaml"
         write_policy_config(
             args.policy_config,
@@ -628,13 +722,14 @@ def run_pipeline(args: argparse.Namespace) -> None:
             step=(round_index + 1) * UPDATES_PER_ROUND,
             environment=haic_environment,
         )
-        archive_and_remove_round_data(round_dir, raw_dir, dataset_dir)
+        archive_and_remove_raw_data(round_dir, raw_dir, dataset_dir)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--teacher-checkpoint", type=Path, default=DEFAULT_TEACHER_CHECKPOINT)
     parser.add_argument("--base-model", type=Path, default=DEFAULT_BASE_MODEL)
+    parser.add_argument("--actor-checkpoint", type=Path)
     parser.add_argument("--bootstrap-checkpoint", type=Path)
     parser.add_argument("--bootstrap-dataset", type=Path)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
@@ -649,10 +744,12 @@ def main() -> None:
     parser.add_argument("--policy-config", type=Path, default=DEFAULT_POLICY_CONFIG)
     parser.add_argument("--wandb-run-id", default=DEFAULT_WANDB_RUN_ID)
     parser.add_argument("--start-round", type=int, default=0)
-    parser.add_argument("--end-round", type=int, default=DAGGER_ROUNDS)
+    parser.add_argument("--end-round", type=int, default=1)
     parser.add_argument("--run-bootstrap", action="store_true")
     parser.add_argument("--smoke", action="store_true")
     args = parser.parse_args()
+    if args.actor_checkpoint is None:
+        args.actor_checkpoint = args.output_root / "bootstrap/actor_adapt.pt"
     if args.bootstrap_dataset is None:
         args.bootstrap_dataset = args.output_root / "bootstrap/lerobot"
     if args.smoke:
@@ -660,7 +757,10 @@ def main() -> None:
     else:
         if args.bootstrap_checkpoint is None and not args.run_bootstrap:
             args.bootstrap_checkpoint = (
-                args.output_root / "bootstrap/training/checkpoint-5000"
+                args.output_root
+                / "bootstrap/training"
+                / f"{args.wandb_run_id}_sft"
+                / "checkpoint-5000"
             )
         run_pipeline(args)
 

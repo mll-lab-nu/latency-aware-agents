@@ -1,3 +1,5 @@
+import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +11,7 @@ from scripts.official_gr00t.train_haic_dagger import (
     BOOTSTRAP_TRAIN_EPISODES,
     BOOTSTRAP_UPDATES,
     BOOTSTRAP_VAL_EPISODES,
+    CHECKPOINT_COMPLETE_MARKER,
     COLLECTOR_RANKS,
     DAGGER_ROUNDS,
     DEFAULT_INFERENCE_BATCH_SIZE,
@@ -20,7 +23,7 @@ from scripts.official_gr00t.train_haic_dagger import (
     HAIC_DAGGER_ROWS_PER_COLLECTOR,
     HAIC_DAGGER_ROWS_PER_ROUND,
     UPDATES_PER_ROUND,
-    archive_and_remove_round_data,
+    archive_and_remove_raw_data,
     bootstrap_training_command,
     checkpoint_dir,
     collector_command,
@@ -28,6 +31,7 @@ from scripts.official_gr00t.train_haic_dagger import (
     prepare_command,
     read_eval_metrics,
     training_command,
+    training_dataset_dirs,
     write_policy_config,
 )
 
@@ -48,8 +52,11 @@ def test_main_resolves_bootstrap_paths_from_output_root(monkeypatch):
     root = Path("/tmp/haic-custom")
     assert captured["bootstrap_dataset"] == root / "bootstrap/lerobot"
     assert captured["bootstrap_checkpoint"] == (
-        root / "bootstrap/training/checkpoint-5000"
+        root
+        / "bootstrap/training/haic_pull_cart_vla_dagger_action_5k_sft/checkpoint-5000"
     )
+    assert captured["actor_checkpoint"] == root / "bootstrap/actor_adapt.pt"
+    assert captured["end_round"] == 1
 
 
 def test_haic_pipeline_constants_are_single_gpu_and_paper_scale():
@@ -108,31 +115,46 @@ def test_haic_commands_encode_smoke_and_resume_contract():
 
     train = training_command(
         bootstrap_checkpoint=Path("bootstrap/checkpoint-1"),
-        dataset_dir=Path("dataset"),
+        replay_dataset=Path("bootstrap/lerobot"),
+        dataset_dirs=[Path("output/round_00/lerobot")],
+        actor_checkpoint=Path("actor.pt"),
         training_output=Path("output"),
+        experiment_name="haic-test",
         resume_checkpoint=Path("output/checkpoint-500"),
         max_steps=2,
         gradient_accumulation_steps=1,
     )
+    assert training_dataset_dirs(Path("out"), 1) == [
+        Path("out/round_00/lerobot"),
+        Path("out/round_01/lerobot"),
+    ]
+    assert train[train.index("--dataset-path") + 1] == "output/round_00/lerobot"
+    assert train[train.index("--replay-bootstrap-dataset") + 1] == "bootstrap/lerobot"
     assert train[train.index("--num-gpus") + 1] == "1"
     assert train[train.index("--max-state-dim") + 1] == "605"
     assert train[train.index("--max-action-dim") + 1] == "256"
     assert train[train.index("--gradient-accumulation-steps") + 1] == "1"
     assert train[-2:] == ["--resume-checkpoint-path", "output/checkpoint-500"]
-    assert "--haic-dagger" not in train
-    assert "--haic-actor-checkpoint" not in train
+    assert train[train.index("--action-objective") + 1] == "haic"
+    assert train[train.index("--action-actor-checkpoint") + 1] == "actor.pt"
+    assert train[train.index("--experiment-name") + 1] == "haic-test"
+    assert train[train.index("--learning-rate") + 1] == "0.00005"
     assert train[train.index("--shard-size") + 1] == str(HAIC_DAGGER_SHARD_ROWS)
 
     bootstrap = bootstrap_training_command(
         base_model=Path("base"),
         dataset_dir=Path("dataset"),
+        actor_checkpoint=Path("actor.pt"),
         training_output=Path("output"),
+        experiment_name="haic-test_sft",
     )
     assert bootstrap[bootstrap.index("--max-steps") + 1] == str(BOOTSTRAP_UPDATES)
     assert bootstrap[
         bootstrap.index("--gradient-accumulation-steps") + 1
     ] == str(BOOTSTRAP_GRADIENT_ACCUMULATION_STEPS)
-    assert "--haic-dagger" not in bootstrap
+    assert "--replay-bootstrap-dataset" not in bootstrap
+    assert bootstrap[bootstrap.index("--action-objective") + 1] == "haic"
+    assert bootstrap[bootstrap.index("--experiment-name") + 1] == "haic-test_sft"
     assert checkpoint_dir(Path("output"), 5_000) == Path("output/checkpoint-5000")
 
 
@@ -178,6 +200,7 @@ def test_log_eval_metrics_uses_training_step_and_run(tmp_path, monkeypatch):
     assert calls["init"] == {
         "project": "finetune-gr00t-n1d7",
         "id": "latent-only",
+        "name": "latent-only",
         "resume": "allow",
     }
     assert calls["metric"] == ("dagger_eval/*", "train/global_step")
@@ -186,7 +209,7 @@ def test_log_eval_metrics_uses_training_step_and_run(tmp_path, monkeypatch):
     assert "dagger_eval/steps" not in calls["log"]
 
 
-def test_archive_and_remove_round_data(tmp_path):
+def test_archive_and_remove_raw_data(tmp_path):
     round_dir = tmp_path / "round_00"
     raw_dir = round_dir / "raw"
     dataset_dir = round_dir / "lerobot"
@@ -195,11 +218,11 @@ def test_archive_and_remove_round_data(tmp_path):
     (raw_dir / "shard.npz").write_bytes(b"raw")
     (dataset_dir / "manifest.json").write_text('{"frames": 64000}\n')
 
-    archive_and_remove_round_data(round_dir, raw_dir, dataset_dir)
+    archive_and_remove_raw_data(round_dir, raw_dir, dataset_dir)
 
     assert (round_dir / "dataset_manifest.json").read_text() == '{"frames": 64000}\n'
     assert not raw_dir.exists()
-    assert not dataset_dir.exists()
+    assert dataset_dir.exists()
 
 
 def test_pipeline_restarts_partial_round_and_reuses_completed_training(
@@ -215,6 +238,7 @@ def test_pipeline_restarts_partial_round_and_reuses_completed_training(
         base_model=tmp_path / "base-model",
         bootstrap_checkpoint=tmp_path / "bootstrap/checkpoint-5000",
         bootstrap_dataset=tmp_path / "bootstrap/lerobot",
+        actor_checkpoint=tmp_path / "bootstrap/actor_adapt.pt",
         output_root=output_root,
         policy_config=policy_config,
         haic_python=tmp_path / "haic-python",
@@ -223,13 +247,13 @@ def test_pipeline_restarts_partial_round_and_reuses_completed_training(
         eval_max_steps=1_000,
         wandb_run_id="haic-test",
         start_round=0,
-        end_round=1,
+        end_round=2,
         run_bootstrap=False,
     )
     round_dir = output_root / "round_00"
     raw_dir = round_dir / "raw"
     dataset_dir = round_dir / "lerobot"
-    trained_model = output_root / "training/checkpoint-500"
+    trained_model = output_root / "training/haic-test/checkpoint-500"
     for path in (raw_dir, dataset_dir, trained_model):
         path.mkdir(parents=True)
         (path / "partial").write_text("stale\n")
@@ -249,8 +273,19 @@ def test_pipeline_restarts_partial_round_and_reuses_completed_training(
             (output / "manifest.json").write_text('{"frames": 64000}\n')
         elif str(train_haic_dagger.FINETUNE_SCRIPT) in command:
             calls["train"] += 1
-            trained_model.mkdir(parents=True)
-            (trained_model / "trainer_state.json").write_text("{}\n")
+            assert command[command.index("--experiment-name") + 1] == "haic-test"
+            dataset_path = command[command.index("--dataset-path") + 1]
+            updates = 1000 if "--resume-checkpoint-path" in command else 500
+            expected_datasets = [str(output_root / "round_00/lerobot")]
+            if updates == 1000:
+                expected_datasets.append(str(output_root / "round_01/lerobot"))
+            assert dataset_path == os.pathsep.join(expected_datasets)
+            assert command[command.index("--replay-bootstrap-dataset") + 1] == str(
+                args.bootstrap_dataset
+            )
+            trained = checkpoint_dir(output_root / "training/haic-test", updates)
+            trained.mkdir(parents=True)
+            (trained / "trainer_state.json").write_text("{}\n")
 
     eval_steps = []
     fail_after_training = {"enabled": True}
@@ -273,11 +308,68 @@ def test_pipeline_restarts_partial_round_and_reuses_completed_training(
     fail_after_training["enabled"] = False
     train_haic_dagger.run_pipeline(args)
 
-    assert calls == {"collect": 2, "prepare": 1, "train": 1}
-    assert eval_steps == [0, 500, 500]
-    assert (round_dir / "dataset_manifest.json").is_file()
-    assert not raw_dir.exists()
-    assert not dataset_dir.exists()
+    assert calls == {"collect": 4, "prepare": 2, "train": 2}
+    assert eval_steps == [0, 500, 500, 1000]
+    for round_index, expected_datasets in enumerate(
+        (
+            [output_root / "round_00/lerobot"],
+            [
+                output_root / "round_00/lerobot",
+                output_root / "round_01/lerobot",
+            ],
+        )
+    ):
+        current_round_dir = output_root / f"round_{round_index:02d}"
+        assert (current_round_dir / "dataset_manifest.json").is_file()
+        assert json.loads(
+            (current_round_dir / "training_datasets.json").read_text()
+        ) == {
+            "round_index": round_index,
+            "datasets": [str(path) for path in expected_datasets],
+            "replay_dataset": str(args.bootstrap_dataset),
+            "replay_ratio": 0.5,
+        }
+        assert not (current_round_dir / "raw").exists()
+        assert (current_round_dir / "lerobot").exists()
+
+
+def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypatch):
+    output_root = tmp_path / "run"
+    policy_config = tmp_path / "policy.yaml"
+    policy_config.write_text(
+        "policy:\n  model_path: old\n  device: cuda:0\n  action_dim: 256\n"
+    )
+    round_dir = output_root / "round_00"
+    round_dir.mkdir(parents=True)
+    (round_dir / "training_datasets.json").write_text(
+        '{"datasets":["old-current-only"],"round_index":0}\n'
+    )
+    trained_model = checkpoint_dir(output_root / "training/haic-test", 500)
+    trained_model.mkdir(parents=True)
+    (trained_model / CHECKPOINT_COMPLETE_MARKER).write_text("complete\n")
+    args = SimpleNamespace(
+        teacher_checkpoint=tmp_path / "teacher.pt",
+        base_model=tmp_path / "base-model",
+        bootstrap_checkpoint=tmp_path / "bootstrap/checkpoint-5000",
+        bootstrap_dataset=tmp_path / "bootstrap/lerobot",
+        actor_checkpoint=tmp_path / "bootstrap/actor_adapt.pt",
+        output_root=output_root,
+        policy_config=policy_config,
+        haic_python=tmp_path / "haic-python",
+        inference_device="cuda:0",
+        inference_batch_size=32,
+        eval_max_steps=1_000,
+        wandb_run_id="haic-test",
+        start_round=0,
+        end_round=1,
+        run_bootstrap=False,
+    )
+
+    monkeypatch.setattr(train_haic_dagger.subprocess, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(train_haic_dagger, "evaluate_checkpoint", lambda *args, **kwargs: None)
+
+    with pytest.raises(RuntimeError, match="different DAgger dataset aggregate"):
+        train_haic_dagger.run_pipeline(args)
 
 
 def test_haic_policy_config_points_at_selected_vla(tmp_path):

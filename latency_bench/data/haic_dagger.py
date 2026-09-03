@@ -20,13 +20,23 @@ import numpy as np
 HAIC_VLA_STATE_DIM = 605
 HAIC_TEACHER_LATENT_DIM = 256
 HAIC_VLA_ACTION_DIM = HAIC_TEACHER_LATENT_DIM
+HAIC_CONTROL_REPEAT = 5
+HAIC_TEACHER_ACTION_DIM = 23
+HAIC_ACTOR_INPUT_DIM = HAIC_VLA_STATE_DIM
 
 _SHARD_ROOT = "rollout_shards"
 _SHARD_PREFIX = "episode_"
 _DATASET_FPS = 10.0
 _CHUNK_SIZE = 1000
-_BOOTSTRAP_FIELDS = ("state", "action")
-_DAGGER_FIELDS = ("state", "action", "termination")
+_NUMERIC_FIELDS = (
+    "state",
+    "action",
+    "actor_input",
+    "teacher_action",
+    "termination",
+)
+_BOOTSTRAP_FIELDS = _NUMERIC_FIELDS
+_DAGGER_FIELDS = _NUMERIC_FIELDS
 
 
 def _haic_shard_dir(output_dir: Path | str, split: str, episode_idx: int) -> Path:
@@ -142,6 +152,24 @@ def _episode_table(
             arrays["action"].tolist(),
             type=pa.list_(pa.float32(), HAIC_VLA_ACTION_DIM),
         ),
+        "actor_input": pa.array(
+            arrays["actor_input"].tolist(),
+            type=pa.list_(
+                pa.list_(pa.float32(), HAIC_ACTOR_INPUT_DIM),
+                HAIC_CONTROL_REPEAT,
+            ),
+        ),
+        "teacher_action": pa.array(
+            arrays["teacher_action"].tolist(),
+            type=pa.list_(
+                pa.list_(pa.float32(), HAIC_TEACHER_ACTION_DIM),
+                HAIC_CONTROL_REPEAT,
+            ),
+        ),
+        "termination": pa.array(
+            arrays["termination"].tolist(),
+            type=pa.list_(pa.bool_(), HAIC_CONTROL_REPEAT),
+        ),
         "timestamp": pa.array(
             np.arange(row_count, dtype=np.float64) / _DATASET_FPS,
             type=pa.float64(),
@@ -155,7 +183,7 @@ def _episode_table(
         "task_index": pa.array([0 for _ in range(row_count)], type=pa.int64()),
     }
     columns["done"] = pa.array(
-        arrays["termination"][:, -1] if dagger else np.zeros(row_count, dtype=bool),
+        arrays["termination"].any(axis=1),
         type=pa.bool_(),
     )
     return pa.table(columns)
@@ -195,6 +223,32 @@ def _write_info(
             "names": [
                 *(f"teacher_latent_{index}" for index in range(HAIC_TEACHER_LATENT_DIM)),
             ],
+        },
+        "actor_input": {
+            "dtype": "float32",
+            "shape": [HAIC_CONTROL_REPEAT, HAIC_ACTOR_INPUT_DIM],
+            "names": [
+                [
+                    f"actor_input_{step}_{index}"
+                    for index in range(HAIC_ACTOR_INPUT_DIM)
+                ]
+                for step in range(HAIC_CONTROL_REPEAT)
+            ],
+        },
+        "teacher_action": {
+            "dtype": "float32",
+            "shape": [HAIC_CONTROL_REPEAT, HAIC_TEACHER_ACTION_DIM],
+            "names": [
+                [
+                    f"teacher_action_{step}_{index}"
+                    for index in range(HAIC_TEACHER_ACTION_DIM)
+                ]
+                for step in range(HAIC_CONTROL_REPEAT)
+            ],
+        },
+        "termination": {
+            "dtype": "mask",
+            "shape": [HAIC_CONTROL_REPEAT],
         },
         "timestamp": {"dtype": "float64", "shape": [1]},
         "episode_index": {"dtype": "int64", "shape": [1]},
@@ -274,13 +328,12 @@ def _convert_split(
         shutil.copyfile(source_video, video_path)
         image_shape = tuple(arrays["image_shape"].tolist())
         episode_lengths.append(arrays["state"].shape[0])
-        if dagger:
-            counts = arrays["termination"].sum(axis=0)
-            termination_counts = (
-                counts
-                if termination_counts is None
-                else termination_counts + counts
-            )
+        counts = arrays["termination"].sum(axis=0)
+        termination_counts = (
+            counts
+            if termination_counts is None
+            else termination_counts + counts
+        )
     if image_shape is None:
         raise ValueError(f"HAIC {split!r} split has no committed shards")
     _write_info(
@@ -335,13 +388,17 @@ def _convert_haic_shards_to_lerobot(
     manifest: dict[str, Any] = {
         **train_manifest,
         "format": (
-            f"haic_{'dagger' if dagger else 'bootstrap'}_lerobot_v2_"
+            f"haic_{'dagger' if dagger else 'bootstrap'}_lerobot_v3_"
             "video_numeric_parquet"
         ),
         "source": str(raw_dir),
         "action_dim": HAIC_VLA_ACTION_DIM,
         "state_dim": HAIC_VLA_STATE_DIM,
         "teacher_latent_dim": HAIC_TEACHER_LATENT_DIM,
+        "teacher_action_dim": HAIC_TEACHER_ACTION_DIM,
+        "actor_input_shape": [HAIC_CONTROL_REPEAT, HAIC_ACTOR_INPUT_DIM],
+        "teacher_action_shape": [HAIC_CONTROL_REPEAT, HAIC_TEACHER_ACTION_DIM],
+        "termination_shape": [HAIC_CONTROL_REPEAT],
         "dagger": dagger,
     }
     if val_manifest is not None:
@@ -404,6 +461,9 @@ def convert_haic_bootstrap_shards_to_lerobot(
 
 __all__ = [
     "HAIC_TEACHER_LATENT_DIM",
+    "HAIC_TEACHER_ACTION_DIM",
+    "HAIC_ACTOR_INPUT_DIM",
+    "HAIC_CONTROL_REPEAT",
     "HAIC_VLA_ACTION_DIM",
     "HAIC_VLA_STATE_DIM",
     "convert_haic_bootstrap_shards_to_lerobot",
