@@ -400,6 +400,8 @@ def _write_episode(
     action_dim: int,
     state_dim: int,
     include_state: bool,
+    actor_observation_shape: tuple[int, int] | None,
+    termination_shape: int | None,
 ) -> None:
     """Write one LeRobot episode parquet file.
 
@@ -462,6 +464,19 @@ def _write_episode(
             ],
             type=pa.list_(image_type),
         )
+    if actor_observation_shape is not None:
+        columns["actor_observation"] = pa.array(
+            [row["actor_observation"] for row in rows],
+            type=pa.list_(
+                pa.list_(pa.float32(), actor_observation_shape[1]),
+                actor_observation_shape[0],
+            ),
+        )
+    if termination_shape is not None:
+        columns["termination"] = pa.array(
+            [row["termination"] for row in rows],
+            type=pa.list_(pa.bool_(), termination_shape),
+        )
     table = pa.table(columns)
     pq.write_table(table, path)
 
@@ -487,6 +502,8 @@ def _write_metadata(
     state_dim: int,
     state_labels: list[str],
     context_image_count: int | None,
+    actor_observation_shape: tuple[int, int] | None,
+    termination_shape: int | None,
 ) -> None:
     """Write minimal LeRobot metadata files for a split dataset.
 
@@ -526,6 +543,20 @@ def _write_metadata(
             "shape": [context_image_count, height, width, channels],
             "names": ["time", "height", "width", "channel"],
             "video_info": {"video.fps": fps},
+        }
+    if actor_observation_shape is not None:
+        features["actor_observation"] = {
+            "dtype": "float32",
+            "shape": list(actor_observation_shape),
+            "names": [
+                [f"actor_observation_{index}" for index in range(actor_observation_shape[1])]
+                for _ in range(actor_observation_shape[0])
+            ],
+        }
+    if termination_shape is not None:
+        features["termination"] = {
+            "dtype": "bool",
+            "shape": [termination_shape],
         }
     (meta_dir / "info.json").write_text(
         json.dumps(
@@ -613,6 +644,8 @@ def _convert_split(
     state_normalization: dict[str, Any] | None,
     include_state: bool,
     density_weighting: bool = False,
+    actor_observation_shape: tuple[int, int] | None = None,
+    termination_shape: int | None = None,
 ) -> dict[str, Any]:
     """Convert one canonical rollout split into a LeRobot dataset directory.
 
@@ -679,6 +712,14 @@ def _convert_split(
                 out_row["context_image_bytes"] = [
                     _png_bytes(image) for image in row["context_images"]
                 ]
+            if actor_observation_shape is not None:
+                out_row["actor_observation"] = np.asarray(
+                    row["actor_observation"], dtype=np.float32
+                ).tolist()
+            if termination_shape is not None:
+                out_row["termination"] = np.asarray(
+                    row["termination"], dtype=bool
+                ).tolist()
             out_rows.append(out_row)
         episode_lengths.append(len(out_rows))
         episode_chunk = new_episode_idx // LE_ROBOT_CHUNK_SIZE
@@ -689,6 +730,8 @@ def _convert_split(
             action_dim=len(action_labels),
             state_dim=state_dim,
             include_state=include_state,
+            actor_observation_shape=actor_observation_shape,
+            termination_shape=termination_shape,
         )
     _write_metadata(
         output_dir,
@@ -700,6 +743,8 @@ def _convert_split(
         state_dim=state_dim,
         state_labels=state_labels,
         context_image_count=context_image_count,
+        actor_observation_shape=actor_observation_shape,
+        termination_shape=termination_shape,
     )
     return {
         "dataset_name": output_dir.name,
@@ -845,6 +890,28 @@ def convert_canonical_rollout_to_lerobot(
         if "context_images" in first_row and first_row["context_images"] is not None
         else None
     )
+    actor_observation_row = next(
+        (
+            row
+            for row in [*train_rows, *val_rows]
+            if "actor_observation" in row
+        ),
+        None,
+    )
+    actor_observation_shape = (
+        tuple(np.asarray(actor_observation_row["actor_observation"]).shape)
+        if actor_observation_row is not None
+        else None
+    )
+    termination_row = next(
+        (row for row in [*train_rows, *val_rows] if "termination" in row),
+        None,
+    )
+    termination_shape = (
+        int(np.asarray(termination_row["termination"]).shape[0])
+        if termination_row is not None
+        else None
+    )
     train_manifest = _convert_split(
         train_rows,
         output_dir,
@@ -861,6 +928,8 @@ def convert_canonical_rollout_to_lerobot(
         state_normalization=state_normalization,
         include_state=uses_state,
         density_weighting=True,
+        actor_observation_shape=actor_observation_shape,
+        termination_shape=termination_shape,
     )
     val_manifest = _convert_split(
         val_rows,
@@ -878,6 +947,8 @@ def convert_canonical_rollout_to_lerobot(
         state_normalization=state_normalization,
         include_state=uses_state,
         density_weighting=False,
+        actor_observation_shape=actor_observation_shape,
+        termination_shape=termination_shape,
     )
     handoff_contract = {
         "format": (
@@ -902,6 +973,10 @@ def convert_canonical_rollout_to_lerobot(
         "state_labels": state_labels,
         "state_normalization": state_normalization,
     }
+    if actor_observation_shape is not None:
+        handoff_contract["actor_observation_shape"] = list(actor_observation_shape)
+    if termination_shape is not None:
+        handoff_contract["termination_shape"] = [termination_shape]
     if write_starvla_handoff:
         handoff_contract["robot_type"] = _robot_type_for_env(env_name, integration_name)
         prompt_map_path, mixture_path = _write_starvla_handoff_files(

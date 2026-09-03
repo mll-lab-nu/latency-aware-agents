@@ -7,6 +7,7 @@ import pytest
 
 from scripts.official_gr00t import train_parkour_dagger as dagger
 from scripts.official_gr00t.train_parkour_dagger import (
+    BOOTSTRAP_UPDATES,
     CHECKPOINT_COMPLETE_MARKER,
     DAGGER_ENVS,
     DAGGER_ROUNDS,
@@ -16,6 +17,11 @@ from scripts.official_gr00t.train_parkour_dagger import (
     PARKOUR_EVAL_MAX_EPISODE_STEPS,
     PARKOUR_DAGGER_ROWS_PER_ROUND,
     PARKOUR_DAGGER_SHARD_ROWS,
+    DEFAULT_BASE_MODEL,
+    DEFAULT_BOOTSTRAP_DATASET,
+    DEFAULT_OUTPUT_ROOT,
+    bootstrap_checkpoint_dir,
+    bootstrap_training_command,
     checkpoint_dir,
     collector_command,
     read_eval_metrics,
@@ -23,6 +29,24 @@ from scripts.official_gr00t.train_parkour_dagger import (
     training_command,
     training_dataset_dirs,
 )
+
+
+def test_main_defaults_to_round_zero(monkeypatch):
+    captured = {}
+    monkeypatch.setattr("sys.argv", ["train_parkour_dagger.py"])
+    monkeypatch.setattr(dagger, "run_pipeline", lambda args: captured.update(vars(args)))
+
+    dagger.main()
+
+    assert captured["end_round"] == 1
+    assert captured["wandb_run_id"] == "extreme_parkour_go2_vla_dagger_action_yaw_5k"
+    assert captured["base_model"] == DEFAULT_BASE_MODEL
+    assert captured["bootstrap_dataset"] == DEFAULT_BOOTSTRAP_DATASET
+    assert captured["bootstrap_checkpoint"] == bootstrap_checkpoint_dir(
+        DEFAULT_OUTPUT_ROOT / "bootstrap" / "training",
+        "extreme_parkour_go2_vla_dagger_action_yaw_5k_sft",
+    )
+    assert captured["run_bootstrap"] is False
 
 
 def test_commands_preserve_round_resume_contract():
@@ -48,17 +72,21 @@ def test_commands_preserve_round_resume_contract():
     )
     first_train = training_command(
         bootstrap_checkpoint=bootstrap,
-        dataset_dirs=[bootstrap_dataset, round0_dataset],
+        replay_dataset=bootstrap_dataset,
+        dataset_dirs=[round0_dataset],
         training_output=output,
         round_index=0,
-        experiment_name="latent-only",
+        experiment_name="action-yaw",
+        actor_checkpoint=teacher,
     )
     later_train = training_command(
         bootstrap_checkpoint=bootstrap,
-        dataset_dirs=[bootstrap_dataset, round0_dataset, round1_dataset],
+        replay_dataset=bootstrap_dataset,
+        dataset_dirs=[round0_dataset, round1_dataset],
         training_output=output,
         round_index=1,
-        experiment_name="latent-only",
+        experiment_name="action-yaw",
+        actor_checkpoint=teacher,
     )
     prepare = prepare_command(
         Path("raw"),
@@ -67,8 +95,7 @@ def test_commands_preserve_round_resume_contract():
         normalization_source=bootstrap_dataset,
     )
 
-    assert training_dataset_dirs(Path("bc"), Path("out"), 1) == [
-        Path("bc"),
+    assert training_dataset_dirs(Path("out"), 1) == [
         Path("out/round_00/lerobot"),
         Path("out/round_01/lerobot"),
     ]
@@ -93,14 +120,17 @@ def test_commands_preserve_round_resume_contract():
     assert "--resume-checkpoint-path" not in first_train
     assert "--state-history-length" not in first_train
     assert first_train[first_train.index("--dataset-path") + 1] == os.pathsep.join(
-        str(path) for path in [bootstrap_dataset, round0_dataset]
+        str(path) for path in [round0_dataset]
     )
     assert later_train[later_train.index("--dataset-path") + 1] == os.pathsep.join(
-        str(path) for path in [bootstrap_dataset, round0_dataset, round1_dataset]
+        str(path) for path in [round0_dataset, round1_dataset]
+    )
+    assert first_train[first_train.index("--replay-bootstrap-dataset") + 1] == str(
+        bootstrap_dataset
     )
     assert later_train[-2:] == [
         "--resume-checkpoint-path",
-        "output/checkpoint-500",
+        "output/action-yaw/checkpoint-500",
     ]
     assert first_train[first_train.index("--global-batch-size") + 1] == "128"
     assert first_train[first_train.index("--gradient-accumulation-steps") + 1] == str(
@@ -112,9 +142,12 @@ def test_commands_preserve_round_resume_contract():
     )
     assert first_train[first_train.index("--dataloader-num-workers") + 1] == "8"
     assert first_train[first_train.index("--save-total-limit") + 1] == "2"
-    assert first_train[first_train.index("--experiment-name") + 1] == "latent-only"
-    assert "--parkour-dagger" not in first_train
-    assert "--parkour-actor-checkpoint" not in first_train
+    assert first_train[first_train.index("--experiment-name") + 1] == "action-yaw"
+    assert first_train[first_train.index("--action-objective") + 1] == "parkour"
+    assert first_train[first_train.index("--action-actor-checkpoint") + 1] == str(
+        teacher
+    )
+    assert first_train[first_train.index("--learning-rate") + 1] == "0.00005"
     eval_command = collector_command(
         Path("python"),
         mode="vla-eval",
@@ -138,6 +171,49 @@ def test_commands_preserve_round_resume_contract():
     assert checkpoint_dir(output, 10) == output / "checkpoint-5000"
 
 
+def test_bootstrap_command_starts_from_gr00t_base_without_replay():
+    command = bootstrap_training_command(
+        base_model=Path("base-model"),
+        dataset_dir=Path("action-bootstrap"),
+        training_output=Path("output/bootstrap/training"),
+        experiment_name="action-yaw_sft",
+        actor_checkpoint=Path("teacher.pt"),
+    )
+
+    assert command[command.index("--base-model-path") + 1] == "base-model"
+    assert command[command.index("--dataset-path") + 1] == "action-bootstrap"
+    assert command[command.index("--experiment-name") + 1] == "action-yaw_sft"
+    assert command[command.index("--max-steps") + 1] == str(BOOTSTRAP_UPDATES)
+    assert "--replay-bootstrap-dataset" not in command
+    assert "--resume-checkpoint-path" not in command
+
+
+def test_run_bootstrap_returns_fresh_checkpoint_path(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(dagger.subprocess, "run", fake_run)
+    args = argparse.Namespace(
+        base_model=tmp_path / "base-model",
+        bootstrap_dataset=tmp_path / "action-bootstrap",
+        teacher_checkpoint=tmp_path / "teacher.pt",
+        output_root=tmp_path / "output",
+        wandb_run_id="action-yaw",
+    )
+
+    assert dagger.run_bootstrap(args) == (
+        tmp_path / "output/bootstrap/training/action-yaw_sft/checkpoint-5000"
+    )
+    assert captured["command"][captured["command"].index("--base-model-path") + 1] == str(
+        args.base_model
+    )
+    assert "--replay-bootstrap-dataset" not in captured["command"]
+    assert captured["kwargs"]["env"]["WANDB_RUN_ID"] == "action-yaw_sft"
+
+
 def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
     tmp_path, monkeypatch
 ):
@@ -157,13 +233,17 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
                 (output_dir / "vla-eval.json").write_text("{}\n")
         elif str(dagger.PREPARE_SCRIPT) in command:
             events.append("prepare")
+            assert kwargs["env"]["PYTHONPATH"] == str(dagger.REPO_ROOT)
             dataset_dir = Path(command[3])
             dataset_dir.mkdir(parents=True)
             (dataset_dir / "manifest.json").write_text('{"frames": 64000}\n')
         elif str(dagger.FINETUNE_SCRIPT) in command:
             events.append(f"train:{command[command.index('--dataset-path') + 1]}")
             completed_rounds = 2 if "--resume-checkpoint-path" in command else 1
-            checkpoint_dir(output_root / "training", completed_rounds).mkdir(
+            assert command[command.index("--replay-bootstrap-dataset") + 1] == str(
+                tmp_path / "bootstrap_dataset"
+            )
+            checkpoint_dir(output_root / "training/action-yaw", completed_rounds).mkdir(
                 parents=True
             )
 
@@ -174,6 +254,7 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
     monkeypatch.setattr(dagger, "log_eval_metrics", fake_log_eval_metrics)
     args = argparse.Namespace(
         teacher_checkpoint=tmp_path / "teacher.pt",
+        base_model=tmp_path / "base-model",
         bootstrap_checkpoint=tmp_path / "bootstrap",
         bootstrap_dataset=tmp_path / "bootstrap_dataset",
         output_root=output_root,
@@ -181,9 +262,10 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
         parkour_python=Path("/usr/bin/python"),
         inference_device="cuda:1",
         inference_batch_size=32,
-        wandb_run_id="latent-only",
+        wandb_run_id="action-yaw",
         start_round=0,
         end_round=2,
+        run_bootstrap=False,
     )
 
     dagger.run_pipeline(args)
@@ -195,30 +277,28 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
         "wandb:0",
         "dagger-collect:192",
         "prepare",
-        "train:"
-        + os.pathsep.join(str(path) for path in [args.bootstrap_dataset, round0_dataset]),
+        "train:" + str(round0_dataset),
         "vla-eval:50",
         "wandb:500",
         "dagger-collect:192",
         "prepare",
         "train:"
-        + os.pathsep.join(
-            str(path)
-            for path in [args.bootstrap_dataset, round0_dataset, round1_dataset]
-        ),
+        + os.pathsep.join(str(path) for path in [round0_dataset, round1_dataset]),
         "vla-eval:50",
         "wandb:1000",
     ]
     assert (
-        checkpoint_dir(output_root / "training", 1) / CHECKPOINT_COMPLETE_MARKER
+        checkpoint_dir(output_root / "training/action-yaw", 1)
+        / CHECKPOINT_COMPLETE_MARKER
     ).read_text() == "complete\n"
     assert (
-        checkpoint_dir(output_root / "training", 2) / CHECKPOINT_COMPLETE_MARKER
+        checkpoint_dir(output_root / "training/action-yaw", 2)
+        / CHECKPOINT_COMPLETE_MARKER
     ).read_text() == "complete\n"
     for round_index, expected_datasets in enumerate(
         (
-            [args.bootstrap_dataset, round0_dataset],
-            [args.bootstrap_dataset, round0_dataset, round1_dataset],
+            [round0_dataset],
+            [round0_dataset, round1_dataset],
         )
     ):
         round_dir = output_root / f"round_{round_index:02d}"
@@ -226,6 +306,8 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
         assert json.loads((round_dir / "training_datasets.json").read_text()) == {
             "round_index": round_index,
             "datasets": [str(path) for path in expected_datasets],
+            "replay_dataset": str(args.bootstrap_dataset),
+            "replay_ratio": 0.5,
         }
         assert not (round_dir / "raw").exists()
         assert (round_dir / "lerobot").exists()
@@ -234,10 +316,11 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
 def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypatch):
     output_root = tmp_path / "output"
     round_dir = output_root / "round_00"
-    (checkpoint_dir(output_root / "training", 1)).mkdir(parents=True)
-    (checkpoint_dir(output_root / "training", 1) / CHECKPOINT_COMPLETE_MARKER).write_text(
-        "complete\n"
-    )
+    (checkpoint_dir(output_root / "training/action-yaw", 1)).mkdir(parents=True)
+    (
+        checkpoint_dir(output_root / "training/action-yaw", 1)
+        / CHECKPOINT_COMPLETE_MARKER
+    ).write_text("complete\n")
     round_dir.mkdir(parents=True)
     (round_dir / "training_datasets.json").write_text(
         '{"datasets":["old-current-only"],"round_index":0}\n'
@@ -266,6 +349,7 @@ def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypa
     monkeypatch.setattr(dagger, "log_eval_metrics", lambda *args, **kwargs: None)
     args = argparse.Namespace(
         teacher_checkpoint=tmp_path / "teacher.pt",
+        base_model=tmp_path / "base-model",
         bootstrap_checkpoint=tmp_path / "bootstrap",
         bootstrap_dataset=tmp_path / "bootstrap_dataset",
         output_root=output_root,
@@ -273,9 +357,10 @@ def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypa
         parkour_python=Path("/usr/bin/python"),
         inference_device="cuda:1",
         inference_batch_size=32,
-        wandb_run_id="latent-only",
+        wandb_run_id="action-yaw",
         start_round=0,
         end_round=1,
+        run_bootstrap=False,
     )
 
     with pytest.raises(RuntimeError, match="different DAgger dataset aggregate"):

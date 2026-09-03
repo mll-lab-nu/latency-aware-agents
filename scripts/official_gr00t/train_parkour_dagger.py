@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the ten-round Extreme Parkour VLA DAgger pipeline."""
+"""Run the Extreme Parkour VLA action-supervised DAgger pipeline."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ MODALITY_CONFIG = REPO_ROOT / "latency_bench/policy/official_gr00t_parkour_modal
 DAGGER_ROUNDS = 10
 UPDATES_PER_ROUND = 500
 TOTAL_UPDATES = DAGGER_ROUNDS * UPDATES_PER_ROUND
+BOOTSTRAP_UPDATES = 5_000
 GLOBAL_BATCH_SIZE = 128
 GRADIENT_ACCUMULATION_STEPS = 1
 DAGGER_ENVS = 192
@@ -49,13 +50,13 @@ DEFAULT_TEACHER_CHECKPOINT = PARKOUR_ROOT / (
     "2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k/"
     "model_14999.pt"
 )
-DEFAULT_BOOTSTRAP_CHECKPOINT = REPO_ROOT / (
-    "outputs/official_gr00t/extreme_parkour_go2_latent_h1_5k/checkpoint-5000"
-)
+DEFAULT_BASE_MODEL = REPO_ROOT / "outputs/official_gr00t/models/GR00T-N1.7-3B"
 DEFAULT_BOOTSTRAP_DATASET = REPO_ROOT / (
-    "outputs/official_gr00t/extreme_parkour_go2/lerobot"
+    "outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot"
 )
-DEFAULT_OUTPUT_ROOT = REPO_ROOT / "outputs/official_gr00t/extreme_parkour_go2_dagger"
+DEFAULT_OUTPUT_ROOT = REPO_ROOT / (
+    "outputs/official_gr00t/extreme_parkour_go2_action_yaw_dagger"
+)
 DEFAULT_POLICY_CONFIG = REPO_ROOT / (
     "configs/examples/extreme_parkour/official_gr00t_eval.yaml"
 )
@@ -66,15 +67,16 @@ def checkpoint_dir(training_output: Path, completed_rounds: int) -> Path:
     return training_output / f"checkpoint-{completed_rounds * UPDATES_PER_ROUND}"
 
 
+def bootstrap_checkpoint_dir(training_output: Path, experiment_name: str) -> Path:
+    return training_output / experiment_name / f"checkpoint-{BOOTSTRAP_UPDATES}"
+
+
 def training_dataset_dirs(
-    bootstrap_dataset: Path, output_root: Path, round_index: int
+    output_root: Path, round_index: int
 ) -> list[Path]:
     return [
-        bootstrap_dataset,
-        *(
-            output_root / f"round_{index:02d}" / "lerobot"
-            for index in range(round_index + 1)
-        ),
+        output_root / f"round_{index:02d}" / "lerobot"
+        for index in range(round_index + 1)
     ]
 
 
@@ -178,10 +180,13 @@ def prepare_command(
 def training_command(
     *,
     bootstrap_checkpoint: Path,
+    replay_dataset: Path | None,
     dataset_dirs: list[Path],
     training_output: Path,
     round_index: int,
     experiment_name: str,
+    actor_checkpoint: Path,
+    max_steps: int = TOTAL_UPDATES,
 ) -> list[str]:
     command = [
         str(GROOT_ROOT / ".venv/bin/torchrun"),
@@ -206,6 +211,10 @@ def training_command(
         "53",
         "--action-horizon",
         "1",
+        "--action-objective",
+        "parkour",
+        "--action-actor-checkpoint",
+        str(actor_checkpoint),
         "--fixed-action-noise-seed",
         "0",
         "--one-step-action-regression",
@@ -220,11 +229,11 @@ def training_command(
         "--optim",
         "adamw_torch_fused",
         "--learning-rate",
-        "0.0001",
+        "0.00005",
         "--warmup-ratio",
         "0.025",
         "--max-steps",
-        str(TOTAL_UPDATES),
+        str(max_steps),
         "--global-batch-size",
         str(GLOBAL_BATCH_SIZE),
         "--gradient-accumulation-steps",
@@ -243,14 +252,36 @@ def training_command(
         "2",
         "--use-wandb",
     ]
+    if replay_dataset is not None:
+        command.extend(["--replay-bootstrap-dataset", str(replay_dataset)])
     if round_index > 0:
         command.extend(
             [
                 "--resume-checkpoint-path",
-                str(checkpoint_dir(training_output, round_index)),
+                str(checkpoint_dir(training_output / experiment_name, round_index)),
             ]
         )
     return command
+
+
+def bootstrap_training_command(
+    *,
+    base_model: Path,
+    dataset_dir: Path,
+    training_output: Path,
+    experiment_name: str,
+    actor_checkpoint: Path,
+) -> list[str]:
+    return training_command(
+        bootstrap_checkpoint=base_model,
+        replay_dataset=None,
+        dataset_dirs=[dataset_dir],
+        training_output=training_output,
+        round_index=0,
+        experiment_name=experiment_name,
+        actor_checkpoint=actor_checkpoint,
+        max_steps=BOOTSTRAP_UPDATES,
+    )
 
 
 def read_eval_metrics(eval_path: Path) -> dict[str, float]:
@@ -260,6 +291,32 @@ def read_eval_metrics(eval_path: Path) -> dict[str, float]:
         for metric in EVAL_METRICS
         for stat in ("mean", "std")
     }
+
+
+def run_bootstrap(args: argparse.Namespace) -> Path:
+    experiment_name = f"{args.wandb_run_id}_sft"
+    training_output = args.output_root / "bootstrap" / "training"
+    subprocess.run(
+        bootstrap_training_command(
+            base_model=args.base_model,
+            dataset_dir=args.bootstrap_dataset,
+            training_output=training_output,
+            experiment_name=experiment_name,
+            actor_checkpoint=args.teacher_checkpoint,
+        ),
+        cwd=REPO_ROOT,
+        env=os.environ
+        | {
+            "CUDA_VISIBLE_DEVICES": "0,1",
+            "NO_ALBUMENTATIONS_UPDATE": "1",
+            "PYTHONPATH": f"{GROOT_ROOT}{os.pathsep}{REPO_ROOT}",
+            "WANDB_RUN_ID": experiment_name,
+            "WANDB_NAME": experiment_name,
+            "WANDB_RESUME": "allow",
+        },
+        check=True,
+    )
+    return bootstrap_checkpoint_dir(training_output, experiment_name)
 
 
 def log_eval_metrics(eval_path: Path, *, step: int, run_id: str) -> None:
@@ -304,21 +361,28 @@ def evaluate_checkpoint(
 
 def run_pipeline(args: argparse.Namespace) -> None:
     args.teacher_checkpoint = args.teacher_checkpoint.resolve()
-    args.bootstrap_checkpoint = args.bootstrap_checkpoint.resolve()
+    args.base_model = args.base_model.resolve()
     args.bootstrap_dataset = args.bootstrap_dataset.resolve()
     args.output_root = args.output_root.resolve()
     args.policy_config = args.policy_config.resolve()
     args.parkour_python = args.parkour_python.resolve()
+    bootstrap_checkpoint = args.bootstrap_checkpoint
+    if args.run_bootstrap:
+        bootstrap_checkpoint = run_bootstrap(args)
+    bootstrap_checkpoint = bootstrap_checkpoint.resolve()
     training_output = args.output_root / "training"
+    training_run_output = training_output / args.wandb_run_id
     parkour_env = os.environ | {
         "PYTHONPATH": str(REPO_ROOT),
         "OMNI_KIT_ACCEPT_EULA": "YES",
     }
+    prepare_env = os.environ | {"PYTHONPATH": str(REPO_ROOT)}
     training_env = os.environ | {
         "CUDA_VISIBLE_DEVICES": "0,1",
         "NO_ALBUMENTATIONS_UPDATE": "1",
         "PYTHONPATH": f"{PARKOUR_ROOT}{os.pathsep}{REPO_ROOT}",
         "WANDB_RUN_ID": args.wandb_run_id,
+        "WANDB_NAME": args.wandb_run_id,
         "WANDB_RESUME": "allow",
     }
     for round_index in range(args.start_round, args.end_round):
@@ -327,9 +391,9 @@ def run_pipeline(args: argparse.Namespace) -> None:
         dataset_dir = round_dir / "lerobot"
         policy_config = round_dir / "policy.yaml"
         current_model = (
-            args.bootstrap_checkpoint
+            bootstrap_checkpoint
             if round_index == 0
-            else checkpoint_dir(training_output, round_index)
+            else checkpoint_dir(training_run_output, round_index)
         )
         write_policy_config(
             args.policy_config,
@@ -370,17 +434,18 @@ def run_pipeline(args: argparse.Namespace) -> None:
                 normalization_source=args.bootstrap_dataset,
             ),
             cwd=REPO_ROOT,
+            env=prepare_env,
             check=True,
         )
-        trained_model = checkpoint_dir(training_output, round_index + 1)
+        trained_model = checkpoint_dir(training_run_output, round_index + 1)
         complete_marker = trained_model / CHECKPOINT_COMPLETE_MARKER
-        datasets = training_dataset_dirs(
-            args.bootstrap_dataset, args.output_root, round_index
-        )
+        datasets = training_dataset_dirs(args.output_root, round_index)
         training_datasets_path = round_dir / "training_datasets.json"
         training_datasets_manifest = {
             "round_index": round_index,
             "datasets": [str(path) for path in datasets],
+            "replay_dataset": str(args.bootstrap_dataset),
+            "replay_ratio": 0.5,
         }
         if complete_marker.is_file():
             recorded_training_datasets = json.loads(
@@ -393,11 +458,13 @@ def run_pipeline(args: argparse.Namespace) -> None:
         else:
             subprocess.run(
                 training_command(
-                    bootstrap_checkpoint=args.bootstrap_checkpoint,
+                    bootstrap_checkpoint=bootstrap_checkpoint,
+                    replay_dataset=args.bootstrap_dataset,
                     dataset_dirs=datasets,
                     training_output=training_output,
                     round_index=round_index,
                     experiment_name=args.wandb_run_id,
+                    actor_checkpoint=args.teacher_checkpoint,
                 ),
                 cwd=REPO_ROOT,
                 env=training_env,
@@ -432,14 +499,15 @@ def run_pipeline(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--teacher-checkpoint", type=Path, default=DEFAULT_TEACHER_CHECKPOINT)
-    parser.add_argument("--bootstrap-checkpoint", type=Path, default=DEFAULT_BOOTSTRAP_CHECKPOINT)
+    parser.add_argument("--base-model", type=Path, default=DEFAULT_BASE_MODEL)
+    parser.add_argument("--bootstrap-checkpoint", type=Path)
     parser.add_argument("--bootstrap-dataset", type=Path, default=DEFAULT_BOOTSTRAP_DATASET)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--policy-config", type=Path, default=DEFAULT_POLICY_CONFIG)
     parser.add_argument("--parkour-python", type=Path, default=DEFAULT_PARKOUR_PYTHON)
     parser.add_argument("--inference-device", default="cuda:1")
     parser.add_argument(
-        "--wandb-run-id", default="extreme_parkour_go2_vla_dagger_latent_5k"
+        "--wandb-run-id", default="extreme_parkour_go2_vla_dagger_action_yaw_5k"
     )
     parser.add_argument(
         "--inference-batch-size",
@@ -447,8 +515,15 @@ def main() -> None:
         default=DEFAULT_INFERENCE_BATCH_SIZE,
     )
     parser.add_argument("--start-round", type=int, default=0)
-    parser.add_argument("--end-round", type=int, default=DAGGER_ROUNDS)
-    run_pipeline(parser.parse_args())
+    parser.add_argument("--end-round", type=int, default=1)
+    parser.add_argument("--run-bootstrap", action="store_true")
+    args = parser.parse_args()
+    if args.bootstrap_checkpoint is None and not args.run_bootstrap:
+        args.bootstrap_checkpoint = bootstrap_checkpoint_dir(
+            args.output_root / "bootstrap" / "training",
+            f"{args.wandb_run_id}_sft",
+        )
+    run_pipeline(args)
 
 
 if __name__ == "__main__":

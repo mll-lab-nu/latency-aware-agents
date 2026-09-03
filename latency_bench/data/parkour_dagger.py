@@ -22,6 +22,7 @@ from latency_bench.data.action_layouts import (
 PARKOUR_VLA_STATE_DIM = 53
 PARKOUR_VLA_ACTION_DIM = 34
 PARKOUR_CONTROL_REPEAT = 5
+PARKOUR_ACTOR_OBSERVATION_DIM = 753
 
 _SHARD_ROOT = "rollout_shards"
 _SHARD_PREFIX = "episode_"
@@ -31,6 +32,7 @@ _NUMERIC_FIELDS = (
     "state",
     "action",
     "termination",
+    "actor_observation",
 )
 
 
@@ -120,6 +122,13 @@ def _episode_table(arrays: Mapping[str, Any], episode_index: int):
                 arrays["termination"].tolist(),
                 type=pa.list_(pa.bool_(), PARKOUR_CONTROL_REPEAT),
             ),
+            "actor_observation": pa.array(
+                arrays["actor_observation"].tolist(),
+                type=pa.list_(
+                    pa.list_(pa.float32(), PARKOUR_ACTOR_OBSERVATION_DIM),
+                    PARKOUR_CONTROL_REPEAT,
+                ),
+            ),
             "timestamp": pa.array(
                 np.arange(row_count, dtype=np.float64) / _DATASET_FPS,
                 type=pa.float64(),
@@ -173,6 +182,17 @@ def _write_info(
         "termination": {
             "dtype": "mask",
             "shape": [PARKOUR_CONTROL_REPEAT],
+        },
+        "actor_observation": {
+            "dtype": "float32",
+            "shape": [PARKOUR_CONTROL_REPEAT, PARKOUR_ACTOR_OBSERVATION_DIM],
+            "names": [
+                [
+                    f"actor_observation_{index}"
+                    for index in range(PARKOUR_ACTOR_OBSERVATION_DIM)
+                ]
+                for _ in range(PARKOUR_CONTROL_REPEAT)
+            ],
         },
         "timestamp": {"dtype": "float64", "shape": [1]},
         "episode_index": {"dtype": "int64", "shape": [1]},
@@ -289,13 +309,17 @@ def convert_parkour_dagger_shards_to_lerobot(
         )
     manifest = {
         **train_manifest,
-        "format": "parkour_dagger_lerobot_v3_video_latent_parquet",
+        "format": "parkour_dagger_lerobot_v4_video_actor_observation_parquet",
         "source": str(raw_dir),
         "action_layout": GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.layout,
         "action_labels": list(GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.labels),
         "action_dim": PARKOUR_VLA_ACTION_DIM,
         "state_dim": PARKOUR_VLA_STATE_DIM,
         "termination_shape": [PARKOUR_CONTROL_REPEAT],
+        "actor_observation_shape": [
+            PARKOUR_CONTROL_REPEAT,
+            PARKOUR_ACTOR_OBSERVATION_DIM,
+        ],
     }
     if val_manifest is not None:
         manifest.update(
@@ -320,4 +344,5 @@ def convert_parkour_dagger_shards_to_lerobot(
 __all__ = [
     "convert_parkour_dagger_shards_to_lerobot",
     "write_parkour_dagger_shard",
+    "PARKOUR_ACTOR_OBSERVATION_DIM",
 ]

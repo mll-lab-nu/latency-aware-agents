@@ -61,12 +61,30 @@ def _shards_include_state(output_dir: Path) -> bool:
     return any("state" in row for split in ("train", "val") for row in iter_episode_rows(output_dir, split))
 
 
+def _rows_include_termination(rows: Sequence[Mapping[str, Any]]) -> bool:
+    return any("termination" in row for row in rows)
+
+
+def _rows_include_actor_observation(rows: Sequence[Mapping[str, Any]]) -> bool:
+    return any("actor_observation" in row for row in rows)
+
+
+def _shards_include_termination(output_dir: Path) -> bool:
+    return any("termination" in row for split in ("train", "val") for row in iter_episode_rows(output_dir, split))
+
+
+def _shards_include_actor_observation(output_dir: Path) -> bool:
+    return any("actor_observation" in row for split in ("train", "val") for row in iter_episode_rows(output_dir, split))
+
+
 def dataset_from_rows(
     rows: Sequence[Mapping[str, Any]],
     *,
     action_spec: ActionSpec,
     include_context_images: bool,
     include_state: bool = False,
+    include_termination: bool = False,
+    include_actor_observation: bool = False,
 ) -> Dataset:
     """Create a Hugging Face dataset from canonical rollout rows.
 
@@ -79,15 +97,36 @@ def dataset_from_rows(
         Hugging Face ``Dataset`` with embedded images.
     """
     features = (
-        rollout_features_with_context_images(action_spec, include_state=include_state)
+        rollout_features_with_context_images(
+            action_spec,
+            include_state=include_state,
+            include_termination=include_termination,
+            include_actor_observation=include_actor_observation,
+        )
         if include_context_images
-        else rollout_features(action_spec, include_state=include_state)
+        else rollout_features(
+            action_spec,
+            include_state=include_state,
+            include_termination=include_termination,
+            include_actor_observation=include_actor_observation,
+        )
     )
     if rows:
-        return Dataset.from_list(embed_image_rows(rows), features=features)
+        embedded_rows = embed_image_rows(rows)
+        return Dataset.from_dict(
+            {
+                name: [row[name] for row in embedded_rows]
+                for name in features
+            },
+            features=features,
+        )
     return Dataset.from_dict(
         empty_records_with_context_images(
-            action_spec, include_context_images, include_state=include_state
+            action_spec,
+            include_context_images,
+            include_state=include_state,
+            include_termination=include_termination,
+            include_actor_observation=include_actor_observation,
         ),
         features=features,
     )
@@ -100,6 +139,8 @@ def write_rows_parquet(
     action_spec: ActionSpec,
     include_context_images: bool,
     include_state: bool = False,
+    include_termination: bool = False,
+    include_actor_observation: bool = False,
     row_batch_size: int = 256,
     keep_dataset: bool = True,
 ) -> Dataset | None:
@@ -123,6 +164,8 @@ def write_rows_parquet(
             action_spec=action_spec,
             include_context_images=include_context_images,
             include_state=include_state,
+            include_termination=include_termination,
+            include_actor_observation=include_actor_observation,
         )
         pq.write_table(dataset.data.table, path)
         return dataset if keep_dataset else None
@@ -136,6 +179,8 @@ def write_rows_parquet(
                 action_spec=action_spec,
                 include_context_images=include_context_images,
                 include_state=include_state,
+                include_termination=include_termination,
+                include_actor_observation=include_actor_observation,
             )
             if keep_dataset:
                 datasets_to_return.append(dataset)
@@ -177,12 +222,16 @@ def write_parquet_splits(
     output_dir.mkdir(parents=True, exist_ok=True)
     include_context_images = _rows_include_context_images([*train_rows, *val_rows])
     include_state = _rows_include_state([*train_rows, *val_rows])
+    include_termination = _rows_include_termination([*train_rows, *val_rows])
+    include_actor_observation = _rows_include_actor_observation([*train_rows, *val_rows])
     train_ds = write_rows_parquet(
         output_dir / "train.parquet",
         train_rows,
         action_spec=action_spec,
         include_context_images=include_context_images,
         include_state=include_state,
+        include_termination=include_termination,
+        include_actor_observation=include_actor_observation,
         keep_dataset=keep_dataset,
     )
     val_ds = write_rows_parquet(
@@ -191,6 +240,8 @@ def write_parquet_splits(
         action_spec=action_spec,
         include_context_images=include_context_images,
         include_state=include_state,
+        include_termination=include_termination,
+        include_actor_observation=include_actor_observation,
         keep_dataset=keep_dataset,
     )
     if not keep_dataset:
@@ -298,6 +349,8 @@ def _write_parquet_row_batch(
     action_spec: ActionSpec,
     include_context_images: bool,
     include_state: bool,
+    include_termination: bool,
+    include_actor_observation: bool,
 ) -> Any:
     """Append one row batch to a parquet writer.
 
@@ -316,6 +369,8 @@ def _write_parquet_row_batch(
         action_spec=action_spec,
         include_context_images=include_context_images,
         include_state=include_state,
+        include_termination=include_termination,
+        include_actor_observation=include_actor_observation,
     )
     table = dataset.data.table
     if writer is None:
@@ -331,6 +386,8 @@ def _write_parquet_split_from_shards(
     action_spec: ActionSpec,
     include_context_images: bool,
     include_state: bool,
+    include_termination: bool,
+    include_actor_observation: bool,
     row_count: int,
     row_batch_size: int = 256,
 ) -> None:
@@ -360,6 +417,8 @@ def _write_parquet_split_from_shards(
                     action_spec=action_spec,
                     include_context_images=include_context_images,
                     include_state=include_state,
+                    include_termination=include_termination,
+                    include_actor_observation=include_actor_observation,
                 )
                 progress.update(len(batch))
                 batch = []
@@ -371,6 +430,8 @@ def _write_parquet_split_from_shards(
                 action_spec=action_spec,
                 include_context_images=include_context_images,
                 include_state=include_state,
+                include_termination=include_termination,
+                include_actor_observation=include_actor_observation,
             )
             progress.update(len(batch))
         if writer is None:
@@ -379,6 +440,8 @@ def _write_parquet_split_from_shards(
                 action_spec=action_spec,
                 include_context_images=include_context_images,
                 include_state=include_state,
+                include_termination=include_termination,
+                include_actor_observation=include_actor_observation,
             )
             pq.write_table(dataset.data.table, tmp_path)
     finally:
@@ -409,12 +472,16 @@ def write_parquet_splits_from_shards(
     stats = episode_row_split_stats(output_dir)
     include_context_images = _shards_include_context_images(output_dir)
     include_state = _shards_include_state(output_dir)
+    include_termination = _shards_include_termination(output_dir)
+    include_actor_observation = _shards_include_actor_observation(output_dir)
     _write_parquet_split_from_shards(
         output_dir,
         "train",
         action_spec=action_spec,
         include_context_images=include_context_images,
         include_state=include_state,
+        include_termination=include_termination,
+        include_actor_observation=include_actor_observation,
         row_count=stats["train_rows"],
     )
     _write_parquet_split_from_shards(
@@ -423,6 +490,8 @@ def write_parquet_splits_from_shards(
         action_spec=action_spec,
         include_context_images=include_context_images,
         include_state=include_state,
+        include_termination=include_termination,
+        include_actor_observation=include_actor_observation,
         row_count=stats["val_rows"],
     )
     if not keep_dataset:

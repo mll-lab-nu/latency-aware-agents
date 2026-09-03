@@ -21,7 +21,13 @@ CANONICAL_ROW_FIELDS = (
 )
 
 
-def _rollout_feature_map(action_spec: ActionSpec, *, include_state: bool = False) -> dict[str, Any]:
+def _rollout_feature_map(
+    action_spec: ActionSpec,
+    *,
+    include_state: bool = False,
+    include_termination: bool = False,
+    include_actor_observation: bool = False,
+) -> dict[str, Any]:
     feature_map: dict[str, Any] = {
         "image": HFImage(),
         "env_name": Value("string"),
@@ -43,10 +49,20 @@ def _rollout_feature_map(action_spec: ActionSpec, *, include_state: bool = False
     feature_map["action_text"] = Value("string")
     if include_state:
         feature_map["state"] = HFSequence(Value("float32"))
+    if include_termination:
+        feature_map["termination"] = HFSequence(Value("bool"))
+    if include_actor_observation:
+        feature_map["actor_observation"] = HFSequence(HFSequence(Value("float32")))
     return feature_map
 
 
-def rollout_features(action_spec: ActionSpec, *, include_state: bool = False) -> Features:
+def rollout_features(
+    action_spec: ActionSpec,
+    *,
+    include_state: bool = False,
+    include_termination: bool = False,
+    include_actor_observation: bool = False,
+) -> Features:
     """Build Hugging Face dataset features for canonical rollout rows.
 
     Args:
@@ -55,11 +71,22 @@ def rollout_features(action_spec: ActionSpec, *, include_state: bool = False) ->
     Returns:
         Hugging Face ``Features`` for one environment's rollout table.
     """
-    return Features(_rollout_feature_map(action_spec, include_state=include_state))
+    return Features(
+        _rollout_feature_map(
+            action_spec,
+            include_state=include_state,
+            include_termination=include_termination,
+            include_actor_observation=include_actor_observation,
+        )
+    )
 
 
 def rollout_features_with_context_images(
-    action_spec: ActionSpec, *, include_state: bool = False
+    action_spec: ActionSpec,
+    *,
+    include_state: bool = False,
+    include_termination: bool = False,
+    include_actor_observation: bool = False,
 ) -> Features:
     """Build rollout features for rows that carry historical context images.
 
@@ -69,12 +96,23 @@ def rollout_features_with_context_images(
     Returns:
         Hugging Face ``Features`` including ``context_images``.
     """
-    feature_map = _rollout_feature_map(action_spec, include_state=include_state)
+    feature_map = _rollout_feature_map(
+        action_spec,
+        include_state=include_state,
+        include_termination=include_termination,
+        include_actor_observation=include_actor_observation,
+    )
     feature_map["context_images"] = HFSequence(HFImage())
     return Features(feature_map)
 
 
-def empty_records(action_spec: ActionSpec, *, include_state: bool = False) -> dict[str, list[Any]]:
+def empty_records(
+    action_spec: ActionSpec,
+    *,
+    include_state: bool = False,
+    include_termination: bool = False,
+    include_actor_observation: bool = False,
+) -> dict[str, list[Any]]:
     """Build empty column arrays matching the rollout features.
 
     Args:
@@ -83,7 +121,15 @@ def empty_records(action_spec: ActionSpec, *, include_state: bool = False) -> di
     Returns:
         Empty column mapping suitable for ``Dataset.from_dict``.
     """
-    return {name: [] for name in rollout_features(action_spec, include_state=include_state)}
+    return {
+        name: []
+        for name in rollout_features(
+            action_spec,
+            include_state=include_state,
+            include_termination=include_termination,
+            include_actor_observation=include_actor_observation,
+        )
+    }
 
 
 def empty_records_with_context_images(
@@ -91,6 +137,8 @@ def empty_records_with_context_images(
     include_context_images: bool,
     *,
     include_state: bool = False,
+    include_termination: bool = False,
+    include_actor_observation: bool = False,
 ) -> dict[str, list[Any]]:
     """Build empty column arrays for single-image or context-image rollout features.
 
@@ -102,9 +150,19 @@ def empty_records_with_context_images(
         Empty column mapping suitable for ``Dataset.from_dict``.
     """
     features = (
-        rollout_features_with_context_images(action_spec, include_state=include_state)
+        rollout_features_with_context_images(
+            action_spec,
+            include_state=include_state,
+            include_termination=include_termination,
+            include_actor_observation=include_actor_observation,
+        )
         if include_context_images
-        else rollout_features(action_spec, include_state=include_state)
+        else rollout_features(
+            action_spec,
+            include_state=include_state,
+            include_termination=include_termination,
+            include_actor_observation=include_actor_observation,
+        )
     )
     return {name: [] for name in features}
 

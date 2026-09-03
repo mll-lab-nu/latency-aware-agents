@@ -8,8 +8,10 @@
 > 100/300/1000 门禁并正常完成 15k；Teacher evaluation 已通过。
 > 34D terrain-latent+yaw VLA 的 RGB collector、LeRobot/GR00T 数据转换、5k 训练入口和
 > zero-delay evaluator 已实现；单卡 8-env oracle、1+1 episode 数据、1-step GR00T 训练及
-> 闭环推理 smoke、正式 250/25 bootstrap 和 5k SFT 已完成；旧 DAgger run 已确认受 yaw
-> MTS、reset phase 和 normalization 问题污染，修复及清理已完成，等待重新训练。
+> 闭环推理 smoke、旧 latent-only 正式 250/25 bootstrap 和 5k SFT 已完成；旧 latent-only DAgger 在
+> `0.245 -> 0.088` 后确认没有直接约束最终 motor action。action+yaw objective、完整 5×50 Hz
+> actor observation、fresh action+yaw bootstrap 和固定 50/50 replay 已实现；下一次先训练
+> action+yaw bootstrap，再只执行 round 0。
 
 ## 1. 目标与实验口径
 
@@ -379,7 +381,8 @@ collector 继续运行 oracle episode，仅提交触发 `cur_goal_idx >= num_goa
 split seed 0 得到精确 250 train / 25 validation episodes：
 
 修复前生成的 `outputs/official_gr00t/extreme_parkour_go2/raw` 和
-`outputs/official_gr00t/extreme_parkour_go2/lerobot` 均视为污染数据，必须整套重建，不能
+`outputs/official_gr00t/extreme_parkour_go2/lerobot` 缺少 action objective 所需的 5×50 Hz
+actor observation，不能用于 replay；必须在新目录整套重建，不能
 继续转换、混用或用于训练。collector 要求 `--output_dir` 是空的、不存在的目录；完成相机
 smoke 后再执行以下采集和转换命令。训练进程与 checkpoint 不属于本节数据修复范围。
 
@@ -389,22 +392,23 @@ PYTHONPATH="${REPO_ROOT}" OMNI_KIT_ACCEPT_EULA=YES \
   "${PARKOUR_PY}" scripts/rsl_rl/parkour_vla.py collect \
   --headless --seed 1 --num_envs 50 --checkpoint "${TEACHER_CKPT}" \
   --train_episodes 250 --val_episodes 25 --split_seed 0 \
-  --output_dir "${REPO_ROOT}/outputs/official_gr00t/extreme_parkour_go2/raw"
+  --output_dir "${REPO_ROOT}/outputs/official_gr00t/extreme_parkour_go2_action_data/raw"
 
 cd "${REPO_ROOT}"
 uv run --project . python scripts/official_gr00t/prepare_parkour_dataset.py \
-  outputs/official_gr00t/extreme_parkour_go2/raw \
-  outputs/official_gr00t/extreme_parkour_go2/lerobot
+  outputs/official_gr00t/extreme_parkour_go2_action_data/raw \
+  outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot
 ```
 
-finalizer 流式生成 canonical parquet、train/validation LeRobot videos、53D state/34D action
-modality metadata，并对两套 dataset 运行 `gr00t.data.stats`。缺字段、错误 action layout 或错误
+finalizer 流式生成 canonical parquet、train/validation LeRobot videos、53D state/34D action、
+`actor_observation[5,753]` 和 `termination[5]`，并对两套 dataset 运行 `gr00t.data.stats`。缺字段、错误 action layout 或错误
 model output dimension 直接失败，不使用别名、零 state 或其他 fallback。
 
-### 11.3 GR00T 5k 与最终闭环评测
+### 11.3 旧 latent-only GR00T 5k 与最终闭环评测
 
-正式训练固定 fresh `GR00T-N1.7-3B`、2 GPUs、global batch 128、LR `1e-4`、H1、5k steps、
-one-step regression、vision tuning、BF16、action/state dropout 0：
+已完成的 latent bootstrap 使用 fresh `GR00T-N1.7-3B`、2 GPUs、global batch 128、LR `1e-4`、
+H1、5k steps、one-step regression、vision tuning、BF16、action/state dropout 0。以下是历史
+复现入口；它只保留为历史结果，section 12 不再加载或续训该 checkpoint：
 
 ```bash
 cd "${REPO_ROOT}"
@@ -436,9 +440,10 @@ privileged yaw，因此该结果无效。commit `658cd53` 修复为 5 步持续�
 checkpoint 在 seed 2、50 env、batch 32 下重测 progress 为 `0.2325±0.2165`；该结果来自旧的
 50-episode evaluator，仅保留为历史诊断值。
 
-## 12. 固定 teacher actor 的 latent-only DAgger
+## 12. 固定 teacher actor 的 action + yaw DAgger
 
-DAgger 从现有 SFT VLA 开始迭代，固定同一个 teacher actor 用于 rollout 和评测：
+DAgger 从 fresh action+yaw SFT VLA 开始迭代，固定同一个 teacher actor 用于 bootstrap、rollout
+和评测：
 
 ```text
 RGB + masked proprio -> trainable VLA -> latent32 + normalized yaw2
@@ -451,19 +456,23 @@ SFT collection、DAgger collection 和 evaluation 全部使用
 `Isaac-Extreme-Parkour-VLA-Unitree-Go2-v0` 这个 canonical env 1。DAgger 唯一改变的是由当前
 VLA 控制机器人，并把并行环境数从 50 覆盖为 192；不切换到原 depth-student env 2。
 
-Actor 与 history encoder 的唯一实现位于 Isaaclab_Parkour 的
-`parkour_isaaclab/actor.py`，该模块只依赖 PyTorch；Isaac collector/evaluator 使用它，GR00T
-训练不导入或更新它，不再由 latency-sensitive-bench 复制网络。保存后的 GR00T checkpoint
-是标准 34D VLA checkpoint，输出走通用 processor 反归一化；部署不需要 teacher checkpoint、
-Isaaclab_Parkour 或 latency-sensitive-bench 的 Actor 代码。
+bootstrap 与 DAgger 使用完全相同的训练目标：不再监督 32D latent 本身，只保留两个与闭环直接
+一致的 loss：
 
-训练只使用标准 34D SFT latent/yaw loss：32D terrain latent 加 2D normalized current/next
-yaw；current/next GT yaw 统一 wrap 到 `[-pi, pi]` 后除以 `1.5`。VLA 输入中的 yaw 两维在 SFT
-和 DAgger 都置零。DAgger rollout 按原论文 MTS 比较 predicted current yaw 与 GT current yaw
-的环形误差：误差小于 `0.6 rad` 时给低层 actor 整对 predicted yaw，否则整对使用 GT yaw；
-环境始终由 student motor action 推进。最终 eval 始终使用 predicted yaw，不使用 MTS fallback。
-不添加 12D action loss，也不训练或保存 student actor。固定 normalization stats 与 bootstrap
-数据一致。
+- `action_loss`：把 VLA 预测的 32D latent 和 MTS yaw 送入冻结 actor，在每个 10 Hz 样本对应的
+  5 个 50 Hz 状态上计算 student/teacher 12D motor action 的向量 L2；第一个 terminal action
+  有效，terminal 后的子步由累计 mask 排除；
+- `yaw_loss`：预测 current/next yaw 与 oracle yaw 在同一 radian 单位上的向量 L2。
+
+teacher motor action 由同一个冻结 actor、原始 actor observation 和 oracle terrain latent 在线
+算出，不在数据里重复保存。actor 只作为训练期 loss 函数加载，不进入 optimizer、GR00T model
+或 checkpoint；保存结果仍是标准 34D VLA。VLA 输入中的 yaw 两维继续置零。rollout 按论文 MTS
+比较 predicted current yaw 与 GT current yaw 的环形误差：误差小于 `0.6 rad` 时使用整对
+predicted yaw，否则使用整对 GT yaw；最终 eval 始终使用 predicted yaw，不使用 MTS fallback。
+
+这与原 Parkour 官方 Phase 2 实现的实际启用路径一致：总 loss 是 motor-action L2 加 direction/yaw
+L2；仓库中虽保留 latent loss 函数，但 runner 调用被注释，没有启用 latent matching。本项目冻结
+actor 是为隔离 VLA 修正而采用的简化版本，不等同于论文中可训练的完整 student actor。
 
 ### 12.1 有界 DAgger 预算
 
@@ -476,10 +485,13 @@ yaw；current/next GT yaw 统一 wrap 到 `[-pi, pi]` 后除以 `1.5`。VLA 输�
 | 50 Hz rollout control steps | 320,000 | 3,200,000 |
 | optimizer updates | 500 | 5,000 |
 
-GR00T 使用 global batch `128`、gradient accumulation `1`，因此每轮执行
+bootstrap 从 fresh `GR00T-N1.7-3B` 开始，在 action-rich 250/25 episode 数据上使用 global
+batch `128`、gradient accumulation `1`、peak LR `5e-5` 训练 5,000 updates，不混入 replay。
+DAgger 使用相同 batch、gradient accumulation 和 peak LR，因此每轮执行
 `500 × 128 = 64,000` 个 supervised samples。每轮新增 64,000 行 current-VLA rollout，每行携带一个
-oracle 34D latent/yaw target；训练数据使用 bootstrap LeRobot 加所有已完成 DAgger round 和当前
-round 的 LeRobot 聚合数据。collector 和 GR00T shard 均为 1,000 rows，每轮 64 shards；模型、
+oracle 34D latent/yaw target。采样权重固定为 50% 新采集的 action-rich bootstrap replay，
+另 50% 在所有已完成 DAgger round 与当前 round 间按数据量分配；bootstrap 不会随着 round 增多
+而被稀释。collector 和 GR00T shard 均为 1,000 rows，每轮 64 shards；模型、
 optimizer 和 scheduler 从上轮 checkpoint 继续，teacher actor 始终从固定 teacher checkpoint
 加载。
 
@@ -488,28 +500,31 @@ optimizer 和 scheduler 从上轮 checkpoint 继续，teacher actor 始终从固
 DAgger collector 使用一个 canonical env 1 进程、192 camera envs 和 seed 1；与 SFT/eval
 相比只改变 rollout policy 和并行环境数。每个原子
 shard 是 `episode.npz + episode.mp4`，不落逐帧 PNG；numeric payload 保存
-`state[53]`、`action[34]` 和 `termination[5]`。每行保存一个 oracle 34D latent/yaw target，
+`state[53]`、`action[34]`、`actor_observation[5,753]` 和 `termination[5]`。每行保存一个 oracle 34D latent/yaw target，
 包括 failure/timeout 标记处；
-`termination` 只写入 parquet 供诊断，不进入标准 34D loss，也不屏蔽 loss。每个全局 10 Hz
+`termination` 同时控制 action loss mask。每个全局 10 Hz
 block 为全部环境刷新 VLA；block 中 reset 的环境立即刷新，避免 per-env phase 锁相后退出采样池。
 reset observation 同时从新 root pose 和新 goals 立即重算 wrapped GT yaw，不复用上一 episode 缓存。
 LeRobot parquet 直接保留这些诊断列，
 并逐字节复制由 bootstrap 数据现有 fingerprint-aware stats 流程生成的固定 normalization
 stats，DAgger round 不重新计算 stats。
 
-完成 250/25 bootstrap 数据和上节 5k SFT 后，以下入口先在 env 1 执行 round-0
-step-0 baseline，再依次执行 10 轮 env 1 的 192-env 采集、转换、500-step latent-only 训练和
-env 1 的 seed-2 固定评测。每个 eval 使用 50 个并行环境、严格统计 100 个 episode，单 episode
+旧 latent-only `checkpoint-5000` 不再作为初始化。以下入口先用上节重新采集的 action-rich
+bootstrap dataset，从 GR00T base fresh 训练 5k action+yaw bootstrap；随后在 env 1 执行 step-0
+baseline，再只执行 round 0 的 192-env 采集、转换、
+500-step action+yaw 训练和 seed-2 固定评测。每个 eval 使用 50 个并行环境、严格统计 100 个 episode，单 episode
 最多 1,500 control steps：
 
 ```bash
 cd /pfs/users/lxy/latency-sensitive-bench
-uv run --project . python scripts/official_gr00t/train_parkour_dagger.py
+uv run --project . python scripts/official_gr00t/train_parkour_dagger.py \
+  --run-bootstrap
 ```
 
 step-0 结果保存为 `round_00/eval_before/vla-eval.json`。每次 round eval 都把 `reward`、`episode_length`、`normalized_waypoint_progress` 和
 `edge_violation` 的 mean/std 写入同一个 W&B run 的 `dagger_eval/*` namespace，并以
-`train/global_step=0, 500, ..., 5000` 对齐，因此完整 run 一共 11 个 eval 点。round 边界中断
+`train/global_step=0, 500` 对齐。默认 `--end-round 1`；只有 round 0 明确改善后，才用
+`--start-round 1 --end-round 2` 启动下一轮。round 边界中断
 后用 `--start-round N`（零起始）继续；目标
 `checkpoint-{(N+1)*500}/.dagger-round-complete` 已由成功返回的训练子进程原子写入时不会重复训练该
 round。round 内采集中断不能只按 row count
@@ -519,10 +534,14 @@ round。round 内采集中断不能只按 row count
 `training_datasets.json` 和该轮 `lerobot/`；只删除该轮 `raw/`。失败路径不清理，便于定位和续跑。
 旧 current-only DAgger 输出缺少可复用的 round `lerobot/` 和聚合训练 manifest，不能作为该流程的
 resume 根目录；重新跑时使用新的 output root 或先清掉旧 round/checkpoint。
-默认输出根目录是 `outputs/official_gr00t/extreme_parkour_go2_dagger`，最终 VLA checkpoint 是
-`training/<wandb-run-id>/checkpoint-5000`。
+默认输出根目录是 `outputs/official_gr00t/extreme_parkour_go2_action_yaw_dagger`；fresh bootstrap
+checkpoint 是 `bootstrap/training/<wandb-run-id>_sft/checkpoint-5000`，round-0 checkpoint 是
+`training/<wandb-run-id>/checkpoint-500`。已有 fresh bootstrap 时可省略 `--run-bootstrap`，或用
+`--bootstrap-checkpoint` 显式指定；旧 latent-only checkpoint 不得传入。
 
 2026-09-03 的旧 DAgger 与 statsfix run 均未使用论文 MTS，且 collector 存在 reset phase
 锁相；旧 normalization run 还会裁剪超出 bootstrap 范围的 yaw。旧 run 的 round-0 progress
 分别从 `0.2225` 降至 `0.0700`、从 `0.2300` 降至 `0.1475`，全部数据和 checkpoint 作废，
 不能用于 resume 或后续聚合训练。
+随后仍采用 latent-only loss 的一次 run 又从 `0.245` 降到 `0.088`；该结果进一步说明修复
+rollout/eval plumbing 并没有修复监督目标，相关 checkpoint 同样只保留作失败证据。

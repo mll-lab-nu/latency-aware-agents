@@ -15,6 +15,9 @@ def _dagger_arrays() -> dict[str, np.ndarray]:
         "state": np.arange(53, dtype=np.float32).reshape(1, 53),
         "action": np.arange(34, dtype=np.float32).reshape(1, 34),
         "termination": np.asarray([[False, False, False, False, True]]),
+        "actor_observation": np.arange(5 * 753, dtype=np.float32).reshape(
+            1, 5, 753
+        ),
         "image_shape": np.asarray([2, 2, 3], dtype=np.int64),
     }
 
@@ -102,14 +105,57 @@ def test_parkour_dagger_converter_writes_video_and_numeric_parquet(tmp_path):
     ).to_pylist()[0]
     assert len(row["observation.state"]) == 53
     assert len(row["action"]) == 34
+    assert len(row["actor_observation"]) == 5
+    assert len(row["actor_observation"][0]) == 753
     assert "oracle_yaw" not in row
     assert row["termination"] == [False, False, False, False, True]
     info = json.loads((output / "meta/info.json").read_text())
     assert info["features"]["observation.image"]["dtype"] == "video"
-    assert "actor_observation" not in info["features"]
+    assert info["features"]["actor_observation"]["shape"] == [5, 753]
     assert "teacher_action" not in info["features"]
     task = json.loads((output / "meta/tasks.jsonl").read_text())
     assert task["task"] == "Traverse the parkour course and follow each waypoint."
+
+
+def test_parkour_bootstrap_rows_preserve_actor_observation_and_termination(tmp_path):
+    from latency_bench.data.action_layouts import (
+        GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC,
+    )
+    from latency_bench.data.hf_parquet import (
+        write_episode_row_shard,
+        write_parquet_splits_from_shards,
+    )
+
+    image = tmp_path / "frame.png"
+    save_test_image(image, 7)
+    row = {
+        "image": str(image),
+        "env_name": "extreme_parkour_go2",
+        "episode_idx": 0,
+        "decision_step": 0,
+        "split": "train",
+        "seed": 1,
+        "prompt": "Traverse the parkour course and follow each waypoint.",
+        "latency_raw_frames": 0,
+        "latency_ms": 0.0,
+        "raw_reward": 0.0,
+        "action": [0.0] * 34,
+        "action_text": "terrain_latent_yaw",
+        "state": [0.0] * 53,
+        "actor_observation": [[float(i)] * 753 for i in range(5)],
+        "termination": [False, False, False, False, True],
+    }
+    write_episode_row_shard(tmp_path, [row])
+    write_parquet_splits_from_shards(
+        tmp_path,
+        action_spec=GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC,
+        keep_dataset=False,
+    )
+
+    row_out = pq.read_table(tmp_path / "train.parquet").to_pylist()[0]
+    assert len(row_out["actor_observation"]) == 5
+    assert len(row_out["actor_observation"][0]) == 753
+    assert row_out["termination"] == [False, False, False, False, True]
 
 
 def test_dagger_prepare_copies_bootstrap_stats(tmp_path, monkeypatch):
