@@ -1,5 +1,9 @@
 import argparse
+import json
+import os
 from pathlib import Path
+
+import pytest
 
 from scripts.official_gr00t import train_parkour_dagger as dagger
 from scripts.official_gr00t.train_parkour_dagger import (
@@ -14,6 +18,7 @@ from scripts.official_gr00t.train_parkour_dagger import (
     collector_command,
     read_eval_metrics,
     training_command,
+    training_dataset_dirs,
 )
 
 
@@ -21,6 +26,9 @@ def test_commands_preserve_round_resume_contract():
     output = Path("output")
     teacher = Path("teacher.pt")
     bootstrap = Path("bootstrap")
+    bootstrap_dataset = Path("bootstrap_dataset")
+    round0_dataset = output / "round_00/lerobot"
+    round1_dataset = output / "round_01/lerobot"
 
     first_collect = collector_command(
         Path("python"),
@@ -37,17 +45,24 @@ def test_commands_preserve_round_resume_contract():
     )
     first_train = training_command(
         bootstrap_checkpoint=bootstrap,
-        dataset_dir=Path("dataset"),
+        dataset_dirs=[bootstrap_dataset, round0_dataset],
         training_output=output,
         round_index=0,
+        experiment_name="latent-only",
     )
     later_train = training_command(
         bootstrap_checkpoint=bootstrap,
-        dataset_dir=Path("dataset"),
+        dataset_dirs=[bootstrap_dataset, round0_dataset, round1_dataset],
         training_output=output,
         round_index=1,
+        experiment_name="latent-only",
     )
 
+    assert training_dataset_dirs(Path("bc"), Path("out"), 1) == [
+        Path("bc"),
+        Path("out/round_00/lerobot"),
+        Path("out/round_01/lerobot"),
+    ]
     assert first_collect[first_collect.index("--num_envs") + 1] == str(DAGGER_ENVS)
     assert first_collect[first_collect.index("--seed") + 1] == "1"
     assert DAGGER_ENVS == 192
@@ -65,6 +80,12 @@ def test_commands_preserve_round_resume_contract():
     assert "--student_actor_checkpoint" not in first_collect
     assert "--resume-checkpoint-path" not in first_train
     assert "--state-history-length" not in first_train
+    assert first_train[first_train.index("--dataset-path") + 1] == os.pathsep.join(
+        str(path) for path in [bootstrap_dataset, round0_dataset]
+    )
+    assert later_train[later_train.index("--dataset-path") + 1] == os.pathsep.join(
+        str(path) for path in [bootstrap_dataset, round0_dataset, round1_dataset]
+    )
     assert later_train[-2:] == [
         "--resume-checkpoint-path",
         "output/checkpoint-500",
@@ -79,7 +100,7 @@ def test_commands_preserve_round_resume_contract():
     )
     assert first_train[first_train.index("--dataloader-num-workers") + 1] == "8"
     assert first_train[first_train.index("--save-total-limit") + 1] == "2"
-    assert "--experiment-name" not in first_train
+    assert first_train[first_train.index("--experiment-name") + 1] == "latent-only"
     assert "--parkour-dagger" not in first_train
     assert "--parkour-actor-checkpoint" not in first_train
     eval_command = collector_command(
@@ -99,7 +120,7 @@ def test_commands_preserve_round_resume_contract():
     assert checkpoint_dir(output, 10) == output / "checkpoint-5000"
 
 
-def test_one_round_orchestration_evaluates_before_collection_and_after_training(
+def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
     tmp_path, monkeypatch
 ):
     output_root = tmp_path / "output"
@@ -122,8 +143,11 @@ def test_one_round_orchestration_evaluates_before_collection_and_after_training(
             dataset_dir.mkdir(parents=True)
             (dataset_dir / "manifest.json").write_text('{"frames": 64000}\n')
         elif str(dagger.FINETUNE_SCRIPT) in command:
-            events.append("train")
-            checkpoint_dir(output_root / "training", 1).mkdir(parents=True)
+            events.append(f"train:{command[command.index('--dataset-path') + 1]}")
+            completed_rounds = 2 if "--resume-checkpoint-path" in command else 1
+            checkpoint_dir(output_root / "training", completed_rounds).mkdir(
+                parents=True
+            )
 
     def fake_log_eval_metrics(eval_path, *, step, run_id):
         events.append(f"wandb:{step}")
@@ -141,27 +165,105 @@ def test_one_round_orchestration_evaluates_before_collection_and_after_training(
         inference_batch_size=32,
         wandb_run_id="latent-only",
         start_round=0,
-        end_round=1,
+        end_round=2,
     )
 
     dagger.run_pipeline(args)
 
+    round0_dataset = output_root / "round_00/lerobot"
+    round1_dataset = output_root / "round_01/lerobot"
     assert events == [
         "vla-eval:50",
         "wandb:0",
         "dagger-collect:192",
         "prepare",
-        "train",
+        "train:"
+        + os.pathsep.join(str(path) for path in [args.bootstrap_dataset, round0_dataset]),
         "vla-eval:50",
         "wandb:500",
+        "dagger-collect:192",
+        "prepare",
+        "train:"
+        + os.pathsep.join(
+            str(path)
+            for path in [args.bootstrap_dataset, round0_dataset, round1_dataset]
+        ),
+        "vla-eval:50",
+        "wandb:1000",
     ]
     assert (
         checkpoint_dir(output_root / "training", 1) / CHECKPOINT_COMPLETE_MARKER
     ).read_text() == "complete\n"
+    assert (
+        checkpoint_dir(output_root / "training", 2) / CHECKPOINT_COMPLETE_MARKER
+    ).read_text() == "complete\n"
+    for round_index, expected_datasets in enumerate(
+        (
+            [args.bootstrap_dataset, round0_dataset],
+            [args.bootstrap_dataset, round0_dataset, round1_dataset],
+        )
+    ):
+        round_dir = output_root / f"round_{round_index:02d}"
+        assert (round_dir / "dataset_manifest.json").read_text() == '{"frames": 64000}\n'
+        assert json.loads((round_dir / "training_datasets.json").read_text()) == {
+            "round_index": round_index,
+            "datasets": [str(path) for path in expected_datasets],
+        }
+        assert not (round_dir / "raw").exists()
+        assert (round_dir / "lerobot").exists()
+
+
+def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypatch):
+    output_root = tmp_path / "output"
     round_dir = output_root / "round_00"
-    assert (round_dir / "dataset_manifest.json").read_text() == '{"frames": 64000}\n'
-    assert not (round_dir / "raw").exists()
-    assert not (round_dir / "lerobot").exists()
+    (checkpoint_dir(output_root / "training", 1)).mkdir(parents=True)
+    (checkpoint_dir(output_root / "training", 1) / CHECKPOINT_COMPLETE_MARKER).write_text(
+        "complete\n"
+    )
+    round_dir.mkdir(parents=True)
+    (round_dir / "training_datasets.json").write_text(
+        '{"datasets":["old-current-only"],"round_index":0}\n'
+    )
+    policy_config = tmp_path / "policy.yaml"
+    policy_config.write_text("policy:\n  model_path: old\n  device: cuda:0\n")
+    events = []
+
+    def fake_run(command, **kwargs):
+        if str(dagger.PARKOUR_SCRIPT) in command:
+            mode = command[2]
+            events.append(mode)
+            output_dir = Path(command[command.index("--output_dir") + 1])
+            output_dir.mkdir(parents=True, exist_ok=True)
+            if mode == "vla-eval":
+                (output_dir / "vla-eval.json").write_text("{}\n")
+        elif str(dagger.PREPARE_SCRIPT) in command:
+            events.append("prepare")
+            dataset_dir = Path(command[3])
+            dataset_dir.mkdir(parents=True)
+            (dataset_dir / "manifest.json").write_text('{"frames": 64000}\n')
+        elif str(dagger.FINETUNE_SCRIPT) in command:
+            events.append("train")
+
+    monkeypatch.setattr(dagger.subprocess, "run", fake_run)
+    monkeypatch.setattr(dagger, "log_eval_metrics", lambda *args, **kwargs: None)
+    args = argparse.Namespace(
+        teacher_checkpoint=tmp_path / "teacher.pt",
+        bootstrap_checkpoint=tmp_path / "bootstrap",
+        bootstrap_dataset=tmp_path / "bootstrap_dataset",
+        output_root=output_root,
+        policy_config=policy_config,
+        parkour_python=Path("/usr/bin/python"),
+        inference_device="cuda:1",
+        inference_batch_size=32,
+        wandb_run_id="latent-only",
+        start_round=0,
+        end_round=1,
+    )
+
+    with pytest.raises(RuntimeError, match="different DAgger dataset aggregate"):
+        dagger.run_pipeline(args)
+
+    assert events == ["vla-eval", "dagger-collect", "prepare"]
 
 
 def test_read_eval_metrics_flattens_vla_eval_json(tmp_path):

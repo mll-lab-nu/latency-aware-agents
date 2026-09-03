@@ -64,6 +64,18 @@ def checkpoint_dir(training_output: Path, completed_rounds: int) -> Path:
     return training_output / f"checkpoint-{completed_rounds * UPDATES_PER_ROUND}"
 
 
+def training_dataset_dirs(
+    bootstrap_dataset: Path, output_root: Path, round_index: int
+) -> list[Path]:
+    return [
+        bootstrap_dataset,
+        *(
+            output_root / f"round_{index:02d}" / "lerobot"
+            for index in range(round_index + 1)
+        ),
+    ]
+
+
 def write_policy_config(
     source: Path,
     destination: Path,
@@ -153,9 +165,10 @@ def prepare_command(
 def training_command(
     *,
     bootstrap_checkpoint: Path,
-    dataset_dir: Path,
+    dataset_dirs: list[Path],
     training_output: Path,
     round_index: int,
+    experiment_name: str,
 ) -> list[str]:
     command = [
         str(GROOT_ROOT / ".venv/bin/torchrun"),
@@ -165,7 +178,7 @@ def training_command(
         "--base-model-path",
         str(bootstrap_checkpoint),
         "--dataset-path",
-        str(dataset_dir),
+        os.pathsep.join(str(path) for path in dataset_dirs),
         "--embodiment-tag",
         "NEW_EMBODIMENT",
         "--modality-config-path",
@@ -174,6 +187,8 @@ def training_command(
         "2",
         "--output-dir",
         str(training_output),
+        "--experiment-name",
+        experiment_name,
         "--max-state-dim",
         "53",
         "--action-horizon",
@@ -346,17 +361,38 @@ def run_pipeline(args: argparse.Namespace) -> None:
         )
         trained_model = checkpoint_dir(training_output, round_index + 1)
         complete_marker = trained_model / CHECKPOINT_COMPLETE_MARKER
-        if not complete_marker.is_file():
+        datasets = training_dataset_dirs(
+            args.bootstrap_dataset, args.output_root, round_index
+        )
+        training_datasets_path = round_dir / "training_datasets.json"
+        training_datasets_manifest = {
+            "round_index": round_index,
+            "datasets": [str(path) for path in datasets],
+        }
+        if complete_marker.is_file():
+            recorded_training_datasets = json.loads(
+                training_datasets_path.read_text(encoding="utf-8")
+            )
+            if recorded_training_datasets != training_datasets_manifest:
+                raise RuntimeError(
+                    f"{complete_marker} was produced with a different DAgger dataset aggregate"
+                )
+        else:
             subprocess.run(
                 training_command(
                     bootstrap_checkpoint=args.bootstrap_checkpoint,
-                    dataset_dir=dataset_dir,
+                    dataset_dirs=datasets,
                     training_output=training_output,
                     round_index=round_index,
+                    experiment_name=args.wandb_run_id,
                 ),
                 cwd=REPO_ROOT,
                 env=training_env,
                 check=True,
+            )
+            training_datasets_path.write_text(
+                json.dumps(training_datasets_manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
             )
             temporary_marker = trained_model / f"{CHECKPOINT_COMPLETE_MARKER}.tmp"
             temporary_marker.write_text("complete\n", encoding="utf-8")
@@ -378,7 +414,6 @@ def run_pipeline(args: argparse.Namespace) -> None:
         )
         shutil.copy2(dataset_dir / "manifest.json", round_dir / "dataset_manifest.json")
         shutil.rmtree(raw_dir)
-        shutil.rmtree(dataset_dir)
 
 
 def main() -> None:

@@ -630,7 +630,11 @@ PYTHONPATH="${REPO_ROOT}" OMNI_KIT_ACCEPT_EULA=YES \
 输出仍为 reward、episode length、normalized waypoint progress、edge violation。四项必须
 finite，且 GR00T mean normalized waypoint progress 至少达到同一 50-env teacher 的 50%。
 在该 gate 通过前，不启动正式 DAgger run、latency scheduler、profile、raw-action track 或
-HAIC VLA。
+HAIC VLA。此前记录的 clean SFT checkpoint-5000 progress `0.6850±0.3393` 来自旧 evaluator：
+每 5 个 control steps 只有第 1 步使用 VLA 预测 yaw，后 4 步错误复用了 observation 中的
+privileged yaw，因此该结果无效。commit `658cd53` 修复为 5 步持续使用预测 yaw 后，同一
+checkpoint 在 seed 2、50 env、batch 32 下重测 progress 为 `0.2325±0.2165`，未通过 SFT
+gate；结果见 `outputs/official_gr00t/extreme_parkour_go2_dagger/round_00/eval_before/vla-eval.json`。
 
 ## 12. 固定 teacher actor 的 latent-only DAgger
 
@@ -667,11 +671,12 @@ bootstrap 数据一致。
 | 50 Hz rollout control steps | 320,000 | 3,200,000 |
 | optimizer updates | 500 | 5,000 |
 
-GR00T 使用 global batch `128`、gradient accumulation `1`，因此每轮
-`500 × 128 = 64,000` rows 恰好消费一次；每行携带一个 oracle 34D latent/yaw target。每轮
-只训练当轮 current-VLA rollout，不做 replay。collector 和 GR00T shard 均为 1,000 rows，每轮
-64 shards；模型、optimizer 和 scheduler 从上轮 checkpoint 继续，teacher actor 始终从固定
-teacher checkpoint 加载。
+GR00T 使用 global batch `128`、gradient accumulation `1`，因此每轮执行
+`500 × 128 = 64,000` 个 supervised samples。每轮新增 64,000 行 current-VLA rollout，每行携带一个
+oracle 34D latent/yaw target；训练数据使用 bootstrap LeRobot 加所有已完成 DAgger round 和当前
+round 的 LeRobot 聚合数据。collector 和 GR00T shard 均为 1,000 rows，每轮 64 shards；模型、
+optimizer 和 scheduler 从上轮 checkpoint 继续，teacher actor 始终从固定 teacher checkpoint
+加载。
 
 ### 12.2 数据与 round driver
 
@@ -702,9 +707,10 @@ step-0 结果保存为 `round_00/eval_before/vla-eval.json`。每次 round eval 
 round。round 内采集中断不能只按 row count
 续采，因为重新启动 Isaac 会回到相同 seed 的初始状态、从而重复 deterministic prefix；程序
 会明确失败，必须由操作者先保留或清理该 round 的 partial directory 后从空目录重采。
-每轮 eval 子进程正常结束后只保留 checkpoint、eval 结果、policy 配置和小型
-`dataset_manifest.json`；该轮 `raw/` 与 `lerobot/` 立即删除。失败路径不清理，便于定位和
-续跑。
+每轮 eval 子进程正常结束后保留 checkpoint、eval 结果、policy 配置、`dataset_manifest.json`、
+`training_datasets.json` 和该轮 `lerobot/`；只删除该轮 `raw/`。失败路径不清理，便于定位和续跑。
+旧 current-only DAgger 输出缺少可复用的 round `lerobot/` 和聚合训练 manifest，不能作为该流程的
+resume 根目录；重新跑时使用新的 output root 或先清掉旧 round/checkpoint。
 默认输出根目录是 `outputs/official_gr00t/extreme_parkour_go2_dagger`，最终 VLA checkpoint 是
 `training/checkpoint-5000`。
 
