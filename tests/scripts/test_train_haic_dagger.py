@@ -13,6 +13,7 @@ from scripts.official_gr00t.train_haic_dagger import (
     DAGGER_ROUNDS,
     DEFAULT_INFERENCE_BATCH_SIZE,
     ENVS_PER_COLLECTOR_RANK,
+    EVAL_ENVS,
     GLOBAL_BATCH_SIZE,
     GRADIENT_ACCUMULATION_STEPS,
     HAIC_DAGGER_SHARD_ROWS,
@@ -57,6 +58,7 @@ def test_haic_pipeline_constants_are_single_gpu_and_paper_scale():
     assert BOOTSTRAP_UPDATES == 5_000
     assert GLOBAL_BATCH_SIZE == 64
     assert BOOTSTRAP_GRADIENT_ACCUMULATION_STEPS == 2
+    assert EVAL_ENVS == 100
     assert DAGGER_ROUNDS == 10
     assert UPDATES_PER_ROUND == 500
     assert GRADIENT_ACCUMULATION_STEPS == 2
@@ -137,21 +139,20 @@ def test_haic_commands_encode_smoke_and_resume_contract():
 def test_read_eval_metrics_flattens_haic_eval_json(tmp_path):
     eval_path = tmp_path / "dagger-eval.json"
     eval_path.write_text(
-        '{"steps":1000,"episodes":50,"successes":45,"success_rate":0.9}\n'
+        '{"episodes":100,"successes":45,"success_rate":0.45}\n'
     )
 
     assert read_eval_metrics(eval_path) == {
-        "dagger_eval/steps": 1000,
-        "dagger_eval/episodes": 50,
+        "dagger_eval/episodes": 100,
         "dagger_eval/successes": 45,
-        "dagger_eval/success_rate": 0.9,
+        "dagger_eval/success_rate": 0.45,
     }
 
 
 def test_log_eval_metrics_uses_training_step_and_run(tmp_path, monkeypatch):
     eval_path = tmp_path / "dagger-eval.json"
     eval_path.write_text(
-        '{"steps":1000,"episodes":50,"successes":45,"success_rate":0.9}\n'
+        '{"episodes":100,"successes":45,"success_rate":0.45}\n'
     )
     calls = {}
 
@@ -181,7 +182,8 @@ def test_log_eval_metrics_uses_training_step_and_run(tmp_path, monkeypatch):
     }
     assert calls["metric"] == ("dagger_eval/*", "train/global_step")
     assert calls["log"]["train/global_step"] == 500
-    assert calls["log"]["dagger_eval/success_rate"] == 0.9
+    assert calls["log"]["dagger_eval/success_rate"] == 0.45
+    assert "dagger_eval/steps" not in calls["log"]
 
 
 def test_archive_and_remove_round_data(tmp_path):

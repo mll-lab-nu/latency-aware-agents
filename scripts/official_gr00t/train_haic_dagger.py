@@ -42,7 +42,7 @@ HAIC_DAGGER_ROWS_PER_COLLECTOR = HAIC_DAGGER_ROWS_PER_ROUND // COLLECTOR_RANKS
 HAIC_DAGGER_SHARD_ROWS = 1_000
 DEFAULT_INFERENCE_BATCH_SIZE = 32
 CHECKPOINT_COMPLETE_MARKER = ".dagger-round-complete"
-EVAL_ENVS = 50
+EVAL_ENVS = 100
 HAIC_CONTROL_STEPS_PER_VLA = 5
 DEFAULT_WANDB_RUN_ID = "haic_pull_cart_vla_dagger_latent_5k"
 
@@ -289,7 +289,6 @@ def read_eval_metrics(eval_path: Path) -> dict[str, int | float]:
         "dagger_eval/success_rate": result["success_rate"],
         "dagger_eval/episodes": result["episodes"],
         "dagger_eval/successes": result["successes"],
-        "dagger_eval/steps": result["steps"],
     }
 
 
