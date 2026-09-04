@@ -42,6 +42,7 @@ HAIC_DAGGER_ROWS_PER_ROUND = (
 HAIC_DAGGER_ROWS_PER_COLLECTOR = HAIC_DAGGER_ROWS_PER_ROUND // COLLECTOR_RANKS
 HAIC_DAGGER_SHARD_ROWS = 1_000
 DEFAULT_INFERENCE_BATCH_SIZE = 32
+DEFAULT_HAIC_LATENT_LOSS_WEIGHT = 0.1
 CHECKPOINT_COMPLETE_MARKER = ".dagger-round-complete"
 EVAL_ENVS = 100
 HAIC_CONTROL_STEPS_PER_VLA = 5
@@ -177,6 +178,7 @@ def _training_flags(
     gradient_accumulation_steps: int,
     checkpoint_interval: int,
     resume_checkpoint: Path | None,
+    haic_latent_loss_weight: float,
 ) -> list[str]:
     command = [
         str(GR00T_PYTHON),
@@ -212,6 +214,8 @@ def _training_flags(
         "haic",
         "--action-actor-checkpoint",
         str(actor_checkpoint),
+        "--haic-latent-loss-weight",
+        str(haic_latent_loss_weight),
         "--action-head-dropout",
         "0",
         "--state-dropout-prob",
@@ -262,6 +266,7 @@ def bootstrap_training_command(
     experiment_name: str,
     max_steps: int = BOOTSTRAP_UPDATES,
     gradient_accumulation_steps: int = BOOTSTRAP_GRADIENT_ACCUMULATION_STEPS,
+    haic_latent_loss_weight: float = DEFAULT_HAIC_LATENT_LOSS_WEIGHT,
 ) -> list[str]:
     """Build the single-GPU privileged-oracle bootstrap training command."""
     return _training_flags(
@@ -275,6 +280,7 @@ def bootstrap_training_command(
         gradient_accumulation_steps=gradient_accumulation_steps,
         checkpoint_interval=max_steps,
         resume_checkpoint=None,
+        haic_latent_loss_weight=haic_latent_loss_weight,
     )
 
 
@@ -290,6 +296,7 @@ def training_command(
     max_steps: int = TOTAL_UPDATES,
     gradient_accumulation_steps: int = GRADIENT_ACCUMULATION_STEPS,
     checkpoint_interval: int = UPDATES_PER_ROUND,
+    haic_latent_loss_weight: float = DEFAULT_HAIC_LATENT_LOSS_WEIGHT,
 ) -> list[str]:
     """Build one HAIC DAgger training command with exact round resume."""
     return _training_flags(
@@ -303,6 +310,7 @@ def training_command(
         gradient_accumulation_steps=gradient_accumulation_steps,
         checkpoint_interval=checkpoint_interval,
         resume_checkpoint=resume_checkpoint,
+        haic_latent_loss_weight=haic_latent_loss_weight,
     )
 
 
@@ -394,55 +402,59 @@ def archive_and_remove_raw_data(
 def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
     output_root = args.output_root / "bootstrap"
     raw_dir = output_root / "raw"
-    dataset_dir = output_root / "lerobot"
+    dataset_dir = args.bootstrap_dataset
     episodes_train = 2 if smoke else BOOTSTRAP_TRAIN_EPISODES
     episodes_val = 1 if smoke else BOOTSTRAP_VAL_EPISODES
-    _run(
-        collector_command(
-            args.haic_python,
-            mode="oracle-eval",
-            teacher_checkpoint=args.teacher_checkpoint,
-            output_dir=output_root / "oracle_eval",
-            inference_device=args.inference_device,
-            num_envs=1 if smoke else EVAL_ENVS,
-            seed=0,
-            round_index=0,
-            max_steps=args.eval_max_steps,
-            inference_batch_size=args.inference_batch_size,
-        ),
-        cwd=HAIC_ROOT,
-    )
-    _run(
-        [
-            str(args.haic_python),
-            "-m",
-            HAIC_ACTOR_MODULE,
-            str(args.teacher_checkpoint),
-            str(args.actor_checkpoint),
-        ],
-        cwd=HAIC_ROOT,
-    )
-    for split, episodes, seed in (("train", episodes_train, 0), ("val", episodes_val, 1)):
+    if dataset_dir is None:
+        dataset_dir = output_root / "lerobot"
         _run(
             collector_command(
                 args.haic_python,
-                mode="bootstrap-collect",
+                mode="oracle-eval",
                 teacher_checkpoint=args.teacher_checkpoint,
-                output_dir=raw_dir,
+                output_dir=output_root / "oracle_eval",
                 inference_device=args.inference_device,
-                num_envs=8 if smoke else ENVS_PER_COLLECTOR_RANK,
-                seed=seed,
+                num_envs=1 if smoke else EVAL_ENVS,
+                seed=0,
                 round_index=0,
-                split=split,
-                episode_budget=episodes,
+                max_steps=args.eval_max_steps,
                 inference_batch_size=args.inference_batch_size,
             ),
             cwd=HAIC_ROOT,
         )
-    _run(
-        prepare_command(raw_dir, dataset_dir, dagger=False, round_index=0),
-        cwd=REPO_ROOT,
-    )
+        _run(
+            [
+                str(args.haic_python),
+                "-m",
+                HAIC_ACTOR_MODULE,
+                str(args.teacher_checkpoint),
+                str(args.actor_checkpoint),
+            ],
+            cwd=HAIC_ROOT,
+        )
+        for split, episodes, seed in (("train", episodes_train, 0), ("val", episodes_val, 1)):
+            _run(
+                collector_command(
+                    args.haic_python,
+                    mode="bootstrap-collect",
+                    teacher_checkpoint=args.teacher_checkpoint,
+                    output_dir=raw_dir,
+                    inference_device=args.inference_device,
+                    num_envs=8 if smoke else ENVS_PER_COLLECTOR_RANK,
+                    seed=seed,
+                    round_index=0,
+                    split=split,
+                    episode_budget=episodes,
+                    inference_batch_size=args.inference_batch_size,
+                ),
+                cwd=HAIC_ROOT,
+            )
+        _run(
+            prepare_command(raw_dir, dataset_dir, dagger=False, round_index=0),
+            cwd=REPO_ROOT,
+        )
+    else:
+        dataset_dir = dataset_dir.resolve()
     training_output = output_root / "training"
     experiment_name = f"{args.wandb_run_id}_sft"
     _run(
@@ -453,6 +465,7 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
             training_output=training_output,
             experiment_name=experiment_name,
             max_steps=1 if smoke else BOOTSTRAP_UPDATES,
+            haic_latent_loss_weight=args.haic_latent_loss_weight,
         ),
         cwd=REPO_ROOT,
         env={
@@ -471,6 +484,7 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
 
 def run_smoke(args: argparse.Namespace) -> None:
     bootstrap_checkpoint = run_bootstrap(args, smoke=True)
+    bootstrap_dataset = args.bootstrap_dataset or args.output_root / "bootstrap/lerobot"
     round_dir = args.output_root / "smoke_round_00"
     raw_dir = round_dir / "raw"
     dataset_dir = round_dir / "lerobot"
@@ -517,7 +531,7 @@ def run_smoke(args: argparse.Namespace) -> None:
             dagger=True,
             round_index=0,
             expected_rows=64,
-            normalization_source=args.output_root / "bootstrap/lerobot",
+            normalization_source=bootstrap_dataset,
         ),
         cwd=REPO_ROOT,
     )
@@ -527,7 +541,7 @@ def run_smoke(args: argparse.Namespace) -> None:
     _run(
         training_command(
             bootstrap_checkpoint=bootstrap_checkpoint,
-            replay_dataset=args.output_root / "bootstrap/lerobot",
+            replay_dataset=bootstrap_dataset,
             dataset_dirs=smoke_datasets,
             actor_checkpoint=args.actor_checkpoint,
             training_output=training_output,
@@ -536,6 +550,7 @@ def run_smoke(args: argparse.Namespace) -> None:
             max_steps=1,
             gradient_accumulation_steps=1,
             checkpoint_interval=1,
+            haic_latent_loss_weight=args.haic_latent_loss_weight,
         ),
         cwd=REPO_ROOT,
         env={
@@ -557,7 +572,7 @@ def run_smoke(args: argparse.Namespace) -> None:
     _run(
         training_command(
             bootstrap_checkpoint=bootstrap_checkpoint,
-            replay_dataset=args.output_root / "bootstrap/lerobot",
+            replay_dataset=bootstrap_dataset,
             dataset_dirs=smoke_datasets,
             actor_checkpoint=args.actor_checkpoint,
             training_output=training_output,
@@ -566,6 +581,7 @@ def run_smoke(args: argparse.Namespace) -> None:
             max_steps=2,
             gradient_accumulation_steps=1,
             checkpoint_interval=1,
+            haic_latent_loss_weight=args.haic_latent_loss_weight,
         ),
         cwd=REPO_ROOT,
         env={
@@ -598,6 +614,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
     if args.run_bootstrap:
         bootstrap_checkpoint = run_bootstrap(args, smoke=False)
     bootstrap_checkpoint = bootstrap_checkpoint.resolve()
+    if args.bootstrap_dataset is None:
+        args.bootstrap_dataset = args.output_root / "bootstrap/lerobot"
     args.bootstrap_dataset = args.bootstrap_dataset.resolve()
     training_output = args.output_root / "training"
     training_run_output = training_output / args.wandb_run_id
@@ -764,6 +782,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
                     training_output=training_output,
                     experiment_name=args.wandb_run_id,
                     resume_checkpoint=(current_model if round_index > 0 else None),
+                    haic_latent_loss_weight=args.haic_latent_loss_weight,
                 ),
                 cwd=REPO_ROOT,
                 env=training_environment,
@@ -834,6 +853,11 @@ def main() -> None:
     parser.add_argument("--eval-max-steps", type=int, default=1_000)
     parser.add_argument("--policy-config", type=Path, default=DEFAULT_POLICY_CONFIG)
     parser.add_argument("--wandb-run-id", default=DEFAULT_WANDB_RUN_ID)
+    parser.add_argument(
+        "--haic-latent-loss-weight",
+        type=float,
+        default=DEFAULT_HAIC_LATENT_LOSS_WEIGHT,
+    )
     parser.add_argument("--start-round", type=int, default=0)
     parser.add_argument("--end-round", type=int, default=DAGGER_ROUNDS)
     parser.add_argument("--run-bootstrap", action="store_true")
@@ -841,7 +865,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.actor_checkpoint is None:
         args.actor_checkpoint = args.output_root / "bootstrap/actor_adapt.pt"
-    if args.bootstrap_dataset is None:
+    if args.bootstrap_dataset is None and not args.run_bootstrap:
         args.bootstrap_dataset = args.output_root / "bootstrap/lerobot"
     if args.smoke:
         run_smoke(args)

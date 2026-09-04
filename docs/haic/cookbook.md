@@ -2,7 +2,7 @@
 
 This cookbook covers the zero-delay `G1/haic/pull_cart` pipeline. The
 [Chinese internal runbook](../../program/HAIC.md) is the source for hardware,
-runtime diagnostics, and the historical latent-only attempts.
+runtime diagnostics, and the historical VLA training attempts.
 
 ## Fixed contract
 
@@ -14,14 +14,17 @@ runtime diagnostics, and the historical latent-only attempts.
   chunk entries 0 through 4 with the corresponding current 50 Hz actor states;
   the VLA then replans. One latent is not repeated five times.
 - Bootstrap: 250 successful train episodes and 25 validation episodes, fresh
-  action-only SFT from the official GR00T base; the loss is 23D motor-action
-  MSE through the frozen actor.
+  SFT from the official GR00T base; the objective combines 23D motor-action
+  MSE through the frozen actor with a normalized 256D teacher-latent MSE,
+  weighted by `haic_latent_loss_weight=0.1`.
 - Sampler: explicitly use the official defaults of horizon 40, fresh Gaussian
-  noise, and four Euler steps. The objective remains custom action-only rather
-  than the official random-time velocity MSE.
+  noise, and four Euler steps. The objective remains custom actor-action plus
+  latent-anchor loss rather than the official random-time velocity MSE.
 - DAgger: 10 rounds, 500 optimizer updates per round, fixed 50/50 bootstrap and
   accumulated DAgger sampling. Every round uses zero-delay rollout and a fixed
-  first-episode-per-environment evaluation.
+  first-episode-per-environment evaluation. Treat motion progress, cart progress,
+  and `pullcart_score` as the primary student metrics; success rate alone can
+  remain zero while the policy is making measurable progress.
 
 ## Quick start
 
@@ -32,7 +35,7 @@ W&B, then run from the repository root:
 bash scripts/tasks/haic_pull_cart/train_small_policy.sh
 ```
 
-Use the printed accepted teacher checkpoint for the complete action-only VLA
+Use the printed accepted teacher checkpoint for the complete latent-anchored VLA
 route:
 
 ```bash
@@ -44,6 +47,13 @@ The VLA entrypoint exports the fixed actor, runs the 100-episode oracle gate,
 collects and converts the 250/25 bootstrap dataset, trains 5,000 SFT updates,
 runs DAgger rounds 0 through 9, and performs the final fixed-seed zero-delay
 evaluation. It does not upload artifacts automatically.
+
+This latent-anchored experiment must use a fresh output root and fresh SFT
+bootstrap. Do not reuse action-only checkpoints, round markers, or DAgger
+outputs; `--resume` is only for an interrupted run with this same objective.
+An existing bootstrap LeRobot dataset can be reused without recollection by
+passing it with `--bootstrap-dataset` (and its matching `--actor-checkpoint`);
+`--run-bootstrap` then trains a new SFT checkpoint from the GR00T base.
 
 For an SFT-only run, stop before round 0:
 
@@ -91,17 +101,18 @@ The task-owned entrypoint composes the existing implementation:
 scripts/official_gr00t/train_haic_dagger.py --run-bootstrap
 HAIC oracle evaluation and frozen actor export
 teacher rollout -> NPZ + MP4 shards -> video-backed LeRobot
-action-only SFT -> DAgger round 0..9 -> fixed-seed evaluation
+latent-anchored SFT -> DAgger round 0..9 -> fixed-seed evaluation
 ```
 
 Each raw row is one 50 Hz step carrying RGB, 605D state, 256D teacher latent,
 605D actor input, 23D teacher action, and a scalar termination flag. Training
 assembles 40-step windows and pads episode tails, with post-terminal entries
-masked from the loss. The action-only recipe starts from fresh Gaussian noise,
-runs the same four-step Euler sampler used by inference with gradients enabled,
-then computes the 23D motor-action MSE through the frozen actor. The teacher
-latent is stored for chunk labels/data provenance but is not the optimized
-target. Keep the fixed actor outside the VLA checkpoint.
+masked from both loss terms. The latent-anchored recipe starts from fresh
+Gaussian noise, runs the same four-step Euler sampler used by inference with
+gradients enabled, then computes the 23D motor-action MSE through the frozen
+actor plus a normalized 256D teacher-latent MSE weighted by `0.1`. The teacher
+latent is therefore an optimized target as well as chunk-label/data provenance.
+Keep the fixed actor outside the VLA checkpoint.
 
 The frozen-actor gate must feed a fresh teacher latent at every 50 Hz control
 step. This oracle reaches 94/100; holding one teacher latent for five steps is

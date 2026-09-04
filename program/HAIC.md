@@ -2,7 +2,7 @@
 
 状态：HAIC 已作为 fork submodule 接入；正式 500M teacher 长训已完成。旧 256D latent-only
 bootstrap/DAgger 的 step 0、round 0、1、2 均为 `0/100`，已在 round 3 停止且原输出完整保留。
-action-only 数据、loss、固定 actor 导出和 oracle gate 已实现；2026-09-03 的 fresh bootstrap +
+latent-anchored 数据、loss、固定 actor 导出和 oracle gate 已实现；2026-09-03 的 fresh bootstrap +
 DAgger run 因后续发现 bug，已在 round 3 期间停止并删除全部 checkpoint、数据与配套日志，修复后必须重新 fresh 启动。
 
 读者复现入口见 [`docs/haic/cookbook.md`](../docs/haic/cookbook.md)，跨任务阶段契约见
@@ -270,10 +270,10 @@ VLA 替换路线，phase-1 final teacher 是固定的 privileged label source。
 训练分两段：
 
 - bootstrap 从 GR00T-N1.7-3B fresh base 开始。privileged teacher 的成功 episode 按 50 Hz 保存逐步 scalar row：RGB、605D state、256D teacher latent、`actor_input[605]`、`teacher_action[23]` 和 scalar termination；dataset 在每个起点组装未来 40 步窗口。正式配置为 250 个 train episode、25 个 val episode、global batch 64、gradient accumulation 2、peak LR `5e-5` 和 5,000 optimizer updates；
-- bootstrap 与 DAgger 都只优化 23D motor-action MSE，不优化官方 velocity MSE 或 256D latent MSE。训练从 fresh Gaussian 出发，可微分地调用与 inference 共享的官方默认 4-step Euler sampler，最终 `[40,256]` chunk 与未来 40 个 50 Hz actor input 送入同一个冻结 `actor_adapt`。terminal action 保留，terminal 后位置由累计 mask 排除；episode 尾部使用 padding，因此短失败 episode 和最后 39 个起点不会被删除。actor 不进入 optimizer、GR00T model 或 checkpoint；
-- HAIC launcher 显式固定 `action_horizon=40`、`num_inference_timesteps=4` 和随机 Gaussian（`fixed_action_noise_seed=None`），并关闭旧 `one_step_action_regression`；这些与官方 sampler 默认值一致。这里的 objective 仍是自定义 action-only，不声称是官方 random-t velocity-MSE objective；
+- bootstrap 与 DAgger 都优化冻结 actor 后的 23D motor-action MSE，并以归一化 256D teacher latent MSE 做 auxiliary anchor，默认权重 `haic_latent_loss_weight=0.1`；不使用官方 velocity MSE。训练从 fresh Gaussian 出发，可微分地调用与 inference 共享的官方默认 4-step Euler sampler，最终 `[40,256]` chunk 与未来 40 个 50 Hz actor input 送入同一个冻结 `actor_adapt`。terminal action 保留，terminal 后位置由累计 mask 排除；episode 尾部使用 padding，因此短失败 episode 和最后 39 个起点不会被删除。actor 不进入 optimizer、GR00T model 或 checkpoint；
+- HAIC launcher 显式固定 `action_horizon=40`、`num_inference_timesteps=4` 和随机 Gaussian（`fixed_action_noise_seed=None`），并关闭旧 `one_step_action_regression`；这些与官方 sampler 默认值一致。这里的 objective 仍是自定义 actor-action 加 latent-anchor loss，不声称是官方 random-t velocity-MSE objective；
 - DAgger 流程是 `step-0 eval -> rollout -> training -> eval`。当前 task-owned 入口默认执行 round 0--9；每轮两个顺序 collector 各 32,000 rows，合计 64,000 rows、gradient accumulation 2 和 500 updates。采样权重固定为 50% action-rich bootstrap replay + 50% 累积 DAgger 数据，bootstrap prior 不随 round 数稀释；eval 始终使用 100 env / seed 0，每个 env 只统计从 motion frame 0 开始的首个 episode；
-- DAgger eval 固定从 phase 0 开始，并在 terminal action 之前最后一次被 policy 观察到的 state 上计算 progress。对 motion 长度 `T`，`m = t / (T - 1)`；以 reference cart 首尾位移为 `d_ref`、实际 cart 首尾位移为 `d_actual`，`c = clip(dot(d_actual, d_ref) / dot(d_ref, d_ref), 0, 1)`；每个 episode 的综合 benchmark 分数为 `pullcart_score = 100 * (m + c) / 2`。三个值分别取 100 个完整 eval episodes 的 mean/std；`success_rate` 仍表示完整完成率，不被综合分替代；
+- DAgger eval 固定从 phase 0 开始，并在 terminal action 之前最后一次被 policy 观察到的 state 上计算 progress。对 motion 长度 `T`，`m = t / (T - 1)`；以 reference cart 首尾位移为 `d_ref`、实际 cart 首尾位移为 `d_actual`，`c = clip(dot(d_actual, d_ref) / dot(d_ref, d_ref), 0, 1)`；每个 episode 的综合 benchmark 分数为 `pullcart_score = 100 * (m + c) / 2`。三个值分别取 100 个完整 eval episodes 的 mean/std；`motion_progress`、`cart_progress` 和 `pullcart_score` 是 student 的主要比较指标，`success_rate` 仍表示完整完成率，不应单独作为训练是否有效的判据；
 - DAgger collector 使用 inference batch 32，并按单个环境的连续 50 Hz segment 写 raw shard；转换后的训练 shard size 为 1,000。每个 round eval 后删除 raw shard，保留 LeRobot dataset、dataset manifest、training dataset manifest、checkpoint、eval 结果和 policy config。
 
 正式远端单 GPU 默认仍串行运行两个 collector。短 A/B 可用
@@ -324,7 +324,7 @@ bash scripts/tasks/haic_pull_cart/train_vla.sh \
   /absolute/path/to/checkpoint_final.pt
 ```
 
-fresh run 会先执行 frozen-actor oracle eval，再重新采集并训练 action-only bootstrap；旧 latent checkpoint 不得作为初始化。task-owned wrapper 续跑使用
+fresh run 默认执行 frozen-actor oracle eval、重新采集并训练 latent-anchored bootstrap；已有 bootstrap LeRobot dataset 可通过 `--bootstrap-dataset` 复用，此时跳过 oracle/采集，只从 GR00T base fresh 训练 SFT。旧 action-only checkpoint、round marker 和 DAgger output 必须删除，不得作为初始化。task-owned wrapper 续跑仅适用于同一 latent-loss run，使用
 `--resume`、`--bootstrap-checkpoint`、`--bootstrap-dataset`、`--actor-checkpoint` 和 `--start-round N`。`--end-round` 是右开上界，
 默认 10，即执行 round 0--9；传 `--end-round 0` 只完成 bootstrap/SFT。训练子进程成功返回后才原子写入
 round-complete marker；用同一 `--start-round N` 重试未完成轮次时，会重新采集该轮数据。
