@@ -67,6 +67,22 @@ bash scripts/tasks/haic_pull_cart/train_vla.sh \
 Use the exact checkpoint and dataset paths from the previous run. The task
 runner does not choose a replacement when one is missing.
 
+## Profile the final VLA
+
+From the installed HAIC/Isaac environment, expose one simulator GPU and one or
+more inference GPUs:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 \
+  bash scripts/tasks/haic_pull_cart/profile.sh [MODEL_PATH]
+```
+
+Logical `cuda:0` runs HAIC and the frozen actor; `cuda:1..` run GR00T. The
+teacher/actor checkpoint is resolved through the registered small-policy
+artifact. The action-only h40 VLA remote is still pending, so an absent local
+model fails until that exact artifact is published. Add `--resume RUN_ID` to
+continue or `--publish` to upload a fully completed profile.
+
 ## Manual stages
 
 The task-owned entrypoint composes the existing implementation:

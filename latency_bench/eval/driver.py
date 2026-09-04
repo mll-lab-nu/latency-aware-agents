@@ -14,6 +14,7 @@ from training.common.utils import seed_everything
 from latency_bench.core.types import EpisodeMetrics, ExecutorMode
 from latency_bench.eval.config import _episode_seed, _eval_episodes, _eval_max_steps
 from latency_bench.eval.reporting import _write_non_sweep_summary
+from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors.base import BatchedExecutor
 from latency_bench.executors.factory import build_executor
 from latency_bench.executors.realtime_warmup import plot_realtime_eval_latency
@@ -30,8 +31,10 @@ def run_from_config(
     on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
     episode_ids: Sequence[int] | None = None,
     policy: Any | None = None,
+    env: EnvAdapter | None = None,
+    inference_devices: list[str] | None = None,
 ) -> list[EpisodeMetrics]:
-    if policy is None and config["policy"]["type"] == "starvla":
+    if policy is None and env is None and config["policy"]["type"] == "starvla":
         from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
 
         prepare_starvla_checkpoint_input_config(config)
@@ -45,7 +48,14 @@ def run_from_config(
     selected_episode_ids = list(range(configured_num_episodes)) if episode_ids is None else list(episode_ids)
     seed_everything(seed)
 
-    executor = build_executor(config, **({"policy": policy} if policy is not None else {}))
+    executor_kwargs = {}
+    if policy is not None:
+        executor_kwargs["policy"] = policy
+    if env is not None:
+        executor_kwargs["env"] = env
+    if inference_devices is not None:
+        executor_kwargs["inference_devices"] = inference_devices
+    executor = build_executor(config, **executor_kwargs)
     metrics = []
     warmup_metadata_by_episode: dict[int, dict[str, Any]] = {}
     try:

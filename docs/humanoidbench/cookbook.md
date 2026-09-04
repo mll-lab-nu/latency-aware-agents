@@ -51,6 +51,21 @@ and converts the accepted teacher rollouts, runs the documented 15k SFT
 recipe, and runs periodic simulated zero-delay evaluations. It does not upload
 the checkpoint automatically.
 
+## Profile the final VLA
+
+After the fresh 15k run prints its final model path:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 \
+  bash scripts/tasks/humanoidbench_balance_simple/profile.sh [MODEL_PATH]
+```
+
+All visible GPUs are inference workers. The registered remote is the exact
+`zero-latency/humanoidbench-balance-simple/vla/gr00t-n1.7-15k-v1` bundle; it is
+currently pending and the launcher never substitutes the historical 10k model.
+Add `--resume RUN_ID` to continue a partial run or `--publish` to upload the
+completed five-session profile.
+
 ## Manual workflow
 
 The accepted dataset contains 90 train episodes (86,048 frames) and 10

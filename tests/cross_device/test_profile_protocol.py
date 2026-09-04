@@ -23,7 +23,11 @@ from latency_bench.cross_device.profile_resolver import (
 )
 from latency_bench.cross_device.protocol import main
 from latency_bench.cross_device.runner import _profile_lock, _replace_current
-from latency_bench.cross_device.runtime_configs import simulation_config
+from latency_bench.cross_device.runtime_configs import (
+    eval_command,
+    measure_config,
+    simulation_config,
+)
 from latency_bench.cross_device.spec import load_profile_spec
 from latency_bench.cross_device.sync import download_profile, publish_run_and_profile
 
@@ -66,7 +70,8 @@ def test_registry_has_balance_official_gr00t_preset():
     assert spec["simulation_parallel_envs"] == 1
     assert spec["calibrate_env_fps"] is False
     assert spec["simulation_env"] == {}
-    assert spec["checkpoint_path"].endswith("checkpoint-10000")
+    assert spec["model_artifact"]["checkpoint"] == "."
+    assert spec["model_artifact"]["local_root"].endswith("checkpoint-15000")
     assert spec["gpu_models"]["rpbzzz6"]["aliases"] == ["NVIDIA RPBZZZ6"]
 
 
@@ -85,7 +90,10 @@ def test_deployment_collection_preserves_cuda_device_selector(monkeypatch):
     )
 
     deployment, fingerprint = runner._collect_deployment(
-        {"gpu_models": {"rpbzzz6": {"aliases": ["NVIDIA RPBZZZ6"]}}}
+        {
+            "gpu_models": {"rpbzzz6": {"aliases": ["NVIDIA RPBZZZ6"]}},
+            "simulation_gpu": None,
+        }
     )
 
     assert os.environ["CUDA_VISIBLE_DEVICES"] == "0,1"
@@ -96,10 +104,73 @@ def test_deployment_collection_preserves_cuda_device_selector(monkeypatch):
     assert fingerprint["gpu_deployment"] == deployment
 
 
+def test_gpu_simulator_is_excluded_from_profile_deployment(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1,2")
+    monkeypatch.setattr(
+        runner,
+        "collect_hardware_fingerprint",
+        lambda: {
+            "gpu": {"topology": None},
+            "gpus": [
+                {"uuid": "GPU-sim", "name": "NVIDIA RPBZZZ6"},
+                {"uuid": "GPU-a", "name": "NVIDIA RPBZZZ6"},
+                {"uuid": "GPU-b", "name": "NVIDIA RPBZZZ6"},
+            ],
+        },
+    )
+    spec = {
+        "gpu_models": {"rpbzzz6": {"aliases": ["NVIDIA RPBZZZ6"]}},
+        "simulation_gpu": "cuda:0",
+    }
+
+    deployment, _ = runner._collect_deployment(spec)
+
+    assert deployment["gpu_class"] == "2x-rpbzzz6"
+    assert {gpu["uuid"] for gpu in deployment["gpus"]} == {"GPU-a", "GPU-b"}
+
+
+def test_gpu_simulator_requires_a_separate_inference_gpu(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+
+    with pytest.raises(RuntimeError, match="separate inference GPU"):
+        runner._inference_cuda_visible_devices({"simulation_gpu": "cuda:0"})
+
+
+def test_native_measure_config_assigns_only_inference_devices(tmp_path):
+    spec = load_profile_spec(
+        "configs/profiles.yaml", "official_gr00t", "extreme_parkour_go2"
+    )
+    spec["checkpoint_path"] = "/models/parkour"
+    spec["runtime_checkpoint_path"] = "/models/parkour/model_14999.pt"
+    spec["session_python"] = "/native/bin/python"
+    config = measure_config(
+        spec,
+        {
+            "gpu_class": "2x-rpbzzz6",
+            "instance_id": "instance_abc",
+            "gpus": [{}, {}],
+        },
+        tmp_path,
+        {"selected_env_fps": 50, "selected_obs_fps": 10},
+    )
+
+    assert config["executor"]["inference_devices"] == ["cuda:1", "cuda:2"]
+    assert config["latency"]["device"] == "cuda:1"
+    assert config["env"]["runtime_checkpoint_path"] == "/models/parkour/model_14999.pt"
+    assert eval_command(spec, tmp_path / "generated.yaml", tmp_path) == [
+        "/native/bin/python",
+        spec["profile_entrypoint"],
+        "profile",
+        "--profile-config",
+        str(tmp_path / "generated.yaml"),
+    ]
+
+
 def test_official_gr00t_runtime_checkpoint_override_uses_model_path():
     spec = load_profile_spec(
         "configs/profiles.yaml", "official_gr00t", "g1_sonic_balance_simple"
     )
+    spec["checkpoint_path"] = "/models/balance/checkpoint-15000"
     config = simulation_config(
         spec,
         output_dir=Path("results/profiling/test"),
@@ -130,6 +201,7 @@ def test_fixed_workload_cadence_skips_policy_calibration(tmp_path, monkeypatch):
     spec = load_profile_spec(
         "configs/profiles.yaml", "official_gr00t", "g1_sonic_balance_simple"
     )
+    spec["checkpoint_path"] = "/models/balance/checkpoint-15000"
     monkeypatch.setattr(
         runner,
         "calibrate_env_fps_from_saturated_latency",
@@ -138,7 +210,11 @@ def test_fixed_workload_cadence_skips_policy_calibration(tmp_path, monkeypatch):
 
     calibration = runner._calibrate(
         spec,
-        {"gpu_class": "2x-rpbzzz6", "instance_id": "instance_abc"},
+        {
+            "gpu_class": "2x-rpbzzz6",
+            "instance_id": "instance_abc",
+            "gpus": [{}, {}],
+        },
         tmp_path,
     )
 
@@ -201,7 +277,21 @@ def test_profile_lock_serializes_current_writers(tmp_path):
 def test_new_runs_are_retained_while_current_moves_forward(tmp_path, monkeypatch):
     base_config = tmp_path / "base.json"
     base_config.write_text(
-        json.dumps({"policy": {"checkpoint_path": "/models/openvla"}}),
+        json.dumps(
+            {
+                "experiment": {},
+                "executor": {},
+                "env": {"env_fps": 25, "obs_fps": 25},
+                "latency": {},
+                "scheduler": {},
+                "policy": {
+                    "type": "starvla",
+                    "checkpoint_path": "/models/openvla",
+                },
+                "logging": {},
+                "evaluation": {},
+            }
+        ),
         encoding="utf-8",
     )
     spec = {
@@ -209,14 +299,20 @@ def test_new_runs_are_retained_while_current_moves_forward(tmp_path, monkeypatch
         "model_id": "openvla",
         "workload_id": "flappy",
         "session_count": 2,
+        "n_episodes": 1,
+        "evaluation_seed": 0,
         "base_config": str(base_config),
         "checkpoint_path": "/models/openvla",
         "checkpoint_kind": "best",
         "gpu_models": {"rtx4090": {"aliases": ["NVIDIA RTX 4090"]}},
+        "simulation_gpu": None,
+        "calibrate_env_fps": False,
+        "simulation_env": {},
     }
     deployment = {
         "gpu_class": "2x-rtx4090",
         "instance_id": "instance_abc",
+        "gpus": [{}, {}],
     }
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-a,GPU-b")
     run_ids = iter(["run_1", "run_2"])
@@ -228,7 +324,10 @@ def test_new_runs_are_retained_while_current_moves_forward(tmp_path, monkeypatch
     monkeypatch.setattr(
         runner,
         "_calibrate",
-        lambda _spec, _deployment, _source: {"selected_env_fps": 25},
+        lambda _spec, _deployment, _source: {
+            "selected_env_fps": 25,
+            "selected_obs_fps": 25,
+        },
     )
     monkeypatch.setattr(runner, "_measure_session", lambda *args, **kwargs: None)
     monkeypatch.setattr(runner, "_new_run_id", lambda: next(run_ids))
@@ -261,6 +360,51 @@ def test_new_runs_are_retained_while_current_moves_forward(tmp_path, monkeypatch
     assert (runs / "run_1" / "DONE").exists()
     assert (runs / "run_2" / "DONE").exists()
     assert json.loads((current / "profile.json").read_text())["source_run_id"] == "run_2"
+    contract = json.loads((runs / "run_2" / "run_contract.json").read_text())
+    assert contract["identity"]["checkpoint_path"] == "/models/openvla"
+    assert contract["calibration_config"]["logging"]["output_dir"] == (
+        "__latency_bench_contract_output__/calibration_probe"
+    )
+    assert contract["measurement_config"]["logging"]["output_dir"] == (
+        "__latency_bench_contract_output__"
+    )
+
+
+def test_resume_requires_matching_run_contract(tmp_path):
+    spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
+    deployment = {
+        "gpu_class": "2x-rtx4090",
+        "instance_id": "instance_abc",
+        "gpus": [{}, {}],
+    }
+    calibration = {"selected_env_fps": 16, "selected_obs_fps": 16}
+    source_dir = tmp_path / "run"
+    source_dir.mkdir()
+    (source_dir / "calibration.json").write_text(
+        json.dumps(calibration), encoding="utf-8"
+    )
+    (source_dir / "calibration.DONE").touch()
+    (source_dir / "run_contract.json").write_text(
+        json.dumps(runner._run_contract(spec, deployment, calibration)),
+        encoding="utf-8",
+    )
+
+    runner._assert_run_contract(spec, deployment, source_dir)
+
+    spec["checkpoint_path"] = "/models/another-openvla"
+    with pytest.raises(ValueError, match="run contract does not match"):
+        runner._assert_run_contract(spec, deployment, source_dir)
+
+
+def test_legacy_run_without_contract_cannot_resume(tmp_path):
+    spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
+    deployment = {
+        "gpu_class": "2x-rtx4090",
+        "instance_id": "instance_abc",
+        "gpus": [{}, {}],
+    }
+    with pytest.raises(FileNotFoundError, match="run_contract.json"):
+        runner._assert_run_contract(spec, deployment, tmp_path)
 
 
 def test_simulation_uses_profile_slots_and_pinned_source(tmp_path):
@@ -301,6 +445,7 @@ def test_publish_uses_one_commit_and_omits_private_hardware(tmp_path, monkeypatc
     (run / "profile").mkdir()
     profile.mkdir()
     (run / "hardware.json").write_text("private", encoding="utf-8")
+    (run / "run_contract.json").write_text("private", encoding="utf-8")
     (run / "profile" / "profile.json").write_text("candidate", encoding="utf-8")
     (session / "actions.jsonl").write_text("{}\n", encoding="utf-8")
     for name in (
@@ -341,6 +486,7 @@ def test_publish_uses_one_commit_and_omits_private_hardware(tmp_path, monkeypatc
     assert commit == "commit_1"
     assert len(client.calls) == 1
     assert not any(path.endswith("/hardware.json") and path.startswith("runs/") for path in uploaded)
+    assert not any(path.endswith("/run_contract.json") for path in uploaded)
     assert not any("/profile/" in path and path.startswith("runs/") for path in uploaded)
     assert "profiles/openvla/2x-rtx4090/flappy/instance_abc/hardware.json" in uploaded
 

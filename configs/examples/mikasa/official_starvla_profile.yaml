@@ -1,0 +1,46 @@
+experiment:
+  name: mikasa_intercept_grab_fast_starvla_profile
+  seed: 4242424242
+
+executor:
+  mode: realtime
+
+env:
+  name: mikasa_intercept_grab_fast
+  env_fps: 20
+  obs_fps: 20
+  frame_stack: 1
+  noop_action: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  base_prompt: Intercept the rolling ball and grasp it to stop it.
+
+latency:
+  method: zero
+  sync_cuda: false
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+
+policy:
+  type: starvla
+  checkpoint_path: unused
+  model_config_path: unused
+  device: cuda:1
+  action_output_mode: deployment
+  action_output_type: rl_games_continuous
+  image_views_info_key: mikasa_image_views
+
+evaluation:
+  eval_episodes: 100
+  eval_parallel_envs: 1
+  eval_max_steps: 60
+  eval_deterministic: true
+
+logging:
+  output_dir: outputs/tasks/mikasa_intercept_grab_fast/profile
+  video:
+    enabled: false
+    num_bins: 10
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

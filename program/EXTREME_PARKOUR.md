@@ -43,8 +43,9 @@ privileged teacher、depth student 和 `parkour` / `hurdle` / `step` / `gap` 等
 - training seed：base seed 1；DDP rank 0/1 的 environment seed 分别是 1/2。
 - teacher PPO：fixed learning rate `2e-4`；不启用 KL-adaptive learning-rate schedule。
 - evaluation：沿用社区 `evaluation.py`，不另造 evaluator 或 A1 成功率口径。
-- latency integration：本轮不接 `latency_bench` wrapper；后续只从本仓库 scheduler/executor
-  注入 latency。
+- latency integration：task-owned profile entrypoint 已注入本仓库 scheduler/executor。拟合样本从
+  `env.observe()` 到 inference parent 收到 34D（32D terrain latent + 2D yaw）action chunk；冻结
+  actor 生成 12D motor action及后续 simulator step 不进入 profile。
 
 ### 1.1 作者官方 A1 参考配置
 

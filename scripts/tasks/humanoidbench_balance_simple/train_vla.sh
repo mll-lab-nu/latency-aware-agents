@@ -47,3 +47,5 @@ MUJOCO_GL=egl uv run --project . python scripts/teachers/export_g1_sonic_gr00t.p
   --output-dir "${OUTPUT_DIR}" \
   --run-id "${RUN_ID}" \
   --start-step "${BALANCE_START_STEP:-500}"
+
+printf 'MODEL_PATH=%s\n' "${OUTPUT_DIR}/checkpoint-15000"

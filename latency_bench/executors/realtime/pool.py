@@ -1,11 +1,14 @@
 """Parent-side concurrency machinery: the inference process pool."""
 from __future__ import annotations
 
+import json
 import multiprocessing as mp
 import multiprocessing.spawn as mp_spawn
+import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from latency_bench.executors.realtime.inference_worker import _inference_worker
@@ -42,7 +45,23 @@ class ProcessInferencePool:
         self.closed = False
         self.worker_python_executable = None
         self.worker_sys_path = None
-        if "policy" in config and config["policy"]["type"] == "official_gr00t":
+        if "policy" in config and "worker_python_executable" in config["policy"]:
+            self.worker_python_executable = config["policy"]["worker_python_executable"]
+            self.worker_sys_path = [
+                str(Path(__file__).resolve().parents[3]),
+                *json.loads(
+                    subprocess.check_output(
+                        [
+                            self.worker_python_executable,
+                            "-I",
+                            "-c",
+                            "import json, sys; print(json.dumps(sys.path))",
+                        ],
+                        text=True,
+                    )
+                ),
+            ]
+        elif "policy" in config and config["policy"]["type"] == "official_gr00t":
             self.worker_python_executable = official_gr00t_python_executable()
             self.worker_sys_path = official_gr00t_worker_sys_path()
         self._start_workers()

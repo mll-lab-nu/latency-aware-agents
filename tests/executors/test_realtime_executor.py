@@ -171,6 +171,28 @@ def test_process_inference_pool_uses_spawn_start_method(monkeypatch):
     assert pool.start_method == "spawn"
 
 
+def test_process_inference_pool_uses_configured_worker_python(monkeypatch):
+    monkeypatch.setattr(ProcessInferencePool, "_start_workers", lambda self: None)
+    monkeypatch.setattr(
+        realtime_pool.subprocess,
+        "check_output",
+        lambda *args, **kwargs: '["/worker/site-packages"]\n',
+    )
+
+    pool = ProcessInferencePool(
+        config={
+            "policy": {
+                "type": "starvla",
+                "worker_python_executable": "/venv/starvla/bin/python",
+            }
+        },
+        inference_devices=["cuda:1"],
+    )
+
+    assert pool.worker_python_executable == "/venv/starvla/bin/python"
+    assert pool.worker_sys_path[-1] == "/worker/site-packages"
+
+
 def test_official_gr00t_pool_uses_the_pinned_submodule_python(monkeypatch):
     starts = []
     process_args = []

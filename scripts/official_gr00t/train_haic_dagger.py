@@ -322,6 +322,12 @@ def read_eval_metrics(eval_path: Path) -> dict[str, int | float]:
         "dagger_eval/success_rate": result["success_rate"],
         "dagger_eval/episodes": result["episodes"],
         "dagger_eval/successes": result["successes"],
+        "dagger_eval/motion_progress_mean": result["motion_progress"]["mean"],
+        "dagger_eval/motion_progress_std": result["motion_progress"]["std"],
+        "dagger_eval/cart_progress_mean": result["cart_progress"]["mean"],
+        "dagger_eval/cart_progress_std": result["cart_progress"]["std"],
+        "dagger_eval/pullcart_score_mean": result["pullcart_score"]["mean"],
+        "dagger_eval/pullcart_score_std": result["pullcart_score"]["std"],
     }
 
 

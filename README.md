@@ -40,12 +40,12 @@ The supported zero-latency task surface currently contains these four end-to-end
 teacher-to-VLA pipelines. Each guide starts with the task-owned entrypoints in
 `scripts/tasks/<task>/` and records the task-specific action interface.
 
-| Task type | Status |
-| --- | --- |
-| [MIKASA Intercept Grab Fast (H1)](docs/mikasa/cookbook.md) | Baseline reproduced; teacher, dataset, and VLA published |
-| [HumanoidBench Balance Simple (G1)](docs/humanoidbench/cookbook.md) | Teacher, dataset, and 10k VLA published; fresh 15k run pending |
-| [Extreme Parkour (Go2)](docs/extreme_parkour/cookbook.md) | Teacher verified; action+yaw VLA pipeline in progress |
-| [HAIC Pull Cart (G1)](docs/haic/cookbook.md) | Teacher verified; action-only VLA pipeline in progress |
+| Task type | Profile command | Status |
+| --- | --- | --- |
+| [MIKASA Intercept Grab Fast (H1)](docs/mikasa/cookbook.md) | `bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh` | Baseline reproduced; teacher, dataset, and VLA published |
+| [HumanoidBench Balance Simple (G1)](docs/humanoidbench/cookbook.md) | `bash scripts/tasks/humanoidbench_balance_simple/profile.sh` | Teacher and 10k VLA published; profile targets the pending fresh 15k model |
+| [Extreme Parkour (Go2)](docs/extreme_parkour/cookbook.md) | `bash scripts/tasks/extreme_parkour_go2/profile.sh` | Teacher verified; action+yaw VLA pipeline in progress |
+| [HAIC Pull Cart (G1)](docs/haic/cookbook.md) | `bash scripts/tasks/haic_pull_cart/profile.sh` | Teacher verified; action-only VLA pipeline in progress |
 
 Older game benchmarks and generic model adapters remain available as separate
 research paths: [historical game workflows](docs/standard_pipeline.md#older-game-and-generic-adapter-paths),

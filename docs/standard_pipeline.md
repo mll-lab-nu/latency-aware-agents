@@ -10,6 +10,7 @@ small-policy RL teacher
   -> VLA SFT
   -> optional task-specific DAgger
   -> zero-latency evaluation
+  -> deployment profile
 ```
 
 The task implementations do not have identical observation or action spaces.
@@ -19,14 +20,14 @@ them. Use the task guide for the exact environment, dimensions, and gates.
 ## Reader quick start
 
 Run commands from the repository root after installing the task's dependencies.
-Every task owns two readable entrypoints:
+Every task owns train and profile entrypoints:
 
-| Task | Train the small-policy teacher | Train and evaluate the VLA |
-| --- | --- | --- |
-| MIKASA Intercept Grab Fast | `bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy.sh` | `bash scripts/tasks/mikasa_intercept_grab_fast/train_vla.sh /absolute/path/to/final_success_ckpt.pt` |
-| HumanoidBench Balance Simple | `bash scripts/tasks/humanoidbench_balance_simple/train_small_policy.sh` | `bash scripts/tasks/humanoidbench_balance_simple/train_vla.sh /absolute/path/to/teacher.pt` |
-| Extreme Parkour Go2 | `bash scripts/tasks/extreme_parkour_go2/train_small_policy.sh` | `bash scripts/tasks/extreme_parkour_go2/train_vla.sh /absolute/path/to/model_14999.pt` |
-| HAIC Pull Cart G1 | `bash scripts/tasks/haic_pull_cart/train_small_policy.sh` | `bash scripts/tasks/haic_pull_cart/train_vla.sh /absolute/path/to/checkpoint_final.pt` |
+| Task | Train the small-policy teacher | Train and evaluate the VLA | Profile the final VLA |
+| --- | --- | --- | --- |
+| MIKASA Intercept Grab Fast | `bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy.sh` | `bash scripts/tasks/mikasa_intercept_grab_fast/train_vla.sh /absolute/path/to/final_success_ckpt.pt` | `bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh [MODEL_PATH]` |
+| HumanoidBench Balance Simple | `bash scripts/tasks/humanoidbench_balance_simple/train_small_policy.sh` | `bash scripts/tasks/humanoidbench_balance_simple/train_vla.sh /absolute/path/to/teacher.pt` | `bash scripts/tasks/humanoidbench_balance_simple/profile.sh [MODEL_PATH]` |
+| Extreme Parkour Go2 | `bash scripts/tasks/extreme_parkour_go2/train_small_policy.sh` | `bash scripts/tasks/extreme_parkour_go2/train_vla.sh /absolute/path/to/model_14999.pt` | `bash scripts/tasks/extreme_parkour_go2/profile.sh [MODEL_PATH]` |
+| HAIC Pull Cart G1 | `bash scripts/tasks/haic_pull_cart/train_small_policy.sh` | `bash scripts/tasks/haic_pull_cart/train_vla.sh /absolute/path/to/checkpoint_final.pt` | `bash scripts/tasks/haic_pull_cart/profile.sh [MODEL_PATH]` |
 
 `train_small_policy.sh` runs the native RL recipe and leaves the checkpoint in
 the task output directory. Inspect the reported path and use that exact file as
@@ -34,6 +35,13 @@ the positional argument to `train_vla.sh`; an unverified or implicit `latest`
 checkpoint is not accepted. `train_vla.sh` owns rollout collection, conversion,
 SFT, task-specific DAgger, and the final zero-latency evaluation. It does not
 upload files to Hugging Face automatically.
+
+Each VLA trainer finishes by printing `MODEL_PATH=<final inference bundle>`.
+Pass that path to the task's `profile.sh`, or omit it to use the registered
+default. If the local model root is absent, the profiler downloads that exact
+artifact from `latency-sensitive-bench/benchmark-models`; an existing but
+incomplete root fails instead of selecting another checkpoint. Profiling stays
+local unless `--publish` is supplied.
 
 Parkour and HAIC run SFT followed by all ten DAgger rounds by default. To stop
 after SFT, pass `--end-round 0`; to resume a later round, pass `--resume` and
@@ -95,6 +103,14 @@ The final evaluation uses the task's native zero-delay environment and the
 documented fixed seeds/episode count. It is the policy-quality gate. Offline
 action or latent loss is useful for diagnosis but is not a replacement for the
 closed-loop result.
+
+### 6. Profile the final VLA
+
+The profile entrypoint runs five native realtime sessions of 100 episodes and
+fits the canonical `observation_attempts.jsonl` sequence. MIKASA, Parkour, and
+HAIC reserve logical `cuda:0` for simulation and use `cuda:1..` for inference;
+Balance uses every visible GPU for inference. `--publish` uploads only after all
+sessions and profile construction complete.
 
 ## Developer artifact workflow
 

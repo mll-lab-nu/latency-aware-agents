@@ -16,7 +16,7 @@ DATASET_ROOT="${TASK_ROOT}/dataset"
 VLA_ROOT="${REPO_ROOT}/third_party/starVLA"
 VLA_PY="${VLA_PY:-python}"
 VLA_PORT="${VLA_PORT:-10093}"
-RUN_ID="${MIKASA_RUN_ID:-mikasa_grabfast_h1_gb64_mb8_ga8}"
+RUN_ID="${MIKASA_RUN_ID:-mikasa_grabfast_h1_gb64_mb8_ga8_expandable}"
 TEACHER_CHECKPOINT="$1"
 
 cd "${REPO_ROOT}"
@@ -120,3 +120,5 @@ cd "${REPO_ROOT}"
 "${MIKASA_PY}" -c \
   'import json,sys; d=json.load(open(sys.argv[1])); n=sum(d["successes"]); print(f"{n}/50"); assert n >= 25' \
   "${TASK_ROOT}/vla_zero_delay_eval/summary.json"
+
+printf 'MODEL_PATH=%s\n' "${VLA_ROOT}/results/Checkpoints/${RUN_ID}"

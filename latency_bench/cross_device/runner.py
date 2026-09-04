@@ -44,6 +44,9 @@ from latency_bench.latency.profile_builder import build_profile_from_traces
 from latency_bench.utils.io import read_json, write_json
 
 
+_CONTRACT_OUTPUT_DIR = Path("__latency_bench_contract_output__")
+
+
 def current_deployment(spec: dict[str, Any]) -> dict[str, Any]:
     deployment, _fingerprint = _collect_deployment(spec)
     return deployment
@@ -68,10 +71,16 @@ def run_profile(
     if resume_run_id is None:
         source_dir.mkdir(parents=True)
         write_json(source_dir / "hardware.json", fingerprint)
+        write_json(source_dir / "run_contract.json", _run_contract(spec, deployment))
     else:
         (source_dir / "hardware.json").read_bytes()
+        _assert_run_contract(spec, deployment, source_dir)
 
     calibration = _calibrate(spec, deployment, source_dir)
+    write_json(
+        source_dir / "run_contract.json",
+        _run_contract(spec, deployment, calibration),
+    )
     session_ids = list(range(spec["session_count"]))
     for session_id in session_ids:
         _measure_session(
@@ -104,15 +113,24 @@ def run_profile(
             env_fps=calibration["selected_env_fps"],
             metadata={
                 "base_config": spec["base_config"],
-                "checkpoint_path": spec["checkpoint_path"],
                 "checkpoint_kind": spec["checkpoint_kind"],
                 "session_ids": session_ids,
+                **(
+                    {"model_artifact": spec["model_provenance"]}
+                    if "model_provenance" in spec
+                    else {"checkpoint_path": spec["checkpoint_path"]}
+                ),
+                **(
+                    {"runtime_artifact": spec["runtime_provenance"]}
+                    if "runtime_provenance" in spec
+                    else {}
+                ),
             },
         )
         public_hardware = public_hardware_projection(
             fingerprint,
             gpu_name_registry=gpu_name_registry(spec["gpu_models"]),
-            cuda_visible_devices=os.environ["CUDA_VISIBLE_DEVICES"],
+            cuda_visible_devices=_inference_cuda_visible_devices(spec),
         )
         public_hardware["instance_id"] = deployment["instance_id"]
         write_json(candidate_dir / "hardware.json", public_hardware)
@@ -232,11 +250,26 @@ def _collect_deployment(spec: dict[str, Any]) -> tuple[dict[str, Any], dict[str,
         gpus=fingerprint["gpus"],
         topology=fingerprint["gpu"]["topology"],
         gpu_name_registry=names,
-        cuda_visible_devices=os.environ["CUDA_VISIBLE_DEVICES"],
+        cuda_visible_devices=_inference_cuda_visible_devices(spec),
     )
     deployment["instance_id"] = instance_id_from_gpu_deployment(deployment)
     fingerprint["gpu_deployment"] = deployment
     return deployment, fingerprint
+
+
+def _inference_cuda_visible_devices(spec: dict[str, Any]) -> str:
+    visible = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
+    simulation_gpu = spec["simulation_gpu"]
+    if simulation_gpu is None:
+        return ",".join(visible)
+    inference = [
+        device
+        for logical_index, device in enumerate(visible)
+        if f"cuda:{logical_index}" != simulation_gpu
+    ]
+    if not inference:
+        raise RuntimeError("GPU simulator profiling requires a separate inference GPU")
+    return ",".join(inference)
 
 
 def _calibrate(
@@ -270,6 +303,77 @@ def _calibrate(
     )
     (source_dir / "calibration.DONE").touch()
     return calibration
+
+
+def _run_contract(
+    spec: dict[str, Any],
+    deployment: dict[str, Any],
+    calibration: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    identity = {
+        "model_id": spec["model_id"],
+        "workload_id": spec["workload_id"],
+        "deployment": deployment,
+        "checkpoint_kind": spec["checkpoint_kind"],
+        "checkpoint_path": spec["checkpoint_path"],
+        "runtime_checkpoint_path": (
+            spec["runtime_checkpoint_path"]
+            if "runtime_checkpoint_path" in spec
+            else None
+        ),
+        "model_provenance": (
+            spec["model_provenance"] if "model_provenance" in spec else None
+        ),
+        "runtime_provenance": (
+            spec["runtime_provenance"] if "runtime_provenance" in spec else None
+        ),
+        "evaluation_command": eval_command(
+            spec,
+            _CONTRACT_OUTPUT_DIR / "generated.yaml",
+            _CONTRACT_OUTPUT_DIR,
+        ),
+    }
+    return {
+        "identity": identity,
+        "calibration_config": calibration_config(
+            spec,
+            deployment,
+            _CONTRACT_OUTPUT_DIR / "calibration_probe",
+        ),
+        "measurement_config": (
+            measure_config(
+                spec,
+                deployment,
+                _CONTRACT_OUTPUT_DIR,
+                calibration,
+            )
+            if calibration is not None
+            else None
+        ),
+    }
+
+
+def _assert_run_contract(
+    spec: dict[str, Any],
+    deployment: dict[str, Any],
+    source_dir: Path,
+) -> None:
+    contract_path = source_dir / "run_contract.json"
+    try:
+        actual = read_json(contract_path)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            f"Cannot resume run without local contract: {contract_path}"
+        ) from exc
+
+    calibration = (
+        read_json(source_dir / "calibration.json")
+        if (source_dir / "calibration.DONE").exists()
+        else None
+    )
+    expected = _run_contract(spec, deployment, calibration)
+    if actual != expected:
+        raise ValueError(f"Profile run contract does not match: {contract_path}")
 
 
 def _measure_session(

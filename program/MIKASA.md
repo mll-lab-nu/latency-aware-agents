@@ -28,7 +28,9 @@ privileged-state PPO，再用它生成 GrabFast demonstrations。它不是复刻
 锁定以下设置，不在执行中静默替换：
 
 - 环境：`InterceptGrabFast-VLA-v0`。
-- latency：zero-delay；本轮不做 fixed-delay、realtime profile 或 latency-aware training。
+- latency：训练与 canonical baseline 仍为 zero-delay；realtime profile bridge 已接入。profile 从双相机
+  observation 采集到 inference parent 收到 7D `pd_ee_delta_pose` policy action，ManiSkill PD controller
+  和 simulator step 不计入；fixed-delay sweep 和 latency-aware training 仍不在本轮范围。
 - 控制：H1、7D `pd_ee_delta_pose`，官方 20 Hz（每个 control step 50 ms）；每次只预测当前一帧 action。
 - teacher：49D privileged state PPO，不是 VLA teacher。
 - dataset：275 条成功轨迹，前 250 条 train、后 25 条 validation。
@@ -791,7 +793,7 @@ canonical zero-delay eval。底层命令仍保留在上文，便于定位环境�
 
 ## 9. 本轮明确 deferred
 
-- fixed/realtime latency sweep、latency profile 和 delayed PPO teacher；
+- 完整 5-session realtime profile 实跑、fixed latency sweep 和 delayed PPO teacher；profile bridge 本身已接入；
 - H8/K8 action chunk、future action labels 或 chunk-aware loss；
 - VLA state、delay、queue 或 applied-action 输入；
 - VLA online RL；

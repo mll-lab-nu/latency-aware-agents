@@ -50,8 +50,34 @@ def build_queue_eval_summary(
         "returns": returns,
         "lengths": lengths,
     }
+    task_metrics = _task_metric_summary(metrics)
+    if task_metrics:
+        payload["task_metrics"] = task_metrics
     payload.update(_latency_metadata(metrics, metadata))
     return to_jsonable(payload)
+
+
+def _task_metric_summary(
+    metrics: Sequence[EpisodeMetrics],
+) -> dict[str, dict[str, Any]]:
+    present = [
+        metric.metadata["task_metrics"]
+        for metric in metrics
+        if "task_metrics" in metric.metadata
+    ]
+    if not present:
+        return {}
+    if len(present) != len(metrics):
+        raise KeyError("task_metrics")
+    summary = {}
+    for name in present[0]:
+        values = [task_metrics[name] for task_metrics in present]
+        summary[name] = {
+            "mean": _mean(values),
+            "std": _std(values),
+            "values": values,
+        }
+    return summary
 
 
 def write_queue_eval_summary(

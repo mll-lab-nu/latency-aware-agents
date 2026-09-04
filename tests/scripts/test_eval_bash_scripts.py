@@ -1047,7 +1047,11 @@ def test_starvla_rl_games_hfd_raw_download_convert_dry_run_defaults_to_all_datas
 
 @pytest.mark.parametrize(
     ("model", "expected_environment"),
-    [("pi05", "starvla_rl_games_pi05"), ("official_gr00t", "latency_prefix")],
+    [
+        ("pi05", "starvla_rl_games_pi05"),
+        ("qwenoft", "starvla_rl_games_openvla"),
+        ("official_gr00t", "latency_prefix"),
+    ],
 )
 def test_profile_launcher_activates_selected_model_environment(
     tmp_path, model, expected_environment

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from latency_bench.core.types import Action, StepResult
+from latency_bench.core.types import Action, EpisodeMetrics, StepRecord, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.latency.burst_profile import (
@@ -14,6 +14,8 @@ from latency_bench.latency.burst_profile import (
 )
 from latency_bench.latency.profile import save_latency_distribution, save_profile_manifest
 from latency_bench.eval.driver import run_from_config
+from latency_bench.logging.metrics import compute_episode_metrics
+from latency_bench.logging.summary import build_queue_eval_summary
 from latency_bench.utils.io import load_jsonl_records
 
 
@@ -139,6 +141,50 @@ def _write_profile(tmp_path: Path) -> Path:
     return profile_dir
 
 
+def test_injected_env_skips_starvla_env_preparation(tmp_path: Path, monkeypatch):
+    import latency_bench.eval.driver as driver
+    from latency_bench.policy import starvla
+
+    class Executor:
+        logger = None
+
+        def run_warmup(self):
+            return {}
+
+        def close(self):
+            return None
+
+    injected_env = object()
+    captured = {}
+    monkeypatch.setattr(
+        starvla,
+        "prepare_starvla_checkpoint_input_config",
+        lambda _config: pytest.fail("an injected environment is already constructed"),
+    )
+    monkeypatch.setattr(
+        driver,
+        "build_executor",
+        lambda config, **kwargs: captured.update(kwargs) or Executor(),
+    )
+    config = {
+        "experiment": {"name": "native-profile", "seed": 0},
+        "executor": {"mode": "simulated"},
+        "policy": {"type": "starvla"},
+        "evaluation": {"eval_episodes": 0, "eval_max_steps": 1},
+        "logging": {"output_dir": str(tmp_path)},
+    }
+
+    run_from_config(
+        config,
+        write_summary=False,
+        env=injected_env,
+        inference_devices=["cuda:1"],
+    )
+
+    assert captured["env"] is injected_env
+    assert captured["inference_devices"] == ["cuda:1"]
+
+
 def test_episode_metrics_log_evaluation_raw_fact_metadata(tmp_path: Path):
     run_from_config(_config(tmp_path), write_summary=False)
 
@@ -211,3 +257,57 @@ def test_simulated_latency_records_log_latency_raw_fields(tmp_path: Path):
     assert steps[0]["info"]["scheduled_time_ms"] == pytest.approx(0.0)
     assert steps[0]["info"]["frame_time_ms"] == pytest.approx(40.0)
     assert "active_action_id" in steps[0]["info"]
+
+
+def test_task_metrics_flow_from_final_step_into_summary():
+    metrics = [
+        compute_episode_metrics(
+            episode_id=episode_id,
+            step_records=[
+                StepRecord(
+                    episode_id=episode_id,
+                    env_step=0,
+                    sim_time_ms=0.0,
+                    active_action=Action("noop"),
+                    reward=1.0,
+                    done=True,
+                    info={"task_metrics": {"success": success}},
+                )
+            ],
+            action_events=[],
+            latency_values_ms=[],
+        )
+        for episode_id, success in enumerate((1.0, 0.0))
+    ]
+
+    summary = build_queue_eval_summary(
+        metrics,
+        experiment_name="task-metrics",
+        seed=0,
+        latency="measured",
+    )
+
+    assert metrics[0].metadata["task_metrics"] == {"success": 1.0}
+    assert summary["task_metrics"] == {
+        "success": {"mean": 0.5, "std": 0.5, "values": [1.0, 0.0]}
+    }
+
+
+def test_task_metrics_are_required_for_every_episode():
+    metrics = [
+        EpisodeMetrics(
+            episode_id=0,
+            episode_return=0.0,
+            survival_steps=1,
+            metadata={"task_metrics": {"success": 1.0}},
+        ),
+        EpisodeMetrics(episode_id=1, episode_return=0.0, survival_steps=1),
+    ]
+
+    with pytest.raises(KeyError, match="task_metrics"):
+        build_queue_eval_summary(
+            metrics,
+            experiment_name="task-metrics",
+            seed=0,
+            latency="measured",
+        )

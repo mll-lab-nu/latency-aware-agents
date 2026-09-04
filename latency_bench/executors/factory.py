@@ -46,6 +46,8 @@ def build_executor(
     config: dict[str, Any],
     *,
     policy: PolicyRunner | None = None,
+    env: EnvAdapter | None = None,
+    inference_devices: list[str] | None = None,
 ) -> Executor:
     executor_cfg = config["executor"]
     mode = ExecutorMode(executor_cfg["mode"])
@@ -56,10 +58,20 @@ def build_executor(
             f"got executor.mode={mode.value}"
         )
     if mode == ExecutorMode.SIMULATED:
-        return _build_simulated_executor(config, policy=policy)
+        return _build_simulated_executor(
+            config,
+            policy=policy,
+            env=env,
+            inference_devices=inference_devices,
+        )
     if mode == ExecutorMode.PAUSED:
         return _build_paused_executor(config, policy=policy)
-    return _build_realtime_executor(config, policy=policy)
+    return _build_realtime_executor(
+        config,
+        policy=policy,
+        env=env,
+        inference_devices=inference_devices,
+    )
 
 
 def _resolve_policy(
@@ -95,9 +107,14 @@ class _CommonExecutorComponents(_ExecutorRuntimeComponents):
     logger: TrajectoryLogger | None
 
 
-def _build_executor_runtime_components(config: dict[str, Any]) -> _ExecutorRuntimeComponents:
+def _build_executor_runtime_components(
+    config: dict[str, Any],
+    *,
+    env: EnvAdapter | None = None,
+) -> _ExecutorRuntimeComponents:
     action_resolver = ActionResolver(config["env"])
-    env = build_env_adapter(config, action_resolver.noop_action)
+    if env is None:
+        env = build_env_adapter(config, action_resolver.noop_action)
     clock = _build_clock(config)
     decision_scheduler = _build_decision_scheduler(clock)
     action_scheduler = build_action_scheduler(config["scheduler"], clock=clock, noop_action=env.noop_action)
@@ -110,9 +127,13 @@ def _build_executor_runtime_components(config: dict[str, Any]) -> _ExecutorRunti
     )
 
 
-def _build_common_executor_components(config: dict[str, Any]) -> _CommonExecutorComponents:
+def _build_common_executor_components(
+    config: dict[str, Any],
+    *,
+    env: EnvAdapter | None = None,
+) -> _CommonExecutorComponents:
     """Build the executor dependencies that are identical across the single-episode modes."""
-    runtime = _build_executor_runtime_components(config)
+    runtime = _build_executor_runtime_components(config, env=env)
     return _CommonExecutorComponents(
         action_resolver=runtime.action_resolver,
         env=runtime.env,
@@ -123,8 +144,12 @@ def _build_common_executor_components(config: dict[str, Any]) -> _CommonExecutor
     )
 
 
-def _build_realtime_runtime(config: dict[str, Any]) -> RealtimeRuntime:
-    runtime = _build_executor_runtime_components(config)
+def _build_realtime_runtime(
+    config: dict[str, Any],
+    *,
+    env: EnvAdapter | None = None,
+) -> RealtimeRuntime:
+    runtime = _build_executor_runtime_components(config, env=env)
     return RealtimeRuntime(
         env=runtime.env,
         decision_scheduler=runtime.decision_scheduler,
@@ -138,6 +163,8 @@ def _build_simulated_executor(
     config: dict[str, Any],
     *,
     policy: PolicyRunner | None = None,
+    env: EnvAdapter | None = None,
+    inference_devices: list[str] | None = None,
 ) -> SimulatedLatencyExecutor | BatchedSimulatedLatencyExecutor:
     eval_parallel_envs = _eval_parallel_envs(config)
     num_episodes = int(config["evaluation"]["eval_episodes"])
@@ -150,15 +177,22 @@ def _build_simulated_executor(
             config, max_parallel_envs=min(eval_parallel_envs, num_episodes), policy=policy
         )
 
-    return _build_single_simulated_executor(config, policy=policy)
+    return _build_single_simulated_executor(
+        config,
+        policy=policy,
+        env=env,
+        inference_devices=inference_devices,
+    )
 
 
 def _build_single_simulated_executor(
     config: dict[str, Any],
     *,
     policy: PolicyRunner | None = None,
+    env: EnvAdapter | None = None,
+    inference_devices: list[str] | None = None,
 ) -> SimulatedLatencyExecutor:
-    c = _build_common_executor_components(config)
+    c = _build_common_executor_components(config, env=env)
     inference_pool = None
     if _simulated_inference_pool_enabled(config):
         if policy is not None:
@@ -168,7 +202,11 @@ def _build_single_simulated_executor(
             )
         inference_pool = ProcessInferencePool(
             config=config,
-            inference_devices=_resolve_realtime_inference_devices(),
+            inference_devices=(
+                _resolve_realtime_inference_devices()
+                if inference_devices is None
+                else inference_devices
+            ),
         )
     else:
         policy = _resolve_policy(config, c.action_resolver, policy)
@@ -295,6 +333,8 @@ def _build_realtime_executor(
     config: dict[str, Any],
     *,
     policy: PolicyRunner | None = None,
+    env: EnvAdapter | None = None,
+    inference_devices: list[str] | None = None,
 ) -> RealtimeLatencyExecutor:
     if policy is not None:
         raise ValueError(
@@ -304,9 +344,14 @@ def _build_realtime_executor(
     latency_cfg = config["latency"]
     if resolve_latency_method(latency_cfg) != "zero":
         raise ValueError("realtime executor does not support injected latency")
-    inference_devices = _resolve_realtime_inference_devices()
+    if inference_devices is None:
+        inference_devices = (
+            config["executor"]["inference_devices"]
+            if "inference_devices" in config["executor"]
+            else _resolve_realtime_inference_devices()
+        )
 
-    runtime = _build_realtime_runtime(config)
+    runtime = _build_realtime_runtime(config, env=env)
     video_output_dir = _video_output_dir(config) if _video_enabled(config) else None
     return RealtimeLatencyExecutor(
         runtime=runtime,
@@ -314,7 +359,7 @@ def _build_realtime_executor(
         logger=_build_trajectory_logger(config),
         config=config,
         inference_devices=inference_devices,
-        use_env_process=True,
+        use_env_process=env is None,
         video_output_dir=video_output_dir,
         video_fps=runtime.clock.env_fps,
     )

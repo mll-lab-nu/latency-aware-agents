@@ -57,6 +57,22 @@ The task-owned entrypoint supplies the same fixed split and model settings.
 Use the internal runbook for GPU/Vulkan setup, the finite tuning ladder, and
 the exact environment variables required on the Blackwell host.
 
+## Profile the final VLA
+
+Expose one simulator GPU and at least one inference GPU, then run:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 \
+  bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh [MODEL_PATH]
+```
+
+The default `MODEL_PATH` is the 5k QwenOFT run printed by `train_vla.sh`. If that
+root is absent, the launcher downloads the exact
+`zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-v1` artifact.
+Logical `cuda:0` runs MIKASA; `cuda:1..` run inference. Add `--resume RUN_ID` to
+continue a partial five-session run or `--publish` to upload the completed run
+and profile to `latency-sensitive-bench/profiles`.
+
 ## Manual stage gates
 
 ### Teacher

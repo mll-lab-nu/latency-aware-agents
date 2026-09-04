@@ -187,20 +187,32 @@ def test_haic_commands_encode_smoke_and_resume_contract():
 def test_read_eval_metrics_flattens_haic_eval_json(tmp_path):
     eval_path = tmp_path / "dagger-eval.json"
     eval_path.write_text(
-        '{"episodes":100,"successes":45,"success_rate":0.45}\n'
+        '{"episodes":100,"successes":45,"success_rate":0.45,'
+        '"motion_progress":{"mean":0.6,"std":0.1},'
+        '"cart_progress":{"mean":0.3,"std":0.2},'
+        '"pullcart_score":{"mean":45.0,"std":15.0}}\n'
     )
 
     assert read_eval_metrics(eval_path) == {
         "dagger_eval/episodes": 100,
         "dagger_eval/successes": 45,
         "dagger_eval/success_rate": 0.45,
+        "dagger_eval/motion_progress_mean": 0.6,
+        "dagger_eval/motion_progress_std": 0.1,
+        "dagger_eval/cart_progress_mean": 0.3,
+        "dagger_eval/cart_progress_std": 0.2,
+        "dagger_eval/pullcart_score_mean": 45.0,
+        "dagger_eval/pullcart_score_std": 15.0,
     }
 
 
 def test_log_eval_metrics_uses_training_step_and_run(tmp_path, monkeypatch):
     eval_path = tmp_path / "dagger-eval.json"
     eval_path.write_text(
-        '{"episodes":100,"successes":45,"success_rate":0.45}\n'
+        '{"episodes":100,"successes":45,"success_rate":0.45,'
+        '"motion_progress":{"mean":0.6,"std":0.1},'
+        '"cart_progress":{"mean":0.3,"std":0.2},'
+        '"pullcart_score":{"mean":45.0,"std":15.0}}\n'
     )
     calls = {}
 
@@ -231,7 +243,15 @@ def test_log_eval_metrics_uses_training_step_and_run(tmp_path, monkeypatch):
     }
     assert calls["metric"] == ("dagger_eval/*", "train/global_step")
     assert calls["log"]["train/global_step"] == 500
+    assert calls["log"]["dagger_eval/episodes"] == 100
+    assert calls["log"]["dagger_eval/successes"] == 45
     assert calls["log"]["dagger_eval/success_rate"] == 0.45
+    assert calls["log"]["dagger_eval/motion_progress_mean"] == 0.6
+    assert calls["log"]["dagger_eval/motion_progress_std"] == 0.1
+    assert calls["log"]["dagger_eval/cart_progress_mean"] == 0.3
+    assert calls["log"]["dagger_eval/cart_progress_std"] == 0.2
+    assert calls["log"]["dagger_eval/pullcart_score_mean"] == 45.0
+    assert calls["log"]["dagger_eval/pullcart_score_std"] == 15.0
     assert "dagger_eval/steps" not in calls["log"]
 
 

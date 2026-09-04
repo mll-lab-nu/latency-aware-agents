@@ -7,6 +7,7 @@ from latency_bench.core.config import load_config
 from latency_bench.cross_device.profile_resolver import (
     list_remote_profiles,
     resolve_remote_profile,
+    resolve_model_artifacts,
 )
 from latency_bench.cross_device.runner import (
     current_deployment,
@@ -26,6 +27,8 @@ def main(argv: list[str] | None = None) -> None:
 
     run = commands.add_parser("run", help="measure and fit one profile")
     _add_preset(run)
+    run.add_argument("--model-path", type=Path)
+    run.add_argument("--session-python", type=Path)
     run.add_argument("--resume", metavar="RUN_ID", type=_path_segment)
     run.add_argument("--publish", action="store_true")
 
@@ -46,6 +49,8 @@ def main(argv: list[str] | None = None) -> None:
 
     simulate = commands.add_parser("simulate", help="replay one exact published profile")
     _add_preset(simulate)
+    simulate.add_argument("--model-path", type=Path)
+    simulate.add_argument("--session-python", type=Path)
     simulate.add_argument("--gpu", type=_path_segment, required=True)
     simulate.add_argument("--instance", type=_path_segment, required=True)
     simulate.add_argument(
@@ -73,6 +78,9 @@ def main(argv: list[str] | None = None) -> None:
 
     spec = load_profile_spec(REGISTRY_PATH, args.model, args.workload)
     if args.command == "run":
+        spec = resolve_model_artifacts(spec, model_path=args.model_path)
+        if args.session_python is not None:
+            spec["session_python"] = str(args.session_python)
         result = run_profile(spec, resume_run_id=args.resume, publish=args.publish)
         _print_result(result)
     elif args.command == "publish":
@@ -98,6 +106,9 @@ def main(argv: list[str] | None = None) -> None:
         print(f"PROFILE_PATH={profile_path}")
         print(f"HF_COMMIT={resolved_commit}")
     else:
+        spec = resolve_model_artifacts(spec, model_path=args.model_path)
+        if args.session_python is not None:
+            spec["session_python"] = str(args.session_python)
         result = run_simulation(
             spec,
             gpu_class=args.gpu,

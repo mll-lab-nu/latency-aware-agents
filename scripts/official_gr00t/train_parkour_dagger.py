@@ -14,6 +14,8 @@ import sys
 import wandb
 import yaml
 
+from latency_bench.data.parkour_dagger import PARKOUR_ACTION_HORIZON
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PARKOUR_ROOT = REPO_ROOT / "third_party/Isaaclab_Parkour"
@@ -52,10 +54,10 @@ DEFAULT_TEACHER_CHECKPOINT = PARKOUR_ROOT / (
 )
 DEFAULT_BASE_MODEL = REPO_ROOT / "outputs/official_gr00t/models/GR00T-N1.7-3B"
 DEFAULT_BOOTSTRAP_DATASET = REPO_ROOT / (
-    "outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot"
+    "outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot_h40"
 )
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / (
-    "outputs/official_gr00t/extreme_parkour_go2_action_yaw_dagger"
+    "outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_sampler_dagger"
 )
 DEFAULT_POLICY_CONFIG = REPO_ROOT / (
     "configs/examples/extreme_parkour/official_gr00t_eval.yaml"
@@ -222,14 +224,14 @@ def training_command(
         "--max-state-dim",
         "53",
         "--action-horizon",
-        "1",
+        str(PARKOUR_ACTION_HORIZON),
+        "--num-inference-timesteps",
+        "4",
+        "--allow-padding",
         "--action-objective",
         "parkour",
         "--action-actor-checkpoint",
         str(actor_checkpoint),
-        "--fixed-action-noise-seed",
-        "0",
-        "--one-step-action-regression",
         "--action-head-dropout",
         "0",
         "--state-dropout-prob",
@@ -308,22 +310,56 @@ def read_eval_metrics(eval_path: Path) -> dict[str, float]:
 
 def run_bootstrap(args: argparse.Namespace) -> Path:
     bootstrap_root = args.output_root / "bootstrap"
-    raw_dir = bootstrap_root / "raw"
-    parkour_env = os.environ | {
-        "PYTHONPATH": str(REPO_ROOT),
-        "OMNI_KIT_ACCEPT_EULA": "YES",
-    }
-    for mode in ("teacher-eval", "oracle-eval"):
+    raw_dir = (
+        bootstrap_root / "raw" if args.bootstrap_raw is None else args.bootstrap_raw
+    )
+    if args.bootstrap_raw is None:
+        parkour_env = os.environ | {
+            "PYTHONPATH": str(REPO_ROOT),
+            "OMNI_KIT_ACCEPT_EULA": "YES",
+        }
+        for mode in ("teacher-eval", "oracle-eval"):
+            subprocess.run(
+                collector_command(
+                    args.parkour_python,
+                    mode=mode,
+                    teacher_checkpoint=args.teacher_checkpoint,
+                    policy_config=args.policy_config,
+                    output_dir=bootstrap_root / mode,
+                    inference_device=args.inference_device,
+                    num_envs=50,
+                    seed=2,
+                    round_index=0,
+                    inference_batch_size=args.inference_batch_size,
+                ),
+                cwd=PARKOUR_ROOT,
+                env=parkour_env,
+                check=True,
+            )
+        teacher_progress = json.loads(
+            (bootstrap_root / "teacher-eval/teacher-eval.json").read_text(
+                encoding="utf-8"
+            )
+        )["normalized_waypoint_progress"]["mean"]
+        oracle_progress = json.loads(
+            (bootstrap_root / "oracle-eval/oracle-eval.json").read_text(
+                encoding="utf-8"
+            )
+        )["normalized_waypoint_progress"]["mean"]
+        if oracle_progress < teacher_progress * 0.5:
+            raise RuntimeError(
+                "Parkour oracle normalized waypoint progress is below 50% of teacher"
+            )
         subprocess.run(
             collector_command(
                 args.parkour_python,
-                mode=mode,
+                mode="collect",
                 teacher_checkpoint=args.teacher_checkpoint,
                 policy_config=args.policy_config,
-                output_dir=bootstrap_root / mode,
+                output_dir=raw_dir,
                 inference_device=args.inference_device,
                 num_envs=50,
-                seed=2,
+                seed=0,
                 round_index=0,
                 inference_batch_size=args.inference_batch_size,
             ),
@@ -331,37 +367,6 @@ def run_bootstrap(args: argparse.Namespace) -> Path:
             env=parkour_env,
             check=True,
         )
-    teacher_progress = json.loads(
-        (bootstrap_root / "teacher-eval/teacher-eval.json").read_text(
-            encoding="utf-8"
-        )
-    )["normalized_waypoint_progress"]["mean"]
-    oracle_progress = json.loads(
-        (bootstrap_root / "oracle-eval/oracle-eval.json").read_text(
-            encoding="utf-8"
-        )
-    )["normalized_waypoint_progress"]["mean"]
-    if oracle_progress < teacher_progress * 0.5:
-        raise RuntimeError(
-            "Parkour oracle normalized waypoint progress is below 50% of teacher"
-        )
-    subprocess.run(
-        collector_command(
-            args.parkour_python,
-            mode="collect",
-            teacher_checkpoint=args.teacher_checkpoint,
-            policy_config=args.policy_config,
-            output_dir=raw_dir,
-            inference_device=args.inference_device,
-            num_envs=50,
-            seed=0,
-            round_index=0,
-            inference_batch_size=args.inference_batch_size,
-        ),
-        cwd=PARKOUR_ROOT,
-        env=parkour_env,
-        check=True,
-    )
     subprocess.run(
         bootstrap_prepare_command(raw_dir, args.bootstrap_dataset),
         cwd=REPO_ROOT,
@@ -588,12 +593,14 @@ def main() -> None:
     parser.add_argument("--base-model", type=Path, default=DEFAULT_BASE_MODEL)
     parser.add_argument("--bootstrap-checkpoint", type=Path)
     parser.add_argument("--bootstrap-dataset", type=Path, default=DEFAULT_BOOTSTRAP_DATASET)
+    parser.add_argument("--bootstrap-raw", type=Path)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--policy-config", type=Path, default=DEFAULT_POLICY_CONFIG)
     parser.add_argument("--parkour-python", type=Path, default=DEFAULT_PARKOUR_PYTHON)
     parser.add_argument("--inference-device", action="append")
     parser.add_argument(
-        "--wandb-run-id", default="extreme_parkour_go2_vla_dagger_action_yaw_5k"
+        "--wandb-run-id",
+        default="extreme_parkour_go2_vla_dagger_action_yaw_h40_official_sampler_5k",
     )
     parser.add_argument(
         "--inference-batch-size",
@@ -612,6 +619,10 @@ def main() -> None:
             f"{args.wandb_run_id}_sft",
         )
     run_pipeline(args)
+    print(
+        f"MODEL_PATH={checkpoint_dir(args.output_root / 'training' / args.wandb_run_id, args.end_round)}",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

@@ -21,6 +21,9 @@ artifact 路径见 [`docs/artifacts.md`](../docs/artifacts.md)。历史公开的
 - checkpoint-9500 和 checkpoint-10000 是当前仅保留的权重；10k cosine schedule 已耗尽，末次 LR 为 `2.5956e-12`，不要直接 resume 这个 optimizer/scheduler。
 - 20 个 periodic eval 均完成；每个 eval 10 episodes、一个原始 head-camera clip，invalid/dropped/underflow actions 全为 0。
 - 20 个 eval 的代表 episode 已用保存的 action trace 重渲染为 `cam_default` 第三人称视频；没有重新运行模型推理，原始视频均保留。
+- latency profile 已复用现有 Gymnasium adapter 接入：拟合 198D state/RGB observation 到 GR00T 43D
+  absolute joint-target action chunk，MuJoCo actuator 和 physics step 不进入 profile。10k 曾完成部分
+  measurement sessions，但当前 canonical preset 指向尚未产出的 15k artifact，不能续跑或回退为 10k。
 
 ## Current formal setup
 

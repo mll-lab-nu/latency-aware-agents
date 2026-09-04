@@ -14,7 +14,7 @@ DAgger run 因后续发现 bug，已在 round 3 期间停止并删除全部 chec
 - 原生时间：physics 200 Hz / 5 ms，policy 50 Hz / 20 ms，decimation 4；motion 561 帧 / 11.22 s；动作是 23 个非 wrist 关节。
 - 训练路线：`ppo_haic_train` 同一在线 rollout 同时训练 privileged teacher、privileged target world model/adapter，并将 teacher 均值蒸馏到 student；不是离线 BC。原生 `ppo_haic_finetune` 是可选的后续 student on-policy PPO + online adaptation 路径，本轮不执行。
 - 延迟语义：上游 `JointPosition` 在 reset 为每个环境采样一次并在整个 episode 固定 FIFO delay，不是每个 action 重采样；默认代码 `[2,6]` physics ticks，即 10–30 ms。论文附录写 `U[40,120] ms`，与当前代码不一致。
-- 本项目的 latency 定义覆盖 observation→action-ready/apply 的完整区间，已包含 actuation delay；因此内部配置固定为 `task.action.min_delay=0`、`task.action.max_delay=0`，不重复计时。动作平滑也固定关闭：`task.action.alpha=1.0`。后续 latency 由 benchmark scheduler 单独注入，本轮不接入 scheduler。
+- latency bench 已通过 task-owned profile entrypoint 接入。拟合样本从 `env.observe()` 开始，到 inference parent 收到 GR00T 输出的 256D latent action chunk 为止；605D state + latent 经冻结 actor 生成 23D motor action、scheduler 后的施加和 physics `env.step()` 均不进入 profile。内部仍固定 `task.action.min_delay=0`、`task.action.max_delay=0` 和 `task.action.alpha=1.0`，避免与 benchmark scheduler 重复注入。
 - 固定 seed：`0`。原生 teacher 复现阶段不做延迟扫描或其他任务；后续 VLA student 仍保持任务内部 zero-delay，视觉和状态契约见 Phase 2。
 
 ## 2. 官方 baseline、预算与性能结论
@@ -112,7 +112,7 @@ torchrun --standalone --nproc_per_node=2 scripts/train.py \
 /home/xinyuan/latency-sensitive-bench-mikasa-h1/third_party/Isaac-GR00T/.venv
 ```
 
-要求：Python 3.11、Isaac Sim 5.1.0、IsaacLab v2.3.2、Git LFS；Phase 1 原生 teacher 的 `HAIC` 外部 checkout 保持 fork commit `73976dbaf42494fa20d385599758eced7f7a16ce`，Phase 2 VLA 使用当前父仓库中的 HAIC submodule commit `f7a2bf5`，两者不可混用。
+要求：Python 3.11、Isaac Sim 5.1.0、IsaacLab v2.3.2、Git LFS；Phase 1 原生 teacher 的 `HAIC` 外部 checkout 保持 fork commit `73976dbaf42494fa20d385599758eced7f7a16ce`，Phase 2 VLA 使用当前父仓库中的 HAIC submodule commit `c29b667`，两者不可混用。
 
 通用环境：
 
@@ -273,6 +273,7 @@ VLA 替换路线，phase-1 final teacher 是固定的 privileged label source。
 - bootstrap 与 DAgger 都只优化 23D motor-action MSE，不优化官方 velocity MSE 或 256D latent MSE。训练从 fresh Gaussian 出发，可微分地调用与 inference 共享的官方默认 4-step Euler sampler，最终 `[40,256]` chunk 与未来 40 个 50 Hz actor input 送入同一个冻结 `actor_adapt`。terminal action 保留，terminal 后位置由累计 mask 排除；episode 尾部使用 padding，因此短失败 episode 和最后 39 个起点不会被删除。actor 不进入 optimizer、GR00T model 或 checkpoint；
 - HAIC launcher 显式固定 `action_horizon=40`、`num_inference_timesteps=4` 和随机 Gaussian（`fixed_action_noise_seed=None`），并关闭旧 `one_step_action_regression`；这些与官方 sampler 默认值一致。这里的 objective 仍是自定义 action-only，不声称是官方 random-t velocity-MSE objective；
 - DAgger 流程是 `step-0 eval -> rollout -> training -> eval`。当前 task-owned 入口默认执行 round 0--9；每轮两个顺序 collector 各 32,000 rows，合计 64,000 rows、gradient accumulation 2 和 500 updates。采样权重固定为 50% action-rich bootstrap replay + 50% 累积 DAgger 数据，bootstrap prior 不随 round 数稀释；eval 始终使用 100 env / seed 0，每个 env 只统计从 motion frame 0 开始的首个 episode；
+- DAgger eval 固定从 phase 0 开始，并在 terminal action 之前最后一次被 policy 观察到的 state 上计算 progress。对 motion 长度 `T`，`m = t / (T - 1)`；以 reference cart 首尾位移为 `d_ref`、实际 cart 首尾位移为 `d_actual`，`c = clip(dot(d_actual, d_ref) / dot(d_ref, d_ref), 0, 1)`；每个 episode 的综合 benchmark 分数为 `pullcart_score = 100 * (m + c) / 2`。三个值分别取 100 个完整 eval episodes 的 mean/std；`success_rate` 仍表示完整完成率，不被综合分替代；
 - DAgger collector 使用 inference batch 32，并按单个环境的连续 50 Hz segment 写 raw shard；转换后的训练 shard size 为 1,000。每个 round eval 后删除 raw shard，保留 LeRobot dataset、dataset manifest、training dataset manifest、checkpoint、eval 结果和 policy config。
 
 正式远端单 GPU 默认仍串行运行两个 collector。短 A/B 可用
@@ -297,7 +298,9 @@ checkpoint 的 `actor_adapt` 导出成纯 PyTorch state dict。训练期 action 
 和 eval 则从同一固定 teacher checkpoint 构造相同 actor。
 
 DAgger training、step 0 与所有 round eval 使用同一个固定 W&B run，记录
-`train/global_step=0,500,...,5000` 以及 `dagger_eval/episodes`、`dagger_eval/successes`、`dagger_eval/success_rate`，不记录固定执行上限 `dagger_eval/steps`；bootstrap SFT 使用独立的 `<dagger-run-id>_sft` run，避免两段训练都从
+`train/global_step=0,500,...,5000` 以及 `dagger_eval/episodes`、`dagger_eval/successes`、`dagger_eval/success_rate`、
+`dagger_eval/motion_progress_{mean,std}`、`dagger_eval/cart_progress_{mean,std}` 和
+`dagger_eval/pullcart_score_{mean,std}`，不记录固定执行上限 `dagger_eval/steps`；bootstrap SFT 使用独立的 `<dagger-run-id>_sft` run，避免两段训练都从
 global step 0 起步而污染同一条曲线。
 launcher 将这两个名字显式传给 GR00T 的 `--experiment-name`，因此默认 W&B 名称分别是
 `haic_pull_cart_vla_dagger_action_h40_official_sampler_5k_sft` 和 `haic_pull_cart_vla_dagger_action_h40_official_sampler_5k`，不再从输出目录继承成

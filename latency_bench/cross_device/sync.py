@@ -17,6 +17,7 @@ LOCAL_ONLY_RUN_FILES = {
     "calibration.generated.yaml",
     "generated.yaml",
     "hardware.json",
+    "run_contract.json",
 }
 
 

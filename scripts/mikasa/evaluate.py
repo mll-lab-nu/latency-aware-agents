@@ -32,11 +32,14 @@ from mikasa_robo_suite.vla.dataset_collectors.get_mikasa_robo_datasets import ( 
 from mikasa_robo_suite.vla.utils.apply_wrappers import (  # noqa: E402
     apply_mikasa_vla_wrappers,
 )
+from latency_bench.core.types import Action, Observation, StepResult  # noqa: E402
+from latency_bench.envs.base import EnvAdapter  # noqa: E402
 
 
 ENV_ID = "InterceptGrabFast-VLA-v0"
 INSTRUCTION = "Intercept the rolling ball and grasp it to stop it."
 START_SEED = 4242424242
+MIKASA_IMAGE_VIEWS_INFO_KEY = "mikasa_image_views"
 
 
 def _scalar(value: Any) -> Any:
@@ -110,6 +113,70 @@ class _StarVlaPolicy:
         ).unsqueeze(0)
 
 
+class _MikasaProfileEnv(EnvAdapter):
+    """Expose the one-environment MIKASA loop to the common realtime executor."""
+
+    env_fps = 20.0
+    noop_action = Action(value=[0.0] * 7, name="noop", is_noop=True)
+
+    def __init__(self, env=None):
+        self.env = _make_vla_env() if env is None else env
+        self.env_step = 0
+        self._observation = None
+        self._success = False
+
+    def reset(self, seed: int | None = None) -> Observation:
+        self._observation, _ = self.env.reset(seed=seed)
+        self.env_step = 0
+        self._success = False
+        return self.observe()
+
+    def step(self, action: Action) -> StepResult:
+        tensor_action = torch.as_tensor(action.value, dtype=torch.float32).reshape(1, 7)
+        observation, reward, terminated, truncated, info = self.env.step(tensor_action)
+        self._observation = observation
+        self.env_step += 1
+        success = bool(_scalar(info["success"]))
+        self._success = self._success or success
+        return StepResult(
+            observation=None,
+            reward=float(_scalar(reward)),
+            done=bool(_scalar(terminated)),
+            truncated=bool(_scalar(truncated)),
+            info={
+                "success": success,
+                "task_metrics": {"success": float(self._success)},
+            },
+        )
+
+    def observe(self) -> Observation:
+        rgb = self._observation["rgb"]
+        if torch.is_tensor(rgb):
+            rgb = rgb.detach().cpu().numpy()
+        rgb = np.asarray(rgb)
+        views = np.stack(
+            [
+                np.asarray(rgb[0, :, :, :3], dtype=np.uint8),
+                np.asarray(rgb[0, :, :, 3:6], dtype=np.uint8),
+            ]
+        )
+        return Observation(
+            data=None,
+            env_step=self.env_step,
+            sim_time_ms=self.env_step * self.frame_ms,
+            metadata={MIKASA_IMAGE_VIEWS_INFO_KEY: views, "slot_id": 0},
+        )
+
+    def render_frame(self):
+        return self.observe().metadata[MIKASA_IMAGE_VIEWS_INFO_KEY][0]
+
+    def render_game_frame(self):
+        return self.render_frame()
+
+    def close(self) -> None:
+        self.env.close()
+
+
 def _evaluate(policy_kind: str, args: argparse.Namespace) -> dict[str, Any]:
     env = _make_ppo_env() if policy_kind == "ppo" else _make_vla_env()
     policy = _PpoPolicy(env, args.checkpoint) if policy_kind == "ppo" else args.vla_policy
@@ -149,7 +216,26 @@ def _evaluate(policy_kind: str, args: argparse.Namespace) -> dict[str, Any]:
     return summary
 
 
+def _profile(argv: list[str]) -> None:
+    from latency_bench.core.config import load_config
+    from latency_bench.eval.driver import run_from_config
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--profile-config", type=Path, required=True)
+    args = parser.parse_args(argv)
+    config = load_config(args.profile_config)
+    run_from_config(
+        config,
+        env=_MikasaProfileEnv(),
+        inference_devices=config["executor"]["inference_devices"],
+    )
+
+
 def main() -> None:
+    if sys.argv[1:2] == ["profile"]:
+        _profile(sys.argv[2:])
+        return
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", choices=("ppo", "vla"), required=True)
     parser.add_argument("--checkpoint", type=Path)

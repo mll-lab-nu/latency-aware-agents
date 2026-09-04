@@ -654,6 +654,20 @@ def test_realtime_mode_builds_realtime_executor(monkeypatch, tmp_path):
         executor.env.close()
 
 
+def test_realtime_mode_uses_injected_env_and_inference_devices(tmp_path):
+    config = _config(mode="realtime", output_dir=str(tmp_path))
+    env = DummyEnvAdapter(noop_action=Action(value="env-noop", is_noop=True))
+
+    executor = build_executor(config, env=env, inference_devices=["cuda:1"])
+
+    try:
+        assert executor.env is env
+        assert executor.inference_devices == ["cuda:1"]
+        assert executor.use_env_process is False
+    finally:
+        executor.env.close()
+
+
 def test_realtime_devices_follow_cuda_visible_devices(monkeypatch):
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2,3")
 
