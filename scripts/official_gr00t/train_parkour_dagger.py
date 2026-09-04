@@ -54,10 +54,10 @@ DEFAULT_TEACHER_CHECKPOINT = PARKOUR_ROOT / (
 )
 DEFAULT_BASE_MODEL = REPO_ROOT / "outputs/official_gr00t/models/GR00T-N1.7-3B"
 DEFAULT_BOOTSTRAP_DATASET = REPO_ROOT / (
-    "outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot_h40"
+    "outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot_h40_semantic_stats"
 )
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / (
-    "outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_sampler_dagger"
+    "outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_flow_aux_dagger"
 )
 DEFAULT_POLICY_CONFIG = REPO_ROOT / (
     "configs/examples/extreme_parkour/official_gr00t_eval.yaml"
@@ -600,7 +600,7 @@ def main() -> None:
     parser.add_argument("--inference-device", action="append")
     parser.add_argument(
         "--wandb-run-id",
-        default="extreme_parkour_go2_vla_dagger_action_yaw_h40_official_sampler_5k",
+        default="extreme_parkour_go2_vla_dagger_action_yaw_h40_official_flow_aux_5k",
     )
     parser.add_argument(
         "--inference-batch-size",

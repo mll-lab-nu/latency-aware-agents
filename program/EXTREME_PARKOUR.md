@@ -400,7 +400,7 @@ PYTHONPATH="${REPO_ROOT}" OMNI_KIT_ACCEPT_EULA=YES \
 cd "${REPO_ROOT}"
 uv run --project . python scripts/official_gr00t/prepare_parkour_dataset.py \
   outputs/official_gr00t/extreme_parkour_go2_action_data/raw \
-  outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot \
+  outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot_h40_semantic_stats \
   --video-shards
 ```
 
@@ -479,6 +479,11 @@ predicted yaw，否则使用整对 GT yaw；最终 eval 始终使用 predicted y
 L2；仓库中虽保留 latent loss 函数，但 runner 调用被注释，没有启用 latent matching。本项目冻结
 actor 是为隔离 VLA 修正而采用的简化版本，不等同于论文中可训练的完整 student actor。
 
+GR00T action head 固定输出 H40。训练使用官方 random-t velocity-MSE，只调用一次 denoiser，
+并在该次预测的 clean endpoint 上增加冻结 actor action L2 与 yaw L2；总 loss 为两者之和。
+inference 从 fresh Gaussian 出发调用官方默认 4-step Euler sampler，一次 policy call 只编码一次
+RGB/state，四次 denoise 复用同一组 backbone features。
+
 ### 12.1 有界 DAgger 预算
 
 原配置每个 iteration 是 `192 envs × 120 control steps = 23,040` 个 50 Hz transitions；depth
@@ -511,8 +516,9 @@ shard 是 `episode.npz + episode.mp4`，不落逐帧 PNG；numeric payload 保�
 block 为全部环境刷新 VLA；block 中 reset 的环境立即刷新，避免 per-env phase 锁相后退出采样池。
 reset observation 同时从新 root pose 和新 goals 立即重算 wrapped GT yaw，不复用上一 episode 缓存。
 LeRobot parquet 直接保留这些诊断列，
-并逐字节复制由 bootstrap 数据现有 fingerprint-aware stats 流程生成的固定 normalization
-stats，DAgger round 不重新计算 stats。
+并逐字节复制 bootstrap 的固定 normalization stats，DAgger round 不重新计算 stats。Parkour
+action 使用语义范围：32D terrain latent 为 `[-1,1]`，两维 yaw 为
+`[-pi/1.5,pi/1.5]`；不再用 bootstrap 样本偶然观察到的 yaw min/max 裁剪标签。
 
 默认仍由 GPU 0 运行 Isaac Sim、GPU 1 运行一个 GR00T worker。双 worker A/B 显式重复
 `--inference-device`，例如 `--inference-device cuda:0 --inference-device cuda:1`；collector
@@ -545,7 +551,7 @@ round。round 内采集中断不能只按 row count
 `training_datasets.json` 和该轮 `lerobot/`；只删除该轮 `raw/`。失败路径不清理，便于定位和续跑。
 旧 current-only DAgger 输出缺少可复用的 round `lerobot/` 和聚合训练 manifest，不能作为该流程的
 resume 根目录；重新跑时使用新的 output root 或先清掉旧 round/checkpoint。
-默认输出根目录是 `outputs/official_gr00t/extreme_parkour_go2_action_yaw_dagger`；fresh bootstrap
+默认输出根目录是 `outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_flow_aux_dagger`；fresh bootstrap
 checkpoint 是 `bootstrap/training/<wandb-run-id>_sft/checkpoint-5000`，round-0 checkpoint 是
 `training/<wandb-run-id>/checkpoint-500`。已有 fresh bootstrap 时可省略 `--run-bootstrap`，或用
 `--bootstrap-checkpoint` 显式指定；旧 latent-only checkpoint 不得传入。
@@ -556,3 +562,7 @@ checkpoint 是 `bootstrap/training/<wandb-run-id>_sft/checkpoint-5000`，round-0
 不能用于 resume 或后续聚合训练。
 随后仍采用 latent-only loss 的一次 run 又从 `0.245` 降到 `0.088`；该结果进一步说明修复
 rollout/eval plumbing 并没有修复监督目标，相关 checkpoint 同样只保留作失败证据。
+
+2026-09-04 的 H40 4-step 可微 sampler run 在约 step 3380 后出现持续梯度爆炸，progress 从
+checkpoint-3000 的 `0.5225` 降至 checkpoint-3500 的 `0.4075`、checkpoint-4000 的
+`0.2925`。该 run 已停止并原样保留；不能 resume 到新的 random-t flow + auxiliary 路径。

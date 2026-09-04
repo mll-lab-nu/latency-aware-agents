@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -297,11 +298,22 @@ def test_video_shard_prepare_runs_stats_for_train_and_validation(tmp_path, monke
     monkeypatch.setattr(
         prepare_module, "convert_parkour_dagger_shards_to_lerobot", fake_convert
     )
-    monkeypatch.setattr(
-        prepare_module.subprocess,
-        "run",
-        lambda command, **kwargs: calls.append(command),
-    )
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        dataset_dir = Path(command[command.index("--dataset-path") + 1])
+        (dataset_dir / "meta").mkdir(parents=True, exist_ok=True)
+        (dataset_dir / "meta/stats.json").write_text(
+            json.dumps(
+                {
+                    "action": {
+                        "min": [0.0] * 34,
+                        "max": [0.0] * 34,
+                    }
+                }
+            )
+        )
+
+    monkeypatch.setattr(prepare_module.subprocess, "run", fake_run)
 
     manifest = prepare_module.prepare_parkour_dataset(
         tmp_path / "raw",
@@ -315,3 +327,7 @@ def test_video_shard_prepare_runs_stats_for_train_and_validation(tmp_path, monke
         str(output),
         str(val_output),
     ]
+    for dataset_dir in (output, val_output):
+        stats = json.loads((dataset_dir / "meta/stats.json").read_text())
+        assert stats["action"]["min"] == [-1.0] * 32 + [-np.pi / 1.5] * 2
+        assert stats["action"]["max"] == [1.0] * 32 + [np.pi / 1.5] * 2

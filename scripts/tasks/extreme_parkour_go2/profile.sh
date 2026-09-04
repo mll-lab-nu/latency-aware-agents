@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-MODEL_PATH="${REPO_ROOT}/outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_sampler_dagger/training/extreme_parkour_go2_vla_dagger_action_yaw_h40_official_sampler_5k/checkpoint-5000"
+MODEL_PATH="${REPO_ROOT}/outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_flow_aux_dagger/training/extreme_parkour_go2_vla_dagger_action_yaw_h40_official_flow_aux_5k/checkpoint-5000"
 if [[ "${1:-}" != --* && "$#" -gt 0 ]]; then
   MODEL_PATH="$1"
   shift

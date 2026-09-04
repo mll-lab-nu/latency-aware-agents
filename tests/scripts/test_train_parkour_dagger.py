@@ -40,12 +40,15 @@ def test_main_defaults_to_all_dagger_rounds(monkeypatch):
     dagger.main()
 
     assert captured["end_round"] == DAGGER_ROUNDS
-    assert captured["wandb_run_id"] == "extreme_parkour_go2_vla_dagger_action_yaw_5k"
+    assert (
+        captured["wandb_run_id"]
+        == "extreme_parkour_go2_vla_dagger_action_yaw_h40_official_flow_aux_5k"
+    )
     assert captured["base_model"] == DEFAULT_BASE_MODEL
     assert captured["bootstrap_dataset"] == DEFAULT_BOOTSTRAP_DATASET
     assert captured["bootstrap_checkpoint"] == bootstrap_checkpoint_dir(
         DEFAULT_OUTPUT_ROOT / "bootstrap" / "training",
-        "extreme_parkour_go2_vla_dagger_action_yaw_5k_sft",
+        "extreme_parkour_go2_vla_dagger_action_yaw_h40_official_flow_aux_5k_sft",
     )
     assert captured["run_bootstrap"] is False
 

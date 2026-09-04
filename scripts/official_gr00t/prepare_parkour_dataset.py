@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 import subprocess
 from pathlib import Path
@@ -23,6 +24,14 @@ from latency_bench.data.parkour_dagger import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GR00T_PYTHON = REPO_ROOT / "third_party/Isaac-GR00T/.venv/bin/python"
 MODALITY_CONFIG = "latency_bench/policy/official_gr00t_parkour_modality.py"
+
+
+def _apply_semantic_action_stats(dataset_dir: Path) -> None:
+    stats_path = dataset_dir / "meta/stats.json"
+    stats = json.loads(stats_path.read_text())
+    stats["action"]["min"] = [-1.0] * 32 + [-math.pi / 1.5] * 2
+    stats["action"]["max"] = [1.0] * 32 + [math.pi / 1.5] * 2
+    stats_path.write_text(json.dumps(stats, indent=4) + "\n")
 
 
 def prepare_parkour_dataset(
@@ -70,6 +79,7 @@ def prepare_parkour_dataset(
                 cwd=REPO_ROOT,
                 check=True,
             )
+            _apply_semantic_action_stats(dataset_dir)
         return manifest
     write_parquet_splits_from_shards(
         raw_dir,
@@ -108,6 +118,7 @@ def prepare_parkour_dataset(
             cwd=REPO_ROOT,
             check=True,
         )
+        _apply_semantic_action_stats(dataset_dir)
     return manifest
 
 

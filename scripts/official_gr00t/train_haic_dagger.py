@@ -42,11 +42,10 @@ HAIC_DAGGER_ROWS_PER_ROUND = (
 HAIC_DAGGER_ROWS_PER_COLLECTOR = HAIC_DAGGER_ROWS_PER_ROUND // COLLECTOR_RANKS
 HAIC_DAGGER_SHARD_ROWS = 1_000
 DEFAULT_INFERENCE_BATCH_SIZE = 32
-DEFAULT_HAIC_LATENT_LOSS_WEIGHT = 0.1
 CHECKPOINT_COMPLETE_MARKER = ".dagger-round-complete"
 EVAL_ENVS = 100
 HAIC_CONTROL_STEPS_PER_VLA = 5
-DEFAULT_WANDB_RUN_ID = "haic_pull_cart_vla_dagger_action_h40_official_sampler_5k"
+DEFAULT_WANDB_RUN_ID = "haic_pull_cart_vla_dagger_action_h40_official_flow_aux_5k"
 
 DEFAULT_TEACHER_CHECKPOINT = REPO_ROOT / (
     "outputs/haic/phase1_teacher/checkpoint_final.pt"
@@ -178,7 +177,6 @@ def _training_flags(
     gradient_accumulation_steps: int,
     checkpoint_interval: int,
     resume_checkpoint: Path | None,
-    haic_latent_loss_weight: float,
 ) -> list[str]:
     command = [
         str(GR00T_PYTHON),
@@ -214,8 +212,6 @@ def _training_flags(
         "haic",
         "--action-actor-checkpoint",
         str(actor_checkpoint),
-        "--haic-latent-loss-weight",
-        str(haic_latent_loss_weight),
         "--action-head-dropout",
         "0",
         "--state-dropout-prob",
@@ -266,7 +262,6 @@ def bootstrap_training_command(
     experiment_name: str,
     max_steps: int = BOOTSTRAP_UPDATES,
     gradient_accumulation_steps: int = BOOTSTRAP_GRADIENT_ACCUMULATION_STEPS,
-    haic_latent_loss_weight: float = DEFAULT_HAIC_LATENT_LOSS_WEIGHT,
 ) -> list[str]:
     """Build the single-GPU privileged-oracle bootstrap training command."""
     return _training_flags(
@@ -280,7 +275,6 @@ def bootstrap_training_command(
         gradient_accumulation_steps=gradient_accumulation_steps,
         checkpoint_interval=max_steps,
         resume_checkpoint=None,
-        haic_latent_loss_weight=haic_latent_loss_weight,
     )
 
 
@@ -296,7 +290,6 @@ def training_command(
     max_steps: int = TOTAL_UPDATES,
     gradient_accumulation_steps: int = GRADIENT_ACCUMULATION_STEPS,
     checkpoint_interval: int = UPDATES_PER_ROUND,
-    haic_latent_loss_weight: float = DEFAULT_HAIC_LATENT_LOSS_WEIGHT,
 ) -> list[str]:
     """Build one HAIC DAgger training command with exact round resume."""
     return _training_flags(
@@ -310,7 +303,6 @@ def training_command(
         gradient_accumulation_steps=gradient_accumulation_steps,
         checkpoint_interval=checkpoint_interval,
         resume_checkpoint=resume_checkpoint,
-        haic_latent_loss_weight=haic_latent_loss_weight,
     )
 
 
@@ -465,7 +457,6 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
             training_output=training_output,
             experiment_name=experiment_name,
             max_steps=1 if smoke else BOOTSTRAP_UPDATES,
-            haic_latent_loss_weight=args.haic_latent_loss_weight,
         ),
         cwd=REPO_ROOT,
         env={
@@ -550,7 +541,6 @@ def run_smoke(args: argparse.Namespace) -> None:
             max_steps=1,
             gradient_accumulation_steps=1,
             checkpoint_interval=1,
-            haic_latent_loss_weight=args.haic_latent_loss_weight,
         ),
         cwd=REPO_ROOT,
         env={
@@ -581,7 +571,6 @@ def run_smoke(args: argparse.Namespace) -> None:
             max_steps=2,
             gradient_accumulation_steps=1,
             checkpoint_interval=1,
-            haic_latent_loss_weight=args.haic_latent_loss_weight,
         ),
         cwd=REPO_ROOT,
         env={
@@ -782,7 +771,6 @@ def run_pipeline(args: argparse.Namespace) -> None:
                     training_output=training_output,
                     experiment_name=args.wandb_run_id,
                     resume_checkpoint=(current_model if round_index > 0 else None),
-                    haic_latent_loss_weight=args.haic_latent_loss_weight,
                 ),
                 cwd=REPO_ROOT,
                 env=training_environment,
@@ -853,11 +841,6 @@ def main() -> None:
     parser.add_argument("--eval-max-steps", type=int, default=1_000)
     parser.add_argument("--policy-config", type=Path, default=DEFAULT_POLICY_CONFIG)
     parser.add_argument("--wandb-run-id", default=DEFAULT_WANDB_RUN_ID)
-    parser.add_argument(
-        "--haic-latent-loss-weight",
-        type=float,
-        default=DEFAULT_HAIC_LATENT_LOSS_WEIGHT,
-    )
     parser.add_argument("--start-round", type=int, default=0)
     parser.add_argument("--end-round", type=int, default=DAGGER_ROUNDS)
     parser.add_argument("--run-bootstrap", action="store_true")

@@ -1,9 +1,9 @@
 # HAIC / PullCart 原生 teacher 与 VLA student 手册
 
 状态：HAIC 已作为 fork submodule 接入；正式 500M teacher 长训已完成。旧 256D latent-only
-bootstrap/DAgger 的 step 0、round 0、1、2 均为 `0/100`，已在 round 3 停止且原输出完整保留。
-latent-anchored 数据、loss、固定 actor 导出和 oracle gate 已实现；2026-09-03 的 fresh bootstrap +
-DAgger run 因后续发现 bug，已在 round 3 期间停止并删除全部 checkpoint、数据与配套日志，修复后必须重新 fresh 启动。
+bootstrap/DAgger 已停止。2026-09-04 已删除远端旧 run 的 checkpoint 和 DAgger 数据，仅迁移
+可复用的 bootstrap train/val 与 `actor_adapt.pt`；新的 random-t flow + actor auxiliary 路径
+已从 GR00T base fresh 启动。
 
 读者复现入口见 [`docs/haic/cookbook.md`](../docs/haic/cookbook.md)，跨任务阶段契约见
 [`docs/standard_pipeline.md`](../docs/standard_pipeline.md)。
@@ -270,8 +270,8 @@ VLA 替换路线，phase-1 final teacher 是固定的 privileged label source。
 训练分两段：
 
 - bootstrap 从 GR00T-N1.7-3B fresh base 开始。privileged teacher 的成功 episode 按 50 Hz 保存逐步 scalar row：RGB、605D state、256D teacher latent、`actor_input[605]`、`teacher_action[23]` 和 scalar termination；dataset 在每个起点组装未来 40 步窗口。正式配置为 250 个 train episode、25 个 val episode、global batch 64、gradient accumulation 2、peak LR `5e-5` 和 5,000 optimizer updates；
-- bootstrap 与 DAgger 都优化冻结 actor 后的 23D motor-action MSE，并以归一化 256D teacher latent MSE 做 auxiliary anchor，默认权重 `haic_latent_loss_weight=0.1`；不使用官方 velocity MSE。训练从 fresh Gaussian 出发，可微分地调用与 inference 共享的官方默认 4-step Euler sampler，最终 `[40,256]` chunk 与未来 40 个 50 Hz actor input 送入同一个冻结 `actor_adapt`。terminal action 保留，terminal 后位置由累计 mask 排除；episode 尾部使用 padding，因此短失败 episode 和最后 39 个起点不会被删除。actor 不进入 optimizer、GR00T model 或 checkpoint；
-- HAIC launcher 显式固定 `action_horizon=40`、`num_inference_timesteps=4` 和随机 Gaussian（`fixed_action_noise_seed=None`），并关闭旧 `one_step_action_regression`；这些与官方 sampler 默认值一致。这里的 objective 仍是自定义 actor-action 加 latent-anchor loss，不声称是官方 random-t velocity-MSE objective；
+- bootstrap 与 DAgger 都使用官方 random-t velocity-MSE，并在同一次 denoiser 调用得到的 clean endpoint 上计算冻结 actor 后的 23D motor-action MSE；总 loss 为两者之和。最终 `[40,256]` chunk 与未来 40 个 50 Hz actor input 送入同一个冻结 `actor_adapt`。terminal action 保留，terminal 后位置由累计 mask 排除；episode 尾部使用 padding，因此短失败 episode 和最后 39 个起点不会被删除。actor 不进入 optimizer、GR00T model 或 checkpoint；
+- HAIC launcher 显式固定 `action_horizon=40`、`num_inference_timesteps=4` 和随机 Gaussian（`fixed_action_noise_seed=None`），并关闭旧 `one_step_action_regression`。训练每个 batch 随机采一个时间、调用一次 denoiser；inference 才执行官方默认 4-step Euler sampler；
 - DAgger 流程是 `step-0 eval -> rollout -> training -> eval`。当前 task-owned 入口默认执行 round 0--9；每轮两个顺序 collector 各 32,000 rows，合计 64,000 rows、gradient accumulation 2 和 500 updates。采样权重固定为 50% action-rich bootstrap replay + 50% 累积 DAgger 数据，bootstrap prior 不随 round 数稀释；eval 始终使用 100 env / seed 0，每个 env 只统计从 motion frame 0 开始的首个 episode；
 - DAgger eval 固定从 phase 0 开始，并在 terminal action 之前最后一次被 policy 观察到的 state 上计算 progress。对 motion 长度 `T`，`m = t / (T - 1)`；以 reference cart 首尾位移为 `d_ref`、实际 cart 首尾位移为 `d_actual`，`c = clip(dot(d_actual, d_ref) / dot(d_ref, d_ref), 0, 1)`；每个 episode 的综合 benchmark 分数为 `pullcart_score = 100 * (m + c) / 2`。三个值分别取 100 个完整 eval episodes 的 mean/std；`motion_progress`、`cart_progress` 和 `pullcart_score` 是 student 的主要比较指标，`success_rate` 仍表示完整完成率，不应单独作为训练是否有效的判据；
 - DAgger collector 使用 inference batch 32，并按单个环境的连续 50 Hz segment 写 raw shard；转换后的训练 shard size 为 1,000。每个 round eval 后删除 raw shard，保留 LeRobot dataset、dataset manifest、training dataset manifest、checkpoint、eval 结果和 policy config。
@@ -281,8 +281,8 @@ VLA 替换路线，phase-1 final teacher 是固定的 privileged label source。
 `--collector-devices cuda:0 cuda:1`，两个 seed/rank 会并行运行并分别绑定 sim、GR00T 和
 `LOCAL_RANK`；该选项不设置分布式 `WORLD_SIZE`，默认路径也不会自动启用它。
 
-预算如下。旧的 1-call Parkour profile 不适用于可微 4-step action-only sampler；本地 3B/batch-64
-smoke 已确认 96GB 单卡可完成 forward、backward 和 checkpoint，但正式耗时仍需短 profile：
+预算如下。训练恢复为单次 random-t denoiser 调用；本地 3B/batch-64 smoke 需按该路径重新确认
+forward、backward 和 checkpoint，正式耗时仍需短 profile：
 
 | 阶段 | optimizer updates | microsteps | rows / exposure | 预计耗时 |
 |---|---:|---:|---:|---:|
@@ -303,7 +303,7 @@ DAgger training、step 0 与所有 round eval 使用同一个固定 W&B run，�
 `dagger_eval/pullcart_score_{mean,std}`，不记录固定执行上限 `dagger_eval/steps`；bootstrap SFT 使用独立的 `<dagger-run-id>_sft` run，避免两段训练都从
 global step 0 起步而污染同一条曲线。
 launcher 将这两个名字显式传给 GR00T 的 `--experiment-name`，因此默认 W&B 名称分别是
-`haic_pull_cart_vla_dagger_action_h40_official_sampler_5k_sft` 和 `haic_pull_cart_vla_dagger_action_h40_official_sampler_5k`，不再从输出目录继承成
+`haic_pull_cart_vla_dagger_action_h40_official_flow_aux_5k_sft` 和 `haic_pull_cart_vla_dagger_action_h40_official_flow_aux_5k`，不再从输出目录继承成
 `training`。对应 checkpoint 分别位于 `bootstrap/training/<dagger-run-id>_sft/` 和
 `training/<dagger-run-id>/`。
 不设置自动分数门禁，分数只作对比和记录。
@@ -324,7 +324,7 @@ bash scripts/tasks/haic_pull_cart/train_vla.sh \
   /absolute/path/to/checkpoint_final.pt
 ```
 
-fresh run 默认执行 frozen-actor oracle eval、重新采集并训练 latent-anchored bootstrap；已有 bootstrap LeRobot dataset 可通过 `--bootstrap-dataset` 复用，此时跳过 oracle/采集，只从 GR00T base fresh 训练 SFT。旧 action-only checkpoint、round marker 和 DAgger output 必须删除，不得作为初始化。task-owned wrapper 续跑仅适用于同一 latent-loss run，使用
+fresh run 默认执行 frozen-actor oracle eval、重新采集并训练 flow + actor auxiliary bootstrap；已有 bootstrap LeRobot dataset 可通过 `--bootstrap-dataset` 复用，此时跳过 oracle/采集，只从 GR00T base fresh 训练 SFT。旧 checkpoint、round marker 和 DAgger output 必须删除，不得作为初始化。task-owned wrapper 续跑仅适用于同一训练目标的 run，使用
 `--resume`、`--bootstrap-checkpoint`、`--bootstrap-dataset`、`--actor-checkpoint` 和 `--start-round N`。`--end-round` 是右开上界，
 默认 10，即执行 round 0--9；传 `--end-round 0` 只完成 bootstrap/SFT。训练子进程成功返回后才原子写入
 round-complete marker；用同一 `--start-round N` 重试未完成轮次时，会重新采集该轮数据。
@@ -347,4 +347,5 @@ round-complete marker；用同一 `--start-round N` 重试未完成轮次时，�
 | Phase 2 action-only fresh bootstrap + round 0 首次启动 | bootstrap dataset stats 阶段失败，退出码 1；部分输出已清理 | tmux `haic_vla_action_round0` 已退出；driver PID `382808` | 2026-09-03 12:01:18 UTC 启动；oracle eval 为 `20/100`，250 train + 25 val episode 已采完；远端漏同步定义 `OBJECTIVE_COLUMNS` 的 GR00T loader，导致 stats import 失败；缺失依赖已补齐并通过远端 import 自检，随后从 bootstrap fresh 重启 |
 | Phase 2 action-only fresh bootstrap + round 0 重启 | 历史执行完成，后因 bug 作废并删除 | tmux `haic_vla_action_round0` 已自然退出；driver PID `398191` | 2026-09-03 12:09:55--15:06:09 UTC，耗时 2:56:14；oracle `18/100`；bootstrap 为 250 train / 25 val、13,345 / 549 rows，5,000-step W&B `haic_pull_cart_vla_dagger_action_5k_sft` 的 `train_loss=0.0340958696`；step 0 与 round 0 均为 `0/100`；round 0 为 64,000 rows、500 updates，W&B `haic_pull_cart_vla_dagger_action_5k` 的 `train_loss=0.326223280`；原输出已随本轮 run 于 2026-09-03 16:46 UTC 删除，不得复用 |
 | Phase 2 action-only DAgger round 1--9 resume | 已在 round 3 期间停止；全部产物已删除 | tmux `haic_vla_action_round1_9` 与 driver PID `646045` 已停止 | 2026-09-03 15:10:37 UTC 从 checkpoint-500 启动；round 1、2 曾分别完成 checkpoint-1000/1500 与 100-episode eval，随后因发现 bug 按用户要求停止；2026-09-03 16:46 UTC 已删除整个 92G 输出根目录 `/home/xinyuan/haic_runs/haic_pull_cart_vla_action_dagger_round0` 及 stdout/exit 文件，相关进程和 GPU 任务均为空；修复后必须 fresh 重跑 |
-| Phase 2 h40 + official sampler 本地验证 | 实现、smoke 与 actor oracle 已完成；正式远端训练未启动 | 无运行中进程 | 2026-09-04：改为 `[40,256]` chunk、每 5 个 control steps 重规划并消费 `0..4`；action-only loss 对共享的可微官方 4-step Euler 最终输出反传，不再使用 random-t endpoint 近似。3B / batch 64 单步 smoke 可完成 forward、backward 和 checkpoint；启用尾部 padding 后，同一份 259-row 数据的可训练起点由错误的 181 恢复为 259。per-control-step GT-latent oracle 为 `94/100`，与 50 Hz privileged teacher 的成功率一致；之前的 `18/100` 是错误地把一个 GT latent 连续使用 5 个 control steps，不证明 frozen actor 坏了。 |
+| Phase 2 h40 + official sampler 本地验证 | 历史 4-step 训练 smoke 已完成但训练目标作废 | 无运行中进程 | 2026-09-04：`[40,256]` chunk、每 5 个 control steps 重规划并消费 `0..4` 的运行时语义和尾部 padding 验证仍有效；训练期对 4-step Euler 全链反传已确认不是 official flow-matching training，改为 random-t 单次 denoiser加 frozen-actor auxiliary 后必须重新 smoke。per-control-step GT-latent oracle 为 `94/100`，与 50 Hz privileged teacher 的成功率一致。 |
+| Phase 2 h40 flow + actor auxiliary fresh run | 远端训练中 | detached driver PID `1999830` | 2026-09-04 启动；输出 `/home/xinyuan/haic_runs/haic_pull_cart_vla_action_h40_flow_aux_20260904`，日志 `stdout.log`；复用 250/25 bootstrap dataset 与固定 `actor_adapt.pt`，所有 checkpoint 从 GR00T base fresh 训练。旧 `haic_pull_cart_vla_latent_anchor_20260904` 的 checkpoint/round 数据已删除，磁盘从 63% 降到 45%。W&B SFT run `haic_pull_cart_vla_dagger_action_h40_official_flow_aux_5k_sft`。 |

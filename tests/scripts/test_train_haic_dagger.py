@@ -16,7 +16,6 @@ from scripts.official_gr00t.train_haic_dagger import (
     COLLECTOR_RANKS,
     DAGGER_ROUNDS,
     DEFAULT_INFERENCE_BATCH_SIZE,
-    DEFAULT_HAIC_LATENT_LOSS_WEIGHT,
     DEFAULT_WANDB_RUN_ID,
     ENVS_PER_COLLECTOR_RANK,
     EVAL_ENVS,
@@ -62,14 +61,12 @@ def test_main_resolves_bootstrap_paths_from_output_root(monkeypatch):
     assert captured["end_round"] == DAGGER_ROUNDS
     assert captured["collector_devices"] is None
     assert captured["collector_num_envs"] == ENVS_PER_COLLECTOR_RANK
-    assert captured["haic_latent_loss_weight"] == DEFAULT_HAIC_LATENT_LOSS_WEIGHT
 
 
 def test_haic_pipeline_constants_are_single_gpu_and_paper_scale():
     assert BOOTSTRAP_TRAIN_EPISODES == 250
     assert BOOTSTRAP_VAL_EPISODES == 25
     assert BOOTSTRAP_UPDATES == 5_000
-    assert DEFAULT_HAIC_LATENT_LOSS_WEIGHT == 0.1
     assert GLOBAL_BATCH_SIZE == 64
     assert BOOTSTRAP_GRADIENT_ACCUMULATION_STEPS == 2
     assert EVAL_ENVS == 100
@@ -127,7 +124,6 @@ def test_haic_commands_encode_smoke_and_resume_contract():
         resume_checkpoint=Path("output/checkpoint-500"),
         max_steps=2,
         gradient_accumulation_steps=1,
-        haic_latent_loss_weight=0.25,
     )
     assert training_dataset_dirs(Path("out"), 1) == [
         Path("out/round_00/lerobot"),
@@ -147,7 +143,6 @@ def test_haic_commands_encode_smoke_and_resume_contract():
     assert train[-2:] == ["--resume-checkpoint-path", "output/checkpoint-500"]
     assert train[train.index("--action-objective") + 1] == "haic"
     assert train[train.index("--action-actor-checkpoint") + 1] == "actor.pt"
-    assert train[train.index("--haic-latent-loss-weight") + 1] == "0.25"
     assert train[train.index("--experiment-name") + 1] == "haic-test"
     assert train[train.index("--learning-rate") + 1] == "0.00005"
     assert train[train.index("--shard-size") + 1] == str(HAIC_DAGGER_SHARD_ROWS)
@@ -180,9 +175,6 @@ def test_haic_commands_encode_smoke_and_resume_contract():
     ] == str(BOOTSTRAP_GRADIENT_ACCUMULATION_STEPS)
     assert "--replay-bootstrap-dataset" not in bootstrap
     assert bootstrap[bootstrap.index("--action-objective") + 1] == "haic"
-    assert bootstrap[
-        bootstrap.index("--haic-latent-loss-weight") + 1
-    ] == str(DEFAULT_HAIC_LATENT_LOSS_WEIGHT)
     assert bootstrap[bootstrap.index("--action-horizon") + 1] == "40"
     assert bootstrap[bootstrap.index("--num-inference-timesteps") + 1] == "4"
     assert "--allow-padding" in bootstrap
@@ -204,8 +196,7 @@ def test_run_bootstrap_reuses_existing_dataset_for_fresh_sft(tmp_path, monkeypat
         inference_device="cuda:0",
         eval_max_steps=1_000,
         inference_batch_size=32,
-        wandb_run_id="latent-anchor",
-        haic_latent_loss_weight=DEFAULT_HAIC_LATENT_LOSS_WEIGHT,
+        wandb_run_id="flow-aux",
     )
     calls = []
     monkeypatch.setattr(
@@ -220,11 +211,10 @@ def test_run_bootstrap_reuses_existing_dataset_for_fresh_sft(tmp_path, monkeypat
     command, kwargs = calls[0]
     assert str(train_haic_dagger.FINETUNE_SCRIPT) in command
     assert command[command.index("--dataset-path") + 1] == str(existing_dataset)
-    assert "--haic-latent-loss-weight" in command
     assert str(train_haic_dagger.HAIC_SCRIPT) not in command
     assert kwargs["cwd"] == train_haic_dagger.REPO_ROOT
     assert checkpoint == (
-        tmp_path / "new-run/bootstrap/training/latent-anchor_sft/checkpoint-5000"
+        tmp_path / "new-run/bootstrap/training/flow-aux_sft/checkpoint-5000"
     )
 
 
@@ -277,12 +267,12 @@ def test_log_eval_metrics_uses_training_step_and_run(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(train_haic_dagger.wandb, "teardown", lambda: None)
 
-    log_eval_metrics(eval_path, step=500, run_id="latent-only")
+    log_eval_metrics(eval_path, step=500, run_id="flow-aux")
 
     assert calls["init"] == {
         "project": "finetune-gr00t-n1d7",
-        "id": "latent-only",
-        "name": "latent-only",
+        "id": "flow-aux",
+        "name": "flow-aux",
         "resume": "allow",
     }
     assert calls["metric"] == ("dagger_eval/*", "train/global_step")
@@ -341,7 +331,6 @@ def test_pipeline_restarts_partial_round_and_reuses_completed_training(
         start_round=0,
         end_round=2,
         run_bootstrap=False,
-        haic_latent_loss_weight=DEFAULT_HAIC_LATENT_LOSS_WEIGHT,
     )
     round_dir = output_root / "round_00"
     raw_dir = round_dir / "raw"
@@ -452,7 +441,6 @@ def test_parallel_collectors_bind_devices_and_block_prepare_on_failure(
         start_round=0,
         end_round=1,
         run_bootstrap=False,
-        haic_latent_loss_weight=DEFAULT_HAIC_LATENT_LOSS_WEIGHT,
     )
     launched = []
 
@@ -536,7 +524,6 @@ def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypa
         start_round=0,
         end_round=1,
         run_bootstrap=False,
-        haic_latent_loss_weight=DEFAULT_HAIC_LATENT_LOSS_WEIGHT,
     )
 
     monkeypatch.setattr(train_haic_dagger.subprocess, "run", lambda *args, **kwargs: None)
