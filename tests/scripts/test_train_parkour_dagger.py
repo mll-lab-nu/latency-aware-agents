@@ -1,6 +1,9 @@
 import argparse
 import json
 import os
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -12,6 +15,7 @@ from scripts.official_gr00t.train_parkour_dagger import (
     DAGGER_ENVS,
     DAGGER_ROUNDS,
     DEFAULT_INFERENCE_BATCH_SIZE,
+    DEFAULT_PARKOUR_STARTUP_TIMEOUT_SEC,
     GRADIENT_ACCUMULATION_STEPS,
     PARKOUR_EVAL_EPISODES,
     PARKOUR_EVAL_MAX_EPISODE_STEPS,
@@ -51,6 +55,10 @@ def test_main_defaults_to_all_dagger_rounds(monkeypatch):
         "extreme_parkour_go2_vla_dagger_action_yaw_h40_official_flow_aux_5k_sft",
     )
     assert captured["run_bootstrap"] is False
+    assert (
+        captured["parkour_startup_timeout_sec"]
+        == DEFAULT_PARKOUR_STARTUP_TIMEOUT_SEC
+    )
 
 
 def test_commands_preserve_round_resume_contract():
@@ -195,6 +203,124 @@ def test_collector_command_repeats_explicit_inference_devices():
     ] == ["cuda:0", "cuda:1"]
 
 
+def test_parkour_startup_timeout_kills_and_retries_once(tmp_path, capsys):
+    attempts = tmp_path / "attempts"
+    script = """
+import sys
+import time
+from pathlib import Path
+
+attempts = Path(sys.argv[1])
+attempt = int(attempts.read_text()) + 1 if attempts.exists() else 1
+attempts.write_text(str(attempt))
+ready = Path(sys.argv[sys.argv.index("--startup-ready-file") + 1])
+if attempt == 1:
+    time.sleep(60)
+ready.touch()
+time.sleep(0.5)
+"""
+
+    dagger.run_parkour_command(
+        [sys.executable, "-c", script, str(attempts)],
+        cwd=tmp_path,
+        env=os.environ.copy(),
+        startup_timeout_sec=0.3,
+    )
+
+    assert attempts.read_text() == "2"
+    assert "retrying once" in capsys.readouterr().err
+
+
+def test_parkour_startup_timeout_stops_after_second_attempt(tmp_path):
+    with pytest.raises(subprocess.TimeoutExpired):
+        dagger.run_parkour_command(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            startup_timeout_sec=0.1,
+        )
+
+
+def _process_is_running(pid: int) -> bool:
+    status = Path(f"/proc/{pid}/stat")
+    return status.exists() and status.read_text().split()[2] != "Z"
+
+
+def test_parkour_startup_failure_is_not_retried_and_cleans_descendants(tmp_path):
+    attempts = tmp_path / "attempts"
+    descendant_pid = tmp_path / "descendant-pid"
+    script = """
+import subprocess
+import sys
+from pathlib import Path
+
+attempts = Path(sys.argv[1])
+attempts.write_text(str(int(attempts.read_text()) + 1 if attempts.exists() else 1))
+descendant = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(5)"])
+Path(sys.argv[2]).write_text(str(descendant.pid))
+raise SystemExit(7)
+"""
+
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        dagger.run_parkour_command(
+            [sys.executable, "-c", script, str(attempts), str(descendant_pid)],
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            startup_timeout_sec=1.0,
+        )
+
+    assert error.value.returncode == 7
+    assert attempts.read_text() == "1"
+    pid = int(descendant_pid.read_text())
+    deadline = time.monotonic() + 2.0
+    while _process_is_running(pid) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not _process_is_running(pid)
+
+
+def test_parkour_parent_sigterm_cleans_child_process_group(tmp_path):
+    child_pid = tmp_path / "child-pid"
+    orchestrator_script = """
+import os
+import signal
+import sys
+from pathlib import Path
+from scripts.official_gr00t import train_parkour_dagger as dagger
+
+real_popen = dagger.subprocess.Popen
+def tracked_popen(*args, **kwargs):
+    process = real_popen(*args, **kwargs)
+    Path(sys.argv[2]).write_text(str(process.pid))
+    os.kill(os.getpid(), signal.SIGTERM)
+    return process
+
+dagger.subprocess.Popen = tracked_popen
+dagger.run_parkour_command(
+    [sys.executable, "-c", "import time; time.sleep(5)"],
+    cwd=Path(sys.argv[1]),
+    env=os.environ.copy(),
+    startup_timeout_sec=60.0,
+)
+"""
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            orchestrator_script,
+            str(dagger.REPO_ROOT),
+            str(child_pid),
+        ],
+        cwd=dagger.REPO_ROOT,
+        env=os.environ.copy(),
+        check=False,
+    )
+
+    assert result.returncode == 143
+    pid = int(child_pid.read_text())
+    assert not _process_is_running(pid)
+
+
 def test_bootstrap_command_starts_from_gr00t_base_without_replay():
     command = bootstrap_training_command(
         base_model=Path("base-model"),
@@ -233,6 +359,7 @@ def test_run_bootstrap_returns_fresh_checkpoint_path(tmp_path, monkeypatch):
             )
 
     monkeypatch.setattr(dagger.subprocess, "run", fake_run)
+    monkeypatch.setattr(dagger, "run_parkour_command", fake_run)
     args = argparse.Namespace(
         base_model=tmp_path / "base-model",
         bootstrap_dataset=tmp_path / "action-bootstrap",
@@ -242,6 +369,7 @@ def test_run_bootstrap_returns_fresh_checkpoint_path(tmp_path, monkeypatch):
         parkour_python=Path("/usr/bin/python"),
         inference_device=["cuda:1"],
         inference_batch_size=32,
+        parkour_startup_timeout_sec=300.0,
         wandb_run_id="action-yaw",
     )
 
@@ -269,7 +397,7 @@ def test_run_bootstrap_rejects_oracle_below_teacher_gate(tmp_path, monkeypatch):
             json.dumps({"normalized_waypoint_progress": {"mean": progress}})
         )
 
-    monkeypatch.setattr(dagger.subprocess, "run", fake_run)
+    monkeypatch.setattr(dagger, "run_parkour_command", fake_run)
     args = argparse.Namespace(
         base_model=tmp_path / "base-model",
         bootstrap_dataset=tmp_path / "action-bootstrap",
@@ -279,6 +407,7 @@ def test_run_bootstrap_rejects_oracle_below_teacher_gate(tmp_path, monkeypatch):
         parkour_python=Path("/usr/bin/python"),
         inference_device=["cuda:1"],
         inference_batch_size=32,
+        parkour_startup_timeout_sec=300.0,
         wandb_run_id="action-yaw",
     )
 
@@ -323,6 +452,7 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
         events.append(f"wandb:{step}")
 
     monkeypatch.setattr(dagger.subprocess, "run", fake_run)
+    monkeypatch.setattr(dagger, "run_parkour_command", fake_run)
     monkeypatch.setattr(dagger, "log_eval_metrics", fake_log_eval_metrics)
     args = argparse.Namespace(
         teacher_checkpoint=tmp_path / "teacher.pt",
@@ -334,6 +464,7 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
         parkour_python=Path("/usr/bin/python"),
         inference_device=["cuda:1"],
         inference_batch_size=32,
+        parkour_startup_timeout_sec=300.0,
         wandb_run_id="action-yaw",
         start_round=0,
         end_round=2,
@@ -418,6 +549,7 @@ def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypa
             events.append("train")
 
     monkeypatch.setattr(dagger.subprocess, "run", fake_run)
+    monkeypatch.setattr(dagger, "run_parkour_command", fake_run)
     monkeypatch.setattr(dagger, "log_eval_metrics", lambda *args, **kwargs: None)
     args = argparse.Namespace(
         teacher_checkpoint=tmp_path / "teacher.pt",
@@ -429,6 +561,7 @@ def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypa
         parkour_python=Path("/usr/bin/python"),
         inference_device=["cuda:1"],
         inference_batch_size=32,
+        parkour_startup_timeout_sec=300.0,
         wandb_run_id="action-yaw",
         start_round=0,
         end_round=1,

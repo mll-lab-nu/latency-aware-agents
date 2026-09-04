@@ -6,10 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
+import signal
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
+from pathlib import Path
 
 import wandb
 import yaml
@@ -37,6 +40,7 @@ PARKOUR_DAGGER_ROWS_PER_ROUND = (
 )
 PARKOUR_DAGGER_SHARD_ROWS = 1_000
 DEFAULT_INFERENCE_BATCH_SIZE = 32
+DEFAULT_PARKOUR_STARTUP_TIMEOUT_SEC = 300.0
 PARKOUR_EVAL_EPISODES = 100
 PARKOUR_EVAL_MAX_EPISODE_STEPS = 1500
 CHECKPOINT_COMPLETE_MARKER = ".dagger-round-complete"
@@ -155,6 +159,82 @@ def collector_command(
             ]
         )
     return command
+
+
+def _kill_process_group(process: subprocess.Popen) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait()
+
+
+def _exit_on_sigterm(signum: int, _frame) -> None:
+    raise SystemExit(128 + signum)
+
+
+def run_parkour_command(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    startup_timeout_sec: float,
+) -> None:
+    previous_sigterm_handler = signal.signal(signal.SIGTERM, _exit_on_sigterm)
+    try:
+        with tempfile.TemporaryDirectory(prefix="parkour-startup-") as temporary_dir:
+            ready_file = Path(temporary_dir) / "ready"
+            command = [*command, "--startup-ready-file", str(ready_file)]
+            for attempt in range(2):
+                ready_file.unlink(missing_ok=True)
+                process = None
+                try:
+                    previous_signal_mask = signal.pthread_sigmask(
+                        signal.SIG_BLOCK, {signal.SIGTERM}
+                    )
+                    try:
+                        process = subprocess.Popen(
+                            command,
+                            cwd=cwd,
+                            env=env,
+                            start_new_session=True,
+                        )
+                    finally:
+                        signal.pthread_sigmask(signal.SIG_SETMASK, previous_signal_mask)
+                    deadline = time.monotonic() + startup_timeout_sec
+                    while not ready_file.is_file():
+                        return_code = process.poll()
+                        if return_code is not None:
+                            if return_code:
+                                raise subprocess.CalledProcessError(return_code, command)
+                            raise RuntimeError(
+                                "Parkour process exited before signaling startup readiness"
+                            )
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise subprocess.TimeoutExpired(command, startup_timeout_sec)
+                        time.sleep(min(1.0, remaining))
+                    return_code = process.wait()
+                    if return_code:
+                        raise subprocess.CalledProcessError(return_code, command)
+                    return
+                except subprocess.TimeoutExpired:
+                    _kill_process_group(process)
+                    if attempt == 0:
+                        print(
+                            f"Parkour startup timed out after {startup_timeout_sec:g}s; "
+                            "retrying once",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                        continue
+                    raise
+                except BaseException:
+                    if process is not None:
+                        _kill_process_group(process)
+                    raise
+    finally:
+        signal.signal(signal.SIGTERM, previous_sigterm_handler)
 
 
 def prepare_command(
@@ -319,7 +399,7 @@ def run_bootstrap(args: argparse.Namespace) -> Path:
             "OMNI_KIT_ACCEPT_EULA": "YES",
         }
         for mode in ("teacher-eval", "oracle-eval"):
-            subprocess.run(
+            run_parkour_command(
                 collector_command(
                     args.parkour_python,
                     mode=mode,
@@ -334,7 +414,7 @@ def run_bootstrap(args: argparse.Namespace) -> Path:
                 ),
                 cwd=PARKOUR_ROOT,
                 env=parkour_env,
-                check=True,
+                startup_timeout_sec=args.parkour_startup_timeout_sec,
             )
         teacher_progress = json.loads(
             (bootstrap_root / "teacher-eval/teacher-eval.json").read_text(
@@ -350,7 +430,7 @@ def run_bootstrap(args: argparse.Namespace) -> Path:
             raise RuntimeError(
                 "Parkour oracle normalized waypoint progress is below 50% of teacher"
             )
-        subprocess.run(
+        run_parkour_command(
             collector_command(
                 args.parkour_python,
                 mode="collect",
@@ -365,7 +445,7 @@ def run_bootstrap(args: argparse.Namespace) -> Path:
             ),
             cwd=PARKOUR_ROOT,
             env=parkour_env,
-            check=True,
+            startup_timeout_sec=args.parkour_startup_timeout_sec,
         )
     subprocess.run(
         bootstrap_prepare_command(raw_dir, args.bootstrap_dataset),
@@ -418,7 +498,7 @@ def evaluate_checkpoint(
     step: int,
     environment: dict[str, str],
 ) -> None:
-    subprocess.run(
+    run_parkour_command(
         collector_command(
             args.parkour_python,
             mode="vla-eval",
@@ -433,7 +513,7 @@ def evaluate_checkpoint(
         ),
         cwd=PARKOUR_ROOT,
         env=environment,
-        check=True,
+        startup_timeout_sec=args.parkour_startup_timeout_sec,
     )
     log_eval_metrics(output_dir / "vla-eval.json", step=step, run_id=args.wandb_run_id)
 
@@ -500,7 +580,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
             model_path=current_model,
             inference_device=args.inference_device,
         )
-        subprocess.run(
+        run_parkour_command(
             collector_command(
                 args.parkour_python,
                 mode="dagger-collect",
@@ -515,7 +595,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
             ),
             cwd=PARKOUR_ROOT,
             env=parkour_env,
-            check=True,
+            startup_timeout_sec=args.parkour_startup_timeout_sec,
         )
         subprocess.run(
             prepare_command(
@@ -597,6 +677,11 @@ def main() -> None:
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--policy-config", type=Path, default=DEFAULT_POLICY_CONFIG)
     parser.add_argument("--parkour-python", type=Path, default=DEFAULT_PARKOUR_PYTHON)
+    parser.add_argument(
+        "--parkour-startup-timeout-sec",
+        type=float,
+        default=DEFAULT_PARKOUR_STARTUP_TIMEOUT_SEC,
+    )
     parser.add_argument("--inference-device", action="append")
     parser.add_argument(
         "--wandb-run-id",
