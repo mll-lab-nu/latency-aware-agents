@@ -1,15 +1,15 @@
 import json
 import os
 import shutil
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from types import SimpleNamespace
-import sys
 from threading import Event
+from types import SimpleNamespace
 
 import pytest
 
-import latency_bench.cross_device.runner as runner
+from latency_bench.cross_device import runner
 from latency_bench.cross_device.artifacts import (
     profile_dir,
     profile_ref,
@@ -448,8 +448,12 @@ def test_publish_uses_one_commit_and_omits_private_hardware(tmp_path, monkeypatc
     (run / "run_contract.json").write_text("private", encoding="utf-8")
     (run / "profile" / "profile.json").write_text("candidate", encoding="utf-8")
     (session / "actions.jsonl").write_text("{}\n", encoding="utf-8")
+    (profile / "profile.json").write_text(
+        json.dumps({"visualization_path": "latency_profile.png"}),
+        encoding="utf-8",
+    )
+    (profile / "latency_profile.png").write_bytes(b"png")
     for name in (
-        "profile.json",
         "latency_distribution.json",
         "latency_burst_model.json",
         "hardware.json",
@@ -489,6 +493,16 @@ def test_publish_uses_one_commit_and_omits_private_hardware(tmp_path, monkeypatc
     assert not any(path.endswith("/run_contract.json") for path in uploaded)
     assert not any("/profile/" in path and path.startswith("runs/") for path in uploaded)
     assert "profiles/openvla/2x-rtx4090/flappy/instance_abc/hardware.json" in uploaded
+    assert "profiles/openvla/2x-rtx4090/flappy/instance_abc/latency_profile.png" in uploaded
+    profile_uploads = [
+        operation.path_in_repo
+        for operation in client.calls[0]["operations"]
+        if operation.path_in_repo.startswith("profiles/")
+    ]
+    assert profile_uploads[-2:] == [
+        "profiles/openvla/2x-rtx4090/flappy/instance_abc/latency_profile.png",
+        "profiles/openvla/2x-rtx4090/flappy/instance_abc/DONE",
+    ]
 
 
 def test_download_resolves_commit_before_fetching(tmp_path, monkeypatch):
@@ -503,6 +517,7 @@ def test_download_resolves_commit_before_fetching(tmp_path, monkeypatch):
         "DONE",
     ):
         (profile / name).touch()
+    (profile / "profile.json").write_text("{}", encoding="utf-8")
     calls = {}
     client = SimpleNamespace(repo_info=lambda **kwargs: SimpleNamespace(sha="sha_123"))
 
@@ -528,6 +543,57 @@ def test_download_resolves_commit_before_fetching(tmp_path, monkeypatch):
     assert calls["revision"] == "sha_123"
 
 
+def test_download_requires_and_repairs_declared_visualization(tmp_path, monkeypatch):
+    ref = Path("openvla/2x-rtx4090/flappy/instance_abc")
+    cache = tmp_path / "cache"
+    source = cache / "profiles" / ref
+    source.mkdir(parents=True)
+    (source / "profile.json").write_text(
+        json.dumps({"visualization_path": "latency_profile.png"}),
+        encoding="utf-8",
+    )
+    for name in (
+        "latency_distribution.json",
+        "latency_burst_model.json",
+        "hardware.json",
+        "DONE",
+    ):
+        (source / name).write_text(name, encoding="utf-8")
+
+    local_dir = tmp_path / "downloads"
+    stale = local_dir / "sha_123"
+    shutil.copytree(source, stale)
+    client = SimpleNamespace(repo_info=lambda **kwargs: SimpleNamespace(sha="sha_123"))
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        SimpleNamespace(
+            HfApi=lambda: client,
+            snapshot_download=lambda **kwargs: str(cache),
+        ),
+    )
+
+    with pytest.raises(FileNotFoundError):
+        download_profile(
+            {"hf_repo": "org/profiles"},
+            ref,
+            hf_commit="main",
+            local_dir=local_dir,
+        )
+    (source / "latency_profile.png").write_bytes(b"png")
+
+    local, commit = download_profile(
+        {"hf_repo": "org/profiles"},
+        ref,
+        hf_commit="main",
+        local_dir=local_dir,
+    )
+
+    assert commit == "sha_123"
+    assert local == stale
+    assert (local / "latency_profile.png").read_bytes() == b"png"
+
+
 def test_download_materializes_hf_snapshot_symlinks(tmp_path, monkeypatch):
     ref = Path("openvla/2x-rtx4090/flappy/instance_abc")
     cache = tmp_path / "cache"
@@ -537,7 +603,7 @@ def test_download_materializes_hf_snapshot_symlinks(tmp_path, monkeypatch):
     blobs.mkdir()
     for name in ("profile.json", "latency_distribution.json", "latency_burst_model.json", "hardware.json", "DONE"):
         target = blobs / name
-        target.write_text(name, encoding="utf-8")
+        target.write_text("{}" if name == "profile.json" else name, encoding="utf-8")
         (source / name).symlink_to(target)
 
     client = SimpleNamespace(repo_info=lambda **kwargs: SimpleNamespace(sha="sha_123"))
@@ -560,7 +626,7 @@ def test_download_materializes_hf_snapshot_symlinks(tmp_path, monkeypatch):
     assert commit == "sha_123"
     assert local == tmp_path / "artifact_root" / "downloads" / "profiles" / ref / "sha_123"
     assert all(not (local / name).is_symlink() for name in ("profile.json", "DONE"))
-    assert (local / "profile.json").read_text(encoding="utf-8") == "profile.json"
+    assert (local / "profile.json").read_text(encoding="utf-8") == "{}"
 
 
 def test_concurrent_download_materializes_a_commit_once(tmp_path, monkeypatch):
@@ -574,7 +640,10 @@ def test_concurrent_download_materializes_a_commit_once(tmp_path, monkeypatch):
         "hardware.json",
         "DONE",
     ):
-        (source / name).write_text(name, encoding="utf-8")
+        (source / name).write_text(
+            "{}" if name == "profile.json" else name,
+            encoding="utf-8",
+        )
 
     client = SimpleNamespace(repo_info=lambda **kwargs: SimpleNamespace(sha="sha_123"))
     monkeypatch.setitem(

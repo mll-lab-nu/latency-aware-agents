@@ -4,8 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from latency_bench.analysis.profile_stats import compute_latency_profile_summary
-from latency_bench.utils.io import load_jsonl_records, write_json
-from latency_bench.utils.stats import mean, percentile_linear
+from latency_bench.analysis.utils import write_latency_distribution_plot
 from latency_bench.latency.burst_profile import (
     build_burst_samples,
     build_hidden_regime_burst_model_from_sessions,
@@ -15,6 +14,8 @@ from latency_bench.latency.profile import (
     save_latency_distribution,
     save_profile_manifest,
 )
+from latency_bench.utils.io import load_jsonl_records, write_json
+from latency_bench.utils.stats import mean, percentile_linear
 
 
 def build_profile_from_traces(
@@ -50,6 +51,7 @@ def build_profile_from_traces(
         "profile": output_path / "profile.json",
         "distribution": output_path / "latency_distribution.json",
         "burst_model": output_path / "latency_burst_model.json",
+        "visualization": output_path / "latency_profile.png",
     }
     existing_artifacts = [path for path in paths.values() if path.exists()]
     if existing_artifacts:
@@ -74,6 +76,10 @@ def build_profile_from_traces(
     )
 
     save_latency_distribution(distribution, paths["distribution"])
+    write_latency_distribution_plot(
+        [sample["observation_to_action_latency_ms"] for sample in burst_samples],
+        paths["visualization"],
+    )
     manifest = {
         "model_id": model_id,
         "gpu_class": gpu_class,
@@ -96,6 +102,7 @@ def build_profile_from_traces(
         "sample_model_type": burst_model["model_type"],
         "distribution_path": paths["distribution"].name,
         "burst_model_path": paths["burst_model"].name,
+        "visualization_path": paths["visualization"].name,
         "summary": compute_latency_profile_summary(
             [
                 sample["observation_to_action_latency_ms"]

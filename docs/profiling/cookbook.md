@@ -133,6 +133,7 @@ results/profiling/
     profile/
   profiles/<model>/<gpu>/<workload>/<instance>/
     profile.json
+    latency_profile.png
     latency_distribution.json
     latency_burst_model.json
     hardware.json
@@ -143,6 +144,7 @@ results/profiling/
 `runs/` keeps raw measurements, generated configs, warmup diagnostics, pipeline
 summaries, and episode metrics. `profiles/` is the current completed profile
 for each coordinate. `profile.json` is the human-readable manifest,
+`latency_profile.png` visualizes the admitted observation-to-action latency density,
 `latency_distribution.json` contains per-slot latency/service-time samples, and
 `latency_burst_model.json` contains the temporal model.
 

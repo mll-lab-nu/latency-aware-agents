@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from latency_bench.latency.profile import load_profile_manifest
 
 PROFILE_FILENAMES = (
     "profile.json",
@@ -31,6 +32,7 @@ def publish_run_and_profile(
 ) -> str:
     from huggingface_hub import CommitOperationAdd, HfApi
 
+    profile_filenames = _profile_filenames(local_profile_dir)
     operations = [
         CommitOperationAdd(
             path_in_repo=f"runs/{run_ref.as_posix()}/{path.relative_to(local_run_dir).as_posix()}",
@@ -46,7 +48,7 @@ def publish_run_and_profile(
             path_in_repo=f"profiles/{profile_ref.as_posix()}/{name}",
             path_or_fileobj=str(local_profile_dir / name),
         )
-        for name in PROFILE_FILENAMES
+        for name in profile_filenames
     )
     commit = HfApi().create_commit(
         repo_id=spec["hf_repo"],
@@ -81,16 +83,38 @@ def download_profile(
         )
     )
     source_dir = snapshot / remote_dir
+    profile_filenames = _profile_filenames(source_dir)
+    visualization_filenames = profile_filenames[len(PROFILE_FILENAMES) - 1 : -1]
+    if visualization_filenames:
+        snapshot = Path(
+            snapshot_download(
+                repo_id=spec["hf_repo"],
+                repo_type="dataset",
+                revision=resolved_commit,
+                allow_patterns=[
+                    f"{remote_dir.as_posix()}/{name}"
+                    for name in visualization_filenames
+                ],
+            )
+        )
+        source_dir = snapshot / remote_dir
     local_dir.mkdir(parents=True, exist_ok=True)
     profile_dir = local_dir / resolved_commit
     with (local_dir / f".{resolved_commit}.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if not (profile_dir / "DONE").exists():
+        if not all((profile_dir / name).is_file() for name in profile_filenames):
             profile_dir.mkdir(exist_ok=True)
-            for name in PROFILE_FILENAMES:
+            for name in profile_filenames:
                 shutil.copyfile(source_dir / name, profile_dir / name)
         (profile_dir / "DONE").read_bytes()
     return profile_dir, resolved_commit
+
+
+def _profile_filenames(profile_dir: Path) -> tuple[str, ...]:
+    manifest = load_profile_manifest(profile_dir / "profile.json")
+    if "visualization_path" not in manifest:
+        return PROFILE_FILENAMES
+    return (*PROFILE_FILENAMES[:-1], manifest["visualization_path"], PROFILE_FILENAMES[-1])
 
 
 def publish_simulation_dirs(
