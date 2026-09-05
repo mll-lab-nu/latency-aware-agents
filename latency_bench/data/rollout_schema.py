@@ -27,6 +27,7 @@ def _rollout_feature_map(
     include_state: bool = False,
     include_termination: bool = False,
     include_actor_observation: bool = False,
+    include_latency_trace: bool = False,
 ) -> dict[str, Any]:
     feature_map: dict[str, Any] = {
         "image": HFImage(),
@@ -53,6 +54,17 @@ def _rollout_feature_map(
         feature_map["termination"] = HFSequence(Value("bool"))
     if include_actor_observation:
         feature_map["actor_observation"] = HFSequence(HFSequence(Value("float32")))
+    if include_latency_trace:
+        feature_map.update(
+            {
+                "command_admitted": Value("bool"),
+                "observation_dropped": Value("bool"),
+                "applied_action": HFSequence(Value("float32")),
+                "applied_source_raw_frame": Value("int64"),
+                "applied_source_obs_id": Value("int64"),
+                "raw_done": Value("bool"),
+            }
+        )
     return feature_map
 
 
@@ -62,6 +74,7 @@ def rollout_features(
     include_state: bool = False,
     include_termination: bool = False,
     include_actor_observation: bool = False,
+    include_latency_trace: bool = False,
 ) -> Features:
     """Build Hugging Face dataset features for canonical rollout rows.
 
@@ -77,6 +90,7 @@ def rollout_features(
             include_state=include_state,
             include_termination=include_termination,
             include_actor_observation=include_actor_observation,
+            include_latency_trace=include_latency_trace,
         )
     )
 
@@ -87,6 +101,7 @@ def rollout_features_with_context_images(
     include_state: bool = False,
     include_termination: bool = False,
     include_actor_observation: bool = False,
+    include_latency_trace: bool = False,
 ) -> Features:
     """Build rollout features for rows that carry historical context images.
 
@@ -101,6 +116,7 @@ def rollout_features_with_context_images(
         include_state=include_state,
         include_termination=include_termination,
         include_actor_observation=include_actor_observation,
+        include_latency_trace=include_latency_trace,
     )
     feature_map["context_images"] = HFSequence(HFImage())
     return Features(feature_map)
@@ -112,6 +128,7 @@ def empty_records(
     include_state: bool = False,
     include_termination: bool = False,
     include_actor_observation: bool = False,
+    include_latency_trace: bool = False,
 ) -> dict[str, list[Any]]:
     """Build empty column arrays matching the rollout features.
 
@@ -128,6 +145,7 @@ def empty_records(
             include_state=include_state,
             include_termination=include_termination,
             include_actor_observation=include_actor_observation,
+            include_latency_trace=include_latency_trace,
         )
     }
 
@@ -139,6 +157,7 @@ def empty_records_with_context_images(
     include_state: bool = False,
     include_termination: bool = False,
     include_actor_observation: bool = False,
+    include_latency_trace: bool = False,
 ) -> dict[str, list[Any]]:
     """Build empty column arrays for single-image or context-image rollout features.
 
@@ -155,6 +174,7 @@ def empty_records_with_context_images(
             include_state=include_state,
             include_termination=include_termination,
             include_actor_observation=include_actor_observation,
+            include_latency_trace=include_latency_trace,
         )
         if include_context_images
         else rollout_features(
@@ -162,6 +182,7 @@ def empty_records_with_context_images(
             include_state=include_state,
             include_termination=include_termination,
             include_actor_observation=include_actor_observation,
+            include_latency_trace=include_latency_trace,
         )
     )
     return {name: [] for name in features}

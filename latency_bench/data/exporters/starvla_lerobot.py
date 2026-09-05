@@ -844,6 +844,16 @@ def convert_canonical_rollout_to_lerobot(
     )
     train_rows = _load_rows(raw_export_dir, "train")
     val_rows = _load_rows(raw_export_dir, "val")
+    raw_train_rows = train_rows
+    raw_val_rows = val_rows
+    admission_filtered = (
+        integration_name == "gymnasium"
+        and action_layout == ACTION_LAYOUT_G1_SONIC_GR00T_V2
+        and any("command_admitted" in row for row in [*train_rows, *val_rows])
+    )
+    if admission_filtered:
+        train_rows = [row for row in train_rows if row["command_admitted"]]
+        val_rows = [row for row in val_rows if row["command_admitted"]]
     if integration_name == "isaaclab_parkour":
         uses_state = True
     else:
@@ -880,7 +890,7 @@ def convert_canonical_rollout_to_lerobot(
             "min": train_states.min(axis=0).tolist(),
             "max": train_states.max(axis=0).tolist(),
         }
-    first_row = (train_rows or val_rows)[0]
+    first_row = (raw_train_rows or raw_val_rows)[0]
     image_source = first_row["image"]
     with Image.open(io.BytesIO(_png_bytes(image_source))) as image:
         width, height = image.size
@@ -893,7 +903,7 @@ def convert_canonical_rollout_to_lerobot(
     actor_observation_row = next(
         (
             row
-            for row in [*train_rows, *val_rows]
+            for row in [*raw_train_rows, *raw_val_rows]
             if "actor_observation" in row
         ),
         None,
@@ -904,7 +914,11 @@ def convert_canonical_rollout_to_lerobot(
         else None
     )
     termination_row = next(
-        (row for row in [*train_rows, *val_rows] if "termination" in row),
+        (
+            row
+            for row in [*raw_train_rows, *raw_val_rows]
+            if "termination" in row
+        ),
         None,
     )
     termination_shape = (
@@ -973,6 +987,14 @@ def convert_canonical_rollout_to_lerobot(
         "state_labels": state_labels,
         "state_normalization": state_normalization,
     }
+    if admission_filtered:
+        handoff_contract.update(
+            {
+                "admission_filter": "command_admitted",
+                "raw_train_frames": len(raw_train_rows),
+                "raw_validation_frames": len(raw_val_rows),
+            }
+        )
     if actor_observation_shape is not None:
         handoff_contract["actor_observation_shape"] = list(actor_observation_shape)
     if termination_shape is not None:

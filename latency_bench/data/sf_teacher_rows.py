@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+import numpy as np
+
 from latency_bench.data.action_layouts import (
     ACTION_LAYOUT_G1_SONIC_GR00T_V2,
     ActionSpec,
@@ -87,4 +89,24 @@ def teacher_dataset_row(
     row.update(encode_action_for_env(env_name, raw_action, action_spec=resolved_action_spec))
     if state is not None:
         row["state"] = state.reshape(-1).tolist()
+    if (
+        resolved_action_spec.layout == ACTION_LAYOUT_G1_SONIC_GR00T_V2
+        and "command_admitted" in info
+    ):
+        row.update(
+            {
+                "command_admitted": bool(to_python_action(info["command_admitted"])),
+                "observation_dropped": bool(to_python_action(info["observation_dropped"])),
+                "applied_action": np.asarray(
+                    to_python_action(info["applied_action"]), dtype=np.float32
+                ).reshape(-1).tolist(),
+                "applied_source_raw_frame": int(
+                    to_python_action(info["applied_source_raw_frame"])
+                ),
+                "applied_source_obs_id": int(
+                    to_python_action(info["applied_source_obs_id"])
+                ),
+                "raw_done": to_python_action(info["raw_done"]),
+            }
+        )
     return row

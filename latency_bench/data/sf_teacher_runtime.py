@@ -92,6 +92,8 @@ def _apply_latency_to_flat_cfg(cfg: Any, latency_cfg: Mapping[str, Any]) -> None
         "seed": "latency_seed",
         "add_latency_info": "add_latency_info",
         "max_pending_actions": "max_pending_actions",
+        "profile_path": "latency_profile_path",
+        "profile_worker_slot": "latency_profile_worker_slot",
     }
     for source_key, target_key in field_map.items():
         if source_key in latency_cfg:
