@@ -10,7 +10,7 @@ if [[ "${1:-}" == "--resume" ]]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-HAIC_PYTHON="$(command -v python)"
+HAIC_PYTHON="${HAIC_PYTHON:-$(command -v python)}"
 
 cd "${REPO_ROOT}"
 exec "${REPO_ROOT}/third_party/Isaac-GR00T/.venv/bin/python" \

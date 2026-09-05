@@ -41,7 +41,14 @@ from scripts.official_gr00t.train_haic_dagger import (
 def test_main_resolves_bootstrap_paths_from_output_root(monkeypatch):
     captured = {}
     monkeypatch.setattr(
-        "sys.argv", ["train_haic_dagger.py", "--output-root", "/tmp/haic-custom"]
+        "sys.argv",
+        [
+            "train_haic_dagger.py",
+            "--output-root",
+            "/tmp/haic-custom",
+            "--latency-profile-path",
+            "profile.json",
+        ],
     )
     monkeypatch.setattr(
         train_haic_dagger,
@@ -61,6 +68,7 @@ def test_main_resolves_bootstrap_paths_from_output_root(monkeypatch):
     assert captured["end_round"] == DAGGER_ROUNDS
     assert captured["collector_devices"] is None
     assert captured["collector_num_envs"] == ENVS_PER_COLLECTOR_RANK
+    assert captured["latency_profile_path"] == Path("profile.json")
 
 
 def test_haic_pipeline_constants_are_single_gpu_and_paper_scale():
@@ -218,13 +226,20 @@ def test_run_bootstrap_reuses_existing_dataset_for_fresh_sft(tmp_path, monkeypat
     )
 
 
-def test_read_eval_metrics_flattens_haic_eval_json(tmp_path):
-    eval_path = tmp_path / "dagger-eval.json"
+def test_read_eval_metrics_flattens_common_eval_summary(tmp_path):
+    eval_path = tmp_path / "queue_eval_latency_0.json"
     eval_path.write_text(
-        '{"episodes":100,"successes":45,"success_rate":0.45,'
-        '"motion_progress":{"mean":0.6,"std":0.1},'
-        '"cart_progress":{"mean":0.3,"std":0.2},'
-        '"pullcart_score":{"mean":45.0,"std":15.0}}\n'
+        json.dumps(
+            {
+                "returns": [0.0] * 100,
+                "task_metrics": {
+                    "success": {"mean": 0.45, "values": [1] * 45 + [0] * 55},
+                    "motion_progress": {"mean": 0.6, "std": 0.1},
+                    "cart_progress": {"mean": 0.3, "std": 0.2},
+                    "pullcart_score": {"mean": 45.0, "std": 15.0},
+                },
+            }
+        )
     )
 
     assert read_eval_metrics(eval_path) == {
@@ -241,12 +256,19 @@ def test_read_eval_metrics_flattens_haic_eval_json(tmp_path):
 
 
 def test_log_eval_metrics_uses_training_step_and_run(tmp_path, monkeypatch):
-    eval_path = tmp_path / "dagger-eval.json"
+    eval_path = tmp_path / "queue_eval_latency_0.json"
     eval_path.write_text(
-        '{"episodes":100,"successes":45,"success_rate":0.45,'
-        '"motion_progress":{"mean":0.6,"std":0.1},'
-        '"cart_progress":{"mean":0.3,"std":0.2},'
-        '"pullcart_score":{"mean":45.0,"std":15.0}}\n'
+        json.dumps(
+            {
+                "returns": [0.0] * 100,
+                "task_metrics": {
+                    "success": {"mean": 0.45, "values": [1] * 45 + [0] * 55},
+                    "motion_progress": {"mean": 0.6, "std": 0.1},
+                    "cart_progress": {"mean": 0.3, "std": 0.2},
+                    "pullcart_score": {"mean": 45.0, "std": 15.0},
+                },
+            }
+        )
     )
     calls = {}
 
