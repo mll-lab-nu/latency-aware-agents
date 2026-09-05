@@ -1,0 +1,8 @@
+latency:
+  method: temporal
+  profile_worker_slot: 0
+  seed: 123
+  add_latency_info: true
+
+executor:
+  simulated_worker_capacity: 1
