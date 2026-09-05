@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import os
 import signal
@@ -17,6 +18,7 @@ from pathlib import Path
 import wandb
 import yaml
 
+from latency_bench.core.config import load_config
 from latency_bench.data.parkour_dagger import PARKOUR_ACTION_HORIZON
 from latency_bench.utils.stats import std as series_std
 
@@ -34,6 +36,7 @@ UPDATES_PER_ROUND = 500
 TOTAL_UPDATES = DAGGER_ROUNDS * UPDATES_PER_ROUND
 BOOTSTRAP_UPDATES = 5_000
 GLOBAL_BATCH_SIZE = 128
+NUM_GPUS = 2
 GRADIENT_ACCUMULATION_STEPS = 1
 DAGGER_ENVS = 192
 PARKOUR_DAGGER_ROWS_PER_ROUND = (
@@ -118,6 +121,7 @@ def write_eval_config(
     eval_episodes: int = PARKOUR_EVAL_EPISODES,
     max_episode_steps: int = PARKOUR_EVAL_MAX_EPISODE_STEPS,
     num_envs: int = 50,
+    latency_config: Path | None = None,
 ) -> None:
     config = yaml.safe_load(source.read_text(encoding="utf-8"))
     config["executor"] = {
@@ -143,6 +147,14 @@ def write_eval_config(
         "profile_path": str(latency_profile_path),
         "sync_cuda": False,
     }
+    if latency_config is not None:
+        latency = load_config(latency_config)
+        config["executor"].update(deepcopy(latency["executor"]))
+        config["scheduler"] = deepcopy(latency["scheduler"])
+        config["latency"] = deepcopy(latency["latency"])
+        config["latency"].update(
+            {"profile_path": str(latency_profile_path), "sync_cuda": False}
+        )
     config["evaluation"].update(
         {
             "eval_episodes": int(eval_episodes),
@@ -337,11 +349,13 @@ def training_command(
     actor_checkpoint: Path,
     max_steps: int = TOTAL_UPDATES,
     stop_every_steps: int = UPDATES_PER_ROUND,
+    num_gpus: int = NUM_GPUS,
+    global_batch_size: int = GLOBAL_BATCH_SIZE,
 ) -> list[str]:
     command = [
         str(GROOT_ROOT / ".venv/bin/torchrun"),
         "--standalone",
-        "--nproc_per_node=2",
+        f"--nproc_per_node={num_gpus}",
         str(FINETUNE_SCRIPT),
         "--base-model-path",
         str(bootstrap_checkpoint),
@@ -352,7 +366,7 @@ def training_command(
         "--modality-config-path",
         str(MODALITY_CONFIG),
         "--num-gpus",
-        "2",
+        str(num_gpus),
         "--output-dir",
         str(training_output),
         "--experiment-name",
@@ -385,7 +399,7 @@ def training_command(
         "--max-steps",
         str(max_steps),
         "--global-batch-size",
-        str(GLOBAL_BATCH_SIZE),
+        str(global_batch_size),
         "--gradient-accumulation-steps",
         str(GRADIENT_ACCUMULATION_STEPS),
         "--episode-sampling-rate",
@@ -422,6 +436,8 @@ def bootstrap_training_command(
     experiment_name: str,
     actor_checkpoint: Path,
     max_steps: int = BOOTSTRAP_UPDATES,
+    num_gpus: int = NUM_GPUS,
+    global_batch_size: int = GLOBAL_BATCH_SIZE,
 ) -> list[str]:
     return training_command(
         bootstrap_checkpoint=base_model,
@@ -433,6 +449,8 @@ def bootstrap_training_command(
         actor_checkpoint=actor_checkpoint,
         max_steps=max_steps,
         stop_every_steps=max_steps,
+        num_gpus=num_gpus,
+        global_batch_size=global_batch_size,
     )
 
 
@@ -536,11 +554,12 @@ def run_bootstrap(args: argparse.Namespace) -> Path:
             experiment_name=experiment_name,
             actor_checkpoint=args.teacher_checkpoint,
             max_steps=bootstrap_updates,
+            num_gpus=args.num_gpus,
+            global_batch_size=args.global_batch_size,
         ),
         cwd=REPO_ROOT,
         env=os.environ
         | {
-            "CUDA_VISIBLE_DEVICES": "0,1",
             "NO_ALBUMENTATIONS_UPDATE": "1",
             "PYTHONPATH": f"{GROOT_ROOT}{os.pathsep}{REPO_ROOT}",
             "WANDB_RUN_ID": experiment_name,
@@ -581,6 +600,7 @@ def evaluate_checkpoint(
         model_path=Path(yaml.safe_load(policy_config.read_text(encoding="utf-8"))["policy"]["model_path"]),
         teacher_checkpoint=args.teacher_checkpoint,
         latency_profile_path=args.latency_profile_path,
+        latency_config=args.latency_config,
         output_dir=output_dir,
         inference_device=args.inference_device,
     )
@@ -623,7 +643,6 @@ def run_pipeline(args: argparse.Namespace) -> None:
     }
     prepare_env = os.environ | {"PYTHONPATH": str(REPO_ROOT)}
     training_env = os.environ | {
-        "CUDA_VISIBLE_DEVICES": "0,1",
         "NO_ALBUMENTATIONS_UPDATE": "1",
         "PYTHONPATH": f"{PARKOUR_ROOT}{os.pathsep}{REPO_ROOT}",
         "WANDB_RUN_ID": args.wandb_run_id,
@@ -722,6 +741,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
                     round_index=round_index,
                     experiment_name=args.wandb_run_id,
                     actor_checkpoint=args.teacher_checkpoint,
+                    num_gpus=args.num_gpus,
+                    global_batch_size=args.global_batch_size,
                 ),
                 cwd=REPO_ROOT,
                 env=training_env,
@@ -778,6 +799,8 @@ def main() -> None:
         type=int,
         default=DEFAULT_INFERENCE_BATCH_SIZE,
     )
+    parser.add_argument("--num-gpus", type=int, default=NUM_GPUS)
+    parser.add_argument("--global-batch-size", type=int, default=GLOBAL_BATCH_SIZE)
     parser.add_argument("--start-round", type=int, default=0)
     parser.add_argument("--end-round", type=int, default=DAGGER_ROUNDS)
     parser.add_argument("--run-bootstrap", action="store_true")
@@ -788,6 +811,7 @@ def main() -> None:
         required=True,
         help="Temporal latency profile used by every periodic closed-loop evaluation.",
     )
+    parser.add_argument("--latency-config", type=Path)
     args = parser.parse_args()
     if args.inference_device is None:
         args.inference_device = ["cuda:1"]

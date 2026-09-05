@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 import pytest
+import yaml
 
 from scripts.official_gr00t import train_parkour_dagger as dagger
 from scripts.official_gr00t.train_parkour_dagger import (
@@ -105,6 +106,17 @@ def test_commands_preserve_round_resume_contract():
         experiment_name="action-yaw",
         actor_checkpoint=teacher,
     )
+    smoke_train = training_command(
+        bootstrap_checkpoint=bootstrap,
+        replay_dataset=None,
+        dataset_dirs=[round0_dataset],
+        training_output=output,
+        round_index=0,
+        experiment_name="smoke",
+        actor_checkpoint=teacher,
+        num_gpus=1,
+        global_batch_size=1,
+    )
     prepare = prepare_command(
         Path("raw"),
         Path("dataset"),
@@ -150,6 +162,10 @@ def test_commands_preserve_round_resume_contract():
         "output/action-yaw/checkpoint-500",
     ]
     assert first_train[first_train.index("--global-batch-size") + 1] == "128"
+    assert first_train[first_train.index("--num-gpus") + 1] == "2"
+    assert smoke_train[2] == "--nproc_per_node=1"
+    assert smoke_train[smoke_train.index("--num-gpus") + 1] == "1"
+    assert smoke_train[smoke_train.index("--global-batch-size") + 1] == "1"
     assert first_train[first_train.index("--gradient-accumulation-steps") + 1] == str(
         GRADIENT_ACCUMULATION_STEPS
     )
@@ -375,6 +391,7 @@ def test_bootstrap_command_starts_from_gr00t_base_without_replay():
 
 def test_run_bootstrap_returns_fresh_checkpoint_path(tmp_path, monkeypatch):
     captured = []
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "1")
 
     def fake_run(command, **kwargs):
         captured.append((command, kwargs))
@@ -404,6 +421,8 @@ def test_run_bootstrap_returns_fresh_checkpoint_path(tmp_path, monkeypatch):
         inference_batch_size=32,
         parkour_startup_timeout_sec=300.0,
         wandb_run_id="action-yaw",
+        num_gpus=1,
+        global_batch_size=1,
     )
 
     assert dagger.run_bootstrap(args) == (
@@ -418,6 +437,7 @@ def test_run_bootstrap_returns_fresh_checkpoint_path(tmp_path, monkeypatch):
     )
     assert "--replay-bootstrap-dataset" not in training_command
     assert training_kwargs["env"]["WANDB_RUN_ID"] == "action-yaw_sft"
+    assert training_kwargs["env"]["CUDA_VISIBLE_DEVICES"] == "1"
 
 
 def test_run_bootstrap_reuses_explicit_raw_without_collecting(tmp_path, monkeypatch):
@@ -440,6 +460,8 @@ def test_run_bootstrap_reuses_explicit_raw_without_collecting(tmp_path, monkeypa
         inference_batch_size=32,
         parkour_startup_timeout_sec=300.0,
         wandb_run_id="action-yaw",
+        num_gpus=1,
+        global_batch_size=1,
     )
 
     dagger.run_bootstrap(args)
@@ -476,16 +498,25 @@ def test_run_bootstrap_rejects_oracle_below_teacher_gate(tmp_path, monkeypatch):
         inference_batch_size=32,
         parkour_startup_timeout_sec=300.0,
         wandb_run_id="action-yaw",
+        num_gpus=1,
+        global_batch_size=1,
     )
 
     with pytest.raises(RuntimeError, match="below 50% of teacher"):
         dagger.run_bootstrap(args)
 
 
+@pytest.mark.parametrize("explicit_latency", [False, True])
 def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, explicit_latency
 ):
     output_root = tmp_path / "output"
+    latency_config = tmp_path / "latency.yaml"
+    latency_config.write_text(
+        "latency: {method: profile_sample, seed: 17}\n"
+        "executor: {simulated_worker_capacity: 3}\n"
+        "scheduler: {hold_policy: noop, ordering_policy: oldest_ready}\n"
+    )
     policy_config = tmp_path / "policy.yaml"
     policy_config.write_text(
         "env: {}\n"
@@ -547,6 +578,7 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
         output_root=output_root,
         policy_config=policy_config,
         latency_profile_path=tmp_path / "profile.json",
+        latency_config=latency_config if explicit_latency else None,
         parkour_python=Path("/usr/bin/python"),
         inference_device=["cuda:1"],
         inference_batch_size=32,
@@ -555,9 +587,21 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
         start_round=0,
         end_round=2,
         run_bootstrap=False,
+        num_gpus=1,
+        global_batch_size=1,
     )
 
     dagger.run_pipeline(args)
+
+    for eval_config in output_root.rglob("eval_config.yaml"):
+        resolved = yaml.safe_load(eval_config.read_text())
+        if explicit_latency:
+            assert resolved["latency"]["method"] == "profile_sample"
+            assert resolved["latency"]["seed"] == 17
+            assert resolved["executor"]["simulated_worker_capacity"] == 3
+            assert resolved["scheduler"] == {"hold_policy": "noop", "ordering_policy": "oldest_ready"}
+        else:
+            assert resolved["latency"]["method"] == "temporal"
 
     round0_dataset = output_root / "round_00/lerobot"
     round1_dataset = output_root / "round_01/lerobot"
@@ -666,6 +710,8 @@ def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypa
         start_round=0,
         end_round=1,
         run_bootstrap=False,
+        num_gpus=1,
+        global_batch_size=1,
     )
 
     with pytest.raises(RuntimeError, match="different DAgger dataset aggregate"):
