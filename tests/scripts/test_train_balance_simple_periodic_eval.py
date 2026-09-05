@@ -122,6 +122,7 @@ def test_balance_runner_uses_explicit_training_paths(monkeypatch, tmp_path):
 
 def test_balance_runner_accepts_a_finite_resume_schedule(monkeypatch, tmp_path):
     runner = _load_runner(monkeypatch)
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3")
     calls = []
     monkeypatch.setattr(
         runner.subprocess, "run", lambda *args, **kwargs: calls.append((args, kwargs))
@@ -137,12 +138,17 @@ def test_balance_runner_accepts_a_finite_resume_schedule(monkeypatch, tmp_path):
             max_steps=2,
             step_interval=1,
             resume=resume,
+            num_gpus=1,
+            global_batch_size=1,
         )
 
     first_command = calls[0][0][0]
     second_command = calls[1][0][0]
     assert first_command[first_command.index("--max-steps") + 1] == "2"
     assert first_command[first_command.index("--save-steps") + 1] == "1"
+    assert "--nproc_per_node=1" in first_command
+    assert first_command[first_command.index("--global-batch-size") + 1] == "1"
+    assert calls[0][1]["env"]["CUDA_VISIBLE_DEVICES"] == "3"
     assert "--resume-from-checkpoint" not in first_command
     assert "--resume-from-checkpoint" in second_command
 

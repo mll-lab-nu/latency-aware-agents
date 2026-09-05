@@ -40,11 +40,13 @@ def train_to_next_checkpoint(
     max_steps: int = 15000,
     step_interval: int = 500,
     resume: bool = False,
+    num_gpus: int = 2,
+    global_batch_size: int = 128,
 ) -> Path:
     command = [
         str(GROOT / ".venv/bin/torchrun"),
         "--standalone",
-        "--nproc_per_node=2",
+        f"--nproc_per_node={num_gpus}",
         str(GROOT / "gr00t/experiment/launch_finetune.py"),
         "--base-model-path",
         str(base_model),
@@ -55,7 +57,7 @@ def train_to_next_checkpoint(
         "--modality-config-path",
         str(REPO / "latency_bench/policy/official_gr00t_modality.py"),
         "--num-gpus",
-        "2",
+        str(num_gpus),
         "--output-dir",
         str(output),
         "--max-state-dim",
@@ -82,7 +84,7 @@ def train_to_next_checkpoint(
         "--max-steps",
         str(max_steps),
         "--global-batch-size",
-        "128",
+        str(global_batch_size),
         "--gradient-accumulation-steps",
         "1",
         "--dataloader-num-workers",
@@ -101,7 +103,6 @@ def train_to_next_checkpoint(
         command.append("--resume-from-checkpoint")
 
     env = os.environ | {
-        "CUDA_VISIBLE_DEVICES": "0,1",
         "NO_ALBUMENTATIONS_UPDATE": "1",
         "WANDB_RUN_ID": run_id,
         "WANDB_RESUME": "allow",
@@ -242,6 +243,8 @@ def main() -> None:
     parser.add_argument("--start-step", type=int, default=500)
     parser.add_argument("--max-step", type=int, default=15000)
     parser.add_argument("--step-interval", type=int, default=500)
+    parser.add_argument("--num-gpus", type=int, default=2)
+    parser.add_argument("--global-batch-size", type=int, default=128)
     args = parser.parse_args()
 
     val_dataset = Path(f"{args.dataset_path}__val")
@@ -255,7 +258,9 @@ def main() -> None:
             step=step,
             max_steps=args.max_step,
             step_interval=args.step_interval,
-            resume=step != args.start_step,
+            resume=step > args.step_interval,
+            num_gpus=args.num_gpus,
+            global_batch_size=args.global_batch_size,
         )
         metrics = validation_metrics(checkpoint, val_dataset)
         gc.collect()
@@ -278,7 +283,6 @@ def main() -> None:
                     ).items()
                 }
             )
-        metrics["epochs"] = step * 128 / 86048
         print(json.dumps({"step": step, **metrics}, indent=2), flush=True)
 
         run = wandb.init(
