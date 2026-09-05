@@ -159,6 +159,18 @@ class GymnasiumActionLatencyWrapper(ActionLatencyWrapper):
         self.current_applied_action = clone_action(self.noop_action)
 
 
+class G1RawRequestWrapper(gym.ActionWrapper):
+    """Keep FastTD3 normalized actions outside the absolute-request latency queue."""
+
+    def __init__(self, env):
+        super().__init__(env)
+        action_dim = 29 + (14 if self.unwrapped._raw_learn_hands else 0)
+        self.action_space = gym.spaces.Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
+
+    def action(self, action):
+        return self.unwrapped.g1_absolute_request_from_raw_action(action)
+
+
 def make_gymnasium_sf_env(
     _full_env_name: str,
     cfg: Any = None,
@@ -171,7 +183,14 @@ def make_gymnasium_sf_env(
     for module_name in json.loads(cfg.gym_registration_imports_json):
         import_module(module_name)
 
-    env = gym.make(cfg.gym_env_id, **_gymnasium_make_kwargs(cfg))
+    make_kwargs = _gymnasium_make_kwargs(cfg)
+    raw_g1_requests = (
+        cfg.gym_task_name == "g1_sonic_balance_simple"
+        and make_kwargs["control_mode"] == "raw_body_target"
+    )
+    if raw_g1_requests:
+        make_kwargs["control_mode"] = "direct_absolute_position"
+    env = gym.make(cfg.gym_env_id, **make_kwargs)
     if cfg.gym_state_labels_json:
         env = GymnasiumStateInfoWrapper(env)
     action_space_contract = _gymnasium_action_space(cfg)
@@ -226,6 +245,8 @@ def make_gymnasium_sf_env(
             else _gymnasium_noop_action(cfg)
         ),
     )
+    if raw_g1_requests:
+        env = G1RawRequestWrapper(env)
     action_labels = (
         {
             action_id: name

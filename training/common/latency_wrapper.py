@@ -240,12 +240,6 @@ class ActionLatencyWrapper(gym.Wrapper):
                 raise
             obs, info = self.env.reset(**kwargs)
         info = dict(info or {})
-        if (
-            getattr(self.env.unwrapped, "_control_mode", None) == "direct_absolute_position"
-        ):
-            self.noop_action = clone_action(info["action_target"])
-            self.action_scheduler.noop_action.value = clone_action(self.noop_action)
-            self.current_applied_action = clone_action(self.noop_action)
         if self.add_latency_info:
             info.update(self._latency_info(self.current_latency_raw_frames))
         if self.profile_sampler_factory is not None:

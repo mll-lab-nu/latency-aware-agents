@@ -709,14 +709,16 @@ def test_action_latency_wrapper_drops_busy_requests_and_reports_issued_applied()
     assert second_info["applied_action"] == 0
 
 
-def test_action_latency_wrapper_holds_g1_conditioning_target_until_action_is_ready():
+def test_action_latency_wrapper_queues_absolute_g1_requests_with_configured_noop():
     import gymnasium as gym
     from gymnasium.spaces import Box
     from training.common.latency_wrapper import ActionLatencyWrapper
+    from training.gymnasium_sf.integration import G1RawRequestWrapper
 
     class ActionTargetEnv(gym.Env):
         observation_space = Box(low=-10, high=10, shape=(1,), dtype=np.float32)
-        action_space = Box(low=-10, high=10, shape=(1,), dtype=np.float32)
+        action_space = Box(low=-10, high=10, shape=(43,), dtype=np.float32)
+        _raw_learn_hands = True
 
         def __init__(self):
             self.actions = []
@@ -724,7 +726,10 @@ def test_action_latency_wrapper_holds_g1_conditioning_target_until_action_is_rea
 
         def reset(self, *, seed=None, options=None):
             self.actions.clear()
-            return np.zeros(1, dtype=np.float32), {"action_target": np.array([7.0])}
+            return np.zeros(1, dtype=np.float32), {"action_target": np.full(43, 7.0)}
+
+        def g1_absolute_request_from_raw_action(self, action):
+            return 2.0 + 2.0 * action
 
         def step(self, action):
             self.actions.append(np.asarray(action).copy())
@@ -738,15 +743,19 @@ def test_action_latency_wrapper_holds_g1_conditioning_target_until_action_is_rea
         obs_fps=30,
         add_latency_info=True,
     )
+    wrapped = G1RawRequestWrapper(wrapped)
     try:
         wrapped.reset()
-        wrapped.step(np.array([9.0], dtype=np.float32))
-        wrapped.step(np.array([9.0], dtype=np.float32))
-        wrapped.step(np.array([9.0], dtype=np.float32))
+        _, _, _, _, info = wrapped.step(np.ones(43, dtype=np.float32))
+        np.testing.assert_allclose(info["issued_action"], np.full(43, 4.0))
+        np.testing.assert_array_equal(wrapped.action_space.low, np.full(43, -1.0))
+        np.testing.assert_array_equal(wrapped.action_space.high, np.full(43, 1.0))
+        wrapped.step(np.ones(43, dtype=np.float32))
+        wrapped.step(np.ones(43, dtype=np.float32))
     finally:
         wrapped.close()
 
-    np.testing.assert_allclose(np.asarray(base_env.actions).reshape(-1), [7.0, 7.0, 9.0])
+    np.testing.assert_allclose(base_env.actions, np.repeat([[0.0], [0.0], [4.0]], 43, axis=1))
 
 
 def test_action_latency_wrapper_distribution_samples_deterministically():
