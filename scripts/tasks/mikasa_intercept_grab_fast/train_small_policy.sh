@@ -16,4 +16,5 @@ exec "${MIKASA_PY}" \
   --env-id InterceptGrabFast-VLA-v0 \
   --total-timesteps "${MIKASA_TOTAL_TIMESTEPS:-150000000}" \
   --track \
-  --wandb-entity "${WANDB_ENTITY}"
+  --wandb-entity "${WANDB_ENTITY}" \
+  "$@"
