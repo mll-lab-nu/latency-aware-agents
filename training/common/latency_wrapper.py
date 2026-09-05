@@ -182,6 +182,19 @@ class ActionLatencyWrapper(gym.Wrapper):
         self.env_step_idx = 0
         self.decision_step_idx = 0
         self._next_action_id = 0
+        reset_kwargs = dict(kwargs)
+        inserted_seed = False
+        if reset_kwargs.get("seed") is None and self.env_reset_seed_base is not None:
+            reset_kwargs["seed"] = int(self.env_reset_seed_base + self.episode_idx)
+            inserted_seed = True
+        if self.profile_path is not None:
+            episode_seed = reset_kwargs["seed"] if reset_kwargs.get("seed") is not None else self.episode_idx
+            self.profile_sampler = build_iid_profile_sampler(
+                self.profile_path,
+                seed=derive_latency_seed(self.base_latency_seed, episode_idx=int(episode_seed)),
+                env_fps=self.clock.env_fps,
+                obs_fps=self.clock.obs_fps,
+            )
         self._reset_latency_distribution_sampler()
         if self.latency_distribution_spec is None:
             self.current_latency_raw_frames = int(self.fixed_latency_raw_frames)
@@ -189,11 +202,6 @@ class ActionLatencyWrapper(gym.Wrapper):
             self.current_latency_raw_frames = int(self.latency_distribution_sampler.sample_frame())
         else:
             self.current_latency_raw_frames = 0
-        reset_kwargs = dict(kwargs)
-        inserted_seed = False
-        if reset_kwargs.get("seed") is None and self.env_reset_seed_base is not None:
-            reset_kwargs["seed"] = int(self.env_reset_seed_base + self.episode_idx)
-            inserted_seed = True
         try:
             obs, info = self.env.reset(**reset_kwargs)
         except TypeError:

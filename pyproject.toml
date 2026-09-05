@@ -12,6 +12,7 @@ dependencies = [
     "gymnasium==0.29.1",
     "huggingface-hub>=0.34.0,<1.0",
     "matplotlib==3.10.9",
+    "mujoco==3.3.0",
     "numpy==1.26.4",
     "opencv-python-headless==4.10.0.84",
     "optree==0.19.1",
@@ -35,7 +36,6 @@ myochallenge = [
 ]
 sonic = [
     "dm-control==1.0.28",
-    "mujoco==3.3.0",
     "onnx==1.19.1",
     "onnxruntime-gpu[cuda,cudnn]==1.23.2",
 ]

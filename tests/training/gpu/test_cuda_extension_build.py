@@ -26,7 +26,7 @@ def test_uses_fixed_cuda_home_and_dual_arch_list(monkeypatch, tmp_path):
 
     assert selected == cuda_home
     assert os.environ["CUDA_HOME"] == str(cuda_home)
-    assert os.environ["TORCH_CUDA_ARCH_LIST"] == "9.0;12.0"
+    assert os.environ["TORCH_CUDA_ARCH_LIST"] == "8.6;9.0;12.0"
     assert os.environ["PATH"].split(os.pathsep)[0] == str(cuda_home / "bin")
     assert os.environ["CPATH"].split(os.pathsep) == [
         str(cuda_home / "include"),

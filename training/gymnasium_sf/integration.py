@@ -203,6 +203,8 @@ def make_gymnasium_sf_env(
         env_id=int(env_config.env_id),
     )
     latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=clock.env_fps)
+    if latency_params.profile_path is not None and cfg.latency_seed is not None:
+        latency_seed = int(cfg.latency_seed)
     env = GymnasiumActionLatencyWrapper(
         env,
         fixed_latency_raw_frames=latency_params.fixed_latency_raw_frames,

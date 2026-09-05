@@ -183,7 +183,7 @@ install_latency_env() {
 
     export CUDA_HOME="${CONDA_PREFIX}"
     export LD_LIBRARY_PATH="${CUDA_HOME}/lib:${CUDA_HOME}/lib64${original_ld_library_path:+:${original_ld_library_path}}"
-    export TORCH_CUDA_ARCH_LIST="9.0;12.0"
+    export TORCH_CUDA_ARCH_LIST="8.6;9.0;12.0"
 
     PYTHON_BIN=python
     export PYTHON_BIN

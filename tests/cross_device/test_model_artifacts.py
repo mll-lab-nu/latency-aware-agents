@@ -22,6 +22,9 @@ def _spec(tmp_path: Path) -> dict:
 
 
 def test_task_presets_pin_model_and_runtime_artifact_coordinates():
+    inverted_pendulum = load_profile_spec(
+        "configs/profiles.yaml", "qwenoft", "inverted_pendulum_rgb_state"
+    )
     mikasa = load_profile_spec(
         "configs/profiles.yaml", "qwenoft", "mikasa_intercept_grab_fast"
     )
@@ -33,6 +36,12 @@ def test_task_presets_pin_model_and_runtime_artifact_coordinates():
     )
     haic = load_profile_spec("configs/profiles.yaml", "official_gr00t", "haic_pull_cart")
 
+    assert inverted_pendulum["model_artifact"]["hf_revision"] == (
+        "a374b83248b130dd1ad0294b2ee44906650dba0e"
+    )
+    assert inverted_pendulum["model_artifact"]["checkpoint"] == (
+        "checkpoints/steps_2000_pytorch_model.pt"
+    )
     assert mikasa["model_artifact"]["checkpoint"] == (
         "checkpoints/steps_5000_pytorch_model.pt"
     )
