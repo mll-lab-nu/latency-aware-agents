@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 
 from latency_bench.core.actions import ActionResolver
+from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.policy.base import PolicyRunner
@@ -29,6 +30,7 @@ OFFICIAL_GR00T_STATE_KEY = "state"
 OFFICIAL_GR00T_LANGUAGE_KEY = "annotation.human.task_description"
 # Direct Gr00tPolicy returns the configured action modality key.
 OFFICIAL_GR00T_ACTION_KEY = "action"
+_ACTION_NOISE_STREAM = 1
 
 
 def _load_gr00t_policy() -> type[Any]:
@@ -77,6 +79,7 @@ class OfficialGr00tPolicyRunner(PolicyRunner):
         self._device = device
         self._action_dim = action_dim
         self._state_info_key = state_info_key
+        self._action_key = policy.get_modality_config()["action"].modality_keys[0]
 
     def predict(self, observation: Observation) -> PolicyOutput:
         return self.predict_batch([observation])[0]
@@ -92,9 +95,21 @@ class OfficialGr00tPolicyRunner(PolicyRunner):
                 for observation in observations
             ]
         )
-        action_dict, info = self._policy.get_action(batch)
+        action_dict, info = self._policy.get_action(
+            batch,
+            options={
+                "action_noise_seeds": [
+                    derive_seed(
+                        observation.metadata["action_noise_seed"],
+                        episode_idx=observation.env_step,
+                        stream=_ACTION_NOISE_STREAM,
+                    )
+                    for observation in observations
+                ]
+            },
+        )
         del info
-        chunks = np.asarray(action_dict[OFFICIAL_GR00T_ACTION_KEY])
+        chunks = np.asarray(action_dict[self._action_key])
         if (
             chunks.ndim != 3
             or chunks.shape[0] != len(observations)

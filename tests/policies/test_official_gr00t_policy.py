@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
+from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.core.types import Observation
 from latency_bench.envs.humanoidbench_sonic_contract import (
     G1_GR00T_ACTION_DIM,
@@ -18,10 +21,17 @@ from latency_bench.policy.official_gr00t import (
 class _FakeGr00tPolicy:
     def __init__(self, action_dim: int = G1_GR00T_ACTION_DIM) -> None:
         self.observations = []
+        self.options = []
         self.action_dim = action_dim
 
-    def get_action(self, observation):
+    def get_modality_config(self):
+        return {
+            "action": SimpleNamespace(modality_keys=[OFFICIAL_GR00T_ACTION_KEY]),
+        }
+
+    def get_action(self, observation, options=None):
         self.observations.append(observation)
+        self.options.append(options)
         batch_size = len(observation["language"]["annotation.human.task_description"])
         action = np.arange(
             batch_size * self.action_dim,
@@ -42,6 +52,7 @@ def _observation(state_dim: int = G1_GR00T_STATE_DIM) -> Observation:
             OFFICIAL_GR00T_PROPRIO_INFO_KEY: np.arange(
                 state_dim, dtype=np.float32
             ),
+            "action_noise_seed": 123,
         },
     )
 
@@ -60,6 +71,10 @@ def test_official_runner_emits_nested_input_and_model_action_chunk():
     )
 
     output = runner.predict(_observation())
+
+    assert fake_policy.options == [
+        {"action_noise_seeds": [derive_seed(123, episode_idx=4, stream=1)]}
+    ]
 
     sent = fake_policy.observations[0]
     assert set(sent) == {"video", "state", "language"}
@@ -110,7 +125,7 @@ def test_official_runner_preserves_the_model_state_dimension():
 
 def test_official_runner_rejects_an_action_chunk_with_the_wrong_shape():
     class WrongShapePolicy(_FakeGr00tPolicy):
-        def get_action(self, observation):
+        def get_action(self, observation, options=None):
             return {
                 OFFICIAL_GR00T_ACTION_KEY: np.zeros(
                     (1, G1_GR00T_ACTION_DIM), dtype=np.float32
@@ -132,7 +147,7 @@ def test_official_runner_rejects_an_action_chunk_with_the_wrong_shape():
 
 
 def test_official_runner_supports_parkour_action_and_state_contract():
-    action_dim = 32
+    action_dim = 34
     state_dim = 53
     state_info_key = "parkour_proprio"
     fake_policy = _FakeGr00tPolicy(action_dim=action_dim)
