@@ -17,6 +17,7 @@ from latency_bench.data.official_gr00t import (
     convert_canonical_rollout_to_official_gr00t_dataset,
 )
 from latency_bench.data.parkour_dagger import (
+    PARKOUR_ACTION_HORIZON,
     convert_parkour_dagger_shards_to_lerobot,
 )
 
@@ -26,11 +27,11 @@ GR00T_PYTHON = REPO_ROOT / "third_party/Isaac-GR00T/.venv/bin/python"
 MODALITY_CONFIG = "latency_bench/policy/official_gr00t_parkour_modality.py"
 
 
-def _apply_semantic_action_stats(dataset_dir: Path) -> None:
+def _apply_semantic_action_stats(dataset_dir: Path, action_key: str) -> None:
     stats_path = dataset_dir / "meta/stats.json"
     stats = json.loads(stats_path.read_text())
-    stats["action"]["min"] = [-1.0] * 32 + [-math.pi / 1.5] * 2
-    stats["action"]["max"] = [1.0] * 32 + [math.pi / 1.5] * 2
+    stats[action_key]["min"] = [-1.0] * 32 + [-math.pi / 1.5] * 2
+    stats[action_key]["max"] = [1.0] * 32 + [math.pi / 1.5] * 2
     stats_path.write_text(json.dumps(stats, indent=4) + "\n")
 
 
@@ -79,7 +80,7 @@ def prepare_parkour_dataset(
                 cwd=REPO_ROOT,
                 check=True,
             )
-            _apply_semantic_action_stats(dataset_dir)
+            _apply_semantic_action_stats(dataset_dir, "issued_command_chunk")
         return manifest
     write_parquet_splits_from_shards(
         raw_dir,
@@ -90,7 +91,7 @@ def prepare_parkour_dataset(
         raw_dir,
         output_dir,
         action_dim=34,
-        action_horizon=1,
+        action_horizon=PARKOUR_ACTION_HORIZON,
         modality_config=MODALITY_CONFIG,
         embodiment_tag="NEW_EMBODIMENT",
         action_layout=GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.layout,
@@ -118,7 +119,7 @@ def prepare_parkour_dataset(
             cwd=REPO_ROOT,
             check=True,
         )
-        _apply_semantic_action_stats(dataset_dir)
+        _apply_semantic_action_stats(dataset_dir, "action")
     return manifest
 
 

@@ -9,6 +9,7 @@ from gr00t.data.types import (
     ActionType,
     ModalityConfig,
 )
+from latency_bench.data.parkour_dagger import PARKOUR_ACTION_HORIZON, PARKOUR_CONTROL_REPEAT
 
 
 PARKOUR_GR00T_MODALITY_CONFIG = {
@@ -21,8 +22,11 @@ PARKOUR_GR00T_MODALITY_CONFIG = {
         modality_keys=["state"],
     ),
     "action": ModalityConfig(
-        delta_indices=[0],
-        modality_keys=["action"],
+        delta_indices=[
+            index // PARKOUR_CONTROL_REPEAT
+            for index in range(PARKOUR_ACTION_HORIZON)
+        ],
+        modality_keys=["issued_command_chunk"],
         action_configs=[
             ActionConfig(
                 rep=ActionRepresentation.ABSOLUTE,
