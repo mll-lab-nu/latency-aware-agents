@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 import scripts.official_gr00t.train_haic_dagger as train_haic_dagger
 from scripts.official_gr00t.train_haic_dagger import (
@@ -34,6 +35,7 @@ from scripts.official_gr00t.train_haic_dagger import (
     read_eval_metrics,
     training_command,
     training_dataset_dirs,
+    write_latency_eval_config,
     write_policy_config,
 )
 
@@ -571,3 +573,68 @@ def test_haic_policy_config_points_at_selected_vla(tmp_path):
     assert "model_path: checkpoint-2" in contents
     assert "device: cuda:0" in contents
     assert "action_dim: 256" in contents
+
+
+def test_latency_eval_config_preserves_supplied_latency_sections(tmp_path):
+    source = tmp_path / "source.yaml"
+    source.write_text(
+        """
+executor:
+  mode: realtime
+env:
+  simulator_device: cuda:0
+  runtime_checkpoint_path: old-teacher.pt
+latency:
+  method: fixed
+policy:
+  model_path: old-model
+  device: cuda:9
+scheduler:
+  hold_policy: hold
+evaluation: {}
+logging: {}
+"""
+    )
+    latency_config = tmp_path / "latency.yaml"
+    latency_config.write_text(
+        """
+latency:
+  method: fixed
+  seed: 17
+executor:
+  simulated_worker_capacity: 3
+scheduler:
+  hold_policy: drop
+  ordering_policy: oldest_ready
+"""
+    )
+    destination = tmp_path / "eval.yaml"
+
+    write_latency_eval_config(
+        source,
+        destination,
+        model_path=tmp_path / "model",
+        runtime_checkpoint=tmp_path / "teacher.pt",
+        latency_profile_path=tmp_path / "profile.json",
+        latency_config=latency_config,
+        inference_device="cuda:1",
+        simulator_device="cuda:0",
+        output_dir=tmp_path / "output",
+        num_envs=2,
+        max_steps=10,
+    )
+
+    config = yaml.safe_load(destination.read_text())
+    assert config["latency"]["seed"] == 17
+    assert config["latency"]["method"] == "fixed"
+    assert config["latency"]["profile_path"] == str(tmp_path / "profile.json")
+    assert config["executor"]["simulated_worker_capacity"] == 3
+    assert config["executor"]["inference_devices"] == ["cuda:1"]
+    assert config["scheduler"] == {
+        "hold_policy": "drop",
+        "ordering_policy": "oldest_ready",
+    }
+    assert config["policy"] == {
+        "model_path": str(tmp_path / "model"),
+        "device": "cuda:1",
+    }

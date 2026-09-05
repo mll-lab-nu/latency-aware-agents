@@ -13,6 +13,8 @@ import subprocess
 import wandb
 import yaml
 
+from latency_bench.core.config import load_config
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HAIC_ROOT = REPO_ROOT / "third_party/HAIC"
@@ -389,18 +391,28 @@ def write_latency_eval_config(
     output_dir: Path,
     num_envs: int,
     max_steps: int,
+    latency_config: Path | None = None,
 ) -> None:
-    config = yaml.safe_load(source.read_text(encoding="utf-8"))
-    config["executor"]["mode"] = "simulated"
-    config["executor"]["inference_devices"] = [inference_device]
-    config["executor"]["simulated_inference_pool"] = True
+    config = load_config(source)
+    if latency_config is not None:
+        latency_sections = load_config(latency_config)
+        config["latency"] = latency_sections["latency"]
+        config["scheduler"] = latency_sections["scheduler"]
+        config["executor"].update(latency_sections["executor"])
+    config["executor"].update(
+        {
+            "mode": "simulated",
+            "inference_devices": [inference_device],
+            "simulated_inference_pool": True,
+        }
+    )
     config["env"]["simulator_device"] = simulator_device
     config["env"]["runtime_checkpoint_path"] = str(runtime_checkpoint)
-    config["latency"] = {
-        "method": "temporal",
-        "profile_path": str(latency_profile_path),
-        "sync_cuda": False,
-    }
+    if latency_config is None:
+        config["latency"] = {"method": "temporal"}
+    config["latency"].update(
+        {"profile_path": str(latency_profile_path), "sync_cuda": False}
+    )
     config["policy"]["model_path"] = str(model_path)
     config["policy"]["device"] = inference_device
     config["evaluation"]["eval_episodes"] = num_envs
@@ -432,6 +444,7 @@ def evaluate_checkpoint(
             else runtime_checkpoint
         ),
         latency_profile_path=args.latency_profile_path,
+        latency_config=args.latency_config,
         inference_device=args.inference_device,
         simulator_device="cuda:0",
         output_dir=output_dir,
