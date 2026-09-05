@@ -28,7 +28,7 @@ OFFICIAL_GR00T_MODALITY_CONFIG = {
         modality_keys=["state"],
     ),
     "action": ModalityConfig(
-        delta_indices=list(range(40)),
+        delta_indices=[0] * 40,
         modality_keys=["action"],
         action_configs=[
             ActionConfig(

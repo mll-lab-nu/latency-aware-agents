@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import importlib.util
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import yaml
 
@@ -23,6 +24,55 @@ def test_balance_fasttd3_config_has_43d_unit_action_bounds():
     assert len(action_space["labels"]) == 43
     assert action_space["low"] == [-1.0] * 43
     assert action_space["high"] == [1.0] * 43
+
+
+def test_balance_modality_repeats_one_action_across_h40(monkeypatch):
+    registered = {}
+
+    class ModalityConfig:
+        def __init__(self, *, delta_indices, **kwargs):
+            self.delta_indices = delta_indices
+            self.kwargs = kwargs
+
+    class ActionConfig:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class EmbodimentTag:
+        NEW_EMBODIMENT = "NEW_EMBODIMENT"
+
+    configs = ModuleType("gr00t.configs.data.embodiment_configs")
+    configs.register_modality_config = lambda config, embodiment_tag: registered.update(
+        config=config, embodiment_tag=embodiment_tag
+    )
+    types = ModuleType("gr00t.data.types")
+    types.ActionConfig = ActionConfig
+    types.ActionFormat = SimpleNamespace(DEFAULT="default")
+    types.ActionRepresentation = SimpleNamespace(ABSOLUTE="absolute")
+    types.ActionType = SimpleNamespace(NON_EEF="non_eef")
+    types.ModalityConfig = ModalityConfig
+    tags = ModuleType("gr00t.data.embodiment_tags")
+    tags.EmbodimentTag = EmbodimentTag
+    for name, module in {
+        "gr00t": ModuleType("gr00t"),
+        "gr00t.configs": ModuleType("gr00t.configs"),
+        "gr00t.configs.data": ModuleType("gr00t.configs.data"),
+        "gr00t.configs.data.embodiment_configs": configs,
+        "gr00t.data": ModuleType("gr00t.data"),
+        "gr00t.data.types": types,
+        "gr00t.data.embodiment_tags": tags,
+    }.items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    spec = importlib.util.spec_from_file_location(
+        "balance_modality",
+        REPO / "latency_bench/policy/official_gr00t_modality.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert registered["config"]["state"].delta_indices == [0]
+    assert registered["config"]["action"].delta_indices == [0] * 40
 
 
 def _load_runner(monkeypatch):
@@ -53,7 +103,7 @@ def test_balance_runner_uses_explicit_training_paths(monkeypatch, tmp_path):
     base_model = tmp_path / "base-model"
     dataset = tmp_path / "dataset"
     output = tmp_path / "output"
-    runner.train_to_next_checkpoint(
+    checkpoint = runner.train_to_next_checkpoint(
         base_model=base_model,
         dataset=dataset,
         output=output,
@@ -67,3 +117,108 @@ def test_balance_runner_uses_explicit_training_paths(monkeypatch, tmp_path):
     assert command[command.index("--output-dir") + 1] == str(output)
     assert command[command.index("--experiment-name") + 1] == "balance-test"
     assert calls[0][1]["env"]["WANDB_RUN_ID"] == "balance-test"
+    assert checkpoint == output / "balance-test" / "checkpoint-500"
+
+
+def test_balance_runner_accepts_a_finite_resume_schedule(monkeypatch, tmp_path):
+    runner = _load_runner(monkeypatch)
+    calls = []
+    monkeypatch.setattr(
+        runner.subprocess, "run", lambda *args, **kwargs: calls.append((args, kwargs))
+    )
+
+    for step, resume in ((1, False), (2, True)):
+        runner.train_to_next_checkpoint(
+            base_model=tmp_path / "base-model",
+            dataset=tmp_path / "dataset",
+            output=tmp_path / "output",
+            run_id="balance-finite-test",
+            step=step,
+            max_steps=2,
+            step_interval=1,
+            resume=resume,
+        )
+
+    first_command = calls[0][0][0]
+    second_command = calls[1][0][0]
+    assert first_command[first_command.index("--max-steps") + 1] == "2"
+    assert first_command[first_command.index("--save-steps") + 1] == "1"
+    assert "--resume-from-checkpoint" not in first_command
+    assert "--resume-from-checkpoint" in second_command
+
+
+def test_balance_periodic_eval_propagates_full_latency_config(monkeypatch, tmp_path):
+    runner = _load_runner(monkeypatch)
+    eval_config = tmp_path / "eval.yaml"
+    eval_config.write_text(
+        yaml.safe_dump(
+            {
+                "experiment": {"name": "base", "seed": 0},
+                "executor": {"mode": "simulated", "simulated_worker_capacity": 1},
+                "latency": {"method": "zero", "sync_cuda": False},
+                "scheduler": {
+                    "hold_policy": "hold",
+                    "ordering_policy": "latest_ready",
+                },
+                "policy": {"model_path": "base"},
+                "logging": {"output_dir": str(tmp_path / "base")},
+            },
+            sort_keys=False,
+        )
+    )
+    latency_config = tmp_path / "latency.yaml"
+    latency_config.write_text(
+        yaml.safe_dump(
+            {
+                "experiment": {"seed": 37},
+                "executor": {
+                    "mode": "simulated",
+                    "simulated_worker_capacity": 3,
+                },
+                "latency": {
+                    "method": "temporal",
+                    "profile_path": "profile-from-config.json",
+                    "profile_worker_slot": 2,
+                    "seed": 19,
+                },
+                "scheduler": {
+                    "hold_policy": "one_frame_then_noop",
+                    "ordering_policy": "issue_order_fifo",
+                },
+            },
+            sort_keys=False,
+        )
+    )
+    observed = []
+
+    def fake_run(command, **kwargs):
+        config = yaml.safe_load(Path(command[-1]).read_text())
+        observed.append(config)
+        output = Path(config["logging"]["output_dir"])
+        output.mkdir(parents=True)
+        (output / "episode_metrics.jsonl").write_text(
+            json.dumps({"episode_return": 2.0, "survival_steps": 4}) + "\n"
+        )
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    for method in ("zero", "temporal"):
+        runner.closed_loop_metrics(
+            tmp_path / "checkpoint",
+            method,
+            output=tmp_path / "output",
+            eval_config=eval_config,
+            latency_profile_path=tmp_path / "profile-from-arg.json",
+            latency_config_path=latency_config,
+            latency_method=method,
+        )
+
+    assert len(observed) == 2
+    for config, method in zip(observed, ("zero", "temporal")):
+        assert config["experiment"]["seed"] == 0
+        assert config["executor"]["simulated_worker_capacity"] == 3
+        assert config["latency"]["method"] == method
+        assert config["latency"]["seed"] == 19
+        assert config["latency"]["profile_worker_slot"] == 2
+        assert config["latency"]["profile_path"] == "profile-from-config.json"
+        assert config["scheduler"]["hold_policy"] == "one_frame_then_noop"
+        assert config["scheduler"]["ordering_policy"] == "issue_order_fifo"
