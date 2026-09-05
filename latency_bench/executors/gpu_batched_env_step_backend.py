@@ -47,9 +47,10 @@ class SlotStepOutcome:
 class GpuBatchedEnvStepBackendBase(ABC):
     backend_name: str
 
-    def __init__(self, *, config: dict[str, Any], noop_action: Action, num_slots: int, num_actions: int):
+    def __init__(self, *, config: dict[str, Any], noop_action: Action, num_slots: int, action_space: gym.Space):
         self.config = config
         self.noop_action = noop_action
+        self.action_space = action_space
         self._num_slots = int(num_slots)
         self._env_fps = float(config["env"]["env_fps"])
         self._frame_ms = 1000.0 / self._env_fps
@@ -60,7 +61,7 @@ class GpuBatchedEnvStepBackendBase(ABC):
                 slot_id=slot_id,
                 env_fps=self._env_fps,
                 noop_action=noop_action,
-                action_space=gym.spaces.Discrete(num_actions),
+                action_space=action_space,
             )
             for slot_id in range(self._num_slots)
         ]
@@ -104,12 +105,12 @@ class GpuBatchedEnvStepBackendBase(ABC):
         self._raise_if_closed()
         start = time.perf_counter()
         slot_ids = [int(slot_id) for slot_id in actions_by_slot]
-        actions = np.zeros(self._num_slots, dtype=np.int64)
+        actions = np.zeros((self._num_slots, *self.action_space.shape), dtype=self.action_space.dtype)
         active_mask = np.zeros(self._num_slots, dtype=np.bool_)
         action_names: dict[int, str | None] = {}
         for slot_id, action in actions_by_slot.items():
             slot_id = int(slot_id)
-            actions[slot_id] = int(action.value)
+            actions[slot_id] = action.value
             active_mask[slot_id] = True
             action_names[slot_id] = action.name
 
@@ -124,7 +125,7 @@ class GpuBatchedEnvStepBackendBase(ABC):
                 {
                     "env_step": int(self._env_steps[slot_id]),
                     "sim_time_ms": int(self._env_steps[slot_id]) * self._frame_ms,
-                    "applied_action": int(actions[slot_id]),
+                    "applied_action": actions[slot_id].copy(),
                     "applied_action_name": action_names[slot_id],
                 }
             )

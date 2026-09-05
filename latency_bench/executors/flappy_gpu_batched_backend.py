@@ -4,6 +4,7 @@ from collections import deque
 from collections.abc import Sequence
 from typing import Any
 
+import gymnasium as gym
 import numpy as np
 import torch
 
@@ -39,7 +40,7 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
     backend_name = "flappy_gpu_batched"
 
     def __init__(self, *, config: dict[str, Any], noop_action: Action, num_slots: int):
-        super().__init__(config=config, noop_action=noop_action, num_slots=num_slots, num_actions=2)
+        super().__init__(config=config, noop_action=noop_action, num_slots=num_slots, action_space=gym.spaces.Discrete(2))
         env_cfg = config["env"]
         self.frame_stack = int(env_cfg.get("frame_stack", 1) or 1)
         self.policy_observation_layout = self._policy_observation_layout(config)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import gymnasium as gym
 import numpy as np
 import torch
 
@@ -29,7 +30,7 @@ class DemonAttackGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
         env_cfg = config["env"]
         if env_cfg["reset_mode"] != "fire":
             raise ValueError("demon_attack_gpu_batched currently supports reset_mode='fire'")
-        super().__init__(config=config, noop_action=noop_action, num_slots=num_slots, num_actions=6)
+        super().__init__(config=config, noop_action=noop_action, num_slots=num_slots, action_space=gym.spaces.Discrete(6))
         self.frame_stack = env_cfg["frame_stack"]
         self.clip_reward = env_cfg["clip_reward"]
         self.export_env_raw_rgb_frames = bool(env_cfg.get("export_env_raw_rgb_frames", False)) or uses_starvla_policy(config)

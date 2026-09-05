@@ -15,7 +15,6 @@ STRICT_ROOT="${TASK_ROOT}/strict_teacher"
 DATASET_ROOT="${TASK_ROOT}/dataset"
 VLA_ROOT="${REPO_ROOT}/third_party/starVLA"
 VLA_PY="${VLA_PY:-python}"
-VLA_PORT="${VLA_PORT:-10093}"
 RUN_ID="${MIKASA_RUN_ID:-mikasa_grabfast_h1_gb64_mb8_ga8_expandable}"
 TEACHER_CHECKPOINT="$1"
 
@@ -101,24 +100,43 @@ accelerate launch \
   --checkpoint.save_training_state true \
   --checkpoint.save_pt_file true
 
-SERVER_CHECKPOINT="${VLA_ROOT}/results/Checkpoints/${RUN_ID}/checkpoints/steps_5000_pytorch_model.pt"
-"${VLA_PY}" deployment/model_server/server_policy.py \
-  --ckpt_path "${SERVER_CHECKPOINT}" \
-  --port "${VLA_PORT}" \
-  --use_bf16 &
-SERVER_PID=$!
-trap 'kill "${SERVER_PID}"' EXIT
-sleep 5
-
 cd "${REPO_ROOT}"
+VLA_MODEL_ROOT="${VLA_ROOT}/results/Checkpoints/${RUN_ID}"
+VLA_PY_EXEC="$(command -v "${VLA_PY}")"
+EVAL_CONFIG="${TASK_ROOT}/vla_zero_delay_eval.yaml"
+EVAL_OUTPUT="${TASK_ROOT}/vla_zero_delay_eval"
+"${MIKASA_PY}" - "${EVAL_CONFIG}" "${EVAL_OUTPUT}" "${VLA_MODEL_ROOT}" "${VLA_PY_EXEC}" <<'PY'
+import sys
+import yaml
+
+from latency_bench.core.config import load_config
+
+path, output_dir, model_root, worker_python = sys.argv[1:]
+config = load_config("configs/examples/mikasa/official_starvla_profile.yaml")
+config["executor"] = {
+    "mode": "simulated",
+    "simulated_worker_capacity": 1,
+    "simulated_inference_pool": True,
+    "inference_devices": ["cuda:0"],
+    "inference_batch_size": 1,
+}
+config["latency"] = {"method": "zero", "seed": 0}
+config["policy"].update(
+    checkpoint_path=f"{model_root}/checkpoints/steps_5000_pytorch_model.pt",
+    model_config_path=f"{model_root}/config.full.yaml",
+    worker_python_executable=worker_python,
+    device="cuda:0",
+)
+config["evaluation"].update(eval_episodes=50, eval_parallel_envs=1)
+config["logging"]["output_dir"] = output_dir
+with open(path, "w", encoding="utf-8") as stream:
+    yaml.safe_dump(config, stream, sort_keys=False)
+PY
 "${MIKASA_PY}" scripts/mikasa/evaluate.py \
-  --policy vla \
-  --host 127.0.0.1 \
-  --port "${VLA_PORT}" \
-  --episodes 50 \
-  --output-dir "${TASK_ROOT}/vla_zero_delay_eval"
+  latency-eval \
+  --eval-config "${EVAL_CONFIG}"
 "${MIKASA_PY}" -c \
-  'import json,sys; d=json.load(open(sys.argv[1])); n=sum(d["successes"]); print(f"{n}/50"); assert n >= 25' \
-  "${TASK_ROOT}/vla_zero_delay_eval/summary.json"
+  'import json,sys; d=json.load(open(sys.argv[1])); n=sum(d["task_metrics"]["success"]["values"]); print(f"{n:.0f}/50"); assert n >= 25' \
+  "${EVAL_OUTPUT}/queue_eval_latency_0.json"
 
 printf 'MODEL_PATH=%s\n' "${VLA_ROOT}/results/Checkpoints/${RUN_ID}"
