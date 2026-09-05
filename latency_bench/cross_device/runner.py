@@ -19,7 +19,10 @@ from latency_bench.cross_device.artifacts import (
     simulation_seed_dir,
 )
 from latency_bench.cross_device.instances import instance_id_from_gpu_deployment
-from latency_bench.cross_device.profile_resolver import resolve_remote_profile
+from latency_bench.cross_device.profile_resolver import (
+    resolve_profile_artifacts,
+    resolve_remote_profile,
+)
 from latency_bench.cross_device.runtime_configs import (
     calibration_config,
     eval_command,
@@ -190,6 +193,7 @@ def run_simulation(
         hf_commit=hf_commit,
     )
     profile = read_json(selected_profile)
+    spec = resolve_profile_artifacts(spec, profile)
     output_dirs = [
         simulation_seed_dir(
             spec["artifact_root"],

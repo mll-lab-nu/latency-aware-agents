@@ -54,7 +54,8 @@ def test_registry_has_one_openvla_flappy_preset():
     spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
 
     assert spec["session_count"] == 5
-    assert spec["n_episodes"] == 100
+    assert spec["profile_episodes"] == 100
+    assert spec["eval_episodes"] == 100
     assert spec["calibrate_env_fps"] is True
     assert spec["artifact_root"] == "results/profiling"
 
@@ -65,13 +66,14 @@ def test_registry_has_balance_official_gr00t_preset():
     )
 
     assert spec["session_count"] == 5
-    assert spec["n_episodes"] == 100
+    assert spec["profile_episodes"] == 100
+    assert spec["eval_episodes"] == 100
     assert spec["evaluation_seed"] == 0
     assert spec["simulation_parallel_envs"] == 1
     assert spec["calibrate_env_fps"] is False
     assert spec["simulation_env"] == {}
     assert spec["model_artifact"]["checkpoint"] == "."
-    assert spec["model_artifact"]["local_root"].endswith("checkpoint-15000")
+    assert spec["model_artifact"]["local_root"].endswith("checkpoint-10000")
     assert spec["gpu_models"]["rpbzzz6"]["aliases"] == ["NVIDIA RPBZZZ6"]
 
 
@@ -155,13 +157,14 @@ def test_native_measure_config_assigns_only_inference_devices(tmp_path):
     )
 
     assert config["executor"]["inference_devices"] == ["cuda:1", "cuda:2"]
+    assert config["env"]["simulator_device"] == "cuda:0"
     assert config["latency"]["device"] == "cuda:1"
     assert config["env"]["runtime_checkpoint_path"] == "/models/parkour/model_14999.pt"
     assert eval_command(spec, tmp_path / "generated.yaml", tmp_path) == [
         "/native/bin/python",
-        spec["profile_entrypoint"],
-        "profile",
-        "--profile-config",
+        spec["eval_entrypoint"],
+        "latency-eval",
+        "--eval-config",
         str(tmp_path / "generated.yaml"),
     ]
 
@@ -299,7 +302,8 @@ def test_new_runs_are_retained_while_current_moves_forward(tmp_path, monkeypatch
         "model_id": "openvla",
         "workload_id": "flappy",
         "session_count": 2,
-        "n_episodes": 1,
+        "profile_episodes": 1,
+        "eval_episodes": 1,
         "evaluation_seed": 0,
         "base_config": str(base_config),
         "checkpoint_path": "/models/openvla",
@@ -372,6 +376,7 @@ def test_new_runs_are_retained_while_current_moves_forward(tmp_path, monkeypatch
 
 def test_resume_requires_matching_run_contract(tmp_path):
     spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
+    spec["checkpoint_path"] = "/models/openvla"
     deployment = {
         "gpu_class": "2x-rtx4090",
         "instance_id": "instance_abc",
@@ -409,6 +414,7 @@ def test_legacy_run_without_contract_cannot_resume(tmp_path):
 
 def test_simulation_uses_profile_slots_and_pinned_source(tmp_path):
     spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
+    spec["checkpoint_path"] = "/models/openvla"
     profile = {
         "model_id": "openvla",
         "gpu_class": "2x-rtx4090",

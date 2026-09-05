@@ -77,6 +77,9 @@ def simulation_config(
         config["latency"]["mean_latency_ms"] = profile["summary"]["mean_ms"]
         config["latency"]["std_latency_ms"] = profile["summary"]["std_ms"]
     config["evaluation"]["eval_parallel_envs"] = spec["simulation_parallel_envs"]
+    config["evaluation"]["eval_episodes"] = spec["eval_episodes"]
+    if "inference_batch_size" in spec:
+        config["executor"]["inference_batch_size"] = spec["inference_batch_size"]
     config["evaluation"]["eval_latency_values"] = None
     _enable_records(config)
     return config
@@ -89,12 +92,12 @@ def write_generated_config(path: Path, config: dict[str, Any]) -> None:
 
 
 def eval_command(spec: dict[str, Any], config_path: Path, output_dir: Path) -> list[str]:
-    if "profile_entrypoint" in spec:
+    if "eval_entrypoint" in spec:
         return [
             spec["session_python"],
-            spec["profile_entrypoint"],
-            "profile",
-            "--profile-config",
+            spec["eval_entrypoint"],
+            "latency-eval",
+            "--eval-config",
             str(config_path),
         ]
     return [
@@ -124,10 +127,17 @@ def _base_config(spec: dict[str, Any], output_dir: Path) -> dict[str, Any]:
     )
     if "runtime_checkpoint_path" in spec:
         config["env"]["runtime_checkpoint_path"] = spec["runtime_checkpoint_path"]
+    if spec["simulation_gpu"] is not None:
+        config["env"]["simulator_device"] = spec["simulation_gpu"]
     if spec["model_id"] == "qwenoft":
         config["policy"]["worker_python_executable"] = sys.executable
     config["experiment"]["seed"] = spec["evaluation_seed"]
-    config["evaluation"]["eval_episodes"] = spec["n_episodes"]
+    config["evaluation"]["eval_episodes"] = spec["profile_episodes"]
+    config["provenance"] = {
+        key: spec[key]
+        for key in ("model_provenance", "runtime_provenance")
+        if key in spec
+    }
     return config
 
 
@@ -142,7 +152,7 @@ def _patch_realtime(
         "inference_devices": inference_devices,
     }
     config["latency"] = {
-        "method": "zero",
+        "method": "measured",
         "device": inference_devices[0],
         "sync_cuda": True,
         "model_id": spec["model_id"],
