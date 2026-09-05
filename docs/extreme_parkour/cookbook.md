@@ -46,9 +46,9 @@ to the native and VLA/evaluation stages. Use `--profile-path` to replay an
 existing profile, or `--skip-native-train` when the command-policy stage has
 already been completed.
 
-The formal command-policy launcher uses 1,024 environments by default. The
-checked-in smoke config explicitly overrides it to one environment and two
-iterations; those values are for wiring checks only.
+Both formal and smoke command-policy training use 1,024 environments. The
+smoke config limits training to two iterations; collection and evaluation
+use one environment.
 
 Use the printed `model_14999.pt` teacher checkpoint for the complete VLA path:
 
