@@ -1,0 +1,24 @@
+__base__: mikasa_latency_pipeline_smoke.yaml
+output_dir: outputs/latency_rl/mikasa/pipeline
+latency_config: configs/training/latency/mikasa.yaml
+evaluation_config: configs/training/mikasa_latency_vla_eval.yaml
+collection:
+  episodes: 275
+  num_envs: 16
+  keep_failed: false
+  train_split: "train[:250]"
+  val_split: "train[250:275]"
+vla:
+  run_id: mikasa_latency_pipeline_h1
+  steps: 5000
+  arguments:
+    - --framework.qwenvl.attn_implementation
+    - sdpa
+    - --datasets.vla_data.per_device_batch_size
+    - "8"
+    - --trainer.gradient_accumulation_steps
+    - "8"
+    - --trainer.eval_interval
+    - "500"
+    - --trainer.eval_num_batches
+    - "100"

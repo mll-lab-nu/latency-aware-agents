@@ -1,0 +1,22 @@
+env:
+  env_fps: 20
+  obs_fps: 20
+  noop_action: [0, 0, 0, 0, 0, 0, 0]
+executor:
+  simulated_worker_capacity: 1
+latency:
+  method: iid
+  seed: 123
+  profile_path: results/profiling/profiles/qwenoft/1x-rpbzzz6/mikasa_intercept_grab_fast/instance_e906b84a82f9e086/profile.json
+scheduler:
+  ordering_policy: latest_ready
+  hold_policy: hold
+training:
+  num_envs: 4
+  num_eval_envs: 1
+  num_steps: 16
+  num_minibatches: 2
+  update_epochs: 1
+  total_timesteps: 128
+  eval_freq: 1
+  track: false

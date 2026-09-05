@@ -1,0 +1,33 @@
+output_dir: outputs/latency_rl/mikasa/pipeline_smoke
+profile_arguments: [--hf-artifacts]
+teacher_checkpoint: outputs/latency_rl/mikasa/source/teacher.pt
+latency_config: configs/training/mikasa_latency_smoke.yaml
+evaluation_config: configs/training/mikasa_latency_vla_smoke_eval.yaml
+environment:
+  VLA_ACCELERATE: /pfs/users/lxy/conda/envs/starvla_rl_games_openvla/bin/accelerate
+  CUDA_VISIBLE_DEVICES: "0,1"
+  WANDB_MODE: disabled
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+collection:
+  episodes: 2
+  num_envs: 2
+  keep_failed: true
+  train_split: "train[:1]"
+  val_split: "train[1:2]"
+vla:
+  initial_checkpoint: third_party/starVLA/playground/Pretrained_models/Qwen3VL-OFT-Bridge-RT-1/checkpoints/steps_5000_pytorch_model.pt
+  run_id: mikasa_latency_pipeline_smoke_h1
+  steps: 2
+  arguments:
+    - --framework.qwenvl.attn_implementation
+    - sdpa
+    - --datasets.vla_data.per_device_batch_size
+    - "1"
+    - --trainer.gradient_accumulation_steps
+    - "1"
+    - --trainer.num_warmup_steps
+    - "0"
+    - --trainer.eval_interval
+    - "2"
+    - --trainer.eval_num_batches
+    - "1"
