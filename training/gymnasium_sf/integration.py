@@ -214,6 +214,8 @@ def make_gymnasium_sf_env(
         sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
         profile_path=latency_params.profile_path,
         profile_worker_slot=latency_params.profile_worker_slot,
+        profile_method=latency_params.profile_method,
+        simulated_worker_capacity=latency_params.simulated_worker_capacity,
         seed=latency_seed,
         env_reset_seed_base=wrapper_seed + 104729,
         add_latency_info=bool(cfg.add_latency_info),
@@ -297,6 +299,7 @@ def add_gymnasium_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--latency-seed", dest="latency_seed", type=int)
     parser.add_argument("--latency-profile-path", dest="latency_profile_path", type=str)
     parser.add_argument("--latency-profile-worker-slot", dest="latency_profile_worker_slot", type=int)
+    parser.add_argument("--simulated-worker-capacity", dest="simulated_worker_capacity", type=int)
     parser.add_argument("--add-latency-info", type=str2bool, default=False)
     parser.add_argument("--max-pending-actions", dest="max_pending_actions", type=int)
     parser.add_argument(

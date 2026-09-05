@@ -19,10 +19,13 @@ from latency_bench.core.latency_distribution import (
 )
 from latency_bench.core.types import Action, ActionEvent, ActionHoldPolicy, LatencyRecord, OrderingPolicy
 from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
+from latency_bench.executors._simulated_timeline import SimulatedResultTimeline, SimulatedWorkerCapacity
+from latency_bench.latency.sample import LatencySample
+from latency_bench.latency.samplers import build_episode_sampler_factory
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.factory import build_persistence_policy
 from training.common.latency_config import (
-    build_iid_profile_sampler,
+    build_profile_sampler,
     build_latency_info,
     profile_sampler_max_latency_raw_frames,
 )
@@ -78,6 +81,8 @@ class ActionLatencyWrapper(gym.Wrapper):
         sample_distribution_per_episode: bool = False,
         profile_path: str | None = None,
         profile_worker_slot: int | None = None,
+        profile_method: str = "iid",
+        simulated_worker_capacity: int | None = None,
         max_pending_actions: int | None = None,
     ):
         super().__init__(env)
@@ -87,6 +92,7 @@ class ActionLatencyWrapper(gym.Wrapper):
         self.sample_distribution_per_episode = bool(sample_distribution_per_episode)
         self.profile_path = profile_path
         self.profile_worker_slot = profile_worker_slot
+        self.profile_method = profile_method
         self.latency_distribution_label = (
             None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
         )
@@ -99,19 +105,35 @@ class ActionLatencyWrapper(gym.Wrapper):
         self.noop_action = noop_action_from_space(env.action_space)
         self.clock = EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
         self.profile_sampler = None
+        self.profile_sampler_factory = None
         if self.profile_path is not None:
-            self.profile_sampler = build_iid_profile_sampler(
+            self.profile_sampler = build_profile_sampler(
                 self.profile_path,
+                method=self.profile_method,
                 seed=self.base_latency_seed,
                 env_fps=self.clock.env_fps,
                 obs_fps=self.clock.obs_fps,
             )
+            if self.profile_method == "iid":
+                self.profile_sampler_factory = build_episode_sampler_factory(
+                    {
+                        "method": "iid",
+                        "profile_path": self.profile_path,
+                        "seed": self.base_latency_seed,
+                    },
+                    self.clock,
+                )
             self.max_frame_latency = profile_sampler_max_latency_raw_frames(
                 self.profile_sampler,
                 worker_slot=self.profile_worker_slot,
                 env_fps=self.clock.env_fps,
             )
         self.max_pending_actions = None if max_pending_actions is None else int(max_pending_actions)
+        self.worker_capacity = (
+            None
+            if simulated_worker_capacity is None
+            else SimulatedWorkerCapacity(simulated_worker_capacity, {})
+        )
         if self.max_pending_actions is not None and self.max_pending_actions < self.max_frame_latency + 1:
             raise ValueError(
                 "latency.max_pending_actions must be at least train_distribution.max + 1 "
@@ -125,31 +147,41 @@ class ActionLatencyWrapper(gym.Wrapper):
             persistence_policy=build_persistence_policy(self.hold_policy, clock=self.clock),
             ordering_policy=self.ordering_policy,
         )
+        self.result_timeline = SimulatedResultTimeline(ordering_policy=self.ordering_policy)
         self.latency_distribution_sampler = None
         self.env_reset_seed_base = None if env_reset_seed_base is None else int(env_reset_seed_base)
         self.current_latency_raw_frames = 0
         self.current_applied_action = clone_action(self.noop_action)
-        self.episode_idx = 0
+        self.episode_idx = -1
         self.env_step_idx = 0
         self.decision_step_idx = 0
         self._next_action_id = 0
 
-    def _next_latency_raw_frames(self) -> int:
+    def _next_latency_sample(self, *, worker_slot: int | None = None) -> LatencySample:
         if self.profile_sampler is not None:
             sample = self.profile_sampler.sample(
                 {
                     "episode_id": int(self.episode_idx),
-                    "worker_slot": self.profile_worker_slot,
+                    "worker_slot": self.profile_worker_slot if worker_slot is None else worker_slot,
                 }
             )
-            return int(sample.action_ready_raw_frames)
+            return sample
         if self.latency_distribution_spec is not None:
             if self.sample_distribution_per_episode:
-                return int(self.current_latency_raw_frames)
+                return LatencySample.from_latency_ms(
+                    float(self.current_latency_raw_frames) * self.clock.frame_ms,
+                    clock=self.clock,
+                )
             if self.latency_distribution_sampler is None:
                 self._reset_latency_distribution_sampler()
-            return int(self.latency_distribution_sampler.sample_frame())
-        return int(self.fixed_latency_raw_frames)
+            return LatencySample.from_latency_ms(
+                float(self.latency_distribution_sampler.sample_frame()) * self.clock.frame_ms,
+                clock=self.clock,
+            )
+        return LatencySample.from_latency_ms(
+            float(self.fixed_latency_raw_frames) * self.clock.frame_ms,
+            clock=self.clock,
+        )
 
     def _latency_info(self, latency_value: int) -> dict[str, Any]:
         return build_latency_info(
@@ -157,7 +189,10 @@ class ActionLatencyWrapper(gym.Wrapper):
             decision_step_idx=self.decision_step_idx,
             env_step_idx=self.env_step_idx,
             applied_action=clone_action(self.current_applied_action),
-            pending_action_count=len(self.action_scheduler.get_pending_events()),
+            pending_action_count=(
+                len(self.action_scheduler.get_pending_events())
+                + self.result_timeline.pending_event_count
+            ),
             latency_raw_frames=int(latency_value),
             clock=self.clock,
             hold_policy=self.hold_policy,
@@ -177,7 +212,11 @@ class ActionLatencyWrapper(gym.Wrapper):
         )
 
     def reset(self, **kwargs):
+        self.episode_idx += 1
         self.action_scheduler.reset()
+        self.result_timeline.reset()
+        if self.worker_capacity is not None:
+            self.worker_capacity.reset()
         self.current_applied_action = clone_action(self.noop_action)
         self.env_step_idx = 0
         self.decision_step_idx = 0
@@ -201,12 +240,26 @@ class ActionLatencyWrapper(gym.Wrapper):
                 raise
             obs, info = self.env.reset(**kwargs)
         info = dict(info or {})
+        if (
+            getattr(self.env.unwrapped, "_control_mode", None) == "direct_absolute_position"
+        ):
+            self.noop_action = clone_action(info["action_target"])
+            self.action_scheduler.noop_action.value = clone_action(self.noop_action)
+            self.current_applied_action = clone_action(self.noop_action)
         if self.add_latency_info:
             info.update(self._latency_info(self.current_latency_raw_frames))
-        self.episode_idx += 1
+        if self.profile_sampler_factory is not None:
+            self.profile_sampler = self.profile_sampler_factory(self.episode_idx)
         return obs, info
 
-    def _enqueue_action_event(self, action, latency_raw_frames: int) -> int:
+    def _enqueue_action_event(
+        self,
+        action,
+        latency_raw_frames: int,
+        *,
+        latency_sample: LatencySample,
+        worker_id: int | None,
+    ) -> int:
         obs_env_step = int(self.env_step_idx)
         ready_raw_frame = obs_env_step + int(latency_raw_frames)
         event = ActionEvent(
@@ -221,12 +274,24 @@ class ActionLatencyWrapper(gym.Wrapper):
             ),
             latency_raw_frames=int(latency_raw_frames),
             ready_raw_frame=ready_raw_frame,
+            metadata={
+                "worker_id": worker_id,
+                "worker_service_ms": latency_sample.worker_service_ms,
+                "worker_service_raw_frames": latency_sample.worker_service_raw_frames,
+            },
         )
         self._next_action_id += 1
-        self.action_scheduler.enqueue(event)
+        self.result_timeline.submit(
+            obs_id=event.latency.obs_id,
+            ready_raw_frame=ready_raw_frame,
+            event=event,
+        )
         if (
             self.max_pending_actions is not None
-            and len(self.action_scheduler.get_pending_events()) > self.max_pending_actions
+            and (
+                len(self.action_scheduler.get_pending_events())
+                + self.result_timeline.pending_event_count
+            ) > self.max_pending_actions
         ):
             raise RuntimeError(
                 "pending action queue exceeded latency.max_pending_actions="
@@ -235,11 +300,35 @@ class ActionLatencyWrapper(gym.Wrapper):
         return ready_raw_frame
 
     def step(self, action):
-        # 1. decide delay for this action
-        scheduled_delay = int(self._next_latency_raw_frames())
-        self.current_latency_raw_frames = scheduled_delay
-        # 2. enqueue this action, instead of execute it directly
-        scheduled_ready_raw_frame = self._enqueue_action_event(action, scheduled_delay)
+        # 1. admit the observation to the inference worker, then enqueue it.
+        observation_dropped = False
+        worker_id = None
+        latency_sample = None
+        if self.worker_capacity is not None:
+            self.worker_capacity.release_ready(self.env_step_idx)
+            if not self.worker_capacity.can_submit():
+                observation_dropped = True
+            else:
+                worker_id = self.worker_capacity.assign_worker()
+        if not observation_dropped:
+            latency_sample = self._next_latency_sample(worker_slot=worker_id)
+            scheduled_delay = latency_sample.action_ready_raw_frames
+            self.current_latency_raw_frames = scheduled_delay
+            scheduled_ready_raw_frame = self._enqueue_action_event(
+                action,
+                scheduled_delay,
+                latency_sample=latency_sample,
+                worker_id=worker_id,
+            )
+            if self.worker_capacity is not None:
+                self.worker_capacity.submit(
+                    worker_id,
+                    self.env_step_idx + latency_sample.worker_service_raw_frames,
+                )
+        else:
+            scheduled_delay = 0
+            self.current_latency_raw_frames = 0
+            scheduled_ready_raw_frame = None
 
         # 3. step raw env, raw frames
         obs = None
@@ -252,11 +341,20 @@ class ActionLatencyWrapper(gym.Wrapper):
         raw_frames_advanced = 0
         environment_applied_action = None
         for _ in range(self.clock.obs_stride_raw_frames):
+            applied_source_raw_frame = -1
+            applied_source_obs_id = -1
+            released_events, _ = self.result_timeline.release_arrived(self.env_step_idx)
+            for released_event in released_events:
+                self.action_scheduler.enqueue(released_event)
             # for each raw frame step, ask scheduler which action should be taken
             active_action = self.action_scheduler.update(
                 current_step=int(self.env_step_idx),
                 current_time_ms=self.clock.step_to_time_ms(int(self.env_step_idx)),
             )
+            if not active_action.is_noop:
+                applied_event = self.action_scheduler.latest_applied_event
+                applied_source_raw_frame = applied_event.obs_env_step
+                applied_source_obs_id = applied_event.latency.obs_id
             self.current_applied_action = clone_action(active_action.value)
             obs, reward, terminated, truncated, info = self.env.step(clone_action(active_action.value))
             # accumulate rewards for raw frames
@@ -280,10 +378,26 @@ class ActionLatencyWrapper(gym.Wrapper):
             info["raw_reward"] = float(total_raw_reward)
         if self.add_latency_info:
             info.update(self._latency_info(scheduled_delay))
+            info["issued_action"] = clone_action(action)
             info["queued_action"] = clone_action(action)
-            info["ready_raw_frame"] = int(scheduled_ready_raw_frame)
+            info["command_admitted"] = not observation_dropped
+            info["observation_dropped"] = observation_dropped
+            info["in_flight_count"] = (
+                self.worker_capacity.in_flight_count if self.worker_capacity is not None else 0
+            )
+            info["idle_worker_count"] = (
+                self.worker_capacity.idle_worker_count if self.worker_capacity is not None else None
+            )
+            info["worker_id"] = worker_id
+            if latency_sample is not None:
+                info["worker_service_ms"] = latency_sample.worker_service_ms
+                info["worker_service_raw_frames"] = latency_sample.worker_service_raw_frames
+                info["ready_raw_frame"] = scheduled_ready_raw_frame
             info["raw_frames_advanced"] = int(raw_frames_advanced)
             info["obs_stride_raw_frames"] = int(self.clock.obs_stride_raw_frames)
+            info["applied_source_raw_frame"] = applied_source_raw_frame
+            info["applied_source_obs_id"] = applied_source_obs_id
+            info["raw_done"] = terminated or truncated
         if environment_applied_action is not None:
             info["applied_action"] = environment_applied_action
         self.decision_step_idx += 1

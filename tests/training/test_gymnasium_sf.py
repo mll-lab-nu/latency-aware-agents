@@ -170,6 +170,38 @@ def test_action_catalog_and_latency_decode_nonzero_noop_to_native_action():
     assert native_env.native_actions == [20, 20, 30]
 
 
+def test_action_latency_latest_ready_drops_late_older_result():
+    from latency_bench.latency.sample import LatencySample
+
+    native_env = _NativeActionTraceEnv()
+    env = GymnasiumActionLatencyWrapper(
+        native_env,
+        fixed_latency_raw_frames=0,
+        env_fps=10,
+        obs_fps=10,
+        hold_policy="one_frame_then_noop",
+        ordering_policy="latest_ready",
+        noop_action=0,
+    )
+    env.reset(seed=3)
+    samples = iter(
+        [
+            LatencySample.from_latency_ms(500.0, clock=env.clock),
+            LatencySample.from_latency_ms(100.0, clock=env.clock),
+            LatencySample.from_latency_ms(1000.0, clock=env.clock),
+            LatencySample.from_latency_ms(1000.0, clock=env.clock),
+            LatencySample.from_latency_ms(1000.0, clock=env.clock),
+            LatencySample.from_latency_ms(1000.0, clock=env.clock),
+        ]
+    )
+    env._next_latency_sample = lambda **_: next(samples)
+
+    for action in (1, 2, 3, 4, 5, 6):
+        env.step(action)
+
+    assert native_env.native_actions == [0, 0, 2, 0, 0, 0]
+
+
 def test_channel_first_frame_stack_repeats_reset_and_appends_new_frame():
     env = ChannelFirstFrameStackWrapper(_ChannelFirstImageEnv(), 4)
 

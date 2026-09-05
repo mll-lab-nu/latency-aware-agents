@@ -212,6 +212,15 @@ def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
     assert args[args.index("--fasttd3_actor_action_l2") + 1] == "1.0"
 
 
+def test_build_common_sf_args_emits_initial_model_path():
+    cfg = load_config("configs/base/deadly_corridor.yaml")
+    cfg["backend"]["initial_model_path"] = "teacher.pth"
+
+    args = build_common_sf_args(cfg, sf_env_name="doom_deadly_corridor")
+
+    assert args[args.index("--initial_model_path") + 1] == "teacher.pth"
+
+
 def test_build_common_sf_args_maps_cuda_to_sample_factory_gpu():
     cfg = load_config("configs/base/deadly_corridor.yaml")
     cfg["latency"] = {"method": "fixed", "fixed_latency_ms": 4 * 1000.0 / 35.0}
@@ -641,6 +650,105 @@ def test_action_latency_wrapper_uses_iid_profile_action_latency(tmp_path):
     assert values == [1, 1, 1, 1]
 
 
+def test_sample_factory_latency_params_support_temporal_profile_and_capacity(tmp_path):
+    from training.common.latency_config import sample_factory_latency_params_from_flat_config
+
+    cfg = SimpleNamespace(
+        latency_type="profile_sample",
+        latency_profile_path=str(tmp_path / "profile.json"),
+        latency_profile_worker_slot=0,
+        simulated_worker_capacity=1,
+    )
+
+    params = sample_factory_latency_params_from_flat_config(cfg, env_fps=50)
+
+    assert params.profile_method == "temporal"
+    assert params.profile_path == str(tmp_path / "profile.json")
+    assert params.profile_worker_slot == 0
+    assert params.simulated_worker_capacity == 1
+
+
+def test_action_latency_wrapper_drops_busy_requests_and_reports_issued_applied():
+    from latency_bench.core.clock import EnvClock
+    from latency_bench.latency.sample import LatencySample
+    from training.common.latency_wrapper import ActionLatencyWrapper
+
+    class ServiceTimeSampler:
+        def sample(self, context):
+            return LatencySample.from_action_ready(
+                action_ready_raw_frames=0,
+                worker_service_raw_frames=3,
+                worker_service_ms=100.0,
+                clock=EnvClock(env_fps=30, obs_fps=30),
+            )
+
+    base_env = _ActionTraceEnv()
+    wrapped = ActionLatencyWrapper(
+        base_env,
+        env_fps=30,
+        obs_fps=30,
+        simulated_worker_capacity=1,
+        add_latency_info=True,
+    )
+    wrapped.profile_sampler = ServiceTimeSampler()
+    try:
+        wrapped.reset(seed=123)
+        _, _, _, _, first_info = wrapped.step(1)
+        _, _, _, _, second_info = wrapped.step(0)
+    finally:
+        wrapped.close()
+
+    assert base_env.actions == [1, 0]
+    assert first_info["command_admitted"] is True
+    assert first_info["issued_action"] == 1
+    assert first_info["applied_action"] == 1
+    assert first_info["worker_service_raw_frames"] == 3
+    assert second_info["command_admitted"] is False
+    assert second_info["observation_dropped"] is True
+    assert second_info["issued_action"] == 0
+    assert second_info["applied_action"] == 0
+
+
+def test_action_latency_wrapper_holds_g1_conditioning_target_until_action_is_ready():
+    import gymnasium as gym
+    from gymnasium.spaces import Box
+    from training.common.latency_wrapper import ActionLatencyWrapper
+
+    class ActionTargetEnv(gym.Env):
+        observation_space = Box(low=-10, high=10, shape=(1,), dtype=np.float32)
+        action_space = Box(low=-10, high=10, shape=(1,), dtype=np.float32)
+
+        def __init__(self):
+            self.actions = []
+            self._control_mode = "direct_absolute_position"
+
+        def reset(self, *, seed=None, options=None):
+            self.actions.clear()
+            return np.zeros(1, dtype=np.float32), {"action_target": np.array([7.0])}
+
+        def step(self, action):
+            self.actions.append(np.asarray(action).copy())
+            return np.zeros(1, dtype=np.float32), 0.0, False, False, {}
+
+    base_env = ActionTargetEnv()
+    wrapped = ActionLatencyWrapper(
+        base_env,
+        fixed_latency_raw_frames=2,
+        env_fps=30,
+        obs_fps=30,
+        add_latency_info=True,
+    )
+    try:
+        wrapped.reset()
+        wrapped.step(np.array([9.0], dtype=np.float32))
+        wrapped.step(np.array([9.0], dtype=np.float32))
+        wrapped.step(np.array([9.0], dtype=np.float32))
+    finally:
+        wrapped.close()
+
+    np.testing.assert_allclose(np.asarray(base_env.actions).reshape(-1), [7.0, 7.0, 9.0])
+
+
 def test_action_latency_wrapper_distribution_samples_deterministically():
     import gymnasium as gym
     import numpy as np
@@ -839,6 +947,8 @@ def test_action_latency_wrapper_advances_obs_stride_with_one_frame_noop():
     assert not terminated
     assert not truncated
     assert base_env.actions == [0, 0, 0, 1, 0, 0]
+    assert info["applied_source_raw_frame"] == -1
+    assert info["applied_source_obs_id"] == -1
     assert info["latency_raw_frames"] == 3
     assert info["obs_stride_raw_frames"] == 6
     assert info["raw_frames_advanced"] == 6

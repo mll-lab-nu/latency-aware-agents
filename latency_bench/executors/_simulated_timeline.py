@@ -92,6 +92,10 @@ class SimulatedResultTimeline:
         self.coordinator = ResultCoordinator(ordering_policy=self.ordering_policy)
         self._pending.clear()
 
+    @property
+    def pending_event_count(self) -> int:
+        return len(self._pending) + len(self.coordinator.result_buffer)
+
     def submit(self, *, obs_id: int, ready_raw_frame: int, event: ActionEvent) -> None:
         self.mark_submitted(obs_id=obs_id)
         self.attach_event(obs_id=obs_id, ready_raw_frame=ready_raw_frame, event=event)

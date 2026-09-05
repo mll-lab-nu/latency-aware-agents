@@ -22,6 +22,8 @@ class SampleFactoryLatencyParams:
     sample_distribution_per_episode: bool = False
     profile_path: str | None = None
     profile_worker_slot: int | None = None
+    profile_method: str | None = None
+    simulated_worker_capacity: int | None = None
 
 
 def sample_factory_latency_seed_from_flat_config(
@@ -89,12 +91,18 @@ def build_latency_info(
 
 def sample_factory_latency_params_from_flat_config(cfg: Any, *, env_fps: float) -> SampleFactoryLatencyParams:
     latency_type = cfg.latency_type
+    simulated_worker_capacity = getattr(cfg, "simulated_worker_capacity", None)
     if latency_type == "zero":
-        return SampleFactoryLatencyParams(fixed_latency_raw_frames=0, latency_distribution_spec=None)
+        return SampleFactoryLatencyParams(
+            fixed_latency_raw_frames=0,
+            latency_distribution_spec=None,
+            simulated_worker_capacity=simulated_worker_capacity,
+        )
     if latency_type == "fixed":
         return SampleFactoryLatencyParams(
             fixed_latency_raw_frames=latency_ms_to_raw_frames(cfg.fixed_latency_ms, env_fps=env_fps),
             latency_distribution_spec=None,
+            simulated_worker_capacity=simulated_worker_capacity,
         )
     if latency_type == "iid":
         return SampleFactoryLatencyParams(
@@ -102,11 +110,23 @@ def sample_factory_latency_params_from_flat_config(cfg: Any, *, env_fps: float) 
             latency_distribution_spec=None,
             profile_path=cfg.latency_profile_path,
             profile_worker_slot=cfg.latency_profile_worker_slot,
+            profile_method="iid",
+            simulated_worker_capacity=simulated_worker_capacity,
+        )
+    if latency_type == "profile_sample":
+        return SampleFactoryLatencyParams(
+            fixed_latency_raw_frames=0,
+            latency_distribution_spec=None,
+            profile_path=cfg.latency_profile_path,
+            profile_worker_slot=cfg.latency_profile_worker_slot,
+            profile_method="temporal",
+            simulated_worker_capacity=simulated_worker_capacity,
         )
     return SampleFactoryLatencyParams(
         fixed_latency_raw_frames=0,
         latency_distribution_spec=latency_distribution_spec_from_flat_config(cfg, env_fps=env_fps),
         sample_distribution_per_episode=latency_type in _PER_EPISODE_LATENCY_TYPES,
+        simulated_worker_capacity=simulated_worker_capacity,
     )
 
 
@@ -131,6 +151,20 @@ def latency_distribution_spec_from_flat_config(cfg: Any, *, env_fps: float) -> L
     raise ValueError(f"Sample Factory latency_distribution_spec does not support latency_type={latency_type}")
 
 
+def build_profile_sampler(
+    profile_path: str,
+    *,
+    method: str,
+    seed: int,
+    env_fps: float,
+    obs_fps: float,
+):
+    return build_sampler(
+        {"method": method, "profile_path": profile_path, "seed": int(seed)},
+        clock=EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps)),
+    )
+
+
 def build_iid_profile_sampler(
     profile_path: str,
     *,
@@ -138,9 +172,12 @@ def build_iid_profile_sampler(
     env_fps: float,
     obs_fps: float,
 ):
-    return build_sampler(
-        {"method": "iid", "profile_path": profile_path, "seed": int(seed)},
-        clock=EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps)),
+    return build_profile_sampler(
+        profile_path,
+        method="iid",
+        seed=seed,
+        env_fps=env_fps,
+        obs_fps=obs_fps,
     )
 
 
