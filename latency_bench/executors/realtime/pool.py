@@ -8,9 +8,11 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from latency_bench.core.types import Observation, PolicyOutput
 from latency_bench.executors.realtime.inference_worker import _inference_worker
 from latency_bench.executors.realtime.messages import (
     RealtimeObservationTask,
@@ -28,6 +30,8 @@ _PROCESS_START_LOCK = threading.Lock()
 
 
 class ProcessInferencePool:
+    """Own inference subprocesses and preserve logical policy-slot state."""
+
     def __init__(
         self,
         *,
@@ -119,6 +123,54 @@ class ProcessInferencePool:
                 )
                 return True
         return False
+
+    def predict_batch(self, observations: Sequence[Observation]) -> list[PolicyOutput]:
+        """Run synchronous batches with stable slot-to-worker ownership."""
+        self._raise_if_closed()
+        indexed_by_worker: list[list[tuple[int, Observation]]] = [
+            [] for _worker_id in self.inference_devices
+        ]
+        for index, observation in enumerate(observations):
+            worker_id = observation.metadata["slot_id"] % self.worker_count
+            indexed_by_worker[worker_id].append((index, observation))
+
+        batch_size = self.config["executor"]["inference_batch_size"]
+        chunks_by_worker = [
+            [items[start : start + batch_size] for start in range(0, len(items), batch_size)]
+            for items in indexed_by_worker
+        ]
+        outputs: list[PolicyOutput | None] = [None] * len(observations)
+        while any(chunks_by_worker):
+            active: list[tuple[int, list[tuple[int, Observation]]]] = []
+            for worker_id, chunks in enumerate(chunks_by_worker):
+                if not chunks:
+                    continue
+                chunk = chunks.pop(0)
+                self._connections[worker_id].send(
+                    ("predict_batch", {"observations": [item[1] for item in chunk]})
+                )
+                active.append((worker_id, chunk))
+            for worker_id, chunk in active:
+                tag, payload = self._connections[worker_id].recv()
+                if tag == "error":
+                    raise RuntimeError(payload["traceback"])
+                if tag != "batch_result":
+                    raise RuntimeError(f"inference worker returned {tag!r} for predict_batch")
+                for (index, _observation), output in zip(chunk, payload["policy_outputs"], strict=True):
+                    outputs[index] = output
+        return outputs  # type: ignore[return-value]
+
+    def reset_state(self, slot_id: int) -> None:
+        """Reset one logical slot on every worker process."""
+        self._raise_if_closed()
+        for connection in self._connections:
+            connection.send(("reset_state", {"slot_id": slot_id}))
+        for connection in self._connections:
+            tag, payload = connection.recv()
+            if tag == "error":
+                raise RuntimeError(payload["traceback"])
+            if tag != "state_reset":
+                raise RuntimeError(f"inference worker returned {tag!r} for reset_state")
 
     def drain_completed(self, now_ms: float) -> list[RealtimePolicyCompletion]:
         del now_ms

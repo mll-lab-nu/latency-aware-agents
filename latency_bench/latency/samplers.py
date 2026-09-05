@@ -480,7 +480,8 @@ def build_episode_sampler_factory(
     """Return a per-episode sampler builder deriving a stream seed per episode.
 
     Seeded IID methods get independent episode streams. Temporal models retain
-    machine state across episodes and therefore use one shared sampler.
+    machine state across episodes: one sampler per replica, reused across that
+    replica's episodes.
     """
     method = resolve_latency_method(latency_cfg)
     if method == "iid":

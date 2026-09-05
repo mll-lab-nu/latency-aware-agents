@@ -97,6 +97,9 @@ class ScriptedInferencePool:
             "pre_episode_in_flight_after_drain": 0,
         }
 
+    def reset_state(self, slot_id: int) -> None:
+        del slot_id
+
     def submit(self, task: RealtimeObservationTask) -> bool:
         idle_worker_ids = [
             worker_id
@@ -514,6 +517,9 @@ class DrainBeforeSubmitPool:
             "pre_episode_in_flight_after_drain": 0,
         }
 
+    def reset_state(self, slot_id: int) -> None:
+        del slot_id
+
     def submit(self, task: RealtimeObservationTask) -> bool:
         if not self.drained:
             return False
@@ -546,6 +552,9 @@ class LateCompletionAfterFinalizePool:
             "pre_episode_drain_wait_ms": 0.0,
             "pre_episode_in_flight_after_drain": 0,
         }
+
+    def reset_state(self, slot_id: int) -> None:
+        del slot_id
 
     def submit(self, task: RealtimeObservationTask) -> bool:
         self.submitted.append(task)
@@ -1048,6 +1057,62 @@ def test_inference_worker_returns_slim_result_without_observation_task(monkeypat
     assert not hasattr(payload["result"], "obs_id")
     assert not hasattr(payload["result"], "worker_id")
     assert not hasattr(payload["result"], "device")
+
+
+def test_inference_worker_batch_predicts_raw_observations_without_localizing(monkeypatch):
+    import latency_bench.core.actions as actions_mod
+    import latency_bench.policy.factory as factory_mod
+
+    class DummyActionResolver:
+        def __init__(self, env_config):
+            self.env_config = env_config
+
+    observations = [
+        Observation(data=np.array([index], dtype=np.float32), env_step=index, sim_time_ms=0.0)
+        for index in range(2)
+    ]
+    captured = []
+
+    class BatchPolicy:
+        def predict_batch(self, raw_observations):
+            captured.extend(raw_observations)
+            return [PolicyOutput(action=Action(index)) for index in range(len(raw_observations))]
+
+    class ExplodingLocalizer:
+        def localize(self, observation):
+            raise AssertionError("batch RPC must pass raw observations")
+
+    class Connection:
+        def __init__(self):
+            self.commands = [
+                ("predict_batch", {"observations": observations}),
+                ("close", {}),
+            ]
+            self.sent = []
+
+        def send(self, message):
+            self.sent.append(message)
+
+        def recv(self):
+            return self.commands.pop(0)
+
+    monkeypatch.setattr(actions_mod, "ActionResolver", DummyActionResolver)
+    monkeypatch.setattr(factory_mod, "build_policy", lambda config, action_resolver: BatchPolicy())
+    monkeypatch.setattr(realtime_inference_worker, "ObservationLocalizer", ExplodingLocalizer)
+    monkeypatch.setattr(realtime_inference_worker, "_worker_runtime_metadata", lambda worker_id, start_method: {})
+
+    connection = Connection()
+    _inference_worker(
+        connection,
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
+        worker_id=0,
+        device="cpu",
+        start_method="spawn",
+    )
+
+    assert [command for command, _payload in connection.sent] == ["ready", "batch_result"]
+    assert [id(item) for item in captured] == [id(item) for item in observations]
+    assert [output.action.value for output in connection.sent[-1][1]["policy_outputs"]] == [0, 1]
 
 
 def test_inference_worker_predicts_from_worker_local_observation_copy(monkeypatch):
@@ -1601,6 +1666,8 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path):
     assert summary["warmup_samples"] == 3
     assert summary["warmup_stage_summary"]["policy_wrapper_predict_action_ms"]["p50"] == pytest.approx(0.4)
     assert len(pool.submitted) == 3
+    assert all(task.observation.metadata["episode_id"] == -1 for task in pool.submitted)
+    assert all(task.observation.metadata["action_noise_seed"] == 0 for task in pool.submitted)
     assert len(formal_logger.latency_records) == 0
     assert (warmup_dir / "warmup_latencies.jsonl").is_file()
     assert (warmup_dir / "warmup_pipeline_profile.jsonl").is_file()
@@ -1737,3 +1804,54 @@ def test_drain_until_idle_broadcasts_collect_to_idle_workers(monkeypatch):
     pool.drain_until_idle()
 
     assert all(connection.sent == [("collect", {})] for connection in connections)
+
+
+def test_batch_inference_routes_slots_stably_and_restores_input_order():
+    class BatchConnection:
+        def __init__(self):
+            self.sent = []
+
+        def send(self, message):
+            self.sent.append(message)
+
+        def recv(self):
+            command, payload = self.sent[-1]
+            if command == "reset_state":
+                return "state_reset", {}
+            return "batch_result", {
+                "policy_outputs": [
+                    PolicyOutput(action=Action(observation.metadata["slot_id"]))
+                    for observation in payload["observations"]
+                ]
+            }
+
+    pool = ProcessInferencePool.__new__(ProcessInferencePool)
+    pool.config = {"executor": {"inference_batch_size": 2}}
+    pool.inference_devices = ["cuda:0", "cuda:1"]
+    pool.closed = False
+    pool._connections = [BatchConnection(), BatchConnection()]
+    slots = [3, 0, 2, 1, 4]
+    observations = [
+        Observation(
+            data=None,
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={"slot_id": slot},
+        )
+        for slot in slots
+    ]
+
+    outputs = pool.predict_batch(observations)
+    pool.reset_state(3)
+
+    assert [output.action.value for output in outputs] == slots
+    assert [
+        [observation.metadata["slot_id"] for observation in payload["observations"]]
+        for command, payload in pool._connections[0].sent
+        if command == "predict_batch"
+    ] == [[0, 2], [4]]
+    assert pool._connections[1].sent[-1] == ("reset_state", {"slot_id": 3})
+    assert pool._connections[0].sent[-1] == ("reset_state", {"slot_id": 3})
+    del pool.config["executor"]["inference_batch_size"]
+    with pytest.raises(KeyError, match="inference_batch_size"):
+        pool.predict_batch(observations)

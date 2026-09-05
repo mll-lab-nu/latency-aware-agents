@@ -46,7 +46,19 @@ evaluation:
   eval_parallel_envs: N
 ```
 
-The current batched simulated executor supports fixed/zero simulated latency. Simulated replay/profile latency is not wall-clock realtime measurement and is not rejected, but the current factory keeps unsupported latency-source combinations on the old single-executor path instead of silently changing semantics.
+The batched simulated executor supports zero, fixed, normal, uniform, IID, and
+temporal profile latency. IID and parametric samplers derive per-episode streams;
+temporal replay keeps one machine-state timeline per replica, including slow
+regimes that span that replica's episode boundaries. Each replica also owns its
+simulated worker capacity; physical inference batching does not create contention
+between replicas. Task entrypoints with an existing native
+vector simulator can inject that vector backend into the same executor instead of
+rebuilding one generic env per slot.
+
+When batched simulation uses `executor.simulated_inference_pool: true`, set
+`executor.inference_batch_size` explicitly. It limits physical batches, not
+simulated worker capacity. Episode and soft resets clear the affected slot's
+policy history on every inference worker.
 
 Optional env stepping backend:
 

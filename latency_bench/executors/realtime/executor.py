@@ -21,6 +21,7 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import (
     ActionEvent,
     EpisodeMetrics,
+    Observation,
     StepRecord,
 )
 from latency_bench.envs.base import EnvAdapter
@@ -163,7 +164,9 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         sample_target = realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES
         submitted_count = 0
         self.env.reset(seed=None)
-        template_observation = self.env.observe()
+        template_observation = self._with_episode_metadata(
+            self.env.observe(), episode_id=-1, episode_seed=0
+        )
         observation_pool = ObservationSlotPool.from_observation(
             template_observation,
             capacity=pool.worker_count,
@@ -173,6 +176,11 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 while pool.idle_worker_count and submitted_count < sample_target:
                     observe_start_ms = monotonic_ms()
                     observation = self.env.observe()
+                    observation = self._with_episode_metadata(
+                        observation,
+                        episode_id=-1,
+                        episode_seed=0,
+                    )
                     observe_end_ms = monotonic_ms()
                     obs_id = self._next_obs_id
                     self._next_obs_id += 1
@@ -332,6 +340,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         eval_max_steps: int,
     ) -> EpisodeMetrics:
         pre_episode_drain = pool.drain_until_idle()
+        pool.reset_state(0)
         self.action_scheduler.reset()
         self.env.reset(seed=seed)
         if self.video_recorder is not None:
@@ -373,6 +382,8 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                     env_step=env_step,
                     submit_time_ms=current_wall_elapsed_ms,
                     wall_clock_lag_ms=wall_clock_lag_ms,
+                    episode_id=episode_id,
+                    episode_seed=seed,
                 )
                 submitted = pool.submit(task)
                 self._record_observation_attempt(
@@ -464,6 +475,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         eval_max_steps: int,
     ) -> EpisodeMetrics:
         pre_episode_drain = pool.drain_until_idle()
+        pool.reset_state(0)
         ctx = mp.get_context(resolve_start_method())
         parent_conn, child_conn = ctx.Pipe()
         process = ctx.Process(
@@ -542,7 +554,11 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                         profile.parent_observation_handle_start_ms = monotonic_ms()
                     task = RealtimeObservationTask(
                         obs_id=self._next_obs_id,
-                        observation=incoming_task.observation,
+                        observation=self._with_episode_metadata(
+                            incoming_task.observation,
+                            episode_id=episode_id,
+                            episode_seed=seed,
+                        ),
                         submit_env_step=incoming_task.submit_env_step,
                         submit_time_ms=incoming_task.submit_time_ms,
                         observation_start_time_ms=(
@@ -837,9 +853,15 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         env_step: int,
         submit_time_ms: float,
         wall_clock_lag_ms: float = 0.0,
+        episode_id: int,
+        episode_seed: int | None,
     ) -> RealtimeObservationTask:
         observe_start_ms = monotonic_ms()
-        observation = self.env.observe()
+        observation = self._with_episode_metadata(
+            self.env.observe(),
+            episode_id=episode_id,
+            episode_seed=episode_seed,
+        )
         observe_end_ms = monotonic_ms()
         obs_id = self._next_obs_id
         self._next_obs_id += 1
@@ -862,6 +884,25 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             submit_time_ms=submit_time_ms,
             observation_start_time_ms=observe_start_ms,
             profile=profile,
+        )
+
+    @staticmethod
+    def _with_episode_metadata(
+        observation: Observation,
+        *,
+        episode_id: int,
+        episode_seed: int | None,
+    ) -> Observation:
+        return Observation(
+            data=observation.data,
+            env_step=observation.env_step,
+            sim_time_ms=observation.sim_time_ms,
+            metadata=observation.metadata
+            | {
+                "episode_id": episode_id,
+                "action_noise_seed": episode_seed,
+                "slot_id": 0,
+            },
         )
 
     def _wall_elapsed_ms(self) -> float:

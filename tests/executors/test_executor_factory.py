@@ -54,7 +54,7 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
             },
         },
         "latency": {
-            "method": "zero",
+            "method": "measured" if mode == "realtime" else "zero",
         },
         "scheduler": {
             "hold_policy": "one_frame_then_noop",
@@ -174,17 +174,13 @@ def test_simulated_mode_builds_simulated_executor(tmp_path):
         executor.env.close()
 
 
-def test_simulated_inference_pool_falls_back_inline_without_cuda(tmp_path, monkeypatch):
+def test_simulated_inference_pool_requires_cuda_when_enabled(tmp_path, monkeypatch):
     monkeypatch.setattr(executor_factory, "visible_cuda_device_count", lambda: 0)
     config = _config(output_dir=str(tmp_path))
     config["executor"]["simulated_inference_pool"] = True
 
-    executor = build_executor(config)
-    try:
-        assert executor.inference_pool is None
-        assert executor.policy is not None
-    finally:
-        executor.close()
+    with pytest.raises(RuntimeError, match="requires at least one visible CUDA device"):
+        build_executor(config)
 
 
 def test_simulated_inference_pool_builds_pool_and_no_parent_policy(tmp_path, monkeypatch):
@@ -246,6 +242,30 @@ def test_build_executor_uses_injected_policy_and_skips_build_policy(tmp_path, mo
 def test_build_executor_realtime_rejects_injected_policy(tmp_path):
     with pytest.raises(ValueError, match="cannot cross the process boundary"):
         build_executor(_config(mode="realtime", output_dir=str(tmp_path)), policy=object())
+
+
+def test_realtime_uses_injected_task_backend_locally(tmp_path):
+    import gymnasium as gym
+
+    from latency_bench.executors.env_step_backend import (
+        EnvStepBackendEnvAdapter,
+        SerialEnvStepBackend,
+    )
+
+    config = _config(mode="realtime", output_dir=str(tmp_path))
+    config["executor"]["inference_devices"] = ["cpu"]
+    env = _build_normalized_noop_env(config, Action(value="env-noop"))
+    env.action_space = gym.spaces.Discrete(2)
+    backend = SerialEnvStepBackend([env])
+
+    executor = build_executor(config, env_backend=backend)
+
+    try:
+        assert isinstance(executor.env, EnvStepBackendEnvAdapter)
+        assert executor.env.backend is backend
+        assert executor.use_env_process is False
+    finally:
+        executor.close()
 
 
 def test_factory_requires_ordering_policy(tmp_path):
@@ -332,6 +352,23 @@ def test_simulated_eval_parallel_envs_1_keeps_old_executor_path(tmp_path):
         assert isinstance(executor, SimulatedLatencyExecutor)
     finally:
         executor.env.close()
+
+
+def test_injected_env_backend_uses_common_batched_executor_with_one_slot(tmp_path):
+    from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
+    from latency_bench.executors.env_step_backend import SerialEnvStepBackend
+
+    config = _config(output_dir=str(tmp_path))
+    env = _build_normalized_noop_env(config, Action(value="env-noop"))
+    backend = SerialEnvStepBackend([env])
+
+    executor = build_executor(config, env_backend=backend)
+
+    try:
+        assert isinstance(executor, BatchedSimulatedLatencyExecutor)
+        assert executor.env_backend is backend
+    finally:
+        executor.close()
 
 
 def test_simulated_parallel_builds_batched_executor_for_supported_zero_latency(tmp_path):
@@ -700,17 +737,13 @@ def test_official_gr00t_uses_every_visible_gpu(monkeypatch, tmp_path):
         executor.env.close()
 
 
-def test_factory_builds_realtime_with_zero_injected_latency(monkeypatch, tmp_path):
+def test_factory_rejects_zero_method_for_realtime(monkeypatch, tmp_path):
     monkeypatch.setattr(executor_factory, "_resolve_realtime_inference_devices", lambda: ["cuda:0"])
     config = _config(mode="realtime", output_dir=str(tmp_path))
     config["latency"] = {"method": "zero", "device": "cuda:0", "sync_cuda": True}
 
-    executor = build_executor(config)
-
-    try:
-        assert isinstance(executor, RealtimeLatencyExecutor)
-    finally:
-        executor.env.close()
+    with pytest.raises(ValueError, match="latency.method=measured"):
+        build_executor(config)
 
 
 def test_factory_rejects_non_zero_latency_for_paused(tmp_path):
@@ -831,9 +864,10 @@ def test_temporal_latency_source_gets_no_per_episode_streams(tmp_path):
         "seed": 0,
     }
 
-    # The hidden regime is session-scoped machine state: a per-episode stream
-    # would rebuild the sampler at every reset and heal a degraded machine.
-    assert build_episode_sampler_factory(latency_cfg, EnvClock(env_fps=30.0, obs_fps=30.0)) is None
+    assert build_episode_sampler_factory(
+        latency_cfg,
+        EnvClock(env_fps=30.0, obs_fps=30.0),
+    ) is None
 
     config = _config(output_dir=str(tmp_path))
     config["latency"] = dict(latency_cfg)
@@ -845,7 +879,7 @@ def test_temporal_latency_source_gets_no_per_episode_streams(tmp_path):
         executor.env.close()
 
 
-def test_parallel_simulated_temporal_shares_one_machine_timeline(tmp_path):
+def test_parallel_simulated_temporal_keeps_one_timeline_per_replica(tmp_path):
     from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
     from latency_bench.latency.samplers import HiddenRegimeSampler
 
@@ -869,8 +903,11 @@ def test_parallel_simulated_temporal_shares_one_machine_timeline(tmp_path):
         assert isinstance(executor, BatchedSimulatedLatencyExecutor)
         assert executor.episode_latency_source_factory is None
         sources = {id(slot.latency_source) for slot in executor.slots}
-        assert len(sources) == 1
+        assert len(sources) == 3
         assert isinstance(executor.slots[0].latency_source, HiddenRegimeSampler)
+        # Identical seeds in distinct RNG objects would still couple replicas.
+        streams = [tuple(slot.latency_source.rng.random() for _ in range(8)) for slot in executor.slots]
+        assert len(set(streams)) == 3
     finally:
         executor.close()
 

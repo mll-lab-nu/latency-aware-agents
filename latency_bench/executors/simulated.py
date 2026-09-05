@@ -6,7 +6,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import ActionEvent, EpisodeMetrics, Observation, PolicyOutput, StepRecord
+from latency_bench.core.types import (
+    ActionEvent,
+    EpisodeMetrics,
+    LatencyRecord,
+    Observation,
+    PolicyOutput,
+    StepRecord,
+)
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors._simulated_timeline import (
     LatencySample,
@@ -54,8 +61,8 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
     With ``inference_pool`` set, forward passes run batch-1 on per-GPU worker
     processes (the same pool the realtime executor uses) while the episode
     stream stays serial — mirroring how a measure run's machine serves one
-    env with several inference workers. Policy state then lives in the
-    workers, exactly like realtime: per-episode ``reset_state`` is not sent.
+    env with several inference workers. Policy state lives in the workers and
+    is reset there at each episode boundary.
     """
 
     def __init__(
@@ -104,6 +111,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         self.action_scheduler.reset()
         if self.inference_pool is not None:
             self.inference_pool.drain_until_idle()
+            self.inference_pool.reset_state(0)
         else:
             self.policy.reset_state(slot_id=0)
         self.env.reset(seed=seed)
@@ -129,6 +137,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         pending_inferences: deque[_PendingInference] = deque()
         pending_results: dict[int, PolicyOutput] = {}
         submit_queue: deque[RealtimeObservationTask] = deque()
+        pooled_latency_records: list[LatencyRecord] = []
 
         def fuse_ready_results() -> None:
             # A completed newer observation must enter the timeline immediately;
@@ -160,7 +169,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                 action_events.append(event)
                 latency_values_ms.append(item.latency_sample.latency_ms)
                 if self.logger is not None:
-                    self.logger.log_latency(latency_record)
+                    pooled_latency_records.append(latency_record)
 
         def wait_for_events_due(due_raw_frame: int | None) -> None:
             # Virtual time out-waits the wall clock: nothing advances past a
@@ -222,6 +231,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                         {
                             "obs_id": obs_id,
                             "episode_id": episode_id,
+                            "action_noise_seed": seed,
                             "slot_id": 0,
                         }
                     )
@@ -333,6 +343,8 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                 result_timeline.reset()
                 if pool is None:
                     self.policy.reset_state(slot_id=0)
+                else:
+                    pool.reset_state(0)
                 worker_capacity.reset()
                 recent_drop_count = 0
 
@@ -346,7 +358,9 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         for released_event in final_released:
             self.action_scheduler.enqueue(released_event)
         if self.logger is not None:
-            for event in action_events:
+            for record in sorted(pooled_latency_records, key=lambda item: item.obs_id):
+                self.logger.log_latency(record)
+            for event in sorted(action_events, key=lambda item: item.action_id):
                 self.logger.log_action_event(event)
         if self.simulated_worker_capacity is not None:
             episode_metadata.update(

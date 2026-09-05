@@ -702,6 +702,7 @@ def test_batched_executor_adds_slot_id_to_policy_observation_metadata(tmp_path: 
             "slot_index": 0,
             "slot_id": 0,
             "episode_id": 0,
+            "action_noise_seed": 1,
             "obs_id": 0,
         },
         {
@@ -710,6 +711,7 @@ def test_batched_executor_adds_slot_id_to_policy_observation_metadata(tmp_path: 
             "slot_index": 1,
             "slot_id": 1,
             "episode_id": 1,
+            "action_noise_seed": 2,
             "obs_id": 1,
         },
     ]
@@ -868,7 +870,7 @@ def test_batched_executor_keeps_slot_latency_sources_independent(tmp_path: Path)
     assert [source.calls for source in latency_sources] == [2, 2]
 
 
-def test_batched_executor_worker_capacity_is_per_slot(tmp_path: Path):
+def test_batched_executor_worker_capacity_is_independent_per_slot(tmp_path: Path):
     latency_sources = [
         RawFrameLatencySource([3, 3]),
         RawFrameLatencySource([3, 3]),

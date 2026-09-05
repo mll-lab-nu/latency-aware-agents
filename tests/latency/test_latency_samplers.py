@@ -365,6 +365,28 @@ def test_hidden_regime_sampler_episode_change_preserves_burst_regime():
     assert sampler.sample({"episode_id": 1, "worker_slot": 0}).worker_service_ms == pytest.approx(40.0)
 
 
+def test_hidden_regime_sampler_draws_entry_probability_once_per_episode(monkeypatch):
+    # Each sampler belongs to one replica, so episode transitions are observed
+    # in that replica's episode order.
+    model = _hand_model(
+        rank_process=_rank_process(severity=1.0, level_ms=100.0),
+        enter_burst_count=1000,
+        dwell=1.0,
+    )
+    sampler = HiddenRegimeSampler(model, _hand_distributions(), clock=_clock(), seed=3)
+    draws: list[tuple[str, str]] = []
+
+    def counting(source: str, target: str) -> float:
+        draws.append((source, target))
+        return 0.0
+
+    monkeypatch.setattr(sampler, "_episode_transition_prob", counting)
+    for episode_id in range(5):
+        for _ in range(50):
+            sampler.sample({"episode_id": episode_id, "worker_slot": 0})
+    assert draws == [("calm", "burst")] * 5
+
+
 def test_hidden_regime_sampler_zero_severity_never_exceeds_threshold():
     # A device whose burst records were all sub-threshold interleaved normals:
     # severity zero with an emission, so no spike is ever emitted.
