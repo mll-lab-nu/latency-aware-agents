@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import numpy as np
 import torch
 
 
@@ -15,6 +17,32 @@ _SAMPLE_FACTORY_CHECKPOINT_RETENTION_PATCHED = False
 _SAMPLE_FACTORY_LEARNER_INIT_PATCHED = False
 _EVAL_LEASE_DIR = ".latency_bench_eval_leases"
 _EVAL_RETENTION_DIR = ".latency_bench_eval_checkpoints"
+
+
+def atomic_torch_save(payload: Any, path: str | os.PathLike[str]) -> None:
+    """Replace a single-writer checkpoint only after serialization succeeds."""
+    path = Path(path)
+    temporary = path.with_name(path.name + ".tmp")
+    torch.save(payload, temporary)
+    os.replace(temporary, path)
+
+
+def capture_rng_state() -> dict[str, Any]:
+    """Snapshot native learner random streams without starting CUDA for CPU runs."""
+    return {
+        "torch_rng": torch.get_rng_state(),
+        "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_initialized() else [],
+        "numpy_rng": np.random.get_state(),
+        "python_rng": random.getstate(),
+    }
+
+
+def restore_rng_state(state: dict[str, Any]) -> None:
+    """Restore learner streams after constructing and loading model state."""
+    torch.set_rng_state(state["torch_rng"].cpu())
+    torch.cuda.set_rng_state_all([value.cpu() for value in state["cuda_rng"]])
+    np.random.set_state(state["numpy_rng"])
+    random.setstate(state["python_rng"])
 
 
 def experiment_dir(train_dir: str | os.PathLike[str], experiment_name: str) -> Path:
