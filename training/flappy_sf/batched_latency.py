@@ -8,7 +8,7 @@ import numpy as np
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import (
     LatencyDistributionSpec,
-    derive_latency_seed,
+    derive_seed,
     distribution_max_frame_latency,
     latency_distribution_label,
     make_latency_distribution_sampler,
@@ -297,7 +297,7 @@ class BatchedFlappyLatencyScheduler:
         if self.latency_distribution_spec is None:
             self.latency_distribution_samplers[agent_idx] = None
             return
-        seed = derive_latency_seed(
+        seed = derive_seed(
             int(self.base_latency_seeds[agent_idx]),
             episode_idx=int(self.episode_idx[agent_idx]),
         )

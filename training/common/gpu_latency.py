@@ -9,7 +9,7 @@ import torch
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import (
     LatencyDistributionSpec,
-    derive_latency_seed,
+    derive_seed,
     distribution_max_frame_latency,
     latency_distribution_label,
     make_latency_distribution_sampler,
@@ -507,7 +507,7 @@ class CudaLatencyScheduler:
             return
         states = np.asarray(
             [
-                derive_latency_seed(
+                derive_seed(
                     int(self.base_latency_seeds[int(agent_idx)]),
                     episode_idx=int(self.episode_idx_cpu[int(agent_idx)]) + int(episode_offset),
                 )
@@ -542,7 +542,7 @@ class CudaLatencyScheduler:
         if self.latency_distribution_spec is None:
             return int(self.fixed_latency_raw_frames)
         if self.sample_distribution_per_episode:
-            seed = derive_latency_seed(
+            seed = derive_seed(
                 int(self.base_latency_seeds[int(agent_idx)]),
                 episode_idx=int(self.episode_idx_cpu[int(agent_idx)]),
             )

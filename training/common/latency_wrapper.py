@@ -12,7 +12,7 @@ from gymnasium.spaces import Box, Discrete, Tuple as GymTuple
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import (
     LatencyDistributionSpec,
-    derive_latency_seed,
+    derive_seed,
     distribution_max_frame_latency,
     latency_distribution_label,
     make_latency_distribution_sampler,
@@ -170,7 +170,7 @@ class ActionLatencyWrapper(gym.Wrapper):
         if self.latency_distribution_spec is None:
             self.latency_distribution_sampler = None
             return
-        seed = derive_latency_seed(self.base_latency_seed, episode_idx=int(self.episode_idx))
+        seed = derive_seed(self.base_latency_seed, episode_idx=int(self.episode_idx))
         self.latency_distribution_sampler = make_latency_distribution_sampler(
             self.latency_distribution_spec,
             seed=seed,

@@ -7,7 +7,7 @@ from statistics import NormalDist
 from typing import Any, Callable
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.latency_distribution import derive_latency_seed
+from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.latency.config import (
     SEEDED_STOCHASTIC_METHODS,
     latency_type_from_config,
@@ -493,7 +493,7 @@ def build_episode_sampler_factory(
             sampler = IidInverseCdfSampler(
                 distribution,
                 clock=clock,
-                seed=derive_latency_seed(seed, episode_idx=episode_id),
+                seed=derive_seed(seed, episode_idx=episode_id),
             )
             return _finalize_sampler(
                 sampler,
@@ -515,7 +515,7 @@ def build_episode_sampler_factory(
 
     def build_for_episode(episode_id: int) -> LatencySampler:
         episode_latency_cfg = dict(latency_cfg)
-        episode_latency_cfg["seed"] = derive_latency_seed(seed, episode_idx=episode_id)
+        episode_latency_cfg["seed"] = derive_seed(seed, episode_idx=episode_id)
         return build_sampler(episode_latency_cfg, clock=clock)
 
     return build_for_episode

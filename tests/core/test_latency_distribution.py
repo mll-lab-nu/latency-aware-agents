@@ -4,7 +4,7 @@ import pytest
 
 from latency_bench.core.latency_distribution import (
     LatencyDistributionSpec,
-    derive_latency_seed,
+    derive_seed,
     distribution_max_frame_latency,
     latency_distribution_label,
     make_latency_distribution_sampler,
@@ -96,9 +96,9 @@ def test_normal_mean_may_be_outside_bounds_but_samples_are_clamped_and_rounded()
 
 def test_samplers_are_deterministic_without_global_random_state():
     spec = parse_latency_distribution({"type": "uniform", "min": 0, "max": 15})
-    first = make_latency_distribution_sampler(spec, seed=derive_latency_seed(7, worker_index=1, vector_index=2))
-    second = make_latency_distribution_sampler(spec, seed=derive_latency_seed(7, worker_index=1, vector_index=2))
-    other = make_latency_distribution_sampler(spec, seed=derive_latency_seed(7, worker_index=1, vector_index=3))
+    first = make_latency_distribution_sampler(spec, seed=derive_seed(7, worker_index=1, vector_index=2))
+    second = make_latency_distribution_sampler(spec, seed=derive_seed(7, worker_index=1, vector_index=2))
+    other = make_latency_distribution_sampler(spec, seed=derive_seed(7, worker_index=1, vector_index=3))
 
     assert [first.sample_frame() for _ in range(20)] == [second.sample_frame() for _ in range(20)]
     assert [second.sample_frame() for _ in range(20)] != [other.sample_frame() for _ in range(20)]
