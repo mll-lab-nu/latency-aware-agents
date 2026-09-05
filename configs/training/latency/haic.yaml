@@ -1,0 +1,26 @@
+experiment:
+  name: haic_pull_cart_latency_command
+  seed: 0
+
+env:
+  name: haic_pull_cart
+  env_fps: 50
+  obs_fps: 10
+  simulator_device: cuda:0
+
+latency:
+  method: fixed
+  fixed_latency_ms: 0
+  seed: 0
+
+executor:
+  simulated_worker_capacity: 1
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+
+command:
+  dimension: 256
+  horizon: 40
+  control_repeat: 5
