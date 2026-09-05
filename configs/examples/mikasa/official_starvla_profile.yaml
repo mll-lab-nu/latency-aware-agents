@@ -14,7 +14,7 @@ env:
   base_prompt: Intercept the rolling ball and grasp it to stop it.
 
 latency:
-  method: zero
+  method: measured
   sync_cuda: false
 
 scheduler:

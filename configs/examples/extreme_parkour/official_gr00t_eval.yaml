@@ -14,12 +14,12 @@ env:
   base_prompt: Traverse the parkour course and follow each waypoint.
 
 latency:
-  method: zero
+  method: measured
   sync_cuda: false
 
 policy:
   type: official_gr00t
-  model_path: /pfs/users/lxy/latency-sensitive-bench/outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_sampler_dagger/training/extreme_parkour_go2_vla_dagger_action_yaw_h40_official_sampler_5k/checkpoint-5000
+  model_path: outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_flow_aux_dagger/training/extreme_parkour_go2_vla_dagger_action_yaw_h40_official_flow_aux_5k/checkpoint-5000
   embodiment_tag: NEW_EMBODIMENT
   device: cuda:1
   strict: true
@@ -37,7 +37,7 @@ evaluation:
   eval_deterministic: true
 
 logging:
-  output_dir: outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_sampler_dagger/profile
+  output_dir: outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_flow_aux_dagger/profile
   video:
     enabled: false
     num_bins: 10

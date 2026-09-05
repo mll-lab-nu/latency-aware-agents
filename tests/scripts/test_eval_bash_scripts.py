@@ -1112,6 +1112,24 @@ printf 'start_method=%s\\n' "${LATENCY_BENCH_ENV_BACKEND_START_METHOD:-}" >> "$L
         assert "start_method=spawn" in calls
 
 
+@pytest.mark.parametrize("task", [
+    "haic_pull_cart", "extreme_parkour_go2", "humanoidbench_balance_simple",
+])
+def test_task_profile_launcher_preserves_explicit_artifact_source(tmp_path, task):
+    _write_executable(tmp_path / "bash", "#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
+    _write_executable(tmp_path / "uv", "#!/bin/sh\nexit 0\n")
+    for source_args in (["--hf-artifacts"], ["--model-path", "/models/exact"]):
+        result = subprocess.run(
+            ["/bin/bash", str(REPO_ROOT / "scripts/tasks" / task / "profile.sh"),
+             *source_args],
+            env=os.environ | {"PATH": f"{tmp_path}:{os.environ['PATH']}"},
+            capture_output=True, text=True, check=True,
+        )
+        forwarded = result.stdout.splitlines()
+        assert forwarded[-len(source_args):] == source_args
+        assert forwarded.count("--model-path") == source_args.count("--model-path")
+
+
 
 
 def test_sim2real_build_figures_builds_data_before_plotting(tmp_path):
