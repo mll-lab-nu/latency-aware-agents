@@ -17,6 +17,7 @@ import wandb
 import yaml
 
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
+from gr00t.data.stats import generate_stats
 from gr00t.policy import Gr00tPolicy
 from latency_bench.core.config import load_config
 
@@ -112,6 +113,7 @@ def train_to_next_checkpoint(
 
 
 def validation_metrics(checkpoint: Path, val_dataset: Path) -> dict[str, float]:
+    generate_stats(val_dataset)
     policy = Gr00tPolicy(
         embodiment_tag="NEW_EMBODIMENT",
         model_path=checkpoint,
@@ -119,7 +121,7 @@ def validation_metrics(checkpoint: Path, val_dataset: Path) -> dict[str, float]:
     )
     loader = LeRobotEpisodeLoader(val_dataset, policy.get_modality_config())
     episode = loader[0]
-    count = min(128, len(episode) - 39)
+    count = min(128, len(episode))
     states = np.stack(episode["state.state"].iloc[:count]).astype(np.float32)[:, None]
     videos = np.stack([np.asarray(x) for x in episode["video.ego_view"].iloc[:count]])[
         :, None

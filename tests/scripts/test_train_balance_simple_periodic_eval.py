@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import numpy as np
+import pandas as pd
 import yaml
 
 
@@ -78,11 +80,14 @@ def test_balance_modality_repeats_one_action_across_h40(monkeypatch):
 def _load_runner(monkeypatch):
     loader_module = ModuleType("gr00t.data.dataset.lerobot_episode_loader")
     loader_module.LeRobotEpisodeLoader = object
+    stats_module = ModuleType("gr00t.data.stats")
+    stats_module.generate_stats = lambda dataset: None
     policy_module = ModuleType("gr00t.policy")
     policy_module.Gr00tPolicy = object
     monkeypatch.setitem(
         sys.modules, "gr00t.data.dataset.lerobot_episode_loader", loader_module
     )
+    monkeypatch.setitem(sys.modules, "gr00t.data.stats", stats_module)
     monkeypatch.setitem(sys.modules, "gr00t.policy", policy_module)
     spec = importlib.util.spec_from_file_location(
         "train_balance_simple_periodic_eval",
@@ -151,6 +156,50 @@ def test_balance_runner_accepts_a_finite_resume_schedule(monkeypatch, tmp_path):
     assert calls[0][1]["env"]["CUDA_VISIBLE_DEVICES"] == "3"
     assert "--resume-from-checkpoint" not in first_command
     assert "--resume-from-checkpoint" in second_command
+
+
+def test_balance_validation_supports_short_repeat_current_episode(monkeypatch, tmp_path):
+    runner = _load_runner(monkeypatch)
+    (tmp_path / "val" / "meta").mkdir(parents=True)
+    monkeypatch.setattr(
+        runner, "generate_stats",
+        lambda dataset: (dataset / "meta" / "stats.json").write_text("{}"),
+    )
+    episode = pd.DataFrame(
+        {
+            "state.state": [np.zeros(198, dtype=np.float32)] * 19,
+            "video.ego_view": [np.zeros((2, 2, 3), dtype=np.uint8)] * 19,
+            "language.annotation.human.task_description": ["balance"] * 19,
+            "action.action": [np.arange(43, dtype=np.float32) + i for i in range(19)],
+        }
+    )
+
+    class FakePolicy:
+        def __init__(self, **kwargs):
+            pass
+
+        def get_modality_config(self):
+            return {}
+
+        def get_action(self, batch):
+            size = len(batch["state"]["state"])
+            return {"action": np.zeros((size, 40, 43), dtype=np.float32)}, None
+
+    class FakeLoader:
+        def __init__(self, dataset, modality_config):
+            json.loads((dataset / "meta" / "stats.json").read_text())
+
+        def __getitem__(self, index):
+            return episode
+
+    monkeypatch.setattr(runner, "Gr00tPolicy", FakePolicy)
+    monkeypatch.setattr(runner, "LeRobotEpisodeLoader", FakeLoader)
+
+    metrics = runner.validation_metrics(tmp_path / "checkpoint", tmp_path / "val")
+
+    assert metrics["body_mae"] == 23.0
+    assert metrics["all_mae"] == 30.0
+    assert metrics["repeat_std_max"] == 0.0
 
 
 def test_balance_periodic_eval_propagates_full_latency_config(monkeypatch, tmp_path):
