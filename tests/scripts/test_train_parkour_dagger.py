@@ -38,7 +38,10 @@ from scripts.official_gr00t.train_parkour_dagger import (
 
 def test_main_defaults_to_all_dagger_rounds(monkeypatch):
     captured = {}
-    monkeypatch.setattr("sys.argv", ["train_parkour_dagger.py"])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["train_parkour_dagger.py", "--latency-profile-path", "profile.json"],
+    )
     monkeypatch.setattr(dagger, "run_pipeline", lambda args: captured.update(vars(args)))
 
     dagger.main()
@@ -50,11 +53,13 @@ def test_main_defaults_to_all_dagger_rounds(monkeypatch):
     )
     assert captured["base_model"] == DEFAULT_BASE_MODEL
     assert captured["bootstrap_dataset"] == DEFAULT_BOOTSTRAP_DATASET
+    assert captured["bootstrap_raw"] is None
     assert captured["bootstrap_checkpoint"] == bootstrap_checkpoint_dir(
         DEFAULT_OUTPUT_ROOT / "bootstrap" / "training",
         "extreme_parkour_go2_vla_dagger_action_yaw_h40_official_flow_aux_5k_sft",
     )
     assert captured["run_bootstrap"] is False
+    assert captured["latency_profile_path"] == Path("profile.json")
     assert (
         captured["parkour_startup_timeout_sec"]
         == DEFAULT_PARKOUR_STARTUP_TIMEOUT_SEC
@@ -156,13 +161,18 @@ def test_commands_preserve_round_resume_contract():
     assert first_train[first_train.index("--save-total-limit") + 1] == "2"
     assert first_train[first_train.index("--experiment-name") + 1] == "action-yaw"
     assert first_train[first_train.index("--action-objective") + 1] == "parkour"
+    assert first_train[first_train.index("--action-horizon") + 1] == "40"
+    assert first_train[first_train.index("--num-inference-timesteps") + 1] == "4"
+    assert "--allow-padding" in first_train
+    assert "--fixed-action-noise-seed" not in first_train
+    assert "--one-step-action-regression" not in first_train
     assert first_train[first_train.index("--action-actor-checkpoint") + 1] == str(
         teacher
     )
     assert first_train[first_train.index("--learning-rate") + 1] == "0.00005"
     eval_command = collector_command(
         Path("python"),
-        mode="vla-eval",
+        mode="latency-eval",
         teacher_checkpoint=teacher,
         policy_config=Path("policy.yaml"),
         output_dir=Path("eval"),
@@ -278,6 +288,27 @@ raise SystemExit(7)
     assert not _process_is_running(pid)
 
 
+def test_parkour_runtime_failure_after_startup_is_nonzero(tmp_path):
+    script = """
+from pathlib import Path
+import sys
+
+Path(sys.argv[1]).touch()
+raise SystemExit(7)
+"""
+    ready = tmp_path / "ready"
+
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        dagger.run_parkour_command(
+            [sys.executable, "-c", script, str(ready)],
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            startup_timeout_sec=1.0,
+        )
+
+    assert error.value.returncode == 7
+
+
 def test_parkour_parent_sigterm_cleans_child_process_group(tmp_path):
     child_pid = tmp_path / "child-pid"
     orchestrator_script = """
@@ -362,7 +393,9 @@ def test_run_bootstrap_returns_fresh_checkpoint_path(tmp_path, monkeypatch):
     monkeypatch.setattr(dagger, "run_parkour_command", fake_run)
     args = argparse.Namespace(
         base_model=tmp_path / "base-model",
+        bootstrap_updates=dagger.BOOTSTRAP_UPDATES,
         bootstrap_dataset=tmp_path / "action-bootstrap",
+        bootstrap_raw=None,
         teacher_checkpoint=tmp_path / "teacher.pt",
         output_root=tmp_path / "output",
         policy_config=tmp_path / "policy.yaml",
@@ -387,6 +420,38 @@ def test_run_bootstrap_returns_fresh_checkpoint_path(tmp_path, monkeypatch):
     assert training_kwargs["env"]["WANDB_RUN_ID"] == "action-yaw_sft"
 
 
+def test_run_bootstrap_reuses_explicit_raw_without_collecting(tmp_path, monkeypatch):
+    captured = []
+    monkeypatch.setattr(
+        dagger.subprocess,
+        "run",
+        lambda command, **kwargs: captured.append((command, kwargs)),
+    )
+    args = argparse.Namespace(
+        base_model=tmp_path / "base-model",
+        bootstrap_updates=dagger.BOOTSTRAP_UPDATES,
+        bootstrap_dataset=tmp_path / "action-bootstrap",
+        bootstrap_raw=tmp_path / "existing-raw",
+        teacher_checkpoint=tmp_path / "teacher.pt",
+        output_root=tmp_path / "output",
+        policy_config=tmp_path / "policy.yaml",
+        parkour_python=Path("/usr/bin/python"),
+        inference_device=["cuda:1"],
+        inference_batch_size=32,
+        parkour_startup_timeout_sec=300.0,
+        wandb_run_id="action-yaw",
+    )
+
+    dagger.run_bootstrap(args)
+
+    assert len(captured) == 2
+    assert captured[0][0][2:4] == [
+        str(args.bootstrap_raw),
+        str(args.bootstrap_dataset),
+    ]
+    assert str(dagger.FINETUNE_SCRIPT) in captured[1][0]
+
+
 def test_run_bootstrap_rejects_oracle_below_teacher_gate(tmp_path, monkeypatch):
     def fake_run(command, **kwargs):
         output_dir = Path(command[command.index("--output_dir") + 1])
@@ -400,7 +465,9 @@ def test_run_bootstrap_rejects_oracle_below_teacher_gate(tmp_path, monkeypatch):
     monkeypatch.setattr(dagger, "run_parkour_command", fake_run)
     args = argparse.Namespace(
         base_model=tmp_path / "base-model",
+        bootstrap_updates=dagger.BOOTSTRAP_UPDATES,
         bootstrap_dataset=tmp_path / "action-bootstrap",
+        bootstrap_raw=None,
         teacher_checkpoint=tmp_path / "teacher.pt",
         output_root=tmp_path / "output",
         policy_config=tmp_path / "policy.yaml",
@@ -420,7 +487,12 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
 ):
     output_root = tmp_path / "output"
     policy_config = tmp_path / "policy.yaml"
-    policy_config.write_text("policy:\n  model_path: old\n  device: cuda:0\n")
+    policy_config.write_text(
+        "env: {}\n"
+        "policy:\n  model_path: old\n  device: cuda:0\n"
+        "evaluation: {}\n"
+        "logging:\n  output_dir: old\n"
+    )
     events = []
 
     def fake_run(command, **kwargs):
@@ -430,8 +502,21 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
             events.append(f"{mode}:{num_envs}")
             output_dir = Path(command[command.index("--output_dir") + 1])
             output_dir.mkdir(parents=True, exist_ok=True)
-            if mode == "vla-eval":
-                (output_dir / "vla-eval.json").write_text("{}\n")
+            if mode == "latency-eval":
+                (output_dir / "queue_eval_latency_profile_sample.json").write_text(
+                    json.dumps(
+                        {
+                            "mean_return": 1.0,
+                            "std_return": 0.0,
+                            "mean_length": 1.0,
+                            "lengths": [1.0],
+                            "task_metrics": {
+                                "normalized_waypoint_progress": {"mean": 1.0, "std": 0.0},
+                                "edge_violation": {"mean": 0.0, "std": 0.0},
+                            },
+                        }
+                    )
+                )
         elif str(dagger.PREPARE_SCRIPT) in command:
             events.append("prepare")
             assert kwargs["env"]["PYTHONPATH"] == str(dagger.REPO_ROOT)
@@ -461,6 +546,7 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
         bootstrap_dataset=tmp_path / "bootstrap_dataset",
         output_root=output_root,
         policy_config=policy_config,
+        latency_profile_path=tmp_path / "profile.json",
         parkour_python=Path("/usr/bin/python"),
         inference_device=["cuda:1"],
         inference_batch_size=32,
@@ -476,18 +562,18 @@ def test_two_round_orchestration_aggregates_datasets_and_keeps_lerobot(
     round0_dataset = output_root / "round_00/lerobot"
     round1_dataset = output_root / "round_01/lerobot"
     assert events == [
-        "vla-eval:50",
+        "latency-eval:50",
         "wandb:0",
         "dagger-collect:192",
         "prepare",
         "train:" + str(round0_dataset),
-        "vla-eval:50",
+        "latency-eval:50",
         "wandb:500",
         "dagger-collect:192",
         "prepare",
         "train:"
         + os.pathsep.join(str(path) for path in [round0_dataset, round1_dataset]),
-        "vla-eval:50",
+        "latency-eval:50",
         "wandb:1000",
     ]
     assert (
@@ -538,8 +624,21 @@ def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypa
             events.append(mode)
             output_dir = Path(command[command.index("--output_dir") + 1])
             output_dir.mkdir(parents=True, exist_ok=True)
-            if mode == "vla-eval":
-                (output_dir / "vla-eval.json").write_text("{}\n")
+            if mode == "latency-eval":
+                (output_dir / "queue_eval_latency_profile_sample.json").write_text(
+                    json.dumps(
+                        {
+                            "mean_return": 1.0,
+                            "std_return": 0.0,
+                            "mean_length": 1.0,
+                            "lengths": [1.0],
+                            "task_metrics": {
+                                "normalized_waypoint_progress": {"mean": 1.0, "std": 0.0},
+                                "edge_violation": {"mean": 0.0, "std": 0.0},
+                            },
+                        }
+                    )
+                )
         elif str(dagger.PREPARE_SCRIPT) in command:
             events.append("prepare")
             dataset_dir = Path(command[3])
@@ -558,6 +657,7 @@ def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypa
         bootstrap_dataset=tmp_path / "bootstrap_dataset",
         output_root=output_root,
         policy_config=policy_config,
+        latency_profile_path=tmp_path / "profile.json",
         parkour_python=Path("/usr/bin/python"),
         inference_device=["cuda:1"],
         inference_batch_size=32,
@@ -574,20 +674,28 @@ def test_existing_marker_must_match_training_dataset_manifest(tmp_path, monkeypa
     assert events == ["dagger-collect", "prepare"]
 
 
-def test_read_eval_metrics_flattens_vla_eval_json(tmp_path):
-    eval_path = tmp_path / "vla-eval.json"
+def test_read_eval_metrics_flattens_common_eval_summary(tmp_path):
+    eval_path = tmp_path / "queue_eval_latency_0.json"
     eval_path.write_text(
-        '{"reward":{"mean":1.0,"std":0.2},'
-        '"episode_length":{"mean":3.0,"std":0.4},'
-        '"normalized_waypoint_progress":{"mean":0.5,"std":0.1},'
-        '"edge_violation":{"mean":0.0,"std":0.3}}\n'
+        json.dumps(
+            {
+                "mean_return": 1.0,
+                "std_return": 0.2,
+                "mean_length": 3.0,
+                "lengths": [2.0, 4.0],
+                "task_metrics": {
+                    "normalized_waypoint_progress": {"mean": 0.5, "std": 0.1},
+                    "edge_violation": {"mean": 0.0, "std": 0.3},
+                },
+            }
+        )
     )
 
     assert read_eval_metrics(eval_path) == {
         "dagger_eval/reward_mean": 1.0,
         "dagger_eval/reward_std": 0.2,
         "dagger_eval/episode_length_mean": 3.0,
-        "dagger_eval/episode_length_std": 0.4,
+        "dagger_eval/episode_length_std": 1.0,
         "dagger_eval/normalized_waypoint_progress_mean": 0.5,
         "dagger_eval/normalized_waypoint_progress_std": 0.1,
         "dagger_eval/edge_violation_mean": 0.0,
@@ -596,12 +704,20 @@ def test_read_eval_metrics_flattens_vla_eval_json(tmp_path):
 
 
 def test_log_eval_metrics_uses_training_step_and_run(tmp_path, monkeypatch):
-    eval_path = tmp_path / "vla-eval.json"
+    eval_path = tmp_path / "queue_eval_latency_0.json"
     eval_path.write_text(
-        '{"reward":{"mean":1.0,"std":0.2},'
-        '"episode_length":{"mean":3.0,"std":0.4},'
-        '"normalized_waypoint_progress":{"mean":0.5,"std":0.1},'
-        '"edge_violation":{"mean":0.0,"std":0.3}}\n'
+        json.dumps(
+            {
+                "mean_return": 1.0,
+                "std_return": 0.2,
+                "mean_length": 3.0,
+                "lengths": [2.0, 4.0],
+                "task_metrics": {
+                    "normalized_waypoint_progress": {"mean": 0.5, "std": 0.1},
+                    "edge_violation": {"mean": 0.0, "std": 0.3},
+                },
+            }
+        )
     )
     calls = {}
 
@@ -622,11 +738,11 @@ def test_log_eval_metrics_uses_training_step_and_run(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(dagger.wandb, "teardown", lambda: None)
 
-    dagger.log_eval_metrics(eval_path, step=500, run_id="latent-only")
+    dagger.log_eval_metrics(eval_path, step=500, run_id="flow-aux")
 
     assert calls["init"] == {
         "project": "finetune-gr00t-n1d7",
-        "id": "latent-only",
+        "id": "flow-aux",
         "resume": "allow",
     }
     assert calls["metric"] == ("dagger_eval/*", "train/global_step")

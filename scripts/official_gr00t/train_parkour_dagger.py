@@ -18,6 +18,7 @@ import wandb
 import yaml
 
 from latency_bench.data.parkour_dagger import PARKOUR_ACTION_HORIZON
+from latency_bench.utils.stats import std as series_std
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +41,7 @@ PARKOUR_DAGGER_ROWS_PER_ROUND = (
 )
 PARKOUR_DAGGER_SHARD_ROWS = 1_000
 DEFAULT_INFERENCE_BATCH_SIZE = 32
+PARKOUR_EVAL_INFERENCE_BATCH_SIZE = 8
 DEFAULT_PARKOUR_STARTUP_TIMEOUT_SEC = 300.0
 PARKOUR_EVAL_EPISODES = 100
 PARKOUR_EVAL_MAX_EPISODE_STEPS = 1500
@@ -73,8 +75,12 @@ def checkpoint_dir(training_output: Path, completed_rounds: int) -> Path:
     return training_output / f"checkpoint-{completed_rounds * UPDATES_PER_ROUND}"
 
 
-def bootstrap_checkpoint_dir(training_output: Path, experiment_name: str) -> Path:
-    return training_output / experiment_name / f"checkpoint-{BOOTSTRAP_UPDATES}"
+def bootstrap_checkpoint_dir(
+    training_output: Path,
+    experiment_name: str,
+    updates: int = BOOTSTRAP_UPDATES,
+) -> Path:
+    return training_output / experiment_name / f"checkpoint-{updates}"
 
 
 def training_dataset_dirs(
@@ -96,6 +102,56 @@ def write_policy_config(
     config = yaml.safe_load(source.read_text(encoding="utf-8"))
     config["policy"]["model_path"] = str(model_path)
     config["policy"]["device"] = inference_device[0]
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+
+def write_eval_config(
+    source: Path,
+    destination: Path,
+    *,
+    model_path: Path,
+    teacher_checkpoint: Path,
+    latency_profile_path: Path,
+    output_dir: Path,
+    inference_device: list[str],
+    eval_episodes: int = PARKOUR_EVAL_EPISODES,
+    max_episode_steps: int = PARKOUR_EVAL_MAX_EPISODE_STEPS,
+    num_envs: int = 50,
+) -> None:
+    config = yaml.safe_load(source.read_text(encoding="utf-8"))
+    config["executor"] = {
+        "mode": "simulated",
+        "simulated_inference_pool": True,
+        "inference_devices": list(inference_device),
+        "inference_batch_size": PARKOUR_EVAL_INFERENCE_BATCH_SIZE,
+    }
+    config["env"].update(
+        {
+            "runtime_checkpoint_path": str(teacher_checkpoint),
+            "simulator_device": "cuda:0",
+        }
+    )
+    config["policy"].update(
+        {
+            "model_path": str(model_path),
+            "device": inference_device[0],
+        }
+    )
+    config["latency"] = {
+        "method": "temporal",
+        "profile_path": str(latency_profile_path),
+        "sync_cuda": False,
+    }
+    config["evaluation"].update(
+        {
+            "eval_episodes": int(eval_episodes),
+            "eval_parallel_envs": int(num_envs),
+            "eval_max_steps": int(max_episode_steps),
+            "eval_deterministic": True,
+        }
+    )
+    config["logging"]["output_dir"] = str(output_dir)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
@@ -125,7 +181,7 @@ def collector_command(
         "cuda:0",
         "--checkpoint",
         str(teacher_checkpoint),
-        "--policy_config",
+        "--eval-config" if mode == "latency-eval" else "--policy_config",
         str(policy_config),
         "--output_dir",
         str(output_dir),
@@ -365,6 +421,7 @@ def bootstrap_training_command(
     training_output: Path,
     experiment_name: str,
     actor_checkpoint: Path,
+    max_steps: int = BOOTSTRAP_UPDATES,
 ) -> list[str]:
     return training_command(
         bootstrap_checkpoint=base_model,
@@ -374,21 +431,37 @@ def bootstrap_training_command(
         round_index=0,
         experiment_name=experiment_name,
         actor_checkpoint=actor_checkpoint,
-        max_steps=BOOTSTRAP_UPDATES,
-        stop_every_steps=BOOTSTRAP_UPDATES,
+        max_steps=max_steps,
+        stop_every_steps=max_steps,
     )
 
 
 def read_eval_metrics(eval_path: Path) -> dict[str, float]:
     result = json.loads(eval_path.read_text(encoding="utf-8"))
+    task_metrics = result["task_metrics"]
+    metric_values = {
+        "reward": {
+            "mean": result["mean_return"],
+            "std": result["std_return"],
+        },
+        "episode_length": {
+            "mean": result["mean_length"],
+            "std": series_std(result["lengths"]),
+        },
+        **{
+            name: task_metrics[name]
+            for name in ("normalized_waypoint_progress", "edge_violation")
+        },
+    }
     return {
-        f"dagger_eval/{metric}_{stat}": result[metric][stat]
+        f"dagger_eval/{metric}_{stat}": metric_values[metric][stat]
         for metric in EVAL_METRICS
         for stat in ("mean", "std")
     }
 
 
 def run_bootstrap(args: argparse.Namespace) -> Path:
+    bootstrap_updates = args.bootstrap_updates
     bootstrap_root = args.output_root / "bootstrap"
     raw_dir = (
         bootstrap_root / "raw" if args.bootstrap_raw is None else args.bootstrap_raw
@@ -462,6 +535,7 @@ def run_bootstrap(args: argparse.Namespace) -> Path:
             training_output=training_output,
             experiment_name=experiment_name,
             actor_checkpoint=args.teacher_checkpoint,
+            max_steps=bootstrap_updates,
         ),
         cwd=REPO_ROOT,
         env=os.environ
@@ -475,7 +549,9 @@ def run_bootstrap(args: argparse.Namespace) -> Path:
         },
         check=True,
     )
-    return bootstrap_checkpoint_dir(training_output, experiment_name)
+    return bootstrap_checkpoint_dir(
+        training_output, experiment_name, bootstrap_updates
+    )
 
 
 def log_eval_metrics(eval_path: Path, *, step: int, run_id: str) -> None:
@@ -498,12 +574,22 @@ def evaluate_checkpoint(
     step: int,
     environment: dict[str, str],
 ) -> None:
+    eval_config = output_dir / "eval_config.yaml"
+    write_eval_config(
+        policy_config,
+        eval_config,
+        model_path=Path(yaml.safe_load(policy_config.read_text(encoding="utf-8"))["policy"]["model_path"]),
+        teacher_checkpoint=args.teacher_checkpoint,
+        latency_profile_path=args.latency_profile_path,
+        output_dir=output_dir,
+        inference_device=args.inference_device,
+    )
     run_parkour_command(
         collector_command(
             args.parkour_python,
-            mode="vla-eval",
+            mode="latency-eval",
             teacher_checkpoint=args.teacher_checkpoint,
-            policy_config=policy_config,
+            policy_config=eval_config,
             output_dir=output_dir,
             inference_device=args.inference_device,
             num_envs=50,
@@ -515,7 +601,7 @@ def evaluate_checkpoint(
         env=environment,
         startup_timeout_sec=args.parkour_startup_timeout_sec,
     )
-    log_eval_metrics(output_dir / "vla-eval.json", step=step, run_id=args.wandb_run_id)
+    log_eval_metrics(output_dir / "queue_eval_latency_profile_sample.json", step=step, run_id=args.wandb_run_id)
 
 
 def run_pipeline(args: argparse.Namespace) -> None:
@@ -695,6 +781,13 @@ def main() -> None:
     parser.add_argument("--start-round", type=int, default=0)
     parser.add_argument("--end-round", type=int, default=DAGGER_ROUNDS)
     parser.add_argument("--run-bootstrap", action="store_true")
+    parser.add_argument("--bootstrap-updates", type=int, default=BOOTSTRAP_UPDATES)
+    parser.add_argument(
+        "--latency-profile-path",
+        type=Path,
+        required=True,
+        help="Temporal latency profile used by every periodic closed-loop evaluation.",
+    )
     args = parser.parse_args()
     if args.inference_device is None:
         args.inference_device = ["cuda:1"]
@@ -702,12 +795,22 @@ def main() -> None:
         args.bootstrap_checkpoint = bootstrap_checkpoint_dir(
             args.output_root / "bootstrap" / "training",
             f"{args.wandb_run_id}_sft",
+            args.bootstrap_updates,
         )
     run_pipeline(args)
-    print(
-        f"MODEL_PATH={checkpoint_dir(args.output_root / 'training' / args.wandb_run_id, args.end_round)}",
-        flush=True,
+    model_path = (
+        bootstrap_checkpoint_dir(
+            args.output_root / "bootstrap" / "training",
+            f"{args.wandb_run_id}_sft",
+            args.bootstrap_updates,
+        )
+        if args.end_round == 0
+        else checkpoint_dir(
+            args.output_root / "training" / args.wandb_run_id,
+            args.end_round,
+        )
     )
+    print(f"MODEL_PATH={model_path}", flush=True)
 
 
 if __name__ == "__main__":
