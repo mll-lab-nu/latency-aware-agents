@@ -32,6 +32,24 @@ from the repository root:
 bash scripts/tasks/extreme_parkour_go2/train_small_policy.sh
 ```
 
+With the native teacher, baseline VLA and pretrained base staged, the
+task-owned pipeline runs profiling, latency-command PPO,
+collection/conversion, VLA training, and final zero/profile evaluations:
+
+```bash
+python scripts/tasks/extreme_parkour_go2/run_latency_pipeline.py \
+  --config configs/training/parkour_latency_pipeline.yaml
+```
+
+The measured `PROFILE_PATH` is written to `latency.yaml` and passed explicitly
+to the native and VLA/evaluation stages. Use `--profile-path` to replay an
+existing profile, or `--skip-native-train` when the command-policy stage has
+already been completed.
+
+The formal command-policy launcher uses 1,024 environments by default. The
+checked-in smoke config explicitly overrides it to one environment and two
+iterations; those values are for wiring checks only.
+
 Use the printed `model_14999.pt` teacher checkpoint for the complete VLA path:
 
 ```bash
@@ -120,9 +138,20 @@ resumed with its explicit checkpoint and zero-based round number.
 ## Status and artifacts
 
 The privileged teacher and supporting action+yaw implementation are verified.
-The current action+yaw bootstrap/DAgger result is still in progress, so no
-Parkour VLA is marked publishable. Planned artifact paths and publication gates
-are tracked in the [artifact registry](../artifacts.md).
+The clean remote two-update actor-objective smoke trained with the official
+base model, converted IID dataset, and the teacher action actor on one GPU with
+global batch 1. Training exited 0 and saved a complete optimizer checkpoint at
+`/home/xinyuan/parkour-latency-smoke/actor_objective_vla_2updates_complete/training/parkour_actor_objective_2updates_complete/checkpoint-2`.
+Reloaded one-episode evaluation returned `0.7200697755761212`
+for zero latency and `0.535144853303791` with the existing IID profile; both
+survived 1,500 steps. These are functional wiring results, not policy-quality
+or publication evidence. The prior
+`actor_objective_vla_2updates` output remains an invalid failed-save run and
+must not be used. The accepted checkpoint still expects the retained
+`/tmp/Qwen/Qwen3-VL-cosmos` processor/model metadata path on the evaluation
+host. Full-scale profiling, DAgger, and publication remain separate gates;
+details are recorded in `program/LATENCY_RL_HANDOFF.md` and the [artifact
+registry](../artifacts.md).
 
 The internal record also documents why the old latent-only 5k result is not a
 baseline: its evaluator reused privileged yaw on four of every five control

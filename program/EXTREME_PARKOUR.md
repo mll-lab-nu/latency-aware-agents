@@ -1,5 +1,18 @@
 # Extreme Parkour Isaac Lab / Go2 zero-delay baseline 执行手册
 
+## Latency command-RL 全链入口
+
+```bash
+.venv/bin/python -m scripts.tasks.extreme_parkour_go2.run_latency_pipeline \
+  --config configs/training/parkour_latency_pipeline.yaml
+```
+
+从仓库根目录运行；依次执行 profile、原生 PPO command teacher、issued-H40 数据、
+GR00T flow + frozen-actor auxiliary 训练及原/新 VLA zero/profile 对照。
+短训使用 `parkour_latency_pipeline_smoke.yaml`；复用测量时显式传 `--profile-path /absolute/path/profile.json`。
+这条 latency 路线保存一次决策的 `[40,34]` latent+yaw，并使用 predicted-yaw 消费语义；
+下文零延迟 DAgger/MTS 保留独立契约。证据与恢复方法见 [latency handoff](LATENCY_RL_HANDOFF.md)。
+
 > 任务：`Isaac-Extreme-Parkour-{Teacher,Student}-Unitree-Go2-v0`
 >
 > Isaac Sim：5.0.0；PyTorch：2.7.0 + cu128
