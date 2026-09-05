@@ -1,0 +1,26 @@
+experiment:
+  name: extreme_parkour_go2_latency_command
+  seed: 2
+
+env:
+  name: extreme_parkour_go2
+  env_fps: 50
+  obs_fps: 10
+  simulator_device: cuda:0
+
+latency:
+  method: fixed
+  fixed_latency_ms: 0
+  seed: 2
+
+executor:
+  simulated_worker_capacity: 1
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+
+command:
+  dimension: 34
+  horizon: 40
+  control_repeat: 5

@@ -1,0 +1,26 @@
+__base__: parkour_latency_pipeline.yaml
+
+output_dir: outputs/latency_rl/parkour/pipeline_smoke
+native_checkpoint: outputs/latency_rl/parkour/pipeline_smoke/native_command/model_1.pt
+native_train_arguments:
+  - --num_envs
+  - "1024"
+  - --max_iterations
+  - "2"
+collection:
+  keep_failed: true
+  train_episodes: 1
+  val_episodes: 1
+  num_envs: 1
+vla:
+  run_id: extreme_parkour_go2_latency_pipeline_smoke
+  output_dir: vla
+  bootstrap_updates: 2
+  start_round: 0
+  end_round: 0
+  inference_batch_size: 1
+  num_gpus: 1
+  global_batch_size: 1
+eval_episodes: 1
+eval_max_steps: 1500
+eval_inference_batch_size: 1
