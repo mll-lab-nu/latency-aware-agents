@@ -552,6 +552,7 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
         dataset_dir = dataset_dir.resolve()
     training_output = output_root / "training"
     experiment_name = f"{args.wandb_run_id}_sft"
+    updates = 2 if smoke else BOOTSTRAP_UPDATES
     _run(
         bootstrap_training_command(
             base_model=args.base_model,
@@ -559,7 +560,7 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
             actor_checkpoint=args.actor_checkpoint,
             training_output=training_output,
             experiment_name=experiment_name,
-            max_steps=1 if smoke else BOOTSTRAP_UPDATES,
+            max_steps=updates,
         ),
         cwd=REPO_ROOT,
         env={
@@ -571,18 +572,12 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
             **({"WANDB_MODE": "offline"} if smoke else {}),
         },
     )
-    return training_output / experiment_name / (
-        f"checkpoint-{1 if smoke else BOOTSTRAP_UPDATES}"
-    )
+    return training_output / experiment_name / f"checkpoint-{updates}"
 
 
 def run_smoke(args: argparse.Namespace) -> Path:
     bootstrap_checkpoint = run_bootstrap(args, smoke=True)
-    bootstrap_dataset = args.bootstrap_dataset or args.output_root / "bootstrap/lerobot"
-    round_dir = args.output_root / "smoke_round_00"
-    raw_dir = round_dir / "raw"
-    dataset_dir = round_dir / "lerobot"
-    policy_config = round_dir / "bootstrap_policy.yaml"
+    policy_config = args.output_root / "bootstrap/eval_policy.yaml"
     write_policy_config(
         args.policy_config,
         policy_config,
@@ -596,77 +591,12 @@ def run_smoke(args: argparse.Namespace) -> Path:
     evaluate_checkpoint(
         args,
         policy_config=policy_config,
-        output_dir=round_dir / "eval_before",
-        step=0,
-        environment=smoke_environment,
-        num_envs=1,
-    )
-    training_output = round_dir / "training"
-    training_run_output = training_output / args.wandb_run_id
-    _run(
-        training_command(
-            bootstrap_checkpoint=bootstrap_checkpoint,
-            replay_dataset=bootstrap_dataset,
-            dataset_dirs=[bootstrap_dataset],
-            actor_checkpoint=args.actor_checkpoint,
-            training_output=training_output,
-            experiment_name=args.wandb_run_id,
-            resume_checkpoint=None,
-            max_steps=1,
-            gradient_accumulation_steps=1,
-            checkpoint_interval=1,
-            modality_config=ISSUED_MODALITY_CONFIG,
-        ),
-        cwd=REPO_ROOT,
-        env={
-            "CUDA_VISIBLE_DEVICES": "0",
-            "NO_ALBUMENTATIONS_UPDATE": "1",
-            "PYTHONPATH": f"{HAIC_ROOT}{os.pathsep}{REPO_ROOT}",
-            "WANDB_RUN_ID": args.wandb_run_id,
-            "WANDB_RESUME": "allow",
-            "WANDB_MODE": "offline",
-        },
-    )
-    eval_policy_config = round_dir / "eval_policy.yaml"
-    write_policy_config(
-        args.policy_config,
-        eval_policy_config,
-        model_path=training_run_output / "checkpoint-2",
-        inference_device=args.inference_device,
-    )
-    _run(
-        training_command(
-            bootstrap_checkpoint=bootstrap_checkpoint,
-            replay_dataset=bootstrap_dataset,
-            dataset_dirs=[bootstrap_dataset],
-            actor_checkpoint=args.actor_checkpoint,
-            training_output=training_output,
-            experiment_name=args.wandb_run_id,
-            resume_checkpoint=checkpoint_dir(training_run_output, 1),
-            max_steps=2,
-            gradient_accumulation_steps=1,
-            checkpoint_interval=1,
-            modality_config=ISSUED_MODALITY_CONFIG,
-        ),
-        cwd=REPO_ROOT,
-        env={
-            "CUDA_VISIBLE_DEVICES": "0",
-            "NO_ALBUMENTATIONS_UPDATE": "1",
-            "PYTHONPATH": f"{HAIC_ROOT}{os.pathsep}{REPO_ROOT}",
-            "WANDB_RUN_ID": args.wandb_run_id,
-            "WANDB_RESUME": "allow",
-            "WANDB_MODE": "offline",
-        },
-    )
-    evaluate_checkpoint(
-        args,
-        policy_config=eval_policy_config,
-        output_dir=round_dir / "eval",
+        output_dir=args.output_root / "bootstrap/eval",
         step=2,
         environment=smoke_environment,
         num_envs=1,
     )
-    return training_run_output / "checkpoint-2"
+    return bootstrap_checkpoint
 
 
 def run_pipeline(args: argparse.Namespace) -> Path:

@@ -194,8 +194,13 @@ def test_haic_commands_encode_smoke_and_resume_contract():
     assert checkpoint_dir(Path("output"), 5_000) == Path("output/checkpoint-5000")
 
 
-def test_run_bootstrap_reuses_existing_dataset_for_fresh_sft(tmp_path, monkeypatch):
+@pytest.mark.parametrize("smoke, updates", [(False, BOOTSTRAP_UPDATES), (True, 2)])
+def test_run_bootstrap_reuses_existing_dataset_for_fresh_sft(
+    tmp_path, monkeypatch, smoke, updates
+):
     existing_dataset = tmp_path / "existing-bootstrap/lerobot"
+    policy_config = tmp_path / "policy.yaml"
+    policy_config.write_text("policy: {model_path: base, device: 'cuda:0'}")
     args = SimpleNamespace(
         output_root=tmp_path / "new-run",
         bootstrap_dataset=existing_dataset,
@@ -207,6 +212,7 @@ def test_run_bootstrap_reuses_existing_dataset_for_fresh_sft(tmp_path, monkeypat
         eval_max_steps=1_000,
         inference_batch_size=32,
         wandb_run_id="flow-aux",
+        policy_config=policy_config,
     )
     calls = []
     monkeypatch.setattr(
@@ -215,17 +221,34 @@ def test_run_bootstrap_reuses_existing_dataset_for_fresh_sft(tmp_path, monkeypat
         lambda command, **kwargs: calls.append((command, kwargs)),
     )
 
-    checkpoint = train_haic_dagger.run_bootstrap(args, smoke=False)
+    evaluated = []
+    monkeypatch.setattr(
+        train_haic_dagger,
+        "evaluate_checkpoint",
+        lambda args, **kwargs: evaluated.append(
+            (
+                yaml.safe_load(kwargs["policy_config"].read_text())["policy"]["model_path"],
+                kwargs["step"],
+            )
+        ),
+    )
+    checkpoint = (
+        train_haic_dagger.run_smoke(args)
+        if smoke
+        else train_haic_dagger.run_bootstrap(args, smoke=False)
+    )
 
     assert len(calls) == 1
     command, kwargs = calls[0]
     assert str(train_haic_dagger.FINETUNE_SCRIPT) in command
     assert command[command.index("--dataset-path") + 1] == str(existing_dataset)
+    assert command[command.index("--max-steps") + 1] == str(updates)
     assert str(train_haic_dagger.HAIC_SCRIPT) not in command
     assert kwargs["cwd"] == train_haic_dagger.REPO_ROOT
     assert checkpoint == (
-        tmp_path / "new-run/bootstrap/training/flow-aux_sft/checkpoint-5000"
+        tmp_path / f"new-run/bootstrap/training/flow-aux_sft/checkpoint-{updates}"
     )
+    assert evaluated == ([(str(checkpoint), 2)] if smoke else [])
 
 
 def test_read_eval_metrics_flattens_common_eval_summary(tmp_path):
