@@ -141,7 +141,12 @@ def _write_profile(tmp_path: Path) -> Path:
     return profile_dir
 
 
-def test_injected_env_skips_starvla_env_preparation(tmp_path: Path, monkeypatch):
+@pytest.mark.parametrize("injected_name", ["env", "env_backend"])
+def test_injected_env_skips_starvla_env_preparation(
+    tmp_path: Path,
+    monkeypatch,
+    injected_name: str,
+):
     import latency_bench.eval.driver as driver
     from latency_bench.policy import starvla
 
@@ -177,11 +182,11 @@ def test_injected_env_skips_starvla_env_preparation(tmp_path: Path, monkeypatch)
     run_from_config(
         config,
         write_summary=False,
-        env=injected_env,
         inference_devices=["cuda:1"],
+        **{injected_name: injected_env},
     )
 
-    assert captured["env"] is injected_env
+    assert captured[injected_name] is injected_env
     assert captured["inference_devices"] == ["cuda:1"]
 
 
@@ -202,6 +207,19 @@ def test_episode_metrics_log_evaluation_raw_fact_metadata(tmp_path: Path):
     assert metrics["metadata"]["env_fps"] == pytest.approx(25.0)
     assert metrics["metadata"]["obs_fps"] == pytest.approx(25.0)
     assert metrics["metadata"]["frame_ms"] == pytest.approx(40.0)
+
+
+@pytest.mark.parametrize("policy_type,path_key", [("starvla", "checkpoint_path"), ("official_gr00t", "model_path")])
+def test_summary_keeps_new_model_identity_separate_from_source_profile(tmp_path, policy_type, path_key):
+    from latency_bench.policy.base import ConstantPolicyRunner
+
+    profile = _write_profile(tmp_path)
+    config = _config(tmp_path / "evaluation", latency={"method": "iid", "profile_path": str(profile)})
+    config["policy"] = {"type": policy_type, path_key: "/new-vla/checkpoint-2"}
+    run_from_config(config, policy=ConstantPolicyRunner(Action("jump")))
+    summary = json.loads((tmp_path / "evaluation/queue_eval_latency_profile_sample.json").read_text())
+    assert summary["checkpoint_path"] == "/new-vla/checkpoint-2"
+    assert summary["source_profile_path"] == str(profile)
 
 
 def test_return_raw_is_only_from_explicit_info(tmp_path: Path):
@@ -311,3 +329,41 @@ def test_task_metrics_are_required_for_every_episode():
             seed=0,
             latency="measured",
         )
+
+
+def test_task_metric_moments_preserve_step_weighted_statistics():
+    metrics = [
+        EpisodeMetrics(
+            episode_id=0,
+            episode_return=0.0,
+            survival_steps=2,
+            metadata={
+                "task_metric_moments": {
+                    "edge_violation": {"count": 2, "sum": 1.0, "sum_sq": 1.0}
+                }
+            },
+        ),
+        EpisodeMetrics(
+            episode_id=1,
+            episode_return=0.0,
+            survival_steps=1,
+            metadata={
+                "task_metric_moments": {
+                    "edge_violation": {"count": 1, "sum": 1.0, "sum_sq": 1.0}
+                }
+            },
+        ),
+    ]
+
+    summary = build_queue_eval_summary(
+        metrics,
+        experiment_name="parkour",
+        seed=2,
+        latency="zero",
+    )
+
+    assert summary["task_metrics"]["edge_violation"] == {
+        "mean": pytest.approx(2 / 3),
+        "std": pytest.approx(2**0.5 / 3),
+        "count": 3,
+    }

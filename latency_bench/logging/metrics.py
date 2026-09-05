@@ -22,6 +22,8 @@ def compute_episode_metrics(
     episode_metadata.update(_chunk_metrics_from_step_records(step_records))
     if step_records and "task_metrics" in step_records[-1].info:
         episode_metadata["task_metrics"] = step_records[-1].info["task_metrics"]
+    if step_records and "task_metric_moments" in step_records[-1].info:
+        episode_metadata["task_metric_moments"] = step_records[-1].info["task_metric_moments"]
     episode_return_env = sum(record.reward for record in step_records)
     survival_steps = len(step_records)
     game_score = _extract_game_score(step_records)

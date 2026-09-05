@@ -32,9 +32,15 @@ def run_from_config(
     episode_ids: Sequence[int] | None = None,
     policy: Any | None = None,
     env: EnvAdapter | None = None,
+    env_backend: Any | None = None,
     inference_devices: list[str] | None = None,
 ) -> list[EpisodeMetrics]:
-    if policy is None and env is None and config["policy"]["type"] == "starvla":
+    if (
+        policy is None
+        and env is None
+        and env_backend is None
+        and config["policy"]["type"] == "starvla"
+    ):
         from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
 
         prepare_starvla_checkpoint_input_config(config)
@@ -53,6 +59,8 @@ def run_from_config(
         executor_kwargs["policy"] = policy
     if env is not None:
         executor_kwargs["env"] = env
+    if env_backend is not None:
+        executor_kwargs["env_backend"] = env_backend
     if inference_devices is not None:
         executor_kwargs["inference_devices"] = inference_devices
     executor = build_executor(config, **executor_kwargs)
@@ -95,7 +103,11 @@ def run_from_config(
             episode_metrics.metadata["config_name"] = experiment_cfg.get("name")
             episode_metrics.metadata["run_name"] = experiment_cfg.get("name")
             if "checkpoint_path" in policy_cfg:
-                episode_metrics.metadata["checkpoint_path"] = str(policy_cfg["checkpoint_path"])
+                episode_metrics.metadata["checkpoint_path"] = policy_cfg["checkpoint_path"]
+            if policy_cfg["type"] == "official_gr00t":
+                episode_metrics.metadata["checkpoint_path"] = policy_cfg["model_path"]
+            if "profile_path" in config["latency"]:
+                episode_metrics.metadata["source_profile_path"] = config["latency"]["profile_path"]
             if "checkpoint_kind" in policy_cfg:
                 episode_metrics.metadata["checkpoint_kind"] = str(policy_cfg["checkpoint_kind"])
             episode_metrics.metadata["output_dir"] = str(logging_cfg["output_dir"])
