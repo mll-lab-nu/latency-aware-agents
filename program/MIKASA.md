@@ -1,5 +1,17 @@
 # MIKASA / InterceptGrabFast H1 zero-delay baseline 执行手册
 
+## Latency command-RL 全链入口
+
+```bash
+.venv/bin/python -m scripts.tasks.mikasa_intercept_grab_fast.run_latency_pipeline \
+  --config configs/training/mikasa_latency_pipeline.yaml
+```
+
+从仓库根目录运行；依次执行 profile、原生 PPO、issued H1 完整 episode 采集、
+RLDS/LeRobot 转换、starVLA 训练及原/新 VLA zero/profile 对照。
+短训使用 `mikasa_latency_pipeline_smoke.yaml`；复用测量时显式传 `--profile-path /absolute/path/profile.json`。
+运行证据、解释器和恢复方法见 [latency handoff](LATENCY_RL_HANDOFF.md)。
+
 > 任务：`InterceptGrabFast-VLA-v0`
 >
 > MIKASA：v1.0.0，commit `16634db18bef08128ed79346469c86fc12169aed`
@@ -791,9 +803,27 @@ canonical zero-delay eval。底层命令仍保留在上文，便于定位环境�
 | SFT final artifacts | passed；`third_party/starVLA/results/Checkpoints/mikasa_grabfast_h1_gb64_mb8_ga8_expandable/config.full.yaml`、同目录 `checkpoints/steps_5000_state/` 与 `checkpoints/steps_5000_pytorch_model.pt`（9,785,060,075 bytes）均存在 |
 | VLA canonical 50-episode SR | passed `27/50`（`54%`），mean return `22.326`；fixed seeds `4242424242..4242424291`，returns all finite；summary `outputs/mikasa/vla_h1_zero_delay_eval/summary.json`；部署端在既有 MIKASA data registry 注册 checkpoint 的 train mixture 后，strict follow-through 写出 `FOLLOWTHROUGH_EXIT_STATUS=0` |
 
-## 9. 本轮明确 deferred
+## 9. Latency command-RL 入口
 
-- 完整 5-session realtime profile 实跑、fixed latency sweep 和 delayed PPO teacher；profile bridge 本身已接入；
+```bash
+.venv/bin/python scripts/tasks/mikasa_intercept_grab_fast/run_latency_pipeline.py \
+  --config configs/training/mikasa_latency_pipeline_smoke.yaml \
+  --profile-path results/profiling/profiles/qwenoft/1x-rpbzzz6/mikasa_intercept_grab_fast/instance_e906b84a82f9e086/profile.json
+```
+
+不传 `--profile-path` 会先执行完整 profile protocol。正式预算配置是
+`configs/training/mikasa_latency_pipeline.yaml`：先从现有 teacher 初始化，
+1,024 次 PPO update（1,966,080 control transitions），275 个成功 episode 按
+250/25 划分，VLA 5,000 updates，原/新 VLA 各跑 zero/IID 50 episodes。
+这是初始预算，不代表 teacher 或 robustness 已达标；长训前应先按
+[`LATENCY_RL_HANDOFF.md`](LATENCY_RL_HANDOFF.md) 检查 teacher 的同 profile 成绩。
+原始 NPZ 保留全部控制帧和执行来源，训练标签只保留 admitted issued H1。
+pipeline 的 `teacher/teacher.pt` 是模型，`teacher/training.pt` 用于原生
+`--resume` 恢复 optimizer、进度和随机流；恢复后从新 episode 开始。
+
+## 10. 原 zero-delay 阶段 deferred（历史范围）
+
+- fixed latency sweep 和 delayed PPO teacher；
 - H8/K8 action chunk、future action labels 或 chunk-aware loss；
 - VLA state、delay、queue 或 applied-action 输入；
 - VLA online RL；
