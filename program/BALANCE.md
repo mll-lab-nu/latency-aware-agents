@@ -1,5 +1,19 @@
 # Balance Simple / GR00T 工程状态
 
+## Latency command-RL 全链入口
+
+从仓库根目录运行：
+
+```bash
+.venv/bin/python -m scripts.tasks.humanoidbench_balance_simple.run_latency_pipeline \
+  --config configs/training/humanoidbench_balance_latency_pipeline.yaml
+```
+
+入口依次执行 profile、FastTD3 初始化/训练、issued absolute-request 数据导出、VLA 训练及原/新 VLA 的 zero/profile 对照。
+本轮明确使用已存在的 10k baseline；不是尚未产出的 15k 模型。短训改用同目录的
+`humanoidbench_balance_latency_pipeline_smoke.yaml`；复用测量时显式传 `--profile-path /absolute/path/profile.json`。
+smoke 不缩短正式 profile 协议。运行证据、恢复方法与正式实验门槛见 [latency handoff](LATENCY_RL_HANDOFF.md)。
+
 ## Goal and scope
 
 让 GR00T VLA 在 `g1_sonic_balance_simple` 上直接拟合 teacher，把 closed-loop return 稳定提高到 500 以上（teacher 约 900–1000）。当前保持最简单的 direct VLA；不同时引入 SONIC、residual、分层控制或新 action head。
@@ -37,8 +51,8 @@ artifact 路径见 [`docs/artifacts.md`](../docs/artifacts.md)。历史公开的
 
 跨机器安装和训练：`bash install.sh --model official_gr00t` 后使用
 `bash scripts/tasks/humanoidbench_balance_simple/train_small_policy.sh` 和
-`bash scripts/tasks/humanoidbench_balance_simple/train_vla.sh <teacher-checkpoint>`；后者复用
-`scripts/official_gr00t/train_balance_simple_periodic_eval.py` 完成数据、SFT 和 zero-delay
+`bash scripts/tasks/humanoidbench_balance_simple/train_vla.sh <teacher-checkpoint> <latency-config.yaml>`；后者复用
+`scripts/official_gr00t/train_balance_simple_periodic_eval.py` 完成数据、SFT 和 zero/profile
 评估。Hugging Face 发布是单独的 developer 操作，不由训练入口隐式上传。
 
 10k 正式产物：
@@ -143,6 +157,60 @@ Checkpoint-10000 的逐 seed return 为：
 - 当前 Transformers tokenizer 初始化仍会访问 Hugging Face Hub 的 gated metadata；仅有完整本地 cache 仍不够。后续训练进程必须继承可访问 `nvidia/Cosmos-Reason2-2B` 的有效 Hugging Face credential。不要把 token 写入脚本、日志或本文档。
 - 已知限制：periodic validation 只取 val episode 0 前 128 samples；resume sampler 的严格数据顺序复现仍未封口。
 - root worktree 还有用户的无关改动；后续不要清理、覆盖或提交不属于本任务的文件。
+
+## Corrected remote VLA chain and real-profile closed loop (2026-09-06)
+
+The corrected two-update GR00T run used the persistent 43D issued-action
+dataset and a local Cosmos-backed `GR00T-N1.7-3B` mirror. The underlying
+single-GPU launcher completed `global_step=2` with `train_loss=1.5560086` and
+`train_runtime=39.008s`. Its direct argv used `--nproc_per_node=1`,
+`--global-batch-size 1`, `--max-steps 2`, `--save-steps 2`, and
+`--dataloader-num-workers 0`; this is a two-update wiring/serialization smoke,
+not a quality result. The complete checkpoint is:
+
+```text
+/home/xinyuan/balance-latency-smoke/outputs/tasks/humanoidbench_balance_simple/real_profile_corrected/vla_final/g1_balance_corrected_vla_final_2updates/checkpoint-2
+```
+
+It contains model shards, `optimizer.pt` (14,610,010,451 bytes),
+`scheduler.pt`, `rng_state.pth`, `trainer_state.json`, and
+`processor_config.json`. The first temporary periodic-evaluation wrapper
+stopped after training because the separately derived `lerobot__val` directory
+lacked `meta/stats.json`. The canonical Balance runner now generates
+validation statistics before loading the dataset; the post-training validation
+rerun from this checkpoint completed with body MAE `0.232301`, all-action MAE
+`0.177278`, and repeat standard deviation `0.0`. Repeat-current H40
+validation uses all available rows (the accepted dataset has 19 admitted rows),
+rather than subtracting a future-action horizon.
+
+The four persistent two-episode evaluations used the remote Balance session-0
+profile (`20260831T153539208833Z`, 4,973 admitted observations, 2,665 capacity
+drops), profile slot 0, one simulated worker, and 1,000 maximum steps:
+
+| checkpoint | latency | mean return | std return | mean length |
+|---|---|---:|---:|---:|
+| original `checkpoint-10000` | zero | 24.337 | 0.003 | 34.0 |
+| fresh `checkpoint-2` | zero | 7.517 | 0.014 | 20.5 |
+| original `checkpoint-10000` | real profile | 39.660 | 12.206 | 53.5 |
+| fresh `checkpoint-2` | real profile | 10.441 | 0.147 | 23.0 |
+
+Durable outputs are under
+`/home/xinyuan/balance-latency-smoke/outputs/tasks/humanoidbench_balance_simple/real_profile_corrected/evals/final/{baseline_zero,new_zero,baseline_profile,new_profile}`.
+The profile was measured on a 2x-GPU machine; this one-visible-GPU remote run
+uses slot 0/capacity 1 and is not a 2x-topology reproduction.
+
+Native provenance for this dataset is the corrected run at
+`/home/xinyuan/balance-latency-smoke/`: the initial 4,096-environment-frame
+run saved `real_profile_corrected/native/checkpoints/g1_sonic_balance_simple_raw_ramp_fasttd3_real_profile_corrected_s1/checkpoint_p0/checkpoint_000000178_4128.pth`,
+and the resumed 8,192-frame run saved the final
+`checkpoint_000000434_8224.pth`. The corresponding logs are
+`corrected_native_initial.log` and `corrected_native_resume.log`. Export from
+that final checkpoint produced 57 raw rows for train and 57 for validation;
+the `command_admitted` conversion retained 19 LeRobot rows in each split.
+The export log is `corrected_export.log`, and the resulting dataset is under
+`outputs/tasks/humanoidbench_balance_simple/real_profile_corrected/teacher_dataset/`.
+Post-fix revalidation outputs are under
+`outputs/tasks/humanoidbench_balance_simple/real_profile_corrected/evals/final_revalidated/`.
 
 ## Suggested skills
 

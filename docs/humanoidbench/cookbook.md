@@ -39,17 +39,20 @@ Train the native FastTD3 teacher and run its acceptance gate:
 bash scripts/tasks/humanoidbench_balance_simple/train_small_policy.sh
 ```
 
-Pass the printed accepted checkpoint to the VLA entrypoint:
+Pass the accepted checkpoint and the generated profile-backed latency config
+to the VLA entrypoint:
 
 ```bash
 bash scripts/tasks/humanoidbench_balance_simple/train_vla.sh \
-  /absolute/path/to/accepted_teacher.pt
+  /absolute/path/to/accepted_teacher.pt \
+  /absolute/path/to/latency.yaml
 ```
 
 The VLA entrypoint downloads the pinned assets and GR00T base model, collects
 and converts the accepted teacher rollouts, runs the documented 15k SFT
-recipe, and runs periodic simulated zero-delay evaluations. It does not upload
-the checkpoint automatically.
+recipe, and runs periodic simulated zero-delay and profile-latency evaluations
+for both the new checkpoints and the configured original checkpoint. It does
+not upload the checkpoint automatically.
 
 ## Profile the final VLA
 
@@ -65,6 +68,27 @@ All visible GPUs are inference workers. The registered remote is the exact
 currently pending and the launcher never substitutes the historical 10k model.
 Add `--resume RUN_ID` to continue a partial run or `--publish` to upload the
 completed five-session profile.
+
+## Run the profile-backed chain
+
+To profile the configured VLA first and pass the generated profile through the
+native teacher, rollout export/conversion, and periodic VLA evaluation:
+
+```bash
+uv run --project . python \
+  scripts/tasks/humanoidbench_balance_simple/run_latency_pipeline.py \
+  --config configs/training/humanoidbench_balance_latency_pipeline.yaml
+```
+
+The pipeline records each stage under its configured `output_dir` and prints
+the exact `PROFILE_PATH`, `TEACHER_CHECKPOINT`, and generated `LATENCY_CONFIG`.
+Use `--profile-path /absolute/path/to/profile.json` to reuse an existing
+profile without measuring again.
+
+For a finite two-step VLA smoke through the same stages, use
+`configs/training/humanoidbench_balance_latency_pipeline_smoke.yaml`. It
+keeps the original 10k model as the comparison checkpoint and writes each
+zero/profile evaluation under the smoke output directory.
 
 ## Manual workflow
 
