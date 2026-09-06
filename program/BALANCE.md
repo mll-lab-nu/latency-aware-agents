@@ -189,13 +189,13 @@ drops), profile slot 0, one simulated worker, and 1,000 maximum steps:
 
 | checkpoint | latency | mean return | std return | mean length |
 |---|---|---:|---:|---:|
-| original `checkpoint-10000` | zero | 24.337 | 0.003 | 34.0 |
+| original `checkpoint-10000` | zero | 24.349 | 0.009 | 33.5 |
 | fresh `checkpoint-2` | zero | 7.517 | 0.014 | 20.5 |
-| original `checkpoint-10000` | real profile | 39.660 | 12.206 | 53.5 |
-| fresh `checkpoint-2` | real profile | 10.441 | 0.147 | 23.0 |
+| original `checkpoint-10000` | real profile | 34.426 | 2.309 | 48.0 |
+| fresh `checkpoint-2` | real profile | 11.023 | 0.435 | 23.5 |
 
 Durable outputs are under
-`/home/xinyuan/balance-latency-smoke/outputs/tasks/humanoidbench_balance_simple/real_profile_corrected/evals/final/{baseline_zero,new_zero,baseline_profile,new_profile}`.
+`/home/xinyuan/balance-latency-smoke/outputs/tasks/humanoidbench_balance_simple/real_profile_corrected/evals/final_revalidated/{baseline_zero,new_zero,baseline_profile,new_profile}`.
 The profile was measured on a 2x-GPU machine; this one-visible-GPU remote run
 uses slot 0/capacity 1 and is not a 2x-topology reproduction.
 
@@ -209,8 +209,7 @@ that final checkpoint produced 57 raw rows for train and 57 for validation;
 the `command_admitted` conversion retained 19 LeRobot rows in each split.
 The export log is `corrected_export.log`, and the resulting dataset is under
 `outputs/tasks/humanoidbench_balance_simple/real_profile_corrected/teacher_dataset/`.
-Post-fix revalidation outputs are under
-`outputs/tasks/humanoidbench_balance_simple/real_profile_corrected/evals/final_revalidated/`.
+Local result copies are under `outputs/latency_rl/balance/final_revalidated/`.
 
 ## Suggested skills
 
