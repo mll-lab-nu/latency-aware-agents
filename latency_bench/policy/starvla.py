@@ -715,6 +715,9 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
         return
 
     policy_cfg = config["policy"]
+    if "task_contract_path" in policy_cfg:
+        config["env"]["frame_stack"] = 1
+        return
     if "model_config_path" in policy_cfg:
         model_cfg = _load_starvla_model_config(policy_cfg["model_config_path"])
     else:
@@ -927,6 +930,11 @@ def build_starvla_policy(
     action_resolver: ActionResolver,
 ) -> PolicyRunner:
     policy_cfg = config["policy"]
+    if "task_contract_path" in policy_cfg:
+        _ensure_starvla_path()
+        from latency_bench.policy.starvla_tasks import build_task_starvla_policy
+
+        return build_task_starvla_policy(config)
     env_cfg = config["env"]
     integration_env_name = env_cfg["name"]
     if integration_env_name == "gymnasium":

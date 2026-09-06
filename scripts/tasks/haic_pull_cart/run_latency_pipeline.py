@@ -15,7 +15,7 @@ from latency_bench.core.config import load_config
 
 PROFILE_SCRIPT = Path("scripts/tasks/haic_pull_cart/profile.sh")
 TRAIN_COMMAND_SCRIPT = Path("scripts/tasks/haic_pull_cart/train_latency_command.sh")
-TRAIN_VLA_SCRIPT = Path("scripts/tasks/haic_pull_cart/train_vla.sh")
+TRAIN_VLA_SCRIPT = Path("scripts/tasks/haic_pull_cart/train_official_gr00t.sh")
 HAIC_SCRIPT = Path("third_party/HAIC/scripts/haic_vla.py")
 def _profile_from_log(path: Path) -> Path:
     return Path(

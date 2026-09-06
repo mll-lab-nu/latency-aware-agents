@@ -27,6 +27,7 @@ ENV_ID = "InterceptGrabFast-VLA-v0"
 INSTRUCTION = "Intercept the rolling ball and grasp it to stop it."
 START_SEED = 4242424242
 MIKASA_IMAGE_VIEWS_INFO_KEY = "mikasa_image_views"
+MIKASA_STATE_INFO_KEY = "mikasa_proprio"
 
 
 def _scalar(value: Any) -> Any:
@@ -193,7 +194,11 @@ class MikasaEnvStepBackend(GpuBatchedEnvStepBackendBase):
             data=None,
             env_step=int(self._env_steps[slot_id]),
             sim_time_ms=float(self._env_steps[slot_id]) * self._frame_ms,
-            metadata={MIKASA_IMAGE_VIEWS_INFO_KEY: views, "slot_id": slot_id},
+            metadata={
+                MIKASA_IMAGE_VIEWS_INFO_KEY: views,
+                MIKASA_STATE_INFO_KEY: self._observation["proprio"][slot_id].detach().cpu().numpy(),
+                "slot_id": slot_id,
+            },
         )
 
     def close(self) -> None:

@@ -1,0 +1,48 @@
+"""Build the shared H1 StarVLA framework configuration."""
+
+from __future__ import annotations
+
+from typing import Any
+
+
+_FRAMEWORK_NAMES = {
+    "qwenoft": "QwenOFT",
+    "qwenpi_v3": "QwenPI_v3",
+    "qwengr00t": "QwenGR00T",
+    "wanoft": "WanOFT",
+}
+
+
+def make_model_config(
+    model: str,
+    *,
+    state_dim: int,
+    action_dim: int,
+    backbone_path: str,
+    task_objective: Any = None,
+) -> dict[str, Any]:
+    """Return the framework section for one continuous H1 StarVLA model."""
+
+    framework_name = _FRAMEWORK_NAMES[model]
+    action_model: dict[str, Any] = {
+        "action_dim": action_dim,
+        "action_env_dim": action_dim,
+        "state_dim": state_dim,
+        "action_horizon": 1,
+        "future_action_window_size": 0,
+        "past_action_window_size": 0,
+        "task_objective": task_objective,
+    }
+    if model in {"qwenoft", "qwenpi_v3", "wanoft"}:
+        action_model["state_encoding"] = "continuous_projector"
+    if model in {"qwenoft", "wanoft"}:
+        action_model["loss_type"] = "l1"
+
+    config: dict[str, Any] = {
+        "name": framework_name,
+        "qwenvl": {"base_vlm": backbone_path},
+        "action_model": action_model,
+    }
+    if model == "wanoft":
+        config["world_model"] = {"base_wm": backbone_path}
+    return config

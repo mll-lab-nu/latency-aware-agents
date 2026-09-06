@@ -65,3 +65,22 @@ layout.
 | Balance Simple | Official GR00T 10k bundle | [`latency-sensitive-bench/humanoidbench`](https://huggingface.co/latency-sensitive-bench/humanoidbench) |
 | Balance Simple | Teacher rollouts | [`latency-sensitive-bench/humanoidbench`](https://huggingface.co/datasets/latency-sensitive-bench/humanoidbench) |
 | Balance Simple | Scene assets | [`latency-sensitive-bench/g1-sonic-assets`](https://huggingface.co/datasets/latency-sensitive-bench/g1-sonic-assets) |
+
+## StarVLA H1 models and shared data
+
+The four StarVLA models (`qwenoft`, `qwenpi_v3`, `qwengr00t`, `wanoft`) use
+`zero-latency/<task>/vla/starvla-<model>-h1/<run-id>/` in the central model
+repository. Formal pipelines upload after final checkpoint L0 evaluation;
+smoke runs stay local. See [SCALE_MODELS](../program/SCALE_MODELS.md) for commands.
+
+Each task shares `zero-latency/<task>/teacher-rollouts-h1-state-v1/` across all
+four models. Parkour and HAIC additionally publish model-specific DAgger deltas
+at `zero-latency/<task>/dagger/starvla-<model>-h1/<run-id>/round-NN/`.
+These are new H1 datasets; HAIC data contains a fresh 50 Hz image, state, and
+teacher latent at each control step. Existing issued-H40 data is not reused.
+The dataset README and task contract describe fields and fixed train/validation
+normalization. Model provenance references the exact shared and delta revisions.
+
+Teacher checkpoint downloads for all four tasks are pinned to model repository
+revision `46abd9ece5745d808d16aa8013766a26b4f6c371` by the H1 pipeline, including
+the Parkour and HAIC teachers now present in that revision.

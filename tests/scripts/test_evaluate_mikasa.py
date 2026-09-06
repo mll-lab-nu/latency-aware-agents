@@ -111,7 +111,7 @@ def test_latency_backend_exposes_two_views_and_direct_action():
             self.device = "cpu"
 
         def reset(self, *, seed, options=None):
-            return {"rgb": np.zeros((1, 2, 3, 6), dtype=np.uint8)}, {}
+            return rgb_to_observation(np.zeros((1, 2, 3, 6), dtype=np.uint8)), {}
 
         def step(self, action):
             self.actions.append(action)
@@ -128,7 +128,7 @@ def test_latency_backend_exposes_two_views_and_direct_action():
             self.closed = True
 
     def rgb_to_observation(rgb):
-        return {"rgb": rgb}
+        return {"rgb": rgb, "proprio": evaluate.torch.arange(7).reshape(1, 7)}
 
     raw_env = FakeProfileEnv()
     env = evaluate.MikasaEnvStepBackend(
@@ -146,6 +146,9 @@ def test_latency_backend_exposes_two_views_and_direct_action():
     result = env.step_slots({0: evaluate.Action(value=[0.1] * 7)})[0].result
 
     assert reset_observation.metadata[evaluate.MIKASA_IMAGE_VIEWS_INFO_KEY].shape == (2, 2, 3, 3)
+    np.testing.assert_array_equal(
+        reset_observation.metadata[evaluate.MIKASA_STATE_INFO_KEY], np.arange(7)
+    )
     assert [action.shape for action in raw_env.actions] == [(1, 7), (1, 7)]
     np.testing.assert_allclose(raw_env.actions[0], [[0.1] * 7])
     np.testing.assert_allclose(result.info["applied_action"], [0.1] * 7)

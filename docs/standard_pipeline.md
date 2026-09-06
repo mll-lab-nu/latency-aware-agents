@@ -27,14 +27,19 @@ Every task owns train and profile entrypoints:
 | MIKASA Intercept Grab Fast | `bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy.sh` | `bash scripts/tasks/mikasa_intercept_grab_fast/train_vla.sh /absolute/path/to/final_success_ckpt.pt` | `bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh [MODEL_PATH]` |
 | HumanoidBench Balance Simple | `bash scripts/tasks/humanoidbench_balance_simple/train_small_policy.sh` | `bash scripts/tasks/humanoidbench_balance_simple/train_vla.sh /absolute/path/to/teacher.pt` | `bash scripts/tasks/humanoidbench_balance_simple/profile.sh [MODEL_PATH]` |
 | Extreme Parkour Go2 | `bash scripts/tasks/extreme_parkour_go2/train_small_policy.sh` | `bash scripts/tasks/extreme_parkour_go2/train_vla.sh /absolute/path/to/model_14999.pt` | `bash scripts/tasks/extreme_parkour_go2/profile.sh [MODEL_PATH]` |
-| HAIC Pull Cart G1 | `bash scripts/tasks/haic_pull_cart/train_small_policy.sh` | `bash scripts/tasks/haic_pull_cart/train_vla.sh /absolute/path/to/checkpoint_final.pt` | `bash scripts/tasks/haic_pull_cart/profile.sh [MODEL_PATH]` |
+| HAIC Pull Cart G1 | `bash scripts/tasks/haic_pull_cart/train_small_policy.sh` | `bash scripts/tasks/haic_pull_cart/train_official_gr00t.sh /absolute/path/to/checkpoint_final.pt` | `bash scripts/tasks/haic_pull_cart/profile.sh [MODEL_PATH]` |
 
 `train_small_policy.sh` runs the native RL recipe and leaves the checkpoint in
 the task output directory. Inspect the reported path and use that exact file as
-the positional argument to `train_vla.sh`; an unverified or implicit `latest`
-checkpoint is not accepted. `train_vla.sh` owns rollout collection, conversion,
-SFT, task-specific DAgger, and the final zero-latency evaluation. It does not
+the positional argument to the VLA script in the table; an unverified or implicit `latest`
+checkpoint is not accepted. These scripts own rollout collection, conversion,
+SFT, task-specific DAgger, and the final zero-latency evaluation. They do not
 upload files to Hugging Face automatically.
+
+The separate [StarVLA H1 pipelines](../program/SCALE_MODELS.md) provide
+`train_qwenoft.sh`, `train_qwenpi_v3.sh`, `train_qwengr00t.sh`, and
+`train_wanoft.sh` in each task directory. They download pinned teachers and
+automatically publish formal datasets and final models; `--smoke` stays local.
 
 Each VLA trainer finishes by printing `MODEL_PATH=<final inference bundle>`.
 Pass that path to the task's `profile.sh`, or omit it to use the registered

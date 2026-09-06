@@ -183,7 +183,8 @@ def test_simulated_inference_pool_requires_cuda_when_enabled(tmp_path, monkeypat
         build_executor(config)
 
 
-def test_simulated_inference_pool_builds_pool_and_no_parent_policy(tmp_path, monkeypatch):
+@pytest.mark.parametrize('configured_devices', [None, ['cuda:1']])
+def test_simulated_inference_pool_builds_pool_and_no_parent_policy(tmp_path, monkeypatch, configured_devices):
     created = {}
 
     class FakePool:
@@ -202,11 +203,13 @@ def test_simulated_inference_pool_builds_pool_and_no_parent_policy(tmp_path, mon
     config = _config(output_dir=str(tmp_path))
     config["executor"]["simulated_inference_pool"] = True
     config["policy"]["device"] = "cuda"
+    if configured_devices is not None:
+        config['executor']['inference_devices'] = configured_devices
 
     executor = build_executor(config)
     try:
         assert isinstance(executor.inference_pool, FakePool)
-        assert created["devices"] == ["cuda:0", "cuda:1"]
+        assert created["devices"] == (configured_devices if configured_devices is not None else ["cuda:0", "cuda:1"])
         assert executor.policy is None
     finally:
         executor.close()

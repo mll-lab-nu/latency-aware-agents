@@ -53,6 +53,8 @@ def build_executor(
     inference_devices: list[str] | None = None,
 ) -> Executor:
     executor_cfg = config["executor"]
+    if inference_devices is None and "inference_devices" in executor_cfg:
+        inference_devices = executor_cfg["inference_devices"]
     mode = ExecutorMode(executor_cfg["mode"])
     eval_parallel_envs = _eval_parallel_envs(config)
     if env_backend is not None and mode == ExecutorMode.REALTIME:

@@ -333,7 +333,7 @@ HAIC_VLA_FFMPEG_PREFIX=/home/xinyuan/.cache/latency-sensitive-bench/ffmpeg7
 正式入口如下；默认执行完整 10 轮，`--end-round 0` 仅执行 bootstrap/SFT：
 
 ```bash
-bash scripts/tasks/haic_pull_cart/train_vla.sh \
+bash scripts/tasks/haic_pull_cart/train_official_gr00t.sh \
   /absolute/path/to/checkpoint_final.pt
 ```
 

@@ -37,7 +37,7 @@ bash scripts/tasks/haic_pull_cart/train_small_policy.sh
 Use the printed accepted teacher checkpoint for the complete VLA route:
 
 ```bash
-bash scripts/tasks/haic_pull_cart/train_vla.sh \
+bash scripts/tasks/haic_pull_cart/train_official_gr00t.sh \
   /absolute/path/to/checkpoint_final.pt
 ```
 
@@ -56,14 +56,14 @@ passing it with `--bootstrap-dataset` (and its matching `--actor-checkpoint`);
 For an SFT-only run, stop before round 0:
 
 ```bash
-bash scripts/tasks/haic_pull_cart/train_vla.sh \
+bash scripts/tasks/haic_pull_cart/train_official_gr00t.sh \
   /absolute/path/to/checkpoint_final.pt --end-round 0
 ```
 
 Resume a later round with explicit bootstrap and actor artifacts:
 
 ```bash
-bash scripts/tasks/haic_pull_cart/train_vla.sh \
+bash scripts/tasks/haic_pull_cart/train_official_gr00t.sh \
   /absolute/path/to/checkpoint_final.pt \
   --resume \
   --start-round 4 --end-round 10 \
