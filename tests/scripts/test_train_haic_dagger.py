@@ -645,6 +645,7 @@ scheduler:
         output_dir=tmp_path / "output",
         num_envs=2,
         max_steps=10,
+        inference_batch_size=4,
     )
 
     config = yaml.safe_load(destination.read_text())
@@ -653,6 +654,7 @@ scheduler:
     assert config["latency"]["profile_path"] == str(tmp_path / "profile.json")
     assert config["executor"]["simulated_worker_capacity"] == 3
     assert config["executor"]["inference_devices"] == ["cuda:1"]
+    assert config["executor"]["inference_batch_size"] == 4
     assert config["scheduler"] == {
         "hold_policy": "drop",
         "ordering_policy": "oldest_ready",

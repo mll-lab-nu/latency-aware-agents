@@ -391,6 +391,7 @@ def write_latency_eval_config(
     output_dir: Path,
     num_envs: int,
     max_steps: int,
+    inference_batch_size: int,
     latency_config: Path | None = None,
 ) -> None:
     config = load_config(source)
@@ -403,6 +404,7 @@ def write_latency_eval_config(
         {
             "mode": "simulated",
             "inference_devices": [inference_device],
+            "inference_batch_size": inference_batch_size,
             "simulated_inference_pool": True,
         }
     )
@@ -450,6 +452,7 @@ def evaluate_checkpoint(
         output_dir=output_dir,
         num_envs=num_envs,
         max_steps=args.eval_max_steps,
+        inference_batch_size=args.inference_batch_size,
     )
     subprocess.run(
         collector_command(
