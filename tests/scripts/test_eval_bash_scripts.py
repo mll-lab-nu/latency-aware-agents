@@ -317,7 +317,7 @@ def test_cuda_extensions_build_script_is_executable_bash():
     assert "load_cule_atari_extension" in text
     assert "torch.cuda.synchronize" in text
     assert 'export CUDA_HOME="${CONDA_PREFIX}"' in text
-    assert 'export TORCH_CUDA_ARCH_LIST="9.0;12.0"' in text
+    assert 'export TORCH_CUDA_ARCH_LIST="8.6;9.0;12.0"' in text
     assert "--list-gpu-code" not in text
     assert "detect_gpu_compute_cap" not in text
 
@@ -892,7 +892,7 @@ exit 0
         assert removed not in log
 
 
-def test_starvla_flash_attn_is_fixed_source_build(tmp_path):
+def test_starvla_flash_attn_uses_pinned_community_wheel(tmp_path):
     helper_path = (
         REPO_ROOT
         / "third_party"
@@ -907,8 +907,7 @@ def test_starvla_flash_attn_is_fixed_source_build(tmp_path):
     fake_python.write_text(
         """#!/usr/bin/env bash
 set -euo pipefail
-printf 'CUDA_HOME=%s TORCH_CUDA_ARCH_LIST=%s FLASH_ATTN_CUDA_ARCHS=%s ARGS=%s\\n' \
-  "${CUDA_HOME}" "${TORCH_CUDA_ARCH_LIST}" "${FLASH_ATTN_CUDA_ARCHS}" "$*" \
+printf 'CUDA_HOME=%s ARGS=%s\\n' "${CUDA_HOME}" "$*" \
   >> "${PYTHON_FAKE_LOG}"
 if [[ "${1:-}" == "-" ]]; then
   cat >/dev/null
@@ -920,7 +919,7 @@ fi
     fake_python.chmod(0o755)
     fake_cuobjdump = tmp_path / "cuobjdump"
     fake_cuobjdump.write_text(
-        "#!/usr/bin/env bash\nprintf '%s\\n' 'sm_90' 'sm_120'\n",
+        "#!/usr/bin/env bash\nprintf '%s\\n' 'sm_80' 'sm_90' 'sm_120'\n",
         encoding="utf-8",
     )
     fake_cuobjdump.chmod(0o755)
@@ -942,12 +941,10 @@ fi
 
     assert result.returncode == 0, result.stderr
     log = fake_log.read_text(encoding="utf-8")
-    assert "TORCH_CUDA_ARCH_LIST=9.0;12.0" in log
-    assert "FLASH_ATTN_CUDA_ARCHS=90;120" in log
     assert (
-        "ARGS=-m pip install flash-attn==2.8.3.post1 "
-        "--force-reinstall --no-cache-dir --no-binary=flash-attn "
-        "--no-build-isolation --no-deps"
+        "flash_attn-2.8.3%2Bcu12torch2.11cxx11abiTRUE-cp310-cp310-linux_x86_64.whl"
+        "#sha256=9001c730642cdc1ea44ed8130b0dc80e763519d6efc01e4de44b0700a0dfa13d "
+        "--force-reinstall --no-deps"
     ) in log
     helper_source = helper_path.read_text(encoding="utf-8")
     assert "fall back to sdpa" not in helper_source
@@ -1108,8 +1105,7 @@ printf 'start_method=%s\\n' "${LATENCY_BENCH_ENV_BACKEND_START_METHOD:-}" >> "$L
         "python -m latency_bench.cross_device.protocol "
         f"list --model {model} --workload flappy"
     ) in calls
-    if model == "official_gr00t":
-        assert "start_method=spawn" in calls
+    assert "start_method=spawn" in calls
 
 
 @pytest.mark.parametrize("task", [

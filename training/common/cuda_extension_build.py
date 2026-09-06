@@ -7,7 +7,7 @@ from pathlib import Path
 import torch.utils.cpp_extension as cpp_extension
 
 
-CUDA_ARCH_LIST = "9.0;12.0"
+CUDA_ARCH_LIST = "8.6;9.0;12.0"
 
 
 def ensure_compatible_cuda_extension_toolchain() -> Path:

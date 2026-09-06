@@ -70,6 +70,40 @@ models:
           use_gpu_render: false
   qwenoft:
     workloads:
+      air_raid:
+        base_config: configs/examples/gymnasium/air_raid/starvla_profile.yaml
+        model_artifact:
+          local_root: outputs/models/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k
+          checkpoint: checkpoints/steps_5000_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: latency-sensitive-bench/extra-envs-checkpoints
+          hf_path: OpenVLA/zero-latency/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k
+          hf_revision: 92b98395578242552f7d17b7c1e135fc53b5dcf2
+        checkpoint_kind: best
+        session_count: 5
+        n_episodes: 100
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
+      inverted_pendulum_rgb_state:
+        base_config: configs/examples/gymnasium/inverted_pendulum_rgb_state/starvla_profile.yaml
+        model_artifact:
+          local_root: outputs/models/inverted_pendulum_rgb_state_l0_return_gt900_100ep_openvla_native_sft_2k
+          checkpoint: checkpoints/steps_2000_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: latency-sensitive-bench/extra-envs-checkpoints
+          hf_path: OpenVLA/zero-latency/inverted_pendulum_rgb_state_l0_return_gt900_100ep_openvla_native_sft_2k
+          hf_revision: a374b83248b130dd1ad0294b2ee44906650dba0e
+        checkpoint_kind: best
+        session_count: 5
+        n_episodes: 100
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
       mikasa_intercept_grab_fast:
         base_config: configs/examples/mikasa/official_starvla_profile.yaml
         model_artifact:

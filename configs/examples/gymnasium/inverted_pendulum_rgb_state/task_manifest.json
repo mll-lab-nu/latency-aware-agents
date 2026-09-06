@@ -1,0 +1,53 @@
+{
+  "profiling_only": true,
+  "state_normalization_source": "checkpoint dataset_statistics.json state min/max",
+  "integration_name": "gymnasium",
+  "active_action_dim": 5,
+  "uses_state": true,
+  "state_dim": 4,
+  "state_labels": [
+    "cart_position",
+    "pole_angle",
+    "cart_velocity",
+    "pole_angular_velocity"
+  ],
+  "state_normalization": {
+    "type": "min_max",
+    "min": [-1.0, -1.0, -1.0, -1.0],
+    "max": [1.0, 1.0, 1.0, 1.0]
+  },
+  "gymnasium_task": {
+    "action_labels": [
+      "push_left_hard",
+      "push_left_soft",
+      "zero_force",
+      "push_right_soft",
+      "push_right_hard"
+    ],
+    "action_values": [0, 1, 2, 3, 4],
+    "base_prompt": "Keep the pole upright by applying horizontal cart forces. Choose exactly one action from: push_left_hard, push_left_soft, zero_force, push_right_soft, push_right_hard.",
+    "env_fps": 25.0,
+    "env_id": "LatencyBench/InvertedPendulumDiscrete-v0",
+    "frame_stack": 1,
+    "make_kwargs": {
+      "base_env_id": "InvertedPendulum-v4",
+      "base_make_kwargs": {},
+      "force_values": [-3.0, -1.5, 0.0, 1.5, 3.0],
+      "render_mode": "rgb_array"
+    },
+    "noop_action_id": 2,
+    "obs_fps": 25.0,
+    "registration_imports": [
+      "latency_bench.envs.gymnasium_mujoco"
+    ],
+    "state_space": {
+      "labels": [
+        "cart_position",
+        "pole_angle",
+        "cart_velocity",
+        "pole_angular_velocity"
+      ]
+    },
+    "task_name": "inverted_pendulum_rgb_state"
+  }
+}

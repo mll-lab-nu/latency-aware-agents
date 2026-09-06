@@ -57,13 +57,13 @@ TASK_SETTINGS = {
     'mikasa': {
         'teacher': 'ppo-v1/checkpoint.pt', 'conda_env': None,
         'eval_config': 'configs/examples/mikasa/official_starvla_profile.yaml',
-        'state_info_key': 'mikasa_proprio', 'global_batch': 64, 'sft_steps': 5000,
+        'state_info_key': 'mikasa_proprio', 'global_batch': 128, 'sft_steps': 5000,
         'max_episode_steps': 60, 'seed': 4242424242,
     },
     'haic': {
         'teacher': 'ppo-v1/checkpoint_final.pt', 'conda_env': 'haic',
         'eval_config': 'configs/examples/haic/official_gr00t_eval.yaml',
-        'state_info_key': 'haic_state', 'global_batch': 64, 'sft_steps': 5000,
+        'state_info_key': 'haic_state', 'global_batch': 128, 'sft_steps': 5000,
         'max_episode_steps': 1000, 'seed': 0,
     },
 }

@@ -1,0 +1,18 @@
+__base__: small_model_train.yaml
+
+experiment:
+  name: gymnasium_air_raid_qwenoft_rtx3090_profile
+
+backend:
+  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/air_raid
+
+latency:
+  method: iid
+  fixed_latency_ms: null
+  profile_path: results/profiling/runs/qwenoft/1x-rtx3090/air_raid/instance_52d3de13cd88ad3f/20260905T082123460474Z/profile/profile.json
+  profile_worker_slot: 0
+  seed: 0
+  add_latency_info: false
+
+logging:
+  output_dir: /mnt/data/latency-sensitive-bench/air_raid/rtx3090_profile_small_model_train

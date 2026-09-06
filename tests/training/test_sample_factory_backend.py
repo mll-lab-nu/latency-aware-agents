@@ -756,6 +756,69 @@ def test_action_latency_wrapper_queues_absolute_g1_requests_with_configured_noop
         wrapped.close()
 
     np.testing.assert_allclose(base_env.actions, np.repeat([[0.0], [0.0], [4.0]], 43, axis=1))
+def test_action_latency_wrapper_replays_iid_profile_by_reset_seed(tmp_path):
+    import gymnasium as gym
+
+    from training.common.latency_wrapper import ActionLatencyWrapper
+
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    (profile_dir / "profile.json").write_text(
+        json.dumps(
+            {
+                "model_id": "model",
+                "gpu_class": "gpu",
+                "workload_id": "workload",
+                "instance_id": "instance",
+                "source_run_id": "run",
+                "distribution_path": "latency_distribution.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (profile_dir / "latency_distribution.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 3,
+                "worker_slots": {
+                    "0": {
+                        "all": {
+                            "spearman_rho": 0.0,
+                            "observation_to_action_latency_ms": {
+                                "quantile_levels": [0.0, 1.0],
+                                "latency_ms": [1.0, 99.0],
+                            },
+                            "worker_service_time_ms": {
+                                "quantile_levels": [0.0, 1.0],
+                                "latency_ms": [1.0, 99.0],
+                            },
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    wrapped = ActionLatencyWrapper(
+        gym.make("CartPole-v1"),
+        env_fps=30,
+        obs_fps=30,
+        profile_path=str(profile_dir),
+        profile_worker_slot=0,
+        seed=42,
+    )
+
+    try:
+        wrapped.reset(seed=123)
+        first = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(5)]
+        wrapped.reset(seed=456)
+        wrapped.step(0)
+        wrapped.reset(seed=123)
+        replay = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(5)]
+    finally:
+        wrapped.close()
+
+    assert replay == first
 
 
 def test_action_latency_wrapper_distribution_samples_deterministically():

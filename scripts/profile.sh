@@ -23,12 +23,12 @@ for ARG in "$@"; do
 done
 if [[ "${MODEL}" == "official_gr00t" || -z "${MODEL}" ]]; then
   CONDA_ENV="latency"
-  export LATENCY_BENCH_ENV_BACKEND_START_METHOD=spawn
 elif [[ "${MODEL}" == "qwenoft" ]]; then
   CONDA_ENV="starvla_rl_games_openvla"
 else
   CONDA_ENV="starvla_rl_games_${MODEL}"
 fi
+export LATENCY_BENCH_ENV_BACKEND_START_METHOD=spawn
 
 set +u
 if [[ -d "/venv/${CONDA_ENV}" ]]; then
