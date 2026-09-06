@@ -1,5 +1,18 @@
 # HAIC / PullCart 原生 teacher 与 VLA student 手册
 
+## Latency command-RL 全链入口
+
+```bash
+.venv/bin/python -m scripts.tasks.haic_pull_cart.run_latency_pipeline \
+  --config configs/training/haic_latency_pipeline.yaml
+```
+
+从仓库根目录运行；依次执行 profile、原生 PPO command teacher、完整 episode issued-H40 采集、
+GR00T flow + frozen-actor auxiliary 训练及原/新 VLA zero/profile 对照。
+短训使用 `haic_latency_pipeline_smoke.yaml`；复用测量时显式传 `--profile-path /absolute/path/profile.json`。
+这条 latency 路线直接保存一次决策的 `[40,256]`，不使用下文历史零延迟数据的 future-row 拼接方式。
+配置、证据和恢复方法见 [latency handoff](LATENCY_RL_HANDOFF.md)。
+
 状态：HAIC 已作为 fork submodule 接入；正式 500M teacher 长训已完成。旧 256D latent-only
 bootstrap/DAgger 已停止。2026-09-04 已删除远端旧 run 的 checkpoint 和 DAgger 数据，仅迁移
 可复用的 bootstrap train/val 与 `actor_adapt.pt`；新的 random-t flow + actor auxiliary 路径
