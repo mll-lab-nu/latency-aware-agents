@@ -23,7 +23,8 @@ views; Wan tiles the two simultaneous views into one image.
 Use the benchmark Python environment to launch the pipeline. By default it
 resolves the `starvla_rl_games_openvla` conda environment for training and
 inference, and each task's existing simulator environment. Those environments
-and simulator assets must be installed using the task cookbooks.
+and simulator assets must be installed using [QUICK_START.md](../docs/QUICK_START.md),
+which covers all interpreter environments and the separate MIKASA converters.
 
 ```bash
 # Substitute any task directory and one of the four model names.

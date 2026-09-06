@@ -1,5 +1,10 @@
 # HAIC Pull Cart (G1)
 
+Install environments using [QUICK_START.md](../QUICK_START.md). The recipe below
+covers the original task pipeline. For the four continuous-state H1 models,
+use [SCALE_MODELS.md](../../program/SCALE_MODELS.md); their task inputs, training
+budgets, and automatic publication behavior are specified there.
+
 This cookbook covers the zero-delay `G1/haic/pull_cart` pipeline. The
 [Chinese internal runbook](../../program/HAIC.md) is the source for hardware,
 runtime diagnostics, and the historical VLA training attempts.
@@ -26,6 +31,8 @@ runtime diagnostics, and the historical VLA training attempts.
   remain zero while the policy is making measurable progress.
 
 ## Quick start
+
+Run the native task commands below with `conda activate haic`. Install the separate official GR00T environment for the original VLA recipe as well.
 
 Install the pinned HAIC/Isaac environment, authenticate to Hugging Face and
 W&B, then run from the repository root:

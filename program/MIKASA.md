@@ -1,5 +1,7 @@
 # MIKASA / InterceptGrabFast H1 zero-delay baseline 执行手册
 
+新机器的完整环境安装以 [QUICK_START.md](../docs/QUICK_START.md) 为准。本文的服务器路径与驱动修复保留为运行记录；四模型连续 state H1 流水线见 [SCALE_MODELS.md](SCALE_MODELS.md)。
+
 ## Latency command-RL 全链入口
 
 ```bash
@@ -258,6 +260,8 @@ source "${HOME}/miniconda3/etc/profile.d/conda.sh"
 
 ### 3.4 MIKASA 环境
 
+新机器先按 [QUICK_START.md §4](../docs/QUICK_START.md#4-mikasa-与两个转换环境) 安装模拟器及两个转换环境。以下驱动版本与本地解包步骤仅记录当时服务器的修复。
+
 ```bash
 cd "${REMOTE_ROOT}"
 bash scripts/mikasa/install.sh
@@ -352,7 +356,9 @@ cd "${REMOTE_ROOT}/third_party/starVLA"
 python -c 'import torch, deepspeed, accelerate, flash_attn; print(torch.__version__)'
 ```
 
-下载 base VLM 和 Bridge/RT-1 initialization checkpoint：
+以下权重下载用于本节原有 `train_vla.sh` 配方。四模型 H1 入口自动下载固定 revision 的 backbone 并新建动作头，不需要 Bridge/RT-1 initialization checkpoint。
+
+下载原有配方的 base VLM 和 Bridge/RT-1 initialization checkpoint：
 
 ```bash
 hf download Qwen/Qwen3-VL-4B-Instruct \

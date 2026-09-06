@@ -72,6 +72,10 @@ latency-sensitive-bench/
 
 ## Installation
 
+For setup across all simulators, model runtimes, and dataset converters, follow
+[环境配置快速指南](docs/QUICK_START.md). `--model all` installs all model
+environments; MIKASA, HAIC, and Parkour require the separate setup steps there.
+
 Clone this repository with submodules:
 
 ```bash
@@ -117,36 +121,23 @@ teacher-training tools used by the experiment scripts.
 
 ## StarVLA Layout
 
-For the current experiment scripts, keep StarVLA as a sibling checkout:
+StarVLA is the submodule at `third_party/starVLA`. Run the current task
+launchers from this repository; a sibling checkout is not required.
 
-```text
-/path/to/workspace/
-  latency-sensitive-bench/
-  starVLA/
-```
-
-Most StarVLA launch scripts assume:
+The four continuous-state H1 models (`qwenoft`, `qwenpi_v3`, `qwengr00t`,
+`wanoft`) share the `starvla_rl_games_openvla` environment by default. Install it
+with `bash install.sh --model openvla --tier dev`. The installation target
+`openvla` is a historical environment name; the H1 pipeline uses QwenOFT.
 
 ```bash
-export WORKSPACE_DIR=/path/to/workspace
-export PYTHONPATH="${WORKSPACE_DIR}/latency-sensitive-bench:${PYTHONPATH:-}"
+conda activate latency
+bash scripts/tasks/humanoidbench_balance_simple/train_qwenoft.sh --smoke
 ```
 
-The StarVLA bash scripts are the canonical entry points for VLA training runs.
-They call StarVLA's launcher and model code, but rely on this repository for
-latency datasets, environment wrappers, profile artifacts, and benchmark
-dependencies.
-
-Example StarVLA launchers:
-
-```text
-../starVLA/examples/rl_games/bash_scripts/openvla/bridge/mixed/flappy.sh
-../starVLA/examples/rl_games/bash_scripts/openvla/bridge/mixed/demon_attack.sh
-../starVLA/examples/rl_games/bash_scripts/pi_0.5/bridge/single/demon_attack.sh
-../starVLA/examples/rl_games/bash_scripts/gr00t/bridge/single/demon_attack_new_lr.sh
-../starVLA/examples/rl_games/bash_scripts/openvla/bridge/ghost_trail/final_ghost_trail_demon_attack_latency_6_memory_15_2.sh
-../starVLA/examples/rl_games/bash_scripts/openvla/bridge/ghost_trail/final_flappy_latency_4_ablation_memory_2.sh
-```
+Complete simulator setup first using [QUICK_START.md](docs/QUICK_START.md).
+See [SCALE_MODELS.md](program/SCALE_MODELS.md) for all sixteen launchers,
+training budgets, and automatic artifact publication. Original RL-games
+launchers live under `third_party/starVLA/examples/rl_games/bash_scripts/`.
 
 ## Official GR00T Layout
 
@@ -154,8 +145,10 @@ Example StarVLA launchers:
 `official_gr00t` policy loads one NVIDIA GR00T N1.7 instance per visible GPU
 inside local inference worker processes; it does not use a network policy server.
 
-Official dataset conversion and torchcodec require a system FFmpeg version
-supported by the pinned GR00T release (FFmpeg 4–7). Model loading also requires
+Official dataset conversion and torchcodec require FFmpeg 4–7 shared libraries.
+The installer supplies FFmpeg 7 in `latency` for the `official_gr00t` and `all`
+targets; make its libraries visible when launching the separate GR00T runtime
+as described in [QUICK_START.md](docs/QUICK_START.md). Model loading also requires
 access to the gated `nvidia/Cosmos-Reason2-2B` backbone, even when the GR00T
 checkpoint is already local. The installer does not run `sudo`, install system
 packages, or authenticate Hugging Face.

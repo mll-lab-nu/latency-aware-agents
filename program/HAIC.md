@@ -1,5 +1,7 @@
 # HAIC / PullCart 原生 teacher 与 VLA student 手册
 
+新机器的完整环境安装以 [QUICK_START.md](../docs/QUICK_START.md) 为准。本文的服务器路径与驱动修复保留为运行记录；四模型连续 state H1 流水线见 [SCALE_MODELS.md](SCALE_MODELS.md)。
+
 ## Latency command-RL 全链入口
 
 ```bash

@@ -1,5 +1,10 @@
 # Extreme Parkour (Go2)
 
+Install environments using [QUICK_START.md](../QUICK_START.md). The recipe below
+covers the original task pipeline. For the four continuous-state H1 models,
+use [SCALE_MODELS.md](../../program/SCALE_MODELS.md); their task inputs, training
+budgets, and automatic publication behavior are specified there.
+
 This cookbook covers the zero-delay Unitree Go2 pipeline on Isaac Lab. The
 [Chinese internal runbook](../../program/EXTREME_PARKOUR.md) preserves the
 upstream comparison, profiling evidence, and historical failed runs.
@@ -24,6 +29,8 @@ upstream comparison, profiling evidence, and historical failed runs.
   accumulated-round sampling. Every round uses zero-delay rollout and evaluation.
 
 ## Quick start
+
+Run the native task commands below with `conda activate extreme-parkour`. Install the separate official GR00T environment for the original VLA recipe as well.
 
 Install Isaac Sim/Isaac Lab and the pinned official GR00T environment, then run
 from the repository root:

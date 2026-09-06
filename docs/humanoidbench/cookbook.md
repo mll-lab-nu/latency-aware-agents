@@ -1,5 +1,10 @@
 # HumanoidBench Balance Simple (G1)
 
+Install environments using [QUICK_START.md](../QUICK_START.md). The recipe below
+covers the original task pipeline. For the four continuous-state H1 models,
+use [SCALE_MODELS.md](../../program/SCALE_MODELS.md); their task inputs, training
+budgets, and automatic publication behavior are specified there.
+
 This cookbook reproduces the zero-delay `g1_sonic_balance_simple` teacher to
 official GR00T VLA pipeline. The [Chinese internal record](../../program/BALANCE.md)
 contains the experiment history and unfinished 15k decision; this page keeps
@@ -23,6 +28,8 @@ the stable reader workflow.
 
 
 ## Quick start
+
+Run the native task commands below with `conda activate latency`. The official VLA runtime remains in its separate uv environment.
 
 Install the pinned official GR00T environment and authenticate to Hugging Face
 and W&B as described in the internal record:

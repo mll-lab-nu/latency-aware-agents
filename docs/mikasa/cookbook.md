@@ -1,5 +1,10 @@
 # MIKASA Intercept Grab Fast (H1)
 
+Install environments using [QUICK_START.md](../QUICK_START.md). The recipe below
+covers the original task pipeline. For the four continuous-state H1 models,
+use [SCALE_MODELS.md](../../program/SCALE_MODELS.md); their task inputs, training
+budgets, and automatic publication behavior are specified there.
+
 This cookbook reproduces the zero-delay `InterceptGrabFast-VLA-v0` baseline.
 The detailed engineering record is in the [Chinese internal runbook](../../program/MIKASA.md);
 this page is the reader-facing path.
@@ -24,8 +29,11 @@ profiles, action chunks, state/delay inputs, or online RL.
 
 ## Quick start
 
-Install the existing MIKASA and StarVLA environments, then run from the
-repository root:
+Install MIKASA, StarVLA, and both converters using
+[QUICK_START.md](../QUICK_START.md#4-mikasa-与两个转换环境). The legacy wrappers
+below re-run `uv sync`: on Blackwell hosts with a Torch override, use the
+[runbook’s direct Python stages](../../program/MIKASA.md) to preserve it.
+On hosts using the unmodified MIKASA lockfile, run from the repository root:
 
 ```bash
 bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy.sh
@@ -35,6 +43,7 @@ The task entrypoint runs the native PPO recipe and prints the accepted teacher
 checkpoint. Use that exact path for the VLA stages:
 
 ```bash
+conda activate starvla_rl_games_openvla
 bash scripts/tasks/mikasa_intercept_grab_fast/train_vla.sh \
   /absolute/path/to/final_success_ckpt.pt
 ```

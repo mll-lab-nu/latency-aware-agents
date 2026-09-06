@@ -1,5 +1,7 @@
 # Extreme Parkour Isaac Lab / Go2 zero-delay baseline 执行手册
 
+新机器的完整环境安装以 [QUICK_START.md](../docs/QUICK_START.md) 为准。本文的服务器路径与驱动修复保留为运行记录；四模型连续 state H1 流水线见 [SCALE_MODELS.md](SCALE_MODELS.md)。
+
 ## Latency command-RL 全链入口
 
 ```bash
@@ -178,41 +180,12 @@ student:   96 env/rank * 2 =  192 total
 
 ## 5. 环境安装
 
-环境独立位于 `/pfs/users/lxy/conda/envs/extreme-parkour`：
+新机器按 [QUICK_START.md §5](../docs/QUICK_START.md#5-extreme-parkour) 安装命名环境 `extreme-parkour`。
+固定组合是 Python 3.11、Torch 2.7.0+cu128、Isaac Sim 5.0.0 和仓库内 IsaacLab v2.2.0。
+HAIC 使用独立的 IsaacLab v2.3.2 checkout，不要为 HAIC 切换这里的 editable 源码版本。
 
-```bash
-export PARKOUR_ROOT=/pfs/users/lxy/latency-sensitive-bench
-export PARKOUR_ENV=/pfs/users/lxy/conda/envs/extreme-parkour
-export PARKOUR_PY="${PARKOUR_ENV}/bin/python"
-
-conda create -p "${PARKOUR_ENV}" python=3.11 -y
-"${PARKOUR_PY}" -m pip install --upgrade pip
-"${PARKOUR_PY}" -m pip install setuptools==80.9.0
-"${PARKOUR_PY}" -m pip install --no-build-isolation flatdict==4.0.1
-"${PARKOUR_PY}" -m pip install \
-  torch==2.7.0 torchvision==0.22.0 \
-  --index-url https://download.pytorch.org/whl/cu128
-"${PARKOUR_PY}" -m pip install 'isaacsim[all,extscache]==5.0.0' \
-  --extra-index-url https://pypi.nvidia.com
-
-TERM=xterm OMNI_KIT_ACCEPT_EULA=YES conda run -p "${PARKOUR_ENV}" \
-  bash -lc "cd '${PARKOUR_ROOT}/third_party/IsaacLab' && ./isaaclab.sh -i rsl_rl"
-"${PARKOUR_PY}" -m pip install --no-build-isolation --no-deps -e \
-  "${PARKOUR_ROOT}/third_party/Isaaclab_Parkour"
-"${PARKOUR_PY}" -m pip install --no-build-isolation -e \
-  "${PARKOUR_ROOT}/third_party/Isaaclab_Parkour/parkour_tasks"
-conda install -p "${PARKOUR_ENV}" libglu=9.0.3 -y
-"${PARKOUR_PY}" -m pip install \
-  click==8.1.7 psutil==5.9.8 typing_extensions==4.12.2
-```
-
-Isaac Sim 首次启动需要接受 NVIDIA EULA，并可能下载 extension cache。非交互运行前：
-
-```bash
-export OMNI_KIT_ACCEPT_EULA=YES
-```
-
-不要用系统 Python 3.14，也不要让 `uv` 重新解析为其他 Torch/Isaac Sim 版本。
+以下历史运行记录使用 `/pfs/users/lxy/conda/envs/extreme-parkour`；新机器将
+`PARKOUR_ROOT`、`PARKOUR_ENV` 和 `PARKOUR_PY` 替换为自己的安装路径。
 
 ## 6. Preflight 和 smoke
 
