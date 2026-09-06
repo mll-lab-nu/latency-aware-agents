@@ -94,5 +94,4 @@ def test_pipeline_wires_profile_native_teacher_and_both_eval_models(
     )
     assert new_eval["latency"]["seed"] == 17
     assert new_eval["executor"]["simulated_worker_capacity"] == 3
-    assert new_eval["scheduler"]["hold_policy"] == "drop"
-    assert new_eval["scheduler"]["ordering_policy"] == "oldest_ready"
+    assert new_eval["scheduler"] == latency_config["scheduler"]

@@ -76,7 +76,7 @@ def _write_eval_config(
             "inference_batch_size": inference_batch_size,
         }
     )
-    config["scheduler"].update(deepcopy(latency_config["scheduler"]))
+    config["scheduler"] = deepcopy(latency_config["scheduler"])
     config["env"].update(
         {
             "runtime_checkpoint_path": str(runtime_checkpoint),
