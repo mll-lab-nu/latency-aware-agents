@@ -3,10 +3,11 @@ __base__: haic_latency_pipeline.yaml
 output_dir: outputs/official_gr00t/haic_pull_cart_latency_pipeline_smoke
 native_output_dir: outputs/official_gr00t/haic_pull_cart_latency_pipeline_smoke/native
 native_train_arguments:
-  - task.num_envs=2
+  - task.num_envs=1
+  - task.max_episode_length=100
   - algo.train_every=8
   - algo.num_minibatches=1
-  - total_frames=32
+  - total_frames=256
   - save_interval=1
   - wandb.mode=offline
 vla:
