@@ -25,6 +25,7 @@ def write_latency_distribution_plot(samples_ms: Iterable[float], output_path: st
     ax.set_ylabel("Density")
     ax.set_title("Observation-to-action latency profile")
     ax.set_xlim(grid[0], grid[-1])
+    ax.set_ylim(bottom=0)
     ax.grid(alpha=0.25)
     fig.tight_layout()
     fig.savefig(output_path, dpi=180)
