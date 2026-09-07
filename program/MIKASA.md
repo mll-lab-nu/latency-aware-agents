@@ -352,7 +352,7 @@ cd "${REMOTE_ROOT}/third_party/starVLA"
 python -c 'import torch, deepspeed, accelerate, flash_attn; print(torch.__version__)'
 ```
 
-以下权重下载用于本节原有 `train_vla.sh` 配方。四模型 H1 入口自动下载固定 revision 的 backbone 并新建动作头，不需要 Bridge/RT-1 initialization checkpoint。
+以下权重下载用于本节原有 `train_vla.sh` 配方。四模型 H1 入口从 backbone 仓库默认分支下载 backbone 并新建动作头，不需要 Bridge/RT-1 initialization checkpoint。
 
 下载原有配方的 base VLM 和 Bridge/RT-1 initialization checkpoint：
 

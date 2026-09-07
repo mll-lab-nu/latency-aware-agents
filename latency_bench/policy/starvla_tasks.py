@@ -74,7 +74,7 @@ def build_task_starvla_policy(config: dict) -> TaskStarVlaPolicyRunner:
     model_config, _ = read_mode_config(cfg["checkpoint_path"])
     backbone = model_config["backbone"]
     backbone_path = snapshot_download(
-        backbone["repo_id"], revision=backbone["revision"],
+        backbone["repo_id"],
         allow_patterns=backbone["allow_patterns"],
         local_dir=STARVLA_ROOT / "playground/Pretrained_models" / backbone["repo_id"].split("/")[-1],
     )

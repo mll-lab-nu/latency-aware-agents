@@ -159,7 +159,7 @@ export MUJOCO_GL=egl
 export OMNI_KIT_ACCEPT_EULA=YES
 ```
 
-也可通过 `HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN` 和 `WANDB_API_KEY` 设置凭据。脚本不会自动加载根目录 `.env`。H1 流水线自动下载固定 revision 的小策略、backbone 和可复用数据；正式运行还需要组织模型仓库、数据集仓库的写权限，发布目标见 [artifacts.md](artifacts.md)。
+也可通过 `HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN` 和 `WANDB_API_KEY` 设置凭据。脚本不会自动加载根目录 `.env`。H1 流水线从各模型和数据仓库的默认分支下载小策略、backbone 和可复用数据；正式运行还需要组织模型仓库、数据集仓库的写权限，发布目标见 [artifacts.md](artifacts.md)。发布的模型和数据会记录实际解析到的 revision。
 
 先验证命令入口，再运行一组真实 smoke：
 

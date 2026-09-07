@@ -44,17 +44,17 @@ Accelerate on two visible GPUs. Formal global batch sizes are 128 for Balance
 and Parkour, 64 for MIKASA and HAIC. Choose GPU count and microbatch whose
 product divides the global batch size.
 
-The pipeline downloads pinned teacher/backbone revisions, reuses published
-bootstrap data or collects it once, trains, saves a reloadable inference
+The pipeline downloads teachers and backbones from their repositories' default
+branches, reuses published bootstrap data or collects it once, trains, saves a reloadable inference
 bundle, and evaluates the final checkpoint for 100 simulated zero-latency
 episodes. Simulation cadence does not imply real-time inference throughput.
 `--smoke` uses two optimizer updates, two final evaluation episodes, and one
 short DAgger round for Parkour/HAIC; smoke artifacts remain local.
 
 Balance and MIKASA bootstrap preparation reuses the published canonical
-`teacher-rollouts-v1` train/validation split at dataset revision
-`373b47310c11b17b9a93b5c798c1fc903932269e`, adding the H1 task contract and
-normalization metadata. HAIC and Parkour use their native collectors. HAIC
+`teacher-rollouts-v1` train/validation split from the dataset repository's
+default branch, adding the H1 task contract and normalization metadata. HAIC
+and Parkour use their native collectors. HAIC
 uses different seeds for training (0) and validation (1).
 
 For DAgger, half the sampling weight remains on bootstrap and half is split
@@ -75,8 +75,9 @@ Authenticate through the standard Hugging Face login or `HF_TOKEN`.
 
 Task components in Hub paths use hyphens. Model bundles include weights,
 portable model config, task contract, normalization statistics, final L0
-metrics, model card, and provenance with pinned dataset/teacher/backbone
-revisions. Optimizer states and raw collection intermediates remain local.
+metrics, model card, and provenance with source references and resolved
+publication revisions where applicable. Optimizer states and raw collection
+intermediates remain local.
 Use a new run ID for new training. Dataset contract changes require a new
 dataset version, rather than replacing a shared version.
 Publication refuses to replace an existing central path; rerun after an
@@ -165,7 +166,7 @@ Final verification passed 91 task/model/data/trainer/publication regression test
 18 HAIC tests, three MIKASA adapter tests, and four inference-device tests.
 All 16 wrappers passed `bash -n`. QwenOFT and WanOFT inference files were copied
 to fresh directories on another filesystem, loaded with the real model loader
-and pinned backbones, and produced finite `(1, 43)` predictions.
+and downloaded backbones, and produced finite `(1, 43)` predictions.
 
 Publication filtering, revision references, no-overwrite behavior, upload failures,
 and publication-only retry were tested with mocked Hub responses. No smoke

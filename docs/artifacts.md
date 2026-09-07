@@ -81,6 +81,6 @@ teacher latent at each control step. Existing issued-H40 data is not reused.
 The dataset README and task contract describe fields and fixed train/validation
 normalization. Model provenance references the exact shared and delta revisions.
 
-Teacher checkpoint downloads for all four tasks are pinned to model repository
-revision `46abd9ece5745d808d16aa8013766a26b4f6c371` by the H1 pipeline, including
-the Parkour and HAIC teachers now present in that revision.
+Teacher checkpoint downloads for all four tasks use the model repository's
+default branch in the H1 pipeline, including the Parkour and HAIC teachers.
+Published artifacts record the resolved publication revision where applicable.

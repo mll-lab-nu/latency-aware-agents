@@ -27,17 +27,13 @@ from scripts.starvla.model_config import make_model_config
 
 ROOT = Path(__file__).resolve().parents[2]
 STARVLA = ROOT / 'third_party/starVLA'
-MODEL_REVISION = '46abd9ece5745d808d16aa8013766a26b4f6c371'
-TEACHER_DATA_REVISION = '373b47310c11b17b9a93b5c798c1fc903932269e'
 BACKBONES = {
     'qwen': {
         'repo_id': 'Qwen/Qwen3-VL-4B-Instruct',
-        'revision': 'ebb281ec70b05090aa6165b016eac8ec08e71b17',
         'allow_patterns': ['*.json', '*.safetensors', '*.txt', '*.jinja', '*.model'],
     },
     'wan': {
         'repo_id': 'Wan-AI/Wan2.2-TI2V-5B-Diffusers',
-        'revision': 'b8fff7315c768468a5333511427288870b2e9635',
         'allow_patterns': ['model_index.json', 'scheduler/*', 'tokenizer/*', 'text_encoder/*', 'transformer/*', 'vae/*'],
     },
 }
@@ -101,17 +97,17 @@ def run_command(command: list, log: Path, *, cwd: Path = ROOT, env: dict | None 
 def resolve_teacher(task: str, override: Path | None) -> tuple[Path, dict]:
     spec = task_spec(task)
     filename = f'zero-latency/{spec.name.replace("_", "-")}/small-policy/{TASK_SETTINGS[task]["teacher"]}'
-    reference = {'repo_id': artifacts.MODEL_REPO_ID, 'revision': MODEL_REVISION, 'path': filename}
+    reference = {'repo_id': artifacts.MODEL_REPO_ID, 'path': filename}
     if override is not None:
         return override.resolve(), {'source': 'local_override', 'filename': override.name}
-    downloaded = hf_hub_download(artifacts.MODEL_REPO_ID, filename, revision=MODEL_REVISION,
+    downloaded = hf_hub_download(artifacts.MODEL_REPO_ID, filename,
                                  local_dir=ROOT / 'outputs/starvla/artifacts/models', token=resolve_token(''))
     return Path(downloaded).resolve(), reference
 
 
 def resolve_backbone(model: str) -> tuple[Path, dict]:
     reference = deepcopy(BACKBONES['wan' if model == 'wanoft' else 'qwen'])
-    path = snapshot_download(reference['repo_id'], revision=reference['revision'],
+    path = snapshot_download(reference['repo_id'],
                              allow_patterns=reference['allow_patterns'],
                              local_dir=STARVLA / 'playground/Pretrained_models' / reference['repo_id'].split('/')[-1],
                              token=resolve_token(''))
@@ -164,14 +160,14 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                                   'code_revisions': code_revisions()}
                     source_path = f'zero-latency/{task_spec(args.task).name.replace("_", "-")}/teacher-rollouts-v1'
                     snapshot = Path(snapshot_download(
-                        artifacts.DATASET_REPO_ID, repo_type='dataset', revision=TEACHER_DATA_REVISION,
+                        artifacts.DATASET_REPO_ID, repo_type='dataset',
                         allow_patterns=[f'{source_path}/lerobot/**', f'{source_path}/lerobot__val/**'],
                         token=resolve_token(''),
                     ))
                     prepare_lerobot(args.task, snapshot / source_path / 'lerobot',
                                     snapshot / source_path / 'lerobot__val', shared / 'lerobot')
                     provenance['source_dataset'] = {'repo_id': artifacts.DATASET_REPO_ID,
-                                                    'revision': TEACHER_DATA_REVISION, 'path': source_path}
+                                                    'path': source_path}
                 else:
                     provenance = {'task': task_spec(args.task).name, 'teacher': teacher_reference,
                                   'seed': 2 if args.task == 'parkour' else 0, 'split_seed': 0,
@@ -568,7 +564,7 @@ def main(argv=None) -> None:
         f'# {args.model} — {task_spec(args.task).name}\n\n'
         f'RGB + continuous state, action horizon 1, VLA {task_spec(args.task).fps:g} Hz.\n'
         'See task_contract.json for normalization, eval_l0.json for zero-latency results, '
-        'and provenance.json for exact teacher, backbone, and dataset revisions.\n')
+        'and provenance.json for source references and dataset publication revisions.\n')
     if args.smoke:
         write_json(bundle / 'provenance.json', run)
     else:

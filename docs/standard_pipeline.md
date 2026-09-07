@@ -38,7 +38,8 @@ upload files to Hugging Face automatically.
 
 The separate [StarVLA H1 pipelines](../program/SCALE_MODELS.md) provide
 `train_qwenoft.sh`, `train_qwenpi_v3.sh`, `train_qwengr00t.sh`, and
-`train_wanoft.sh` in each task directory. They download pinned teachers and
+`train_wanoft.sh` in each task directory. They download teachers from the
+model repository's default branch and
 automatically publish formal datasets and final models; `--smoke` stays local.
 
 Each VLA trainer finishes by printing `MODEL_PATH=<final inference bundle>`.
