@@ -32,9 +32,8 @@ def main(argv: list[str] | None = None) -> None:
     source.add_argument(
         "--hf-artifacts",
         action="store_true",
-        help="resolve the fixed Hugging Face artifact coordinates instead of local defaults",
+        help="resolve the Hugging Face artifact coordinates instead of local defaults",
     )
-    run.add_argument("--session-python", type=Path)
     run.add_argument("--resume", metavar="RUN_ID", type=_path_segment)
     run.add_argument("--publish", action="store_true")
 
@@ -45,17 +44,14 @@ def main(argv: list[str] | None = None) -> None:
     listing.add_argument("--model")
     listing.add_argument("--gpu")
     listing.add_argument("--workload")
-    listing.add_argument("--hf-commit", default="main")
 
     resolve = commands.add_parser("resolve", help="download one exact published profile")
     _add_preset(resolve)
     resolve.add_argument("--gpu", type=_path_segment)
     resolve.add_argument("--instance", type=_path_segment)
-    resolve.add_argument("--hf-commit", default="main")
 
     simulate = commands.add_parser("simulate", help="replay one exact published profile")
     _add_preset(simulate)
-    simulate.add_argument("--session-python", type=Path)
     simulate.add_argument("--gpu", type=_path_segment, required=True)
     simulate.add_argument("--instance", type=_path_segment, required=True)
     simulate.add_argument(
@@ -64,7 +60,6 @@ def main(argv: list[str] | None = None) -> None:
         required=True,
     )
     simulate.add_argument("--seeds", type=int, nargs="+", required=True)
-    simulate.add_argument("--hf-commit", default="main")
     simulate.add_argument("--publish", action="store_true")
 
     args = parser.parse_args(argv)
@@ -72,7 +67,6 @@ def main(argv: list[str] | None = None) -> None:
         registry = load_config(REGISTRY_PATH)
         refs = list_remote_profiles(
             registry,
-            hf_commit=args.hf_commit,
             model_id=args.model,
             gpu_class=args.gpu,
             workload_id=args.workload,
@@ -86,10 +80,6 @@ def main(argv: list[str] | None = None) -> None:
         spec = resolve_model_artifacts(
             spec, model_path=args.model_path, hf_artifacts=args.hf_artifacts
         )
-        if "eval_entrypoint" in spec and args.session_python is None:
-            parser.error("--session-python is required for native eval entrypoints")
-        if args.session_python is not None:
-            spec["session_python"] = str(args.session_python)
         result = run_profile(spec, resume_run_id=args.resume, publish=args.publish)
         _print_result(result)
     elif args.command == "publish":
@@ -105,27 +95,20 @@ def main(argv: list[str] | None = None) -> None:
         else:
             gpu_class = args.gpu
             instance_id = args.instance
-        ref, profile_path, resolved_commit = resolve_remote_profile(
+        ref, profile_path = resolve_remote_profile(
             spec,
             gpu_class=gpu_class,
             instance_id=instance_id,
-            hf_commit=args.hf_commit,
         )
         print(f"PROFILE_REF={ref.as_posix()}")
         print(f"PROFILE_PATH={profile_path}")
-        print(f"HF_COMMIT={resolved_commit}")
     else:
-        if "eval_entrypoint" in spec and args.session_python is None:
-            parser.error("--session-python is required for native eval entrypoints")
-        if args.session_python is not None:
-            spec["session_python"] = str(args.session_python)
         result = run_simulation(
             spec,
             gpu_class=args.gpu,
             instance_id=args.instance,
             method=args.method,
             latency_seeds=args.seeds,
-            hf_commit=args.hf_commit,
             publish=args.publish,
         )
         _print_result(result)

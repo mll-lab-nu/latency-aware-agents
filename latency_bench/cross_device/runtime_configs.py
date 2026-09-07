@@ -42,7 +42,6 @@ def simulation_config(
     profile: dict[str, Any],
     method: str,
     latency_seed: int,
-    hf_commit: str,
 ) -> dict[str, Any]:
     config = _base_config(spec, output_dir)
     base_env_fps = config["env"]["env_fps"]
@@ -69,7 +68,6 @@ def simulation_config(
         "workload_id": profile["workload_id"],
         "instance_id": profile["instance_id"],
         "source_run_id": profile["source_run_id"],
-        "hf_commit": hf_commit,
     }
     if method == "fixed":
         config["latency"]["fixed_latency_ms"] = profile["summary"]["mean_ms"]
@@ -77,7 +75,6 @@ def simulation_config(
         config["latency"]["mean_latency_ms"] = profile["summary"]["mean_ms"]
         config["latency"]["std_latency_ms"] = profile["summary"]["std_ms"]
     config["evaluation"]["eval_parallel_envs"] = spec["simulation_parallel_envs"]
-    config["evaluation"]["eval_episodes"] = spec["eval_episodes"]
     if "inference_batch_size" in spec:
         config["executor"]["inference_batch_size"] = spec["inference_batch_size"]
     config["evaluation"]["eval_latency_values"] = None
@@ -94,7 +91,7 @@ def write_generated_config(path: Path, config: dict[str, Any]) -> None:
 def eval_command(spec: dict[str, Any], config_path: Path, output_dir: Path) -> list[str]:
     if "eval_entrypoint" in spec:
         return [
-            spec["session_python"],
+            sys.executable,
             spec["eval_entrypoint"],
             "latency-eval",
             "--eval-config",
@@ -132,7 +129,7 @@ def _base_config(spec: dict[str, Any], output_dir: Path) -> dict[str, Any]:
     if spec["model_id"] == "qwenoft":
         config["policy"]["worker_python_executable"] = sys.executable
     config["experiment"]["seed"] = spec["evaluation_seed"]
-    config["evaluation"]["eval_episodes"] = spec["profile_episodes"]
+    config["evaluation"]["eval_episodes"] = spec["eval_episodes"]
     config["provenance"] = {
         key: spec[key]
         for key in ("model_provenance", "runtime_provenance")

@@ -15,12 +15,9 @@ else
     esac
   done
 fi
-SESSION_PYTHON="${HAIC_PYTHON:-/pfs/users/lxy/conda/envs/haic/bin/python}"
-
 cd "${REPO_ROOT}"
 exec bash scripts/profile.sh run \
   --model official_gr00t \
   --workload haic_pull_cart \
   "${SOURCE_ARGS[@]}" \
-  --session-python "${SESSION_PYTHON}" \
   "$@"

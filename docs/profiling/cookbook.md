@@ -57,10 +57,9 @@ models:
           checkpoint: .
           hf_repo: latency-sensitive-bench/benchmark-models
           hf_path: zero-latency/my-task/vla/my-model-v1
-          hf_revision: main
         checkpoint_kind: latest
         session_count: 5
-        n_episodes: 100
+        eval_episodes: 100
         evaluation_seed: 0
         calibrate_env_fps: false
         simulation_parallel_envs: 1
@@ -74,13 +73,12 @@ realtime logging settings. Use `calibrate_env_fps: false` for workloads with a
 fixed native cadence; calibrated workloads also require their calibration
 settings in the preset.
 
-`model_artifact` is exact: an absent `local_root` downloads only `hf_path` at
-`hf_revision`, while an existing root must contain `checkpoint`. Native
-simulator tasks also set `profile_entrypoint`, receive their interpreter through
-`--session-python`, and can declare a second `runtime_artifact` for the frozen
-teacher/actor checkpoint. There is no alternate checkpoint fallback.
-Provenance records the configured `requested_revision`; only an artifact actually
-resolved from Hugging Face receives an immutable `resolved_revision`.
+`model_artifact` is exact: an absent `local_root` downloads only `hf_path` from
+the current Hugging Face repository, while an existing root must contain
+`checkpoint`. Native simulator tasks set `eval_entrypoint` and run it with the
+Python interpreter active when the command is invoked. A second
+`runtime_artifact` may provide a frozen teacher/actor checkpoint. There is no
+alternate checkpoint fallback.
 
 Each profile has four coordinates:
 
@@ -157,14 +155,15 @@ bash scripts/profile.sh resolve --model my_model --workload my_task
 
 bash scripts/profile.sh simulate \
   --model my_model --workload my_task \
-  --model-path /absolute/path/to/model-root \
   --gpu "$GPU_CLASS" --instance "$INSTANCE_ID" \
   --method temporal --seeds 0 1 2
 ```
 
-Replay methods are `temporal`, `iid`, `fixed`, and `normal`.
-`resolve` and `simulate` use `main` by default; pass `--hf-commit` to pin a
-published profile for a reproducible experiment.
+Replay methods are `zero`, `temporal`, `iid`, `fixed`, and `normal`. `zero`
+uses the same generated simulated-eval config as profile replay, but injects
+zero virtual latency. `simulate` deliberately has no model-path override: it
+uses the artifact coordinates recorded by the selected profile and the current
+repository contents.
 
 ## Train a small model with IID profile latency
 

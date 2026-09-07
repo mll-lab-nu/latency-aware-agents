@@ -388,7 +388,6 @@ workload_id
 instance_id
 source_run_id
 profile_ref
-hf_commit
 latency_raw_frames
 ```
 

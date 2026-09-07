@@ -36,7 +36,7 @@ def main():
     profile = args.profile_path
     if profile is None:
         run("profile", ["bash", "scripts/profile.sh", "run", "--model", "qwenoft",
-            "--workload", "mikasa_intercept_grab_fast", "--session-python", python,
+            "--workload", "mikasa_intercept_grab_fast",
             *config["profile_arguments"]])
         profile = Path(next(line.removeprefix("PROFILE_PATH=") for line in
             (output / "profile.log").read_text().splitlines() if line.startswith("PROFILE_PATH=")))

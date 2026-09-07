@@ -58,7 +58,7 @@ def resolve_profile_artifacts(
     spec: dict[str, Any],
     profile: dict[str, Any],
 ) -> dict[str, Any]:
-    """Resolve the immutable model/runtime revisions recorded by a profile."""
+    """Resolve the model/runtime artifacts recorded by a profile."""
     resolved = dict(spec)
     model_provenance = profile["provenance"]["model_artifact"]
     model = _download_profile_artifact(model_provenance)
@@ -83,11 +83,6 @@ def resolve_profile_artifacts(
 def _download_profile_artifact(provenance: dict[str, Any]) -> dict[str, Path]:
     from huggingface_hub import snapshot_download
 
-    # A published profile is external input, not a live registry revision.
-    if provenance["source"] != "hf" or not re.fullmatch(
-        r"[0-9a-f]{40}", provenance["resolved_revision"]
-    ):
-        raise ValueError("profile replay requires source='hf' and a fixed 40-hex commit")
     path_in_repo = Path(provenance["path_in_repo"])
     if Path(provenance["checkpoint"]).is_absolute():
         raise ValueError(
@@ -96,7 +91,6 @@ def _download_profile_artifact(provenance: dict[str, Any]) -> dict[str, Path]:
     download_kwargs = {
         "repo_id": provenance["repo_id"],
         "repo_type": "model",
-        "revision": provenance["resolved_revision"],
     }
     if path_in_repo != Path("."):
         download_kwargs["allow_patterns"] = [f"{path_in_repo.as_posix()}/**"]
@@ -161,32 +155,18 @@ def _resolve_artifact(
     checkpoint = Path(artifact["checkpoint"])
     hf_repo = artifact["hf_repo"]
     hf_path = Path(artifact["hf_path"])
-    hf_revision = artifact["hf_revision"]
     if local_root is not None:
         resolved_root = root.resolve(strict=True)
         source = "local"
-        resolved_revision = None
     elif not force_hf and root.exists():
         resolved_root = root.resolve(strict=True)
         source = "local"
-        resolved_revision = None
     else:
-        if re.fullmatch(r"[0-9a-f]{40}", hf_revision):
-            resolved_revision = hf_revision
-        else:
-            from huggingface_hub import HfApi
-
-            resolved_revision = HfApi().repo_info(
-                repo_id=hf_repo,
-                repo_type="model",
-                revision=hf_revision,
-            ).sha
         from huggingface_hub import snapshot_download
 
         download_kwargs = {
             "repo_id": hf_repo,
             "repo_type": "model",
-            "revision": resolved_revision,
         }
         if hf_path != Path("."):
             download_kwargs["allow_patterns"] = [f"{hf_path.as_posix()}/**"]
@@ -208,10 +188,7 @@ def _resolve_artifact(
         "repo_id": hf_repo,
         "path_in_repo": hf_path.as_posix(),
         "checkpoint": checkpoint.as_posix(),
-        "requested_revision": hf_revision,
     }
-    if resolved_revision is not None:
-        artifact_provenance["resolved_revision"] = resolved_revision
     if "model_config" in artifact:
         artifact_provenance["model_config"] = artifact["model_config"]
 
@@ -240,7 +217,6 @@ def profile_refs_from_repo_files(files: Iterable[str]) -> list[Path]:
 def list_remote_profiles(
     registry: dict[str, Any],
     *,
-    hf_commit: str,
     model_id: str | None = None,
     gpu_class: str | None = None,
     workload_id: str | None = None,
@@ -250,7 +226,6 @@ def list_remote_profiles(
     files = HfApi().list_repo_files(
         repo_id=registry["hf_repo"],
         repo_type="dataset",
-        revision=hf_commit,
     )
     refs = profile_refs_from_repo_files(files)
     return [
@@ -267,13 +242,11 @@ def resolve_remote_profile(
     *,
     gpu_class: str,
     instance_id: str,
-    hf_commit: str,
-) -> tuple[Path, Path, str]:
+) -> tuple[Path, Path]:
     ref = Path(spec["model_id"]) / gpu_class / spec["workload_id"] / instance_id
-    local_dir, resolved_commit = download_profile(
+    local_dir = download_profile(
         spec,
         ref,
-        hf_commit=hf_commit,
         local_dir=Path(spec["artifact_root"]) / "downloads" / "profiles" / ref,
     )
     profile_path = local_dir / "profile.json"
@@ -289,4 +262,4 @@ def resolve_remote_profile(
         raise ValueError(
             f"Remote profile coordinates {actual!r} do not match requested {expected!r}"
         )
-    return ref, profile_path, resolved_commit
+    return ref, profile_path

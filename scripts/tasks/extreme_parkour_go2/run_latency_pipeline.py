@@ -148,9 +148,7 @@ def main() -> None:
         ]
         if "--hf-artifacts" not in profile_args:
             profile_command.extend(["--model-path", str(config["profile_model"])])
-        profile_command.extend(
-            ["--session-python", str(parkour_python), *profile_args]
-        )
+        profile_command.extend(profile_args)
         profile = _profile_from_log(run("profile", profile_command))
     profile = profile.resolve()
 

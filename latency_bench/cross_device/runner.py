@@ -143,7 +143,8 @@ def run_profile(
     current_dir = profile_dir(spec["artifact_root"], current_ref)
     with _profile_lock(current_dir):
         _replace_current(candidate_dir, current_dir)
-        published_commit = _publish(spec, current_ref, current_dir) if publish else None
+        if publish:
+            _publish(spec, current_ref, current_dir)
     result = {
         "PROFILE_REF": current_ref.as_posix(),
         "PROFILE_PATH": str(current_dir / "profile.json"),
@@ -151,8 +152,6 @@ def run_profile(
         "GPU_CLASS": deployment["gpu_class"],
         "INSTANCE_ID": deployment["instance_id"],
     }
-    if published_commit is not None:
-        result["HF_COMMIT"] = published_commit
     return result
 
 
@@ -166,13 +165,12 @@ def publish_current_profile(spec: dict[str, Any]) -> dict[str, str]:
     )
     current_dir = profile_dir(spec["artifact_root"], current_ref)
     with _profile_lock(current_dir):
-        commit = _publish(spec, current_ref, current_dir)
+        _publish(spec, current_ref, current_dir)
         profile = read_json(current_dir / "profile.json")
     return {
         "PROFILE_REF": current_ref.as_posix(),
         "PROFILE_PATH": str(current_dir / "profile.json"),
         "RUN_ID": profile["source_run_id"],
-        "HF_COMMIT": commit,
     }
 
 
@@ -183,14 +181,12 @@ def run_simulation(
     instance_id: str,
     method: str,
     latency_seeds: list[int],
-    hf_commit: str,
     publish: bool,
 ) -> dict[str, str]:
-    canonical_ref, selected_profile, resolved_commit = resolve_remote_profile(
+    canonical_ref, selected_profile = resolve_remote_profile(
         spec,
         gpu_class=gpu_class,
         instance_id=instance_id,
-        hf_commit=hf_commit,
     )
     profile = read_json(selected_profile)
     spec = resolve_profile_artifacts(spec, profile)
@@ -219,7 +215,6 @@ def run_simulation(
             profile=profile,
             method=method,
             latency_seed=latency_seed,
-            hf_commit=resolved_commit,
         )
         write_generated_config(config_path, config)
         _run_evaluation(spec, config_path, output_dir)
@@ -228,7 +223,6 @@ def run_simulation(
     result = {
         "PROFILE_REF": canonical_ref.as_posix(),
         "RUN_ID": profile["source_run_id"],
-        "HF_COMMIT": resolved_commit,
     }
     if publish:
         remote_dirs = [
@@ -239,7 +233,7 @@ def run_simulation(
             / str(seed)
             for seed in latency_seeds
         ]
-        result["SIMULATION_HF_COMMIT"] = publish_simulation_dirs(
+        publish_simulation_dirs(
             spec,
             local_dirs=output_dirs,
             remote_dirs=remote_dirs,
@@ -410,13 +404,13 @@ def _publish(
     spec: dict[str, Any],
     current_ref: Path,
     current_dir: Path,
-) -> str:
+) -> None:
     (current_dir / "DONE").read_bytes()
     profile = read_json(current_dir / "profile.json")
     source_ref = run_ref(current_ref, profile["source_run_id"])
     source_dir = run_dir(spec["artifact_root"], source_ref)
     (source_dir / "DONE").read_bytes()
-    return publish_run_and_profile(
+    publish_run_and_profile(
         spec,
         local_run_dir=source_dir,
         local_profile_dir=current_dir,

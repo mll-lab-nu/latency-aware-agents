@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from latency_bench.core.config import load_config
 from latency_bench.cross_device import runner
 from latency_bench.cross_device.artifacts import (
     profile_dir,
@@ -54,10 +55,18 @@ def test_registry_has_one_openvla_flappy_preset():
     spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
 
     assert spec["session_count"] == 5
-    assert spec["profile_episodes"] == 100
     assert spec["eval_episodes"] == 100
     assert spec["calibrate_env_fps"] is True
     assert spec["artifact_root"] == "results/profiling"
+
+
+def test_registry_uses_one_episode_count_for_profile_and_replay():
+    registry = load_config("configs/profiles.yaml")
+    for model in registry["models"].values():
+        for preset in model["workloads"].values():
+            assert "eval_episodes" in preset
+            assert "n_episodes" not in preset
+            assert "profile_episodes" not in preset
 
 
 def test_registry_has_balance_official_gr00t_preset():
@@ -66,7 +75,6 @@ def test_registry_has_balance_official_gr00t_preset():
     )
 
     assert spec["session_count"] == 5
-    assert spec["profile_episodes"] == 100
     assert spec["eval_episodes"] == 100
     assert spec["evaluation_seed"] == 0
     assert spec["simulation_parallel_envs"] == 1
@@ -144,7 +152,6 @@ def test_native_measure_config_assigns_only_inference_devices(tmp_path):
     )
     spec["checkpoint_path"] = "/models/parkour"
     spec["runtime_checkpoint_path"] = "/models/parkour/model_14999.pt"
-    spec["session_python"] = "/native/bin/python"
     config = measure_config(
         spec,
         {
@@ -161,7 +168,7 @@ def test_native_measure_config_assigns_only_inference_devices(tmp_path):
     assert config["latency"]["device"] == "cuda:1"
     assert config["env"]["runtime_checkpoint_path"] == "/models/parkour/model_14999.pt"
     assert eval_command(spec, tmp_path / "generated.yaml", tmp_path) == [
-        "/native/bin/python",
+        sys.executable,
         spec["eval_entrypoint"],
         "latency-eval",
         "--eval-config",
@@ -191,7 +198,6 @@ def test_official_gr00t_runtime_checkpoint_override_uses_model_path():
         },
         method="fixed",
         latency_seed=7,
-        hf_commit="sha_123",
     )
 
     assert config["policy"]["model_path"] == spec["checkpoint_path"]
@@ -302,7 +308,6 @@ def test_new_runs_are_retained_while_current_moves_forward(tmp_path, monkeypatch
         "model_id": "openvla",
         "workload_id": "flappy",
         "session_count": 2,
-        "profile_episodes": 1,
         "eval_episodes": 1,
         "evaluation_seed": 0,
         "base_config": str(base_config),
@@ -412,7 +417,7 @@ def test_legacy_run_without_contract_cannot_resume(tmp_path):
         runner._assert_run_contract(spec, deployment, tmp_path)
 
 
-def test_simulation_uses_profile_slots_and_pinned_source(tmp_path):
+def test_simulation_uses_profile_slots_and_selected_artifact(tmp_path):
     spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
     spec["checkpoint_path"] = "/models/openvla"
     profile = {
@@ -434,13 +439,11 @@ def test_simulation_uses_profile_slots_and_pinned_source(tmp_path):
         profile=profile,
         method="temporal",
         latency_seed=7,
-        hf_commit="sha_123",
     )
 
     assert config["executor"]["simulated_worker_capacity"] == 2
     assert config["policy"]["checkpoint_path"] == spec["checkpoint_path"]
     assert config["latency"]["source_run_id"] == "run_1"
-    assert config["latency"]["hf_commit"] == "sha_123"
 
 
 def test_publish_uses_one_commit_and_omits_private_hardware(tmp_path, monkeypatch):
@@ -484,7 +487,7 @@ def test_publish_uses_one_commit_and_omits_private_hardware(tmp_path, monkeypatc
         SimpleNamespace(CommitOperationAdd=Add, HfApi=lambda: client),
     )
 
-    commit = publish_run_and_profile(
+    publish_run_and_profile(
         {"hf_repo": "org/profiles"},
         local_run_dir=run,
         local_profile_dir=profile,
@@ -493,7 +496,6 @@ def test_publish_uses_one_commit_and_omits_private_hardware(tmp_path, monkeypatc
     )
 
     uploaded = {op.path_in_repo for op in client.calls[0]["operations"]}
-    assert commit == "commit_1"
     assert len(client.calls) == 1
     assert not any(path.endswith("/hardware.json") and path.startswith("runs/") for path in uploaded)
     assert not any(path.endswith("/run_contract.json") for path in uploaded)
@@ -511,7 +513,7 @@ def test_publish_uses_one_commit_and_omits_private_hardware(tmp_path, monkeypatc
     ]
 
 
-def test_download_resolves_commit_before_fetching(tmp_path, monkeypatch):
+def test_download_fetches_current_profile(tmp_path, monkeypatch):
     ref = Path("openvla/2x-rtx4090/flappy/instance_abc")
     profile = tmp_path / "profiles" / ref
     profile.mkdir(parents=True)
@@ -525,28 +527,23 @@ def test_download_resolves_commit_before_fetching(tmp_path, monkeypatch):
         (profile / name).touch()
     (profile / "profile.json").write_text("{}", encoding="utf-8")
     calls = {}
-    client = SimpleNamespace(repo_info=lambda **kwargs: SimpleNamespace(sha="sha_123"))
-
     def snapshot_download(**kwargs):
         calls.update(kwargs)
         return str(tmp_path)
 
     monkeypatch.setitem(
         sys.modules,
-        "huggingface_hub",
-        SimpleNamespace(HfApi=lambda: client, snapshot_download=snapshot_download),
+        "huggingface_hub", SimpleNamespace(snapshot_download=snapshot_download),
     )
 
-    local, commit = download_profile(
+    local = download_profile(
         {"hf_repo": "org/profiles"},
         ref,
-        hf_commit="main",
         local_dir=tmp_path / "downloads",
     )
 
-    assert local == tmp_path / "downloads" / "sha_123"
-    assert commit == "sha_123"
-    assert calls["revision"] == "sha_123"
+    assert local == tmp_path / "downloads"
+    assert "revision" not in calls
 
 
 def test_download_requires_and_repairs_declared_visualization(tmp_path, monkeypatch):
@@ -567,36 +564,28 @@ def test_download_requires_and_repairs_declared_visualization(tmp_path, monkeypa
         (source / name).write_text(name, encoding="utf-8")
 
     local_dir = tmp_path / "downloads"
-    stale = local_dir / "sha_123"
-    shutil.copytree(source, stale)
-    client = SimpleNamespace(repo_info=lambda **kwargs: SimpleNamespace(sha="sha_123"))
+    shutil.copytree(source, local_dir)
     monkeypatch.setitem(
         sys.modules,
         "huggingface_hub",
-        SimpleNamespace(
-            HfApi=lambda: client,
-            snapshot_download=lambda **kwargs: str(cache),
-        ),
+        SimpleNamespace(snapshot_download=lambda **kwargs: str(cache)),
     )
 
     with pytest.raises(FileNotFoundError):
         download_profile(
             {"hf_repo": "org/profiles"},
             ref,
-            hf_commit="main",
             local_dir=local_dir,
         )
     (source / "latency_profile.png").write_bytes(b"png")
 
-    local, commit = download_profile(
+    local = download_profile(
         {"hf_repo": "org/profiles"},
         ref,
-        hf_commit="main",
         local_dir=local_dir,
     )
 
-    assert commit == "sha_123"
-    assert local == stale
+    assert local == local_dir
     assert (local / "latency_profile.png").read_bytes() == b"png"
 
 
@@ -612,30 +601,26 @@ def test_download_materializes_hf_snapshot_symlinks(tmp_path, monkeypatch):
         target.write_text("{}" if name == "profile.json" else name, encoding="utf-8")
         (source / name).symlink_to(target)
 
-    client = SimpleNamespace(repo_info=lambda **kwargs: SimpleNamespace(sha="sha_123"))
     monkeypatch.setitem(
         sys.modules,
         "huggingface_hub",
         SimpleNamespace(
-            HfApi=lambda: client,
             snapshot_download=lambda **kwargs: str(cache),
         ),
     )
 
-    local, commit = download_profile(
+    local = download_profile(
         {"hf_repo": "org/profiles"},
         ref,
-        hf_commit="main",
         local_dir=tmp_path / "artifact_root" / "downloads" / "profiles" / ref,
     )
 
-    assert commit == "sha_123"
-    assert local == tmp_path / "artifact_root" / "downloads" / "profiles" / ref / "sha_123"
+    assert local == tmp_path / "artifact_root" / "downloads" / "profiles" / ref
     assert all(not (local / name).is_symlink() for name in ("profile.json", "DONE"))
     assert (local / "profile.json").read_text(encoding="utf-8") == "{}"
 
 
-def test_concurrent_download_materializes_a_commit_once(tmp_path, monkeypatch):
+def test_concurrent_download_materializes_a_profile_once(tmp_path, monkeypatch):
     ref = Path("openvla/2x-rtx4090/flappy/instance_abc")
     source = tmp_path / "cache" / "profiles" / ref
     source.mkdir(parents=True)
@@ -651,12 +636,10 @@ def test_concurrent_download_materializes_a_commit_once(tmp_path, monkeypatch):
             encoding="utf-8",
         )
 
-    client = SimpleNamespace(repo_info=lambda **kwargs: SimpleNamespace(sha="sha_123"))
     monkeypatch.setitem(
         sys.modules,
         "huggingface_hub",
         SimpleNamespace(
-            HfApi=lambda: client,
             snapshot_download=lambda **kwargs: str(tmp_path / "cache"),
         ),
     )
@@ -681,7 +664,6 @@ def test_concurrent_download_materializes_a_commit_once(tmp_path, monkeypatch):
             download_profile,
             {"hf_repo": "org/profiles"},
             ref,
-            hf_commit="main",
             local_dir=destination,
         )
         assert copy_started.wait(1.0)
@@ -689,7 +671,6 @@ def test_concurrent_download_materializes_a_commit_once(tmp_path, monkeypatch):
             download_profile,
             {"hf_repo": "org/profiles"},
             ref,
-            hf_commit="main",
             local_dir=destination,
         )
         try:
@@ -716,7 +697,7 @@ def test_remote_profile_coordinates_must_match_request(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         "latency_bench.cross_device.profile_resolver.download_profile",
-        lambda *args, **kwargs: (tmp_path, "sha_123"),
+        lambda *args, **kwargs: tmp_path,
     )
 
     with pytest.raises(ValueError, match="coordinates"):
@@ -728,5 +709,4 @@ def test_remote_profile_coordinates_must_match_request(tmp_path, monkeypatch):
             },
             gpu_class="2x-rtx4090",
             instance_id="instance_requested",
-            hf_commit="main",
         )

@@ -187,7 +187,6 @@ def _evaluation_raw_fact_metadata(config: dict[str, Any], episode_id: int) -> di
         "instance_id": latency_cfg.get("instance_id"),
         "source_run_id": latency_cfg.get("source_run_id"),
         "profile_ref": latency_cfg.get("profile_ref"),
-        "hf_commit": latency_cfg.get("hf_commit"),
         "env_fps": env_fps,
         "obs_fps": obs_fps,
         "frame_ms": frame_ms,

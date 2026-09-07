@@ -260,22 +260,18 @@ source "${HOME}/miniconda3/etc/profile.d/conda.sh"
 
 ### 3.4 MIKASA 环境
 
-新机器先按 [QUICK_START.md §4](../docs/QUICK_START.md#4-mikasa-与两个转换环境) 安装模拟器及两个转换环境。以下驱动版本与本地解包步骤仅记录当时服务器的修复。
+新机器先按 [QUICK_START.md §4](../docs/QUICK_START.md#4-mikasa-与两个转换环境) 安装模拟器及两个转换环境。运行本节命令前，激活已安装 MIKASA、StarVLA 和 benchmark 依赖的 Python 环境。
 
 ```bash
 cd "${REMOTE_ROOT}"
-bash scripts/mikasa/install.sh
-
-export MIKASA_PY="${REMOTE_ROOT}/third_party/MIKASA-Robo/.venv/bin/python"
-"${MIKASA_PY}" -c \
+python -c \
   'import torch; print(torch.__version__, torch.cuda.get_device_name(), torch.cuda.get_device_capability())'
 ```
 
-如果 capability 是 `(12, 0)`，项目锁定的 Torch 2.2.1 不支持该 GPU。只在确认这一事实后执行：
+如果 capability 是 `(12, 0)`，请在当前环境中按需安装兼容 Torch。只在确认这一事实后执行：
 
 ```bash
-uv pip install \
-  --python "${MIKASA_PY}" \
+python -m pip install \
   --index-url https://download.pytorch.org/whl/cu128 \
   'torch==2.7.1'
 ```
@@ -726,48 +722,36 @@ third_party/starVLA/results/Checkpoints/${RUN_ID}/checkpoints/steps_5000_pytorch
 actual epochs = 5000 * 64 / actual train transitions
 ```
 
-### 6.4 canonical zero-delay VLA eval
+### 6.4 canonical zero-delay 与 profile replay
 
-训练完成后启动 policy server：
-
-```bash
-source "$(conda info --base)/etc/profile.d/conda.sh"
-if [[ -d /venv/starvla_rl_games_openvla ]]; then
-  conda activate /venv/starvla_rl_games_openvla
-else
-  conda activate starvla_rl_games_openvla
-fi
-cd "${REMOTE_ROOT}/third_party/starVLA"
-
-export VLA_CKPT="${VLA_ROOT}/results/Checkpoints/${RUN_ID}/checkpoints/steps_5000_pytorch_model.pt"
-python deployment/model_server/server_policy.py \
-  --ckpt_path "${VLA_CKPT}" \
-  --port 10093 \
-  --use_bf16
-```
-
-另一个 shell 使用 MIKASA env 跑 canonical 50 seeds：
+VLA eval 不再启动 WebSocket server。MIKASA 原生单环境、StarVLA inference worker、
+action scheduler、zero/profile latency 和 summary 全部经公共 `run_from_config()` 链路执行。
+`zero` 与 `temporal` 使用同一份 profile artifact；两者唯一的实验变量是
+latency sampler。
 
 ```bash
 cd "${REMOTE_ROOT}"
-export MIKASA_PY="${REMOTE_ROOT}/third_party/MIKASA-Robo/.venv/bin/python"
-export PYTHONPATH="${REMOTE_ROOT}:${REMOTE_ROOT}/third_party/MIKASA-Robo"
-export VLA_EVAL_DIR="${REMOTE_ROOT}/outputs/mikasa/vla_h1_zero_delay_eval"
-export NVIDIA_VULKAN_ROOT="${HOME}/.local/nvidia-580.173.02"
-export LD_LIBRARY_PATH="${NVIDIA_VULKAN_ROOT}/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-export VK_DRIVER_FILES="${NVIDIA_VULKAN_ROOT}/usr/share/vulkan/icd.d/nvidia_icd.json"
 
-"${MIKASA_PY}" scripts/mikasa/evaluate.py \
-  --policy vla \
-  --host 127.0.0.1 \
-  --port 10093 \
-  --episodes 50 \
-  --output-dir "${VLA_EVAL_DIR}"
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/profile.sh simulate \
+  --model qwenoft \
+  --workload mikasa_intercept_grab_fast \
+  --gpu 1x-rpbzzz6 \
+  --instance instance_e906b84a82f9e086 \
+  --method zero \
+  --seeds 0
 
-"${MIKASA_PY}" -c \
-  'import json,sys; d=json.load(open(sys.argv[1])); n=sum(d["successes"]); print(f"{n}/50"); assert n >= 25' \
-  "${VLA_EVAL_DIR}/summary.json"
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/profile.sh simulate \
+  --model qwenoft \
+  --workload mikasa_intercept_grab_fast \
+  --gpu 1x-rpbzzz6 \
+  --instance instance_e906b84a82f9e086 \
+  --method temporal \
+  --seeds 0
 ```
+
+两次运行都使用 registry 中的 episode 配置、20 Hz 和 60 steps。结果写入
+`results/profiling/simulations/<PROFILE_REF>/<RUN_ID>/{zero,temporal}/0/`，对应 summary 为
+`queue_eval_latency_0.json` 和 `queue_eval_latency_profile_sample.json`。
 
 Phase 3 gate：5,000 optimizer steps 完成；global batch 被日志确认是 64；final model/state、W&B
 run 和 50-episode JSON 均存在；canonical `success_once >= 25/50`。未达到 50% 时如实报告
@@ -783,7 +767,7 @@ bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy.sh
 bash scripts/tasks/mikasa_intercept_grab_fast/train_vla.sh /absolute/path/to/final_success_ckpt.pt
 ```
 
-第二条命令从显式验收的 teacher checkpoint 开始，完成数据采集/转换、SFT 和
+第二条命令从显式验收的 teacher checkpoint 开始，完成数据采集/转换、SFT 和经公共执行器运行的
 canonical zero-delay eval。底层命令仍保留在上文，便于定位环境或数据问题。
 
 ## 8. 实际运行记录

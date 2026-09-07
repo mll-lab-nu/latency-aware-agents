@@ -19,7 +19,7 @@ fi
 ASSET_CACHE_DIR="${REPO_ROOT}/results/humanoidbench_g1_sonic_assets"
 
 cd "${REPO_ROOT}"
-uv run --project . python -m latency_bench.envs.humanoidbench_sonic_assets \
+python -m latency_bench.envs.humanoidbench_sonic_assets \
   --cache-dir "${ASSET_CACHE_DIR}"
 exec bash scripts/profile.sh run \
   --model official_gr00t \

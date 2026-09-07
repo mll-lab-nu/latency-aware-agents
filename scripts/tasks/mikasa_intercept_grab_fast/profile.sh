@@ -10,10 +10,8 @@ if [[ "${1:-}" != --* && "$#" -gt 0 ]]; then
 fi
 
 cd "${REPO_ROOT}"
-bash scripts/mikasa/install.sh
 exec bash scripts/profile.sh run \
   --model qwenoft \
   --workload mikasa_intercept_grab_fast \
   "${MODEL_ARGS[@]}" \
-  --session-python "${REPO_ROOT}/third_party/MIKASA-Robo/.venv/bin/python" \
   "$@"

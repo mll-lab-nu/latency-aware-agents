@@ -15,12 +15,9 @@ else
     esac
   done
 fi
-SESSION_PYTHON="${PARKOUR_PYTHON:-/pfs/users/lxy/conda/envs/extreme-parkour/bin/python}"
-
 cd "${REPO_ROOT}"
 exec bash scripts/profile.sh run \
   --model official_gr00t \
   --workload extreme_parkour_go2 \
   "${SOURCE_ARGS[@]}" \
-  --session-python "${SESSION_PYTHON}" \
   "$@"
