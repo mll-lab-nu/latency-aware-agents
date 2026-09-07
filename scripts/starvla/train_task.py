@@ -9,6 +9,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
@@ -27,6 +28,7 @@ from scripts.starvla.model_config import make_model_config
 
 ROOT = Path(__file__).resolve().parents[2]
 STARVLA = ROOT / 'third_party/starVLA'
+_TRAINING_STATE_RE = re.compile(r'steps_(\d+)_state$')
 BACKBONES = {
     'qwen': {
         'repo_id': 'Qwen/Qwen3-VL-4B-Instruct',
@@ -68,6 +70,16 @@ TASK_SETTINGS = {
 def write_json(path: Path, value) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
+
+
+def _training_states(checkpoint_dir: Path) -> list[tuple[int, Path]]:
+    return sorted(
+        (int(match.group(1)), path)
+        for path in checkpoint_dir.glob('steps_*_state')
+        if path.is_dir()
+        and (match := _TRAINING_STATE_RE.fullmatch(path.name))
+        and (checkpoint_dir / f'steps_{match.group(1)}_pytorch_model.pt').is_file()
+    )
 
 
 def conda_python(name: str) -> Path:
@@ -240,7 +252,7 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
         }},
         'trainer': {
             'max_train_steps': steps, 'stop_after_steps': stop_step,
-            'num_warmup_steps': 0 if args.smoke else 100, 'save_interval': stop_step,
+            'num_warmup_steps': 0 if args.smoke else 100, 'save_interval': 500,
             'eval_interval': stop_step, 'eval_num_batches': 1, 'logging_frequency': 1 if args.smoke else 5,
             'learning_rate': {'base': 3e-5, 'action_model': 1e-4},
             'lr_scheduler_type': 'cosine_with_min_lr', 'scheduler_specific_kwargs': {'min_lr': 1e-6},
@@ -254,7 +266,8 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
                           'weight_decay': 1e-8, 'fused': True},
         },
         'checkpoint': {'save_best_model': False, 'save_final_model': True,
-                       'save_pt_file': True, 'save_training_state': bool(deltas)},
+                       'save_pt_file': True, 'save_training_state': True,
+                       'local': {'keep_last_n': 2}},
     }
 
 
@@ -263,6 +276,8 @@ def train(args, config: dict) -> tuple[Path, Path]:
     config_path = args.output_dir / f'{run_id}.yaml'
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
     env = environment()
+    env['WANDB_RUN_ID'] = f'{args.task}-{args.model}-{args.run_id}-{run_id}'
+    env['WANDB_RESUME'] = 'allow' if args.resume or config['trainer']['is_resume'] else 'never'
     if args.smoke:
         env['WANDB_MODE'] = 'disabled'
     run_command([
@@ -466,7 +481,7 @@ def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--task', choices=TASK_SPECS, required=True)
     parser.add_argument('--model', choices=['qwenoft', 'qwenpi_v3', 'qwengr00t', 'wanoft'], required=True)
-    parser.add_argument('--run-id', default=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S'))
+    parser.add_argument('--run-id')
     parser.add_argument('--output-dir', type=Path)
     parser.add_argument('--dataset-dir', type=Path)
     parser.add_argument('--teacher-checkpoint', type=Path)
@@ -478,8 +493,13 @@ def main(argv=None) -> None:
     parser.add_argument('--simulator-device', default='cuda:0')
     parser.add_argument('--port', type=int, default=29521)
     parser.add_argument('--smoke', action='store_true')
+    parser.add_argument('--resume', action='store_true', help='Resume the matching --run-id from its latest complete state')
     parser.add_argument('--publish-only', action='store_true')
     args = parser.parse_args(argv)
+    if args.resume and args.run_id is None:
+        parser.error('--resume requires --run-id')
+    if args.run_id is None:
+        args.run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')
     args.output_dir = (args.output_dir.resolve() if args.output_dir is not None else
                        ROOT / 'outputs/starvla' / ('smoke' if args.smoke else 'runs') /
                        task_spec(args.task).name / args.model / args.run_id)
@@ -488,6 +508,16 @@ def main(argv=None) -> None:
         if not args.smoke:
             print('MODEL_REVISION=' + publish_run(args.output_dir))
         return
+    run = None
+    bootstrap_state = None
+    if args.resume:
+        run = json.loads((args.output_dir / 'run.json').read_text())
+        if (run['task'], run['model'], run['run_id']) != (args.task, args.model, args.run_id):
+            raise ValueError('--resume task, model, and run-id must match run.json')
+        states = _training_states(args.output_dir / 'training/bootstrap/checkpoints')
+        if not states:
+            raise FileNotFoundError('No complete bootstrap training state found for --resume')
+        _, bootstrap_state = states[-1]
     args.vla_python = (args.vla_python.resolve() if args.vla_python is not None else
                        conda_python('starvla_rl_games_openvla'))
     args.task_python = (args.task_python.resolve() if args.task_python is not None else
@@ -495,7 +525,12 @@ def main(argv=None) -> None:
                         conda_python(TASK_SETTINGS[args.task]['conda_env']))
     teacher, teacher_ref = resolve_teacher(args.task, args.teacher_checkpoint)
     backbone_path, backbone_ref = resolve_backbone(args.model)
-    bootstrap, bootstrap_ref = prepare_shared(args, teacher, teacher_ref, args.task_python)
+    if run is None:
+        bootstrap, bootstrap_ref = prepare_shared(args, teacher, teacher_ref, args.task_python)
+    else:
+        bootstrap_ref = run['datasets'][0]
+        bootstrap = Path(bootstrap_ref['local_dir'])
+        read_task_contract(bootstrap / 'lerobot')
     actor_checkpoint = None
     if args.task == 'parkour':
         actor_checkpoint = teacher
@@ -505,42 +540,58 @@ def main(argv=None) -> None:
         env['PYTHONPATH'] += os.pathsep + str(ROOT / 'third_party/HAIC')
         run_command([args.task_python, ROOT / 'third_party/HAIC/active_adaptation/learning/ppo/haic_actor.py',
                      teacher, actor_checkpoint], args.output_dir / 'export_actor.log', env=env)
-    run = {'task': args.task, 'model': args.model, 'run_id': args.run_id, 'smoke': args.smoke,
-           'teacher': teacher_ref, 'backbone': backbone_ref, 'code_revisions': code_revisions(),
-           'datasets': [bootstrap_ref], 'seed': 0}
-    write_json(args.output_dir / 'run.json', run)
+    if run is None:
+        run = {'task': args.task, 'model': args.model, 'run_id': args.run_id, 'smoke': args.smoke,
+               'teacher': teacher_ref, 'backbone': backbone_ref, 'code_revisions': code_revisions(),
+               'datasets': [bootstrap_ref], 'seed': 0}
+        write_json(args.output_dir / 'run.json', run)
     steps = 2 if args.smoke else TASK_SETTINGS[args.task]['sft_steps']
     config = training_config(args, bootstrap=bootstrap, deltas=[], backbone=backbone_path,
                 actor_checkpoint=actor_checkpoint, run_id='bootstrap', steps=steps, stop_step=steps,
-                pretrained=None, resume=False)
+                pretrained=bootstrap_state, resume=args.resume)
     trained, checkpoint = train(args, config)
     bundle = inference_bundle(trained, checkpoint, args.output_dir / 'inference',
                                bootstrap=bootstrap, backbone=backbone_ref)
-    deltas = []
-    previous_state = None
+    deltas = [Path(ref['local_dir']) for ref in run['datasets'][1:]]
     if args.task in ('parkour', 'haic'):
         rounds = 1 if args.smoke else 10
         updates = 2 if args.smoke else 500
+        dagger_states = _training_states(args.output_dir / 'training/dagger/checkpoints') if args.resume else []
+        dagger_step, dagger_state = dagger_states[-1] if dagger_states else (0, None)
+        if dagger_state is not None:
+            trained = args.output_dir / 'training/dagger'
+            checkpoint = trained / 'checkpoints' / f'steps_{dagger_step}_pytorch_model.pt'
+            bundle = inference_bundle(trained, checkpoint, bundle, bootstrap=bootstrap, backbone=backbone_ref)
         for round_number in range(rounds):
-            delta = collect_dagger(args, teacher=teacher, teacher_reference=teacher_ref,
-                                    policy=eval_config(args, bundle, teacher, args.output_dir / 'evals'),
-                                    round_number=round_number, bootstrap=bootstrap,
-                                    bootstrap_reference=bootstrap_ref)
-            deltas.append(delta)
-            ref = dataset_reference(args.task, delta, model=args.model, run_id=args.run_id, round_number=round_number)
-            run['datasets'].append(ref)
-            write_json(args.output_dir / 'run.json', run)
-            if not args.smoke:
+            if round_number < len(deltas):
+                delta = deltas[round_number]
+                ref = run['datasets'][round_number + 1]
+            else:
+                partial = args.output_dir / 'dagger' / f'round-{round_number:02d}'
+                if args.resume and partial.exists():
+                    shutil.rmtree(partial)
+                delta = collect_dagger(args, teacher=teacher, teacher_reference=teacher_ref,
+                                        policy=eval_config(args, bundle, teacher, args.output_dir / 'evals'),
+                                        round_number=round_number, bootstrap=bootstrap,
+                                        bootstrap_reference=bootstrap_ref)
+                deltas.append(delta)
+                ref = dataset_reference(args.task, delta, model=args.model, run_id=args.run_id,
+                                        round_number=round_number)
+                run['datasets'].append(ref)
+                write_json(args.output_dir / 'run.json', run)
+            if not args.smoke and ref['revision'] is None:
                 publish_data(ref, task=args.task, model=args.model, run_id=args.run_id, round_number=round_number)
                 write_json(args.output_dir / 'run.json', run)
-            config = training_config(args, bootstrap=bootstrap, deltas=deltas, backbone=backbone_path,
-                        actor_checkpoint=actor_checkpoint, run_id='dagger', steps=rounds * updates,
-                        stop_step=(round_number + 1) * updates,
-                        pretrained=checkpoint if previous_state is None else previous_state,
-                        resume=previous_state is not None)
-            trained, checkpoint = train(args, config)
-            previous_state = trained / 'checkpoints' / f'steps_{(round_number + 1) * updates}_state'
-            bundle = inference_bundle(trained, checkpoint, bundle, bootstrap=bootstrap, backbone=backbone_ref)
+            stop_step = (round_number + 1) * updates
+            if dagger_step < stop_step:
+                config = training_config(args, bootstrap=bootstrap, deltas=deltas, backbone=backbone_path,
+                            actor_checkpoint=actor_checkpoint, run_id='dagger', steps=rounds * updates,
+                            stop_step=stop_step, pretrained=dagger_state or checkpoint,
+                            resume=dagger_state is not None)
+                trained, checkpoint = train(args, config)
+                dagger_step = stop_step
+                dagger_state = trained / 'checkpoints' / f'steps_{stop_step}_state'
+                bundle = inference_bundle(trained, checkpoint, bundle, bootstrap=bootstrap, backbone=backbone_ref)
     evaluation = evaluate(args, bundle, teacher, label='final')
     # The common evaluator's summary contains per-task metrics and episode counts.
     summary = summarize_eval_run(evaluation)

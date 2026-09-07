@@ -32,6 +32,138 @@ def test_training_config_names_wandb_run_by_task_model_and_phase(tmp_path, task,
     assert config['wandb_name'] == f'{task}-{phase}-{model}'
     assert config['run_id'] == phase
     assert config['run_root_dir'] == str(tmp_path / 'training')
+    assert config['trainer']['save_interval'] == 500
+    assert config['checkpoint']['save_training_state'] is True
+    assert config['checkpoint']['local']['keep_last_n'] == 2
+
+
+def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
+    calls = []
+    args = SimpleNamespace(
+        output_dir=tmp_path,
+        task='balance',
+        model='qwenpi_v3',
+        run_id='formal-1',
+        resume=False,
+        smoke=False,
+        vla_python=tmp_path / 'python',
+        num_gpus=2,
+        port=29521,
+    )
+    monkeypatch.setattr(train_task, 'run_command', lambda *call_args, **kwargs: calls.append(kwargs))
+
+    config = {'run_id': 'bootstrap', 'trainer': {'stop_after_steps': 500, 'is_resume': False}}
+    train_task.train(args, config)
+    config['trainer']['is_resume'] = True
+    train_task.train(args, config)
+    config['trainer']['is_resume'] = False
+    args.resume = True
+    train_task.train(args, config)
+
+    assert calls[0]['env']['WANDB_RUN_ID'] == 'balance-qwenpi_v3-formal-1-bootstrap'
+    assert calls[0]['env']['WANDB_RESUME'] == 'never'
+    assert calls[1]['env']['WANDB_RESUME'] == 'allow'
+    assert calls[2]['env']['WANDB_RESUME'] == 'allow'
+
+
+def test_resume_requires_explicit_run_id():
+    with pytest.raises(SystemExit, match='2'):
+        train_task.main(['--task', 'balance', '--model', 'qwenpi_v3', '--resume'])
+
+
+def test_resume_requires_complete_training_state(tmp_path):
+    train_task.write_json(tmp_path / 'run.json', {
+        'task': 'balance',
+        'model': 'qwenpi_v3',
+        'run_id': 'formal-1',
+    })
+
+    with pytest.raises(FileNotFoundError, match='complete bootstrap training state'):
+        train_task.main([
+            '--task', 'balance',
+            '--model', 'qwenpi_v3',
+            '--run-id', 'formal-1',
+            '--output-dir', str(tmp_path),
+            '--resume',
+        ])
+
+
+def test_resume_reuses_completed_dagger_data_and_restarts_partial_round(tmp_path, monkeypatch):
+    dataset = tmp_path / 'dataset'
+    metadata = dataset / 'lerobot/meta'
+    metadata.mkdir(parents=True)
+    (metadata / 'info.json').write_text(json.dumps({'codebase_version': 'test'}))
+    (dataset / 'lerobot/task_contract.json').write_text(json.dumps({
+        'state_dim': 1,
+        'action_dim': 1,
+        'robot_type': 'robot',
+        'normalization': {'action': {'min': [0], 'max': [1]}},
+    }))
+    bootstrap_state = tmp_path / 'training/bootstrap/checkpoints/steps_5000_state'
+    dagger_state = tmp_path / 'training/dagger/checkpoints/steps_250_state'
+    bootstrap_state.mkdir(parents=True)
+    dagger_state.mkdir(parents=True)
+    (tmp_path / 'training/bootstrap/checkpoints/steps_5000_pytorch_model.pt').write_text('model')
+    (tmp_path / 'training/dagger/checkpoints/steps_250_pytorch_model.pt').write_text('model')
+    (tmp_path / 'training/bootstrap/checkpoints/steps_5500_state').mkdir()
+    (tmp_path / 'training/dagger/checkpoints/steps_600_state').mkdir()
+    completed_delta = tmp_path / 'dagger/round-00'
+    partial_delta = tmp_path / 'dagger/round-01'
+    partial_delta.mkdir(parents=True)
+    (partial_delta / 'stale').write_text('partial')
+    run = {
+        'task': 'haic',
+        'model': 'qwenpi_v3',
+        'run_id': 'formal-1',
+        'smoke': False,
+        'teacher': {},
+        'backbone': {},
+        'code_revisions': {},
+        'datasets': [
+            {'local_dir': str(dataset), 'revision': 'bootstrap'},
+            {'local_dir': str(completed_delta), 'revision': 'round-0'},
+        ],
+        'seed': 0,
+    }
+    train_task.write_json(tmp_path / 'run.json', run)
+
+    configs = []
+    monkeypatch.setattr(train_task, 'resolve_teacher', lambda *args: (tmp_path / 'teacher', {}))
+    monkeypatch.setattr(train_task, 'resolve_backbone', lambda *args: (tmp_path / 'backbone', {}))
+    monkeypatch.setattr(train_task, 'run_command', lambda *args, **kwargs: None)
+
+    def fake_train(args, config):
+        configs.append(config)
+        trained = tmp_path / 'training' / config['run_id']
+        step = config['trainer']['stop_after_steps']
+        return trained, trained / 'checkpoints' / f'steps_{step}_pytorch_model.pt'
+
+    def fake_collect(args, **kwargs):
+        round_number = kwargs['round_number']
+        path = tmp_path / 'dagger' / f'round-{round_number:02d}'
+        assert not path.exists()
+        raise RuntimeError(f'restarted partial round {round_number}')
+
+    monkeypatch.setattr(train_task, 'train', fake_train)
+    monkeypatch.setattr(train_task, 'collect_dagger', fake_collect)
+    monkeypatch.setattr(train_task, 'inference_bundle', lambda *args, **kwargs: args[2])
+    monkeypatch.setattr(train_task, 'eval_config', lambda *args, **kwargs: {})
+
+    with pytest.raises(RuntimeError, match='restarted partial round 1'):
+        train_task.main([
+            '--task', 'haic',
+            '--model', 'qwenpi_v3',
+            '--run-id', 'formal-1',
+            '--output-dir', str(tmp_path),
+            '--vla-python', '/usr/bin/python',
+            '--task-python', '/usr/bin/python',
+            '--resume',
+        ])
+
+    assert configs[0]['trainer']['pretrained_checkpoint'] == str(bootstrap_state)
+    assert configs[0]['trainer']['is_resume'] is True
+    assert configs[1]['trainer']['pretrained_checkpoint'] == str(dagger_state)
+    assert configs[1]['trainer']['is_resume'] is True
 
 
 def test_mixture_retains_half_bootstrap_and_independent_validation(tmp_path):
