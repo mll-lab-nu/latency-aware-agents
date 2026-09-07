@@ -227,7 +227,8 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
     global_batch = args.num_gpus * args.micro_batch if args.smoke else TASK_SETTINGS[args.task]['global_batch']
     dataset_info = json.loads((bootstrap / 'lerobot/meta/info.json').read_text())
     return {
-        'run_id': run_id, 'run_root_dir': str(args.output_dir / 'training'),
+        'run_id': run_id, 'wandb_name': f'{args.task}-{run_id}-{args.model}',
+        'run_root_dir': str(args.output_dir / 'training'),
         'seed': 0, 'wandb_project': 'starvla_tasks', 'wandb_entity': os.environ.get('WANDB_ENTITY'),
         'is_debug': False, 'version_id': '0.21', 'framework': framework,
         'datasets': {'vla_data': {
