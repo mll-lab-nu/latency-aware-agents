@@ -1,16 +1,16 @@
 experiment:
-  name: haic_pull_cart_latency_command
+  name: haic_pull_cart_small_policy_with_latency
   seed: 0
 
 env:
   name: haic_pull_cart
-  env_fps: 50
-  obs_fps: 10
+  env_fps: 20
+  obs_fps: 20
   simulator_device: cuda:0
 
 latency:
-  method: fixed
-  fixed_latency_ms: 0
+  method: temporal
+  profile_path: /pfs/users/lxy/latency-sensitive-bench/results/profiling/profiles/official_gr00t/1x-rpbzzz6/haic_pull_cart/instance_e906b84a82f9e086/profile.json
   seed: 0
 
 executor:
@@ -22,5 +22,5 @@ scheduler:
 
 command:
   dimension: 256
-  horizon: 40
-  control_repeat: 5
+  horizon: 1
+  control_repeat: 1

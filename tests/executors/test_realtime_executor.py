@@ -744,7 +744,7 @@ def _executor(
     action_scheduler = ActionScheduler(
         clock=clock,
         noop_action=noop,
-        persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+        persistence_policy=HoldPolicy(),
         ordering_policy=ordering_policy,
     )
     runtime = RealtimeRuntime(
@@ -1205,7 +1205,7 @@ def test_env_action_drain_happens_before_scheduler_update() -> None:
     scheduler = ActionScheduler(
         clock=clock,
         noop_action=Action("noop", name="noop", is_noop=True),
-        persistence_policy=HoldPolicy(duration_raw_frames=1),
+        persistence_policy=HoldPolicy(),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     event = ActionEvent(
@@ -1241,7 +1241,7 @@ def test_env_action_drain_releases_observations_with_explicit_callback() -> None
     scheduler = ActionScheduler(
         clock=clock,
         noop_action=Action("noop", name="noop", is_noop=True),
-        persistence_policy=HoldPolicy(duration_raw_frames=1),
+        persistence_policy=HoldPolicy(),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     released: list[int] = []
@@ -1263,7 +1263,7 @@ def test_env_wait_drains_actions_before_next_frame_boundary() -> None:
     scheduler = ActionScheduler(
         clock=clock,
         noop_action=Action("noop", name="noop", is_noop=True),
-        persistence_policy=HoldPolicy(duration_raw_frames=1),
+        persistence_policy=HoldPolicy(),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     event = ActionEvent(

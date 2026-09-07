@@ -307,8 +307,6 @@ def test_factory_builds_explicit_hold_policies(tmp_path, hold_policy, expected_t
 
     try:
         assert isinstance(executor.action_scheduler.persistence_policy, expected_type)
-        if hold_policy == "hold":
-            assert executor.action_scheduler.persistence_policy.duration_raw_frames == 3
     finally:
         executor.env.close()
 

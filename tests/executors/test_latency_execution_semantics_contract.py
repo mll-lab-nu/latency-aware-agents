@@ -38,7 +38,7 @@ def test_issue_order_fifo_blocks_later_ready_action_contract():
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldPolicy(duration_raw_frames=100),
+        HoldPolicy(),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     scheduler.enqueue(_event(0, first, ready_step=10, clock=clock))
@@ -56,7 +56,7 @@ def test_fifo_contract_is_requested_explicitly():
     scheduler = ActionScheduler(
         clock,
         Action("noop", is_noop=True),
-        HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+        HoldPolicy(),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     assert scheduler.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO
@@ -70,7 +70,7 @@ def test_latest_ready_ablation_can_be_requested_explicitly():
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+        HoldPolicy(),
         ordering_policy=OrderingPolicy.LATEST_READY,
     )
     first_event = _event(0, first, ready_step=1, clock=clock)
@@ -107,15 +107,13 @@ def test_hold_policy_contract():
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+        HoldPolicy(),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     scheduler.enqueue(_event(0, action, ready_step=0, clock=clock))
 
-    assert scheduler.update(0, clock.step_to_time_ms(0)) is action
-    assert scheduler.update(1, clock.step_to_time_ms(1)) is action
-    assert scheduler.update(2, clock.step_to_time_ms(2)) is action
-    assert scheduler.update(3, clock.step_to_time_ms(3)) is noop
+    for frame in range(10):
+        assert scheduler.update(frame, clock.step_to_time_ms(frame)) is action
 
 def test_action_event_contract_does_not_require_realtime_job_fields():
     fields = ActionEvent.__dataclass_fields__

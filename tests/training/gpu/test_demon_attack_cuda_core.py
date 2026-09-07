@@ -446,7 +446,7 @@ def test_demon_attack_cuda_core_gpu_decision_matches_cpu_projection():
     core_gpu.reset_batch(seeds=seeds)
     latency_cpu = CudaLatencyScheduler(
         batch_size=batch_size,
-        fixed_latency_raw_frames=1,
+        fixed_latency_raw_frames=5,
         env_fps=60,
         obs_fps=15,
         hold_policy="hold",
@@ -461,7 +461,7 @@ def test_demon_attack_cuda_core_gpu_decision_matches_cpu_projection():
     )
     latency_gpu = CudaLatencyScheduler(
         batch_size=batch_size,
-        fixed_latency_raw_frames=1,
+        fixed_latency_raw_frames=5,
         env_fps=60,
         obs_fps=15,
         hold_policy="hold",
@@ -504,6 +504,31 @@ def test_demon_attack_cuda_core_gpu_decision_matches_cpu_projection():
     assert torch.equal(gpu_result.truncated_gpu.cpu(), torch.from_numpy(cpu_result.truncated))
     assert torch.equal(gpu_result.raw_frames_advanced_gpu.cpu(), torch.from_numpy(cpu_result.raw_frames_advanced))
     assert torch.equal(gpu_result.latency_raw_frames_gpu.cpu(), torch.from_numpy(cpu_result.latency_raw_frames))
+
+    latency_cpu.fixed_latency_raw_frames = 0
+    latency_gpu.fixed_latency_raw_frames = 0
+    second_actions = torch.tensor([3, 1, 2], dtype=torch.int64, device="cuda")
+    cpu_result = core_cpu.step_decision(
+        latency_cpu,
+        second_actions,
+        active_mask=active,
+        episode_step_idx=episode_cpu,
+        max_episode_steps=25000,
+    )
+    gpu_result = core_gpu.step_decision_gpu(
+        latency_gpu,
+        second_actions,
+        active_mask=active,
+        episode_step_idx=episode_gpu,
+        max_episode_steps=25000,
+    )
+    torch.cuda.synchronize()
+
+    assert torch.equal(gpu_result.observations, cpu_result.observations)
+    assert torch.equal(gpu_result.applied_actions_gpu, second_actions)
+    assert torch.equal(gpu_result.applied_actions_gpu.cpu(), torch.from_numpy(cpu_result.applied_actions))
+    assert torch.equal(gpu_result.pending_counts_gpu.cpu(), torch.from_numpy(cpu_result.pending_counts))
+    assert gpu_result.pending_counts_gpu.tolist() == [0, 0, 0]
 
 
 def test_demon_attack_batched_gpu_env_fast_step_matches_regular_step_without_full_infos():

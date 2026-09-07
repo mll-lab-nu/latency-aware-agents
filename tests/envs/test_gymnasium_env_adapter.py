@@ -454,7 +454,7 @@ def test_gymnasium_adapter_runs_on_existing_raw_frame_latency_timeline(monkeypat
         action_scheduler=ActionScheduler(
             clock=clock,
             noop_action=noop_action,
-            persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+            persistence_policy=HoldPolicy(),
             ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
         ),
         clock=clock,

@@ -144,7 +144,7 @@ class ActionLatencyWrapper(gym.Wrapper):
         self.action_scheduler = ActionScheduler(
             clock=self.clock,
             noop_action=Action(value=clone_action(self.noop_action), name="noop", is_noop=True),
-            persistence_policy=build_persistence_policy(self.hold_policy, clock=self.clock),
+            persistence_policy=build_persistence_policy(self.hold_policy),
             ordering_policy=self.ordering_policy,
         )
         self.result_timeline = SimulatedResultTimeline(ordering_policy=self.ordering_policy)
@@ -226,14 +226,9 @@ class ActionLatencyWrapper(gym.Wrapper):
         if reset_kwargs.get("seed") is None and self.env_reset_seed_base is not None:
             reset_kwargs["seed"] = int(self.env_reset_seed_base + self.episode_idx)
             inserted_seed = True
-        if self.profile_path is not None:
+        if self.profile_sampler_factory is not None:
             episode_seed = reset_kwargs["seed"] if reset_kwargs.get("seed") is not None else self.episode_idx
-            self.profile_sampler = build_iid_profile_sampler(
-                self.profile_path,
-                seed=derive_latency_seed(self.base_latency_seed, episode_idx=int(episode_seed)),
-                env_fps=self.clock.env_fps,
-                obs_fps=self.clock.obs_fps,
-            )
+            self.profile_sampler = self.profile_sampler_factory(episode_seed)
         self._reset_latency_distribution_sampler()
         if self.latency_distribution_spec is None:
             self.current_latency_raw_frames = int(self.fixed_latency_raw_frames)
@@ -250,8 +245,6 @@ class ActionLatencyWrapper(gym.Wrapper):
         info = dict(info or {})
         if self.add_latency_info:
             info.update(self._latency_info(self.current_latency_raw_frames))
-        if self.profile_sampler_factory is not None:
-            self.profile_sampler = self.profile_sampler_factory(self.episode_idx)
         return obs, info
 
     def _enqueue_action_event(

@@ -16,6 +16,7 @@ from latency_bench.latency.profile import save_latency_distribution, save_profil
 from latency_bench.eval.driver import run_from_config
 from latency_bench.logging.metrics import compute_episode_metrics
 from latency_bench.logging.summary import build_queue_eval_summary
+from latency_bench.logging.wandb_eval import eval_scalar_payload
 from latency_bench.utils.io import load_jsonl_records
 
 
@@ -277,7 +278,8 @@ def test_simulated_latency_records_log_latency_raw_fields(tmp_path: Path):
     assert "active_action_id" in steps[0]["info"]
 
 
-def test_task_metrics_flow_from_final_step_into_summary():
+@pytest.mark.parametrize("latency", [0, "profile_sample"])
+def test_task_metrics_flow_from_final_step_into_summary(latency):
     metrics = [
         compute_episode_metrics(
             episode_id=episode_id,
@@ -302,13 +304,15 @@ def test_task_metrics_flow_from_final_step_into_summary():
         metrics,
         experiment_name="task-metrics",
         seed=0,
-        latency="measured",
+        latency=latency,
     )
 
     assert metrics[0].metadata["task_metrics"] == {"success": 1.0}
     assert summary["task_metrics"] == {
         "success": {"mean": 0.5, "std": 0.5, "values": [1.0, 0.0]}
     }
+    scalars = eval_scalar_payload([summary], env_steps=0, prefix="eval")
+    assert sum(value for key, value in scalars.items() if key.endswith("completed_episodes")) == 2
 
 
 def test_task_metrics_are_required_for_every_episode():

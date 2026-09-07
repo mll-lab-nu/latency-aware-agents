@@ -46,6 +46,7 @@ def build_queue_eval_summary(
         "seed": int(seed),
         "timestamp_utc": timestamp_utc or datetime.now(timezone.utc).isoformat(),
         "latency": _latency_payload_value(latency),
+        "suite_name": f"fixed_{latency}" if isinstance(latency, int) else latency,
         "mean_return": _mean(returns),
         "std_return": _std(returns),
         "mean_length": _mean([float(length) for length in lengths]),

@@ -150,10 +150,7 @@ class GymnasiumActionLatencyWrapper(ActionLatencyWrapper):
                 name="noop",
                 is_noop=True,
             ),
-            persistence_policy=build_persistence_policy(
-                self.hold_policy,
-                clock=self.clock,
-            ),
+            persistence_policy=build_persistence_policy(self.hold_policy),
             ordering_policy=self.ordering_policy,
         )
         self.current_applied_action = clone_action(self.noop_action)

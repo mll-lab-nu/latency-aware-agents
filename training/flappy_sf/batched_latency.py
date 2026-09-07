@@ -102,7 +102,6 @@ class BatchedFlappyLatencyScheduler:
         self.next_action_id = np.zeros(self.batch_size, dtype=np.int64)
         self.current_latency_raw_frames = np.zeros(self.batch_size, dtype=np.int64)
         self.current_applied_action = np.zeros(self.batch_size, dtype=np.int64)
-        self.persistence_remaining = np.zeros(self.batch_size, dtype=np.int64)
         queue_capacity = int(self.max_pending_actions or (self.max_frame_latency + self.clock.obs_stride_raw_frames + 2))
         self.pending_actions = np.zeros((self.batch_size, queue_capacity), dtype=np.int64)
         self.pending_ready_raw_frames = np.zeros((self.batch_size, queue_capacity), dtype=np.int64)
@@ -131,7 +130,6 @@ class BatchedFlappyLatencyScheduler:
             self.env_step_idx[agent_idx] = 0
             self.decision_step_idx[agent_idx] = 0
             self.next_action_id[agent_idx] = 0
-            self.persistence_remaining[agent_idx] = 0
             self._reset_latency_distribution_sampler(agent_idx)
             if self.latency_distribution_spec is None:
                 self.current_latency_raw_frames[agent_idx] = self.fixed_latency_raw_frames
@@ -179,13 +177,9 @@ class BatchedFlappyLatencyScheduler:
         selected_mask, selected_actions = self._select_ready_actions(active)
         selected_mask &= active
         self.current_applied_action[selected_mask] = selected_actions[selected_mask]
-        self.persistence_remaining[selected_mask] = (
-            self.clock.obs_stride_raw_frames if self.hold_policy == ActionHoldPolicy.HOLD else 1
-        )
-        persistent = active & (self.persistence_remaining > 0)
-        applied[persistent] = self.current_applied_action[persistent]
-        self.persistence_remaining[persistent] -= 1
-        self.current_applied_action[active] = applied[active]
+        if self.hold_policy != ActionHoldPolicy.HOLD:
+            self.current_applied_action[active & ~selected_mask] = 0
+        applied[active] = self.current_applied_action[active]
         return applied
 
     def record_raw_step(self, advanced_mask: Sequence[bool] | np.ndarray) -> None:
@@ -260,7 +254,8 @@ class BatchedFlappyLatencyScheduler:
         actions = np.zeros(self.batch_size, dtype=np.int64)
         actions[selected] = self.pending_actions[np.arange(self.batch_size)[selected], selected_positions[selected]]
 
-        keep = valid & ~ready
+        # A newer result also supersedes older requests that have not arrived.
+        keep = valid & (offsets[None, :] > selected_offsets[:, None])
         keep_counts = np.sum(keep, axis=1).astype(np.int64)
         order_key = np.where(keep, offsets[None, :], capacity + offsets[None, :])
         order = np.argsort(order_key, axis=1)

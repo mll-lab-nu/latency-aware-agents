@@ -1,0 +1,9 @@
+__base__: mikasa_h1.yaml
+
+training:
+  num_envs: 4
+  num_eval_envs: 50
+  num_minibatches: 2
+  total_timesteps: 240
+  track: false
+  save_model: false

@@ -218,15 +218,9 @@ Semantics: one model output of `FLAP` means one flap, not holding the flap butto
 
 ### 7.2 `hold`
 
-The current action is held for one observation period:
-
-```text
-duration_raw_frames = obs_stride_raw_frames = env_fps / obs_fps
-```
-
-If that observation-period duration expires before the next action is ready, the system switches to the noop/default action.
-
-This policy may create action gaps under latency jitter.
+The latest applied action is held until the next action arrives. Observation
+frequency, pending requests, and capacity drops do not expire it. Before the
+first arrival, and after an episode reset, the action is noop/default.
 
 ---
 

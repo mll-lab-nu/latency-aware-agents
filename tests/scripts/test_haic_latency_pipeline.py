@@ -48,7 +48,7 @@ def test_pipeline_wires_profile_native_teacher_and_both_eval_models(
         commands.append(command)
         if command[1] == str(run_latency_pipeline.PROFILE_SCRIPT):
             stdout.write(f"PROFILE_PATH={profile}\n")
-        elif command[1] == str(run_latency_pipeline.TRAIN_COMMAND_SCRIPT):
+        elif command[1] == str(run_latency_pipeline.TRAIN_SMALL_POLICY_SCRIPT):
             native.parent.mkdir(parents=True)
             native.write_bytes(b"native")
             stdout.write(f"Saved checkpoint to {native}\n")
@@ -65,7 +65,7 @@ def test_pipeline_wires_profile_native_teacher_and_both_eval_models(
     output = tmp_path / "run"
     assert len(commands) == 7
     assert commands[0][:3] == ["bash", str(run_latency_pipeline.PROFILE_SCRIPT), str(tmp_path / "baseline")]
-    assert commands[1][:2] == ["bash", str(run_latency_pipeline.TRAIN_COMMAND_SCRIPT)]
+    assert commands[1][:2] == ["bash", str(run_latency_pipeline.TRAIN_SMALL_POLICY_SCRIPT)]
     assert str(tmp_path / "privileged.pt") in commands[1]
     assert str(output / "latency.yaml") in commands[1]
     assert commands[2][:2] == ["bash", str(run_latency_pipeline.TRAIN_VLA_SCRIPT)]

@@ -1,4 +1,4 @@
-"""Training-side command transport using the evaluator's scheduling primitives."""
+"""Training-side action latency using the evaluator's scheduling primitives."""
 
 from __future__ import annotations
 
@@ -17,11 +17,11 @@ from latency_bench.latency.samplers import build_episode_sampler_factory, build_
 from latency_bench.scheduler.factory import build_action_scheduler
 
 
-class CommandLatencyBatch:
-    """Schedule independent command replicas without advancing simulator physics.
+class ActionLatencyBatch:
+    """Schedule independent action replicas without advancing simulator physics.
 
     Submit at decision boundaries, call ``actions`` before each control step,
-    and ``advance`` after it. Commands stay on their original torch device.
+    and ``advance`` after it. Actions stay on their original torch device.
     The native trainer owns rewards, terminal observations and episode resets.
     """
 
@@ -36,6 +36,7 @@ class CommandLatencyBatch:
         self.episodes = [-1] * num_envs
         self.submitted = [0] * num_envs
         self.dropped = [0] * num_envs
+        self.last_dropped = [False] * num_envs
         self.last_submission = [None] * num_envs
         self.last_application = [None] * num_envs
         self.samplers = []
@@ -77,6 +78,7 @@ class CommandLatencyBatch:
             next_episode_id += 1
             self.submitted[env_id] = 0
             self.dropped[env_id] = 0
+            self.last_dropped[env_id] = False
             self.last_submission[env_id] = None
             self.last_application[env_id] = None
             self.capacities[env_id].reset()
@@ -86,9 +88,11 @@ class CommandLatencyBatch:
                 self.samplers[env_id] = self.sampler_factory(self.episodes[env_id])
 
     def submit(self, commands, env_ids=None):
-        """Admit commands for a full batch; return a device boolean admission mask."""
+        """Admit actions for a full batch; return a device boolean admission mask."""
         admitted = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         for env_id in self._ids(env_ids):
+            self.last_dropped[env_id] = False
+            self.last_submission[env_id] = None
             frame = self.frames[env_id]
             if frame % self.clock.obs_stride_raw_frames:
                 continue
@@ -96,7 +100,7 @@ class CommandLatencyBatch:
             capacity.release_ready(frame)
             if not capacity.can_submit():
                 self.dropped[env_id] += 1
-                self.last_submission[env_id] = None
+                self.last_dropped[env_id] = True
                 continue
             worker = capacity.assign_worker()
             obs_id = self.submitted[env_id]
@@ -133,7 +137,7 @@ class CommandLatencyBatch:
         return admitted
 
     def actions(self, env_ids=None):
-        """Return commands and record their sources in ``last_application``."""
+        """Return actions and record their sources in ``last_application``."""
         result = self.noop_command.expand(self.num_envs, *self.noop_command.shape).clone()
         for env_id in self._ids(env_ids):
             frame = self.frames[env_id]
@@ -170,6 +174,7 @@ class CommandLatencyBatch:
             self.frames[env_id] = 0
             self.submitted[env_id] = 0
             self.dropped[env_id] = 0
+            self.last_dropped[env_id] = False
             self.last_submission[env_id] = None
             self.last_application[env_id] = None
             self.capacities[env_id].reset()
@@ -177,12 +182,12 @@ class CommandLatencyBatch:
             self.schedulers[env_id].reset()
 
 
-class TorchCommandLatencyWrapper:
-    """Apply command latency outside a native tensor vector env's autoreset."""
+class TorchActionLatencyWrapper:
+    """Apply action latency outside a native tensor vector env's autoreset."""
 
     def __init__(self, env, config, *, num_envs, device, noop_command):
         self.env = env
-        self.latency = CommandLatencyBatch(
+        self.latency = ActionLatencyBatch(
             config, num_envs=num_envs, device=device, noop_command=noop_command
         )
 
@@ -197,12 +202,14 @@ class TorchCommandLatencyWrapper:
     def step(self, action):
         issued = action.clamp(-1, 1)
         admitted = self.latency.submit(issued)
+        dropped = torch.tensor(self.latency.last_dropped, device=issued.device)
         applied = self.latency.actions()
         observation, reward, terminated, truncated, info = self.env.step(applied)
         self.latency.advance()
         info["issued_command"] = issued
         info["applied_command"] = applied
         info["command_admitted"] = admitted
+        info["command_dropped"] = dropped
         # The native vector wrapper has already preserved terminal observations
         # and reset these slots. Only transport state is reset here.
         self.latency.reset(torch.nonzero(terminated | truncated).flatten().tolist())

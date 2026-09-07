@@ -415,7 +415,7 @@ def _executor(
         ActionScheduler(
             clock=clock,
             noop_action=env.noop_action,
-            persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+            persistence_policy=HoldPolicy(),
             ordering_policy=ordering_policy,
         )
         for env in envs
@@ -525,7 +525,7 @@ def _subproc_executor(
         ActionScheduler(
             clock=clock,
             noop_action=env.noop_action,
-            persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+            persistence_policy=HoldPolicy(),
             ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
         )
         for env in backend.slot_handles
@@ -583,7 +583,7 @@ def _tuple_executor(
         ActionScheduler(
             clock=clock,
             noop_action=env.noop_action,
-            persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+            persistence_policy=HoldPolicy(),
             ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
         )
         for env in envs
@@ -815,7 +815,7 @@ def test_batched_executor_soft_reset_continues_same_episode_and_clears_slot_late
             ActionScheduler(
                 clock=clock,
                 noop_action=noop,
-                persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+                persistence_policy=HoldPolicy(),
                 ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
             )
         ],
@@ -951,7 +951,7 @@ def test_batched_executor_no_trace_does_not_retain_hot_path_records(tmp_path: Pa
             ActionScheduler(
                 clock=clock,
                 noop_action=env.noop_action,
-                persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+                persistence_policy=HoldPolicy(),
                 ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
             )
             for env in envs

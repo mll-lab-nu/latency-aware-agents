@@ -53,7 +53,7 @@ def test_pipeline_consumes_native_command_checkpoint_and_fresh_dataset(
         commands.append(command)
         if command[1] == "scripts/profile.sh":
             stdout.write(f"PROFILE_PATH={profile}\n")
-        elif command[1] == str(run_latency_pipeline.TRAIN_COMMAND_SCRIPT):
+        elif command[1] == str(run_latency_pipeline.TRAIN_SMALL_POLICY_SCRIPT):
             assert env["PATH"].split(os.pathsep)[0] == str(Path(config["parkour_python"]).parent)
             stdout.write(
                 f"NATIVE_CHECKPOINT={native_checkpoint}\n"
@@ -72,7 +72,7 @@ def test_pipeline_consumes_native_command_checkpoint_and_fresh_dataset(
     output = tmp_path / "run"
     assert len(commands) == 9
     assert commands[0][1:5] == ["scripts/profile.sh", "run", "--model", "official_gr00t"]
-    assert commands[1][0:2] == ["bash", str(run_latency_pipeline.TRAIN_COMMAND_SCRIPT)]
+    assert commands[1][0:2] == ["bash", str(run_latency_pipeline.TRAIN_SMALL_POLICY_SCRIPT)]
     assert commands[2][0] == str(config["parkour_python"])
     assert commands[2][1] == str(run_latency_pipeline.PARKOUR_SCRIPT)
     assert commands[2][commands[2].index("--checkpoint") + 1] == str(

@@ -108,7 +108,10 @@ def test_cuda_batched_latency_fixed_path_matches_cpu_scheduler(ordering_policy, 
         ],
         dtype=np.bool_,
     )
-    for actions, active in zip(action_rows, active_rows):
+    delays = (3, 0, 1, 1) if ordering_policy == "latest_ready" else (1, 1, 1, 1)
+    for actions, active, delay in zip(action_rows, active_rows, delays):
+        cpu.fixed_latency_raw_frames = delay
+        cuda.fixed_latency_raw_frames = delay
         cpu.begin_decision(actions, active_mask=active)
         cuda.begin_decision(
             torch.as_tensor(actions, dtype=torch.int64, device="cuda"),
@@ -137,6 +140,25 @@ def test_cuda_batched_latency_fixed_path_matches_cpu_scheduler(ordering_policy, 
             "pending_counts",
         ):
             np.testing.assert_array_equal(getattr(cuda_result, field).detach().cpu().numpy(), getattr(cpu_result, field))
+
+    # Let the last request arrive, then leave a gap with no new submissions.
+    active = np.ones(batch_size, dtype=np.bool_)
+    cuda_active = torch.as_tensor(active, device="cuda")
+    last = cpu.raw_actions(active).copy()
+    np.testing.assert_array_equal(cuda.raw_actions(cuda_active).cpu().numpy(), last)
+    cpu.record_raw_step(active)
+    cuda.record_raw_step(cuda_active)
+    for _ in range(3):
+        cpu_raw = cpu.raw_actions(active)
+        np.testing.assert_array_equal(cuda.raw_actions(cuda_active).cpu().numpy(), cpu_raw)
+        np.testing.assert_array_equal(cpu_raw, last if hold_policy == "hold" else np.zeros(batch_size))
+        cpu.record_raw_step(active)
+        cuda.record_raw_step(cuda_active)
+
+    cpu.reset(seeds=reset_seeds)
+    cuda.reset(seeds=reset_seeds)
+    np.testing.assert_array_equal(cpu.raw_actions(active), np.zeros(batch_size))
+    np.testing.assert_array_equal(cuda.raw_actions(cuda_active).cpu().numpy(), np.zeros(batch_size))
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
@@ -181,7 +203,8 @@ def test_cuda_batched_latency_distribution_samples_on_gpu(
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
-def test_cuda_latency_core_decision_fused_path_matches_cpu_for_stride_gt_one():
+@pytest.mark.parametrize("hold_policy", ("one_frame_then_noop", "hold"))
+def test_cuda_latency_core_decision_fused_path_matches_cpu_for_stride_gt_one(hold_policy):
     from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore
     from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
     from training.common.gpu_latency import CudaLatencyScheduler
@@ -219,7 +242,7 @@ def test_cuda_latency_core_decision_fused_path_matches_cpu_for_stride_gt_one():
         fixed_latency_raw_frames=1,
         env_fps=60,
         obs_fps=30,
-        hold_policy="one_frame_then_noop",
+        hold_policy=hold_policy,
         ordering_policy="latest_ready",
         latency_distribution_spec=None,
         seeds=latency_seeds,
@@ -231,7 +254,7 @@ def test_cuda_latency_core_decision_fused_path_matches_cpu_for_stride_gt_one():
         fixed_latency_raw_frames=1,
         env_fps=60,
         obs_fps=30,
-        hold_policy="one_frame_then_noop",
+        hold_policy=hold_policy,
         ordering_policy="latest_ready",
         seeds=latency_seeds,
         env_reset_seed_bases=[1001, 1002, 1003, 1004],
@@ -244,7 +267,9 @@ def test_cuda_latency_core_decision_fused_path_matches_cpu_for_stride_gt_one():
     cpu_latency.reset(seeds=[201, 202, 203, 204])
     cuda_latency.reset(seeds=[201, 202, 203, 204])
 
-    for actions, active in zip(action_rows, active_rows):
+    for actions, active, delay in zip(action_rows, active_rows, (5, 0, 3, 1, 1)):
+        cpu_latency.fixed_latency_raw_frames = delay
+        cuda_latency.fixed_latency_raw_frames = delay
         cpu_latency.begin_decision(actions, active_mask=active)
         rewards = np.zeros(batch_size, dtype=np.float64)
         terminated = np.zeros(batch_size, dtype=np.bool_)
@@ -588,7 +613,8 @@ def test_batched_latency_reset_clears_pending_actions():
         {"type": "normal", "mean": 1, "std": 1, "min": 0, "max": 3},
     ),
 )
-def test_batched_latency_sampled_distribution_matches_scalar_wrapper(latency_distribution_spec):
+@pytest.mark.parametrize("hold_policy", ("one_frame_then_noop", "hold"))
+def test_batched_latency_sampled_distribution_matches_scalar_wrapper(latency_distribution_spec, hold_policy):
     from latency_bench.core.latency_distribution import parse_latency_distribution
     from training.flappy_sf.batched_latency import BatchedFlappyLatencyScheduler
     from training.common.latency_wrapper import ActionLatencyWrapper
@@ -599,7 +625,7 @@ def test_batched_latency_sampled_distribution_matches_scalar_wrapper(latency_dis
         fixed_latency_raw_frames=0,
         env_fps=30,
         obs_fps=30,
-        hold_policy="one_frame_then_noop",
+        hold_policy=hold_policy,
         ordering_policy="latest_ready",
         latency_distribution_spec=spec,
         seeds=[17],
@@ -611,7 +637,7 @@ def test_batched_latency_sampled_distribution_matches_scalar_wrapper(latency_dis
         fixed_latency_raw_frames=0,
         env_fps=30,
         obs_fps=30,
-        hold_policy="one_frame_then_noop",
+        hold_policy=hold_policy,
         ordering_policy="latest_ready",
         latency_distribution_spec=spec,
         seed=17,
@@ -621,7 +647,7 @@ def test_batched_latency_sampled_distribution_matches_scalar_wrapper(latency_dis
     scheduler.reset(indices=[0], seeds=[123])
     scalar.reset(seed=123)
 
-    for action in [0, 1, 1, 0, 1, 0, 0, 1]:
+    for action in [0, 1, 0, 0, 1, 0, 0, 1]:
         scheduler.begin_decision(np.asarray([action], dtype=np.int64), active_mask=np.asarray([True]))
         advanced = np.zeros(1, dtype=np.int64)
         for _ in range(scheduler.clock.obs_stride_raw_frames):

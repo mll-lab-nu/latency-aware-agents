@@ -1,3 +1,192 @@
+# Current plan: H1 native profile-RL (2026-09-07)
+
+This section supersedes the H40/full-VLA launch instructions below. Train only
+the four native small policies, initialized from their zero-latency teachers
+with fresh optimizer/progress state. Official GR00T and the old full-chain
+launchers remain debug/history paths. Profile measurement correctness and VLA
+collection/training are deferred; existing explicitly selected profiles are
+experimental inputs, not a prerequisite for new measurement.
+
+| Task | Current action | Control / observation Hz | Native budget |
+|---|---|---|---|
+| MIKASA | 7D | 20 / 20 | PPO, 150M steps |
+| Parkour | 34D latent+yaw | 50 / 10 | PPO, 15,000 iterations |
+| HAIC | 256D latent | 20 / 20 | PPO, 500M frames |
+| Balance | 43D request | 50 / 50 | FastTD3, 25M steps |
+
+Each policy issues one current action. Transport receives `[B,D]`, not a
+one-element time-indexed chunk. Use `scheduler.hold_policy: hold`
+in training and evaluation: retain the last applied action until another
+arrives, use the original noop before the first arrival, and clear transport
+on episode reset. Preserve the existing decoder and action units.
+
+HAIC uses a real `task.sim.step_dt=0.05`, control repeat 1, and a 400-step
+timeout (20 seconds), with the physics substep unchanged. Its reference motion
+and discrete contact labels must share the resampled 20 Hz timeline; static
+object geometry remains unchanged. Evaluate both the source teacher and the
+new policy at 20 Hz.
+
+Keep profile latency values in milliseconds. The runtime clock maps 100 ms to
+2 control frames at 20 Hz or 5 at 50 Hz. Use temporal sampling, latency seed 0,
+one simulated worker, and the task's explicit profile. Do not use a generated
+cross-device config that copies the old profile FPS over the HAIC 20 Hz clock.
+Temporal dwell counts retain their existing draw-based interpretation for
+this feasibility experiment.
+
+### MIKASA and Balance native launch
+
+Task entrypoints follow the existing `small_policy` naming convention:
+`train_small_policy.sh` for zero-latency training,
+`train_small_policy_with_latency.sh` for latency training, and
+`eval_small_policy_with_latency.sh` for native latency evaluation. MIKASA
+evaluates through its training entrypoint with `--evaluate`; Balance uses
+its existing configurable training entrypoint and `latency_bench.run`.
+
+Run from the repository root. The MIKASA wrapper takes an explicit teacher,
+latency config and output directory. `--evaluate` uses the same native policy
+and latency transport; the eval configs select 50 complete 60-step episodes.
+
+```bash
+export WANDB_MODE=online
+bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy_with_latency.sh \
+  outputs/latency_rl/mikasa/source/teacher.pt \
+  configs/training/latency/mikasa_h1.yaml outputs/latency_rl/mikasa/h1
+
+bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy_with_latency.sh \
+  outputs/latency_rl/mikasa/h1/teacher.pt \
+  configs/training/latency/mikasa_h1_eval.yaml outputs/latency_rl/mikasa/h1/eval_profile \
+  --evaluate
+bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy_with_latency.sh \
+  outputs/latency_rl/mikasa/h1/teacher.pt \
+  configs/training/latency/mikasa_h1_eval_zero.yaml outputs/latency_rl/mikasa/h1/eval_zero \
+  --evaluate
+
+BALANCE_TRAIN_CONFIG=configs/training/latency/balance_h1.yaml \
+BALANCE_EVAL_CONFIG=configs/training/latency/balance_h1_eval.yaml \
+  bash scripts/tasks/humanoidbench_balance_simple/train_small_policy.sh
+.venv/bin/python -m latency_bench.run \
+  --config configs/training/latency/balance_h1_eval_zero.yaml
+```
+
+For Balance baseline evaluation, run the same evaluation configs with
+`--checkpoint-path` pointing to `backend.initial_model_path` in the resolved
+training config and a distinct `--output-dir`. For MIKASA use the original
+teacher as the wrapper's first argument and distinct output directories.
+Never evaluate a different run's checkpoint through an implicit path change.
+
+### Parkour and HAIC native launch
+
+Set the native interpreters explicitly on this machine:
+
+```bash
+export PARKOUR_PYTHON=/pfs/users/lxy/conda/envs/extreme-parkour/bin/python
+export HAIC_PYTHON=/pfs/users/lxy/conda/envs/haic/bin/python
+export WANDB_MODE=online
+export PYTHONPATH="$PWD:$PWD/third_party/HAIC${PYTHONPATH:+:$PYTHONPATH}"
+PARKOUR_TEACHER=third_party/Isaaclab_Parkour/logs/rsl_rl/unitree_go2_parkour/2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k/model_14999.pt
+HAIC_TEACHER=outputs/haic/phase1_teacher/checkpoint_final.pt
+
+bash scripts/tasks/extreme_parkour_go2/train_small_policy_with_latency.sh \
+  "$PARKOUR_TEACHER" configs/training/latency/parkour.yaml \
+  --run_name extreme_parkour_go2_ppo_small_policy_with_latency_seed1_15k --logger wandb \
+  --log_project_name latency-sensitive-bench
+bash scripts/tasks/haic_pull_cart/train_small_policy_with_latency.sh \
+  "$HAIC_TEACHER" configs/training/latency/haic.yaml \
+  headless=true wandb.mode=online \
+  hydra.run.dir="$PWD/outputs/latency_rl/haic/h1"
+```
+
+Use each exact saved checkpoint for native evaluation. Substitute the
+`*_zero.yaml` latency config for the zero-latency comparison. Parkour's
+`--teacher-baseline` selects the original teacher; pass its checkpoint as both
+checkpoint arguments. HAIC selects the original teacher with `--teacher`
+before the checkpoint argument.
+
+```bash
+bash scripts/tasks/extreme_parkour_go2/eval_small_policy_with_latency.sh \
+  /absolute/path/to/model_N.pt configs/training/latency/parkour.yaml \
+  "$PARKOUR_TEACHER"
+bash scripts/tasks/haic_pull_cart/eval_small_policy_with_latency.sh \
+  /absolute/path/to/checkpoint_final.pt configs/training/latency/haic.yaml \
+  headless=true hydra.run.dir="$PWD/outputs/latency_rl/haic/h1/eval_profile"
+```
+
+### Acceptance
+
+First run a short native train/save/reload and zero/profile evaluation, then
+use the formal budgets. Compare teacher/new policies with matching seeds:
+MIKASA 50 episodes, other tasks 100. Record return, success/task progress,
+episode length, admission/drop metrics, actual throughput, and the resolved
+teacher/profile/FPS/checkpoint identity. A finite smoke proves execution only;
+training curves and matched evaluation determine whether the task was learned.
+Further FPS changes are a later explicit experiment.
+
+### H1 validation and live runs (2026-09-07)
+
+Artifacts are under `outputs/latency_rl/h1_validation`. The shared CPU
+selection passed 147 tests (`cpu_tests.log`); the later overlapping
+transport/Sample-Factory/evaluation selection passed 106
+(`final_shared_tests.log`). CUDA raw/fused Flappy hold checks passed eight
+tests, and CULE Demon Attack hold checks passed two. These used the existing
+Flappy source and existing AutoROM resources; no dependency was installed.
+
+The final replacement makes `hold` retain the last arrived scalar action until
+replacement or reset. The shared module is `training.common.action_latency`.
+The replacement CPU selection passed 332 tests (one deselected), HAIC passed
+23, Parkour passed three, and pipeline/evaluation checks passed 16; see
+`hold_replacement_{cpu_final,haic,parkour2,pipeline2}.log`. A fresh MIKASA
+50-episode profile evaluation reproduced return 3.269509, success-once 4%,
+and admission/drop counts 1409/1591 (`hold_replacement_mikasa_profile`).
+Existing online processes were not restarted: they retain their loaded code
+and saved configuration, with the same indefinite-hold behavior.
+
+Rebuilt hold validation passed six Flappy raw/fused hold/noop checks, 13 Demon
+CUDA-core checks and eight CULE ALE/observation alignment checks.
+
+The follow-up `latest_ready` fix aligns NumPy, Flappy raw/fused CUDA and CULE
+with the scalar coordinator: releasing a newer result also discards all older
+pending requests, including those that have not arrived. It adds no state or
+configuration. The former sampled-normal scalar/NumPy failure now passes for
+both hold policies, with distinct old/new action values. The shared CPU
+selection passed 332 tests; the Flappy CPU subset passed six (11 GPU tests
+skipped), recorded in `latest_ready_{cpu,flappy_cpu}.log`. After rebuilding,
+the complete Flappy GPU file passed all 17 tests (`latest_ready_flappy_gpu.log`).
+The rebuilt CULE backend passed 13 Demon CUDA tests and eight ALE/observation
+alignment tests. Its existing projection test now also checks that a newer,
+different action remains applied after the older request's arrival frame.
+
+MIKASA's two-update/480-step checkpoint completed all four 50-episode native
+evaluations. `mikasa_eval_{teacher,new}_{zero,profile}/evaluation.json`
+contains resolved config, checkpoint, task metrics, throughput and transport
+counts. Every episode lasted 60 steps.
+
+| MIKASA checkpoint | Zero return / success-once | Profile return / success-once |
+|---|---|---|
+| Source teacher | 36.165 / 100% | 18.099 / 46% |
+| Two-update smoke | 8.181 / 12% | 3.270 / 4% |
+
+Zero evaluations each admitted 3,000 commands with no drops; profile
+evaluations each admitted 1,409 and dropped 1,591. This smoke is an execution
+check, not evidence of learning or improved robustness.
+
+All formal training must use W&B online mode. The initial offline jobs were
+stopped at the user's request; their artifacts were preserved under each
+task's `h1_offline_aborted_20260907_1655` directory. Restart from the source
+teacher with fresh optimizer/progress, not those aborted checkpoints.
+
+Online jobs are detached in `latency_h1_mikasa`, `latency_h1_balance`,
+`latency_h1_parkour` and `latency_h1_haic` tmux
+sessions, with logs at `outputs/latency_rl/{mikasa,balance}/h1/train.log`.
+The aborted offline runs had checked saved states at MIKASA iteration 31 / 1,904,640 steps and Balance
+1,365,632 frames contained only finite tensors. Their full budgets and final
+matched evaluations have not completed; do not treat smoke results as formal
+training results. No existing profiling session was interrupted.
+
+## Historical H40 / full-chain handoff
+
+The remaining material records earlier runs and their then-current contracts;
+it is not the execution plan for the H1 native experiments above.
+
 # Latency command-RL — launch and smoke handoff
 
 All four task entrypoints are implemented. Real staged smokes verified native
@@ -64,7 +253,7 @@ Recovery uses native checkpoints, not a new workflow engine:
 
 - MIKASA: pass `--resume <output>/teacher/training.pt` to the native training
   entry shown below; `teacher.pt` alone is initialization, not optimizer resume.
-- Parkour: rerun `train_latency_command.sh` with the same teacher/config plus
+- Parkour: rerun `train_small_policy_with_latency.sh` with the same teacher/config plus
   native `--resume --load_run <run-name> --checkpoint <model_N.pt>`;
   `--max_iterations` is the additional native learning budget. To continue the
   pipeline after native training, set `native_checkpoint` explicitly and pass
@@ -170,7 +359,7 @@ The run wrote `model_0.pt` and `model_1.pt` under
 latency method is IID and whose profile is
 `/home/xinyuan/parkour-latency-smoke/smoke_profile_session0/profile.json`.
 The checked-in formal launcher and smoke config both use 1,024 environments
-in `scripts/tasks/extreme_parkour_go2/train_latency_command.sh`; the smoke
+in `scripts/tasks/extreme_parkour_go2/train_small_policy_with_latency.sh`; the smoke
 limits native training to two iterations.
 
 The earlier checkpoint-contract smoke was separate: the initial run had no
@@ -350,7 +539,7 @@ cd "$P"
 export PYTHONPATH="$P:$P/third_party/HAIC:/home/xinyuan/IsaacLab/source/isaaclab"
 export CUDA_VISIBLE_DEVICES=0 OMNI_KIT_ACCEPT_EULA=YES WANDB_MODE=offline
 export HAIC_PYTHON=/home/xinyuan/miniconda3/envs/haic/bin/python
-bash scripts/tasks/haic_pull_cart/train_latency_command.sh \
+bash scripts/tasks/haic_pull_cart/train_small_policy_with_latency.sh \
   "$P/outputs/haic/phase1_teacher/checkpoint_final.pt" \
   "$B/latency_real.yaml" \
   hydra.run.dir="$B/native_acceptance3" \
@@ -358,7 +547,7 @@ bash scripts/tasks/haic_pull_cart/train_latency_command.sh \
   algo.train_every=8 algo.num_minibatches=1 total_frames=256 \
   save_interval=8 wandb.mode=offline
 
-bash scripts/tasks/haic_pull_cart/train_latency_command.sh \
+bash scripts/tasks/haic_pull_cart/train_small_policy_with_latency.sh \
   "$B/native_acceptance3/wandb/latest-run/files/checkpoint_final.pt" \
   "$B/latency_real.yaml" \
   hydra.run.dir="$B/native_acceptance3_resume" \
@@ -440,7 +629,7 @@ export HAIC_PYTHON=/home/xinyuan/miniconda3/envs/haic/bin/python
 export CUDA_VISIBLE_DEVICES=0 OMNI_KIT_ACCEPT_EULA=YES
 export GROOT_HF_LOCAL_FIRST=1 GROOT_PATCH_MISTRAL=1
 export LD_LIBRARY_PATH=/home/xinyuan/.cache/latency-sensitive-bench/ffmpeg7/lib
-bash scripts/tasks/haic_pull_cart/train_vla.sh \
+bash scripts/tasks/haic_pull_cart/train_official_gr00t.sh \
   "$B/native_acceptance3_resume/wandb/latest-run/files/checkpoint_final.pt" \
   --base-model "$P/outputs/official_gr00t/models/GR00T-N1.7-3B" \
   --output-root "$B/haic_vla_acceptance3/vla_smoke2" \
@@ -697,3 +886,30 @@ and HAIC `haic_vla_acceptance3/vla_smoke2` runs. Their complete `checkpoint-2`
 directories remain intact; those duplicates
 can be recreated by copying the checkpoint shards. Always reload the documented
 checkpoint directory, not its parent. Baselines, teachers and datasets were retained.
+
+## Formal execution record (2026-09-06)
+
+The clean five-session profiles and source VLA baselines are complete:
+
+| task | profile HF commit | zero mean return | temporal mean return | simulation commits |
+|---|---|---:|---:|---|
+| Parkour | `88321b5b3f6b3e343e1dd6f9a6bb46df463a9cf6` | 14.0489 | 13.4506 | `e18ca875`, `ca65a585` |
+| HAIC | `cb65a3b210eb0a7dc30b4b151579d9a162e0514f` | 4.0554 | 3.0516 | `ac776be6`, `cb2cfda5` |
+| Balance | `f6414b307a6d2260efb9804ed57ae5d7c4ce54b9` | 22.1493 | 32.7462 | `c4351ab7`, `97cc0edf` |
+| MIKASA | `9d8bae1c6c0a17775549205a0cf61f72cbc09fc9` | 22.3260 | 0.3270 | `7bdcc4d4`, `63018122` |
+
+MIKASA used 50 episodes; the other tasks used 100. Every temporal simulation
+used latency seed 0 and an immutable profile revision.
+
+Formal latency-command training was paused on request. MIKASA reached iteration
+1,029 and 63,221,760 steps; its immutable pause bundle is
+`outputs/latency_rl/mikasa/formal_temporal_150m/paused_20260906_training.pt` on
+the remote host. Its W&B runs are `3xo01lnl` and resumed run `dcpkb4lb`.
+Parkour paused at the resumable `model_600.pt`; its run directory is
+`third_party/Isaaclab_Parkour/logs/rsl_rl/unitree_go2_parkour/2026-09-06_22-27-48_latency_command_seed1_15k`.
+The first 20 Parkour updates were finite at roughly 1,967 macro steps/s, but
+reward and episode length had collapsed by iteration 610, so checkpoints 0
+through 600 were retained for the temporal gate. The first corrected temporal
+evaluation was interrupted before completion and must be restarted. The
+formal configs are `configs/training/latency/mikasa_formal_temporal.yaml` and
+`configs/training/latency/parkour_formal_temporal.yaml`.

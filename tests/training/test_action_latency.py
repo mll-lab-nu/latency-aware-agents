@@ -1,9 +1,9 @@
-"""Long-lived native transport contracts shared with scalar and batched evaluation."""
+"""Long-lived action latency contracts shared with scalar and batched evaluation."""
 
 import pytest
 import torch
 
-from training.common.command_latency import CommandLatencyBatch
+from training.common.action_latency import ActionLatencyBatch
 
 
 @pytest.mark.parametrize("hold_tail", [False, True])
@@ -14,7 +14,7 @@ def test_replica_admission_stale_prefix_and_episode_reset(hold_tail):
         "latency": {"method": "fixed", "fixed_latency_ms": 40, "seed": 0},
         "scheduler": {"ordering_policy": "latest_ready", "hold_policy": "hold", "hold_last_chunk_action": hold_tail},
     }
-    queue = CommandLatencyBatch(config, num_envs=2, device="cpu", noop_command=[0])
+    queue = ActionLatencyBatch(config, num_envs=2, device="cpu", noop_command=[0])
     queue.reset()
     assert queue.episodes == [0, 1]
     chunks = torch.tensor([[[1.], [2.], [3.], [4.]], [[10.], [20.], [30.], [40.]]])
@@ -43,6 +43,70 @@ def test_replica_admission_stale_prefix_and_episode_reset(hold_tail):
     torch.testing.assert_close(queue.actions(), torch.zeros(2, 1))
 
 
+@pytest.mark.parametrize(("fps", "latency_frames"), [(20, 2), (50, 5)])
+def test_single_action_holds_until_replacement_and_reset_at_control_rate(fps, latency_frames):
+    config = {
+        "env": {"env_fps": fps, "obs_fps": fps},
+        "executor": {"simulated_worker_capacity": 1},
+        "latency": {"method": "fixed", "fixed_latency_ms": 100, "seed": 0},
+        "scheduler": {"ordering_policy": "latest_ready", "hold_policy": "hold"},
+    }
+    queue = ActionLatencyBatch(config, num_envs=2, device="cpu", noop_command=[0, 0])
+    commands = torch.tensor([[1.0, 2.0], [10.0, 20.0]])
+    queue.reset()
+
+    assert queue.submit(commands).tolist() == [True, True]
+    torch.testing.assert_close(queue.actions(), torch.zeros(2, 2))
+    for _ in range(latency_frames):
+        queue.advance()
+        actions = queue.actions()
+    torch.testing.assert_close(actions, commands)
+
+    queue.reset([0])
+    torch.testing.assert_close(queue.actions(), torch.tensor([[0.0, 0.0], [10.0, 20.0]]))
+    replacement = torch.tensor([[3.0, 4.0], [30.0, 40.0]])
+    assert queue.submit(replacement, [0]).tolist() == [True, False]
+    torch.testing.assert_close(queue.actions(), torch.tensor([[0.0, 0.0], [10.0, 20.0]]))
+    for _ in range(latency_frames):
+        queue.advance()
+        actions = queue.actions()
+    torch.testing.assert_close(actions, torch.tensor([[3.0, 4.0], [10.0, 20.0]]))
+
+    queue.reset()
+    torch.testing.assert_close(queue.actions(), torch.zeros(2, 2))
+
+
+def test_submission_metrics_capture_latency_and_capacity_drop():
+    config = {
+        "env": {"env_fps": 50, "obs_fps": 50},
+        "executor": {"simulated_worker_capacity": 1},
+        "latency": {"method": "fixed", "fixed_latency_ms": 100, "seed": 0},
+        "scheduler": {"ordering_policy": "latest_ready", "hold_policy": "hold"},
+    }
+    queue = ActionLatencyBatch(config, num_envs=1, device="cpu", noop_command=[0])
+    queue.reset()
+
+    assert queue.submit(torch.tensor([[1.0]])).tolist() == [True]
+    assert queue.last_submission[0]["latency_ms"] == 100.0
+    assert queue.last_dropped == [False]
+    queue.advance()
+
+    assert queue.submit(torch.tensor([[2.0]])).tolist() == [False]
+    assert queue.last_submission == [None]
+    assert queue.last_dropped == [True]
+
+    for _ in range(4):
+        queue.advance()
+    torch.testing.assert_close(queue.actions(), torch.tensor([[1.0]]))
+    assert queue.submit(torch.tensor([[2.0]])).tolist() == [True]
+    for _ in range(4):
+        queue.advance()
+        assert queue.submit(torch.tensor([[3.0]])).tolist() == [False]
+        torch.testing.assert_close(queue.actions(), torch.tensor([[1.0]]))
+    queue.advance()
+    torch.testing.assert_close(queue.actions(), torch.tensor([[2.0]]))
+
+
 def test_load_state_dict_preserves_sampler_continuation_and_clears_transport():
     config = {
         "env": {"env_fps": 50, "obs_fps": 50},
@@ -55,7 +119,7 @@ def test_load_state_dict_preserves_sampler_continuation_and_clears_transport():
         },
         "scheduler": {"ordering_policy": "latest_ready", "hold_policy": "hold"},
     }
-    queue = CommandLatencyBatch(config, num_envs=1, device="cpu", noop_command=[0])
+    queue = ActionLatencyBatch(config, num_envs=1, device="cpu", noop_command=[0])
     queue.reset()
     commands = torch.tensor([[[1.], [2.]]])
     context = {
@@ -75,7 +139,7 @@ def test_load_state_dict_preserves_sampler_continuation_and_clears_transport():
     state = queue.state_dict()
     expected = queue.samplers[0].sample(context).latency_ms
 
-    resumed = CommandLatencyBatch(config, num_envs=1, device="cpu", noop_command=[0])
+    resumed = ActionLatencyBatch(config, num_envs=1, device="cpu", noop_command=[0])
     resumed.load_state_dict(state)
 
     assert resumed.frames == [0]
@@ -94,7 +158,7 @@ def test_training_episode_stream_matches_evaluator_after_independent_resets():
         "latency": {"method": "uniform", "min_latency_ms": 0, "max_latency_ms": 100, "seed": 7},
         "scheduler": {"ordering_policy": "latest_ready", "hold_policy": "hold"},
     }
-    queue = CommandLatencyBatch(config, num_envs=2, device="cpu", noop_command=[0])
+    queue = ActionLatencyBatch(config, num_envs=2, device="cpu", noop_command=[0])
     evaluator_factory = build_episode_sampler_factory(config["latency"], queue.clock)
     queue.reset()
     queue.reset([1])
@@ -133,7 +197,7 @@ def test_training_scalar_and_batched_eval_apply_identical_command_trace():
         "latency": {"method": "uniform", "min_latency_ms": 0, "max_latency_ms": 400, "seed": 7},
         "scheduler": {"ordering_policy": "latest_ready", "hold_policy": "hold"},
     }
-    queue = CommandLatencyBatch(config, num_envs=2, device="cpu", noop_command=[-1])
+    queue = ActionLatencyBatch(config, num_envs=2, device="cpu", noop_command=[-1])
     env = DummyEnvAdapter(env_fps=50, max_steps=100, noop_action=Action(torch.tensor([-1.])))
     evaluator = SimulatedLatencyExecutor(
         env=env, policy=CommandPolicy(), clock=queue.clock,

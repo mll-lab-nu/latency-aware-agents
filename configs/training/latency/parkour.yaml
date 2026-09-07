@@ -1,5 +1,5 @@
 experiment:
-  name: extreme_parkour_go2_latency_command
+  name: extreme_parkour_go2_small_policy_with_latency
   seed: 2
 
 env:
@@ -9,9 +9,9 @@ env:
   simulator_device: cuda:0
 
 latency:
-  method: fixed
-  fixed_latency_ms: 0
-  seed: 2
+  method: temporal
+  seed: 0
+  profile_path: /pfs/users/lxy/latency-sensitive-bench/results/profiling/profiles/official_gr00t/1x-rpbzzz6/extreme_parkour_go2/instance_e906b84a82f9e086/profile.json
 
 executor:
   simulated_worker_capacity: 1
@@ -22,5 +22,5 @@ scheduler:
 
 command:
   dimension: 34
-  horizon: 40
+  horizon: 1
   control_repeat: 5

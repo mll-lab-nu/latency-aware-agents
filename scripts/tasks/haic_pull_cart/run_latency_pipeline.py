@@ -14,7 +14,7 @@ from latency_bench.core.config import load_config
 
 
 PROFILE_SCRIPT = Path("scripts/tasks/haic_pull_cart/profile.sh")
-TRAIN_COMMAND_SCRIPT = Path("scripts/tasks/haic_pull_cart/train_latency_command.sh")
+TRAIN_SMALL_POLICY_SCRIPT = Path("scripts/tasks/haic_pull_cart/train_small_policy_with_latency.sh")
 TRAIN_VLA_SCRIPT = Path("scripts/tasks/haic_pull_cart/train_official_gr00t.sh")
 HAIC_SCRIPT = Path("third_party/HAIC/scripts/haic_vla.py")
 def _profile_from_log(path: Path) -> Path:
@@ -172,7 +172,7 @@ def main() -> None:
     if not args.skip_native_train and config["native_train"]:
         native_command = [
             "bash",
-            str(TRAIN_COMMAND_SCRIPT),
+            str(TRAIN_SMALL_POLICY_SCRIPT),
             str(Path(config["teacher_checkpoint"]).resolve()),
             str(latency_path),
             f"hydra.run.dir={native_output}",

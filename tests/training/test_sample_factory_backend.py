@@ -668,6 +668,34 @@ def test_sample_factory_latency_params_support_temporal_profile_and_capacity(tmp
     assert params.simulated_worker_capacity == 1
 
 
+def test_temporal_action_latency_stream_continues_across_resets(monkeypatch):
+    """Native profile training retains machine state between episodes."""
+    from latency_bench.core.clock import EnvClock
+    from latency_bench.latency.sample import LatencySample
+    from training.common.latency_wrapper import ActionLatencyWrapper
+
+    delays = iter([20.0, 40.0])
+    sampler = SimpleNamespace(
+        distributions={"0": {"all": {"observation_to_action_latency_ms": {"latency_ms": [20.0, 40.0]}}}},
+        sample=lambda context: LatencySample.from_latency_ms(
+            next(delays), clock=EnvClock(env_fps=50, obs_fps=50)
+        ),
+    )
+    monkeypatch.setattr("training.common.latency_wrapper.build_profile_sampler", lambda *args, **kwargs: sampler)
+    wrapped = ActionLatencyWrapper(
+        _ActionTraceEnv(), env_fps=50, obs_fps=50,
+        profile_path="temporal-profile", profile_method="temporal", profile_worker_slot=0,
+    )
+    try:
+        wrapped.reset(seed=123)
+        first = wrapped.step(1)[4]["latency_raw_frames"]
+        wrapped.reset(seed=123)
+        second = wrapped.step(1)[4]["latency_raw_frames"]
+    finally:
+        wrapped.close()
+    assert (first, second) == (1, 2)
+
+
 def test_action_latency_wrapper_drops_busy_requests_and_reports_issued_applied():
     from latency_bench.core.clock import EnvClock
     from latency_bench.latency.sample import LatencySample
@@ -1031,7 +1059,7 @@ def test_action_latency_wrapper_advances_obs_stride_with_one_frame_noop():
     assert applied_events[0].apply_raw_frame == 3
 
 
-def test_action_latency_wrapper_hold_policy_holds_for_observation_stride():
+def test_action_latency_wrapper_holds_action_across_raw_steps():
     from training.common.latency_wrapper import ActionLatencyWrapper
 
     base_env = _ActionTraceEnv()

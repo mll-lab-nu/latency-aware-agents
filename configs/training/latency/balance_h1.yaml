@@ -1,0 +1,26 @@
+__base__: ../../examples/gymnasium/g1_sonic_balance_simple/fasttd3_train.yaml
+
+experiment:
+  name: balance_h1_temporal_s1
+
+backend:
+  train_dir: outputs/latency_rl/balance/h1/checkpoints
+  restart_behavior: restart
+
+executor:
+  simulated_worker_capacity: 1
+
+latency:
+  method: temporal
+  profile_path: results/profiling/profiles/official_gr00t/1x-rpbzzz6/g1_sonic_balance_simple/instance_0d0a9c4fad6eb247/profile.json
+  profile_worker_slot: 0
+  seed: 0
+  add_latency_info: true
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+
+logging:
+  output_dir: outputs/latency_rl/balance/h1/train
+  wandb_name: balance_h1_temporal_s1

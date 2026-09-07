@@ -1,4 +1,4 @@
-"""Run the Parkour profile, command policy, issued-data, VLA, and eval stages."""
+"""Run the Parkour profile, small policy, issued-data, VLA, and eval stages."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from latency_bench.core.config import load_config
 
 PARKOUR_SCRIPT = Path("third_party/Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py")
 TRAIN_VLA_SCRIPT = Path("scripts/tasks/extreme_parkour_go2/train_vla.sh")
-TRAIN_COMMAND_SCRIPT = Path("scripts/tasks/extreme_parkour_go2/train_latency_command.sh")
+TRAIN_SMALL_POLICY_SCRIPT = Path("scripts/tasks/extreme_parkour_go2/train_small_policy_with_latency.sh")
 
 
 def _profile_from_log(path: Path) -> Path:
@@ -163,7 +163,7 @@ def main() -> None:
             "native_train",
             [
                 "bash",
-                str(TRAIN_COMMAND_SCRIPT),
+                str(TRAIN_SMALL_POLICY_SCRIPT),
                 str(teacher_checkpoint),
                 str(latency_path),
                 *config["native_train_arguments"],
