@@ -822,7 +822,7 @@ def test_raw_command_limiter_applies_velocity_acceleration_and_joint_bounds(scen
         task_name="g1_sonic_balance_hard",
         scene_path=str(scene_paths["g1_sonic_balance_hard"]),
         control_mode=sonic.G1_CONTROL_MODE_RAW,
-        render_mode="rgb_array",
+        render_mode=None,
         width=16,
         height=16,
     )
@@ -833,7 +833,34 @@ def test_raw_command_limiter_applies_velocity_acceleration_and_joint_bounds(scen
         np.testing.assert_array_equal(observation[-43:], np.zeros(43))
         previous_q_cmd = native._q_cmd.copy()
         previous_v_cmd = native._v_cmd.copy()
+        issued = native.g1_absolute_request_from_raw_action(np.ones(43, dtype=np.float32))
+        np.testing.assert_allclose(
+            issued,
+            np.concatenate([
+                native._body_joint_ranges[:, 1][MUJOCO_INDEX_FOR_POLICY],
+                native._hand_joint_ranges[:, 1],
+            ]),
+        )
+        np.testing.assert_array_equal(native._q_cmd, previous_q_cmd)
+        np.testing.assert_array_equal(native._v_cmd, previous_v_cmd)
         _, _, _, _, info = env.step(np.ones(43, dtype=np.float32))
+        assert not np.array_equal(issued, info[sonic.ACTION_TARGET_INFO])
+        direct = gym.make(
+            env.spec.id,
+            **(env.spec.kwargs | {
+                "control_mode": sonic.G1_CONTROL_MODE_DIRECT_ABSOLUTE,
+                "render_mode": None,
+            }),
+        )
+        try:
+            direct.reset(seed=0)
+            _, _, _, _, direct_info = direct.step(issued)
+            np.testing.assert_allclose(
+                direct_info[sonic.ACTION_TARGET_INFO], info[sonic.ACTION_TARGET_INFO], atol=1e-6
+            )
+            np.testing.assert_allclose(direct.unwrapped.data.qpos, native.data.qpos, atol=1e-6)
+        finally:
+            direct.close()
         assert info["command_tracking_error"] > 0.0
         assert info["target_velocity_max_ratio"] <= 1.0 + 1e-12
         assert info["target_acceleration_max_ratio_per_s"] <= 10.0 + 1e-9

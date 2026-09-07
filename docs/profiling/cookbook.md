@@ -5,21 +5,36 @@ inference, then build a latency profile that can be replayed in simulation.
 
 ## Quick start
 
-Expose only the inference GPUs and run a registered preset:
+Each supported task has a user-facing launcher. Pass the final model directory,
+or omit it to use the registered local path (and the exact Hugging Face artifact
+when that local root does not exist):
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 MUJOCO_GL=egl \
-  bash scripts/profile.sh run \
-  --model official_gr00t \
-  --workload g1_sonic_balance_simple
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/humanoidbench_balance_simple/profile.sh [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/extreme_parkour_go2/profile.sh [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/haic_pull_cart/profile.sh [MODEL_PATH]
 ```
 
-This example starts one GR00T worker per visible GPU, runs the measurement
-sessions configured for the workload, and writes everything under
-`results/profiling/`. Results stay local unless `--publish` is added.
+Balance uses all visible GPUs for inference. The other three tasks use logical
+`cuda:0` for the native simulator and `cuda:1..` for inference, so expose at
+least two GPUs. Parkour and HAIC launchers must be invoked from their installed
+native Python environments; the launcher captures that interpreter before the
+common profiling command activates the benchmark environment.
 
-To resume, rerun the command with `--resume "$RUN_ID"`; completed sessions are
-skipped and the incomplete session is rerun.
+Every task runs five sessions of 100 episodes and writes under
+`results/profiling/`. Results stay local unless `--publish` is added. Publishing
+starts only after the complete run and fitted profile exist:
+
+```bash
+bash scripts/tasks/<task>/profile.sh [MODEL_PATH] --publish
+```
+
+To resume, rerun the same task command with `--resume "$RUN_ID"`; completed
+sessions are skipped and the incomplete session is rerun. The local
+`run_contract.json` must exactly match the resolved artifacts, interpreter,
+entrypoint, deployment and generated config. Legacy runs without this contract,
+or runs created with another checkpoint/config, cannot be resumed.
 
 ## Configure a profile
 
@@ -37,13 +52,18 @@ models:
     workloads:
       my_task:
         base_config: configs/path/to/realtime_eval.yaml
-        checkpoint_path: outputs/path/to/checkpoint
+        model_artifact:
+          local_root: outputs/path/to/model-root
+          checkpoint: .
+          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_path: zero-latency/my-task/vla/my-model-v1
         checkpoint_kind: latest
         session_count: 5
-        n_episodes: 100
+        eval_episodes: 100
         evaluation_seed: 0
         calibrate_env_fps: false
         simulation_parallel_envs: 1
+        simulation_gpu: null
         simulation_env: {}
 ```
 
@@ -52,6 +72,13 @@ The profiler overrides the checkpoint, output directory, episode count, and
 realtime logging settings. Use `calibrate_env_fps: false` for workloads with a
 fixed native cadence; calibrated workloads also require their calibration
 settings in the preset.
+
+`model_artifact` is exact: an absent `local_root` downloads only `hf_path` from
+the current Hugging Face repository, while an existing root must contain
+`checkpoint`. Native simulator tasks set `eval_entrypoint` and run it with the
+Python interpreter active when the command is invoked. A second
+`runtime_artifact` may provide a frozen teacher/actor checkpoint. There is no
+alternate checkpoint fallback.
 
 Each profile has four coordinates:
 
@@ -78,19 +105,33 @@ Admitted requests record their worker slot, observation-to-action latency, and
 worker service time. If all workers are busy, the row records a capacity drop
 instead of inventing a latency sample.
 
+Observation-to-action starts before `env.observe()` and ends when the inference
+parent receives the VLA policy action or action chunk. It includes observation
+extraction, IPC, model preprocessing/forward and model-side action decoding. A
+task-owned frozen actor, PD controller, actuator and simulator `env.step()` run
+after that boundary. Their `env_step_ms` is reported for diagnosis but is not a
+profile sample.
+
 The builder pools admitted samples for per-slot distributions and preserves
 session order for the temporal burst model. Pipeline-stage and episode metrics
 are useful diagnostics, but they are not profile inputs.
+
+Task adapters may publish cumulative episode values through
+`StepResult.info["task_metrics"]`. Session summaries report each metric's raw
+episode values, mean and standard deviation; these values measure task quality
+under latency but never alter the fitted latency distribution.
 
 ## Artifacts and replay
 
 ```text
 results/profiling/
   runs/<model>/<gpu>/<workload>/<instance>/<run-id>/
+    run_contract.json                 # local only
     sessions/<session-id>/observation_attempts.jsonl
     profile/
   profiles/<model>/<gpu>/<workload>/<instance>/
     profile.json
+    latency_profile.png
     latency_distribution.json
     latency_burst_model.json
     hardware.json
@@ -101,6 +142,7 @@ results/profiling/
 `runs/` keeps raw measurements, generated configs, warmup diagnostics, pipeline
 summaries, and episode metrics. `profiles/` is the current completed profile
 for each coordinate. `profile.json` is the human-readable manifest,
+`latency_profile.png` visualizes the admitted observation-to-action latency density,
 `latency_distribution.json` contains per-slot latency/service-time samples, and
 `latency_burst_model.json` contains the temporal model.
 
@@ -117,9 +159,11 @@ bash scripts/profile.sh simulate \
   --method temporal --seeds 0 1 2
 ```
 
-Replay methods are `temporal`, `iid`, `fixed`, and `normal`.
-`resolve` and `simulate` use `main` by default; pass `--hf-commit` to pin a
-published profile for a reproducible experiment.
+Replay methods are `zero`, `temporal`, `iid`, `fixed`, and `normal`. `zero`
+uses the same generated simulated-eval config as profile replay, but injects
+zero virtual latency. `simulate` deliberately has no model-path override: it
+uses the artifact coordinates recorded by the selected profile and the current
+repository contents.
 
 ## Train a small model with IID profile latency
 

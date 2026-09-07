@@ -6,7 +6,7 @@ import os
 from typing import Any, Callable
 
 import numpy as np
-from gymnasium.spaces import Discrete, MultiDiscrete, Tuple
+from gymnasium.spaces import Box, Discrete, MultiDiscrete, Tuple
 
 from latency_bench.core.types import Action
 from latency_bench.envs.base import EnvAdapter
@@ -115,6 +115,8 @@ def raise_if_unsupported_batched_action_space(envs: list[EnvAdapter]) -> None:
     for env in envs:
         action_space = env_action_space(env)
         if action_space is None or isinstance(action_space, Discrete):
+            continue
+        if isinstance(action_space, Box) and len(action_space.shape) == 1:
             continue
         if isinstance(action_space, Tuple):
             if all(isinstance(subspace, Discrete) for subspace in action_space.spaces):

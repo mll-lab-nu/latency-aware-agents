@@ -49,6 +49,33 @@ from latency_bench.envs.atari import is_true_atari_episode_end
 from training.common.utils import maybe_set_cli_override
 
 
+def _g1_issued_absolute_request(
+    driver: SerialTeacherRolloutDriver | BatchedTeacherRolloutDriver,
+    slot: int,
+    action: Any,
+    info: Mapping[str, Any],
+) -> np.ndarray:
+    """Return the absolute request issued for the current policy decision.
+
+    Balance uses raw normalized body targets.  Its post-step ``action_target``
+    is the consumed, statefully limited command, so it is not a valid label
+    when the latency queue is non-empty.  Other historical G1 contracts keep
+    their existing absolute-target metadata until they gain an equivalent
+    issue-time decoder.
+    """
+    env = driver.envs[slot] if isinstance(driver, SerialTeacherRolloutDriver) else driver.control_env
+    native = env.unwrapped
+    control_mode = native._control_mode
+    action = np.asarray(action, dtype=np.float64).reshape(-1)
+    if control_mode == "raw_body_target":
+        return native.g1_absolute_request_from_raw_action(action)
+    if control_mode == "direct_absolute_position":
+        if "command_admitted" in info:
+            return np.asarray(info["issued_action"], dtype=np.float64).copy()
+        return action.copy()
+    return np.asarray(info["action_target"], dtype=np.float64).copy()
+
+
 def _build_episode_plan(
     *,
     max_episodes: int,
@@ -457,6 +484,7 @@ def _step_teacher_policy(
     rnn_states: torch.Tensor,
     deterministic: bool,
     preserve_leading_batch: bool = False,
+    preserve_issued_actions: bool = False,
 ) -> tuple[list[Any], torch.Tensor, dict[int, Any]]:
     """Run one teacher policy/env step for active rollout slots.
 
@@ -507,7 +535,7 @@ def _step_teacher_policy(
         )
         new_rnn_states = policy_outputs["new_rnn_states"]
     step_results = driver.step(active_slots, raw_actions)
-    if isinstance(driver.action_space, Box):
+    if isinstance(driver.action_space, Box) and not preserve_issued_actions:
         raw_actions = [
             step_results[slot].info["applied_action"]
             for slot in active_slots
@@ -655,6 +683,7 @@ def _probe_accepted_specs(
                     rnn_states=rnn_states,
                     deterministic=deterministic,
                     preserve_leading_batch=behavior_env_name == "gymnasium",
+                    preserve_issued_actions=env_name.startswith("g1_sonic_"),
                 )
                 reset_plan: dict[int, int] = {}
                 target_reached = False
@@ -945,6 +974,7 @@ def _replay_accepted_specs(
                     rnn_states=rnn_states,
                     deterministic=deterministic,
                     preserve_leading_batch=behavior_env_name == "gymnasium",
+                    preserve_issued_actions=uses_g1_gr00t_contract,
                 )
                 reset_plan: dict[int, int] = {}
 
@@ -976,11 +1006,18 @@ def _replay_accepted_specs(
                             decision_step=decision_step,
                             image=str(image_path),
                             raw_action=(
-                                step_result.info["action_target"]
+                                _g1_issued_absolute_request(
+                                    driver,
+                                    slot,
+                                    raw_actions[batch_idx],
+                                    step_result.info,
+                                )
                                 if uses_g1_gr00t_contract
                                 else raw_actions[batch_idx]
                             ),
-                            info=step_result.info,
+                            info=step_result.info | {
+                                "raw_done": step_result.terminated or step_result.truncated,
+                            },
                             reward=step_result.reward,
                             env_fps=env_fps,
                             obs_fps=obs_fps,
@@ -998,7 +1035,15 @@ def _replay_accepted_specs(
                             episode_idx=int(spec["episode_idx"]),
                             split=str(spec["split"]),
                         )
-                        if str(spec["split"]) == "train":
+                        if (
+                            uses_g1_gr00t_contract
+                            and final_rows
+                            and "command_admitted" in final_rows[0]
+                        ):
+                            # Keep the raw decision trace intact.  Admission is
+                            # a LeRobot anchor policy, not a replay-row filter.
+                            shard_rows = [dict(row) for row in final_rows]
+                        elif str(spec["split"]) == "train":
                             shard_rows = filter_train_rows(
                                 filter_preset,
                                 behavior_env_name,

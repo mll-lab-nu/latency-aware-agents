@@ -115,13 +115,13 @@ def test_task_contract_uses_explicit_action_order_and_noop_position():
     assert gymnasium_noop_action_id(env_cfg) == 1
 
 
-def test_inverted_pendulum_rgb_state_adaptation_declares_state_contract():
+def test_inverted_pendulum_adaptation_declares_state_contract():
     config = load_config(
-        "configs/examples/gymnasium/inverted_pendulum_rgb_state/small_model_train.yaml"
+        "configs/examples/gymnasium/inverted_pendulum/small_model_train.yaml"
     )
     args = build_cli_args_from_config(config)
 
-    assert config["env"]["task_name"] == "inverted_pendulum_rgb_state"
+    assert config["env"]["task_name"] == "inverted_pendulum"
     assert config["env"]["state_space"]["labels"] == [
         "cart_position",
         "pole_angle",
@@ -134,12 +134,12 @@ def test_inverted_pendulum_rgb_state_adaptation_declares_state_contract():
     )
 
 
-def test_walker2d_rgb_state_adaptation_declares_seventeen_state_values():
+def test_walker2d_adaptation_declares_seventeen_state_values():
     config = load_config(
-        "configs/examples/gymnasium/walker2d_rgb_state/small_model_train.yaml"
+        "configs/examples/gymnasium/walker2d/small_model_train.yaml"
     )
 
-    assert config["env"]["task_name"] == "walker2d_rgb_state"
+    assert config["env"]["task_name"] == "walker2d"
     assert len(config["env"]["state_space"]["labels"]) == 17
     assert config["env"]["state_space"]["labels"][:2] == [
         "torso_height",
@@ -168,6 +168,38 @@ def test_action_catalog_and_latency_decode_nonzero_noop_to_native_action():
     env.step(2)
 
     assert native_env.native_actions == [20, 20, 30]
+
+
+def test_action_latency_latest_ready_drops_late_older_result():
+    from latency_bench.latency.sample import LatencySample
+
+    native_env = _NativeActionTraceEnv()
+    env = GymnasiumActionLatencyWrapper(
+        native_env,
+        fixed_latency_raw_frames=0,
+        env_fps=10,
+        obs_fps=10,
+        hold_policy="one_frame_then_noop",
+        ordering_policy="latest_ready",
+        noop_action=0,
+    )
+    env.reset(seed=3)
+    samples = iter(
+        [
+            LatencySample.from_latency_ms(500.0, clock=env.clock),
+            LatencySample.from_latency_ms(100.0, clock=env.clock),
+            LatencySample.from_latency_ms(1000.0, clock=env.clock),
+            LatencySample.from_latency_ms(1000.0, clock=env.clock),
+            LatencySample.from_latency_ms(1000.0, clock=env.clock),
+            LatencySample.from_latency_ms(1000.0, clock=env.clock),
+        ]
+    )
+    env._next_latency_sample = lambda **_: next(samples)
+
+    for action in (1, 2, 3, 4, 5, 6):
+        env.step(action)
+
+    assert native_env.native_actions == [0, 0, 2, 0, 0, 0]
 
 
 def test_channel_first_frame_stack_repeats_reset_and_appends_new_frame():

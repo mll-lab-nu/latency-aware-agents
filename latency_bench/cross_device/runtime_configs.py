@@ -42,7 +42,6 @@ def simulation_config(
     profile: dict[str, Any],
     method: str,
     latency_seed: int,
-    hf_commit: str,
 ) -> dict[str, Any]:
     config = _base_config(spec, output_dir)
     base_env_fps = config["env"]["env_fps"]
@@ -54,6 +53,10 @@ def simulation_config(
         "mode": "simulated",
         "simulated_worker_capacity": len(profile["per_slot_summary"]),
         "simulated_inference_pool": True,
+        "inference_devices": _inference_devices(
+            spec,
+            len(profile["per_slot_summary"]),
+        ),
     }
     config["latency"] = {
         "method": method,
@@ -65,7 +68,6 @@ def simulation_config(
         "workload_id": profile["workload_id"],
         "instance_id": profile["instance_id"],
         "source_run_id": profile["source_run_id"],
-        "hf_commit": hf_commit,
     }
     if method == "fixed":
         config["latency"]["fixed_latency_ms"] = profile["summary"]["mean_ms"]
@@ -73,6 +75,8 @@ def simulation_config(
         config["latency"]["mean_latency_ms"] = profile["summary"]["mean_ms"]
         config["latency"]["std_latency_ms"] = profile["summary"]["std_ms"]
     config["evaluation"]["eval_parallel_envs"] = spec["simulation_parallel_envs"]
+    if "inference_batch_size" in spec:
+        config["executor"]["inference_batch_size"] = spec["inference_batch_size"]
     config["evaluation"]["eval_latency_values"] = None
     _enable_records(config)
     return config
@@ -85,6 +89,14 @@ def write_generated_config(path: Path, config: dict[str, Any]) -> None:
 
 
 def eval_command(spec: dict[str, Any], config_path: Path, output_dir: Path) -> list[str]:
+    if "eval_entrypoint" in spec:
+        return [
+            sys.executable,
+            spec["eval_entrypoint"],
+            "latency-eval",
+            "--eval-config",
+            str(config_path),
+        ]
     return [
         sys.executable,
         "-m",
@@ -104,9 +116,25 @@ def _base_config(spec: dict[str, Any], output_dir: Path) -> dict[str, Any]:
         config,
         checkpoint_path=spec["checkpoint_path"],
         output_dir=output_dir,
+        model_config_path=(
+            spec["model_config_path"]
+            if "model_config_path" in spec
+            else None
+        ),
     )
+    if "runtime_checkpoint_path" in spec:
+        config["env"]["runtime_checkpoint_path"] = spec["runtime_checkpoint_path"]
+    if spec["simulation_gpu"] is not None:
+        config["env"]["simulator_device"] = spec["simulation_gpu"]
+    if spec["model_id"] == "qwenoft":
+        config["policy"]["worker_python_executable"] = sys.executable
     config["experiment"]["seed"] = spec["evaluation_seed"]
-    config["evaluation"]["eval_episodes"] = spec["n_episodes"]
+    config["evaluation"]["eval_episodes"] = spec["eval_episodes"]
+    config["provenance"] = {
+        key: spec[key]
+        for key in ("model_provenance", "runtime_provenance")
+        if key in spec
+    }
     return config
 
 
@@ -115,10 +143,14 @@ def _patch_realtime(
     spec: dict[str, Any],
     deployment: dict[str, Any],
 ) -> None:
-    config["executor"] = {"mode": "realtime"}
+    inference_devices = _inference_devices(spec, len(deployment["gpus"]))
+    config["executor"] = {
+        "mode": "realtime",
+        "inference_devices": inference_devices,
+    }
     config["latency"] = {
-        "method": "zero",
-        "device": "cuda:0",
+        "method": "measured",
+        "device": inference_devices[0],
         "sync_cuda": True,
         "model_id": spec["model_id"],
         "gpu_class": deployment["gpu_class"],
@@ -129,6 +161,11 @@ def _patch_realtime(
     config["evaluation"]["eval_latency_values"] = None
     config["logging"]["realtime_pipeline_profile"] = True
     _enable_records(config)
+
+
+def _inference_devices(spec: dict[str, Any], count: int) -> list[str]:
+    offset = 0 if spec["simulation_gpu"] is None else 1
+    return [f"cuda:{index + offset}" for index in range(count)]
 
 
 def _enable_records(config: dict[str, Any]) -> None:

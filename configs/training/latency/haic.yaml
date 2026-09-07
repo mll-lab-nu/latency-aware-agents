@@ -1,0 +1,26 @@
+experiment:
+  name: haic_pull_cart_small_policy_with_latency
+  seed: 0
+
+env:
+  name: haic_pull_cart
+  env_fps: 20
+  obs_fps: 20
+  simulator_device: cuda:0
+
+latency:
+  method: temporal
+  profile_path: /pfs/users/lxy/latency-sensitive-bench/results/profiling/profiles/official_gr00t/1x-rpbzzz6/haic_pull_cart/instance_e906b84a82f9e086/profile.json
+  seed: 0
+
+executor:
+  simulated_worker_capacity: 1
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+
+command:
+  dimension: 256
+  horizon: 1
+  control_repeat: 1

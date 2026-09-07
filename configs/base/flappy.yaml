@@ -51,7 +51,7 @@ latency:
 
 scheduler:
   # [one_frame_then_noop, hold]
-  # if hold, default hold duration is: env_fps / obs_fps
+  # hold retains the latest action until another arrives.
   hold_policy: one_frame_then_noop
   # can be either `issue_order_fifo` or `latest ready`
   ordering_policy: latest_ready

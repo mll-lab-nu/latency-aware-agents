@@ -63,6 +63,7 @@ def apply_training_overrides(
     mode: str | None = None,
     checkpoint_kind: str | None = None,
     output_dir: str | Path | None = None,
+    restart_behavior: str | None = None,
 ) -> dict[str, Any]:
     updated = deepcopy(config)
     backend_cfg = updated["backend"]
@@ -78,6 +79,8 @@ def apply_training_overrides(
         apply_checkpoint_kind_override(backend_cfg, checkpoint_kind)
     if output_dir is not None:
         logging_cfg["output_dir"] = str(output_dir)
+    if restart_behavior is not None:
+        backend_cfg["restart_behavior"] = restart_behavior
     return updated
 
 
@@ -189,6 +192,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--experiment", experiment_cfg["name"])
     append_cli_arg(args, "--train_dir", backend_cfg.get("train_dir"))
     append_cli_arg(args, "--restart_behavior", backend_cfg.get("restart_behavior", "overwrite"))
+    append_cli_arg(args, "--initial_model_path", backend_cfg.get("initial_model_path"))
     append_cli_arg(args, "--device", resolve_sample_factory_device(backend_cfg.get("device", "cpu")))
     env_cfg = config.get("env", {})
     use_gpu_render = env_cfg.get("use_gpu_render", False)
@@ -334,6 +338,8 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--latency-seed", latency_cfg.get("seed"))
     append_cli_arg(args, "--latency-profile-path", latency_cfg.get("profile_path"))
     append_cli_arg(args, "--latency-profile-worker-slot", latency_cfg.get("profile_worker_slot"))
+    if config["env"]["name"] == "gymnasium":
+        append_cli_arg(args, "--simulated-worker-capacity", config.get("executor", {}).get("simulated_worker_capacity"))
     append_cli_arg(args, "--add-latency-info", latency_cfg.get("add_latency_info", False))
     append_cli_arg(args, "--max-pending-actions", latency_cfg.get("max_pending_actions"))
 

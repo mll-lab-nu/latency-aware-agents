@@ -24,7 +24,9 @@ from latency_bench.envs.humanoidbench_sonic_contract import (
 OFFICIAL_GR00T_EMBODIMENT_TAG = "NEW_EMBODIMENT"
 
 
-def _official_gr00t_modality_json(state_dim: int, action_dim: int) -> dict[str, Any]:
+def _official_gr00t_modality_json(
+    state_dim: int, action_dim: int, *, action_key: str = "action"
+) -> dict[str, Any]:
     """Return the LeRobot modality metadata consumed by Isaac-GR00T."""
     return {
         "state": {
@@ -37,12 +39,12 @@ def _official_gr00t_modality_json(state_dim: int, action_dim: int) -> dict[str, 
             }
         },
         "action": {
-            "action": {
+            action_key: {
                 "start": 0,
                 "end": action_dim,
                 "dtype": "float32",
                 "absolute": True,
-                "original_key": "action",
+                "original_key": action_key,
             }
         },
         "video": {"ego_view": {"original_key": "observation.image"}},
@@ -53,13 +55,23 @@ def _official_gr00t_modality_json(state_dim: int, action_dim: int) -> dict[str, 
 
 
 def _write_official_gr00t_modality(
-    dataset_dir: Path | str, state_dim: int, action_dim: int
+    dataset_dir: Path | str,
+    state_dim: int,
+    action_dim: int,
+    *,
+    action_key: str = "action",
 ) -> Path:
     """Write the official modality metadata into one LeRobot dataset split."""
     path = Path(dataset_dir) / "meta" / "modality.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(_official_gr00t_modality_json(state_dim, action_dim), indent=2) + "\n",
+        json.dumps(
+            _official_gr00t_modality_json(
+                state_dim, action_dim, action_key=action_key
+            ),
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
     )
     return path

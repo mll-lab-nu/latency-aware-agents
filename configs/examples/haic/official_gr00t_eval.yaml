@@ -2,20 +2,46 @@ experiment:
   name: haic_pull_cart_official_gr00t
   seed: 0
 
+executor:
+  mode: realtime
+
 env:
   name: haic_pull_cart
-  noop_action: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  env_fps: 50
+  obs_fps: 10
+  simulator_device: cuda:0
+  noop_action: 0.0
   base_prompt: Pull the cart along the reference motion.
 
 latency:
-  method: zero
+  method: measured
   sync_cuda: false
 
 policy:
   type: official_gr00t
-  model_path: outputs/official_gr00t/haic_pull_cart_vla_dagger/bootstrap/training/checkpoint-5000
+  model_path: outputs/official_gr00t/haic_pull_cart_vla_action_h40_dagger/training/haic_pull_cart_vla_dagger_action_h40_official_flow_aux_5k/checkpoint-5000
   embodiment_tag: NEW_EMBODIMENT
   device: cuda:0
   strict: true
   action_dim: 256
   state_info_key: haic_state
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+  hold_last_chunk_action: true
+
+evaluation:
+  eval_episodes: 100
+  eval_parallel_envs: 1
+  eval_max_steps: 1000
+  eval_deterministic: true
+
+logging:
+  output_dir: outputs/official_gr00t/haic_pull_cart_vla_action_h40_dagger/profile
+  video:
+    enabled: false
+    num_bins: 10
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

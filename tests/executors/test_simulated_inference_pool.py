@@ -115,6 +115,9 @@ class FakeInferencePool:
             self.drain_completed(0.0)
         return {}
 
+    def reset_state(self, slot_id: int | None = None) -> None:
+        del slot_id
+
     def close(self) -> None:
         self.closed = True
 

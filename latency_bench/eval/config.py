@@ -129,7 +129,7 @@ def _latency_steps_from_config(config: dict[str, Any]) -> int | None:
     if latency_cfg["method"] == "zero":
         return 0
 
-    if "fixed_latency_ms" not in latency_cfg:
+    if latency_cfg["method"] != "fixed":
         return None
     latency_steps = (
         float(latency_cfg["fixed_latency_ms"])

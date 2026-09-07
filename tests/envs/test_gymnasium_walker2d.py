@@ -181,7 +181,7 @@ def test_walker2d_small_model_eval_sweeps_requested_latencies_and_episode_count(
     assert config["evaluation"]["eval_latency_values"] == [0, 1, 2, 3, 4]
     assert config["evaluation"]["eval_episodes"] == 10
     assert config["backend"]["train_dir"] == "/mnt/checkpoints/latency-sensitive-bench/small_models/walker2d"
-    assert config["logging"]["output_dir"] == "/mnt/data/latency-sensitive-bench/walker2d/continuous_small_model_eval"
+    assert config["logging"]["output_dir"] == "/mnt/results/latency-sensitive-bench/tasks/walker2d/small_model_eval"
 
 
 def test_walker2d_checkpoint_contract_preserves_native_box():
@@ -245,8 +245,8 @@ def test_walker2d_rollout_and_starvla_keep_six_continuous_dimensions():
     assert metadata["continuous_action"] == pytest.approx(action)
 
 
-def test_walker2d_rgb_state_starvla_eval_uses_continuous_projector_checkpoint():
-    config = load_config("configs/examples/gymnasium/walker2d_rgb_state/starvla_eval.yaml")
+def test_walker2d_starvla_eval_uses_continuous_projector_checkpoint():
+    config = load_config("configs/examples/gymnasium/walker2d/starvla_eval.yaml")
 
     assert config["policy"]["checkpoint_path"].endswith("steps_5000_pytorch_model.pt")
     assert "continuous_projector_sft_5k" in config["policy"]["checkpoint_path"]

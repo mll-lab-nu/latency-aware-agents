@@ -1,7 +1,7 @@
 __base__: small_model_train.yaml
 
 experiment:
-  name: gymnasium_half_cheetah_continuous_latency_bench_eval
+  name: gymnasium_half_cheetah_latency_bench_eval
 
 backend:
   run_mode: eval

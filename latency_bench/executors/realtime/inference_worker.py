@@ -105,6 +105,16 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
                 # pre-episode), so this pause can never delay an inference.
                 gc.collect()
                 continue
+            if command == "predict_batch":
+                policy_outputs = policy.predict_batch(payload["observations"])
+                connection.send(
+                    ("batch_result", {"policy_outputs": policy_outputs})
+                )
+                continue
+            if command == "reset_state":
+                policy.reset_state(slot_id=payload["slot_id"])
+                connection.send(("state_reset", {}))
+                continue
             if command == "predict":
                 task = payload["task"]
                 attach_start_ms = monotonic_ms()

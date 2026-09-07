@@ -1,0 +1,9 @@
+__base__: mikasa_latency_vla_smoke_eval.yaml
+experiment:
+  name: mikasa_latency_vla_smoke_profile
+latency:
+  method: iid
+  seed: 123
+  profile_path: results/profiling/profiles/qwenoft/1x-rpbzzz6/mikasa_intercept_grab_fast/instance_e906b84a82f9e086/profile.json
+logging:
+  output_dir: outputs/latency_rl/mikasa/vla_profile_smoke

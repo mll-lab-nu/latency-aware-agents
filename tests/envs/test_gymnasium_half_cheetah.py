@@ -109,10 +109,10 @@ def test_half_cheetah_probe_reports_native_contract(monkeypatch):
         "configs/examples/gymnasium/half_cheetah/latency_bench_eval.yaml",
         "configs/examples/gymnasium/half_cheetah/small_model_train.yaml",
         "configs/examples/gymnasium/half_cheetah/small_model_eval.yaml",
-        "configs/examples/gymnasium/half_cheetah_rgb_state/latency_bench_eval.yaml",
-        "configs/examples/gymnasium/half_cheetah_rgb_state/small_model_train.yaml",
-        "configs/examples/gymnasium/half_cheetah_rgb_state/small_model_eval.yaml",
-        "configs/examples/gymnasium/half_cheetah_rgb_state/starvla_eval.yaml",
+        "configs/examples/gymnasium/half_cheetah/latency_bench_eval.yaml",
+        "configs/examples/gymnasium/half_cheetah/small_model_train.yaml",
+        "configs/examples/gymnasium/half_cheetah/small_model_eval.yaml",
+        "configs/examples/gymnasium/half_cheetah/starvla_eval.yaml",
     ],
 )
 def test_half_cheetah_configs_share_native_zero_latency_contract(config_path):
@@ -161,10 +161,10 @@ def test_half_cheetah_eval_sweeps_five_latencies():
     assert config["evaluation"]["eval_episodes"] == 10
 
 
-def test_half_cheetah_rgb_state_preserves_native_observation_order():
-    config = load_config("configs/examples/gymnasium/half_cheetah_rgb_state/small_model_train.yaml")
+def test_half_cheetah_preserves_native_observation_order():
+    config = load_config("configs/examples/gymnasium/half_cheetah/small_model_train.yaml")
 
-    assert config["env"]["task_name"] == "half_cheetah_rgb_state"
+    assert config["env"]["task_name"] == "half_cheetah"
     assert config["env"]["state_space"]["labels"] == [
         "front_tip_height",
         "front_tip_angle",

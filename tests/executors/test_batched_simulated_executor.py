@@ -415,7 +415,7 @@ def _executor(
         ActionScheduler(
             clock=clock,
             noop_action=env.noop_action,
-            persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+            persistence_policy=HoldPolicy(),
             ordering_policy=ordering_policy,
         )
         for env in envs
@@ -525,7 +525,7 @@ def _subproc_executor(
         ActionScheduler(
             clock=clock,
             noop_action=env.noop_action,
-            persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+            persistence_policy=HoldPolicy(),
             ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
         )
         for env in backend.slot_handles
@@ -583,7 +583,7 @@ def _tuple_executor(
         ActionScheduler(
             clock=clock,
             noop_action=env.noop_action,
-            persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+            persistence_policy=HoldPolicy(),
             ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
         )
         for env in envs
@@ -702,6 +702,7 @@ def test_batched_executor_adds_slot_id_to_policy_observation_metadata(tmp_path: 
             "slot_index": 0,
             "slot_id": 0,
             "episode_id": 0,
+            "action_noise_seed": 1,
             "obs_id": 0,
         },
         {
@@ -710,6 +711,7 @@ def test_batched_executor_adds_slot_id_to_policy_observation_metadata(tmp_path: 
             "slot_index": 1,
             "slot_id": 1,
             "episode_id": 1,
+            "action_noise_seed": 2,
             "obs_id": 1,
         },
     ]
@@ -813,7 +815,7 @@ def test_batched_executor_soft_reset_continues_same_episode_and_clears_slot_late
             ActionScheduler(
                 clock=clock,
                 noop_action=noop,
-                persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+                persistence_policy=HoldPolicy(),
                 ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
             )
         ],
@@ -868,7 +870,7 @@ def test_batched_executor_keeps_slot_latency_sources_independent(tmp_path: Path)
     assert [source.calls for source in latency_sources] == [2, 2]
 
 
-def test_batched_executor_worker_capacity_is_per_slot(tmp_path: Path):
+def test_batched_executor_worker_capacity_is_independent_per_slot(tmp_path: Path):
     latency_sources = [
         RawFrameLatencySource([3, 3]),
         RawFrameLatencySource([3, 3]),
@@ -949,7 +951,7 @@ def test_batched_executor_no_trace_does_not_retain_hot_path_records(tmp_path: Pa
             ActionScheduler(
                 clock=clock,
                 noop_action=env.noop_action,
-                persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+                persistence_policy=HoldPolicy(),
                 ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
             )
             for env in envs

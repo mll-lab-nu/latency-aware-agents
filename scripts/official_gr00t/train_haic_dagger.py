@@ -13,6 +13,8 @@ import subprocess
 import wandb
 import yaml
 
+from latency_bench.core.config import load_config
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HAIC_ROOT = REPO_ROOT / "third_party/HAIC"
@@ -23,6 +25,9 @@ GR00T_PYTHON = GROOT_ROOT / ".venv/bin/python"
 PREPARE_SCRIPT = REPO_ROOT / "scripts/official_gr00t/prepare_haic_dataset.py"
 FINETUNE_SCRIPT = GROOT_ROOT / "gr00t/experiment/launch_finetune.py"
 MODALITY_CONFIG = REPO_ROOT / "latency_bench/policy/official_gr00t_haic_modality.py"
+ISSUED_MODALITY_CONFIG = (
+    REPO_ROOT / "latency_bench/policy/official_gr00t_haic_issued_modality.py"
+)
 DEFAULT_POLICY_CONFIG = REPO_ROOT / "configs/examples/haic/official_gr00t_eval.yaml"
 
 BOOTSTRAP_TRAIN_EPISODES = 250
@@ -45,13 +50,15 @@ DEFAULT_INFERENCE_BATCH_SIZE = 32
 CHECKPOINT_COMPLETE_MARKER = ".dagger-round-complete"
 EVAL_ENVS = 100
 HAIC_CONTROL_STEPS_PER_VLA = 5
-DEFAULT_WANDB_RUN_ID = "haic_pull_cart_vla_dagger_action_5k"
+DEFAULT_WANDB_RUN_ID = "haic_pull_cart_vla_dagger_action_h40_official_flow_aux_5k"
 
 DEFAULT_TEACHER_CHECKPOINT = REPO_ROOT / (
     "outputs/haic/phase1_teacher/checkpoint_final.pt"
 )
 DEFAULT_BASE_MODEL = REPO_ROOT / "outputs/official_gr00t/models/GR00T-N1.7-3B"
-DEFAULT_OUTPUT_ROOT = REPO_ROOT / "outputs/official_gr00t/haic_pull_cart_vla_action_dagger"
+DEFAULT_OUTPUT_ROOT = REPO_ROOT / (
+    "outputs/official_gr00t/haic_pull_cart_vla_action_h40_dagger"
+)
 DEFAULT_HAIC_PYTHON = Path("/pfs/users/lxy/conda/envs/haic/bin/python")
 
 
@@ -99,7 +106,19 @@ def collector_command(
     episode_budget: int | None = None,
     max_steps: int | None = None,
     inference_batch_size: int = DEFAULT_INFERENCE_BATCH_SIZE,
+    eval_config: Path | None = None,
+    latency_config: Path | None = None,
+    keep_failed: bool = False,
 ) -> list[str]:
+    if mode == "latency-eval":
+        return [
+            str(haic_python),
+            str(HAIC_SCRIPT),
+            mode,
+            "--headless",
+            "--eval-config",
+            eval_config.as_posix(),
+        ]
     command = [
         str(haic_python),
         str(HAIC_SCRIPT),
@@ -128,14 +147,16 @@ def collector_command(
         command.extend(["--split", split])
     if policy_config is not None:
         command.extend(["--policy-config", str(policy_config)])
+    if latency_config is not None:
+        command.extend(["--latency-config", str(latency_config)])
     if row_budget is not None:
         command.extend(["--row-budget", str(row_budget)])
     if episode_budget is not None:
         command.extend(["--episode-budget", str(episode_budget)])
     if max_steps is not None:
         command.extend(["--max-steps", str(max_steps)])
-    if mode == "dagger-collect":
-        command.extend(["--dagger-shard-rows", str(HAIC_DAGGER_SHARD_ROWS)])
+    if keep_failed:
+        command.append("--keep-failed")
     return command
 
 
@@ -147,6 +168,7 @@ def prepare_command(
     round_index: int,
     expected_rows: int | None = None,
     normalization_source: Path | None = None,
+    modality_config: Path | None = None,
 ) -> list[str]:
     command = [
         str(GR00T_PYTHON),
@@ -162,6 +184,8 @@ def prepare_command(
         command.extend(["--normalization-source", str(normalization_source)])
     if expected_rows is not None:
         command.extend(["--expected-rows", str(expected_rows)])
+    if modality_config is not None:
+        command.extend(["--modality-config", str(modality_config)])
     return command
 
 
@@ -177,6 +201,7 @@ def _training_flags(
     gradient_accumulation_steps: int,
     checkpoint_interval: int,
     resume_checkpoint: Path | None,
+    modality_config: Path = MODALITY_CONFIG,
 ) -> list[str]:
     command = [
         str(GR00T_PYTHON),
@@ -192,7 +217,7 @@ def _training_flags(
         "--embodiment-tag",
         "NEW_EMBODIMENT",
         "--modality-config-path",
-        str(MODALITY_CONFIG),
+        str(modality_config),
         "--num-gpus",
         "1",
         "--output-dir",
@@ -204,14 +229,14 @@ def _training_flags(
         "--max-action-dim",
         "256",
         "--action-horizon",
-        "1",
+        "40",
+        "--num-inference-timesteps",
+        "4",
+        "--allow-padding",
         "--action-objective",
         "haic",
         "--action-actor-checkpoint",
         str(actor_checkpoint),
-        "--fixed-action-noise-seed",
-        "0",
-        "--one-step-action-regression",
         "--action-head-dropout",
         "0",
         "--state-dropout-prob",
@@ -275,6 +300,7 @@ def bootstrap_training_command(
         gradient_accumulation_steps=gradient_accumulation_steps,
         checkpoint_interval=max_steps,
         resume_checkpoint=None,
+        modality_config=ISSUED_MODALITY_CONFIG,
     )
 
 
@@ -290,6 +316,7 @@ def training_command(
     max_steps: int = TOTAL_UPDATES,
     gradient_accumulation_steps: int = GRADIENT_ACCUMULATION_STEPS,
     checkpoint_interval: int = UPDATES_PER_ROUND,
+    modality_config: Path = MODALITY_CONFIG,
 ) -> list[str]:
     """Build one HAIC DAgger training command with exact round resume."""
     return _training_flags(
@@ -303,6 +330,7 @@ def training_command(
         gradient_accumulation_steps=gradient_accumulation_steps,
         checkpoint_interval=checkpoint_interval,
         resume_checkpoint=resume_checkpoint,
+        modality_config=modality_config,
     )
 
 
@@ -318,10 +346,18 @@ def _run(command: list[str], *, cwd: Path, env: dict[str, str] | None = None) ->
 
 def read_eval_metrics(eval_path: Path) -> dict[str, int | float]:
     result = json.loads(eval_path.read_text(encoding="utf-8"))
+    task_metrics = result["task_metrics"]
+    success_values = task_metrics["success"]["values"]
     return {
-        "dagger_eval/success_rate": result["success_rate"],
-        "dagger_eval/episodes": result["episodes"],
-        "dagger_eval/successes": result["successes"],
+        "dagger_eval/success_rate": task_metrics["success"]["mean"],
+        "dagger_eval/episodes": len(result["returns"]),
+        "dagger_eval/successes": sum(success_values),
+        "dagger_eval/motion_progress_mean": task_metrics["motion_progress"]["mean"],
+        "dagger_eval/motion_progress_std": task_metrics["motion_progress"]["std"],
+        "dagger_eval/cart_progress_mean": task_metrics["cart_progress"]["mean"],
+        "dagger_eval/cart_progress_std": task_metrics["cart_progress"]["std"],
+        "dagger_eval/pullcart_score_mean": task_metrics["pullcart_score"]["mean"],
+        "dagger_eval/pullcart_score_std": task_metrics["pullcart_score"]["std"],
     }
 
 
@@ -343,6 +379,52 @@ def log_eval_metrics(
     wandb.teardown()
 
 
+def write_latency_eval_config(
+    source: Path,
+    destination: Path,
+    *,
+    model_path: Path,
+    runtime_checkpoint: Path,
+    latency_profile_path: Path,
+    inference_device: str,
+    simulator_device: str,
+    output_dir: Path,
+    num_envs: int,
+    max_steps: int,
+    inference_batch_size: int,
+    latency_config: Path | None = None,
+) -> None:
+    config = load_config(source)
+    if latency_config is not None:
+        latency_sections = load_config(latency_config)
+        config["latency"] = latency_sections["latency"]
+        config["scheduler"] = latency_sections["scheduler"]
+        config["executor"].update(latency_sections["executor"])
+    config["executor"].update(
+        {
+            "mode": "simulated",
+            "inference_devices": [inference_device],
+            "inference_batch_size": inference_batch_size,
+            "simulated_inference_pool": True,
+        }
+    )
+    config["env"]["simulator_device"] = simulator_device
+    config["env"]["runtime_checkpoint_path"] = str(runtime_checkpoint)
+    if latency_config is None:
+        config["latency"] = {"method": "temporal"}
+    config["latency"].update(
+        {"profile_path": str(latency_profile_path), "sync_cuda": False}
+    )
+    config["policy"]["model_path"] = str(model_path)
+    config["policy"]["device"] = inference_device
+    config["evaluation"]["eval_episodes"] = num_envs
+    config["evaluation"]["eval_parallel_envs"] = num_envs
+    config["evaluation"]["eval_max_steps"] = max_steps
+    config["logging"]["output_dir"] = str(output_dir)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+
 def evaluate_checkpoint(
     args: argparse.Namespace,
     *,
@@ -352,10 +434,30 @@ def evaluate_checkpoint(
     environment: dict[str, str],
     num_envs: int = EVAL_ENVS,
 ) -> None:
+    eval_config = output_dir / "eval_config.yaml"
+    runtime_checkpoint = args.runtime_checkpoint
+    write_latency_eval_config(
+        policy_config,
+        eval_config,
+        model_path=yaml.safe_load(policy_config.read_text(encoding="utf-8"))["policy"]["model_path"],
+        runtime_checkpoint=(
+            args.teacher_checkpoint
+            if runtime_checkpoint is None
+            else runtime_checkpoint
+        ),
+        latency_profile_path=args.latency_profile_path,
+        latency_config=args.latency_config,
+        inference_device=args.inference_device,
+        simulator_device="cuda:0",
+        output_dir=output_dir,
+        num_envs=num_envs,
+        max_steps=args.eval_max_steps,
+        inference_batch_size=args.inference_batch_size,
+    )
     subprocess.run(
         collector_command(
             args.haic_python,
-            mode="dagger-eval",
+            mode="latency-eval",
             teacher_checkpoint=args.teacher_checkpoint,
             output_dir=output_dir,
             inference_device=args.inference_device,
@@ -365,13 +467,14 @@ def evaluate_checkpoint(
             policy_config=policy_config,
             max_steps=args.eval_max_steps,
             inference_batch_size=args.inference_batch_size,
+            eval_config=eval_config,
         ),
         cwd=HAIC_ROOT,
         env=environment,
         check=True,
     )
     log_eval_metrics(
-        output_dir / "dagger-eval.json",
+        output_dir / "queue_eval_latency_profile_sample.json",
         step=step,
         run_id=args.wandb_run_id,
         mode=environment.get("WANDB_MODE"),
@@ -382,63 +485,77 @@ def archive_and_remove_raw_data(
     round_dir: Path, raw_dir: Path, dataset_dir: Path
 ) -> None:
     shutil.copy2(dataset_dir / "manifest.json", round_dir / "dataset_manifest.json")
-    shutil.rmtree(raw_dir)
+    if raw_dir.exists():
+        shutil.rmtree(raw_dir)
 
 
 def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
     output_root = args.output_root / "bootstrap"
     raw_dir = output_root / "raw"
-    dataset_dir = output_root / "lerobot"
+    dataset_dir = args.bootstrap_dataset
     episodes_train = 2 if smoke else BOOTSTRAP_TRAIN_EPISODES
     episodes_val = 1 if smoke else BOOTSTRAP_VAL_EPISODES
-    _run(
-        collector_command(
-            args.haic_python,
-            mode="oracle-eval",
-            teacher_checkpoint=args.teacher_checkpoint,
-            output_dir=output_root / "oracle_eval",
-            inference_device=args.inference_device,
-            num_envs=1 if smoke else EVAL_ENVS,
-            seed=0,
-            round_index=0,
-            max_steps=args.eval_max_steps,
-            inference_batch_size=args.inference_batch_size,
-        ),
-        cwd=HAIC_ROOT,
-    )
-    _run(
-        [
-            str(args.haic_python),
-            "-m",
-            HAIC_ACTOR_MODULE,
-            str(args.teacher_checkpoint),
-            str(args.actor_checkpoint),
-        ],
-        cwd=HAIC_ROOT,
-    )
-    for split, episodes, seed in (("train", episodes_train, 0), ("val", episodes_val, 1)):
+    if dataset_dir is None:
+        dataset_dir = output_root / "lerobot"
         _run(
             collector_command(
                 args.haic_python,
-                mode="bootstrap-collect",
+                mode="oracle-eval",
                 teacher_checkpoint=args.teacher_checkpoint,
-                output_dir=raw_dir,
+                output_dir=output_root / "oracle_eval",
                 inference_device=args.inference_device,
-                num_envs=8 if smoke else ENVS_PER_COLLECTOR_RANK,
-                seed=seed,
+                num_envs=1 if smoke else EVAL_ENVS,
+                seed=0,
                 round_index=0,
-                split=split,
-                episode_budget=episodes,
+                max_steps=args.eval_max_steps,
                 inference_batch_size=args.inference_batch_size,
             ),
             cwd=HAIC_ROOT,
         )
-    _run(
-        prepare_command(raw_dir, dataset_dir, dagger=False, round_index=0),
-        cwd=REPO_ROOT,
-    )
+        _run(
+            [
+                str(args.haic_python),
+                "-m",
+                HAIC_ACTOR_MODULE,
+                str(args.teacher_checkpoint),
+                str(args.actor_checkpoint),
+            ],
+            cwd=HAIC_ROOT,
+        )
+        for split, episodes, seed in (("train", episodes_train, 0), ("val", episodes_val, 1)):
+            _run(
+                collector_command(
+                    args.haic_python,
+                    mode="bootstrap-collect",
+                    teacher_checkpoint=args.teacher_checkpoint,
+                    output_dir=raw_dir,
+                    inference_device=args.inference_device,
+                    num_envs=8 if smoke else ENVS_PER_COLLECTOR_RANK,
+                    seed=seed,
+                    round_index=0,
+                    split=split,
+                    episode_budget=episodes,
+                    inference_batch_size=args.inference_batch_size,
+                    latency_config=args.latency_config,
+                    keep_failed=smoke,
+                ),
+                cwd=HAIC_ROOT,
+            )
+        _run(
+            prepare_command(
+                raw_dir,
+                dataset_dir,
+                dagger=False,
+                round_index=0,
+                modality_config=ISSUED_MODALITY_CONFIG,
+            ),
+            cwd=REPO_ROOT,
+        )
+    else:
+        dataset_dir = dataset_dir.resolve()
     training_output = output_root / "training"
     experiment_name = f"{args.wandb_run_id}_sft"
+    updates = 2 if smoke else BOOTSTRAP_UPDATES
     _run(
         bootstrap_training_command(
             base_model=args.base_model,
@@ -446,7 +563,7 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
             actor_checkpoint=args.actor_checkpoint,
             training_output=training_output,
             experiment_name=experiment_name,
-            max_steps=1 if smoke else BOOTSTRAP_UPDATES,
+            max_steps=updates,
         ),
         cwd=REPO_ROOT,
         env={
@@ -458,17 +575,12 @@ def run_bootstrap(args: argparse.Namespace, *, smoke: bool) -> Path:
             **({"WANDB_MODE": "offline"} if smoke else {}),
         },
     )
-    return training_output / experiment_name / (
-        f"checkpoint-{1 if smoke else BOOTSTRAP_UPDATES}"
-    )
+    return training_output / experiment_name / f"checkpoint-{updates}"
 
 
-def run_smoke(args: argparse.Namespace) -> None:
+def run_smoke(args: argparse.Namespace) -> Path:
     bootstrap_checkpoint = run_bootstrap(args, smoke=True)
-    round_dir = args.output_root / "smoke_round_00"
-    raw_dir = round_dir / "raw"
-    dataset_dir = round_dir / "lerobot"
-    policy_config = round_dir / "bootstrap_policy.yaml"
+    policy_config = args.output_root / "bootstrap/eval_policy.yaml"
     write_policy_config(
         args.policy_config,
         policy_config,
@@ -482,106 +594,15 @@ def run_smoke(args: argparse.Namespace) -> None:
     evaluate_checkpoint(
         args,
         policy_config=policy_config,
-        output_dir=round_dir / "eval_before",
-        step=0,
-        environment=smoke_environment,
-        num_envs=1,
-    )
-    _run(
-        collector_command(
-            args.haic_python,
-            mode="dagger-collect",
-            teacher_checkpoint=args.teacher_checkpoint,
-            output_dir=raw_dir,
-            inference_device=args.inference_device,
-            num_envs=8,
-            seed=2,
-            round_index=0,
-            policy_config=policy_config,
-            split="train",
-            row_budget=64,
-            inference_batch_size=args.inference_batch_size,
-        ),
-        cwd=HAIC_ROOT,
-    )
-    _run(
-        prepare_command(
-            raw_dir,
-            dataset_dir,
-            dagger=True,
-            round_index=0,
-            expected_rows=64,
-            normalization_source=args.output_root / "bootstrap/lerobot",
-        ),
-        cwd=REPO_ROOT,
-    )
-    training_output = round_dir / "training"
-    training_run_output = training_output / args.wandb_run_id
-    smoke_datasets = [dataset_dir]
-    _run(
-        training_command(
-            bootstrap_checkpoint=bootstrap_checkpoint,
-            replay_dataset=args.output_root / "bootstrap/lerobot",
-            dataset_dirs=smoke_datasets,
-            actor_checkpoint=args.actor_checkpoint,
-            training_output=training_output,
-            experiment_name=args.wandb_run_id,
-            resume_checkpoint=None,
-            max_steps=1,
-            gradient_accumulation_steps=1,
-            checkpoint_interval=1,
-        ),
-        cwd=REPO_ROOT,
-        env={
-            "CUDA_VISIBLE_DEVICES": "0",
-            "NO_ALBUMENTATIONS_UPDATE": "1",
-            "PYTHONPATH": f"{HAIC_ROOT}{os.pathsep}{REPO_ROOT}",
-            "WANDB_RUN_ID": args.wandb_run_id,
-            "WANDB_RESUME": "allow",
-            "WANDB_MODE": "offline",
-        },
-    )
-    eval_policy_config = round_dir / "eval_policy.yaml"
-    write_policy_config(
-        args.policy_config,
-        eval_policy_config,
-        model_path=training_run_output / "checkpoint-2",
-        inference_device=args.inference_device,
-    )
-    _run(
-        training_command(
-            bootstrap_checkpoint=bootstrap_checkpoint,
-            replay_dataset=args.output_root / "bootstrap/lerobot",
-            dataset_dirs=smoke_datasets,
-            actor_checkpoint=args.actor_checkpoint,
-            training_output=training_output,
-            experiment_name=args.wandb_run_id,
-            resume_checkpoint=checkpoint_dir(training_run_output, 1),
-            max_steps=2,
-            gradient_accumulation_steps=1,
-            checkpoint_interval=1,
-        ),
-        cwd=REPO_ROOT,
-        env={
-            "CUDA_VISIBLE_DEVICES": "0",
-            "NO_ALBUMENTATIONS_UPDATE": "1",
-            "PYTHONPATH": f"{HAIC_ROOT}{os.pathsep}{REPO_ROOT}",
-            "WANDB_RUN_ID": args.wandb_run_id,
-            "WANDB_RESUME": "allow",
-            "WANDB_MODE": "offline",
-        },
-    )
-    evaluate_checkpoint(
-        args,
-        policy_config=eval_policy_config,
-        output_dir=round_dir / "eval",
+        output_dir=args.output_root / "bootstrap/eval",
         step=2,
         environment=smoke_environment,
         num_envs=1,
     )
+    return bootstrap_checkpoint
 
 
-def run_pipeline(args: argparse.Namespace) -> None:
+def run_pipeline(args: argparse.Namespace) -> Path:
     args.teacher_checkpoint = args.teacher_checkpoint.resolve()
     args.base_model = args.base_model.resolve()
     args.output_root = args.output_root.resolve()
@@ -592,6 +613,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
     if args.run_bootstrap:
         bootstrap_checkpoint = run_bootstrap(args, smoke=False)
     bootstrap_checkpoint = bootstrap_checkpoint.resolve()
+    if args.bootstrap_dataset is None:
+        args.bootstrap_dataset = args.output_root / "bootstrap/lerobot"
     args.bootstrap_dataset = args.bootstrap_dataset.resolve()
     training_output = args.output_root / "training"
     training_run_output = training_output / args.wandb_run_id
@@ -606,6 +629,27 @@ def run_pipeline(args: argparse.Namespace) -> None:
         "WANDB_RUN_ID": args.wandb_run_id,
         "WANDB_RESUME": "allow",
     }
+    first_round_marker = (
+        checkpoint_dir(training_run_output, UPDATES_PER_ROUND)
+        / CHECKPOINT_COMPLETE_MARKER
+    )
+    if args.start_round == 0 and (
+        args.end_round == 0 or not first_round_marker.is_file()
+    ):
+        bootstrap_policy_config = args.output_root / "bootstrap/eval_policy.yaml"
+        write_policy_config(
+            args.policy_config,
+            bootstrap_policy_config,
+            model_path=bootstrap_checkpoint,
+            inference_device=args.inference_device,
+        )
+        evaluate_checkpoint(
+            args,
+            policy_config=bootstrap_policy_config,
+            output_dir=args.output_root / "bootstrap/vla_eval",
+            step=0,
+            environment=haic_environment,
+        )
     for round_index in range(args.start_round, args.end_round):
         round_dir = args.output_root / f"round_{round_index:02d}"
         raw_dir = round_dir / "raw"
@@ -641,14 +685,6 @@ def run_pipeline(args: argparse.Namespace) -> None:
                 shutil.rmtree(dataset_dir)
             if trained_model.exists():
                 shutil.rmtree(trained_model)
-            if round_index == 0:
-                evaluate_checkpoint(
-                    args,
-                    policy_config=policy_config,
-                    output_dir=round_dir / "eval_before",
-                    step=0,
-                    environment=haic_environment,
-                )
             collector_commands = []
             collector_environments = []
             for collector_rank in range(COLLECTOR_RANKS):
@@ -780,11 +816,19 @@ def run_pipeline(args: argparse.Namespace) -> None:
             environment=haic_environment,
         )
         archive_and_remove_raw_data(round_dir, raw_dir, dataset_dir)
+    if args.end_round == 0:
+        return bootstrap_checkpoint
+    return checkpoint_dir(training_run_output, args.end_round * UPDATES_PER_ROUND)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--teacher-checkpoint", type=Path, default=DEFAULT_TEACHER_CHECKPOINT)
+    parser.add_argument(
+        "--runtime-checkpoint",
+        type=Path,
+        help="Original frozen teacher checkpoint used by closed-loop evals.",
+    )
     parser.add_argument("--base-model", type=Path, default=DEFAULT_BASE_MODEL)
     parser.add_argument("--actor-checkpoint", type=Path)
     parser.add_argument("--bootstrap-checkpoint", type=Path)
@@ -816,16 +860,28 @@ def main() -> None:
     parser.add_argument("--policy-config", type=Path, default=DEFAULT_POLICY_CONFIG)
     parser.add_argument("--wandb-run-id", default=DEFAULT_WANDB_RUN_ID)
     parser.add_argument("--start-round", type=int, default=0)
-    parser.add_argument("--end-round", type=int, default=1)
+    parser.add_argument("--end-round", type=int, default=DAGGER_ROUNDS)
     parser.add_argument("--run-bootstrap", action="store_true")
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument(
+        "--latency-profile-path",
+        type=Path,
+        required=True,
+        help="Temporal latency profile used by every periodic closed-loop evaluation.",
+    )
+    parser.add_argument(
+        "--latency-config",
+        type=Path,
+        help="Latency command config used for native H40 bootstrap collection.",
+    )
     args = parser.parse_args()
     if args.actor_checkpoint is None:
         args.actor_checkpoint = args.output_root / "bootstrap/actor_adapt.pt"
-    if args.bootstrap_dataset is None:
+    if args.bootstrap_dataset is None and not args.run_bootstrap:
         args.bootstrap_dataset = args.output_root / "bootstrap/lerobot"
     if args.smoke:
-        run_smoke(args)
+        model_path = run_smoke(args)
+        print(f"MODEL_PATH={model_path}", flush=True)
     else:
         if args.bootstrap_checkpoint is None and not args.run_bootstrap:
             args.bootstrap_checkpoint = (
@@ -834,7 +890,8 @@ def main() -> None:
                 / f"{args.wandb_run_id}_sft"
                 / "checkpoint-5000"
             )
-        run_pipeline(args)
+        model_path = run_pipeline(args)
+        print(f"MODEL_PATH={model_path}", flush=True)
 
 
 if __name__ == "__main__":

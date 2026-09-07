@@ -140,7 +140,7 @@ def distribution_frames_to_ms_latency_config(
     return config
 
 
-def derive_latency_seed(
+def derive_seed(
     base_seed: int | None,
     *,
     worker_index: int = 0,

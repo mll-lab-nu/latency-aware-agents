@@ -9,7 +9,7 @@ import torch
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import (
     LatencyDistributionSpec,
-    derive_latency_seed,
+    derive_seed,
     distribution_max_frame_latency,
     latency_distribution_label,
     make_latency_distribution_sampler,
@@ -129,7 +129,6 @@ class CudaLatencyScheduler:
         self.next_action_id = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
         self.current_latency_raw_frames = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
         self.current_applied_action = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
-        self.persistence_remaining = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
 
         self.queue_capacity = int(self.max_pending_actions or (self.max_frame_latency + self.clock.obs_stride_raw_frames + 2))
         self.pending_actions = torch.zeros(
@@ -209,7 +208,6 @@ class CudaLatencyScheduler:
                 self.env_step_idx,
                 self.decision_step_idx,
                 self.next_action_id,
-                self.persistence_remaining,
                 self.current_latency_raw_frames,
                 self.episode_idx,
                 int(reset_latency),
@@ -232,7 +230,6 @@ class CudaLatencyScheduler:
             self.env_step_idx[agent_idx] = 0
             self.decision_step_idx[agent_idx] = 0
             self.next_action_id[agent_idx] = 0
-            self.persistence_remaining[agent_idx] = 0
             self.current_latency_raw_frames[agent_idx] = self._reset_latency_for_agent(agent_idx)
             seed = seed_values[offset]
             if seed is None:
@@ -288,7 +285,6 @@ class CudaLatencyScheduler:
             active,
             self.env_step_idx,
             self.current_applied_action,
-            self.persistence_remaining,
             self.pending_actions,
             self.pending_ready_raw_frames,
             self.pending_action_ids,
@@ -298,7 +294,7 @@ class CudaLatencyScheduler:
             self.scratch_ready_raw_frames,
             self.scratch_action_ids,
             self._raw_actions,
-            int(self.clock.obs_stride_raw_frames if self.hold_policy == ActionHoldPolicy.HOLD else 1),
+            self.hold_policy == ActionHoldPolicy.HOLD,
             int(0 if self.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO else 1),
             int(self.batch_size),
             int(self.queue_capacity),
@@ -353,7 +349,6 @@ class CudaLatencyScheduler:
             self.next_action_id,
             self.current_latency_raw_frames,
             self.current_applied_action,
-            self.persistence_remaining,
             self.pending_actions,
             self.pending_ready_raw_frames,
             self.pending_action_ids,
@@ -382,7 +377,7 @@ class CudaLatencyScheduler:
             float(self.latency_distribution_min),
             float(self.latency_distribution_max),
             int(self.clock.obs_stride_raw_frames),
-            int(self.clock.obs_stride_raw_frames if self.hold_policy == ActionHoldPolicy.HOLD else 1),
+            self.hold_policy == ActionHoldPolicy.HOLD,
             int(0 if self.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO else 1),
             int(max_episode_steps),
             int(reset_pipes_in_kernel),
@@ -507,7 +502,7 @@ class CudaLatencyScheduler:
             return
         states = np.asarray(
             [
-                derive_latency_seed(
+                derive_seed(
                     int(self.base_latency_seeds[int(agent_idx)]),
                     episode_idx=int(self.episode_idx_cpu[int(agent_idx)]) + int(episode_offset),
                 )
@@ -542,7 +537,7 @@ class CudaLatencyScheduler:
         if self.latency_distribution_spec is None:
             return int(self.fixed_latency_raw_frames)
         if self.sample_distribution_per_episode:
-            seed = derive_latency_seed(
+            seed = derive_seed(
                 int(self.base_latency_seeds[int(agent_idx)]),
                 episode_idx=int(self.episode_idx_cpu[int(agent_idx)]),
             )

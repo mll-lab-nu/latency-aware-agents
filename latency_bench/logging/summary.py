@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ _LATENCY_METADATA_KEYS = (
     "latency_seed",
     "train_env_steps",
     "checkpoint_path",
+    "source_profile_path",
     "checkpoint_global_step",
     "latency_type",
 )
@@ -44,14 +46,65 @@ def build_queue_eval_summary(
         "seed": int(seed),
         "timestamp_utc": timestamp_utc or datetime.now(timezone.utc).isoformat(),
         "latency": _latency_payload_value(latency),
+        "suite_name": f"fixed_{latency}" if isinstance(latency, int) else latency,
         "mean_return": _mean(returns),
         "std_return": _std(returns),
         "mean_length": _mean([float(length) for length in lengths]),
         "returns": returns,
         "lengths": lengths,
     }
+    task_metrics = _task_metric_summary(metrics)
+    task_metrics.update(_task_metric_moment_summary(metrics))
+    if task_metrics:
+        payload["task_metrics"] = task_metrics
     payload.update(_latency_metadata(metrics, metadata))
     return to_jsonable(payload)
+
+
+def _task_metric_summary(
+    metrics: Sequence[EpisodeMetrics],
+) -> dict[str, dict[str, Any]]:
+    present = [
+        metric.metadata["task_metrics"]
+        for metric in metrics
+        if "task_metrics" in metric.metadata
+    ]
+    if not present:
+        return {}
+    if len(present) != len(metrics):
+        raise KeyError("task_metrics")
+    summary = {}
+    for name in present[0]:
+        values = [task_metrics[name] for task_metrics in present]
+        summary[name] = {
+            "mean": _mean(values),
+            "std": _std(values),
+            "values": values,
+        }
+    return summary
+
+
+def _task_metric_moment_summary(
+    metrics: Sequence[EpisodeMetrics],
+) -> dict[str, dict[str, Any]]:
+    if not any("task_metric_moments" in metric.metadata for metric in metrics):
+        return {}
+    present = [
+        metric.metadata["task_metric_moments"]
+        for metric in metrics
+    ]
+    summary = {}
+    for name in present[0]:
+        count = sum(item[name]["count"] for item in present)
+        total = sum(item[name]["sum"] for item in present)
+        total_sq = sum(item[name]["sum_sq"] for item in present)
+        mean = total / count
+        summary[name] = {
+            "mean": mean,
+            "std": math.sqrt(max(0.0, total_sq / count - mean * mean)),
+            "count": count,
+        }
+    return summary
 
 
 def write_queue_eval_summary(

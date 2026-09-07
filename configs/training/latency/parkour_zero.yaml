@@ -1,0 +1,5 @@
+__base__: parkour.yaml
+latency:
+  method: fixed
+  fixed_latency_ms: 0
+  seed: 0

@@ -4,15 +4,23 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import os
-from pathlib import Path
+import signal
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
+from pathlib import Path
 
 import wandb
 import yaml
+
+from latency_bench.core.config import load_config
+from latency_bench.data.parkour_dagger import PARKOUR_ACTION_HORIZON
+from latency_bench.utils.stats import std as series_std
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -28,6 +36,7 @@ UPDATES_PER_ROUND = 500
 TOTAL_UPDATES = DAGGER_ROUNDS * UPDATES_PER_ROUND
 BOOTSTRAP_UPDATES = 5_000
 GLOBAL_BATCH_SIZE = 128
+NUM_GPUS = 2
 GRADIENT_ACCUMULATION_STEPS = 1
 DAGGER_ENVS = 192
 PARKOUR_DAGGER_ROWS_PER_ROUND = (
@@ -35,6 +44,8 @@ PARKOUR_DAGGER_ROWS_PER_ROUND = (
 )
 PARKOUR_DAGGER_SHARD_ROWS = 1_000
 DEFAULT_INFERENCE_BATCH_SIZE = 32
+PARKOUR_EVAL_INFERENCE_BATCH_SIZE = 8
+DEFAULT_PARKOUR_STARTUP_TIMEOUT_SEC = 300.0
 PARKOUR_EVAL_EPISODES = 100
 PARKOUR_EVAL_MAX_EPISODE_STEPS = 1500
 CHECKPOINT_COMPLETE_MARKER = ".dagger-round-complete"
@@ -52,10 +63,10 @@ DEFAULT_TEACHER_CHECKPOINT = PARKOUR_ROOT / (
 )
 DEFAULT_BASE_MODEL = REPO_ROOT / "outputs/official_gr00t/models/GR00T-N1.7-3B"
 DEFAULT_BOOTSTRAP_DATASET = REPO_ROOT / (
-    "outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot"
+    "outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot_h40_semantic_stats"
 )
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / (
-    "outputs/official_gr00t/extreme_parkour_go2_action_yaw_dagger"
+    "outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_flow_aux_dagger"
 )
 DEFAULT_POLICY_CONFIG = REPO_ROOT / (
     "configs/examples/extreme_parkour/official_gr00t_eval.yaml"
@@ -67,8 +78,12 @@ def checkpoint_dir(training_output: Path, completed_rounds: int) -> Path:
     return training_output / f"checkpoint-{completed_rounds * UPDATES_PER_ROUND}"
 
 
-def bootstrap_checkpoint_dir(training_output: Path, experiment_name: str) -> Path:
-    return training_output / experiment_name / f"checkpoint-{BOOTSTRAP_UPDATES}"
+def bootstrap_checkpoint_dir(
+    training_output: Path,
+    experiment_name: str,
+    updates: int = BOOTSTRAP_UPDATES,
+) -> Path:
+    return training_output / experiment_name / f"checkpoint-{updates}"
 
 
 def training_dataset_dirs(
@@ -90,6 +105,65 @@ def write_policy_config(
     config = yaml.safe_load(source.read_text(encoding="utf-8"))
     config["policy"]["model_path"] = str(model_path)
     config["policy"]["device"] = inference_device[0]
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+
+def write_eval_config(
+    source: Path,
+    destination: Path,
+    *,
+    model_path: Path,
+    teacher_checkpoint: Path,
+    latency_profile_path: Path,
+    output_dir: Path,
+    inference_device: list[str],
+    eval_episodes: int = PARKOUR_EVAL_EPISODES,
+    max_episode_steps: int = PARKOUR_EVAL_MAX_EPISODE_STEPS,
+    num_envs: int = 50,
+    latency_config: Path | None = None,
+) -> None:
+    config = yaml.safe_load(source.read_text(encoding="utf-8"))
+    config["executor"] = {
+        "mode": "simulated",
+        "simulated_inference_pool": True,
+        "inference_devices": list(inference_device),
+        "inference_batch_size": PARKOUR_EVAL_INFERENCE_BATCH_SIZE,
+    }
+    config["env"].update(
+        {
+            "runtime_checkpoint_path": str(teacher_checkpoint),
+            "simulator_device": "cuda:0",
+        }
+    )
+    config["policy"].update(
+        {
+            "model_path": str(model_path),
+            "device": inference_device[0],
+        }
+    )
+    config["latency"] = {
+        "method": "temporal",
+        "profile_path": str(latency_profile_path),
+        "sync_cuda": False,
+    }
+    if latency_config is not None:
+        latency = load_config(latency_config)
+        config["executor"].update(deepcopy(latency["executor"]))
+        config["scheduler"] = deepcopy(latency["scheduler"])
+        config["latency"] = deepcopy(latency["latency"])
+        config["latency"].update(
+            {"profile_path": str(latency_profile_path), "sync_cuda": False}
+        )
+    config["evaluation"].update(
+        {
+            "eval_episodes": int(eval_episodes),
+            "eval_parallel_envs": int(num_envs),
+            "eval_max_steps": int(max_episode_steps),
+            "eval_deterministic": True,
+        }
+    )
+    config["logging"]["output_dir"] = str(output_dir)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
@@ -119,7 +193,7 @@ def collector_command(
         "cuda:0",
         "--checkpoint",
         str(teacher_checkpoint),
-        "--policy_config",
+        "--eval-config" if mode == "latency-eval" else "--policy_config",
         str(policy_config),
         "--output_dir",
         str(output_dir),
@@ -155,6 +229,82 @@ def collector_command(
     return command
 
 
+def _kill_process_group(process: subprocess.Popen) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait()
+
+
+def _exit_on_sigterm(signum: int, _frame) -> None:
+    raise SystemExit(128 + signum)
+
+
+def run_parkour_command(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    startup_timeout_sec: float,
+) -> None:
+    previous_sigterm_handler = signal.signal(signal.SIGTERM, _exit_on_sigterm)
+    try:
+        with tempfile.TemporaryDirectory(prefix="parkour-startup-") as temporary_dir:
+            ready_file = Path(temporary_dir) / "ready"
+            command = [*command, "--startup-ready-file", str(ready_file)]
+            for attempt in range(2):
+                ready_file.unlink(missing_ok=True)
+                process = None
+                try:
+                    previous_signal_mask = signal.pthread_sigmask(
+                        signal.SIG_BLOCK, {signal.SIGTERM}
+                    )
+                    try:
+                        process = subprocess.Popen(
+                            command,
+                            cwd=cwd,
+                            env=env,
+                            start_new_session=True,
+                        )
+                    finally:
+                        signal.pthread_sigmask(signal.SIG_SETMASK, previous_signal_mask)
+                    deadline = time.monotonic() + startup_timeout_sec
+                    while not ready_file.is_file():
+                        return_code = process.poll()
+                        if return_code is not None:
+                            if return_code:
+                                raise subprocess.CalledProcessError(return_code, command)
+                            raise RuntimeError(
+                                "Parkour process exited before signaling startup readiness"
+                            )
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise subprocess.TimeoutExpired(command, startup_timeout_sec)
+                        time.sleep(min(1.0, remaining))
+                    return_code = process.wait()
+                    if return_code:
+                        raise subprocess.CalledProcessError(return_code, command)
+                    return
+                except subprocess.TimeoutExpired:
+                    _kill_process_group(process)
+                    if attempt == 0:
+                        print(
+                            f"Parkour startup timed out after {startup_timeout_sec:g}s; "
+                            "retrying once",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                        continue
+                    raise
+                except BaseException:
+                    if process is not None:
+                        _kill_process_group(process)
+                    raise
+    finally:
+        signal.signal(signal.SIGTERM, previous_sigterm_handler)
+
+
 def prepare_command(
     raw_dir: Path,
     dataset_dir: Path,
@@ -177,6 +327,17 @@ def prepare_command(
     ]
 
 
+def bootstrap_prepare_command(raw_dir: Path, dataset_dir: Path) -> list[str]:
+    return [
+        sys.executable,
+        str(PREPARE_SCRIPT),
+        str(raw_dir),
+        str(dataset_dir),
+        "--force",
+        "--video-shards",
+    ]
+
+
 def training_command(
     *,
     bootstrap_checkpoint: Path,
@@ -187,11 +348,14 @@ def training_command(
     experiment_name: str,
     actor_checkpoint: Path,
     max_steps: int = TOTAL_UPDATES,
+    stop_every_steps: int = UPDATES_PER_ROUND,
+    num_gpus: int = NUM_GPUS,
+    global_batch_size: int = GLOBAL_BATCH_SIZE,
 ) -> list[str]:
     command = [
         str(GROOT_ROOT / ".venv/bin/torchrun"),
         "--standalone",
-        "--nproc_per_node=2",
+        f"--nproc_per_node={num_gpus}",
         str(FINETUNE_SCRIPT),
         "--base-model-path",
         str(bootstrap_checkpoint),
@@ -202,7 +366,7 @@ def training_command(
         "--modality-config-path",
         str(MODALITY_CONFIG),
         "--num-gpus",
-        "2",
+        str(num_gpus),
         "--output-dir",
         str(training_output),
         "--experiment-name",
@@ -210,14 +374,14 @@ def training_command(
         "--max-state-dim",
         "53",
         "--action-horizon",
-        "1",
+        str(PARKOUR_ACTION_HORIZON),
+        "--num-inference-timesteps",
+        "4",
+        "--allow-padding",
         "--action-objective",
         "parkour",
         "--action-actor-checkpoint",
         str(actor_checkpoint),
-        "--fixed-action-noise-seed",
-        "0",
-        "--one-step-action-regression",
         "--action-head-dropout",
         "0",
         "--state-dropout-prob",
@@ -235,7 +399,7 @@ def training_command(
         "--max-steps",
         str(max_steps),
         "--global-batch-size",
-        str(GLOBAL_BATCH_SIZE),
+        str(global_batch_size),
         "--gradient-accumulation-steps",
         str(GRADIENT_ACCUMULATION_STEPS),
         "--episode-sampling-rate",
@@ -247,7 +411,7 @@ def training_command(
         "--save-steps",
         str(UPDATES_PER_ROUND),
         "--stop-every-steps",
-        str(UPDATES_PER_ROUND),
+        str(stop_every_steps),
         "--save-total-limit",
         "2",
         "--use-wandb",
@@ -271,6 +435,9 @@ def bootstrap_training_command(
     training_output: Path,
     experiment_name: str,
     actor_checkpoint: Path,
+    max_steps: int = BOOTSTRAP_UPDATES,
+    num_gpus: int = NUM_GPUS,
+    global_batch_size: int = GLOBAL_BATCH_SIZE,
 ) -> list[str]:
     return training_command(
         bootstrap_checkpoint=base_model,
@@ -280,22 +447,105 @@ def bootstrap_training_command(
         round_index=0,
         experiment_name=experiment_name,
         actor_checkpoint=actor_checkpoint,
-        max_steps=BOOTSTRAP_UPDATES,
+        max_steps=max_steps,
+        stop_every_steps=max_steps,
+        num_gpus=num_gpus,
+        global_batch_size=global_batch_size,
     )
 
 
 def read_eval_metrics(eval_path: Path) -> dict[str, float]:
     result = json.loads(eval_path.read_text(encoding="utf-8"))
+    task_metrics = result["task_metrics"]
+    metric_values = {
+        "reward": {
+            "mean": result["mean_return"],
+            "std": result["std_return"],
+        },
+        "episode_length": {
+            "mean": result["mean_length"],
+            "std": series_std(result["lengths"]),
+        },
+        **{
+            name: task_metrics[name]
+            for name in ("normalized_waypoint_progress", "edge_violation")
+        },
+    }
     return {
-        f"dagger_eval/{metric}_{stat}": result[metric][stat]
+        f"dagger_eval/{metric}_{stat}": metric_values[metric][stat]
         for metric in EVAL_METRICS
         for stat in ("mean", "std")
     }
 
 
 def run_bootstrap(args: argparse.Namespace) -> Path:
+    bootstrap_updates = args.bootstrap_updates
+    bootstrap_root = args.output_root / "bootstrap"
+    raw_dir = (
+        bootstrap_root / "raw" if args.bootstrap_raw is None else args.bootstrap_raw
+    )
+    if args.bootstrap_raw is None:
+        parkour_env = os.environ | {
+            "PYTHONPATH": str(REPO_ROOT),
+            "OMNI_KIT_ACCEPT_EULA": "YES",
+        }
+        for mode in ("teacher-eval", "oracle-eval"):
+            run_parkour_command(
+                collector_command(
+                    args.parkour_python,
+                    mode=mode,
+                    teacher_checkpoint=args.teacher_checkpoint,
+                    policy_config=args.policy_config,
+                    output_dir=bootstrap_root / mode,
+                    inference_device=args.inference_device,
+                    num_envs=50,
+                    seed=2,
+                    round_index=0,
+                    inference_batch_size=args.inference_batch_size,
+                ),
+                cwd=PARKOUR_ROOT,
+                env=parkour_env,
+                startup_timeout_sec=args.parkour_startup_timeout_sec,
+            )
+        teacher_progress = json.loads(
+            (bootstrap_root / "teacher-eval/teacher-eval.json").read_text(
+                encoding="utf-8"
+            )
+        )["normalized_waypoint_progress"]["mean"]
+        oracle_progress = json.loads(
+            (bootstrap_root / "oracle-eval/oracle-eval.json").read_text(
+                encoding="utf-8"
+            )
+        )["normalized_waypoint_progress"]["mean"]
+        if oracle_progress < teacher_progress * 0.5:
+            raise RuntimeError(
+                "Parkour oracle normalized waypoint progress is below 50% of teacher"
+            )
+        run_parkour_command(
+            collector_command(
+                args.parkour_python,
+                mode="collect",
+                teacher_checkpoint=args.teacher_checkpoint,
+                policy_config=args.policy_config,
+                output_dir=raw_dir,
+                inference_device=args.inference_device,
+                num_envs=50,
+                seed=0,
+                round_index=0,
+                inference_batch_size=args.inference_batch_size,
+            ),
+            cwd=PARKOUR_ROOT,
+            env=parkour_env,
+            startup_timeout_sec=args.parkour_startup_timeout_sec,
+        )
+    subprocess.run(
+        bootstrap_prepare_command(raw_dir, args.bootstrap_dataset),
+        cwd=REPO_ROOT,
+        env=os.environ | {"PYTHONPATH": str(REPO_ROOT)},
+        check=True,
+    )
     experiment_name = f"{args.wandb_run_id}_sft"
-    training_output = args.output_root / "bootstrap" / "training"
+    training_output = bootstrap_root / "training"
     subprocess.run(
         bootstrap_training_command(
             base_model=args.base_model,
@@ -303,11 +553,13 @@ def run_bootstrap(args: argparse.Namespace) -> Path:
             training_output=training_output,
             experiment_name=experiment_name,
             actor_checkpoint=args.teacher_checkpoint,
+            max_steps=bootstrap_updates,
+            num_gpus=args.num_gpus,
+            global_batch_size=args.global_batch_size,
         ),
         cwd=REPO_ROOT,
         env=os.environ
         | {
-            "CUDA_VISIBLE_DEVICES": "0,1",
             "NO_ALBUMENTATIONS_UPDATE": "1",
             "PYTHONPATH": f"{GROOT_ROOT}{os.pathsep}{REPO_ROOT}",
             "WANDB_RUN_ID": experiment_name,
@@ -316,7 +568,9 @@ def run_bootstrap(args: argparse.Namespace) -> Path:
         },
         check=True,
     )
-    return bootstrap_checkpoint_dir(training_output, experiment_name)
+    return bootstrap_checkpoint_dir(
+        training_output, experiment_name, bootstrap_updates
+    )
 
 
 def log_eval_metrics(eval_path: Path, *, step: int, run_id: str) -> None:
@@ -339,12 +593,23 @@ def evaluate_checkpoint(
     step: int,
     environment: dict[str, str],
 ) -> None:
-    subprocess.run(
+    eval_config = output_dir / "eval_config.yaml"
+    write_eval_config(
+        policy_config,
+        eval_config,
+        model_path=Path(yaml.safe_load(policy_config.read_text(encoding="utf-8"))["policy"]["model_path"]),
+        teacher_checkpoint=args.teacher_checkpoint,
+        latency_profile_path=args.latency_profile_path,
+        latency_config=args.latency_config,
+        output_dir=output_dir,
+        inference_device=args.inference_device,
+    )
+    run_parkour_command(
         collector_command(
             args.parkour_python,
-            mode="vla-eval",
+            mode="latency-eval",
             teacher_checkpoint=args.teacher_checkpoint,
-            policy_config=policy_config,
+            policy_config=eval_config,
             output_dir=output_dir,
             inference_device=args.inference_device,
             num_envs=50,
@@ -354,9 +619,9 @@ def evaluate_checkpoint(
         ),
         cwd=PARKOUR_ROOT,
         env=environment,
-        check=True,
+        startup_timeout_sec=args.parkour_startup_timeout_sec,
     )
-    log_eval_metrics(output_dir / "vla-eval.json", step=step, run_id=args.wandb_run_id)
+    log_eval_metrics(output_dir / "queue_eval_latency_profile_sample.json", step=step, run_id=args.wandb_run_id)
 
 
 def run_pipeline(args: argparse.Namespace) -> None:
@@ -378,13 +643,32 @@ def run_pipeline(args: argparse.Namespace) -> None:
     }
     prepare_env = os.environ | {"PYTHONPATH": str(REPO_ROOT)}
     training_env = os.environ | {
-        "CUDA_VISIBLE_DEVICES": "0,1",
         "NO_ALBUMENTATIONS_UPDATE": "1",
         "PYTHONPATH": f"{PARKOUR_ROOT}{os.pathsep}{REPO_ROOT}",
         "WANDB_RUN_ID": args.wandb_run_id,
         "WANDB_NAME": args.wandb_run_id,
         "WANDB_RESUME": "allow",
     }
+    first_round_marker = (
+        checkpoint_dir(training_run_output, 1) / CHECKPOINT_COMPLETE_MARKER
+    )
+    if args.start_round == 0 and (
+        args.end_round == 0 or not first_round_marker.is_file()
+    ):
+        bootstrap_policy_config = args.output_root / "bootstrap/eval_policy.yaml"
+        write_policy_config(
+            args.policy_config,
+            bootstrap_policy_config,
+            model_path=bootstrap_checkpoint,
+            inference_device=args.inference_device,
+        )
+        evaluate_checkpoint(
+            args,
+            policy_config=bootstrap_policy_config,
+            output_dir=args.output_root / "bootstrap/vla_eval",
+            step=0,
+            environment=parkour_env,
+        )
     for round_index in range(args.start_round, args.end_round):
         round_dir = args.output_root / f"round_{round_index:02d}"
         raw_dir = round_dir / "raw"
@@ -401,15 +685,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
             model_path=current_model,
             inference_device=args.inference_device,
         )
-        if round_index == 0:
-            evaluate_checkpoint(
-                args,
-                policy_config=policy_config,
-                output_dir=round_dir / "eval_before",
-                step=0,
-                environment=parkour_env,
-            )
-        subprocess.run(
+        run_parkour_command(
             collector_command(
                 args.parkour_python,
                 mode="dagger-collect",
@@ -424,7 +700,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
             ),
             cwd=PARKOUR_ROOT,
             env=parkour_env,
-            check=True,
+            startup_timeout_sec=args.parkour_startup_timeout_sec,
         )
         subprocess.run(
             prepare_command(
@@ -465,6 +741,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
                     round_index=round_index,
                     experiment_name=args.wandb_run_id,
                     actor_checkpoint=args.teacher_checkpoint,
+                    num_gpus=args.num_gpus,
+                    global_batch_size=args.global_batch_size,
                 ),
                 cwd=REPO_ROOT,
                 env=training_env,
@@ -502,21 +780,38 @@ def main() -> None:
     parser.add_argument("--base-model", type=Path, default=DEFAULT_BASE_MODEL)
     parser.add_argument("--bootstrap-checkpoint", type=Path)
     parser.add_argument("--bootstrap-dataset", type=Path, default=DEFAULT_BOOTSTRAP_DATASET)
+    parser.add_argument("--bootstrap-raw", type=Path)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--policy-config", type=Path, default=DEFAULT_POLICY_CONFIG)
     parser.add_argument("--parkour-python", type=Path, default=DEFAULT_PARKOUR_PYTHON)
+    parser.add_argument(
+        "--parkour-startup-timeout-sec",
+        type=float,
+        default=DEFAULT_PARKOUR_STARTUP_TIMEOUT_SEC,
+    )
     parser.add_argument("--inference-device", action="append")
     parser.add_argument(
-        "--wandb-run-id", default="extreme_parkour_go2_vla_dagger_action_yaw_5k"
+        "--wandb-run-id",
+        default="extreme_parkour_go2_vla_dagger_action_yaw_h40_official_flow_aux_5k",
     )
     parser.add_argument(
         "--inference-batch-size",
         type=int,
         default=DEFAULT_INFERENCE_BATCH_SIZE,
     )
+    parser.add_argument("--num-gpus", type=int, default=NUM_GPUS)
+    parser.add_argument("--global-batch-size", type=int, default=GLOBAL_BATCH_SIZE)
     parser.add_argument("--start-round", type=int, default=0)
-    parser.add_argument("--end-round", type=int, default=1)
+    parser.add_argument("--end-round", type=int, default=DAGGER_ROUNDS)
     parser.add_argument("--run-bootstrap", action="store_true")
+    parser.add_argument("--bootstrap-updates", type=int, default=BOOTSTRAP_UPDATES)
+    parser.add_argument(
+        "--latency-profile-path",
+        type=Path,
+        required=True,
+        help="Temporal latency profile used by every periodic closed-loop evaluation.",
+    )
+    parser.add_argument("--latency-config", type=Path)
     args = parser.parse_args()
     if args.inference_device is None:
         args.inference_device = ["cuda:1"]
@@ -524,8 +819,22 @@ def main() -> None:
         args.bootstrap_checkpoint = bootstrap_checkpoint_dir(
             args.output_root / "bootstrap" / "training",
             f"{args.wandb_run_id}_sft",
+            args.bootstrap_updates,
         )
     run_pipeline(args)
+    model_path = (
+        bootstrap_checkpoint_dir(
+            args.output_root / "bootstrap" / "training",
+            f"{args.wandb_run_id}_sft",
+            args.bootstrap_updates,
+        )
+        if args.end_round == 0
+        else checkpoint_dir(
+            args.output_root / "training" / args.wandb_run_id,
+            args.end_round,
+        )
+    )
+    print(f"MODEL_PATH={model_path}", flush=True)
 
 
 if __name__ == "__main__":

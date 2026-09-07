@@ -6,6 +6,8 @@ from latency_bench.core.types import Action
 
 
 class ActionPersistencePolicy(ABC):
+    """Choose the action between scheduler arrivals."""
+
     @abstractmethod
     def reset(self) -> None:
         ...
@@ -20,27 +22,32 @@ class ActionPersistencePolicy(ABC):
 
 
 class HoldPolicy(ActionPersistencePolicy):
-    """Hold each applied action for a fixed number of environment frames."""
-
-    def __init__(self, duration_raw_frames: int):
-        self.duration_raw_frames = duration_raw_frames
-        self._frames_remaining = 0
+    """Retain the current action; the scheduler owns arrival and reset state."""
 
     def reset(self) -> None:
-        self._frames_remaining = 0
+        pass
 
     def on_action_applied(self, action: Action) -> None:
-        self._frames_remaining = self.duration_raw_frames
+        pass
 
     def get_action_for_step(self, current_action: Action, noop_action: Action) -> Action:
-        if self._frames_remaining <= 0:
-            return noop_action
-        self._frames_remaining -= 1
         return current_action
 
 
-class OneFrameThenNoopPolicy(HoldPolicy):
+class OneFrameThenNoopPolicy(ActionPersistencePolicy):
     """Apply each action for exactly one environment frame, then return to noop."""
 
     def __init__(self):
-        super().__init__(duration_raw_frames=1)
+        self._pending = False
+
+    def reset(self) -> None:
+        self._pending = False
+
+    def on_action_applied(self, action: Action) -> None:
+        self._pending = True
+
+    def get_action_for_step(self, current_action: Action, noop_action: Action) -> Action:
+        if not self._pending:
+            return noop_action
+        self._pending = False
+        return current_action

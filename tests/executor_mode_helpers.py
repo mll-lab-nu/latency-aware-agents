@@ -36,7 +36,7 @@ def make_dummy_parts(max_steps: int = 5, env_fps: float = 30.0):
     action_scheduler = ActionScheduler(
         clock=clock,
         noop_action=noop_action,
-        persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+        persistence_policy=HoldPolicy(),
         ordering_policy=OrderingPolicy.LATEST_READY,
     )
     return env, clock, noop_action, jump_action, action_scheduler

@@ -1,4 +1,4 @@
-__base__: small_model_train.yaml
+__base__: small_model_train_base.yaml
 
 experiment:
   name: gymnasium_walker2d_continuous_zero_latency_ppo_tuned_1m_candidate

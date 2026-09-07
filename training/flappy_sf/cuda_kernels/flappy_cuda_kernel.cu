@@ -468,7 +468,6 @@ __global__ void flappy_latency_raw_actions_kernel(
     const bool* __restrict__ active,
     const int64_t* __restrict__ env_step_idx,
     int64_t* __restrict__ current_applied_action,
-    int64_t* __restrict__ persistence_remaining,
     int64_t* __restrict__ pending_actions,
     int64_t* __restrict__ pending_ready_raw_frames,
     int64_t* __restrict__ pending_action_ids,
@@ -478,7 +477,7 @@ __global__ void flappy_latency_raw_actions_kernel(
     int64_t* __restrict__ scratch_ready_raw_frames,
     int64_t* __restrict__ scratch_action_ids,
     int64_t* __restrict__ raw_actions,
-    int64_t hold_duration,
+    bool hold_action,
     int64_t ordering_policy,
     int batch_size,
     int queue_capacity) {
@@ -510,23 +509,24 @@ __global__ void flappy_latency_raw_actions_kernel(
             }
         } else {
             int64_t selected_offset = -1;
-            int64_t keep_count = 0;
             for (int64_t offset = 0; offset < count; ++offset) {
                 const int64_t pos = (head + offset) % queue_capacity;
                 const bool ready = pending_ready_raw_frames[base + pos] <= current_step;
                 if (ready) {
                     selected_offset = offset;
-                } else {
-                    scratch_actions[base + keep_count] = pending_actions[base + pos];
-                    scratch_ready_raw_frames[base + keep_count] = pending_ready_raw_frames[base + pos];
-                    scratch_action_ids[base + keep_count] = pending_action_ids[base + pos];
-                    keep_count += 1;
                 }
             }
             if (selected_offset >= 0) {
                 const int64_t selected_pos = (head + selected_offset) % queue_capacity;
                 selected = true;
                 selected_action = pending_actions[base + selected_pos];
+                const int64_t keep_count = count - selected_offset - 1;
+                for (int64_t offset = 0; offset < keep_count; ++offset) {
+                    const int64_t pos = (head + selected_offset + 1 + offset) % queue_capacity;
+                    scratch_actions[base + offset] = pending_actions[base + pos];
+                    scratch_ready_raw_frames[base + offset] = pending_ready_raw_frames[base + pos];
+                    scratch_action_ids[base + offset] = pending_action_ids[base + pos];
+                }
                 for (int64_t offset = 0; offset < keep_count; ++offset) {
                     pending_actions[base + offset] = scratch_actions[base + offset];
                     pending_ready_raw_frames[base + offset] = scratch_ready_raw_frames[base + offset];
@@ -540,13 +540,10 @@ __global__ void flappy_latency_raw_actions_kernel(
 
     if (selected) {
         current_applied_action[env] = selected_action;
-        persistence_remaining[env] = hold_duration;
+    } else if (!hold_action) {
+        current_applied_action[env] = 0;
     }
-    if (persistence_remaining[env] > 0) {
-        raw_actions[env] = current_applied_action[env];
-        persistence_remaining[env] -= 1;
-    }
-    current_applied_action[env] = raw_actions[env];
+    raw_actions[env] = current_applied_action[env];
 }
 
 __global__ void flappy_latency_record_kernel(
@@ -590,7 +587,6 @@ __global__ void flappy_latency_core_decision_kernel(
     int64_t* __restrict__ next_action_id,
     int64_t* __restrict__ current_latency_raw_frames,
     int64_t* __restrict__ current_applied_action,
-    int64_t* __restrict__ persistence_remaining,
     int64_t* __restrict__ pending_actions,
     int64_t* __restrict__ pending_ready_raw_frames,
     int64_t* __restrict__ pending_action_ids,
@@ -620,7 +616,7 @@ __global__ void flappy_latency_core_decision_kernel(
     const int64_t* __restrict__ profile_latency_raw_frames,
     int64_t use_profile_latency,
     int64_t obs_stride_raw_frames,
-    int64_t hold_duration,
+    bool hold_action,
     int64_t ordering_policy,
     int64_t max_episode_steps,
     int64_t reset_pipes_in_kernel,
@@ -693,23 +689,24 @@ __global__ void flappy_latency_core_decision_kernel(
                     }
                 } else {
                     int64_t selected_offset = -1;
-                    int64_t keep_count = 0;
                     for (int64_t offset = 0; offset < count; ++offset) {
                         const int64_t pos = (head + offset) % queue_capacity;
                         const bool ready = pending_ready_raw_frames[base + pos] <= current_step;
                         if (ready) {
                             selected_offset = offset;
-                        } else {
-                            scratch_actions[base + keep_count] = pending_actions[base + pos];
-                            scratch_ready_raw_frames[base + keep_count] = pending_ready_raw_frames[base + pos];
-                            scratch_action_ids[base + keep_count] = pending_action_ids[base + pos];
-                            keep_count += 1;
                         }
                     }
                     if (selected_offset >= 0) {
                         const int64_t selected_pos = (head + selected_offset) % queue_capacity;
                         selected = true;
                         selected_action = pending_actions[base + selected_pos];
+                        const int64_t keep_count = count - selected_offset - 1;
+                        for (int64_t offset = 0; offset < keep_count; ++offset) {
+                            const int64_t pos = (head + selected_offset + 1 + offset) % queue_capacity;
+                            scratch_actions[base + offset] = pending_actions[base + pos];
+                            scratch_ready_raw_frames[base + offset] = pending_ready_raw_frames[base + pos];
+                            scratch_action_ids[base + offset] = pending_action_ids[base + pos];
+                        }
                         for (int64_t offset = 0; offset < keep_count; ++offset) {
                             pending_actions[base + offset] = scratch_actions[base + offset];
                             pending_ready_raw_frames[base + offset] = scratch_ready_raw_frames[base + offset];
@@ -723,13 +720,10 @@ __global__ void flappy_latency_core_decision_kernel(
 
             if (selected) {
                 current_applied_action[env] = selected_action;
-                persistence_remaining[env] = hold_duration;
+            } else if (!hold_action) {
+                current_applied_action[env] = 0;
             }
-            if (persistence_remaining[env] > 0) {
-                raw_action = current_applied_action[env];
-                persistence_remaining[env] -= 1;
-            }
-            current_applied_action[env] = raw_action;
+            raw_action = current_applied_action[env];
 
             double reward = 0.1;
             const bool flap = (
@@ -887,7 +881,6 @@ __global__ void flappy_latency_reset_kernel(
     int64_t* __restrict__ env_step_idx,
     int64_t* __restrict__ decision_step_idx,
     int64_t* __restrict__ next_action_id,
-    int64_t* __restrict__ persistence_remaining,
     int64_t* __restrict__ current_latency_raw_frames,
     int64_t* __restrict__ episode_idx,
     int64_t fixed_latency_raw_frames,
@@ -903,7 +896,6 @@ __global__ void flappy_latency_reset_kernel(
     env_step_idx[env] = 0;
     decision_step_idx[env] = 0;
     next_action_id[env] = 0;
-    persistence_remaining[env] = 0;
     current_latency_raw_frames[env] = fixed_latency_raw_frames;
     episode_idx[env] += 1;
 }
@@ -1136,7 +1128,6 @@ void flappy_latency_raw_actions_cuda(
     torch::Tensor active,
     torch::Tensor env_step_idx,
     torch::Tensor current_applied_action,
-    torch::Tensor persistence_remaining,
     torch::Tensor pending_actions,
     torch::Tensor pending_ready_raw_frames,
     torch::Tensor pending_action_ids,
@@ -1146,7 +1137,7 @@ void flappy_latency_raw_actions_cuda(
     torch::Tensor scratch_ready_raw_frames,
     torch::Tensor scratch_action_ids,
     torch::Tensor raw_actions,
-    int64_t hold_duration,
+    bool hold_action,
     int64_t ordering_policy,
     int64_t batch_size,
     int64_t queue_capacity) {
@@ -1156,7 +1147,6 @@ void flappy_latency_raw_actions_cuda(
         active.data_ptr<bool>(),
         env_step_idx.data_ptr<int64_t>(),
         current_applied_action.data_ptr<int64_t>(),
-        persistence_remaining.data_ptr<int64_t>(),
         pending_actions.data_ptr<int64_t>(),
         pending_ready_raw_frames.data_ptr<int64_t>(),
         pending_action_ids.data_ptr<int64_t>(),
@@ -1166,7 +1156,7 @@ void flappy_latency_raw_actions_cuda(
         scratch_ready_raw_frames.data_ptr<int64_t>(),
         scratch_action_ids.data_ptr<int64_t>(),
         raw_actions.data_ptr<int64_t>(),
-        hold_duration,
+        hold_action,
         ordering_policy,
         static_cast<int>(batch_size),
         static_cast<int>(queue_capacity));
@@ -1204,7 +1194,6 @@ void flappy_latency_reset_cuda(
     torch::Tensor env_step_idx,
     torch::Tensor decision_step_idx,
     torch::Tensor next_action_id,
-    torch::Tensor persistence_remaining,
     torch::Tensor current_latency_raw_frames,
     torch::Tensor episode_idx,
     int64_t fixed_latency_raw_frames,
@@ -1219,7 +1208,6 @@ void flappy_latency_reset_cuda(
         env_step_idx.data_ptr<int64_t>(),
         decision_step_idx.data_ptr<int64_t>(),
         next_action_id.data_ptr<int64_t>(),
-        persistence_remaining.data_ptr<int64_t>(),
         current_latency_raw_frames.data_ptr<int64_t>(),
         episode_idx.data_ptr<int64_t>(),
         fixed_latency_raw_frames,
@@ -1247,7 +1235,6 @@ void flappy_latency_core_decision_cuda(
     torch::Tensor next_action_id,
     torch::Tensor current_latency_raw_frames,
     torch::Tensor current_applied_action,
-    torch::Tensor persistence_remaining,
     torch::Tensor pending_actions,
     torch::Tensor pending_ready_raw_frames,
     torch::Tensor pending_action_ids,
@@ -1276,7 +1263,7 @@ void flappy_latency_core_decision_cuda(
     double latency_distribution_min,
     double latency_distribution_max,
     int64_t obs_stride_raw_frames,
-    int64_t hold_duration,
+    bool hold_action,
     int64_t ordering_policy,
     int64_t max_episode_steps,
     int64_t reset_pipes_in_kernel,
@@ -1307,7 +1294,6 @@ void flappy_latency_core_decision_cuda(
         next_action_id.data_ptr<int64_t>(),
         current_latency_raw_frames.data_ptr<int64_t>(),
         current_applied_action.data_ptr<int64_t>(),
-        persistence_remaining.data_ptr<int64_t>(),
         pending_actions.data_ptr<int64_t>(),
         pending_ready_raw_frames.data_ptr<int64_t>(),
         pending_action_ids.data_ptr<int64_t>(),
@@ -1337,7 +1323,7 @@ void flappy_latency_core_decision_cuda(
         profile_latency_raw_frames.data_ptr<int64_t>(),
         latency_distribution_type == 4 ? 1 : 0,
         obs_stride_raw_frames,
-        hold_duration,
+        hold_action,
         ordering_policy,
         max_episode_steps,
         reset_pipes_in_kernel,

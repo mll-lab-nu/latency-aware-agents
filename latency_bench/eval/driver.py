@@ -14,6 +14,7 @@ from training.common.utils import seed_everything
 from latency_bench.core.types import EpisodeMetrics, ExecutorMode
 from latency_bench.eval.config import _episode_seed, _eval_episodes, _eval_max_steps
 from latency_bench.eval.reporting import _write_non_sweep_summary
+from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors.base import BatchedExecutor
 from latency_bench.executors.factory import build_executor
 from latency_bench.executors.realtime_warmup import plot_realtime_eval_latency
@@ -30,8 +31,16 @@ def run_from_config(
     on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
     episode_ids: Sequence[int] | None = None,
     policy: Any | None = None,
+    env: EnvAdapter | None = None,
+    env_backend: Any | None = None,
+    inference_devices: list[str] | None = None,
 ) -> list[EpisodeMetrics]:
-    if policy is None and config["policy"]["type"] == "starvla":
+    if (
+        policy is None
+        and env is None
+        and env_backend is None
+        and config["policy"]["type"] == "starvla"
+    ):
         from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
 
         prepare_starvla_checkpoint_input_config(config)
@@ -45,7 +54,16 @@ def run_from_config(
     selected_episode_ids = list(range(configured_num_episodes)) if episode_ids is None else list(episode_ids)
     seed_everything(seed)
 
-    executor = build_executor(config, **({"policy": policy} if policy is not None else {}))
+    executor_kwargs = {}
+    if policy is not None:
+        executor_kwargs["policy"] = policy
+    if env is not None:
+        executor_kwargs["env"] = env
+    if env_backend is not None:
+        executor_kwargs["env_backend"] = env_backend
+    if inference_devices is not None:
+        executor_kwargs["inference_devices"] = inference_devices
+    executor = build_executor(config, **executor_kwargs)
     metrics = []
     warmup_metadata_by_episode: dict[int, dict[str, Any]] = {}
     try:
@@ -85,7 +103,11 @@ def run_from_config(
             episode_metrics.metadata["config_name"] = experiment_cfg.get("name")
             episode_metrics.metadata["run_name"] = experiment_cfg.get("name")
             if "checkpoint_path" in policy_cfg:
-                episode_metrics.metadata["checkpoint_path"] = str(policy_cfg["checkpoint_path"])
+                episode_metrics.metadata["checkpoint_path"] = policy_cfg["checkpoint_path"]
+            if policy_cfg["type"] == "official_gr00t":
+                episode_metrics.metadata["checkpoint_path"] = policy_cfg["model_path"]
+            if "profile_path" in config["latency"]:
+                episode_metrics.metadata["source_profile_path"] = config["latency"]["profile_path"]
             if "checkpoint_kind" in policy_cfg:
                 episode_metrics.metadata["checkpoint_kind"] = str(policy_cfg["checkpoint_kind"])
             episode_metrics.metadata["output_dir"] = str(logging_cfg["output_dir"])
@@ -165,7 +187,6 @@ def _evaluation_raw_fact_metadata(config: dict[str, Any], episode_id: int) -> di
         "instance_id": latency_cfg.get("instance_id"),
         "source_run_id": latency_cfg.get("source_run_id"),
         "profile_ref": latency_cfg.get("profile_ref"),
-        "hf_commit": latency_cfg.get("hf_commit"),
         "env_fps": env_fps,
         "obs_fps": obs_fps,
         "frame_ms": frame_ms,

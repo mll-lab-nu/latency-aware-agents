@@ -1,0 +1,7 @@
+__base__: ../../examples/gymnasium/g1_sonic_balance_simple/fasttd3_eval.yaml
+
+backend:
+  train_dir: outputs/tasks/humanoidbench_balance_simple/latency_pipeline_smoke/native/checkpoints
+
+logging:
+  output_dir: outputs/tasks/humanoidbench_balance_simple/latency_pipeline_smoke/native/eval

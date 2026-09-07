@@ -23,9 +23,18 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--mode", type=str)
     parser.add_argument("--checkpoint-kind", choices=["latest", "best"])
     parser.add_argument("--output-dir", type=str)
+    parser.add_argument("--latency-config", type=str)
+    parser.add_argument(
+        "--restart-behavior",
+        choices=["resume", "restart", "overwrite"],
+    )
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
+    if args.latency_config is not None:
+        latency_config = load_config(args.latency_config)
+        for section in ("executor", "latency", "scheduler"):
+            config[section] = latency_config[section]
     config = apply_training_overrides(
         config,
         run_name=args.run_name,
@@ -33,6 +42,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         mode=args.mode,
         checkpoint_kind=args.checkpoint_kind,
         output_dir=args.output_dir,
+        restart_behavior=args.restart_behavior,
     )
     raise SystemExit(run_from_config(config))
 

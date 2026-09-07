@@ -69,12 +69,20 @@ def _rows_include_actor_observation(rows: Sequence[Mapping[str, Any]]) -> bool:
     return any("actor_observation" in row for row in rows)
 
 
+def _rows_include_latency_trace(rows: Sequence[Mapping[str, Any]]) -> bool:
+    return any("command_admitted" in row for row in rows)
+
+
 def _shards_include_termination(output_dir: Path) -> bool:
     return any("termination" in row for split in ("train", "val") for row in iter_episode_rows(output_dir, split))
 
 
 def _shards_include_actor_observation(output_dir: Path) -> bool:
     return any("actor_observation" in row for split in ("train", "val") for row in iter_episode_rows(output_dir, split))
+
+
+def _shards_include_latency_trace(output_dir: Path) -> bool:
+    return any("command_admitted" in row for split in ("train", "val") for row in iter_episode_rows(output_dir, split))
 
 
 def dataset_from_rows(
@@ -85,6 +93,7 @@ def dataset_from_rows(
     include_state: bool = False,
     include_termination: bool = False,
     include_actor_observation: bool = False,
+    include_latency_trace: bool = False,
 ) -> Dataset:
     """Create a Hugging Face dataset from canonical rollout rows.
 
@@ -102,6 +111,7 @@ def dataset_from_rows(
             include_state=include_state,
             include_termination=include_termination,
             include_actor_observation=include_actor_observation,
+            include_latency_trace=include_latency_trace,
         )
         if include_context_images
         else rollout_features(
@@ -109,6 +119,7 @@ def dataset_from_rows(
             include_state=include_state,
             include_termination=include_termination,
             include_actor_observation=include_actor_observation,
+            include_latency_trace=include_latency_trace,
         )
     )
     if rows:
@@ -127,6 +138,7 @@ def dataset_from_rows(
             include_state=include_state,
             include_termination=include_termination,
             include_actor_observation=include_actor_observation,
+            include_latency_trace=include_latency_trace,
         ),
         features=features,
     )
@@ -141,6 +153,7 @@ def write_rows_parquet(
     include_state: bool = False,
     include_termination: bool = False,
     include_actor_observation: bool = False,
+    include_latency_trace: bool = False,
     row_batch_size: int = 256,
     keep_dataset: bool = True,
 ) -> Dataset | None:
@@ -166,6 +179,7 @@ def write_rows_parquet(
             include_state=include_state,
             include_termination=include_termination,
             include_actor_observation=include_actor_observation,
+            include_latency_trace=include_latency_trace,
         )
         pq.write_table(dataset.data.table, path)
         return dataset if keep_dataset else None
@@ -181,6 +195,7 @@ def write_rows_parquet(
                 include_state=include_state,
                 include_termination=include_termination,
                 include_actor_observation=include_actor_observation,
+                include_latency_trace=include_latency_trace,
             )
             if keep_dataset:
                 datasets_to_return.append(dataset)
@@ -224,6 +239,7 @@ def write_parquet_splits(
     include_state = _rows_include_state([*train_rows, *val_rows])
     include_termination = _rows_include_termination([*train_rows, *val_rows])
     include_actor_observation = _rows_include_actor_observation([*train_rows, *val_rows])
+    include_latency_trace = _rows_include_latency_trace([*train_rows, *val_rows])
     train_ds = write_rows_parquet(
         output_dir / "train.parquet",
         train_rows,
@@ -232,6 +248,7 @@ def write_parquet_splits(
         include_state=include_state,
         include_termination=include_termination,
         include_actor_observation=include_actor_observation,
+        include_latency_trace=include_latency_trace,
         keep_dataset=keep_dataset,
     )
     val_ds = write_rows_parquet(
@@ -242,6 +259,7 @@ def write_parquet_splits(
         include_state=include_state,
         include_termination=include_termination,
         include_actor_observation=include_actor_observation,
+        include_latency_trace=include_latency_trace,
         keep_dataset=keep_dataset,
     )
     if not keep_dataset:
@@ -351,6 +369,7 @@ def _write_parquet_row_batch(
     include_state: bool,
     include_termination: bool,
     include_actor_observation: bool,
+    include_latency_trace: bool,
 ) -> Any:
     """Append one row batch to a parquet writer.
 
@@ -371,6 +390,7 @@ def _write_parquet_row_batch(
         include_state=include_state,
         include_termination=include_termination,
         include_actor_observation=include_actor_observation,
+        include_latency_trace=include_latency_trace,
     )
     table = dataset.data.table
     if writer is None:
@@ -388,6 +408,7 @@ def _write_parquet_split_from_shards(
     include_state: bool,
     include_termination: bool,
     include_actor_observation: bool,
+    include_latency_trace: bool,
     row_count: int,
     row_batch_size: int = 256,
 ) -> None:
@@ -419,6 +440,7 @@ def _write_parquet_split_from_shards(
                     include_state=include_state,
                     include_termination=include_termination,
                     include_actor_observation=include_actor_observation,
+                    include_latency_trace=include_latency_trace,
                 )
                 progress.update(len(batch))
                 batch = []
@@ -432,6 +454,7 @@ def _write_parquet_split_from_shards(
                 include_state=include_state,
                 include_termination=include_termination,
                 include_actor_observation=include_actor_observation,
+                include_latency_trace=include_latency_trace,
             )
             progress.update(len(batch))
         if writer is None:
@@ -442,6 +465,7 @@ def _write_parquet_split_from_shards(
                 include_state=include_state,
                 include_termination=include_termination,
                 include_actor_observation=include_actor_observation,
+                include_latency_trace=include_latency_trace,
             )
             pq.write_table(dataset.data.table, tmp_path)
     finally:
@@ -474,6 +498,7 @@ def write_parquet_splits_from_shards(
     include_state = _shards_include_state(output_dir)
     include_termination = _shards_include_termination(output_dir)
     include_actor_observation = _shards_include_actor_observation(output_dir)
+    include_latency_trace = _shards_include_latency_trace(output_dir)
     _write_parquet_split_from_shards(
         output_dir,
         "train",
@@ -482,6 +507,7 @@ def write_parquet_splits_from_shards(
         include_state=include_state,
         include_termination=include_termination,
         include_actor_observation=include_actor_observation,
+        include_latency_trace=include_latency_trace,
         row_count=stats["train_rows"],
     )
     _write_parquet_split_from_shards(
@@ -492,6 +518,7 @@ def write_parquet_splits_from_shards(
         include_state=include_state,
         include_termination=include_termination,
         include_actor_observation=include_actor_observation,
+        include_latency_trace=include_latency_trace,
         row_count=stats["val_rows"],
     )
     if not keep_dataset:

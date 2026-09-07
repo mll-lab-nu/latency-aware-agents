@@ -1,0 +1,22 @@
+__base__: small_model_train.yaml
+
+experiment:
+  name: gymnasium_inverted_pendulum_qwenoft_rtx3090_profile_10fps
+
+backend:
+  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/inverted_pendulum
+
+env:
+  env_fps: 10
+  obs_fps: 10
+
+latency:
+  method: iid
+  fixed_latency_ms: null
+  profile_path: results/profiling/runs/qwenoft/1x-rtx3090/inverted_pendulum_rgb_state/instance_52d3de13cd88ad3f/20260904T180706388141Z/profile/profile.json
+  profile_worker_slot: 0
+  seed: 0
+  add_latency_info: false
+
+logging:
+  output_dir: /mnt/data/latency-sensitive-bench/inverted_pendulum/rtx3090_profile_10fps_small_model_train

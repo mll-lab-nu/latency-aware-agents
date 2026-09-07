@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from latency_bench.core.types import Action, StepResult
+from latency_bench.core.types import Action, EpisodeMetrics, StepRecord, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.latency.burst_profile import (
@@ -14,6 +14,10 @@ from latency_bench.latency.burst_profile import (
 )
 from latency_bench.latency.profile import save_latency_distribution, save_profile_manifest
 from latency_bench.eval.driver import run_from_config
+from latency_bench.eval.reporting import _summary_latency_label
+from latency_bench.logging.metrics import compute_episode_metrics
+from latency_bench.logging.summary import build_queue_eval_summary
+from latency_bench.logging.wandb_eval import eval_scalar_payload
 from latency_bench.utils.io import load_jsonl_records
 
 
@@ -139,6 +143,64 @@ def _write_profile(tmp_path: Path) -> Path:
     return profile_dir
 
 
+def test_iid_profile_with_null_fixed_latency_uses_profile_label():
+    config = {
+        "executor": {"mode": "simulated"},
+        "latency": {"method": "iid", "fixed_latency_ms": None},
+    }
+
+    assert _summary_latency_label(config) == "profile_sample"
+
+
+@pytest.mark.parametrize("injected_name", ["env", "env_backend"])
+def test_injected_env_skips_starvla_env_preparation(
+    tmp_path: Path,
+    monkeypatch,
+    injected_name: str,
+):
+    import latency_bench.eval.driver as driver
+    from latency_bench.policy import starvla
+
+    class Executor:
+        logger = None
+
+        def run_warmup(self):
+            return {}
+
+        def close(self):
+            return None
+
+    injected_env = object()
+    captured = {}
+    monkeypatch.setattr(
+        starvla,
+        "prepare_starvla_checkpoint_input_config",
+        lambda _config: pytest.fail("an injected environment is already constructed"),
+    )
+    monkeypatch.setattr(
+        driver,
+        "build_executor",
+        lambda config, **kwargs: captured.update(kwargs) or Executor(),
+    )
+    config = {
+        "experiment": {"name": "native-profile", "seed": 0},
+        "executor": {"mode": "simulated"},
+        "policy": {"type": "starvla"},
+        "evaluation": {"eval_episodes": 0, "eval_max_steps": 1},
+        "logging": {"output_dir": str(tmp_path)},
+    }
+
+    run_from_config(
+        config,
+        write_summary=False,
+        inference_devices=["cuda:1"],
+        **{injected_name: injected_env},
+    )
+
+    assert captured[injected_name] is injected_env
+    assert captured["inference_devices"] == ["cuda:1"]
+
+
 def test_episode_metrics_log_evaluation_raw_fact_metadata(tmp_path: Path):
     run_from_config(_config(tmp_path), write_summary=False)
 
@@ -156,6 +218,19 @@ def test_episode_metrics_log_evaluation_raw_fact_metadata(tmp_path: Path):
     assert metrics["metadata"]["env_fps"] == pytest.approx(25.0)
     assert metrics["metadata"]["obs_fps"] == pytest.approx(25.0)
     assert metrics["metadata"]["frame_ms"] == pytest.approx(40.0)
+
+
+@pytest.mark.parametrize("policy_type,path_key", [("starvla", "checkpoint_path"), ("official_gr00t", "model_path")])
+def test_summary_keeps_new_model_identity_separate_from_source_profile(tmp_path, policy_type, path_key):
+    from latency_bench.policy.base import ConstantPolicyRunner
+
+    profile = _write_profile(tmp_path)
+    config = _config(tmp_path / "evaluation", latency={"method": "iid", "profile_path": str(profile)})
+    config["policy"] = {"type": policy_type, path_key: "/new-vla/checkpoint-2"}
+    run_from_config(config, policy=ConstantPolicyRunner(Action("jump")))
+    summary = json.loads((tmp_path / "evaluation/queue_eval_latency_profile_sample.json").read_text())
+    assert summary["checkpoint_path"] == "/new-vla/checkpoint-2"
+    assert summary["source_profile_path"] == str(profile)
 
 
 def test_return_raw_is_only_from_explicit_info(tmp_path: Path):
@@ -211,3 +286,98 @@ def test_simulated_latency_records_log_latency_raw_fields(tmp_path: Path):
     assert steps[0]["info"]["scheduled_time_ms"] == pytest.approx(0.0)
     assert steps[0]["info"]["frame_time_ms"] == pytest.approx(40.0)
     assert "active_action_id" in steps[0]["info"]
+
+
+@pytest.mark.parametrize("latency", [0, "profile_sample"])
+def test_task_metrics_flow_from_final_step_into_summary(latency):
+    metrics = [
+        compute_episode_metrics(
+            episode_id=episode_id,
+            step_records=[
+                StepRecord(
+                    episode_id=episode_id,
+                    env_step=0,
+                    sim_time_ms=0.0,
+                    active_action=Action("noop"),
+                    reward=1.0,
+                    done=True,
+                    info={"task_metrics": {"success": success}},
+                )
+            ],
+            action_events=[],
+            latency_values_ms=[],
+        )
+        for episode_id, success in enumerate((1.0, 0.0))
+    ]
+
+    summary = build_queue_eval_summary(
+        metrics,
+        experiment_name="task-metrics",
+        seed=0,
+        latency=latency,
+    )
+
+    assert metrics[0].metadata["task_metrics"] == {"success": 1.0}
+    assert summary["task_metrics"] == {
+        "success": {"mean": 0.5, "std": 0.5, "values": [1.0, 0.0]}
+    }
+    scalars = eval_scalar_payload([summary], env_steps=0, prefix="eval")
+    assert sum(value for key, value in scalars.items() if key.endswith("completed_episodes")) == 2
+
+
+def test_task_metrics_are_required_for_every_episode():
+    metrics = [
+        EpisodeMetrics(
+            episode_id=0,
+            episode_return=0.0,
+            survival_steps=1,
+            metadata={"task_metrics": {"success": 1.0}},
+        ),
+        EpisodeMetrics(episode_id=1, episode_return=0.0, survival_steps=1),
+    ]
+
+    with pytest.raises(KeyError, match="task_metrics"):
+        build_queue_eval_summary(
+            metrics,
+            experiment_name="task-metrics",
+            seed=0,
+            latency="measured",
+        )
+
+
+def test_task_metric_moments_preserve_step_weighted_statistics():
+    metrics = [
+        EpisodeMetrics(
+            episode_id=0,
+            episode_return=0.0,
+            survival_steps=2,
+            metadata={
+                "task_metric_moments": {
+                    "edge_violation": {"count": 2, "sum": 1.0, "sum_sq": 1.0}
+                }
+            },
+        ),
+        EpisodeMetrics(
+            episode_id=1,
+            episode_return=0.0,
+            survival_steps=1,
+            metadata={
+                "task_metric_moments": {
+                    "edge_violation": {"count": 1, "sum": 1.0, "sum_sq": 1.0}
+                }
+            },
+        ),
+    ]
+
+    summary = build_queue_eval_summary(
+        metrics,
+        experiment_name="parkour",
+        seed=2,
+        latency="zero",
+    )
+
+    assert summary["task_metrics"]["edge_violation"] == {
+        "mean": pytest.approx(2 / 3),
+        "std": pytest.approx(2**0.5 / 3),
+        "count": 3,
+    }

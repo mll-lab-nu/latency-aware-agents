@@ -196,6 +196,41 @@ def test_generic_checkpoint_policy_separates_integration_task_and_state_action(
     assert output.metadata["raw_action_id"] == 0
 
 
+def test_generic_checkpoint_policy_accepts_legacy_environment_namespace(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from latency_bench.policy import starvla
+
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
+    monkeypatch.setattr(starvla, "_normalized_model_cfg", lambda model_cfg: model_cfg)
+    monkeypatch.setattr(starvla, "_load_starvla_model_config", _read_model_config)
+    config = _generic_config(tmp_path)
+    config["env"].update(
+        task_name="hopper",
+        env_id="LatencyBench/Hopper-v0",
+        registration_imports=["latency_bench.envs.gymnasium_hopper"],
+    )
+    legacy_contract = gymnasium_task_contract(config["env"])
+    legacy_contract.update(
+        task_name="hopper_rgb_state",
+        env_id="LatencyBench/HopperRgbState-v0",
+        registration_imports=["latency_bench.envs.gymnasium_hopper_rgb_state"],
+    )
+    manifest_path = Path(config["policy"]["task_manifest_path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["gymnasium_task"] = legacy_contract
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    model_config_path = Path(config["policy"]["model_config_path"])
+    model_config = json.loads(model_config_path.read_text(encoding="utf-8"))
+    model_config["datasets"]["vla_data"]["gymnasium_task_contract"] = legacy_contract
+    model_config_path.write_text(json.dumps(model_config), encoding="utf-8")
+
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    assert policy._env_name == "hopper"
+
+
 def test_generic_checkpoint_policy_keeps_stateless_gymnasium_stateless(
     monkeypatch,
     tmp_path: Path,

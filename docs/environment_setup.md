@@ -1,8 +1,5 @@
-1. 先 clone 仓库: 
-    ```bash
-    git@github.com:ZihanWang314/latency-sensitive-bench.git
-    ```
+# 环境配置
 
-2. 然后按照 README.md 中的两条指令安装环境
-3. wandb key 和 huggingface key 见 .env
-4. results/ 里面是结果和 checkpoints 等，上传到 huggingface 的 latensy-sensitive-bench 组织下；注意不要上传 wandb 等，保持整洁
+完整安装步骤已统一到 [QUICK_START.md](QUICK_START.md)，包含共享 benchmark、四任务模拟器、StarVLA、官方 GR00T 和 MIKASA 数据转换环境。
+
+密钥使用 `hf auth login` / `wandb login` 或环境变量配置；不要把密钥写入文档。训练产物位置和 Hugging Face 发布规范见 [artifacts.md](artifacts.md)。

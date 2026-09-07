@@ -27,7 +27,6 @@ METADATA_KEYS = (
     "instance_id",
     "source_run_id",
     "profile_ref",
-    "hf_commit",
     "env_fps",
     "obs_fps",
     "frame_ms",

@@ -1,0 +1,27 @@
+output_dir: outputs/tasks/humanoidbench_balance_simple/latency_pipeline_from10k
+profile_model: outputs/official_gr00t/g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_frompretrained_bs128_lr1e4_10k_periodic500/checkpoint-10000
+profile_args: []
+latency_config: configs/training/latency/balance_profile_base.yaml
+native_train_config: configs/examples/gymnasium/g1_sonic_balance_simple/fasttd3_train.yaml
+native_eval_config: configs/examples/gymnasium/g1_sonic_balance_simple/fasttd3_eval.yaml
+native_train_run_name: g1_sonic_balance_simple_raw_ramp_fasttd3_profile_from10k_s1
+native_restart_behavior: restart
+native_checkpoint_kind: latest
+environment:
+  MUJOCO_GL: egl
+  WANDB_MODE: online
+vla_run_id: g1_balance_simple_obs198_h40_profile_from10k_s1_15k
+baseline_model_path: outputs/official_gr00t/g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_frompretrained_bs128_lr1e4_10k_periodic500/checkpoint-10000
+collection:
+  max_episodes: 100
+  val_fraction: 0.1
+  num_envs: 16
+  replay_num_envs: 16
+  image_writer_workers: 16
+  row_buffer_size: 8192
+  device: cuda
+vla_max_steps: 15000
+vla_step_interval: 500
+vla_start_step: 500
+vla_num_gpus: 2
+vla_global_batch_size: 128

@@ -11,21 +11,21 @@ import numpy as np
 
 
 def write_latency_distribution_plot(samples_ms: Iterable[float], output_path: str | Path) -> None:
-    values = np.asarray([float(sample) for sample in samples_ms], dtype=float)
-    lower = float(values.min())
-    upper = float(values.max())
-    pad = max((upper - lower) * 0.20, 1.0)
-    grid = np.linspace(lower - pad, upper + pad, 420)
+    values = np.asarray(list(samples_ms), dtype=np.float64)
+    lower, upper = np.percentile(values, [0.1, 99.9])
+    pad = max((upper - lower) * 0.08, 1.0)
+    grid = np.linspace(lower - pad, upper + pad, 520)
 
     fig, ax = plt.subplots(figsize=(6.2, 3.6))
-    ax.hist(values, bins=min(40, max(8, int(np.sqrt(values.size)))), density=True, color="#D88A86", alpha=0.28)
-    if values.size > 1 and float(np.ptp(values)) > 0:
-        ax.plot(grid, _kde(values, grid), color="#A54762", lw=2.2)
+    if lower == upper:
+        ax.axvline(lower, color="#A54762", lw=2.2)
     else:
-        ax.axvline(float(values[0]), color="#A54762", lw=2.2)
-    ax.set_xlabel("Inference latency (ms)")
+        ax.plot(grid, _kde(values, grid), color="#A54762", lw=2.2)
+    ax.set_xlabel("Observation-to-action latency (ms)")
     ax.set_ylabel("Density")
-    ax.set_title("Latency distribution")
+    ax.set_title("Observation-to-action latency profile")
+    ax.set_xlim(grid[0], grid[-1])
+    ax.set_ylim(bottom=0)
     ax.grid(alpha=0.25)
     fig.tight_layout()
     fig.savefig(output_path, dpi=180)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -97,6 +98,7 @@ def test_parkour_dagger_converter_writes_video_and_numeric_parquet(tmp_path):
     )
     assert manifest["action_dim"] == 34
     assert manifest["state_dim"] == 53
+    assert manifest["official_action_horizon"] == 40
     assert manifest["frames"] == 2
     assert not list(output.rglob("*.png"))
     assert (
@@ -118,6 +120,60 @@ def test_parkour_dagger_converter_writes_video_and_numeric_parquet(tmp_path):
     assert "teacher_action" not in info["features"]
     task = json.loads((output / "meta/tasks.jsonl").read_text())
     assert task["task"] == "Traverse the parkour course and follow each waypoint."
+
+
+def test_parkour_chunk_export_uses_issued_command_anchor(tmp_path):
+    from latency_bench.data.parkour_dagger import (
+        convert_parkour_dagger_shards_to_lerobot,
+        write_parkour_dagger_shard,
+    )
+
+    image = tmp_path / "frame.png"
+    video = tmp_path / "episode.mp4"
+    raw = tmp_path / "raw"
+    save_test_image(image, 7)
+    _save_test_video(image, video)
+    arrays = _dagger_arrays()
+    arrays["action"] = np.arange(40 * 34, dtype=np.float32).reshape(1, 40, 34)
+    arrays.update({
+        "episode_id": np.array([3]), "obs_id": np.array([2]),
+        "issued_raw_frame": np.array([10]), "ready_raw_frame": np.array([16]),
+        "latency_ms": np.array([120.0]), "worker_id": np.array([0]),
+        "raw_reward": np.array([1.0]),
+        "control_applied_command": np.concatenate((np.zeros((16, 34)), arrays["action"][0, 6:10])),
+        "control_source_raw_frame": np.array([-1] * 16 + [10] * 4),
+        "control_source_obs_id": np.array([-1] * 16 + [2] * 4),
+        "control_chunk_index": np.array([-1] * 16 + [6, 7, 8, 9]),
+        "control_reward": np.ones(20),
+        "control_done": np.array([False] * 19 + [True]),
+    })
+    write_parkour_dagger_shard(
+        raw,
+        split="train",
+        episode_idx=0,
+        arrays=arrays,
+        video_path=video,
+    )
+
+    output = tmp_path / "lerobot"
+    with np.load(raw / "rollout_shards/train/episode_000000/episode.npz") as payload:
+        for name in arrays:
+            np.testing.assert_array_equal(payload[name], arrays[name])
+    convert_parkour_dagger_shards_to_lerobot(raw, output, force=True, video_shards=True)
+    row = pq.read_table(output / "data/chunk-000/episode_000000.parquet").to_pylist()[0]
+    assert "issued_command_chunk" in row
+    assert "action" not in row
+    assert row["issued_raw_frame"] == 10
+    assert row["latency"] == 120.0
+    assert row["latency_raw_frames"] == 6
+    info = json.loads((output / "meta/info.json").read_text())
+    assert "issued_command_chunk" in info["features"]
+    assert "action" not in info["features"]
+    modality = json.loads((output / "meta/modality.json").read_text())
+    assert modality["action"]["issued_command_chunk"]["original_key"] == "issued_command_chunk"
+    del arrays["ready_raw_frame"]
+    with pytest.raises(KeyError, match="ready_raw_frame"):
+        write_parkour_dagger_shard(raw, split="train", episode_idx=1, arrays=arrays, video_path=video)
 
 
 def test_parkour_video_bootstrap_preserves_rollout_schema(tmp_path):
@@ -191,14 +247,14 @@ def test_parkour_video_bootstrap_preserves_rollout_schema(tmp_path):
     assert manifest["state_labels"] == [
         f"parkour_proprio_{index}" for index in range(53)
     ]
-    assert manifest["official_action_horizon"] == 1
+    assert manifest["official_action_horizon"] == 40
     validation_manifest = json.loads(
         (output.with_name(f"{output.name}__val") / "manifest.json").read_text()
     )
     assert validation_manifest["dataset_name"] == "lerobot__val"
     assert validation_manifest["split"] == "val"
     assert validation_manifest["training_dataset_name"] == "lerobot"
-    assert validation_manifest["official_action_horizon"] == 1
+    assert validation_manifest["official_action_horizon"] == 40
 
 
 def test_parkour_bootstrap_rows_preserve_actor_observation_and_termination(tmp_path):
@@ -297,11 +353,22 @@ def test_video_shard_prepare_runs_stats_for_train_and_validation(tmp_path, monke
     monkeypatch.setattr(
         prepare_module, "convert_parkour_dagger_shards_to_lerobot", fake_convert
     )
-    monkeypatch.setattr(
-        prepare_module.subprocess,
-        "run",
-        lambda command, **kwargs: calls.append(command),
-    )
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        dataset_dir = Path(command[command.index("--dataset-path") + 1])
+        (dataset_dir / "meta").mkdir(parents=True, exist_ok=True)
+        (dataset_dir / "meta/stats.json").write_text(
+            json.dumps(
+                {
+                    "issued_command_chunk": {
+                        "min": [0.0] * 34,
+                        "max": [0.0] * 34,
+                    }
+                }
+            )
+        )
+
+    monkeypatch.setattr(prepare_module.subprocess, "run", fake_run)
 
     manifest = prepare_module.prepare_parkour_dataset(
         tmp_path / "raw",
@@ -315,3 +382,7 @@ def test_video_shard_prepare_runs_stats_for_train_and_validation(tmp_path, monke
         str(output),
         str(val_output),
     ]
+    for dataset_dir in (output, val_output):
+        stats = json.loads((dataset_dir / "meta/stats.json").read_text())
+        assert stats["issued_command_chunk"]["min"] == [-1.0] * 32 + [-np.pi / 1.5] * 2
+        assert stats["issued_command_chunk"]["max"] == [1.0] * 32 + [np.pi / 1.5] * 2

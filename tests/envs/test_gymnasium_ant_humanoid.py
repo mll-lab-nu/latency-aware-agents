@@ -205,7 +205,7 @@ def test_locomotion_probes_report_native_contract(
         ),
     ],
 )
-def test_locomotion_configs_preserve_native_rgb_state_contract(
+def test_locomotion_configs_preserve_native_state_contract(
     task,
     scaffold,
     env_id,
@@ -225,6 +225,7 @@ def test_locomotion_configs_preserve_native_rgb_state_contract(
 
     assert envs[1:] == envs[:-1]
     env = envs[0]
+    assert env["task_name"] == task
     assert env["env_id"] == env_id
     assert env["make_kwargs"]["base_env_id"] == base_env_id
     assert env["env_fps"] == pytest.approx(fps)

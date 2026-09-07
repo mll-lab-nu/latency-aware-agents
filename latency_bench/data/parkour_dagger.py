@@ -22,6 +22,7 @@ from latency_bench.data.action_layouts import (
 PARKOUR_VLA_STATE_DIM = 53
 PARKOUR_VLA_ACTION_DIM = 34
 PARKOUR_CONTROL_REPEAT = 5
+PARKOUR_ACTION_HORIZON = 40
 PARKOUR_ACTOR_OBSERVATION_DIM = 753
 
 _SHARD_ROOT = "rollout_shards"
@@ -33,6 +34,13 @@ _NUMERIC_FIELDS = (
     "action",
     "termination",
     "actor_observation",
+)
+_ISSUED_FIELDS = (
+    "episode_id", "obs_id", "issued_raw_frame", "ready_raw_frame", "latency_ms", "worker_id",
+)
+_CONTROL_FIELDS = (
+    "control_applied_command", "control_source_raw_frame", "control_source_obs_id",
+    "control_chunk_index", "control_reward", "control_done",
 )
 def _parkour_dagger_shard_dir(
     output_dir: Path | str,
@@ -55,10 +63,14 @@ def write_parkour_dagger_shard(
 ) -> Path:
     """Atomically commit one numeric NPZ + MP4 Parkour DAgger shard.
 
-    ``arrays`` must contain the three numeric fields named by
-    ``_NUMERIC_FIELDS``.
+    Issued H40 episodes retain admission metadata and the complete raw control
+    trace. Control arrays have one row per raw frame, not per admitted anchor;
+    source/index -1 denotes a noop. Only admitted anchors enter LeRobot.
     """
     payload = {name: arrays[name] for name in _NUMERIC_FIELDS}
+    if arrays["action"].ndim == 3:
+        payload.update({name: arrays[name] for name in _ISSUED_FIELDS})
+        payload.update({name: arrays[name] for name in _CONTROL_FIELDS})
     if "raw_reward" in arrays:
         payload["raw_reward"] = arrays["raw_reward"]
     payload["image_shape"] = arrays["image_shape"]
@@ -93,6 +105,8 @@ def _iter_parkour_dagger_shards(
     for shard_dir in _shard_dirs(output_dir, split):
         with np.load(shard_dir / "episode.npz", allow_pickle=False) as payload:
             arrays = {name: payload[name] for name in _NUMERIC_FIELDS}
+            if arrays["action"].ndim == 3:
+                arrays.update({name: payload[name] for name in _ISSUED_FIELDS})
             if "raw_reward" in payload.files:
                 arrays["raw_reward"] = payload["raw_reward"]
             arrays["image_shape"] = payload["image_shape"]
@@ -107,7 +121,12 @@ def _episode_table(
     import pyarrow as pa
 
     row_count = arrays["state"].shape[0]
+    action = np.asarray(arrays["action"])
+    actor_observation = np.asarray(arrays["actor_observation"])
+    termination = np.asarray(arrays["termination"])
+    issued_chunk = action.ndim == 3
     image_type = pa.struct([("bytes", pa.binary()), ("path", pa.string())])
+    action_key = "issued_command_chunk" if issued_chunk else "action"
     columns = {
         "observation.image": pa.array(
             [{"bytes": None, "path": None} for _ in range(row_count)],
@@ -117,19 +136,26 @@ def _episode_table(
             arrays["state"].tolist(),
             type=pa.list_(pa.float32(), PARKOUR_VLA_STATE_DIM),
         ),
-        "action": pa.array(
-            arrays["action"].tolist(),
-            type=pa.list_(pa.float32(), PARKOUR_VLA_ACTION_DIM),
+        action_key: pa.array(
+            action.tolist(),
+            type=(
+                pa.list_(
+                    pa.list_(pa.float32(), PARKOUR_VLA_ACTION_DIM),
+                    action.shape[1],
+                )
+                if issued_chunk
+                else pa.list_(pa.float32(), PARKOUR_VLA_ACTION_DIM)
+            ),
         ),
         "termination": pa.array(
-            arrays["termination"].tolist(),
-            type=pa.list_(pa.bool_(), PARKOUR_CONTROL_REPEAT),
+            termination.tolist(),
+            type=pa.list_(pa.bool_(), termination.shape[1]),
         ),
         "actor_observation": pa.array(
-            arrays["actor_observation"].tolist(),
+            actor_observation.tolist(),
             type=pa.list_(
                 pa.list_(pa.float32(), PARKOUR_ACTOR_OBSERVATION_DIM),
-                PARKOUR_CONTROL_REPEAT,
+                actor_observation.shape[1],
             ),
         ),
         "timestamp": pa.array(
@@ -144,16 +170,20 @@ def _episode_table(
         ),
         "task_index": pa.array([0 for _ in range(row_count)], type=pa.int64()),
     }
+    if issued_chunk:
+        columns.update({name: pa.array(arrays[name]) for name in _ISSUED_FIELDS})
     if include_bootstrap_fields:
         done = np.zeros(row_count, dtype=bool)
         done[-1] = True
         columns.update(
             {
                 "latency": pa.array(
-                    np.zeros(row_count, dtype=np.int64), type=pa.int64()
+                    arrays["latency_ms"] if issued_chunk else np.zeros(row_count, dtype=np.int64)
                 ),
                 "latency_raw_frames": pa.array(
-                    np.zeros(row_count, dtype=np.int64), type=pa.int64()
+                    arrays["ready_raw_frame"] - arrays["issued_raw_frame"]
+                    if issued_chunk else np.zeros(row_count, dtype=np.int64),
+                    type=pa.int64(),
                 ),
                 "done": pa.array(done, type=pa.bool_()),
                 "reward": pa.array(arrays["raw_reward"], type=pa.float32()),
@@ -171,8 +201,12 @@ def _write_info(
     episode_lengths: list[int],
     image_shape: tuple[int, int, int],
     include_bootstrap_fields: bool,
+    action_shape: tuple[int, ...],
+    actor_observation_shape: tuple[int, ...],
+    termination_shape: tuple[int, ...],
 ) -> None:
     height, width, channels = image_shape
+    action_key = "issued_command_chunk" if len(action_shape) == 2 else "action"
     features = {
         "observation.image": {
             "dtype": "video",
@@ -196,24 +230,24 @@ def _write_info(
                 f"parkour_proprio_{index}" for index in range(PARKOUR_VLA_STATE_DIM)
             ],
         },
-        "action": {
+        action_key: {
             "dtype": "float32",
-            "shape": [PARKOUR_VLA_ACTION_DIM],
+            "shape": list(action_shape),
             "names": list(GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.labels),
         },
         "termination": {
             "dtype": "mask",
-            "shape": [PARKOUR_CONTROL_REPEAT],
+            "shape": list(termination_shape),
         },
         "actor_observation": {
             "dtype": "float32",
-            "shape": [PARKOUR_CONTROL_REPEAT, PARKOUR_ACTOR_OBSERVATION_DIM],
+            "shape": list(actor_observation_shape),
             "names": [
                 [
                     f"actor_observation_{index}"
                     for index in range(PARKOUR_ACTOR_OBSERVATION_DIM)
                 ]
-                for _ in range(PARKOUR_CONTROL_REPEAT)
+                for _ in range(actor_observation_shape[0])
             ],
         },
         "timestamp": {"dtype": "float64", "shape": [1]},
@@ -222,7 +256,13 @@ def _write_info(
         "task_index": {"dtype": "int64", "shape": [1]},
     }
     if include_bootstrap_fields:
-        features["latency"] = {"dtype": "int64", "shape": [1]}
+        features["latency"] = {
+            "dtype": "float64" if len(action_shape) == 2 else "int64", "shape": [1]
+        }
+    if len(action_shape) == 2:
+        features.update({name: {
+            "dtype": "float64" if name == "latency_ms" else "int64", "shape": [1],
+        } for name in _ISSUED_FIELDS})
     info = {
         "codebase_version": "v2.0",
         "fps": _DATASET_FPS,
@@ -279,6 +319,9 @@ def _convert_split(
         shutil.rmtree(output_dir)
     episode_lengths: list[int] = []
     image_shape: tuple[int, int, int] | None = None
+    action_shape: tuple[int, ...] | None = None
+    actor_observation_shape: tuple[int, ...] | None = None
+    termination_shape: tuple[int, ...] | None = None
     for episode_index, (arrays, source_video) in enumerate(
         _iter_parkour_dagger_shards(raw_dir, split)
     ):
@@ -300,6 +343,11 @@ def _convert_split(
         video_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source_video, video_path)
         image_shape = tuple(arrays["image_shape"].tolist())
+        action_shape = tuple(np.asarray(arrays["action"]).shape[1:])
+        actor_observation_shape = tuple(
+            np.asarray(arrays["actor_observation"]).shape[1:]
+        )
+        termination_shape = tuple(np.asarray(arrays["termination"]).shape[1:])
         episode_lengths.append(arrays["state"].shape[0])
     if image_shape is None:
         raise ValueError(f"Parkour DAgger split {split!r} has no committed shards")
@@ -308,17 +356,24 @@ def _convert_split(
         episode_lengths=episode_lengths,
         image_shape=image_shape,
         include_bootstrap_fields=include_bootstrap_fields,
+        action_shape=action_shape,
+        actor_observation_shape=actor_observation_shape,
+        termination_shape=termination_shape,
     )
     _write_official_gr00t_modality(
         output_dir,
         PARKOUR_VLA_STATE_DIM,
         PARKOUR_VLA_ACTION_DIM,
+        action_key=("issued_command_chunk" if len(action_shape) == 2 else "action"),
     )
     return {
         "dataset_name": output_dir.name,
         "split": split,
         "episodes": len(episode_lengths),
         "frames": int(sum(episode_lengths)),
+        "action_shape": list(action_shape),
+        "termination_shape": list(termination_shape),
+        "actor_observation_shape": list(actor_observation_shape),
     }
 
 
@@ -369,11 +424,10 @@ def convert_parkour_dagger_shards_to_lerobot(
         "action_labels": list(GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.labels),
         "action_dim": PARKOUR_VLA_ACTION_DIM,
         "state_dim": PARKOUR_VLA_STATE_DIM,
-        "termination_shape": [PARKOUR_CONTROL_REPEAT],
-        "actor_observation_shape": [
-            PARKOUR_CONTROL_REPEAT,
-            PARKOUR_ACTOR_OBSERVATION_DIM,
-        ],
+        "official_action_horizon": PARKOUR_ACTION_HORIZON,
+        "termination_shape": train_manifest["termination_shape"],
+        "actor_observation_shape": train_manifest["actor_observation_shape"],
+        "action_shape": train_manifest["action_shape"],
     }
     bootstrap_contract = None
     if video_shards:
@@ -399,7 +453,7 @@ def convert_parkour_dagger_shards_to_lerobot(
             "state_labels": state_labels,
             "state_normalization": None,
             "official_embodiment_tag": "NEW_EMBODIMENT",
-            "official_action_horizon": 1,
+            "official_action_horizon": PARKOUR_ACTION_HORIZON,
             "official_modality_config": (
                 "latency_bench/policy/official_gr00t_parkour_modality.py"
             ),
@@ -433,11 +487,9 @@ def convert_parkour_dagger_shards_to_lerobot(
             ),
             "action_dim": PARKOUR_VLA_ACTION_DIM,
             "state_dim": PARKOUR_VLA_STATE_DIM,
-            "termination_shape": [PARKOUR_CONTROL_REPEAT],
-            "actor_observation_shape": [
-                PARKOUR_CONTROL_REPEAT,
-                PARKOUR_ACTOR_OBSERVATION_DIM,
-            ],
+            "termination_shape": val_manifest["termination_shape"],
+            "actor_observation_shape": val_manifest["actor_observation_shape"],
+            "action_shape": val_manifest["action_shape"],
             **bootstrap_contract,
             "training_dataset_name": train_manifest["dataset_name"],
         }
@@ -454,5 +506,6 @@ def convert_parkour_dagger_shards_to_lerobot(
 __all__ = [
     "convert_parkour_dagger_shards_to_lerobot",
     "write_parkour_dagger_shard",
+    "PARKOUR_ACTION_HORIZON",
     "PARKOUR_ACTOR_OBSERVATION_DIM",
 ]

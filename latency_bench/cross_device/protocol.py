@@ -6,6 +6,7 @@ from pathlib import Path
 from latency_bench.core.config import load_config
 from latency_bench.cross_device.profile_resolver import (
     list_remote_profiles,
+    resolve_model_artifacts,
     resolve_remote_profile,
 )
 from latency_bench.cross_device.runner import (
@@ -26,6 +27,13 @@ def main(argv: list[str] | None = None) -> None:
 
     run = commands.add_parser("run", help="measure and fit one profile")
     _add_preset(run)
+    source = run.add_mutually_exclusive_group()
+    source.add_argument("--model-path", type=Path)
+    source.add_argument(
+        "--hf-artifacts",
+        action="store_true",
+        help="resolve the Hugging Face artifact coordinates instead of local defaults",
+    )
     run.add_argument("--resume", metavar="RUN_ID", type=_path_segment)
     run.add_argument("--publish", action="store_true")
 
@@ -36,13 +44,11 @@ def main(argv: list[str] | None = None) -> None:
     listing.add_argument("--model")
     listing.add_argument("--gpu")
     listing.add_argument("--workload")
-    listing.add_argument("--hf-commit", default="main")
 
     resolve = commands.add_parser("resolve", help="download one exact published profile")
     _add_preset(resolve)
     resolve.add_argument("--gpu", type=_path_segment)
     resolve.add_argument("--instance", type=_path_segment)
-    resolve.add_argument("--hf-commit", default="main")
 
     simulate = commands.add_parser("simulate", help="replay one exact published profile")
     _add_preset(simulate)
@@ -50,11 +56,10 @@ def main(argv: list[str] | None = None) -> None:
     simulate.add_argument("--instance", type=_path_segment, required=True)
     simulate.add_argument(
         "--method",
-        choices=("temporal", "iid", "fixed", "normal"),
+        choices=("zero", "temporal", "iid", "fixed", "normal"),
         required=True,
     )
     simulate.add_argument("--seeds", type=int, nargs="+", required=True)
-    simulate.add_argument("--hf-commit", default="main")
     simulate.add_argument("--publish", action="store_true")
 
     args = parser.parse_args(argv)
@@ -62,7 +67,6 @@ def main(argv: list[str] | None = None) -> None:
         registry = load_config(REGISTRY_PATH)
         refs = list_remote_profiles(
             registry,
-            hf_commit=args.hf_commit,
             model_id=args.model,
             gpu_class=args.gpu,
             workload_id=args.workload,
@@ -73,6 +77,9 @@ def main(argv: list[str] | None = None) -> None:
 
     spec = load_profile_spec(REGISTRY_PATH, args.model, args.workload)
     if args.command == "run":
+        spec = resolve_model_artifacts(
+            spec, model_path=args.model_path, hf_artifacts=args.hf_artifacts
+        )
         result = run_profile(spec, resume_run_id=args.resume, publish=args.publish)
         _print_result(result)
     elif args.command == "publish":
@@ -88,15 +95,13 @@ def main(argv: list[str] | None = None) -> None:
         else:
             gpu_class = args.gpu
             instance_id = args.instance
-        ref, profile_path, resolved_commit = resolve_remote_profile(
+        ref, profile_path = resolve_remote_profile(
             spec,
             gpu_class=gpu_class,
             instance_id=instance_id,
-            hf_commit=args.hf_commit,
         )
         print(f"PROFILE_REF={ref.as_posix()}")
         print(f"PROFILE_PATH={profile_path}")
-        print(f"HF_COMMIT={resolved_commit}")
     else:
         result = run_simulation(
             spec,
@@ -104,7 +109,6 @@ def main(argv: list[str] | None = None) -> None:
             instance_id=args.instance,
             method=args.method,
             latency_seeds=args.seeds,
-            hf_commit=args.hf_commit,
             publish=args.publish,
         )
         _print_result(result)

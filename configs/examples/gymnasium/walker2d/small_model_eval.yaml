@@ -1,28 +1,29 @@
-__base__: small_model_train.yaml
-backend:
-  run_mode: eval
-policy:
-  type: gymnasium_sf
-  checkpoint_path: ''
-  checkpoint_kind: latest
-  device: cuda
-  deterministic: true
-evaluation:
-  eval_episodes: 10
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-  eval_deterministic: true
-  eval_latency_values:
-  - 0
-  - 1
-  - 2
-  - 3
-  - 4
+__base__: small_model_eval_sf_official_10m.yaml
+
+experiment:
+  name: gymnasium_walker2d_small_model_eval
+
+env:
+  task_name: walker2d
+  state_space:
+    labels:
+      - torso_height
+      - torso_angle
+      - right_thigh_angle
+      - right_leg_angle
+      - right_foot_angle
+      - left_thigh_angle
+      - left_leg_angle
+      - left_foot_angle
+      - torso_x_velocity
+      - torso_z_velocity
+      - torso_angular_velocity
+      - right_thigh_angular_velocity
+      - right_leg_angular_velocity
+      - right_foot_angular_velocity
+      - left_thigh_angular_velocity
+      - left_leg_angular_velocity
+      - left_foot_angular_velocity
+
 logging:
-  output_dir: /mnt/data/latency-sensitive-bench/walker2d/continuous_small_model_eval
-  video:
-    enabled: true
-    num_bins: 1
-  save_step_records: true
-  save_action_records: true
-  save_latency_records: true
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/walker2d/small_model_eval

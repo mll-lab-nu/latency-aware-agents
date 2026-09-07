@@ -317,7 +317,7 @@ def test_cuda_extensions_build_script_is_executable_bash():
     assert "load_cule_atari_extension" in text
     assert "torch.cuda.synchronize" in text
     assert 'export CUDA_HOME="${CONDA_PREFIX}"' in text
-    assert 'export TORCH_CUDA_ARCH_LIST="9.0;12.0"' in text
+    assert 'export TORCH_CUDA_ARCH_LIST="8.6;9.0;12.0"' in text
     assert "--list-gpu-code" not in text
     assert "detect_gpu_compute_cap" not in text
 
@@ -892,7 +892,7 @@ exit 0
         assert removed not in log
 
 
-def test_starvla_flash_attn_is_fixed_source_build(tmp_path):
+def test_starvla_flash_attn_uses_pinned_community_wheel(tmp_path):
     helper_path = (
         REPO_ROOT
         / "third_party"
@@ -907,8 +907,7 @@ def test_starvla_flash_attn_is_fixed_source_build(tmp_path):
     fake_python.write_text(
         """#!/usr/bin/env bash
 set -euo pipefail
-printf 'CUDA_HOME=%s TORCH_CUDA_ARCH_LIST=%s FLASH_ATTN_CUDA_ARCHS=%s ARGS=%s\\n' \
-  "${CUDA_HOME}" "${TORCH_CUDA_ARCH_LIST}" "${FLASH_ATTN_CUDA_ARCHS}" "$*" \
+printf 'CUDA_HOME=%s ARGS=%s\\n' "${CUDA_HOME}" "$*" \
   >> "${PYTHON_FAKE_LOG}"
 if [[ "${1:-}" == "-" ]]; then
   cat >/dev/null
@@ -920,7 +919,7 @@ fi
     fake_python.chmod(0o755)
     fake_cuobjdump = tmp_path / "cuobjdump"
     fake_cuobjdump.write_text(
-        "#!/usr/bin/env bash\nprintf '%s\\n' 'sm_90' 'sm_120'\n",
+        "#!/usr/bin/env bash\nprintf '%s\\n' 'sm_80' 'sm_90' 'sm_120'\n",
         encoding="utf-8",
     )
     fake_cuobjdump.chmod(0o755)
@@ -942,12 +941,10 @@ fi
 
     assert result.returncode == 0, result.stderr
     log = fake_log.read_text(encoding="utf-8")
-    assert "TORCH_CUDA_ARCH_LIST=9.0;12.0" in log
-    assert "FLASH_ATTN_CUDA_ARCHS=90;120" in log
     assert (
-        "ARGS=-m pip install flash-attn==2.8.3.post1 "
-        "--force-reinstall --no-cache-dir --no-binary=flash-attn "
-        "--no-build-isolation --no-deps"
+        "flash_attn-2.8.3%2Bcu12torch2.11cxx11abiTRUE-cp310-cp310-linux_x86_64.whl"
+        "#sha256=9001c730642cdc1ea44ed8130b0dc80e763519d6efc01e4de44b0700a0dfa13d "
+        "--force-reinstall --no-deps"
     ) in log
     helper_source = helper_path.read_text(encoding="utf-8")
     assert "fall back to sdpa" not in helper_source
@@ -1045,23 +1042,11 @@ def test_starvla_rl_games_hfd_raw_download_convert_dry_run_defaults_to_all_datas
     assert "latency-sensitive-bench/deadly_corridor_fixed_l2_fs6" in result.stdout
 
 
-@pytest.mark.parametrize(
-    ("model", "expected_environment"),
-    [("pi05", "starvla_rl_games_pi05"), ("official_gr00t", "latency_prefix")],
-)
-def test_profile_launcher_activates_selected_model_environment(
-    tmp_path, model, expected_environment
-):
-    prefix = tmp_path / "conda"
+@pytest.mark.parametrize("model", ["pi05", "qwenoft", "official_gr00t"])
+def test_profile_launcher_uses_current_python_environment(tmp_path, model):
     fake_bin = tmp_path / "bin"
     calls_path = tmp_path / "calls.log"
-    conda_bin = fake_bin / "conda"
-    _write_fake_conda_installation(
-        prefix,
-        conda_bin,
-        calls_path,
-        latency_env_exists=model == "official_gr00t",
-    )
+    fake_bin.mkdir()
     _write_executable(
         fake_bin / "python",
         """#!/usr/bin/env bash
@@ -1094,18 +1079,30 @@ printf 'start_method=%s\\n' "${LATENCY_BENCH_ENV_BACKEND_START_METHOD:-}" >> "$L
 
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
-    expected_environment = (
-        str(prefix / "envs" / "latency")
-        if expected_environment == "latency_prefix"
-        else expected_environment
-    )
-    assert f"conda activate {expected_environment}" in calls
+    assert "conda activate" not in calls
     assert (
         "python -m latency_bench.cross_device.protocol "
         f"list --model {model} --workload flappy"
     ) in calls
-    if model == "official_gr00t":
-        assert "start_method=spawn" in calls
+    assert "start_method=spawn" in calls
+
+
+@pytest.mark.parametrize("task", [
+    "haic_pull_cart", "extreme_parkour_go2", "humanoidbench_balance_simple",
+])
+def test_task_profile_launcher_preserves_explicit_artifact_source(tmp_path, task):
+    _write_executable(tmp_path / "bash", "#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
+    _write_executable(tmp_path / "uv", "#!/bin/sh\nexit 0\n")
+    for source_args in (["--hf-artifacts"], ["--model-path", "/models/exact"]):
+        result = subprocess.run(
+            ["/bin/bash", str(REPO_ROOT / "scripts/tasks" / task / "profile.sh"),
+             *source_args],
+            env=os.environ | {"PATH": f"{tmp_path}:{os.environ['PATH']}"},
+            capture_output=True, text=True, check=True,
+        )
+        forwarded = result.stdout.splitlines()
+        assert forwarded[-len(source_args):] == source_args
+        assert forwarded.count("--model-path") == source_args.count("--model-path")
 
 
 

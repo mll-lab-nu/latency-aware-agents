@@ -45,6 +45,45 @@ def test_g1_sonic_manifest_defines_jobs_and_acceptance_contracts():
     assert by_name[RUN_TEACHER]["source"] == "reference_playback"
 
 
+def test_export_parser_overrides_selected_checkpoint_path(tmp_path, monkeypatch):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "teachers": [
+                    {
+                        "name": "balance",
+                        "task": "g1_sonic_balance_simple",
+                        "source": "checkpoint",
+                        "checkpoint": "old.pth",
+                    }
+                ]
+            }
+        )
+    )
+
+    captured = {}
+    monkeypatch.setattr(
+        export_g1_sonic_gr00t,
+        "export_checkpoint_teacher",
+        lambda **kwargs: captured.update(kwargs) or {},
+    )
+    export_g1_sonic_gr00t.main(
+        [
+            "--manifest",
+            str(manifest),
+            "--output-root",
+            str(tmp_path / "output"),
+            "--teacher",
+            "balance",
+            "--checkpoint",
+            str(tmp_path / "accepted.pth"),
+            "--no-convert",
+        ]
+    )
+    assert captured["job"]["checkpoint"] == str(tmp_path / "accepted.pth")
+
+
 def test_g1_sonic_manifest_derives_output_dirs_and_applies_gates():
     raw, official = _job_dirs(Path("outputs"), "teacher")
     assert raw == Path("outputs/teacher/raw")

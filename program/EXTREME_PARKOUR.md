@@ -1,5 +1,20 @@
 # Extreme Parkour Isaac Lab / Go2 zero-delay baseline 执行手册
 
+新机器的完整环境安装以 [QUICK_START.md](../docs/QUICK_START.md) 为准。本文的服务器路径与驱动修复保留为运行记录；四模型连续 state H1 流水线见 [SCALE_MODELS.md](SCALE_MODELS.md)。
+
+## Latency command-RL 全链入口
+
+```bash
+.venv/bin/python -m scripts.tasks.extreme_parkour_go2.run_latency_pipeline \
+  --config configs/training/parkour_latency_pipeline.yaml
+```
+
+从仓库根目录运行；依次执行 profile、原生 PPO command teacher、issued-H40 数据、
+GR00T flow + frozen-actor auxiliary 训练及原/新 VLA zero/profile 对照。
+短训使用 `parkour_latency_pipeline_smoke.yaml`；复用测量时显式传 `--profile-path /absolute/path/profile.json`。
+这条 latency 路线保存一次决策的 `[40,34]` latent+yaw，并使用 predicted-yaw 消费语义；
+下文零延迟 DAgger/MTS 保留独立契约。证据与恢复方法见 [latency handoff](LATENCY_RL_HANDOFF.md)。
+
 > 任务：`Isaac-Extreme-Parkour-{Teacher,Student}-Unitree-Go2-v0`
 >
 > Isaac Sim：5.0.0；PyTorch：2.7.0 + cu128
@@ -7,11 +22,12 @@
 > 首个 adaptive-LR teacher正式 run 已确认 collapse，并在 iteration 1418 停止；fixed-LR teacher 已通过 iteration
 > 100/300/1000 门禁并正常完成 15k；Teacher evaluation 已通过。
 > 34D terrain-latent+yaw VLA 的 RGB collector、LeRobot/GR00T 数据转换、5k 训练入口和
-> zero-delay evaluator 已实现；单卡 8-env oracle、1+1 episode 数据、1-step GR00T 训练及
-> 闭环推理 smoke、旧 latent-only 正式 250/25 bootstrap 和 5k SFT 已完成；旧 latent-only DAgger 在
-> `0.245 -> 0.088` 后确认没有直接约束最终 motor action。action+yaw objective、完整 5×50 Hz
-> actor observation、fresh action+yaw bootstrap 和固定 50/50 replay 已实现；下一次先训练
-> action+yaw bootstrap，再只执行 round 0。
+> zero-delay evaluator 已实现；固定-LR teacher 已通过，旧 latent-only bootstrap/SFT/DAgger
+> 仅作为历史证据。action+yaw objective、完整 5×50 Hz actor observation、fresh bootstrap
+> 和固定 50/50 replay 已实现；当前 task-owned 入口默认执行 SFT 及 round 0--9。
+
+读者复现入口见 [`docs/extreme_parkour/cookbook.md`](../docs/extreme_parkour/cookbook.md)，跨任务阶段契约见
+[`docs/standard_pipeline.md`](../docs/standard_pipeline.md)。
 
 ## 1. 目标与实验口径
 
@@ -42,8 +58,9 @@ privileged teacher、depth student 和 `parkour` / `hurdle` / `step` / `gap` 等
 - training seed：base seed 1；DDP rank 0/1 的 environment seed 分别是 1/2。
 - teacher PPO：fixed learning rate `2e-4`；不启用 KL-adaptive learning-rate schedule。
 - evaluation：沿用社区 `evaluation.py`，不另造 evaluator 或 A1 成功率口径。
-- latency integration：本轮不接 `latency_bench` wrapper；后续只从本仓库 scheduler/executor
-  注入 latency。
+- latency integration：task-owned profile entrypoint 已注入本仓库 scheduler/executor。拟合样本从
+  `env.observe()` 到 inference parent 收到 34D（32D terrain latent + 2D yaw）action chunk；冻结
+  actor 生成 12D motor action及后续 simulator step 不进入 profile。
 
 ### 1.1 作者官方 A1 参考配置
 
@@ -163,41 +180,12 @@ student:   96 env/rank * 2 =  192 total
 
 ## 5. 环境安装
 
-环境独立位于 `/pfs/users/lxy/conda/envs/extreme-parkour`：
+新机器按 [QUICK_START.md §5](../docs/QUICK_START.md#5-extreme-parkour) 安装命名环境 `extreme-parkour`。
+固定组合是 Python 3.11、Torch 2.7.0+cu128、Isaac Sim 5.0.0 和仓库内 IsaacLab v2.2.0。
+HAIC 使用独立的 IsaacLab v2.3.2 checkout，不要为 HAIC 切换这里的 editable 源码版本。
 
-```bash
-export PARKOUR_ROOT=/pfs/users/lxy/latency-sensitive-bench
-export PARKOUR_ENV=/pfs/users/lxy/conda/envs/extreme-parkour
-export PARKOUR_PY="${PARKOUR_ENV}/bin/python"
-
-conda create -p "${PARKOUR_ENV}" python=3.11 -y
-"${PARKOUR_PY}" -m pip install --upgrade pip
-"${PARKOUR_PY}" -m pip install setuptools==80.9.0
-"${PARKOUR_PY}" -m pip install --no-build-isolation flatdict==4.0.1
-"${PARKOUR_PY}" -m pip install \
-  torch==2.7.0 torchvision==0.22.0 \
-  --index-url https://download.pytorch.org/whl/cu128
-"${PARKOUR_PY}" -m pip install 'isaacsim[all,extscache]==5.0.0' \
-  --extra-index-url https://pypi.nvidia.com
-
-TERM=xterm OMNI_KIT_ACCEPT_EULA=YES conda run -p "${PARKOUR_ENV}" \
-  bash -lc "cd '${PARKOUR_ROOT}/third_party/IsaacLab' && ./isaaclab.sh -i rsl_rl"
-"${PARKOUR_PY}" -m pip install --no-build-isolation --no-deps -e \
-  "${PARKOUR_ROOT}/third_party/Isaaclab_Parkour"
-"${PARKOUR_PY}" -m pip install --no-build-isolation -e \
-  "${PARKOUR_ROOT}/third_party/Isaaclab_Parkour/parkour_tasks"
-conda install -p "${PARKOUR_ENV}" libglu=9.0.3 -y
-"${PARKOUR_PY}" -m pip install \
-  click==8.1.7 psutil==5.9.8 typing_extensions==4.12.2
-```
-
-Isaac Sim 首次启动需要接受 NVIDIA EULA，并可能下载 extension cache。非交互运行前：
-
-```bash
-export OMNI_KIT_ACCEPT_EULA=YES
-```
-
-不要用系统 Python 3.14，也不要让 `uv` 重新解析为其他 Torch/Isaac Sim 版本。
+以下历史运行记录使用 `/pfs/users/lxy/conda/envs/extreme-parkour`；新机器将
+`PARKOUR_ROOT`、`PARKOUR_ENV` 和 `PARKOUR_PY` 替换为自己的安装路径。
 
 ## 6. Preflight 和 smoke
 
@@ -398,7 +386,7 @@ PYTHONPATH="${REPO_ROOT}" OMNI_KIT_ACCEPT_EULA=YES \
 cd "${REPO_ROOT}"
 uv run --project . python scripts/official_gr00t/prepare_parkour_dataset.py \
   outputs/official_gr00t/extreme_parkour_go2_action_data/raw \
-  outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot \
+  outputs/official_gr00t/extreme_parkour_go2_action_data/lerobot_h40_semantic_stats \
   --video-shards
 ```
 
@@ -409,12 +397,13 @@ model output dimension 直接失败，不使用别名、零 state 或其他 fall
 ### 11.3 旧 latent-only GR00T 5k 与最终闭环评测
 
 已完成的 latent bootstrap 使用 fresh `GR00T-N1.7-3B`、2 GPUs、global batch 128、LR `1e-4`、
-H1、5k steps、one-step regression、vision tuning、BF16、action/state dropout 0。以下是历史
-复现入口；它只保留为历史结果，section 12 不再加载或续训该 checkpoint：
+H1、5k steps、one-step regression、vision tuning、BF16、action/state dropout 0。该结果只保留
+作历史证据，section 12 不再加载或续训该 checkpoint；旧 shell wrapper 已删除，当前入口为：
 
 ```bash
 cd "${REPO_ROOT}"
-bash scripts/bash_scripts/train_go2_parkour_vla_5k.sh
+bash scripts/tasks/extreme_parkour_go2/train_vla.sh \
+  /absolute/path/to/model_14999.pt --end-round 0
 ```
 
 最终 evaluator 在 Isaac GPU 与独立 GR00T Python worker 之间复用现有 inference pool；50 个
@@ -476,6 +465,11 @@ predicted yaw，否则使用整对 GT yaw；最终 eval 始终使用 predicted y
 L2；仓库中虽保留 latent loss 函数，但 runner 调用被注释，没有启用 latent matching。本项目冻结
 actor 是为隔离 VLA 修正而采用的简化版本，不等同于论文中可训练的完整 student actor。
 
+GR00T action head 固定输出 H40。训练使用官方 random-t velocity-MSE，只调用一次 denoiser，
+并在该次预测的 clean endpoint 上增加冻结 actor action L2 与 yaw L2；总 loss 为两者之和。
+inference 从 fresh Gaussian 出发调用官方默认 4-step Euler sampler，一次 policy call 只编码一次
+RGB/state，四次 denoise 复用同一组 backbone features。
+
 ### 12.1 有界 DAgger 预算
 
 原配置每个 iteration 是 `192 envs × 120 control steps = 23,040` 个 50 Hz transitions；depth
@@ -508,30 +502,32 @@ shard 是 `episode.npz + episode.mp4`，不落逐帧 PNG；numeric payload 保�
 block 为全部环境刷新 VLA；block 中 reset 的环境立即刷新，避免 per-env phase 锁相后退出采样池。
 reset observation 同时从新 root pose 和新 goals 立即重算 wrapped GT yaw，不复用上一 episode 缓存。
 LeRobot parquet 直接保留这些诊断列，
-并逐字节复制由 bootstrap 数据现有 fingerprint-aware stats 流程生成的固定 normalization
-stats，DAgger round 不重新计算 stats。
+并逐字节复制 bootstrap 的固定 normalization stats，DAgger round 不重新计算 stats。Parkour
+action 使用语义范围：32D terrain latent 为 `[-1,1]`，两维 yaw 为
+`[-pi/1.5,pi/1.5]`；不再用 bootstrap 样本偶然观察到的 yaw min/max 裁剪标签。
 
 默认仍由 GPU 0 运行 Isaac Sim、GPU 1 运行一个 GR00T worker。双 worker A/B 显式重复
 `--inference-device`，例如 `--inference-device cuda:0 --inference-device cuda:1`；collector
 按全局 env slot 固定 worker affinity，不在不同请求或 reset 后迁移 slot。正式使用双 worker
 前先以相同 row budget 比较外部 wall time，未达到 20% 提升则保留默认单 worker。
 
-旧 latent-only `checkpoint-5000` 不再作为初始化。以下入口先用上节重新采集的 action-rich
+旧 latent-only `checkpoint-5000` 不再作为初始化。当前读者入口先用上节重新采集的 action-rich
 bootstrap dataset，从 GR00T base fresh 训练 5k action+yaw bootstrap；随后在 env 1 执行 step-0
-baseline，再只执行 round 0 的 192-env 采集、转换、
-500-step action+yaw 训练和 seed-2 固定评测。每个 eval 使用 50 个并行环境、严格统计 100 个 episode，单 episode
-最多 1,500 control steps：
+baseline，并默认执行 round 0--9 的 192-env 采集、转换、500-step action+yaw 训练和 seed-2
+固定评测。每个 eval 使用 50 个并行环境、严格统计 100 个 episode，单 episode 最多 1,500
+control steps：
 
 ```bash
 cd /pfs/users/lxy/latency-sensitive-bench
-uv run --project . python scripts/official_gr00t/train_parkour_dagger.py \
-  --run-bootstrap
+bash scripts/tasks/extreme_parkour_go2/train_vla.sh \
+  /absolute/path/to/model_14999.pt
 ```
 
-step-0 结果保存为 `round_00/eval_before/vla-eval.json`。每次 round eval 都把 `reward`、`episode_length`、`normalized_waypoint_progress` 和
+step-0 结果保存为 `bootstrap/vla_eval/vla-eval.json`。每次 round eval 都把 `reward`、`episode_length`、`normalized_waypoint_progress` 和
 `edge_violation` 的 mean/std 写入同一个 W&B run 的 `dagger_eval/*` namespace，并以
-`train/global_step=0, 500` 对齐。默认 `--end-round 1`；只有 round 0 明确改善后，才用
-`--start-round 1 --end-round 2` 启动下一轮。round 边界中断
+`train/global_step=0, 500, ..., 5000` 对齐。默认执行 `--end-round 10`；仅做 SFT 时使用
+`--end-round 0`，续跑时用
+task-owned wrapper 使用 `--resume --start-round N --end-round 10` 启动剩余轮次。round 边界中断
 后用 `--start-round N`（零起始）继续；目标
 `checkpoint-{(N+1)*500}/.dagger-round-complete` 已由成功返回的训练子进程原子写入时不会重复训练该
 round。round 内采集中断不能只按 row count
@@ -541,7 +537,7 @@ round。round 内采集中断不能只按 row count
 `training_datasets.json` 和该轮 `lerobot/`；只删除该轮 `raw/`。失败路径不清理，便于定位和续跑。
 旧 current-only DAgger 输出缺少可复用的 round `lerobot/` 和聚合训练 manifest，不能作为该流程的
 resume 根目录；重新跑时使用新的 output root 或先清掉旧 round/checkpoint。
-默认输出根目录是 `outputs/official_gr00t/extreme_parkour_go2_action_yaw_dagger`；fresh bootstrap
+默认输出根目录是 `outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_flow_aux_dagger`；fresh bootstrap
 checkpoint 是 `bootstrap/training/<wandb-run-id>_sft/checkpoint-5000`，round-0 checkpoint 是
 `training/<wandb-run-id>/checkpoint-500`。已有 fresh bootstrap 时可省略 `--run-bootstrap`，或用
 `--bootstrap-checkpoint` 显式指定；旧 latent-only checkpoint 不得传入。
@@ -552,3 +548,7 @@ checkpoint 是 `bootstrap/training/<wandb-run-id>_sft/checkpoint-5000`，round-0
 不能用于 resume 或后续聚合训练。
 随后仍采用 latent-only loss 的一次 run 又从 `0.245` 降到 `0.088`；该结果进一步说明修复
 rollout/eval plumbing 并没有修复监督目标，相关 checkpoint 同样只保留作失败证据。
+
+2026-09-04 的 H40 4-step 可微 sampler run 在约 step 3380 后出现持续梯度爆炸，progress 从
+checkpoint-3000 的 `0.5225` 降至 checkpoint-3500 的 `0.4075`、checkpoint-4000 的
+`0.2925`。该 run 已停止并原样保留；不能 resume 到新的 random-t flow + auxiliary 路径。

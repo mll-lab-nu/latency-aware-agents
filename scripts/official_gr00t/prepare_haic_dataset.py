@@ -28,6 +28,7 @@ def prepare_haic_dataset(
     round_index: int | None = None,
     expected_rows: int | None = None,
     normalization_source: Path | None = None,
+    modality_config: str = MODALITY_CONFIG,
 ) -> dict:
     if dagger and normalization_source is None:
         raise TypeError("--normalization-source is required for --dagger")
@@ -63,7 +64,7 @@ def prepare_haic_dataset(
                 "--embodiment-tag",
                 "NEW_EMBODIMENT",
                 "--modality-config-path",
-                MODALITY_CONFIG,
+                modality_config,
             ],
             cwd=REPO_ROOT,
             check=True,
@@ -80,6 +81,7 @@ def main() -> None:
     parser.add_argument("--round-index", type=int)
     parser.add_argument("--expected-rows", type=int)
     parser.add_argument("--normalization-source", type=Path)
+    parser.add_argument("--modality-config", default=MODALITY_CONFIG)
     args = parser.parse_args()
     manifest = prepare_haic_dataset(
         args.raw_dir.resolve(),
@@ -93,6 +95,7 @@ def main() -> None:
             if args.normalization_source is not None
             else None
         ),
+        modality_config=args.modality_config,
     )
     print(json.dumps(manifest, indent=2, sort_keys=True))
 

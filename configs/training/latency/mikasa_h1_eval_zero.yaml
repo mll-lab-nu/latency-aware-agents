@@ -1,0 +1,4 @@
+__base__: mikasa_h1_eval.yaml
+
+latency:
+  method: zero

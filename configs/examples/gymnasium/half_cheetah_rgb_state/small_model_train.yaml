@@ -1,9 +1,0 @@
-__base__:
-  - ../half_cheetah/small_model_train.yaml
-  - state_contract.yaml
-
-experiment:
-  name: gymnasium_half_cheetah_rgb_state_zero_latency_10m
-
-logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/half_cheetah_rgb_state/small_model_train

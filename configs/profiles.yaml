@@ -48,27 +48,134 @@ models:
     workloads:
       flappy:
         base_config: configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml
-        checkpoint_path: /mnt/data/latency_data/openvla_flappy_fix_latency_2/checkpoints/steps_5000_pytorch_model.pt
+        model_artifact:
+          local_root: /mnt/data/latency_data/openvla_flappy_fix_latency_2
+          checkpoint: checkpoints/steps_5000_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: latency-sensitive-bench/openvla_flappy_fix_latency_2
+          hf_path: .
         checkpoint_kind: best
         session_count: 5
-        n_episodes: 100
+        eval_episodes: 10
         evaluation_seed: 0
         calibrate_env_fps: true
         target_latency_frames: 2
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
+        simulation_gpu: null
         simulation_env:
           simulator: cpu
           use_gpu_render: false
+  qwenoft:
+    workloads:
+      air_raid:
+        base_config: configs/examples/gymnasium/air_raid/starvla_profile.yaml
+        model_artifact:
+          local_root: outputs/models/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k
+          checkpoint: checkpoints/steps_5000_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: latency-sensitive-bench/extra-envs-checkpoints
+          hf_path: OpenVLA/zero-latency/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
+      inverted_pendulum:
+        base_config: configs/examples/gymnasium/inverted_pendulum/starvla_profile.yaml
+        model_artifact:
+          local_root: outputs/models/inverted_pendulum_rgb_state_l0_return_gt900_100ep_openvla_native_sft_2k
+          checkpoint: checkpoints/steps_2000_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: latency-sensitive-bench/extra-envs-checkpoints
+          hf_path: OpenVLA/zero-latency/inverted_pendulum_rgb_state_l0_return_gt900_100ep_openvla_native_sft_2k
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
+      mikasa_intercept_grab_fast:
+        base_config: configs/examples/mikasa/official_starvla_profile.yaml
+        model_artifact:
+          local_root: third_party/starVLA/results/Checkpoints/mikasa_grabfast_h1_gb64_mb8_ga8_expandable
+          checkpoint: checkpoints/steps_5000_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_path: zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-v1
+        checkpoint_kind: best
+        eval_entrypoint: scripts/mikasa/evaluate.py
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 4242424242
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        inference_batch_size: 1
+        simulation_gpu: cuda:0
+        simulation_env: {}
   official_gr00t:
     workloads:
       g1_sonic_balance_simple:
         base_config: configs/examples/gymnasium/g1_sonic_balance_simple/official_gr00t_eval.yaml
-        checkpoint_path: outputs/official_gr00t/g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_frompretrained_bs128_lr1e4_10k_periodic500/checkpoint-10000
-        checkpoint_kind: latest
+        model_artifact:
+          local_root: outputs/official_gr00t/g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_frompretrained_bs128_lr1e4_10k_periodic500/checkpoint-10000
+          checkpoint: .
+          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_path: zero-latency/humanoidbench-balance-simple/vla/gr00t-n1.7-10k-v1
+        checkpoint_kind: best
         session_count: 5
-        n_episodes: 100
+        eval_episodes: 10
         evaluation_seed: 0
         calibrate_env_fps: false
         simulation_parallel_envs: 1
+        simulation_env: {}
+        simulation_gpu: null
+      extreme_parkour_go2:
+        base_config: configs/examples/extreme_parkour/official_gr00t_eval.yaml
+        model_artifact:
+          local_root: outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_flow_aux_dagger/training/extreme_parkour_go2_vla_dagger_action_yaw_h40_official_flow_aux_5k/checkpoint-5000
+          checkpoint: .
+          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_path: zero-latency/extreme-parkour-go2/vla/gr00t-action-yaw-flow-aux-v1
+        runtime_artifact:
+          local_root: third_party/Isaaclab_Parkour/logs/rsl_rl/unitree_go2_parkour/2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k
+          checkpoint: model_14999.pt
+          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_path: zero-latency/extreme-parkour-go2/small-policy/ppo-v1
+        checkpoint_kind: best
+        eval_entrypoint: third_party/Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 2
+        calibrate_env_fps: false
+        simulation_parallel_envs: 50
+        inference_batch_size: 8
+        simulation_gpu: cuda:0
+        simulation_env: {}
+      haic_pull_cart:
+        base_config: configs/examples/haic/official_gr00t_eval.yaml
+        model_artifact:
+          local_root: outputs/official_gr00t/haic_pull_cart_vla_action_h40_dagger/training/haic_pull_cart_vla_dagger_action_h40_official_flow_aux_5k/checkpoint-5000
+          checkpoint: .
+          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_path: zero-latency/haic-pull-cart/vla/gr00t-action-flow-aux-v1
+        runtime_artifact:
+          local_root: outputs/haic/phase1_teacher
+          checkpoint: checkpoint_final.pt
+          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_path: zero-latency/haic-pull-cart/small-policy/ppo-v1
+        checkpoint_kind: best
+        eval_entrypoint: third_party/HAIC/scripts/haic_vla.py
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 0
+        calibrate_env_fps: false
+        simulation_parallel_envs: 100
+        inference_batch_size: 32
+        simulation_gpu: cuda:0
         simulation_env: {}

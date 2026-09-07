@@ -15,6 +15,9 @@
 - `worker available`、`worker busy_until`、`capacity drop` 是由前序 admitted inference 的 service time 和 observation arrival time 推导出的执行状态，不是独立采样量。
 - temporal 必须保留：已有 sim2real 实验表明，IID 打散连续 burst 后可能产生过于乐观的估计；本轮只修正它使用的原始 sequence。
 - 旧 profiling artifacts 和旧 paper results 作为历史快照保留；使用新数据得到的 profile 和 simulated results 需要重新生成，不能与旧结果直接混为一谈。
+- 四个标准 task 已有 task-owned `profile.sh`：训练打印出的 final model path 可以直接传入；本地 root 不存在时按 registry 从 Hugging Face 下载精确 artifact。
+- MIKASA、Parkour、HAIC 的 native simulator 固定使用 logical `cuda:0`，inference worker 使用 `cuda:1..`；Balance 的所有 visible GPU 都用于 inference。
+- `--publish` 只在五个 session 和 profile 构建全部完成后发布 raw run 与 current profile；默认运行不上传。
 
 ## Locked definitions
 
@@ -168,4 +171,5 @@ occupancy 或 capacity drop。需要完整 admission、service 和 drop 语义�
 - Profile builder 已切换到 canonical sequence；distribution schema 为 3，hidden-regime schema 为 12，旧 schema 不提供 compatibility path。
 - 新 manifest 记录 `n_observation_attempts`、`n_admitted_observations` 和 `n_capacity_drops`；per-slot summary 只统计 admitted jobs。
 - 当前聚焦回归：realtime/logging `50 passed`；profile/burst/sampler/cross-device `68 passed`。
+- task pipeline 已接入 MIKASA 双视角 7D direct action、Balance native Gymnasium、Parkour 34D latent+yaw + fixed actor、HAIC 256D latent + frozen actor；每个 preset 都是 5 sessions × 100 episodes。
 - 尚未运行完整的 5×100 profiling 或 sim2real 实验，因此本文档不宣称新的 latency distribution 或 performance result。

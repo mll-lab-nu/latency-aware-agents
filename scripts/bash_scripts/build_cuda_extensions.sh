@@ -8,7 +8,7 @@ cd "${REPO_ROOT}"
 export CUDA_HOME="${CONDA_PREFIX}"
 export PATH="${CUDA_HOME}/bin:${PATH}"
 export LD_LIBRARY_PATH="${CUDA_HOME}/lib:${CUDA_HOME}/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-export TORCH_CUDA_ARCH_LIST="9.0;12.0"
+export TORCH_CUDA_ARCH_LIST="8.6;9.0;12.0"
 
 python - <<'PY'
 import subprocess
@@ -32,6 +32,7 @@ for extension in (flappy_extension, demon_cule_extension):
         ["cuobjdump", "--list-elf", extension.__file__],
         text=True,
     )
+    assert "sm_86" in code_objects, code_objects
     assert "sm_90" in code_objects, code_objects
     assert "sm_120" in code_objects, code_objects
     print(code_objects, flush=True)

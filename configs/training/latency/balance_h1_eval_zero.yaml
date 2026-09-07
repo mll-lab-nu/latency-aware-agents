@@ -1,0 +1,7 @@
+__base__: balance_h1_eval.yaml
+
+latency:
+  method: zero
+
+logging:
+  output_dir: outputs/latency_rl/balance/h1/eval_zero

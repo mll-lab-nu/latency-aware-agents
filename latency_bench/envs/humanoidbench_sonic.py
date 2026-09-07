@@ -193,6 +193,45 @@ _ACTION_SCALE = np.asarray(
     ],
     dtype=np.float64,
 )
+
+
+def g1_absolute_request_from_action(
+    body_action: np.ndarray,
+    hand_action: np.ndarray | None,
+    *,
+    body_joint_ranges: np.ndarray,
+    hand_joint_ranges: np.ndarray,
+    raw_body: bool,
+    absolute_position: bool = False,
+) -> np.ndarray:
+    """Convert one policy command into an absolute request without stateful limiting.
+
+    This is deliberately separate from :meth:`G1SonicEnv._condition_targets`:
+    collectors can label the command at issue time while the environment keeps
+    velocity and acceleration limiting stateful at consumption time.
+    """
+    if absolute_position:
+        body_target_request = body_action
+    elif raw_body:
+        body_target_request = body_joint_ranges[:, 0] + (
+            body_action + 1.0
+        ) * 0.5 * (body_joint_ranges[:, 1] - body_joint_ranges[:, 0])
+    else:
+        body_target_request = G1_DEFAULT_ANGLES + body_action * _ACTION_SCALE
+    if hand_action is None:
+        hand_target_request = np.zeros(14, dtype=np.float64)
+    elif absolute_position:
+        hand_target_request = hand_action
+    else:
+        hand_target_request = hand_joint_ranges[:, 0] + (
+            hand_action + 1.0
+        ) * 0.5 * (hand_joint_ranges[:, 1] - hand_joint_ranges[:, 0])
+    return np.concatenate(
+        [
+            np.clip(body_target_request, body_joint_ranges[:, 0], body_joint_ranges[:, 1]),
+            np.clip(hand_target_request, hand_joint_ranges[:, 0], hand_joint_ranges[:, 1]),
+        ]
+    )
 _KP = np.asarray(
     [
         _STIFFNESS_7520_22,
@@ -792,6 +831,18 @@ class G1SonicEnv(MujocoEnv):
             )
         return q_previous + velocity * self.dt, velocity
 
+    def g1_absolute_request_from_raw_action(self, action: np.ndarray) -> np.ndarray:
+        """Convert normalized MuJoCo-order controls to policy-order joint requests."""
+        action = np.asarray(action, dtype=np.float64).reshape(-1)
+        request = g1_absolute_request_from_action(
+            action[:29],
+            action[29:43] if self._raw_learn_hands else None,
+            body_joint_ranges=self._body_joint_ranges,
+            hand_joint_ranges=self._hand_joint_ranges,
+            raw_body=True,
+        )
+        return np.concatenate([request[:29][MUJOCO_INDEX_FOR_POLICY], request[29:]])
+
     def _condition_targets(
         self,
         body_action_mu: np.ndarray,
@@ -800,37 +851,16 @@ class G1SonicEnv(MujocoEnv):
         raw_body: bool,
         absolute_position: bool = False,
     ) -> tuple[np.ndarray, np.ndarray]:
-        if absolute_position:
-            body_target_request = body_action_mu
-        elif raw_body:
-            body_target_request = self._body_joint_ranges[:, 0] + (
-                body_action_mu + 1.0
-            ) * 0.5 * (self._body_joint_ranges[:, 1] - self._body_joint_ranges[:, 0])
-        else:
-            body_target_request = G1_DEFAULT_ANGLES + body_action_mu * _ACTION_SCALE
-        if hand_action is None:
-            hand_target_request = np.zeros(14, dtype=np.float64)
-        elif absolute_position:
-            hand_target_request = hand_action
-        else:
-            hand_target_request = self._hand_joint_ranges[:, 0] + (
-                hand_action + 1.0
-            ) * 0.5 * (
-                self._hand_joint_ranges[:, 1] - self._hand_joint_ranges[:, 0]
-            )
-        body_request = np.clip(
-            body_target_request,
-            self._body_joint_ranges[:, 0],
-            self._body_joint_ranges[:, 1],
+        request = g1_absolute_request_from_action(
+            body_action_mu,
+            hand_action,
+            body_joint_ranges=self._body_joint_ranges,
+            hand_joint_ranges=self._hand_joint_ranges,
+            raw_body=raw_body,
+            absolute_position=absolute_position,
         )
-        hand_request = np.clip(
-            hand_target_request,
-            self._hand_joint_ranges[:, 0],
-            self._hand_joint_ranges[:, 1],
-        )
-        q_request = np.concatenate([body_request, hand_request])
         q_cmd, v_cmd = self._condition_velocity(
-            q_request,
+            request,
             self._q_cmd,
             self._v_cmd,
             self._joint_ranges,
@@ -839,7 +869,7 @@ class G1SonicEnv(MujocoEnv):
         acceleration = (v_cmd - self._v_cmd) / self.dt
         self._command_tracking_error = float(
             np.mean(
-                np.abs(q_request - q_cmd)
+                np.abs(request - q_cmd)
                 / (self._joint_ranges[:, 1] - self._joint_ranges[:, 0])
             )
         )

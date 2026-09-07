@@ -92,6 +92,8 @@ class StarVlaPolicyRunner(PolicyRunner):
         observation_stride_raw_frames: int,
         model_cfg: Mapping[str, Any] | None = None,
         state_normalization: Mapping[str, Any] | None = None,
+        image_views_info_key: str | None = None,
+        action_output_type: str | None = None,
     ) -> None:
         self._wrapper = wrapper
         self._obs_resize = tuple(obs_resize) if obs_resize else None
@@ -119,6 +121,8 @@ class StarVlaPolicyRunner(PolicyRunner):
         self._include_state = _include_state_from_model_cfg(model_cfg)
         self._state_dim = _state_dim_from_model_cfg(model_cfg) if self._include_state else None
         self._state_normalization = dict(state_normalization or {})
+        self._image_views_info_key = image_views_info_key
+        self._action_output_type = action_output_type
         vla_data = (model_cfg.get("datasets", {}) or {}).get("vla_data", {}) or {}
         self._pack_image_sequence = (
             bool(vla_data["pack_image_sequence"])
@@ -191,16 +195,26 @@ class StarVlaPolicyRunner(PolicyRunner):
             observation=observation,
             example=example,
             action_payload=actions[index, 0],
-            action_output_type=prediction["action_output_type"],
+            action_output_type=(
+                prediction["action_output_type"]
+                if self._action_output_type is None
+                else self._action_output_type
+            ),
             raw_action_scores=None if raw_action_scores is None else raw_action_scores[index, 0],
         )
 
     def _build_example(self, observation: Observation) -> dict[str, Any]:
-        frame_source = observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY]
+        frame_source = observation.metadata[
+            ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+            if self._image_views_info_key is None
+            else self._image_views_info_key
+        ]
         frames = observation_data_to_hwc_uint8_frames(frame_source)  # oldest .. newest
         transformed = self._transformed_frame(frames=frames, observation=observation)
 
-        if self._pack_image_sequence:
+        if self._image_views_info_key is not None:
+            pass
+        elif self._pack_image_sequence:
             if transformed is not None:
                 raise ValueError(
                     "WanOFT packed image sequences require image_transform=raw_rgb"
@@ -713,6 +727,9 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
         return
 
     policy_cfg = config["policy"]
+    if "task_contract_path" in policy_cfg:
+        config["env"]["frame_stack"] = 1
+        return
     if "model_config_path" in policy_cfg:
         model_cfg = _load_starvla_model_config(policy_cfg["model_config_path"])
     else:
@@ -861,6 +878,35 @@ def sha256_array(value: npt.NDArray[Any]) -> str:
     return hashlib.sha256(np.ascontiguousarray(value).tobytes()).hexdigest()
 
 
+_LEGACY_GYMNASIUM_TASK_NAMES = {
+    "ant_rgb_state": "ant",
+    "half_cheetah_rgb_state": "half_cheetah",
+    "hopper_rgb_state": "hopper",
+    "humanoid_rgb_state": "humanoid",
+    "inverted_pendulum_rgb_state": "inverted_pendulum",
+    "swimmer_rgb_state": "swimmer",
+    "walker2d_rgb_state": "walker2d",
+}
+
+
+def _canonical_gymnasium_contract_namespace(
+    contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    canonical = dict(contract)
+    task_name = canonical["task_name"]
+    if task_name in _LEGACY_GYMNASIUM_TASK_NAMES:
+        canonical["task_name"] = _LEGACY_GYMNASIUM_TASK_NAMES[task_name]
+    if canonical["env_id"] == "LatencyBench/HopperRgbState-v0":
+        canonical["env_id"] = "LatencyBench/Hopper-v0"
+    canonical["registration_imports"] = [
+        "latency_bench.envs.gymnasium_hopper"
+        if module == "latency_bench.envs.gymnasium_hopper_rgb_state"
+        else module
+        for module in canonical["registration_imports"]
+    ]
+    return canonical
+
+
 def _validate_gymnasium_starvla_contract(
     *,
     env_cfg: Mapping[str, Any],
@@ -875,17 +921,23 @@ def _validate_gymnasium_starvla_contract(
         "gymnasium_training_task_contract", manifest["gymnasium_task"]
     )
     comparable_eval_contract = {**eval_contract, "make_kwargs": expected["make_kwargs"]}
-    if comparable_eval_contract != expected:
+    if _canonical_gymnasium_contract_namespace(
+        comparable_eval_contract
+    ) != _canonical_gymnasium_contract_namespace(expected):
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA training contract or dataset manifest"
         )
     if manifest["integration_name"] != "gymnasium":
         raise ValueError("StarVLA task manifest is not a Gymnasium handoff")
-    if manifest["gymnasium_task"] != expected:
+    if _canonical_gymnasium_contract_namespace(
+        manifest["gymnasium_task"]
+    ) != _canonical_gymnasium_contract_namespace(expected):
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA dataset manifest"
         )
-    if model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"] != expected:
+    if _canonical_gymnasium_contract_namespace(
+        model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"]
+    ) != _canonical_gymnasium_contract_namespace(expected):
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA model config"
         )
@@ -939,6 +991,11 @@ def build_starvla_policy(
     action_resolver: ActionResolver,
 ) -> PolicyRunner:
     policy_cfg = config["policy"]
+    if "task_contract_path" in policy_cfg:
+        _ensure_starvla_path()
+        from latency_bench.policy.starvla_tasks import build_task_starvla_policy
+
+        return build_task_starvla_policy(config)
     env_cfg = config["env"]
     integration_env_name = env_cfg["name"]
     if integration_env_name == "gymnasium":
@@ -957,7 +1014,7 @@ def build_starvla_policy(
     else:
         semantic_env_name = integration_env_name
         action_refs = policy_cfg.get("actions", action_resolver.default_action_refs())
-        base_prompt = None
+        base_prompt = env_cfg["base_prompt"] if "base_prompt" in env_cfg else None
     unnorm_key = policy_cfg["unnorm_key"] if "unnorm_key" in policy_cfg else None
     wrapper_cls = _load_policy_wrapper_class()
     wrapper_kwargs: dict[str, Any] = dict(
@@ -965,7 +1022,11 @@ def build_starvla_policy(
         device=policy_cfg["device"],
         use_bf16=True,
         unnorm_key=unnorm_key,
-        action_output_mode="rl_games",
+        action_output_mode=(
+            policy_cfg["action_output_mode"]
+            if "action_output_mode" in policy_cfg
+            else "rl_games"
+        ),
         rl_games_env_name=integration_env_name,
         rl_games_action_layout=(
             policy_cfg["action_layout"] if "action_layout" in policy_cfg else None
@@ -1015,6 +1076,16 @@ def build_starvla_policy(
         state_normalization=(
             task_manifest["state_normalization"]
             if integration_env_name == "gymnasium"
+            else None
+        ),
+        image_views_info_key=(
+            policy_cfg["image_views_info_key"]
+            if "image_views_info_key" in policy_cfg
+            else None
+        ),
+        action_output_type=(
+            policy_cfg["action_output_type"]
+            if "action_output_type" in policy_cfg
             else None
         ),
     )

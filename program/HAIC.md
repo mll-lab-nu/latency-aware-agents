@@ -1,9 +1,27 @@
 # HAIC / PullCart 原生 teacher 与 VLA student 手册
 
+新机器的完整环境安装以 [QUICK_START.md](../docs/QUICK_START.md) 为准。本文的服务器路径与驱动修复保留为运行记录；四模型连续 state H1 流水线见 [SCALE_MODELS.md](SCALE_MODELS.md)。
+
+## Latency command-RL 全链入口
+
+```bash
+.venv/bin/python -m scripts.tasks.haic_pull_cart.run_latency_pipeline \
+  --config configs/training/haic_latency_pipeline.yaml
+```
+
+从仓库根目录运行；依次执行 profile、原生 PPO command teacher、完整 episode issued-H40 采集、
+GR00T flow + frozen-actor auxiliary 训练及原/新 VLA zero/profile 对照。
+短训使用 `haic_latency_pipeline_smoke.yaml`；复用测量时显式传 `--profile-path /absolute/path/profile.json`。
+这条 latency 路线直接保存一次决策的 `[40,256]`，不使用下文历史零延迟数据的 future-row 拼接方式。
+配置、证据和恢复方法见 [latency handoff](LATENCY_RL_HANDOFF.md)。
+
 状态：HAIC 已作为 fork submodule 接入；正式 500M teacher 长训已完成。旧 256D latent-only
-bootstrap/DAgger 的 step 0、round 0、1、2 均为 `0/100`，已在 round 3 停止且原输出完整保留。
-action-only 数据、loss、固定 actor 导出和 oracle gate 已实现；下一次从 GR00T base fresh bootstrap，
-只执行 round 0。
+bootstrap/DAgger 已停止。2026-09-04 已删除远端旧 run 的 checkpoint 和 DAgger 数据，仅迁移
+可复用的 bootstrap train/val 与 `actor_adapt.pt`；新的 random-t flow + actor auxiliary 路径
+已从 GR00T base fresh 启动。
+
+读者复现入口见 [`docs/haic/cookbook.md`](../docs/haic/cookbook.md)，跨任务阶段契约见
+[`docs/standard_pipeline.md`](../docs/standard_pipeline.md)。
 
 ## 1. 固定口径
 
@@ -11,7 +29,7 @@ action-only 数据、loss、固定 actor 导出和 oracle gate 已实现；下�
 - 原生时间：physics 200 Hz / 5 ms，policy 50 Hz / 20 ms，decimation 4；motion 561 帧 / 11.22 s；动作是 23 个非 wrist 关节。
 - 训练路线：`ppo_haic_train` 同一在线 rollout 同时训练 privileged teacher、privileged target world model/adapter，并将 teacher 均值蒸馏到 student；不是离线 BC。原生 `ppo_haic_finetune` 是可选的后续 student on-policy PPO + online adaptation 路径，本轮不执行。
 - 延迟语义：上游 `JointPosition` 在 reset 为每个环境采样一次并在整个 episode 固定 FIFO delay，不是每个 action 重采样；默认代码 `[2,6]` physics ticks，即 10–30 ms。论文附录写 `U[40,120] ms`，与当前代码不一致。
-- 本项目的 latency 定义覆盖 observation→action-ready/apply 的完整区间，已包含 actuation delay；因此内部配置固定为 `task.action.min_delay=0`、`task.action.max_delay=0`，不重复计时。动作平滑也固定关闭：`task.action.alpha=1.0`。后续 latency 由 benchmark scheduler 单独注入，本轮不接入 scheduler。
+- latency bench 已通过 task-owned profile entrypoint 接入。拟合样本从 `env.observe()` 开始，到 inference parent 收到 GR00T 输出的 256D latent action chunk 为止；605D state + latent 经冻结 actor 生成 23D motor action、scheduler 后的施加和 physics `env.step()` 均不进入 profile。内部仍固定 `task.action.min_delay=0`、`task.action.max_delay=0` 和 `task.action.alpha=1.0`，避免与 benchmark scheduler 重复注入。
 - 固定 seed：`0`。原生 teacher 复现阶段不做延迟扫描或其他任务；后续 VLA student 仍保持任务内部 zero-delay，视觉和状态契约见 Phase 2。
 
 ## 2. 官方 baseline、预算与性能结论
@@ -109,7 +127,7 @@ torchrun --standalone --nproc_per_node=2 scripts/train.py \
 /home/xinyuan/latency-sensitive-bench-mikasa-h1/third_party/Isaac-GR00T/.venv
 ```
 
-要求：Python 3.11、Isaac Sim 5.1.0、IsaacLab v2.3.2、Git LFS；Phase 1 原生 teacher 的 `HAIC` 外部 checkout 保持 fork commit `73976dbaf42494fa20d385599758eced7f7a16ce`，Phase 2 VLA 使用当前父仓库中的 HAIC submodule commit `f7a2bf5`，两者不可混用。
+要求：Python 3.11、Isaac Sim 5.1.0、IsaacLab v2.3.2、Git LFS；Phase 1 原生 teacher 的 `HAIC` 外部 checkout 保持 fork commit `73976dbaf42494fa20d385599758eced7f7a16ce`，Phase 2 VLA 使用当前父仓库中的 HAIC submodule commit `c29b667`，两者不可混用。
 
 通用环境：
 
@@ -250,14 +268,15 @@ teacher/student 的 YAML 由原生 `scripts/eval.py` 写入其 `scripts/eval/G1P
 
 ```text
 256×256 RGB + 605D normalized command/policy state @ 10 Hz
-  -> VLA 输出 256D privileged latent
-  -> 固定 native actor_adapt: 605D state + 256D latent -> 23D action @ 50 Hz
+  -> VLA 输出 [40,256] privileged-latent chunk
+  -> 固定 native actor_adapt: 当前 605D state + chunk[k] -> 23D action @ 50 Hz
 ```
 
-每个 VLA 输出保持 5 个 HAIC control steps。runtime 从 `policy_config` 创建 LatencyBench
-inference worker，因此可替换为任何遵守相同 observation/policy 接口并输出 256D latent 的 VLA；
+runtime 每 5 个 HAIC control steps 重新规划一次，并依次执行新 chunk 的 `k=0..4`；不是把一个 latent
+重复使用 5 次。剩余 `k=5..39` 不执行，这是标准 receding-horizon 用法。runtime 从 `policy_config` 创建 LatencyBench
+inference worker，因此可替换为任何遵守相同 observation/policy 接口并输出 `[40,256]` chunk 的 VLA；
 当前提供并验收的训练 backend 是 official GR00T N1.7。换用其他训练 backend 时仍必须产生同一
-256D 输出和可供 runtime 加载的 checkpoint，不能静默改变维度或字段含义。
+`[40,256]` 输出和可供 runtime 加载的 checkpoint，不能静默改变维度或字段含义。
 
 原生 `eval/success == 1.0` gate 只控制是否启动原生 `ppo_haic_finetune`，不控制当前 VLA 路线；按当前
 VLA 替换路线，phase-1 final teacher 是固定的 privileged label source。smoke 的验收目标是数据、权重和闭环执行
@@ -265,36 +284,41 @@ VLA 替换路线，phase-1 final teacher 是固定的 privileged label source。
 
 训练分两段：
 
-- bootstrap 从 GR00T-N1.7-3B fresh base 开始。privileged teacher 的成功 episode 每个 10 Hz row 除 RGB、605D state 和兼容 VLA 输出的 256D latent 外，还保存 `actor_input[5,605]`、`teacher_action[5,23]` 和 `termination[5]`；正式配置为 250 个 train episode、25 个 val episode、global batch 64、gradient accumulation 2、peak LR `5e-5` 和 5,000 optimizer updates；
-- bootstrap 与 DAgger 都只优化 23D motor-action MSE，不再优化 256D latent MSE。VLA latent 与每个 50 Hz actor input 送入同一个冻结 `actor_adapt`；terminal action 保留，terminal 后子步由累计 mask 排除。actor 不进入 optimizer、GR00T model 或 checkpoint；
-- DAgger 流程是 `step-0 eval -> rollout -> training -> eval`。当前默认只执行 round 0：两个顺序 collector 各 32,000 rows，合计 64,000 rows、gradient accumulation 2 和 500 updates。采样权重固定为 50% action-rich bootstrap replay + 50% 累积 DAgger 数据，bootstrap prior 不随 round 数稀释；eval 始终使用 100 env / seed 0，每个 env 只统计从 motion frame 0 开始的首个 episode；
-- DAgger collector 使用 inference batch 32、1,000-row shard；每个 round eval 后删除 raw shard，保留 LeRobot dataset、dataset manifest、training dataset manifest、checkpoint、eval 结果和 policy config。
+- bootstrap 从 GR00T-N1.7-3B fresh base 开始。privileged teacher 的成功 episode 按 50 Hz 保存逐步 scalar row：RGB、605D state、256D teacher latent、`actor_input[605]`、`teacher_action[23]` 和 scalar termination；dataset 在每个起点组装未来 40 步窗口。正式配置为 250 个 train episode、25 个 val episode、global batch 64、gradient accumulation 2、peak LR `5e-5` 和 5,000 optimizer updates；
+- bootstrap 与 DAgger 都使用官方 random-t velocity-MSE，并在同一次 denoiser 调用得到的 clean endpoint 上计算冻结 actor 后的 23D motor-action MSE；总 loss 为两者之和。最终 `[40,256]` chunk 与未来 40 个 50 Hz actor input 送入同一个冻结 `actor_adapt`。terminal action 保留，terminal 后位置由累计 mask 排除；episode 尾部使用 padding，因此短失败 episode 和最后 39 个起点不会被删除。actor 不进入 optimizer、GR00T model 或 checkpoint；
+- HAIC launcher 显式固定 `action_horizon=40`、`num_inference_timesteps=4` 和随机 Gaussian（`fixed_action_noise_seed=None`），并关闭旧 `one_step_action_regression`。训练每个 batch 随机采一个时间、调用一次 denoiser；inference 才执行官方默认 4-step Euler sampler；
+- DAgger 流程是 `step-0 eval -> rollout -> training -> eval`。当前 task-owned 入口默认执行 round 0--9；每轮两个顺序 collector 各 32,000 rows，合计 64,000 rows、gradient accumulation 2 和 500 updates。采样权重固定为 50% action-rich bootstrap replay + 50% 累积 DAgger 数据，bootstrap prior 不随 round 数稀释；eval 始终使用 100 env / seed 0，每个 env 只统计从 motion frame 0 开始的首个 episode；
+- DAgger eval 固定从 phase 0 开始，并在 terminal action 之前最后一次被 policy 观察到的 state 上计算 progress。对 motion 长度 `T`，`m = t / (T - 1)`；以 reference cart 首尾位移为 `d_ref`、实际 cart 首尾位移为 `d_actual`，`c = clip(dot(d_actual, d_ref) / dot(d_ref, d_ref), 0, 1)`；每个 episode 的综合 benchmark 分数为 `pullcart_score = 100 * (m + c) / 2`。三个值分别取 100 个完整 eval episodes 的 mean/std；`motion_progress`、`cart_progress` 和 `pullcart_score` 是 student 的主要比较指标，`success_rate` 仍表示完整完成率，不应单独作为训练是否有效的判据；
+- DAgger collector 使用 inference batch 32，并按单个环境的连续 50 Hz segment 写 raw shard；转换后的训练 shard size 为 1,000。每个 round eval 后删除 raw shard，保留 LeRobot dataset、dataset manifest、training dataset manifest、checkpoint、eval 结果和 policy config。
 
 正式远端单 GPU 默认仍串行运行两个 collector。短 A/B 可用
 `--collector-num-envs 32|48|96` 比较相同 row budget 的 wall time。若迁移到双 GPU 节点，可显式传
 `--collector-devices cuda:0 cuda:1`，两个 seed/rank 会并行运行并分别绑定 sim、GR00T 和
 `LOCAL_RANK`；该选项不设置分布式 `WORLD_SIZE`，默认路径也不会自动启用它。
 
-预算和预计耗时（同一张 RTX PRO 6000 上按已有 Parkour profile 外推，正式 HAIC 运行前需做短 batch profile）如下：
+预算如下。训练恢复为单次 random-t denoiser 调用；本地 3B/batch-64 smoke 需按该路径重新确认
+forward、backward 和 checkpoint，正式耗时仍需短 profile：
 
 | 阶段 | optimizer updates | microsteps | rows / exposure | 预计耗时 |
 |---|---:|---:|---:|---:|
-| SFT bootstrap | 5,000 | 10,000（GA2） | 640,000 | 3–4 h |
-| DAgger（10 × 500） | 5,000 | 10,000（GA2） | 640,000 | 8–12 h |
+| SFT bootstrap | 5,000 | 10,000（GA2） | 640,000 | 待 profile |
+| DAgger（10 × 500） | 5,000 | 10,000（GA2） | 640,000 | 待 profile（另加 rollout/eval） |
 
 修正前的 DAgger 配置虽然同样只记 5,000 optimizer updates，但 GA72 实际是
 360,000 microsteps / 23.04M rows，加上 batch-8 rollout 需按约 10–14 天预留，不是小时级任务。
 
 bootstrap 和 DAgger 都写原子 `NPZ + MP4` shard，再转换为 video-backed LeRobot Parquet。
-正式采集前先用 100 个完整 episode 验证 `teacher latent -> frozen actor_adapt`，并将 native
+正式采集前先用 100 个完整 episode、每个 50 Hz control step 都更新 GT latent，验证 `teacher latent -> frozen actor_adapt`，并将 native
 checkpoint 的 `actor_adapt` 导出成纯 PyTorch state dict。训练期 action loss 加载该文件，collector
 和 eval 则从同一固定 teacher checkpoint 构造相同 actor。
 
 DAgger training、step 0 与所有 round eval 使用同一个固定 W&B run，记录
-`train/global_step=0,500,...,5000` 以及 `dagger_eval/episodes`、`dagger_eval/successes`、`dagger_eval/success_rate`，不记录固定执行上限 `dagger_eval/steps`；bootstrap SFT 使用独立的 `<dagger-run-id>_sft` run，避免两段训练都从
+`train/global_step=0,500,...,5000` 以及 `dagger_eval/episodes`、`dagger_eval/successes`、`dagger_eval/success_rate`、
+`dagger_eval/motion_progress_{mean,std}`、`dagger_eval/cart_progress_{mean,std}` 和
+`dagger_eval/pullcart_score_{mean,std}`，不记录固定执行上限 `dagger_eval/steps`；bootstrap SFT 使用独立的 `<dagger-run-id>_sft` run，避免两段训练都从
 global step 0 起步而污染同一条曲线。
 launcher 将这两个名字显式传给 GR00T 的 `--experiment-name`，因此默认 W&B 名称分别是
-`haic_pull_cart_vla_dagger_action_5k_sft` 和 `haic_pull_cart_vla_dagger_action_5k`，不再从输出目录继承成
+`haic_pull_cart_vla_dagger_action_h40_official_flow_aux_5k_sft` 和 `haic_pull_cart_vla_dagger_action_h40_official_flow_aux_5k`，不再从输出目录继承成
 `training`。对应 checkpoint 分别位于 `bootstrap/training/<dagger-run-id>_sft/` 和
 `training/<dagger-run-id>/`。
 不设置自动分数门禁，分数只作对比和记录。
@@ -306,21 +330,18 @@ HF_TOKEN=...
 HAIC_VLA_FFMPEG_PREFIX=/home/xinyuan/.cache/latency-sensitive-bench/ffmpeg7
 ```
 
-launcher 会 source `.env`，并把该 prefix 的 `bin`/`lib` 加入 `PATH`/`LD_LIBRARY_PATH`。
-正式入口如下；必须在 code review 和用户确认后执行：
+入口不读取 `.env`；调用前由当前 shell 提供 W&B/Hugging Face 凭据，并把该 prefix 的
+`bin`/`lib` 加入 `PATH`/`LD_LIBRARY_PATH`。
+正式入口如下；默认执行完整 10 轮，`--end-round 0` 仅执行 bootstrap/SFT：
 
 ```bash
-bash scripts/bash_scripts/train_haic_vla_5k.sh \
-  --run-bootstrap \
-  --teacher-checkpoint /home/xinyuan/haic_runs/phase1_teacher/wandb/latest-run/files/checkpoint_final.pt \
-  --base-model /home/xinyuan/latency-sensitive-bench-mikasa-h1/outputs/official_gr00t/models/GR00T-N1.7-3B \
-  --output-root /home/xinyuan/haic_runs/haic_pull_cart_vla_action_dagger_round0 \
-  --haic-python /home/xinyuan/miniconda3/envs/haic/bin/python
+bash scripts/tasks/haic_pull_cart/train_official_gr00t.sh \
+  /absolute/path/to/checkpoint_final.pt
 ```
 
-fresh run 显式传 `--run-bootstrap`，它会先执行 frozen-actor oracle eval，再重新采集并训练 action-only bootstrap；旧 latent checkpoint 不得作为初始化。续跑使用
-`--bootstrap-checkpoint`、`--bootstrap-dataset`、`--actor-checkpoint` 和 `--start-round N`。`--end-round` 是右开上界，
-默认 1，即只执行 round 0。训练子进程成功返回后才原子写入
+fresh run 默认执行 frozen-actor oracle eval、重新采集并训练 flow + actor auxiliary bootstrap；已有 bootstrap LeRobot dataset 可通过 `--bootstrap-dataset` 复用，此时跳过 oracle/采集，只从 GR00T base fresh 训练 SFT。旧 checkpoint、round marker 和 DAgger output 必须删除，不得作为初始化。task-owned wrapper 续跑仅适用于同一训练目标的 run，使用
+`--resume`、`--bootstrap-checkpoint`、`--bootstrap-dataset`、`--actor-checkpoint` 和 `--start-round N`。`--end-round` 是右开上界，
+默认 10，即执行 round 0--9；传 `--end-round 0` 只完成 bootstrap/SFT。训练子进程成功返回后才原子写入
 round-complete marker；用同一 `--start-round N` 重试未完成轮次时，会重新采集该轮数据。
 已完成并归档的 round 只删除 raw，保留 `lerobot/` 供后续 DAgger round 聚合训练；旧 current-only DAgger
 输出缺少可复用的 round `lerobot/` 和聚合训练 manifest，不能作为该流程的 resume 根目录。
@@ -338,3 +359,8 @@ round-complete marker；用同一 `--start-round N` 重试未完成轮次时，�
 | Phase 2 DAgger current-only 尝试 | 不作为正式 DAgger 结果；已停止并清理 DAgger 残留 | tmux `haic_vla_5k` 旧会话已停止；outer PID `241017` 已停止 | 2026-09-03 01:29:38 UTC 曾从现有 bootstrap `checkpoint-5000`、dataset 和 `--start-round 0` 恢复；旧 driver 只训练当前 round，缺少 bootstrap/历史 round 聚合，因此不能作为正式聚合 DAgger resume 根目录；2026-09-03 已删除旧 `round_*`、`training` 和 top-level DAgger stdout/exit_code，保留 `bootstrap/lerobot` 与 `bootstrap/training/checkpoint-5000` |
 | Phase 2 DAgger 聚合修复、旧 eval 口径 | 已停止，结果作废 | tmux `haic_vla_5k` 已停止；driver PID `268530` 已退出 | 2026-09-03 03:34:56 UTC 从保留 bootstrap checkpoint/dataset 和 `--start-round 0 --end-round 10` 重启；W&B run `haic_pull_cart_vla_dagger_latent_5k_aggfix_20260903` 完成 round 0–3 并保存 `checkpoint-2000`，于 round 4 collector rank 1 期间按用户要求停止；该 run 的 eval 在固定 1,000 steps 内重复统计 auto-reset episode，导致 episode 分母不固定，不作为正式 DAgger 结果；旧输出保留在 `/home/xinyuan/haic_runs/haic_pull_cart_vla_dagger` |
 | Phase 2 latent-only 100-full-episode run | 已停止，输出保留，结果作废 | tmux `haic_vla_5k_eval100` 已停止 | 输出 `/home/xinyuan/haic_runs/haic_pull_cart_vla_dagger_eval100`；step 0、round 0、round 1、round 2 均为 `episodes=100`、`successes=0`、`success_rate=0.0`；原 run 在 round 3 期间停止。它仍监督 latent 且使用会逐轮稀释 bootstrap 的聚合比例，不能 resume 到 action-only 流程。 |
+| Phase 2 action-only fresh bootstrap + round 0 首次启动 | bootstrap dataset stats 阶段失败，退出码 1；部分输出已清理 | tmux `haic_vla_action_round0` 已退出；driver PID `382808` | 2026-09-03 12:01:18 UTC 启动；oracle eval 为 `20/100`，250 train + 25 val episode 已采完；远端漏同步定义 `OBJECTIVE_COLUMNS` 的 GR00T loader，导致 stats import 失败；缺失依赖已补齐并通过远端 import 自检，随后从 bootstrap fresh 重启 |
+| Phase 2 action-only fresh bootstrap + round 0 重启 | 历史执行完成，后因 bug 作废并删除 | tmux `haic_vla_action_round0` 已自然退出；driver PID `398191` | 2026-09-03 12:09:55--15:06:09 UTC，耗时 2:56:14；oracle `18/100`；bootstrap 为 250 train / 25 val、13,345 / 549 rows，5,000-step W&B `haic_pull_cart_vla_dagger_action_5k_sft` 的 `train_loss=0.0340958696`；step 0 与 round 0 均为 `0/100`；round 0 为 64,000 rows、500 updates，W&B `haic_pull_cart_vla_dagger_action_5k` 的 `train_loss=0.326223280`；原输出已随本轮 run 于 2026-09-03 16:46 UTC 删除，不得复用 |
+| Phase 2 action-only DAgger round 1--9 resume | 已在 round 3 期间停止；全部产物已删除 | tmux `haic_vla_action_round1_9` 与 driver PID `646045` 已停止 | 2026-09-03 15:10:37 UTC 从 checkpoint-500 启动；round 1、2 曾分别完成 checkpoint-1000/1500 与 100-episode eval，随后因发现 bug 按用户要求停止；2026-09-03 16:46 UTC 已删除整个 92G 输出根目录 `/home/xinyuan/haic_runs/haic_pull_cart_vla_action_dagger_round0` 及 stdout/exit 文件，相关进程和 GPU 任务均为空；修复后必须 fresh 重跑 |
+| Phase 2 h40 + official sampler 本地验证 | 历史 4-step 训练 smoke 已完成但训练目标作废 | 无运行中进程 | 2026-09-04：`[40,256]` chunk、每 5 个 control steps 重规划并消费 `0..4` 的运行时语义和尾部 padding 验证仍有效；训练期对 4-step Euler 全链反传已确认不是 official flow-matching training，改为 random-t 单次 denoiser加 frozen-actor auxiliary 后必须重新 smoke。per-control-step GT-latent oracle 为 `94/100`，与 50 Hz privileged teacher 的成功率一致。 |
+| Phase 2 h40 flow + actor auxiliary fresh run | 远端训练中 | detached driver PID `1999830` | 2026-09-04 启动；输出 `/home/xinyuan/haic_runs/haic_pull_cart_vla_action_h40_flow_aux_20260904`，日志 `stdout.log`；复用 250/25 bootstrap dataset 与固定 `actor_adapt.pt`，所有 checkpoint 从 GR00T base fresh 训练。旧 `haic_pull_cart_vla_latent_anchor_20260904` 的 checkpoint/round 数据已删除，磁盘从 63% 降到 45%。W&B SFT run `haic_pull_cart_vla_dagger_action_h40_official_flow_aux_5k_sft`。 |

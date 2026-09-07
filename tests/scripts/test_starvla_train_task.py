@@ -1,0 +1,213 @@
+"""Cumulative replay and retryable artifact publication contracts."""
+
+import json
+from types import SimpleNamespace
+
+import pytest
+
+from scripts.starvla import train_task
+
+
+@pytest.mark.parametrize(
+    ('task', 'model', 'phase'),
+    [('balance', 'qwenoft', 'bootstrap'), ('parkour', 'wanoft', 'dagger')],
+)
+def test_training_config_names_wandb_run_by_task_model_and_phase(tmp_path, task, model, phase):
+    bootstrap = tmp_path / 'bootstrap' / 'lerobot'
+    (bootstrap / 'meta').mkdir(parents=True)
+    (bootstrap / 'meta/info.json').write_text(json.dumps({'codebase_version': 'test'}))
+    (bootstrap / 'task_contract.json').write_text(json.dumps({
+        'state_dim': 1, 'action_dim': 1, 'robot_type': 'robot',
+        'normalization': {'action': {'min': [0], 'max': [1]}},
+    }))
+    args = SimpleNamespace(task=task, model=model, output_dir=tmp_path,
+                           smoke=True, num_gpus=1, micro_batch=1)
+
+    config = train_task.training_config(
+        args, bootstrap=bootstrap.parent, deltas=[], backbone=tmp_path / 'backbone',
+        actor_checkpoint=None, run_id=phase, steps=2, stop_step=2,
+        pretrained=None, resume=False,
+    )
+
+    assert config['wandb_name'] == f'{task}-{phase}-{model}'
+    assert config['run_id'] == phase
+    assert config['run_root_dir'] == str(tmp_path / 'training')
+    assert config['trainer']['save_interval'] == 500
+    assert config['checkpoint']['save_training_state'] is True
+    assert config['checkpoint']['local']['keep_last_n'] == 2
+
+
+def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
+    calls = []
+    args = SimpleNamespace(
+        output_dir=tmp_path,
+        task='balance',
+        model='qwenpi_v3',
+        run_id='formal-1',
+        resume=False,
+        smoke=False,
+        vla_python=tmp_path / 'python',
+        num_gpus=2,
+        port=29521,
+    )
+    monkeypatch.setattr(train_task, 'run_command', lambda *call_args, **kwargs: calls.append(kwargs))
+
+    config = {'run_id': 'bootstrap', 'trainer': {'stop_after_steps': 500, 'is_resume': False}}
+    train_task.train(args, config)
+    config['trainer']['is_resume'] = True
+    train_task.train(args, config)
+    config['trainer']['is_resume'] = False
+    args.resume = True
+    train_task.train(args, config)
+
+    assert calls[0]['env']['WANDB_RUN_ID'] == 'balance-qwenpi_v3-formal-1-bootstrap'
+    assert calls[0]['env']['WANDB_RESUME'] == 'never'
+    assert calls[1]['env']['WANDB_RESUME'] == 'allow'
+    assert calls[2]['env']['WANDB_RESUME'] == 'allow'
+
+
+def test_resume_requires_explicit_run_id():
+    with pytest.raises(SystemExit, match='2'):
+        train_task.main(['--task', 'balance', '--model', 'qwenpi_v3', '--resume'])
+
+
+def test_resume_requires_complete_training_state(tmp_path):
+    train_task.write_json(tmp_path / 'run.json', {
+        'task': 'balance',
+        'model': 'qwenpi_v3',
+        'run_id': 'formal-1',
+    })
+
+    with pytest.raises(FileNotFoundError, match='complete bootstrap training state'):
+        train_task.main([
+            '--task', 'balance',
+            '--model', 'qwenpi_v3',
+            '--run-id', 'formal-1',
+            '--output-dir', str(tmp_path),
+            '--resume',
+        ])
+
+
+def test_resume_reuses_completed_dagger_data_and_restarts_partial_round(tmp_path, monkeypatch):
+    dataset = tmp_path / 'dataset'
+    metadata = dataset / 'lerobot/meta'
+    metadata.mkdir(parents=True)
+    (metadata / 'info.json').write_text(json.dumps({'codebase_version': 'test'}))
+    (dataset / 'lerobot/task_contract.json').write_text(json.dumps({
+        'state_dim': 1,
+        'action_dim': 1,
+        'robot_type': 'robot',
+        'normalization': {'action': {'min': [0], 'max': [1]}},
+    }))
+    bootstrap_state = tmp_path / 'training/bootstrap/checkpoints/steps_5000_state'
+    dagger_state = tmp_path / 'training/dagger/checkpoints/steps_250_state'
+    bootstrap_state.mkdir(parents=True)
+    dagger_state.mkdir(parents=True)
+    (tmp_path / 'training/bootstrap/checkpoints/steps_5000_pytorch_model.pt').write_text('model')
+    (tmp_path / 'training/dagger/checkpoints/steps_250_pytorch_model.pt').write_text('model')
+    (tmp_path / 'training/bootstrap/checkpoints/steps_5500_state').mkdir()
+    (tmp_path / 'training/dagger/checkpoints/steps_600_state').mkdir()
+    completed_delta = tmp_path / 'dagger/round-00'
+    partial_delta = tmp_path / 'dagger/round-01'
+    partial_delta.mkdir(parents=True)
+    (partial_delta / 'stale').write_text('partial')
+    run = {
+        'task': 'haic',
+        'model': 'qwenpi_v3',
+        'run_id': 'formal-1',
+        'smoke': False,
+        'teacher': {},
+        'backbone': {},
+        'code_revisions': {},
+        'datasets': [
+            {'local_dir': str(dataset), 'revision': 'bootstrap'},
+            {'local_dir': str(completed_delta), 'revision': 'round-0'},
+        ],
+        'seed': 0,
+    }
+    train_task.write_json(tmp_path / 'run.json', run)
+
+    configs = []
+    monkeypatch.setattr(train_task, 'resolve_teacher', lambda *args: (tmp_path / 'teacher', {}))
+    monkeypatch.setattr(train_task, 'resolve_backbone', lambda *args: (tmp_path / 'backbone', {}))
+    monkeypatch.setattr(train_task, 'run_command', lambda *args, **kwargs: None)
+
+    def fake_train(args, config):
+        configs.append(config)
+        trained = tmp_path / 'training' / config['run_id']
+        step = config['trainer']['stop_after_steps']
+        return trained, trained / 'checkpoints' / f'steps_{step}_pytorch_model.pt'
+
+    def fake_collect(args, **kwargs):
+        round_number = kwargs['round_number']
+        path = tmp_path / 'dagger' / f'round-{round_number:02d}'
+        assert not path.exists()
+        raise RuntimeError(f'restarted partial round {round_number}')
+
+    monkeypatch.setattr(train_task, 'train', fake_train)
+    monkeypatch.setattr(train_task, 'collect_dagger', fake_collect)
+    monkeypatch.setattr(train_task, 'inference_bundle', lambda *args, **kwargs: args[2])
+    monkeypatch.setattr(train_task, 'eval_config', lambda *args, **kwargs: {})
+
+    with pytest.raises(RuntimeError, match='restarted partial round 1'):
+        train_task.main([
+            '--task', 'haic',
+            '--model', 'qwenpi_v3',
+            '--run-id', 'formal-1',
+            '--output-dir', str(tmp_path),
+            '--vla-python', '/usr/bin/python',
+            '--task-python', '/usr/bin/python',
+            '--resume',
+        ])
+
+    assert configs[0]['trainer']['pretrained_checkpoint'] == str(bootstrap_state)
+    assert configs[0]['trainer']['is_resume'] is True
+    assert configs[1]['trainer']['pretrained_checkpoint'] == str(dagger_state)
+    assert configs[1]['trainer']['is_resume'] is True
+
+
+def test_mixture_retains_half_bootstrap_and_independent_validation(tmp_path):
+    path = tmp_path / 'mixture.json'
+    bootstrap = tmp_path / 'bootstrap'
+    deltas = [tmp_path / f'round-{i}' for i in range(3)]
+    train_task.write_mixture(path, bootstrap, deltas, 'robot')
+    mixture = json.loads(path.read_text())
+    assert mixture['train'][0] == [str(bootstrap / 'lerobot'), 0.5, 'robot']
+    assert mixture['train'][1:] == [[str(p / 'lerobot'), 1 / 6, 'robot'] for p in deltas]
+    assert mixture['validation'] == [[str(bootstrap / 'lerobot__val'), 1, 'robot']]
+
+
+def test_publish_retry_preserves_dataset_revisions_and_rejects_smoke(tmp_path, monkeypatch):
+    (tmp_path / 'inference').mkdir()
+    run = {'task': 'haic', 'model': 'qwenoft', 'run_id': 'run', 'smoke': False,
+           'teacher': {}, 'backbone': {}, 'code_revisions': {}, 'seed': 0,
+           'training': {'sft_updates': 2, 'dagger_updates': 2},
+           'datasets': [{'local_dir': str(tmp_path / 'bootstrap'), 'revision': 'shared'},
+                        {'local_dir': str(tmp_path / 'round-00'), 'revision': None}]}
+    train_task.write_json(tmp_path / 'run.json', run)
+    uploads = []
+    monkeypatch.setattr(train_task.artifacts, 'publish_dataset',
+                        lambda path, **kwargs: uploads.append(kwargs) or 'delta')
+
+    def fail(*args, **kwargs):
+        raise ConnectionError('interrupted')
+
+    monkeypatch.setattr(train_task.artifacts, 'publish_model', fail)
+    with pytest.raises(ConnectionError):
+        train_task.publish_run(tmp_path)
+    saved = json.loads((tmp_path / 'run.json').read_text())
+    assert [ref['revision'] for ref in saved['datasets']] == ['shared', 'delta']
+    monkeypatch.setattr(train_task.artifacts, 'publish_model', lambda *a, **kw: 'model')
+    assert train_task.publish_run(tmp_path) == 'model'
+    assert len(uploads) == 1
+    assert uploads[0]['round_number'] == 0
+    provenance = json.loads((tmp_path / 'inference/provenance.json').read_text())
+    assert provenance['datasets'] == [{'revision': 'shared'}, {'revision': 'delta'}]
+    del saved['training']
+    train_task.write_json(tmp_path / 'run.json', saved)
+    with pytest.raises(KeyError, match='training'):
+        train_task.publish_run(tmp_path)
+    saved['smoke'] = True
+    train_task.write_json(tmp_path / 'run.json', saved)
+    with pytest.raises(ValueError, match='local-only'):
+        train_task.publish_run(tmp_path)

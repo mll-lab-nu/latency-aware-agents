@@ -178,8 +178,6 @@ __global__ void demon_decision_begin_kernel(
     int64_t* __restrict__ env_step_idx,
     int64_t* __restrict__ next_action_id,
     int64_t* __restrict__ current_latency_raw_frames,
-    int64_t* __restrict__ current_applied_action,
-    int64_t* __restrict__ persistence_remaining,
     int64_t* __restrict__ pending_actions,
     int64_t* __restrict__ pending_ready_raw_frames,
     int64_t* __restrict__ pending_action_ids,
@@ -257,7 +255,6 @@ __global__ void demon_decision_select_actions_kernel(
     const bool* __restrict__ still_active,
     const int64_t* __restrict__ env_step_idx,
     int64_t* __restrict__ current_applied_action,
-    int64_t* __restrict__ persistence_remaining,
     int64_t* __restrict__ pending_actions,
     int64_t* __restrict__ pending_ready_raw_frames,
     int64_t* __restrict__ pending_action_ids,
@@ -270,7 +267,7 @@ __global__ void demon_decision_select_actions_kernel(
     cule::atari::Action* __restrict__ raw_action_values,
     bool* __restrict__ doneBuffer,
     float* __restrict__ step_rewards,
-    int64_t hold_duration,
+    bool hold_action,
     int64_t ordering_policy,
     int batch_size,
     int queue_capacity)
@@ -312,7 +309,6 @@ __global__ void demon_decision_select_actions_kernel(
         else
         {
             int64_t selected_offset = -1;
-            int64_t keep_count = 0;
             for (int64_t offset = 0; offset < count; ++offset)
             {
                 const int64_t pos = (head + offset) % queue_capacity;
@@ -321,19 +317,20 @@ __global__ void demon_decision_select_actions_kernel(
                 {
                     selected_offset = offset;
                 }
-                else
-                {
-                    scratch_actions[base + keep_count] = pending_actions[base + pos];
-                    scratch_ready_raw_frames[base + keep_count] = pending_ready_raw_frames[base + pos];
-                    scratch_action_ids[base + keep_count] = pending_action_ids[base + pos];
-                    keep_count += 1;
-                }
             }
             if (selected_offset >= 0)
             {
                 const int64_t selected_pos = (head + selected_offset) % queue_capacity;
                 selected = true;
                 selected_action = pending_actions[base + selected_pos];
+                const int64_t keep_count = count - selected_offset - 1;
+                for (int64_t offset = 0; offset < keep_count; ++offset)
+                {
+                    const int64_t pos = (head + selected_offset + 1 + offset) % queue_capacity;
+                    scratch_actions[base + offset] = pending_actions[base + pos];
+                    scratch_ready_raw_frames[base + offset] = pending_ready_raw_frames[base + pos];
+                    scratch_action_ids[base + offset] = pending_action_ids[base + pos];
+                }
                 for (int64_t offset = 0; offset < keep_count; ++offset)
                 {
                     pending_actions[base + offset] = scratch_actions[base + offset];
@@ -349,16 +346,12 @@ __global__ void demon_decision_select_actions_kernel(
     if (selected)
     {
         current_applied_action[env] = selected_action;
-        persistence_remaining[env] = hold_duration;
     }
-    int64_t raw_action = 0;
-    if (persistence_remaining[env] > 0)
+    else if (!hold_action)
     {
-        raw_action = current_applied_action[env];
-        persistence_remaining[env] -= 1;
+        current_applied_action[env] = 0;
     }
-    current_applied_action[env] = raw_action;
-    raw_action_values[env] = action_set[raw_action];
+    raw_action_values[env] = action_set[current_applied_action[env]];
 }
 
 __global__ void demon_decision_accumulate_kernel(
@@ -615,7 +608,7 @@ step_decision(const bool episodic_life,
               const size_t obs_stride_raw_frames,
               const size_t obs_frame_count,
               const size_t num_channels,
-              const int64_t hold_duration,
+              const bool hold_action,
               const int64_t ordering_policy,
               const int64_t max_episode_steps,
               const int64_t fixed_latency_raw_frames,
@@ -633,7 +626,6 @@ step_decision(const bool episodic_life,
               int64_t* next_action_id,
               int64_t* current_latency_raw_frames,
               int64_t* current_applied_action,
-              int64_t* persistence_remaining,
               int64_t* pending_actions,
               int64_t* pending_ready_raw_frames,
               int64_t* pending_action_ids,
@@ -674,8 +666,6 @@ step_decision(const bool episodic_life,
         env_step_idx,
         next_action_id,
         current_latency_raw_frames,
-        current_applied_action,
-        persistence_remaining,
         pending_actions,
         pending_ready_raw_frames,
         pending_action_ids,
@@ -710,7 +700,6 @@ step_decision(const bool episodic_life,
             still_active,
             env_step_idx,
             current_applied_action,
-            persistence_remaining,
             pending_actions,
             pending_ready_raw_frames,
             pending_action_ids,
@@ -723,7 +712,7 @@ step_decision(const bool episodic_life,
             raw_action_values,
             doneBuffer,
             step_rewards,
-            hold_duration,
+            hold_action,
             ordering_policy,
             static_cast<int>(batch_size),
             static_cast<int>(queue_capacity));

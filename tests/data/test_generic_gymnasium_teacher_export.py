@@ -287,8 +287,10 @@ def test_gymnasium_replay_exports_pre_action_state_with_stacked_observations(
         rnn_states,
         deterministic,
         preserve_leading_batch,
+        preserve_issued_actions,
     ):
         nonlocal step_index
+        assert not preserve_issued_actions
         policy_observations.append(active_obs[0]["obs"].copy())
         action_id = (2, 0)[step_index]
         next_state = float(step_index + 1)
@@ -357,7 +359,7 @@ def test_gymnasium_replay_exports_pre_action_state_with_stacked_observations(
     "g1_task",
     ["g1_sonic_hurdle", "g1_sonic_run", "g1_sonic_balance_simple"],
 )
-def test_g1_replay_exports_pre_action_proprio_and_conditioned_target(
+def test_g1_replay_exports_pre_action_proprio_and_task_action_contract(
     monkeypatch,
     tmp_path,
     g1_task,
@@ -377,6 +379,14 @@ def test_g1_replay_exports_pre_action_proprio_and_conditioned_target(
 
     class Driver:
         slot_count = 1
+        control_env = SimpleNamespace(unwrapped=SimpleNamespace(
+            _control_mode=(
+                "raw_body_target"
+                if g1_task == "g1_sonic_balance_simple"
+                else "sonic_token_composed"
+            ),
+            g1_absolute_request_from_raw_action=lambda action: 10.0 + 2.0 * action,
+        ))
 
         def reset_slots(self, reset_plan):
             return {
@@ -405,8 +415,10 @@ def test_g1_replay_exports_pre_action_proprio_and_conditioned_target(
         rnn_states,
         deterministic,
         preserve_leading_batch,
+        preserve_issued_actions,
     ):
         nonlocal step_index
+        assert preserve_issued_actions
         next_state = float(step_index + 11)
         action_target = np.full(
             G1_GR00T_ACTION_DIM, step_index + 0.25, dtype=np.float32
@@ -427,8 +439,17 @@ def test_g1_replay_exports_pre_action_proprio_and_conditioned_target(
             },
         )
         teacher_action = np.full(
-            G1_GR00T_ACTION_DIM, -step_index - 1.0, dtype=np.float32
+            G1_GR00T_ACTION_DIM, -0.5 + 0.25 * step_index, dtype=np.float32
         )
+        if g1_task == "g1_sonic_balance_simple":
+            result.info.update(
+                command_admitted=True,
+                observation_dropped=False,
+                applied_action=action_target,
+                applied_source_raw_frame=step_index,
+                applied_source_obs_id=step_index,
+                raw_done=False,
+            )
         step_index += 1
         return [teacher_action], torch.zeros_like(rnn_states), {0: result}
 
@@ -466,10 +487,18 @@ def test_g1_replay_exports_pre_action_proprio_and_conditioned_target(
         [10.0] * G1_GR00T_STATE_DIM,
         [11.0] * G1_GR00T_STATE_DIM,
     ]
+    expected_actions = (
+        [9.0, 9.5] if g1_task == "g1_sonic_balance_simple" else [0.25, 1.25]
+    )
     assert [row["action"] for row in rows] == [
-        [0.25] * G1_GR00T_ACTION_DIM,
-        [1.25] * G1_GR00T_ACTION_DIM,
+        [value] * G1_GR00T_ACTION_DIM for value in expected_actions
     ]
+    if g1_task == "g1_sonic_balance_simple":
+        assert [row["raw_done"] for row in rows] == [False, True]
+        assert [row["applied_action"] for row in rows] == [
+            [0.25] * G1_GR00T_ACTION_DIM,
+            [1.25] * G1_GR00T_ACTION_DIM,
+        ]
     assert [row["prompt"] for row in rows] == ["Clear the hurdle."] * 2
 
 
@@ -857,7 +886,7 @@ def test_starvla_lerobot_converter_normalizes_gymnasium_state_from_train(tmp_pat
     _write_generic_export(
         raw_export,
         rows,
-        task_name="inverted_pendulum_rgb_state",
+        task_name="inverted_pendulum",
         include_state=True,
         state_labels=["cart_position", "pole_angle"],
     )

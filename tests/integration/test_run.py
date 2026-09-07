@@ -117,7 +117,7 @@ env:
     noop: noop
     jump: jump
 latency:
-  method: zero
+  method: measured
   device: cpu
   sync_cuda: false
 scheduler:

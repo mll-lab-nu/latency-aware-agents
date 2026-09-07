@@ -1,0 +1,158 @@
+experiment:
+  name: g1_sonic_balance_simple_raw_ramp_fasttd3_25m_s1
+  seed: 1
+
+backend:
+  type: sample_factory
+  algo: FAST_TD3
+  device: gpu
+  train_dir: outputs/tasks/humanoidbench_balance_simple/checkpoints
+  restart_behavior: overwrite
+  run_mode: train
+  actor_worker_gpus: []
+  initial_model_path: results/humanoidbench_g1_balance_control_comparison_fasttd3_25m/checkpoints/g1_sonic_balance_simple_raw_ramp_0p1s_fasttd3_25000000steps_s1/checkpoint_p0/best_000325980_20864000_reward_702.976.pth
+
+executor:
+  mode: simulated
+
+env:
+  name: gymnasium
+  task_name: g1_sonic_balance_simple
+  env_id: LatencyBench/G1SonicBalanceSimple-v0
+  registration_imports:
+    - latency_bench.envs.humanoidbench_sonic
+  make_kwargs:
+    render_mode: null
+    width: 256
+    height: 256
+    scene_path: ./results/humanoidbench_g1_sonic_assets/assets/sonic_g1/envs/scene_balance_simple.xml
+    control_mode: raw_body_target
+    target_velocity_ramp_time_s: 0.1
+    raw_learn_hands: true
+  env_fps: 50
+  obs_fps: 50
+  frame_stack: 1
+  action_space:
+    type: box
+    labels:
+      - body_0
+      - body_1
+      - body_2
+      - body_3
+      - body_4
+      - body_5
+      - body_6
+      - body_7
+      - body_8
+      - body_9
+      - body_10
+      - body_11
+      - body_12
+      - body_13
+      - body_14
+      - body_15
+      - body_16
+      - body_17
+      - body_18
+      - body_19
+      - body_20
+      - body_21
+      - body_22
+      - body_23
+      - body_24
+      - body_25
+      - body_26
+      - body_27
+      - body_28
+      - hand_0
+      - hand_1
+      - hand_2
+      - hand_3
+      - hand_4
+      - hand_5
+      - hand_6
+      - hand_7
+      - hand_8
+      - hand_9
+      - hand_10
+      - hand_11
+      - hand_12
+      - hand_13
+    low: [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0]
+    high: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    dtype: float32
+  # Queue consumes an absolute noop; learner actions remain normalized [-1, 1].
+  noop_action: [-0.312, -0.312, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.669, 0.669, 0.2, 0.0, -0.363, -0.363, 0.2, 0.2, 0.0, 0.0, 0.0, -0.2, 0.6, 0.0, 0.0, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  base_prompt: Keep the G1 humanoid balanced on the support board.
+
+latency:
+  method: zero
+  add_latency_info: false
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+
+policy:
+  type: random
+
+training:
+  train_for_env_steps: 25000000
+  num_workers: 128
+  num_envs_per_worker: 1
+  worker_num_splits: 1
+  num_policies: 1
+  batch_size: 128
+  rollout: 1
+  recurrence: 1
+  num_epochs: 1
+  num_batches_per_epoch: 1
+  max_policy_lag: 300
+  learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  value_loss_coeff: 0.5
+  max_grad_norm: 4.0
+  exploration_loss_coeff: 0.0
+  kl_loss_coeff: 0.1
+  async_rl: false
+  batched_sampling: false
+  use_rnn: false
+  encoder_mlp_layers: [64, 64]
+  normalize_input: false
+  normalize_returns: false
+  save_every_sec: 60
+  keep_checkpoints: 5
+  fasttd3_replay_capacity: 6553600
+  fasttd3_replay_batch_size: 32768
+  fasttd3_transitions_per_update: 64
+  fasttd3_compile: true
+  actor_critic_share_weights: true
+  adaptive_stddev: false
+  reward_scale: 1.0
+  reward_clip: 1000000000.0
+  fasttd3_v_min: -250.0
+  fasttd3_v_max: 250.0
+
+evaluation:
+  eval_interval_steps: null
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_max_steps: 1000
+  eval_deterministic: true
+
+logging:
+  output_dir: outputs/tasks/humanoidbench_balance_simple/train
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false
+  wandb_project: latency-sensitive-bench
+  wandb_group: g1-sonic-balance-fasttd3
+  wandb_job_type: sample_factory
+  wandb_name: g1_sonic_balance_simple_raw_ramp_fasttd3_25m_s1
+  wandb_tags: [humanoidbench, g1, balance, fasttd3]

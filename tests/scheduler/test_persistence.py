@@ -8,17 +8,14 @@ from latency_bench.scheduler.persistence import (
 )
 
 
-def test_hold_policy_keeps_action_for_observation_stride_then_noop():
+def test_hold_policy_keeps_current_action():
     noop = Action("noop", is_noop=True)
     action = Action("move")
-    policy = HoldPolicy(duration_raw_frames=3)
+    policy = HoldPolicy()
 
     policy.on_action_applied(action)
 
-    assert policy.get_action_for_step(action, noop) is action
-    assert policy.get_action_for_step(action, noop) is action
-    assert policy.get_action_for_step(action, noop) is action
-    assert policy.get_action_for_step(action, noop) is noop
+    assert [policy.get_action_for_step(action, noop) for _ in range(10)] == [action] * 10
 
 
 def test_one_frame_then_noop_applies_any_action_once_then_noop():
@@ -32,12 +29,11 @@ def test_one_frame_then_noop_applies_any_action_once_then_noop():
     assert policy.get_action_for_step(action, noop) is noop
 
 
-def test_one_frame_then_noop_does_not_depend_on_is_oneshot_metadata():
+def test_one_frame_then_noop_reset_discards_pending_action():
     noop = Action("noop", is_noop=True)
     action = Action("hold", is_oneshot=False)
     policy = OneFrameThenNoopPolicy()
 
     policy.on_action_applied(action)
-
-    assert policy.get_action_for_step(action, noop) is action
+    policy.reset()
     assert policy.get_action_for_step(action, noop) is noop

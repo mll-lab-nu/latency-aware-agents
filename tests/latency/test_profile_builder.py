@@ -2,7 +2,9 @@ import json
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
+from latency_bench.analysis.utils import write_latency_distribution_plot
 from latency_bench.latency.profile_builder import build_profile_from_traces
 
 
@@ -72,7 +74,10 @@ def test_profile_builder_emits_per_slot_bundle_and_preserves_session_boundaries(
         "profile.json",
         "latency_distribution.json",
         "latency_burst_model.json",
+        "latency_profile.png",
     }
+    assert profile["visualization_path"] == "latency_profile.png"
+    assert (output / profile["visualization_path"]).read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
     assert profile["source_run_id"] == "run_1"
     assert profile["n_observation_attempts"] == 9
     assert profile["n_admitted_observations"] == 8
@@ -100,3 +105,13 @@ def test_profile_builder_emits_per_slot_bundle_and_preserves_session_boundaries(
             env_fps=25.0,
             metadata={"session_ids": [0, 1]},
         )
+
+
+def test_latency_plot_renders_constant_profile(tmp_path):
+    output = tmp_path / "latency_profile.png"
+
+    write_latency_distribution_plot([10.0, 10.0], output)
+
+    image = Image.open(output).convert("RGB")
+    colors = image.getcolors(image.width * image.height)
+    assert any(color == (165, 71, 98) for _, color in colors)

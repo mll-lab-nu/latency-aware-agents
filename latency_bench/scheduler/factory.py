@@ -28,20 +28,15 @@ def build_action_scheduler(
         noop_action=noop_action,
         persistence_policy=build_persistence_policy(
             ActionHoldPolicy(scheduler_cfg["hold_policy"]),
-            clock=clock,
         ),
         ordering_policy=OrderingPolicy(scheduler_cfg["ordering_policy"]),
         hold_last_chunk_action=scheduler_cfg.get("hold_last_chunk_action", False),
     )
 
 
-def build_persistence_policy(
-    hold_policy: ActionHoldPolicy,
-    *,
-    clock: EnvClock,
-) -> ActionPersistencePolicy:
+def build_persistence_policy(hold_policy: ActionHoldPolicy) -> ActionPersistencePolicy:
     if hold_policy == ActionHoldPolicy.HOLD:
-        return HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames)
+        return HoldPolicy()
     return OneFrameThenNoopPolicy()
 
 

@@ -7,7 +7,7 @@ from statistics import NormalDist
 from typing import Any, Callable
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.latency_distribution import derive_latency_seed
+from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.latency.config import (
     SEEDED_STOCHASTIC_METHODS,
     latency_type_from_config,
@@ -480,7 +480,8 @@ def build_episode_sampler_factory(
     """Return a per-episode sampler builder deriving a stream seed per episode.
 
     Seeded IID methods get independent episode streams. Temporal models retain
-    machine state across episodes and therefore use one shared sampler.
+    machine state across episodes: one sampler per replica, reused across that
+    replica's episodes.
     """
     method = resolve_latency_method(latency_cfg)
     if method == "iid":
@@ -493,7 +494,7 @@ def build_episode_sampler_factory(
             sampler = IidInverseCdfSampler(
                 distribution,
                 clock=clock,
-                seed=derive_latency_seed(seed, episode_idx=episode_id),
+                seed=derive_seed(seed, episode_idx=episode_id),
             )
             return _finalize_sampler(
                 sampler,
@@ -515,7 +516,7 @@ def build_episode_sampler_factory(
 
     def build_for_episode(episode_id: int) -> LatencySampler:
         episode_latency_cfg = dict(latency_cfg)
-        episode_latency_cfg["seed"] = derive_latency_seed(seed, episode_idx=episode_id)
+        episode_latency_cfg["seed"] = derive_seed(seed, episode_idx=episode_id)
         return build_sampler(episode_latency_cfg, clock=clock)
 
     return build_for_episode

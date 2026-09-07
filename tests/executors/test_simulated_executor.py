@@ -273,7 +273,7 @@ def _executor(
     action_scheduler = ActionScheduler(
         clock=clock,
         noop_action=noop,
-        persistence_policy=persistence_policy or HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+        persistence_policy=persistence_policy or HoldPolicy(),
         ordering_policy=ordering_policy,
     )
     executor = SimulatedLatencyExecutor(
@@ -534,27 +534,20 @@ def test_one_frame_then_noop_applies_raw_frame_then_returns_to_noop():
     ]
 
 
-def test_hold_policy_persists_for_observation_step_after_raw_frame_apply():
+def test_hold_policy_keeps_action_after_raw_frame_arrival():
     executor, env, _, noop = _executor(
         RawFrameLatencySource([3]),
-        max_steps=6,
+        max_steps=10,
         env_fps=30,
         obs_fps=10,
         decision_scheduler=SelectedRawFrameDecisionScheduler({0}),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
-        persistence_policy=HoldPolicy(duration_raw_frames=3),
+        persistence_policy=HoldPolicy(),
     )
 
-    executor.run_episode(episode_id=0, eval_max_steps=6)
+    executor.run_episode(episode_id=0, eval_max_steps=10)
 
-    assert [action.value for action in env.applied_actions] == [
-        noop.value,
-        noop.value,
-        noop.value,
-        "jump",
-        "jump",
-        "jump",
-    ]
+    assert [action.value for action in env.applied_actions] == [noop.value] * 3 + ["jump"] * 7
 
 
 def test_fifo_raw_frame_blocking_waits_for_head_of_line_ready():
@@ -564,7 +557,7 @@ def test_fifo_raw_frame_blocking_waits_for_head_of_line_ready():
         max_steps=12,
         decision_scheduler=SelectedRawFrameDecisionScheduler({0, 1}),
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
-        persistence_policy=HoldPolicy(duration_raw_frames=100),
+        persistence_policy=HoldPolicy(),
     )
 
     executor.run_episode(episode_id=0, eval_max_steps=12)
@@ -588,7 +581,7 @@ def test_late_stale_result_is_ignored_not_applied():
         policy=CountingPolicyRunner(),
         max_steps=8,
         decision_scheduler=SelectedRawFrameDecisionScheduler({0, 1}),
-        persistence_policy=HoldPolicy(duration_raw_frames=100),
+        persistence_policy=HoldPolicy(),
     )
 
     metrics = executor.run_episode(episode_id=0, eval_max_steps=8)
@@ -691,7 +684,7 @@ def test_soft_reset_continues_same_episode_and_clears_latency_state():
         action_scheduler=ActionScheduler(
             clock=clock,
             noop_action=noop,
-            persistence_policy=HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+            persistence_policy=HoldPolicy(),
             ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
         ),
         clock=clock,

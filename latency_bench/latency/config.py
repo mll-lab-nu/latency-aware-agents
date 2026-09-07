@@ -4,6 +4,7 @@ from typing import Any, Mapping
 
 
 _LOGGED_LATENCY_TYPES_BY_METHOD = {
+    "measured": "measured",
     "zero": "zero",
     "fixed": "fixed",
     "normal": "normal_distribution",

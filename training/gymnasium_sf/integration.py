@@ -150,13 +150,22 @@ class GymnasiumActionLatencyWrapper(ActionLatencyWrapper):
                 name="noop",
                 is_noop=True,
             ),
-            persistence_policy=build_persistence_policy(
-                self.hold_policy,
-                clock=self.clock,
-            ),
+            persistence_policy=build_persistence_policy(self.hold_policy),
             ordering_policy=self.ordering_policy,
         )
         self.current_applied_action = clone_action(self.noop_action)
+
+
+class G1RawRequestWrapper(gym.ActionWrapper):
+    """Keep FastTD3 normalized actions outside the absolute-request latency queue."""
+
+    def __init__(self, env):
+        super().__init__(env)
+        action_dim = 29 + (14 if self.unwrapped._raw_learn_hands else 0)
+        self.action_space = gym.spaces.Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
+
+    def action(self, action):
+        return self.unwrapped.g1_absolute_request_from_raw_action(action)
 
 
 def make_gymnasium_sf_env(
@@ -171,7 +180,14 @@ def make_gymnasium_sf_env(
     for module_name in json.loads(cfg.gym_registration_imports_json):
         import_module(module_name)
 
-    env = gym.make(cfg.gym_env_id, **_gymnasium_make_kwargs(cfg))
+    make_kwargs = _gymnasium_make_kwargs(cfg)
+    raw_g1_requests = (
+        cfg.gym_task_name == "g1_sonic_balance_simple"
+        and make_kwargs["control_mode"] == "raw_body_target"
+    )
+    if raw_g1_requests:
+        make_kwargs["control_mode"] = "direct_absolute_position"
+    env = gym.make(cfg.gym_env_id, **make_kwargs)
     if cfg.gym_state_labels_json:
         env = GymnasiumStateInfoWrapper(env)
     action_space_contract = _gymnasium_action_space(cfg)
@@ -203,6 +219,8 @@ def make_gymnasium_sf_env(
         env_id=int(env_config.env_id),
     )
     latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=clock.env_fps)
+    if latency_params.profile_path is not None and cfg.latency_seed is not None:
+        latency_seed = int(cfg.latency_seed)
     env = GymnasiumActionLatencyWrapper(
         env,
         fixed_latency_raw_frames=latency_params.fixed_latency_raw_frames,
@@ -214,6 +232,8 @@ def make_gymnasium_sf_env(
         sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
         profile_path=latency_params.profile_path,
         profile_worker_slot=latency_params.profile_worker_slot,
+        profile_method=latency_params.profile_method,
+        simulated_worker_capacity=latency_params.simulated_worker_capacity,
         seed=latency_seed,
         env_reset_seed_base=wrapper_seed + 104729,
         add_latency_info=bool(cfg.add_latency_info),
@@ -224,6 +244,8 @@ def make_gymnasium_sf_env(
             else _gymnasium_noop_action(cfg)
         ),
     )
+    if raw_g1_requests:
+        env = G1RawRequestWrapper(env)
     action_labels = (
         {
             action_id: name
@@ -297,6 +319,7 @@ def add_gymnasium_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--latency-seed", dest="latency_seed", type=int)
     parser.add_argument("--latency-profile-path", dest="latency_profile_path", type=str)
     parser.add_argument("--latency-profile-worker-slot", dest="latency_profile_worker_slot", type=int)
+    parser.add_argument("--simulated-worker-capacity", dest="simulated_worker_capacity", type=int)
     parser.add_argument("--add-latency-info", type=str2bool, default=False)
     parser.add_argument("--max-pending-actions", dest="max_pending_actions", type=int)
     parser.add_argument(

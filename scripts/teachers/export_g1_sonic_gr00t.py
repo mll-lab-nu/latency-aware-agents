@@ -314,6 +314,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--teacher", action="append", dest="teachers")
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        help="override the selected checkpoint teacher's manifest path",
+    )
     parser.add_argument("--no-convert", dest="convert", action="store_false")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--max-episodes", type=int, default=1)
@@ -337,6 +342,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     jobs = _selected_jobs(_load_manifest(args.manifest), args.teachers)
+    if args.checkpoint is not None:
+        if len(jobs) != 1 or jobs[0]["source"] != "checkpoint":
+            raise ValueError("--checkpoint requires exactly one checkpoint teacher")
+        jobs[0] = {**jobs[0], "checkpoint": str(args.checkpoint)}
     output_root = args.output_root.expanduser().resolve()
     image_size = _parse_image_size(args.export_image_size)
     results = []

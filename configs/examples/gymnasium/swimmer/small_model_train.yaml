@@ -1,5 +1,5 @@
 experiment:
-  name: gymnasium_swimmer_rgb_state_zero_latency_10m
+  name: gymnasium_swimmer_zero_latency_10m
   seed: 2222
 
 backend:
@@ -15,7 +15,7 @@ executor:
 
 env:
   name: gymnasium
-  task_name: swimmer_rgb_state
+  task_name: swimmer
   env_id: LatencyBench/SwimmerContinuous-v0
   registration_imports: [latency_bench.envs.gymnasium_swimmer]
   make_kwargs:

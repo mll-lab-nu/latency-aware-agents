@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train balance_simple from GR00T-N1.7 for 15k steps with periodic eval."""
+"""Train balance_simple from GR00T-N1.7 with periodic profile eval."""
 
 from __future__ import annotations
 
@@ -17,45 +17,50 @@ import wandb
 import yaml
 
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
+from gr00t.data.stats import generate_stats
 from gr00t.policy import Gr00tPolicy
+from latency_bench.core.config import load_config
 
 
 REPO = Path(__file__).resolve().parents[2]
 GROOT = REPO / "third_party/Isaac-GR00T"
-BASE_MODEL = REPO / "outputs/official_gr00t/models/GR00T-N1.7-3B"
-DATASET = REPO / "outputs/official_gr00t/datasets/humanoidbench/balance_simple/lerobot"
-VAL_DATASET = Path(f"{DATASET}__val")
-OUTPUT = REPO / (
-    "outputs/official_gr00t/"
-    "g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_15k"
-)
 EVAL_CONFIG = (
     REPO
     / "configs/examples/gymnasium/g1_sonic_balance_simple/"
     "official_gr00t_eval_simulated.yaml"
 )
-WANDB_RUN_ID = "g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_15k"
-WANDB_RUN_NAME = WANDB_RUN_ID
 
 
-def train_to_next_checkpoint(step: int) -> Path:
+def train_to_next_checkpoint(
+    *,
+    base_model: Path,
+    dataset: Path,
+    output: Path,
+    run_id: str,
+    step: int,
+    max_steps: int = 15000,
+    step_interval: int = 500,
+    resume: bool = False,
+    num_gpus: int = 2,
+    global_batch_size: int = 128,
+) -> Path:
     command = [
         str(GROOT / ".venv/bin/torchrun"),
         "--standalone",
-        "--nproc_per_node=2",
+        f"--nproc_per_node={num_gpus}",
         str(GROOT / "gr00t/experiment/launch_finetune.py"),
         "--base-model-path",
-        str(BASE_MODEL),
+        str(base_model),
         "--dataset-path",
-        str(DATASET),
+        str(dataset),
         "--embodiment-tag",
         "NEW_EMBODIMENT",
         "--modality-config-path",
         str(REPO / "latency_bench/policy/official_gr00t_modality.py"),
         "--num-gpus",
-        "2",
+        str(num_gpus),
         "--output-dir",
-        str(OUTPUT),
+        str(output),
         "--max-state-dim",
         "198",
         "--action-horizon",
@@ -78,45 +83,45 @@ def train_to_next_checkpoint(step: int) -> Path:
         "--warmup-ratio",
         "0.016666666666666666",
         "--max-steps",
-        "15000",
+        str(max_steps),
         "--global-batch-size",
-        "128",
+        str(global_batch_size),
         "--gradient-accumulation-steps",
         "1",
         "--dataloader-num-workers",
         "8",
         "--save-steps",
-        "500",
+        str(step_interval),
         "--stop-every-steps",
-        "500",
+        str(step_interval),
         "--save-total-limit",
         "2",
         "--use-wandb",
         "--experiment-name",
-        WANDB_RUN_NAME,
+        run_id,
     ]
-    if step > 500:
+    if resume:
         command.append("--resume-from-checkpoint")
 
     env = os.environ | {
-        "CUDA_VISIBLE_DEVICES": "0,1",
         "NO_ALBUMENTATIONS_UPDATE": "1",
-        "WANDB_RUN_ID": WANDB_RUN_ID,
+        "WANDB_RUN_ID": run_id,
         "WANDB_RESUME": "allow",
     }
     subprocess.run(command, cwd=REPO, env=env, check=True)
-    return OUTPUT / f"checkpoint-{step}"
+    return output / run_id / f"checkpoint-{step}"
 
 
-def validation_metrics(checkpoint: Path) -> dict[str, float]:
+def validation_metrics(checkpoint: Path, val_dataset: Path) -> dict[str, float]:
+    generate_stats(val_dataset)
     policy = Gr00tPolicy(
         embodiment_tag="NEW_EMBODIMENT",
         model_path=checkpoint,
         device="cuda:0",
     )
-    loader = LeRobotEpisodeLoader(VAL_DATASET, policy.get_modality_config())
+    loader = LeRobotEpisodeLoader(val_dataset, policy.get_modality_config())
     episode = loader[0]
-    count = min(128, len(episode) - 39)
+    count = min(128, len(episode))
     states = np.stack(episode["state.state"].iloc[:count]).astype(np.float32)[:, None]
     videos = np.stack([np.asarray(x) for x in episode["video.ego_view"].iloc[:count]])[
         :, None
@@ -156,11 +161,29 @@ def validation_metrics(checkpoint: Path) -> dict[str, float]:
     return metrics
 
 
-def closed_loop_metrics(checkpoint: Path, step: int) -> dict[str, float]:
-    config = yaml.safe_load(EVAL_CONFIG.read_text())
-    eval_output = OUTPUT / "evals" / f"eval_step{step}"
-    config["experiment"]["name"] = f"balance_simple_gr00t_step{step}"
+def closed_loop_metrics(
+    checkpoint: Path,
+    step: int | str,
+    *,
+    output: Path,
+    eval_config: Path,
+    latency_profile_path: Path,
+    latency_config_path: Path | None = None,
+    latency_method: str = "temporal",
+) -> dict[str, float]:
+    config = load_config(eval_config)
+    if latency_config_path is not None:
+        latency_config = load_config(latency_config_path)
+        for section in ("executor", "latency", "scheduler"):
+            config[section].update(latency_config[section])
+    eval_output = output / "evals" / f"eval_step{step}_{latency_method}"
+    config["experiment"]["name"] = (
+        f"balance_simple_gr00t_step{step}_{latency_method}"
+    )
     config["policy"]["model_path"] = str(checkpoint)
+    config["latency"]["method"] = latency_method
+    if latency_method == "temporal" and latency_config_path is None:
+        config["latency"]["profile_path"] = str(latency_profile_path)
     config["logging"]["output_dir"] = str(eval_output)
     config["logging"]["video"] = {"enabled": True, "num_bins": 1}
 
@@ -203,22 +226,71 @@ def closed_loop_metrics(checkpoint: Path, step: int) -> dict[str, float]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--base-model-path", type=Path, required=True)
+    parser.add_argument("--dataset-path", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--baseline-model-path", type=Path)
+    parser.add_argument(
+        "--latency-profile-path",
+        type=Path,
+        required=True,
+        help="Temporal latency profile used by every periodic closed-loop evaluation.",
+    )
+    parser.add_argument(
+        "--latency-config",
+        type=Path,
+        help="Resolved training latency config copied into periodic evaluations.",
+    )
     parser.add_argument("--start-step", type=int, default=500)
+    parser.add_argument("--max-step", type=int, default=15000)
+    parser.add_argument("--step-interval", type=int, default=500)
+    parser.add_argument("--num-gpus", type=int, default=2)
+    parser.add_argument("--global-batch-size", type=int, default=128)
     args = parser.parse_args()
 
-    for step in range(args.start_step, 15001, 500):
-        checkpoint = train_to_next_checkpoint(step)
-        metrics = validation_metrics(checkpoint)
+    val_dataset = Path(f"{args.dataset_path}__val")
+
+    for step in range(args.start_step, args.max_step + 1, args.step_interval):
+        checkpoint = train_to_next_checkpoint(
+            base_model=args.base_model_path,
+            dataset=args.dataset_path,
+            output=args.output_dir,
+            run_id=args.run_id,
+            step=step,
+            max_steps=args.max_step,
+            step_interval=args.step_interval,
+            resume=step > args.step_interval,
+            num_gpus=args.num_gpus,
+            global_batch_size=args.global_batch_size,
+        )
+        metrics = validation_metrics(checkpoint, val_dataset)
         gc.collect()
         torch.cuda.empty_cache()
-        metrics.update(closed_loop_metrics(checkpoint, step))
-        metrics["epochs"] = step * 128 / 86048
+        for latency_name, latency_method in (
+            ("zero", "zero"),
+            ("profile", "temporal"),
+        ):
+            metrics.update(
+                {
+                    f"new_{latency_name}_{key}": value
+                    for key, value in closed_loop_metrics(
+                        checkpoint,
+                        step,
+                        output=args.output_dir,
+                        eval_config=EVAL_CONFIG,
+                        latency_profile_path=args.latency_profile_path,
+                        latency_config_path=args.latency_config,
+                        latency_method=latency_method,
+                    ).items()
+                }
+            )
         print(json.dumps({"step": step, **metrics}, indent=2), flush=True)
 
         run = wandb.init(
             project="finetune-gr00t-n1d7",
-            id=WANDB_RUN_ID,
-            name=WANDB_RUN_NAME,
+            id=args.run_id,
+            name=args.run_id,
             resume="allow",
         )
         run.define_metric("periodic_eval/*", step_metric="train/global_step")
@@ -233,6 +305,28 @@ def main() -> None:
         )
         run.finish()
         wandb.teardown()
+
+    if args.baseline_model_path is not None:
+        baseline_metrics = {}
+        for latency_name, latency_method in (
+            ("zero", "zero"),
+            ("profile", "temporal"),
+        ):
+            baseline_metrics.update(
+                {
+                    f"original_{latency_name}_{key}": value
+                    for key, value in closed_loop_metrics(
+                        args.baseline_model_path,
+                        "baseline",
+                        output=args.output_dir,
+                        eval_config=EVAL_CONFIG,
+                        latency_profile_path=args.latency_profile_path,
+                        latency_config_path=args.latency_config,
+                        latency_method=latency_method,
+                    ).items()
+                }
+            )
+        print(json.dumps({"checkpoint": "original", **baseline_metrics}, indent=2), flush=True)
 
 
 if __name__ == "__main__":

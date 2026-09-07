@@ -1,0 +1,3 @@
+__base__: mikasa_latency_smoke.yaml
+training:
+  total_timesteps: 192

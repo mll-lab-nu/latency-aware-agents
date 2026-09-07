@@ -189,6 +189,53 @@ def test_starvla_passes_latest_raw_frame_and_base_prompt_by_default(monkeypatch,
     assert output.action.value == 1
 
 
+def test_starvla_uses_explicit_multiview_deployment_actions(monkeypatch, tmp_path: Path):
+    from latency_bench.policy import starvla
+
+    class DeploymentWrapper(FakePolicyServerWrapper):
+        def predict_action(self, examples, unnorm_key=None, **kwargs):
+            self.calls.append({"examples": examples, "unnorm_key": unnorm_key, "kwargs": kwargs})
+            return {"actions": np.asarray([[[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]]])}
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: DeploymentWrapper)
+    config = _config(tmp_path)
+    config["env"]["name"] = "mikasa_intercept_grab_fast"
+    config["env"]["base_prompt"] = "Intercept the rolling ball."
+    config["policy"].update(
+        {
+            "action_output_mode": "deployment",
+            "action_output_type": "rl_games_continuous",
+            "image_views_info_key": "mikasa_image_views",
+        }
+    )
+    policy = build_policy(config, ActionResolver(config["env"]))
+
+    output = policy.predict(
+        Observation(
+            data=None,
+            env_step=0,
+            sim_time_ms=0.0,
+            metadata={
+                "mikasa_image_views": np.stack(
+                    [
+                        np.full((3, 4, 3), 11, dtype=np.uint8),
+                        np.full((3, 4, 3), 22, dtype=np.uint8),
+                    ]
+                )
+            },
+        )
+    )
+
+    wrapper = FakePolicyServerWrapper.instances[0]
+    assert wrapper.action_output_mode == "deployment"
+    assert [np.asarray(image).mean() for image in wrapper.calls[0]["examples"][0]["image"]] == [
+        11,
+        22,
+    ]
+    assert output.action.value == pytest.approx([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+
+
 def test_starvla_passes_action_decode_overrides_to_checkpoint_wrapper(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 

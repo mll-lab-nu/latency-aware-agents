@@ -56,7 +56,7 @@ def test_chunk_uses_elapsed_raw_steps_and_new_chunk_replaces_old():
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+        HoldPolicy(),
         OrderingPolicy.ISSUE_ORDER_FIFO,
     )
     old_chunk = [Action("old0"), Action("old1"), Action("old2")]
@@ -95,7 +95,7 @@ def test_chunk_underflow_is_counted_and_can_hold_last_action():
     scheduler = ActionScheduler(
         clock,
         noop,
-        HoldPolicy(duration_raw_frames=clock.obs_stride_raw_frames),
+        HoldPolicy(),
         OrderingPolicy.ISSUE_ORDER_FIFO,
         hold_last_chunk_action=True,
     )

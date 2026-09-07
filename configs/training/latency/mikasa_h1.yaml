@@ -1,0 +1,19 @@
+__base__: ../mikasa_latency_smoke.yaml
+
+latency:
+  method: temporal
+  seed: 0
+
+scheduler:
+  hold_policy: hold
+
+training:
+  num_envs: 1024
+  num_eval_envs: 16
+  num_steps: 60
+  num_eval_steps: 60
+  num_minibatches: 32
+  update_epochs: 4
+  total_timesteps: 150000000
+  eval_freq: 25
+  track: true

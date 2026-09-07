@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 import scripts.official_gr00t.train_haic_dagger as train_haic_dagger
 from scripts.official_gr00t.train_haic_dagger import (
@@ -16,6 +17,7 @@ from scripts.official_gr00t.train_haic_dagger import (
     COLLECTOR_RANKS,
     DAGGER_ROUNDS,
     DEFAULT_INFERENCE_BATCH_SIZE,
+    DEFAULT_WANDB_RUN_ID,
     ENVS_PER_COLLECTOR_RANK,
     EVAL_ENVS,
     GLOBAL_BATCH_SIZE,
@@ -33,6 +35,7 @@ from scripts.official_gr00t.train_haic_dagger import (
     read_eval_metrics,
     training_command,
     training_dataset_dirs,
+    write_latency_eval_config,
     write_policy_config,
 )
 
@@ -40,7 +43,14 @@ from scripts.official_gr00t.train_haic_dagger import (
 def test_main_resolves_bootstrap_paths_from_output_root(monkeypatch):
     captured = {}
     monkeypatch.setattr(
-        "sys.argv", ["train_haic_dagger.py", "--output-root", "/tmp/haic-custom"]
+        "sys.argv",
+        [
+            "train_haic_dagger.py",
+            "--output-root",
+            "/tmp/haic-custom",
+            "--latency-profile-path",
+            "profile.json",
+        ],
     )
     monkeypatch.setattr(
         train_haic_dagger,
@@ -54,12 +64,13 @@ def test_main_resolves_bootstrap_paths_from_output_root(monkeypatch):
     assert captured["bootstrap_dataset"] == root / "bootstrap/lerobot"
     assert captured["bootstrap_checkpoint"] == (
         root
-        / "bootstrap/training/haic_pull_cart_vla_dagger_action_5k_sft/checkpoint-5000"
+        / f"bootstrap/training/{DEFAULT_WANDB_RUN_ID}_sft/checkpoint-5000"
     )
     assert captured["actor_checkpoint"] == root / "bootstrap/actor_adapt.pt"
-    assert captured["end_round"] == 1
+    assert captured["end_round"] == DAGGER_ROUNDS
     assert captured["collector_devices"] is None
     assert captured["collector_num_envs"] == ENVS_PER_COLLECTOR_RANK
+    assert captured["latency_profile_path"] == Path("profile.json")
 
 
 def test_haic_pipeline_constants_are_single_gpu_and_paper_scale():
@@ -99,9 +110,6 @@ def test_haic_commands_encode_smoke_and_resume_contract():
     assert first[first.index("--inference-batch-size") + 1] == str(
         DEFAULT_INFERENCE_BATCH_SIZE
     )
-    assert first[first.index("--dagger-shard-rows") + 1] == str(
-        HAIC_DAGGER_SHARD_ROWS
-    )
     assert first[first.index("--policy-config") + 1] == "policy.yaml"
     assert "--student-actor-checkpoint" not in first
 
@@ -136,6 +144,11 @@ def test_haic_commands_encode_smoke_and_resume_contract():
     assert train[train.index("--num-gpus") + 1] == "1"
     assert train[train.index("--max-state-dim") + 1] == "605"
     assert train[train.index("--max-action-dim") + 1] == "256"
+    assert train[train.index("--action-horizon") + 1] == "40"
+    assert train[train.index("--num-inference-timesteps") + 1] == "4"
+    assert "--allow-padding" in train
+    assert "--fixed-action-noise-seed" not in train
+    assert "--one-step-action-regression" not in train
     assert train[train.index("--gradient-accumulation-steps") + 1] == "1"
     assert train[-2:] == ["--resume-checkpoint-path", "output/checkpoint-500"]
     assert train[train.index("--action-objective") + 1] == "haic"
@@ -172,27 +185,115 @@ def test_haic_commands_encode_smoke_and_resume_contract():
     ] == str(BOOTSTRAP_GRADIENT_ACCUMULATION_STEPS)
     assert "--replay-bootstrap-dataset" not in bootstrap
     assert bootstrap[bootstrap.index("--action-objective") + 1] == "haic"
+    assert bootstrap[bootstrap.index("--action-horizon") + 1] == "40"
+    assert bootstrap[bootstrap.index("--num-inference-timesteps") + 1] == "4"
+    assert "--allow-padding" in bootstrap
+    assert "--fixed-action-noise-seed" not in bootstrap
+    assert "--one-step-action-regression" not in bootstrap
     assert bootstrap[bootstrap.index("--experiment-name") + 1] == "haic-test_sft"
     assert checkpoint_dir(Path("output"), 5_000) == Path("output/checkpoint-5000")
 
 
-def test_read_eval_metrics_flattens_haic_eval_json(tmp_path):
-    eval_path = tmp_path / "dagger-eval.json"
+@pytest.mark.parametrize("smoke, updates", [(False, BOOTSTRAP_UPDATES), (True, 2)])
+def test_run_bootstrap_reuses_existing_dataset_for_fresh_sft(
+    tmp_path, monkeypatch, smoke, updates
+):
+    existing_dataset = tmp_path / "existing-bootstrap/lerobot"
+    policy_config = tmp_path / "policy.yaml"
+    policy_config.write_text("policy: {model_path: base, device: 'cuda:0'}")
+    args = SimpleNamespace(
+        output_root=tmp_path / "new-run",
+        bootstrap_dataset=existing_dataset,
+        teacher_checkpoint=tmp_path / "teacher.pt",
+        actor_checkpoint=tmp_path / "actor_adapt.pt",
+        base_model=tmp_path / "base-model",
+        haic_python=tmp_path / "haic-python",
+        inference_device="cuda:0",
+        eval_max_steps=1_000,
+        inference_batch_size=32,
+        wandb_run_id="flow-aux",
+        policy_config=policy_config,
+    )
+    calls = []
+    monkeypatch.setattr(
+        train_haic_dagger,
+        "_run",
+        lambda command, **kwargs: calls.append((command, kwargs)),
+    )
+
+    evaluated = []
+    monkeypatch.setattr(
+        train_haic_dagger,
+        "evaluate_checkpoint",
+        lambda args, **kwargs: evaluated.append(
+            (
+                yaml.safe_load(kwargs["policy_config"].read_text())["policy"]["model_path"],
+                kwargs["step"],
+            )
+        ),
+    )
+    checkpoint = (
+        train_haic_dagger.run_smoke(args)
+        if smoke
+        else train_haic_dagger.run_bootstrap(args, smoke=False)
+    )
+
+    assert len(calls) == 1
+    command, kwargs = calls[0]
+    assert str(train_haic_dagger.FINETUNE_SCRIPT) in command
+    assert command[command.index("--dataset-path") + 1] == str(existing_dataset)
+    assert command[command.index("--max-steps") + 1] == str(updates)
+    assert str(train_haic_dagger.HAIC_SCRIPT) not in command
+    assert kwargs["cwd"] == train_haic_dagger.REPO_ROOT
+    assert checkpoint == (
+        tmp_path / f"new-run/bootstrap/training/flow-aux_sft/checkpoint-{updates}"
+    )
+    assert evaluated == ([(str(checkpoint), 2)] if smoke else [])
+
+
+def test_read_eval_metrics_flattens_common_eval_summary(tmp_path):
+    eval_path = tmp_path / "queue_eval_latency_0.json"
     eval_path.write_text(
-        '{"episodes":100,"successes":45,"success_rate":0.45}\n'
+        json.dumps(
+            {
+                "returns": [0.0] * 100,
+                "task_metrics": {
+                    "success": {"mean": 0.45, "values": [1] * 45 + [0] * 55},
+                    "motion_progress": {"mean": 0.6, "std": 0.1},
+                    "cart_progress": {"mean": 0.3, "std": 0.2},
+                    "pullcart_score": {"mean": 45.0, "std": 15.0},
+                },
+            }
+        )
     )
 
     assert read_eval_metrics(eval_path) == {
         "dagger_eval/episodes": 100,
         "dagger_eval/successes": 45,
         "dagger_eval/success_rate": 0.45,
+        "dagger_eval/motion_progress_mean": 0.6,
+        "dagger_eval/motion_progress_std": 0.1,
+        "dagger_eval/cart_progress_mean": 0.3,
+        "dagger_eval/cart_progress_std": 0.2,
+        "dagger_eval/pullcart_score_mean": 45.0,
+        "dagger_eval/pullcart_score_std": 15.0,
     }
 
 
 def test_log_eval_metrics_uses_training_step_and_run(tmp_path, monkeypatch):
-    eval_path = tmp_path / "dagger-eval.json"
+    eval_path = tmp_path / "queue_eval_latency_0.json"
     eval_path.write_text(
-        '{"episodes":100,"successes":45,"success_rate":0.45}\n'
+        json.dumps(
+            {
+                "returns": [0.0] * 100,
+                "task_metrics": {
+                    "success": {"mean": 0.45, "values": [1] * 45 + [0] * 55},
+                    "motion_progress": {"mean": 0.6, "std": 0.1},
+                    "cart_progress": {"mean": 0.3, "std": 0.2},
+                    "pullcart_score": {"mean": 45.0, "std": 15.0},
+                },
+            }
+        )
     )
     calls = {}
 
@@ -213,17 +314,25 @@ def test_log_eval_metrics_uses_training_step_and_run(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(train_haic_dagger.wandb, "teardown", lambda: None)
 
-    log_eval_metrics(eval_path, step=500, run_id="latent-only")
+    log_eval_metrics(eval_path, step=500, run_id="flow-aux")
 
     assert calls["init"] == {
         "project": "finetune-gr00t-n1d7",
-        "id": "latent-only",
-        "name": "latent-only",
+        "id": "flow-aux",
+        "name": "flow-aux",
         "resume": "allow",
     }
     assert calls["metric"] == ("dagger_eval/*", "train/global_step")
     assert calls["log"]["train/global_step"] == 500
+    assert calls["log"]["dagger_eval/episodes"] == 100
+    assert calls["log"]["dagger_eval/successes"] == 45
     assert calls["log"]["dagger_eval/success_rate"] == 0.45
+    assert calls["log"]["dagger_eval/motion_progress_mean"] == 0.6
+    assert calls["log"]["dagger_eval/motion_progress_std"] == 0.1
+    assert calls["log"]["dagger_eval/cart_progress_mean"] == 0.3
+    assert calls["log"]["dagger_eval/cart_progress_std"] == 0.2
+    assert calls["log"]["dagger_eval/pullcart_score_mean"] == 45.0
+    assert calls["log"]["dagger_eval/pullcart_score_std"] == 15.0
     assert "dagger_eval/steps" not in calls["log"]
 
 
@@ -487,3 +596,70 @@ def test_haic_policy_config_points_at_selected_vla(tmp_path):
     assert "model_path: checkpoint-2" in contents
     assert "device: cuda:0" in contents
     assert "action_dim: 256" in contents
+
+
+def test_latency_eval_config_preserves_supplied_latency_sections(tmp_path):
+    source = tmp_path / "source.yaml"
+    source.write_text(
+        """
+executor:
+  mode: realtime
+env:
+  simulator_device: cuda:0
+  runtime_checkpoint_path: old-teacher.pt
+latency:
+  method: fixed
+policy:
+  model_path: old-model
+  device: cuda:9
+scheduler:
+  hold_policy: hold
+evaluation: {}
+logging: {}
+"""
+    )
+    latency_config = tmp_path / "latency.yaml"
+    latency_config.write_text(
+        """
+latency:
+  method: fixed
+  seed: 17
+executor:
+  simulated_worker_capacity: 3
+scheduler:
+  hold_policy: drop
+  ordering_policy: oldest_ready
+"""
+    )
+    destination = tmp_path / "eval.yaml"
+
+    write_latency_eval_config(
+        source,
+        destination,
+        model_path=tmp_path / "model",
+        runtime_checkpoint=tmp_path / "teacher.pt",
+        latency_profile_path=tmp_path / "profile.json",
+        latency_config=latency_config,
+        inference_device="cuda:1",
+        simulator_device="cuda:0",
+        output_dir=tmp_path / "output",
+        num_envs=2,
+        max_steps=10,
+        inference_batch_size=4,
+    )
+
+    config = yaml.safe_load(destination.read_text())
+    assert config["latency"]["seed"] == 17
+    assert config["latency"]["method"] == "fixed"
+    assert config["latency"]["profile_path"] == str(tmp_path / "profile.json")
+    assert config["executor"]["simulated_worker_capacity"] == 3
+    assert config["executor"]["inference_devices"] == ["cuda:1"]
+    assert config["executor"]["inference_batch_size"] == 4
+    assert config["scheduler"] == {
+        "hold_policy": "drop",
+        "ordering_policy": "oldest_ready",
+    }
+    assert config["policy"] == {
+        "model_path": str(tmp_path / "model"),
+        "device": "cuda:1",
+    }

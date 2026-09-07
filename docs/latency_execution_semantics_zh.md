@@ -216,15 +216,9 @@ frame 13: NOOP
 
 ### 7.2 `hold`
 
-当前 action 持续一个 observation period：
-
-```text
-duration_raw_frames = obs_stride_raw_frames = env_fps / obs_fps
-```
-
-如果这一个 observation period 结束后下一个 action 还没有 ready，则系统使用 noop/default action。
-
-这种策略可能在 jitter 下产生 action gap。
+持续保持最近已应用的 action，直到下一 action 到达。观测频率、等待中的请求和
+capacity drop 都不会使它过期。首次 action 到达前，以及 episode reset 后，
+使用 noop/default action。
 
 ---
 
@@ -384,7 +378,6 @@ workload_id
 instance_id
 source_run_id
 profile_ref
-hf_commit
 latency_raw_frames
 ```
 

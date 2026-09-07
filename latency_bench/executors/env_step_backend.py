@@ -54,6 +54,37 @@ class EnvStepBackend(Protocol):
         ...
 
 
+class EnvStepBackendEnvAdapter(EnvAdapter):
+    """Expose slot zero of a task backend to the realtime executor."""
+
+    def __init__(self, backend: EnvStepBackend):
+        self.backend = backend
+        handle = backend.slot_handles[0]
+        self.gym_env = handle.gym_env
+        self.env_fps = backend.env_fps
+        self.noop_action = handle.noop_action
+        self.action_space = handle.action_space
+        self._episode_id = 0
+
+    def reset(self, seed: int | None = None) -> Observation:
+        observation = self.backend.reset_slot(
+            0,
+            episode_id=self._episode_id,
+            seed=seed,
+        )
+        self._episode_id += 1
+        return observation
+
+    def observe(self) -> Observation:
+        return self.backend.observe_slots([0])[0]
+
+    def step(self, action: Action) -> StepResult:
+        return self.backend.step_slots({0: action})[0].result
+
+    def close(self) -> None:
+        self.backend.close()
+
+
 class RemoteEnvSlotHandle(EnvAdapter):
     """Main-process handle for an env owned by a worker process."""
 

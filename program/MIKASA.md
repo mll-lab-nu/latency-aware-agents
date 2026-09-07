@@ -1,12 +1,27 @@
 # MIKASA / InterceptGrabFast H1 zero-delay baseline 执行手册
 
+新机器的完整环境安装以 [QUICK_START.md](../docs/QUICK_START.md) 为准。本文的服务器路径与驱动修复保留为运行记录；四模型连续 state H1 流水线见 [SCALE_MODELS.md](SCALE_MODELS.md)。
+
+## Latency command-RL 全链入口
+
+```bash
+.venv/bin/python -m scripts.tasks.mikasa_intercept_grab_fast.run_latency_pipeline \
+  --config configs/training/mikasa_latency_pipeline.yaml
+```
+
+从仓库根目录运行；依次执行 profile、原生 PPO、issued H1 完整 episode 采集、
+RLDS/LeRobot 转换、starVLA 训练及原/新 VLA zero/profile 对照。
+短训使用 `mikasa_latency_pipeline_smoke.yaml`；复用测量时显式传 `--profile-path /absolute/path/profile.json`。
+运行证据、解释器和恢复方法见 [latency handoff](LATENCY_RL_HANDOFF.md)。
+
 > 任务：`InterceptGrabFast-VLA-v0`
 >
 > MIKASA：v1.0.0，commit `16634db18bef08128ed79346469c86fc12169aed`
 >
 > StarVLA：commit `823cd2cdd4fc3934c9d89ac96c03c23b07cd8004`
 >
-> 状态：代码和入口已搭好，尚未在目标服务器执行 GPU 训练。下一 session 从 Phase 0 开始。
+> 状态：zero-delay PPO teacher、275 条成功轨迹、250/25 LeRobot、5k QwenOFT SFT 和
+> canonical VLA 验收均已完成；当前复现入口见 [`docs/mikasa/cookbook.md`](../docs/mikasa/cookbook.md)。
 
 ## 1. 目标与不可更改的实验口径
 
@@ -27,7 +42,9 @@ privileged-state PPO，再用它生成 GrabFast demonstrations。它不是复刻
 锁定以下设置，不在执行中静默替换：
 
 - 环境：`InterceptGrabFast-VLA-v0`。
-- latency：zero-delay；本轮不做 fixed-delay、realtime profile 或 latency-aware training。
+- latency：训练与 canonical baseline 仍为 zero-delay；realtime profile bridge 已接入。profile 从双相机
+  observation 采集到 inference parent 收到 7D `pd_ee_delta_pose` policy action，ManiSkill PD controller
+  和 simulator step 不计入；fixed-delay sweep 和 latency-aware training 仍不在本轮范围。
 - 控制：H1、7D `pd_ee_delta_pose`，官方 20 Hz（每个 control step 50 ms）；每次只预测当前一帧 action。
 - teacher：49D privileged state PPO，不是 VLA teacher。
 - dataset：275 条成功轨迹，前 250 条 train、后 25 条 validation。
@@ -37,8 +54,8 @@ privileged-state PPO，再用它生成 GrabFast demonstrations。它不是复刻
 - 最终 teacher gate：官方 trainer gate 加独立 canonical 100-episode gate，两者都要通过。
 - 最终 VLA baseline gate：canonical zero-delay 50 episodes，至少 25 次 `success_once`。
 
-本手册不要求先新增 wrapper 或抽象。现有底层入口已经能接收所需参数；下一 session 只有在真实
-命令被证明不可用时才修改代码。
+本手册记录底层实验命令和历史证据；读者复现使用 task-owned
+`scripts/tasks/mikasa_intercept_grab_fast/` 入口，避免重复拼接环境变量。
 
 ## 2. 已核对的关键事实
 
@@ -243,20 +260,18 @@ source "${HOME}/miniconda3/etc/profile.d/conda.sh"
 
 ### 3.4 MIKASA 环境
 
+新机器先按 [QUICK_START.md §4](../docs/QUICK_START.md#4-mikasa-与两个转换环境) 安装模拟器及两个转换环境。运行本节命令前，激活已安装 MIKASA、StarVLA 和 benchmark 依赖的 Python 环境。
+
 ```bash
 cd "${REMOTE_ROOT}"
-bash scripts/mikasa/install.sh
-
-export MIKASA_PY="${REMOTE_ROOT}/third_party/MIKASA-Robo/.venv/bin/python"
-"${MIKASA_PY}" -c \
+python -c \
   'import torch; print(torch.__version__, torch.cuda.get_device_name(), torch.cuda.get_device_capability())'
 ```
 
-如果 capability 是 `(12, 0)`，项目锁定的 Torch 2.2.1 不支持该 GPU。只在确认这一事实后执行：
+如果 capability 是 `(12, 0)`，请在当前环境中按需安装兼容 Torch。只在确认这一事实后执行：
 
 ```bash
-uv pip install \
-  --python "${MIKASA_PY}" \
+python -m pip install \
   --index-url https://download.pytorch.org/whl/cu128 \
   'torch==2.7.1'
 ```
@@ -337,7 +352,9 @@ cd "${REMOTE_ROOT}/third_party/starVLA"
 python -c 'import torch, deepspeed, accelerate, flash_attn; print(torch.__version__)'
 ```
 
-下载 base VLM 和 Bridge/RT-1 initialization checkpoint：
+以下权重下载用于本节原有 `train_vla.sh` 配方。四模型 H1 入口从 backbone 仓库默认分支下载 backbone 并新建动作头，不需要 Bridge/RT-1 initialization checkpoint。
+
+下载原有配方的 base VLM 和 Bridge/RT-1 initialization checkpoint：
 
 ```bash
 hf download Qwen/Qwen3-VL-4B-Instruct \
@@ -705,77 +722,53 @@ third_party/starVLA/results/Checkpoints/${RUN_ID}/checkpoints/steps_5000_pytorch
 actual epochs = 5000 * 64 / actual train transitions
 ```
 
-### 6.4 canonical zero-delay VLA eval
+### 6.4 canonical zero-delay 与 profile replay
 
-训练完成后启动 policy server：
-
-```bash
-source "$(conda info --base)/etc/profile.d/conda.sh"
-if [[ -d /venv/starvla_rl_games_openvla ]]; then
-  conda activate /venv/starvla_rl_games_openvla
-else
-  conda activate starvla_rl_games_openvla
-fi
-cd "${REMOTE_ROOT}/third_party/starVLA"
-
-export VLA_CKPT="${VLA_ROOT}/results/Checkpoints/${RUN_ID}/checkpoints/steps_5000_pytorch_model.pt"
-python deployment/model_server/server_policy.py \
-  --ckpt_path "${VLA_CKPT}" \
-  --port 10093 \
-  --use_bf16
-```
-
-另一个 shell 使用 MIKASA env 跑 canonical 50 seeds：
+VLA eval 不再启动 WebSocket server。MIKASA 原生单环境、StarVLA inference worker、
+action scheduler、zero/profile latency 和 summary 全部经公共 `run_from_config()` 链路执行。
+`zero` 与 `temporal` 使用同一份 profile artifact；两者唯一的实验变量是
+latency sampler。
 
 ```bash
 cd "${REMOTE_ROOT}"
-export MIKASA_PY="${REMOTE_ROOT}/third_party/MIKASA-Robo/.venv/bin/python"
-export PYTHONPATH="${REMOTE_ROOT}:${REMOTE_ROOT}/third_party/MIKASA-Robo"
-export VLA_EVAL_DIR="${REMOTE_ROOT}/outputs/mikasa/vla_h1_zero_delay_eval"
-export NVIDIA_VULKAN_ROOT="${HOME}/.local/nvidia-580.173.02"
-export LD_LIBRARY_PATH="${NVIDIA_VULKAN_ROOT}/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-export VK_DRIVER_FILES="${NVIDIA_VULKAN_ROOT}/usr/share/vulkan/icd.d/nvidia_icd.json"
 
-"${MIKASA_PY}" scripts/mikasa/evaluate.py \
-  --policy vla \
-  --host 127.0.0.1 \
-  --port 10093 \
-  --episodes 50 \
-  --output-dir "${VLA_EVAL_DIR}"
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/profile.sh simulate \
+  --model qwenoft \
+  --workload mikasa_intercept_grab_fast \
+  --gpu 1x-rpbzzz6 \
+  --instance instance_e906b84a82f9e086 \
+  --method zero \
+  --seeds 0
 
-"${MIKASA_PY}" -c \
-  'import json,sys; d=json.load(open(sys.argv[1])); n=sum(d["successes"]); print(f"{n}/50"); assert n >= 25' \
-  "${VLA_EVAL_DIR}/summary.json"
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/profile.sh simulate \
+  --model qwenoft \
+  --workload mikasa_intercept_grab_fast \
+  --gpu 1x-rpbzzz6 \
+  --instance instance_e906b84a82f9e086 \
+  --method temporal \
+  --seeds 0
 ```
+
+两次运行都使用 registry 中的 episode 配置、20 Hz 和 60 steps。结果写入
+`results/profiling/simulations/<PROFILE_REF>/<RUN_ID>/{zero,temporal}/0/`，对应 summary 为
+`queue_eval_latency_0.json` 和 `queue_eval_latency_profile_sample.json`。
 
 Phase 3 gate：5,000 optimizer steps 完成；global batch 被日志确认是 64；final model/state、W&B
 run 和 50-episode JSON 均存在；canonical `success_once >= 25/50`。未达到 50% 时如实报告
 baseline failure，不把 action-loss eval 冒充环境成功率。
 
-## 7. 下一 session 的 `/goal` 执行顺序
+## 7. 当前复现入口
 
-下一 session 的 goal 应设为：
+完整的读者路径和跨任务阶段契约见
+[`docs/standard_pipeline.md`](../docs/standard_pipeline.md)。本任务的两个入口是：
 
-```text
-在指定服务器上完成 InterceptGrabFast-VLA-v0 的严格 zero-delay PPO teacher、
-275 条成功轨迹、单卡 ZeRO-2 QwenOFT H1 5k-step SFT 和 canonical 验收；
-不得绕过任一 gate。
+```bash
+bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy.sh
+bash scripts/tasks/mikasa_intercept_grab_fast/train_vla.sh /absolute/path/to/final_success_ckpt.pt
 ```
 
-严格按以下顺序推进：
-
-1. rsync 工作树和安全复制 `.env`；记录远端硬件与网络。
-2. 安装/验证 MIKASA 和 StarVLA 环境，完成两个 runtime smoke。
-3. PPO 5M engineering smoke。
-4. 默认 PPO 正式训练，最多 150M；严格评估候选 teacher。
-5. 仅在默认失败后执行有限 PPO 调参；teacher 不达 95/100 就停止。
-6. 收集 275 successful episodes，完成 NPZ audit。
-7. 导出 250 train / 25 validation LeRobot datasets，完成 schema/count gate。
-8. 下载/确认 QwenOFT initialization；按 OOM ladder profile 最大 microbatch。
-9. 单卡 ZeRO-2、global batch 64、5,000 steps SFT。
-10. canonical zero-delay 50-episode VLA eval，写回所有结果。
-
-每完成一个 phase，原位更新下面的记录；不要另建重复 handoff 文档。
+第二条命令从显式验收的 teacher checkpoint 开始，完成数据采集/转换、SFT 和经公共执行器运行的
+canonical zero-delay eval。底层命令仍保留在上文，便于定位环境或数据问题。
 
 ## 8. 实际运行记录
 
@@ -800,9 +793,27 @@ baseline failure，不把 action-loss eval 冒充环境成功率。
 | SFT final artifacts | passed；`third_party/starVLA/results/Checkpoints/mikasa_grabfast_h1_gb64_mb8_ga8_expandable/config.full.yaml`、同目录 `checkpoints/steps_5000_state/` 与 `checkpoints/steps_5000_pytorch_model.pt`（9,785,060,075 bytes）均存在 |
 | VLA canonical 50-episode SR | passed `27/50`（`54%`），mean return `22.326`；fixed seeds `4242424242..4242424291`，returns all finite；summary `outputs/mikasa/vla_h1_zero_delay_eval/summary.json`；部署端在既有 MIKASA data registry 注册 checkpoint 的 train mixture 后，strict follow-through 写出 `FOLLOWTHROUGH_EXIT_STATUS=0` |
 
-## 9. 本轮明确 deferred
+## 9. Latency command-RL 入口
 
-- fixed/realtime latency sweep、latency profile 和 delayed PPO teacher；
+```bash
+.venv/bin/python scripts/tasks/mikasa_intercept_grab_fast/run_latency_pipeline.py \
+  --config configs/training/mikasa_latency_pipeline_smoke.yaml \
+  --profile-path results/profiling/profiles/qwenoft/1x-rpbzzz6/mikasa_intercept_grab_fast/instance_e906b84a82f9e086/profile.json
+```
+
+不传 `--profile-path` 会先执行完整 profile protocol。正式预算配置是
+`configs/training/mikasa_latency_pipeline.yaml`：先从现有 teacher 初始化，
+1,024 次 PPO update（1,966,080 control transitions），275 个成功 episode 按
+250/25 划分，VLA 5,000 updates，原/新 VLA 各跑 zero/IID 50 episodes。
+这是初始预算，不代表 teacher 或 robustness 已达标；长训前应先按
+[`LATENCY_RL_HANDOFF.md`](LATENCY_RL_HANDOFF.md) 检查 teacher 的同 profile 成绩。
+原始 NPZ 保留全部控制帧和执行来源，训练标签只保留 admitted issued H1。
+pipeline 的 `teacher/teacher.pt` 是模型，`teacher/training.pt` 用于原生
+`--resume` 恢复 optimizer、进度和随机流；恢复后从新 episode 开始。
+
+## 10. 原 zero-delay 阶段 deferred（历史范围）
+
+- fixed latency sweep 和 delayed PPO teacher；
 - H8/K8 action chunk、future action labels 或 chunk-aware loss；
 - VLA state、delay、queue 或 applied-action 输入；
 - VLA online RL；
