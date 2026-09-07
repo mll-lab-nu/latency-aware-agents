@@ -1,7 +1,7 @@
 __base__: latency_bench_eval.yaml
 
 experiment:
-  name: gymnasium_humanoid_rgb_state_starvla_eval
+  name: gymnasium_humanoid_starvla_eval
 
 policy:
   type: starvla

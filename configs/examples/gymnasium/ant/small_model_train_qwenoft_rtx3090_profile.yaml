@@ -1,0 +1,15 @@
+__base__: small_model_train.yaml
+
+experiment:
+  name: gymnasium_ant_qwenoft_rtx3090_profile_10m
+
+latency:
+  method: iid
+  fixed_latency_ms: null
+  profile_path: results/profiling/runs/qwenoft/1x-rtx3090/ant/instance_859cf1e47bca6046/20260905T235212356262Z/profile/profile.json
+  profile_worker_slot: 0
+  seed: 0
+  add_latency_info: false
+
+logging:
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/ant/rtx3090_profile_small_model_train

@@ -1,9 +1,0 @@
-__base__:
-  - ../walker2d/small_model_train_sf_official_10m.yaml
-  - state_contract.yaml
-
-experiment:
-  name: gymnasium_walker2d_rgb_state_zero_latency_sf_official_10m
-
-logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/walker2d_rgb_state/small_model_train

@@ -115,13 +115,13 @@ def test_task_contract_uses_explicit_action_order_and_noop_position():
     assert gymnasium_noop_action_id(env_cfg) == 1
 
 
-def test_inverted_pendulum_rgb_state_adaptation_declares_state_contract():
+def test_inverted_pendulum_adaptation_declares_state_contract():
     config = load_config(
-        "configs/examples/gymnasium/inverted_pendulum_rgb_state/small_model_train.yaml"
+        "configs/examples/gymnasium/inverted_pendulum/small_model_train.yaml"
     )
     args = build_cli_args_from_config(config)
 
-    assert config["env"]["task_name"] == "inverted_pendulum_rgb_state"
+    assert config["env"]["task_name"] == "inverted_pendulum"
     assert config["env"]["state_space"]["labels"] == [
         "cart_position",
         "pole_angle",
@@ -134,12 +134,12 @@ def test_inverted_pendulum_rgb_state_adaptation_declares_state_contract():
     )
 
 
-def test_walker2d_rgb_state_adaptation_declares_seventeen_state_values():
+def test_walker2d_adaptation_declares_seventeen_state_values():
     config = load_config(
-        "configs/examples/gymnasium/walker2d_rgb_state/small_model_train.yaml"
+        "configs/examples/gymnasium/walker2d/small_model_train.yaml"
     )
 
-    assert config["env"]["task_name"] == "walker2d_rgb_state"
+    assert config["env"]["task_name"] == "walker2d"
     assert len(config["env"]["state_space"]["labels"]) == 17
     assert config["env"]["state_space"]["labels"][:2] == [
         "torso_height",

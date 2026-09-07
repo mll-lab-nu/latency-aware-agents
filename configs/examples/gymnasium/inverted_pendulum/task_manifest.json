@@ -48,6 +48,6 @@
         "pole_angular_velocity"
       ]
     },
-    "task_name": "inverted_pendulum_rgb_state"
+    "task_name": "inverted_pendulum"
   }
 }

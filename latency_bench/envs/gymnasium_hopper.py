@@ -6,10 +6,10 @@ import gymnasium as gym
 import numpy as np
 
 
-GYMNASIUM_HOPPER_RGB_STATE_ENV_ID = "LatencyBench/HopperRgbState-v0"
+GYMNASIUM_HOPPER_ENV_ID = "LatencyBench/Hopper-v0"
 
 
-class HopperRgbStateEnv(gym.Wrapper):
+class HopperEnv(gym.Wrapper):
     """Task-owned wrapper for Hopper's three native torques."""
 
     def __init__(
@@ -35,13 +35,13 @@ class HopperRgbStateEnv(gym.Wrapper):
         return observation, reward, terminated, truncated, info
 
 
-def make_latency_sensitive_hopper_rgb_state_env(
+def make_latency_sensitive_hopper_env(
     *,
     base_env_id: str,
     render_mode: str,
     base_make_kwargs: dict[str, Any],
-) -> HopperRgbStateEnv:
-    return HopperRgbStateEnv(
+) -> HopperEnv:
+    return HopperEnv(
         base_env_id=base_env_id,
         render_mode=render_mode,
         base_make_kwargs=base_make_kwargs,
@@ -49,6 +49,6 @@ def make_latency_sensitive_hopper_rgb_state_env(
 
 
 gym.register(
-    id=GYMNASIUM_HOPPER_RGB_STATE_ENV_ID,
-    entry_point=make_latency_sensitive_hopper_rgb_state_env,
+    id=GYMNASIUM_HOPPER_ENV_ID,
+    entry_point=make_latency_sensitive_hopper_env,
 )

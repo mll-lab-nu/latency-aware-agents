@@ -1,5 +1,5 @@
 experiment:
-  name: gymnasium_inverted_pendulum_discrete_latency_bench_eval
+  name: gymnasium_inverted_pendulum_latency_bench_eval
   seed: 0
 
 executor:
@@ -7,7 +7,7 @@ executor:
 
 env:
   name: gymnasium
-  task_name: inverted_pendulum_discrete
+  task_name: inverted_pendulum
   env_id: LatencyBench/InvertedPendulumDiscrete-v0
   registration_imports:
     - latency_bench.envs.gymnasium_mujoco
@@ -19,6 +19,8 @@ env:
   env_fps: 25
   obs_fps: 25
   frame_stack: 1
+  state_space:
+    labels: [cart_position, pole_angle, cart_velocity, pole_angular_velocity]
   noop_action: zero_force
   action_map:
     push_left_hard: 0

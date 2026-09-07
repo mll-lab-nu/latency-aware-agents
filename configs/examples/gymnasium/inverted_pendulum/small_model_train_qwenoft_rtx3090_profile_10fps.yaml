@@ -1,10 +1,10 @@
 __base__: small_model_train.yaml
 
 experiment:
-  name: gymnasium_inverted_pendulum_rgb_state_qwenoft_rtx3090_profile_10fps
+  name: gymnasium_inverted_pendulum_qwenoft_rtx3090_profile_10fps
 
 backend:
-  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/inverted_pendulum_rgb_state
+  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/inverted_pendulum
 
 env:
   env_fps: 10

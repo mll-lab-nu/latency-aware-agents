@@ -6,8 +6,8 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
-import latency_bench.envs.gymnasium_hopper_rgb_state as hopper_rgb_state
-import scripts.scaffold_gymnasium_hopper_rgb_state as scaffold
+import latency_bench.envs.gymnasium_hopper as hopper
+import scripts.scaffold_gymnasium_hopper as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
 from latency_bench.envs.gymnasium_task import gymnasium_task_contract
@@ -51,10 +51,10 @@ class _HopperProbeEnv(gym.Env):
         self.closed = True
 
 
-def test_hopper_rgb_state_wrapper_clips_and_records_native_torques(monkeypatch):
+def test_hopper_wrapper_clips_and_records_native_torques(monkeypatch):
     native = _HopperProbeEnv()
-    monkeypatch.setattr(hopper_rgb_state.gym, "make", lambda *args, **kwargs: native)
-    env = hopper_rgb_state.HopperRgbStateEnv(
+    monkeypatch.setattr(hopper.gym, "make", lambda *args, **kwargs: native)
+    env = hopper.HopperEnv(
         base_env_id="Hopper-v4",
         render_mode="rgb_array",
         base_make_kwargs={},
@@ -67,14 +67,14 @@ def test_hopper_rgb_state_wrapper_clips_and_records_native_torques(monkeypatch):
     assert info["applied_action"] == pytest.approx(expected.tolist())
 
 
-def test_hopper_rgb_state_registered_entry_point_is_factory():
+def test_hopper_registered_entry_point_is_factory():
     assert (
-        gym.spec(hopper_rgb_state.GYMNASIUM_HOPPER_RGB_STATE_ENV_ID).entry_point
-        is hopper_rgb_state.make_latency_sensitive_hopper_rgb_state_env
+        gym.spec(hopper.GYMNASIUM_HOPPER_ENV_ID).entry_point
+        is hopper.make_latency_sensitive_hopper_env
     )
 
 
-def test_hopper_rgb_state_probe_reports_native_contract(monkeypatch):
+def test_hopper_probe_reports_native_contract(monkeypatch):
     native = _HopperProbeEnv()
     monkeypatch.setattr(scaffold.gym, "make", lambda *args, **kwargs: native)
     monkeypatch.setattr(
@@ -99,19 +99,19 @@ def test_hopper_rgb_state_probe_reports_native_contract(monkeypatch):
 @pytest.mark.parametrize(
     "config_path",
     [
-        "configs/examples/gymnasium/hopper_rgb_state/small_model_train.yaml",
-        "configs/examples/gymnasium/hopper_rgb_state/small_model_eval.yaml",
-        "configs/examples/gymnasium/hopper_rgb_state/latency_bench_eval.yaml",
-        "configs/examples/gymnasium/hopper_rgb_state/starvla_eval.yaml",
+        "configs/examples/gymnasium/hopper/small_model_train.yaml",
+        "configs/examples/gymnasium/hopper/small_model_eval.yaml",
+        "configs/examples/gymnasium/hopper/latency_bench_eval.yaml",
+        "configs/examples/gymnasium/hopper/starvla_eval.yaml",
     ],
 )
-def test_hopper_rgb_state_configs_share_contract(config_path):
+def test_hopper_configs_share_contract(config_path):
     config = load_config(config_path)
     env = config["env"]
     clock = EnvClock(env_fps=env["env_fps"], obs_fps=env["obs_fps"])
 
-    assert env["env_id"] == hopper_rgb_state.GYMNASIUM_HOPPER_RGB_STATE_ENV_ID
-    assert env["task_name"] == "hopper_rgb_state"
+    assert env["env_id"] == hopper.GYMNASIUM_HOPPER_ENV_ID
+    assert env["task_name"] == "hopper"
     assert env["state_space"]["labels"] == scaffold.STATE_LABELS
     assert env["action_space"] == {
         "type": "box",
@@ -125,8 +125,8 @@ def test_hopper_rgb_state_configs_share_contract(config_path):
     assert config["latency"] == {"method": "zero", "add_latency_info": False}
 
 
-def test_hopper_rgb_state_training_uses_sample_factory_mujoco_recipe():
-    config = load_config("configs/examples/gymnasium/hopper_rgb_state/small_model_train.yaml")
+def test_hopper_training_uses_sample_factory_mujoco_recipe():
+    config = load_config("configs/examples/gymnasium/hopper/small_model_train.yaml")
     cfg = build_train_cfg_from_config(config)
     contract = gymnasium_task_contract(config["env"])
 
@@ -142,8 +142,8 @@ def test_hopper_rgb_state_training_uses_sample_factory_mujoco_recipe():
     assert contract["action_space"]["labels"] == scaffold.ACTION_LABELS
 
 
-def test_hopper_rgb_state_starvla_eval_uses_final_checkpoint():
-    config = load_config("configs/examples/gymnasium/hopper_rgb_state/starvla_eval.yaml")
+def test_hopper_starvla_eval_uses_final_checkpoint():
+    config = load_config("configs/examples/gymnasium/hopper/starvla_eval.yaml")
 
     assert config["policy"]["checkpoint_path"].endswith("steps_5000_pytorch_model.pt")
     assert "continuous_projector_sft_5k" in config["policy"]["checkpoint_path"]

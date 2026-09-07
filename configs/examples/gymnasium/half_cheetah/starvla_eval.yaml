@@ -1,7 +1,7 @@
 __base__: latency_bench_eval.yaml
 
 experiment:
-  name: gymnasium_half_cheetah_rgb_state_starvla_eval
+  name: gymnasium_half_cheetah_starvla_eval
 
 policy:
   type: starvla
@@ -17,4 +17,4 @@ evaluation:
   eval_latency_values: [0, 2]
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/half_cheetah_rgb_state/starvla_eval
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/half_cheetah/starvla_eval

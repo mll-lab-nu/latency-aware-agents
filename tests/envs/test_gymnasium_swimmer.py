@@ -101,7 +101,7 @@ def test_swimmer_probe_reports_native_contract(monkeypatch):
     assert native_env.closed is True
 
 
-def test_swimmer_configs_preserve_native_rgb_state_contract():
+def test_swimmer_configs_preserve_native_state_contract():
     config_paths = [
         "configs/examples/gymnasium/swimmer/small_model_train.yaml",
         "configs/examples/gymnasium/swimmer/small_model_eval.yaml",
@@ -113,6 +113,7 @@ def test_swimmer_configs_preserve_native_rgb_state_contract():
 
     assert envs[1:] == envs[:-1]
     env = envs[0]
+    assert env["task_name"] == "swimmer"
     assert env["env_id"] == gymnasium_swimmer.GYMNASIUM_SWIMMER_ENV_ID
     assert env["registration_imports"] == ["latency_bench.envs.gymnasium_swimmer"]
     assert env["make_kwargs"] == {

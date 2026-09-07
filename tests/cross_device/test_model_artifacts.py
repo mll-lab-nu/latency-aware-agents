@@ -27,7 +27,7 @@ def _spec(tmp_path: Path) -> dict:
 
 def test_task_presets_define_model_and_runtime_artifact_coordinates():
     inverted_pendulum = load_profile_spec(
-        "configs/profiles.yaml", "qwenoft", "inverted_pendulum_rgb_state"
+        "configs/profiles.yaml", "qwenoft", "inverted_pendulum"
     )
     mikasa = load_profile_spec(
         "configs/profiles.yaml", "qwenoft", "mikasa_intercept_grab_fast"

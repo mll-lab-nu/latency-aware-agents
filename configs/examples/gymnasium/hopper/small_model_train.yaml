@@ -1,14 +1,14 @@
 __base__: state_contract.yaml
 
 experiment:
-  name: gymnasium_hopper_rgb_state_zero_latency_10m
+  name: gymnasium_hopper_zero_latency_10m
   seed: 3333
 
 backend:
   type: sample_factory
   algo: APPO
   device: cuda
-  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/hopper_rgb_state
+  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/hopper
   restart_behavior: overwrite
   run_mode: train
 
@@ -17,9 +17,9 @@ executor:
 
 env:
   name: gymnasium
-  task_name: hopper_rgb_state
-  env_id: LatencyBench/HopperRgbState-v0
-  registration_imports: [latency_bench.envs.gymnasium_hopper_rgb_state]
+  task_name: hopper
+  env_id: LatencyBench/Hopper-v0
+  registration_imports: [latency_bench.envs.gymnasium_hopper]
   make_kwargs:
     base_env_id: Hopper-v4
     render_mode: rgb_array
@@ -116,7 +116,7 @@ evaluation:
   eval_deterministic: true
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/hopper_rgb_state/small_model_train
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/hopper/small_model_train
   video:
     enabled: false
     num_bins: 1

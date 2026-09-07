@@ -1,7 +1,7 @@
 __base__: small_model_train.yaml
 
 experiment:
-  name: gymnasium_hopper_rgb_state_latency_bench_eval
+  name: gymnasium_hopper_latency_bench_eval
 
 backend:
   run_mode: eval
@@ -13,7 +13,7 @@ evaluation:
   eval_latency_values: [0, 1, 2, 3, 4]
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/hopper_rgb_state/latency_bench_eval
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/hopper/latency_bench_eval
   video:
     enabled: false
     num_bins: 1

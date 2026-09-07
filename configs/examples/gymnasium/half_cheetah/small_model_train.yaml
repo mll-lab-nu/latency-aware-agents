@@ -1,5 +1,5 @@
 experiment:
-  name: gymnasium_half_cheetah_continuous_zero_latency_10m
+  name: gymnasium_half_cheetah_zero_latency_10m
   seed: 2222
 
 backend:
@@ -15,7 +15,7 @@ executor:
 
 env:
   name: gymnasium
-  task_name: half_cheetah_continuous
+  task_name: half_cheetah
   env_id: LatencyBench/HalfCheetahContinuous-v0
   registration_imports: [latency_bench.envs.gymnasium_half_cheetah]
   make_kwargs:
@@ -25,6 +25,25 @@ env:
   env_fps: 20.0
   obs_fps: 20.0
   frame_stack: 1
+  state_space:
+    labels:
+      - front_tip_height
+      - front_tip_angle
+      - back_thigh_angle
+      - back_shin_angle
+      - back_foot_angle
+      - front_thigh_angle
+      - front_shin_angle
+      - front_foot_angle
+      - front_tip_x_velocity
+      - front_tip_z_velocity
+      - front_tip_angular_velocity
+      - back_thigh_angular_velocity
+      - back_shin_angular_velocity
+      - back_foot_angular_velocity
+      - front_thigh_angular_velocity
+      - front_shin_angular_velocity
+      - front_foot_angular_velocity
   action_space:
     type: box
     labels: [back_thigh_torque, back_shin_torque, back_foot_torque, front_thigh_torque, front_shin_torque, front_foot_torque]

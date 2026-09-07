@@ -852,6 +852,35 @@ def sha256_array(value: npt.NDArray[Any]) -> str:
     return hashlib.sha256(np.ascontiguousarray(value).tobytes()).hexdigest()
 
 
+_LEGACY_GYMNASIUM_TASK_NAMES = {
+    "ant_rgb_state": "ant",
+    "half_cheetah_rgb_state": "half_cheetah",
+    "hopper_rgb_state": "hopper",
+    "humanoid_rgb_state": "humanoid",
+    "inverted_pendulum_rgb_state": "inverted_pendulum",
+    "swimmer_rgb_state": "swimmer",
+    "walker2d_rgb_state": "walker2d",
+}
+
+
+def _canonical_gymnasium_contract_namespace(
+    contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    canonical = dict(contract)
+    task_name = canonical["task_name"]
+    if task_name in _LEGACY_GYMNASIUM_TASK_NAMES:
+        canonical["task_name"] = _LEGACY_GYMNASIUM_TASK_NAMES[task_name]
+    if canonical["env_id"] == "LatencyBench/HopperRgbState-v0":
+        canonical["env_id"] = "LatencyBench/Hopper-v0"
+    canonical["registration_imports"] = [
+        "latency_bench.envs.gymnasium_hopper"
+        if module == "latency_bench.envs.gymnasium_hopper_rgb_state"
+        else module
+        for module in canonical["registration_imports"]
+    ]
+    return canonical
+
+
 def _validate_gymnasium_starvla_contract(
     *,
     env_cfg: Mapping[str, Any],
@@ -866,17 +895,23 @@ def _validate_gymnasium_starvla_contract(
         "gymnasium_training_task_contract", manifest["gymnasium_task"]
     )
     comparable_eval_contract = {**eval_contract, "make_kwargs": expected["make_kwargs"]}
-    if comparable_eval_contract != expected:
+    if _canonical_gymnasium_contract_namespace(
+        comparable_eval_contract
+    ) != _canonical_gymnasium_contract_namespace(expected):
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA training contract or dataset manifest"
         )
     if manifest["integration_name"] != "gymnasium":
         raise ValueError("StarVLA task manifest is not a Gymnasium handoff")
-    if manifest["gymnasium_task"] != expected:
+    if _canonical_gymnasium_contract_namespace(
+        manifest["gymnasium_task"]
+    ) != _canonical_gymnasium_contract_namespace(expected):
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA dataset manifest"
         )
-    if model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"] != expected:
+    if _canonical_gymnasium_contract_namespace(
+        model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"]
+    ) != _canonical_gymnasium_contract_namespace(expected):
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA model config"
         )

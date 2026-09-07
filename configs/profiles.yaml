@@ -84,8 +84,8 @@ models:
         simulation_parallel_envs: 1
         simulation_gpu: null
         simulation_env: {}
-      inverted_pendulum_rgb_state:
-        base_config: configs/examples/gymnasium/inverted_pendulum_rgb_state/starvla_profile.yaml
+      inverted_pendulum:
+        base_config: configs/examples/gymnasium/inverted_pendulum/starvla_profile.yaml
         model_artifact:
           local_root: outputs/models/inverted_pendulum_rgb_state_l0_return_gt900_100ep_openvla_native_sft_2k
           checkpoint: checkpoints/steps_2000_pytorch_model.pt
