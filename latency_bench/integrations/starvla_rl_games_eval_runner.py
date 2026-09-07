@@ -54,6 +54,8 @@ BASE_CONFIGS = {
     "flappy": REPO_ROOT / "configs" / "base" / "flappy.yaml",
     "demon_attack": REPO_ROOT / "configs" / "base" / "demon_attack.yaml",
     "deadly_corridor": REPO_ROOT / "configs" / "base" / "deadly_corridor.yaml",
+    "asterix": REPO_ROOT / "configs" / "base" / "asterix.yaml",
+    "atlantis": REPO_ROOT / "configs" / "base" / "atlantis.yaml",
 }
 
 
@@ -414,6 +416,24 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         layout = str(layout or "").strip().lower()
         return layout or None
 
+    def _task_action_layout(self, task: str | None = None) -> str | None:
+        if task == "deadly_corridor":
+            return self._deadly_action_layout(task)
+        if task != "asterix":
+            return None
+        asterix_cfg = getattr(self.cfg.rl_games.env_eval, "asterix", None)
+        layout = _cfg_get(asterix_cfg, "action_layout", None)
+        if not layout:
+            cross_cfg = getattr(self.cfg.rl_games, "cross_task", None)
+            train_tasks = getattr(cross_cfg, "train_tasks", None) if cross_cfg is not None else None
+            for entry in (train_tasks or []):
+                if str(_cfg_get(entry, "name", "")) == "asterix":
+                    layout = _cfg_get(entry, "action_layout", None)
+                    if layout:
+                        break
+        layout = str(layout or "").strip().lower()
+        return layout or None
+
     def _deadly_multibinary_threshold(self) -> float | None:
         deadly_cfg = getattr(self.cfg.rl_games.env_eval, "deadly", None)
         threshold = _cfg_get(deadly_cfg, "multibinary_threshold", None)
@@ -538,7 +558,7 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                 prompt_mode=self._prompt_mode(stage=stage, task=task_name),
                 actions=self._base_actions(task_name),
                 output_dir=output_dir,
-                action_layout=self._deadly_action_layout(task_name),
+                action_layout=self._task_action_layout(task_name),
                 multibinary_threshold=self._deadly_multibinary_threshold(),
             )
             policy = build_live_starvla_policy(

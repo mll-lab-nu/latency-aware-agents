@@ -405,6 +405,7 @@ def decode_starvla_action(
     vector: npt.NDArray[Any],
     env_name: str,
     action_by_raw_id: Mapping[int, Action],
+    action_layout: str | None = None,
 ) -> tuple[Action, dict[str, Any]]:
     deadly_layout = None
     if str(env_name) == "deadly_corridor":
@@ -420,11 +421,20 @@ def decode_starvla_action(
                 f"values, got {action_dim}"
             )
         deadly_layout = deadly_layouts[action_dim]
+    asterix_layout = None
+    if str(env_name) == "asterix":
+        action_dim = int(np.asarray(vector).shape[-1])
+        if action_layout is not None:
+            asterix_layout = str(action_layout).strip().lower()
+        else:
+            asterix_layout = "factorized_6" if action_dim < 9 else "discrete_9"
 
-    decode_rl_games_actions, _ = _load_rl_games_action_decode()
+    decode_rl_games_actions, _, _ = _load_rl_games_action_decode()
     prediction = decode_rl_games_actions(
         normalized_actions=np.asarray(vector),
         env_name=str(env_name),
+        deadly_action_layout=deadly_layout,
+        asterix_action_layout=asterix_layout,
     )
     action, metadata = action_from_starvla_payload(
         payload=np.asarray(prediction["actions"]),
@@ -448,6 +458,8 @@ def decode_starvla_action(
                 [0, 0, 0, 1],
             )
             metadata["raw_action_id"] = semantic_actions.index(action.value)
+    if asterix_layout is not None:
+        metadata["action_layout"] = asterix_layout
     return action, metadata
 
 
@@ -739,14 +751,15 @@ def _profiler_stage(profiler: Any, name: str) -> Any:
     return profiler.time(name) if profiler is not None else nullcontext()
 
 
-def _load_rl_games_action_decode() -> tuple[Any, Any]:
+def _load_rl_games_action_decode() -> tuple[Any, Any, Any]:
     _ensure_starvla_path()
     from deployment.model_server.rl_games_action_decode import (
         decode_rl_games_actions,
+        resolve_asterix_action_decode_spec,
         resolve_deadly_action_decode_spec,
     )
 
-    return decode_rl_games_actions, resolve_deadly_action_decode_spec
+    return decode_rl_games_actions, resolve_deadly_action_decode_spec, resolve_asterix_action_decode_spec
 
 
 class LiveStarVlaWrapper:
@@ -780,12 +793,20 @@ class LiveStarVlaWrapper:
         (
             self._decode_rl_games_actions,
             resolve_deadly_action_decode_spec,
+            resolve_asterix_action_decode_spec,
         ) = _load_rl_games_action_decode()
+        self._action_layout = action_layout
+        self._multibinary_threshold = multibinary_threshold
         if self._rl_games_env_name == "deadly_corridor":
             self._action_layout, self._multibinary_threshold = resolve_deadly_action_decode_spec(
                 model_cfg,
                 action_layout=action_layout,
                 multibinary_threshold=multibinary_threshold,
+            )
+        elif self._rl_games_env_name == "asterix":
+            self._action_layout = resolve_asterix_action_decode_spec(
+                model_cfg,
+                action_layout=action_layout,
             )
 
     def reset_memory(self, slot_id: int | None = None) -> None:
@@ -821,6 +842,11 @@ class LiveStarVlaWrapper:
                 deadly_multibinary_threshold=(
                     self._multibinary_threshold
                     if self._rl_games_env_name == "deadly_corridor"
+                    else None
+                ),
+                asterix_action_layout=(
+                    self._action_layout
+                    if self._rl_games_env_name == "asterix"
                     else None
                 ),
                 **decode_kwargs,
