@@ -10,11 +10,23 @@ or omit it to use the registered local path (and the exact Hugging Face artifact
 when that local root does not exist):
 
 ```bash
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/flappy/profile.sh openvla [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/flappy/profile.sh wanoft [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/flappy/profile.sh pi05 [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/flappy/profile.sh gr00t [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/demon_attack/profile.sh openvla [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/demon_attack/profile.sh wanoft [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/demon_attack/profile.sh pi05 [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/demon_attack/profile.sh gr00t [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/humanoidbench_balance_simple/profile.sh [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/extreme_parkour_go2/profile.sh [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/haic_pull_cart/profile.sh [MODEL_PATH]
 ```
+
+The Demon Attack launchers use the model-specific StarVLA environment active in
+the current shell; run them from the matching `starvla_rl_games_*` environment or
+pass `--hf-artifacts` to download the registered model artifact.
 
 Balance uses all visible GPUs for inference. The other three tasks use logical
 `cuda:0` for the native simulator and `cuda:1..` for inference, so expose at

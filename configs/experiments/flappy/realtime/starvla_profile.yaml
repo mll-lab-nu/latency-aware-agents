@@ -1,0 +1,73 @@
+experiment:
+  name: starvla_flappy_profile
+  seed: 42
+
+backend:
+  run_mode: eval
+
+executor:
+  mode: simulated
+
+env:
+  name: flappy
+  gym_id: FlappyBird-v0
+  env_fps: 16
+  obs_fps: 16
+  render_mode: rgb_array
+  observation_mode: image
+  use_lidar: false
+  normalize_obs: true
+  audio_on: false
+  frame_stack: 4
+  obs_resize: [224, 224]
+  use_gpu_render: false
+  gpu_render_device: auto
+  gpu_render_profile: false
+  gpu_render_profile_interval: 200
+  noop_action: noop
+  action_map:
+    noop: 0
+    flap: 1
+  oneshot_actions:
+    - flap
+
+latency:
+  method: zero
+  device: cuda:0
+  sync_cuda: true
+
+scheduler:
+  hold_policy: one_frame_then_noop
+  ordering_policy: latest_ready
+
+policy:
+  type: starvla
+  checkpoint_path: ""
+  model_config_path: ""
+  device: cuda
+  unnorm_key: new_embodiment
+  prompt_mode: latency_neutral
+  latency_prompt_map_path: third_party/starVLA/prompt/flappy_latency_prompt_map.json
+  actions:
+    - noop
+    - flap
+
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_latency_values: null
+  eval_max_steps: 3600
+  eval_deterministic: true
+  eval_raw_reward: true
+  eval_suites:
+    fixed: []
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/starvla_flappy_profile
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  video:
+    enabled: false

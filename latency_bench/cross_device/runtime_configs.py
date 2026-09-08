@@ -126,7 +126,7 @@ def _base_config(spec: dict[str, Any], output_dir: Path) -> dict[str, Any]:
         config["env"]["runtime_checkpoint_path"] = spec["runtime_checkpoint_path"]
     if spec["simulation_gpu"] is not None:
         config["env"]["simulator_device"] = spec["simulation_gpu"]
-    if spec["model_id"] == "qwenoft":
+    if spec["model_id"] in {"qwenoft", "wanoft"}:
         config["policy"]["worker_python_executable"] = sys.executable
     config["experiment"]["seed"] = spec["evaluation_seed"]
     config["evaluation"]["eval_episodes"] = spec["eval_episodes"]

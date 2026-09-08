@@ -46,6 +46,22 @@ gpu_models:
 models:
   openvla:
     workloads:
+      demon_attack:
+        base_config: configs/experiments/demon_attack/starvla_profile.yaml
+        model_artifact:
+          local_root: third_party/starVLA/results/Checkpoints/openvla_demon_attack_fix_latency_0_200ep
+          checkpoint: checkpoints/steps_7000_state/model.safetensors
+          model_config: config.full.yaml
+          hf_repo: latency-sensitive-bench/openvla_demon_attack_200ep
+          hf_path: demon_attack_fix_latency_0_200ep
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
       flappy:
         base_config: configs/experiments/flappy/realtime/starvla_openvla_fix_latency_2_16fps_l2_2gpu_warmup200_3ep.yaml
         model_artifact:
@@ -66,6 +82,120 @@ models:
         simulation_env:
           simulator: cpu
           use_gpu_render: false
+  wanoft:
+    workloads:
+      flappy:
+        base_config: configs/experiments/flappy/starvla_wan_oft.yaml
+        model_artifact:
+          local_root: third_party/starVLA/results/Checkpoints/wan_oft_flappy_fix_latency_3_context5_standard_sft_2000_effbs128_224_currentce
+          checkpoint: checkpoints/steps_2000_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: latency-sensitive-bench/wan_oft_flappy_fix_latency_3_context5_standard_sft_2000_effbs128_224_currentce
+          hf_path: .
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: true
+        target_latency_frames: 3
+        worker_utilization_cap: 0.8
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env:
+          simulator: cpu
+          use_gpu_render: false
+      demon_attack:
+        base_config: configs/experiments/demon_attack/starvla_profile.yaml
+        model_artifact:
+          local_root: third_party/starVLA/results/Checkpoints/wan_oft_demon_attack_fix_latency_0_context5_standard_sft_2000_effbs128_224_currentce
+          checkpoint: checkpoints/steps_2000_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: latency-sensitive-bench/demon_attack_200ep
+          hf_path: wan_oft_demon_attack_fix_latency_0_context5_standard_sft_2000_effbs128_224_currentce
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
+  pi05:
+    workloads:
+      flappy:
+        base_config: configs/experiments/flappy/realtime/starvla_profile.yaml
+        model_artifact:
+          local_root: third_party/starVLA/results/Checkpoints/pi05_flappy_fix_latency_0_200ep
+          checkpoint: checkpoints/steps_5000_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: latency-sensitive-bench/pi05_flappy_fix_latency_0_200ep
+          hf_path: .
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: true
+        target_latency_frames: 2
+        worker_utilization_cap: 0.8
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env:
+          simulator: cpu
+          use_gpu_render: false
+      demon_attack:
+        base_config: configs/experiments/demon_attack/starvla_profile.yaml
+        model_artifact:
+          local_root: third_party/starVLA/results/Checkpoints/pi05_demon_attack_fix_latency_0
+          checkpoint: checkpoints/steps_5000_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: latency-sensitive-bench/pi05_demon_attack_fix_latency_0
+          hf_path: .
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
+  gr00t:
+    workloads:
+      flappy:
+        base_config: configs/experiments/flappy/realtime/starvla_profile.yaml
+        model_artifact:
+          local_root: third_party/starVLA/results/Checkpoints/gr00t_bridge_flappy_single_latency_clean_data_exp2
+          checkpoint: checkpoints/steps_5000_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: latency-sensitive-bench/gr00t_bridge_flappy_single_latency_clean_data_exp2
+          hf_path: .
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: true
+        target_latency_frames: 2
+        worker_utilization_cap: 0.8
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env:
+          simulator: cpu
+          use_gpu_render: false
+      demon_attack:
+        base_config: configs/experiments/demon_attack/starvla_profile.yaml
+        model_artifact:
+          local_root: third_party/starVLA/results/Checkpoints/gr00t_bridge_demon_attack_single_latency_clean_data_exp3_action_1e-5_backbone_1e-6
+          checkpoint: checkpoints/steps_5000_model.safetensors
+          model_config: config.full.yaml
+          hf_repo: latency-sensitive-bench/gr00t_bridge_demon_attack_single_latency_clean_data_exp3_action_1e-5_backbone_1e-6
+          hf_path: .
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
   qwenoft:
     workloads:
       air_raid:
