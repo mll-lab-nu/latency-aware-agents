@@ -172,6 +172,44 @@ def test_model_path_override_keeps_exact_relative_checkpoint(tmp_path):
     assert resolved["model_provenance"]["source"] == "local"
 
 
+def test_explicit_hf_artifact_override_forces_download_even_with_local_root(tmp_path, monkeypatch):
+    spec = _spec(tmp_path)
+    local_root = Path(spec["model_artifact"]["local_root"])
+    (local_root / "checkpoints").mkdir(parents=True)
+    (local_root / "checkpoints/final.pt").touch()
+
+    snapshot = tmp_path / "snapshot"
+    checkpoint = snapshot / "alt/repo/weights/final.pt"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.touch()
+    calls = {}
+    spec["model_artifact"].update(
+        {
+            "hf_repo": "org/alt",
+            "hf_path": "alt/repo",
+            "checkpoint": "weights/final.pt",
+        }
+    )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        SimpleNamespace(
+            snapshot_download=lambda **kwargs: (
+                calls.update(snapshot=kwargs) or str(snapshot)
+            ),
+        ),
+    )
+
+    resolved = resolve_model_artifacts(spec, hf_artifacts=True)
+
+    assert resolved["checkpoint_path"] == str(checkpoint)
+    assert calls["snapshot"]["repo_id"] == "org/alt"
+    assert calls["snapshot"]["repo_type"] == "model"
+    assert calls["snapshot"]["allow_patterns"] == ["alt/repo/**"]
+    assert resolved["model_provenance"]["source"] == "hf"
+
+
 def test_model_config_resolves_from_the_same_artifact_root(tmp_path):
     spec = _spec(tmp_path)
     spec["model_artifact"]["model_config"] = "config.full.yaml"
@@ -313,3 +351,70 @@ def test_protocol_forwards_model_path(monkeypatch):
     assert captured["model_path"] == Path("/tmp/model")
     assert captured["hf_artifacts"] is False
     assert captured["kwargs"] == {"resume_run_id": None, "publish": True}
+
+
+def test_protocol_forwards_explicit_hf_artifact_overrides(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        protocol,
+        "load_profile_spec",
+        lambda *_args: {
+            "model_id": "task",
+            "workload_id": "workload",
+            "model_artifact": {
+                "local_root": "/tmp/local",
+                "checkpoint": "checkpoints/default.pt",
+                "hf_repo": "org/default",
+                "hf_path": "default/path",
+                "model_config": "config.default.yaml",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        protocol,
+        "resolve_model_artifacts",
+        lambda spec, *, model_path, hf_artifacts: (
+            captured.update(
+                model_path=model_path,
+                hf_artifacts=hf_artifacts,
+                artifact=dict(spec["model_artifact"]),
+            )
+            or dict(spec)
+        ),
+    )
+    monkeypatch.setattr(
+        protocol,
+        "run_profile",
+        lambda spec, **kwargs: (
+            captured.update(spec=spec, kwargs=kwargs) or {"RUN_ID": "run_1"}
+        ),
+    )
+
+    protocol.main(
+        [
+            "run",
+            "--model",
+            "task",
+            "--workload",
+            "workload",
+            "--hf-repo-id",
+            "org/override",
+            "--hf-path",
+            "runs/alt",
+            "--hf-checkpoint",
+            "checkpoints/final.pt",
+            "--hf-model-config",
+            "config.full.yaml",
+        ]
+    )
+
+    assert captured["model_path"] is None
+    assert captured["hf_artifacts"] is True
+    assert captured["artifact"] == {
+        "local_root": "/tmp/local",
+        "checkpoint": "checkpoints/final.pt",
+        "hf_repo": "org/override",
+        "hf_path": "runs/alt",
+        "model_config": "config.full.yaml",
+    }
+    assert captured["kwargs"] == {"resume_run_id": None, "publish": False}

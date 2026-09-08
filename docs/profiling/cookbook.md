@@ -9,6 +9,10 @@ Each supported task has a user-facing launcher. Pass the final model directory,
 or omit it to use the registered local path (and the exact Hugging Face artifact
 when that local root does not exist):
 
+Use `--hf-repo-id`, `--hf-path`, `--hf-checkpoint`, and `--hf-model-config`
+to override the preset Hugging Face artifact coordinates when you want to profile
+a different published run without editing `configs/profiles.yaml`.
+
 ```bash
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/flappy/profile.sh openvla [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/flappy/profile.sh wanoft [MODEL_PATH]
@@ -22,6 +26,10 @@ CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/deadly_corridor/profile.sh openvla [MO
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/deadly_corridor/profile.sh wanoft [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/deadly_corridor/profile.sh pi05 [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/deadly_corridor/profile.sh gr00t [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh openvla [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh wanoft [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh pi05 [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh gr00t [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/humanoidbench_balance_simple/profile.sh [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/extreme_parkour_go2/profile.sh [MODEL_PATH]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any
 
 from latency_bench.core.config import load_config
 from latency_bench.cross_device.profile_resolver import (
@@ -33,6 +34,25 @@ def main(argv: list[str] | None = None) -> None:
         "--hf-artifacts",
         action="store_true",
         help="resolve the Hugging Face artifact coordinates instead of local defaults",
+    )
+    run.add_argument(
+        "--hf-repo-id",
+        help="override the Hugging Face model repo that stores the checkpoint",
+    )
+    run.add_argument(
+        "--hf-path",
+        type=_repo_relative_path,
+        help="override the subdirectory within the Hugging Face repo",
+    )
+    run.add_argument(
+        "--hf-checkpoint",
+        type=_repo_relative_path,
+        help="override the checkpoint path within the selected Hugging Face repo",
+    )
+    run.add_argument(
+        "--hf-model-config",
+        type=_repo_relative_path,
+        help="override the model config path within the selected Hugging Face repo",
     )
     run.add_argument("--resume", metavar="RUN_ID", type=_path_segment)
     run.add_argument("--publish", action="store_true")
@@ -77,8 +97,13 @@ def main(argv: list[str] | None = None) -> None:
 
     spec = load_profile_spec(REGISTRY_PATH, args.model, args.workload)
     if args.command == "run":
+        if args.model_path is not None and _has_hf_artifact_overrides(args):
+            parser.error("--model-path cannot be combined with Hugging Face artifact overrides")
+        spec = _apply_hf_artifact_overrides(spec, args)
         spec = resolve_model_artifacts(
-            spec, model_path=args.model_path, hf_artifacts=args.hf_artifacts
+            spec,
+            model_path=args.model_path,
+            hf_artifacts=args.hf_artifacts or _has_hf_artifact_overrides(args),
         )
         result = run_profile(spec, resume_run_id=args.resume, publish=args.publish)
         _print_result(result)
@@ -123,6 +148,39 @@ def _path_segment(value: str) -> str:
     if Path(value).name != value or value in {".", ".."}:
         raise argparse.ArgumentTypeError("must be one path segment")
     return value
+
+
+def _repo_relative_path(value: str) -> str:
+    path = Path(value)
+    if path.is_absolute() or any(part == ".." for part in path.parts):
+        raise argparse.ArgumentTypeError("must be a relative path within the repo")
+    return path.as_posix()
+
+
+def _has_hf_artifact_overrides(args: argparse.Namespace) -> bool:
+    return any(
+        getattr(args, field) is not None
+        for field in ("hf_repo_id", "hf_path", "hf_checkpoint", "hf_model_config")
+    )
+
+
+def _apply_hf_artifact_overrides(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    if not _has_hf_artifact_overrides(args):
+        return spec
+
+    artifact = dict(spec["model_artifact"])
+    if args.hf_repo_id is not None:
+        artifact["hf_repo"] = args.hf_repo_id
+    if args.hf_path is not None:
+        artifact["hf_path"] = args.hf_path
+    if args.hf_checkpoint is not None:
+        artifact["checkpoint"] = args.hf_checkpoint
+    if args.hf_model_config is not None:
+        artifact["model_config"] = args.hf_model_config
+
+    resolved = dict(spec)
+    resolved["model_artifact"] = artifact
+    return resolved
 
 
 def _print_result(result: dict[str, str]) -> None:

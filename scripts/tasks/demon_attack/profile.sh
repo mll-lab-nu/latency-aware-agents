@@ -16,6 +16,7 @@ Models:
 
 Runs the registered Demon Attack realtime profiling/evaluation workload:
 5 sessions, 10 episodes per session, max 3600 env steps per episode.
+Extra Hugging Face artifact overrides are forwarded to the shared profiler.
 EOF
 }
 
