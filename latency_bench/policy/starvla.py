@@ -749,7 +749,8 @@ def apply_starvla_model_input_config(
         kv_memory_enabled = bool(kv_cfg["enabled"]) if "enabled" in kv_cfg else False
         if kv_memory_enabled:
             return
-        if vla_data["image_mode"] == "single":
+        image_mode = str(vla_data["image_mode"]) if "image_mode" in vla_data else "single"
+        if image_mode == "single":
             return
         input_frame_count = int(vla_data["num_obs_frames"])
 
