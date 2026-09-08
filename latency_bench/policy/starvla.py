@@ -744,7 +744,10 @@ def apply_starvla_model_input_config(
     else:
         if not raw_image_transform:
             return
-        if model_cfg["framework"]["kv_memory"]["enabled"]:
+        framework_cfg = model_cfg["framework"]
+        kv_cfg = framework_cfg["kv_memory"] if "kv_memory" in framework_cfg else {}
+        kv_memory_enabled = bool(kv_cfg["enabled"]) if "enabled" in kv_cfg else False
+        if kv_memory_enabled:
             return
         if vla_data["image_mode"] == "single":
             return
