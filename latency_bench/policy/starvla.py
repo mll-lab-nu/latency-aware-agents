@@ -620,6 +620,43 @@ def _load_starvla_model_config(path: str | Path) -> dict[str, Any]:
     return _normalized_model_cfg(OmegaConf.load(path))
 
 
+def _resolve_starvla_backbone_path(model_cfg: Mapping[str, Any]) -> str | None:
+    from huggingface_hub import snapshot_download
+
+    repo_id: str | None = None
+    allow_patterns = None
+    if "backbone" in model_cfg:
+        backbone = model_cfg["backbone"]
+        if isinstance(backbone, Mapping) and "repo_id" in backbone:
+            repo_id = str(backbone["repo_id"])
+            allow_patterns = backbone.get("allow_patterns")
+    if repo_id is None:
+        base_vlm = (
+            model_cfg.get("framework", {})
+            .get("qwenvl", {})
+            .get("base_vlm")
+        )
+        if base_vlm is not None:
+            base_name = Path(str(base_vlm)).name
+            if base_name == "Qwen3-VL-4B-Instruct":
+                repo_id = "Qwen/Qwen3-VL-4B-Instruct"
+            elif base_name == "Qwen3-VL-4B-Instruct-Action":
+                repo_id = "StarVLA/Qwen3-VL-4B-Instruct-Action"
+            elif base_name == "Qwen2.5-VL-3B-Instruct-Action":
+                repo_id = "StarVLA/Qwen2.5-VL-3B-Instruct-Action"
+    if repo_id is None:
+        return None
+    return snapshot_download(
+        repo_id,
+        allow_patterns=allow_patterns,
+        local_dir=(
+            STARVLA_ROOT
+            / "playground/Pretrained_models"
+            / repo_id.split("/")[-1]
+        ),
+    )
+
+
 def _apply_model_family_include_state_compat(cfg: Any) -> None:
     from omegaconf import OmegaConf
 
@@ -1042,20 +1079,10 @@ def build_starvla_policy(
             else None
         ),
     )
-    if model_cfg is not None and "backbone" in model_cfg:
-        from huggingface_hub import snapshot_download
-
-        backbone = model_cfg["backbone"]
-        if "repo_id" in backbone:
-            wrapper_kwargs["backbone_path"] = snapshot_download(
-                backbone["repo_id"],
-                allow_patterns=backbone.get("allow_patterns"),
-                local_dir=(
-                    STARVLA_ROOT
-                    / "playground/Pretrained_models"
-                    / backbone["repo_id"].split("/")[-1]
-                ),
-            )
+    if model_cfg is not None:
+        backbone_path = _resolve_starvla_backbone_path(model_cfg)
+        if backbone_path is not None:
+            wrapper_kwargs["backbone_path"] = backbone_path
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
         wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
