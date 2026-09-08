@@ -85,6 +85,15 @@ def test_registry_has_balance_official_gr00t_preset():
     assert spec["gpu_models"]["rpbzzz6"]["aliases"] == ["NVIDIA RPBZZZ6"]
 
 
+def test_registry_has_deadly_corridor_profile_presets():
+    for model_id in ("openvla", "wanoft", "pi05", "gr00t"):
+        spec = load_profile_spec("configs/profiles.yaml", model_id, "deadly_corridor")
+        assert spec["session_count"] == 5
+        assert spec["eval_episodes"] == 10
+        assert spec["calibrate_env_fps"] is False
+        assert spec["simulation_parallel_envs"] == 1
+
+
 def test_deployment_collection_preserves_cuda_device_selector(monkeypatch):
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
     monkeypatch.setattr(

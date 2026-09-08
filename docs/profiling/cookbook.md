@@ -18,6 +18,10 @@ CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/demon_attack/profile.sh openvla [MODEL
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/demon_attack/profile.sh wanoft [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/demon_attack/profile.sh pi05 [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/demon_attack/profile.sh gr00t [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/deadly_corridor/profile.sh openvla [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/deadly_corridor/profile.sh wanoft [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/deadly_corridor/profile.sh pi05 [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/deadly_corridor/profile.sh gr00t [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/humanoidbench_balance_simple/profile.sh [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/extreme_parkour_go2/profile.sh [MODEL_PATH]
@@ -34,7 +38,7 @@ least two GPUs. Parkour and HAIC launchers must be invoked from their installed
 native Python environments; the launcher captures that interpreter before the
 common profiling command activates the benchmark environment.
 
-Every task runs five sessions of 100 episodes and writes under
+Every task runs five sessions of 10 episodes and writes under
 `results/profiling/`. Results stay local unless `--publish` is added. Publishing
 starts only after the complete run and fitted profile exist:
 

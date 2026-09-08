@@ -82,6 +82,22 @@ models:
         simulation_env:
           simulator: cpu
           use_gpu_render: false
+      deadly_corridor:
+        base_config: configs/experiments/deadly_corridor/starvla_profile.yaml
+        model_artifact:
+          local_root: third_party/starVLA/results/Checkpoints/openvla_bridge_deadly_corridor_single_latency_clean_data_bce_exp2
+          checkpoint: checkpoints/steps_500_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: talha15032/openvla_bridge_deadly_corridor_single_latency_clean_data_bce_exp2
+          hf_path: .
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
   wanoft:
     workloads:
       flappy:
@@ -112,6 +128,22 @@ models:
           model_config: config.full.yaml
           hf_repo: latency-sensitive-bench/demon_attack_200ep
           hf_path: wan_oft_demon_attack_fix_latency_0_context5_standard_sft_2000_effbs128_224_currentce
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
+      deadly_corridor:
+        base_config: configs/experiments/deadly_corridor/starvla_profile_wan_oft.yaml
+        model_artifact:
+          local_root: third_party/starVLA/results/Checkpoints/wan_oft_deadly_corridor_fix_latency_6_context5_standard_sft_1000_effbs128_224_currentbce
+          checkpoint: checkpoints/steps_1000_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: talha15032/wan_oft_deadly_corridor_fix_latency_6_context5_standard_sft_1000_effbs128_224_currentbce
+          hf_path: .
         checkpoint_kind: best
         session_count: 5
         eval_episodes: 10
@@ -158,6 +190,22 @@ models:
         simulation_parallel_envs: 1
         simulation_gpu: null
         simulation_env: {}
+      deadly_corridor:
+        base_config: configs/experiments/deadly_corridor/starvla_profile.yaml
+        model_artifact:
+          local_root: third_party/starVLA/results/Checkpoints/pi05_bridge_deadly_corridor_single_latency_clean_data_exp2
+          checkpoint: checkpoints/steps_500_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: talha15032/pi05_bridge_deadly_corridor_single_latency_clean_data_exp2
+          hf_path: .
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
   gr00t:
     workloads:
       flappy:
@@ -187,6 +235,22 @@ models:
           checkpoint: checkpoints/steps_5000_model.safetensors
           model_config: config.full.yaml
           hf_repo: latency-sensitive-bench/gr00t_bridge_demon_attack_single_latency_clean_data_exp3_action_1e-5_backbone_1e-6
+          hf_path: .
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
+      deadly_corridor:
+        base_config: configs/experiments/deadly_corridor/starvla_profile.yaml
+        model_artifact:
+          local_root: third_party/starVLA/results/Checkpoints/gr00t_bridge_deadly_corridor_single_latency_clean_data_bce_exp2
+          checkpoint: checkpoints/steps_500_pytorch_model.pt
+          model_config: config.full.yaml
+          hf_repo: talha15032/gr00t_bridge_deadly_corridor_single_latency_clean_data_bce_exp2
           hf_path: .
         checkpoint_kind: best
         session_count: 5

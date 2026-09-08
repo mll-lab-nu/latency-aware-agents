@@ -1,0 +1,68 @@
+__base__:
+  - ../../base/deadly_corridor.yaml
+
+experiment:
+  name: starvla_deadly_corridor_profile
+  seed: 42
+
+backend:
+  run_mode: eval
+
+executor:
+  mode: simulated
+
+env:
+  env_fps: 35
+  obs_fps: 8.75
+  frame_stack: 4
+  obs_resize: [224, 224]
+  noop_action: [0, 0, 0, 0]
+  action_map:
+    noop: [0, 0, 0, 0]
+    move_forward: [0, 1, 0, 0]
+    move_backward: [0, 2, 0, 0]
+    move_left: [0, 0, 1, 0]
+    move_right: [0, 0, 2, 0]
+    turn_left: [1, 0, 0, 0]
+    turn_right: [2, 0, 0, 0]
+    attack: [0, 0, 0, 1]
+
+policy:
+  type: starvla
+  checkpoint_path: ""
+  model_config_path: ""
+  device: cuda
+  unnorm_key: new_embodiment
+  prompt_mode: latency_neutral
+  latency_prompt_map_path: /mnt/data/latency_data/playground/Datasets/rl_games/deadly_corridor_train_factorized11/latency_prompt_map.json
+  actions:
+    - MOVE_FORWARD
+    - MOVE_BACKWARD
+    - MOVE_LEFT
+    - MOVE_RIGHT
+    - TURN_LEFT
+    - TURN_RIGHT
+    - ATTACK
+
+latency:
+  method: zero
+
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_latency_values: null
+  eval_max_steps: 3600
+  eval_deterministic: true
+  eval_raw_reward: true
+  eval_suites:
+    fixed: []
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/starvla_deadly_corridor_profile
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  video:
+    enabled: false
