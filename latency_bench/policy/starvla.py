@@ -1015,6 +1015,11 @@ def build_starvla_policy(
         semantic_env_name = integration_env_name
         action_refs = policy_cfg.get("actions", action_resolver.default_action_refs())
         base_prompt = env_cfg["base_prompt"] if "base_prompt" in env_cfg else None
+        model_cfg = (
+            _load_starvla_model_config(policy_cfg["model_config_path"])
+            if "model_config_path" in policy_cfg
+            else None
+        )
     unnorm_key = policy_cfg["unnorm_key"] if "unnorm_key" in policy_cfg else None
     wrapper_cls = _load_policy_wrapper_class()
     wrapper_kwargs: dict[str, Any] = dict(
@@ -1037,6 +1042,20 @@ def build_starvla_policy(
             else None
         ),
     )
+    if model_cfg is not None and "backbone" in model_cfg:
+        from huggingface_hub import snapshot_download
+
+        backbone = model_cfg["backbone"]
+        if "repo_id" in backbone:
+            wrapper_kwargs["backbone_path"] = snapshot_download(
+                backbone["repo_id"],
+                allow_patterns=backbone.get("allow_patterns"),
+                local_dir=(
+                    STARVLA_ROOT
+                    / "playground/Pretrained_models"
+                    / backbone["repo_id"].split("/")[-1]
+                ),
+            )
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
         wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
@@ -1051,12 +1070,6 @@ def build_starvla_policy(
     latency_prompt_key = policy_cfg.get("latency_prompt_key")
     prompt_mode = policy_cfg.get("prompt_mode")
     image_transform_config = policy_cfg.get("image_transform_config")
-    if integration_env_name != "gymnasium":
-        model_cfg = (
-            _load_starvla_model_config(policy_cfg["model_config_path"])
-            if "model_config_path" in policy_cfg
-            else None
-        )
     return StarVlaPolicyRunner(
         wrapper=wrapper,
         checkpoint_path=policy_cfg["checkpoint_path"],

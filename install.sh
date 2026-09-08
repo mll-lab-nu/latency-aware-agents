@@ -15,14 +15,6 @@ MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-${MINICONDA_VERSIO
 CONDA_SH_PATH=""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STARVLA_ROOT="${STARVLA_ROOT:-}"
-if [[ -z "${STARVLA_ROOT}" ]]; then
-    if [[ -d "${SCRIPT_DIR}/../starVLA/examples/rl_games/install" ]]; then
-        STARVLA_ROOT="$(cd "${SCRIPT_DIR}/../starVLA" && pwd)"
-    else
-        STARVLA_ROOT="${SCRIPT_DIR}/third_party/starVLA"
-    fi
-fi
 
 usage() {
     cat <<'EOF'
@@ -201,12 +193,12 @@ install_latency_env() {
 
     PYTHON_BIN=python
     export PYTHON_BIN
-    # shellcheck source=/dev/null
-    source "${STARVLA_ROOT}/examples/rl_games/install/_pip.sh"
+    # shellcheck source=third_party/starVLA/examples/rl_games/install/_pip.sh
+    source third_party/starVLA/examples/rl_games/install/_pip.sh
 
     python -m pip install pip==25.3 setuptools==80.9.0 wheel==0.47.0
     ensure_uv
-    PYTHON_BIN=python bash "${STARVLA_ROOT}/examples/rl_games/install/torch.sh"
+    PYTHON_BIN=python bash third_party/starVLA/examples/rl_games/install/torch.sh
     local root_package=".[dev]"
     if [[ "${MODEL_TARGET}" == "official_gr00t" || "${MODEL_TARGET}" == "all" ]]; then
         root_package=".[dev,sonic]"
@@ -219,7 +211,7 @@ install_latency_env() {
     pip_install -e third_party/sample-factory
 
     for env_name in demon_attack deadly_corridor flappy; do
-        PYTHON_BIN=python bash "${STARVLA_ROOT}/examples/rl_games/install/env/${env_name}.sh"
+        PYTHON_BIN=python bash "third_party/starVLA/examples/rl_games/install/env/${env_name}.sh"
     done
 
     pip_install ninja==1.13.0
@@ -323,4 +315,4 @@ if [[ "${RUN_VALIDATE}" == "false" ]]; then
     BOOTSTRAP_ARGS+=(--skip-validate)
 fi
 
-    bash "${STARVLA_ROOT}/examples/rl_games/install/bootstrap.sh" "${BOOTSTRAP_ARGS[@]}"
+    bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "${BOOTSTRAP_ARGS[@]}"
