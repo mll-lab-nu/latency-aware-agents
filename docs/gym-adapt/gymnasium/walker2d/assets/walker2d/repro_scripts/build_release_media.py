@@ -45,86 +45,68 @@ def plot_latency_sweep() -> None:
     plt.close(fig)
 
 
-def plot_vla_validation_loss() -> None:
-    rows = json.loads((ASSET_ROOT / "vla_loss_anchors.json").read_text())
-    steps = [row["step"] for row in rows]
-    fig, ax = plt.subplots(figsize=(12, 6.75), dpi=120)
-    ax.plot(
-        steps,
-        [row["text_bin_validation_loss"] for row in rows],
-        color="#476f87",
-        marker="o",
-        linewidth=2.5,
-        label="256-bin text state",
-    )
-    ax.plot(
-        steps,
-        [row["continuous_validation_loss"] for row in rows],
-        color="#b46a2a",
-        marker="s",
-        linestyle="--",
-        linewidth=2.5,
-        label="Continuous projector",
-    )
-    ax.set(
-        title="Walker2D QwenOFT held-out action loss",
-        xlabel="Training step",
-        ylabel="Held-out L1 · 3,200 samples",
-    )
-    ax.legend(frameon=False)
-    ax.grid(alpha=0.2)
-    fig.tight_layout()
-    fig.savefig(ASSET_ROOT / "vla_validation_loss_comparison.png")
-    plt.close(fig)
-
-
-def plot_vla_state_encoding_comparison() -> None:
-    text_bins = [
-        json.loads((ASSET_ROOT / "vla_eval_text_bins" / f"queue_eval_latency_{latency}.json").read_text())
-        for latency in (0, 2)
+def plot_vla_l0_eval() -> None:
+    small_rows = [
+        json.loads(line)
+        for line in (
+            ASSET_ROOT
+            / "continuous_small_model_eval"
+            / "eval_latency_0"
+            / "episode_metrics.jsonl"
+        ).read_text().splitlines()
     ]
-    continuous = [
-        json.loads(
-            (ASSET_ROOT / "vla_eval_continuous_projector" / f"queue_eval_latency_{latency}.json").read_text()
-        )
-        for latency in (0, 2)
+    vla_rows = [
+        json.loads(line)
+        for line in (
+            ASSET_ROOT
+            / "vla_eval_continuous_projector"
+            / "eval_latency_0"
+            / "episode_metrics.jsonl"
+        ).read_text().splitlines()
     ]
-    labels = ["L0 · 0 ms", "L2 · 16 ms"]
-    x = np.arange(len(labels))
-    width = 0.34
+    groups = [small_rows, vla_rows]
+    labels = ["Small model\n10 episodes", "QwenVLA\n20 episodes"]
     fig, (return_ax, length_ax) = plt.subplots(1, 2, figsize=(12, 6.75), dpi=120)
     for ax, field, title, ylabel in (
-        (return_ax, "mean_return", "Closed-loop return", "Mean return · 20 episodes"),
-        (length_ax, "mean_length", "Episode length", "Mean environment steps · 20 episodes"),
+        (return_ax, "episode_return", "Closed-loop return", "Episode return"),
+        (length_ax, "survival_steps", "Episode survival", "Environment steps"),
     ):
-        text_values = [row[field] for row in text_bins]
-        continuous_values = [row[field] for row in continuous]
-        text_bars = ax.bar(
-            x - width / 2,
-            text_values,
-            width,
-            color="#93a69a",
-            edgecolor="#182018",
-            label="256-bin text state",
+        values = [[row[field] for row in group] for group in groups]
+        boxes = ax.boxplot(
+            values,
+            labels=labels,
+            patch_artist=True,
+            widths=0.5,
+            showfliers=False,
         )
-        continuous_bars = ax.bar(
-            x + width / 2,
-            continuous_values,
-            width,
-            color="#b46a2a",
-            edgecolor="#182018",
-            hatch="//",
-            label="Continuous projector",
-        )
-        ax.bar_label(text_bars, labels=[f"{value:.1f}" for value in text_values], padding=4)
-        ax.bar_label(continuous_bars, labels=[f"{value:.1f}" for value in continuous_values], padding=4)
-        ax.set_xticks(x, labels)
+        for patch, color in zip(boxes["boxes"], ["#93a69a", "#b46a2a"]):
+            patch.set(facecolor=color, edgecolor="#182018", alpha=0.78)
+        for index, points in enumerate(values, start=1):
+            offsets = np.linspace(-0.12, 0.12, len(points))
+            ax.scatter(index + offsets, points, color="#182018", s=18, alpha=0.72, zorder=3)
+            ax.scatter(
+                index,
+                np.mean(points),
+                marker="D",
+                color="white",
+                edgecolor="#182018",
+                s=58,
+                zorder=4,
+            )
         ax.set(title=title, ylabel=ylabel)
         ax.grid(axis="y", alpha=0.2)
-    return_ax.legend(frameon=False)
-    fig.suptitle("Walker2D QwenOFT state encoding comparison · seed 0 and final 5k checkpoints")
+    length_ax.axhline(
+        1000,
+        color="#182018",
+        linestyle="--",
+        linewidth=1.5,
+        label="1,000-step horizon",
+    )
+    length_ax.set_ylim(0, 1050)
+    length_ax.legend(frameon=False)
+    fig.suptitle("Walker2D · post-fix zero-latency closed-loop evaluation")
     fig.tight_layout()
-    fig.savefig(ASSET_ROOT / "vla_state_encoding_comparison.png")
+    fig.savefig(ASSET_ROOT / "vla_l0_eval.png")
     plt.close(fig)
 
 
@@ -153,6 +135,5 @@ def build_contact_sheet() -> None:
 if __name__ == "__main__":
     plot_training_curve()
     plot_latency_sweep()
-    plot_vla_validation_loss()
-    plot_vla_state_encoding_comparison()
+    plot_vla_l0_eval()
     build_contact_sheet()

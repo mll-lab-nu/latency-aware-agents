@@ -12,7 +12,7 @@
     <div class="hero-inner">
       <p class="eyebrow">latency-sensitive-bench / verified Gymnasium adaptation</p>
       <h1>Humanoid: a strong 17-torque teacher that the VLA does not recover</h1>
-      <p class="lede">The completed pipeline preserves Humanoid-v4's native 17-dimensional continuous action and ordered 376-dimensional state through zero-latency APPO, 100 gated RGB+state teacher episodes, native QwenOFT training, and final-checkpoint L0/L2 evaluation. The small model is strong; the VLA fails closed-loop control.</p>
+      <p class="lede">The completed pipeline preserves Humanoid-v4's native 17-dimensional continuous action and ordered 376-dimensional state through zero-latency APPO, 100 gated RGB+state teacher episodes, native QwenOFT training, and a post-fix L0 evaluation aligned to the model's saved image size. The small model is strong; the VLA still fails closed-loop control.</p>
       <div class="badges">
         <span>Humanoid-v4 / Box(17)</span>
         <span>376D state</span>
@@ -41,18 +41,18 @@
     <main id="content">
       <section id="status">
         <p class="section-kicker">01 · Outcome</p>
-        <h2>The teacher succeeds; offline VLA loss does not transfer to control</h2>
+        <h2>The teacher succeeds; the corrected L0 VLA still falls immediately</h2>
         <div class="status-grid">
           <article><span class="status verified">VERIFIED</span><h3>Runtime</h3><p>Gymnasium 0.29.1 and MuJoCo 3.3.7 construct Humanoid-v4 and render 480×480 RGB through NVIDIA EGL.</p></article>
           <article><span class="status verified">VERIFIED</span><h3>Small model</h3><p>APPO completed 10,006,528 zero-latency frames; the best training statistic is 5,613.319.</p></article>
           <article><span class="status verified">VERIFIED</span><h3>Data and training</h3><p>100 gated episodes, native conversion, and 5,000-step RGB+state QwenOFT training completed.</p></article>
-          <article><span class="status failed">FAILED</span><h3>VLA control</h3><p>Across 40 L0/L2 episodes, every final-checkpoint trajectory falls within 69 steps.</p></article>
+          <article><span class="status failed">FAILED</span><h3>VLA control</h3><p>Across 20 post-fix L0 episodes, every final-checkpoint trajectory falls within 66 steps.</p></article>
         </div>
         <div class="metric-strip">
           <div><strong>5,571.3</strong><span>small-model L0 probe mean</span></div>
           <div><strong>6,388.6</strong><span>small-model L0 median</span></div>
-          <div><strong>233.191</strong><span>QwenVLA L0 mean</span></div>
-          <div><strong>45.5</strong><span>QwenVLA L0 mean length</span></div>
+          <div><strong>272.058</strong><span>QwenVLA L0 mean</span></div>
+          <div><strong>52.2</strong><span>QwenVLA L0 mean length</span></div>
         </div>
       </section>
 
@@ -77,7 +77,8 @@
               <li>Pending no-op: seventeen-dimensional all-zero torque.</li>
               <li>66.67 Hz environment and observation clocks; one raw frame per observation.</li>
               <li>Zero-latency training with <code>hold</code> and FIFO ordering.</li>
-              <li>One RGB image plus the complete ordered 376D observation enters each VLA sample.</li>
+              <li>One 224×224 RGB image plus the complete ordered 376D observation enters each VLA sample.</li>
+              <li>Online evaluation reads the saved model image size and requests the same 224×224 observation.</li>
             </ul>
           </div>
         </div>
@@ -159,21 +160,21 @@ python -m training.train \
           <table>
             <thead><tr><th>Latency</th><th>Return mean ± std</th><th>Median</th><th>Mean length</th><th>Length range</th><th>Full episodes</th></tr></thead>
             <tbody>
-              <tr><td>L0 / 0 ms</td><td>233.191 ± 34.075</td><td>231.909</td><td>45.5</td><td>38–61</td><td>0 / 20</td></tr>
-              <tr><td>L2 / 30 ms</td><td>223.524 ± 50.154</td><td>208.914</td><td>44.1</td><td>34–69</td><td>0 / 20</td></tr>
+              <tr><td>L0 / 0 ms</td><td>272.058 ± 36.173</td><td>266.697</td><td>52.2</td><td>44–66</td><td>0 / 20</td></tr>
             </tbody>
           </table>
         </div>
-        <div class="callout warning"><strong>Closed-loop result:</strong> all 40 episodes terminate within 69 steps, with no invalid or dropped actions. L2 is not materially worse because L0 already lies on a failure floor. The gap between held-out L1 and control return is evidence of accumulated imitation error or closed-loop distribution shift, not a latency-specific failure.</div>
+        <div class="callout warning"><strong>Closed-loop result:</strong> all 20 episodes terminate within 66 steps, with no invalid or dropped actions. Mean return is only 4.9% of the small-model L0 probe mean. Correct image sizing removes the evaluation mismatch, but the remaining gap still indicates accumulated imitation error or closed-loop distribution shift.</div>
         <div class="media-gallery">
-          <figure><img src="assets/humanoid/vla_eval.png" width="1800" height="810" loading="lazy" alt="Humanoid final QwenVLA L0 and L2 return and survival"><figcaption><span class="status failed">FAILED</span> Final <code>steps_5000_pytorch_model.pt</code>, 20 episodes per latency; both settings lie on the same early-fall floor.</figcaption></figure>
+          <figure><img src="assets/humanoid/vla_eval.png" width="1800" height="810" loading="lazy" alt="Humanoid post-fix QwenVLA L0 episode return and survival"><figcaption><span class="status failed">FAILED</span> Final <code>steps_5000_pytorch_model.pt</code>, 20 L0 episodes on H100; every trajectory remains on the early-fall floor.</figcaption></figure>
         </div>
         <details>
           <summary>Final-checkpoint evaluation contract</summary>
           <pre><code>MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=.:third_party/starVLA \
 python -m latency_bench.run \
-  --config configs/examples/gymnasium/humanoid/starvla_eval.yaml</code></pre>
-          <p>Evaluation uses <code>steps_5000_pytorch_model.pt</code>, L0/L2, 20 episodes per latency, and a maximum of 1,000 raw environment frames.</p>
+  --config configs/examples/gymnasium/humanoid/starvla_eval.yaml \
+  --latency-raw-frames 0</code></pre>
+          <p>Evaluation uses <code>steps_5000_pytorch_model.pt</code>, seed 2222, 20 L0 episodes, a maximum of 1,000 raw environment frames, and the saved 224×224 image input contract.</p>
         </details>
       </section>
 
@@ -183,7 +184,7 @@ python -m latency_bench.run \
         <div class="evidence-ledger">
           <article><span class="status verified">VERIFIED</span><h3>Small model</h3><p><a href="assets/humanoid/small_model/config.json">config</a> · <a href="assets/humanoid/small_model/sf_log.txt">training log</a> · <a href="assets/humanoid/small_model_probe.json">L0 probe summary</a> · <a href="https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/main/small_models/zero-latency/humanoid/gymnasium_humanoid_rgb_state_zero_latency_10m">HF checkpoint</a></p></article>
           <article><span class="status verified">VERIFIED</span><h3>Teacher data</h3><p><a href="https://huggingface.co/datasets/latency-sensitive-bench/extra-envs-rollouts/tree/main/zero-latency/Humanoid/humanoid_rgb_state_l0_return_gt5000_100ep">metadata and train/validation Parquet</a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>QwenOFT</h3><p><a href="assets/humanoid/vla_training/wandb_summary.json">W&amp;B summary</a> · <a href="assets/humanoid/vla_eval/step_5000.json">L0/L2 summary</a> · <a href="https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/main/OpenVLA/zero-latency/humanoid_rgb_state_l0_return_gt5000_100ep_openvla_native_sft_5k">HF checkpoint and logs</a></p></article>
+          <article><span class="status verified">VERIFIED</span><h3>QwenOFT</h3><p><a href="assets/humanoid/vla_training/wandb_summary.json">W&amp;B summary</a> · <a href="assets/humanoid/vla_eval/step_5000.json">post-fix L0 summary</a> · <a href="assets/humanoid/vla_eval/eval_latency_0/episode_metrics.jsonl">20 L0 episodes</a> · <a href="https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/main/OpenVLA/zero-latency/humanoid_rgb_state_l0_return_gt5000_100ep_openvla_native_sft_5k">HF checkpoint and logs</a></p></article>
           <article><span class="status verified">VERIFIED</span><h3>Implementation</h3><p><a href="../../../../latency_bench/envs/gymnasium_humanoid.py">environment</a> · <a href="../../../../configs/examples/gymnasium/humanoid/small_model_train.yaml">small-model config</a> · <a href="../../../../configs/examples/gymnasium/humanoid/starvla_eval.yaml">VLA eval config</a></p></article>
           <article><span class="status verified">VERIFIED</span><h3>Reproduction</h3><p><a href="assets/humanoid/repro_scripts/build_release_media.py">figure builder</a> · all plots are generated from the linked compact evidence.</p></article>
           <article><span class="status verified">VERIFIED</span><h3>Integrity</h3><p><a href="assets/humanoid/SHA256SUMS">SHA256SUMS</a> covers all three figures and their compact source evidence.</p></article>
@@ -198,12 +199,13 @@ python -m latency_bench.run \
           <li>One APPO seed and one QwenOFT seed were trained.</li>
           <li>The 20-episode small-model result is an L0 gate-selection probe, not a comparable multi-latency sweep.</li>
           <li>The teacher dataset contains only high-return behavior and does not deliberately cover falls or recovery.</li>
+          <li>The post-fix VLA evidence covers L0 only; it does not establish non-zero-latency behavior.</li>
           <li>Offline L1 is insufficient evidence of control quality; the final VLA must be judged by the failed closed-loop result.</li>
           <li>No checkpoint or rollout Parquet is duplicated in Git; published artifacts live on Hugging Face.</li>
         </ul>
       </section>
     </main>
   </div>
-  <footer>Humanoid adaptation · RGB+state VLA evaluated 31 August 2026</footer>
+  <footer>Humanoid adaptation · post-fix RGB+state VLA L0 evaluated 9 September 2026</footer>
 </body>
 </html>

@@ -71,24 +71,35 @@ def plot_small_model_probe() -> None:
 
 def plot_vla_eval() -> None:
     result = json.loads((ROOT / "vla_eval" / "step_5000.json").read_text())
-    latencies = ["0", "2"]
-    rows = [result["per_latency"][latency] for latency in latencies]
-    labels = [f"L{latency}\n{row['latency_ms']} ms" for latency, row in zip(latencies, rows)]
+    episodes = range(1, len(result["returns"]) + 1)
 
     plt.style.use("seaborn-v0_8-whitegrid")
     fig, axes = plt.subplots(1, 2, figsize=(10, 4.5))
-    axes[0].bar(
-        labels,
-        [row["mean_return"] for row in rows],
-        yerr=[row["std_return"] for row in rows],
-        capsize=6,
-        color="#476f87",
+    axes[0].scatter(episodes, result["returns"], color="#476f87", s=34)
+    axes[0].axhline(
+        result["mean_return"],
+        color="#b46a2a",
+        linewidth=1.8,
+        label=f"mean {result['mean_return']:.1f}",
     )
-    axes[0].set(ylabel="Mean return ± std", title="Final-checkpoint return")
-    axes[1].bar(labels, [row["mean_length"] for row in rows], color="#147a80")
-    axes[1].axhline(result["max_steps"], color="#b46a2a", linestyle="--", linewidth=1.5)
-    axes[1].set(ylim=(0, result["max_steps"] * 1.05), ylabel="Mean environment steps", title="Episode survival")
-    fig.suptitle("Humanoid · 5k QwenVLA closed-loop evaluation")
+    axes[0].set(xlabel="Episode", ylabel="Return", title="Episode return")
+    axes[0].legend(frameon=False)
+    axes[1].scatter(episodes, result["lengths"], color="#147a80", s=34)
+    axes[1].axhline(
+        1000,
+        color="#182018",
+        linestyle="--",
+        linewidth=1.5,
+        label="1,000-step horizon",
+    )
+    axes[1].set(
+        xlabel="Episode",
+        ylim=(0, 1050),
+        ylabel="Environment steps",
+        title="Episode survival",
+    )
+    axes[1].legend(frameon=False)
+    fig.suptitle("Humanoid · post-fix QwenVLA L0 evaluation · 20 episodes")
     fig.tight_layout()
     fig.savefig(ROOT / "vla_eval.png", dpi=180)
     plt.close(fig)
