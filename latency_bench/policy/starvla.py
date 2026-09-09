@@ -763,7 +763,7 @@ def apply_starvla_model_input_config(
 
 
 def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
-    """Read checkpoint metadata before env construction and size its frame stack."""
+    """Apply the saved checkpoint input contract before env construction."""
     if config["policy"]["type"] != "starvla":
         return
 
@@ -779,6 +779,9 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
 
         saved_model_cfg, _norm_stats = read_mode_config(policy_cfg["checkpoint_path"])
         model_cfg = _normalized_model_cfg(saved_model_cfg)
+    if config["env"]["name"] == "gymnasium":
+        image_size = model_cfg["rl_games"]["env_eval"]["image_size"]
+        config["env"]["obs_resize"] = [image_size, image_size]
     image_transform_cfg = (
         policy_cfg["image_transform_config"]
         if "image_transform_config" in policy_cfg
