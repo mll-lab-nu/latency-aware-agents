@@ -1,7 +1,7 @@
 # Benchmark artifact registry
 
-This is the human-readable index for the four supported zero-latency task
-pipelines. New artifacts use two central Hugging Face repositories:
+This is the human-readable index for the supported task pipelines, including
+profile-based latency training. New artifacts use these central Hugging Face repositories:
 
 - models: [`latency-sensitive-bench/benchmark-models`](https://huggingface.co/latency-sensitive-bench/benchmark-models)
 - datasets: [`latency-sensitive-bench/benchmark-datasets`](https://huggingface.co/datasets/latency-sensitive-bench/benchmark-datasets)
@@ -19,6 +19,7 @@ configs is [`benchmark_datasets_card.md`](benchmark_datasets_card.md).
 | Task | Role | Local source | Central path | Status |
 | --- | --- | --- | --- | --- |
 | MIKASA Intercept Grab Fast | Small-policy PPO teacher | `outputs/tasks/mikasa_intercept_grab_fast/strict_teacher/oracle_checkpoints/InterceptGrabFast-VLA-v0/final_success_ckpt.pt` | `zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/` | Published |
+| MIKASA Intercept Grab Fast | Small-policy PPO with QwenOFT RTX 3090 temporal latency | `outputs/latency_rl/mikasa/qwenoft_rtx3090_baseline_settings/20260910T070037Z/best_policy.pt` | `latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1/` | Published; independent 256-episode final success 253/256 (98.83%) |
 | MIKASA Intercept Grab Fast | QwenOFT VLA inference bundle | `third_party/starVLA/results/Checkpoints/mikasa_grabfast_h1_gb64_mb8_ga8_expandable/` | `zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-v1/` | Published; 5k SFT and eval accepted |
 | Balance Simple | FastTD3 teacher | `results/humanoidbench_g1_balance_control_comparison_fasttd3_25m/checkpoints/g1_sonic_balance_simple_raw_ramp_0p1s_fasttd3_25000000steps_s1/checkpoint_p0/best_000325980_20864000_reward_702.976.pth` | `zero-latency/humanoidbench-balance-simple/small-policy/fasttd3-v1/` | Published |
 | Balance Simple | Official GR00T inference bundle | `outputs/tasks/humanoidbench_balance_simple/vla_obs198_h40/checkpoint-15000/` | `zero-latency/humanoidbench-balance-simple/vla/gr00t-n1.7-15k-v1/` | Fresh 15k run pending; do not fall back to 10k |
@@ -29,6 +30,9 @@ configs is [`benchmark_datasets_card.md`](benchmark_datasets_card.md).
 
 Do not replace an exact source path with a `latest` symlink in a publication
 record.
+
+The MIKASA profile-PPO training and evaluation commands are documented
+in the [latency PPO guide](mikasa/latency_ppo.md).
 
 ## Dataset artifacts
 
