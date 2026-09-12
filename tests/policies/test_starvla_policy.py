@@ -749,15 +749,19 @@ def test_prepare_starvla_checkpoint_input_config_uses_explicit_full_model_config
                     "image_sequence_length": 5,
                 },
             },
+            "rl_games": {"env_eval": {"image_size": 224}},
         },
     )
     config = _config(tmp_path)
+    config["env"]["name"] = "gymnasium"
+    config["env"]["obs_resize"] = [480, 480]
     config["env"]["frame_stack"] = 4
     config["policy"]["model_config_path"] = str(tmp_path / "config.full.yaml")
 
     starvla.prepare_starvla_checkpoint_input_config(config)
 
     assert config["env"]["frame_stack"] == 5
+    assert config["env"]["obs_resize"] == [224, 224]
 
 
 def test_prepare_starvla_checkpoint_input_config_sizes_plain_multiframe_history(

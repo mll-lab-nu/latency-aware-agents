@@ -1,0 +1,25 @@
+__base__: starvla_eval.yaml
+
+experiment:
+  name: gymnasium_air_raid_qwenoft_rtx3090_profile_fixed_latency_3_eval
+
+env:
+  obs_resize: [224, 224]
+
+executor:
+  mode: simulated
+
+policy:
+  checkpoint_path: /workspace/models/extra-envs-checkpoints/OpenVLA/profile-latency/air_raid_qwenoft_rtx3090_profile_return_gt2000_100ep_openvla_native_sft_5k/checkpoints/steps_5000_pytorch_model.pt
+  model_config_path: /workspace/models/extra-envs-checkpoints/OpenVLA/profile-latency/air_raid_qwenoft_rtx3090_profile_return_gt2000_100ep_openvla_native_sft_5k/config.full.yaml
+  task_manifest_path: /workspace/models/extra-envs-checkpoints/OpenVLA/profile-latency/air_raid_qwenoft_rtx3090_profile_return_gt2000_100ep_openvla_native_sft_5k/manifest.json
+  device: cuda:0
+  latency_prompt_map_path: /workspace/models/extra-envs-checkpoints/OpenVLA/profile-latency/air_raid_qwenoft_rtx3090_profile_return_gt2000_100ep_openvla_native_sft_5k/latency_prompt_map.json
+  latency_prompt_key: 3
+
+evaluation:
+  eval_episodes: 20
+  eval_latency_values: [3]
+
+logging:
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/air_raid/rtx3090_profile_starvla_fixed_latency_3_eval
