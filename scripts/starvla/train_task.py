@@ -244,8 +244,9 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
             'include_state': True, 'task_contract_path': str(bootstrap / 'lerobot/task_contract.json'),
             'data_root_dir': '/', 'data_mix': 'train', 'eval_data_mix': 'validation',
             'custom_mixtures_path': str(mixture_path), 'sequential_step_sampling': True,
-            'per_device_batch_size': args.micro_batch, 'load_all_data_for_training': True,
-            'pin_memory': True, 'persistent_workers': False, 'num_workers': 0, 'prefetch_factor': None,
+            'per_device_batch_size': args.micro_batch,
+            'pin_memory': args.pin_memory, 'persistent_workers': args.persistent_workers,
+            'num_workers': args.num_workers, 'prefetch_factor': args.prefetch_factor,
             'obs_image_size': [224, 224], 'video_backend': 'pyav',
             'image_mode': 'stitch_views' if args.task == 'mikasa' and args.model == 'wanoft' else 'single',
             'stitch_grid': [1, 2], 'num_obs_frames': 1,
@@ -489,6 +490,10 @@ def main(argv=None) -> None:
     parser.add_argument('--task-python', type=Path)
     parser.add_argument('--num-gpus', type=int, default=2)
     parser.add_argument('--micro-batch', type=int, default=1)
+    parser.add_argument('--num-workers', type=int, default=4)
+    parser.add_argument('--prefetch-factor', type=int, default=2)
+    parser.add_argument('--persistent-workers', action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument('--pin-memory', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--inference-device', default='cuda:1')
     parser.add_argument('--simulator-device', default='cuda:0')
     parser.add_argument('--port', type=int, default=29521)

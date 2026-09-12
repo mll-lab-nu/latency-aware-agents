@@ -21,7 +21,8 @@ def test_training_config_names_wandb_run_by_task_model_and_phase(tmp_path, task,
         'normalization': {'action': {'min': [0], 'max': [1]}},
     }))
     args = SimpleNamespace(task=task, model=model, output_dir=tmp_path,
-                           smoke=True, num_gpus=1, micro_batch=1)
+                           smoke=True, num_gpus=1, micro_batch=1, num_workers=4,
+                           persistent_workers=True, pin_memory=True, prefetch_factor=2)
 
     config = train_task.training_config(
         args, bootstrap=bootstrap.parent, deltas=[], backbone=tmp_path / 'backbone',
@@ -35,6 +36,11 @@ def test_training_config_names_wandb_run_by_task_model_and_phase(tmp_path, task,
     assert config['trainer']['save_interval'] == 500
     assert config['checkpoint']['save_training_state'] is True
     assert config['checkpoint']['local']['keep_last_n'] == 2
+    data = config['datasets']['vla_data']
+    assert data['num_workers'] == 4
+    assert data['persistent_workers'] is True
+    assert data['pin_memory'] is True
+    assert data['prefetch_factor'] == 2
 
 
 def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
